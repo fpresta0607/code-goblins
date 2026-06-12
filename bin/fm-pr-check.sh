@@ -7,6 +7,7 @@
 set -eu
 
 FM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+"$FM_ROOT/bin/fm-guard.sh" || true
 ID=$1
 URL=$2
 
@@ -16,7 +17,7 @@ if [ -f "$META" ] && ! grep -qxF "pr=$URL" "$META"; then
 fi
 
 cat > "$FM_ROOT/state/$ID.check.sh" <<EOF
-state=\$(gh pr view $URL --json state -q .state 2>/dev/null)
+state=\$(gh pr view "$URL" --json state -q .state 2>/dev/null)
 [ "\$state" = "MERGED" ] && echo "merged"
 EOF
 echo "armed: state/$ID.check.sh polls $URL"
