@@ -18,7 +18,11 @@
   /></a>
 </p>
 
-<h3 align="center">Talk to one agent. Ship with a crew.</h3>
+<h3 align="center">The only agent you need to talk to.</h3>
+
+<p align="center">
+  <img alt="firstmate - talk to one agent, ship with a crew" src="assets/banner.jpg" width="100%" />
+</p>
 
 You can run one coding agent well.
 But the moment you want three things done in parallel, you become a tab-juggler: babysitting sessions, copy-pasting context between repos, forgetting which terminal had the failing test.
@@ -131,6 +135,7 @@ FM_BUSY_REGEX='esc to interrupt'   # busy-pane signatures, extend per harness
 ## Development
 
 Tracked changes to firstmate itself, including `AGENTS.md`, `bin/`, and agent skill files, ship through the `no-mistakes` pipeline on a feature branch and require the captain's explicit merge approval.
+Local `.no-mistakes/` state and test evidence stay out of this repo; `.no-mistakes.yaml` keeps evidence in a temp directory instead.
 
 ```sh
 bash -n bin/*.sh                          # syntax-check the toolbelt
