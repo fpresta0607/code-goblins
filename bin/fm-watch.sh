@@ -17,6 +17,7 @@ POLL=${FM_POLL:-15}                   # seconds between cycles
 HEARTBEAT=${FM_HEARTBEAT:-600}        # base seconds between heartbeat wakes
 HEARTBEAT_MAX=${FM_HEARTBEAT_MAX:-7200}  # heartbeat backoff cap
 CHECK_INTERVAL=${FM_CHECK_INTERVAL:-300}  # seconds between *.check.sh sweeps
+CHECK_TIMEOUT=${FM_CHECK_TIMEOUT:-30}     # seconds allowed per *.check.sh
 SIGNAL_GRACE=${FM_SIGNAL_GRACE:-30}   # seconds to linger after a signal so trailing
                                       # signals (a status write, then the same turn's
                                       # turn-end hook) coalesce into one wake
@@ -71,10 +72,40 @@ scan_signals() {
   return 0
 }
 
+run_check() {
+  local c=$1
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$CHECK_TIMEOUT" bash "$c" 2>/dev/null || true
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$CHECK_TIMEOUT" bash "$c" 2>/dev/null || true
+  else
+    # shellcheck disable=SC2016  # single quotes are deliberate: Perl expands its own variables.
+    perl -e 'my $t = shift; my $pid = fork; die "fork failed" unless defined $pid; if (!$pid) { setpgrp(0, 0); exec @ARGV } local $SIG{ALRM} = sub { kill "TERM", -$pid; select undef, undef, undef, 0.2; kill "KILL", -$pid; exit 124 }; alarm $t; waitpid $pid, 0; exit($? >> 8)' "$CHECK_TIMEOUT" bash "$c" 2>/dev/null || true
+  fi
+}
+
 while :; do
   # Liveness beacon for fm-guard.sh: a fresh mtime here means a watcher is
   # alive. Supervision scripts warn when this goes stale with tasks in flight.
   touch "$STATE/.last-watcher-beat"
+
+  # Slow per-task checks (firstmate writes these, e.g. a merged-PR poll).
+  # Time-based via .last-check mtime so the cadence survives watcher restarts.
+  # Evaluated BEFORE the signal scan: wake() exits the cycle, so a check placed
+  # after the signal scan would be starved whenever a chatty sibling crewmate
+  # keeps producing signals - the slow poll (e.g. merge detection) would then
+  # never run until the fleet went quiet. Checks are due only every
+  # CHECK_INTERVAL, so most cycles skip this block and fall straight through.
+  if [ "$(age_of "$STATE/.last-check")" -ge "$CHECK_INTERVAL" ]; then
+    touch "$STATE/.last-check"
+    for c in "$STATE"/*.check.sh; do
+      [ -e "$c" ] || continue
+      out=$(run_check "$c")
+      if [ -n "$out" ]; then
+        wake "check: $c: $out"
+      fi
+    done
+  fi
 
   # On the first changed signal, linger one grace period and re-scan before
   # waking: a crewmate's final status write and the same turn's turn-end hook
@@ -124,19 +155,6 @@ EOF
       echo 0 > "$cf"
     fi
   done < <(tmux list-windows -a -F '#{session_name}:#{window_name}' 2>/dev/null | grep ':fm-' || true)
-
-  # Slow per-task checks (firstmate writes these, e.g. a merged-PR poll).
-  # Time-based via .last-check mtime so the cadence survives watcher restarts.
-  if [ "$(age_of "$STATE/.last-check")" -ge "$CHECK_INTERVAL" ]; then
-    touch "$STATE/.last-check"
-    for c in "$STATE"/*.check.sh; do
-      [ -e "$c" ] || continue
-      out=$(bash "$c" 2>/dev/null || true)
-      if [ -n "$out" ]; then
-        wake "check: $c: $out"
-      fi
-    done
-  fi
 
   # Heartbeat: firstmate reviews the whole fleet at a regular cadence no matter
   # what. Time-based via .last-heartbeat mtime; interval doubles per consecutive
