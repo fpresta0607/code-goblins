@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tear down a finished task: return the treehouse worktree, kill the tmux window,
-# clear volatile state. REFUSES if the worktree holds work not on any remote,
-# because treehouse return hard-resets the worktree and kills its processes.
+# clear volatile state, then refresh the project's clone for PR-based ship tasks.
+# REFUSES if the worktree holds work not on any remote, because treehouse return
+# hard-resets the worktree and kills its processes.
 # Scout tasks (kind=scout in meta) carve out of that check: their worktree is
 # declared scratch and the report at data/<task-id>/report.md is the work
 # product - teardown proceeds once the report exists, and refuses without it.
@@ -98,4 +99,7 @@ fi
 
 tmux kill-window -t "$T" 2>/dev/null || true
 rm -f "$STATE/$ID.status" "$STATE/$ID.turn-ended" "$STATE/$ID.check.sh" "$STATE/$ID.meta" "$STATE/$ID.pi-ext.ts"
+if [ "$KIND" != scout ] && [ "$MODE" != local-only ]; then
+  "$FM_ROOT/bin/fm-fleet-sync.sh" "$PROJ" || true
+fi
 echo "teardown $ID complete (window $T, worktree $WT)"
