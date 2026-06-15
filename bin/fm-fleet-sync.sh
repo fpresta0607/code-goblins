@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# Refresh project clones by fast-forwarding their checked-out local default branch
-# to origin/<default> when it is safe to do so.
+# Refresh project clones: fast-forward the checked-out local default branch to
+# origin/<default> when safe, and prune local branches whose upstream tracking
+# branch is gone (the remote branch was deleted, i.e. its PR merged) and that no
+# worktree still needs.
 # Skips local-only/no-origin projects, dirty clones, non-default checkouts,
 # diverged branches, and fetch/fast-forward failures without forcing or stashing.
+# Pruning never deletes the checked-out branch or a branch that still has a
+# worktree, so it cannot discard unlanded work; set FM_FLEET_PRUNE=0 to disable it.
 # Usage: fm-fleet-sync.sh [<project-dir>]
 set -eu
 
@@ -47,6 +51,40 @@ first_line() {
   printf '%s\n' "$1" | sed -n '1s/[[:space:]]\{1,\}/ /g;1p'
 }
 
+prune_gone_branches() {
+  # Delete local branches whose upstream tracking branch is gone - the remote
+  # branch was deleted, which in this fleet means its PR merged - as long as
+  # nothing still needs them. Never the checked-out branch, and never a branch
+  # that still has a worktree (a live or not-yet-torn-down task). "Gone" plus
+  # "no worktree" already proves the work landed: teardown removes a branch's
+  # worktree only after confirming the work reached the remote. We deliberately
+  # do NOT also require the branch to be an ancestor of origin/<default> - PRs in
+  # this fleet are squash-merged, so a merged branch is never an ancestor and
+  # such a check would prune nothing. The no-worktree guard is the real safety
+  # net. Set FM_FLEET_PRUNE=0 to skip pruning entirely.
+  [ "${FM_FLEET_PRUNE:-1}" != "0" ] || return 0
+
+  local worktree_branches current refline branch track
+  worktree_branches=$(git -C "$PROJ" worktree list --porcelain 2>/dev/null \
+    | sed -n 's#^branch refs/heads/##p')
+  current=$(git -C "$PROJ" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+
+  while IFS= read -r refline; do
+    branch=${refline%% *}
+    track=${refline#* }
+    [ "$track" = "[gone]" ] || continue
+    [ -n "$branch" ] || continue
+    [ "$branch" != "$current" ] || continue
+    if printf '%s\n' "$worktree_branches" | grep -Fxq -- "$branch"; then
+      continue
+    fi
+    if git -C "$PROJ" branch -D -- "$branch" >/dev/null 2>&1; then
+      echo "$label: pruned $branch"
+    fi
+  done < <(git -C "$PROJ" for-each-ref \
+    --format='%(refname:short) %(upstream:track)' refs/heads 2>/dev/null)
+}
+
 sync_project() {
   PROJ=$1
   label=$(project_label)
@@ -70,7 +108,7 @@ sync_project() {
     return 0
   fi
 
-  if ! fetch_output=$(git -C "$PROJ" fetch origin --quiet 2>&1); then
+  if ! fetch_output=$(git -C "$PROJ" fetch origin --prune --quiet 2>&1); then
     reason="fetch failed"
     if [ -n "$fetch_output" ]; then
       reason="$reason: $(first_line "$fetch_output")"
@@ -78,6 +116,8 @@ sync_project() {
     echo "$label: skipped: $reason"
     return 0
   fi
+
+  prune_gone_branches || true
 
   DEFAULT=$(default_branch) || {
     echo "$label: skipped: cannot determine default branch"
