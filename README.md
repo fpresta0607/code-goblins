@@ -18,13 +18,13 @@
   /></a>
 </p>
 
-<h3 align="center">The only agent you need to talk to.</h3>
+<h3 align="center">Talk to one agent. Ship with a crew.</h3>
 
 <p align="center">
   <img alt="firstmate - talk to one agent, ship with a crew" src="assets/banner.jpg" width="100%" />
 </p>
 
-You can run one coding agent well.
+You can run one coding agent easily.
 But the moment you want three project tasks done in parallel - fixes, investigations, plans, audits - you become a tab-juggler: babysitting sessions, copy-pasting context between repos, forgetting which terminal had the failing test.
 
 firstmate flips the model.
@@ -48,17 +48,17 @@ This is.. a directory that turns any agent into your firstmate, and you the capt
 $ git clone https://github.com/kunchenguid/firstmate && cd firstmate
 $ claude   # launch your agent harness here; AGENTS.md takes over
 
-> ahoy! clone github.com/you/yourapp, then fix the flaky login test and add dark mode
+> ahoy! look at my github project xyz, then fix the flaky login test and add dark mode
 
 # firstmate checks its toolchain (asking your consent before installing anything),
 # clones the project under projects/, and spawns two crewmates in tmux windows
 # fm-fix-login-k3 and fm-dark-mode-p7.
 # Minutes later:
 
-  PR ready for review, captain: https://github.com/you/yourapp/pull/42
+  PR ready for review, captain: https://github.com/you/xyz/pull/42
   (fix flaky login test - risk: low - CI green)
 
-> merge it
+> alright merge it
 ```
 
 ## Install
@@ -127,25 +127,25 @@ firstmate works from any terminal - outside tmux, crewmates land in a detached `
 
 The first mate drives these; you rarely need to, but they work by hand too.
 
-| Script            | Description                                                                                 |
-| ----------------- | ------------------------------------------------------------------------------------------- |
-| `fm-bootstrap.sh` | Detect missing toolchain pieces; refresh clones best-effort; install tools only after consent |
-| `fm-fleet-sync.sh` | Fetch clones, clean-fast-forward their checked-out default branches, and safely prune branches whose remote is gone |
-| `fm-brief.sh`     | Scaffold a ship brief, or a report-only scout brief with `--scout`                          |
-| `fm-ensure-agents-md.sh` | Ensure project `AGENTS.md` is the real memory file and `CLAUDE.md` symlinks to it    |
-| `fm-guard.sh`     | Warn when tasks are in flight but the watcher liveness beacon is stale or missing           |
-| `fm-spawn.sh`     | Window → treehouse worktree → agent launched with its brief; records ship/scout task kind   |
-| `fm-project-mode.sh` | Resolve a project's delivery mode and `+yolo` flag from `data/projects.md`               |
-| `fm-merge-local.sh` | Fast-forward a `local-only` project's local default branch after approval                  |
-| `fm-review-diff.sh` | Review a crewmate branch against the authoritative base, with optional `--stat` output    |
-| `fm-watch.sh`     | Block until supervision work is due; exits with one reason line                             |
-| `fm-send.sh`      | Send one literal line (or `--key Escape`) to a crewmate window                              |
-| `fm-peek.sh`      | Print a bounded tail of a crewmate pane                                                     |
-| `fm-pr-check.sh`  | Record a PR-ready task and arm the watcher's merge poll                                     |
-| `fm-promote.sh`   | Promote a scout task in place so it becomes a protected ship task                           |
-| `fm-teardown.sh`  | Return the worktree and kill the window; protects ship work and requires scout reports      |
-| `fm-harness.sh`   | Detect the running harness; resolve the effective crewmate harness                          |
-| `fm-lock.sh`      | Single-firstmate session lock                                                               |
+| Script                   | Description                                                                                                         |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `fm-bootstrap.sh`        | Detect missing toolchain pieces; refresh clones best-effort; install tools only after consent                       |
+| `fm-fleet-sync.sh`       | Fetch clones, clean-fast-forward their checked-out default branches, and safely prune branches whose remote is gone |
+| `fm-brief.sh`            | Scaffold a ship brief, or a report-only scout brief with `--scout`                                                  |
+| `fm-ensure-agents-md.sh` | Ensure project `AGENTS.md` is the real memory file and `CLAUDE.md` symlinks to it                                   |
+| `fm-guard.sh`            | Warn when tasks are in flight but the watcher liveness beacon is stale or missing                                   |
+| `fm-spawn.sh`            | Window → treehouse worktree → agent launched with its brief; records ship/scout task kind                           |
+| `fm-project-mode.sh`     | Resolve a project's delivery mode and `+yolo` flag from `data/projects.md`                                          |
+| `fm-merge-local.sh`      | Fast-forward a `local-only` project's local default branch after approval                                           |
+| `fm-review-diff.sh`      | Review a crewmate branch against the authoritative base, with optional `--stat` output                              |
+| `fm-watch.sh`            | Block until supervision work is due; exits with one reason line                                                     |
+| `fm-send.sh`             | Send one literal line (or `--key Escape`) to a crewmate window                                                      |
+| `fm-peek.sh`             | Print a bounded tail of a crewmate pane                                                                             |
+| `fm-pr-check.sh`         | Record a PR-ready task and arm the watcher's merge poll                                                             |
+| `fm-promote.sh`          | Promote a scout task in place so it becomes a protected ship task                                                   |
+| `fm-teardown.sh`         | Return the worktree and kill the window; protects ship work and requires scout reports                              |
+| `fm-harness.sh`          | Detect the running harness; resolve the effective crewmate harness                                                  |
+| `fm-lock.sh`             | Single-firstmate session lock                                                                                       |
 
 ## Configuration
 
