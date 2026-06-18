@@ -134,6 +134,7 @@ When you verify a new adapter, record its env marker and command name in that sc
 | Busy-pane signature | `esc to interrupt` |
 | Exit command | `/exit` |
 | Interrupt | single Escape |
+| Skill invocation | `/<skill>` (e.g. `/no-mistakes`) |
 
 First launch in a fresh worktree (or first ever on a machine) may show a trust or bypass-permissions confirmation.
 After every spawn, peek the pane within ~20s; if such a dialog is showing, accept it with `bin/fm-send.sh <window> --key Enter` (or the choice the dialog requires) and verify the brief started processing.
@@ -145,6 +146,7 @@ After every spawn, peek the pane within ~20s; if such a dialog is showing, accep
 | Busy-pane signature | `esc to interrupt` (shown as `• Working (Xs • esc to interrupt)`) |
 | Exit command | `/quit` (slash popup needs ~1s between text and Enter; fm-send handles it) |
 | Interrupt | single Escape |
+| Skill invocation | `$<skill>` (e.g. `$no-mistakes`); `/<skill>` is claude-only and codex rejects it as "Unrecognized command" |
 
 Directory trust dialog on first run per repo root ("Do you trust the contents of this directory?") - accept with Enter; the decision persists for the repo, so later worktrees of the same project skip it.
 Resume after exit: `codex resume <session-id>` (printed on quit).
@@ -317,8 +319,8 @@ Steer a crewmate only with short single lines via `bin/fm-send.sh`; anything lon
 
 A ship task's path from `done` to landed on `main` is set by the project's `mode` (recorded in meta; section 6); `yolo` decides who approves. The Validate / PR ready / Ship teardown stages below are written for the `no-mistakes` path; the other modes diverge:
 
-- **no-mistakes** - the stages below as written: `/no-mistakes` pipeline -> PR -> captain merge.
-- **direct-PR** - no pipeline. The crewmate pushes and opens the PR itself (its brief says so) and reports `done: PR <url>`. Skip the Validate `/no-mistakes` step and go straight to PR ready (run `fm-pr-check`, relay the PR). Teardown uses the normal pushed-branch check.
+- **no-mistakes** - the stages below as written: no-mistakes validation pipeline -> PR -> captain merge.
+- **direct-PR** - no pipeline. The crewmate pushes and opens the PR itself (its brief says so) and reports `done: PR <url>`. Skip the Validate step and go straight to PR ready (run `fm-pr-check`, relay the PR). Teardown uses the normal pushed-branch check.
 - **local-only** - no remote, no PR. The crewmate stops at `done: ready in branch fm/<id>`. Review the diff with `bin/fm-review-diff.sh <id>`, relay a one-paragraph summary to the captain, and on approval run `bin/fm-merge-local.sh <id>` to fast-forward local `main` (it refuses anything but a clean fast-forward - if it does, have the crewmate rebase). No `fm-pr-check`. Then teardown, whose safety check requires the branch already merged into local `main`.
 
 When reviewing any crewmate branch diff, use `bin/fm-review-diff.sh <id>` rather than `git diff <default>...branch` directly.
@@ -328,7 +330,9 @@ Pooled clones keep their local default refs frozen at clone time and can lag `or
 
 ### Validate
 
-For `no-mistakes`-mode ship tasks, when a crewmate's status says `done`:
+For `no-mistakes`-mode ship tasks, when a crewmate's status says `done`, trigger validation using the crew's harness from `state/<id>.meta`.
+Use `/no-mistakes` for claude, `$no-mistakes` for codex; natural language also works.
+For example, with claude:
 
 ```sh
 bin/fm-send.sh fm-<id> '/no-mistakes'
@@ -474,7 +478,7 @@ Every finished PR-based ship task lives on as its GitHub PR, every local-only sh
 ## 11. Crewmate briefs
 
 Scaffold with `bin/fm-brief.sh <id> <repo-name>` - it writes `data/<id>/brief.md` with the standard contract (branch setup, status-reporting protocol, push/merge rules, definition of done) and all paths filled in.
-For a ship task the definition of done is shaped by the project's delivery mode (section 6): `no-mistakes` ends in the `/no-mistakes` pipeline, `direct-PR` has the crewmate push and open the PR itself, `local-only` has it stop at "ready in branch" for firstmate to review and merge locally.
+For a ship task the definition of done is shaped by the project's delivery mode (section 6): `no-mistakes` ends in the harness-appropriate no-mistakes validation pipeline, `direct-PR` has the crewmate push and open the PR itself, `local-only` has it stop at "ready in branch" for firstmate to review and merge locally.
 The scaffold reads the mode via `fm-project-mode.sh`, so you do not pass it.
 Ship briefs also include the project-memory contract: run `bin/fm-ensure-agents-md.sh` when the project already has agent-memory files or when the task produced durable project-intrinsic knowledge, then record proportionate learnings in `AGENTS.md`.
 For scout tasks add `--scout`: the scaffold swaps the definition of done for the report contract (findings to `data/<id>/report.md`, no branch, no push, no PR) and declares the worktree scratch; scout is mode-agnostic.
