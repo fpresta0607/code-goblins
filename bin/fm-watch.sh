@@ -13,6 +13,21 @@ FM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STATE="$FM_ROOT/state"
 mkdir -p "$STATE"
 
+# Portable stat. macOS (BSD) stat uses `-f <fmt>`; Linux (GNU) stat uses `-c <fmt>`.
+# Do NOT use the `stat -f <fmt> ... || stat -c <fmt> ...` fallback form: on Linux
+# `stat -f` is *filesystem* stat and writes a partial filesystem dump ("File: ...",
+# "Blocks: ...") to stdout before failing, so the fallback's correct output gets
+# appended to that garbage. Arithmetic under `set -u` then aborts on the stray
+# token (e.g. the word "File" read as an unset variable), which silently kills the
+# watcher mid-cycle. Detect the platform once and pick the right form.
+if [ "$(uname)" = Darwin ]; then
+  stat_mtime() { stat -f %m "$1" 2>/dev/null; }        # epoch seconds of mtime
+  stat_sig()   { stat -f '%z:%Fm' "$1" 2>/dev/null; }   # size:mtime signature
+else
+  stat_mtime() { stat -c %Y "$1" 2>/dev/null; }
+  stat_sig()   { stat -c '%s:%Y' "$1" 2>/dev/null; }
+fi
+
 POLL=${FM_POLL:-15}                   # seconds between cycles
 HEARTBEAT=${FM_HEARTBEAT:-600}        # base seconds between heartbeat wakes
 HEARTBEAT_MAX=${FM_HEARTBEAT_MAX:-7200}  # heartbeat backoff cap
@@ -46,7 +61,7 @@ wake() {
 # a busy fleet. Persist the schedule as file mtimes instead.
 age_of() {  # seconds since file mtime; "due immediately" if missing
   local f=$1 m
-  m=$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null) || { echo 999999; return; }
+  m=$(stat_mtime "$f") || { echo 999999; return; }
   echo $(( $(date +%s) - m ))
 }
 
@@ -63,7 +78,7 @@ scan_signals() {
   local f sig sf
   for f in "$STATE"/*.status "$STATE"/*.turn-ended; do
     [ -e "$f" ] || continue
-    sig=$(stat -f '%z:%Fm' "$f" 2>/dev/null || stat -c '%s:%Y' "$f" 2>/dev/null) || continue
+    sig=$(stat_sig "$f") || continue
     sf="$STATE/.seen-$(basename "$f" | tr '.' '_')"
     if [ "$sig" != "$(cat "$sf" 2>/dev/null)" ]; then
       printf '%s\t%s\t%s\n' "$sf" "$sig" "$f"

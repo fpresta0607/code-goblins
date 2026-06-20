@@ -13,6 +13,13 @@ FM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STATE="$FM_ROOT/state"
 GRACE=${FM_GUARD_GRACE:-300}
 
+# Portable mtime; see fm-watch.sh for why the `stat -f || stat -c` fallback breaks on Linux.
+if [ "$(uname)" = Darwin ]; then
+  stat_mtime() { stat -f %m "$1" 2>/dev/null; }
+else
+  stat_mtime() { stat -c %Y "$1" 2>/dev/null; }
+fi
+
 has_meta=false
 for meta in "$STATE"/*.meta; do
   [ -e "$meta" ] || continue
@@ -23,7 +30,7 @@ done
 
 BEAT="$STATE/.last-watcher-beat"
 if [ -e "$BEAT" ]; then
-  m=$(stat -f %m "$BEAT" 2>/dev/null || stat -c %Y "$BEAT" 2>/dev/null) || exit 0
+  m=$(stat_mtime "$BEAT") || exit 0
   age=$(( $(date +%s) - m ))
   [ "$age" -lt "$GRACE" ] && exit 0
   echo "WARNING: tasks are in flight but no watcher has been alive for ${age}s (>${GRACE}s)." >&2
