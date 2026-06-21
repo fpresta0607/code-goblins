@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Tear down a finished task: return the treehouse worktree, kill the tmux window,
-# clear volatile state, then refresh/prune the project's clone for PR-based ship tasks.
+# clear volatile state, refresh/prune the project's clone for PR-based ship tasks,
+# then print a backlog-refresh reminder.
 # REFUSES if the worktree holds work not on any remote, because treehouse return
 # hard-resets the worktree and kills its processes.
 # Scout tasks (kind=scout in meta) carve out of that check: their worktree is
@@ -103,3 +104,4 @@ if [ "$KIND" != scout ] && [ "$MODE" != local-only ]; then
   "$FM_ROOT/bin/fm-fleet-sync.sh" "$PROJ" || true
 fi
 echo "teardown $ID complete (window $T, worktree $WT)"
+printf '%s\n' "🌱 Backlog: $ID just finished. Update data/backlog.md - move $ID to Done (keep Done to the 10 most recent), then re-scan Queued for items now unblocked (a \"blocked-by: $ID\" may have just cleared) or now time-due, and dispatch what's ready."
