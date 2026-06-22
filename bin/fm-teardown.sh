@@ -4,7 +4,11 @@
 # the project's clone for PR-based ship tasks, then print a backlog-refresh
 # reminder.
 # REFUSES if the worktree holds work not on any remote, because treehouse return
-# hard-resets the worktree and kills its processes.
+# hard-resets the worktree and kills its processes. A fork counts as a remote,
+# so upstream-contribution PRs pushed to a fork satisfy this in any mode.
+# local-only projects additionally accept work merged into the local default
+# branch (firstmate performs that merge on the captain's approval) as a fallback
+# for the common case where there is no remote at all.
 # Scout tasks (kind=scout in meta) carve out of that check: their worktree is
 # declared scratch and the report at data/<task-id>/report.md is the work
 # product - teardown proceeds once the report exists, and refuses without it.
@@ -374,25 +378,28 @@ if [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
       echo "The report is the work product. Have the crewmate write it (or get the captain's explicit OK to discard, then --force)." >&2
       exit 1
     fi
-  elif [ "$MODE" = local-only ]; then
-    # local-only ships have no remote, so the "on a remote" test never passes.
-    # The work is safe once it is merged into the local default branch (firstmate
-    # does that merge on the captain's approval). Refuse until then.
-    DEFAULT=$(default_branch) || { echo "REFUSED: cannot determine default branch for $PROJ; expected origin/HEAD, main, or master." >&2; exit 1; }
-    dirty=$(git -C "$WT" status --porcelain 2>/dev/null | grep -vE '^\?\? \.claude/' | head -1 || true)
-    unmerged=$(git -C "$WT" log --oneline HEAD --not "$DEFAULT" -- 2>/dev/null | head -5 || true)
-    if [ -n "$dirty" ] || [ -n "$unmerged" ]; then
-      echo "REFUSED: local-only worktree $WT has work not yet merged into $DEFAULT." >&2
-      [ -n "$dirty" ] && echo "uncommitted changes present" >&2
-      [ -n "$unmerged" ] && printf 'commits not yet on %s:\n%s\n' "$DEFAULT" "$unmerged" >&2
-      echo "Merge the branch into local $DEFAULT first (bin/fm-merge-local.sh after the captain approves), or get the captain's explicit OK to discard, then --force." >&2
-      exit 1
-    fi
   else
     # The fm-spawn hook file is ours, never work product; ignore it in the dirty check.
     dirty=$(git -C "$WT" status --porcelain 2>/dev/null | grep -vE '^\?\? \.claude/' | head -1 || true)
+    # A worktree's work is "safely on a remote" once HEAD is reachable from ANY
+    # remote-tracking branch (empty result here). A fork is a remote too, so
+    # upstream-contribution PRs pushed to a fork satisfy this regardless of mode.
     unpushed=$(git -C "$WT" log --oneline HEAD --not --remotes -- 2>/dev/null | head -5 || true)
-    if [ -n "$dirty" ] || [ -n "$unpushed" ]; then
+    if [ -n "$unpushed" ] && [ "$MODE" = local-only ]; then
+      # local-only ships have no remote in the common case, so the "on a remote"
+      # test above is expected to be non-empty. The work is safe once it is merged
+      # into the local default branch (firstmate does that merge on the captain's
+      # approval). Refuse until then.
+      DEFAULT=$(default_branch) || { echo "REFUSED: cannot determine default branch for $PROJ; expected origin/HEAD, main, or master." >&2; exit 1; }
+      unmerged=$(git -C "$WT" log --oneline HEAD --not "$DEFAULT" -- 2>/dev/null | head -5 || true)
+      if [ -n "$dirty" ] || [ -n "$unmerged" ]; then
+        echo "REFUSED: local-only worktree $WT has work not yet merged into $DEFAULT and not on any remote." >&2
+        [ -n "$dirty" ] && echo "uncommitted changes present" >&2
+        [ -n "$unmerged" ] && printf 'commits not yet on %s:\n%s\n' "$DEFAULT" "$unmerged" >&2
+        echo "Merge the branch into local $DEFAULT first (bin/fm-merge-local.sh after the captain approves), or push to a fork/remote, or get the captain's explicit OK to discard, then --force." >&2
+        exit 1
+      fi
+    elif [ -n "$dirty" ] || [ -n "$unpushed" ]; then
       echo "REFUSED: worktree $WT has work not on any remote." >&2
       [ -n "$dirty" ] && echo "uncommitted changes present" >&2
       [ -n "$unpushed" ] && printf 'unpushed commits:\n%s\n' "$unpushed" >&2
