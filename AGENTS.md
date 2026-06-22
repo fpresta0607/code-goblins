@@ -72,9 +72,11 @@ state/               volatile runtime signals; gitignored
   <id>.meta          written by fm-spawn: window=, worktree=, project=, harness=, kind=, mode=, yolo= (fm-pr-check appends pr=)
   <id>.check.sh      optional slow poll you write per task (e.g. merged-PR check)
   .wake-queue        durable queued wakes: epoch<TAB>seq<TAB>kind<TAB>key<TAB>payload
+  .afk               durable away-mode flag; present = sub-supervisor may inject escalations (set by /afk, cleared on user return)
   .watch.lock .wake-queue.lock watcher singleton and queue serialization locks
   .hash-* .count-* .stale-* .seen-* .last-* .heartbeat-streak   watcher internals; never touch
   .last-watcher-beat watcher liveness beacon, touched every poll; fm-guard.sh reads it
+  .subsuper-* .supervise-daemon.*   sub-supervisor internals (stale markers, escalation buffer, seen-status dedup, log, lock, pid); never touch
 .no-mistakes/        local validation state and evidence; gitignored
 ```
 
@@ -192,9 +194,10 @@ Reconcile reality with your records before doing anything else:
 4. Read `data/backlog.md`, every `state/*.meta`, and every `state/*.status`.
 5. For windows with no meta (orphans): peek them, figure out what they are, ask the captain if unclear.
 6. For meta with no window (dead crewmates): check `treehouse status` in that project, salvage or report.
-7. Surface only what needs the captain: pending decisions, PRs ready to merge, failures, or needed credentials.
+7. If `state/.afk` is present (away-mode was active before the restart): re-enter afk — ensure the daemon is running, do not arm the one-shot watcher (the daemon owns it), and resume away-mode supervision.
+8. Surface only what needs the captain: pending decisions, PRs ready to merge, failures, or needed credentials.
    If there is nothing that needs them, say nothing and resume.
-8. Handle drained wakes, then arm the watcher (section 8).
+9. Handle drained wakes, then arm the watcher (section 8) — unless afk was re-entered in step 7, in which case the daemon manages the watcher.
 
 A firstmate restart must be a non-event.
 All truth lives in tmux, state files, data/backlog.md, and treehouse; your conversation memory is a cache.
@@ -395,7 +398,8 @@ The printed one-shot reason line is still useful, but the drained queue is the l
 After handling drained wakes, re-arm `bin/fm-watch.sh` before you end the turn.
 The watcher is singleton-safe: if one is already alive with a fresh liveness beacon, another invocation exits cleanly instead of creating a duplicate watcher; if the live holder's beacon is stale, the new invocation exits with an actionable failure.
 Do not pkill-and-restart the watcher as a routine operation; just arm it, and let the singleton lock no-op when appropriate.
-P2/P3 of the watcher reliability design - a persistent detector daemon and blocking waiter split - are deferred; this phase intentionally preserves the current one-shot restart model.
+P2 of the watcher reliability design - proactive routing of wakes into supervisor turns for chat-mode / walk-away supervision - is provided by the optional sub-supervisor (`bin/fm-supervise-daemon.sh`, below), which is presence-gated via the `/afk` skill.
+P3, a blocking-waiter split, remains deferred; the one-shot restart model is otherwise preserved.
 Waiting on the watcher is intentionally silent.
 After arming it, do not send idle progress updates to the captain; wait until it returns `signal`, `stale`, `check`, or `heartbeat`, unless the captain asks for status.
 Empty polls, elapsed waiting time, and "still no change" are tool bookkeeping, not conversational progress.
@@ -436,6 +440,57 @@ Background that work so watcher wakes can interleave with it and the supervision
 Token discipline: status files before panes; default peeks to 40 lines; never stream a pane repeatedly through yourself; batch what you tell the captain.
 The context-% shown in a peek is not actionable as crew health; ignore it and intervene only on real signals (`signal`, `stale`, `needs-decision`, `blocked`), looping or confusion in the pane, or a question the brief already answers.
 Silence is the correct state while a healthy background watcher is waiting.
+
+### Sub-supervisor (presence-gated via `/afk`)
+
+`bin/fm-supervise-daemon.sh` is the away-mode engine: it wraps `fm-watch.sh`, runs the watcher as a child, classifies each wake reason in bash, and **self-handles the routine majority without consuming a firstmate turn**.
+Only captain-relevant events escalate to firstmate's context - and even then as one pre-read, single-line, batched digest rather than a per-wake injection.
+It is the token-efficient P2 layer that closes the chat-mode wake-routing gap (#27).
+
+The daemon is **neither default-on nor standalone opt-in** — it is **presence-gated**.
+The token win and the behavior change are the same mechanism (bash triage instead of full LLM turns), so it cannot be invisibly universal; the boundary that matters is **presence**, not user identity.
+The `/afk` skill is the explicit trigger: invoking it sets a durable away-mode flag and starts (or ensures) the daemon, making the tradeoff **consented**.
+
+**Entering afk.** Invoke the `/afk` skill.
+It sets `state/.afk` (durable — recovery re-enters afk if the flag survives a restart), ensures the daemon is running (`nohup bin/fm-supervise-daemon.sh &` if the pid is dead or absent), and acknowledges.
+With afk active:
+- **Do not separately arm `fm-watch.sh`.** The daemon manages the watcher; the singleton lock no-ops a stray arm harmlessly, but the daemon is the single owner.
+- **`fm-wake-drain.sh` still runs at the start of every escalated firstmate turn** - it is the lossless backstop. The daemon routes; the queue guarantees nothing is lost. The two are complementary, not redundant.
+
+**In-band sentinel marker (the load-bearing detail).** The daemon injects into the same pane the captain types into, so an escalation would otherwise look like a user message and cancel afk the moment it fired.
+Every daemon injection is prefixed with `FM_INJECT_MARK` (ASCII unit separator, 0x1f) — a byte a human would never type at the start of a message.
+The marker travels with the message text; it does not rely on harness-level typed-vs-injected detection (not portable across claude, codex, opencode, pi).
+
+**Exiting afk (the captain's contract).** When firstmate receives a message while afk is active:
+- Leading marker present → **internal escalation**. Stay afk, process it.
+- Message starts with `/afk` → **afk re-invocation**. Stay afk (refresh the flag); do not treat as a return.
+- Anything else → **the captain is back.** Clear `state/.afk`, stop the daemon, flush one distilled "while you were out" catch-up (drain `state/.wake-queue` + summarize any pending `state/.subsuper-escalations`), and resume full per-wake responsiveness (arm `bin/fm-watch.sh`).
+**Bias ambiguous cases toward exit** (a present captain beats token savings; a false exit is self-correcting).
+
+**Orthogonal to yolo.** afk changes how aggressively firstmate surfaces things, not who approves what. "Away" never means "approves more" — a PR, a needs-decision finding, or anything destructive still waits for the captain's explicit word.
+
+**Classification policy (per wake):**
+- `signal` whose status content has no captain-relevant verb (`done:|needs-decision:|blocked:|failed:|PR ready|checks green|ready in branch|merged`) → **self-handle**. Captain-relevant verb → escalate.
+- `check` → always escalate (check scripts print only when firstmate should wake).
+- `stale` with a terminal status → escalate. Non-terminal stale is transient: the daemon records a marker and self-handles; if the pane is still idle past `FM_STALE_ESCALATE_SECS` (default 240s), housekeeping escalates it as a possible wedge. This bounds wedge-detection latency to the threshold plus a tick - a delay, never a loss, and healthy crewmates (which are autonomous and do not wait on firstmate mid-task) are unaffected.
+- `heartbeat` → self-handle; the daemon runs its own cheap bash fleet scan every `FM_HEARTBEAT_SCAN_SECS` (default 300s) as the catch-all for a captain-relevant status line the per-wake classifier might miss.
+- Unknown reason, or any uncertainty → **escalate (fail-safe)**.
+
+**Escalation format:** escalations are buffered up to `FM_ESCALATE_BATCH_SECS` (default 90s; 0 = immediate) and flushed as ONE single-line digest prefixed with the sentinel marker, carrying the pre-read status summaries and a recommended action.
+The single-line format and the marker solve the same problem as the busy-guard (the daemon and the captain share one input channel): the digest is one unambiguous submission regardless of TUI, and firstmate can tell it apart from a real message.
+This is why fewer, cheaper firstmate turns handle the same fleet.
+
+**Injection hardening (the fixes):**
+- **Single-line digest** — embedded newlines are collapsed to a literal separator before injection, so submission is unambiguous regardless of harness.
+- **Composer guard on the supervisor pane** — before injecting, the daemon checks both `pane_is_busy` (harness busy footer = agent mid-turn) and `pane_input_pending` (non-empty cursor line = human mid-typing or previous injection with swallowed Enter). Either condition **defers** the injection (buffer preserved for retry). This is the human-in-the-pane safety property: the daemon never merges its digest into the captain's half-typed line.
+- **Type-once submit model** — the digest is typed once via `send-keys -l`, then submitted with Enter. If the composer still has text after Enter (swallowed Enter), the daemon retries Enter only (never retypes the digest), preventing concatenation of two sentinel-prefixed digests into one corrupted turn.
+- **Marker strip** — `strip_injection_marker` removes the sentinel prefix before classification/relay, so the digest text firstmate sees is clean.
+- **Portable singleton lock** — the daemon uses the repo's mkdir-based lock helper (`fm-wake-lib.sh`) instead of `flock`, which is absent on macOS.
+- **Dedupe across signal/stale/scan** — `classify_signal` and `classify_stale` both check the seen-status marker before escalating, so a status escalated by one path is not re-escalated by another in the same digest.
+- **Auto-discovered supervisor pane** — the daemon resolves its injection target from `FM_SUPERVISOR_TARGET`, then `$TMUX_PANE` (inherited from the pane that launched it), then a `firstmate:0` fallback with a warning; the resolution source is logged at startup so a wrong-but-resolving fallback is detectable.
+
+**Reliability properties (must hold):** nothing is lost (the #29 queue plus `fm-wake-drain.sh` recover any missed/crashed injection); wedge detection is bounded-latency, not lossy; the catch-all scan backs up the keyword classifier; the daemon preserves single-instance portable lock, crash-loop backoff, a pane-gone guard, and a signal-trapped shutdown that flushes buffered escalations before exit.
+`FM_INJECT_SKIP` (default `heartbeat`) force-self-handles matching kinds, overriding classification - use sparingly.
 
 ### Stuck-crewmate playbook (escalate in order)
 
