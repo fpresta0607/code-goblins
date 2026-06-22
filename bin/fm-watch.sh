@@ -12,7 +12,8 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-STATE="${FM_STATE_OVERRIDE:-$FM_ROOT/state}"
+FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
+STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 mkdir -p "$STATE"
 
 # shellcheck source=bin/fm-wake-lib.sh
@@ -70,6 +71,34 @@ BUSY_REGEX=${FM_BUSY_REGEX:-'esc (to )?interrupt|Working\.\.\.'}
 
 hash_pane() {
   if command -v md5 >/dev/null 2>&1; then md5 -q; else md5sum | cut -d' ' -f1; fi
+}
+
+window_kind() {
+  local w=$1 meta mw kind
+  for meta in "$STATE"/*.meta; do
+    [ -e "$meta" ] || continue
+    mw=$(grep '^window=' "$meta" | cut -d= -f2- || true)
+    [ "$mw" = "$w" ] || continue
+    kind=$(grep '^kind=' "$meta" | cut -d= -f2- || true)
+    [ -n "$kind" ] || kind=ship
+    echo "$kind"
+    return 0
+  done
+  echo unknown
+}
+
+recorded_windows() {
+  local meta w seen=
+  for meta in "$STATE"/*.meta; do
+    [ -e "$meta" ] || continue
+    w=$(grep '^window=' "$meta" | cut -d= -f2- || true)
+    [ -n "$w" ] || continue
+    case "$seen" in
+      *"|$w|"*) continue ;;
+    esac
+    seen="$seen|$w|"
+    printf '%s\n' "$w"
+  done
 }
 
 # Exit reporting a wake. Consecutive heartbeats with no other wake in between
@@ -189,6 +218,9 @@ EOF
   # signature means the crewmate finished, is waiting, or is wedged. Each distinct
   # stale state is reported once (.stale-* remembers the hash already reported).
   while IFS= read -r w; do
+    # A secondmate idling on its own watcher is healthy. Its parent supervises
+    # it through status writes and heartbeats, not pane-idle staleness.
+    [ "$(window_kind "$w")" = secondmate ] && continue
     tail40=$(tmux capture-pane -p -t "$w" -S -40 2>/dev/null) || continue
     h=$(printf '%s' "$tail40" | hash_pane)
     key=$(printf '%s' "$w" | tr ':/.' '___')
@@ -213,7 +245,7 @@ EOF
       printf '%s' "$h" > "$hf"
       echo 0 > "$cf"
     fi
-  done < <(tmux list-windows -a -F '#{session_name}:#{window_name}' 2>/dev/null | grep ':fm-' || true)
+  done < <(recorded_windows)
 
   # Heartbeat: firstmate reviews the whole fleet at a regular cadence no matter
   # what. Time-based via .last-heartbeat mtime; interval doubles per consecutive

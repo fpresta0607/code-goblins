@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Acquire or inspect the single-firstmate session lock.
+# Acquire or inspect the per-home firstmate session lock.
 # Writes the harness (agent) process PID found by walking the shell's ancestry,
 # which lives as long as the firstmate session - unlike the transient subshell
 # PID of any one tool call, which is dead moments after it is written.
@@ -7,8 +7,10 @@
 #        fm-lock.sh status    print holder and liveness; always exits 0
 set -u
 
-FM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STATE="$FM_ROOT/state"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
+STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 LOCK="$STATE/.lock"
 mkdir -p "$STATE"
 

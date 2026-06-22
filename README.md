@@ -29,12 +29,15 @@ But the moment you want three project tasks done in parallel - fixes, investigat
 
 firstmate flips the model.
 You talk to a single agent - the first mate - and it runs the crew for you: spawning autonomous agents in tmux windows, giving each a clean git worktree, supervising them to completion, and handing you finished PRs, approved local merges, or standalone investigation reports.
+For larger fleets, you can opt in to persistent secondmates: domain supervisors that are still ordinary direct reports, but run from their own isolated firstmate homes.
 There is no app to install; the whole orchestrator is an `AGENTS.md` file that any terminal coding agent can follow.
 
 - **One liaison** - you never talk to a worker agent.
   The first mate dispatches, supervises, escalates only real decisions, and reports plain outcomes about work that is ready, blocked, or needs your call.
 - **A visible crew** - every crewmate lives in a tmux window.
   Watch any of them work, or type into their window to intervene; the first mate reconciles.
+- **Persistent domain supervisors** - route natural-language scopes through `data/secondmates.md` when a domain deserves its own long-lived supervisor.
+  Each secondmate has a separate `FM_HOME`, local state, local projects, and its own session lock, while the main first mate still supervises it like any other direct report.
 - **Guarded by construction** - the first mate is read-only over your projects except for clean local default-branch refreshes, safe pruning of local branches whose remote is gone, and approved `local-only` fast-forward merges; crewmates work in disposable [treehouse](https://github.com/kunchenguid/treehouse) worktrees.
   Ship tasks follow each project's delivery mode, and scout tasks produce local reports without pushing anything.
 
@@ -93,8 +96,8 @@ firstmate works from any terminal - outside tmux, crewmates land in a detached `
                   ▼
  ┌─────────────────────────────────────┐
  │ firstmate            (this repo)    │
- │ reads projects/; writes guarded     │
- │ backlog.md ── briefs ── watcher     │
+ │ reads projects/ + firstmate routes  │
+ │ writes guarded backlog/briefs/state │
  └──┬──────────────┬───────────────┬───┘
     │ tmux send-keys / status files │
     ▼              ▼               ▼
@@ -103,7 +106,7 @@ firstmate works from any terminal - outside tmux, crewmates land in a detached `
  │crewmate│   │crewmate│      │crewmate│   one autonomous agent each
  └───┬────┘   └───┬────┘      └───┬────┘
      ▼            ▼               ▼
-  treehouse worktree (clean, disposable, parallel-safe)
+  treehouse worktree or isolated secondmate home
      │
      ├─ ship: project mode ► PR/local merge ► teardown
      │
@@ -117,12 +120,18 @@ firstmate works from any terminal - outside tmux, crewmates land in a detached `
   A presence-gated sub-supervisor (`bin/fm-supervise-daemon.sh`) extends this for walk-away supervision: the `/afk` skill activates it, after which it self-handles routine wakes in bash and escalates only captain-relevant events as one batched, single-line digest (prefixed with an in-band sentinel marker so firstmate can tell daemon injections apart from real messages).
 - **Worktrees, not branches in your checkout** - crewmates never touch your clone; treehouse pools clean worktrees so parallel tasks on one repo cannot collide.
 - **Two task shapes** - ship tasks change projects and ship by project mode (`no-mistakes`, `direct-PR`, or `local-only`); scout tasks investigate, plan, reproduce bugs, or audit, then leave a report at `data/<id>/report.md` and never push.
+- **Optional secondmates** - `data/secondmates.md` records persistent domain supervisors with natural-language scopes, project clone lists, and home paths.
+  `fm-home-seed.sh` provisions the isolated home, clones the listed PR-based projects into it, initializes newly cloned `no-mistakes` projects, copies the charter to `data/charter.md`, and `fm-spawn.sh --secondmate` launches it through the same tmux and status-file path as any direct report.
+  Seeding is transactional: if validation, cloning, initialization, or registry update fails, generated briefs, new homes, new project clones, and registry edits are rolled back.
+  `local-only` projects stay with the main first mate because they merge into the main local checkout instead of a remote-backed PR path.
+  The same project may appear in multiple secondmate homes when their scopes differ, such as issue triage versus feature development.
+  Idle secondmate panes are healthy; teardown is explicit and refuses while the secondmate home has in-flight work unless the captain has approved discard with `--force`.
 - **Project modes are explicit** - `data/projects.md` records each project's delivery mode and optional `+yolo` autonomy flag.
   `no-mistakes` projects run the full validation pipeline, `direct-PR` projects open PRs without that pipeline, and `local-only` projects stay local until firstmate performs an approved fast-forward merge.
 - **Project memory belongs to projects** - durable project-intrinsic agent knowledge lives in each project's committed `AGENTS.md`, with `CLAUDE.md` as a symlink.
   Ship briefs prompt crewmates to create or update those files through the normal delivery path; `data/projects.md` stays a thin private registry.
 - **Local clones stay fresh** - bootstrap and PR-based teardown refresh remote-backed project clones with clean default-branch fast-forwards when the clone is on the default branch and has no local work, and prune local branches whose remote is gone and that no worktree still needs.
-- **Restart-proof** - all state lives in tmux, status files, and local markdown under `data/`.
+- **Restart-proof** - all state lives in tmux, status files, local markdown under `data/`, `data/secondmates.md`, and persistent secondmate homes.
   Kill the first mate session anytime; the next one reconciles and carries on.
 
 ## The bin/ toolbelt
@@ -133,10 +142,11 @@ The first mate drives these; you rarely need to, but they work by hand too.
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | `fm-bootstrap.sh`        | Detect missing toolchain pieces; refresh clones best-effort; install tools only after consent                       |
 | `fm-fleet-sync.sh`       | Fetch clones, clean-fast-forward their checked-out default branches, and safely prune branches whose remote is gone |
-| `fm-brief.sh`            | Scaffold a ship brief, or a report-only scout brief with `--scout`                                                  |
+| `fm-brief.sh`            | Scaffold a ship brief, a report-only scout brief with `--scout`, or a secondmate charter with `--secondmate`      |
 | `fm-ensure-agents-md.sh` | Ensure project `AGENTS.md` is the real memory file and `CLAUDE.md` symlinks to it                                   |
 | `fm-guard.sh`            | Warn when tasks are in flight but queued wakes are pending or the watcher liveness beacon is stale or missing      |
-| `fm-spawn.sh`            | Spawn one task, or several `id=repo` pairs in one batch; records ship/scout task kind                                |
+| `fm-home-seed.sh`        | Provision a secondmate home transactionally, clone projects, initialize gates, and maintain `data/secondmates.md`  |
+| `fm-spawn.sh`            | Spawn one task, several `id=repo` pairs, or a persistent secondmate with `--secondmate`                            |
 | `fm-project-mode.sh`     | Resolve a project's delivery mode and `+yolo` flag from `data/projects.md`                                          |
 | `fm-merge-local.sh`      | Fast-forward a `local-only` project's local default branch after approval                                           |
 | `fm-review-diff.sh`      | Review a crewmate branch against the authoritative base, with optional `--stat` output                              |
@@ -147,19 +157,28 @@ The first mate drives these; you rarely need to, but they work by hand too.
 | `fm-peek.sh`             | Print a bounded tail of a crewmate pane                                                                             |
 | `fm-pr-check.sh`         | Record a PR-ready task and arm the watcher's merge poll                                                             |
 | `fm-promote.sh`          | Promote a scout task in place so it becomes a protected ship task                                                   |
-| `fm-teardown.sh`         | Return the worktree and kill the window; protects ship work, requires scout reports, and reminds backlog refresh    |
+| `fm-teardown.sh`         | Return the worktree or retire a secondmate home; protects ship work, requires scout reports, and checks child work |
 | `fm-harness.sh`          | Detect the running harness; resolve the effective crewmate harness                                                  |
-| `fm-lock.sh`             | Single-firstmate session lock                                                                                       |
+| `fm-lock.sh`             | Per-home firstmate session lock                                                                                     |
 
 ## Configuration
 
 The shared orchestrator behavior lives in `AGENTS.md` - edit it like any prompt when the fleet is empty, or dispatch shared-repo edits to a crewmate while tasks are in flight.
-Personal preferences for one captain's fleet live locally in `data/captain.md`; it is gitignored and read after `data/projects.md` during bootstrap.
+Personal preferences for one captain's fleet live locally in `data/captain.md`; it is gitignored and read after `data/projects.md` and optional `data/secondmates.md` during bootstrap.
+Persistent secondmate routes live locally in `data/secondmates.md`.
+Each line records the secondmate id, charter summary, absolute home path, natural-language scope, project clone list, and added date; `fm-home-seed.sh validate` refuses duplicate ids, duplicate homes, and nested or overlapping homes.
+The main first mate routes by reading those scopes with judgment; the project list is provisioning data, not exclusive ownership.
+Secondmate routes cover `no-mistakes` and `direct-PR` projects; `local-only` projects remain main-firstmate work.
+For `no-mistakes` projects, seeding initializes only projects newly cloned into a secondmate home and refuses to mutate a preexisting clone that is not already initialized.
+Set `FM_SECONDMATE_CHARTER` to seed from inline charter text when no filled charter brief exists; set `FM_SECONDMATE_SCOPE` when the routing scope should differ from the charter text.
+`FM_HOME` selects the operational home for one firstmate instance.
+When it is unset, the repo root is the home; when it is set, scripts still run from this repo's `bin/`, but `state/`, `data/`, `config/`, and `projects/` come from `$FM_HOME`.
 Harness support is a table in section 4: claude, codex, opencode, and pi are all empirically verified; new harnesses get verified through a supervised trial task before joining the table.
 
 Runtime tuning via environment variables (defaults shown):
 
 ```sh
+FM_HOME=                 # optional operational home; unset means this repo root
 FM_POLL=15              # seconds between watcher cycles
 FM_HEARTBEAT=600        # base seconds between fleet reviews; backs off exponentially while idle
 FM_HEARTBEAT_MAX=7200   # heartbeat backoff cap
@@ -194,6 +213,7 @@ shellcheck bin/*.sh tests/*.sh            # lint the toolbelt and behavior tests
 for test_script in tests/*.test.sh; do "$test_script"; done   # behavior tests, matching CI
 tests/fm-wake-queue.test.sh               # durable wake queue, singleton behavior, sub-supervisor classifier, and /afk presence-gating tests
 tests/fm-afk-inject-e2e.test.sh           # private-socket end-to-end test of the afk injection path (partial-input deferral, swallowed-Enter retry)
+tests/fm-secondmate.test.sh               # persistent secondmate routing, seeding, spawn, recovery, teardown, and FM_HOME tests
 [ "$(readlink CLAUDE.md)" = "AGENTS.md" ]
 [ "$(readlink .claude/skills)" = "../.agents/skills" ]
 FM_HEARTBEAT=2 FM_POLL=1 bin/fm-watch.sh  # watcher smoke test (prints "heartbeat")
