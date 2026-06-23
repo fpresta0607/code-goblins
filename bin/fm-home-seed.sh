@@ -4,7 +4,10 @@
 # Usage:
 #   fm-home-seed.sh <id> <home|-> <project>...
 #       Provision <home> as an isolated firstmate home. If <home> is "-", acquire
-#       a fresh firstmate worktree via treehouse get. Projects are cloned
+#       a fresh firstmate worktree via "treehouse get --lease", which durably
+#       leases the worktree under the secondmate <id> so the home survives with
+#       no live process and is never recycled until the lease is released with
+#       "treehouse return". Projects are cloned
 #       from the active home into the secondmate home's projects/ directory.
 #       That project list is non-exclusive provisioning data. The charter brief
 #       is copied to data/charter.md, newly cloned no-mistakes projects are
@@ -13,7 +16,7 @@
 #       Seeding is transactional: on validation, clone, init, or registry failure,
 #       generated briefs, new homes, new project clones, and registry edits are
 #       rolled back. Treehouse-acquired homes are returned only when the rollback
-#       target is safe.
+#       target is safe; a failed return warns because the lease may still be held.
 #       Set FM_SECONDMATE_CHARTER='<charter>' to seed from inline charter text
 #       when no filled charter brief exists. Set FM_SECONDMATE_SCOPE='<scope>'
 #       to override the registry routing scope. Otherwise the registry summary
@@ -457,26 +460,23 @@ seeded_origin_url() {
 }
 
 acquire_treehouse_home() {
-  local tmp runner home
-  tmp=$(mktemp "${TMPDIR:-/tmp}/fm-home-path.XXXXXX")
-  runner=$(mktemp "${TMPDIR:-/tmp}/fm-home-shell.XXXXXX")
-  cat > "$runner" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "$PWD" > "$FM_HOME_SEED_PATH_FILE"
-exit 0
-SH
-  chmod +x "$runner"
-  (cd "$FM_ROOT" && FM_HOME_SEED_PATH_FILE="$tmp" SHELL="$runner" treehouse get >/dev/null)
-  home=$(cat "$tmp" 2>/dev/null || true)
-  rm -f "$tmp" "$runner"
-  [ -n "$home" ] || { echo "error: treehouse get did not report a firstmate home" >&2; return 1; }
+  local id=$1 home
+  # Durably lease a firstmate worktree from the pool. The lease persists with no
+  # live process and is skipped by later get/prune, so the home survives restarts
+  # until teardown or rollback returns it. treehouse prints only the worktree path
+  # to stdout (banners go to stderr), so command substitution captures the path.
+  home=$(cd "$FM_ROOT" && treehouse get --lease --lease-holder "$id") || {
+    echo "error: treehouse get --lease failed to lease a firstmate home" >&2
+    return 1
+  }
+  [ -n "$home" ] || { echo "error: treehouse get --lease did not report a firstmate home" >&2; return 1; }
   printf '%s\n' "$home"
 }
 
 ensure_home() {
-  local requested=$1 home
+  local id=$1 requested=$2 home
   if [ "$requested" = "-" ]; then
-    home=$(acquire_treehouse_home)
+    home=$(acquire_treehouse_home "$id")
     verify_firstmate_home "$home"
     return
   fi
@@ -635,7 +635,14 @@ seed_rollback_target() {
 seed_return_treehouse_home() {
   local home=$1 abs_home
   abs_home=$(seed_rollback_target "$home" "treehouse-acquired home") || return 0
-  ( cd "$FM_ROOT" && treehouse return --force "$abs_home" ) >/dev/null 2>&1 || true
+  if ! command -v treehouse >/dev/null 2>&1; then
+    echo "warning: failed to return treehouse-acquired home $abs_home during seed rollback; treehouse command not found" >&2
+    return 0
+  fi
+  ( cd "$FM_ROOT" && treehouse return --force "$abs_home" >/dev/null ) || {
+    echo "warning: failed to return treehouse-acquired home $abs_home during seed rollback; lease may still be held" >&2
+    return 0
+  }
 }
 
 seed_remove_created_home() {
@@ -829,7 +836,7 @@ seed_home() {
 
   if [ "$requested_home" = "-" ]; then
     SEED_HOME_ACQUIRED=1
-    home=$(acquire_treehouse_home)
+    home=$(acquire_treehouse_home "$id")
     SEED_HOME="$home"
     home=$(verify_firstmate_home "$home")
   else
@@ -838,7 +845,7 @@ seed_home() {
     validate_home_assignment "$id" "$requested_abs" || return 1
     SEED_HOME="$requested_abs"
     [ -e "$requested_abs" ] || SEED_HOME_CREATED=1
-    home=$(ensure_home "$requested_abs")
+    home=$(ensure_home "$id" "$requested_abs")
   fi
   SEED_HOME="$home"
   validate_registry_home_text "$home" || return 1

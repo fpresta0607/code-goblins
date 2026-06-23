@@ -15,7 +15,10 @@
 # Secondmates (kind=secondmate in meta) are retired explicitly. Normal
 # teardown refuses while their home has in-flight crewmate meta files; --force
 # is the approved discard path that prevalidates child removal targets, discards
-# child work, kills child windows, and removes the retired home.
+# child work, kills child windows, and removes the retired home. Removing a
+# leased home releases its durable treehouse lease so the pool slot is freed,
+# never left leased forever. If the treehouse return fails, teardown leaves the
+# leased home and state in place instead of hiding a still-held lease.
 # Usage: fm-teardown.sh <task-id> [--force]
 #   --force skips the unpushed-work check for ordinary tasks and discards
 #   secondmate child work for kind=secondmate. Only use it when the captain has
@@ -108,6 +111,11 @@ worktree_registered_for_project() {
 $listed
 EOF
   return 1
+}
+
+firstmate_home_has_treehouse_slot() {
+  local home=$1
+  worktree_registered_for_project "$FM_ROOT" "$home"
 }
 
 validate_removal_target() {
@@ -271,11 +279,18 @@ remove_firstmate_home() {
   [ -e "$home" ] || return 0
   abs_home_path=$(validate_firstmate_home_for_removal "$home" "$label" "$expected_id") || return 1
   [ -n "$abs_home_path" ] || return 0
-  if command -v treehouse >/dev/null 2>&1; then
-    ( cd "$FM_ROOT" && treehouse return --force "$abs_home_path" ) || safe_rm_rf "$abs_home_path" "$label"
-  else
-    safe_rm_rf "$abs_home_path" "$label"
+  if firstmate_home_has_treehouse_slot "$abs_home_path"; then
+    command -v treehouse >/dev/null 2>&1 || {
+      echo "error: treehouse command not found; cannot return $label $abs_home_path" >&2
+      return 1
+    }
+    ( cd "$FM_ROOT" && treehouse return --force "$abs_home_path" ) || {
+      echo "error: treehouse return failed for $label $abs_home_path; lease may still be held" >&2
+      return 1
+    }
+    return 0
   fi
+  safe_rm_rf "$abs_home_path" "$label"
 }
 
 validate_firstmate_home_children_removal() {
