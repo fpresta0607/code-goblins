@@ -76,11 +76,14 @@ set -u
 case "${1:-}" in
   display-message)
     [ "${FM_FAKE_TMUX_PANE_ALIVE:-1}" = "1" ] || exit 1
+    _print=0
     # Return cursor_y when the format asks for it (pane_input_pending).
     for _a in "$@"; do
       case "$_a" in *cursor_y*) printf '%s\n' "${FM_FAKE_TMUX_CURSOR_Y:-0}"; exit 0 ;; esac
+      [ "$_a" = "-p" ] && _print=1
     done
-    printf 'fakepane\n'; exit 0 ;;
+    [ "$_print" = 1 ] && printf 'fakepane\n'
+    exit 0 ;;
   list-windows)
     [ -n "${FM_FAKE_TMUX_WINDOW:-}" ] && printf '%s\n' "$FM_FAKE_TMUX_WINDOW"
     exit 0 ;;
@@ -846,6 +849,19 @@ test_pane_input_pending_idle_prompt_not_pending() {
   pass "pane_input_pending: bare prompts are not pending (idle)"
 }
 
+test_pane_input_pending_honors_idle_override_after_border_strip() {
+  local dir state fakebin capture
+  dir=$(make_supercase pending-custom-idle)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  capture="$dir/pane.txt"
+  printf '│ custom idle> │\n' > "$capture"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_CAPTURE="$capture" FM_FAKE_TMUX_CURSOR_Y=0 \
+    FM_COMPOSER_IDLE_RE='^custom idle>$' pane_input_pending "fakepane" \
+    && fail "FM_COMPOSER_IDLE_RE was not applied after border stripping"
+  pass "pane_input_pending honors FM_COMPOSER_IDLE_RE after border stripping"
+}
+
 test_composer_guard_defers_on_partial_input() {
   local dir state fakebin sent capture
   dir=$(make_supercase composer-guard)
@@ -961,6 +977,280 @@ test_classify_stale_dedup_against_signal() {
   pass "classify_stale dedupes against the signal path seen marker"
 }
 
+# ============================================================================
+# afk-invx-i5 regressions: bordered-composer detection (RC1), submit-ACK on a
+# bordered composer (RC2), and the max-defer escape (RC1b).
+# ============================================================================
+
+# Fake tmux simulating a claude-style BORDERED composer ("│ > … │"), the exact
+# rendering the old detector misread as permanent pending input.
+#   - display-message cursor_y -> 0 (composer is line 1)
+#   - capture-pane          -> the current composer line from $FM_FAKE_COMPOSER
+#   - send-keys -l <text>   -> composer becomes "│ > <text> │"  (typed, unsent)
+#   - send-keys Enter       -> unless $FM_FAKE_SWALLOW exists, composer clears to
+#                              "│ > │" (bordered-empty); a one-shot swallow
+#                              deletes the flag, a persistent one keeps it.
+# $FM_FAKE_SENT (optional) logs each typed line and each non-swallowed [ENTER].
+make_bordered_case() {
+  local name=$1 dir fakebin
+  dir="$TMP_ROOT/$name"; fakebin="$dir/fakebin"
+  mkdir -p "$dir/state" "$fakebin"
+  printf '│ > │\n' > "$dir/composer"
+  cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+set -u
+COMPOSER="${FM_FAKE_COMPOSER:?FM_FAKE_COMPOSER unset}"
+case "${1:-}" in
+  display-message)
+    print=0
+    for a in "$@"; do case "$a" in *cursor_y*) printf '0\n'; exit 0 ;; esac; done
+    for a in "$@"; do [ "$a" = "-p" ] && print=1; done
+    [ "$print" = 1 ] && printf 'fakepane\n'
+    exit 0 ;;
+  capture-pane) cat "$COMPOSER" 2>/dev/null; exit 0 ;;
+  list-windows) exit 0 ;;
+  send-keys)
+    shift
+    text=""; is_enter=0; lit=0
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        -t) shift ;;
+        -l) lit=1 ;;
+        Enter) is_enter=1 ;;
+        *) [ "$lit" = 1 ] && text="$1" ;;
+      esac
+      shift
+    done
+    if [ "$is_enter" = 1 ]; then
+      if [ -n "${FM_FAKE_SWALLOW:-}" ] && [ -f "$FM_FAKE_SWALLOW" ]; then
+        [ "${FM_FAKE_PERSIST_SWALLOW:-0}" = 1 ] || rm -f "$FM_FAKE_SWALLOW"
+      else
+        [ -n "${FM_FAKE_SENT:-}" ] && printf '[ENTER]\n' >> "$FM_FAKE_SENT"
+        printf '│ > │\n' > "$COMPOSER"
+      fi
+    elif [ "$lit" = 1 ]; then
+      [ "${FM_FAKE_SEND_FAIL:-0}" = 1 ] && exit 1
+      [ -n "${FM_FAKE_SENT:-}" ] && printf '%s\n' "$text" >> "$FM_FAKE_SENT"
+      printf '│ > %s │\n' "$text" > "$COMPOSER"
+    fi
+    exit 0 ;;
+esac
+exit 1
+SH
+  chmod +x "$fakebin/tmux"
+  printf '%s\n' "$dir"
+}
+
+test_pane_input_pending_bordered_idle_not_pending() {
+  # THE regression: an idle claude composer is a bordered box ("│ > … │"). The
+  # old idle regex only matched a BARE prompt, so every idle claude pane read as
+  # pending and the away-mode daemon deferred 100% of escalations for 9.5h.
+  local dir state fakebin capture line
+  dir=$(make_supercase pending-bordered-idle)
+  state="$dir/state"; fakebin="$dir/fakebin"; capture="$dir/pane.txt"
+  for line in \
+    "│ >                                            │" \
+    "│ ❯                                            │" \
+    "│ >  │" \
+    "│                                              │"; do
+    printf '%s\n' "$line" > "$capture"
+    if PATH="$fakebin:$PATH" FM_FAKE_TMUX_CAPTURE="$capture" FM_FAKE_TMUX_CURSOR_Y=0 \
+      pane_input_pending "fakepane"; then
+      fail "bordered idle composer falsely detected as pending: <$line>"
+    fi
+  done
+  pass "pane_input_pending: an idle bordered composer is NOT pending (afk-invx-i5)"
+}
+
+test_pane_input_pending_bordered_with_text_is_pending() {
+  # Guard against over-broadening: real unsubmitted text inside the box must
+  # still read as pending so the daemon defers (and the captain-return race is
+  # still protected).
+  local dir state fakebin capture
+  dir=$(make_supercase pending-bordered-text)
+  state="$dir/state"; fakebin="$dir/fakebin"; capture="$dir/pane.txt"
+  printf '%s\n' "│ > fix findings 1 and 3, skip 2               │" > "$capture"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_CAPTURE="$capture" FM_FAKE_TMUX_CURSOR_Y=0 \
+    pane_input_pending "fakepane" \
+    || fail "real text inside a bordered composer was not detected as pending"
+  pass "pane_input_pending: text inside a bordered composer is still pending"
+}
+
+test_submit_ack_confirms_on_bordered_empty_composer() {
+  # RC2: the submit acknowledgement must recognize a bordered-EMPTY composer as
+  # "submitted." The old ACK reused the broken check, so on claude it could never
+  # confirm and always reported a false "Enter swallowed."
+  local dir fakebin sent verdict
+  dir=$(make_bordered_case ack-bordered)
+  fakebin="$dir/fakebin"; sent="$dir/sent.log"; : > "$sent"
+  verdict=$(PATH="$fakebin:$PATH" FM_FAKE_COMPOSER="$dir/composer" FM_FAKE_SENT="$sent" \
+    fm_tmux_submit_core "win" "the digest" 3 0.05 0.05)
+  [ "$verdict" = empty ] || fail "submit-ACK did not confirm on a bordered-empty composer: $verdict"
+  [ "$(grep -cv '\[ENTER\]' "$sent")" -eq 1 ] || fail "digest typed more than once (retype)"
+  [ "$(grep -c '\[ENTER\]' "$sent")" -eq 1 ] || fail "expected exactly one submitted Enter"
+  pass "submit-ACK confirms a submit when the composer returns to a bordered-empty box"
+}
+
+test_submit_ack_reports_pending_on_persistent_swallow() {
+  # A genuinely swallowed Enter (text stays in the box across all retries) is
+  # reported as "pending" — the daemon keeps the buffer, fm-send exits non-zero —
+  # and the digest is typed ONCE (Enter-only retries, never a retype).
+  local dir fakebin sent verdict
+  dir=$(make_bordered_case ack-swallow)
+  fakebin="$dir/fakebin"; sent="$dir/sent.log"; : > "$sent"
+  touch "$dir/.swallow"
+  verdict=$(PATH="$fakebin:$PATH" FM_FAKE_COMPOSER="$dir/composer" FM_FAKE_SENT="$sent" \
+    FM_FAKE_SWALLOW="$dir/.swallow" FM_FAKE_PERSIST_SWALLOW=1 \
+    fm_tmux_submit_core "win" "the digest" 3 0.05 0.05)
+  [ "$verdict" = pending ] || fail "persistent swallow not reported as pending: $verdict"
+  [ "$(grep -cv '\[ENTER\]' "$sent")" -eq 1 ] || fail "digest retyped on swallow (expected type-once)"
+  pass "submit-ACK reports pending on a persistently swallowed Enter (type-once)"
+}
+
+test_max_defer_empty_swallow_types_once_and_alarms() {
+  local dir state fakebin sent
+  dir=$(make_bordered_case maxdefer-stuck)
+  state="$dir/state"; fakebin="$dir/fakebin"
+  sent="$dir/sent.log"; : > "$sent"
+  printf '│ > │\n' > "$dir/composer"
+  touch "$dir/.swallow"
+  escalate_add "$state" "needs-decision: pick A"
+  echo $(( $(date +%s) - 600 )) > "$state/.subsuper-escalations.since"
+  afk_enter "$state"
+  PATH="$fakebin:$PATH" FM_FAKE_COMPOSER="$dir/composer" FM_FAKE_SENT="$sent" \
+    FM_FAKE_SWALLOW="$dir/.swallow" FM_FAKE_PERSIST_SWALLOW=1 FM_INJECT_CONFIRM_SLEEP=0.05 \
+    FM_ESCALATE_BATCH_SECS=99999 FM_MAX_DEFER_SECS=60 housekeeping "$state"
+  [ "$(grep -c 'Supervisor escalate' "$sent" 2>/dev/null || true)" -eq 1 ] \
+    || fail "max-defer typed the digest more than once"
+  [ -s "$state/.subsuper-inject-wedged" ] \
+    || fail "stuck max-defer inject did not raise a wedge alarm marker"
+  [ -s "$state/.subsuper-escalations" ] \
+    || fail "buffer lost after a failed max-defer inject (must be preserved)"
+  pass "max-defer on an empty stuck pane types once, alarms, and preserves the buffer"
+}
+
+test_max_defer_flushes_empty_idle_pane() {
+  local dir state fakebin sent
+  dir=$(make_bordered_case maxdefer-recover)
+  state="$dir/state"; fakebin="$dir/fakebin"
+  sent="$dir/sent.log"; : > "$sent"
+  printf '│ > │\n' > "$dir/composer"
+  escalate_add "$state" "done: PR https://x/y/pull/1"
+  echo $(( $(date +%s) - 600 )) > "$state/.subsuper-escalations.since"
+  afk_enter "$state"
+  PATH="$fakebin:$PATH" FM_FAKE_COMPOSER="$dir/composer" FM_FAKE_SENT="$sent" \
+    FM_ESCALATE_BATCH_SECS=99999 FM_MAX_DEFER_SECS=60 FM_INJECT_CONFIRM_SLEEP=0.05 \
+    housekeeping "$state"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "buffer not cleared after a recovered max-defer flush"
+  [ ! -e "$state/.subsuper-inject-wedged" ] || fail "wedge alarm left behind after a successful max-defer flush"
+  pass "max-defer flushes and clears the buffer on an empty bordered pane"
+}
+
+test_max_defer_pending_composer_alarms_without_typing() {
+  local dir state fakebin sent
+  dir=$(make_bordered_case maxdefer-pending-digest)
+  state="$dir/state"; fakebin="$dir/fakebin"
+  sent="$dir/sent.log"; : > "$sent"
+  printf '│ > human draft │\n' > "$dir/composer"
+  escalate_add "$state" "needs-decision: pick B"
+  echo $(( $(date +%s) - 600 )) > "$state/.subsuper-escalations.since"
+  afk_enter "$state"
+  PATH="$fakebin:$PATH" FM_FAKE_COMPOSER="$dir/composer" FM_FAKE_SENT="$sent" \
+    FM_ESCALATE_BATCH_SECS=99999 FM_MAX_DEFER_SECS=60 FM_INJECT_CONFIRM_SLEEP=0.05 \
+    housekeeping "$state"
+  [ ! -s "$sent" ] || fail "max-defer typed into a pending composer"
+  [ -s "$state/.subsuper-inject-wedged" ] || fail "pending composer did not raise a wedge alarm marker"
+  [ -s "$state/.subsuper-escalations" ] || fail "buffer lost while composer was pending"
+  grep -F 'human draft' "$dir/composer" >/dev/null || fail "pending composer content changed"
+  pass "max-defer on a pending composer alarms without typing"
+}
+
+test_normal_flush_clears_stale_wedge_marker() {
+  local dir state fakebin sent
+  dir=$(make_bordered_case normal-clears-wedge)
+  state="$dir/state"; fakebin="$dir/fakebin"
+  sent="$dir/sent.log"; : > "$sent"
+  printf 'old wedge\n' > "$state/.subsuper-inject-wedged"
+  escalate_add "$state" "done: PR https://x/y/pull/2"
+  afk_enter "$state"
+  PATH="$fakebin:$PATH" FM_FAKE_COMPOSER="$dir/composer" FM_FAKE_SENT="$sent" \
+    FM_INJECT_CONFIRM_SLEEP=0.05 escalate_flush "$state" \
+    || fail "normal escalate_flush failed"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "buffer not cleared after normal flush"
+  [ ! -e "$state/.subsuper-inject-wedged" ] || fail "wedge marker survived successful normal flush"
+  pass "normal flush clears a stale wedge marker"
+}
+
+test_below_max_defer_does_nothing() {
+  local dir state fakebin sent capture
+  dir=$(make_supercase below-maxdefer)
+  state="$dir/state"; fakebin="$dir/fakebin"
+  sent="$dir/sent.log"; : > "$sent"
+  capture="$dir/pane.txt"; printf 'stuck junk line\n' > "$capture"
+  escalate_add "$state" "needs-decision: pick A"
+  date +%s > "$state/.subsuper-escalations.since"   # just now
+  afk_enter "$state"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_PANE_ALIVE=1 FM_FAKE_TMUX_SENT="$sent" \
+    FM_FAKE_TMUX_CAPTURE="$capture" FM_FAKE_TMUX_CURSOR_Y=0 \
+    FM_ESCALATE_BATCH_SECS=99999 FM_MAX_DEFER_SECS=300 housekeeping "$state"
+  [ ! -s "$sent" ] || fail "injected before MAX_DEFER elapsed"
+  [ ! -e "$state/.subsuper-inject-wedged" ] || fail "wedge alarm fired before MAX_DEFER"
+  [ -s "$state/.subsuper-escalations" ] || fail "buffer dropped below MAX_DEFER"
+  pass "below MAX_DEFER: no inject, no alarm, buffer preserved"
+}
+
+test_max_defer_afk_inactive_does_not_flush_or_alarm() {
+  local dir state fakebin sent
+  dir=$(make_bordered_case maxdefer-inactive)
+  state="$dir/state"; fakebin="$dir/fakebin"
+  sent="$dir/sent.log"; : > "$sent"
+  escalate_add "$state" "needs-decision: pick B"
+  echo $(( $(date +%s) - 600 )) > "$state/.subsuper-escalations.since"
+  PATH="$fakebin:$PATH" FM_FAKE_COMPOSER="$dir/composer" FM_FAKE_SENT="$sent" \
+    FM_ESCALATE_BATCH_SECS=99999 FM_MAX_DEFER_SECS=60 FM_INJECT_CONFIRM_SLEEP=0.05 \
+    housekeeping "$state"
+  [ ! -s "$sent" ] || fail "injected while afk was inactive"
+  [ ! -e "$state/.subsuper-inject-wedged" ] || fail "wedge alarm fired while afk was inactive"
+  [ -s "$state/.subsuper-escalations" ] || fail "buffer dropped while afk was inactive"
+  pass "max-defer does not flush or alarm while afk is inactive"
+}
+
+test_fm_send_exits_nonzero_on_confirmed_swallow() {
+  # fm-send.sh must exit NON-ZERO when a steer's Enter is positively swallowed
+  # (text left in the composer), so firstmate learns the instruction did not land
+  # — and exit ZERO on a clean submit.
+  local dir fakebin err
+  dir=$(make_bordered_case send-swallow)
+  fakebin="$dir/fakebin"; err="$dir/send.err"
+  # Clean submit -> exit 0.
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$dir/state" FM_FAKE_COMPOSER="$dir/composer" \
+    FM_SEND_SLEEP=0.05 "$ROOT/bin/fm-send.sh" sess:win 'route this work' >/dev/null 2>"$err" \
+    || fail "fm-send exited non-zero on a clean submit: $(cat "$err")"
+  # Persistent swallow -> exit non-zero with a clear message.
+  printf '│ > │\n' > "$dir/composer"
+  touch "$dir/.swallow"
+  if PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$dir/state" FM_FAKE_COMPOSER="$dir/composer" \
+    FM_FAKE_SWALLOW="$dir/.swallow" FM_FAKE_PERSIST_SWALLOW=1 FM_SEND_SLEEP=0.05 \
+    "$ROOT/bin/fm-send.sh" sess:win 'fix findings 1 and 3, skip 2' >/dev/null 2>"$err"; then
+    fail "fm-send exited zero despite a swallowed Enter (silent unsubmitted instruction)"
+  fi
+  grep -F 'not submitted' "$err" >/dev/null || fail "fm-send did not explain the swallowed submit: $(cat "$err")"
+  pass "fm-send exits non-zero on a confirmed swallow, zero on a clean submit"
+}
+
+test_fm_send_exits_nonzero_on_initial_send_failure() {
+  local dir fakebin err
+  dir=$(make_bordered_case send-type-failure)
+  fakebin="$dir/fakebin"; err="$dir/send.err"
+  if PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$dir/state" FM_FAKE_COMPOSER="$dir/composer" \
+    FM_FAKE_SEND_FAIL=1 FM_SEND_SLEEP=0.05 \
+    "$ROOT/bin/fm-send.sh" sess:win 'route this work' >/dev/null 2>"$err"; then
+    fail "fm-send exited zero despite initial tmux send-keys failure"
+  fi
+  grep -F 'text not sent' "$err" >/dev/null || fail "fm-send did not explain initial send failure: $(cat "$err")"
+  pass "fm-send exits non-zero when initial text send fails"
+}
+
 test_daemon_state_root_uses_fm_home
 test_concurrent_append_and_drain
 test_signal_catchup_without_running_watcher
@@ -1003,8 +1293,22 @@ test_strip_injection_marker
 test_pane_input_pending_detects_partial_input
 test_pane_input_pending_blank_is_not_pending
 test_pane_input_pending_idle_prompt_not_pending
+test_pane_input_pending_honors_idle_override_after_border_strip
 test_composer_guard_defers_on_partial_input
 test_inject_types_once_retries_enter_only
 test_inject_no_duplicate_on_success
 test_classify_signal_dedup_against_scan
 test_classify_stale_dedup_against_signal
+# afk-invx-i5 regressions: bordered-composer detection, submit-ACK, max-defer.
+test_pane_input_pending_bordered_idle_not_pending
+test_pane_input_pending_bordered_with_text_is_pending
+test_submit_ack_confirms_on_bordered_empty_composer
+test_submit_ack_reports_pending_on_persistent_swallow
+test_max_defer_empty_swallow_types_once_and_alarms
+test_max_defer_flushes_empty_idle_pane
+test_max_defer_pending_composer_alarms_without_typing
+test_normal_flush_clears_stale_wedge_marker
+test_below_max_defer_does_nothing
+test_max_defer_afk_inactive_does_not_flush_or_alarm
+test_fm_send_exits_nonzero_on_confirmed_swallow
+test_fm_send_exits_nonzero_on_initial_send_failure
