@@ -84,7 +84,7 @@ cd firstmate && claude
 
 That is the whole install.
 On first launch the first mate detects what its required toolchain is missing or too old (tmux, node, gh, treehouse with durable lease support, no-mistakes, gh-axi, chrome-devtools-axi, lavish-axi), lists it with the exact install commands, and installs only after you say go.
-If `tasks-axi` is already on `PATH`, bootstrap records it as an optional capability fact, but firstmate still hand-edits `data/backlog.md` until that tool can parse firstmate's backlog format.
+If compatible `tasks-axi` is already on `PATH`, bootstrap records it as an optional capability fact and firstmate uses its verbs for routine backlog mutations; when it is absent or incompatible, firstmate keeps hand-editing `data/backlog.md` exactly as before.
 
 **Run it inside tmux for the best experience.**
 firstmate works from any terminal - outside tmux, crewmates land in a detached `firstmate` session you can attach to - but launching your harness from inside tmux puts every crewmate window in your own session, one per task, where you can watch the crew work in real time or type into any window to intervene.
@@ -166,14 +166,16 @@ The first mate drives these; you rarely need to, but they work by hand too.
 | `fm-peek.sh`             | Print a bounded tail of a crewmate pane                                                                             |
 | `fm-pr-check.sh`         | Record a PR-ready task and arm the watcher's merge poll                                                             |
 | `fm-promote.sh`          | Promote a scout task in place so it becomes a protected ship task                                                   |
-| `fm-teardown.sh`         | Return the worktree or retire/release a secondmate home; protects ship work, requires scout reports, and checks child work |
+| `fm-teardown.sh`         | Return the worktree or retire/release a secondmate home; protects ship work, requires scout reports, checks child work, and prints the backlog reminder |
 | `fm-harness.sh`          | Detect the running harness; resolve the effective crewmate harness                                                  |
 | `fm-lock.sh`             | Per-home firstmate session lock                                                                                     |
 
 ## Configuration
 
 The shared orchestrator behavior lives in `AGENTS.md` - edit it like any prompt when the fleet is empty, or dispatch shared-repo edits to a crewmate while tasks are in flight.
-The tracked `.tasks.toml` pins the optional `tasks-axi` markdown backend to `data/backlog.md`, but current backlog mutations remain manual until `tasks-axi` can parse firstmate's backlog format.
+The tracked `.tasks.toml` pins the optional `tasks-axi` markdown backend to `data/backlog.md`, with `done_keep = 10` and an archive at `data/done-archive.md`.
+When compatible `tasks-axi` is on `PATH`, firstmate uses its verbs for routine backlog mutations and keeps secondmate transfers behind `fm-backlog-handoff.sh` validation; without it, backlog bookkeeping remains manual.
+Compatible means the shared bootstrap probe accepts `tasks-axi --version` as 0.1.1 or newer.
 Personal preferences for one captain's fleet live locally in `data/captain.md`; it is gitignored and read after `data/projects.md` and optional `data/secondmates.md` during bootstrap.
 Persistent secondmate routes live locally in `data/secondmates.md`.
 Each line records the secondmate id, charter summary, absolute home path, natural-language scope, project clone list, and added date; `fm-home-seed.sh validate` refuses duplicate ids, duplicate homes, and nested or overlapping homes.
@@ -236,7 +238,7 @@ tests/fm-composer-ghost.test.sh           # dim-ghost stripping, ghost-only comp
 tests/fm-afk-inject-e2e.test.sh           # private-socket end-to-end test of the afk injection path (partial-input deferral, swallowed-Enter retry)
 tests/fm-bootstrap.test.sh                # bootstrap dependency and feature-probe tests
 tests/fm-secondmate.test.sh               # persistent secondmate routing, seeding, idle charter, backlog handoff, spawn, recovery, teardown, and FM_HOME tests
-tests/fm-teardown.test.sh                 # fm-teardown.sh unpushed-work safety check: local-only fork-remote allow, truly-unpushed refuse, merged-to-main allow, no-mistakes regression, --force override
+tests/fm-teardown.test.sh                 # fm-teardown.sh safety and reminder checks: local-only fork-remote allow, truly-unpushed refuse, merged-to-main allow, no-mistakes regression, tasks-axi reminder, --force override
 [ "$(readlink CLAUDE.md)" = "AGENTS.md" ]
 [ "$(readlink .claude/skills)" = "../.agents/skills" ]
 FM_HEARTBEAT=2 FM_POLL=1 bin/fm-watch.sh  # watcher smoke test (prints "heartbeat")
