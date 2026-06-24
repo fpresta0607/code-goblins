@@ -176,6 +176,16 @@ The first mate drives these; you rarely need to, but they work by hand too.
 | `fm-harness.sh`          | Detect the running harness; resolve the effective crewmate harness                                                  |
 | `fm-lock.sh`             | Per-home firstmate session lock                                                                                     |
 
+## Built-in skills
+
+Firstmate ships these built-in skills you invoke by name.
+Claude uses the slash form shown here; codex uses the same names with `$`, such as `$afk`.
+
+| Skill              | What it does                                                                                                                                  |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/afk`             | Enter away-mode supervision: the sub-supervisor self-handles routine wakes in bash and escalates only captain-relevant events as one batched digest, cutting supervision cost while you step away |
+| `/updatefirstmate` | Self-update the running firstmate and its secondmates to the latest from origin with fast-forward-only pulls, then re-read instructions and nudge secondmates |
+
 ## Configuration
 
 The shared orchestrator behavior lives in `AGENTS.md` - edit it like any prompt when the fleet is empty, or dispatch shared-repo edits to a crewmate while tasks are in flight.
