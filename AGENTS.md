@@ -488,9 +488,12 @@ It costs zero tokens while running and exits with one reason line when something
 It also writes each detected wake to the durable queue at `state/.wake-queue` before advancing suppression markers such as `.seen-*`, `.stale-*`, `.last-check`, or `.last-heartbeat`.
 At the start of every wake-handling turn and every recovery turn, run `bin/fm-wake-drain.sh` before peeking panes, reading status files beyond the reason line, or starting new work.
 The printed one-shot reason line is still useful, but the drained queue is the lossless backlog.
-After handling drained wakes, re-arm `bin/fm-watch.sh` before you end the turn.
-The watcher is singleton-safe: if one is already alive with a fresh liveness beacon, another invocation exits cleanly instead of creating a duplicate watcher; if the live holder's beacon is stale, the new invocation exits with an actionable failure.
-Do not pkill-and-restart the watcher as a routine operation; just arm it, and let the singleton lock no-op when appropriate.
+After handling drained wakes, re-arm the watcher before you end the turn by running `bin/fm-watch-arm.sh` as a background task.
+The watcher is singleton-safe: acquisition is race-proof, so under any number of concurrent arms at most one watcher ever holds this home's lock, and a duplicate that somehow starts self-evicts within one poll once it sees the lock no longer names it.
+If one is already alive with a fresh liveness beacon, another invocation exits cleanly instead of creating a duplicate watcher; if the live holder's beacon is stale, the new invocation exits with an actionable failure.
+Re-arming is the primary model: just run `bin/fm-watch-arm.sh` and let the singleton lock no-op when a healthy watcher is already alive.
+If a forced restart is ever genuinely needed, use `bin/fm-watch-arm.sh --restart`, which stops only THIS home's watcher (the pid recorded in this home's `state/.watch.lock`) and starts a fresh one.
+Never `pkill -f bin/fm-watch.sh`: that pattern matches every firstmate home's watcher, including secondmate homes that run the same script, so a broad pkill from one home kills sibling homes' watchers.
 P2 of the watcher reliability design - proactive routing of wakes into supervisor turns for chat-mode / walk-away supervision - is provided by the optional sub-supervisor (`bin/fm-supervise-daemon.sh`, below), which is presence-gated via the `/afk` skill.
 P3, a blocking-waiter split, remains deferred; the one-shot restart model is otherwise preserved.
 Waiting on the watcher is intentionally silent.
@@ -498,8 +501,10 @@ After arming it, do not send idle progress updates to the captain; wait until it
 Empty polls, elapsed waiting time, and "still no change" are tool bookkeeping, not conversational progress.
 
 ```sh
-bin/fm-watch.sh   # run in background; exits with: signal|stale|check|heartbeat
-bin/fm-wake-drain.sh   # drain queued wake records at turn start
+bin/fm-watch-arm.sh        # safe re-arm; run in background; no-ops if a healthy watcher is alive
+bin/fm-watch-arm.sh --restart  # home-scoped forced restart; never a broad pkill
+bin/fm-watch.sh            # the watcher itself; exits with: signal|stale|check|heartbeat
+bin/fm-wake-drain.sh       # drain queued wake records at turn start
 ```
 
 On wake, in order of cheapness:
@@ -528,7 +533,7 @@ The supervision scripts (`fm-peek`, `fm-send`, `fm-spawn`, `fm-teardown`, `fm-pr
 So the next time you touch the fleet with queued wakes or no watcher alive, the tool output itself tells you what to do - a pull-based guard that works on any harness, since it rides the script output you already read rather than a harness-specific hook.
 The grace window keeps normal handling (watcher briefly down between a wake and its re-arm) silent.
 If a guard warning says queued wakes are pending, drain them before doing anything else.
-If a guard warning says watcher liveness is stale, arm `bin/fm-watch.sh` after draining any queued wakes.
+If a guard warning says watcher liveness is stale, arm `bin/fm-watch-arm.sh` after draining any queued wakes.
 Watcher liveness is not enough if you are foreground-blocked.
 Whenever one or more tasks are in flight, do not run long foreground-blocking operations in your own session.
 This includes your own no-mistakes pipeline, long builds, and any other multi-minute command.
@@ -551,7 +556,7 @@ The `/afk` skill is the explicit trigger: invoking it sets a durable away-mode f
 **Entering afk.** Invoke the `/afk` skill.
 It sets `state/.afk` (durable — recovery re-enters afk if the flag survives a restart), ensures the daemon is running (`nohup bin/fm-supervise-daemon.sh &` if the pid is dead or absent), and acknowledges.
 With afk active:
-- **Do not separately arm `fm-watch.sh`.** The daemon manages the watcher; the singleton lock no-ops a stray arm harmlessly, but the daemon is the single owner.
+- **Do not separately arm the watcher with `fm-watch-arm.sh` or `fm-watch.sh`.** The daemon manages the watcher; the singleton lock no-ops a stray arm harmlessly, but the daemon is the single owner.
 - **`fm-wake-drain.sh` still runs at the start of every escalated firstmate turn** - it is the lossless backstop. The daemon routes; the queue guarantees nothing is lost. The two are complementary, not redundant.
 
 **In-band sentinel marker (the load-bearing detail).** The daemon injects into the same pane the captain types into, so an escalation would otherwise look like a user message and cancel afk the moment it fired.
@@ -561,7 +566,7 @@ The marker travels with the message text; it does not rely on harness-level type
 **Exiting afk (the captain's contract).** When firstmate receives a message while afk is active:
 - Leading marker present → **internal escalation**. Stay afk, process it.
 - Message starts with `/afk` → **afk re-invocation**. Stay afk (refresh the flag); do not treat as a return.
-- Anything else → **the captain is back.** Clear `state/.afk`, stop the daemon, flush one distilled "while you were out" catch-up (drain `state/.wake-queue` + summarize any pending `state/.subsuper-escalations` and `state/.subsuper-inject-wedged` marker), and resume full per-wake responsiveness (arm `bin/fm-watch.sh`).
+- Anything else → **the captain is back.** Clear `state/.afk`, stop the daemon, flush one distilled "while you were out" catch-up (drain `state/.wake-queue` + summarize any pending `state/.subsuper-escalations` and `state/.subsuper-inject-wedged` marker), and resume full per-wake responsiveness (arm `bin/fm-watch-arm.sh`).
 **Bias ambiguous cases toward exit** (a present captain beats token savings; a false exit is self-correcting).
 
 **Orthogonal to yolo.** afk changes how aggressively firstmate surfaces things, not who approves what. "Away" never means "approves more" — a PR, a needs-decision finding, or anything destructive still waits for the captain's explicit word.
@@ -594,7 +599,7 @@ This is why fewer, cheaper firstmate turns handle the same fleet.
   That empty composer is the acknowledgement that the submit landed, using the same dim-ghost-aware and border-aware detector so a ghost-only or bordered-empty claude composer counts as submitted rather than a false "swallowed Enter".
   `fm-send.sh` shares this primitive and exits non-zero on a positively-confirmed swallow, so firstmate learns a steer did not land instead of leaving it unsubmitted.
 - **Marker strip** - `strip_injection_marker` removes the sentinel prefix before classification/relay, so the digest text firstmate sees is clean.
-- **Portable singleton lock** - the daemon uses the repo's mkdir-based lock helper (`fm-wake-lib.sh`) instead of `flock`, which is absent on macOS.
+- **Portable singleton lock** - the daemon uses the repo's portable lock helper (`fm-wake-lib.sh`) instead of `flock`, which is absent on macOS.
 - **Dedupe across signal/stale/scan** - `classify_signal` and `classify_stale` both check the seen-status marker before escalating, so a status escalated by one path is not re-escalated by another in the same digest.
 - **Auto-discovered supervisor pane** - the daemon resolves its injection target from `FM_SUPERVISOR_TARGET`, then `$TMUX_PANE` (inherited from the pane that launched it), then a `firstmate:0` fallback with a warning; the resolution source is logged at startup so a wrong-but-resolving fallback is detectable.
 
