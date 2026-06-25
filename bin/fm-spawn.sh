@@ -10,6 +10,8 @@
 #   --scout records kind=scout in the task's meta (report deliverable, scratch worktree;
 #   see AGENTS.md task lifecycle); --secondmate records kind=secondmate and launches in a
 #   provisioned firstmate home; the default is kind=ship.
+#   Ship/scout spawns refuse to launch after treehouse get unless the resolved pane
+#   path is a real git worktree root distinct from the primary project checkout.
 # Batch dispatch: pass one or more `id=repo` pairs instead of a single <id> <project>, e.g.
 #     fm-spawn.sh fix-a-k3=projects/foo add-b-q7=projects/bar [--scout]
 #   Each pair re-execs this script in single-task mode, so the single path stays the only
@@ -342,6 +344,31 @@ if [ "$KIND" != secondmate ]; then
   done
   if [ -z "$WT" ]; then
     echo "error: treehouse get did not enter a worktree within 60s; inspect window $T" >&2
+    exit 1
+  fi
+
+  # Isolation guard: refuse to launch unless WT is a genuine, ISOLATED worktree -
+  # a real git worktree root, distinct from the project's primary checkout
+  # (PROJ_ABS). Firstmate is a treehouse-pooled repo of itself, so a treehouse-get
+  # misfire can leave the pane in (or in a subdir of, or a symlink to) the primary
+  # checkout; branching/committing there would tangle the primary onto a feature
+  # branch (see fm-tangle-lib.sh). The wait loop above only proves the pane left
+  # PROJ_ABS's exact path; this proves it landed in a true, separate worktree.
+  wt_real=
+  if ! wt_real=$(cd "$WT" 2>/dev/null && pwd -P); then
+    wt_real=
+  fi
+  proj_real=
+  if ! proj_real=$(cd "$PROJ_ABS" 2>/dev/null && pwd -P); then
+    proj_real=
+  fi
+  wt_top=$(git -C "$WT" rev-parse --show-toplevel 2>/dev/null || true)
+  wt_top_real=
+  if ! wt_top_real=$(cd "$wt_top" 2>/dev/null && pwd -P); then
+    wt_top_real=
+  fi
+  if [ -z "$wt_real" ] || [ -z "$wt_top_real" ] || [ "$wt_real" != "$wt_top_real" ] || [ "$wt_real" = "$proj_real" ]; then
+    echo "error: treehouse get did not yield an isolated worktree (resolved '$WT'; worktree root '${wt_top:-none}'; primary '$PROJ_ABS'); refusing to launch to avoid tangling the primary checkout. Inspect window $T" >&2
     exit 1
   fi
 fi
