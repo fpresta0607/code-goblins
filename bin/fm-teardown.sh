@@ -3,9 +3,18 @@
 # secondmate home, kill the tmux window, clear volatile state, refresh/prune
 # the project's clone for PR-based ship tasks, then print a backlog-refresh
 # reminder.
-# REFUSES if the worktree holds work not on any remote, because treehouse return
-# hard-resets the worktree and kills its processes. A fork counts as a remote,
-# so upstream-contribution PRs pushed to a fork satisfy this in any mode.
+# REFUSES if the worktree holds work that has not LANDED, because treehouse return
+# hard-resets the worktree and kills its processes. Work has landed when it is
+# reachable from any remote-tracking branch (a fork counts as a remote, so
+# upstream-contribution PRs pushed to a fork satisfy this in any mode), OR - for a
+# normal ship task whose commits are not so reachable - when its PR is merged and
+# GitHub reports the current HEAD as that PR's head, or its content is already
+# present in the up-to-date default branch. This recognizes the common
+# squash-merge-then-delete-branch flow, where the branch's own commits live nowhere
+# on a remote yet the change is fully in main.
+# A gh lookup error falls back to the content check; if that is also inconclusive,
+# teardown refuses rather than risk discarding unlanded work.
+# Uncommitted changes are never landed.
 # local-only projects additionally accept work merged into the local default
 # branch (firstmate performs that merge on the captain's approval) as a fallback
 # for the common case where there is no remote at all.
@@ -20,9 +29,9 @@
 # never left leased forever. If the treehouse return fails, teardown leaves the
 # leased home and state in place instead of hiding a still-held lease.
 # Usage: fm-teardown.sh <task-id> [--force]
-#   --force skips the unpushed-work check for ordinary tasks and discards
-#   secondmate child work for kind=secondmate. Only use it when the captain has
-#   explicitly said to discard the work.
+#   --force skips ordinary-task dirty and landed-work checks, skips scout report
+#   checks, and discards secondmate child work for kind=secondmate. Only use it
+#   when the captain has explicitly said to discard the work.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,6 +79,79 @@ default_branch() {
 meta_value() {
   local meta=$1 key=$2
   grep "^$key=" "$meta" | cut -d= -f2- || true
+}
+
+# Resolve the PR number for a worktree branch via gh-axi. Echoes the number on a
+# single match and returns 0; returns non-zero on no match or any lookup failure,
+# so the caller treats it as "no PR found" (fail-safe).
+pr_number_from_branch() {
+  local branch=$1 out n
+  [ -n "$branch" ] && [ "$branch" != HEAD ] || return 1
+  out=$( cd "$WT" && gh-axi pr list --state all --head "$branch" --limit 1 2>/dev/null ) || return 1
+  n=$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*\([0-9][0-9]*\),.*/\1/p' | head -1)
+  [ -n "$n" ] || return 1
+  printf '%s' "$n"
+}
+
+# Is the worktree's PR merged for this exact HEAD? Resolves the PR from the
+# recorded pr= URL first, then from the branch name, and asks GitHub for both the
+# PR state and head. Returns non-zero when the PR is not merged, the current HEAD
+# is not the PR head, no PR is found, or any gh error occurs - the caller then
+# falls back to the content check.
+pr_is_merged() {
+  local branch=$1 target view state head current
+  if [ -n "$PR_URL" ]; then
+    target=$PR_URL
+  else
+    target=$(pr_number_from_branch "$branch") || return 1
+  fi
+  [ -n "$target" ] || return 1
+  view=$(cd "$WT" && gh pr view "$target" --json state,headRefOid -q '.state + "\t" + .headRefOid' 2>/dev/null) || return 1
+  state=${view%%$'\t'*}
+  head=${view#*$'\t'}
+  [ "$state" != "$view" ] || return 1
+  case "$state" in
+    MERGED|merged) ;;
+    *) return 1 ;;
+  esac
+  [ -n "$head" ] || return 1
+  current=$(git -C "$WT" rev-parse --verify HEAD 2>/dev/null) || return 1
+  [ "$current" = "$head" ]
+}
+
+# Is the branch's content already present in the up-to-date default branch? Fetches
+# first, then 3-way merges the default branch with HEAD: when HEAD introduces nothing
+# the default branch does not already contain (e.g. its change landed via squash) the
+# merged tree equals the default branch's tree. This isolates branch-only changes, so
+# unrelated commits the default branch gained past the merge-base do not count as
+# "added". Returns non-zero when inconclusive (no default ref, or a merge conflict),
+# so the caller refuses rather than guesses.
+content_in_default() {
+  local name ref default_tree merged_tree
+  name=$(default_branch) || return 1
+  if git -C "$WT" remote get-url origin >/dev/null 2>&1; then
+    git -C "$WT" fetch --quiet origin "+refs/heads/$name:refs/remotes/origin/$name" >/dev/null 2>&1 || return 1
+    ref="refs/remotes/origin/$name"
+  elif git -C "$WT" rev-parse --quiet --verify "refs/heads/$name" >/dev/null 2>&1; then
+    ref="refs/heads/$name"
+  else
+    return 1
+  fi
+  default_tree=$(git -C "$WT" rev-parse --quiet --verify "$ref^{tree}" 2>/dev/null) || return 1
+  [ -n "$default_tree" ] || return 1
+  merged_tree=$(git -C "$WT" merge-tree --write-tree "$ref" HEAD 2>/dev/null) || return 1
+  merged_tree=$(printf '%s\n' "$merged_tree" | head -1)
+  [ "$merged_tree" = "$default_tree" ]
+}
+
+# Has the worktree's committed work actually LANDED, though its commits are not
+# reachable from any remote-tracking branch? True when a merged PR proves the
+# current HEAD, OR the content is already in the default branch (fallback, which
+# also covers the no-PR and gh-error paths). False only for genuinely unlanded work.
+work_is_landed() {
+  local branch=$1
+  pr_is_merged "$branch" && return 0
+  content_in_default
 }
 
 backlog_refresh_reminder() {
@@ -429,9 +511,14 @@ if [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
   else
     # The fm-spawn hook file is ours, never work product; ignore it in the dirty check.
     dirty=$(git -C "$WT" status --porcelain 2>/dev/null | grep -vE '^\?\? \.claude/' | head -1 || true)
-    # A worktree's work is "safely on a remote" once HEAD is reachable from ANY
-    # remote-tracking branch (empty result here). A fork is a remote too, so
-    # upstream-contribution PRs pushed to a fork satisfy this regardless of mode.
+    # Reachability test: is HEAD reachable from ANY remote-tracking branch? Empty
+    # means the work is already pushed (a fork is a remote too, so upstream-
+    # contribution PRs pushed to a fork pass here). Non-empty does NOT prove the work
+    # is unlanded: a squash or rebase merge rewrites the branch into a new commit on
+    # the default branch, and a repo that auto-deletes the head branch on merge also
+    # drops its remote-tracking ref - so a merged-and-deleted branch trips this test
+    # while being fully landed. We therefore treat reachability as a fast accept, not
+    # the sole verdict, and fall through to a landed-work check before refusing.
     unpushed=$(git -C "$WT" log --oneline HEAD --not --remotes -- 2>/dev/null | head -5 || true)
     if [ -n "$unpushed" ] && [ "$MODE" = local-only ]; then
       # local-only ships have no remote in the common case, so the "on a remote"
@@ -447,12 +534,26 @@ if [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
         echo "Merge the branch into local $DEFAULT first (bin/fm-merge-local.sh after the captain approves), or push to a fork/remote, or get the captain's explicit OK to discard, then --force." >&2
         exit 1
       fi
-    elif [ -n "$dirty" ] || [ -n "$unpushed" ]; then
-      echo "REFUSED: worktree $WT has work not on any remote." >&2
-      [ -n "$dirty" ] && echo "uncommitted changes present" >&2
-      [ -n "$unpushed" ] && printf 'unpushed commits:\n%s\n' "$unpushed" >&2
-      echo "Push the branch (or get the captain's explicit OK to discard, then --force)." >&2
+    elif [ -n "$dirty" ]; then
+      # Uncommitted changes are never landed and the reset would discard them; always
+      # refuse, regardless of whether the committed work itself has landed.
+      echo "REFUSED: worktree $WT has uncommitted changes." >&2
+      echo "uncommitted changes present" >&2
+      echo "Commit them (or get the captain's explicit OK to discard, then --force)." >&2
       exit 1
+    elif [ -n "$unpushed" ]; then
+      # Commits not reachable from any remote. Before refusing, recognize LANDED work:
+      # a merged PR for the current HEAD or content already in the up-to-date default
+      # branch. On a gh lookup error work_is_landed falls back to the content check,
+      # and if that is also inconclusive it returns false - so we never silently allow
+      # teardown of possibly-unlanded work; only genuinely unlanded work is refused.
+      branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
+      if ! work_is_landed "$branch"; then
+        echo "REFUSED: worktree $WT has work not on any remote and not landed." >&2
+        printf 'unpushed commits:\n%s\n' "$unpushed" >&2
+        echo "Push the branch, land its PR, or get the captain's explicit OK to discard, then --force." >&2
+        exit 1
+      fi
     fi
   fi
 fi
