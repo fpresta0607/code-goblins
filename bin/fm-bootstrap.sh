@@ -4,7 +4,8 @@
 #          Detect: prints one line per problem or capability fact and exits 0.
 #          Silent = all good.
 #          Lines: "MISSING: <tool> (install: <command>)", "NEEDS_GH_AUTH",
-#                 "CREW_HARNESS_OVERRIDE: <name>", "FLEET_SYNC: <repo>: skipped: <reason>",
+#                 "CREW_HARNESS_OVERRIDE: <name>",
+#                 "FLEET_SYNC: <repo>: skipped|recovered|STUCK: <detail>",
 #                 "TASKS_AXI: available", "TANGLE: <remediation>",
 #                 "SECONDMATE_SYNC: secondmate <id>: skipped: <reason>",
 #                 "NUDGE_SECONDMATES: <window-targets...>",
@@ -29,8 +30,9 @@
 #          X mode is OPTIONAL and inert unless FM_HOME/.env has a non-empty
 #          FMX_PAIRING_TOKEN. When opted in, bootstrap requires curl+jq, writes
 #          the relay poll shim and 30s cadence config, and prints an FMX line.
-#          Fleet sync fetches, fast-forwards, and prunes gone local branches;
-#          it is bounded by FM_FLEET_SYNC_BOOTSTRAP_TIMEOUT, default 20s.
+#          Fleet sync fetches, fast-forwards safe default-branch states, reports
+#          recovered and STUCK clone drift, and prunes gone local branches; it is
+#          bounded by FM_FLEET_SYNC_BOOTSTRAP_TIMEOUT, default 20s.
 #          Set FM_FLEET_PRUNE=0 to skip branch pruning during that refresh.
 #        fm-bootstrap.sh install <tool>...
 #          Install the named tools (only ones the captain approved).
@@ -84,6 +86,8 @@ fleet_sync() {
       *': skipped: local-only project') ;;
       *': skipped: no origin remote') ;;
       *': skipped:'*) echo "FLEET_SYNC: $line" ;;
+      *': STUCK:'*) echo "FLEET_SYNC: $line" ;;
+      *': recovered:'*) echo "FLEET_SYNC: $line" ;;
     esac
   done < "$tmp"
   rm -f "$tmp"
