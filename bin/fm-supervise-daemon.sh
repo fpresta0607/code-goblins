@@ -13,12 +13,11 @@
 # PRESENCE-GATING (the /afk contract). The daemon is the away-mode engine: it
 # injects ONLY when the durable away-mode flag state/.afk is present. Invoking
 # the /afk skill sets that flag and starts this daemon; any real (unmarked)
-# user message clears it and firstmate resumes full per-wake responsiveness.
-# When afk is off, the daemon stays quiet — it self-handles routine wakes and
-# buffers escalations without injecting, so the base one-shot fm-watch.sh
-# protocol is the active mechanism. Escalations that arrive while afk is off
-# survive in state/.subsuper-escalations and are flushed on the next
-# "while you were out" catch-up or when afk is re-entered.
+# user message clears it and firstmate resumes full responsiveness.
+# When afk is off, normal fm-watch.sh always-on triage is the active mechanism.
+# Any buffered daemon escalations that remain while afk is off survive in
+# state/.subsuper-escalations and are flushed on the next "while you were out"
+# catch-up or when afk is re-entered.
 #
 # IN-BAND SENTINEL MARKER. Every daemon injection is prefixed with
 # FM_INJECT_MARK (ASCII unit separator, 0x1f) — a byte a human would never type
@@ -29,10 +28,12 @@
 # human share one input channel — so they live together under /afk.
 #
 # Reliability model (see the /afk skill):
-#   - Nothing is lost: the #29 watcher enqueues every wake to state/.wake-queue
-#     BEFORE advancing its suppression markers, so a crash/restart/missed
-#     injection is recovered on the next fm-wake-drain.sh. The daemon does not
-#     touch the queue; it only reads the watcher's stdout reason.
+#   - Nothing is lost in away mode: while state/.afk exists, the watcher reverts
+#     to daemon-owned one-shot behavior and enqueues every wake to
+#     state/.wake-queue BEFORE advancing its suppression markers, so a
+#     crash/restart/missed injection is recovered on the next fm-wake-drain.sh.
+#     The daemon does not touch the queue; it only reads the watcher's stdout
+#     reason.
 #   - Fail-safe-to-escalate: any wake the classifier cannot confidently mark
 #     routine is escalated.
 #   - Bounded wedge latency: a stale pane is escalated only after it has been
@@ -108,6 +109,13 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 # shellcheck source=bin/fm-tmux-lib.sh
 . "$FM_DAEMON_DIR/fm-tmux-lib.sh"
 
+# Shared wake classifier (last_status_line, status_is_captain_relevant,
+# window_to_task, scan_captain_relevant_statuses). The SAME library backs the
+# always-on watcher's triage, so the captain-relevant verb set and the
+# classification predicates have exactly one definition.
+# shellcheck source=bin/fm-classify-lib.sh
+. "$FM_DAEMON_DIR/fm-classify-lib.sh"
+
 # --- tunables ---------------------------------------------------------------
 FM_SUPERVISOR_TARGET_DEFAULT="firstmate:0"
 INJECT_SKIP_DEFAULT="heartbeat"
@@ -119,7 +127,9 @@ HOUSEKEEPING_TICK_DEFAULT=15
 # the normal flush path and, if that cannot confirm a submit, raises a loud wedge
 # alarm. The escape hatch makes a guard false-positive visible instead of silent.
 MAX_DEFER_SECS_DEFAULT=300
-CAPTAIN_RE_DEFAULT='done:|needs-decision:|blocked:|failed:|PR ready|checks green|ready in branch|merged'
+# The captain-relevant verb set and the status classifiers (last_status_line,
+# status_is_captain_relevant, window_to_task, scan_captain_relevant_statuses) now
+# live in bin/fm-classify-lib.sh, shared with the always-on watcher.
 # Busy footers + composer-empty detection now live in bin/fm-tmux-lib.sh
 # (FM_TMUX_BUSY_REGEX_DEFAULT / fm_tmux_composer_state); FM_BUSY_REGEX still
 # overrides the busy set here, as before.
@@ -254,26 +264,11 @@ discover_supervisor_target() {
 }
 
 # --- classification helpers (PURE: no side effects, testable) ---------------
-# Return the last non-blank line of a status file (empty if missing/blank).
-last_status_line() {
-  local f=$1
-  [ -e "$f" ] || return 0
-  grep -v '^[[:space:]]*$' "$f" 2>/dev/null | tail -1
-}
-
-# 0 if the given (last) status line matches a captain-relevant verb.
-status_is_captain_relevant() {
-  local line=$1
-  [ -n "$line" ] || return 1
-  printf '%s' "$line" | grep -qiE "${FM_CAPTAIN_RE:-$CAPTAIN_RE_DEFAULT}"
-}
-
-# task id from a tmux window name "<session>:fm-<id>" -> "<id>"
-window_to_task() {
-  local w=$1 t
-  t="${w##*:}"; t="${t#fm-}"; printf '%s' "$t"
-}
-
+# last_status_line, status_is_captain_relevant, window_to_task, and
+# scan_captain_relevant_statuses come from bin/fm-classify-lib.sh (sourced above),
+# the single classifier shared with bin/fm-watch.sh. The decision-string wrappers
+# and dedup state below layer the daemon's escalation-digest concerns on top.
+#
 # Decision protocol: every classifier prints exactly one line on stdout of the
 # form "<action>|<distilled>" where action is "self" or "escalate". The distilled
 # field for "self" is informational (logged); for "escalate" it is the pre-read
@@ -538,20 +533,19 @@ housekeeping() {  # <state>
   done
 
   # (3) heartbeat scan (catch-all for a captain-relevant status the per-wake
-  #     classifier may have missed). Cheap: status files only, no tmux.
+  #     classifier may have missed). Cheap: status files only, no tmux. The
+  #     captain-relevant filtering is the shared classifier's
+  #     scan_captain_relevant_statuses; the daemon layers its digest dedup on top.
   if [ "$(_file_age "$state/.subsuper-last-scan")" -ge "${FM_HEARTBEAT_SCAN_SECS:-$HEARTBEAT_SCAN_SECS_DEFAULT}" ]; then
     _now > "$state/.subsuper-last-scan"
-    for f in "$state"/*.status; do
-      [ -e "$f" ] || continue
-      last=$(last_status_line "$f")
-      status_is_captain_relevant "$last" || continue
-      task=$(basename "$f"); task="${task%.status}"
-      local seen
+    local seen
+    while IFS="$(printf '\t')" read -r f task last; do
+      [ -n "$f" ] || continue
       seen="$state/.subsuper-seen-status-$(_stale_key "$task")"
       [ "$(cat "$seen" 2>/dev/null || true)" = "$last" ] && continue
       escalate_add "$state" "$(basename "$f"): $last (catch-all scan)"
       mark_status_seen "$state" "$task" "$last"
-    done
+    done < <(scan_captain_relevant_statuses "$state")
   fi
 }
 
@@ -588,8 +582,8 @@ inject_msg() {  # <message> [state]
   local msg=$1 state target retries sleep_s verdict
   state="${2:-$(_state_root)}"
   # (1) Presence-gate: inject ONLY when afk is active. When afk is off, the
-  # daemon self-handles and stays quiet; firstmate drives the base one-shot
-  # watcher. Escalations buffer and survive for the next catch-up flush.
+  # daemon self-handles and stays quiet; firstmate drives the normal always-on
+  # watcher triage. Escalations buffer and survive for the next catch-up flush.
   afk_active "$state" || { log "inject deferred: afk inactive"; return 1; }
   # (2) Single-line digest: collapse any embedded newlines so submission via
   # send-keys + Enter is unambiguous regardless of how the TUI composer treats
