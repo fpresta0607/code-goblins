@@ -443,6 +443,14 @@ if [ "$KIND" != secondmate ]; then
   fi
 fi
 
+# Per-task temp root: /tmp/fm-<id>/ with Go's build temp nested at gotmp/. Go won't
+# create GOTMPDIR, so mkdir before it is used; fm-teardown removes the whole root.
+# Nested (not a bare /tmp/fm-<id>/gotmp) so other per-task temp can live alongside
+# later, and teardown cleans one deterministic path. GOTMPDIR (not TMPDIR) is the
+# targeted knob: TMPDIR is too broad (affects every program's temp, not just Go's).
+TASK_TMP="/tmp/fm-$ID"
+mkdir -p "$TASK_TMP/gotmp"
+
 # Per-harness turn-end hook: a file that touches state/<id>.turn-ended when the
 # agent finishes a turn. Worktree-resident hooks are kept out of git's view so
 # they never block teardown's dirty check or leak into a commit.
@@ -570,6 +578,7 @@ fi
   echo "kind=$KIND"
   echo "mode=$MODE"
   echo "yolo=$YOLO"
+  echo "tasktmp=$TASK_TMP"
   if [ "$KIND" = secondmate ]; then
     echo "home=$PROJ_ABS"
     echo "projects=$SECONDMATE_PROJECTS"
@@ -586,6 +595,11 @@ if [ "$KIND" = secondmate ]; then
   sq_home=$(shell_quote "$PROJ_ABS")
   LAUNCH="FM_ROOT_OVERRIDE= FM_STATE_OVERRIDE= FM_DATA_OVERRIDE= FM_PROJECTS_OVERRIDE= FM_CONFIG_OVERRIDE= FM_HOME=$sq_home $LAUNCH"
 fi
+# Export GOTMPDIR into the crewmate's pane shell so the agent and every child
+# process (go build, go test, ...) inherit it. Sent before the launch command so
+# the env is set when the agent starts; the brief sleep lets the export land.
+tmux send-keys -t "$T" "export GOTMPDIR=$TASK_TMP/gotmp" Enter
+sleep 0.3
 tmux send-keys -t "$T" -l "$LAUNCH"
 sleep 0.3
 tmux send-keys -t "$T" Enter
