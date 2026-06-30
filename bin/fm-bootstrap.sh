@@ -15,8 +15,11 @@
 #          commit (a purely LOCAL fast-forward, never an origin fetch) AND whose
 #          instruction surface actually changed; firstmate nudges each to re-read.
 #          Already-current or no-instruction-change homes are silently left alone.
-#          SECONDMATE_SYNC lines report actionable skipped local-HEAD syncs for
-#          live secondmate homes; no-op/current and successful updates stay quiet.
+#          The secondmate sweep also propagates declared inheritable local config
+#          (config/crew-harness today) into each validated live secondmate home.
+#          SECONDMATE_SYNC lines report actionable skipped local-HEAD syncs or
+#          config-inheritance failures for live secondmate homes; no-op/current
+#          and successful updates stay quiet.
 #          A TANGLE line means the firstmate primary checkout (FM_ROOT) is stranded
 #          on a feature branch instead of its default branch - a crewmate's work
 #          landed in the primary instead of its own worktree; restore it per the line.
@@ -50,6 +53,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-tangle-lib.sh"
 # shellcheck source=bin/fm-ff-lib.sh
 . "$SCRIPT_DIR/fm-ff-lib.sh"
+# shellcheck source=bin/fm-config-inherit-lib.sh
+. "$SCRIPT_DIR/fm-config-inherit-lib.sh"
 # shellcheck source=bin/fm-x-lib.sh
 . "$SCRIPT_DIR/fm-x-lib.sh"
 
@@ -125,6 +130,34 @@ secondmate_sync() {
     esac
   done < "$tmp"
   rm -f "$tmp"
+  # Inheritable-config propagation: push the primary's declared LOCAL config
+  # (config/crew-harness today) into every VALIDATED live secondmate home swept
+  # above (FF_SEEN_HOMES is exactly that set). config/ is gitignored, so this is a
+  # separate copy from the tracked-files fast-forward; primary-authoritative, so
+  # it runs whether or not the home's tracked files advanced, keeping the fleet
+  # converged on the primary. The propagation helper stays silent on success; a
+  # primary with no inheritable config set and no downstream copy is a no-op.
+  local meta id home home_real propagated_homes
+  propagated_homes=""
+  for meta in "$STATE"/*.meta; do
+    [ -f "$meta" ] || continue
+    grep -q '^kind=secondmate' "$meta" 2>/dev/null || continue
+    id=$(basename "$meta" .meta)
+    home=$(grep '^home=' "$meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+    validate_secondmate_home "$id" "$home" || continue
+    home_real="$VALIDATED_HOME"
+    case " $FF_SEEN_HOMES " in
+      *" $home_real "*) ;;
+      *) continue ;;
+    esac
+    case " $propagated_homes " in
+      *" $home_real "*) continue ;;
+    esac
+    propagated_homes="$propagated_homes $home_real"
+    if ! propagate_inheritable_config "$CONFIG" "$home_real/config"; then
+      echo "SECONDMATE_SYNC: secondmate $id: skipped: config inheritance failed"
+    fi
+  done
   [ -n "$FF_NUDGE_WINDOWS" ] && echo "NUDGE_SECONDMATES:$FF_NUDGE_WINDOWS"
   return 0
 }
