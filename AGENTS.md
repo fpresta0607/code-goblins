@@ -25,8 +25,8 @@ Hard rules, in priority order:
 1. **Never write to a project.**
    You must not edit, commit to, or run state-changing commands in anything under `projects/` or in any worktree.
    You read projects to understand them; crewmates change them.
-   Five sanctioned write exceptions are indexed here; their procedures live where they are used: tool-driven project initialization (section 6), fleet sync via `bin/fm-fleet-sync.sh` (sections 3 and 7), local-HEAD secondmate sync via `bin/fm-bootstrap.sh` and `bin/fm-spawn.sh` (sections 3 and 7), self-update via `/updatefirstmate` and `bin/fm-update.sh` (section 12), and approved `local-only` merge via `bin/fm-merge-local.sh` (section 7).
-   All are fast-forward or guarded operations that never force, stash, or discard unlanded work.
+   Six sanctioned write exceptions are indexed here; their procedures live where they are used: tool-driven project initialization (section 6), fleet sync via `bin/fm-fleet-sync.sh` (sections 3 and 7), local-HEAD secondmate sync via `bin/fm-bootstrap.sh` and `bin/fm-spawn.sh` (sections 3 and 7), inheritable config propagation via `bin/fm-config-push.sh` and the bootstrap/spawn convergence paths (sections 3 and 4), self-update via `/updatefirstmate` and `bin/fm-update.sh` (section 12), and approved `local-only` merge via `bin/fm-merge-local.sh` (section 7).
+   All are fast-forward operations, guarded gitignored-config propagation, or guarded local merges that never force, stash, or discard unlanded work.
    Project `AGENTS.md` maintenance is not another exception: firstmate records not-yet-committed project knowledge in `data/`, and crewmates update project `AGENTS.md` through normal delivery (section 6).
 2. **Never merge a PR without the captain's explicit word.**
    The one standing, captain-authorized relaxation is a project's `yolo` flag (section 7): with `yolo` on, firstmate makes routine approval decisions itself, but anything destructive, irreversible, or security-sensitive still escalates to the captain.
@@ -116,10 +116,14 @@ Run `bin/fm-bootstrap.sh`.
 Bootstrap also refreshes the fleet via `bin/fm-fleet-sync.sh`, best-effort and non-fatal, under the hard-rule exception in section 1.
 Set `FM_FLEET_PRUNE=0` to temporarily disable that branch pruning.
 Bootstrap also sweeps every live secondmate home, fast-forwarding each one's worktree to firstmate's own current default-branch commit so the fleet stays converged on whatever version firstmate is on.
+The live set comes from `state/<id>.meta` records with `kind=secondmate`; `data/secondmates.md` only backfills `home=` for older or incomplete meta records.
 This is a purely local fast-forward (every secondmate home is a worktree of this same repo, sharing one object store), never a fetch from origin and never a surprise pull: the version followed is simply whatever the primary is currently on, which only the captain changes deliberately via `git pull` or `/updatefirstmate`.
 A tracked-files fast-forward never touches the gitignored operational dirs, so a secondmate's backlog, projects, and in-flight work are never disturbed; a dirty, diverged, or in-flight home is skipped untouched.
 The same sweep also propagates the primary's declared inheritable config (`config/crew-dispatch.json`, `config/crew-harness`, and `config/backlog-backend`; sections 4 and 10) into each live secondmate home's `config/`, so every secondmate's own crewmates, dispatch profiles, and backlog backend stay on the primary's settings.
 Because `config/` is gitignored this is a separate, primary-authoritative copy independent of the tracked-files fast-forward: it re-converges every live home whether or not its tracked files advanced, and it touches only the declared inheritable items (never `config/secondmate-harness`).
+For a mid-session inheritable-config change that should reach live secondmates without a full bootstrap, run `bin/fm-config-push.sh`.
+It is config-only: it uses the same live secondmate discovery and the same `propagate_inheritable_config` helper as bootstrap, prints a per-home/per-item summary, does not fast-forward tracked files, and does not nudge secondmates.
+The propagation helper itself keeps stdout silent for existing callers, but warns on stderr when an item is skipped because the destination does not allow it or when a copy/remove error occurs.
 The sweep reports the `NUDGE_SECONDMATES:` line below only when a running secondmate actually advanced with an instruction change, so firstmate knows which ones to live-converge.
 Silence means all good: say nothing and move on.
 Otherwise it prints one line per problem or capability fact; handle each:
@@ -240,13 +244,15 @@ So an absent or `default` `config/secondmate-harness` behaves exactly as before 
 The split is durable: every secondmate respawn (recovery, `/updatefirstmate`, restart) re-resolves from `config/secondmate-harness`, so it survives restarts without being recorded per-task.
 
 `config/crew-dispatch.json`, `config/crew-harness`, and `config/backlog-backend` are inherited; `config/secondmate-harness` is not.
-The primary pushes its declared inheritable config down into each secondmate home's `config/` - at secondmate spawn and on the bootstrap secondmate sweep (section 3) - so a secondmate's OWN crewmates, dispatch profiles, and backlog backend use the primary's settings (primary `config/crew-harness=codex` makes a secondmate's crewmates spawn on codex too).
+The primary pushes its declared inheritable config down into each secondmate home's `config/` - at secondmate spawn, on the bootstrap secondmate sweep, and through `bin/fm-config-push.sh` (section 3) - so a secondmate's OWN crewmates, dispatch profiles, and backlog backend use the primary's settings (primary `config/crew-harness=codex` makes a secondmate's crewmates spawn on codex too).
 Inheritance copies the literal `config/crew-harness` file, so for a secondmate's own crewmates to run on the primary's crewmate harness the captain must set `config/crew-harness` to a concrete adapter name, such as `codex`.
 If `config/crew-harness` is unset or `default`, there is no concrete value to inherit, so the secondmate's own crewmates fall back to the secondmate's own/detected harness rather than the primary's effective crewmate harness.
 Inheritance copies `config/crew-dispatch.json`, so secondmates apply the same best-fit dispatch profile behavior for their own crewmates.
 Inheritance also copies `config/backlog-backend`, so a primary opt-out with `manual` makes secondmates hand-edit too.
 When the file is absent, every home uses the default tasks-axi backend path independently.
 The mechanism is generic over a single declared list (`fm-config-inherit-lib.sh`), primary-authoritative (re-pushed every convergence, mirroring absence), and easy to extend; `config/secondmate-harness` is deliberately excluded because secondmates never spawn secondmates.
+When changing inherited config mid-session, prefer `bin/fm-config-push.sh` over a full bootstrap if tracked-file sync and reread nudges are not needed.
+It reports `pushed`, `unchanged`, `skipped`, or `error` for each declared item in each live secondmate home; skipped non-ignored items are warnings and real copy/remove errors make the command exit non-zero.
 
 Each adapter splits into mechanics and knowledge.
 The mechanics (launch command, autonomy flag, turn-end hook) live in `bin/fm-spawn.sh`; the knowledge you need while supervising (busy signature, exit, interrupt, dialogs, quirks, skill invocation, resume) lives in the agent-only `harness-adapters` skill.
@@ -306,7 +312,7 @@ Every persistent secondmate has one line:
 ```
 
 The `scope:` field is used during intake; the `projects:` field is a non-exclusive clone list, not ownership.
-Load `secondmate-provisioning` before creating, seeding, validating, handing backlog to, recovering, or retiring a secondmate home, and before editing `data/secondmates.md`.
+Load `secondmate-provisioning` before creating, seeding, validating, handing backlog to, recovering, pushing inherited config into, or retiring a secondmate home, and before editing `data/secondmates.md`.
 That reference owns home leases, transactional rollback, validation, project clone restrictions, handoff edge cases, charter copy rules, and teardown internals.
 
 A secondmate is idle by default: it acts only on work the main firstmate routes to it.
@@ -452,6 +458,7 @@ This is a purely local fast-forward of tracked files - never a fetch from origin
 If that pre-launch fast-forward is skipped, `fm-spawn.sh` prints a concise warning to stderr and still launches the secondmate from its unchanged checkout.
 The spawn also propagates the primary's declared inheritable config (`config/crew-dispatch.json`, `config/crew-harness`, and `config/backlog-backend`; sections 4 and 10) into the secondmate home's `config/`, so the secondmate's own crewmates, dispatch profiles, and backlog backend inherit the primary's settings; this is a separate gitignored-file copy from the tracked-files fast-forward and a primary with no inheritable config set is a no-op.
 No nudge is needed at spawn because the agent reads `AGENTS.md` fresh on launch.
+For already-live secondmates, use `bin/fm-config-push.sh` when only this inherited config needs to be pushed.
 Project worktrees start at detached HEAD on a clean default branch; ship briefs tell the crewmate to create its branch, while scout briefs keep the worktree scratch.
 After spawning, peek the pane to confirm the crewmate is processing the brief and handle any trust dialog with `harness-adapters`.
 Add the task to `data/backlog.md` under In flight.
@@ -771,7 +778,7 @@ These skills are not captain-invocable; they are conditional operating reference
 
 - `harness-adapters` - load before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.
 - `stuck-crewmate-recovery` - load after a stale wake, looping pane, repeated confusion, an answered-by-brief question, an unresponsive crewmate, or a failed steer.
-- `secondmate-provisioning` - load before creating, seeding, validating, recovering, handing backlog to, or retiring a secondmate home, and before editing `data/secondmates.md`.
+- `secondmate-provisioning` - load before creating, seeding, validating, recovering, handing backlog to, pushing inherited config into, or retiring a secondmate home, and before editing `data/secondmates.md`.
 - `fmx-respond` - load on an `x-mention <request_id>` `check:` wake to classify the mention, act on actionable requests through the normal lifecycle, post or preview a public-safe outcome reply for work that completes immediately, dismiss pure acknowledgments at the relay without replying, or acknowledge and link spawned work so one completion follow-up posts later (section 14); relevant only when X mode is on.
 
 ## 14. X mode
