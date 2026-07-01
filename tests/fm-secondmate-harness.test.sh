@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Tests for the secondmate-vs-crewmate harness split and the primary->secondmate
-# inheritable-config propagation.
+# Tests for the secondmate-vs-crewmate harness split, the optional model/effort
+# tokens config/secondmate-harness carries alongside the harness, and the
+# primary->secondmate inheritable-config propagation.
 #
-# Two capabilities are under test:
+# Three capabilities are under test:
 #   A) Harness split. config/secondmate-harness sets the harness the PRIMARY uses
 #      to launch SECONDMATE agents, independent of config/crew-harness (the
 #      crewmate harness). fm-harness.sh secondmate resolves the fallback chain
@@ -19,6 +20,14 @@
 #      secondmate spawn, on the bootstrap secondmate sweep, and by config push).
 #      config/secondmate-harness is deliberately NOT inherited (secondmates do
 #      not spawn secondmates).
+#   C) Model/effort pin. config/secondmate-harness may carry optional model and
+#      effort tokens after the harness ("<harness> [<model>] [<effort>]"), read by
+#      fm-harness.sh secondmate-model / secondmate-effort. A bare harness-only
+#      line (today's format) yields empty model/effort - full backward-compat.
+#      fm-spawn.sh populates MODEL/EFFORT from those tokens for a --secondmate
+#      spawn only when the harness also resolves from that file, so the pin is
+#      durable across every respawn while explicit per-spawn harness/model/effort
+#      flags still win.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -65,6 +74,43 @@ crew=default resolves to own, secondmate follows^default^-^claude^claude
 secondmate=default with crew absent -> own^-^default^claude^claude
 ROWS
   pass "A1 fm-harness.sh secondmate resolves the fallback chain; crew mode unchanged"
+}
+
+# ===========================================================================
+# C) fm-harness.sh secondmate-model / secondmate-effort token resolution
+# ===========================================================================
+# config/secondmate-harness holds "<harness> [<model>] [<effort>]" on one line.
+# A bare harness (today's format) must yield empty model/effort - the
+# backward-compat requirement. The file-line field uses \n for an embedded
+# newline (expanded via printf '%b') so a row can express a multi-line file; the
+# literal token ABSENT skips creating the file entirely.
+#   <label>^<file-line-or-ABSENT>^<expect-harness>^<expect-model>^<expect-effort>
+test_secondmate_model_effort_tokens() {
+  local label line exp_harness exp_model exp_effort case_dir cfg got_h got_m got_e n
+  n=0
+  while IFS='^' read -r label line exp_harness exp_model exp_effort; do
+    [ -n "$label" ] || continue
+    n=$((n + 1))
+    case_dir="$TMP_ROOT/tokens-$n"
+    cfg="$case_dir/config"
+    mkdir -p "$cfg"
+    [ "$line" = ABSENT ] || printf '%b\n' "$line" > "$cfg/secondmate-harness"
+    got_h=$(CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate)
+    got_m=$(CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-model)
+    got_e=$(CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-effort)
+    [ "$got_h" = "$exp_harness" ] || fail "$label: harness resolved '$got_h', expected '$exp_harness'"
+    [ "$got_m" = "$exp_model" ] || fail "$label: model resolved '$got_m', expected '$exp_model'"
+    [ "$got_e" = "$exp_effort" ] || fail "$label: effort resolved '$got_e', expected '$exp_effort'"
+  done <<'ROWS'
+absent file -> own harness, empty model/effort^ABSENT^claude^^
+bare harness only -> empty model/effort (backward-compat)^claude^claude^^
+harness + model -> model only^claude opus^claude^opus^
+harness + model + effort -> both^claude opus high^claude^opus^high
+default harness token -> falls back to crew, empty model/effort^default^claude^^
+extra whitespace between tokens is tolerated^grok   grok-4    xhigh^grok^grok-4^xhigh
+leading/trailing blank lines and a comment are skipped^# a comment\n\nclaude opus low\n^claude^opus^low
+ROWS
+  pass "C1 fm-harness.sh secondmate-model/secondmate-effort resolve the optional tokens; bare harness stays empty (backward-compat)"
 }
 
 # ===========================================================================
@@ -350,6 +396,282 @@ test_spawn_unverified_secondmate_harness_refused() {
     "unverified: error names the secondmate-harness source"
   [ -e "$w/home/state/sm.meta" ] && fail "unverified: a meta was written despite the abort"
   pass "B6 spawn: an unverified resolved secondmate harness is refused (guard intact)"
+}
+
+# ===========================================================================
+# C integration: config/secondmate-harness's optional model/effort tokens thread
+# into the secondmate launch command and meta, durably and without a new file.
+# ===========================================================================
+
+meta_field() { grep "^$2=" "$1" 2>/dev/null | tail -1 | cut -d= -f2-; }
+
+# A tmux stub that behaves like make_noop_tmux but also captures the literal
+# `send-keys -l <cmd>` launch command into FM_FAKE_LAUNCH_LOG, mirroring the
+# capture technique in fm-spawn-dispatch-profile.test.sh so the constructed
+# launch command (not just meta) can be asserted on. Also answers the
+# `#{pane_current_path}` probe from FM_FAKE_PANE_PATH so this same stub works
+# for a crew/scout (non-secondmate) spawn's treehouse-worktree wait loop.
+make_launch_capturing_tmux() {
+  local dir=$1 fakebin="$1/fakebin"
+  mkdir -p "$fakebin"
+  cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "$*" in
+  *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
+esac
+case "${1:-}" in
+  display-message) printf 'firstmate\n'; exit 0 ;;
+  list-windows) exit 0 ;;
+  has-session|new-session|new-window|kill-window) exit 0 ;;
+  send-keys)
+    if [ -n "${FM_FAKE_LAUNCH_LOG:-}" ]; then
+      prev=
+      for a in "$@"; do
+        if [ "$prev" = "-l" ]; then
+          printf '%s\n' "$a" >> "$FM_FAKE_LAUNCH_LOG"
+        fi
+        prev=$a
+      done
+    fi
+    exit 0
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/tmux"
+  printf '%s\n' "$fakebin"
+}
+
+# spawn_secondmate_capture <world> <id> <home> <launchlog> [extra fm-spawn.sh args...]
+# Same shape as spawn_secondmate but captures the launch command into <launchlog>
+# and does not discard stderr, so callers can assert on both.
+spawn_secondmate_capture() {
+  local world=$1 id=$2 home=$3 launchlog=$4 fakebin
+  shift 4
+  mkdir -p "$world/home/state" "$world/home/data"
+  fakebin=$(make_launch_capturing_tmux "$world/tmux-$id")
+  : > "$launchlog"
+  PATH="$fakebin:$BASE_PATH" TMUX='' CLAUDECODE=1 \
+    FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$world/home" \
+    FM_STATE_OVERRIDE="$world/home/state" FM_DATA_OVERRIDE="$world/home/data" \
+    FM_PROJECTS_OVERRIDE="$world/home/projects" FM_CONFIG_OVERRIDE="$world/home/config" \
+    FM_SPAWN_NO_GUARD=1 FM_FAKE_LAUNCH_LOG="$launchlog" \
+    "$ROOT/bin/fm-spawn.sh" "$id" "$home" "$@" --secondmate
+}
+
+# A bare "<harness>" secondmate-harness file (today's format) must launch with
+# NO --model/--effort flag at all, and meta must keep recording model=default,
+# effort=default - the core backward-compat requirement of the new format.
+test_spawn_bare_harness_no_model_effort_flag() {
+  local w sm meta launchlog launch out status
+  w="$TMP_ROOT/spawn-bare-tokens"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  mkdir -p "$w/home/config"
+  printf 'claude\n' > "$w/home/config/secondmate-harness"
+  make_seeded_home "$sm" sm
+
+  out=$(spawn_secondmate_capture "$w" sm "$sm" "$launchlog" 2>&1); status=$?
+  expect_code 0 "$status" "bare-harness secondmate spawn should succeed"
+
+  meta="$w/home/state/sm.meta"
+  [ "$(meta_field "$meta" model)" = default ] || fail "bare-tokens: meta model not default (got '$(meta_field "$meta" model)')"
+  [ "$(meta_field "$meta" effort)" = default ] || fail "bare-tokens: meta effort not default (got '$(meta_field "$meta" effort)')"
+  launch=$(cat "$launchlog")
+  assert_not_contains "$launch" "--model" "bare-tokens: launch must not carry a --model flag"
+  assert_not_contains "$launch" "--effort" "bare-tokens: launch must not carry an --effort flag"
+  pass "C2 spawn: a bare harness-only secondmate-harness file launches with no model/effort flag (backward-compat)"
+}
+
+# "<harness> <model>" durably threads --model into the secondmate launch and
+# records it in meta, with no --effort flag (no effort token supplied).
+test_spawn_secondmate_harness_model_token() {
+  local w sm meta launchlog launch
+  w="$TMP_ROOT/spawn-model-token"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  mkdir -p "$w/home/config"
+  printf 'claude opus\n' > "$w/home/config/secondmate-harness"
+  make_seeded_home "$sm" sm
+
+  spawn_secondmate_capture "$w" sm "$sm" "$launchlog" >/dev/null 2>&1
+
+  meta="$w/home/state/sm.meta"
+  [ "$(meta_field "$meta" harness)" = claude ] || fail "model-token: meta harness not claude"
+  [ "$(meta_field "$meta" model)" = opus ] || fail "model-token: meta model not opus (got '$(meta_field "$meta" model)')"
+  [ "$(meta_field "$meta" effort)" = default ] || fail "model-token: meta effort not default (got '$(meta_field "$meta" effort)')"
+  launch=$(cat "$launchlog")
+  assert_contains "$launch" "claude --dangerously-skip-permissions --model 'opus'" \
+    "model-token: launch did not carry --model opus"
+  assert_not_contains "$launch" "--effort" "model-token: launch must not carry an --effort flag"
+  pass "C3 spawn: config/secondmate-harness's model token threads --model into the launch and meta"
+}
+
+# "<harness> <model> <effort>" threads both flags into the launch and meta.
+test_spawn_secondmate_harness_model_and_effort_tokens() {
+  local w sm meta launchlog launch
+  w="$TMP_ROOT/spawn-model-effort-tokens"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  mkdir -p "$w/home/config"
+  printf 'claude opus high\n' > "$w/home/config/secondmate-harness"
+  make_seeded_home "$sm" sm
+
+  spawn_secondmate_capture "$w" sm "$sm" "$launchlog" >/dev/null 2>&1
+
+  meta="$w/home/state/sm.meta"
+  [ "$(meta_field "$meta" model)" = opus ] || fail "model-effort-tokens: meta model not opus"
+  [ "$(meta_field "$meta" effort)" = high ] || fail "model-effort-tokens: meta effort not high (got '$(meta_field "$meta" effort)')"
+  launch=$(cat "$launchlog")
+  assert_contains "$launch" "claude --dangerously-skip-permissions --model 'opus' --effort 'high'" \
+    "model-effort-tokens: launch did not carry both --model opus and --effort high"
+  pass "C4 spawn: config/secondmate-harness's model+effort tokens thread into the launch and meta"
+}
+
+# Precedence: an explicit per-spawn --model overrides the file's model token.
+test_spawn_explicit_model_overrides_secondmate_harness_token() {
+  local w sm meta launchlog launch
+  w="$TMP_ROOT/spawn-explicit-model"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  mkdir -p "$w/home/config"
+  printf 'claude opus high\n' > "$w/home/config/secondmate-harness"
+  make_seeded_home "$sm" sm
+
+  spawn_secondmate_capture "$w" sm "$sm" "$launchlog" --model sonnet >/dev/null 2>&1
+
+  meta="$w/home/state/sm.meta"
+  [ "$(meta_field "$meta" model)" = sonnet ] \
+    || fail "explicit-model: meta model not sonnet (got '$(meta_field "$meta" model)'), explicit flag did not win over file token"
+  [ "$(meta_field "$meta" effort)" = high ] || fail "explicit-model: file's effort token should still apply"
+  launch=$(cat "$launchlog")
+  assert_contains "$launch" "--model 'sonnet'" "explicit-model: launch did not use the explicit --model"
+  assert_not_contains "$launch" "--model 'opus'" "explicit-model: launch leaked the file's model token"
+  pass "C5 spawn: an explicit --model overrides config/secondmate-harness's model token; the file's effort token still applies"
+}
+
+# Precedence: an explicit per-spawn --effort overrides the file's effort token.
+test_spawn_explicit_effort_overrides_secondmate_harness_token() {
+  local w sm meta launchlog launch
+  w="$TMP_ROOT/spawn-explicit-effort"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  mkdir -p "$w/home/config"
+  printf 'claude opus high\n' > "$w/home/config/secondmate-harness"
+  make_seeded_home "$sm" sm
+
+  spawn_secondmate_capture "$w" sm "$sm" "$launchlog" --effort low >/dev/null 2>&1
+
+  meta="$w/home/state/sm.meta"
+  [ "$(meta_field "$meta" model)" = opus ] || fail "explicit-effort: file's model token should still apply"
+  [ "$(meta_field "$meta" effort)" = low ] \
+    || fail "explicit-effort: meta effort not low (got '$(meta_field "$meta" effort)'), explicit flag did not win over file token"
+  launch=$(cat "$launchlog")
+  assert_contains "$launch" "--effort 'low'" "explicit-effort: launch did not use the explicit --effort"
+  assert_not_contains "$launch" "--effort 'high'" "explicit-effort: launch leaked the file's effort token"
+  pass "C6 spawn: an explicit --effort overrides config/secondmate-harness's effort token; the file's model token still applies"
+}
+
+test_spawn_explicit_harness_does_not_inherit_secondmate_harness_tokens() {
+  local w sm meta launchlog launch
+  w="$TMP_ROOT/spawn-explicit-harness-no-tokens"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  mkdir -p "$w/home/config"
+  printf 'claude opus high\n' > "$w/home/config/secondmate-harness"
+  make_seeded_home "$sm" sm
+
+  spawn_secondmate_capture "$w" sm "$sm" "$launchlog" --harness codex >/dev/null 2>&1
+
+  meta="$w/home/state/sm.meta"
+  [ "$(meta_field "$meta" harness)" = codex ] || fail "explicit-harness-no-tokens: meta harness not codex"
+  [ "$(meta_field "$meta" model)" = default ] || fail "explicit-harness-no-tokens: meta model should stay default"
+  [ "$(meta_field "$meta" effort)" = default ] || fail "explicit-harness-no-tokens: meta effort should stay default"
+  launch=$(cat "$launchlog")
+  assert_contains "$launch" "codex --dangerously-bypass-approvals-and-sandbox" \
+    "explicit-harness-no-tokens: launch did not use codex"
+  assert_not_contains "$launch" "--model" "explicit-harness-no-tokens: launch must not carry a --model flag"
+  assert_not_contains "$launch" "model_reasoning_effort" \
+    "explicit-harness-no-tokens: launch must not carry a codex effort flag"
+  pass "C7 spawn: an explicit --harness starts with clean model/effort defaults"
+}
+
+test_spawn_explicit_harness_uses_explicit_profile_axes() {
+  local w sm meta launchlog launch
+  w="$TMP_ROOT/spawn-explicit-harness-explicit-axes"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  mkdir -p "$w/home/config"
+  printf 'claude opus high\n' > "$w/home/config/secondmate-harness"
+  make_seeded_home "$sm" sm
+
+  spawn_secondmate_capture "$w" sm "$sm" "$launchlog" --harness codex --model gpt-5.5 --effort xhigh >/dev/null 2>&1
+
+  meta="$w/home/state/sm.meta"
+  [ "$(meta_field "$meta" harness)" = codex ] || fail "explicit-harness-explicit-axes: meta harness not codex"
+  [ "$(meta_field "$meta" model)" = gpt-5.5 ] || fail "explicit-harness-explicit-axes: meta model did not use explicit value"
+  [ "$(meta_field "$meta" effort)" = xhigh ] || fail "explicit-harness-explicit-axes: meta effort did not use explicit value"
+  launch=$(cat "$launchlog")
+  assert_contains "$launch" "--model 'gpt-5.5'" \
+    "explicit-harness-explicit-axes: launch did not use the explicit --model"
+  assert_contains "$launch" "-c 'model_reasoning_effort=\"xhigh\"'" \
+    "explicit-harness-explicit-axes: launch did not use the explicit --effort"
+  assert_not_contains "$launch" "--model 'opus'" \
+    "explicit-harness-explicit-axes: launch leaked the file's model token"
+  assert_not_contains "$launch" "model_reasoning_effort=\"high\"" \
+    "explicit-harness-explicit-axes: launch leaked the file's effort token"
+  pass "C8 spawn: an explicit --harness still honors explicit model/effort flags"
+}
+
+# The harness fallback chain (secondmate-harness -> crew-harness -> own) still
+# resolves correctly with no model/effort tokens anywhere in the chain, and a
+# crew/scout (non-secondmate) launch is entirely unaffected by this feature: no
+# model/effort is invented for it even though its own project has no profile set.
+test_spawn_fallback_chain_and_crew_scout_unaffected() {
+  local w sm meta home proj wt fakebin launchlog id launch
+  w="$TMP_ROOT/spawn-fallback-and-crew"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  mkdir -p "$w/home/config"
+  printf 'codex\n' > "$w/home/config/crew-harness"
+  make_seeded_home "$sm" sm
+
+  spawn_secondmate_capture "$w" sm "$sm" "$launchlog" >/dev/null 2>&1
+
+  meta="$w/home/state/sm.meta"
+  [ "$(meta_field "$meta" harness)" = codex ] \
+    || fail "fallback: secondmate harness did not fall back to crew-harness codex"
+  [ "$(meta_field "$meta" model)" = default ] || fail "fallback: meta model should stay default with no tokens anywhere"
+  [ "$(meta_field "$meta" effort)" = default ] || fail "fallback: meta effort should stay default with no tokens anywhere"
+
+  # Crew/scout launch: same crew-harness config, no --secondmate. Must resolve
+  # the crew harness and record no model/effort - this codepath must never read
+  # config/secondmate-harness's tokens at all.
+  id="crew-unaffected-z1"
+  home="$w/home"
+  proj="$w/crew-project"
+  wt="$w/crew-wt"
+  fakebin=$(make_launch_capturing_tmux "$w/tmux-crew")
+  fm_git_worktree "$proj" "$wt" "wt-crew"
+  mkdir -p "$home/data/$id" "$home/projects" "$home/state"
+  printf 'brief\n' > "$home/data/$id/brief.md"
+  : > "$launchlog"
+  PATH="$fakebin:$BASE_PATH" TMUX="fake,1,0" CLAUDECODE=1 \
+    FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
+    FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" FM_FAKE_LAUNCH_LOG="$launchlog" \
+    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" >/dev/null 2>&1
+  meta="$home/state/$id.meta"
+  [ "$(meta_field "$meta" kind)" = ship ] || fail "crew-unaffected: expected an ordinary ship task"
+  [ "$(meta_field "$meta" harness)" = codex ] || fail "crew-unaffected: crew harness resolution changed"
+  [ "$(meta_field "$meta" model)" = default ] || fail "crew-unaffected: crew task must not invent a model"
+  [ "$(meta_field "$meta" effort)" = default ] || fail "crew-unaffected: crew task must not invent an effort"
+  launch=$(cat "$launchlog")
+  assert_not_contains "$launch" "--model" "crew-unaffected: crew launch must not carry a --model flag"
+  assert_not_contains "$launch" "--effort" "crew-unaffected: crew launch must not carry an --effort flag"
+  pass "C9 spawn: the harness fallback chain still resolves with no tokens; crew/scout launches are unaffected by this feature"
 }
 
 # ===========================================================================
@@ -693,12 +1015,21 @@ test_config_push_exits_nonzero_on_copy_error() {
 }
 
 test_harness_resolution
+test_secondmate_model_effort_tokens
 test_propagate_lib
 test_spawn_split_and_inherit
 test_spawn_backward_compat_crew_fallback
 test_spawn_bare_backward_compat
 test_spawn_explicit_harness_wins
 test_spawn_unverified_secondmate_harness_refused
+test_spawn_bare_harness_no_model_effort_flag
+test_spawn_secondmate_harness_model_token
+test_spawn_secondmate_harness_model_and_effort_tokens
+test_spawn_explicit_model_overrides_secondmate_harness_token
+test_spawn_explicit_effort_overrides_secondmate_harness_token
+test_spawn_explicit_harness_does_not_inherit_secondmate_harness_tokens
+test_spawn_explicit_harness_uses_explicit_profile_axes
+test_spawn_fallback_chain_and_crew_scout_unaffected
 test_bootstrap_sweep_propagates_and_reconverges
 test_bootstrap_sweep_propagates_when_tracked_current
 test_bootstrap_sweep_defers_dispatch_on_stale_unignored_home

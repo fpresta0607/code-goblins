@@ -19,6 +19,15 @@
 #   overrides it for this spawn (either kind). A non-flag string containing
 #   whitespace is treated as a RAW launch command - the escape hatch for verifying
 #   new adapters.
+#   config/secondmate-harness may also carry an optional model and effort as extra
+#   whitespace-separated tokens ("<harness> [<model>] [<effort>]"). For a
+#   --secondmate spawn, those tokens apply only when this spawn also resolves its
+#   harness from config/secondmate-harness. An explicit per-spawn --harness,
+#   positional harness arg, or raw launch command starts with clean model/effort
+#   defaults unless the caller also passes explicit --model/--effort flags. When
+#   the file governs the spawn, its model/effort tokens are re-resolved on every
+#   respawn exactly like the harness axis, and explicit --model/--effort flags
+#   still win over the file's tokens.
 #   A --secondmate spawn also propagates the primary's declared inheritable config
 #   into the secondmate home's config/, so the secondmate's OWN crewmates,
 #   dispatch profiles, and backlog backend inherit the primary's settings
@@ -253,6 +262,28 @@ case "$ARG3" in
     LAUNCH=$(launch_template "$HARNESS" "$KIND") || { echo "error: unknown harness '$HARNESS'; pass a raw launch command to use an unverified adapter" >&2; exit 1; }
     ;;
 esac
+
+# config/secondmate-harness may carry optional model/effort tokens alongside the
+# harness ("<harness> [<model>] [<effort>]"). They apply only when this is a
+# --secondmate spawn and no explicit per-spawn harness/raw launch was supplied, so
+# the harness itself came from the secondmate config fallback chain. Resolving
+# here on every spawn makes the pin durable across respawns. Precedence: explicit
+# --model/--effort flags still win over the file's tokens.
+if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
+  if [ "$MODEL_SET" -eq 0 ]; then
+    SM_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model)
+    [ -z "$SM_MODEL" ] || MODEL=$SM_MODEL
+  fi
+  if [ "$EFFORT_SET" -eq 0 ]; then
+    SM_EFFORT=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort)
+    if [ -n "$SM_EFFORT" ]; then
+      case "$SM_EFFORT" in
+        low|medium|high|xhigh|max) EFFORT=$SM_EFFORT ;;
+        *) echo "warning: config/secondmate-harness effort token '$SM_EFFORT' is not one of low, medium, high, xhigh, max; ignoring" >&2 ;;
+      esac
+    fi
+  fi
+fi
 
 secondmate_registry_value() {
   local id=$1 key=$2 reg line value

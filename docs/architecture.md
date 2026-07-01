@@ -59,7 +59,7 @@ The dispatch file is intentionally judgment-based: firstmate reads the natural-l
 The shell scripts validate the JSON shape and verified harness/effort combinations, but they do not parse task intent or match the natural-language rules.
 Bootstrap surfaces either the active rule block or a concise invalid-config line at startup.
 When the file exists, `fm-spawn.sh` refuses crewmate and scout launches without an explicit harness, so `config/crew-harness` is only automatic when no dispatch profile file is active.
-Secondmate launches are exempt because they resolve the secondmate harness instead.
+Secondmate launches are exempt because they resolve the secondmate harness and any optional secondmate model or effort tokens instead.
 Unsupported effort values are still recorded in task meta when passed to `fm-spawn.sh`, but the launch template omits any effort flag that the selected harness does not accept.
 That keeps spawn launch compatible across claude, codex, grok, pi, and opencode while preserving the requested profile for later audit.
 
@@ -92,7 +92,11 @@ Only a running secondmate home that actually advanced and changed `AGENTS.md`, `
 Secondmate spawn also propagates the same inheritable config before launch.
 
 Secondmate agents can run on a different verified harness than crewmates.
-`config/secondmate-harness` controls the primary's secondmate launch harness and falls back to `config/crew-harness`, then to the primary's own harness, when unset or `default`.
+`config/secondmate-harness` controls the primary's secondmate launch harness and may also carry optional model and effort tokens as `<harness> [<model>] [<effort>]` on the first non-empty, non-comment line.
+A bare harness line remains harness-only, so existing `config/secondmate-harness` files keep their previous behavior.
+When the harness token is unset or `default`, launch falls back to `config/crew-harness`, then to the primary's own harness, and the model and effort tokens are ignored.
+Those optional tokens are re-read on every secondmate spawn or respawn and are overridden by explicit per-spawn `--model` or `--effort` flags.
+An explicit per-spawn harness or raw launch command does not inherit model or effort tokens from `config/secondmate-harness`.
 `config/crew-harness` remains the crewmate harness and is inherited into secondmate homes.
 `config/crew-dispatch.json` is inherited too; secondmates use the same natural-language dispatch profiles when spawning their own crewmates.
 `config/backlog-backend` is inherited too; absent or `tasks-axi` selects the default tasks-axi backlog backend, while `manual` forces hand-editing across the fleet.
