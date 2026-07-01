@@ -14,6 +14,16 @@
 # by omission. Use it for every PR merge (captain-requested or yolo-authorized),
 # in place of calling `gh-axi pr merge` directly.
 #
+# gh-axi pr merge expects a PR number and --repo <owner>/<repo>; it does not
+# parse a full https://github.com/<owner>/<repo>/pull/<n> URL. This script
+# parses the URL and invokes gh-axi in the form it accepts.
+#
+# Merge method: defaults to --squash when the caller passes none of --squash,
+# --merge, --rebase, or --method after the optional -- separator. An explicit
+# caller method is never overridden.
+# Extra args must not include --repo or -R because the repo is parsed from the
+# PR URL.
+#
 # Usage: fm-pr-merge.sh <task-id> <pr-url> [-- <extra gh-axi pr merge args>]
 set -eu
 
@@ -29,6 +39,52 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 META="$STATE/$ID.meta"
 [ -f "$META" ] || { echo "error: no meta for task $ID at $META; refusing to merge without recording pr=" >&2; exit 1; }
 
+caller_has_merge_method() {
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      --squash|--merge|--rebase|--method|--method=*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+parse_pr_url() {
+  local url=$1
+  if [[ "$url" =~ ^https://github\.com/([A-Za-z0-9][A-Za-z0-9-]{0,38})/([A-Za-z0-9._-]+)/pull/([0-9]+)/?$ ]]; then
+    PR_OWNER="${BASH_REMATCH[1]}"
+    PR_REPO="${BASH_REMATCH[2]}"
+    PR_NUMBER="${BASH_REMATCH[3]}"
+    if [[ "$PR_OWNER" != *- ]]; then
+      return 0
+    fi
+  fi
+  echo "error: PR URL must match https://github.com/<owner>/<repo>/pull/<number> (got: $url)" >&2
+  return 1
+}
+
+reject_repo_overrides() {
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      --repo|--repo=*|-R|-R?*)
+        echo "error: extra merge args must not override --repo parsed from PR URL (got: $arg)" >&2
+        return 1
+        ;;
+    esac
+  done
+  return 0
+}
+
+parse_pr_url "$URL" || exit 1
+reject_repo_overrides "$@" || exit 1
+
 "$SCRIPT_DIR/fm-pr-check.sh" "$ID" "$URL"
 grep -qxF "pr=$URL" "$META" || { echo "error: fm-pr-check did not record pr=$URL in $META; refusing to merge" >&2; exit 1; }
-gh-axi pr merge "$URL" "$@"
+
+merge_args=()
+if ! caller_has_merge_method "$@"; then
+  merge_args=(--squash)
+fi
+
+gh-axi pr merge "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" "${merge_args[@]}" "$@"

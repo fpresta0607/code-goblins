@@ -8,8 +8,12 @@
 # Matrix:
 #   (a) merge records pr= and pr_head= before merging, and merges
 #   (b) merge is refused when gh-axi pr merge itself fails (no silent success)
-#   (c) extra gh-axi pr merge args are forwarded after the URL
+#   (c) extra gh-axi pr merge args are forwarded after number and --repo
 #   (d) merge is refused before gh-axi when task meta is missing
+#   (e) PR URL is parsed to number + --repo for gh-axi (defaults to --squash)
+#   (f) malformed PR URL fails fast without calling gh-axi
+#   (g) explicit merge method is not overridden by the default --squash
+#   (h) repo override args fail fast because the repo comes from the URL
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -107,8 +111,8 @@ test_records_pr_and_head_before_merging() {
     "records-before-merge: pr= was not recorded"
   assert_grep 'pr_head=deadbeefcafefeed0000000000000000deadbeef' "$case_dir/state/task-x1.meta" \
     "records-before-merge: pr_head= was not recorded"
-  grep -qxF 'pr merge https://github.com/example/repo/pull/9' "$case_dir/gh-axi.log" \
-    || fail "records-before-merge: gh-axi pr merge was not invoked with the PR url"
+  grep -qxF 'pr merge 9 --repo example/repo --squash' "$case_dir/gh-axi.log" \
+    || fail "records-before-merge: gh-axi pr merge was not invoked with number, --repo, and default --squash"
   pass "fm-pr-merge records pr= and pr_head= before invoking gh-axi pr merge"
 }
 
@@ -141,7 +145,7 @@ test_extra_merge_args_forwarded() {
   run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/15 -- --squash --delete-branch \
     > "$case_dir/stdout" 2> "$case_dir/stderr" || fail "extra-args: fm-pr-merge failed"
 
-  grep -qxF 'pr merge https://github.com/example/repo/pull/15 --squash --delete-branch' "$case_dir/gh-axi.log" \
+  grep -qxF 'pr merge 15 --repo example/repo --squash --delete-branch' "$case_dir/gh-axi.log" \
     || fail "extra-args: extra gh-axi pr merge flags were not forwarded"
   pass "fm-pr-merge forwards extra flags to gh-axi pr merge after the -- separator"
 }
@@ -169,7 +173,135 @@ test_missing_meta_refuses_before_merge() {
   pass "fm-pr-merge refuses before merging when task meta is missing"
 }
 
+test_malformed_url_refuses_before_merge() {
+  local case_dir rc
+  case_dir=$(make_case malformed-url)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 4444444444444444444444444444444444444444
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 'https://gitlab.com/example/repo/-/merge_requests/1' \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "malformed-url: fm-pr-merge should refuse a non-GitHub PR URL"
+  assert_grep 'PR URL must match https://github.com/<owner>/<repo>/pull/<number>' "$case_dir/stderr" \
+    "malformed-url: refusal did not explain the expected URL shape"
+  assert_no_grep 'pr=https://gitlab.com/example/repo/-/merge_requests/1' "$case_dir/state/task-x1.meta" \
+    "malformed-url: malformed PR URL was recorded in meta"
+  assert_absent "$case_dir/state/task-x1.check.sh" \
+    "malformed-url: malformed PR URL armed a merge poll"
+  assert_no_grep 'pr merge' "$case_dir/gh-axi.log" \
+    "malformed-url: gh-axi pr merge was invoked for a malformed URL"
+  pass "fm-pr-merge refuses malformed PR URLs before calling gh-axi"
+}
+
+test_rejects_unsafe_url_segments_before_recording() {
+  local case_dir rc
+  case_dir=$(make_case unsafe-url-segment)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 8888888888888888888888888888888888888888
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  # shellcheck disable=SC2016  # Literal command substitution probes URL parsing safety.
+  run_pr_merge "$case_dir" task-x1 'https://github.com/evil$(echo pwned)/repo/pull/7' \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "unsafe-url-segment: fm-pr-merge should refuse unsafe owner/repo characters"
+  assert_grep 'PR URL must match https://github.com/<owner>/<repo>/pull/<number>' "$case_dir/stderr" \
+    "unsafe-url-segment: refusal did not explain the expected URL shape"
+  # shellcheck disable=SC2016  # Literal command substitution must not reach meta.
+  assert_no_grep 'pr=https://github.com/evil$(echo pwned)/repo/pull/7' "$case_dir/state/task-x1.meta" \
+    "unsafe-url-segment: unsafe PR URL was recorded in meta"
+  assert_absent "$case_dir/state/task-x1.check.sh" \
+    "unsafe-url-segment: unsafe PR URL armed a merge poll"
+  assert_no_grep 'pr merge' "$case_dir/gh-axi.log" \
+    "unsafe-url-segment: gh-axi pr merge was invoked for an unsafe URL"
+  pass "fm-pr-merge refuses unsafe PR URL segments before recording state"
+}
+
+test_repo_override_args_refuse_before_recording() {
+  local case_dir rc
+  case_dir=$(make_case repo-override)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 9999999999999999999999999999999999999999
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/right/repo/pull/5 -- --repo wrong/repo \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "repo-override: fm-pr-merge should refuse repo override flags"
+  assert_grep 'must not override --repo parsed from PR URL' "$case_dir/stderr" \
+    "repo-override: refusal did not explain the repo override"
+  assert_no_grep 'pr=https://github.com/right/repo/pull/5' "$case_dir/state/task-x1.meta" \
+    "repo-override: PR URL was recorded before rejecting repo override"
+  assert_absent "$case_dir/state/task-x1.check.sh" \
+    "repo-override: repo override armed a merge poll"
+  assert_no_grep 'pr merge' "$case_dir/gh-axi.log" \
+    "repo-override: gh-axi pr merge was invoked despite repo override"
+  pass "fm-pr-merge refuses repo override args before recording state"
+}
+
+test_explicit_merge_method_not_overridden() {
+  local case_dir
+  case_dir=$(make_case explicit-merge-method)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 5555555555555555555555555555555555555555
+  : > "$case_dir/gh-axi.log"
+
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/22 -- --merge \
+    > "$case_dir/stdout" 2> "$case_dir/stderr" || fail "explicit-merge-method: fm-pr-merge failed"
+
+  grep -qxF 'pr merge 22 --repo example/repo --merge' "$case_dir/gh-axi.log" \
+    || fail "explicit-merge-method: caller --merge was not forwarded without an extra default --squash"
+  pass "fm-pr-merge does not add default --squash when the caller passes an explicit merge method"
+}
+
+test_method_equals_merge_method_not_overridden() {
+  local case_dir
+  case_dir=$(make_case method-equals-merge-method)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 7777777777777777777777777777777777777777
+  : > "$case_dir/gh-axi.log"
+
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/23 -- --method=merge \
+    > "$case_dir/stdout" 2> "$case_dir/stderr" || fail "method-equals-merge-method: fm-pr-merge failed"
+
+  grep -qxF 'pr merge 23 --repo example/repo --method=merge' "$case_dir/gh-axi.log" \
+    || fail "method-equals-merge-method: caller --method=merge was not forwarded without an extra default --squash"
+  pass "fm-pr-merge respects --method=<value> as an explicit merge method"
+}
+
+test_parses_pr_url_for_gh_axi() {
+  local case_dir
+  case_dir=$(make_case url-parsing)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 6666666666666666666666666666666666666666
+  : > "$case_dir/gh-axi.log"
+
+  run_pr_merge "$case_dir" task-x1 https://github.com/my-org/my-repo/pull/126/ \
+    > "$case_dir/stdout" 2> "$case_dir/stderr" || fail "url-parsing: fm-pr-merge failed"
+
+  grep -qxF 'pr merge 126 --repo my-org/my-repo --squash' "$case_dir/gh-axi.log" \
+    || fail "url-parsing: gh-axi pr merge was not invoked as number + --repo + default --squash"
+  pass "fm-pr-merge parses a GitHub PR URL into gh-axi number and --repo arguments"
+}
+
 test_records_pr_and_head_before_merging
 test_merge_failure_propagates_after_recording
 test_extra_merge_args_forwarded
 test_missing_meta_refuses_before_merge
+test_malformed_url_refuses_before_merge
+test_rejects_unsafe_url_segments_before_recording
+test_repo_override_args_refuse_before_recording
+test_explicit_merge_method_not_overridden
+test_method_equals_merge_method_not_overridden
+test_parses_pr_url_for_gh_axi

@@ -33,7 +33,8 @@ Hard rules, in priority order:
 3. **Never tear down a worktree that holds unlanded work.**
    `bin/fm-teardown.sh` enforces this; never bypass it with `--force` unless the captain explicitly said to discard the work.
    The work is "landed" once `HEAD` is reachable from any remote-tracking branch (a fork counts as a remote - upstream-contribution PRs pushed to a fork satisfy this in any mode); for a normal ship task whose commits are not so reachable, it is also landed when its PR is merged and GitHub reports a PR head that contains the current local work (including a local `HEAD` that is an ancestor of the PR head, or unpushed local patches that were replayed into that PR head) or when its content is already present in the up-to-date default branch; for `local-only` ship tasks with no remote at all, the work may instead be merged into the local default branch.
-   The PR consulted for that check comes from the task's recorded `pr=` when present, or - when no `pr=` was ever recorded, e.g. a yolo-authorized merge on a repo with no PR CI where the usual "checks green" `fm-pr-check.sh` trigger never fires - from a merged PR discovered by matching the worktree's own branch name, so a missing `pr=` never by itself false-refuses landed work. Use `bin/fm-pr-merge.sh <id> <PR url>` for every merge (captain-requested or yolo) so `pr=` and any available `pr_head=` are recorded as part of the merge itself rather than relying on that discovery fallback.
+   The PR consulted for that check comes from the task's recorded `pr=` when present, or - when no `pr=` was ever recorded, e.g. a yolo-authorized merge on a repo with no PR CI where the usual "checks green" `fm-pr-check.sh` trigger never fires - from a merged PR discovered by matching the worktree's own branch name, so a missing `pr=` never by itself false-refuses landed work.
+   Use `bin/fm-pr-merge.sh <id> <full GitHub PR URL>` for every merge (captain-requested or yolo) so `pr=` and any available `pr_head=` are recorded as part of the merge itself rather than relying on that discovery fallback.
    Uncommitted changes are never landed.
    The scout carve-out: a scout task's worktree is declared scratch from the start - its deliverable is the report, and teardown lets the worktree go once that report exists (section 7).
 4. **Crewmates never address the captain.**
@@ -483,7 +484,11 @@ A ship task's path from `done` to landed on `main` is set by the project's `mode
 When reviewing any crewmate branch diff, use `bin/fm-review-diff.sh <id>` rather than `git diff <default>...branch` directly.
 Pooled clones keep their local default refs frozen at clone time and can lag `origin`; the helper always compares against the authoritative base.
 
-**yolo (orthogonal).** With `yolo=off` (default) every approval is the captain's: ask-user findings, PR merges, the local-only merge. With `yolo=on`, firstmate makes those calls itself without asking - resolve ask-user findings on your judgment, and run `bin/fm-pr-merge.sh <id> <PR url>` / `bin/fm-merge-local.sh` once the work is green/approved - EXCEPT anything destructive, irreversible, or security-sensitive, which still escalates to the captain. Never merge a red PR even under yolo. `bin/fm-pr-merge.sh` always records `pr=` and records `pr_head=` when available before merging, so this holds even on a repo with no PR CI where the "checks green" signal that normally triggers `bin/fm-pr-check.sh` never fires - do not call `gh-axi pr merge` directly for a task's PR, or the recording step can be silently skipped and a later `fm-teardown.sh` has nothing to verify a squash merge against. After any merge you perform without asking the captain, post a one-line "merged <full PR URL or local main> after checks passed" FYI so the captain keeps a trail.
+**yolo (orthogonal).** With `yolo=off` (default) every approval is the captain's: ask-user findings, PR merges, the local-only merge.
+With `yolo=on`, firstmate makes those calls itself without asking - resolve ask-user findings on your judgment, and run `bin/fm-pr-merge.sh <id> <full GitHub PR URL>` / `bin/fm-merge-local.sh` once the work is green/approved - EXCEPT anything destructive, irreversible, or security-sensitive, which still escalates to the captain.
+Never merge a red PR even under yolo.
+`bin/fm-pr-merge.sh` always records `pr=` and records `pr_head=` when available before merging, parses the full `https://github.com/<owner>/<repo>/pull/<n>` URL into `gh-axi pr merge <n> --repo <owner>/<repo>`, and defaults to `--squash` unless an explicit merge method is forwarded after `--`; this holds even on a repo with no PR CI where the "checks green" signal that normally triggers `bin/fm-pr-check.sh` never fires - do not call `gh-axi pr merge` directly for a task's PR, or the recording step can be silently skipped and a later `fm-teardown.sh` has nothing to verify a squash merge against.
+After any merge you perform without asking the captain, post a one-line "merged <full PR URL or local main> after checks passed" FYI so the captain keeps a trail.
 
 ### Validate
 
@@ -517,7 +522,9 @@ Run `bin/fm-pr-check.sh <id> <PR url>` - it records `pr=` and GitHub's `pr_head=
 Tell the captain: the PR's full URL (always the complete `https://...` link, never a bare `#number` - the captain's terminal makes a full URL clickable), a one-paragraph summary, and, for `no-mistakes`, the risk level it emitted.
 (The check contract, for any custom `state/<id>.check.sh` you write yourself: print one line only when firstmate should wake, print nothing otherwise, and finish before `FM_CHECK_TIMEOUT`.)
 
-If the captain says "merge it", run `bin/fm-pr-merge.sh <id> <PR url>` yourself; that instruction is the explicit approval. If `yolo=on`, merge a green/approved PR yourself the same way and post the required FYI.
+If the captain says "merge it", run `bin/fm-pr-merge.sh <id> <full GitHub PR URL>` yourself; that instruction is the explicit approval.
+If `yolo=on`, merge a green/approved PR yourself the same way and post the required FYI.
+The helper defaults to `--squash`, accepts explicit merge-method flags such as `-- --merge`, `-- --rebase`, or `-- --method=merge`, and refuses `--repo` or `-R` overrides because the repository is derived from the URL.
 
 ### Ship teardown (only after merge is confirmed)
 
