@@ -420,9 +420,10 @@ task_window_backend() {  # <window> <state>
 }
 
 stale_window_is_busy() {  # <window> <state>
-  local win=$1 state=$2 backend tail40 bs
+  local win=$1 state=$2 backend label tail40 bs
   backend=$(task_window_backend "$win" "$state")
-  tail40=$(fm_backend_capture "$backend" "$win" 40 2>/dev/null) || return 2
+  label="fm-$(window_to_task "$win" "$state")"
+  tail40=$(fm_backend_capture "$backend" "$win" 40 "$label" 2>/dev/null) || return 2
   bs=$(fm_backend_busy_state "$backend" "$win" 2>/dev/null)
   case "$bs" in
     busy) return 0 ;;

@@ -204,6 +204,12 @@ window_backend() {
   echo tmux
 }
 
+window_label() {
+  local w=$1 task
+  task=$(window_to_task "$w" "$STATE")
+  [ -n "$task" ] && printf 'fm-%s' "$task"
+}
+
 recorded_windows() {
   local meta w seen=
   for meta in "$STATE"/*.meta; do
@@ -426,7 +432,7 @@ EOF
     # A secondmate idling on its own watcher is healthy. Its parent supervises
     # it through status writes and heartbeats, not pane-idle staleness.
     [ "$(window_kind "$w")" = secondmate ] && continue
-    tail40=$(fm_backend_capture "$(window_backend "$w")" "$w" 40 2>/dev/null) || continue
+    tail40=$(fm_backend_capture "$(window_backend "$w")" "$w" 40 "$(window_label "$w")" 2>/dev/null) || continue
     h=$(printf '%s' "$tail40" | hash_pane)
     key=$(printf '%s' "$w" | tr ':/.' '___')
     hf="$STATE/.hash-$key"

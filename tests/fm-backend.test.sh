@@ -201,8 +201,10 @@ test_backend_name_explicit_beats_detection() {
 test_backend_validate_refuses_unknown() {
   fm_backend_validate tmux 2>/dev/null || fail "fm_backend_validate should accept tmux"
   local out
-  out=$(fm_backend_validate zellij 2>&1) && fail "fm_backend_validate should refuse zellij (P1 has no such adapter)"
-  assert_contains "$out" "unknown backend 'zellij'" "fm_backend_validate did not name the rejected backend"
+  # orca is a still-unimplemented backend from the design report (P4); zellij
+  # graduated to a real adapter in P3 and is asserted as known elsewhere.
+  out=$(fm_backend_validate orca 2>&1) && fail "fm_backend_validate should refuse orca (not yet implemented)"
+  assert_contains "$out" "unknown backend 'orca'" "fm_backend_validate did not name the rejected backend"
   pass "fm_backend_validate: tmux accepted, an unimplemented backend refused loudly"
 }
 
@@ -549,13 +551,15 @@ test_teardown_conformance_old_vs_new() {
 
 test_spawn_refuses_unknown_backend_flag() {
   local out status
+  # orca is a still-unimplemented backend from the design report (P4); zellij
+  # graduated to a real adapter in P3 and has its own spawn tests.
   out=$(FM_ROOT_OVERRIDE='' FM_HOME='' FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' \
     FM_PROJECTS_OVERRIDE='' FM_CONFIG_OVERRIDE='' FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" nope-backend-z1 projects/none claude --backend zellij 2>&1)
+    "$ROOT/bin/fm-spawn.sh" nope-backend-z1 projects/none claude --backend orca 2>&1)
   status=$?
-  [ "$status" -ne 0 ] || fail "fm-spawn --backend zellij should refuse (P1 is tmux-only)"
-  assert_contains "$out" "unknown backend 'zellij'" "fm-spawn did not name the rejected backend"
-  pass "fm-spawn.sh --backend zellij is refused loudly (tmux-only in P1)"
+  [ "$status" -ne 0 ] || fail "fm-spawn --backend orca should refuse (not yet implemented)"
+  assert_contains "$out" "unknown backend 'orca'" "fm-spawn did not name the rejected backend"
+  pass "fm-spawn.sh --backend orca is refused loudly (not yet implemented)"
 }
 
 test_spawn_refuses_unknown_fm_backend_env() {

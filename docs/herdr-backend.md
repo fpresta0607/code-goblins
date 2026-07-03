@@ -19,7 +19,7 @@ When nothing is explicitly configured, `bin/fm-backend.sh`'s `fm_backend_detect`
 An auto-detected herdr spawn prints one loud stderr notice (set `config/backend` or pass `--backend tmux` to opt out).
 Auto-detecting tmux stays silent, since that reproduces today's unconfigured default byte-for-byte.
 Only when none of that resolves anything does firstmate fall back to the hard default, tmux.
-Absent `backend=` in a task's meta always means `tmux`; only a herdr task ever carries an explicit `backend=herdr` line.
+Absent `backend=` in a task's meta always means `tmux`; a herdr task carries an explicit `backend=herdr` line, while other experimental adapters carry their own backend values.
 A herdr spawn refuses loudly if `herdr` or `jq` is missing, or if the installed herdr's protocol is older than the verified minimum (`fm_backend_herdr_version_check`).
 
 ## Worktree provider stays treehouse
@@ -204,7 +204,7 @@ Unchanged means the Enter did nothing and the adapter retries (bounded).
 Changed means something happened - submitted, output appeared, or a popup resolved.
 A dedicated composer-state or cursor-row read primitive is a candidate upstream Herdr feature request; it would let this backend eventually match tmux's stronger submit-verification guarantee.
 
-Both backends expose the identical caller-facing verdict vocabulary (`empty`, `pending`, `unknown`, `send-failed`), so `fm-send.sh` needs no backend-specific branching at all.
+All implemented backends expose the identical caller-facing verdict vocabulary (`empty`, `pending`, `unknown`, `send-failed`), so `fm-send.sh` needs no backend-specific branching at all.
 
 ## Session targeting: the `--session` flag, not `HERDR_SESSION` alone
 
