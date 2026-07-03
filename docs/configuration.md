@@ -18,16 +18,18 @@ The file format is unchanged in both modes; tasks-axi and manual edits produce t
 
 ## Runtime backend (config/backend / FM_BACKEND)
 
-The runtime session-provider backend controls where task windows/endpoints are created, captured, sent to, watched, and killed.
-`tmux` is the verified reference backend; `herdr` and `zellij` are experimental backends (see [`docs/herdr-backend.md`](herdr-backend.md) and [`docs/zellij-backend.md`](zellij-backend.md)) - treehouse remains the worktree provider for all three, since herdr and zellij are session providers only.
-`orca` is only a proposed adapter contract in [`docs/orca-backend.md`](orca-backend.md); it is not an accepted `config/backend` value until an implementation registers it.
+For spawn-capable adapters, the runtime session-provider backend controls where task windows/endpoints are created, captured, sent to, watched, and killed.
+`tmux` is the verified reference backend; `herdr` and `zellij` are experimental spawn backends (see [`docs/herdr-backend.md`](herdr-backend.md) and [`docs/zellij-backend.md`](zellij-backend.md)) - treehouse remains the worktree provider for all three, since herdr and zellij are session providers only.
+`orca` is a known primitive-only adapter for already-created Orca terminals: capture, text send, Enter/Ctrl-C interrupt keys, and close are wired, but task spawning is refused until its lifecycle wiring exists.
 New spawns choose the backend in this order: explicit `fm-spawn.sh --backend <name>`, then `FM_BACKEND`, then the first non-empty line of local gitignored `config/backend`, then runtime auto-detection from `$TMUX` or `HERDR_ENV=1`, then default `tmux`.
 If both runtime markers are present, `$TMUX` wins because tmux is the innermost surface firstmate is running on.
 Auto-detected herdr prints a stderr notice naming `config/backend` and `--backend tmux` as opt-outs; auto-detected tmux stays silent to preserve existing default behavior.
 Zellij is never auto-detected; select it only with `fm-spawn.sh --backend zellij`, `FM_BACKEND=zellij`, or `config/backend`.
-Any value other than `tmux`, `herdr`, or `zellij` is rejected until another adapter is implemented and verified.
+Any value other than `tmux`, `herdr`, `zellij`, or `orca` is rejected until another adapter is implemented and verified.
+`fm-spawn.sh` accepts only spawn-supported backends, currently `tmux`, `herdr`, and `zellij`; `--backend orca`, `FM_BACKEND=orca`, or `config/backend=orca` fails before writing task metadata.
 A herdr spawn additionally version-gates against the installed `herdr` binary's protocol and requires `jq`, refusing loudly on an incompatible or missing installation.
 A zellij spawn additionally version-gates against the installed `zellij` binary's version and requires `jq`, refusing loudly when either is missing or the version is older than 0.44.
+When `config/backend=orca`, bootstrap checks for `orca` instead of the tmux/treehouse tool pair because no spawn worktree lifecycle is available for Orca yet.
 Task meta records `backend=` only for a non-default backend; an absent `backend=` means `tmux`, preserving existing default-path meta files.
 A herdr task additionally records `herdr_session=`, `herdr_workspace_id=`, `herdr_tab_id=`, and `herdr_pane_id=`.
 A zellij task additionally records `zellij_session=`, `zellij_tab_id=`, and `zellij_pane_id=`.
@@ -116,6 +118,7 @@ Secondmate homes inherit this file from the primary, so a secondmate's own crewm
 ## Toolchain
 
 On session start the first mate detects what its required toolchain is missing or too old (tmux, node, gh, treehouse with durable lease support, no-mistakes v1.31.2 or newer, gh-axi, chrome-devtools-axi, lavish-axi), lists it with the exact install commands, and installs only after you say go.
+When `backend=orca` is selected, bootstrap requires `orca` instead of `tmux` and `treehouse`.
 When `config/crew-dispatch.json` exists, bootstrap also requires `jq` for dispatch profile validation.
 When X mode is opted in, bootstrap also requires `curl` and `jq` before arming the relay poll shim.
 Unless `config/backlog-backend=manual`, bootstrap treats `tasks-axi` as the default backlog backend.
@@ -189,7 +192,7 @@ FM_STATE_OVERRIDE=       # alternate state dir, mainly for tests
 FM_DATA_OVERRIDE=        # alternate data dir, mainly for tests
 FM_PROJECTS_OVERRIDE=    # alternate projects dir, mainly for tests
 FM_CONFIG_OVERRIDE=      # alternate config dir, mainly for tests
-FM_BACKEND=             # optional runtime session-provider backend override for new spawns; tmux (reference), herdr, or zellij
+FM_BACKEND=             # optional runtime session-provider backend override for new spawns; tmux/herdr/zellij support spawns, orca is primitive-only
 HERDR_SESSION=default  # herdr-only: named session for normal backend ops; not enough for destructive cleanup (docs/herdr-backend.md)
 FM_ZELLIJ_SESSION=firstmate  # zellij-only: named session for normal backend ops and test isolation (docs/zellij-backend.md)
 FM_SESSION_START_STATUS_TAIL=5   # state/*.status lines printed per task in the session-start digest

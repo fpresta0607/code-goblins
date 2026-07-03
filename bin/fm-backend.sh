@@ -8,22 +8,24 @@
 # fm-peek.sh, fm-watch.sh, fm-spawn.sh, and fm-teardown.sh already ran inline
 # into bin/backends/tmux.sh, with those SAME command sequences, so the default
 # (tmux) path stays byte-identical. P2 adds bin/backends/herdr.sh, an
-# EXPERIMENTAL backend behind `--backend herdr`/`FM_BACKEND=herdr`/
+# EXPERIMENTAL spawn-capable backend behind `--backend herdr`/`FM_BACKEND=herdr`/
 # `config/backend`, and behind runtime auto-detection when firstmate itself is
 # running inside herdr with no explicit backend setting; see herdr-addendum.md and
 # data/fm-backend-design-d7/herdr-verification-p2.md for its empirical basis.
-# P3 adds bin/backends/zellij.sh, also EXPERIMENTAL, behind `--backend
-# zellij`/`FM_BACKEND=zellij`/`config/backend` - NOT behind runtime
+# P3 adds bin/backends/zellij.sh, also EXPERIMENTAL and spawn-capable, behind
+# `--backend zellij`/`FM_BACKEND=zellij`/`config/backend` - NOT behind runtime
 # auto-detection (report.md's Open Question #2: start with a dedicated
 # background session for predictability, unlike tmux's/herdr's ambient-session
 # reuse); see report.md's "Zellij Backend" section and docs/zellij-backend.md
-# for its empirical basis.
+# for its empirical basis. The Orca adapter is currently primitive-only for
+# already-created terminals, so fm-spawn.sh validates against FM_BACKEND_SPAWN
+# and refuses backend=orca until lifecycle wiring exists.
 #
 # Compatibility contract: a task's meta may omit `backend=`; every reader here
 # treats that as `tmux` (fm_backend_of_meta), and fm-spawn.sh does not write
 # `backend=tmux` for a default-backend task, so existing and newly spawned
 # default-path metas stay byte-identical. Only a task spawned on a non-tmux
-# backend, currently experimental herdr or zellij, carries an explicit
+# spawn-capable backend, currently experimental herdr or zellij, carries an explicit
 # `backend=` line.
 #
 # Event-source framing (herdr-addendum "Events as the core abstraction"): a
@@ -49,8 +51,10 @@ FM_BACKEND_CONFIG_DIR="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 # v0.7.1/protocol-14 binary (data/fm-backend-design-d7/herdr-verification-p2.md)
 # but newer than tmux's long-proven default path. zellij is EXPERIMENTAL (P3;
 # data/fm-backend-design-d7/report.md "Zellij Backend") - verified against the
-# real 0.44.0 binary (docs/zellij-backend.md).
-FM_BACKEND_KNOWN="tmux herdr zellij"
+# real 0.44.0 binary (docs/zellij-backend.md). orca currently exposes only
+# terminal adapter primitives; spawn/teardown lifecycle wiring is a later slice.
+FM_BACKEND_KNOWN="tmux herdr zellij orca"
+FM_BACKEND_SPAWN="tmux herdr zellij"
 
 # fm_backend_is_known: 0 iff <name> has a verified adapter.
 fm_backend_is_known() {  # <name>
@@ -126,6 +130,16 @@ fm_backend_validate() {  # <name>
     return 1
   fi
   return 0
+}
+
+fm_backend_validate_spawn() {  # <name>
+  local name=$1 backend
+  fm_backend_validate "$name" || return 1
+  for backend in $FM_BACKEND_SPAWN; do
+    [ "$name" = "$backend" ] && return 0
+  done
+  echo "error: backend '$name' does not support task spawning yet (spawn-supported: $FM_BACKEND_SPAWN)" >&2
+  return 1
 }
 
 # fm_meta_get: the LAST value of `key=` in <meta-file>, or empty (never
@@ -208,6 +222,13 @@ fm_backend_source() {  # <name>
         _FM_BACKEND_ZELLIJ_SOURCED=1
       fi
       ;;
+    orca)
+      if [ -z "${_FM_BACKEND_ORCA_SOURCED:-}" ]; then
+        # shellcheck source=bin/backends/orca.sh
+        . "$FM_BACKEND_LIB_DIR/backends/orca.sh"
+        _FM_BACKEND_ORCA_SOURCED=1
+      fi
+      ;;
   esac
 }
 
@@ -266,11 +287,12 @@ fm_backend_capture() {  # <backend> <target> <lines> [expected-label]
     tmux) fm_backend_tmux_capture "$@" ;;
     herdr) fm_backend_herdr_capture "$@" ;;
     zellij) fm_backend_zellij_capture "$@" ;;
+    orca) fm_backend_orca_capture "$@" ;;
     *) echo "error: no capture implementation for backend '$backend'" >&2; return 1 ;;
   esac
 }
 
-# fm_backend_send_key: one named special key (Enter, Escape, C-c, ...).
+# fm_backend_send_key: one backend-supported named special key.
 fm_backend_send_key() {  # <backend> <target> <key> [expected-label]
   local backend=$1
   shift
@@ -279,6 +301,7 @@ fm_backend_send_key() {  # <backend> <target> <key> [expected-label]
     tmux) fm_backend_tmux_send_key "$@" ;;
     herdr) fm_backend_herdr_send_key "$@" ;;
     zellij) fm_backend_zellij_send_key "$@" ;;
+    orca) fm_backend_orca_send_key "$@" ;;
     *) echo "error: no send-key implementation for backend '$backend'" >&2; return 1 ;;
   esac
 }
@@ -294,6 +317,7 @@ fm_backend_send_text_submit() {  # <backend> <target> <text> <retries> <enter-sl
     tmux) fm_backend_tmux_send_text_submit "$@" ;;
     herdr) fm_backend_herdr_send_text_submit "$@" ;;
     zellij) fm_backend_zellij_send_text_submit "$@" ;;
+    orca) fm_backend_orca_send_text_submit "$@" ;;
     *) echo "error: no send-text implementation for backend '$backend'" >&2; return 1 ;;
   esac
 }
@@ -309,6 +333,7 @@ fm_backend_kill() {  # <backend> <target>
     tmux) fm_backend_tmux_kill "$@" ;;
     herdr) fm_backend_herdr_kill "$@" ;;
     zellij) fm_backend_zellij_kill "$@" ;;
+    orca) fm_backend_orca_kill "$@" ;;
     *) echo "error: no kill implementation for backend '$backend'" >&2; return 1 ;;
   esac
 }
@@ -357,6 +382,10 @@ fm_backend_target_exists() {  # <backend> <target> [expected-label]
     zellij)
       fm_backend_source zellij || return 1
       fm_backend_zellij_target_ready "$target" "$expected_label"
+      ;;
+    orca)
+      fm_backend_source orca || return 1
+      orca terminal read --terminal "$target" --limit 1 --json >/dev/null 2>&1
       ;;
     *)
       return 1

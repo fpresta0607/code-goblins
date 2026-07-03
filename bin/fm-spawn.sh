@@ -13,8 +13,10 @@
 #   spawn. Without it, the script resolves FM_BACKEND, then config/backend, then
 #   runtime auto-detection (the runtime firstmate itself is executing inside -
 #   $TMUX or HERDR_ENV=1; bin/fm-backend.sh's fm_backend_detect), then tmux.
-#   Known backends are the reference tmux adapter and experimental herdr and
-#   zellij. An auto-detected herdr spawn prints a loud stderr notice;
+#   Spawn-capable backends are the reference tmux adapter and experimental
+#   herdr and zellij. Orca is a known primitive-only backend for existing
+#   terminals, but task spawning refuses backend=orca before endpoint creation
+#   or meta writes. An auto-detected herdr spawn prints a loud stderr notice;
 #   auto-detected tmux stays silent; zellij is never auto-detected (always a
 #   dedicated background session, see bin/backends/zellij.sh). Default tmux
 #   spawns do not write backend= to meta; absent backend= means tmux.
@@ -139,9 +141,9 @@ esac
 
 # Backend selection (data/fm-backend-design-d7): explicit --backend, else
 # FM_BACKEND env, else config/backend, else runtime auto-detection, else
-# default tmux (fm_backend_name). fm_backend_validate refuses anything not
-# implemented. The resolved value is recorded in meta only when it is NOT tmux
-# (fm-teardown.sh and fm-watch.sh's
+# default tmux (fm_backend_name). fm_backend_validate_spawn refuses unknown
+# backends and known primitive-only backends such as orca. The resolved value is
+# recorded in meta only when it is NOT tmux (fm-teardown.sh and fm-watch.sh's
 # window_backend/fm_backend_of_meta already treat an absent backend= as tmux),
 # so the default path's meta stays byte-identical.
 if [ "$BACKEND_SET" -eq 1 ]; then
@@ -149,7 +151,7 @@ if [ "$BACKEND_SET" -eq 1 ]; then
 else
   BACKEND=$(fm_backend_name)
 fi
-fm_backend_validate "$BACKEND" || exit 1
+fm_backend_validate_spawn "$BACKEND" || exit 1
 fm_backend_source "$BACKEND" || exit 1
 
 # Batch dispatch (see header): when the first positional is an `id=repo` pair, treat every

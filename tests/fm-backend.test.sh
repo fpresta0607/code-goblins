@@ -200,12 +200,26 @@ test_backend_name_explicit_beats_detection() {
 
 test_backend_validate_refuses_unknown() {
   fm_backend_validate tmux 2>/dev/null || fail "fm_backend_validate should accept tmux"
+  fm_backend_validate orca 2>/dev/null || fail "fm_backend_validate should accept orca primitives"
   local out
-  # orca is a still-unimplemented backend from the design report (P4); zellij
-  # graduated to a real adapter in P3 and is asserted as known elsewhere.
-  out=$(fm_backend_validate orca 2>&1) && fail "fm_backend_validate should refuse orca (not yet implemented)"
-  assert_contains "$out" "unknown backend 'orca'" "fm_backend_validate did not name the rejected backend"
-  pass "fm_backend_validate: tmux accepted, an unimplemented backend refused loudly"
+  # bogus names a backend with no adapter at all; tmux, herdr, zellij, and
+  # orca are all known adapters (orca is primitive-only; see
+  # test_backend_validate_spawn_refuses_orca for its spawn gating).
+  out=$(fm_backend_validate bogus 2>&1) && fail "fm_backend_validate should refuse bogus (no such adapter)"
+  assert_contains "$out" "unknown backend 'bogus'" "fm_backend_validate did not name the rejected backend"
+  pass "fm_backend_validate: primitive-capable adapters accepted, an unknown backend refused loudly"
+}
+
+test_backend_validate_spawn_refuses_orca() {
+  local out
+  fm_backend_validate_spawn tmux 2>/dev/null || fail "fm_backend_validate_spawn should accept tmux"
+  fm_backend_validate_spawn herdr 2>/dev/null || fail "fm_backend_validate_spawn should accept herdr"
+  fm_backend_validate_spawn zellij 2>/dev/null || fail "fm_backend_validate_spawn should accept zellij"
+  out=$(fm_backend_validate_spawn orca 2>&1) && fail "fm_backend_validate_spawn should refuse orca until spawn wiring exists"
+  assert_contains "$out" "does not support task spawning yet" "fm_backend_validate_spawn did not explain that orca lacks spawn support"
+  out=$(fm_backend_validate_spawn bogus 2>&1) && fail "fm_backend_validate_spawn should still refuse unknown backends"
+  assert_contains "$out" "unknown backend 'bogus'" "fm_backend_validate_spawn did not preserve unknown-backend validation"
+  pass "fm_backend_validate_spawn: only task-lifecycle backends are spawn-supported"
 }
 
 test_meta_get_and_backend_of_meta() {
@@ -551,26 +565,60 @@ test_teardown_conformance_old_vs_new() {
 
 test_spawn_refuses_unknown_backend_flag() {
   local out status
-  # orca is a still-unimplemented backend from the design report (P4); zellij
-  # graduated to a real adapter in P3 and has its own spawn tests.
+  # bogus names a backend with no adapter at all; zellij and orca both
+  # graduated to real (albeit orca primitive-only) adapters and have their
+  # own spawn tests.
   out=$(FM_ROOT_OVERRIDE='' FM_HOME='' FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' \
     FM_PROJECTS_OVERRIDE='' FM_CONFIG_OVERRIDE='' FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" nope-backend-z1 projects/none claude --backend orca 2>&1)
+    "$ROOT/bin/fm-spawn.sh" nope-backend-z1 projects/none claude --backend bogus 2>&1)
   status=$?
-  [ "$status" -ne 0 ] || fail "fm-spawn --backend orca should refuse (not yet implemented)"
-  assert_contains "$out" "unknown backend 'orca'" "fm-spawn did not name the rejected backend"
-  pass "fm-spawn.sh --backend orca is refused loudly (not yet implemented)"
+  [ "$status" -ne 0 ] || fail "fm-spawn --backend bogus should refuse"
+  assert_contains "$out" "unknown backend 'bogus'" "fm-spawn did not name the rejected backend"
+  pass "fm-spawn.sh --backend bogus is refused loudly"
 }
 
 test_spawn_refuses_unknown_fm_backend_env() {
   local out status
   out=$(FM_ROOT_OVERRIDE='' FM_HOME='' FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' \
-    FM_PROJECTS_OVERRIDE='' FM_CONFIG_OVERRIDE='' FM_SPAWN_NO_GUARD=1 FM_BACKEND=orca \
+    FM_PROJECTS_OVERRIDE='' FM_CONFIG_OVERRIDE='' FM_SPAWN_NO_GUARD=1 FM_BACKEND=bogus \
     "$ROOT/bin/fm-spawn.sh" nope-backend-z2 projects/none claude 2>&1)
   status=$?
-  [ "$status" -ne 0 ] || fail "FM_BACKEND=orca should refuse (P1 is tmux-only)"
-  assert_contains "$out" "unknown backend 'orca'" "fm-spawn did not name the rejected FM_BACKEND"
+  [ "$status" -ne 0 ] || fail "FM_BACKEND=bogus should refuse"
+  assert_contains "$out" "unknown backend 'bogus'" "fm-spawn did not name the rejected FM_BACKEND"
   pass "fm-spawn.sh honors FM_BACKEND and refuses an unimplemented value loudly"
+}
+
+test_spawn_refuses_orca_backend_flag() {
+  local out state data config proj id
+  id="orcabackendz6"
+  state="$TMP_ROOT/orca-backend-state"; data="$TMP_ROOT/orca-backend-data"; config="$TMP_ROOT/orca-backend-config"; proj="$TMP_ROOT/orca-backend-proj"
+  mkdir -p "$state" "$data/$id" "$config" "$proj"
+  printf 'brief\n' > "$data/$id/brief.md"
+  out=$(FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
+    FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" FM_SPAWN_NO_GUARD=1 \
+    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --backend orca 2>&1)
+  expect_code 1 $? "fm-spawn.sh should refuse --backend orca until spawn wiring exists"
+  assert_contains "$out" "backend 'orca' does not support task spawning yet" \
+    "fm-spawn.sh did not reject orca before task lifecycle code"
+  [ ! -f "$state/$id.meta" ] || fail "fm-spawn.sh must not write meta after refusing backend=orca"
+  pass "fm-spawn.sh: --backend orca is refused before spawn lifecycle work"
+}
+
+test_spawn_refuses_orca_config_backend() {
+  local out state data config proj id
+  id="orcaconfigz7"
+  state="$TMP_ROOT/orca-config-state"; data="$TMP_ROOT/orca-config-data"; config="$TMP_ROOT/orca-config-config"; proj="$TMP_ROOT/orca-config-proj"
+  mkdir -p "$state" "$data/$id" "$config" "$proj"
+  printf 'brief\n' > "$data/$id/brief.md"
+  printf 'orca\n' > "$config/backend"
+  out=$(FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
+    FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" FM_SPAWN_NO_GUARD=1 \
+    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude 2>&1)
+  expect_code 1 $? "fm-spawn.sh should refuse config/backend=orca until spawn wiring exists"
+  assert_contains "$out" "backend 'orca' does not support task spawning yet" \
+    "fm-spawn.sh did not reject config/backend=orca before task lifecycle code"
+  [ ! -f "$state/$id.meta" ] || fail "fm-spawn.sh must not write meta after refusing config/backend=orca"
+  pass "fm-spawn.sh: config/backend=orca is refused before spawn lifecycle work"
 }
 
 test_spawn_default_backend_writes_no_meta_field() {
@@ -655,6 +703,7 @@ test_backend_detect_precedence
 test_backend_name_autodetect_notice
 test_backend_name_explicit_beats_detection
 test_backend_validate_refuses_unknown
+test_backend_validate_spawn_refuses_orca
 test_meta_get_and_backend_of_meta
 test_resolve_selector_three_forms
 test_backend_of_selector_matches_explicit_target_meta
@@ -664,6 +713,8 @@ test_spawn_conformance_old_vs_new
 test_teardown_conformance_old_vs_new
 test_spawn_refuses_unknown_backend_flag
 test_spawn_refuses_unknown_fm_backend_env
+test_spawn_refuses_orca_backend_flag
+test_spawn_refuses_orca_config_backend
 test_spawn_default_backend_writes_no_meta_field
 test_spawn_explicit_backend_flag_beats_autodetect_herdr_env
 test_spawn_autodetect_nesting_resolves_tmux_silently

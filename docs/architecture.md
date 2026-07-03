@@ -39,10 +39,11 @@ Its tmux supervisor injection path shares the same submit core used by the tmux 
 
 The runtime backend is the session-provider layer below firstmate's scripts.
 It owns task endpoint creation, bounded capture, text/key sends, current-path reads for spawn-time worktree discovery, live-window fallback lookup, and endpoint teardown.
-`bin/fm-backend.sh` centralizes backend selection, `state/<id>.meta` helpers, selector resolution, and operation dispatch; `bin/backends/tmux.sh` is the verified reference adapter, `bin/backends/herdr.sh` (P2) and `bin/backends/zellij.sh` (P3) are experimental adapters.
+`bin/fm-backend.sh` centralizes backend selection, `state/<id>.meta` helpers, selector resolution, and operation dispatch; `bin/backends/tmux.sh` is the verified reference adapter, `bin/backends/herdr.sh` (P2) and `bin/backends/zellij.sh` (P3) are experimental task-spawn adapters, and `bin/backends/orca.sh` currently exposes only capture, text send, Enter/Ctrl-C keys, and close for already-created terminals.
 New spawns select a backend from `--backend`, then `FM_BACKEND`, then local `config/backend`, then runtime auto-detection from `$TMUX` or `HERDR_ENV=1`, then default `tmux`.
 Runtime auto-detection is innermost-first: `$TMUX` wins over `HERDR_ENV=1` when firstmate is inside tmux nested in herdr, auto-detected herdr prints a one-time opt-out notice, and auto-detected tmux stays silent; zellij is never auto-detected (only explicit selection), a deliberate choice to avoid ever reusing an ambient session a human might be attached to.
 Unknown backend names fail loudly.
+Known backends can still be non-spawn-capable: Orca capture/send/Enter/Ctrl-C/close dispatch is wired, but `fm-spawn.sh` refuses `backend=orca` before task lifecycle work or meta writes.
 For compatibility, default tmux tasks do not write `backend=tmux`; every reader treats a missing `backend=` field as `tmux`.
 `fm-watch.sh` polls each window's backend for a busy state: tmux and zellij have no native primitive and always report unknown, preserving the original pane-tail-regex detection unchanged; herdr's `agent.get` semantic state (working/idle/done/blocked) is consulted first for stale detection, with unknown native states falling back to the same regex.
 That poll loop is the default event source for backends with no native push events, so this stays an extraction of the abstraction rather than a watcher rewrite.

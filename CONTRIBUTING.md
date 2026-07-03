@@ -38,7 +38,7 @@ See the [no-mistakes quick start](https://kunchenguid.github.io/no-mistakes/star
   Everything personal to one captain's fleet (`.env`, `data/`, `state/`, `config/`, `projects/`, `.no-mistakes/`) is gitignored; never commit it.
   The root `.tasks.toml` is tracked `tasks-axi` config for `data/backlog.md`; compatible `tasks-axi` is the default backend for routine backlog mutations.
   A local `config/backlog-backend=manual` opt-out forces hand-editing and stays gitignored.
-  A local `config/backend` file explicitly overrides runtime auto-detection for new task endpoints and stays gitignored; accepted values are `tmux`, experimental `herdr`, and experimental `zellij`.
+  A local `config/backend` file explicitly overrides runtime auto-detection for new task endpoints and stays gitignored; spawn-supported values are `tmux` and experimental `herdr` and `zellij`, while `orca` is accepted only for existing-terminal capture, text send, Enter/Ctrl-C keys, and close until its spawn lifecycle is wired.
   It does not make `data/` tracked.
 - Helper scripts in `bin/` are plain bash.
   Each starts with a usage header comment; keep it accurate when you change behavior.
@@ -98,6 +98,7 @@ tests/fm-backend-herdr-workspace-per-home-e2e.test.sh # mandatory isolated E2E f
 tests/fm-backend-herdr-prune-safety-e2e.test.sh # isolated real-herdr E2E for the default-tab prune self-kill regression: adopted label-collision workspaces are never pruned, while freshly created workspaces still prune their seeded default tab
 tests/fm-backend-zellij.test.sh           # fake zellij CLI unit tests for the experimental zellij adapter, including version/tool gates, target parsing, send/capture, current-path probing, label-checked target safety, and tab cleanup
 tests/fm-backend-zellij-smoke.test.sh     # real zellij adapter smoke test, skipped when zellij or jq is unavailable, using an isolated throwaway FM_ZELLIJ_SESSION and guarded session cleanup
+tests/fm-backend-orca.test.sh             # fake Orca CLI unit tests for primitive adapter routing: capture, send text, Enter/interrupt keys, close, and dispatcher sourcing
 [ "$(readlink CLAUDE.md)" = "AGENTS.md" ]
 [ "$(readlink .claude/skills)" = "../.agents/skills" ]
 tmp=$(mktemp -d) && printf 'done: smoke\n' > "$tmp/smoke.status" && FM_STATE_OVERRIDE="$tmp" FM_SIGNAL_GRACE=1 FM_POLL=1 FM_HEARTBEAT=999999 bin/fm-watch-arm.sh  # watcher re-arm smoke test (prints arm status, then an actionable signal)
