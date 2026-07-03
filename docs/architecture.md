@@ -50,6 +50,7 @@ Herdr is experimental and can be selected explicitly or by runtime auto-detectio
 Herdr's container shape is workspace-per-home plus tab-per-task: the primary home uses workspace label `firstmate`, secondmate homes use `2ndmate-<secondmate-id>`, and recovery/list-live scopes to the current `FM_HOME`'s workspace.
 Zellij is experimental and selected only explicitly: treehouse remains its worktree provider too, and its full verification - the resolved "gaps to verify" list from the original design report, the unconditional-exit-0 CLI quirk and its mitigation, the focus-steal-on-new-tab finding, and known gaps - is recorded in `docs/zellij-backend.md`.
 Zellij's container shape is simpler than herdr's: one shared `firstmate` session, one tab per task, with no per-home workspace split.
+Orca is documented only as a proposed future adapter contract in `docs/orca-backend.md`; it is not in `bin/fm-backend.sh`'s verified backend set.
 
 ## Worktrees, not branches in your checkout
 
