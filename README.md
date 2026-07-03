@@ -32,7 +32,7 @@ But the moment you want three project tasks done in parallel - fixes, investigat
 firstmate flips the model.
 You talk to a single agent - the first mate - and it runs the crew for you: spawning autonomous agents in a visible session backend, giving each a clean git worktree, supervising them to completion, and handing you finished PRs, approved local merges, or standalone investigation reports.
 For larger fleets, you can opt in to persistent secondmates: domain supervisors that are still ordinary direct reports, but run from their own isolated firstmate homes.
-There is no app to install; the orchestrator is `AGENTS.md`, bundled skills, and helper scripts that any terminal coding agent can follow.
+There is no app to install; the orchestrator is `AGENTS.md`, bundled firstmate skills, and helper scripts that any terminal coding agent can follow.
 
 This is not an agent harness. This is not a single skill. This is not a CLI.
 This is.. a directory that turns any agent into your firstmate, and you the captain.
@@ -151,6 +151,13 @@ Claude and grok use the slash form shown here; codex uses the same names with `$
 | `/stow`            | Sweep the session for uncaptured durable knowledge, route each finding to its disk home per AGENTS.md, file undone next steps to the backlog, and report what is now safe to reset |
 
 Agent-only reference skills live under `.agents/skills/` and are loaded by firstmate at the trigger points named in [`AGENTS.md`](AGENTS.md).
+
+### Two-tier skill layout
+
+Firstmate's skills live in two separate places with different audiences:
+
+- `.agents/skills/` - agent-loaded skills (this section's table, plus firstmate's agent-only reference skills). Every one of these assumes a live firstmate home and is meaningless, or actively misleading, installed anywhere else, so each carries `metadata.internal: true` in its frontmatter. That flag hides them from installer discovery (tools like the [skills.sh](https://skills.sh) `npx skills add` installer) without affecting how firstmate itself loads them - frontmatter metadata is inert to the agent's own skill loader.
+- `skills/` - public, installer-facing skills meant to be installed standalone into any project, independent of firstmate. Each one is a self-contained skill with no dependency on firstmate's paths, tools, or vocabulary. Today that is `skills/stow`, a generic session-knowledge-sweep skill; it intentionally shares no code with the firstmate-internal `.agents/skills/stow` it is named after, so the two can evolve independently.
 
 ## Documentation
 
