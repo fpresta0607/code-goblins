@@ -43,6 +43,10 @@ process.exit(1);
 }
 
 fm_backend_orca_json_get() {  # <field> ; fields: worktree-id worktree-path terminal-handle worktree-terminal-handle repo-id
+  # Terminal handles are accepted only from verified terminal result shapes:
+  # result.terminal or a root terminal object with .handle. Undocumented
+  # result.id and result.worktree.terminal shapes are ignored until a real Orca
+  # smoke run proves them.
   local field=$1
   node -e '
 const fs = require("fs");
@@ -55,21 +59,21 @@ if (data.ok === false) {
 }
 const r = data.result || {};
 const wt = r.worktree || r.item || r;
-const explicitTerm = r.terminal || wt.terminal || null;
+const explicitTerm = r.terminal || null;
 const repo = r.repo || r.repository || r;
 function scalar(v) {
   return (typeof v === "string" || typeof v === "number") ? String(v) : "";
 }
-function handle(obj, allowRootId) {
+function handle(obj) {
   if (!obj) return "";
   if (typeof obj === "string" || typeof obj === "number") return String(obj);
-  return scalar(obj.handle) || (allowRootId ? scalar(obj.id) : "") || "";
+  return scalar(obj.handle) || "";
 }
 let v = "";
 if (field === "worktree-id") v = wt.id || wt.worktreeId || r.worktreeId || "";
 if (field === "worktree-path") v = wt.path || (wt.git && wt.git.path) || r.path || "";
-if (field === "terminal-handle") v = handle(explicitTerm || r, true) || "";
-if (field === "worktree-terminal-handle") v = handle(explicitTerm, true) || "";
+if (field === "terminal-handle") v = handle(explicitTerm || r) || "";
+if (field === "worktree-terminal-handle") v = handle(explicitTerm) || "";
 if (field === "repo-id") v = repo.id || repo.repoId || r.repoId || "";
 if (!v) process.exit(1);
 process.stdout.write(String(v));
@@ -255,6 +259,10 @@ fm_backend_orca_read_text_paged() {  # <terminal-id> <limit>
 FM_BACKEND_ORCA_COMPOSER_LINES=${FM_BACKEND_ORCA_COMPOSER_LINES:-200}
 FM_BACKEND_ORCA_IDLE_RE=${FM_BACKEND_ORCA_IDLE_RE:-'^Type a message\.\.\.$'}
 
+# fm_backend_orca_composer_state: classify the composer's own bordered row as
+# empty|pending|unknown. Real text stays pending, including a slash-command
+# popup that closed by filling an argument-hint placeholder into the composer;
+# that first Enter selected the popup item, it did not submit the command.
 fm_backend_orca_composer_state() {  # <terminal-id> -> empty|pending|unknown
   local terminal=$1 cap line trimmed stripped="" found=0
   cap=$(fm_backend_orca_read_text_paged "$terminal" "$FM_BACKEND_ORCA_COMPOSER_LINES") || { printf 'unknown'; return 0; }
@@ -308,6 +316,9 @@ fm_backend_orca_send_key() {  # <terminal-id> <key>
   esac
 }
 
+# fm_backend_orca_send_text_submit: type <text> once, then retry Enter until
+# the composer row reads empty. Retries send only Enter, so a slash-command
+# popup placeholder fill gets the required second Enter without duplicating text.
 fm_backend_orca_send_text_submit() {  # <terminal-id> <text> <retries> <enter-sleep> <settle>
   local terminal=$1 text=$2 retries=$3 sleep_s=$4 settle=$5 i=0 state
   fm_backend_orca_tool_check || { printf 'send-failed'; return 0; }
