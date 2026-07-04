@@ -258,13 +258,7 @@ If a dispatch rule or default names an unverified harness, ignore that profile, 
 The shell scripts never parse or match the natural-language rules; firstmate does the matching and passes only concrete flags to `fm-spawn`.
 `fm-spawn` only checks whether the file exists so it can enforce the explicit-harness backstop for crewmate and scout dispatches.
 
-The verified profile axes are:
-
-- `claude`: model via `--model <name>`, effort via `--effort <low|medium|high|xhigh|max>`.
-- `codex`: model via `--model <name>`, effort via `-c 'model_reasoning_effort="<low|medium|high|xhigh>"'`; `max` is not passed because the installed Codex model catalog advertises only `low`, `medium`, `high`, and `xhigh`.
-- `grok`: model via `--model <name>`, reasoning effort via `--reasoning-effort <low|medium|high|xhigh>`; `max` is not passed because Grok rejects it for `--reasoning-effort`.
-- `pi`: model via `--model <name>`, effort via `--thinking <low|medium|high|xhigh>`; `max` is not passed because the installed Pi CLI warns that it is invalid.
-- `opencode`: model via `--model <provider/model>`; no verified effort flag for firstmate's interactive `opencode --prompt` launch, so effort is not passed.
+Per-harness model/effort flags: `harness-adapters` (loaded before every spawn per section 4's closing trigger).
 
 If the selected profile asks for an effort value the selected harness does not accept, `fm-spawn` records the requested `effort=` in meta for traceability but omits the launch flag so the harness starts successfully.
 Bootstrap reports this as a `CREW_DISPATCH` diagnostic when it can see the invalid harness/effort pair in `config/crew-dispatch.json`.
@@ -275,14 +269,7 @@ So an absent or `default` `config/secondmate-harness` behaves exactly as before 
 `bin/fm-spawn.sh` resolves a `--secondmate` launch through `secondmate` mode and a crewmate/scout launch through `crew` mode; an explicit per-spawn `--harness` flag or positional harness arg still overrides either kind.
 The split is durable: every secondmate respawn (recovery, `/updatefirstmate`, restart) re-resolves from `config/secondmate-harness`, so it survives restarts without being recorded per-task.
 
-`config/secondmate-harness` may also pin a concrete model and effort for the secondmate agent, in the SAME file rather than a new one: the format is a single whitespace-separated line `<harness> [<model>] [<effort>]`, with only the first non-empty, non-comment line parsed.
-A bare `<harness>` (today's format, e.g. `claude`) behaves exactly as before - harness only, no model/effort flag - so this is fully backward-compatible.
-`bin/fm-harness.sh secondmate-model` and `bin/fm-harness.sh secondmate-effort` print the optional 2nd/3rd tokens (empty when absent, or when the file is absent/`default`/harness-only); they read only `config/secondmate-harness`, never `config/crew-harness`, which stays a bare adapter name.
-For a `--secondmate` spawn, `bin/fm-spawn.sh` populates `MODEL`/`EFFORT` from those tokens only when the harness itself came from the secondmate config path for that spawn.
-An explicit per-spawn `--harness` flag, positional harness arg, or raw launch command starts clean on model and effort too, unless the caller also passes explicit `--model` or `--effort`.
-When the file's tokens do apply, an explicit per-spawn `--model` or `--effort` flag always wins over the file's token for that axis.
-Because this resolves from the file on every spawn, the pin is durable across every respawn (recovery, `/updatefirstmate`, restart) exactly like the harness axis itself - e.g. `config/secondmate-harness` containing `claude opus` keeps a secondmate pinned to Opus even if the primary's own default model later changes.
-This is secondmate-only: crewmate/scout model resolution is untouched by this file.
+`config/secondmate-harness` can also pin a model/effort for the secondmate agent in one line (`<harness> [<model>] [<effort>]`); format, accessors, and inheritance exceptions live in `secondmate-provisioning` (load before creating/seeding/launching/recovering a secondmate).
 
 `config/crew-dispatch.json`, `config/crew-harness`, and `config/backlog-backend` are inherited; `config/secondmate-harness` is not.
 The primary pushes its declared inheritable config down into each secondmate home's `config/` - at secondmate spawn, on the locked session-start bootstrap secondmate sweep, and through `bin/fm-config-push.sh` (section 3) - so a secondmate's OWN crewmates, dispatch profiles, and backlog backend use the primary's settings (primary `config/crew-harness=codex` makes a secondmate's crewmates spawn on codex too).
@@ -354,8 +341,8 @@ Every persistent secondmate has one line:
 ```
 
 The `scope:` field is used during intake; the `projects:` field is a non-exclusive clone list, not ownership.
-Load `secondmate-provisioning` before creating, seeding, validating, handing backlog to, recovering, pushing inherited config into, or retiring a secondmate home, and before editing `data/secondmates.md`.
-That reference owns home leases, transactional rollback, validation, project clone restrictions, handoff edge cases, charter copy rules, and teardown internals.
+Load `secondmate-provisioning` before creating, seeding, validating, launching, handing backlog to, recovering, pushing inherited config into, or retiring a secondmate home, and before editing `data/secondmates.md`.
+That reference owns home leases, secondmate harness pins, transactional rollback, validation, project clone restrictions, handoff edge cases, charter copy rules, and teardown internals.
 
 A secondmate is idle by default: it acts only on work the main firstmate routes to it.
 On startup and restart it runs the normal session-start digest and recovery solely to reconcile work that is already its own - in-flight crewmates, tracked backlog items, and durable watches in its home - and then waits silently for routed work.
@@ -856,7 +843,7 @@ Set `FM_SECONDMATE_CHARTER='<charter>'` to fill the charter text and `FM_SECONDM
 If you scaffold without `FM_SECONDMATE_CHARTER`, replace the `{TASK}` placeholder before seeding.
 Keep the charter focused on persistent responsibility, available project clones, escalation back to the main firstmate status file, and the idle-by-default contract: reconcile only its own in-flight work and then wait, never self-initiating a survey or audit.
 Preserve the requests-from-main-firstmate contract in the charter: marked requests return via status or a doc pointer, while unmarked direct captain messages stay conversational.
-Before seeding, loading, handing backlog to, or launching a secondmate home, load `secondmate-provisioning`.
+Before seeding, launching, recovering, or handing backlog to a secondmate home, load `secondmate-provisioning`.
 The status-reporting protocol is intentionally sparse: crewmates append status only for supervisor-actionable phase changes or `needs-decision`/`blocked`/`done`/`failed`, because every append wakes firstmate.
 For any generated brief that still contains `{TASK}`, replace it with a clear task description, acceptance criteria, and any constraints or context the crewmate needs before spawning or seeding.
 Adjust the other sections only when the task genuinely deviates from the standard ship-a-new-PR shape (e.g. fixing an existing external PR); the scaffold is the contract, not a suggestion.
@@ -874,7 +861,7 @@ These skills are not captain-invocable; they are conditional operating reference
 
 - `harness-adapters` - load before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.
 - `stuck-crewmate-recovery` - load after a stale wake, looping pane, repeated confusion, an answered-by-brief question, an unresponsive crewmate, or a failed steer.
-- `secondmate-provisioning` - load before creating, seeding, validating, recovering, handing backlog to, pushing inherited config into, or retiring a secondmate home, and before editing `data/secondmates.md`.
+- `secondmate-provisioning` - load before creating, seeding, validating, launching, handing backlog to, recovering, pushing inherited config into, or retiring a secondmate home, and before editing `data/secondmates.md`.
 - `fmx-respond` - load on an `x-mention <request_id>` `check:` wake to handle the mention, on an `x-mode-error ...` `check:` wake to report the X-mode configuration blocker, and on any milestone or terminal wake for an X-linked task before posting its completion follow-up; relevant only when X mode is on.
 - `firstmate-coding-guidelines` - load before changing firstmate's shared, tracked material, as defined by section 1's list, whether editing directly or briefing a crewmate for a firstmate-repo task.
 
