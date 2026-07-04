@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Spawn a direct report: a crewmate in a treehouse worktree, or a secondmate in
-# its isolated firstmate home.
+# Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
+# secondmate in its isolated firstmate home.
 # Usage: fm-spawn.sh <task-id> <project-dir> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--scout]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
@@ -14,11 +14,10 @@
 #   runtime auto-detection (the runtime firstmate itself is executing inside -
 #   $TMUX or HERDR_ENV=1; bin/fm-backend.sh's fm_backend_detect), then tmux.
 #   Spawn-capable backends are the reference tmux adapter and experimental
-#   herdr and zellij. Orca is a known primitive-only backend for existing
-#   terminals, but task spawning refuses backend=orca before endpoint creation
-#   or meta writes. An auto-detected herdr spawn prints a loud stderr notice;
-#   auto-detected tmux stays silent; zellij is never auto-detected (always a
-#   dedicated background session, see bin/backends/zellij.sh). Default tmux
+#   herdr, zellij, and orca. Orca owns both the task worktree and terminal,
+#   so ship/scout Orca spawns do not run treehouse get. An auto-detected herdr
+#   spawn prints a loud stderr notice; auto-detected tmux stays silent; zellij
+#   and orca are never auto-detected (always explicit). Default tmux
 #   spawns do not write backend= to meta; absent backend= means tmux.
 #   With no harness arg, a crewmate/scout spawn resolves the CREW harness only when
 #   config/crew-dispatch.json is absent. When that file exists, crewmate/scout
@@ -48,8 +47,8 @@
 #   provisioned firstmate home; the default is kind=ship.
 #   Before a secondmate launch, the home is locally fast-forwarded to the primary
 #   default-branch commit when safe; skipped syncs warn and launch unchanged.
-#   Ship/scout spawns refuse to launch after treehouse get unless the resolved pane
-#   path is a real git worktree root distinct from the primary project checkout.
+#   Ship/scout spawns refuse to launch unless the resolved task path is a real
+#   git worktree root distinct from the primary project checkout.
 # Batch dispatch: pass one or more `id=repo` pairs instead of a single <id> <project>, e.g.
 #     fm-spawn.sh fix-a-k3=projects/foo add-b-q7=projects/bar [--scout]
 #   Each pair re-execs this script in single-task mode, so the single path stays the only
@@ -141,8 +140,8 @@ esac
 
 # Backend selection (data/fm-backend-design-d7): explicit --backend, else
 # FM_BACKEND env, else config/backend, else runtime auto-detection, else
-# default tmux (fm_backend_name). fm_backend_validate_spawn refuses unknown
-# backends and known primitive-only backends such as orca. The resolved value is
+# default tmux (fm_backend_name). fm_backend_validate_spawn refuses unknown or
+# non-spawn-capable backends. The resolved value is
 # recorded in meta only when it is NOT tmux (fm-teardown.sh and fm-watch.sh's
 # window_backend/fm_backend_of_meta already treat an absent backend= as tmux),
 # so the default path's meta stays byte-identical.
@@ -153,6 +152,66 @@ else
 fi
 fm_backend_validate_spawn "$BACKEND" || exit 1
 fm_backend_source "$BACKEND" || exit 1
+if [ "$BACKEND" = orca ] && [ "$KIND" = secondmate ]; then
+  echo "error: backend=orca does not support --secondmate spawns yet" >&2
+  exit 1
+fi
+if [ "$BACKEND" = orca ]; then
+  fm_backend_orca_runtime_check || exit 1
+fi
+ORCA_ABORT_CLEANUP=0
+ORCA_WORKTREE_ID=
+ORCA_TERMINAL=
+
+parse_orca_worktree_result() {
+  local raw=$1 rest
+  ORCA_WORKTREE_ID=${raw%%$'\t'*}
+  if [ "$raw" = "$ORCA_WORKTREE_ID" ]; then
+    WT=
+    ORCA_TERMINAL=
+    return 1
+  fi
+  rest=${raw#*$'\t'}
+  WT=${rest%%$'\t'*}
+  if [ "$rest" != "$WT" ]; then
+    ORCA_TERMINAL=${rest#*$'\t'}
+  else
+    ORCA_TERMINAL=
+  fi
+}
+
+orca_spawn_abort_cleanup() {
+  local status=$?
+  [ "$ORCA_ABORT_CLEANUP" = 1 ] || return "$status"
+  ORCA_ABORT_CLEANUP=0
+  if [ -n "${ORCA_TERMINAL:-}" ]; then
+    fm_backend_kill orca "$ORCA_TERMINAL" 2>/dev/null || true
+  fi
+  if [ -n "${ORCA_WORKTREE_ID:-}" ]; then
+    if ! fm_backend_remove_worktree orca "$ORCA_WORKTREE_ID" 2>/dev/null; then
+      mkdir -p "$STATE" 2>/dev/null || true
+      if [ -d "$STATE" ]; then
+        {
+          echo "window=$W"
+          echo "worktree=${WT:-}"
+          echo "project=$PROJ_ABS"
+          echo "harness=$HARNESS"
+          echo "kind=$KIND"
+          echo "mode=${MODE:-no-mistakes}"
+          echo "yolo=${YOLO:-off}"
+          echo "tasktmp=${TASK_TMP:-}"
+          echo "model=${MODEL:-default}"
+          echo "effort=${EFFORT:-default}"
+          echo "backend=orca"
+          echo "orca_worktree_id=$ORCA_WORKTREE_ID"
+          [ -z "${ORCA_TERMINAL:-}" ] || echo "terminal=$ORCA_TERMINAL"
+        } > "$STATE/$ID.meta" 2>/dev/null || true
+      fi
+    fi
+  fi
+  return "$status"
+}
+trap orca_spawn_abort_cleanup EXIT
 
 # Batch dispatch (see header): when the first positional is an `id=repo` pair, treat every
 # positional as one and spawn each by re-execing this script in single-task mode. We use
@@ -565,6 +624,27 @@ fi
 # herdr-sm-spaces-k4). Both branches converge on the same $T ("target") string
 # that every downstream operation (send/capture/kill) already treats as opaque
 # per-backend routing (fm_backend_resolve_selector).
+validate_spawn_worktree() {  # <source> <inspect-target>
+  local source=$1 inspect_target=$2 wt_real proj_real wt_top wt_top_real
+  wt_real=
+  if ! wt_real=$(cd "$WT" 2>/dev/null && pwd -P); then
+    wt_real=
+  fi
+  proj_real=
+  if ! proj_real=$(cd "$PROJ_ABS" 2>/dev/null && pwd -P); then
+    proj_real=
+  fi
+  wt_top=$(git -C "$WT" rev-parse --show-toplevel 2>/dev/null || true)
+  wt_top_real=
+  if ! wt_top_real=$(cd "$wt_top" 2>/dev/null && pwd -P); then
+    wt_top_real=
+  fi
+  if [ -z "$wt_real" ] || [ -z "$wt_top_real" ] || [ "$wt_real" != "$wt_top_real" ] || [ "$wt_real" = "$proj_real" ]; then
+    echo "error: $source did not yield an isolated worktree (resolved '$WT'; worktree root '${wt_top:-none}'; primary '$PROJ_ABS'); refusing to launch to avoid tangling the primary checkout. Inspect target $inspect_target" >&2
+    exit 1
+  fi
+}
+
 W="fm-$ID"
 case "$BACKEND" in
   tmux)
@@ -621,12 +701,38 @@ EOF
     fi
     T="$ZELLIJ_SES:$ZELLIJ_PANE_ID"
     ;;
+  orca)
+    set +e
+    ORCA_WT_RAW=$(fm_backend_orca_worktree_create "$PROJ_ABS" "$W")
+    ORCA_WT_STATUS=$?
+    set -e
+    if [ "$ORCA_WT_STATUS" -ne 0 ]; then
+      if [ "$ORCA_WT_STATUS" -eq 2 ] && [ -n "$ORCA_WT_RAW" ]; then
+        if parse_orca_worktree_result "$ORCA_WT_RAW" && [ -n "$ORCA_WORKTREE_ID" ]; then
+          ORCA_ABORT_CLEANUP=1
+        fi
+      fi
+      exit 1
+    fi
+    parse_orca_worktree_result "$ORCA_WT_RAW" || true
+    ORCA_ABORT_CLEANUP=1
+    if [ -z "$ORCA_WORKTREE_ID" ] || [ -z "$WT" ]; then
+      echo "error: orca did not return a worktree id/path for $W" >&2
+      exit 1
+    fi
+    validate_spawn_worktree "orca worktree create" "$W"
+    if [ -z "$ORCA_TERMINAL" ]; then
+      ORCA_TERMINAL=$(fm_backend_orca_terminal_create "$ORCA_WORKTREE_ID" "$W") || exit 1
+    fi
+    T="$ORCA_TERMINAL"
+    ;;
 esac
 spawn_send_text_line() {  # <target> <text>
   case "$BACKEND" in
     tmux) fm_backend_tmux_send_text_line "$1" "$2" ;;
     herdr) fm_backend_herdr_send_text_line "$1" "$2" ;;
     zellij) fm_backend_zellij_send_text_line "$1" "$2" "$W" ;;
+    orca) fm_backend_orca_send_text_line "$1" "$2" ;;
   esac
 }
 spawn_current_path() {  # <target>
@@ -641,6 +747,7 @@ spawn_send_literal() {  # <target> <text>
     tmux) fm_backend_tmux_send_literal "$1" "$2" ;;
     herdr) fm_backend_herdr_send_literal "$1" "$2" ;;
     zellij) fm_backend_zellij_send_literal "$1" "$2" "$W" ;;
+    orca) fm_backend_orca_send_literal "$1" "$2" ;;
   esac
 }
 spawn_send_key() {  # <target> <key>
@@ -648,9 +755,10 @@ spawn_send_key() {  # <target> <key>
     tmux) fm_backend_tmux_send_key "$1" "$2" ;;
     herdr) fm_backend_herdr_send_key "$1" "$2" ;;
     zellij) fm_backend_zellij_send_key "$1" "$2" "$W" ;;
+    orca) fm_backend_orca_send_key "$1" "$2" ;;
   esac
 }
-if [ "$KIND" != secondmate ]; then
+if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   spawn_send_text_line "$T" 'treehouse get'
 
   # Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.
@@ -667,30 +775,7 @@ if [ "$KIND" != secondmate ]; then
     exit 1
   fi
 
-  # Isolation guard: refuse to launch unless WT is a genuine, ISOLATED worktree -
-  # a real git worktree root, distinct from the project's primary checkout
-  # (PROJ_ABS). Firstmate is a treehouse-pooled repo of itself, so a treehouse-get
-  # misfire can leave the pane in (or in a subdir of, or a symlink to) the primary
-  # checkout; branching/committing there would tangle the primary onto a feature
-  # branch (see fm-tangle-lib.sh). The wait loop above only proves the pane left
-  # PROJ_ABS's exact path; this proves it landed in a true, separate worktree.
-  wt_real=
-  if ! wt_real=$(cd "$WT" 2>/dev/null && pwd -P); then
-    wt_real=
-  fi
-  proj_real=
-  if ! proj_real=$(cd "$PROJ_ABS" 2>/dev/null && pwd -P); then
-    proj_real=
-  fi
-  wt_top=$(git -C "$WT" rev-parse --show-toplevel 2>/dev/null || true)
-  wt_top_real=
-  if ! wt_top_real=$(cd "$wt_top" 2>/dev/null && pwd -P); then
-    wt_top_real=
-  fi
-  if [ -z "$wt_real" ] || [ -z "$wt_top_real" ] || [ "$wt_real" != "$wt_top_real" ] || [ "$wt_real" = "$proj_real" ]; then
-    echo "error: treehouse get did not yield an isolated worktree (resolved '$WT'; worktree root '${wt_top:-none}'; primary '$PROJ_ABS'); refusing to launch to avoid tangling the primary checkout. Inspect window $T" >&2
-    exit 1
-  fi
+  validate_spawn_worktree "treehouse get" "$T"
 fi
 
 # Per-task temp root: /tmp/fm-<id>/ with Go's build temp nested at gotmp/. Go won't
@@ -820,8 +905,10 @@ $("$FM_ROOT/bin/fm-project-mode.sh" "$PROJ_NAME")
 EOF
 fi
 
+META_WINDOW=$T
+[ "$BACKEND" = orca ] && META_WINDOW=$W
 {
-  echo "window=$T"
+  echo "window=$META_WINDOW"
   echo "worktree=$WT"
   echo "project=$PROJ_ABS"
   echo "harness=$HARNESS"
@@ -846,11 +933,16 @@ fi
     echo "zellij_tab_id=$ZELLIJ_TAB_ID"
     echo "zellij_pane_id=$ZELLIJ_PANE_ID"
   fi
+  if [ "$BACKEND" = orca ]; then
+    echo "orca_worktree_id=$ORCA_WORKTREE_ID"
+    echo "terminal=$ORCA_TERMINAL"
+  fi
   if [ "$KIND" = secondmate ]; then
     echo "home=$PROJ_ABS"
     echo "projects=$SECONDMATE_PROJECTS"
   fi
 } > "$STATE/$ID.meta"
+[ "$BACKEND" = orca ] && ORCA_ABORT_CLEANUP=0
 
 sq_brief=$(shell_quote "$BRIEF")
 sq_turnend=$(shell_quote "$TURNEND")
@@ -875,4 +967,4 @@ spawn_send_literal "$T" "$LAUNCH"
 sleep 0.3
 spawn_send_key "$T" Enter
 
-echo "spawned $ID harness=$HARNESS kind=$KIND mode=$MODE yolo=$YOLO window=$T worktree=$WT"
+echo "spawned $ID harness=$HARNESS kind=$KIND mode=$MODE yolo=$YOLO window=$META_WINDOW worktree=$WT"

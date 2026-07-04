@@ -174,16 +174,14 @@ window_is_busy() {  # <window> <tail40>
 }
 
 window_kind() {
-  local w=$1 meta mw kind
-  for meta in "$STATE"/*.meta; do
-    [ -e "$meta" ] || continue
-    mw=$(grep '^window=' "$meta" | cut -d= -f2- || true)
-    [ "$mw" = "$w" ] || continue
+  local w=$1 meta kind
+  meta=$(fm_backend_meta_for_window "$w" "$STATE" 2>/dev/null || true)
+  if [ -n "$meta" ]; then
     kind=$(grep '^kind=' "$meta" | cut -d= -f2- || true)
     [ -n "$kind" ] || kind=ship
     echo "$kind"
     return 0
-  done
+  fi
   echo unknown
 }
 
@@ -191,16 +189,14 @@ window_kind() {
 # defaulting to tmux (absent backend= means tmux; the P1 compatibility
 # contract) when no matching meta carries the field, or none matches at all.
 window_backend() {
-  local w=$1 meta mw backend
-  for meta in "$STATE"/*.meta; do
-    [ -e "$meta" ] || continue
-    mw=$(grep '^window=' "$meta" | cut -d= -f2- || true)
-    [ "$mw" = "$w" ] || continue
+  local w=$1 meta backend
+  meta=$(fm_backend_meta_for_window "$w" "$STATE" 2>/dev/null || true)
+  if [ -n "$meta" ]; then
     backend=$(grep '^backend=' "$meta" | cut -d= -f2- || true)
     [ -n "$backend" ] || backend=tmux
     echo "$backend"
     return 0
-  done
+  fi
   echo tmux
 }
 
@@ -214,7 +210,7 @@ recorded_windows() {
   local meta w seen=
   for meta in "$STATE"/*.meta; do
     [ -e "$meta" ] || continue
-    w=$(grep '^window=' "$meta" | cut -d= -f2- || true)
+    w=$(fm_backend_target_of_meta "$meta")
     [ -n "$w" ] || continue
     case "$seen" in
       *"|$w|"*) continue ;;

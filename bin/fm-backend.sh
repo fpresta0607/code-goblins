@@ -17,16 +17,15 @@
 # auto-detection (report.md's Open Question #2: start with a dedicated
 # background session for predictability, unlike tmux's/herdr's ambient-session
 # reuse); see report.md's "Zellij Backend" section and docs/zellij-backend.md
-# for its empirical basis. The Orca adapter is currently primitive-only for
-# already-created terminals, so fm-spawn.sh validates against FM_BACKEND_SPAWN
-# and refuses backend=orca until lifecycle wiring exists.
+# for its empirical basis. P4 makes Orca spawn-capable: Orca owns both the
+# task worktree and the terminal endpoint.
 #
 # Compatibility contract: a task's meta may omit `backend=`; every reader here
 # treats that as `tmux` (fm_backend_of_meta), and fm-spawn.sh does not write
 # `backend=tmux` for a default-backend task, so existing and newly spawned
 # default-path metas stay byte-identical. Only a task spawned on a non-tmux
-# spawn-capable backend, currently experimental herdr or zellij, carries an explicit
-# `backend=` line.
+# spawn-capable backend, currently experimental herdr, zellij, or orca, carries
+# an explicit `backend=` line.
 #
 # Event-source framing (herdr-addendum "Events as the core abstraction"): a
 # backend's supervision surface is conceptually an EVENT SOURCE - it produces
@@ -51,10 +50,10 @@ FM_BACKEND_CONFIG_DIR="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 # v0.7.1/protocol-14 binary (data/fm-backend-design-d7/herdr-verification-p2.md)
 # but newer than tmux's long-proven default path. zellij is EXPERIMENTAL (P3;
 # data/fm-backend-design-d7/report.md "Zellij Backend") - verified against the
-# real 0.44.0 binary (docs/zellij-backend.md). orca currently exposes only
-# terminal adapter primitives; spawn/teardown lifecycle wiring is a later slice.
+# real 0.44.0 binary (docs/zellij-backend.md). orca is EXPERIMENTAL and
+# spawn-capable; unlike tmux/herdr/zellij it is also the worktree provider.
 FM_BACKEND_KNOWN="tmux herdr zellij orca"
-FM_BACKEND_SPAWN="tmux herdr zellij"
+FM_BACKEND_SPAWN="tmux herdr zellij orca"
 
 # fm_backend_is_known: 0 iff <name> has a verified adapter.
 fm_backend_is_known() {  # <name>
@@ -159,12 +158,24 @@ fm_backend_of_meta() {  # <meta-file>
   printf '%s' "${v:-tmux}"
 }
 
+fm_backend_target_of_meta() {  # <meta-file>
+  local meta=$1 backend terminal window
+  backend=$(fm_backend_of_meta "$meta")
+  if [ "$backend" = orca ]; then
+    terminal=$(fm_meta_get "$meta" terminal)
+    [ -n "$terminal" ] && { printf '%s' "$terminal"; return 0; }
+  fi
+  window=$(fm_meta_get "$meta" window)
+  [ -n "$window" ] && printf '%s' "$window"
+}
+
 fm_backend_meta_for_window() {  # <target> <state-dir>
-  local target=$1 state=$2 meta window
+  local target=$1 state=$2 meta window terminal
   for meta in "$state"/*.meta; do
     [ -e "$meta" ] || continue
     window=$(fm_meta_get "$meta" window)
-    [ "$window" = "$target" ] || continue
+    terminal=$(fm_meta_get "$meta" terminal)
+    { [ -n "$window" ] && [ "$window" = "$target" ]; } || { [ -n "$terminal" ] && [ "$terminal" = "$target" ]; } || continue
     printf '%s' "$meta"
     return 0
   done
@@ -236,16 +247,15 @@ fm_backend_source() {  # <name>
 # selector to a live session-provider target. Three forms, in order:
 #   target with ":"   used as-is (the escape hatch for a window/pane outside
 #                      this firstmate home) - backend-independent, a literal string.
-#   "fm-<id>"          routed through <state-dir>/<id>.meta's `window=` field -
+#   "fm-<id>"          routed through <state-dir>/<id>.meta's backend target
+#                      (`window=` normally, `terminal=` for Orca) -
 #                      backend-independent, a stored value, NOT re-verified
 #                      against a live backend inventory (matches today's
 #                      behavior: tmux window names can be trusted from meta
 #                      without a live re-check).
-#   anything else      an ad hoc bare window name with no meta, resolved by
-#                      searching the legacy tmux live inventory. This remains
-#                      the compatibility fallback; herdr tasks should be
-#                      targeted by fm-<id> metadata or an explicit recorded
-#                      target.
+#   anything else      first matched against recorded `window=`/`terminal=`
+#                      metadata, then treated as an ad hoc bare window name and
+#                      resolved by searching the legacy tmux live inventory.
 fm_backend_resolve_selector() {  # <raw-target> <state-dir>
   local raw=$1 state=$2 meta window
   case "$raw" in
@@ -259,12 +269,19 @@ fm_backend_resolve_selector() {  # <raw-target> <state-dir>
         echo "error: no metadata for $raw in $state; pass session:window to target a window outside this firstmate home" >&2
         return 1
       fi
-      window=$(fm_meta_get "$meta" window)
-      [ -n "$window" ] || { echo "error: no window recorded in $meta" >&2; return 1; }
+      window=$(fm_backend_target_of_meta "$meta")
+      [ -n "$window" ] || { echo "error: no backend target recorded in $meta" >&2; return 1; }
       printf '%s' "$window"
       return 0
       ;;
     *)
+      meta=$(fm_backend_meta_for_window "$raw" "$state" 2>/dev/null || true)
+      if [ -n "$meta" ]; then
+        window=$(fm_backend_target_of_meta "$meta")
+        [ -n "$window" ] || { echo "error: no backend target recorded in $meta" >&2; return 1; }
+        printf '%s' "$window"
+        return 0
+      fi
       fm_backend_source tmux || return 1
       fm_backend_tmux_resolve_bare_selector "$raw"
       ;;
@@ -308,7 +325,7 @@ fm_backend_send_key() {  # <backend> <target> <key> [expected-label]
 
 # fm_backend_send_text_submit: type text once, then submit and verify,
 # retrying only the submission (never retyping). Echoes the verdict
-# (empty|pending|unknown|send-failed for the tmux and herdr adapters).
+# (empty|pending|unknown|send-failed for submit-verifying adapters).
 fm_backend_send_text_submit() {  # <backend> <target> <text> <retries> <enter-sleep> <settle> [expected-label]
   local backend=$1
   shift
@@ -338,6 +355,26 @@ fm_backend_kill() {  # <backend> <target>
   esac
 }
 
+fm_backend_remove_worktree() {  # <backend> <worktree-id>
+  local backend=$1
+  shift
+  fm_backend_source "$backend" || return 1
+  case "$backend" in
+    orca) fm_backend_orca_remove_worktree "$@" ;;
+    *) echo "error: backend '$backend' does not own task worktrees" >&2; return 1 ;;
+  esac
+}
+
+fm_backend_worktree_path() {  # <backend> <worktree-id>
+  local backend=$1
+  shift
+  fm_backend_source "$backend" || return 1
+  case "$backend" in
+    orca) fm_backend_orca_worktree_path "$@" ;;
+    *) echo "error: backend '$backend' does not own task worktrees" >&2; return 1 ;;
+  esac
+}
+
 # fm_backend_busy_state: semantic busy/idle/unknown for backends that expose
 # native agent-state (herdr-addendum "busy state" row - the first backend
 # where this gets real semantics beyond pane-regex). Backends with no such
@@ -362,7 +399,8 @@ fm_backend_busy_state() {  # <backend> <target>
 # server as a side effect via fm_backend_herdr_server_ensure - fine for an
 # operation that is about to use the pane, wrong for a passive liveness
 # probe). A gone tmux window or an unqueryable herdr pane (server down, pane
-# closed) both simply fail, which IS "does not exist" for this purpose.
+# closed), missing zellij pane, or unreadable Orca terminal simply fails, which
+# IS "does not exist" for this purpose.
 # Mirrors fm-crew-state.sh's pane_readable check; exists here as one shared
 # primitive so callers that only need a fast alive/dead read (recovery
 # digests, the session-start fleet digest) do not re-derive it inline.
@@ -385,7 +423,7 @@ fm_backend_target_exists() {  # <backend> <target> [expected-label]
       ;;
     orca)
       fm_backend_source orca || return 1
-      orca terminal read --terminal "$target" --limit 1 --json >/dev/null 2>&1
+      fm_backend_orca_capture "$target" 1 >/dev/null 2>&1
       ;;
     *)
       return 1
