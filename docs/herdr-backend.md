@@ -9,10 +9,35 @@ Current real-herdr verification uses isolated `HERDR_SESSION` names plus the gua
 A 2026-07-02 cleanup bug proved that `HERDR_SESSION` alone is not a safe way to target destructive session cleanup; see "Session targeting: the `--session` flag, not `HERDR_SESSION` alone" below.
 All real-herdr verification in this document uses isolated sessions and guarded cleanup; the captain's default herdr session and live tmux fleet were never intended targets.
 
+## Setup
+
+Pick herdr when you want native per-pane agent-state detection (busy/idle/blocked) instead of tmux's regex-based guessing, and you are comfortable running an experimental backend.
+
+Prerequisites:
+
+- `herdr` itself, protocol 14 or newer (installed 0.7.1 verified) - see [herdr.dev](https://herdr.dev) for install instructions.
+- `jq`, required to parse herdr's JSON output: `brew install jq` (or your platform's package manager).
+- The same universal requirements as tmux (a verified crew harness, git with GitHub auth, node, treehouse, no-mistakes, gh-axi, chrome-devtools-axi, and lavish-axi); treehouse still provides the worktree, herdr only provides the session.
+
+Select herdr by putting `herdr` in a local `config/backend` file - the durable way to pick it - or by exporting `FM_BACKEND=herdr` when you launch your harness for a one-off session; telling the first mate in chat to use herdr also works.
+It can also be auto-detected: when firstmate itself is running natively inside herdr (`HERDR_ENV=1`) and no explicit backend is set, firstmate auto-selects herdr and prints a one-time opt-out notice; running inside tmux nested in herdr always resolves to tmux instead.
+A herdr spawn refuses loudly before creating a session container or acquiring a ship/scout worktree if `herdr` or `jq` is missing or the installed herdr's protocol is older than verified.
+For `--secondmate` launches, secondmate home sync and inherited-config propagation happen before this spawn-time backend gate.
+
+No first-run provisioning is needed beyond having `herdr` and `jq` on `PATH`; firstmate creates the workspace and tab it needs on first spawn.
+
+Watching and attaching: each firstmate home gets its own herdr workspace (the primary uses `firstmate`; each secondmate uses `2ndmate-<secondmate-id>`), with one tab per task inside it, named `fm-<id>`.
+Attach to the selected `HERDR_SESSION` and switch to the workspace for the home you want to watch to see every one of that home's tasks as tabs in one tab bar.
+You do not need to attach for routine supervision: `bin/fm-peek.sh fm-<id>` reads a task's pane without attaching, and `bin/fm-send.sh fm-<id> "<text>"` steers it.
+
+Verify it works by spawning a trivial task with `--backend herdr` and confirming the task's meta records `backend=herdr` plus `herdr_session=`, `herdr_workspace_id=`, `herdr_tab_id=`, and `herdr_pane_id=`; the workspace for your home should show the new `fm-<id>` tab.
+
+Limitations: herdr is experimental, not yet used for `bin/fm-bootstrap.sh`'s required-tools list (the version/tool gate happens at spawn time instead), and carries the known gaps documented below (a small-`--lines` capture bug with a built-in workaround, and a `pane_cwd`-adjacent worktree-discovery symlink fragility) - see "Known gaps and follow-up notes" at the end of this document.
+
 ## Status: experimental
 
 Herdr is experimental, exactly like every non-tmux backend in this design.
-Select it explicitly with `--backend herdr`, `FM_BACKEND=herdr`, or `config/backend` containing `herdr`.
+Select it by putting `herdr` in a local `config/backend` file, by exporting `FM_BACKEND=herdr`, or by telling the first mate in chat to use herdr.
 It can also be selected by runtime auto-detection when firstmate itself is running inside herdr and no explicit backend setting exists.
 Absent those three explicit settings, firstmate falls through to runtime auto-detection.
 When nothing is explicitly configured, `bin/fm-backend.sh`'s `fm_backend_detect` checks the runtime firstmate itself is executing inside: `HERDR_ENV=1` (injected into every process herdr manages a pane for) selects herdr; `$TMUX` (set inside every tmux pane, including a tmux pane nested inside a herdr pane) selects tmux and always wins when both markers are present, since that is the surface firstmate is actually running on.
