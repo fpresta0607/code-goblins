@@ -14,11 +14,13 @@
 #   runtime auto-detection (the runtime firstmate itself is executing inside -
 #   $TMUX or HERDR_ENV=1; bin/fm-backend.sh's fm_backend_detect), then tmux.
 #   Spawn-capable backends are the reference tmux adapter and experimental
-#   herdr, zellij, and orca. Orca owns both the task worktree and terminal,
-#   so ship/scout Orca spawns do not run treehouse get. An auto-detected herdr
-#   spawn prints a loud stderr notice; auto-detected tmux stays silent; zellij
-#   and orca are never auto-detected (always explicit). Default tmux
-#   spawns do not write backend= to meta; absent backend= means tmux.
+#   herdr, zellij, orca, and cmux. Orca owns both the task worktree and
+#   terminal, so ship/scout Orca spawns do not run treehouse get; cmux is a
+#   session provider only, exactly like herdr/zellij, so it does. An
+#   auto-detected herdr spawn prints a loud stderr notice; auto-detected tmux
+#   stays silent; zellij, orca, and cmux are never auto-detected (always
+#   explicit). Default tmux spawns do not write backend= to meta; absent
+#   backend= means tmux. cmux does not support --secondmate spawns yet.
 #   With no harness arg, a crewmate/scout spawn resolves the CREW harness only when
 #   config/crew-dispatch.json is absent. When that file exists, crewmate/scout
 #   spawns require an explicit harness so firstmate cannot silently skip dispatch
@@ -154,6 +156,10 @@ fm_backend_validate_spawn "$BACKEND" || exit 1
 fm_backend_source "$BACKEND" || exit 1
 if [ "$BACKEND" = orca ] && [ "$KIND" = secondmate ]; then
   echo "error: backend=orca does not support --secondmate spawns yet" >&2
+  exit 1
+fi
+if [ "$BACKEND" = cmux ] && [ "$KIND" = secondmate ]; then
+  echo "error: backend=cmux does not support --secondmate spawns yet" >&2
   exit 1
 fi
 if [ "$BACKEND" = orca ]; then
@@ -701,6 +707,18 @@ EOF
     fi
     T="$ZELLIJ_SES:$ZELLIJ_PANE_ID"
     ;;
+  cmux)
+    fm_backend_cmux_container_ensure || exit 1
+    CMUX_TASK_IDS=$(fm_backend_cmux_create_task "$W" "$PROJ_ABS") || exit 1
+    read -r CMUX_WORKSPACE_ID CMUX_SURFACE_ID <<EOF
+$CMUX_TASK_IDS
+EOF
+    if [ -z "$CMUX_WORKSPACE_ID" ] || [ -z "$CMUX_SURFACE_ID" ]; then
+      echo "error: cmux did not return a workspace/surface id for $W" >&2
+      exit 1
+    fi
+    T="$CMUX_WORKSPACE_ID:$CMUX_SURFACE_ID"
+    ;;
   orca)
     set +e
     ORCA_WT_RAW=$(fm_backend_orca_worktree_create "$PROJ_ABS" "$W")
@@ -733,6 +751,7 @@ spawn_send_text_line() {  # <target> <text>
     herdr) fm_backend_herdr_send_text_line "$1" "$2" ;;
     zellij) fm_backend_zellij_send_text_line "$1" "$2" "$W" ;;
     orca) fm_backend_orca_send_text_line "$1" "$2" ;;
+    cmux) fm_backend_cmux_send_text_line "$1" "$2" "$W" ;;
   esac
 }
 spawn_current_path() {  # <target>
@@ -740,6 +759,7 @@ spawn_current_path() {  # <target>
     tmux) fm_backend_tmux_current_path "$1" ;;
     herdr) fm_backend_herdr_current_path "$1" ;;
     zellij) fm_backend_zellij_current_path "$1" "$W" ;;
+    cmux) fm_backend_cmux_current_path "$1" "$W" ;;
   esac
 }
 spawn_send_literal() {  # <target> <text>
@@ -748,6 +768,7 @@ spawn_send_literal() {  # <target> <text>
     herdr) fm_backend_herdr_send_literal "$1" "$2" ;;
     zellij) fm_backend_zellij_send_literal "$1" "$2" "$W" ;;
     orca) fm_backend_orca_send_literal "$1" "$2" ;;
+    cmux) fm_backend_cmux_send_literal "$1" "$2" "$W" ;;
   esac
 }
 spawn_send_key() {  # <target> <key>
@@ -756,6 +777,7 @@ spawn_send_key() {  # <target> <key>
     herdr) fm_backend_herdr_send_key "$1" "$2" ;;
     zellij) fm_backend_zellij_send_key "$1" "$2" "$W" ;;
     orca) fm_backend_orca_send_key "$1" "$2" ;;
+    cmux) fm_backend_cmux_send_key "$1" "$2" "$W" ;;
   esac
 }
 if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
@@ -936,6 +958,10 @@ META_WINDOW=$T
   if [ "$BACKEND" = orca ]; then
     echo "orca_worktree_id=$ORCA_WORKTREE_ID"
     echo "terminal=$ORCA_TERMINAL"
+  fi
+  if [ "$BACKEND" = cmux ]; then
+    echo "cmux_workspace_id=$CMUX_WORKSPACE_ID"
+    echo "cmux_surface_id=$CMUX_SURFACE_ID"
   fi
   if [ "$KIND" = secondmate ]; then
     echo "home=$PROJ_ABS"

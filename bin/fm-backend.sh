@@ -18,7 +18,10 @@
 # background session for predictability, unlike tmux's/herdr's ambient-session
 # reuse); see report.md's "Zellij Backend" section and docs/zellij-backend.md
 # for its empirical basis. P4 makes Orca spawn-capable: Orca owns both the
-# task worktree and the terminal endpoint.
+# task worktree and the terminal endpoint. P5 adds bin/backends/cmux.sh, also
+# EXPERIMENTAL and spawn-capable, behind `--backend cmux`/`FM_BACKEND=cmux`/
+# `config/backend` - NOT behind runtime auto-detection (GUI-first, macOS-only,
+# same posture as Orca); see docs/cmux-backend.md for its empirical basis.
 #
 # Compatibility contract: a task's meta may omit `backend=`; every reader here
 # treats that as `tmux` (fm_backend_of_meta), and fm-spawn.sh does not write
@@ -54,8 +57,10 @@ FM_BACKEND_CONFIG_DIR="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 # data/fm-backend-design-d7/report.md "Zellij Backend") - verified against the
 # real 0.44.0 binary (docs/zellij-backend.md). orca is EXPERIMENTAL and
 # spawn-capable; unlike tmux/herdr/zellij it is also the worktree provider.
-FM_BACKEND_KNOWN="tmux herdr zellij orca"
-FM_BACKEND_SPAWN="tmux herdr zellij orca"
+# cmux is EXPERIMENTAL and spawn-capable, session-provider-only like
+# herdr/zellij - verified against the real 0.64.17 binary (docs/cmux-backend.md).
+FM_BACKEND_KNOWN="tmux herdr zellij orca cmux"
+FM_BACKEND_SPAWN="tmux herdr zellij orca cmux"
 
 # fm_backend_list_contains: whitespace-delimited membership without relying on
 # shell word splitting. fm-backend.sh is normally sourced by bash scripts, but
@@ -249,6 +254,13 @@ fm_backend_source() {  # <name>
         _FM_BACKEND_ORCA_SOURCED=1
       fi
       ;;
+    cmux)
+      if [ -z "${_FM_BACKEND_CMUX_SOURCED:-}" ]; then
+        # shellcheck source=bin/backends/cmux.sh
+        . "$FM_BACKEND_LIB_DIR/backends/cmux.sh" || return 1
+        _FM_BACKEND_CMUX_SOURCED=1
+      fi
+      ;;
   esac
 }
 
@@ -314,6 +326,7 @@ fm_backend_capture() {  # <backend> <target> <lines> [expected-label]
     herdr) fm_backend_herdr_capture "$@" ;;
     zellij) fm_backend_zellij_capture "$@" ;;
     orca) fm_backend_orca_capture "$@" ;;
+    cmux) fm_backend_cmux_capture "$@" ;;
     *) echo "error: no capture implementation for backend '$backend'" >&2; return 1 ;;
   esac
 }
@@ -328,6 +341,7 @@ fm_backend_send_key() {  # <backend> <target> <key> [expected-label]
     herdr) fm_backend_herdr_send_key "$@" ;;
     zellij) fm_backend_zellij_send_key "$@" ;;
     orca) fm_backend_orca_send_key "$@" ;;
+    cmux) fm_backend_cmux_send_key "$@" ;;
     *) echo "error: no send-key implementation for backend '$backend'" >&2; return 1 ;;
   esac
 }
@@ -344,6 +358,7 @@ fm_backend_send_text_submit() {  # <backend> <target> <text> <retries> <enter-sl
     herdr) fm_backend_herdr_send_text_submit "$@" ;;
     zellij) fm_backend_zellij_send_text_submit "$@" ;;
     orca) fm_backend_orca_send_text_submit "$@" ;;
+    cmux) fm_backend_cmux_send_text_submit "$@" ;;
     *) echo "error: no send-text implementation for backend '$backend'" >&2; return 1 ;;
   esac
 }
@@ -360,6 +375,7 @@ fm_backend_kill() {  # <backend> <target>
     herdr) fm_backend_herdr_kill "$@" ;;
     zellij) fm_backend_zellij_kill "$@" ;;
     orca) fm_backend_orca_kill "$@" ;;
+    cmux) fm_backend_cmux_kill "$@" ;;
     *) echo "error: no kill implementation for backend '$backend'" >&2; return 1 ;;
   esac
 }
@@ -433,6 +449,10 @@ fm_backend_target_exists() {  # <backend> <target> [expected-label]
     orca)
       fm_backend_source orca || return 1
       fm_backend_orca_capture "$target" 1 >/dev/null 2>&1
+      ;;
+    cmux)
+      fm_backend_source cmux || return 1
+      fm_backend_cmux_target_ready "$target" "$expected_label"
       ;;
     *)
       return 1

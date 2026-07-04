@@ -40,7 +40,7 @@ This is.. a directory that turns any agent into your firstmate, and you the capt
 ## Features
 
 - **One liaison** - you talk only to the first mate; it dispatches, supervises, escalates only real decisions, and reports plain outcomes.
-- **A visible crew** - every crewmate works in its own tmux window, experimental herdr/zellij tab, or Orca terminal you can watch or type into; the first mate reconciles.
+- **A visible crew** - every crewmate works in its own tmux window, experimental herdr/zellij tab, cmux workspace, or Orca terminal you can watch or type into; the first mate reconciles.
 - **Disposable worktrees** - each task runs in a clean [treehouse](https://github.com/kunchenguid/treehouse) git worktree, or an Orca-managed worktree when `backend=orca`, so parallel work on one repo never collides.
 - **Two task shapes** - ship tasks deliver a change; scout tasks investigate, plan, reproduce, or audit and leave a report.
 - **Explicit project modes** - each project ships via `no-mistakes`, `direct-PR`, or `local-only`, with an optional `+yolo` autonomy flag.
@@ -48,7 +48,7 @@ This is.. a directory that turns any agent into your firstmate, and you the capt
 - **Event-driven, zero-token supervision** - a bash watcher sleeps on the fleet and wakes the first mate only when something needs you.
 - **Optional X mode** - opt in with one local `.env` token so firstmate can answer your public `@myfirstmate` mentions, act on normal reversible mention requests through the same lifecycle as chat requests, acknowledge spawned work, and post up to three public-safe completion follow-ups within seven days for genuine milestones and the final outcome without changing non-X behavior; dry-run preview records would-be replies and dismissals locally before go-live.
 - **Guarded by construction** - the first mate is read-only over your projects outside guarded clone refreshes, safe branch pruning, and approved `local-only` fast-forward merges; crewmates make every project change behind your merge approval.
-- **Restart-proof** - all state lives on disk and in the active session backend (tmux by hard default, herdr when selected or auto-detected, zellij/orca when explicitly selected); kill the session anytime and the next one reconciles and carries on.
+- **Restart-proof** - all state lives on disk and in the active session backend (tmux by hard default, herdr when selected or auto-detected, zellij/orca/cmux when explicitly selected); kill the session anytime and the next one reconciles and carries on.
 
 Full detail on every feature lives in [docs/architecture.md](docs/architecture.md).
 
@@ -79,7 +79,7 @@ Then just talk:
 > alright merge it
 ```
 
-Setup guides for tmux (the default) and every other supported backend (herdr, zellij, Orca) are linked in [Documentation](#documentation) below.
+Setup guides for tmux (the default) and every other supported backend (herdr, zellij, Orca, cmux) are linked in [Documentation](#documentation) below.
 
 ## How It Works
 
@@ -95,7 +95,7 @@ Setup guides for tmux (the default) and every other supported backend (herdr, ze
     │ backend sends / status files │
     ▼              ▼               ▼
  ┌────────┐   ┌────────┐      ┌────────┐
- │fm-task1│   │fm-task2│  ... │fm-taskN│   tmux windows, herdr/zellij tabs, or Orca terminals
+ │fm-task1│   │fm-task2│  ... │fm-taskN│   tmux windows, herdr/zellij tabs, cmux workspaces, or Orca terminals
  │crewmate│   │crewmate│      │crewmate│   one autonomous agent each
  └───┬────┘   └───┬────┘      └───┬────┘
      ▼            ▼               ▼
@@ -143,6 +143,7 @@ Firstmate's skills live in two separate places with different audiences:
 - [docs/herdr-backend.md](docs/herdr-backend.md) - setup guide for the experimental herdr backend, plus its verification notes and known gaps.
 - [docs/zellij-backend.md](docs/zellij-backend.md) - setup guide for the experimental zellij backend, plus its verification notes and known gaps.
 - [docs/orca-backend.md](docs/orca-backend.md) - setup guide for the experimental Orca backend, plus its lifecycle notes and known gaps.
+- [docs/cmux-backend.md](docs/cmux-backend.md) - setup guide for the experimental cmux backend, plus its verification notes and known gaps.
 - [docs/scripts.md](docs/scripts.md) - the `bin/` toolbelt reference.
 - [`AGENTS.md`](AGENTS.md) - firstmate's full operating manual for the orchestrator agent.
 - [CONTRIBUTING.md](CONTRIBUTING.md) - how to contribute, including the dev/test commands.

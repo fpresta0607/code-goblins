@@ -40,22 +40,24 @@ Its tmux supervisor injection path shares the same submit core used by the tmux 
 
 The runtime backend is the session-provider layer below firstmate's scripts.
 It owns task endpoint creation, bounded capture, text/key sends, current-path reads for spawn-time worktree discovery when the backend does not create the worktree itself, live-window fallback lookup, and endpoint teardown.
-`bin/fm-backend.sh` centralizes backend selection, `state/<id>.meta` helpers, selector resolution, and operation dispatch; `bin/backends/tmux.sh` is the verified reference adapter ([`docs/tmux-backend.md`](tmux-backend.md)), and `bin/backends/herdr.sh` (P2), `bin/backends/zellij.sh` (P3), and `bin/backends/orca.sh` (P4) are experimental task-spawn adapters.
+`bin/fm-backend.sh` centralizes backend selection, `state/<id>.meta` helpers, selector resolution, and operation dispatch; `bin/backends/tmux.sh` is the verified reference adapter ([`docs/tmux-backend.md`](tmux-backend.md)), and `bin/backends/herdr.sh` (P2), `bin/backends/zellij.sh` (P3), `bin/backends/orca.sh` (P4), and `bin/backends/cmux.sh` (P5) are experimental task-spawn adapters.
 New spawns select a backend from `--backend`, then `FM_BACKEND`, then local `config/backend`, then runtime auto-detection from `$TMUX` or `HERDR_ENV=1`, then default `tmux`.
-Runtime auto-detection is innermost-first: `$TMUX` wins over `HERDR_ENV=1` when firstmate is inside tmux nested in herdr, auto-detected herdr prints a one-time opt-out notice, and auto-detected tmux stays silent; zellij and orca are never auto-detected (only explicit selection), a deliberate choice to avoid ever reusing an ambient session a human might be attached to.
+Runtime auto-detection is innermost-first: `$TMUX` wins over `HERDR_ENV=1` when firstmate is inside tmux nested in herdr, auto-detected herdr prints a one-time opt-out notice, and auto-detected tmux stays silent; zellij, orca, and cmux are never auto-detected (only explicit selection), a deliberate choice to avoid ever reusing an ambient session a human might be attached to.
 Unknown backend names fail loudly.
 For compatibility, default tmux tasks do not write `backend=tmux`; every reader treats a missing `backend=` field as `tmux`.
-`fm-watch.sh` polls each window's backend for a busy state: tmux, zellij, and orca have no native primitive and always report unknown, preserving the original pane-tail-regex detection unchanged; herdr's `agent.get` semantic state (working/idle/done/blocked) is consulted first for stale detection, with unknown native states falling back to the same regex.
+`fm-watch.sh` polls each window's backend for a busy state: tmux, zellij, orca, and cmux have no native primitive and always report unknown, preserving the original pane-tail-regex detection unchanged; herdr's `agent.get` semantic state (working/idle/done/blocked) is consulted first for stale detection, with unknown native states falling back to the same regex.
 That poll loop is the default event source for backends with no native push events, so this stays an extraction of the abstraction rather than a watcher rewrite.
 Herdr is experimental and can be selected explicitly or by runtime auto-detection: treehouse remains the worktree provider for it exactly as it is for tmux (herdr is a session provider only), and its full verification - the container shape decision, created-vs-adopted default-tab prune safety, restored-layout husk respawn idempotency, verified CLI facts, a verified small-`--lines` capture bug and its workaround, and known gaps - is recorded in `docs/herdr-backend.md`.
 Herdr's container shape is workspace-per-home plus tab-per-task: the primary home uses workspace label `firstmate`, secondmate homes use `2ndmate-<secondmate-id>`, and recovery/list-live scopes to the current `FM_HOME`'s workspace.
 Zellij is experimental and selected only explicitly: treehouse remains its worktree provider too, and its full verification - the resolved "gaps to verify" list from the original design report, the unconditional-exit-0 CLI quirk and its mitigation, the focus-steal-on-new-tab finding, and known gaps - is recorded in `docs/zellij-backend.md`.
 Zellij's container shape is simpler than herdr's: one shared `firstmate` session, one tab per task, with no per-home workspace split.
 Orca is experimental and selected only explicitly: Orca owns both worktree and terminal lifecycle, records `orca_worktree_id=` and `terminal=`, and removes worktrees through `orca worktree rm` only after the usual firstmate teardown checks pass. Its current behavior and limitations are recorded in `docs/orca-backend.md`.
+cmux is experimental, GUI-first, macOS-only, and selected only explicitly: treehouse remains its worktree provider (cmux is a session provider only, like herdr/zellij), and its full verification - the socket access/password-mode setup requirement, the read-screen-fails-on-a-fresh-surface finding, the close-surface-refuses-on-the-last-surface finding, and known gaps - is recorded in `docs/cmux-backend.md`.
+cmux's container shape is one workspace per task with one surface, no per-home container split; workspace titles are scoped by the active home label plus a short hash of the resolved `FM_ROOT` path, and `--secondmate` spawns are refused, mirroring Orca.
 
 ## Worktrees, not branches in your checkout
 
-Crewmates never intentionally touch your project clone; [treehouse](https://github.com/kunchenguid/treehouse) pools clean worktrees for tmux, herdr, and zellij tasks, while Orca creates its own worktrees for `backend=orca`.
+Crewmates never intentionally touch your project clone; [treehouse](https://github.com/kunchenguid/treehouse) pools clean worktrees for tmux, herdr, zellij, and cmux tasks, while Orca creates its own worktrees for `backend=orca`.
 For ship and scout work, `fm-spawn.sh` refuses to launch unless the resolved task path is a real git worktree root that is distinct from the project primary checkout.
 
 The firstmate repo has one extra exposure because it can dispatch crewmates to work on itself.
@@ -194,7 +196,7 @@ The mechanics are owned by the `/updatefirstmate` skill and firstmate's operatin
 
 ## Restart-proof
 
-Fleet state lives in each task's session-provider backend (tmux by hard default, herdr when selected or auto-detected, zellij/orca when explicitly selected), no-mistakes run records, status event logs, local markdown under `data/` including `data/captain.md` and `data/learnings.md`, and persistent secondmate homes.
+Fleet state lives in each task's session-provider backend (tmux by hard default, herdr when selected or auto-detected, zellij/orca/cmux when explicitly selected), no-mistakes run records, status event logs, local markdown under `data/` including `data/captain.md` and `data/learnings.md`, and persistent secondmate homes.
 For herdr, respawning after a server-restored layout closes and replaces confirmed no-agent or dead task-tab husks instead of requiring manual tab cleanup.
 Use `/stow` before an intentional reset when the conversation may hold durable knowledge that has not yet been written to disk; after that, the next firstmate session can reconcile and carry on.
 
