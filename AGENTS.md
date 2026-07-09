@@ -686,11 +686,11 @@ The live cycle is the supervision: while any task is in flight, the active harne
 After handling drained wakes, resume the emitted harness protocol before ending the turn.
 Never use shell `&` as a substitute for a verified harness wake mechanism.
 The watcher remains singleton-safe: acquisition is race-proof, so under any number of concurrent starts at most one watcher ever holds this home's lock, and a duplicate that somehow starts self-evicts within one poll once it sees the lock no longer names it.
-If the active protocol's arm wrapper reports an existing healthy watcher, do not start another cycle.
+If the active protocol's arm wrapper reports or attaches to an existing healthy watcher, do not start another cycle; attached arms stay live until that cycle ends.
 If it reports failure, drain queued wakes first and then repair supervision according to the emitted block.
 **No turn ends blind, holds included.**
 Never end a turn while any task is in flight without the active harness supervision protocol live: a text-only "holding" or "waiting" reply with crewmates live and no live cycle is a bug, and because such a turn runs no supervision script it is exactly the blind gap the script-only guard (`fm-guard.sh`, below) cannot catch, so this discipline must.
-If a forced restart is ever genuinely needed, use `bin/fm-watch-arm.sh --restart`, which stops only this home's watcher (the pid recorded in this home's `state/.watch.lock`) and starts a fresh one.
+If a forced restart is ever genuinely needed, use `bin/fm-watch-arm.sh --restart`, which signals only this home's recorded watcher and then owns a fresh cycle or reports restart-only `healthy` without attaching if a healthy peer still holds the lock.
 Never `pkill -f bin/fm-watch.sh`: that pattern matches every firstmate home's watcher, including secondmate homes that run the same script, so a broad pkill from one home kills sibling homes' watchers.
 Away-mode supervision is provided by the `/afk` skill and its daemon; while `state/.afk` exists, the daemon owns the watcher.
 Waiting on the watcher is intentionally silent.
