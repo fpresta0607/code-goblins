@@ -152,6 +152,219 @@ test_stale_terminal_escalates() {
   pass "stale + terminal status escalates immediately"
 }
 
+# A DECLARED external-wait pause (paused:) is neither a wedge nor a terminal
+# escalation: classify_stale returns the `pause` action so handle_wake records a
+# pause marker (long re-surface cadence) rather than a wedge stale marker.
+test_stale_paused_classifies_pause() {
+  local dir state out pause_reason
+  dir=$(make_supercase stale-paused)
+  state="$dir/state"
+  pause_reason='paused: waiting for upstream checks green, merged, and blocked state to clear'
+  status_is_captain_relevant "$pause_reason" && fail "pause reason phrases made the status captain-relevant"
+  printf '%s\n' "$pause_reason" > "$state/held-w9.status"
+  out=$(FM_STATE_OVERRIDE="$state" classify_stale "sess:fm-held-w9" "$state")
+  case "$out" in pause\|*) ;; *) fail "declared pause did not classify as pause: $out" ;; esac
+  pass "paused reasons with captain phrases remain pause-classified"
+}
+
+# handle_wake on a paused stale records a pause marker, drops any pre-existing wedge
+# marker (so a working->paused pane is not still wedge-aged), and does NOT escalate
+# on the wake itself - the recheck is housekeeping's job on the long cadence.
+test_handle_wake_paused_records_pause_marker() {
+  local dir state key win
+  dir=$(make_supercase handle-paused)
+  state="$dir/state"
+  win="sess:fm-held-w10"
+  printf 'paused: awaiting the vendor rate-limit reset\n' > "$state/held-w10.status"
+  key=$(printf '%s' "held-w10" | tr ':/.' '___')
+  date +%s > "$state/.subsuper-stale-$key"
+  FM_STATE_OVERRIDE="$state" handle_wake "stale: $win" "$state"
+  [ -e "$state/.subsuper-paused-$key" ] || fail "pause marker not recorded by handle_wake"
+  [ ! -e "$state/.subsuper-stale-$key" ] || fail "wedge marker not cleared when the crew declared a pause"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "a declared pause escalated on the wake itself (should defer to the long recheck)"
+  pass "handle_wake on a paused stale records a pause marker, drops the wedge marker, and does not escalate"
+}
+
+test_handle_wake_paused_signal_records_pause_marker() {
+  local dir state key win
+  dir=$(make_supercase handle-paused-signal)
+  state="$dir/state"
+  win="sess:fm-held-w10-signal"
+  printf 'window=%s\nkind=ship\n' "$win" > "$state/held-w10-signal.meta"
+  printf 'paused: awaiting the vendor rate-limit reset\n' > "$state/held-w10-signal.status"
+  key=$(printf '%s' "held-w10-signal" | tr ':/.' '___')
+  date +%s > "$state/.subsuper-stale-$key"
+  FM_STATE_OVERRIDE="$state" handle_wake "signal: $state/held-w10-signal.status" "$state"
+  [ -e "$state/.subsuper-paused-$key" ] || fail "pause signal did not record a pause marker"
+  [ ! -e "$state/.subsuper-stale-$key" ] || fail "pause signal did not clear the wedge marker"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "a declared pause signal escalated instead of self-handling"
+  pass "handle_wake records a declared pause from a routine signal for long-cadence rechecks"
+}
+
+test_handle_wake_terminal_signal_clears_pause_tracking() {
+  local dir state key watcher_key win
+  dir=$(make_supercase handle-terminal-signal)
+  state="$dir/state"
+  win="sess:fm-held-w10-terminal"
+  printf 'window=%s\nkind=ship\n' "$win" > "$state/held-w10-terminal.meta"
+  printf 'done: upstream landed\n' > "$state/held-w10-terminal.status"
+  key=$(printf '%s' "held-w10-terminal" | tr '.:/' '___')
+  watcher_key=$(printf '%s' "$win" | tr '.:/' '___')
+  date +%s > "$state/.subsuper-paused-$key"
+  date +%s > "$state/.subsuper-stale-$key"
+  : > "$state/.paused-$watcher_key"
+  : > "$state/.stale-$watcher_key"
+  : > "$state/.wedge-escalations-$watcher_key"
+  FM_STATE_OVERRIDE="$state" handle_wake "signal: $state/held-w10-terminal.status" "$state"
+  [ ! -e "$state/.subsuper-paused-$key" ] || fail "terminal signal retained the daemon pause marker"
+  [ ! -e "$state/.subsuper-stale-$key" ] || fail "terminal signal retained daemon stale tracking"
+  [ ! -e "$state/.paused-$watcher_key" ] || fail "terminal signal retained watcher pause tracking"
+  [ ! -e "$state/.stale-$watcher_key" ] || fail "terminal signal retained watcher stale tracking"
+  [ ! -e "$state/.wedge-escalations-$watcher_key" ] || fail "terminal signal retained watcher wedge tracking"
+  FM_STATE_OVERRIDE="$state" handle_wake "stale: $win" "$state"
+  [ ! -e "$state/.subsuper-stale-$key" ] || fail "terminal stale dedupe restored daemon stale tracking"
+  pass "a terminal signal clears pause and stale tracking across both supervisors"
+}
+
+test_housekeeping_migrates_watcher_pause_marker() {
+  local dir state key win
+  dir=$(make_supercase migrate-watcher-pause)
+  state="$dir/state"
+  win="sess:fm-held-w10-migrate"
+  printf 'window=%s\nkind=ship\n' "$win" > "$state/held-w10-migrate.meta"
+  printf 'paused: awaiting the upstream release\n' > "$state/held-w10-migrate.status"
+  key=$(printf '%s' "$win" | tr '.:/' '___')
+  : > "$state/.paused-$key"
+  FM_STATE_OVERRIDE="$state" housekeeping "$state"
+  key=$(printf '%s' "held-w10-migrate" | tr '.:/' '___')
+  [ -e "$state/.subsuper-paused-$key" ] || fail "watcher pause marker was not migrated into daemon tracking"
+  [ ! -e "$state/.subsuper-stale-$key" ] || fail "watcher pause migration left a wedge marker behind"
+  pass "housekeeping migrates a normal-watcher's declared pause into daemon tracking"
+}
+
+test_housekeeping_migrates_watcher_unpaused_marker_to_clear() {
+  local dir state key watcher_key win
+  dir=$(make_supercase migrate-watcher-unpaused)
+  state="$dir/state"
+  win="sess:fm-held-w10-migrate-unpaused"
+  printf 'window=%s\nkind=ship\n' "$win" > "$state/held-w10-migrate-unpaused.meta"
+  printf 'working: upstream landed, resuming\n' > "$state/held-w10-migrate-unpaused.status"
+  watcher_key=$(printf '%s' "$win" | tr '.:/' '___')
+  : > "$state/.paused-$watcher_key"
+  FM_STATE_OVERRIDE="$state" housekeeping "$state"
+  key=$(printf '%s' "held-w10-migrate-unpaused" | tr '.:/' '___')
+  [ ! -e "$state/.paused-$watcher_key" ] || fail "stale watcher pause marker was not cleared after resume"
+  [ ! -e "$state/.subsuper-paused-$key" ] || fail "unpaused watcher handoff created a daemon pause marker"
+  [ ! -e "$state/.subsuper-stale-$key" ] || fail "unpaused watcher handoff retained daemon stale tracking"
+  [ ! -e "$state/.stale-$watcher_key" ] || fail "unpaused watcher handoff retained watcher stale tracking"
+  pass "housekeeping clears an already-resumed watcher pause across both supervisors"
+}
+
+test_housekeeping_seeds_pause_marker_from_status() {
+  local dir state key win
+  dir=$(make_supercase seed-paused-status)
+  state="$dir/state"
+  win="sess:fm-held-w10-seed"
+  printf 'window=%s\nkind=ship\n' "$win" > "$state/held-w10-seed.meta"
+  printf 'paused: awaiting the upstream release\n' > "$state/held-w10-seed.status"
+  key=$(printf '%s' "held-w10-seed" | tr '.:/' '___')
+  FM_STATE_OVERRIDE="$state" housekeeping "$state"
+  [ -e "$state/.subsuper-paused-$key" ] || fail "paused status did not seed daemon pause tracking"
+  [ ! -e "$state/.subsuper-stale-$key" ] || fail "paused status seeded wedge tracking"
+  pass "housekeeping seeds pause tracking from status without a watcher marker"
+}
+
+# housekeeping re-surfaces a stale declared pause only past PAUSE_RESURFACE_SECS,
+# as an awaiting-external recheck (never a wedge), and RESETS the marker so the
+# window repeats rather than firing once.
+test_housekeeping_paused_resurfaces_and_resets() {
+  local dir state fakebin win pane key age
+  dir=$(make_supercase paused-resurface)
+  state="$dir/state"; fakebin="$dir/fakebin"
+  win="sess:fm-held-w11"; pane="$dir/pane.txt"
+  printf 'paused: holding for the upstream tool release\n' > "$state/held-w11.status"
+  printf 'idle prompt $\n' > "$pane"
+  key=$(printf '%s' "held-w11" | tr ':/.' '___')
+  echo $(( $(date +%s) - 5000 )) > "$state/.subsuper-paused-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+    FM_STATE_OVERRIDE="$state" FM_PAUSE_RESURFACE_SECS=240 housekeeping "$state"
+  grep -F "awaiting external" "$state/.subsuper-escalations" >/dev/null 2>&1 || fail "declared pause was not re-surfaced as an awaiting-external recheck"
+  grep -F "possible wedge" "$state/.subsuper-escalations" >/dev/null 2>&1 && fail "declared pause was mislabeled a possible wedge"
+  [ -e "$state/.subsuper-paused-$key" ] || fail "pause marker cleared instead of reset for the next window"
+  age=$(( $(date +%s) - $(cat "$state/.subsuper-paused-$key" 2>/dev/null || echo 0) ))
+  [ "$age" -lt 60 ] || fail "pause marker was not reset to now on re-surface (age ${age}s)"
+  pass "housekeeping re-surfaces a stale declared pause on the long cadence and resets its window"
+}
+
+# A pause whose pane became busy again (the crew resumed) drops its marker without
+# escalating, exactly like a resumed wedge.
+test_housekeeping_paused_resumed_cleared() {
+  local dir state fakebin win pane key
+  dir=$(make_supercase paused-resumed)
+  state="$dir/state"; fakebin="$dir/fakebin"
+  win="sess:fm-held-w12"; pane="$dir/pane.txt"
+  printf 'paused: holding for the upstream tool release\n' > "$state/held-w12.status"
+  printf 'Working...\n' > "$pane"
+  key=$(printf '%s' "held-w12" | tr ':/.' '___')
+  echo $(( $(date +%s) - 5000 )) > "$state/.subsuper-paused-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+    FM_STATE_OVERRIDE="$state" FM_PAUSE_RESURFACE_SECS=240 housekeeping "$state"
+  [ -e "$state/.subsuper-paused-$key" ] && fail "resumed (busy) pause marker was not cleared"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "a resumed pause was escalated"
+  pass "housekeeping clears a paused marker whose pane became busy again, without escalating"
+}
+
+# A pane still idle but whose status is no longer a pause (the crew changed state
+# without becoming busy) drops the marker - the signal path owns the new state, so
+# the pause recheck must not re-surface a stale pause reason.
+test_housekeeping_paused_unpaused_cleared() {
+  local dir state fakebin win pane key
+  dir=$(make_supercase paused-unpaused)
+  state="$dir/state"; fakebin="$dir/fakebin"
+  win="sess:fm-held-w13"; pane="$dir/pane.txt"
+  printf 'paused: holding for the upstream release\nworking: resumed, upstream landed\n' > "$state/held-w13.status"
+  printf 'idle prompt $\n' > "$pane"
+  key=$(printf '%s' "held-w13" | tr ':/.' '___')
+  echo $(( $(date +%s) - 5000 )) > "$state/.subsuper-paused-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+    FM_STATE_OVERRIDE="$state" FM_PAUSE_RESURFACE_SECS=240 housekeeping "$state"
+  [ -e "$state/.subsuper-paused-$key" ] && fail "no-longer-paused marker was not cleared"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "a crew that left its pause was re-surfaced as a pause"
+  pass "housekeeping clears a paused marker once the crew is no longer declaring the pause"
+}
+
+test_housekeeping_stale_marker_transitions_to_pause() {
+  local dir state fakebin win pane key
+  dir=$(make_supercase stale-to-paused)
+  state="$dir/state"; fakebin="$dir/fakebin"; win="sess:fm-held-w14"; pane="$dir/pane.txt"
+  printf 'paused: awaiting the upstream tool release\n' > "$state/held-w14.status"
+  printf 'idle prompt $\n' > "$pane"
+  key=$(printf '%s' "held-w14" | tr ':/.' '___')
+  echo $(( $(date +%s) - 5000 )) > "$state/.subsuper-stale-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+    FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 housekeeping "$state"
+  [ -e "$state/.subsuper-paused-$key" ] || fail "existing stale marker did not move to paused state"
+  [ ! -e "$state/.subsuper-stale-$key" ] || fail "existing stale marker remained wedge-aged after pause"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "a newly declared pause was escalated as a possible wedge"
+  pass "housekeeping moves an existing stale marker to pause before wedge escalation"
+}
+
+test_housekeeping_pause_marker_transitions_to_clear() {
+  local dir state fakebin win pane key
+  dir=$(make_supercase paused-to-stale)
+  state="$dir/state"; fakebin="$dir/fakebin"; win="sess:fm-held-w15"; pane="$dir/pane.txt"
+  printf 'working: upstream landed, resuming\n' > "$state/held-w15.status"
+  printf 'idle prompt $\n' > "$pane"
+  key=$(printf '%s' "held-w15" | tr ':/.' '___')
+  date +%s > "$state/.subsuper-paused-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+    FM_STATE_OVERRIDE="$state" FM_PAUSE_RESURFACE_SECS=999999 housekeeping "$state"
+  [ ! -e "$state/.subsuper-paused-$key" ] || fail "pause marker remained after the crew resumed"
+  [ ! -e "$state/.subsuper-stale-$key" ] || fail "resume retained normal stale tracking"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "resuming from pause escalated immediately"
+  pass "housekeeping clears tracking when a crew leaves pause"
+}
+
 test_housekeeping_persistent_stale_escalates() {
   local dir state fakebin win pane key
   dir=$(make_supercase stale-persistent)
@@ -235,6 +448,8 @@ test_housekeeping_herdr_idle_busy_footer_clears_stale() {
       [ "$2" = "default:w1:p4" ] || fail "expected herdr busy target, got $2"
       printf 'idle'
     }
+    fm_backend_capture herdr default:w1:p4 40 >/dev/null
+    [ "$(fm_backend_busy_state herdr default:w1:p4)" = idle ] || fail "herdr busy stub did not report idle"
     FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 housekeeping "$state"
   ) || fail "herdr idle busy-footer housekeeping failed"
   [ ! -e "$state/.subsuper-stale-$key" ] || fail "idle+busy-footer herdr stale marker was not cleared"
@@ -289,6 +504,8 @@ test_housekeeping_orca_persistent_stale_resolves_terminal() {
       [ "$2" = "term-orca-w8" ] || fail "expected Orca busy target, got $2"
       printf 'idle'
     }
+    fm_backend_capture orca term-orca-w8 40 >/dev/null
+    [ "$(fm_backend_busy_state orca term-orca-w8)" = idle ] || fail "Orca busy stub did not report idle"
     FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 housekeeping "$state"
   ) || fail "Orca persistent stale housekeeping failed"
   [ -s "$state/.subsuper-escalations" ] || fail "persistent Orca stale was not escalated"
@@ -1107,8 +1324,20 @@ test_classify_terminal_signal_escalates
 test_classify_check_and_unknown_escalate
 test_stale_transient_self_records_marker
 test_stale_terminal_escalates
+test_stale_paused_classifies_pause
+test_handle_wake_paused_records_pause_marker
+test_handle_wake_paused_signal_records_pause_marker
+test_handle_wake_terminal_signal_clears_pause_tracking
+test_housekeeping_migrates_watcher_pause_marker
+test_housekeeping_migrates_watcher_unpaused_marker_to_clear
+test_housekeeping_seeds_pause_marker_from_status
 test_housekeeping_persistent_stale_escalates
 test_housekeeping_resumed_stale_cleared
+test_housekeeping_paused_resurfaces_and_resets
+test_housekeeping_paused_resumed_cleared
+test_housekeeping_paused_unpaused_cleared
+test_housekeeping_stale_marker_transitions_to_pause
+test_housekeeping_pause_marker_transitions_to_clear
 test_housekeeping_herdr_persistent_stale_resolves_meta
 test_housekeeping_herdr_idle_busy_footer_clears_stale
 test_housekeeping_herdr_resumed_stale_cleared
