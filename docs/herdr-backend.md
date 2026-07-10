@@ -20,7 +20,7 @@ Prerequisites:
 
 - `herdr` itself, protocol 14 or newer (installed 0.7.1 verified) - see [herdr.dev](https://herdr.dev) for install instructions.
 - `jq`, required to parse herdr's JSON output: `brew install jq` (or your platform's package manager).
-- The same universal requirements as tmux (a verified crew harness, git with GitHub auth, node, treehouse, no-mistakes, gh-axi, chrome-devtools-axi, lavish-axi, tasks-axi 0.1.1 or newer with `update --archive-body` and atomic multi-ID `mv` from 0.2.2, and quota-axi); treehouse still provides the worktree, herdr only provides the session.
+- The universal firstmate prerequisites - a verified crew harness plus the required toolchain, owned by [`docs/configuration.md`](configuration.md) ("Harness support", "Toolchain"); treehouse still provides the worktree, herdr only provides the session.
 
 Select herdr by putting `herdr` in a local `config/backend` file - the durable way to pick it - or by exporting `FM_BACKEND=herdr` when you launch your harness for a one-off session; telling the first mate in chat to use herdr also works.
 It can also be auto-detected: when firstmate itself is running natively inside herdr (`HERDR_ENV=1`) and no explicit backend is set, firstmate auto-selects herdr and prints a one-time opt-out notice; running inside tmux nested in herdr always resolves to tmux instead.
@@ -163,9 +163,8 @@ A workspace whose label this adapter did not derive (see "Label derivation" abov
 A herdr task's `window=` meta field holds `<herdr-session>:<pane-id>`, for example `default:w1:p2`.
 The pane id itself contains a colon, so the adapter splits on the FIRST colon only, never on every colon.
 This mirrors tmux's `session:window` target shape closely enough that `fm_backend_resolve_selector` (in `bin/fm-backend.sh`) needed no backend-specific logic at all - it already just returns a task's recorded `window=` value verbatim.
-Operational commands should prefer the exact task id or stable `fm-<id>` label, both of which resolve through this home's metadata.
-Exact task ids win first, so ids beginning with `fm-` are not stripped as legacy labels.
-An explicit herdr target also works when it exactly matches recorded metadata, but ad hoc bare-name lookup with no metadata remains the legacy tmux live-window fallback for non-`fm-` names.
+Task-selector resolution is the shared contract owned by [`docs/configuration.md`](configuration.md) ("Runtime backend").
+For a bare unknown non-`fm-` name, Herdr retains the legacy tmux live-window fallback.
 
 Herdr tasks additionally record:
 
