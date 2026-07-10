@@ -94,7 +94,8 @@ attempts one normal flush, which still requires an idle pane and an affirmativel
 If that submit cannot be confirmed, it raises a loud, rate-limited wedge alarm:
 an ERROR in the daemon log, a durable
 `state/.subsuper-inject-wedged` marker (surface it on the "while you were out"
-catch-up if present), and a flash on the supervisor client's status line.
+catch-up if present), a tmux status-line flash when applicable, and a configurable backend-independent active alert.
+`docs/wedge-alarm.md` owns the alert channel setup and verification record.
 So a guard false-positive becomes a visible stall, never an unbounded silent no-op.
 
 ## Submit model
@@ -163,7 +164,8 @@ the marker lets firstmate distinguish it from a real captain message.
   buffered past `FM_MAX_DEFER_SECS` (default 300s), the daemon attempts one
   normal flush, which still requires an idle pane and an affirmatively empty composer. If that
   cannot confirm a submit, it raises a loud, rate-limited wedge alarm: ERROR log,
-  durable `state/.subsuper-inject-wedged` marker, and a status-line flash. A
+  durable `state/.subsuper-inject-wedged` marker, a tmux status-line flash when
+  applicable, and a backend-independent active alert. A
   composer false-positive surfaces as a visible stall, never an unbounded silent
   no-op.
 - **Verified type-once submit model** - the digest is typed once (`send-keys -l`
