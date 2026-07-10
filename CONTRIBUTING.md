@@ -78,13 +78,14 @@ tests/fm-pi-primary-types.test.sh         # strict no-emit TypeScript check for 
 FM_PI_LIVE_E2E=1 tests/fm-pi-primary-live-e2e.test.sh # opt-in real Pi TUI regression in an isolated home and private tmux socket
 tests/fm-arm-pretool-check.test.sh        # command-position watcher-arm policy: adversarial allow/deny matrix across all five adapter entry forms, reason codes, fail-closed malformed-protected syntax, fail-open transport, and --claude output shaping
 tests/fm-watch-triage.test.sh             # always-on watcher triage: benign absorb, actionable surface, stale status-log override, wedge threshold, repeated wedge demand marker, heartbeat backstop, and afk one-shot coherence
-tests/fm-daemon.test.sh                   # sub-supervisor classifier, /afk presence-gating, fm-afk-start daemon-lock lifecycle, max-defer, composer, and fm-send submit tests
+tests/fm-daemon.test.sh                   # sub-supervisor classifier, /afk presence-gating, fm-afk-start daemon-lock lifecycle, max-defer, dead-shell-safe composer injection, and fm-send submit tests
 tests/fm-send-settle.test.sh              # fm-send post-submit settle pause, tuning, disable, and --key bypass tests
 tests/fm-send-popup-settle.test.sh        # fm-send pre-Enter popup-settle selection for slash commands and codex $skill invocations
 tests/fm-send-secondmate-marker.test.sh   # fm-send from-firstmate marker for kind=secondmate targets: marked vs crewmate/explicit/--key, and the exact marker byte sequence
 tests/fm-send-strict.test.sh              # fm-send strict target resolution: bare lane id did-you-mean, unset FM_HOME, unresolvable selectors, prefixless herdr pane ids, dead explicit tmux targets, and healthy fm-<id> sends
 tests/fm-wake-daemon-lifecycle-e2e.test.sh # watcher + daemon lifecycle e2e: restart catch-up, batching, dedupe, stale-pane routing, and digest injection
 tests/fm-composer-ghost.test.sh           # dim-ghost stripping, ghost-only composer detection, and escape-free peek tests
+tests/fm-composer-lib.test.sh             # shared composer classifier: bare shell safety, bordered and bare agent prompts, idle placeholders, and pending input
 tests/fm-afk-inject-e2e.test.sh           # private-socket end-to-end test of the afk injection path (partial-input deferral, swallowed-Enter retry)
 tests/fm-afk-inject-herdr-e2e.test.sh     # real-herdr end-to-end test of the afk daemon's herdr transport, on an isolated throwaway HERDR_SESSION: partial-input deferral, swallowed-Enter retry, a normal digest, and the max-defer wedge alarm on a persistently pending composer
 tests/fm-bootstrap.test.sh                # bootstrap dependency, feature-probe, fleet-sync timeout, and crew-dispatch reporting tests
@@ -120,7 +121,7 @@ tests/fm-backend-herdr-prune-safety-e2e.test.sh # isolated real-herdr E2E for th
 tests/fm-backend-herdr-respawn-idem-e2e.test.sh # isolated real-herdr E2E for restored-layout husk respawn idempotency across a real session restart, covering crewmate/scout and secondmate-shaped tabs plus live-agent duplicate refusal
 tests/fm-backend-zellij.test.sh           # fake zellij CLI unit tests for the experimental zellij adapter, including version/tool gates, target parsing, home-scoped title creation, legacy-title fallback, send/capture, current-path probing, label-checked target safety, secondmate child cleanup, and tab cleanup
 tests/fm-backend-zellij-smoke.test.sh     # real zellij adapter smoke test, skipped when zellij or jq is unavailable, using an isolated throwaway FM_ZELLIJ_SESSION and guarded session cleanup
-tests/fm-backend-orca.test.sh             # fake Orca CLI unit tests for primitive adapter routing: capture, send text, Enter/interrupt keys, close, and dispatcher sourcing
+tests/fm-backend-orca.test.sh             # fake Orca CLI unit tests for primitive adapter routing, structural composer verification including bare-shell safety, capture, send text, Enter/interrupt keys, close, and dispatcher sourcing
 tests/cmux-test-safety.sh                 # guarded cleanup helper for real-cmux tests, refusing to close anything except a matching fm-test- workspace
 tests/fm-backend-cmux.test.sh             # fake cmux CLI unit tests for the experimental cmux adapter, including socket auth, title scoping, target recovery, fresh-surface liveness, current-path probing, structural composer verification, and secondmate refusal
 tests/fm-backend-cmux-smoke.test.sh       # real cmux adapter smoke test, skipped when cmux or jq is unavailable or the socket is not password-mode authenticated, using fm-test- workspaces and guarded cleanup

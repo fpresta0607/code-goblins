@@ -499,9 +499,15 @@ pane_is_busy() {  # <target> [backend]
     | grep -qiE "${FM_BUSY_REGEX:-$FM_TMUX_BUSY_REGEX_DEFAULT}"
 }
 
-# pane_input_pending: dispatches through fm_backend_composer_state, which for
-# tmux calls the exact same fm_tmux_composer_state this function called
-# directly before - byte-identical for the default/omitted-backend case.
+# pane_input_pending: the standalone "is there real unsubmitted text" predicate,
+# dispatching through fm_backend_composer_state (byte-identical to a direct
+# fm_tmux_composer_state call for the default/omitted-backend case). inject_msg
+# no longer routes its composer-guard through this boolean: a safe injection
+# target must be affirmatively 'empty', and a boolean pending/not-pending check
+# cannot distinguish an empty agent composer from a bare dead-shell prompt or an
+# unreadable pane (both 'unknown'), so inject_msg reads the full tri-state
+# verdict directly. This predicate is retained as the shared pending check and
+# as the vehicle for the composer-classifier dispatch regression tests.
 pane_input_pending() {  # <target> [backend]
   local target=$1 backend=${2:-tmux}
   [ "$(fm_backend_composer_state "$backend" "$target" 2>/dev/null)" = pending ]
@@ -714,7 +720,7 @@ window_for_task() {  # <task-key> [state]
 #     line, or a previous injection's unsent text), defer entirely - injecting
 #     would merge with the human's text.
 inject_msg() {  # <message> [state]
-  local msg=$1 state target backend retries sleep_s verdict
+  local msg=$1 state target backend retries sleep_s verdict composer
   state="${2:-$(_state_root)}"
   # (1) Presence-gate: inject ONLY when afk is active. When afk is off, the
   # daemon self-handles and stays quiet; firstmate drives the normal always-on
@@ -734,17 +740,24 @@ inject_msg() {  # <message> [state]
   # discovery), matching this function's pre-existing default assumption.
   backend="${FM_SUPERVISOR_BACKEND:-tmux}"
   fm_backend_target_exists "$backend" "$target" || return 1
-  # (3) Busy-guard: never inject into an in-use pane. Two checks:
+  # (3) Busy-guard: never inject into an in-use pane.
   #   a) pane_is_busy: the harness shows a busy footer (agent mid-turn).
-  #   b) pane_input_pending: the cursor line has real unsubmitted text after
-  #      dim/faint ghost text and borders are ignored (a human's half-typed line,
-  #      or a previous injection whose Enter was swallowed).
   if pane_is_busy "$target" "$backend"; then
     log "inject deferred: supervisor pane busy (agent mid-turn)"
     return 1
   fi
-  if pane_input_pending "$target" "$backend"; then
-    log "inject deferred: supervisor pane has pending input (non-empty composer)"
+  #   b) Composer-guard: inject ONLY into a confirmed-empty GENUINE agent
+  #      composer. The shared classifier (fm_backend_composer_state ->
+  #      fm_composer_classify_content, bin/fm-composer-lib.sh) reports 'pending'
+  #      for real unsubmitted text (a human's half-typed line, or a swallowed
+  #      prior injection) and 'unknown' for a bare dead-shell prompt (the agent
+  #      exited to its login shell) or an unreadable pane. Neither is a safe
+  #      target - typing the escalation into a shell could execute it - so defer
+  #      on anything that is not affirmatively 'empty'. A deferred escalation
+  #      stays buffered for the next cycle or the catch-up flush.
+  composer=$(fm_backend_composer_state "$backend" "$target" 2>/dev/null)
+  if [ "$composer" != empty ]; then
+    log "inject deferred: supervisor composer not confirmed-empty (state=${composer:-unknown}: pending input, dead-shell prompt, or unreadable pane)"
     return 1
   fi
   # (4) Type the digest ONCE, then submit with Enter (retry Enter only, never
