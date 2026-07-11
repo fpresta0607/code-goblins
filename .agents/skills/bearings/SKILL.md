@@ -1,6 +1,6 @@
 ---
 name: bearings
-description: Generate a "pick up where I left off" status report from firstmate's live fleet state. Use when the captain invokes /bearings or asks for a bearings report, morning brief, status report, catch-up, "where did I leave off", or "what's in the works". Reads live fleet state cheaply (backlog, per-task crew state, open PRs, scout reports, pending decisions, date-gated queued work), composes a scannable dated report to data/status-report-<YYYY-MM-DD>.md, and surfaces a concise version in chat; it is read-mostly and must not tear down, merge, or mutate task state as a side effect of producing the brief.
+description: Generate a "pick up where I left off" status report from firstmate's live fleet state. Use when the captain invokes /bearings or asks for a bearings report, morning brief, status report, catch-up, "where did I leave off", or "what's in the works". Reads bounded local fleet state cheaply, optionally checks open PRs when requested, composes a scannable dated report to data/status-report-<YYYY-MM-DD>.md, and surfaces a concise version in chat; it is read-mostly and must not tear down, merge, or mutate task state as a side effect of producing the brief.
 user-invocable: true
 metadata:
   internal: true
@@ -16,19 +16,17 @@ It never tears down a task, merges a PR, dispatches new work, or mutates any tas
 
 ## What it does
 
-1. **Gather live fleet state, cheaply and in this order.**
-   Read each source once and do not re-derive what a script already reports.
-   - `bin/fm-fleet-snapshot.sh --json` - the deterministic fleet source for backlog rows, task metadata, current state, endpoint facts, PR/report pointers, scout report paths, status-event hints, and secondmate return-channel guidance.
-     Its schema is owned by the script header; consume those structured fields before rereading raw fleet files.
-   - If the snapshot command is unavailable or its JSON is invalid, fall back to `data/backlog.md`, each `state/<id>.meta`, and each task's live state via `bin/fm-crew-state.sh <id>`.
-     Never infer current state from a raw `tail` of `state/<id>.status`: that log is an append-only wake-event history and its last line goes stale the moment a resolved gate lets a run resume, while `bin/fm-crew-state.sh` reconciles the authoritative run-step over the stale log line - which is exactly what a catch-up report needs.
-   - Open PRs awaiting the captain's merge, via `gh-axi` per repo touched by in-flight or recent tasks.
-     A PR-based ship task records `pr=` in `state/<id>.meta`; collect those repos, list their open PRs, and cross-reference each task's recorded PR.
-   - Recent scout deliverables at `data/<id>/report.md` and any planning docs the captain should pick up from.
-   - Pending human decisions (needs-decision findings), needed credentials or logins (such as an SSO re-auth), and date-gated queued items.
-     A queued item only becomes "next work" when its blocker is gone and its time/date gate has arrived; until then it stays queued with the reason.
+1. **Gather live fleet state with one deterministic command.**
+   Run `bin/fm-bearings-snapshot.sh` and read its compact output.
+   It is the single bounded, deterministic source for this report and renders TOON by default.
+   Do not hand-probe the snapshot schema and do not make ad-hoc `gh-axi`/`gh` calls to assemble fleet facts; this command already assembles them.
+   The command's header and `--help` output own its exact fields, bounds, opt-ins, and output contract.
+   When the captain asks to include PRs, use the command's live-PR opt-in; otherwise keep the default local-only read.
+   If the command is unavailable, fall back to `bin/fm-fleet-snapshot.sh --json` and `bin/fm-crew-state.sh <id>`; never infer current state from a raw `tail` of `state/<id>.status`, which is append-only wake-event history whose last line goes stale.
+   A queued item under `gates` only becomes "next work" when its blocker is gone and its time/date gate has arrived; until then it stays queued with the reason.
 
 2. **Compose the report with these sections, matching the worked example's structure, tone, and level of detail.**
+   The gather step is deterministic; your judgment is scoped to the last mile only - ranking the command's facts by what matters right now and writing the scannable prose.
    The exemplar is `data/status-report-2026-07-06.md` in this home's `data/` when present; match its scannability, not a raw state dump.
    - **Title** - `# Bearings - <day> <YYYY-MM-DD>` (the exemplar used "Morning status" for a morning brief; use that phrasing when the captain specifically asks for a morning brief).
    - **TL;DR** - two or three sentences framing where things stand.
