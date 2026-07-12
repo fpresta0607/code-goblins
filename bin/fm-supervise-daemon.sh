@@ -203,6 +203,12 @@ CRASH_BACKOFF_DEFAULT=60
 CRASH_NORMAL_SLEEP_DEFAULT=5
 LOG_MAX_BYTES_DEFAULT=1048576
 LOG_KEEP_LINES_DEFAULT=2000
+# Self-supervise mode only: seconds of ZERO in-flight work (no state/*.meta)
+# after which the daemon self-exits cleanly, so an empty-queue secondmate costs
+# nothing. Its own start-self-supervise (idempotent, run when the secondmate next
+# dispatches a child) brings it back. Never applies in away mode, where the
+# daemon must persist while the captain is out even with no work in flight.
+SELF_SUPERVISE_IDLE_EXIT_SECS_DEFAULT=180
 
 # --- presence-gating + sentinel marker --------------------------------------
 # The in-band sentinel: ASCII unit separator (0x1f). Invisible and untypable on
@@ -213,6 +219,12 @@ LOG_KEEP_LINES_DEFAULT=2000
 # any harness-level typed-vs-injected distinction.
 FM_INJECT_MARK=$'\x1f'
 AFK_FLAG_NAME=".afk"
+# Self-supervise mode: a persistent secondmate runs this daemon against its OWN
+# pane, independent of the captain and of away mode, so it keeps supervising its
+# children even while its model session is idle. This flag decouples the daemon
+# from state/.afk: it is written by bin/fm-afk-launch.sh's start-self-supervise
+# entrypoint (never by the /afk skill) and is orthogonal to AFK_FLAG_NAME.
+SELF_SUPERVISE_FLAG_NAME=".self-supervise"
 
 # Resolve the effective state dir. FM_STATE_OVERRIDE wins (testing); otherwise
 # $FM_HOME/state. Kept as a function so the pure
@@ -241,6 +253,24 @@ _hash_text() {
 # afk_active: 0 if the durable away-mode flag exists, 1 otherwise.
 afk_active() {  # <state>
   [ -e "$1/$AFK_FLAG_NAME" ]
+}
+
+# self_supervise_active: 0 if the durable self-supervise flag exists, 1 otherwise.
+# Enables the daemon to inject into a persistent secondmate's own pane without
+# state/.afk. Orthogonal to afk_active: either flag opens the injection gate.
+self_supervise_active() {  # <state>
+  [ -e "$1/$SELF_SUPERVISE_FLAG_NAME" ]
+}
+
+# _in_flight_count: number of state/*.meta files (in-flight tasks). Same
+# definition fm_supervision_status uses; kept inline so the daemon needs no
+# extra source. Used only by the self-supervise idle-exit check.
+_in_flight_count() {  # <state>
+  local n=0 m
+  for m in "$1"/*.meta; do
+    [ -e "$m" ] && n=$((n + 1))
+  done
+  printf '%s' "$n"
 }
 
 # afk_enter / afk_exit: write/clear the away-mode flag. Called by the /afk
@@ -1073,10 +1103,14 @@ window_for_task() {  # <task-key> [state]
 inject_msg() {  # <message> [state]
   local msg=$1 state target backend retries sleep_s verdict composer
   state="${2:-$(_state_root)}"
-  # (1) Presence-gate: inject ONLY when afk is active. When afk is off, the
-  # daemon self-handles and stays quiet; firstmate drives the normal always-on
-  # watcher triage. Escalations buffer and survive for the next catch-up flush.
-  afk_active "$state" || { log "inject deferred: afk inactive"; return 1; }
+  # (1) Presence-gate: inject ONLY when injection is enabled - away mode (the
+  # captain is out and this daemon relays escalations into the captain's pane) OR
+  # self-supervise mode (a persistent secondmate relays a resume poke into its
+  # OWN pane so it keeps supervising its children while idle). When neither is
+  # active, the daemon self-handles and stays quiet; firstmate drives the normal
+  # always-on watcher triage. Escalations buffer and survive for the next flush.
+  { afk_active "$state" || self_supervise_active "$state"; } \
+    || { log "inject deferred: neither afk nor self-supervise active"; return 1; }
   # (2) Single-line digest: collapse any embedded newlines so submission via
   # send-keys + Enter is unambiguous regardless of how the TUI composer treats
   # them. Then prepend the sentinel marker - firstmate's afk-exit contract
@@ -1459,6 +1493,27 @@ fm_super_main() {
     if [ "$(_file_age "$STATE/.subsuper-last-housekeep")" -ge "${FM_HOUSEKEEPING_TICK:-$HOUSEKEEPING_TICK_DEFAULT}" ]; then
       _now > "$STATE/.subsuper-last-housekeep"
       housekeeping "$STATE"
+    fi
+
+    # --- self-supervise idle-exit (mode-gated; never in away mode) -----------
+    # A persistent secondmate's daemon should cost nothing while its queue is
+    # empty. When self-supervise mode is active (and away mode is NOT - away mode
+    # must persist while the captain is out), self-exit cleanly after
+    # SELF_SUPERVISE_IDLE_EXIT_SECS of zero in-flight work. The secondmate's next
+    # dispatch re-runs start-self-supervise (idempotent) to bring it back.
+    if self_supervise_active "$STATE" && ! afk_active "$STATE"; then
+      if [ "$(_in_flight_count "$STATE")" -eq 0 ]; then
+        # First idle tick starts the timer; a later tick past the grace exits.
+        if [ ! -e "$STATE/.self-supervise-idle-since" ]; then
+          _now > "$STATE/.self-supervise-idle-since"
+        elif [ "$(_file_age "$STATE/.self-supervise-idle-since")" \
+               -ge "${FM_SELF_SUPERVISE_IDLE_EXIT_SECS:-$SELF_SUPERVISE_IDLE_EXIT_SECS_DEFAULT}" ]; then
+          log "self-supervise idle exit: no in-flight work for ${FM_SELF_SUPERVISE_IDLE_EXIT_SECS:-$SELF_SUPERVISE_IDLE_EXIT_SECS_DEFAULT}s; shutting down (restart on next dispatch)"
+          cleanup
+        fi
+      else
+        rm -f "$STATE/.self-supervise-idle-since" 2>/dev/null || true
+      fi
     fi
   done
 }

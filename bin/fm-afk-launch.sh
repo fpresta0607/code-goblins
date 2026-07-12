@@ -29,10 +29,18 @@
 #   fm-afk-launch.sh start-native
 #                              Prepare lifecycle state for a harness-native
 #                              background job and record that no terminal exists.
+#   fm-afk-launch.sh start-self-supervise
+#                              Same as start, but for a persistent secondmate
+#                              supervising its OWN children: captures the
+#                              secondmate's own pane and writes state/.self-supervise
+#                              (NOT state/.afk), so the daemon keeps supervising
+#                              without the captain or away mode. Idempotent.
 #   fm-afk-launch.sh stop      Correct-ordered exit: SIGTERM the daemon so its
 #                              cleanup flushes WHILE state/.afk is still present,
 #                              wait for it, close the recorded terminal by exact
 #                              id, then clear state/.afk last.
+#   fm-afk-launch.sh stop-self-supervise
+#                              Same exit sequence, clearing state/.self-supervise.
 #   fm-afk-launch.sh reconcile Close a recorded-but-dead daemon terminal by exact
 #                              id and drop the record (recovery after a crash).
 #
@@ -123,7 +131,7 @@ fm_afk_launch_lock_release() {
 }
 
 fm_afk_launch_usage() {
-  sed -n '2,34p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,45p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 # The command run inside the created terminal. Real launch runs the shared
@@ -140,10 +148,13 @@ fm_afk_launch_record_write() {  # <backend> <target> <extra>
   mv "$pending" "$FM_AFK_LAUNCH_RECORD" || { rm -f "$pending"; return 1; }
 }
 
+# Writes the active mode flag ($FM_SUPERVISE_FLAG: ".afk" by default, or
+# ".self-supervise" for the start-self-supervise entrypoint). fm-afk-start.sh,
+# sourced above, defaults FM_SUPERVISE_FLAG to ".afk", so away mode is unchanged.
 fm_afk_launch_flag_write() {
-  local pending="$FM_AFK_LAUNCH_STATE/.afk.pending.$$"
+  local pending="$FM_AFK_LAUNCH_STATE/$FM_SUPERVISE_FLAG.pending.$$"
   date '+%s' > "$pending" || { rm -f "$pending"; return 1; }
-  mv "$pending" "$FM_AFK_LAUNCH_STATE/.afk" || { rm -f "$pending"; return 1; }
+  mv "$pending" "$FM_AFK_LAUNCH_STATE/$FM_SUPERVISE_FLAG" || { rm -f "$pending"; return 1; }
 }
 
 # Read the recorded terminal into FM_AFK_REC_BACKEND/FM_AFK_REC_TARGET. The third
@@ -332,14 +343,14 @@ fm_afk_launch_reconcile() {
   fi
 }
 
-fm_afk_launch_restore_backup() {  # <backup> <had-afk>
+fm_afk_launch_restore_backup() {  # <backup> <had-flag>
   local backup=$1 had_afk=$2 artifact result=0
-  rm -f "$FM_AFK_LAUNCH_STATE/.afk" \
+  rm -f "$FM_AFK_LAUNCH_STATE/$FM_SUPERVISE_FLAG" \
     "$FM_AFK_LAUNCH_STATE/.subsuper-escalations" \
     "$FM_AFK_LAUNCH_STATE/.subsuper-escalations.since" \
     "$FM_AFK_LAUNCH_STATE/.subsuper-inject-wedged" || result=1
   if [ "$had_afk" -eq 1 ]; then
-    cp "$backup/.afk" "$FM_AFK_LAUNCH_STATE/.afk" || result=1
+    cp "$backup/$FM_SUPERVISE_FLAG" "$FM_AFK_LAUNCH_STATE/$FM_SUPERVISE_FLAG" || result=1
   fi
   for artifact in .subsuper-escalations .subsuper-escalations.since .subsuper-inject-wedged; do
     if [ -e "$backup/$artifact" ]; then
@@ -391,8 +402,8 @@ fm_afk_launch_create_herdr() {  # <captain-target> <captain-backend>
     IFS=$'\t' read -r wsid pane <<< "$recovered"
   fi
   entry=$(fm_afk_launch_entry_cmd)
-  cmd=$(printf 'exec env FM_HOME=%q FM_SUPERVISOR_TARGET=%q FM_SUPERVISOR_BACKEND=%q %q' \
-    "$FM_HOME" "$captain_target" "$captain_backend" "$entry")
+  cmd=$(printf 'exec env FM_HOME=%q FM_SUPERVISOR_TARGET=%q FM_SUPERVISOR_BACKEND=%q FM_SUPERVISE_FLAG=%q %q' \
+    "$FM_HOME" "$captain_target" "$captain_backend" "$FM_SUPERVISE_FLAG" "$entry")
   if ! fm_afk_launch_record_write herdr "$session:$pane" "$wsid"; then
     fm_afk_launch_log "failed to persist herdr daemon terminal record; closing $session:$pane"
     fm_afk_launch_close_terminal herdr "$session:$pane"
@@ -418,8 +429,8 @@ fm_afk_launch_create_tmux() {  # <captain-target> <captain-backend>
   nonce="$$-${RANDOM:-0}-$(date '+%s')"
   session="fm-afk-daemon-$hash-$nonce"
   entry=$(fm_afk_launch_entry_cmd)
-  cmd=$(printf 'exec env FM_HOME=%q FM_SUPERVISOR_TARGET=%q FM_SUPERVISOR_BACKEND=%q %q' \
-    "$FM_HOME" "$captain_target" "$captain_backend" "$entry")
+  cmd=$(printf 'exec env FM_HOME=%q FM_SUPERVISOR_TARGET=%q FM_SUPERVISOR_BACKEND=%q FM_SUPERVISE_FLAG=%q %q' \
+    "$FM_HOME" "$captain_target" "$captain_backend" "$FM_SUPERVISE_FLAG" "$entry")
   if ! fm_afk_launch_record_write tmux "$session" ""; then
     fm_afk_launch_log "failed to persist planned tmux daemon session '$session'"
     return 1
@@ -456,9 +467,9 @@ fm_afk_launch_start() {
   fi
 
   backup=$(mktemp -d "$FM_AFK_LAUNCH_STATE/.afk-launch-backup.XXXXXX") || return 1
-  if [ -f "$FM_AFK_LAUNCH_STATE/.afk" ]; then
+  if [ -f "$FM_AFK_LAUNCH_STATE/$FM_SUPERVISE_FLAG" ]; then
     had_afk=1
-    cp "$FM_AFK_LAUNCH_STATE/.afk" "$backup/.afk" || { rm -rf "$backup"; return 1; }
+    cp "$FM_AFK_LAUNCH_STATE/$FM_SUPERVISE_FLAG" "$backup/$FM_SUPERVISE_FLAG" || { rm -rf "$backup"; return 1; }
   fi
   for artifact in .subsuper-escalations .subsuper-escalations.since .subsuper-inject-wedged; do
     if [ -e "$FM_AFK_LAUNCH_STATE/$artifact" ]; then
@@ -510,9 +521,9 @@ fm_afk_launch_start_native() {
     return 0
   fi
   backup=$(mktemp -d "$FM_AFK_LAUNCH_STATE/.afk-launch-backup.XXXXXX") || return 1
-  if [ -f "$FM_AFK_LAUNCH_STATE/.afk" ]; then
+  if [ -f "$FM_AFK_LAUNCH_STATE/$FM_SUPERVISE_FLAG" ]; then
     had_afk=1
-    cp "$FM_AFK_LAUNCH_STATE/.afk" "$backup/.afk" || { rm -rf "$backup"; return 1; }
+    cp "$FM_AFK_LAUNCH_STATE/$FM_SUPERVISE_FLAG" "$backup/$FM_SUPERVISE_FLAG" || { rm -rf "$backup"; return 1; }
   fi
   for artifact in .subsuper-escalations .subsuper-escalations.since .subsuper-inject-wedged; do
     if [ -e "$FM_AFK_LAUNCH_STATE/$artifact" ]; then
@@ -580,9 +591,10 @@ fm_afk_launch_stop() {
   if [ "$read_result" -eq 0 ]; then
     fm_afk_launch_close_recorded || result=1
   fi
-  # (3) Clear the away-mode flag LAST.
-  if ! rm -f "$FM_AFK_LAUNCH_STATE/.afk"; then
-    fm_afk_launch_log "failed to clear away-mode flag"
+  # (3) Clear the mode flag LAST ($FM_SUPERVISE_FLAG: .afk, or .self-supervise
+  # when invoked as stop-self-supervise).
+  if ! rm -f "$FM_AFK_LAUNCH_STATE/$FM_SUPERVISE_FLAG"; then
+    fm_afk_launch_log "failed to clear mode flag $FM_SUPERVISE_FLAG"
     result=1
   fi
   if [ "$result" -eq 0 ]; then
@@ -591,6 +603,26 @@ fm_afk_launch_stop() {
     fm_afk_launch_log "away mode stopped; terminal teardown remains recorded for retry"
   fi
   return "$result"
+}
+
+# Persistent-secondmate SELF-SUPERVISE lifecycle. Identical machinery to away
+# mode (capture the pane running firstmate - here the secondmate's OWN pane -
+# then launch/record/reconcile the daemon in a non-visible terminal), but it
+# writes state/.self-supervise instead of state/.afk, so the daemon injects a
+# resume poke into the secondmate's own pane and keeps its children supervised
+# without the captain or away mode. Idempotent: a live daemon just refreshes the
+# flag. Reconcile and stop are shared; the self-supervise variants only select
+# the flag. See docs/self-supervision.md.
+fm_afk_launch_start_self_supervise() {
+  FM_SUPERVISE_FLAG=".self-supervise"
+  export FM_SUPERVISE_FLAG
+  fm_afk_launch_start
+}
+
+fm_afk_launch_stop_self_supervise() {
+  FM_SUPERVISE_FLAG=".self-supervise"
+  export FM_SUPERVISE_FLAG
+  fm_afk_launch_stop
 }
 
 fm_afk_launch_main() {
@@ -602,7 +634,9 @@ fm_afk_launch_main() {
   case "${1:-start}" in
     start) fm_afk_launch_start ;;
     start-native) fm_afk_launch_start_native ;;
+    start-self-supervise) fm_afk_launch_start_self_supervise ;;
     stop) fm_afk_launch_stop ;;
+    stop-self-supervise) fm_afk_launch_stop_self_supervise ;;
     reconcile) fm_afk_launch_reconcile ;;
     -h|--help|help) fm_afk_launch_usage ;;
     *) fm_afk_launch_usage >&2; return 2 ;;
