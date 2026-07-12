@@ -273,7 +273,7 @@ secondmate_liveness_sweep() {
   # MID-SESSION is a harder follow-on needing a periodic liveness beacon -
   # explicitly out of scope here.
   [ -d "$STATE" ] || return 0
-  local meta id window harness backend target verdict out
+  local meta id window harness backend target home verdict out new_target new_backend
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] || continue
     grep -q '^kind=secondmate$' "$meta" 2>/dev/null || continue
@@ -284,6 +284,7 @@ secondmate_liveness_sweep() {
     backend=$(fm_backend_of_meta "$meta")
     target=$(fm_backend_target_of_meta "$meta")
     [ -n "$target" ] || target="$window"
+    home=$(fm_meta_get "$meta" home)
     verdict=$(fm_backend_agent_alive "$backend" "$target" 2>/dev/null) || verdict="unknown"
     case "$harness" in
       claude|codex|opencode|pi|grok) ;;
@@ -292,11 +293,35 @@ secondmate_liveness_sweep() {
     case "$verdict" in
       alive)
         echo "SECONDMATE_LIVENESS: secondmate $id: already-live"
+        # Self-supervision reconcile (docs/self-supervision.md): a live
+        # secondmate whose self-supervise daemon died leaves its children
+        # unsupervised. Idempotently ensure it, targeting the secondmate's OWN
+        # recorded pane from the meta (never this sweep's captain-pane env). A
+        # no-op when the daemon is live or the secondmate has no children.
+        if [ -n "$home" ]; then
+          env FM_HOME="$home" \
+              FM_SUPERVISOR_TARGET="$target" \
+              FM_SUPERVISOR_BACKEND="$backend" \
+              "$FM_ROOT/bin/fm-afk-launch.sh" ensure-self-supervise >/dev/null 2>&1 || true
+        fi
         ;;
       dead)
         fm_backend_kill "$backend" "$target" 2>/dev/null || true
         if out=$(FM_SPAWN_NO_GUARD=1 "$FM_ROOT/bin/fm-spawn.sh" "$id" --secondmate 2>&1); then
           echo "SECONDMATE_LIVENESS: secondmate $id: respawned"
+          # The agent respawned into a NEW pane, but a self-supervise daemon that
+          # survived the agent's death is still targeting the OLD (dead) pane.
+          # Stop it, then re-ensure against the freshly recorded pane so
+          # supervision follows the new pane (docs/self-supervision.md).
+          if [ -n "$home" ]; then
+            env FM_HOME="$home" "$FM_ROOT/bin/fm-afk-launch.sh" stop-self-supervise >/dev/null 2>&1 || true
+            new_target=$(fm_backend_target_of_meta "$meta"); [ -n "$new_target" ] || new_target=$(fm_meta_get "$meta" window)
+            new_backend=$(fm_backend_of_meta "$meta")
+            env FM_HOME="$home" \
+                FM_SUPERVISOR_TARGET="$new_target" \
+                FM_SUPERVISOR_BACKEND="$new_backend" \
+                "$FM_ROOT/bin/fm-afk-launch.sh" ensure-self-supervise >/dev/null 2>&1 || true
+          fi
         else
           echo "SECONDMATE_LIVENESS: secondmate $id: respawn failed: $(first_line "$out")"
         fi

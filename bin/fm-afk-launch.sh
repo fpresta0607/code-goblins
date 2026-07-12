@@ -35,6 +35,14 @@
 #                              secondmate's own pane and writes state/.self-supervise
 #                              (NOT state/.afk), so the daemon keeps supervising
 #                              without the captain or away mode. Idempotent.
+#   fm-afk-launch.sh ensure-self-supervise
+#                              Idempotently start self-supervision for THIS home
+#                              (FM_HOME) IFF it has in-flight child work. Resolves
+#                              the secondmate's own pane from explicit
+#                              FM_SUPERVISOR_TARGET/BACKEND or the recorded target
+#                              file, never this process's env - so the liveness
+#                              sweep (captain's pane) never mistargets. Used by the
+#                              dispatch auto-start and the reconcile sweep.
 #   fm-afk-launch.sh stop      Correct-ordered exit: SIGTERM the daemon so its
 #                              cleanup flushes WHILE state/.afk is still present,
 #                              wait for it, close the recorded terminal by exact
@@ -60,6 +68,12 @@ FM_AFK_LAUNCH_STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 FM_AFK_LAUNCH_RECORD="$FM_AFK_LAUNCH_STATE/.afk-daemon-terminal"
 FM_AFK_LAUNCH_LOCK="$FM_AFK_LAUNCH_STATE/.afk-launch.lock"
 FM_AFK_LAUNCH_WS_LABEL="firstmate-afk-daemon"
+# Recorded self-supervise supervisor target for THIS home (a secondmate's own
+# pane): "<backend>\t<target>". Written at secondmate spawn and refreshed by
+# ensure-self-supervise, so the reconcile path can target the secondmate's own
+# pane WITHOUT sniffing the running process's env (the liveness sweep runs in the
+# captain's pane). See docs/self-supervision.md.
+FM_AFK_LAUNCH_SELFSUP_REC="$FM_AFK_LAUNCH_STATE/.self-supervise-target"
 
 # shellcheck source=bin/fm-backend.sh
 . "$FM_AFK_LAUNCH_DIR/fm-backend.sh"
@@ -131,7 +145,7 @@ fm_afk_launch_lock_release() {
 }
 
 fm_afk_launch_usage() {
-  sed -n '2,45p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,53p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 # The command run inside the created terminal. Real launch runs the shared
@@ -625,6 +639,69 @@ fm_afk_launch_stop_self_supervise() {
   fm_afk_launch_stop
 }
 
+# Read the recorded self-supervise target into FM_SELFSUP_REC_BACKEND /
+# FM_SELFSUP_REC_TARGET. Returns 1 when absent or malformed.
+FM_SELFSUP_REC_BACKEND=""
+FM_SELFSUP_REC_TARGET=""
+fm_afk_launch_selfsup_record_read() {
+  FM_SELFSUP_REC_BACKEND=""; FM_SELFSUP_REC_TARGET=""
+  [ -f "$FM_AFK_LAUNCH_SELFSUP_REC" ] || return 1
+  IFS=$'\t' read -r FM_SELFSUP_REC_BACKEND FM_SELFSUP_REC_TARGET \
+    < "$FM_AFK_LAUNCH_SELFSUP_REC" || return 1
+  [ -n "$FM_SELFSUP_REC_BACKEND" ] && [ -n "$FM_SELFSUP_REC_TARGET" ]
+}
+
+# Record the secondmate's own supervisor pane atomically. Written at secondmate
+# spawn (bin/fm-spawn.sh) and refreshed by ensure-self-supervise.
+fm_afk_launch_selfsup_record_write() {  # <backend> <target>
+  local pending
+  [ -n "${1:-}" ] && [ -n "${2:-}" ] || return 1
+  mkdir -p "$FM_AFK_LAUNCH_STATE" || return 1
+  pending=$(mktemp "$FM_AFK_LAUNCH_STATE/.self-supervise-target.pending.XXXXXX") || return 1
+  printf '%s\t%s\n' "$1" "$2" > "$pending" || { rm -f "$pending"; return 1; }
+  mv "$pending" "$FM_AFK_LAUNCH_SELFSUP_REC" || { rm -f "$pending"; return 1; }
+}
+
+# In-flight child count for THIS home (state/*.meta). Same definition the daemon
+# and fm_supervision_status use.
+fm_afk_launch_in_flight_count() {
+  local n=0 m
+  for m in "$FM_AFK_LAUNCH_STATE"/*.meta; do
+    [ -e "$m" ] && n=$((n + 1))
+  done
+  printf '%s' "$n"
+}
+
+# ensure-self-supervise: idempotently guarantee a self-supervise daemon for THIS
+# home whenever it has in-flight child work. The supervisor pane is resolved from
+# an explicit FM_SUPERVISOR_TARGET/FM_SUPERVISOR_BACKEND (the caller passes the
+# secondmate's OWN captured/recorded pane) or the recorded target file - NEVER by
+# sniffing this process's own env, so the liveness sweep (which runs in the
+# captain's pane) can never point the daemon at the captain. An empty queue is a
+# no-op (the daemon self-exits when idle; the next dispatch brings it back).
+fm_afk_launch_ensure_self_supervise() {
+  local backend target count
+  count=$(fm_afk_launch_in_flight_count)
+  if [ "$count" -eq 0 ]; then
+    fm_afk_launch_log "ensure-self-supervise: no in-flight child work in $FM_HOME; nothing to supervise"
+    return 0
+  fi
+  if [ -n "${FM_SUPERVISOR_TARGET:-}" ] && [ -n "${FM_SUPERVISOR_BACKEND:-}" ]; then
+    backend="$FM_SUPERVISOR_BACKEND"; target="$FM_SUPERVISOR_TARGET"
+  elif fm_afk_launch_selfsup_record_read; then
+    backend="$FM_SELFSUP_REC_BACKEND"; target="$FM_SELFSUP_REC_TARGET"
+  else
+    fm_afk_launch_log "ensure-self-supervise: no recorded supervisor target for $FM_HOME; cannot start (skipping)"
+    return 0
+  fi
+  # Persist/refresh the record so the next reconcile has an authoritative target.
+  fm_afk_launch_selfsup_record_write "$backend" "$target" || true
+  FM_SUPERVISOR_TARGET="$target"
+  FM_SUPERVISOR_BACKEND="$backend"
+  export FM_SUPERVISOR_TARGET FM_SUPERVISOR_BACKEND
+  fm_afk_launch_start_self_supervise
+}
+
 fm_afk_launch_main() {
   local result
   fm_afk_launch_lock_acquire || return 1
@@ -635,6 +712,7 @@ fm_afk_launch_main() {
     start) fm_afk_launch_start ;;
     start-native) fm_afk_launch_start_native ;;
     start-self-supervise) fm_afk_launch_start_self_supervise ;;
+    ensure-self-supervise) fm_afk_launch_ensure_self_supervise ;;
     stop) fm_afk_launch_stop ;;
     stop-self-supervise) fm_afk_launch_stop_self_supervise ;;
     reconcile) fm_afk_launch_reconcile ;;

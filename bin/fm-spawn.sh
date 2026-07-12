@@ -104,6 +104,8 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-config-inherit-lib.sh"
 # shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
+# shellcheck source=bin/fm-supervisor-target-lib.sh
+. "$SCRIPT_DIR/fm-supervisor-target-lib.sh"
 # Skip the watcher guard when re-exec'd for one pair of a batch (FM_SPAWN_NO_GUARD is
 # set by the batch loop below), so the guard runs once for the batch, not once per pair.
 [ -n "${FM_SPAWN_NO_GUARD:-}" ] || "$FM_ROOT/bin/fm-guard.sh" || true
@@ -156,6 +158,27 @@ case "$EFFORT" in
   ''|low|medium|high|xhigh|max) ;;
   *) echo "error: --effort must be one of low, medium, high, xhigh, max" >&2; exit 1 ;;
 esac
+
+# Self-supervision auto-start (docs/self-supervision.md): when a persistent
+# SECONDMATE dispatches child work, capture the secondmate's OWN pane NOW, while
+# this process's pane env is still pristine - the herdr/tmux pane vars get
+# reassigned to the CHILD's pane during backend provisioning below, so the
+# end-of-spawn hook cannot re-derive it. Gated to a child dispatch (kind != secondmate)
+# in a secondmate home. Best-effort and never fatal to the spawn.
+SELFSUP_DISPATCH=0
+SELFSUP_OWN_TARGET=
+SELFSUP_OWN_BACKEND=
+if [ "$KIND" != secondmate ] && [ -f "$FM_HOME/$SUB_HOME_MARKER" ]; then
+  SELFSUP_DISPATCH=1
+  # Only trust a DETECTED pane (discover_* returns 0); its non-detect fallback is
+  # a bogus "firstmate:0", so on no-detect leave the target empty and let
+  # ensure-self-supervise fall back to the home's recorded target instead.
+  if SELFSUP_OWN_TARGET=$(discover_supervisor_target 2>/dev/null); then
+    SELFSUP_OWN_BACKEND=$(discover_supervisor_backend 2>/dev/null || true)
+  else
+    SELFSUP_OWN_TARGET=
+  fi
+fi
 
 # Backend selection (data/fm-backend-design-d7): explicit --backend, else
 # FM_BACKEND env, else config/backend, else runtime auto-detection, else
@@ -1025,6 +1048,25 @@ META_WINDOW=$T
 } > "$STATE/$ID.meta"
 [ "$BACKEND" = orca ] && ORCA_ABORT_CLEANUP=0
 
+# Record the secondmate's OWN supervisor pane into its home, so the reconcile
+# sweep (which runs in the captain's pane) and the child-dispatch auto-start can
+# target the secondmate's pane WITHOUT sniffing their own env
+# (docs/self-supervision.md). Authoritative: written here by the home that just
+# created the pane, and refreshed on every respawn. Best-effort, never fatal.
+if [ "$KIND" = secondmate ] && [ -n "$META_WINDOW" ]; then
+  sm_state="$PROJ_ABS/state"
+  if mkdir -p "$sm_state" 2>/dev/null; then
+    sm_rec_tmp=$(mktemp "$sm_state/.self-supervise-target.pending.XXXXXX" 2>/dev/null) || sm_rec_tmp=
+    if [ -n "$sm_rec_tmp" ]; then
+      if printf '%s\t%s\n' "$BACKEND" "$META_WINDOW" > "$sm_rec_tmp" 2>/dev/null; then
+        mv "$sm_rec_tmp" "$sm_state/.self-supervise-target" 2>/dev/null || rm -f "$sm_rec_tmp" 2>/dev/null || true
+      else
+        rm -f "$sm_rec_tmp" 2>/dev/null || true
+      fi
+    fi
+  fi
+fi
+
 sq_brief=$(shell_quote "$BRIEF")
 sq_turnend=$(shell_quote "$TURNEND")
 sq_piext=$(shell_quote "$STATE/$ID.pi-ext.ts")
@@ -1053,3 +1095,22 @@ sleep 0.3
 spawn_send_key "$T" Enter
 
 echo "spawned $ID harness=$HARNESS kind=$KIND mode=$MODE yolo=$YOLO window=$META_WINDOW worktree=$WT"
+
+# Auto-start self-supervision on dispatch (docs/self-supervision.md): a persistent
+# secondmate now has this in-flight child, so guarantee - with NO model action -
+# that its self-supervise daemon is running to supervise it while the secondmate
+# is idle. Idempotent (a live daemon is a no-op) and best-effort: the child is
+# already spawned, so a daemon-start hiccup must never fail the spawn. Passes the
+# secondmate's OWN captured pane explicitly, never the daemon's env discovery.
+if [ "$SELFSUP_DISPATCH" = 1 ]; then
+  if [ -n "$SELFSUP_OWN_TARGET" ] && [ -n "$SELFSUP_OWN_BACKEND" ]; then
+    env FM_HOME="$FM_HOME" \
+        FM_SUPERVISOR_TARGET="$SELFSUP_OWN_TARGET" \
+        FM_SUPERVISOR_BACKEND="$SELFSUP_OWN_BACKEND" \
+        "$FM_ROOT/bin/fm-afk-launch.sh" ensure-self-supervise >/dev/null 2>&1 \
+      || echo "warn: could not ensure self-supervise daemon for $ID (children still supervised at the next session start)" >&2
+  else
+    env FM_HOME="$FM_HOME" "$FM_ROOT/bin/fm-afk-launch.sh" ensure-self-supervise >/dev/null 2>&1 \
+      || echo "warn: could not ensure self-supervise daemon for $ID (no recorded pane; will reconcile at the next session start)" >&2
+  fi
+fi
