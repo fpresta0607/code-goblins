@@ -1036,6 +1036,17 @@ if [ "$BACKEND" = herdr ] && [ "$(meta_value "$META" herdr_ws_owned)" = 1 ]; the
     "$(meta_value "$META" herdr_session)" \
     "$(meta_value "$META" herdr_workspace_id)" \
     "$(meta_value "$META" herdr_parent_ws)" 2>/dev/null || true
+  # Workspace contiguity self-heal (docs/herdr-backend.md "Workspace
+  # contiguity"). Closing a workspace collapses the flat list, so a removal
+  # already leaves the surviving blocks contiguous; this best-effort pass only
+  # repairs drift (e.g. a manual shuffle) and is a planned no-op otherwise.
+  # This task's own meta still lists the just-closed workspace at this point;
+  # the reconciler skips ids that are no longer live, so that is safe.
+  CONTIG_ERR=$(fm_backend_herdr_contiguity_reconcile \
+    "$(meta_value "$META" herdr_session)" "$STATE" 2>&1) || {
+    echo "warning: herdr workspace contiguity reconcile failed after closing $ID's workspace; order left as-is" >&2
+    [ -n "$CONTIG_ERR" ] && printf '%s\n' "$CONTIG_ERR" >&2
+  }
 elif [ "$BACKEND" != orca ]; then
   fm_backend_kill "$BACKEND" "$T" "$(meta_value "$META" zellij_tab_id)" "fm-$ID" 2>/dev/null || true
 fi

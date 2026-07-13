@@ -172,7 +172,7 @@ Herdr tasks additionally record:
 - `herdr_workspace_id=` - the id of the workspace belonging to the home that spawned this task (the primary's `firstmate` workspace, or a secondmate's own `2ndmate-<id>` workspace; for reference - not needed for day-to-day operations, which re-derive it from the target string).
 - `herdr_tab_id=` - the task's tab id.
 - `herdr_pane_id=` - the task's pane id, the fast-path operational target.
-- `herdr_parent_ws=` and `herdr_ws_owned=` - written ONLY by the child-workspace prototype (below), absent on the default tab-per-task path.
+- `herdr_parent_ws=` and `herdr_ws_owned=` - written ONLY by the child-workspace prototype (below), absent on the default tab-per-task path; these records are also the contiguity reconciler's ownership registry (see "Workspace contiguity").
 
 ## Child-workspace hierarchy (prototype)
 
@@ -201,6 +201,66 @@ When on, a DELEGATED job - a ship or scout crewmate, never a `--secondmate` supe
 
 The spawn-time branch and the two new meta fields live in `bin/fm-spawn.sh`'s herdr case arm; the owned-workspace teardown call lives in `bin/fm-teardown.sh`; the create/close/list functions live in `bin/backends/herdr.sh`.
 Empirical evidence (isolated real-herdr E2E covering flag-off byte-identity, child-workspace creation, concurrent jobs, nested homes, recovery, refuse-to-close-parent, stale metadata, and exact-owned-only teardown, all with the default session asserted byte-identical) is `tests/fm-backend-herdr-child-workspace-e2e.test.sh`.
+
+## Workspace contiguity (depth-first supervisor order)
+
+This extends the child-workspace prototype above: whenever a home has owned child workspaces, firstmate keeps each managed supervisor's crew workspaces contiguous directly below that supervisor in Herdr's flat workspace list, using Herdr's native non-destructive reorder request - never a rename trick and never close/recreate.
+With no owned child workspaces recorded (including the flag-off default), every path in this section is a strict no-op.
+
+### Canonical order: direct crews before child secondmates (intentional)
+
+Within any supervisor subtree, the stable depth-first order is: the supervisor, then ALL of its DIRECT ordinary crews (stable relative order), then each child secondmate supervisor, each immediately followed by that secondmate's own subtree, recursively.
+A supervisor's direct crews ALWAYS sort before its child secondmates; this is an intentional, captain-mandated design choice, not an implementation accident.
+The target render, by label: `firstmate`, `firstmate/release-notes`, `2ndmate-hibit-h9`, `2ndmate-hibit-h9/local-sandbox`, `2ndmate-hibit-h9/game-parity`.
+"Stable" means the live relative order within each sibling class is preserved: crews keep their creation order among themselves, and supervisor anchors keep their existing relative order.
+
+### The move primitive: a local typed raw-socket writer
+
+Herdr 0.7.3 (protocol 16) carries a first-class, typed, non-destructive reorder request in its socket API - `workspace.move {workspace_id, insert_index}`, confirmed in `herdr api schema --json`'s request enum with `WorkspaceMoveParams` requiring both fields (`insert_index` a uint) - but exposes NO CLI verb for it (`herdr workspace` stops at list/create/get/focus/rename/close) and no raw-request CLI escape hatch.
+`bin/backends/herdr-move.py` is therefore the write-side sibling of `herdr-eventwait.py`, reusing the exact same proven AF_UNIX newline-delimited-JSON transport: it sends exactly one typed `workspace.move` request, skips interleaved broadcast events (including its own `workspace_moved` echo), and maps the outcome to typed exit codes (0 ok, 2 bad-args/connect/send, 3 server refusal or unrecognized response, 4 closed/timeout = outcome unknown).
+`fm_backend_herdr_workspace_move` (`bin/backends/herdr.sh`) wraps it, resolving the session's control socket via `fm_backend_herdr_socket_path`; `FM_BACKEND_HERDR_MOVE_WRITER` overrides the writer command for tests, mirroring `FM_BACKEND_HERDR_EVENT_READER`.
+
+### workspace.move semantics (verified 2026-07-12, herdr 0.7.3, protocol 16, macOS aarch64)
+
+Driven in an isolated `fm-lab-*` session (`bin/fm-herdr-lab.sh`, fleet-state tripwire clean) against workspaces `[wa, wb, wc]` via `bin/backends/herdr-move.py`:
+
+```text
+move wa insert_index=3  -> wb wc wa   rightward: lands at final index 2; insert_index == length is valid
+move wa insert_index=99 -> refused    {"code":"workspace_move_failed","message":"insert_index 99 is out of bounds"}; order unchanged
+move wa insert_index=0  -> wa wb wc   leftward: lands AT insert_index
+move wa insert_index=2  -> wb wa wc   rightward mid: lands at final index 1
+move wa insert_index=1  -> wb wa wc   own current slot: accepted as a no-op
+```
+
+So `insert_index` addresses the PRE-removal array (the workspace is inserted before whatever currently sits at that slot): a leftward move lands AT `insert_index`, a rightward move lands at `insert_index - 1`, and `insert_index` equal to the list length is the valid "move to end" form.
+`fm_backend_herdr_contiguity_next_move` emits this wire value directly (a rightward push emits final slot + 1).
+Focus and container safety, verified in the same probes and re-asserted end to end: a move never changes the focused workspace in either direction, and the moved workspace keeps its id, tabs, panes, and a registered agent's state.
+Contrast: herdr's own `workspace close` was observed to re-focus a neighboring workspace even when the closed workspace was NOT focused - that is close/teardown behavior, unrelated to moves.
+
+### The contiguity reconciler
+
+`fm_backend_herdr_contiguity_reconcile` (`bin/backends/herdr.sh`) owns the reorder decision.
+
+- Ownership comes ONLY from firstmate's own managed metadata: a home's `state/<id>.meta` records with `herdr_ws_owned=1` and `herdr_parent_ws=` are its ownership edges (Herdr itself has no parent field to consult).
+  Every id it can ever move is an exact firstmate-created child workspace id; supervisor anchor workspaces and workspaces firstmate did not create are NEVER moved, and unmanaged workspaces keep their relative order exactly.
+- Each home reconciles only its own crews under its own anchors.
+  Per-home passes compose into the global depth-first render because a home only ever pulls its own crews up under its own anchor, and a new supervisor workspace is appended at the end of the flat list, which is already its correct slot.
+- The fixpoint loop re-reads the live `workspace list` before EVERY move and re-plans one move at a time, which is what makes concurrent task start/finish safe; it is bounded, and an already-correct order plans zero moves (idempotent, zero churn).
+- Sibling order is pinned to the pass's FIRST snapshot: a rightward push reshuffles not-yet-fixed siblings in the live list, so re-deriving sibling order from live alone flip-flops the target between iterations and oscillates instead of converging (regression-pinned by the recovered-anchor multi-stray unit test).
+- Fail closed: malformed or ambiguous ownership (an owned meta missing its ids, a workspace claimed twice, an id that is both crew and parent, a duplicate live id), an unreadable workspace list, a plan that would move an unmanaged workspace, any writer/socket error, or non-convergence each abort the whole pass immediately, log clearly, and leave the current order untouched.
+- Safe skip, never a guess: a recorded crew no longer in the live list (mid-teardown churn) or a crew whose recorded parent is gone (a recreated anchor's stale record) is skipped with a note and left exactly where it is; everything else still reconciles.
+
+### Lifecycle reconcile points
+
+- `bin/fm-spawn.sh` reconciles after a child-workspace spawn (the spawning home's scope, pulling the freshly-appended workspace into its block) and after a `--secondmate` launch or recovery (the SECONDMATE home's own scope, regrouping a recovered supervisor's surviving crews); both are best-effort and never fail the spawn.
+- `bin/fm-teardown.sh` runs a best-effort self-heal pass after closing an owned workspace; a close already collapses the flat list, so removal keeps the surviving blocks contiguous and the pass is normally a planned no-op.
+- `bin/fm-herdr-regroup.sh` is the explicit manual entry point (e.g. after hand-shuffling the spaces sidebar); `--all` also sweeps every secondmate home recorded in this home's `kind=secondmate` task metas.
+
+### Evidence
+
+`tests/fm-backend-herdr-contiguity.test.sh` pins the pure ordering invariant (the canonical render, multi-supervisor contiguous subtrees, unrelated-order preservation, ambiguity aborts), the planner, and the reconcile fixpoint against a stateful fake (idempotence, concurrent create/finish churn, and every fail-closed mode with move counts asserted).
+`tests/fm-backend-herdr-move.test.sh` pins the writer's wire shape (typed uint `insert_index`) and transport outcomes against a real AF_UNIX fake server.
+`tests/fm-backend-herdr-contiguity-e2e.test.sh` drives the real binary in an isolated `fm-lab-*` session: the semantics probes above, the canonical render across real `fm-spawn.sh` lifecycles (the displaced direct crew pulled up by one real socket move), teardown contiguity, manual-drift repair via `bin/fm-herdr-regroup.sh` with exactly one move, zero-move idempotence on the second regroup, no focus change from any move, a registered agent surviving moves untouched, and the default session fingerprint byte-identical before and after.
 
 ## Verified CLI facts
 

@@ -1079,4 +1079,29 @@ spawn_send_literal "$T" "$LAUNCH"
 sleep 0.3
 spawn_send_key "$T" Enter
 
+# Herdr workspace contiguity (child-workspace prototype ordering;
+# docs/herdr-backend.md "Workspace contiguity"). Best-effort and strictly
+# after the launch: a reconcile failure logs and never fails the spawn.
+# - A new OWNED child workspace was appended at the end of the flat list;
+#   reconcile pulls it into its supervisor's contiguous block (this home's
+#   own state dir holds the ownership edges).
+# - A --secondmate launch/recovery reconciles the SECONDMATE home's own
+#   scope instead, so a recovered supervisor's surviving crews regroup under
+#   its (re-ensured) anchor; the secondmate's own workspace is an anchor and
+#   is never moved (a fresh one is appended last, already its correct slot).
+if [ "$BACKEND" = herdr ]; then
+  CONTIG_STATE=
+  if [ -n "${HERDR_WS_OWNED:-}" ]; then
+    CONTIG_STATE=$STATE
+  elif [ "$KIND" = secondmate ]; then
+    CONTIG_STATE="$PROJ_ABS/state"
+  fi
+  if [ -n "$CONTIG_STATE" ]; then
+    CONTIG_ERR=$(fm_backend_herdr_contiguity_reconcile "$HERDR_SES" "$CONTIG_STATE" 2>&1) || {
+      echo "warning: herdr workspace contiguity reconcile failed after spawning $ID; workspace order left as-is" >&2
+      [ -n "$CONTIG_ERR" ] && printf '%s\n' "$CONTIG_ERR" >&2
+    }
+  fi
+fi
+
 echo "spawned $ID harness=$HARNESS kind=$KIND mode=$MODE yolo=$YOLO window=$META_WINDOW worktree=$WT"

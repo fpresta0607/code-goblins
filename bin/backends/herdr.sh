@@ -473,6 +473,320 @@ fm_backend_herdr_list_live_children() {  # <session>
   done < <(printf '%s' "$ws_list" | jq -r --arg p "$prefix" '.result.workspaces[]? | select(.label | startswith($p)) | .workspace_id' 2>/dev/null)
 }
 
+# --- Workspace contiguity (child-workspace prototype ordering) ----------------
+# docs/herdr-backend.md "Workspace contiguity (depth-first supervisor order)".
+# Herdr 0.7.3 orders workspaces as a flat array and its ONLY reorder primitive
+# is the typed socket request workspace.move {workspace_id, insert_index}
+# (data/herdr-workspace-reorder-audit-o5/report.md) - non-destructive, not in
+# the shipped CLI, reached through bin/backends/herdr-move.py (the write-side
+# sibling of herdr-eventwait.py's proven raw-socket transport).
+#
+# The invariant maintained here: every supervisor's OWNED crew child
+# workspaces sit contiguously, immediately after that supervisor's own
+# workspace, in the canonical stable DEPTH-FIRST order - supervisor, then ALL
+# its direct crews (stable relative order), then each child secondmate
+# supervisor followed by that secondmate's own subtree, recursively. Direct
+# crews ALWAYS sort before child-secondmate subtrees; that is an intentional
+# design choice, not an accident of implementation (see the docs section).
+# Each firstmate home reconciles ONLY its own crews (the herdr_ws_owned=1 /
+# herdr_parent_ws= records in its own state dir); supervisor anchor
+# workspaces and workspaces firstmate did not create are NEVER moved, and
+# their relative order is preserved exactly. Per-home reconciles compose into
+# the global depth-first render because each home only ever pulls its own
+# crews up under its own anchor.
+#
+# Fail-closed contract: any malformed or ambiguous ownership record, an
+# unreadable workspace list, a move the plan would need on an unmanaged
+# workspace, or ANY socket/writer error aborts the whole reconcile pass with
+# a clear log, leaving the current order untouched. A recorded crew or parent
+# that is simply no longer in the live list (normal mid-teardown churn, or a
+# recreated anchor with a new id) is skipped with a note - those workspaces
+# are left exactly where they are, never guessed at.
+
+# FM_BACKEND_HERDR_MOVE_WRITER: test override for the workspace.move writer
+# command (whitespace-split), mirroring FM_BACKEND_HERDR_EVENT_READER.
+# Default: python3 bin/backends/herdr-move.py.
+
+# fm_backend_herdr_workspace_order: the live flat workspace order for
+# <session>, one workspace_id per line, straight from `workspace list` (the
+# authoritative array order - WorkspaceInfo.number is a derived ordinal).
+# Returns 1 when the list cannot be read or parsed, or is empty.
+fm_backend_herdr_workspace_order() {  # <session>
+  local list ids
+  list=$(fm_backend_herdr_cli "$1" workspace list 2>/dev/null) || return 1
+  ids=$(printf '%s' "$list" | jq -r 'if (.result.workspaces | type) == "array" then .result.workspaces[].workspace_id else error("missing result.workspaces") end' 2>/dev/null) || return 1
+  [ -n "$ids" ] || return 1
+  printf '%s\n' "$ids"
+}
+
+# fm_backend_herdr_workspace_move: send one typed workspace.move request over
+# <session>'s control socket via the raw-socket writer. insert_index is the
+# WIRE value herdr expects: the 0-based slot in the PRE-removal array the
+# workspace is inserted before (verified empirically - docs/herdr-backend.md
+# "workspace.move semantics"): a leftward move lands AT insert_index, a
+# rightward move lands at insert_index-1, and insert_index == list length is
+# valid (lands last; beyond that the server refuses with
+# workspace_move_failed). fm_backend_herdr_contiguity_next_move emits this
+# wire value directly. Non-destructive: the workspace's id, tabs, panes,
+# agents, and focus are untouched. Any failure (unresolvable socket,
+# connect/send error, server refusal, timeout) returns non-zero; callers
+# must fail closed and abort their reconcile pass.
+fm_backend_herdr_workspace_move() {  # <session> <workspace_id> <insert_index>
+  local session=$1 wsid=$2 idx=$3 sock word
+  [ -n "$wsid" ] || { echo "error: workspace_move requires a workspace id" >&2; return 1; }
+  case "$idx" in ''|*[!0-9]*) echo "error: workspace_move insert_index must be a non-negative integer, got '$idx'" >&2; return 1 ;; esac
+  local writer=()
+  if [ -n "${FM_BACKEND_HERDR_MOVE_WRITER:-}" ]; then
+    for word in $FM_BACKEND_HERDR_MOVE_WRITER; do
+      writer+=("$word")
+    done
+  else
+    command -v python3 >/dev/null 2>&1 || { echo "error: python3 is required for the herdr workspace.move socket writer" >&2; return 1; }
+    writer=(python3 "$FM_BACKEND_HERDR_ROOT/bin/backends/herdr-move.py")
+  fi
+  sock=$(fm_backend_herdr_socket_path "$session")
+  [ -n "$sock" ] || { echo "error: cannot resolve the herdr control socket for session '$session'" >&2; return 1; }
+  "${writer[@]}" "$sock" "$wsid" "$idx"
+}
+
+# fm_backend_herdr_contiguity_edges: extract this home's ownership edges from
+# <state_dir>'s task metas, one "child<TAB>parent" line per herdr_ws_owned=1
+# task whose herdr_session matches <session>. herdr_ws_owned=1 is the ONLY
+# ownership signal honored: it is written solely by fm-spawn.sh for a
+# freshly-created, exclusively-owned child workspace, so every id emitted
+# here is an EXACT firstmate-created workspace id. Returns 2 (after emitting
+# nothing useful - callers must discard output on failure) when an owned meta
+# is missing its child or parent id: that is missing ownership metadata, and
+# the whole reconcile must refuse rather than guess.
+fm_backend_herdr_contiguity_edges() {  # <state_dir> <session>
+  local state=$1 session=$2 meta owned child parent msession
+  for meta in "$state"/*.meta; do
+    [ -f "$meta" ] || continue
+    owned=$(grep '^herdr_ws_owned=' "$meta" 2>/dev/null | head -1 | cut -d= -f2-)
+    [ "$owned" = 1 ] || continue
+    msession=$(grep '^herdr_session=' "$meta" 2>/dev/null | head -1 | cut -d= -f2-)
+    [ "$msession" = "$session" ] || continue
+    child=$(grep '^herdr_workspace_id=' "$meta" 2>/dev/null | head -1 | cut -d= -f2-)
+    parent=$(grep '^herdr_parent_ws=' "$meta" 2>/dev/null | head -1 | cut -d= -f2-)
+    if [ -z "$child" ] || [ -z "$parent" ]; then
+      echo "error: $meta records herdr_ws_owned=1 but is missing herdr_workspace_id/herdr_parent_ws; refusing to reconcile" >&2
+      return 2
+    fi
+    printf '%s\t%s\n' "$child" "$parent"
+  done
+  return 0
+}
+
+# fm_backend_herdr_contiguity_target: PURE target-order computation. Takes the
+# live flat order (newline-separated ids), the ownership edges
+# ("child<TAB>parent" lines), and an optional sibling-order reference (a
+# prior order snapshot; ids missing from it sort last, in live order) and
+# prints the canonical depth-first target order. The reference exists for
+# the reconcile fixpoint: an in-transit rightward push reorders not-yet-fixed
+# siblings in the LIVE list, so deriving sibling order from live alone makes
+# the target flip-flop between iterations and the pass oscillate instead of
+# converging - pinning sibling order to the pass's first snapshot keeps the
+# target stable and preserves the pass-start relative order among crews.
+# Aborts (return 2, nothing usable printed) on ambiguous or malformed
+# ownership: a child claimed twice, a child equal to its parent, an id that is
+# both child and parent, or a duplicate id in the live list. A child or
+# parent absent from the live list drops that edge with a stderr note and
+# leaves those workspaces exactly where they are (safe skip, never a guess).
+# Unmanaged workspaces and supervisor anchors keep their live relative order.
+fm_backend_herdr_contiguity_target() {  # <live-order> <edges> [<sibling-order-ref>]
+  # Multi-line inputs travel via ENVIRON, not awk -v: BSD awk (macOS) rejects
+  # a newline inside a -v value ("newline in string"), while ENVIRON carries
+  # it fine on BSD awk, gawk, and mawk alike.
+  FM_CONTIG_EDGES="$2" FM_CONTIG_REF="${3:-}" awk '
+    BEGIN {
+      FS = "\t"
+      err = ""
+      nref = split(ENVIRON["FM_CONTIG_REF"], refraw, "\n")
+      nranks = 0
+      for (k = 1; k <= nref; k++) {
+        if (refraw[k] == "" || refraw[k] in rank) continue
+        rank[refraw[k]] = ++nranks
+      }
+      nedges = split(ENVIRON["FM_CONTIG_EDGES"], raw, "\n")
+      for (k = 1; k <= nedges; k++) {
+        if (raw[k] == "") continue
+        m = split(raw[k], f, "\t")
+        if (m != 2 || f[1] == "" || f[2] == "") { err = "malformed ownership edge: " raw[k]; exit 2 }
+        if (f[1] == f[2]) { err = "ambiguous ownership: workspace " f[1] " is its own parent"; exit 2 }
+        if (f[1] in parent_of) { err = "ambiguous ownership: workspace " f[1] " is claimed by two tasks"; exit 2 }
+        parent_of[f[1]] = f[2]
+        is_parent[f[2]] = 1
+      }
+      for (c in parent_of) {
+        if (c in is_parent) { err = "ambiguous ownership: workspace " c " is recorded as both a crew and a parent"; exit 2 }
+      }
+    }
+    {
+      if ($0 == "") next
+      if ($0 in live_seen) { err = "duplicate workspace id in the live list: " $0; exit 2 }
+      live_seen[$0] = 1
+      live[++nlive] = $0
+    }
+    END {
+      if (err != "") { print "herdr-contiguity: " err > "/dev/stderr"; exit 2 }
+      for (c in parent_of) {
+        if (!(c in live_seen)) {
+          print "herdr-contiguity: note: owned workspace " c " is not in the live list; skipping it" > "/dev/stderr"
+          delete parent_of[c]
+          continue
+        }
+        if (!(parent_of[c] in live_seen)) {
+          print "herdr-contiguity: note: parent " parent_of[c] " of " c " is not in the live list; leaving that group untouched" > "/dev/stderr"
+          delete parent_of[c]
+        }
+      }
+      # Crews per parent - the "stable order within each sibling class" rule:
+      # siblings sort by their position in the reference snapshot when one
+      # was given (the fixpoint pins the pass-start order this way), falling
+      # back to live relative order (ids absent from the reference sort
+      # last, in live order).
+      for (i = 1; i <= nlive; i++) {
+        w = live[i]
+        if (w in parent_of) {
+          p = parent_of[w]
+          cnt[p]++
+          crew_ws[p, cnt[p]] = w
+          crew_key[p, cnt[p]] = (w in rank) ? rank[w] : nranks + nlive + i
+        }
+      }
+      # Splice: every supervisor anchor is emitted in its live relative order,
+      # immediately followed by ALL of its owned crews, BEFORE any later
+      # workspace - including a child secondmate anchor that follows it in the
+      # flat order. This is what makes a supervisor DIRECT crews always sort
+      # before its child-secondmate subtrees: the canonical, intentional
+      # depth-first rule (docs/herdr-backend.md "Workspace contiguity").
+      for (i = 1; i <= nlive; i++) {
+        w = live[i]
+        if (w in parent_of) continue
+        print w
+        if (w in cnt) {
+          n2 = cnt[w]
+          for (a = 1; a <= n2; a++) { cw[a] = crew_ws[w, a]; ck[a] = crew_key[w, a] }
+          for (a = 2; a <= n2; a++) {
+            tw = cw[a]; tk = ck[a]; b = a - 1
+            while (b >= 1 && ck[b] > tk) { cw[b + 1] = cw[b]; ck[b + 1] = ck[b]; b-- }
+            cw[b + 1] = tw; ck[b + 1] = tk
+          }
+          for (a = 1; a <= n2; a++) print cw[a]
+        }
+      }
+      exit 0
+    }
+  ' <<EOF
+$1
+EOF
+}
+
+# fm_backend_herdr_contiguity_next_move: PURE single-step planner. Given the
+# live order, the target order, and the ownership edges, prints ONE safe move
+# ("workspace_id<TAB>insert_index") that makes progress toward the target, or
+# nothing when live already equals target (converged - the idempotence
+# guarantee: a correct order plans zero moves). insert_index is the WIRE
+# pre-removal value workspace.move expects (see
+# fm_backend_herdr_workspace_move): a leftward pull emits the final slot
+# itself, a rightward push emits final slot + 1 to compensate for the
+# removal shift. Only ever plans a move for an OWNED crew id from the edges;
+# if progress would require moving any other workspace it returns 2 and the
+# caller must abort. Both emitted move shapes keep every unmanaged
+# workspace's relative order intact: a leftward pull of the first
+# out-of-place crew into its block, or a rightward push of a crew that sits
+# inside a block it does not belong to.
+fm_backend_herdr_contiguity_next_move() {  # <live-order> <target-order> <edges>
+  # ENVIRON instead of awk -v for the same BSD-awk newline reason as
+  # fm_backend_herdr_contiguity_target above.
+  FM_CONTIG_LIVE="$1" FM_CONTIG_TARGET="$2" FM_CONTIG_EDGES="$3" awk '
+    BEGIN {
+      nl = split(ENVIRON["FM_CONTIG_LIVE"], L, "\n"); n = 0
+      for (i = 1; i <= nl; i++) if (L[i] != "") LV[++n] = L[i]
+      nt = split(ENVIRON["FM_CONTIG_TARGET"], T, "\n"); m = 0
+      for (i = 1; i <= nt; i++) if (T[i] != "") TG[++m] = T[i]
+      ne = split(ENVIRON["FM_CONTIG_EDGES"], E, "\n")
+      for (i = 1; i <= ne; i++) {
+        if (E[i] == "") continue
+        split(E[i], f, "\t")
+        if (f[1] != "") movable[f[1]] = 1
+      }
+      if (n != m) { print "herdr-contiguity: live/target length mismatch (" n " vs " m ")" > "/dev/stderr"; exit 2 }
+      first = 0
+      for (i = 1; i <= n; i++) if (LV[i] != TG[i]) { first = i; break }
+      if (first == 0) exit 0
+      x = TG[first]
+      if (x in movable) { printf "%s\t%d\n", x, first - 1; exit 0 }
+      y = LV[first]
+      if (!(y in movable)) { print "herdr-contiguity: reaching the target order would move unmanaged workspace " y "; refusing" > "/dev/stderr"; exit 2 }
+      t = 0
+      for (i = 1; i <= m; i++) if (TG[i] == y) { t = i; break }
+      if (t == 0) { print "herdr-contiguity: workspace " y " is missing from the target order; refusing" > "/dev/stderr"; exit 2 }
+      # Rightward push: y (at 0-based first-1) must land at 0-based final
+      # slot t-1, which on the wire is pre-removal insert_index t (the
+      # removal of y from its earlier slot shifts everything after it left
+      # by one - verified against real herdr 0.7.3).
+      printf "%s\t%d\n", y, t
+      exit 0
+    }
+  '
+}
+
+# fm_backend_herdr_contiguity_reconcile: the contiguity fixpoint loop. Reads
+# this home's ownership edges from <state_dir>, then repeatedly: fresh live
+# order -> pure target -> one planned move -> typed socket workspace.move,
+# until converged. Re-reading the live list before EVERY move is what makes
+# concurrent task start/finish safe: each move is planned against reality,
+# never a stale snapshot. Bounded at (2*edges+4) iterations; hitting the
+# bound (pathological concurrent churn) aborts with a log and returns 1 -
+# the next lifecycle reconcile converges once the churn settles. No owned
+# edges is a healthy no-op (return 0). EVERY failure path (unreadable list,
+# ambiguous ownership, unmanaged-move plan, writer/socket error, no
+# convergence) aborts immediately, leaves the current order untouched from
+# that point, logs clearly, and returns 1.
+fm_backend_herdr_contiguity_reconcile() {  # <session> <state_dir>
+  local session=$1 state=$2 edges live target move wsid idx iter max nedges moves=0 sibling_ref=
+  edges=$(fm_backend_herdr_contiguity_edges "$state" "$session") || {
+    echo "error: herdr contiguity reconcile aborted: unusable ownership metadata in $state" >&2
+    return 1
+  }
+  [ -n "$edges" ] || return 0
+  nedges=$(printf '%s\n' "$edges" | grep -c .)
+  max=$((nedges * 2 + 4))
+  for ((iter = 0; iter < max; iter++)); do
+    live=$(fm_backend_herdr_workspace_order "$session") || {
+      echo "error: herdr contiguity reconcile aborted: cannot read the workspace list for session '$session'" >&2
+      return 1
+    }
+    # Pin sibling order to this pass's FIRST snapshot: an in-transit
+    # rightward push reorders not-yet-fixed siblings in the live list, and
+    # re-deriving sibling order from live would flip-flop the target between
+    # iterations (oscillation instead of convergence).
+    [ -n "$sibling_ref" ] || sibling_ref=$live
+    target=$(fm_backend_herdr_contiguity_target "$live" "$edges" "$sibling_ref") || {
+      echo "error: herdr contiguity reconcile aborted for session '$session' (see the reason above); order left untouched" >&2
+      return 1
+    }
+    move=$(fm_backend_herdr_contiguity_next_move "$live" "$target" "$edges") || {
+      echo "error: herdr contiguity reconcile aborted for session '$session' (see the reason above); order left untouched" >&2
+      return 1
+    }
+    if [ -z "$move" ]; then
+      [ "$moves" -gt 0 ] && echo "herdr-contiguity: session '$session' reconciled with $moves move(s)" >&2
+      return 0
+    fi
+    wsid=${move%%$'\t'*}
+    idx=${move#*$'\t'}
+    fm_backend_herdr_workspace_move "$session" "$wsid" "$idx" || {
+      echo "error: herdr contiguity reconcile aborted: workspace.move failed for '$wsid' (session '$session'); order left as-is" >&2
+      return 1
+    }
+    moves=$((moves + 1))
+  done
+  echo "error: herdr contiguity reconcile for session '$session' did not converge within $max moves (concurrent churn?); aborting" >&2
+  return 1
+}
+
 # fm_backend_herdr_pane_agent_state: classify <pane_id> in <session> as one of
 # dead|no-agent|live|unknown, purely from the JSON body of two read-only
 # calls - never from process exit status, since a business-logic "not found"
