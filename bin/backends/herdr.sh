@@ -351,6 +351,129 @@ fm_backend_herdr_container_ensure() {  # <cwd-for-a-fresh-workspace>
   printf '%s:%s\t%s' "$session" "$FM_BACKEND_HERDR_WS_ID" "$FM_BACKEND_HERDR_WS_SEEDED_TAB_ID"
 }
 
+# --- Child-workspace hierarchy (PROTOTYPE, default OFF) -----------------------
+# docs/herdr-backend.md "Child-workspace hierarchy (prototype)". Local-trial
+# only: gated entirely behind fm_backend_herdr_child_ws_enabled, so with the
+# flag absent/off EVERY path below is skipped and behavior is byte-identical to
+# the shipped tab-per-task shape. When ON, a DELEGATED job (a ship/scout
+# crewmate, never a --secondmate supervisor) gets its OWN child workspace under
+# the home/supervisor workspace instead of a sibling tab inside it, with the
+# job's runtime and log views grouped as tabs inside that child workspace.
+#
+# Herdr 0.7.3 has NO first-class parent<->child workspace edge (verified: the
+# api-schema WorkspaceInfo carries no parent field, `workspace create` has no
+# --parent flag; workspaces are a flat set ordered by `number`). The DURABLE,
+# machine-readable association therefore lives in firstmate's own task meta
+# (herdr_parent_ws=, written by fm-spawn.sh), NOT in the label. The child label
+# "<home-label>/<id>" is DISPLAY SUGAR ONLY; teardown targets the exact owned
+# workspace_id (herdr_ws_owned=1 gate), never a label match - so the
+# 2026-07-02 label-collision self-kill class of bug cannot recur through it.
+
+# fm_backend_herdr_child_ws_enabled: true (0) only when the local, gitignored
+# flag config/herdr-child-workspaces has "on" as its first non-empty line.
+# Absent or any other value -> false (1) -> unchanged tab-per-task behavior.
+FM_BACKEND_HERDR_CHILD_WS_FLAG="herdr-child-workspaces"
+fm_backend_herdr_child_ws_enabled() {
+  local cfg="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/$FM_BACKEND_HERDR_CHILD_WS_FLAG" val
+  [ -f "$cfg" ] || return 1
+  val=$(grep -v '^[[:space:]]*$' "$cfg" 2>/dev/null | head -1 | tr -d '[:space:]')
+  [ "$val" = "on" ]
+}
+
+# fm_backend_herdr_child_label: the human-visible label for a job's own child
+# workspace, "<home-label>/<id>". Display only (see the section note above).
+fm_backend_herdr_child_label() {  # <id>
+  printf '%s/%s' "$(fm_backend_herdr_workspace_label)" "$1"
+}
+
+# fm_backend_herdr_create_child_workspace: build a delegated job's OWN child
+# workspace under <parent_ws_id> (the already-ensured home/supervisor
+# workspace) and populate it with the tabs that GENUINELY belong to that one
+# job and nothing else:
+#   - runtime tab (label "fm-<id>"): the crewmate agent itself - THE job.
+#   - log tab (label "log"): a read-only `tail -F` of the job's own
+#     state/<id>.status wake-event log, the exact signal firstmate reads about
+#     this job. Best-effort; a failure to add it never fails the spawn.
+# No parent/sibling/fleet-wide view is ever placed inside the job workspace.
+# Everything is created --no-focus so the captain's active space is preserved
+# (docs "Focus behavior"). The seeded default tab is pruned only AFTER the real
+# tabs exist alongside it, via the same structural (never label-heuristic)
+# prune used for the home workspace. Echoes "<child_ws_id> <runtime_tab_id>
+# <runtime_pane_id>".
+fm_backend_herdr_create_child_workspace() {  # <session> <parent_ws_id> <id> <cwd> [<status_file>]
+  local session=$1 parent=$2 id=$3 cwd=$4 status_file=${5:-} label out child_ws seed_tab rt_out rt_tab rt_pane lg_out lg_pane
+  [ -n "$parent" ] || { echo "error: create_child_workspace requires a parent workspace id" >&2; return 1; }
+  label=$(fm_backend_herdr_child_label "$id")
+  out=$(fm_backend_herdr_cli "$session" workspace create --cwd "$cwd" --label "$label" --no-focus 2>/dev/null) || return 1
+  child_ws=$(printf '%s' "$out" | jq -r '.result.workspace.workspace_id // empty' 2>/dev/null)
+  seed_tab=$(printf '%s' "$out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
+  [ -n "$child_ws" ] || { echo "error: could not parse child workspace id from herdr workspace create output" >&2; return 1; }
+  rt_out=$(fm_backend_herdr_cli "$session" tab create --workspace "$child_ws" --cwd "$cwd" --label "fm-$id" --no-focus 2>/dev/null) || return 1
+  rt_tab=$(printf '%s' "$rt_out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
+  rt_pane=$(printf '%s' "$rt_out" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
+  if [ -z "$rt_tab" ] || [ -z "$rt_pane" ]; then
+    echo "error: could not parse runtime tab/pane id from herdr tab create output" >&2
+    return 1
+  fi
+  if [ -n "$status_file" ]; then
+    lg_out=$(fm_backend_herdr_cli "$session" tab create --workspace "$child_ws" --cwd "$cwd" --label "log" --no-focus 2>/dev/null)
+    lg_pane=$(printf '%s' "$lg_out" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
+    if [ -n "$lg_pane" ]; then
+      fm_backend_herdr_cli "$session" pane run "$lg_pane" "tail -n +1 -F $status_file" >/dev/null 2>&1 || true
+    fi
+  fi
+  [ -n "$seed_tab" ] && fm_backend_herdr_workspace_prune_seeded_default_tab "$session" "$child_ws" "$seed_tab"
+  printf '%s %s %s' "$child_ws" "$rt_tab" "$rt_pane"
+}
+
+# fm_backend_herdr_close_owned_workspace: teardown for a child-workspace job -
+# close EXACTLY <child_ws_id> and every tab it owns (runtime + log) in one
+# operation. Fail-closed safety refuses unless the id is present, differs from
+# <parent_ws_id>, and differs from this home's OWN (home-label) workspace, so a
+# stale or malformed meta can never make teardown close a parent, a
+# supervisor's home, or the default workspace. Best-effort like
+# fm_backend_herdr_kill: an already-gone workspace is a safe no-op (verified:
+# `workspace close` on a closed id returns workspace_not_found, non-fatal).
+# The caller only ever reaches this path when meta records herdr_ws_owned=1,
+# which fm-spawn.sh writes solely for a freshly-created, exclusively-owned
+# child workspace.
+fm_backend_herdr_close_owned_workspace() {  # <session> <child_ws_id> <parent_ws_id>
+  local session=$1 child=$2 parent=$3 home_ws
+  [ -n "$session" ] && [ -n "$child" ] || return 0
+  if [ -n "$parent" ] && [ "$child" = "$parent" ]; then
+    echo "error: refusing to close herdr workspace '$child': it equals the recorded parent workspace" >&2
+    return 1
+  fi
+  home_ws=$(fm_backend_herdr_workspace_find "$session")
+  if [ -n "$home_ws" ] && [ "$child" = "$home_ws" ]; then
+    echo "error: refusing to close herdr workspace '$child': it is this home's own workspace" >&2
+    return 1
+  fi
+  fm_backend_herdr_cli "$session" workspace close "$child" >/dev/null 2>&1 || true
+}
+
+# fm_backend_herdr_list_live_children: the child-workspace half of recovery
+# orphan-discovery. Enumerates every CHILD workspace of this home (label prefix
+# "<home-label>/") and emits its runtime tab (label "fm-<id>") in the same
+# "<session>:<pane_id>\t<label>" shape as fm_backend_herdr_list_live. The "log"
+# tab is deliberately skipped: it is not a firstmate task endpoint. Read-only;
+# emits nothing when child-workspace mode was never used.
+fm_backend_herdr_list_live_children() {  # <session>
+  local session=$1 prefix ws_list child_ws tabs tab_id label pane_id
+  prefix="$(fm_backend_herdr_workspace_label)/"
+  ws_list=$(fm_backend_herdr_cli "$session" workspace list 2>/dev/null) || return 0
+  while IFS= read -r child_ws; do
+    [ -n "$child_ws" ] || continue
+    tabs=$(fm_backend_herdr_cli "$session" tab list --workspace "$child_ws" 2>/dev/null) || continue
+    while IFS=$'\t' read -r tab_id label; do
+      [ -n "$tab_id" ] || continue
+      pane_id=$(fm_backend_herdr_pane_for_tab "$session" "$child_ws" "$tab_id") || continue
+      [ -n "$pane_id" ] || continue
+      printf '%s:%s\t%s\n' "$session" "$pane_id" "$label"
+    done < <(printf '%s' "$tabs" | jq -r '.result.tabs[]? | select(.label | startswith("fm-")) | "\(.tab_id)\t\(.label)"' 2>/dev/null)
+  done < <(printf '%s' "$ws_list" | jq -r --arg p "$prefix" '.result.workspaces[]? | select(.label | startswith($p)) | .workspace_id' 2>/dev/null)
+}
+
 # fm_backend_herdr_pane_agent_state: classify <pane_id> in <session> as one of
 # dead|no-agent|live|unknown, purely from the JSON body of two read-only
 # calls - never from process exit status, since a business-logic "not found"
@@ -1191,6 +1314,11 @@ fm_backend_herdr_list_live() {  # <session>
     [ -n "$pane_id" ] || continue
     printf '%s:%s\t%s\n' "$session" "$pane_id" "$label"
   done < <(printf '%s' "$tabs" | jq -r '.result.tabs[]? | select(.label | startswith("fm-")) | "\(.tab_id)\t\(.label)"' 2>/dev/null)
+  # Child-workspace prototype (default OFF): also recover jobs that live in
+  # their own child workspaces rather than as tabs in the home workspace.
+  if fm_backend_herdr_child_ws_enabled; then
+    fm_backend_herdr_list_live_children "$session"
+  fi
 }
 
 # --- native event push: pane.agent_status_changed subscriber -----------------

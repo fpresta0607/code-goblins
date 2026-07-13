@@ -731,10 +731,30 @@ case "$BACKEND" in
     HERDR_SEEDED_DEFAULT_TAB_ID=${HERDR_CONTAINER_RAW#*$'\t'}
     HERDR_SES=${CONTAINER%%:*}
     HERDR_WORKSPACE_ID=${CONTAINER#*:}
-    HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$W" "$PROJ_ABS" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
-    read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
+    HERDR_PARENT_WS=""
+    HERDR_WS_OWNED=""
+    # Child-workspace hierarchy (PROTOTYPE, default OFF -
+    # config/herdr-child-workspaces=on; docs/herdr-backend.md). A DELEGATED job
+    # (ship/scout, never a --secondmate supervisor) gets its OWN child
+    # workspace under the home/supervisor workspace HERDR_WORKSPACE_ID (which
+    # container_ensure just resolved). The home workspace's own seeded default
+    # tab is intentionally NOT pruned in this mode: no task tab is created
+    # inside it, so it is the parent's only tab and pruning it would delete the
+    # parent workspace. When the flag is off, the else branch is the unchanged
+    # tab-per-task path and no herdr_parent_ws/herdr_ws_owned meta is written.
+    if [ "$KIND" != secondmate ] && FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_child_ws_enabled; then
+      HERDR_PARENT_WS=$HERDR_WORKSPACE_ID
+      HERDR_CHILD_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_child_workspace "$HERDR_SES" "$HERDR_PARENT_WS" "$ID" "$PROJ_ABS" "$STATE/$ID.status") || exit 1
+      read -r HERDR_WORKSPACE_ID HERDR_TAB_ID HERDR_PANE_ID <<EOF2
+$HERDR_CHILD_IDS
+EOF2
+      HERDR_WS_OWNED=1
+    else
+      HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$W" "$PROJ_ABS" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
+      read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
 $HERDR_TASK_IDS
 EOF
+    fi
     if [ -z "$HERDR_TAB_ID" ] || [ -z "$HERDR_PANE_ID" ]; then
       echo "error: herdr did not return a tab/pane id for $W" >&2
       exit 1
@@ -1008,6 +1028,13 @@ META_WINDOW=$T
     echo "herdr_workspace_id=$HERDR_WORKSPACE_ID"
     echo "herdr_tab_id=$HERDR_TAB_ID"
     echo "herdr_pane_id=$HERDR_PANE_ID"
+    # Child-workspace prototype only (default OFF): the durable parent<-child
+    # association and teardown-ownership gate. Absent on the unchanged
+    # tab-per-task path, so that path's meta stays byte-identical.
+    if [ -n "${HERDR_WS_OWNED:-}" ]; then
+      echo "herdr_parent_ws=$HERDR_PARENT_WS"
+      echo "herdr_ws_owned=1"
+    fi
   fi
   if [ "$BACKEND" = zellij ]; then
     echo "zellij_session=$ZELLIJ_SES"

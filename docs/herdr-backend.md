@@ -172,6 +172,35 @@ Herdr tasks additionally record:
 - `herdr_workspace_id=` - the id of the workspace belonging to the home that spawned this task (the primary's `firstmate` workspace, or a secondmate's own `2ndmate-<id>` workspace; for reference - not needed for day-to-day operations, which re-derive it from the target string).
 - `herdr_tab_id=` - the task's tab id.
 - `herdr_pane_id=` - the task's pane id, the fast-path operational target.
+- `herdr_parent_ws=` and `herdr_ws_owned=` - written ONLY by the child-workspace prototype (below), absent on the default tab-per-task path.
+
+## Child-workspace hierarchy (prototype)
+
+This is a LOCAL-TRIAL prototype, default OFF, and is NOT the shipped layout.
+When the flag is off, behavior is byte-identical to the tab-per-task shape documented above; every path in this section is skipped.
+
+### The capability finding it is built on
+
+Herdr 0.7.3 has NO first-class parent<->child workspace relationship.
+Verified against the real binary: `herdr api schema`'s `WorkspaceInfo` carries `workspace_id`, `number`, `label`, `focused`, `pane_count`, `tab_count`, `active_tab_id`, `agent_status`, and a git-`worktree` association - but no parent/child/association field of any kind; `herdr workspace create` has no `--parent` flag; and `workspace_moved` only reorders the flat list.
+The only container hierarchy Herdr models is Workspace > Tab > Pane.
+So a genuine parent<->child EDGE cannot live in Herdr; the durable, machine-readable association lives in firstmate's own task meta (`herdr_parent_ws=`), and the child workspace's `<home-label>/<id>` label is human-facing DISPLAY SUGAR only.
+Teardown never keys off that label - it targets the exact owned `workspace_id` under the `herdr_ws_owned=1` gate - so the 2026-07-02 label-collision self-kill class of bug cannot recur through this path.
+True VISUAL tree-nesting in Herdr's own spaces sidebar would require a small upstream Herdr change (a `parent_workspace_id` on `WorkspaceInfo`, a `--parent` on `workspace create`, and tree rendering); this prototype delivers the genuine container isolation and the durable association without it.
+
+### What the flag changes
+
+`config/herdr-child-workspaces` (local, gitignored; `on` as its first non-empty line enables it, anything else/absent = off), resolved by `fm_backend_herdr_child_ws_enabled`.
+When on, a DELEGATED job - a ship or scout crewmate, never a `--secondmate` supervisor - gets its OWN child workspace under the home/supervisor workspace instead of a sibling tab inside it:
+
+- The parent is the already-ensured home workspace (`firstmate`, or `2ndmate-<id>` for a job delegated by a secondmate); its own seeded default tab is deliberately never pruned in this mode, since no task tab is created inside it and pruning its only tab would delete the parent.
+- The child workspace is labeled `<home-label>/<id>` and is built by `fm_backend_herdr_create_child_workspace`, which maps each isolated worktree to exactly ONE child workspace and groups the tabs that genuinely belong to that one job inside it: the runtime tab (`fm-<id>`, the crewmate agent) and a read-only log tab (`tail -F` of the job's own `state/<id>.status`). No parent/sibling/fleet-wide view is placed in the job workspace.
+- Everything is created `--no-focus`, so the captain's active space and layout are preserved exactly as on the tab-per-task path.
+- `fm_backend_herdr_list_live` also enumerates child workspaces (label prefix `<home-label>/`) so restart/recovery orphan-discovery rediscovers child-workspace jobs by their `fm-<id>` runtime tab, per home; the log tab is never surfaced as a task endpoint.
+- Teardown closes EXACTLY the owned child workspace and all its tabs in one operation via `fm_backend_herdr_close_owned_workspace`, which fail-closed refuses to close the recorded parent or this home's own workspace and no-ops safely on an already-gone id.
+
+The spawn-time branch and the two new meta fields live in `bin/fm-spawn.sh`'s herdr case arm; the owned-workspace teardown call lives in `bin/fm-teardown.sh`; the create/close/list functions live in `bin/backends/herdr.sh`.
+Empirical evidence (isolated real-herdr E2E covering flag-off byte-identity, child-workspace creation, concurrent jobs, nested homes, recovery, refuse-to-close-parent, stale metadata, and exact-owned-only teardown, all with the default session asserted byte-identical) is `tests/fm-backend-herdr-child-workspace-e2e.test.sh`.
 
 ## Verified CLI facts
 

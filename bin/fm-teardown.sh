@@ -1122,7 +1122,18 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   }
 fi
 
-if [ "$BACKEND" != orca ]; then
+if [ "$BACKEND" = herdr ] && [ "$(meta_value "$META" herdr_ws_owned)" = 1 ]; then
+  # Child-workspace prototype (default OFF): this job owns its whole child
+  # workspace, so close EXACTLY that workspace and all its tabs (runtime + log)
+  # in one safety-checked operation instead of closing a single pane.
+  # fm_backend_herdr_close_owned_workspace refuses to close the recorded parent
+  # or this home's own workspace; an already-gone workspace is a safe no-op.
+  fm_backend_source herdr 2>/dev/null || true
+  fm_backend_herdr_close_owned_workspace \
+    "$(meta_value "$META" herdr_session)" \
+    "$(meta_value "$META" herdr_workspace_id)" \
+    "$(meta_value "$META" herdr_parent_ws)" 2>/dev/null || true
+elif [ "$BACKEND" != orca ]; then
   fm_backend_kill "$BACKEND" "$T" "$(meta_value "$META" zellij_tab_id)" "fm-$ID" 2>/dev/null || true
 fi
 if [ "$KIND" = secondmate ]; then
