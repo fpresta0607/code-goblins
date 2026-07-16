@@ -66,6 +66,29 @@ test_ship_modes_generate_clean_briefs() {
   pass "fm-brief.sh: no-mistakes/direct-PR/local-only briefs generate cleanly"
 }
 
+test_faster_paths_use_configured_authority_without_stacked_review() {
+  local home id brief
+  home="$TMP_ROOT/configured-authority-home"
+  write_registry "$home"
+  id="brief-direct-authority-a4"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" direct-proj >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_grep "The configured merge authority decides whether to merge the PR; firstmate relays the outcome." "$brief" \
+    "direct-PR brief lost configured merge authority"
+  assert_no_grep "The captain reviews and merges the PR" "$brief" \
+    "direct-PR brief hard-coded captain-only authority"
+  id="brief-local-authority-a4"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" local-proj >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_grep "The configured merge authority approves the ready branch, then firstmate merges it into local \`main\` through the guarded fast-forward path." "$brief" \
+    "local-only brief lost configured merge authority and guarded landing"
+  assert_no_grep "The captain approves the ready branch" "$brief" \
+    "local-only brief hard-coded captain-only authority"
+  assert_no_grep "Firstmate then reviews your branch diff" "$brief" \
+    "local-only brief retained a personal review stacked on the selected delivery path"
+  pass "fm-brief.sh: faster paths use configured authority without stacked review"
+}
+
 # Pin the specific line the bug lived on: the no-mistakes DOD's no-mistakes
 # reference must render as plain prose with no dangling apostrophe artifact.
 test_no_mistakes_dod_wording() {
@@ -269,6 +292,7 @@ test_pause_verb_override_renders_all_brief_scaffolds() {
 test_script_parses
 test_help_includes_entire_header
 test_ship_modes_generate_clean_briefs
+test_faster_paths_use_configured_authority_without_stacked_review
 test_no_mistakes_dod_wording
 test_ship_project_memory_wording
 test_herdr_lab_contract_is_explicit_and_complete
