@@ -17,7 +17,7 @@
 # standalone with unchanged default behavior - other flows (fm-bootstrap.sh
 # install <tools> after consent, /updatefirstmate, the afk daemon, existing
 # tests) still call them directly. The one seam this script needed -
-# bootstrap running its detect-only diagnostics without its four mutating
+# bootstrap running its detect-only diagnostics without its five mutating
 # sweeps - is an opt-in FM_BOOTSTRAP_DETECT_ONLY=1 flag on fm-bootstrap.sh
 # itself (default unset/0 = unchanged behavior), not a fork.
 #
@@ -26,9 +26,9 @@
 #
 #   1. lock          - acquire the per-home session lock FIRST, before any
 #                       mutating step runs.
-#   2. bootstrap      - detect-only diagnostics always run. The four
-#                       MUTATING sweeps (secondmate fast-forward, secondmate
-#                       liveness, X-mode artifact writes, fleet sync) run only
+#   2. bootstrap      - detect-only diagnostics always run. The five
+#                       MUTATING sweeps (legacy PR-check migration, secondmate
+#                       fast-forward, secondmate liveness, X-mode artifact writes, fleet sync) run only
 #                       when this session actually holds the lock.
 #   3. wake-drain     - mutates the durable wake queue, so it also only runs
 #                       when locked.
@@ -60,7 +60,7 @@
 # tasks-axi and quota-axi tool checks, and tasks-axi availability - none of
 # which mutate shared state and all of which are safe to compute from a second
 # session.
-# Only the four mutating sweeps and the wake-queue drain are skipped.
+# Only the five mutating sweeps and the wake-queue drain are skipped.
 # The context and fleet-state digests
 # below are always read-only, so they run unconditionally in both modes.
 #
@@ -154,9 +154,9 @@ if [ "$LOCK_RC" -ne 0 ]; then
     printf '%s\n' "$BAR"
     printf '●  READ-ONLY SESSION - ANOTHER LIVE FIRSTMATE SESSION HOLDS THE FLEET LOCK\n'
     printf '●  %s\n' "$LOCK_OUT"
-    printf '●  Skipping every mutating step: secondmate sync, X-mode artifacts,\n'
-    printf '●  fleet sync, and wake-queue drain. Detect-only bootstrap diagnostics and\n'
-    printf '●  the rest of this read-only-safe digest still ran below.\n'
+    printf '●  Skipping every mutating step: PR-check migration, secondmate sync,\n'
+    printf '●  X-mode artifacts, fleet sync, and wake-queue drain. Detect-only bootstrap\n'
+    printf '●  diagnostics and the rest of this read-only-safe digest still ran below.\n'
     printf '●  Operate read-only until this resolves - do not spawn, steer, merge, or\n'
     printf '●  otherwise mutate fleet state from this session.\n'
     printf '%s\n' "$BAR"

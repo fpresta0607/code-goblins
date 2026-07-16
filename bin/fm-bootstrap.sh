@@ -10,6 +10,7 @@
 #                 "CREW_DISPATCH: invalid config/crew-dispatch.json - <reason>",
 #                 "CREW_DISPATCH: active config/crew-dispatch.json" plus indented rules,
 #                 "FLEET_SYNC: <repo>: skipped|recovered|STUCK: <detail>",
+#                 "PR_CHECK_MIGRATION: <private remediation>",
 #                 "TASKS_AXI: available", "TANGLE: <remediation>",
 #                 "SECONDMATE_SYNC: secondmate <id>: skipped: <reason>",
 #                 "NUDGE_SECONDMATES: fm-<id>...",
@@ -65,16 +66,17 @@
 #          refresh relays any completed fm-fleet-sync.sh output before the
 #          aggregate timeout skip line with timeout and elapsed seconds.
 #          Set FM_FLEET_PRUNE=0 to skip branch pruning during that refresh.
-#          Set FM_BOOTSTRAP_DETECT_ONLY=1 to skip the four MUTATING sweeps
-#          (secondmate_sync, secondmate_liveness_sweep, x_mode_setup,
-#          fleet_sync) while still printing every read-only detect line
+#          Set FM_BOOTSTRAP_DETECT_ONLY=1 to skip the five MUTATING sweeps
+#          (PR-check migration, secondmate_sync, secondmate_liveness_sweep,
+#          x_mode_setup, fleet_sync) while still printing every read-only detect line
 #          above; the TANGLE line switches to advisory-only wording with no
 #          checkout command. Used by
 #          fm-session-start.sh's read-only path when another live session holds
 #          the fleet lock, so a second concurrent session never race-mutates
-#          secondmate homes, X-mode artifacts, project clones, or repair
-#          instructions. Unset/0 (the default) runs every sweep exactly as
-#          before - this flag is purely additive.
+#          PR-check artifacts, secondmate homes, X-mode artifacts, project
+#          clones, or repair instructions.
+#          Unset/0 (the default) runs every sweep exactly as before - this flag
+#          is purely additive.
 #        fm-bootstrap.sh install <tool>...
 #          Install the named tools (only ones the captain approved).
 set -u
@@ -379,19 +381,67 @@ no_mistakes_compatible() {
   [ "$patch" -ge "$NO_MISTAKES_MIN_PATCH" ]
 }
 
-# Write CONTENT to DEST only when it differs, so re-running bootstrap does not
-# churn mtimes or duplicate generated files (idempotence).
-write_if_changed() {
-  local dest=$1 content=$2
-  [ -f "$dest" ] && [ "$(cat "$dest" 2>/dev/null)" = "$content" ] && return 0
-  printf '%s\n' "$content" > "$dest"
+x_mode_write_if_changed() {
+  local dest=$1 content=$2 mode=$3 parent tmp parent_device current_mode
+  parent=${dest%/*}
+  [ "$parent" != "$dest" ] || return 1
+  [ -d "$parent" ] && [ ! -L "$parent" ] || return 1
+  if [ "$(uname)" = Darwin ]; then
+    parent_device=$(stat -f %d "$parent" 2>/dev/null) || return 1
+  else
+    parent_device=$(stat -c %d "$parent" 2>/dev/null) || return 1
+  fi
+  if [ -e "$dest" ] || [ -L "$dest" ]; then
+    fmx_single_link_file_valid "$dest" "$parent_device" || return 1
+    if [ "$(uname)" = Darwin ]; then
+      current_mode=$(stat -f %Lp "$dest" 2>/dev/null) || return 1
+    else
+      current_mode=$(stat -c %a "$dest" 2>/dev/null) || return 1
+    fi
+    if [ "$current_mode" = "$mode" ] && cmp -s "$dest" <(printf '%s\n' "$content"); then
+      return 0
+    fi
+  fi
+  tmp=$(umask 077; mktemp "$parent/.fm-x-mode.XXXXXX" 2>/dev/null) || return 1
+  if ! printf '%s\n' "$content" > "$tmp" \
+    || ! chmod "$mode" "$tmp" \
+    || ! fmx_single_link_file_mode_valid "$tmp" "$mode" "$parent_device"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+  if { [ -e "$dest" ] || [ -L "$dest" ]; } \
+    && ! fmx_single_link_file_valid "$dest" "$parent_device"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+  if ! mv -f -- "$tmp" "$dest"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+  if ! fmx_single_link_file_mode_valid "$dest" "$mode" "$parent_device" \
+    || ! cmp -s "$dest" <(printf '%s\n' "$content"); then
+    rm -f -- "$dest"
+    return 1
+  fi
+}
+
+x_mode_artifact_present() {
+  [ -e "$1" ] || [ -L "$1" ]
+}
+
+x_mode_remove_artifact() {
+  local artifact=$1 parent=${1%/*}
+  x_mode_artifact_present "$artifact" || return 0
+  [ -d "$parent" ] && [ ! -L "$parent" ] || return 1
+  rm -f -- "$artifact" 2>/dev/null || return 1
+  ! x_mode_artifact_present "$artifact"
 }
 
 # X mode (opt-in): when this home's .env carries a non-empty FMX_PAIRING_TOKEN,
-# wire the relay poll into the EXISTING watcher check mechanism without touching
-# fm-watch.sh or any other watcher-backbone file. Drops two idempotent,
-# gitignored artifacts:
-#   state/x-watch.check.sh - check shim that execs bin/fm-x-poll.sh each cycle
+# wire the relay poll into the existing authenticated watcher dispatch.
+# Drops two idempotent, gitignored artifacts:
+#   state/x-watch.check.sh - byte-static identity shim; the watcher validates
+#                            its bytes and invokes bin/fm-x-poll.sh directly
 #   config/x-mode.env      - exports FM_CHECK_INTERVAL=30, sourced by the watcher
 #                            arm so only an X instance polls at the 30s cadence
 # On opt-out (no token, or empty) it removes any such artifacts so the instance
@@ -411,8 +461,10 @@ x_mode_setup() {
   [ -f "$env_file" ] && token=$(fmx_env_get FMX_PAIRING_TOKEN "$env_file")
 
   x_mode_remove_artifacts() {
-    rm -f "$shim" "$cadence" 2>/dev/null || true
-    [ ! -e "$shim" ] && [ ! -e "$cadence" ]
+    local failed=0
+    x_mode_remove_artifact "$shim" || failed=1
+    x_mode_remove_artifact "$cadence" || failed=1
+    [ "$failed" -eq 0 ]
   }
 
   x_mode_supervision_repair() {
@@ -425,7 +477,7 @@ x_mode_setup() {
   if [ -z "$token" ]; then
     # Opt-out (or never opted in): drop any X artifacts; stay silent unless we
     # actually removed something.
-    if [ -e "$shim" ] || [ -e "$cadence" ]; then
+    if x_mode_artifact_present "$shim" || x_mode_artifact_present "$cadence"; then
       if x_mode_remove_artifacts; then
         echo "FMX: X mode off - removed relay poll shim and 30s cadence; default cadence applies on the next supervision cycle; $(x_mode_supervision_repair)"
       else
@@ -443,7 +495,7 @@ x_mode_setup() {
     fi
   done
   if [ "$missing" -ne 0 ]; then
-    if [ -e "$shim" ] || [ -e "$cadence" ]; then
+    if x_mode_artifact_present "$shim" || x_mode_artifact_present "$cadence"; then
       if x_mode_remove_artifacts; then
         echo "FMX: X mode off - missing relay poll dependencies; install them and rerun bootstrap"
       else
@@ -463,16 +515,10 @@ x_mode_setup() {
 
   mkdir -p "$STATE" "$CONFIG" 2>/dev/null || { fmx_arm_failed; return 0; }
 
-  shim_body=$(cat <<EOF
-#!/usr/bin/env bash
-# Auto-generated by fm-bootstrap.sh - X mode connector poll shim.
-# The watcher runs this each check cycle; output becomes a check: wake.
-export FM_HOME=$(printf '%q' "$FM_HOME")
-exec $(printf '%q' "$FM_ROOT/bin/fm-x-poll.sh")
-EOF
-)
-  write_if_changed "$shim" "$shim_body" || { fmx_arm_failed; return 0; }
-  chmod +x "$shim" 2>/dev/null || { fmx_arm_failed; return 0; }
+  shim_body=$(fmx_poll_shim_content "$FM_HOME" "$FM_ROOT")
+  x_mode_write_if_changed "$shim" "$shim_body" 700 || { fmx_arm_failed; return 0; }
+  fmx_poll_shim_valid "$shim" "$FM_HOME" "$FM_ROOT" \
+    || { fmx_arm_failed; return 0; }
 
   cadence_body=$(cat <<'EOF'
 # Auto-generated by fm-bootstrap.sh - X mode watcher cadence.
@@ -482,7 +528,7 @@ EOF
 export FM_CHECK_INTERVAL=30
 EOF
 )
-  write_if_changed "$cadence" "$cadence_body" || { fmx_arm_failed; return 0; }
+  x_mode_write_if_changed "$cadence" "$cadence_body" 600 || { fmx_arm_failed; return 0; }
 
   echo "FMX: X mode on - relay poll armed via state/x-watch.check.sh; 30s watcher cadence in config/x-mode.env"
 }
@@ -586,6 +632,14 @@ if [ "${1:-}" = "install" ]; then
     eval "$cmd"
   done
   exit 0
+fi
+
+# This is the first mutating sweep at a locked session boundary. It pauses an
+# identity-matched watcher, holds its lock, and neutralizes legacy PR checks
+# before any tool detection or later bootstrap mutation can leave old artifacts
+# runnable. Detect-only sessions never touch state.
+if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
+  "$SCRIPT_DIR/fm-pr-check-migrate.sh" || true
 fi
 
 if [ "$BACKEND_VALID" -eq 0 ]; then
