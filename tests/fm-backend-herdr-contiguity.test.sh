@@ -55,8 +55,8 @@ printf '%s\n' "$*" >> "$CLILOG"
 case "${1:-} ${2:-}" in
   "workspace list")
     [ -n "${FM_FAKE_LIST_FAIL:-}" ] && exit 1
-    jq -Rn --arg native_parent "${FM_FAKE_NATIVE_PARENT:-}" --arg fleet_parent "${FM_FAKE_FLEET_PARENT:-}" '
-      [inputs | select(length > 0) | {workspace_id: ., label: (if . == $fleet_parent then "2ndmate-remote" else . end)}
+    jq -Rn --arg native_parent "${FM_FAKE_NATIVE_PARENT:-}" --arg fleet_parent "${FM_FAKE_FLEET_PARENT:-}" --arg fleet_child "${FM_FAKE_FLEET_CHILD:-}" '
+      [inputs | select(length > 0) | {workspace_id: ., label: (if . == $fleet_parent then "2ndmate-remote" elif . == $fleet_child then "2ndmate-remote/task" else . end)}
         + if . == $native_parent then {worktree: {is_linked_worktree: false}} else {} end]
       | {result: {workspaces: .}}' < "$ORDER"
     if [ -n "${FM_FAKE_CHURN_AFTER:-}" ]; then
@@ -530,6 +530,18 @@ test_close_refuses_parent_registered_by_another_home() {
   pass "close safety: the fleet-wide registry protects another home's supervisor workspace"
 }
 
+test_close_allows_secondmate_owned_child_label() {
+  contig_case close-secondmate-child $'ws-fm\nws-child'
+  PATH="$FB:$PATH" \
+    FM_FAKE_ORDER="$CASE_ORDER" FM_FAKE_CLI_LOG="$CASE_CLI_LOG" \
+    FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" \
+    FM_FAKE_FLEET_CHILD=ws-child \
+    fm_backend_herdr_close_owned_workspace "$SES" ws-child ws-parent "$CASE_STATE" >/dev/null 2>&1 || \
+    fail "a secondmate-owned child workspace must remain closable"
+  grep -q '^workspace close ws-child ' "$CASE_CLI_LOG" || fail "close must target the secondmate-owned child workspace"
+  pass "close safety: secondmate-owned child labels are not mistaken for supervisors"
+}
+
 test_close_allows_exact_unmarked_owned_child() {
   contig_case close-child $'ws-parent\nws-child'
   PATH="$FB:$PATH" \
@@ -569,6 +581,7 @@ test_cli_refuses_herdr_worktree_remove_before_execution
 test_close_refuses_any_locally_marked_parent
 test_close_refuses_herdr_native_worktree_group_parent
 test_close_refuses_parent_registered_by_another_home
+test_close_allows_secondmate_owned_child_label
 test_close_allows_exact_unmarked_owned_child
 
 echo "# all herdr workspace-contiguity unit tests passed"

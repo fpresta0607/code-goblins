@@ -645,6 +645,28 @@ test_parallel_container_ensure_converges_on_one_supervisor_workspace() {
   pass "fm-spawn container ensure: parallel first spawns converge on one supervisor workspace"
 }
 
+test_container_ensure_times_out_on_live_lock_holder() {
+  local dir home log fb lock out rc
+  dir="$TMP_ROOT/container-lock-timeout"; home="$dir/home"; log="$dir/log"
+  mkdir -p "$home/state"
+  fb=$(make_herdr_statefake "$dir/herdr")
+  : > "$log"
+  lock="$home/state/.herdr-container.lock"
+  mkdir "$lock" || fail "could not establish the live Herdr container lock fixture"
+  printf '%s\n' "$$" > "$lock/pid"
+  out=$(PATH="$fb:$PATH" FM_HOME="$home" FM_HERDR_LOG="$log" \
+    FM_FAKE_HERDR_STATE="$dir/herdr/state.json" HERDR_SESSION=fmtest \
+    FM_BACKEND_HERDR_CONTAINER_LOCK_RETRIES=2 FM_BACKEND_HERDR_CONTAINER_LOCK_WAIT_SECONDS=0 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_container_ensure /proj' "$ROOT" 2>&1)
+  rc=$?
+  rm -f "$lock/pid"
+  rmdir "$lock"
+  [ "$rc" -ne 0 ] || fail "container ensure must not wait forever on a live lock holder"
+  assert_contains "$out" "timed out waiting for Herdr container lock" "bounded lock refusal did not explain the timeout"
+  [ "$(jq '.workspaces | length' "$dir/herdr/state.json")" = 0 ] || fail "timed-out ensure mutated Herdr workspace state"
+  pass "fm-spawn container ensure: a live lock holder times out without mutation"
+}
+
 test_create_task_creates_with_no_focus_flag() {
   local dir log resp fb out
   dir="$TMP_ROOT/create-task-no-focus"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
@@ -2288,6 +2310,7 @@ test_container_ensure_reuses_existing_workspace
 test_container_ensure_creates_with_no_focus_flag
 test_container_ensure_uses_secondmate_home_label
 test_parallel_container_ensure_converges_on_one_supervisor_workspace
+test_container_ensure_times_out_on_live_lock_holder
 test_workspace_ensure_prunes_default_tab
 test_repeated_cycles_reuse_one_workspace_no_orphans
 test_adopted_workspace_never_prunes_default_tab

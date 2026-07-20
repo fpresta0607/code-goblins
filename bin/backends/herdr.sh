@@ -373,7 +373,7 @@ fm_backend_herdr_container_ensure() {  # <cwd-for-a-fresh-workspace>
   state="$FM_HOME/state"
   mkdir -p "$state" || return 1
   lock="$state/.herdr-container.lock"
-  fm_lock_acquire_wait "$lock"
+  fm_backend_herdr_container_lock_acquire "$lock" || return 1
   fm_backend_herdr_workspace_ensure "$session" "$cwd" >/dev/null || rc=$?
   fm_lock_release "$lock"
   if [ "$rc" -ne 0 ]; then
@@ -387,6 +387,25 @@ fm_backend_herdr_container_ensure() {  # <cwd-for-a-fresh-workspace>
     return 1
   fi
   printf '%s:%s\t%s' "$session" "$FM_BACKEND_HERDR_WS_ID" "$FM_BACKEND_HERDR_WS_SEEDED_TAB_ID"
+}
+
+fm_backend_herdr_container_lock_acquire() {  # <lock_path>
+  local lock=$1 retries=${FM_BACKEND_HERDR_CONTAINER_LOCK_RETRIES:-300}
+  local wait_seconds=${FM_BACKEND_HERDR_CONTAINER_LOCK_WAIT_SECONDS:-0.1} attempt=0
+  case "$retries" in
+    ''|*[!0-9]*|0)
+      echo "error: invalid Herdr container lock retry count '$retries'" >&2
+      return 1
+      ;;
+  esac
+  while ! fm_lock_try_acquire "$lock"; do
+    attempt=$((attempt + 1))
+    if [ "$attempt" -ge "$retries" ]; then
+      echo "error: timed out waiting for Herdr container lock '$lock'" >&2
+      return 1
+    fi
+    sleep "$wait_seconds"
+  done
 }
 
 # --- Child-workspace grouping (INTERIM, default OFF) --------------------------
@@ -719,7 +738,13 @@ fm_backend_herdr_workspace_is_fleet_supervisor() {  # <session> <workspace_id>
   [ "$count" -eq 1 ] || return 2
   label=$labels
   case "$label" in
-    firstmate|2ndmate-*) return 0 ;;
+    firstmate) return 0 ;;
+    2ndmate-*)
+      case "$label" in
+        */*) return 1 ;;
+        *) return 0 ;;
+      esac
+      ;;
     *) return 1 ;;
   esac
 }
