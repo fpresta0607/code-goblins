@@ -325,6 +325,44 @@ test_spawn_split_and_inherit() {
   pass "B2 spawn: secondmate runs the secondmate harness; its home inherits declared config"
 }
 
+test_spawn_herdr_grouping_nonconvergence_warns_and_launches() {
+  local mode w sm fakebin err rc warning count
+  warning='warning: Herdr child-workspace grouping did not converge for secondmate sm; launch is proceeding with visual grouping unchanged'
+  for mode in skip error; do
+    w="$TMP_ROOT/spawn-herdr-$mode"
+    sm="$w/sm"
+    mkdir -p "$w/home/config" "$w/home/state" "$w/home/data"
+    printf 'on\n' > "$w/home/config/herdr-child-workspaces"
+    make_seeded_home "$sm" sm
+    git init -q -b main "$sm"
+    if [ "$mode" = skip ]; then
+      printf 'config/crew-dispatch.json\nconfig/crew-harness\nconfig/backlog-backend\n' > "$sm/.gitignore"
+    else
+      printf 'config/crew-dispatch.json\nconfig/crew-harness\nconfig/backlog-backend\nconfig/herdr-child-workspaces\n' > "$sm/.gitignore"
+      mkdir -p "$sm/config/herdr-child-workspaces"
+    fi
+    git -C "$sm" add -A
+    git -C "$sm" commit -qm seeded
+    fakebin=$(make_noop_tmux "$w/tmux")
+    err="$w/spawn.err"
+    rc=0
+    PATH="$fakebin:$BASE_PATH" TMUX='' CLAUDECODE=1 \
+      FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$w/home" \
+      FM_STATE_OVERRIDE="$w/home/state" FM_DATA_OVERRIDE="$w/home/data" \
+      FM_PROJECTS_OVERRIDE="$w/home/projects" FM_CONFIG_OVERRIDE="$w/home/config" \
+      FM_SPAWN_NO_GUARD=1 \
+      "$ROOT/bin/fm-spawn.sh" sm "$sm" --secondmate >/dev/null 2>"$err" || rc=$?
+
+    expect_code 0 "$rc" "$mode: Herdr grouping non-convergence must not block launch"
+    [ -f "$w/home/state/sm.meta" ] || fail "$mode: secondmate launch did not write metadata"
+    count=$(grep -Fxc "$warning" "$err" || true)
+    [ "$count" -eq 1 ] || fail "$mode: expected one grouping warning, got $count: $(cat "$err")"
+    assert_not_contains "$(cat "$err")" "secondmate sm inheritance failed" \
+      "$mode: generic inheritance warning duplicated the grouping warning"
+  done
+  pass "B2a spawn: Herdr grouping skips and failures warn once without blocking secondmates"
+}
+
 # Backward-compat: secondmate-harness absent -> the secondmate launches on the
 # crew harness, exactly as before this knob existed, and that crew value is the
 # one inherited.
@@ -1052,6 +1090,7 @@ test_harness_resolution
 test_secondmate_model_effort_tokens
 test_propagate_lib
 test_spawn_split_and_inherit
+test_spawn_herdr_grouping_nonconvergence_warns_and_launches
 test_spawn_backward_compat_crew_fallback
 test_spawn_bare_backward_compat
 test_spawn_explicit_harness_wins

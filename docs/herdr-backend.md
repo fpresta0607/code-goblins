@@ -215,7 +215,8 @@ A true home-anchored visual tree still needs an upstream arbitrary parent relati
 ### What the flag changes
 
 `config/herdr-child-workspaces`, whose parsing and inheritance contract is owned by [`docs/configuration.md`](configuration.md#herdr-crew-workspace-grouping-configherdr-child-workspaces), is resolved by `fm_backend_herdr_child_ws_enabled`.
-The primary home's opt-in is propagated to secondmate homes at the established guarded convergence points, so ordinary crews throughout the supervisor tree follow the same default-off setting.
+The primary home's opt-in is propagated to secondmate homes at the established guarded convergence points, so ordinary crews throughout the supervisor tree normally follow the same default-off setting.
+A guarded skip or copy failure degrades only this visual grouping and emits one warning while the secondmate launch proceeds.
 When on, a DELEGATED job - a ship or scout crewmate, never a `--secondmate` supervisor - gets its OWN child workspace under the home/supervisor workspace instead of a sibling tab inside it:
 
 - The parent is the already-ensured home workspace (`firstmate`, or `2ndmate-<id>` for a job delegated by a secondmate); its own seeded default tab is deliberately never pruned in this mode, since no task tab is created inside it and pruning its only tab would delete the parent.

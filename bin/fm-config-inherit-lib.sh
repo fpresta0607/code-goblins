@@ -145,11 +145,19 @@ inheritable_config_skip_reason() {
 
 warn_inheritable_config_skip() {
   local item=$1 dest_config=$2 reason=$3
+  if [ "$item" = herdr-child-workspaces ] && [ -n "${FM_CONFIG_INHERIT_LAUNCH_ID:-}" ]; then
+    echo "warning: Herdr child-workspace grouping did not converge for secondmate $FM_CONFIG_INHERIT_LAUNCH_ID; launch is proceeding with visual grouping unchanged" >&2
+    return
+  fi
   echo "fm-config-inherit: warning: skipped $item for $dest_config: $reason" >&2
 }
 
 warn_inheritable_config_error() {
   local item=$1 dest=$2 reason=$3
+  if [ "$item" = herdr-child-workspaces ] && [ -n "${FM_CONFIG_INHERIT_LAUNCH_ID:-}" ]; then
+    echo "warning: Herdr child-workspace grouping did not converge for secondmate $FM_CONFIG_INHERIT_LAUNCH_ID; launch is proceeding with visual grouping unchanged" >&2
+    return
+  fi
   echo "fm-config-inherit: error: $reason $item at $dest" >&2
 }
 
@@ -375,7 +383,7 @@ propagate_shared_captain_preferences() {
 }
 
 propagate_secondmate_inheritance() {
-  local src_home=$1 dest_home=$2 src_config=${3:-} src_data=${4:-} rc
+  local src_home=$1 dest_home=$2 src_config=${3:-} src_data=${4:-} FM_CONFIG_INHERIT_LAUNCH_ID=${5:-} rc
   [ -n "$src_home" ] || return 1
   [ -n "$dest_home" ] || return 1
   [ -n "$src_config" ] || src_config="$src_home/config"

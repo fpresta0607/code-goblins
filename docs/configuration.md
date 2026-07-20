@@ -89,7 +89,8 @@ The `config/backend` file is not inherited by secondmate homes.
 The first non-empty line must be exactly `on` to enable it; an absent file or any other value keeps the default tab-per-task behavior.
 When enabled, every ordinary ship or scout crewmate gets its own Herdr workspace associated with the supervisor workspace for the home that delegated it.
 Secondmate agents remain tabs in their own `2ndmate-<id>` supervisor workspaces so those workspaces provide the stable anchors for their crews.
-The primary home's flag is inherited into secondmate homes through the declared local-material propagation contract, so one primary opt-in covers ordinary crews throughout the supervisor tree and primary absence converges every home back to default off.
+The primary home's flag is inherited into secondmate homes through the declared local-material propagation contract, so one primary opt-in normally covers ordinary crews throughout the supervisor tree and primary absence normally returns every home to default off.
+This cosmetic interim setting propagates best-effort: a guarded skip or copy failure does not block a secondmate launch, and the launch prints one warning that visual grouping did not converge.
 Treehouse remains the sole worktree lifecycle owner in both modes.
 Firstmate's flat-list ordering repair is a secondary rendering aid around this space-per-crewmate mechanism.
 See [`docs/herdr-backend.md`](herdr-backend.md#child-workspace-grouping-interim) for lifecycle safety, parent-close guards, ordering, and validation evidence.
