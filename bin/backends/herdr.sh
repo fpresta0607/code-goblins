@@ -548,6 +548,7 @@ fm_backend_herdr_prepare_child_workspace() {  # <session> <parent_ws_id> <id> <m
       return 1
       ;;
   esac
+  # shellcheck disable=SC2034 # Read by fm-spawn.sh after this sourced helper returns.
   FM_BACKEND_HERDR_CHILD_ACTION=reuse
   FM_BACKEND_HERDR_CHILD_WS_ID=$child
 }
@@ -699,8 +700,8 @@ fm_backend_herdr_workspace_is_recorded_parent() {  # <state_dir> <session> <work
 # An already-gone workspace is a safe no-op (verified: `workspace close` on a
 # closed id returns workspace_not_found, non-fatal).
 # The caller only ever reaches this path when meta records herdr_ws_owned=1,
-# which fm-spawn.sh writes solely for a freshly-created, exclusively-owned
-# child workspace.
+# which fm-spawn.sh writes only for an exclusively owned child workspace that
+# was freshly created or exactly re-verified for a safe respawn.
 fm_backend_herdr_close_owned_workspace() {  # <session> <child_ws_id> <parent_ws_id> <state_dir>
   local session=$1 child=$2 parent=$3 state=${4:-} home_ws close_class parent_rc
   [ -n "$session" ] && [ -n "$child" ] || {
@@ -850,9 +851,9 @@ fm_backend_herdr_workspace_move() {  # <session> <workspace_id> <insert_index>
 # fm_backend_herdr_contiguity_edges: extract this home's ownership edges from
 # <state_dir>'s task metas, one "child<TAB>parent" line per herdr_ws_owned=1
 # task whose herdr_session matches <session>. herdr_ws_owned=1 is the ONLY
-# ownership signal honored: it is written solely by fm-spawn.sh for a
-# freshly-created, exclusively-owned child workspace, so every id emitted
-# here is an EXACT firstmate-created workspace id. Returns 2 (after emitting
+# ownership signal honored: it is written by fm-spawn.sh only for a freshly
+# created or exactly re-verified, exclusively owned child workspace, so every
+# id emitted here is an EXACT firstmate-created workspace id. Returns 2 (after emitting
 # nothing useful - callers must discard output on failure) when an owned meta
 # is missing its child or parent id: that is missing ownership metadata, and
 # the whole reconcile must refuse rather than guess.
@@ -1260,6 +1261,7 @@ EOF
     echo "error: could not parse tab/pane id from herdr tab create output" >&2
     return 1
   fi
+  # shellcheck disable=SC2034 # Read by fm-spawn.sh after this sourced helper returns.
   FM_BACKEND_HERDR_TASK_CREATED=1
   FM_BACKEND_HERDR_TASK_TAB_ID=$tab_id
   FM_BACKEND_HERDR_TASK_PANE_ID=$pane_id

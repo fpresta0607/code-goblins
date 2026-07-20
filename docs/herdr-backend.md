@@ -191,7 +191,7 @@ For a bare unknown non-`fm-` name, Herdr retains the legacy tmux live-window fal
 Herdr tasks additionally record:
 
 - `herdr_session=` - the named herdr session this task's server lives in.
-- `herdr_workspace_id=` - the id of the workspace belonging to the home that spawned this task (the primary's `firstmate` workspace, or a secondmate's own `2ndmate-<id>` workspace; for reference - not needed for day-to-day operations, which re-derive it from the target string).
+- `herdr_workspace_id=` - the exact workspace containing this task: the spawning home's supervisor workspace on the default path, or the task's owned crew workspace in the opt-in mode.
 - `herdr_tab_id=` - the task's tab id.
 - `herdr_pane_id=` - the task's pane id, the fast-path operational target.
 - `herdr_parent_ws=` and `herdr_ws_owned=` - written only by the opt-in interim child-workspace mode below, absent on the default tab-per-task path; these records are also the contiguity reconciler's ownership registry (see "Workspace contiguity").
@@ -215,19 +215,20 @@ A true home-anchored visual tree still needs an upstream arbitrary parent relati
 ### What the flag changes
 
 `config/herdr-child-workspaces`, whose parsing and inheritance contract is owned by [`docs/configuration.md`](configuration.md#herdr-crew-workspace-grouping-configherdr-child-workspaces), is resolved by `fm_backend_herdr_child_ws_enabled`.
-The primary home's opt-in is propagated to secondmate homes at the established guarded convergence points, so ordinary crews throughout the supervisor tree normally follow the same default-off setting.
-A guarded skip or copy failure degrades only this visual grouping and emits one warning while the secondmate launch proceeds.
+The primary home's opt-in is propagated to secondmate homes under the best-effort contract owned by the `secondmate-provisioning` skill.
 When on, a DELEGATED job - a ship or scout crewmate, never a `--secondmate` supervisor - gets its OWN child workspace under the home/supervisor workspace instead of a sibling tab inside it:
 
 - The parent is the already-ensured home workspace (`firstmate`, or `2ndmate-<id>` for a job delegated by a secondmate); its own seeded default tab is deliberately never pruned in this mode, since no task tab is created inside it and pruning its only tab would delete the parent.
-- The child workspace is labeled `<home-label>/<id>` and is built by `fm_backend_herdr_create_child_workspace`, which maps each isolated worktree to exactly ONE child workspace and groups the tabs that genuinely belong to that one job inside it: the runtime tab (`fm-<id>`, the crewmate agent) and a read-only log tab (`tail -F` of the job's own `state/<id>.status`). No parent/sibling/fleet-wide view is placed in the job workspace.
-- Everything is created `--no-focus`, so the captain's active space and layout are preserved exactly as on the tab-per-task path.
+- The child workspace is labeled `<home-label>/<id>` and groups only the tabs that genuinely belong to that job: the runtime tab (`fm-<id>`, the crewmate agent) and a read-only log tab (`tail -F` of the job's own `state/<id>.status`). No parent, sibling, or fleet-wide view is placed in the job workspace.
+- A respawn first requires exact matching owned metadata and a dead or agent-free recorded endpoint. It then reuses the existing workspace, replaces only a husk runtime tab, refreshes the log tab, and refuses live, duplicate, missing-metadata, mismatched-parent, or otherwise ambiguous shapes instead of creating a duplicate workspace.
+- Workspace and tab creation use `--no-focus`, so creating or restoring the task does not steal the captain's active space; the separate contiguity pass may reorder the flat workspace list as documented below.
 - `fm_backend_herdr_list_live` also enumerates child workspaces (label prefix `<home-label>/`) so restart/recovery orphan-discovery rediscovers child-workspace jobs by their `fm-<id>` runtime tab, per home; the log tab is never surfaced as a task endpoint.
 - Teardown closes exactly the owned child workspace and all its tabs in one operation via `fm_backend_herdr_close_owned_workspace`.
   The close gate requires the owning state directory, refuses the task's recorded parent, every parent marked by that home's task metadata, the home's own workspace, and every Herdr-native worktree-group parent, and no-ops safely on an already-gone id.
+- A failed spawn closes a newly created or safely reused owned workspace when possible. If that cleanup cannot be proven safe or completed, `fm-spawn.sh` preserves or repairs the exact owned-workspace metadata so recovery and teardown retain the endpoint instead of leaking an untracked container.
 
-The spawn-time branch and the two new meta fields live in `bin/fm-spawn.sh`'s herdr case arm; the owned-workspace teardown call lives in `bin/fm-teardown.sh`; the create/close/list functions live in `bin/backends/herdr.sh`.
-Empirical evidence (isolated real-herdr E2E covering flag-off byte-identity, child-workspace creation, concurrent jobs, nested homes, recovery, refuse-to-close-parent, stale metadata, and exact-owned-only teardown, all with the default session asserted byte-identical) is `tests/fm-backend-herdr-child-workspace-e2e.test.sh`.
+The spawn-time branch and the two new meta fields live in `bin/fm-spawn.sh`'s herdr case arm; the owned-workspace teardown call lives in `bin/fm-teardown.sh`; the prepare, create, populate, close, and list functions live in `bin/backends/herdr.sh`.
+Empirical evidence (isolated real-herdr E2E covering flag-off byte-identity, child-workspace creation, concurrent jobs, nested homes, idempotent respawn, refuse-to-close-parent, stale metadata, and exact-owned-only teardown, all with the default session asserted byte-identical) is `tests/fm-backend-herdr-child-workspace-e2e.test.sh`.
 
 ## Workspace contiguity (depth-first supervisor order)
 
