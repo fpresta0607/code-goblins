@@ -16,7 +16,20 @@ command -v python3 >/dev/null 2>&1 || { echo "skip: python3 not found (required 
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found"; exit 0; }
 
 TMP_ROOT=$(fm_test_tmproot fm-backend-herdr-move)
+SOCKET_ROOT=$(mktemp -d /tmp/fm-hm.XXXXXX) || fail "could not create short private socket directory"
+FM_TEST_CLEANUP_DIRS+=("$SOCKET_ROOT")
 WRITER="$ROOT/bin/backends/herdr-move.py"
+SRV_PID=
+
+cleanup_move_test() {
+  if [ -n "${SRV_PID:-}" ]; then
+    kill "$SRV_PID" 2>/dev/null
+    wait "$SRV_PID" 2>/dev/null
+  fi
+  fm_test_cleanup
+}
+
+trap cleanup_move_test EXIT
 
 # fake-server.py <socket_path> <capture_file> <mode>: accepts ONE connection,
 # captures the first request line verbatim, then behaves per <mode>:
@@ -63,7 +76,7 @@ PY
 
 start_server() {  # <name> <mode> -> sets SRV_SOCK, SRV_CAPTURE, SRV_PID
   local name=$1 mode=$2
-  SRV_SOCK="$TMP_ROOT/$name.sock"
+  SRV_SOCK="$SOCKET_ROOT/$name.sock"
   SRV_CAPTURE="$TMP_ROOT/$name.capture"
   rm -f "$SRV_SOCK" "$SRV_CAPTURE"
   python3 "$TMP_ROOT/fake-server.py" "$SRV_SOCK" "$SRV_CAPTURE" "$mode" &
@@ -78,6 +91,7 @@ start_server() {  # <name> <mode> -> sets SRV_SOCK, SRV_CAPTURE, SRV_PID
 stop_server() {
   kill "$SRV_PID" 2>/dev/null
   wait "$SRV_PID" 2>/dev/null
+  SRV_PID=
   return 0
 }
 
@@ -143,7 +157,7 @@ test_early_close_exits_4() {
 
 test_connect_failure_exits_2() {
   local rc
-  python3 "$WRITER" "$TMP_ROOT/no-such.sock" w42 1 2>/dev/null
+  python3 "$WRITER" "$SOCKET_ROOT/no-such.sock" w42 1 2>/dev/null
   rc=$?
   expect_code 2 "$rc" "an unconnectable socket must exit 2"
   pass "writer: an unconnectable socket path exits 2"
@@ -151,11 +165,11 @@ test_connect_failure_exits_2() {
 
 test_typed_argument_validation_exits_2() {
   local rc
-  python3 "$WRITER" "$TMP_ROOT/unused.sock" "" 1 2>/dev/null; rc=$?
+  python3 "$WRITER" "$SOCKET_ROOT/unused.sock" "" 1 2>/dev/null; rc=$?
   expect_code 2 "$rc" "an empty workspace_id must exit 2 before any connect"
-  python3 "$WRITER" "$TMP_ROOT/unused.sock" w42 not-a-number 2>/dev/null; rc=$?
+  python3 "$WRITER" "$SOCKET_ROOT/unused.sock" w42 not-a-number 2>/dev/null; rc=$?
   expect_code 2 "$rc" "a non-integer insert_index must exit 2 before any connect"
-  python3 "$WRITER" "$TMP_ROOT/unused.sock" w42 -1 2>/dev/null; rc=$?
+  python3 "$WRITER" "$SOCKET_ROOT/unused.sock" w42 -1 2>/dev/null; rc=$?
   expect_code 2 "$rc" "a negative insert_index must exit 2 (WorkspaceMoveParams uint, minimum 0)"
   python3 "$WRITER" 2>/dev/null; rc=$?
   expect_code 2 "$rc" "missing arguments must exit 2"
