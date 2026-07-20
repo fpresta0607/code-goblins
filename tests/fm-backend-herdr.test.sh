@@ -145,6 +145,11 @@ case "$cmd $sub" in
     pane=${3:-}
     jq_state --arg p "$pane" '.tabs |= [.[]|select(.pane_id != $p)]' | save
     ;;
+  "pane run")
+    case "${4:-}" in
+      *'treehouse get --lease'*) SHELL=/usr/bin/true bash -c "$4" ;;
+    esac
+    ;;
   "tab close")
     [ "${FM_FAKE_HERDR_TAB_CLOSE_FAIL:-0}" != 1 ] || exit 1
     tab=${3:-}
@@ -185,6 +190,45 @@ SH
 fake_herdr_set_agent_status() {  # <state-file> <pane_id> <status>
   local state=$1 pane=$2 status=$3 tmp="$1.tmp.$$"
   jq --arg p "$pane" --arg s "$status" '.agent_status[$p] = $s' "$state" > "$tmp" && mv "$tmp" "$state"
+}
+
+make_treehouse_lease_fake() {
+  local fakebin=$1 worktree=$2 state=$3
+  mkdir -p "$(dirname "$state")"
+  printf '{"worktrees":[{"name":"1","path":"%s","created_at":"2026-07-20T00:00:00Z"}]}\n' "$worktree" > "$state"
+  cat > "$fakebin/treehouse" <<'SH'
+#!/usr/bin/env bash
+set -u
+state=${FM_FAKE_TREEHOUSE_STATE:?}
+worktree=${FM_FAKE_TREEHOUSE_WT:?}
+case "${1:-}" in
+  get)
+    holder=
+    shift
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --lease-holder) shift; holder=${1:-} ;;
+      esac
+      shift || true
+    done
+    jq --arg path "$worktree" --arg holder "$holder" --arg leased_at "2026-07-20T00:00:00.${RANDOM}Z" \
+      '.worktrees[0].path = $path | .worktrees[0].leased = true | .worktrees[0].lease_holder = $holder | .worktrees[0].leased_at = $leased_at' \
+      "$state" > "$state.tmp" && mv "$state.tmp" "$state"
+    printf '%s\n' "$worktree"
+    ;;
+  return)
+    jq '.worktrees[0].leased = false | del(.worktrees[0].lease_holder, .worktrees[0].leased_at)' \
+      "$state" > "$state.tmp" && mv "$state.tmp" "$state"
+    ;;
+esac
+SH
+  chmod +x "$fakebin/treehouse"
+}
+
+fake_treehouse_release() {
+  local state=$1
+  jq '.worktrees[0].leased = false | del(.worktrees[0].lease_holder, .worktrees[0].leased_at)' \
+    "$state" > "$state.tmp" && mv "$state.tmp" "$state"
 }
 
 # herdr_case <name> -> sets up FM_HERDR_LOG/FM_HERDR_RESPONSES/fb for one test,
@@ -745,7 +789,8 @@ make_child_respawn_case() {
   CHILD_CASE_DIR="$TMP_ROOT/$name"
   CHILD_CASE_HOME="$CHILD_CASE_DIR/home"
   CHILD_CASE_PROJ="$CHILD_CASE_DIR/project"
-  CHILD_CASE_WT="$CHILD_CASE_DIR/worktree"
+  CHILD_CASE_WT="$CHILD_CASE_DIR/treehouse-pool/1/project"
+  CHILD_CASE_TREEHOUSE_STATE="$CHILD_CASE_DIR/treehouse-pool/treehouse-state.json"
   CHILD_CASE_STATE="$CHILD_CASE_HOME/state"
   CHILD_CASE_DATA="$CHILD_CASE_HOME/data"
   CHILD_CASE_CONFIG="$CHILD_CASE_HOME/config"
@@ -757,7 +802,7 @@ make_child_respawn_case() {
   printf 'brief\n' > "$CHILD_CASE_DATA/$id/brief.md"
   fm_git_worktree "$CHILD_CASE_PROJ" "$CHILD_CASE_WT" "fm/$id"
   CHILD_CASE_FAKEBIN=$(make_herdr_statefake "$CHILD_CASE_HERDR")
-  fm_fake_exit0 "$CHILD_CASE_FAKEBIN" treehouse
+  make_treehouse_lease_fake "$CHILD_CASE_FAKEBIN" "$CHILD_CASE_WT" "$CHILD_CASE_TREEHOUSE_STATE"
   : > "$CHILD_CASE_LOG"
 }
 
@@ -766,6 +811,7 @@ run_child_respawn() {
     FM_FAKE_HERDR_STATE="$CHILD_CASE_HERDR/state.json" FM_FAKE_HERDR_FOREGROUND_CWD="$CHILD_CASE_WT" \
     FM_FAKE_HERDR_TAB_CLOSE_FAIL="${CHILD_CASE_TAB_CLOSE_FAIL:-0}" \
     FM_FAKE_HERDR_WORKSPACE_CLOSE_FAIL="${CHILD_CASE_WORKSPACE_CLOSE_FAIL:-0}" \
+    FM_FAKE_TREEHOUSE_STATE="$CHILD_CASE_TREEHOUSE_STATE" FM_FAKE_TREEHOUSE_WT="$CHILD_CASE_WT" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CHILD_CASE_HOME" FM_STATE_OVERRIDE="$CHILD_CASE_STATE" \
     FM_DATA_OVERRIDE="$CHILD_CASE_DATA" FM_CONFIG_OVERRIDE="$CHILD_CASE_CONFIG" \
     FM_PROJECTS_OVERRIDE="$CHILD_CASE_HOME/projects" FM_SPAWN_NO_GUARD=1 \
@@ -822,6 +868,7 @@ test_child_workspace_adopts_preserved_workspace_after_teardown() {
   jq --arg w "$workspace" --arg task "fm-$CHILD_CASE_ID" \
     '.tabs |= [.[] | select(.workspace_id != $w or .label != $task)]' "$state_file" > "$state_file.tmp"
   mv "$state_file.tmp" "$state_file"
+  fake_treehouse_release "$CHILD_CASE_TREEHOUSE_STATE"
   rm -f "$meta"
   run_child_respawn >/dev/null || fail "same task id could not adopt its preserved child workspace"
   [ "$(grep '^herdr_workspace_id=' "$meta" | cut -d= -f2-)" = "$workspace" ] || fail "same task id replaced the preserved workspace"
@@ -842,6 +889,7 @@ test_child_workspace_adoption_refuses_live_runtime_without_empty_metadata() {
   state_file="$CHILD_CASE_HERDR/state.json"
   pane=$(grep '^herdr_pane_id=' "$meta" | cut -d= -f2-)
   fake_herdr_set_agent_status "$state_file" "$pane" idle
+  fake_treehouse_release "$CHILD_CASE_TREEHOUSE_STATE"
   rm -f "$meta"
   out=$(run_child_respawn); rc=$?
   [ "$rc" -ne 0 ] || fail "adoption must refuse a preserved live runtime"
@@ -857,6 +905,7 @@ test_child_workspace_partial_adoption_records_replacement_and_retries() {
   meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
   state_file="$CHILD_CASE_HERDR/state.json"
   workspace=$(grep '^herdr_workspace_id=' "$meta" | cut -d= -f2-)
+  fake_treehouse_release "$CHILD_CASE_TREEHOUSE_STATE"
   rm -f "$meta"
   CHILD_CASE_TAB_CLOSE_FAIL=1
   out=$(run_child_respawn); rc=$?

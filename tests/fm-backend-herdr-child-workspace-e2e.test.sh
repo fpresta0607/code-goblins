@@ -266,6 +266,7 @@ cat > "$RETURN_FAKEBIN/treehouse" <<'SH'
 printf '%s\n' "$*" >> "${FM_TREEHOUSE_RETURN_LOG:?}"
 if [ "${1:-}" = return ] && [ -f "${FM_TREEHOUSE_INTERRUPT_MARKER:?}" ]; then
   rm -f "${FM_TREEHOUSE_INTERRUPT_MARKER:?}"
+  git -C "${3:?}" reset --hard HEAD >/dev/null 2>&1
   exit 99
 fi
 exec "${FM_REAL_TREEHOUSE:?}" "$@"
@@ -293,7 +294,7 @@ B_TD_RC=$?
 [ "$B_TD_RC" -ne 0 ] || fail "interrupted Treehouse return must fail teardown"
 [ "$(grep -c '^return --force ' "$RETURN_LOG")" = 1 ] || fail "interrupted teardown must attempt Treehouse return once"
 [ -f "$B_META" ] || fail "single-tab teardown must retain ownership recovery metadata"
-grep -Eq '^worktree_return_state=started:[0-9a-f]+$' "$B_META" || fail "interrupted teardown must retain the started Treehouse return state"
+grep -Eq '^worktree_return_state=started:lease:[A-Za-z0-9+/=]+$' "$B_META" || fail "interrupted teardown must retain the exact started Treehouse lease identity"
 ws_exists "$B_CHILD_WS" || fail "single-tab teardown must preserve the child workspace"
 ws_exists "$B_PARENT_WS" || fail "single-tab teardown must preserve the supervisor workspace"
 pane_ws "$(meta_get "$B_META" herdr_pane_id)" | grep -q . || fail "single-tab teardown must retain the live endpoint"
@@ -306,7 +307,20 @@ PATH="$RETURN_FAKEBIN:$PATH" FM_REAL_TREEHOUSE="$REAL_TREEHOUSE" FM_TREEHOUSE_RE
 B_TD_RC=$?
 [ "$B_TD_RC" -ne 0 ] || fail "placeholder failure after confirmed return must retain recovery state"
 [ "$(grep -c '^return --force ' "$RETURN_LOG")" = 2 ] || fail "started-state retry must complete the interrupted Treehouse return exactly once"
-grep -Eq '^worktree_return_state=completed:[0-9a-f]+$' "$B_META" || fail "confirmed Treehouse return must persist completed state"
+grep -Eq '^worktree_return_state=completed:lease:[A-Za-z0-9+/=]+$' "$B_META" || fail "confirmed Treehouse return must persist its exact completed lease identity"
+REASSIGNED_WT=
+for i in 1 2 3 4; do
+  CANDIDATE_WT=$(cd "$PROJ2" && "$REAL_TREEHOUSE" get --lease --lease-holder "reassigned-$i") || fail "could not acquire a reassignment lease fixture"
+  WTS+=("$CANDIDATE_WT")
+  if [ "$CANDIDATE_WT" = "$(meta_get "$B_META" worktree)" ]; then
+    REASSIGNED_WT=$CANDIDATE_WT
+    break
+  fi
+done
+[ -n "$REASSIGNED_WT" ] || fail "could not reacquire cmb's returned Treehouse slot"
+# shellcheck source=bin/fm-treehouse-lib.sh
+. "$ROOT/bin/fm-treehouse-lib.sh"
+REASSIGNED_IDENTITY=$(fm_treehouse_worktree_identity "$REASSIGNED_WT") || fail "could not read the reassigned Treehouse lease identity"
 PATH="$RETURN_FAKEBIN:$PATH" FM_REAL_TREEHOUSE="$REAL_TREEHOUSE" FM_TREEHOUSE_RETURN_LOG="$RETURN_LOG" \
   FM_TREEHOUSE_INTERRUPT_MARKER="$RETURN_INTERRUPT_MARKER" \
   FM_BACKEND_HERDR_LAB_HELPER="$FAIL_HELPER" FM_REAL_HERDR_HELPER="$HERDR_LAB_HELPER" FM_FAIL_PLACEHOLDER_MARKER="$FAIL_MARKER" \
@@ -314,10 +328,11 @@ PATH="$RETURN_FAKEBIN:$PATH" FM_REAL_TREEHOUSE="$REAL_TREEHOUSE" FM_TREEHOUSE_RE
   FM_CONFIG_OVERRIDE="$PRIMARY_ON/config" \
   "$ROOT/bin/fm-teardown.sh" cmb >>"$B_TD_OUT" 2>&1 || fail "safe pane-only retry did not converge"
 [ "$(grep -c '^return --force ' "$RETURN_LOG")" = 2 ] || fail "completed-state retry must not return or reset the worktree again"
+[ "$(fm_treehouse_worktree_identity "$REASSIGNED_WT")" = "$REASSIGNED_IDENTITY" ] || fail "completed teardown changed the reassigned Treehouse lease"
 [ ! -f "$B_META" ] || fail "converged retry must remove recovery metadata"
 ws_exists "$B_CHILD_WS" || fail "converged retry must preserve the child workspace"
 ws_exists "$B_PARENT_WS" || fail "converged retry must preserve the supervisor workspace"
-pass "pane-only cleanup: started and completed Treehouse return states recover idempotently"
+pass "pane-only cleanup: partial return retries once and a reassigned lease remains untouched"
 
 # tidy remaining jobs
 teardown "$SM_HOME" cmc

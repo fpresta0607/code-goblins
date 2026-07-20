@@ -98,6 +98,8 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-treehouse-lib.sh
+. "$SCRIPT_DIR/fm-treehouse-lib.sh"
 if [ "$#" -lt 1 ] || ! fm_task_id_path_safe "$1"; then
   echo "error: invalid teardown request" >&2
   exit 2
@@ -178,91 +180,80 @@ remove_meta_value() (
   fi
 )
 
-treehouse_worktree_snapshot() {
-  local dir=$1 project=$2 name pretty out block line rest status hash
-  [ -n "$dir" ] && [ -d "$project" ] || return 1
-  name=$(basename "$(dirname "$dir")")
-  pretty=$dir
-  case "$dir" in
-    "$HOME"/*) pretty=$(printf '\176/%s' "${dir#"$HOME"/}") ;;
-  esac
-  out=$(cd "$project" && NO_COLOR=1 treehouse status 2>/dev/null) || return 1
-  block=$(printf '%s\n' "$out" | awk -v name="$name" '
-    $1 == name { found=1; print; next }
-    found && /^[[:space:]]/ { print; next }
-    found { exit }
-  ')
-  [ -n "$block" ] || return 1
-  line=${block%%$'\n'*}
-  rest=${line#"$name"}
-  rest=${rest#"${rest%%[![:space:]]*}"}
-  case "$rest" in
-    "available "*) status=available; rest=${rest#"available "} ;;
-    "in-use "*) status=in-use; rest=${rest#"in-use "} ;;
-    "dirty "*) status=dirty; rest=${rest#"dirty "} ;;
-    "leased "*) status=leased; rest=${rest#"leased "} ;;
-    "you're here "*) status=here; rest=${rest#"you're here "} ;;
+herdr_owned_worktree_return_phase() {
+  local meta=$1 worktree lease state current
+  worktree=$(meta_value "$meta" worktree)
+  lease=$(meta_value "$meta" treehouse_lease_identity)
+  state=$(meta_value "$meta" worktree_return_state)
+  case "$lease" in lease:*) ;; *) return 1 ;; esac
+  current=$(fm_treehouse_worktree_identity "$worktree") || return 1
+  case "$state" in
+    '')
+      [ "$current" = "$lease" ] || return 1
+      printf 'pending\n'
+      ;;
+    started:*)
+      [ "${state#started:}" = "$lease" ] || return 1
+      if [ "$current" = "$lease" ]; then
+        printf 'pending\n'
+      else
+        printf 'released\n'
+      fi
+      ;;
+    completed:*)
+      [ "${state#completed:}" = "$lease" ] && [ "$current" != "$lease" ] || return 1
+      printf 'completed\n'
+      ;;
     *) return 1 ;;
   esac
-  rest=${rest#"${rest%%[![:space:]]*}"}
-  case "$rest" in
-    "$pretty"|"$pretty (held by "*) ;;
-    *) return 1 ;;
-  esac
-  hash=$(printf '%s\n' "$block" | git hash-object --stdin 2>/dev/null) || return 1
-  [ -n "$hash" ] || return 1
-  printf '%s\t%s\n' "$status" "$hash"
 }
 
 HERDR_WORKTREE_RETURNED=0
 HERDR_WORKTREE_RETURN_STATE=
-HERDR_WORKTREE_RETURN_SNAPSHOT=
+HERDR_TREEHOUSE_LEASE_IDENTITY=
 if [ "$BACKEND" = herdr ] && [ "$(meta_value "$META" herdr_ws_owned)" = 1 ]; then
+  HERDR_TREEHOUSE_LEASE_IDENTITY=$(meta_value "$META" treehouse_lease_identity)
+  case "$HERDR_TREEHOUSE_LEASE_IDENTITY" in
+    lease:*) ;;
+    *) echo "error: missing authoritative Treehouse lease identity for $ID; preserving Herdr recovery metadata" >&2; exit 1 ;;
+  esac
+  HERDR_TREEHOUSE_CURRENT_IDENTITY=$(fm_treehouse_worktree_identity "$WT") || {
+    echo "error: cannot read authoritative Treehouse ownership for $WT; preserving Herdr recovery metadata" >&2
+    exit 1
+  }
   HERDR_WORKTREE_RETURN_STATE=$(meta_value "$META" worktree_return_state)
-  if [ -n "$HERDR_WORKTREE_RETURN_STATE" ]; then
-    HERDR_WORKTREE_RETURN_SNAPSHOT=$(treehouse_worktree_snapshot "$WT" "$PROJ") || {
-      echo "error: cannot verify Treehouse ownership for $WT; preserving Herdr recovery metadata" >&2
-      exit 1
-    }
-    HERDR_WORKTREE_RETURN_STATUS=${HERDR_WORKTREE_RETURN_SNAPSHOT%%$'\t'*}
-    HERDR_WORKTREE_RETURN_HASH=${HERDR_WORKTREE_RETURN_SNAPSHOT#*$'\t'}
-    case "$HERDR_WORKTREE_RETURN_STATE" in
-      completed:*)
-        HERDR_WORKTREE_RETURNED=1
-        ;;
-      started:*)
-        HERDR_WORKTREE_RETURN_STARTED_HASH=${HERDR_WORKTREE_RETURN_STATE#started:}
-        if [ "$HERDR_WORKTREE_RETURN_STATUS" = available ]; then
-          set_meta_value "$META" worktree_return_state "completed:$HERDR_WORKTREE_RETURN_HASH" || exit 1
-          remove_meta_value "$META" worktree_returned || true
-          HERDR_WORKTREE_RETURN_STATE="completed:$HERDR_WORKTREE_RETURN_HASH"
-          HERDR_WORKTREE_RETURNED=1
-        elif [ "$HERDR_WORKTREE_RETURN_HASH" != "$HERDR_WORKTREE_RETURN_STARTED_HASH" ]; then
-          echo "error: Treehouse ownership changed after return started for $WT; preserving Herdr recovery metadata" >&2
-          exit 1
-        fi
-        ;;
-      *)
-        echo "error: invalid Herdr worktree return state for $ID; preserving recovery metadata" >&2
+  case "$HERDR_WORKTREE_RETURN_STATE" in
+    '')
+      [ "$HERDR_TREEHOUSE_CURRENT_IDENTITY" = "$HERDR_TREEHOUSE_LEASE_IDENTITY" ] || {
+        echo "error: Treehouse lease identity changed before return started for $WT; preserving recovery metadata" >&2
         exit 1
-        ;;
-    esac
-  elif [ "$(meta_value "$META" worktree_returned)" = 1 ]; then
-    HERDR_WORKTREE_RETURN_SNAPSHOT=$(treehouse_worktree_snapshot "$WT" "$PROJ") || {
-      echo "error: cannot verify legacy Treehouse return state for $WT; preserving Herdr recovery metadata" >&2
+      }
+      ;;
+    started:*)
+      [ "${HERDR_WORKTREE_RETURN_STATE#started:}" = "$HERDR_TREEHOUSE_LEASE_IDENTITY" ] || {
+        echo "error: Herdr return state does not match its recorded Treehouse lease; preserving recovery metadata" >&2
+        exit 1
+      }
+      if [ "$HERDR_TREEHOUSE_CURRENT_IDENTITY" != "$HERDR_TREEHOUSE_LEASE_IDENTITY" ]; then
+        set_meta_value "$META" worktree_return_state "completed:$HERDR_TREEHOUSE_LEASE_IDENTITY" || exit 1
+        remove_meta_value "$META" worktree_returned || true
+        HERDR_WORKTREE_RETURN_STATE="completed:$HERDR_TREEHOUSE_LEASE_IDENTITY"
+        HERDR_WORKTREE_RETURNED=1
+      fi
+      ;;
+    completed:*)
+      [ "${HERDR_WORKTREE_RETURN_STATE#completed:}" = "$HERDR_TREEHOUSE_LEASE_IDENTITY" ] \
+        && [ "$HERDR_TREEHOUSE_CURRENT_IDENTITY" != "$HERDR_TREEHOUSE_LEASE_IDENTITY" ] || {
+        echo "error: completed Herdr return state is not confirmed by Treehouse ownership; preserving recovery metadata" >&2
+        exit 1
+      }
+      HERDR_WORKTREE_RETURNED=1
+      ;;
+    *)
+      echo "error: invalid Herdr worktree return state for $ID; preserving recovery metadata" >&2
       exit 1
-    }
-    HERDR_WORKTREE_RETURN_STATUS=${HERDR_WORKTREE_RETURN_SNAPSHOT%%$'\t'*}
-    HERDR_WORKTREE_RETURN_HASH=${HERDR_WORKTREE_RETURN_SNAPSHOT#*$'\t'}
-    if [ "$HERDR_WORKTREE_RETURN_STATUS" != available ]; then
-      echo "error: legacy Herdr return marker is not confirmed by Treehouse for $WT; preserving recovery metadata" >&2
-      exit 1
-    fi
-    set_meta_value "$META" worktree_return_state "completed:$HERDR_WORKTREE_RETURN_HASH" || exit 1
-    remove_meta_value "$META" worktree_returned || true
-    HERDR_WORKTREE_RETURN_STATE="completed:$HERDR_WORKTREE_RETURN_HASH"
-    HERDR_WORKTREE_RETURNED=1
-  fi
+      ;;
+  esac
 fi
 
 require_orca_worktree_id() {
@@ -1022,7 +1013,7 @@ remove_firstmate_home() {
 }
 
 validate_firstmate_home_children_removal() {
-  local home=$1 sub_state child_meta child_id child_wt child_proj child_kind child_home child_backend child_orca_worktree_id child_returned
+  local home=$1 sub_state child_meta child_id child_wt child_proj child_kind child_home child_backend child_orca_worktree_id child_returned child_owned_phase
   sub_state="$home/state"
   [ -d "$sub_state" ] || return 0
   for child_meta in "$sub_state"/*.meta; do
@@ -1034,6 +1025,13 @@ validate_firstmate_home_children_removal() {
     [ -n "$child_kind" ] || child_kind=ship
     child_backend=$(fm_backend_of_meta "$child_meta")
     child_returned=$(meta_value "$child_meta" worktree_returned)
+    if [ "$child_backend" = herdr ] && [ "$(meta_value "$child_meta" herdr_ws_owned)" = 1 ]; then
+      child_owned_phase=$(herdr_owned_worktree_return_phase "$child_meta") || {
+        echo "error: child $child_id has unverified Treehouse lease state; preserving its recovery metadata" >&2
+        return 1
+      }
+      case "$child_owned_phase" in completed|released) child_returned=1 ;; *) child_returned=0 ;; esac
+    fi
     if [ "$child_kind" = secondmate ]; then
       child_home=$(meta_value "$child_meta" home)
       [ -n "$child_home" ] || child_home=$child_wt
@@ -1054,7 +1052,7 @@ validate_firstmate_home_children_removal() {
 }
 
 cleanup_firstmate_home_children() {
-  local home=$1 sub_state child_meta child_id child_t child_wt child_proj child_kind child_home child_backend child_orca_worktree_id child_return_rc child_returned
+  local home=$1 sub_state child_meta child_id child_t child_wt child_proj child_kind child_home child_backend child_orca_worktree_id child_return_rc child_returned child_owned_phase child_lease child_current
   sub_state="$home/state"
   [ -d "$sub_state" ] || return 0
   for child_meta in "$sub_state"/*.meta; do
@@ -1066,6 +1064,14 @@ cleanup_firstmate_home_children() {
     [ -n "$child_kind" ] || child_kind=ship
     child_backend=$(fm_backend_of_meta "$child_meta")
     child_returned=$(meta_value "$child_meta" worktree_returned)
+    child_owned_phase=
+    if [ "$child_backend" = herdr ] && [ "$(meta_value "$child_meta" herdr_ws_owned)" = 1 ]; then
+      child_owned_phase=$(herdr_owned_worktree_return_phase "$child_meta") || {
+        echo "error: child $child_id has unverified Treehouse lease state; preserving its recovery metadata" >&2
+        return 1
+      }
+      case "$child_owned_phase" in completed|released) child_returned=1 ;; *) child_returned=0 ;; esac
+    fi
     if [ "$child_backend" = orca ]; then
       child_t=$(meta_value "$child_meta" terminal)
     else
@@ -1102,19 +1108,48 @@ cleanup_firstmate_home_children() {
     elif [ "$child_returned" != 1 ] && [ -n "$child_wt" ] && [ -d "$child_wt" ]; then
       validate_child_worktree_for_removal "$child_wt" "$child_proj" >/dev/null || return 1
       rm -f "$child_wt/.claude/settings.local.json" "$child_wt/.opencode/plugins/fm-turn-end.js" "$child_wt/.fm-grok-turnend"
+      if [ -n "$child_owned_phase" ]; then
+        child_lease=$(meta_value "$child_meta" treehouse_lease_identity)
+        set_meta_value "$child_meta" worktree_return_state "started:$child_lease" || return 1
+        child_current=$(fm_treehouse_worktree_identity "$child_wt") || return 1
+        [ "$child_current" = "$child_lease" ] || {
+          echo "error: Treehouse lease changed before returning child $child_id; preserving recovery metadata" >&2
+          return 1
+        }
+      fi
       if [ -n "$child_proj" ] && [ -d "$child_proj" ] && command -v treehouse >/dev/null 2>&1; then
         if teardown_treehouse_return "$child_wt" "$child_proj" "child worktree"; then
-          :
+          if [ -n "$child_owned_phase" ]; then
+            child_current=$(fm_treehouse_worktree_identity "$child_wt") || return 1
+            [ "$child_current" != "$child_lease" ] || {
+              echo "error: Treehouse did not release the recorded lease for child $child_id; preserving recovery metadata" >&2
+              return 1
+            }
+            set_meta_value "$child_meta" worktree_return_state "completed:$child_lease" || return 1
+            remove_meta_value "$child_meta" worktree_returned || true
+          fi
         else
           child_return_rc=$?
+          if [ -n "$child_owned_phase" ]; then
+            echo "error: Treehouse return failed for leased child $child_id; preserving recovery metadata" >&2
+            return "$child_return_rc"
+          fi
           if [ "$child_return_rc" -eq "$TEARDOWN_TREEHOUSE_LOCK_REFUSED" ]; then
             return "$child_return_rc"
           fi
           safe_rm_rf_child_worktree "$child_wt" "$child_proj"
         fi
       else
+        if [ -n "$child_owned_phase" ]; then
+          echo "error: Treehouse is unavailable for leased child $child_id; preserving recovery metadata" >&2
+          return 1
+        fi
         safe_rm_rf_child_worktree "$child_wt" "$child_proj"
       fi
+    elif [ "$child_owned_phase" = released ]; then
+      child_lease=$(meta_value "$child_meta" treehouse_lease_identity)
+      set_meta_value "$child_meta" worktree_return_state "completed:$child_lease" || return 1
+      remove_meta_value "$child_meta" worktree_returned || true
     fi
     remove_grok_turnend_auth "$sub_state" "$child_id"
     remove_pr_poll_artifacts "$sub_state" "$child_id" || return 1
@@ -1231,27 +1266,20 @@ elif [ "$HERDR_WORKTREE_RETURNED" != 1 ] && [ -d "$WT" ] && [ "$KIND" != secondm
   fi
   herdr_return_marker=0
   if [ "$BACKEND" = herdr ] && [ "$(meta_value "$META" herdr_ws_owned)" = 1 ]; then
-    if [ -z "$HERDR_WORKTREE_RETURN_SNAPSHOT" ]; then
-      HERDR_WORKTREE_RETURN_SNAPSHOT=$(treehouse_worktree_snapshot "$WT" "$PROJ") || {
-        echo "error: cannot verify Treehouse ownership for $WT; teardown aborted" >&2
-        exit 1
-      }
-    fi
-    HERDR_WORKTREE_RETURN_STATUS=${HERDR_WORKTREE_RETURN_SNAPSHOT%%$'\t'*}
-    HERDR_WORKTREE_RETURN_HASH=${HERDR_WORKTREE_RETURN_SNAPSHOT#*$'\t'}
-    if [ "$HERDR_WORKTREE_RETURN_STATUS" = available ]; then
-      set_meta_value "$META" worktree_return_state "completed:$HERDR_WORKTREE_RETURN_HASH" || exit 1
-      remove_meta_value "$META" worktree_returned || true
-      HERDR_WORKTREE_RETURNED=1
-    elif [ "$HERDR_WORKTREE_RETURN_STATUS" = leased ]; then
-      echo "error: Treehouse reports $WT leased to another owner; preserving Herdr recovery metadata" >&2
+    HERDR_TREEHOUSE_CURRENT_IDENTITY=$(fm_treehouse_worktree_identity "$WT") || {
+      echo "error: cannot read authoritative Treehouse ownership for $WT; teardown aborted" >&2
       exit 1
-    elif [ -z "$HERDR_WORKTREE_RETURN_STATE" ]; then
-      set_meta_value "$META" worktree_return_state "started:$HERDR_WORKTREE_RETURN_HASH" || {
+    }
+    [ "$HERDR_TREEHOUSE_CURRENT_IDENTITY" = "$HERDR_TREEHOUSE_LEASE_IDENTITY" ] || {
+      echo "error: Treehouse lease changed before return for $WT; preserving recovery metadata" >&2
+      exit 1
+    }
+    if [ -z "$HERDR_WORKTREE_RETURN_STATE" ]; then
+      set_meta_value "$META" worktree_return_state "started:$HERDR_TREEHOUSE_LEASE_IDENTITY" || {
         echo "error: could not persist the Herdr worktree return start for $ID; teardown aborted" >&2
         exit 1
       }
-      HERDR_WORKTREE_RETURN_STATE="started:$HERDR_WORKTREE_RETURN_HASH"
+      HERDR_WORKTREE_RETURN_STATE="started:$HERDR_TREEHOUSE_LEASE_IDENTITY"
     fi
     herdr_return_marker=1
   fi
@@ -1261,19 +1289,17 @@ elif [ "$HERDR_WORKTREE_RETURNED" != 1 ] && [ -d "$WT" ] && [ "$KIND" != secondm
       exit 1
     }
     if [ "$herdr_return_marker" = 1 ]; then
-      HERDR_WORKTREE_RETURN_SNAPSHOT=$(treehouse_worktree_snapshot "$WT" "$PROJ") || {
-        echo "error: Treehouse return for $WT could not be confirmed; preserving Herdr recovery metadata" >&2
+      HERDR_TREEHOUSE_CURRENT_IDENTITY=$(fm_treehouse_worktree_identity "$WT") || {
+        echo "error: Treehouse ownership after returning $WT could not be read; preserving Herdr recovery metadata" >&2
         exit 1
       }
-      HERDR_WORKTREE_RETURN_STATUS=${HERDR_WORKTREE_RETURN_SNAPSHOT%%$'\t'*}
-      HERDR_WORKTREE_RETURN_HASH=${HERDR_WORKTREE_RETURN_SNAPSHOT#*$'\t'}
-      if [ "$HERDR_WORKTREE_RETURN_STATUS" != available ]; then
-        echo "error: Treehouse return for $WT did not reach available state; preserving Herdr recovery metadata" >&2
+      if [ "$HERDR_TREEHOUSE_CURRENT_IDENTITY" = "$HERDR_TREEHOUSE_LEASE_IDENTITY" ]; then
+        echo "error: Treehouse return for $WT did not release the recorded lease; preserving Herdr recovery metadata" >&2
         exit 1
       fi
-      set_meta_value "$META" worktree_return_state "completed:$HERDR_WORKTREE_RETURN_HASH" || exit 1
+      set_meta_value "$META" worktree_return_state "completed:$HERDR_TREEHOUSE_LEASE_IDENTITY" || exit 1
       remove_meta_value "$META" worktree_returned || true
-      HERDR_WORKTREE_RETURN_STATE="completed:$HERDR_WORKTREE_RETURN_HASH"
+      HERDR_WORKTREE_RETURN_STATE="completed:$HERDR_TREEHOUSE_LEASE_IDENTITY"
       HERDR_WORKTREE_RETURNED=1
     fi
   fi

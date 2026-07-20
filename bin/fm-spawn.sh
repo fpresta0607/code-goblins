@@ -108,6 +108,8 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-treehouse-lib.sh
+. "$SCRIPT_DIR/fm-treehouse-lib.sh"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
 # a direct report (see bin/fm-gate-refuse-lib.sh).
 fm_refuse_if_gate_agent
@@ -195,6 +197,9 @@ ORCA_TERMINAL=
 HERDR_ABORT_CLEANUP=0
 HERDR_ABORT_HOME=
 HERDR_ABORT_MODE=
+TREEHOUSE_ABORT_LEASE=0
+TREEHOUSE_LEASE_HOLDER=
+TREEHOUSE_LEASE_IDENTITY=
 
 parse_orca_worktree_result() {
   local raw=$1 rest
@@ -214,7 +219,7 @@ parse_orca_worktree_result() {
 }
 
 spawn_abort_cleanup() {
-  local status=$? herdr_abort_ok=0 herdr_abort_pane_closed=0 abort_meta_tmp
+  local status=$? herdr_abort_ok=0 herdr_abort_pane_closed=0 abort_meta_tmp current_identity
   if [ "$HERDR_ABORT_CLEANUP" = 1 ]; then
     HERDR_ABORT_CLEANUP=0
     case "$HERDR_ABORT_MODE" in
@@ -241,6 +246,7 @@ spawn_abort_cleanup() {
           -v log_tab="${HERDR_LOG_TAB_ID:-}" \
           -v log_pane="${HERDR_LOG_PANE_ID:-}" \
           -v pane_closed="$herdr_abort_pane_closed" \
+          -v lease="${TREEHOUSE_LEASE_IDENTITY:-}" \
           -v parent="$HERDR_PARENT_WS" '
             /^window=/ { if (pane_closed != 1) print "window=" window; else print; next }
             /^herdr_session=/ { print "herdr_session=" session; next }
@@ -250,7 +256,10 @@ spawn_abort_cleanup() {
             /^herdr_log_tab_id=/ { print "herdr_log_tab_id=" log_tab; next }
             /^herdr_log_pane_id=/ { print "herdr_log_pane_id=" log_pane; next }
             /^herdr_parent_ws=/ { print "herdr_parent_ws=" parent; next }
+            /^treehouse_lease_identity=/ { print "treehouse_lease_identity=" lease; lease_written=1; next }
+            /^worktree_return_state=/ { next }
             { print }
+            END { if (lease != "" && !lease_written) print "treehouse_lease_identity=" lease }
           ' "$STATE/$ID.meta" > "$abort_meta_tmp" && mv "$abort_meta_tmp" "$STATE/$ID.meta"; then
           :
         else
@@ -277,7 +286,19 @@ spawn_abort_cleanup() {
           echo "herdr_log_pane_id=${HERDR_LOG_PANE_ID:-}"
           echo "herdr_parent_ws=$HERDR_PARENT_WS"
           echo "herdr_ws_owned=1"
+          [ -z "${TREEHOUSE_LEASE_IDENTITY:-}" ] || echo "treehouse_lease_identity=$TREEHOUSE_LEASE_IDENTITY"
         } > "$STATE/$ID.meta" 2>/dev/null || true
+      fi
+    fi
+  fi
+  if [ "$TREEHOUSE_ABORT_LEASE" = 1 ] && [ -n "${WT:-}" ] && [ -n "$TREEHOUSE_LEASE_IDENTITY" ]; then
+    TREEHOUSE_ABORT_LEASE=0
+    current_identity=$(fm_treehouse_worktree_identity "$WT" 2>/dev/null || true)
+    if [ "$current_identity" = "$TREEHOUSE_LEASE_IDENTITY" ]; then
+      if (cd "$PROJ_ABS" && treehouse return --force "$WT" >/dev/null 2>&1); then
+        if [ -f "$STATE/$ID.meta" ]; then
+          printf 'worktree_return_state=completed:%s\n' "$TREEHOUSE_LEASE_IDENTITY" >> "$STATE/$ID.meta" 2>/dev/null || true
+        fi
       fi
     fi
   fi
@@ -965,7 +986,27 @@ spawn_send_key() {  # <target> <key>
   esac
 }
 if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
-  spawn_send_text_line "$WT_TARGET" 'treehouse get'
+  if [ "$BACKEND" = herdr ] && [ -n "${HERDR_WS_OWNED:-}" ]; then
+    if [ "$HERDR_EXISTING_OWNED" = 1 ]; then
+      WT=$(grep '^worktree=' "$STATE/$ID.meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
+      TREEHOUSE_LEASE_IDENTITY=$(grep '^treehouse_lease_identity=' "$STATE/$ID.meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
+      TREEHOUSE_RETURN_STATE=$(grep '^worktree_return_state=' "$STATE/$ID.meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
+      case "$TREEHOUSE_RETURN_STATE" in completed:*) WT= ;; esac
+      if [ -n "$WT" ] && [ -n "$TREEHOUSE_LEASE_IDENTITY" ] \
+        && [ "$(fm_treehouse_worktree_identity "$WT" 2>/dev/null || true)" = "$TREEHOUSE_LEASE_IDENTITY" ]; then
+        spawn_send_text_line "$WT_TARGET" "(cd $(shell_quote "$WT") && \"\${SHELL:-/bin/bash}\")"
+      else
+        WT=
+        TREEHOUSE_LEASE_IDENTITY=
+      fi
+    fi
+    if [ -z "$WT" ]; then
+      TREEHOUSE_LEASE_HOLDER="firstmate-$ID-$(LC_ALL=C od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+      spawn_send_text_line "$WT_TARGET" "FM_TREEHOUSE_WORKTREE=\"\$(treehouse get --lease --lease-holder $(shell_quote "$TREEHOUSE_LEASE_HOLDER"))\" && (cd \"\$FM_TREEHOUSE_WORKTREE\" && \"\${SHELL:-/bin/bash}\")"
+    fi
+  else
+    spawn_send_text_line "$WT_TARGET" 'treehouse get'
+  fi
 
   # Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.
   # Target the stable window id, not the name: if the name is ever lost (e.g. an
@@ -988,6 +1029,14 @@ if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
     exit 1
   fi
 
+  if [ "$BACKEND" = herdr ] && [ -n "${HERDR_WS_OWNED:-}" ] && [ -z "$TREEHOUSE_LEASE_IDENTITY" ]; then
+    TREEHOUSE_LEASE_IDENTITY=$(fm_treehouse_worktree_identity "$WT" "$TREEHOUSE_LEASE_HOLDER") || {
+      echo "error: Treehouse did not record the expected durable lease for $WT" >&2
+      exit 1
+    }
+    case "$TREEHOUSE_LEASE_IDENTITY" in lease:*) ;; *) echo "error: Treehouse returned a non-lease identity for $WT" >&2; exit 1 ;; esac
+    TREEHOUSE_ABORT_LEASE=1
+  fi
   validate_spawn_worktree "treehouse get" "$T"
 fi
 
@@ -1148,6 +1197,7 @@ META_WINDOW=$T
       echo "herdr_ws_owned=1"
       echo "herdr_log_tab_id=${HERDR_LOG_TAB_ID:-}"
       echo "herdr_log_pane_id=${HERDR_LOG_PANE_ID:-}"
+      echo "treehouse_lease_identity=$TREEHOUSE_LEASE_IDENTITY"
     fi
   fi
   if [ "$BACKEND" = zellij ]; then
@@ -1170,6 +1220,7 @@ META_WINDOW=$T
 } > "$STATE/$ID.meta"
 [ "$BACKEND" = orca ] && ORCA_ABORT_CLEANUP=0
 [ "$BACKEND" = herdr ] && HERDR_ABORT_CLEANUP=0
+[ "$BACKEND" = herdr ] && TREEHOUSE_ABORT_LEASE=0
 
 sq_brief=$(shell_quote "$BRIEF")
 sq_turnend=$(shell_quote "$TURNEND")
