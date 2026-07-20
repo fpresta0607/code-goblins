@@ -218,9 +218,7 @@ spawn_abort_cleanup() {
   if [ "$HERDR_ABORT_CLEANUP" = 1 ]; then
     HERDR_ABORT_CLEANUP=0
     case "$HERDR_ABORT_MODE" in
-      fresh)
-        FM_HOME="$HERDR_ABORT_HOME" fm_backend_herdr_close_task_pane_preserving_workspace "$HERDR_SES" "$HERDR_WORKSPACE_ID" "${HERDR_PANE_ID:-}" || true
-        ;;
+      partial) ;;
       owned)
         FM_HOME="$HERDR_ABORT_HOME" fm_backend_herdr_close_owned_workspace "$HERDR_SES" "$HERDR_WORKSPACE_ID" "$HERDR_PARENT_WS" "$STATE" "$STATE/$ID.meta" && herdr_abort_ok=1
         if [ "$herdr_abort_ok" != 1 ]; then
@@ -826,27 +824,25 @@ case "$BACKEND" in
       if [ "$HERDR_CHILD_ACTION" = new ]; then
         FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_child_workspace_create "$HERDR_SES" "$HERDR_PARENT_WS" "$ID" "$PROJ_ABS" || exit 1
         HERDR_WORKSPACE_ID=$FM_BACKEND_HERDR_CHILD_WS_ID
-        HERDR_ABORT_HOME=$HERDR_LABEL_HOME
-        HERDR_ABORT_MODE=fresh
-        HERDR_ABORT_CLEANUP=1
       else
         HERDR_WORKSPACE_ID=$FM_BACKEND_HERDR_CHILD_WS_ID
         FM_BACKEND_HERDR_CHILD_SEED_TAB_ID=
-        if [ "$HERDR_CHILD_ACTION" = adopt ]; then
-          HERDR_ABORT_HOME=$HERDR_LABEL_HOME
-          HERDR_ABORT_MODE=fresh
-          HERDR_ABORT_CLEANUP=1
-        fi
       fi
       if ! fm_backend_herdr_child_workspace_populate "$HERDR_SES" "$HERDR_WORKSPACE_ID" "$ID" "$PROJ_ABS" "$STATE/$ID.status" "$FM_BACKEND_HERDR_CHILD_SEED_TAB_ID"; then
         HERDR_LOG_TAB_ID=${FM_BACKEND_HERDR_CHILD_LOG_TAB_ID:-}
         HERDR_LOG_PANE_ID=${FM_BACKEND_HERDR_CHILD_LOG_PANE_ID:-}
-        if [ "$HERDR_CHILD_ACTION" = reuse ] && [ "${FM_BACKEND_HERDR_TASK_CREATED:-0}" = 1 ]; then
+        if [ "${FM_BACKEND_HERDR_TASK_CREATED:-0}" = 1 ] \
+          && [ -n "${FM_BACKEND_HERDR_TASK_TAB_ID:-}" ] \
+          && [ -n "${FM_BACKEND_HERDR_TASK_PANE_ID:-}" ]; then
           HERDR_TAB_ID=$FM_BACKEND_HERDR_TASK_TAB_ID
           HERDR_PANE_ID=$FM_BACKEND_HERDR_TASK_PANE_ID
           HERDR_WS_OWNED=1
           HERDR_ABORT_HOME=$HERDR_LABEL_HOME
-          HERDR_ABORT_MODE=owned
+          if [ "$HERDR_CHILD_ACTION" = reuse ]; then
+            HERDR_ABORT_MODE=owned
+          else
+            HERDR_ABORT_MODE=partial
+          fi
           HERDR_ABORT_CLEANUP=1
         fi
         exit 1
@@ -859,6 +855,10 @@ case "$BACKEND" in
       if [ "$HERDR_CHILD_ACTION" = reuse ]; then
         HERDR_ABORT_HOME=$HERDR_LABEL_HOME
         HERDR_ABORT_MODE=owned
+        HERDR_ABORT_CLEANUP=1
+      else
+        HERDR_ABORT_HOME=$HERDR_LABEL_HOME
+        HERDR_ABORT_MODE=partial
         HERDR_ABORT_CLEANUP=1
       fi
     else

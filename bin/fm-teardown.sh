@@ -178,10 +178,91 @@ remove_meta_value() (
   fi
 )
 
+treehouse_worktree_snapshot() {
+  local dir=$1 project=$2 name pretty out block line rest status hash
+  [ -n "$dir" ] && [ -d "$project" ] || return 1
+  name=$(basename "$(dirname "$dir")")
+  pretty=$dir
+  case "$dir" in
+    "$HOME"/*) pretty=$(printf '\176/%s' "${dir#"$HOME"/}") ;;
+  esac
+  out=$(cd "$project" && NO_COLOR=1 treehouse status 2>/dev/null) || return 1
+  block=$(printf '%s\n' "$out" | awk -v name="$name" '
+    $1 == name { found=1; print; next }
+    found && /^[[:space:]]/ { print; next }
+    found { exit }
+  ')
+  [ -n "$block" ] || return 1
+  line=${block%%$'\n'*}
+  rest=${line#"$name"}
+  rest=${rest#"${rest%%[![:space:]]*}"}
+  case "$rest" in
+    "available "*) status=available; rest=${rest#"available "} ;;
+    "in-use "*) status=in-use; rest=${rest#"in-use "} ;;
+    "dirty "*) status=dirty; rest=${rest#"dirty "} ;;
+    "leased "*) status=leased; rest=${rest#"leased "} ;;
+    "you're here "*) status=here; rest=${rest#"you're here "} ;;
+    *) return 1 ;;
+  esac
+  rest=${rest#"${rest%%[![:space:]]*}"}
+  case "$rest" in
+    "$pretty"|"$pretty (held by "*) ;;
+    *) return 1 ;;
+  esac
+  hash=$(printf '%s\n' "$block" | git hash-object --stdin 2>/dev/null) || return 1
+  [ -n "$hash" ] || return 1
+  printf '%s\t%s\n' "$status" "$hash"
+}
+
 HERDR_WORKTREE_RETURNED=0
-if [ "$BACKEND" = herdr ] && [ "$(meta_value "$META" herdr_ws_owned)" = 1 ] \
-  && [ "$(meta_value "$META" worktree_returned)" = 1 ]; then
-  HERDR_WORKTREE_RETURNED=1
+HERDR_WORKTREE_RETURN_STATE=
+HERDR_WORKTREE_RETURN_SNAPSHOT=
+if [ "$BACKEND" = herdr ] && [ "$(meta_value "$META" herdr_ws_owned)" = 1 ]; then
+  HERDR_WORKTREE_RETURN_STATE=$(meta_value "$META" worktree_return_state)
+  if [ -n "$HERDR_WORKTREE_RETURN_STATE" ]; then
+    HERDR_WORKTREE_RETURN_SNAPSHOT=$(treehouse_worktree_snapshot "$WT" "$PROJ") || {
+      echo "error: cannot verify Treehouse ownership for $WT; preserving Herdr recovery metadata" >&2
+      exit 1
+    }
+    HERDR_WORKTREE_RETURN_STATUS=${HERDR_WORKTREE_RETURN_SNAPSHOT%%$'\t'*}
+    HERDR_WORKTREE_RETURN_HASH=${HERDR_WORKTREE_RETURN_SNAPSHOT#*$'\t'}
+    case "$HERDR_WORKTREE_RETURN_STATE" in
+      completed:*)
+        HERDR_WORKTREE_RETURNED=1
+        ;;
+      started:*)
+        HERDR_WORKTREE_RETURN_STARTED_HASH=${HERDR_WORKTREE_RETURN_STATE#started:}
+        if [ "$HERDR_WORKTREE_RETURN_STATUS" = available ]; then
+          set_meta_value "$META" worktree_return_state "completed:$HERDR_WORKTREE_RETURN_HASH" || exit 1
+          remove_meta_value "$META" worktree_returned || true
+          HERDR_WORKTREE_RETURN_STATE="completed:$HERDR_WORKTREE_RETURN_HASH"
+          HERDR_WORKTREE_RETURNED=1
+        elif [ "$HERDR_WORKTREE_RETURN_HASH" != "$HERDR_WORKTREE_RETURN_STARTED_HASH" ]; then
+          echo "error: Treehouse ownership changed after return started for $WT; preserving Herdr recovery metadata" >&2
+          exit 1
+        fi
+        ;;
+      *)
+        echo "error: invalid Herdr worktree return state for $ID; preserving recovery metadata" >&2
+        exit 1
+        ;;
+    esac
+  elif [ "$(meta_value "$META" worktree_returned)" = 1 ]; then
+    HERDR_WORKTREE_RETURN_SNAPSHOT=$(treehouse_worktree_snapshot "$WT" "$PROJ") || {
+      echo "error: cannot verify legacy Treehouse return state for $WT; preserving Herdr recovery metadata" >&2
+      exit 1
+    }
+    HERDR_WORKTREE_RETURN_STATUS=${HERDR_WORKTREE_RETURN_SNAPSHOT%%$'\t'*}
+    HERDR_WORKTREE_RETURN_HASH=${HERDR_WORKTREE_RETURN_SNAPSHOT#*$'\t'}
+    if [ "$HERDR_WORKTREE_RETURN_STATUS" != available ]; then
+      echo "error: legacy Herdr return marker is not confirmed by Treehouse for $WT; preserving recovery metadata" >&2
+      exit 1
+    fi
+    set_meta_value "$META" worktree_return_state "completed:$HERDR_WORKTREE_RETURN_HASH" || exit 1
+    remove_meta_value "$META" worktree_returned || true
+    HERDR_WORKTREE_RETURN_STATE="completed:$HERDR_WORKTREE_RETURN_HASH"
+    HERDR_WORKTREE_RETURNED=1
+  fi
 fi
 
 require_orca_worktree_id() {
@@ -1150,20 +1231,52 @@ elif [ "$HERDR_WORKTREE_RETURNED" != 1 ] && [ -d "$WT" ] && [ "$KIND" != secondm
   fi
   herdr_return_marker=0
   if [ "$BACKEND" = herdr ] && [ "$(meta_value "$META" herdr_ws_owned)" = 1 ]; then
-    set_meta_value "$META" worktree_returned 1 || {
-      echo "error: could not persist the Herdr worktree return boundary for $ID; teardown aborted" >&2
+    if [ -z "$HERDR_WORKTREE_RETURN_SNAPSHOT" ]; then
+      HERDR_WORKTREE_RETURN_SNAPSHOT=$(treehouse_worktree_snapshot "$WT" "$PROJ") || {
+        echo "error: cannot verify Treehouse ownership for $WT; teardown aborted" >&2
+        exit 1
+      }
+    fi
+    HERDR_WORKTREE_RETURN_STATUS=${HERDR_WORKTREE_RETURN_SNAPSHOT%%$'\t'*}
+    HERDR_WORKTREE_RETURN_HASH=${HERDR_WORKTREE_RETURN_SNAPSHOT#*$'\t'}
+    if [ "$HERDR_WORKTREE_RETURN_STATUS" = available ]; then
+      set_meta_value "$META" worktree_return_state "completed:$HERDR_WORKTREE_RETURN_HASH" || exit 1
+      remove_meta_value "$META" worktree_returned || true
+      HERDR_WORKTREE_RETURNED=1
+    elif [ "$HERDR_WORKTREE_RETURN_STATUS" = leased ]; then
+      echo "error: Treehouse reports $WT leased to another owner; preserving Herdr recovery metadata" >&2
+      exit 1
+    elif [ -z "$HERDR_WORKTREE_RETURN_STATE" ]; then
+      set_meta_value "$META" worktree_return_state "started:$HERDR_WORKTREE_RETURN_HASH" || {
+        echo "error: could not persist the Herdr worktree return start for $ID; teardown aborted" >&2
+        exit 1
+      }
+      HERDR_WORKTREE_RETURN_STATE="started:$HERDR_WORKTREE_RETURN_HASH"
+    fi
+    herdr_return_marker=1
+  fi
+  if [ "$HERDR_WORKTREE_RETURNED" != 1 ]; then
+    teardown_treehouse_return "$WT" "$PROJ" "worktree" "$post_lock_cleanup_check" || {
+      echo "error: treehouse return failed for worktree $WT; teardown aborted" >&2
       exit 1
     }
-    herdr_return_marker=1
-    HERDR_WORKTREE_RETURNED=1
-  fi
-  teardown_treehouse_return "$WT" "$PROJ" "worktree" "$post_lock_cleanup_check" || {
     if [ "$herdr_return_marker" = 1 ]; then
+      HERDR_WORKTREE_RETURN_SNAPSHOT=$(treehouse_worktree_snapshot "$WT" "$PROJ") || {
+        echo "error: Treehouse return for $WT could not be confirmed; preserving Herdr recovery metadata" >&2
+        exit 1
+      }
+      HERDR_WORKTREE_RETURN_STATUS=${HERDR_WORKTREE_RETURN_SNAPSHOT%%$'\t'*}
+      HERDR_WORKTREE_RETURN_HASH=${HERDR_WORKTREE_RETURN_SNAPSHOT#*$'\t'}
+      if [ "$HERDR_WORKTREE_RETURN_STATUS" != available ]; then
+        echo "error: Treehouse return for $WT did not reach available state; preserving Herdr recovery metadata" >&2
+        exit 1
+      fi
+      set_meta_value "$META" worktree_return_state "completed:$HERDR_WORKTREE_RETURN_HASH" || exit 1
       remove_meta_value "$META" worktree_returned || true
+      HERDR_WORKTREE_RETURN_STATE="completed:$HERDR_WORKTREE_RETURN_HASH"
+      HERDR_WORKTREE_RETURNED=1
     fi
-    echo "error: treehouse return failed for worktree $WT; teardown aborted" >&2
-    exit 1
-  }
+  fi
 fi
 
 if [ "$BACKEND" = herdr ] && [ "$(meta_value "$META" herdr_ws_owned)" = 1 ]; then

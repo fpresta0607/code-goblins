@@ -834,6 +834,50 @@ test_child_workspace_adopts_preserved_workspace_after_teardown() {
   pass "fm-spawn.sh: same task id adopts one preserved workspace without accumulation"
 }
 
+test_child_workspace_adoption_refuses_live_runtime_without_empty_metadata() {
+  local meta state_file pane out rc
+  make_child_respawn_case child-adopt-live adoptlivez7
+  run_child_respawn >/dev/null || fail "initial owned child spawn failed"
+  meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
+  state_file="$CHILD_CASE_HERDR/state.json"
+  pane=$(grep '^herdr_pane_id=' "$meta" | cut -d= -f2-)
+  fake_herdr_set_agent_status "$state_file" "$pane" idle
+  rm -f "$meta"
+  out=$(run_child_respawn); rc=$?
+  [ "$rc" -ne 0 ] || fail "adoption must refuse a preserved live runtime"
+  assert_contains "$out" "already exists" "live adoption refusal did not identify the endpoint"
+  [ ! -e "$meta" ] || fail "live adoption refusal wrote recovery metadata before endpoint ids were created"
+  pass "fm-spawn.sh: live preserved runtimes refuse adoption without empty recovery metadata"
+}
+
+test_child_workspace_partial_adoption_records_replacement_and_retries() {
+  local meta state_file workspace out rc tab pane tracked runtime_tabs log_tabs
+  make_child_respawn_case child-adopt-partial adoptpartialz8
+  run_child_respawn >/dev/null || fail "initial owned child spawn failed"
+  meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
+  state_file="$CHILD_CASE_HERDR/state.json"
+  workspace=$(grep '^herdr_workspace_id=' "$meta" | cut -d= -f2-)
+  rm -f "$meta"
+  CHILD_CASE_TAB_CLOSE_FAIL=1
+  out=$(run_child_respawn); rc=$?
+  [ "$rc" -ne 0 ] || fail "adoption must fail when husk replacement verification fails"
+  [ -f "$meta" ] || fail "partial adoption did not persist recovery metadata"
+  tab=$(grep '^herdr_tab_id=' "$meta" | cut -d= -f2-)
+  pane=$(grep '^herdr_pane_id=' "$meta" | cut -d= -f2-)
+  [ -n "$tab" ] && [ -n "$pane" ] || fail "partial adoption persisted empty replacement endpoint ids: $out"
+  [ "$(grep '^herdr_workspace_id=' "$meta" | cut -d= -f2-)" = "$workspace" ] || fail "partial adoption changed the preserved workspace id"
+  tracked=$(jq -r --arg w "$workspace" --arg t "$tab" --arg p "$pane" \
+    '[.tabs[] | select(.workspace_id == $w and .tab_id == $t and .pane_id == $p)] | length' "$state_file")
+  [ "$tracked" = 1 ] || fail "partial adoption metadata does not identify the created replacement endpoint"
+  CHILD_CASE_TAB_CLOSE_FAIL=0
+  run_child_respawn >/dev/null || fail "partial adoption recovery did not converge on retry"
+  runtime_tabs=$(jq -r --arg w "$workspace" --arg task "fm-$CHILD_CASE_ID" '[.tabs[] | select(.workspace_id == $w and .label == $task)] | length' "$state_file")
+  log_tabs=$(jq -r --arg w "$workspace" '[.tabs[] | select(.workspace_id == $w and .label == "log")] | length' "$state_file")
+  [ "$runtime_tabs" = 1 ] || fail "partial adoption retry left duplicate runtime tabs"
+  [ "$log_tabs" = 1 ] || fail "partial adoption retry left duplicate log tabs"
+  pass "fm-spawn.sh: partial adoption persists exact replacement ids and converges on retry"
+}
+
 test_child_workspace_flag_off_preserves_owned_recovery_and_listing() {
   local meta workspace live
   make_child_respawn_case child-respawn-flag-off respawnflagz5
@@ -2356,6 +2400,8 @@ test_spawn_abort_preserves_unproven_child_with_recovery_metadata
 test_child_workspace_respawn_refuses_live_exact_endpoint
 test_child_workspace_respawn_reuses_exact_husk_workspace
 test_child_workspace_adopts_preserved_workspace_after_teardown
+test_child_workspace_adoption_refuses_live_runtime_without_empty_metadata
+test_child_workspace_partial_adoption_records_replacement_and_retries
 test_child_workspace_flag_off_preserves_owned_recovery_and_listing
 test_child_workspace_respawn_refuses_ambiguous_workspace_duplicates
 test_child_workspace_failed_reuse_preserves_recoverable_husk_metadata

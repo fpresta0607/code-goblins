@@ -470,7 +470,7 @@ fm_backend_herdr_close_task_pane_preserving_workspace() {  # <session> <workspac
 
 fm_backend_herdr_prepare_child_workspace() {  # <session> <parent_ws_id> <id> <meta>
   local session=$1 parent=$2 id=$3 meta=$4 label list candidates candidate_count parent_tabs parent_dups
-  local backend msession owned child mparent mtab mpane close_class tabs tab_count allowed_count runtime_tabs runtime_count runtime_tab runtime_pane pane_state
+  local backend msession owned child mparent mtab mpane close_class tabs tab_count allowed_count runtime_tabs runtime_count runtime_tab runtime_pane pane_state duplicate_tab duplicate_pane duplicate_state
   FM_BACKEND_HERDR_CHILD_ACTION=
   FM_BACKEND_HERDR_CHILD_WS_ID=
   label=$(fm_backend_herdr_child_label "$id")
@@ -567,8 +567,50 @@ fm_backend_herdr_prepare_child_workspace() {  # <session> <parent_ws_id> <id> <m
   }
   runtime_count=$(printf '%s\n' "$runtime_tabs" | grep -c . || true)
   if [ "$runtime_count" -gt 1 ]; then
-    echo "error: multiple herdr runtime tabs already exist for fm-$id; refusing ambiguous respawn" >&2
-    return 1
+    printf '%s\n' "$runtime_tabs" | grep -Fxq "$mtab" || {
+      echo "error: multiple herdr runtime tabs exist for fm-$id without its recorded endpoint" >&2
+      return 1
+    }
+    runtime_pane=$(fm_backend_herdr_pane_for_tab "$session" "$child" "$mtab" || true)
+    [ "$runtime_pane" = "$mpane" ] || {
+      echo "error: recorded herdr runtime tab for fm-$id does not contain its recorded pane" >&2
+      return 1
+    }
+    while IFS= read -r duplicate_tab; do
+      [ -n "$duplicate_tab" ] && [ "$duplicate_tab" != "$mtab" ] || continue
+      duplicate_pane=$(fm_backend_herdr_pane_for_tab "$session" "$child" "$duplicate_tab" || true)
+      [ -n "$duplicate_pane" ] || {
+        echo "error: duplicate herdr runtime tab for fm-$id has ambiguous pane state" >&2
+        return 1
+      }
+      duplicate_state=$(fm_backend_herdr_pane_agent_state "$session" "$duplicate_pane")
+      case "$duplicate_state" in
+        dead|no-agent)
+          fm_backend_herdr_cli "$session" tab close "$duplicate_tab" >/dev/null 2>&1 || {
+            echo "error: failed to remove stale duplicate herdr runtime tab for fm-$id" >&2
+            return 1
+          }
+          ;;
+        live)
+          echo "error: duplicate herdr runtime tab for fm-$id is still live" >&2
+          return 1
+          ;;
+        *)
+          echo "error: duplicate herdr runtime tab for fm-$id has ambiguous agent state" >&2
+          return 1
+          ;;
+      esac
+    done <<EOF
+$runtime_tabs
+EOF
+    tabs=$(fm_backend_herdr_cli "$session" tab list --workspace "$child" 2>/dev/null) || return 1
+    runtime_tabs=$(printf '%s' "$tabs" | jq -r --arg want "fm-$id" \
+      'if (.result.tabs | type) == "array" then .result.tabs[] | select(.label == $want) | .tab_id else error("missing result.tabs") end' 2>/dev/null) || return 1
+    runtime_count=$(printf '%s\n' "$runtime_tabs" | grep -c . || true)
+    [ "$runtime_count" -eq 1 ] && [ "$runtime_tabs" = "$mtab" ] || {
+      echo "error: stale duplicate herdr runtime tabs did not converge for fm-$id" >&2
+      return 1
+    }
   fi
   if [ "$runtime_count" -eq 1 ]; then
     runtime_tab=$runtime_tabs

@@ -257,12 +257,17 @@ fm_herdr_lab_cli "$SESSION" tab close "$B_LOG_TAB" >/dev/null 2>&1 || fail "coul
 B_TD_OUT="$TMP_ROOT/td-cmb-single.out"
 RETURN_FAKEBIN="$TMP_ROOT/return-fakebin"
 RETURN_LOG="$TMP_ROOT/treehouse-return.log"
+RETURN_INTERRUPT_MARKER="$TMP_ROOT/treehouse-return-interrupt-once"
 FAIL_HELPER="$TMP_ROOT/fail-helper"
 FAIL_MARKER="$TMP_ROOT/fail-placeholder-once"
 mkdir -p "$RETURN_FAKEBIN"
 cat > "$RETURN_FAKEBIN/treehouse" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${FM_TREEHOUSE_RETURN_LOG:?}"
+if [ "${1:-}" = return ] && [ -f "${FM_TREEHOUSE_INTERRUPT_MARKER:?}" ]; then
+  rm -f "${FM_TREEHOUSE_INTERRUPT_MARKER:?}"
+  exit 99
+fi
 exec "${FM_REAL_TREEHOUSE:?}" "$@"
 SH
 chmod +x "$RETURN_FAKEBIN/treehouse"
@@ -277,29 +282,42 @@ SH
 chmod +x "$FAIL_HELPER"
 : > "$RETURN_LOG"
 touch "$FAIL_MARKER"
+touch "$RETURN_INTERRUPT_MARKER"
 PATH="$RETURN_FAKEBIN:$PATH" FM_REAL_TREEHOUSE="$REAL_TREEHOUSE" FM_TREEHOUSE_RETURN_LOG="$RETURN_LOG" \
+  FM_TREEHOUSE_INTERRUPT_MARKER="$RETURN_INTERRUPT_MARKER" \
   FM_BACKEND_HERDR_LAB_HELPER="$FAIL_HELPER" FM_REAL_HERDR_HELPER="$HERDR_LAB_HELPER" FM_FAIL_PLACEHOLDER_MARKER="$FAIL_MARKER" \
   FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$PRIMARY_ON/state" FM_DATA_OVERRIDE="$PRIMARY_ON/data" \
   FM_CONFIG_OVERRIDE="$PRIMARY_ON/config" \
   "$ROOT/bin/fm-teardown.sh" cmb >"$B_TD_OUT" 2>&1
 B_TD_RC=$?
-[ "$B_TD_RC" -ne 0 ] || fail "single-tab teardown must fail instead of removing its workspace"
-[ "$(grep -c '^return --force ' "$RETURN_LOG")" = 1 ] || fail "first failed endpoint cleanup must cross one Treehouse return boundary"
+[ "$B_TD_RC" -ne 0 ] || fail "interrupted Treehouse return must fail teardown"
+[ "$(grep -c '^return --force ' "$RETURN_LOG")" = 1 ] || fail "interrupted teardown must attempt Treehouse return once"
 [ -f "$B_META" ] || fail "single-tab teardown must retain ownership recovery metadata"
-grep -qx 'worktree_returned=1' "$B_META" || fail "failed endpoint cleanup must persist the Treehouse return boundary"
+grep -Eq '^worktree_return_state=started:[0-9a-f]+$' "$B_META" || fail "interrupted teardown must retain the started Treehouse return state"
 ws_exists "$B_CHILD_WS" || fail "single-tab teardown must preserve the child workspace"
 ws_exists "$B_PARENT_WS" || fail "single-tab teardown must preserve the supervisor workspace"
 pane_ws "$(meta_get "$B_META" herdr_pane_id)" | grep -q . || fail "single-tab teardown must retain the live endpoint"
 PATH="$RETURN_FAKEBIN:$PATH" FM_REAL_TREEHOUSE="$REAL_TREEHOUSE" FM_TREEHOUSE_RETURN_LOG="$RETURN_LOG" \
+  FM_TREEHOUSE_INTERRUPT_MARKER="$RETURN_INTERRUPT_MARKER" \
+  FM_BACKEND_HERDR_LAB_HELPER="$FAIL_HELPER" FM_REAL_HERDR_HELPER="$HERDR_LAB_HELPER" FM_FAIL_PLACEHOLDER_MARKER="$FAIL_MARKER" \
+  FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$PRIMARY_ON/state" FM_DATA_OVERRIDE="$PRIMARY_ON/data" \
+  FM_CONFIG_OVERRIDE="$PRIMARY_ON/config" \
+  "$ROOT/bin/fm-teardown.sh" cmb >>"$B_TD_OUT" 2>&1
+B_TD_RC=$?
+[ "$B_TD_RC" -ne 0 ] || fail "placeholder failure after confirmed return must retain recovery state"
+[ "$(grep -c '^return --force ' "$RETURN_LOG")" = 2 ] || fail "started-state retry must complete the interrupted Treehouse return exactly once"
+grep -Eq '^worktree_return_state=completed:[0-9a-f]+$' "$B_META" || fail "confirmed Treehouse return must persist completed state"
+PATH="$RETURN_FAKEBIN:$PATH" FM_REAL_TREEHOUSE="$REAL_TREEHOUSE" FM_TREEHOUSE_RETURN_LOG="$RETURN_LOG" \
+  FM_TREEHOUSE_INTERRUPT_MARKER="$RETURN_INTERRUPT_MARKER" \
   FM_BACKEND_HERDR_LAB_HELPER="$FAIL_HELPER" FM_REAL_HERDR_HELPER="$HERDR_LAB_HELPER" FM_FAIL_PLACEHOLDER_MARKER="$FAIL_MARKER" \
   FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$PRIMARY_ON/state" FM_DATA_OVERRIDE="$PRIMARY_ON/data" \
   FM_CONFIG_OVERRIDE="$PRIMARY_ON/config" \
   "$ROOT/bin/fm-teardown.sh" cmb >>"$B_TD_OUT" 2>&1 || fail "safe pane-only retry did not converge"
-[ "$(grep -c '^return --force ' "$RETURN_LOG")" = 1 ] || fail "converged retry must not return or reset the worktree twice"
+[ "$(grep -c '^return --force ' "$RETURN_LOG")" = 2 ] || fail "completed-state retry must not return or reset the worktree again"
 [ ! -f "$B_META" ] || fail "converged retry must remove recovery metadata"
 ws_exists "$B_CHILD_WS" || fail "converged retry must preserve the child workspace"
 ws_exists "$B_PARENT_WS" || fail "converged retry must preserve the supervisor workspace"
-pass "pane-only cleanup: retries cross Treehouse return once and converge from durable recovery state"
+pass "pane-only cleanup: started and completed Treehouse return states recover idempotently"
 
 # tidy remaining jobs
 teardown "$SM_HOME" cmc
