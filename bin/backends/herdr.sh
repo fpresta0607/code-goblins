@@ -701,42 +701,8 @@ fm_backend_herdr_workspace_close_class() {  # <session> <workspace_id>
   [ "$classes" != unknown ]
 }
 
-# fm_backend_herdr_workspace_is_recorded_parent: return 0 when <workspace_id>
-# is marked as a parent by any task meta in <state_dir> for <session>, 1 when it
-# is not, and 2 when the required registry cannot be inspected. The scan uses
-# every herdr_parent_ws marker, not only the task being torn down, so corrupt or
-# stale child metadata cannot redirect close onto another supervisor anchor.
-fm_backend_herdr_workspace_is_recorded_parent() {  # <state_dir> <session> <workspace_id>
-  local state=$1 session=$2 wsid=$3 meta msession parent
-  [ -d "$state" ] || {
-    echo "error: cannot inspect herdr parent markers: state directory '$state' is missing" >&2
-    return 2
-  }
-  for meta in "$state"/*.meta; do
-    [ -f "$meta" ] || continue
-    [ -r "$meta" ] || {
-      echo "error: cannot inspect herdr parent marker in '$meta'" >&2
-      return 2
-    }
-    msession=$(grep '^herdr_session=' "$meta" 2>/dev/null | head -1 | cut -d= -f2-) || {
-      echo "error: cannot inspect herdr parent marker in '$meta'" >&2
-      return 2
-    }
-    [ "$msession" = "$session" ] || continue
-    parent=$(grep '^herdr_parent_ws=' "$meta" 2>/dev/null | head -1 | cut -d= -f2-) || {
-      echo "error: cannot inspect herdr parent marker in '$meta'" >&2
-      return 2
-    }
-    [ "$parent" = "$wsid" ] && return 0
-  done
-  return 1
-}
-
-# Close an owned child workspace only from exact local metadata and live shape.
 fm_backend_herdr_close_owned_workspace() {  # <session> <child_ws_id> <parent_ws_id> <state_dir> <task_meta>
-  local session=$1 child=$2 parent=$3 state=${4:-} task_meta=${5:-} close_class parent_rc
-  local backend msession owned mchild mparent mtab mpane mlog_tab mlog_pane mwindow meta claims=0
-  local tabs tab_count runtime_count log_count runtime_pane log_pane state_real meta_dir_real
+  local session=$1 child=$2 state=${4:-} task_meta=${5:-}
   [ -n "$session" ] && [ -n "$child" ] || {
     echo "error: close_owned_workspace requires session and child workspace ids" >&2
     return 1
@@ -745,76 +711,8 @@ fm_backend_herdr_close_owned_workspace() {  # <session> <child_ws_id> <parent_ws
     echo "error: close_owned_workspace requires the owning state directory and exact task metadata" >&2
     return 1
   }
-  [ -f "$task_meta" ] && [ -r "$task_meta" ] && [ ! -L "$task_meta" ] || return 1
-  state_real=$(cd "$state" 2>/dev/null && pwd -P) || return 1
-  meta_dir_real=$(cd "$(dirname "$task_meta")" 2>/dev/null && pwd -P) || return 1
-  [ "$meta_dir_real" = "$state_real" ] || return 1
-  backend=$(grep '^backend=' "$task_meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
-  msession=$(grep '^herdr_session=' "$task_meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
-  owned=$(grep '^herdr_ws_owned=' "$task_meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
-  mchild=$(grep '^herdr_workspace_id=' "$task_meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
-  mparent=$(grep '^herdr_parent_ws=' "$task_meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
-  mtab=$(grep '^herdr_tab_id=' "$task_meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
-  mpane=$(grep '^herdr_pane_id=' "$task_meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
-  mlog_tab=$(grep '^herdr_log_tab_id=' "$task_meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
-  mlog_pane=$(grep '^herdr_log_pane_id=' "$task_meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
-  mwindow=$(grep '^window=' "$task_meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
-  if [ "$backend" != herdr ] || [ "$msession" != "$session" ] || [ "$owned" != 1 ] || \
-     [ "$mchild" != "$child" ] || [ -z "$mparent" ] || [ "$mparent" != "$parent" ] || [ "$mwindow" != "$session:$mpane" ] || \
-     [ -z "$mtab" ] || [ -z "$mpane" ] || [ -z "$mlog_tab" ] || [ -z "$mlog_pane" ] || [ "$mtab" = "$mlog_tab" ]; then
-    return 1
-  fi
-  if [ -n "$parent" ] && [ "$child" = "$parent" ]; then
-    echo "error: refusing to close herdr workspace '$child': it equals the recorded parent workspace" >&2
-    return 1
-  fi
-  fm_backend_herdr_workspace_is_recorded_parent "$state" "$session" "$child"
-  parent_rc=$?
-  if [ "$parent_rc" -eq 0 ]; then
-    echo "error: refusing to close herdr workspace '$child': it is marked as a supervisor parent in '$state'" >&2
-    return 1
-  fi
-  [ "$parent_rc" -eq 1 ] || return 1
-  for meta in "$state"/*.meta; do
-    [ -f "$meta" ] || continue
-    [ -r "$meta" ] && [ ! -L "$meta" ] || return 1
-    if [ "$(grep '^backend=' "$meta" 2>/dev/null | head -1 | cut -d= -f2- || true)" = herdr ] && \
-       [ "$(grep '^herdr_session=' "$meta" 2>/dev/null | head -1 | cut -d= -f2- || true)" = "$session" ] && \
-       [ "$(grep '^herdr_ws_owned=' "$meta" 2>/dev/null | head -1 | cut -d= -f2- || true)" = 1 ] && \
-       [ "$(grep '^herdr_workspace_id=' "$meta" 2>/dev/null | head -1 | cut -d= -f2- || true)" = "$child" ]; then
-      [ "$meta" = "$task_meta" ] || return 1
-      claims=$((claims + 1))
-    fi
-  done
-  [ "$claims" -eq 1 ] || return 1
-  close_class=$(fm_backend_herdr_workspace_close_class "$session" "$child") || {
-    echo "error: refusing to close herdr workspace '$child': its live ownership shape is unreadable or ambiguous" >&2
-    return 1
-  }
-  case "$close_class" in
-    gone) return 1 ;;
-    parent)
-      echo "error: refusing to close herdr workspace '$child': it is a marked native worktree-group parent" >&2
-      return 1
-      ;;
-    child|unmarked) ;;
-    *)
-      echo "error: refusing to close herdr workspace '$child': unknown live ownership shape '$close_class'" >&2
-      return 1
-      ;;
-  esac
-  tabs=$(fm_backend_herdr_cli "$session" tab list --workspace "$child" 2>/dev/null) || return 1
-  tab_count=$(printf '%s' "$tabs" | jq -r 'if (.result.tabs | type) == "array" then (.result.tabs | length) else error("missing result.tabs") end' 2>/dev/null) || return 1
-  runtime_count=$(printf '%s' "$tabs" | jq -r --arg want "$mtab" '[.result.tabs[] | select(.tab_id == $want)] | length' 2>/dev/null) || return 1
-  log_count=$(printf '%s' "$tabs" | jq -r --arg want "$mlog_tab" '[.result.tabs[] | select(.tab_id == $want)] | length' 2>/dev/null) || return 1
-  [ "$tab_count" -eq 2 ] && [ "$runtime_count" -eq 1 ] && [ "$log_count" -eq 1 ] || return 1
-  runtime_pane=$(fm_backend_herdr_pane_for_tab "$session" "$child" "$mtab" || true)
-  log_pane=$(fm_backend_herdr_pane_for_tab "$session" "$child" "$mlog_tab" || true)
-  [ "$runtime_pane" = "$mpane" ] && [ "$log_pane" = "$mlog_pane" ] || return 1
-  fm_backend_herdr_cli "$session" workspace close "$child" >/dev/null 2>&1 || {
-    echo "error: failed to close owned herdr workspace '$child'" >&2
-    return 1
-  }
+  echo "error: refusing to close herdr workspace '$child': authoritative home ownership is unavailable" >&2
+  return 1
 }
 
 # fm_backend_herdr_list_live_children: the child-workspace half of recovery

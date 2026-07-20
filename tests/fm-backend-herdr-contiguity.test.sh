@@ -73,11 +73,11 @@ case "${1:-} ${2:-}" in
       shift
     done
     if [ "$ws" = "${FM_FAKE_PROOF_WS:-}" ]; then
-      jq -n --arg w "$ws" --arg stale "${FM_FAKE_STALE_LOG:-}" --arg extra "${FM_FAKE_EXTRA_TAB:-}" '
-        {result:{tabs:([
+      jq -n --arg w "$ws" --arg stale "${FM_FAKE_STALE_LOG:-}" --arg extra "${FM_FAKE_EXTRA_TAB:-}" --arg single "${FM_FAKE_SINGLE_TAB:-}" '
+        {result:{tabs:(([
           {workspace_id:$w,tab_id:($w+":t1"),label:"runtime"},
           {workspace_id:$w,tab_id:(if $stale == "1" then $w+":other-log" else $w+":tlog" end),label:"log"}
-        ] + if $extra == "1" then [{workspace_id:$w,tab_id:($w+":textra"),label:"other"}] else [] end)}}'
+        ] | if $single == "1" then .[0:1] else . end) + (if $extra == "1" then [{workspace_id:$w,tab_id:($w+":textra"),label:"other"}] else [] end))}}'
     else
       printf '{"result":{"tabs":[]}}\n'
     fi
@@ -556,22 +556,25 @@ test_close_refuses_herdr_native_worktree_group_parent() {
 }
 
 test_unsafe_close_proofs_fall_back_to_pane_only() {
-  contig_case close-cross-home $'ws-fm\nws-remote-parent\nws-child'
-  write_owned_meta "$CASE_STATE" task ws-remote-parent ws-fm
+  local other_state="$TMP_ROOT/other-home-state"
+  mkdir -p "$other_state"
+  write_owned_meta "$other_state" remote-task ws-remote-child ws-remote-parent
+  contig_case close-cross-home $'ws-fm\nws-remote-parent\nws-remote-child'
+  write_owned_meta "$CASE_STATE" task ws-remote-child ws-fm
   PATH="$FB:$PATH" \
     FM_FAKE_ORDER="$CASE_ORDER" FM_FAKE_CLI_LOG="$CASE_CLI_LOG" \
     FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" \
-    FM_FAKE_PROOF_WS=ws-remote-parent FM_FAKE_EXTRA_TAB=1 \
-    fm_backend_herdr_close_owned_workspace "$SES" ws-remote-parent ws-fm "$CASE_STATE" "$CASE_STATE/task.meta" >/dev/null 2>&1 && \
-    fail "cross-home-shaped workspace proof must refuse workspace.close"
+    FM_FAKE_PROOF_WS=ws-remote-child \
+    fm_backend_herdr_close_owned_workspace "$SES" ws-remote-child ws-fm "$CASE_STATE" "$CASE_STATE/task.meta" >/dev/null 2>&1 && \
+    fail "another home's normal two-tab workspace must refuse workspace.close"
   PATH="$FB:$PATH" \
     FM_FAKE_ORDER="$CASE_ORDER" FM_FAKE_CLI_LOG="$CASE_CLI_LOG" \
     FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" \
-    FM_FAKE_PROOF_WS=ws-remote-parent FM_FAKE_EXTRA_TAB=1 \
-    fm_backend_herdr_close_task_pane_preserving_workspace "$SES" ws-remote-parent ws-remote-parent:p1 || \
-    fail "cross-home-shaped refusal did not use pane-only fallback"
+    FM_FAKE_PROOF_WS=ws-remote-child \
+    fm_backend_herdr_close_task_pane_preserving_workspace "$SES" ws-remote-child ws-remote-child:p1 || \
+    fail "other-home refusal did not use pane-only fallback"
   ! grep -q '^workspace close' "$CASE_CLI_LOG" || fail "cross-home fallback must preserve the workspace"
-  grep -q '^pane close ws-remote-parent:p1 ' "$CASE_CLI_LOG" || fail "cross-home fallback did not close only the task pane"
+  grep -q '^pane close ws-remote-child:p1 ' "$CASE_CLI_LOG" || fail "cross-home fallback did not close only the task pane"
 
   contig_case close-ambiguous $'ws-child\nws-child'
   write_owned_meta "$CASE_STATE" task ws-child ws-parent
@@ -597,17 +600,32 @@ test_unsafe_close_proofs_fall_back_to_pane_only() {
   pass "close safety: cross-home, ambiguous, and stale proofs use pane-only fallback"
 }
 
-test_close_allows_exact_unmarked_owned_child() {
+test_exact_local_child_also_uses_pane_only_fallback() {
   contig_case close-child $'ws-parent\nws-child'
   write_owned_meta "$CASE_STATE" task ws-child ws-parent
   PATH="$FB:$PATH" \
     FM_FAKE_ORDER="$CASE_ORDER" FM_FAKE_CLI_LOG="$CASE_CLI_LOG" \
     FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" \
     FM_FAKE_PROOF_WS=ws-child \
-    fm_backend_herdr_close_owned_workspace "$SES" ws-child ws-parent "$CASE_STATE" "$CASE_STATE/task.meta" >/dev/null 2>&1 || \
-    fail "the exact unmarked interim child workspace should close"
-  grep -q '^workspace close ws-child ' "$CASE_CLI_LOG" || fail "close must target exactly the owned child id"
-  pass "close safety: exact unmarked interim child remains closable after parent guards"
+    fm_backend_herdr_close_owned_workspace "$SES" ws-child ws-parent "$CASE_STATE" "$CASE_STATE/task.meta" >/dev/null 2>&1 && \
+    fail "local metadata must not substitute for authoritative home ownership"
+  PATH="$FB:$PATH" FM_FAKE_ORDER="$CASE_ORDER" FM_FAKE_CLI_LOG="$CASE_CLI_LOG" \
+    FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" FM_FAKE_PROOF_WS=ws-child \
+    fm_backend_herdr_close_task_pane_preserving_workspace "$SES" ws-child ws-child:p1 || fail "exact local child did not use pane-only fallback"
+  ! grep -q '^workspace close' "$CASE_CLI_LOG" || fail "exact local fallback must preserve the workspace"
+  pass "close safety: exact local metadata still uses pane-only fallback"
+}
+
+test_single_tab_refuses_pane_fallback() {
+  contig_case close-single-tab $'ws-parent\nws-child'
+  write_owned_meta "$CASE_STATE" task ws-child ws-parent
+  PATH="$FB:$PATH" FM_FAKE_ORDER="$CASE_ORDER" FM_FAKE_CLI_LOG="$CASE_CLI_LOG" \
+    FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" FM_FAKE_PROOF_WS=ws-child FM_FAKE_SINGLE_TAB=1 \
+    fm_backend_herdr_close_task_pane_preserving_workspace "$SES" ws-child ws-child:p1 >/dev/null 2>&1 && \
+    fail "single-tab pane fallback must refuse to remove the workspace"
+  ! grep -q '^pane close' "$CASE_CLI_LOG" || fail "single-tab fallback must leave the endpoint intact"
+  ! grep -q '^workspace close' "$CASE_CLI_LOG" || fail "single-tab fallback must preserve the workspace"
+  pass "close safety: single-tab fallback retains the endpoint"
 }
 
 test_target_canonical_render_direct_crews_before_secondmates
@@ -638,6 +656,7 @@ test_cli_refuses_herdr_worktree_remove_before_execution
 test_close_refuses_any_locally_marked_parent
 test_close_refuses_herdr_native_worktree_group_parent
 test_unsafe_close_proofs_fall_back_to_pane_only
-test_close_allows_exact_unmarked_owned_child
+test_exact_local_child_also_uses_pane_only_fallback
+test_single_tab_refuses_pane_fallback
 
 echo "# all herdr workspace-contiguity unit tests passed"

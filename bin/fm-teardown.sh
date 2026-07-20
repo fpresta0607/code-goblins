@@ -1123,40 +1123,14 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
 fi
 
 if [ "$BACKEND" = herdr ] && [ "$(meta_value "$META" herdr_ws_owned)" = 1 ]; then
-  # Child-workspace interim mode (default OFF): this job owns its whole child
-  # workspace, so close EXACTLY that workspace and all its tabs (runtime + log)
-  # in one safety-checked operation instead of closing a single pane.
-  # Close the workspace only when exact metadata and live shape prove ownership.
   fm_backend_source herdr || exit 1
-  HERDR_WORKSPACE_CLOSED=0
-  if fm_backend_herdr_close_owned_workspace \
+  echo "warning: Herdr workspace home ownership cannot be proven for $ID; closing only its task pane and leaving the workspace intact" >&2
+  if ! fm_backend_herdr_close_task_pane_preserving_workspace \
     "$(meta_value "$META" herdr_session)" \
     "$(meta_value "$META" herdr_workspace_id)" \
-    "$(meta_value "$META" herdr_parent_ws)" \
-    "$STATE" \
-    "$META"; then
-    HERDR_WORKSPACE_CLOSED=1
-  else
-    echo "warning: Herdr workspace ownership could not be proven for $ID; closing only its task pane and leaving the workspace intact" >&2
-    if ! fm_backend_herdr_close_task_pane_preserving_workspace \
-      "$(meta_value "$META" herdr_session)" \
-      "$(meta_value "$META" herdr_workspace_id)" \
-      "$(meta_value "$META" herdr_pane_id)" 2>/dev/null; then
-      echo "warning: Herdr task pane for $ID could not be closed without risking its workspace; endpoint left intact" >&2
-    fi
-  fi
-  # Workspace contiguity self-heal (docs/herdr-backend.md "Workspace
-  # contiguity"). Closing a workspace collapses the flat list, so a removal
-  # already leaves the surviving blocks contiguous; this best-effort pass only
-  # repairs drift (e.g. a manual shuffle) and is a planned no-op otherwise.
-  # This task's own meta still lists the just-closed workspace at this point;
-  # the reconciler skips ids that are no longer live, so that is safe.
-  if [ "$HERDR_WORKSPACE_CLOSED" = 1 ]; then
-    CONTIG_ERR=$(fm_backend_herdr_contiguity_reconcile \
-      "$(meta_value "$META" herdr_session)" "$STATE" 2>&1) || {
-      echo "warning: herdr workspace contiguity reconcile failed after closing $ID's workspace; order left as-is" >&2
-      [ -n "$CONTIG_ERR" ] && printf '%s\n' "$CONTIG_ERR" >&2
-    }
+    "$(meta_value "$META" herdr_pane_id)" 2>/dev/null; then
+    echo "error: Herdr task pane for $ID could not be closed without risking its workspace; endpoint and recovery metadata retained" >&2
+    exit 1
   fi
 elif [ "$BACKEND" != orca ]; then
   fm_backend_kill "$BACKEND" "$T" "$(meta_value "$META" zellij_tab_id)" "fm-$ID" 2>/dev/null || true

@@ -7,8 +7,8 @@
 # Drives the REAL bin/fm-spawn.sh and bin/fm-teardown.sh (raw `sh -c` launch
 # commands, no real agent), because the behavior under test lives in
 # fm-spawn.sh's herdr case arm (the child-workspace branch), the herdr
-# backend's create/close/list functions, the meta contract
-# (herdr_parent_ws/herdr_ws_owned), and fm-teardown.sh's owned-workspace close.
+# backend's create/close-refusal/list functions, the meta contract
+# (herdr_parent_ws/herdr_ws_owned), and fm-teardown.sh's pane-only cleanup.
 #
 # Mirrors tests/fm-backend-herdr-workspace-per-home-e2e.test.sh's isolated
 # convention: a private throwaway fm-lab session (never the captain's default),
@@ -24,8 +24,8 @@
 #     gets a child workspace under the supervisor's own workspace
 #   - restart/recovery: list_live rediscovers child-workspace jobs by label
 #   - stale metadata + refuse-to-close-parent safety (function level)
-#   - EXACT cleanup: teardown closes only the owned child workspace; parent,
-#     siblings, and the default session are untouched
+#   - pane-only cleanup: teardown preserves every workspace and supervisor
+#   - single-tab cleanup refusal retains the endpoint and recovery metadata
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -231,23 +231,37 @@ if FM_HOME="$PRIMARY_ON" fm_backend_herdr_close_owned_workspace "$SESSION" "w999
 fi
 pass "safety: close_owned_workspace refuses parent and stale workspace targets"
 
-# === G. EXACT cleanup: teardown closes ONLY the owned child workspace =========
+# === G. pane-only cleanup preserves child workspaces ==========================
 teardown "$PRIMARY_ON" cma
 [ -f "$A_META" ] && fail "teardown must remove cma's meta"
-ws_exists "$A_CHILD_WS" && fail "teardown must close cma's OWN child workspace"
+ws_exists "$A_CHILD_WS" || fail "teardown must preserve cma's child workspace"
+pane_ws "$A_PANE" | grep -q . && fail "teardown must close cma's task pane"
 ws_exists "$B_CHILD_WS" || fail "tearing down cma must NOT close sibling cmb's child workspace"
 ws_exists "$A_PARENT_WS" || fail "tearing down cma must NOT close the parent/home workspace"
 ws_exists "$C_CHILD_WS" || fail "tearing down cma must NOT close the secondmate's job workspace"
 ws_exists "$SM_WS" || fail "tearing down cma must NOT close the secondmate's own workspace"
-pass "EXACT cleanup: teardown removed only cma's own child workspace; parent, sibling, and the secondmate's spaces all survived"
+pass "pane-only cleanup: teardown removed cma's endpoint while every workspace and supervisor survived"
+
+B_LOG_TAB=$(meta_get "$B_META" herdr_log_tab_id)
+fm_herdr_lab_cli "$SESSION" tab close "$B_LOG_TAB" >/dev/null 2>&1 || fail "could not create the single-tab teardown fixture"
+B_TD_OUT="$TMP_ROOT/td-cmb-single.out"
+FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$PRIMARY_ON/state" FM_DATA_OVERRIDE="$PRIMARY_ON/data" \
+  FM_CONFIG_OVERRIDE="$PRIMARY_ON/config" \
+  "$ROOT/bin/fm-teardown.sh" cmb >"$B_TD_OUT" 2>&1
+B_TD_RC=$?
+[ "$B_TD_RC" -ne 0 ] || fail "single-tab teardown must fail instead of removing its workspace"
+[ -f "$B_META" ] || fail "single-tab teardown must retain ownership recovery metadata"
+ws_exists "$B_CHILD_WS" || fail "single-tab teardown must preserve the child workspace"
+ws_exists "$B_PARENT_WS" || fail "single-tab teardown must preserve the supervisor workspace"
+pane_ws "$(meta_get "$B_META" herdr_pane_id)" | grep -q . || fail "single-tab teardown must retain the live endpoint"
+pass "pane-only cleanup: single-tab refusal retains endpoint, workspace, supervisor, and recovery metadata"
 
 # tidy remaining jobs
-teardown "$PRIMARY_ON" cmb
 teardown "$SM_HOME" cmc
 teardown "$OFF_HOME" cmoff
-ws_exists "$B_CHILD_WS" && fail "teardown must close cmb's child workspace"
-ws_exists "$C_CHILD_WS" && fail "teardown must close cmc's child workspace"
-pass "EXACT cleanup: every owned child workspace is removed by its own teardown"
+ws_exists "$B_CHILD_WS" || fail "failed cmb teardown must leave its child workspace"
+ws_exists "$C_CHILD_WS" || fail "cmc teardown must leave its child workspace"
+pass "pane-only cleanup: owned child workspaces remain for deferred cleanup"
 
 # === H. default session untouched throughout =================================
 fm_herdr_lab_check_tripwire "$SESSION" || fail "the default session fleet-state tripwire changed during the lab"
