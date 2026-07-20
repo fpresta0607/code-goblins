@@ -25,15 +25,19 @@ command -v python3 >/dev/null 2>&1 || { echo "skip: python3 not found (required 
 # shellcheck source=tests/herdr-test-safety.sh
 . "$ROOT/tests/herdr-test-safety.sh"
 
-SESSION="fm-lab-eventwait-smoke-$$"
+SESSION=$(fm_herdr_lab_name fm-herdr-eventwait-smoke)
 export HERDR_SESSION="$SESSION"
+export FM_BACKEND_HERDR_LAB_HELPER="$HERDR_LAB_HELPER"
 SCRATCH=
+_CLEANED=
 cleanup_all() {
+  [ -n "$_CLEANED" ] && return 0
+  _CLEANED=1
   [ -n "$SCRATCH" ] && rm -rf "$SCRATCH"
   herdr_safe_stop_and_delete "$SESSION"
 }
 trap cleanup_all EXIT
-fm_herdr_lab_prepare "$SESSION" || fail "could not prepare the isolated Herdr lab session"
+fm_herdr_lab_provision "$SESSION" || fail "could not provision the isolated Herdr lab session"
 
 # shellcheck source=bin/fm-backend.sh
 . "$ROOT/bin/fm-backend.sh"
@@ -115,6 +119,11 @@ pass "real herdr ($HERDR_VERSION): a driven idle->blocked transition returns the
 # handle_push_transition enqueues without exiting the test.
 export FM_STATE_OVERRIDE="$STATE"
 export FM_ROOT_OVERRIDE="$ROOT"
+# The Herdr adapter was sourced before scratch state existed and itself sources
+# the shared wake library. Rebind both durable queue paths to the scratch state
+# before loading the watcher, matching fm-wake-lib.sh's per-state contract.
+export FM_WAKE_QUEUE="$STATE/.wake-queue"
+export FM_WAKE_QUEUE_LOCK="$STATE/.wake-queue.lock"
 # shellcheck source=bin/fm-watch.sh
 . "$ROOT/bin/fm-watch.sh"
 wake() { return 0; }

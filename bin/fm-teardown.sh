@@ -1329,6 +1329,10 @@ if [ "$BACKEND" = herdr ] && [ "$(meta_value "$META" herdr_ws_owned)" = 1 ]; the
     echo "error: Herdr task pane for $ID could not be closed without risking its workspace; endpoint and recovery metadata retained" >&2
     exit 1
   fi
+  if ! fm_backend_herdr_contiguity_reconcile \
+    "$(meta_value "$META" herdr_session)" "$STATE"; then
+    echo "warning: herdr workspace contiguity reconcile failed after tearing down $ID; workspace order left as-is" >&2
+  fi
 elif [ "$BACKEND" != orca ]; then
   fm_backend_kill "$BACKEND" "$T" "$(meta_value "$META" zellij_tab_id)" "fm-$ID" 2>/dev/null || true
 fi

@@ -169,15 +169,24 @@ pass "canonical render: supervisor, then its DIRECT crews (release-notes pulled 
 pass "focus preserved: spawns and reconcile moves never changed the focused workspace"
 
 # === C. teardown keeps the surviving blocks contiguous ========================
+FIRST_META="$PRIMARY/state/first-crew.meta"
+FIRST_WS=$(meta_get "$FIRST_META" herdr_workspace_id)
+FIRST_PANE=$(meta_get "$FIRST_META" herdr_pane_id)
+RELEASE_WS=$(meta_get "$PRIMARY/state/release-notes.meta" herdr_workspace_id)
+WS_COUNT=$(order_labels | grep -c .)
+fm_backend_herdr_workspace_move "$SESSION" "$RELEASE_WS" "$WS_COUNT" || fail "pre-teardown drift move failed"
+[ "$(order_labels | tail -1)" = "firstmate/release-notes" ] || fail "pre-teardown drift did not land release-notes last"
 teardown "$PRIMARY" first-crew
-[ "$(order_labels)" = $'manual-base\nfirstmate\nfirstmate/release-notes\n2ndmate-hibit-h9\n2ndmate-hibit-h9/local-sandbox\n2ndmate-hibit-h9/game-parity' ] \
+[ ! -f "$FIRST_META" ] || fail "teardown must remove first-crew metadata"
+fm_backend_herdr_cli "$SESSION" workspace get "$FIRST_WS" >/dev/null 2>&1 || fail "teardown must retain first-crew's child workspace"
+fm_backend_herdr_cli "$SESSION" pane get "$FIRST_PANE" >/dev/null 2>&1 && fail "teardown must close first-crew's task pane"
+[ "$(fm_backend_herdr_cli "$SESSION" tab list --workspace "$FIRST_WS" 2>/dev/null | jq -r '.result.tabs[]?.label')" = log ] \
+  || fail "the retained first-crew workspace must be empty and reclaimable except for its log placeholder"
+[ "$(order_labels)" = $'manual-base\nfirstmate\nfirstmate/first-crew\nfirstmate/release-notes\n2ndmate-hibit-h9\n2ndmate-hibit-h9/local-sandbox\n2ndmate-hibit-h9/game-parity' ] \
   || fail "teardown must leave the surviving blocks contiguous, got:"$'\n'"$(order_labels)"
-pass "teardown: removing a crew leaves every surviving block contiguous"
-# Re-baseline focus here: herdr's own `workspace close` re-focuses a neighbor
-# even when the closed workspace was NOT focused (observed against 0.7.3; a
-# close/teardown behavior, not a move behavior - the lab probe shows
-# workspace.move never changes focus in either direction). The assertions
-# below pin that the MOVES from here on never change focus again.
+pass "teardown: pane-only cleanup retains one reclaimable workspace and reconciles every surviving owned block"
+# Re-baseline focus after teardown. The assertions below pin that subsequent
+# workspace moves never change focus.
 FOCUS_AFTER_TEARDOWN=$(focused_ws)
 
 # === D. a move never disturbs a live registered agent, its tabs, or panes ====
@@ -213,7 +222,7 @@ FM_HOME="$PRIMARY" FM_STATE_OVERRIDE="$PRIMARY/state" FM_ROOT_OVERRIDE="$ROOT" \
   FM_BACKEND_HERDR_MOVE_WRITER="$SHIM" \
   "$ROOT/bin/fm-herdr-regroup.sh" --all >"$TMP_ROOT/regroup1.out" 2>&1 \
   || fail "fm-herdr-regroup.sh failed:"$'\n'"$(cat "$TMP_ROOT/regroup1.out")"
-[ "$(order_labels)" = $'manual-base\nfirstmate\nfirstmate/release-notes\n2ndmate-hibit-h9\n2ndmate-hibit-h9/local-sandbox\n2ndmate-hibit-h9/game-parity' ] \
+[ "$(order_labels)" = $'manual-base\nfirstmate\nfirstmate/release-notes\nfirstmate/first-crew\n2ndmate-hibit-h9\n2ndmate-hibit-h9/local-sandbox\n2ndmate-hibit-h9/game-parity' ] \
   || fail "regroup did not restore the canonical order, got:"$'\n'"$(order_labels)"
 [ "$(grep -c . "$MOVELOG")" = 1 ] || fail "the drift repair must take exactly one move, got: $(cat "$MOVELOG")"
 [ "$(fm_backend_herdr_agent_status_raw "$SESSION" "$RN_PANE")" = "working" ] || fail "the regroup disturbed the registered agent"

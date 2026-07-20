@@ -61,6 +61,8 @@ make_fake_root() {
   ln -s "$ROOT/bin/fm-composer-lib.sh" "$fake/bin/fm-composer-lib.sh"
   # fm-lock-lib.sh: teardown sources it for the shared lock-staleness proof.
   ln -s "$ROOT/bin/fm-lock-lib.sh" "$fake/bin/fm-lock-lib.sh"
+  # fm-treehouse-lib.sh: teardown sources it for lease identity handling.
+  ln -s "$ROOT/bin/fm-treehouse-lib.sh" "$fake/bin/fm-treehouse-lib.sh"
   # fm-gate-refuse-lib.sh: teardown sources it before any fleet mutation.
   ln -s "$ROOT/bin/fm-gate-refuse-lib.sh" "$fake/bin/fm-gate-refuse-lib.sh"
   # fm-pr-lib.sh: teardown uses its canonical task-ID validator for poll cleanup.
@@ -99,35 +101,45 @@ META
 # --- fm-spawn side ---
 
 test_spawn_contract_and_mkdir_pattern() {
-  # Structural: fm-spawn must create the gotmp dir, record tasktmp in meta, and export
-  # GOTMPDIR into the pane. Assert the contract lines are present in the source.
+  # Structural: fm-spawn must create the gotmp dir, publish tasktmp through its
+  # atomic metadata writer, and export GOTMPDIR into the pane.
   # shellcheck disable=SC2016  # single quotes are deliberate: these are literal source strings
   grep -F 'mkdir -p "$TASK_TMP/gotmp"' "$SPAWN" >/dev/null \
     || fail "fm-spawn missing: mkdir of gotmp under TASK_TMP"
-  # shellcheck disable=SC2016  # single quotes are deliberate: literal source string
-  grep -F 'echo "tasktmp=$TASK_TMP"' "$SPAWN" >/dev/null \
-    || fail "fm-spawn missing: tasktmp= line in meta write"
+  local writer
+  writer=$(awk '/^write_task_meta\(\)/,/^}$/' "$SPAWN")
+  case "$writer" in
+    *'echo "tasktmp=${TASK_TMP:-}"'*) : ;;
+    *) fail "fm-spawn atomic metadata writer missing tasktmp publication" ;;
+  esac
   grep -F 'export GOTMPDIR=' "$SPAWN" >/dev/null \
     || fail "fm-spawn missing: GOTMPDIR export into pane"
-  # Behavioral: the mkdir + meta-write pattern spawn uses must produce a gotmp dir and
-  # a meta line whose value the teardown grep (tasktmp=, cut -d= -f2-) reads back whole.
+
+  # Behavioral: execute the production atomic writer for both its provisional
+  # recovery publication and final metadata publication, then read tasktmp back
+  # with teardown's real grep/cut contract.
   local id=spawn-sim-z1
   local sim_root="$TMP_ROOT/$id-root"
   local task_tmp="$sim_root/tmp/fm-$id"
   mkdir -p "$sim_root/state"
-  # Replicate spawn's exact mkdir + meta-write lines.
   TASK_TMP="$task_tmp"
   mkdir -p "$TASK_TMP/gotmp"
-  {
-    echo "tasktmp=$TASK_TMP"
-  } > "$sim_root/state/$id.meta"
+  STATE="$sim_root/state" ID="$id" BACKEND=tmux T=fakeses:fm-spawn-sim \
+    WT="$sim_root/worktree" PROJ_ABS="$sim_root/project" HARNESS=claude \
+    KIND=ship MODE=no-mistakes YOLO=off MODEL=default EFFORT=default
+  eval "$writer"
+  write_task_meta lease-acquiring "$sim_root/state/$id.recovery"
+  local provisional_read
+  provisional_read=$(grep '^tasktmp=' "$sim_root/state/$id.recovery" | cut -d= -f2-)
+  [ "$provisional_read" = "$task_tmp" ] \
+    || fail "provisional recovery metadata did not publish readable tasktmp (got '$provisional_read')"
+  write_task_meta
   [ -d "$task_tmp/gotmp" ] || fail "simulated spawn did not create gotmp dir"
-  # Teardown reads tasktmp= with `grep '^tasktmp=' | cut -d= -f2-`; round-trip it.
   local read_back
   read_back=$(grep '^tasktmp=' "$sim_root/state/$id.meta" | cut -d= -f2-)
   [ "$read_back" = "$task_tmp" ] \
     || fail "tasktmp value not round-tripped by teardown's grep|cut (got '$read_back')"
-  pass "fm-spawn creates gotmp dir and records tasktmp in meta"
+  pass "fm-spawn atomically publishes readable tasktmp in provisional and final metadata"
 }
 
 # --- fm-teardown side (real subprocess) ---
@@ -142,8 +154,9 @@ test_teardown_removes_tasktmp_dir() {
   # Sanity: dir + contents exist before teardown.
   [ -d "$task_tmp/gotmp" ] || fail "precondition: gotmp missing before teardown"
   # Run the REAL teardown against the fake root.
-  FM_HOME="$fake" bash "$fake/bin/fm-teardown.sh" "$id" >/dev/null 2>&1 \
-    || fail "teardown exited non-zero with a valid tasktmp"
+  local teardown_out="$TMP_ROOT/$id.teardown.out"
+  FM_HOME="$fake" bash "$fake/bin/fm-teardown.sh" "$id" >"$teardown_out" 2>&1 \
+    || fail "teardown exited non-zero with a valid tasktmp: $(cat "$teardown_out")"
   [ ! -e "$task_tmp" ] \
     || fail "teardown did not remove the tasktmp dir ($task_tmp still exists)"
   pass "fm-teardown removes the dir pointed to by tasktmp= in meta"
@@ -161,6 +174,7 @@ test_teardown_skips_gracefully_without_tasktmp() {
   ln -s "$ROOT/bin/fm-tmux-lib.sh" "$fake/bin/fm-tmux-lib.sh"
   ln -s "$ROOT/bin/fm-composer-lib.sh" "$fake/bin/fm-composer-lib.sh"
   ln -s "$ROOT/bin/fm-lock-lib.sh" "$fake/bin/fm-lock-lib.sh"
+  ln -s "$ROOT/bin/fm-treehouse-lib.sh" "$fake/bin/fm-treehouse-lib.sh"
   # fm-gate-refuse-lib.sh: teardown sources it before any fleet mutation.
   ln -s "$ROOT/bin/fm-gate-refuse-lib.sh" "$fake/bin/fm-gate-refuse-lib.sh"
   # fm-pr-lib.sh: teardown uses its canonical task-ID validator for poll cleanup.
