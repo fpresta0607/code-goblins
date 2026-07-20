@@ -914,7 +914,8 @@ case "$BACKEND" in
     HERDR_WS_OWNED=""
     HERDR_EXISTING_OWNED=""
     if [ "$KIND" != secondmate ] && [ ! -e "$STATE/$ID.meta" ] \
-      && { [ -e "$STATE/.$ID.treehouse-acquire" ] || [ -L "$STATE/.$ID.treehouse-acquire" ]; }; then
+      && { [ -e "$STATE/.$ID.treehouse-acquire" ] || [ -L "$STATE/.$ID.treehouse-acquire" ] \
+        || [ -e "$STATE/.$ID.treehouse-acquire.evidence" ] || [ -L "$STATE/.$ID.treehouse-acquire.evidence" ]; }; then
       echo "error: incomplete Treehouse lease acquisition evidence exists for $ID at $STATE/.$ID.treehouse-acquire; refusing a duplicate lease" >&2
       exit 1
     fi
@@ -1135,7 +1136,7 @@ if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
         exit 1
       }
       HERDR_NEW_LEASE=1
-      spawn_send_text_line "$WT_TARGET" "FM_TREEHOUSE_WORKTREE=\"\$(treehouse get --lease --lease-holder $(shell_quote "$TREEHOUSE_LEASE_HOLDER"))\" && $(shell_quote "$SCRIPT_DIR/fm-treehouse-lease-journal.sh") $(shell_quote "$HERDR_LEASE_TEMPLATE") $(shell_quote "$STATE/$ID.meta") \"\$FM_TREEHOUSE_WORKTREE\" $(shell_quote "$TREEHOUSE_LEASE_HOLDER") && (cd \"\$FM_TREEHOUSE_WORKTREE\" && \"\${SHELL:-/bin/bash}\")"
+      spawn_send_text_line "$WT_TARGET" "FM_TREEHOUSE_WORKTREE=\"\$($(shell_quote "$SCRIPT_DIR/fm-treehouse-lease-journal.sh") $(shell_quote "$HERDR_LEASE_TEMPLATE") $(shell_quote "$STATE/$ID.meta") $(shell_quote "$TREEHOUSE_LEASE_HOLDER"))\" && (cd \"\$FM_TREEHOUSE_WORKTREE\" && \"\${SHELL:-/bin/bash}\")"
       if [ "${FM_TEST_INTERRUPT_AFTER_HERDR_LEASE_RECOVERY:-0}" = 1 ]; then
         for _ in $(seq 1 60); do
           [ "$(grep '^spawn_recovery_state=' "$STATE/$ID.meta" 2>/dev/null | cut -d= -f2- || true)" = lease-acquired ] && break
