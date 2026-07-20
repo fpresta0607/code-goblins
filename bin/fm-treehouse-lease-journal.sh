@@ -61,6 +61,9 @@ publish_recovery() {
   rewrite_evidence lease-acquired "$identity" || return 1
   fm_treehouse_write_owned_binding "$meta" "$worktree" "$identity" || return 1
   mv "$evidence" "$meta" || return 1
+  if [ "${FM_TEST_INTERRUPT_AFTER_TREEHOUSE_META_PUBLISH:-0}" = 1 ]; then
+    kill -KILL "$$"
+  fi
   rm -f "$template" || true
   printf '%s\n' "$worktree" || true
   return 0

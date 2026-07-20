@@ -1156,6 +1156,10 @@ cleanup_firstmate_home_children() {
     fi
     remove_grok_turnend_auth "$sub_state" "$child_id"
     remove_pr_poll_artifacts "$sub_state" "$child_id" || return 1
+    fm_treehouse_remove_proven_acquisition_template "$child_meta" completed || {
+      echo "error: child $child_id has an acquisition template that cannot be matched to its completed Treehouse return; preserving recovery metadata" >&2
+      return 1
+    }
     rm -f "$sub_state/$child_id.status" "$sub_state/$child_id.turn-ended" "$sub_state/$child_id.meta" \
       "$sub_state/$child_id.treehouse-lease" "$sub_state/$child_id.pi-ext.ts" "$sub_state/$child_id.grok-turnend-token"
   done
@@ -1308,6 +1312,11 @@ elif [ "$HERDR_WORKTREE_RETURNED" != 1 ] && [ -d "$WT" ] && [ "$KIND" != secondm
     fi
   fi
 fi
+
+fm_treehouse_remove_proven_acquisition_template "$META" completed || {
+  echo "error: $ID has an acquisition template that cannot be matched to its completed Treehouse return; preserving recovery metadata" >&2
+  exit 1
+}
 
 if [ "$BACKEND" = herdr ] && [ "$(meta_value "$META" herdr_ws_owned)" = 1 ]; then
   fm_backend_source herdr || exit 1

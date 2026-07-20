@@ -92,6 +92,89 @@ fm_treehouse_lease_by_holder() {
   ' "$state" 2>/dev/null
 }
 
+fm_treehouse_record_value_once() {
+  local file=$1 key=$2 count
+  [ -f "$file" ] && [ ! -L "$file" ] || return 1
+  count=$(grep -c "^${key}=" "$file" 2>/dev/null || true)
+  [ "$count" -eq 1 ] || return 1
+  grep "^${key}=" "$file" | cut -d= -f2-
+}
+
+fm_treehouse_acquisition_template_path() {
+  local meta=$1
+  case "$meta" in
+    *.meta) printf '%s/.%s.treehouse-acquire\n' "$(dirname "$meta")" "$(basename "${meta%.meta}")" ;;
+    *) return 1 ;;
+  esac
+}
+
+fm_treehouse_acquisition_template_matches_meta() {
+  local template=$1 meta=$2 phase=$3 expected_owner template_owner template_holder template_project
+  local meta_owner meta_holder meta_project worktree identity binding current recovery_state return_state
+  [ -f "$template" ] && [ ! -L "$template" ] || return 1
+  [ -f "$meta" ] && [ ! -L "$meta" ] || return 1
+  [ "$(cd "$(dirname "$template")" && pwd -P)" = "$(cd "$(dirname "$meta")" && pwd -P)" ] || return 1
+  expected_owner="$(cd "$(dirname "$meta")" && pwd -P)/$(basename "${meta%.meta}")"
+  template_owner=$(fm_treehouse_record_value_once "$template" spawn_recovery_owner) || return 1
+  template_holder=$(fm_treehouse_record_value_once "$template" treehouse_lease_holder) || return 1
+  template_project=$(fm_treehouse_record_value_once "$template" project) || return 1
+  [ "$template_owner" = "$expected_owner" ] || return 1
+  [ -n "$template_holder" ] || return 1
+  [ "$(fm_treehouse_record_value_once "$template" spawn_recovery_state)" = lease-acquiring ] || return 1
+  [ -z "$(fm_treehouse_record_value_once "$template" worktree)" ] || return 1
+  [ -z "$(fm_treehouse_record_value_once "$template" treehouse_lease_identity)" ] || return 1
+  meta_project=$(fm_treehouse_record_value_once "$meta" project) || return 1
+  [ "$meta_project" = "$template_project" ] || return 1
+  [ "$(fm_treehouse_record_value_once "$meta" backend)" = herdr ] || return 1
+  [ "$(fm_treehouse_record_value_once "$meta" herdr_ws_owned)" = 1 ] || return 1
+  worktree=$(fm_treehouse_record_value_once "$meta" worktree) || return 1
+  identity=$(fm_treehouse_record_value_once "$meta" treehouse_lease_identity) || return 1
+  [ -n "$worktree" ] || return 1
+  case "$identity" in lease:*) ;; *) return 1 ;; esac
+  binding=$(fm_treehouse_read_owned_binding "$meta" "$worktree") || return 1
+  [ "$binding" = "$identity" ] || return 1
+  meta_owner=$(fm_treehouse_record_value_once "$meta" treehouse_lease_owner 2>/dev/null || true)
+  meta_holder=$(fm_treehouse_record_value_once "$meta" treehouse_lease_holder 2>/dev/null || true)
+  recovery_state=$(fm_treehouse_record_value_once "$meta" spawn_recovery_state 2>/dev/null || true)
+  if [ -z "$meta_owner" ]; then
+    [ "$recovery_state" = lease-acquired ] || return 1
+    meta_owner=$(fm_treehouse_record_value_once "$meta" spawn_recovery_owner) || return 1
+  fi
+  [ "$meta_owner" = "$expected_owner" ] || return 1
+  if [ -n "$meta_holder" ]; then
+    [ "$meta_holder" = "$template_holder" ] || return 1
+  else
+    [ "$recovery_state" = lease-acquired ] || return 1
+  fi
+  current=$(fm_treehouse_worktree_identity "$worktree" "$template_holder") || {
+    [ "$phase" = completed ] || return 1
+    current=$(fm_treehouse_worktree_identity "$worktree") || return 1
+  }
+  case "$phase" in
+    live)
+      [ "$current" = "$identity" ] || return 1
+      return_state=$(fm_treehouse_record_value_once "$meta" worktree_return_state 2>/dev/null || true)
+      [ -z "$return_state" ] || return 1
+      ;;
+    completed)
+      [ -n "$meta_holder" ] || return 1
+      return_state=$(fm_treehouse_record_value_once "$meta" worktree_return_state) || return 1
+      [ "$return_state" = "completed:$identity" ] || return 1
+      [ "$current" != "$identity" ] || return 1
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+fm_treehouse_remove_proven_acquisition_template() {
+  local meta=$1 phase=$2 template
+  template=$(fm_treehouse_acquisition_template_path "$meta") || return 1
+  [ ! -e "$template" ] && [ ! -L "$template" ] && return 0
+  fm_treehouse_acquisition_template_matches_meta "$template" "$meta" "$phase" || return 1
+  rm -f "$template" || return 1
+  [ ! -e "$template" ] && [ ! -L "$template" ]
+}
+
 fm_treehouse_worktree_identity() {
   local worktree=$1 expected_holder=${2:-} pool state
   [ -n "$worktree" ] || return 1

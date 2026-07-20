@@ -334,6 +334,19 @@ SH
   chmod +x "$fakebin/mv"
 }
 
+make_selective_rm_fake() {
+  local fakebin=$1
+  cat > "$fakebin/rm" <<'SH'
+#!/usr/bin/env bash
+set -u
+for arg in "$@"; do
+  [ "$arg" != "${FM_FAIL_RM_TARGET:-}" ] || exit 1
+done
+exec /bin/rm "$@"
+SH
+  chmod +x "$fakebin/rm"
+}
+
 fake_treehouse_release() {
   local state=$1 path=${2:-}
   jq --arg path "$path" '(.worktrees[] | select($path == "" or .path == $path)) |= (.leased = false | del(.lease_holder, .leased_at))' \
@@ -910,6 +923,8 @@ make_child_respawn_case() {
   CHILD_CASE_PANE_CLOSE_FAIL_N=0
   CHILD_CASE_TREEHOUSE_RETURN_FAIL=0
   CHILD_CASE_INTERRUPT_AFTER_LEASE_RECOVERY=0
+  CHILD_CASE_INTERRUPT_AFTER_META_PUBLISH=0
+  CHILD_CASE_FAIL_RM_TARGET=
   mkdir -p "$CHILD_CASE_DATA/$id" "$CHILD_CASE_STATE" "$CHILD_CASE_CONFIG"
   printf 'on\n' > "$CHILD_CASE_CONFIG/herdr-child-workspaces"
   printf 'brief\n' > "$CHILD_CASE_DATA/$id/brief.md"
@@ -937,6 +952,8 @@ run_child_respawn() {
     FM_FAKE_TREEHOUSE_STATE="$CHILD_CASE_TREEHOUSE_STATE" FM_FAKE_TREEHOUSE_WT="$CHILD_CASE_WT" \
     FM_FAKE_TREEHOUSE_RETURN_FAIL="${CHILD_CASE_TREEHOUSE_RETURN_FAIL:-0}" \
     FM_TEST_INTERRUPT_AFTER_HERDR_LEASE_RECOVERY="${CHILD_CASE_INTERRUPT_AFTER_LEASE_RECOVERY:-0}" \
+    FM_TEST_INTERRUPT_AFTER_TREEHOUSE_META_PUBLISH="${CHILD_CASE_INTERRUPT_AFTER_META_PUBLISH:-0}" \
+    FM_FAIL_RM_TARGET="${CHILD_CASE_FAIL_RM_TARGET:-}" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CHILD_CASE_HOME" FM_STATE_OVERRIDE="$CHILD_CASE_STATE" \
     FM_DATA_OVERRIDE="$CHILD_CASE_DATA" FM_CONFIG_OVERRIDE="$CHILD_CASE_CONFIG" \
     FM_PROJECTS_OVERRIDE="$CHILD_CASE_HOME/projects" FM_SPAWN_NO_GUARD=1 \
@@ -1268,6 +1285,84 @@ test_interrupted_lease_publication_recovers_exact_treehouse_lease() {
   pass "fm-spawn.sh: interrupted lease publication resumes and returns the exact lease"
 }
 
+test_post_publish_crash_reconciles_template_and_allows_task_id_reuse() {
+  local meta template holder out rc
+  make_child_respawn_case child-post-publish-crash postpublishcrashz1
+  meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
+  template="$CHILD_CASE_STATE/.$CHILD_CASE_ID.treehouse-acquire"
+  CHILD_CASE_INTERRUPT_AFTER_META_PUBLISH=1
+  CHILD_CASE_INTERRUPT_AFTER_LEASE_RECOVERY=1
+  out=$(run_child_respawn); rc=$?
+  [ "$rc" -ne 0 ] || fail "post-publication crash unexpectedly completed spawn"
+  [ -f "$meta" ] || fail "post-publication crash lost authoritative task metadata: $out"
+  [ -f "$template" ] || fail "post-publication crash did not preserve the stale template fixture"
+  holder=$(grep '^treehouse_lease_holder=' "$meta" | cut -d= -f2-)
+  [ -n "$holder" ] && [ "$holder" = "$(jq -r '.worktrees[0].lease_holder' "$CHILD_CASE_TREEHOUSE_STATE")" ] || \
+    fail "post-publication metadata lost the exact durable holder"
+
+  CHILD_CASE_INTERRUPT_AFTER_META_PUBLISH=0
+  CHILD_CASE_INTERRUPT_AFTER_LEASE_RECOVERY=0
+  out=$(run_child_respawn); rc=$?
+  [ "$rc" -eq 0 ] || fail "spawn did not reconcile the proven stale template: $out"
+  [ ! -e "$template" ] || fail "successful recovery retained the proven stale template"
+  [ "$(jq -r '.get_calls' "$CHILD_CASE_TREEHOUSE_STATE")" = 1 ] || fail "template reconciliation acquired a duplicate lease"
+  run_child_teardown >/dev/null || fail "reconciled task did not tear down safely"
+  out=$(run_child_respawn); rc=$?
+  [ "$rc" -eq 0 ] || fail "same task ID remained tombstoned after teardown: $out"
+  [ "$(jq -r '.get_calls' "$CHILD_CASE_TREEHOUSE_STATE")" = 2 ] || fail "same-ID reuse did not acquire exactly one new lease"
+  pass "fm-spawn.sh: post-publication crashes reconcile stale templates without task-ID tombstones"
+}
+
+test_template_delete_failure_retries_after_exact_treehouse_return() {
+  local meta template out rc
+  make_child_respawn_case child-template-delete-retry templatedeleteretryz2
+  meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
+  template="$CHILD_CASE_STATE/.$CHILD_CASE_ID.treehouse-acquire"
+  make_selective_rm_fake "$CHILD_CASE_FAKEBIN"
+  CHILD_CASE_FAIL_RM_TARGET=$template
+  out=$(run_child_respawn); rc=$?
+  [ "$rc" -eq 0 ] || fail "template deletion failure broke the published spawn: $out"
+  [ -f "$template" ] || fail "template deletion failure did not retain the template fixture"
+  [ "$(grep '^treehouse_lease_owner=' "$meta" | cut -d= -f2-)" = "$(cd "$CHILD_CASE_STATE" && pwd -P)/$CHILD_CASE_ID" ] || \
+    fail "final metadata did not retain durable home/task ownership"
+
+  out=$(run_child_teardown); rc=$?
+  [ "$rc" -ne 0 ] || fail "teardown ignored failure to remove the proven stale template"
+  [ -f "$meta" ] && [ -f "$template" ] || fail "failed template cleanup discarded retry metadata"
+  assert_contains "$(grep '^worktree_return_state=' "$meta" | cut -d= -f2-)" "completed:" \
+    "failed template cleanup occurred before exact Treehouse return completed"
+  CHILD_CASE_FAIL_RM_TARGET=
+  out=$(run_child_teardown); rc=$?
+  [ "$rc" -eq 0 ] || fail "repeated teardown did not remove the proven stale template: $out"
+  [ ! -e "$meta" ] && [ ! -e "$template" ] || fail "successful teardown retained template recovery artifacts"
+  out=$(run_child_respawn); rc=$?
+  [ "$rc" -eq 0 ] || fail "same task ID remained blocked after retry-safe teardown: $out"
+  [ "$(jq -r '.get_calls' "$CHILD_CASE_TREEHOUSE_STATE")" = 2 ] || fail "post-teardown task reuse acquired the wrong lease count"
+  pass "fm-teardown.sh: stale template deletion retries after exact return"
+}
+
+test_spawn_refuses_mismatched_published_template() {
+  local meta template before out rc
+  make_child_respawn_case child-template-mismatch templatemismatchz3
+  meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
+  template="$CHILD_CASE_STATE/.$CHILD_CASE_ID.treehouse-acquire"
+  make_selective_rm_fake "$CHILD_CASE_FAKEBIN"
+  CHILD_CASE_FAIL_RM_TARGET=$template
+  run_child_respawn >/dev/null || fail "mismatched-template fixture did not spawn"
+  before=$(jq -r '.get_calls' "$CHILD_CASE_TREEHOUSE_STATE")
+  awk '
+    /^treehouse_lease_holder=/ { print "treehouse_lease_holder=firstmate-other-fedcba9876543210fedcba9876543210"; next }
+    { print }
+  ' "$template" > "$template.tmp" && mv "$template.tmp" "$template"
+  CHILD_CASE_FAIL_RM_TARGET=
+  out=$(run_child_respawn); rc=$?
+  [ "$rc" -ne 0 ] || fail "spawn removed a mismatched acquisition template"
+  assert_contains "$out" "does not match authoritative task ownership" "mismatched template refusal was not visible"
+  [ -f "$meta" ] && [ -f "$template" ] || fail "mismatched template refusal discarded recovery evidence"
+  [ "$(jq -r '.get_calls' "$CHILD_CASE_TREEHOUSE_STATE")" = "$before" ] || fail "mismatched template refusal acquired another lease"
+  pass "fm-spawn.sh: mismatched published templates fail safely"
+}
+
 run_child_teardown() {
   PATH="$CHILD_CASE_FAKEBIN:$PATH" HERDR_SESSION=fmtest FM_HERDR_LOG="$CHILD_CASE_LOG" \
     FM_FAKE_HERDR_STATE="$CHILD_CASE_HERDR/state.json" \
@@ -1275,6 +1370,7 @@ run_child_teardown() {
     FM_FAKE_HERDR_PANE_CLOSE_FAIL_N="${CHILD_CASE_PANE_CLOSE_FAIL_N:-0}" \
     FM_FAKE_TREEHOUSE_STATE="$CHILD_CASE_TREEHOUSE_STATE" FM_FAKE_TREEHOUSE_WT="$CHILD_CASE_WT" \
     FM_FAKE_TREEHOUSE_RETURN_FAIL="${CHILD_CASE_TREEHOUSE_RETURN_FAIL:-0}" \
+    FM_FAIL_RM_TARGET="${CHILD_CASE_FAIL_RM_TARGET:-}" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CHILD_CASE_HOME" FM_STATE_OVERRIDE="$CHILD_CASE_STATE" \
     FM_DATA_OVERRIDE="$CHILD_CASE_DATA" FM_CONFIG_OVERRIDE="$CHILD_CASE_CONFIG" \
     "$ROOT/bin/fm-teardown.sh" "$CHILD_CASE_ID" --force 2>&1
@@ -3050,6 +3146,9 @@ test_lease_journal_refuses_reassigned_or_ambiguous_rollback
 test_lease_journal_retains_evidence_when_post_return_proof_fails
 test_spawn_refuses_duplicate_lease_when_hidden_journal_remains
 test_interrupted_lease_publication_recovers_exact_treehouse_lease
+test_post_publish_crash_reconciles_template_and_allows_task_id_reuse
+test_template_delete_failure_retries_after_exact_treehouse_return
+test_spawn_refuses_mismatched_published_template
 test_legacy_child_metadata_migrates_matching_live_lease
 test_legacy_child_metadata_refuses_unowned_treehouse_states
 test_legacy_child_metadata_refuses_another_homes_same_id_binding

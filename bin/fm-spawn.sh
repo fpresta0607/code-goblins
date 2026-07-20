@@ -250,6 +250,10 @@ write_task_meta() {
         echo "herdr_log_tab_id=${HERDR_LOG_TAB_ID:-}"
         echo "herdr_log_pane_id=${HERDR_LOG_PANE_ID:-}"
         echo "treehouse_lease_identity=$TREEHOUSE_LEASE_IDENTITY"
+        if [ -n "${TREEHOUSE_LEASE_HOLDER:-}" ]; then
+          echo "treehouse_lease_owner=$(cd "$STATE" && pwd -P)/$ID"
+          echo "treehouse_lease_holder=$TREEHOUSE_LEASE_HOLDER"
+        fi
       fi
     fi
     if [ "$BACKEND" = zellij ]; then
@@ -272,7 +276,6 @@ write_task_meta() {
     if [ -n "$recovery_state" ]; then
       echo "spawn_recovery_state=$recovery_state"
       echo "spawn_recovery_owner=$recovery_owner"
-      echo "treehouse_lease_holder=${TREEHOUSE_LEASE_HOLDER:-}"
     fi
   } > "$tmp" || ! mv "$tmp" "$target"; then
     rm -f "$tmp"
@@ -913,6 +916,17 @@ case "$BACKEND" in
     HERDR_PARENT_WS=""
     HERDR_WS_OWNED=""
     HERDR_EXISTING_OWNED=""
+    if [ "$KIND" != secondmate ] && [ -f "$STATE/$ID.meta" ] \
+      && { [ -e "$STATE/.$ID.treehouse-acquire" ] || [ -L "$STATE/.$ID.treehouse-acquire" ]; }; then
+      HERDR_TEMPLATE_PHASE=live
+      case "$(grep '^worktree_return_state=' "$STATE/$ID.meta" 2>/dev/null | cut -d= -f2- || true)" in
+        completed:*) HERDR_TEMPLATE_PHASE=completed ;;
+      esac
+      fm_treehouse_remove_proven_acquisition_template "$STATE/$ID.meta" "$HERDR_TEMPLATE_PHASE" || {
+        echo "error: Treehouse lease acquisition template for $ID does not match authoritative task ownership; refusing unsafe reconciliation" >&2
+        exit 1
+      }
+    fi
     if [ "$KIND" != secondmate ] && [ ! -e "$STATE/$ID.meta" ] \
       && { [ -e "$STATE/.$ID.treehouse-acquire.evidence" ] || [ -L "$STATE/.$ID.treehouse-acquire.evidence" ]; }; then
       "$SCRIPT_DIR/fm-treehouse-lease-journal.sh" --recover \
@@ -930,6 +944,13 @@ case "$BACKEND" in
        grep -qx 'backend=herdr' "$STATE/$ID.meta" 2>/dev/null &&
        grep -qx 'herdr_ws_owned=1' "$STATE/$ID.meta" 2>/dev/null; then
       HERDR_EXISTING_OWNED=1
+      HERDR_DURABLE_LEASE_OWNER=$(grep '^treehouse_lease_owner=' "$STATE/$ID.meta" 2>/dev/null | cut -d= -f2- || true)
+      TREEHOUSE_LEASE_HOLDER=$(grep '^treehouse_lease_holder=' "$STATE/$ID.meta" 2>/dev/null | cut -d= -f2- || true)
+      if [ -n "$HERDR_DURABLE_LEASE_OWNER" ] \
+        && [ "$HERDR_DURABLE_LEASE_OWNER" != "$(cd "$STATE" && pwd -P)/$ID" ]; then
+        echo "error: Herdr Treehouse lease metadata for $ID belongs to another home or task; preserving recovery metadata" >&2
+        exit 1
+      fi
       HERDR_RECOVERY_STATE=$(grep '^spawn_recovery_state=' "$STATE/$ID.meta" 2>/dev/null | cut -d= -f2- || true)
       if [ -n "$HERDR_RECOVERY_STATE" ]; then
         HERDR_RECOVERY_OWNER_COUNT=$(grep -c '^spawn_recovery_owner=' "$STATE/$ID.meta" 2>/dev/null || true)
