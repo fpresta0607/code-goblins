@@ -852,10 +852,13 @@ remove_child_meta_key() {
 }
 
 test_legacy_child_metadata_migrates_matching_live_lease() {
-  local meta identity
+  local meta binding identity
   make_child_respawn_case child-legacy-matching legacymatchingz9
   run_child_respawn >/dev/null || fail "initial owned child spawn failed"
   meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
+  binding="$CHILD_CASE_STATE/$CHILD_CASE_ID.treehouse-lease"
+  [ -f "$binding" ] || fail "owned spawn did not persist an exact Treehouse lease binding"
+  [ "$(grep '^worktree=' "$binding" | cut -d= -f2-)" = "$CHILD_CASE_WT" ] || fail "durable binding recorded the wrong worktree"
   remove_child_meta_key "$meta" treehouse_lease_identity
   run_child_respawn >/dev/null || fail "matching legacy lease did not migrate during respawn"
   identity=$(grep '^treehouse_lease_identity=' "$meta" | cut -d= -f2-)
@@ -863,11 +866,11 @@ test_legacy_child_metadata_migrates_matching_live_lease() {
   remove_child_meta_key "$meta" treehouse_lease_identity
   run_child_teardown >/dev/null || fail "matching legacy lease did not migrate during teardown"
   [ ! -f "$meta" ] || fail "migrated legacy teardown retained task metadata"
-  pass "Herdr legacy recovery: matching live leases migrate on respawn and teardown"
+  pass "Herdr legacy recovery: exact durable lease bindings migrate on respawn and teardown"
 }
 
 test_legacy_child_metadata_refuses_unowned_treehouse_states() {
-  local meta before out rc
+  local meta binding before out rc
   make_child_respawn_case child-legacy-available legacyavailablez1
   run_child_respawn >/dev/null || fail "initial owned child spawn failed"
   meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
@@ -883,7 +886,8 @@ test_legacy_child_metadata_refuses_unowned_treehouse_states() {
   run_child_respawn >/dev/null || fail "initial owned child spawn failed"
   meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
   remove_child_meta_key "$meta" treehouse_lease_identity
-  jq '(.worktrees[0].lease_holder) = "firstmate-another-task-0123456789abcdef0123456789abcdef"' \
+  jq --arg holder "firstmate-$CHILD_CASE_ID-fedcba9876543210fedcba9876543210" \
+    '(.worktrees[0].lease_holder) = $holder | (.worktrees[0].leased_at) = "2026-07-20T01:00:00Z"' \
     "$CHILD_CASE_TREEHOUSE_STATE" > "$CHILD_CASE_TREEHOUSE_STATE.tmp" && mv "$CHILD_CASE_TREEHOUSE_STATE.tmp" "$CHILD_CASE_TREEHOUSE_STATE"
   before=$(cksum "$meta")
   out=$(run_child_respawn); rc=$?
@@ -899,7 +903,45 @@ test_legacy_child_metadata_refuses_unowned_treehouse_states() {
   out=$(run_child_teardown); rc=$?
   [ "$rc" -ne 0 ] || fail "ambiguous legacy worktree must fail safe"
   [ "$(cksum "$meta")" = "$before" ] || fail "ambiguous migration changed recovery metadata"
-  pass "Herdr legacy recovery: returned, reassigned, and ambiguous leases fail safely"
+
+  make_child_respawn_case child-legacy-unbound legacyunboundz4
+  run_child_respawn >/dev/null || fail "initial owned child spawn failed"
+  meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
+  binding="$CHILD_CASE_STATE/$CHILD_CASE_ID.treehouse-lease"
+  remove_child_meta_key "$meta" treehouse_lease_identity
+  rm -f "$binding"
+  before=$(cksum "$meta")
+  out=$(run_child_teardown); rc=$?
+  [ "$rc" -ne 0 ] || fail "legacy metadata without a historical binding must fail safe"
+  assert_contains "$out" "does not match a live authoritative Treehouse lease" "missing-binding refusal was unclear"
+  [ "$(cksum "$meta")" = "$before" ] || fail "missing-binding migration changed recovery metadata"
+  pass "Herdr legacy recovery: returned, same-id reassigned, ambiguous, and unbound leases fail safely"
+}
+
+test_legacy_child_metadata_refuses_another_homes_same_id_binding() {
+  local id local_meta local_binding other_wt before rc
+  id=legacysamehomez5
+  make_child_respawn_case child-legacy-local-home "$id"
+  run_child_respawn >/dev/null || fail "local-home owned child spawn failed"
+  local_meta="$CHILD_CASE_STATE/$id.meta"
+  local_binding="$CHILD_CASE_STATE/$id.treehouse-lease"
+  remove_child_meta_key "$local_meta" treehouse_lease_identity
+
+  make_child_respawn_case child-legacy-other-home "$id"
+  run_child_respawn >/dev/null || fail "other-home same-id owned child spawn failed"
+  other_wt=$CHILD_CASE_WT
+  [ -f "$CHILD_CASE_STATE/$id.treehouse-lease" ] || fail "other home did not record its own exact binding"
+  awk -v worktree="$other_wt" '
+    /^worktree=/ { print "worktree=" worktree; next }
+    { print }
+  ' "$local_meta" > "$local_meta.tmp" && mv "$local_meta.tmp" "$local_meta"
+  [ "$(grep '^worktree=' "$local_binding" | cut -d= -f2-)" != "$other_wt" ] || fail "cross-home fixture did not preserve distinct bindings"
+  before=$(cksum "$local_meta")
+  fm_treehouse_migrate_owned_meta "$local_meta" >/dev/null 2>&1
+  rc=$?
+  [ "$rc" -ne 0 ] || fail "another home's same-id binding must not authorize migration"
+  [ "$(cksum "$local_meta")" = "$before" ] || fail "cross-home migration changed local recovery metadata"
+  pass "Herdr legacy recovery: another home's same-id binding is never accepted"
 }
 
 test_abort_recovery_rewrites_new_lease_worktree() {
@@ -2563,6 +2605,7 @@ test_child_workspace_population_failure_preserves_unproven_workspace
 test_spawn_abort_preserves_unproven_child_with_recovery_metadata
 test_legacy_child_metadata_migrates_matching_live_lease
 test_legacy_child_metadata_refuses_unowned_treehouse_states
+test_legacy_child_metadata_refuses_another_homes_same_id_binding
 test_abort_recovery_rewrites_new_lease_worktree
 test_child_workspace_respawn_refuses_live_exact_endpoint
 test_child_workspace_respawn_reuses_exact_husk_workspace

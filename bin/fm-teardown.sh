@@ -181,9 +181,9 @@ remove_meta_value() (
 )
 
 herdr_owned_worktree_return_phase() {
-  local meta=$1 id=$2 worktree lease state current
+  local meta=$1 worktree lease state current
   worktree=$(meta_value "$meta" worktree)
-  lease=$(fm_treehouse_migrate_owned_meta "$meta" "$id") || return 1
+  lease=$(fm_treehouse_migrate_owned_meta "$meta") || return 1
   state=$(meta_value "$meta" worktree_return_state)
   case "$lease" in lease:*) ;; *) return 1 ;; esac
   current=$(fm_treehouse_worktree_identity "$worktree") || return 1
@@ -212,7 +212,7 @@ HERDR_WORKTREE_RETURNED=0
 HERDR_WORKTREE_RETURN_STATE=
 HERDR_TREEHOUSE_LEASE_IDENTITY=
 if [ "$BACKEND" = herdr ] && [ "$(meta_value "$META" herdr_ws_owned)" = 1 ]; then
-  HERDR_TREEHOUSE_LEASE_IDENTITY=$(fm_treehouse_migrate_owned_meta "$META" "$ID") || {
+  HERDR_TREEHOUSE_LEASE_IDENTITY=$(fm_treehouse_migrate_owned_meta "$META") || {
     echo "error: legacy Herdr metadata for $ID does not match a live authoritative Treehouse lease; preserving recovery metadata" >&2
     exit 1
   }
@@ -1029,7 +1029,7 @@ validate_firstmate_home_children_removal() {
     child_backend=$(fm_backend_of_meta "$child_meta")
     child_returned=$(meta_value "$child_meta" worktree_returned)
     if [ "$child_backend" = herdr ] && [ "$(meta_value "$child_meta" herdr_ws_owned)" = 1 ]; then
-      child_owned_phase=$(herdr_owned_worktree_return_phase "$child_meta" "$child_id") || {
+      child_owned_phase=$(herdr_owned_worktree_return_phase "$child_meta") || {
         echo "error: child $child_id has unverified Treehouse lease state; preserving its recovery metadata" >&2
         return 1
       }
@@ -1069,7 +1069,7 @@ cleanup_firstmate_home_children() {
     child_returned=$(meta_value "$child_meta" worktree_returned)
     child_owned_phase=
     if [ "$child_backend" = herdr ] && [ "$(meta_value "$child_meta" herdr_ws_owned)" = 1 ]; then
-      child_owned_phase=$(herdr_owned_worktree_return_phase "$child_meta" "$child_id") || {
+      child_owned_phase=$(herdr_owned_worktree_return_phase "$child_meta") || {
         echo "error: child $child_id has unverified Treehouse lease state; preserving its recovery metadata" >&2
         return 1
       }
@@ -1156,7 +1156,8 @@ cleanup_firstmate_home_children() {
     fi
     remove_grok_turnend_auth "$sub_state" "$child_id"
     remove_pr_poll_artifacts "$sub_state" "$child_id" || return 1
-    rm -f "$sub_state/$child_id.status" "$sub_state/$child_id.turn-ended" "$sub_state/$child_id.meta" "$sub_state/$child_id.pi-ext.ts" "$sub_state/$child_id.grok-turnend-token"
+    rm -f "$sub_state/$child_id.status" "$sub_state/$child_id.turn-ended" "$sub_state/$child_id.meta" \
+      "$sub_state/$child_id.treehouse-lease" "$sub_state/$child_id.pi-ext.ts" "$sub_state/$child_id.grok-turnend-token"
   done
 }
 
@@ -1333,7 +1334,8 @@ fm_backend_clear_transition "$BACKEND" "$STATE" "$T" || true
 # Read before the state-file rm below; empty (pre-fix tasks without tasktmp=) is a no-op.
 [ -n "$TASK_TMP" ] && rm -rf "$TASK_TMP"
 remove_pr_poll_artifacts "$STATE" "$ID" || exit 1
-rm -f "$STATE/$ID.status" "$STATE/$ID.turn-ended" "$STATE/$ID.meta" "$STATE/$ID.pi-ext.ts" "$STATE/$ID.grok-turnend-token"
+rm -f "$STATE/$ID.status" "$STATE/$ID.turn-ended" "$STATE/$ID.meta" "$STATE/$ID.treehouse-lease" \
+  "$STATE/$ID.pi-ext.ts" "$STATE/$ID.grok-turnend-token"
 if [ "$KIND" != scout ] && [ "$KIND" != secondmate ] && [ "$MODE" != local-only ]; then
   "$FM_ROOT/bin/fm-fleet-sync.sh" "$PROJ" || true
 fi

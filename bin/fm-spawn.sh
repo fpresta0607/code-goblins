@@ -852,7 +852,7 @@ case "$BACKEND" in
       }
       HERDR_RECORDED_WORKTREE=$(grep '^worktree=' "$STATE/$ID.meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
       if [ -n "$HERDR_RECORDED_WORKTREE" ]; then
-        TREEHOUSE_LEASE_IDENTITY=$(fm_treehouse_migrate_owned_meta "$STATE/$ID.meta" "$ID") || {
+        TREEHOUSE_LEASE_IDENTITY=$(fm_treehouse_migrate_owned_meta "$STATE/$ID.meta") || {
           echo "error: legacy Herdr metadata for $ID does not match a live authoritative Treehouse lease; preserving recovery metadata" >&2
           exit 1
         }
@@ -1028,6 +1028,10 @@ if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
       esac
       if [ -n "$WT" ] && [ -n "$TREEHOUSE_LEASE_IDENTITY" ] \
         && [ "$(fm_treehouse_worktree_identity "$WT" 2>/dev/null || true)" = "$TREEHOUSE_LEASE_IDENTITY" ]; then
+        fm_treehouse_write_owned_binding "$STATE/$ID.meta" "$WT" "$TREEHOUSE_LEASE_IDENTITY" || {
+          echo "error: could not persist the exact Treehouse lease binding for $ID" >&2
+          exit 1
+        }
         spawn_send_text_line "$WT_TARGET" "(cd $(shell_quote "$WT") && \"\${SHELL:-/bin/bash}\")"
       else
         WT=
@@ -1070,6 +1074,10 @@ if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
     }
     case "$TREEHOUSE_LEASE_IDENTITY" in lease:*) ;; *) echo "error: Treehouse returned a non-lease identity for $WT" >&2; exit 1 ;; esac
     TREEHOUSE_ABORT_LEASE=1
+    fm_treehouse_write_owned_binding "$STATE/$ID.meta" "$WT" "$TREEHOUSE_LEASE_IDENTITY" || {
+      echo "error: could not persist the exact Treehouse lease binding for $ID" >&2
+      exit 1
+    }
   fi
   validate_spawn_worktree "treehouse get" "$T"
 fi
