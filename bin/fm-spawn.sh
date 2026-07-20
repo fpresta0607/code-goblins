@@ -247,6 +247,7 @@ spawn_abort_cleanup() {
           -v log_pane="${HERDR_LOG_PANE_ID:-}" \
           -v pane_closed="$herdr_abort_pane_closed" \
           -v lease="${TREEHOUSE_LEASE_IDENTITY:-}" \
+          -v worktree="${WT:-}" \
           -v parent="$HERDR_PARENT_WS" '
             /^window=/ { if (pane_closed != 1) print "window=" window; else print; next }
             /^herdr_session=/ { print "herdr_session=" session; next }
@@ -256,10 +257,26 @@ spawn_abort_cleanup() {
             /^herdr_log_tab_id=/ { print "herdr_log_tab_id=" log_tab; next }
             /^herdr_log_pane_id=/ { print "herdr_log_pane_id=" log_pane; next }
             /^herdr_parent_ws=/ { print "herdr_parent_ws=" parent; next }
-            /^treehouse_lease_identity=/ { print "treehouse_lease_identity=" lease; lease_written=1; next }
-            /^worktree_return_state=/ { next }
+            /^worktree=/ {
+              if (!worktree_written) {
+                if (worktree != "") print "worktree=" worktree
+                else print
+              }
+              worktree_written=1
+              next
+            }
+            /^treehouse_lease_identity=/ {
+              if (lease != "") print "treehouse_lease_identity=" lease
+              else print
+              lease_written=1
+              next
+            }
+            /^worktree_return_state=/ { if (lease == "") print; next }
             { print }
-            END { if (lease != "" && !lease_written) print "treehouse_lease_identity=" lease }
+            END {
+              if (worktree != "" && !worktree_written) print "worktree=" worktree
+              if (lease != "" && !lease_written) print "treehouse_lease_identity=" lease
+            }
           ' "$STATE/$ID.meta" > "$abort_meta_tmp" && mv "$abort_meta_tmp" "$STATE/$ID.meta"; then
           :
         else
@@ -828,6 +845,21 @@ case "$BACKEND" in
        grep -qx 'backend=herdr' "$STATE/$ID.meta" 2>/dev/null &&
        grep -qx 'herdr_ws_owned=1' "$STATE/$ID.meta" 2>/dev/null; then
       HERDR_EXISTING_OWNED=1
+      HERDR_RECORDED_WORKTREE_COUNT=$(grep -c '^worktree=' "$STATE/$ID.meta" 2>/dev/null || true)
+      [ "$HERDR_RECORDED_WORKTREE_COUNT" -eq 1 ] || {
+        echo "error: Herdr recovery metadata for $ID does not contain one exact worktree record; preserving recovery metadata" >&2
+        exit 1
+      }
+      HERDR_RECORDED_WORKTREE=$(grep '^worktree=' "$STATE/$ID.meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
+      if [ -n "$HERDR_RECORDED_WORKTREE" ]; then
+        TREEHOUSE_LEASE_IDENTITY=$(fm_treehouse_migrate_owned_meta "$STATE/$ID.meta" "$ID") || {
+          echo "error: legacy Herdr metadata for $ID does not match a live authoritative Treehouse lease; preserving recovery metadata" >&2
+          exit 1
+        }
+      elif grep -qE '^(treehouse_lease_identity|worktree_return_state)=' "$STATE/$ID.meta" 2>/dev/null; then
+        echo "error: Herdr recovery metadata for $ID has Treehouse ownership state without a worktree; preserving recovery metadata" >&2
+        exit 1
+      fi
     fi
     # Child-workspace grouping (INTERIM, default OFF -
     # config/herdr-child-workspaces=on; docs/herdr-backend.md). A DELEGATED job
@@ -991,7 +1023,9 @@ if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
       WT=$(grep '^worktree=' "$STATE/$ID.meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
       TREEHOUSE_LEASE_IDENTITY=$(grep '^treehouse_lease_identity=' "$STATE/$ID.meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
       TREEHOUSE_RETURN_STATE=$(grep '^worktree_return_state=' "$STATE/$ID.meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
-      case "$TREEHOUSE_RETURN_STATE" in completed:*) WT= ;; esac
+      case "$TREEHOUSE_RETURN_STATE" in
+        completed:*) WT=; TREEHOUSE_LEASE_IDENTITY= ;;
+      esac
       if [ -n "$WT" ] && [ -n "$TREEHOUSE_LEASE_IDENTITY" ] \
         && [ "$(fm_treehouse_worktree_identity "$WT" 2>/dev/null || true)" = "$TREEHOUSE_LEASE_IDENTITY" ]; then
         spawn_send_text_line "$WT_TARGET" "(cd $(shell_quote "$WT") && \"\${SHELL:-/bin/bash}\")"

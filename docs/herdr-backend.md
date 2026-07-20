@@ -226,6 +226,7 @@ When on, a DELEGATED job - a ship or scout crewmate, never a `--secondmate` supe
 - Teardown does not close an owned child workspace because current-home metadata and live workspace shape cannot authoritatively exclude ownership by another home.
 - It closes only the recorded task pane after re-verifying another tab or creating and re-verifying a safe placeholder, leaving the workspace and every supervisor intact.
 - Opted-in child-workspace tasks acquire a durable Treehouse lease whose machine-readable pool identity is recorded with the task.
+- Pre-identity metadata is migrated only when its recorded worktree has a unique live lease holder matching that exact task; available, differently leased, owner-only, and ambiguous pool entries retain recovery metadata and fail safely.
 - Treehouse return uses started and completed states bound to that exact lease identity, so a partially completed return retries while the lease remains held and never touches a reassigned slot after the identity changes.
 - If placeholder creation or pane-only cleanup cannot be positively completed, teardown leaves the endpoint intact until a later retry can finish safely.
 - A failed spawn uses the same pane-only safe fallback and preserves or repairs exact owned-workspace metadata when later recovery remains necessary.

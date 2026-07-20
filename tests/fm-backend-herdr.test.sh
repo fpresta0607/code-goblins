@@ -12,6 +12,8 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=bin/fm-treehouse-lib.sh
+. "$ROOT/bin/fm-treehouse-lib.sh"
 
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found (required by the herdr adapter)"; exit 0; }
 
@@ -142,6 +144,10 @@ case "$cmd $sub" in
     jq_state --arg w "$ws" '{result:{panes:[.tabs[]|select(.workspace_id==$w)|{pane_id:.pane_id, tab_id:.tab_id}]}}'
     ;;
   "pane close")
+    [ "${FM_FAKE_HERDR_PANE_CLOSE_FAIL:-0}" != 1 ] || exit 1
+    pane_close_call=$(jq_state -r '(.pane_close_calls // 0) + 1')
+    jq_state --argjson call "$pane_close_call" '.pane_close_calls = $call' | save
+    [ "${FM_FAKE_HERDR_PANE_CLOSE_FAIL_N:-0}" != "$pane_close_call" ] || exit 1
     pane=${3:-}
     jq_state --arg p "$pane" '.tabs |= [.[]|select(.pane_id != $p)]' | save
     ;;
@@ -212,12 +218,14 @@ case "${1:-}" in
       shift || true
     done
     jq --arg path "$worktree" --arg holder "$holder" --arg leased_at "2026-07-20T00:00:00.${RANDOM}Z" \
-      '.worktrees[0].path = $path | .worktrees[0].leased = true | .worktrees[0].lease_holder = $holder | .worktrees[0].leased_at = $leased_at' \
+      '(.worktrees[] | select(.path == $path)) |= (.leased = true | .lease_holder = $holder | .leased_at = $leased_at)' \
       "$state" > "$state.tmp" && mv "$state.tmp" "$state"
     printf '%s\n' "$worktree"
     ;;
   return)
-    jq '.worktrees[0].leased = false | del(.worktrees[0].lease_holder, .worktrees[0].leased_at)' \
+    [ "${FM_FAKE_TREEHOUSE_RETURN_FAIL:-0}" != 1 ] || exit 1
+    target=${3:-$worktree}
+    jq --arg path "$target" '(.worktrees[] | select(.path == $path)) |= (.leased = false | del(.lease_holder, .leased_at))' \
       "$state" > "$state.tmp" && mv "$state.tmp" "$state"
     ;;
 esac
@@ -226,8 +234,8 @@ SH
 }
 
 fake_treehouse_release() {
-  local state=$1
-  jq '.worktrees[0].leased = false | del(.worktrees[0].lease_holder, .worktrees[0].leased_at)' \
+  local state=$1 path=${2:-}
+  jq --arg path "$path" '(.worktrees[] | select($path == "" or .path == $path)) |= (.leased = false | del(.lease_holder, .leased_at))' \
     "$state" > "$state.tmp" && mv "$state.tmp" "$state"
 }
 
@@ -797,6 +805,11 @@ make_child_respawn_case() {
   CHILD_CASE_HERDR="$CHILD_CASE_DIR/herdr"
   CHILD_CASE_LOG="$CHILD_CASE_DIR/herdr.log"
   CHILD_CASE_ID=$id
+  CHILD_CASE_TAB_CLOSE_FAIL=0
+  CHILD_CASE_WORKSPACE_CLOSE_FAIL=0
+  CHILD_CASE_PANE_CLOSE_FAIL=0
+  CHILD_CASE_PANE_CLOSE_FAIL_N=0
+  CHILD_CASE_TREEHOUSE_RETURN_FAIL=0
   mkdir -p "$CHILD_CASE_DATA/$id" "$CHILD_CASE_STATE" "$CHILD_CASE_CONFIG"
   printf 'on\n' > "$CHILD_CASE_CONFIG/herdr-child-workspaces"
   printf 'brief\n' > "$CHILD_CASE_DATA/$id/brief.md"
@@ -811,11 +824,113 @@ run_child_respawn() {
     FM_FAKE_HERDR_STATE="$CHILD_CASE_HERDR/state.json" FM_FAKE_HERDR_FOREGROUND_CWD="$CHILD_CASE_WT" \
     FM_FAKE_HERDR_TAB_CLOSE_FAIL="${CHILD_CASE_TAB_CLOSE_FAIL:-0}" \
     FM_FAKE_HERDR_WORKSPACE_CLOSE_FAIL="${CHILD_CASE_WORKSPACE_CLOSE_FAIL:-0}" \
+    FM_FAKE_HERDR_PANE_CLOSE_FAIL="${CHILD_CASE_PANE_CLOSE_FAIL:-0}" \
+    FM_FAKE_HERDR_PANE_CLOSE_FAIL_N="${CHILD_CASE_PANE_CLOSE_FAIL_N:-0}" \
     FM_FAKE_TREEHOUSE_STATE="$CHILD_CASE_TREEHOUSE_STATE" FM_FAKE_TREEHOUSE_WT="$CHILD_CASE_WT" \
+    FM_FAKE_TREEHOUSE_RETURN_FAIL="${CHILD_CASE_TREEHOUSE_RETURN_FAIL:-0}" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CHILD_CASE_HOME" FM_STATE_OVERRIDE="$CHILD_CASE_STATE" \
     FM_DATA_OVERRIDE="$CHILD_CASE_DATA" FM_CONFIG_OVERRIDE="$CHILD_CASE_CONFIG" \
     FM_PROJECTS_OVERRIDE="$CHILD_CASE_HOME/projects" FM_SPAWN_NO_GUARD=1 \
     "$ROOT/bin/fm-spawn.sh" "$CHILD_CASE_ID" "$CHILD_CASE_PROJ" 'echo test' --backend herdr 2>&1
+}
+
+run_child_teardown() {
+  PATH="$CHILD_CASE_FAKEBIN:$PATH" HERDR_SESSION=fmtest FM_HERDR_LOG="$CHILD_CASE_LOG" \
+    FM_FAKE_HERDR_STATE="$CHILD_CASE_HERDR/state.json" \
+    FM_FAKE_HERDR_PANE_CLOSE_FAIL="${CHILD_CASE_PANE_CLOSE_FAIL:-0}" \
+    FM_FAKE_HERDR_PANE_CLOSE_FAIL_N="${CHILD_CASE_PANE_CLOSE_FAIL_N:-0}" \
+    FM_FAKE_TREEHOUSE_STATE="$CHILD_CASE_TREEHOUSE_STATE" FM_FAKE_TREEHOUSE_WT="$CHILD_CASE_WT" \
+    FM_FAKE_TREEHOUSE_RETURN_FAIL="${CHILD_CASE_TREEHOUSE_RETURN_FAIL:-0}" \
+    FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CHILD_CASE_HOME" FM_STATE_OVERRIDE="$CHILD_CASE_STATE" \
+    FM_DATA_OVERRIDE="$CHILD_CASE_DATA" FM_CONFIG_OVERRIDE="$CHILD_CASE_CONFIG" \
+    "$ROOT/bin/fm-teardown.sh" "$CHILD_CASE_ID" --force 2>&1
+}
+
+remove_child_meta_key() {
+  local meta=$1 key=$2
+  awk -v key="$key" 'index($0, key "=") != 1 { print }' "$meta" > "$meta.tmp" && mv "$meta.tmp" "$meta"
+}
+
+test_legacy_child_metadata_migrates_matching_live_lease() {
+  local meta identity
+  make_child_respawn_case child-legacy-matching legacymatchingz9
+  run_child_respawn >/dev/null || fail "initial owned child spawn failed"
+  meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
+  remove_child_meta_key "$meta" treehouse_lease_identity
+  run_child_respawn >/dev/null || fail "matching legacy lease did not migrate during respawn"
+  identity=$(grep '^treehouse_lease_identity=' "$meta" | cut -d= -f2-)
+  case "$identity" in lease:*) ;; *) fail "matching legacy lease identity was not persisted" ;; esac
+  remove_child_meta_key "$meta" treehouse_lease_identity
+  run_child_teardown >/dev/null || fail "matching legacy lease did not migrate during teardown"
+  [ ! -f "$meta" ] || fail "migrated legacy teardown retained task metadata"
+  pass "Herdr legacy recovery: matching live leases migrate on respawn and teardown"
+}
+
+test_legacy_child_metadata_refuses_unowned_treehouse_states() {
+  local meta before out rc
+  make_child_respawn_case child-legacy-available legacyavailablez1
+  run_child_respawn >/dev/null || fail "initial owned child spawn failed"
+  meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
+  remove_child_meta_key "$meta" treehouse_lease_identity
+  fake_treehouse_release "$CHILD_CASE_TREEHOUSE_STATE" "$CHILD_CASE_WT"
+  before=$(cksum "$meta")
+  out=$(run_child_respawn); rc=$?
+  [ "$rc" -ne 0 ] || fail "already-returned legacy lease must fail safe"
+  assert_contains "$out" "does not match a live authoritative Treehouse lease" "already-returned migration refusal was unclear"
+  [ "$(cksum "$meta")" = "$before" ] || fail "already-returned migration changed recovery metadata"
+
+  make_child_respawn_case child-legacy-reassigned legacyreassignedz2
+  run_child_respawn >/dev/null || fail "initial owned child spawn failed"
+  meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
+  remove_child_meta_key "$meta" treehouse_lease_identity
+  jq '(.worktrees[0].lease_holder) = "firstmate-another-task-0123456789abcdef0123456789abcdef"' \
+    "$CHILD_CASE_TREEHOUSE_STATE" > "$CHILD_CASE_TREEHOUSE_STATE.tmp" && mv "$CHILD_CASE_TREEHOUSE_STATE.tmp" "$CHILD_CASE_TREEHOUSE_STATE"
+  before=$(cksum "$meta")
+  out=$(run_child_respawn); rc=$?
+  [ "$rc" -ne 0 ] || fail "reassigned legacy lease must fail safe"
+  [ "$(cksum "$meta")" = "$before" ] || fail "reassigned migration changed recovery metadata"
+
+  make_child_respawn_case child-legacy-ambiguous legacyambiguousz3
+  run_child_respawn >/dev/null || fail "initial owned child spawn failed"
+  meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
+  remove_child_meta_key "$meta" treehouse_lease_identity
+  jq '.worktrees += [.worktrees[0]]' "$CHILD_CASE_TREEHOUSE_STATE" > "$CHILD_CASE_TREEHOUSE_STATE.tmp" && mv "$CHILD_CASE_TREEHOUSE_STATE.tmp" "$CHILD_CASE_TREEHOUSE_STATE"
+  before=$(cksum "$meta")
+  out=$(run_child_teardown); rc=$?
+  [ "$rc" -ne 0 ] || fail "ambiguous legacy worktree must fail safe"
+  [ "$(cksum "$meta")" = "$before" ] || fail "ambiguous migration changed recovery metadata"
+  pass "Herdr legacy recovery: returned, reassigned, and ambiguous leases fail safely"
+}
+
+test_abort_recovery_rewrites_new_lease_worktree() {
+  local meta old_identity new_root new_worktree new_identity expected_identity out rc
+  make_child_respawn_case child-abort-new-worktree abortnewworktreez4
+  run_child_respawn >/dev/null || fail "initial owned child spawn failed"
+  meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
+  old_identity=$(grep '^treehouse_lease_identity=' "$meta" | cut -d= -f2-)
+  fake_treehouse_release "$CHILD_CASE_TREEHOUSE_STATE" "$CHILD_CASE_WT"
+  printf 'worktree_return_state=completed:%s\n' "$old_identity" >> "$meta"
+  new_root="$CHILD_CASE_DIR/treehouse-pool/2"
+  new_worktree="$new_root/project"
+  fm_git_worktree "$CHILD_CASE_PROJ" "$new_root" "fm/$CHILD_CASE_ID-replacement"
+  mkdir -p "$new_worktree"
+  jq --arg path "$new_worktree" '.worktrees += [{name:"2", path:$path, created_at:"2026-07-20T00:00:01Z"}]' \
+    "$CHILD_CASE_TREEHOUSE_STATE" > "$CHILD_CASE_TREEHOUSE_STATE.tmp" && mv "$CHILD_CASE_TREEHOUSE_STATE.tmp" "$CHILD_CASE_TREEHOUSE_STATE"
+  CHILD_CASE_WT=$new_worktree
+  CHILD_CASE_PANE_CLOSE_FAIL_N=2
+  CHILD_CASE_TREEHOUSE_RETURN_FAIL=1
+  out=$(run_child_respawn); rc=$?
+  [ "$rc" -ne 0 ] || fail "partial replacement with failed lease return must fail spawn"
+  [ "$(grep '^worktree=' "$meta" | cut -d= -f2-)" = "$new_worktree" ] || fail "abort recovery retained the old worktree path: $out"
+  new_identity=$(grep '^treehouse_lease_identity=' "$meta" | cut -d= -f2-)
+  expected_identity=$(fm_treehouse_worktree_identity "$new_worktree") || fail "new replacement lease was not recorded by Treehouse: $(cat "$CHILD_CASE_TREEHOUSE_STATE"); spawn: $out"
+  [ -n "$new_identity" ] && [ "$new_identity" = "$expected_identity" ] || fail "abort recovery did not bind metadata to the actual new lease"
+  CHILD_CASE_PANE_CLOSE_FAIL_N=0
+  CHILD_CASE_TREEHOUSE_RETURN_FAIL=0
+  out=$(run_child_teardown); rc=$?
+  [ "$rc" -eq 0 ] || fail "teardown did not converge from repaired abort metadata: $out; meta: $(cat "$meta"); herdr: $(cat "$CHILD_CASE_HERDR/state.json")"
+  [ ! -f "$meta" ] || fail "converged teardown retained repaired recovery metadata"
+  pass "fm-spawn.sh: abort recovery rewrites the exact new lease worktree"
 }
 
 test_child_workspace_respawn_refuses_live_exact_endpoint() {
@@ -2446,6 +2561,9 @@ test_create_task_creates_with_no_focus_flag
 test_child_workspace_log_path_is_shell_quoted
 test_child_workspace_population_failure_preserves_unproven_workspace
 test_spawn_abort_preserves_unproven_child_with_recovery_metadata
+test_legacy_child_metadata_migrates_matching_live_lease
+test_legacy_child_metadata_refuses_unowned_treehouse_states
+test_abort_recovery_rewrites_new_lease_worktree
 test_child_workspace_respawn_refuses_live_exact_endpoint
 test_child_workspace_respawn_reuses_exact_husk_workspace
 test_child_workspace_adopts_preserved_workspace_after_teardown
