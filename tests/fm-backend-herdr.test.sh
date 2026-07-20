@@ -700,7 +700,7 @@ test_child_workspace_log_path_is_shell_quoted() {
   pass "fm_backend_herdr_create_child_workspace: shell-quotes the status path in the log command"
 }
 
-test_child_workspace_population_failure_rolls_back_fresh_workspace() {
+test_child_workspace_population_failure_preserves_unproven_workspace() {
   local dir log fb out rc
   dir="$TMP_ROOT/child-populate-rollback"; log="$dir/log"
   fb=$(make_herdr_statefake "$dir")
@@ -710,12 +710,13 @@ test_child_workspace_population_failure_rolls_back_fresh_workspace() {
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_child_workspace fmtest w-parent task /tmp' "$ROOT" 2>&1)
   rc=$?
   [ "$rc" -ne 0 ] || fail "a failed runtime-tab creation must fail child workspace construction"
-  [ "$(jq '.workspaces | length' "$dir/state.json")" = 0 ] || \
-    fail "a failed child workspace construction left its freshly-created workspace behind: $out"
-  pass "fm_backend_herdr_create_child_workspace: rolls back a fresh workspace when population fails"
+  [ "$(jq '.workspaces | length' "$dir/state.json")" = 1 ] || \
+    fail "a failed child workspace construction did not preserve the ambiguous workspace safely: $out"
+  assert_not_contains "$(cat "$log")" $'workspace\x1fclose' "failed population must not issue workspace.close without durable ownership proof"
+  pass "fm_backend_herdr_create_child_workspace: failed population preserves the workspace instead of closing without proof"
 }
 
-test_spawn_abort_closes_owned_child_before_meta_is_durable() {
+test_spawn_abort_preserves_unproven_child_with_recovery_metadata() {
   local dir home proj invalid data state config fakebin log id out rc live
   dir="$TMP_ROOT/spawn-child-abort"; home="$dir/home"; proj="$dir/project"; invalid="$dir/not-a-worktree"
   data="$home/data"; state="$home/state"; config="$home/config"; log="$dir/herdr.log"; id=abortchildz1
@@ -734,9 +735,9 @@ test_spawn_abort_closes_owned_child_before_meta_is_durable() {
   rc=$?
   [ "$rc" -ne 0 ] || fail "spawn should refuse a non-worktree path after Treehouse acquisition"
   live=$(jq -r '[.workspaces[].label] | join(" ")' "$dir/herdr/state.json")
-  [ "$live" = firstmate ] || fail "aborted spawn leaked its owned child workspace; live labels: $live; output: $out"
-  [ ! -e "$state/$id.meta" ] || fail "successful abort cleanup should not leave recovery metadata"
-  pass "fm-spawn.sh: closes an owned child workspace when spawn aborts before durable metadata"
+  assert_contains "$live" "firstmate/$id" "aborted spawn must preserve the unproven child workspace for safe follow-up"
+  [ -e "$state/$id.meta" ] || fail "abort fallback must retain exact recovery metadata for the preserved workspace"
+  pass "fm-spawn.sh: abort fallback preserves an unproven workspace and recovery metadata"
 }
 
 make_child_respawn_case() {
@@ -846,8 +847,8 @@ test_child_workspace_respawn_refuses_ambiguous_workspace_duplicates() {
   pass "fm-spawn.sh: refuses ambiguous duplicate child workspaces before creating another"
 }
 
-test_child_workspace_failed_reuse_tracks_replacement_when_cleanup_fails() {
-  local meta state_file workspace old_tab old_pane old_worktree out rc new_tab new_pane tracked
+test_child_workspace_failed_reuse_preserves_recoverable_husk_metadata() {
+  local meta state_file workspace old_tab old_pane old_worktree out rc tracked
   make_child_respawn_case child-respawn-cleanup-fail respawncleanupz4
   run_child_respawn >/dev/null || fail "initial owned child spawn failed"
   meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
@@ -860,16 +861,15 @@ test_child_workspace_failed_reuse_tracks_replacement_when_cleanup_fails() {
   CHILD_CASE_WORKSPACE_CLOSE_FAIL=1
   out=$(run_child_respawn); rc=$?
   [ "$rc" -ne 0 ] || fail "reuse must fail when the old runtime husk cannot be removed"
-  new_tab=$(grep '^herdr_tab_id=' "$meta" | cut -d= -f2-)
-  new_pane=$(grep '^herdr_pane_id=' "$meta" | cut -d= -f2-)
-  [ "$new_tab" != "$old_tab" ] || fail "failed reuse cleanup left metadata pointing at the old runtime tab"
-  [ "$new_pane" != "$old_pane" ] || fail "failed reuse cleanup left metadata pointing at the old runtime pane"
+  [ "$(grep '^herdr_tab_id=' "$meta" | cut -d= -f2-)" = "$old_tab" ] || fail "pane-only cleanup discarded the remaining recoverable runtime tab"
+  [ "$(grep '^herdr_pane_id=' "$meta" | cut -d= -f2-)" = "$old_pane" ] || fail "pane-only cleanup discarded the remaining recoverable runtime pane"
   [ "$(grep '^herdr_workspace_id=' "$meta" | cut -d= -f2-)" = "$workspace" ] || fail "failed reuse cleanup changed exact workspace ownership"
   [ "$(grep '^worktree=' "$meta" | cut -d= -f2-)" = "$old_worktree" ] || fail "failed reuse cleanup discarded existing Treehouse metadata"
-  tracked=$(jq -r --arg w "$workspace" --arg t "$new_tab" --arg p "$new_pane" \
+  tracked=$(jq -r --arg w "$workspace" --arg t "$old_tab" --arg p "$old_pane" \
     '[.tabs[] | select(.workspace_id == $w and .tab_id == $t and .pane_id == $p)] | length' "$state_file")
-  [ "$tracked" = 1 ] || fail "failed reuse cleanup metadata does not identify the replacement endpoint: $out"
-  pass "fm-spawn.sh: failed reused-workspace cleanup durably tracks the replacement endpoint"
+  [ "$tracked" = 1 ] || fail "failed reuse cleanup metadata does not identify the recoverable husk endpoint: $out"
+  assert_not_contains "$(cat "$CHILD_CASE_LOG")" $'workspace\x1fclose' "failed reuse must preserve the workspace when ownership proof is ambiguous"
+  pass "fm-spawn.sh: failed reuse preserves recoverable husk metadata after pane-only cleanup"
 }
 
 # --- workspace_find: scoped to THIS home's own label, not just any match ----
@@ -2329,13 +2329,13 @@ test_create_task_husk_replacement_creates_before_closing
 test_create_task_creates_and_parses_ids
 test_create_task_creates_with_no_focus_flag
 test_child_workspace_log_path_is_shell_quoted
-test_child_workspace_population_failure_rolls_back_fresh_workspace
-test_spawn_abort_closes_owned_child_before_meta_is_durable
+test_child_workspace_population_failure_preserves_unproven_workspace
+test_spawn_abort_preserves_unproven_child_with_recovery_metadata
 test_child_workspace_respawn_refuses_live_exact_endpoint
 test_child_workspace_respawn_reuses_exact_husk_workspace
 test_child_workspace_flag_off_preserves_owned_recovery_and_listing
 test_child_workspace_respawn_refuses_ambiguous_workspace_duplicates
-test_child_workspace_failed_reuse_tracks_replacement_when_cleanup_fails
+test_child_workspace_failed_reuse_preserves_recoverable_husk_metadata
 test_workspace_find_matches_only_this_homes_own_label
 test_list_live_scoped_to_this_homes_workspace_only
 test_parse_target

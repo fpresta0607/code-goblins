@@ -55,8 +55,8 @@ printf '%s\n' "$*" >> "$CLILOG"
 case "${1:-} ${2:-}" in
   "workspace list")
     [ -n "${FM_FAKE_LIST_FAIL:-}" ] && exit 1
-    jq -Rn --arg native_parent "${FM_FAKE_NATIVE_PARENT:-}" --arg fleet_parent "${FM_FAKE_FLEET_PARENT:-}" --arg fleet_child "${FM_FAKE_FLEET_CHILD:-}" '
-      [inputs | select(length > 0) | {workspace_id: ., label: (if . == $fleet_parent then "2ndmate-remote" elif . == $fleet_child then "2ndmate-remote/task" else . end)}
+    jq -Rn --arg native_parent "${FM_FAKE_NATIVE_PARENT:-}" '
+      [inputs | select(length > 0) | {workspace_id: ., label: .}
         + if . == $native_parent then {worktree: {is_linked_worktree: false}} else {} end]
       | {result: {workspaces: .}}' < "$ORDER"
     if [ -n "${FM_FAKE_CHURN_AFTER:-}" ]; then
@@ -65,6 +65,39 @@ case "${1:-} ${2:-}" in
         printf '%s\n' "${FM_FAKE_CHURN_APPEND:?}" >> "$ORDER"
       fi
     fi
+    ;;
+  "tab list")
+    ws=
+    while [ "$#" -gt 0 ]; do
+      if [ "$1" = --workspace ]; then ws=${2:-}; break; fi
+      shift
+    done
+    if [ "$ws" = "${FM_FAKE_PROOF_WS:-}" ]; then
+      jq -n --arg w "$ws" --arg stale "${FM_FAKE_STALE_LOG:-}" --arg extra "${FM_FAKE_EXTRA_TAB:-}" '
+        {result:{tabs:([
+          {workspace_id:$w,tab_id:($w+":t1"),label:"runtime"},
+          {workspace_id:$w,tab_id:(if $stale == "1" then $w+":other-log" else $w+":tlog" end),label:"log"}
+        ] + if $extra == "1" then [{workspace_id:$w,tab_id:($w+":textra"),label:"other"}] else [] end)}}'
+    else
+      printf '{"result":{"tabs":[]}}\n'
+    fi
+    ;;
+  "pane list")
+    ws=
+    while [ "$#" -gt 0 ]; do
+      if [ "$1" = --workspace ]; then ws=${2:-}; break; fi
+      shift
+    done
+    if [ "$ws" = "${FM_FAKE_PROOF_WS:-}" ]; then
+      jq -n --arg w "$ws" '{result:{panes:[
+        {pane_id:($w+":p1"),tab_id:($w+":t1")},
+        {pane_id:($w+":plog"),tab_id:($w+":tlog")}
+      ]}}'
+    else
+      printf '{"result":{"panes":[]}}\n'
+    fi
+    ;;
+  "pane close"|"workspace close")
     ;;
   "session list")
     printf '{"sessions":[{"name":"%s","running":true,"socket_path":"%s"}]}\n' "${FM_FAKE_SESSION:?}" "${FM_FAKE_SOCK:?}"
@@ -128,6 +161,8 @@ write_owned_meta() {  # <state_dir> <id> <child_ws> <parent_ws> [<session>]
     echo "herdr_workspace_id=$child"
     echo "herdr_tab_id=$child:t1"
     echo "herdr_pane_id=$child:p1"
+    echo "herdr_log_tab_id=$child:tlog"
+    echo "herdr_log_pane_id=$child:plog"
     echo "herdr_parent_ws=$parent"
     echo "herdr_ws_owned=1"
   } > "$state/$id.meta"
@@ -498,9 +533,10 @@ test_cli_refuses_herdr_worktree_remove_before_execution() {
 
 test_close_refuses_any_locally_marked_parent() {
   contig_case close-marked $'ws-fm\nws-c1'
+  write_owned_meta "$CASE_STATE" owner ws-fm ws-other
   write_owned_meta "$CASE_STATE" c1 ws-c1 ws-fm
   PATH="$FB:$PATH" \
-    fm_backend_herdr_close_owned_workspace "$SES" ws-fm ws-other "$CASE_STATE" >/dev/null 2>&1 && \
+    fm_backend_herdr_close_owned_workspace "$SES" ws-fm ws-other "$CASE_STATE" "$CASE_STATE/owner.meta" >/dev/null 2>&1 && \
     fail "close must refuse a parent marked by any local ownership edge"
   [ ! -s "$CASE_CLI_LOG" ] || fail "a locally marked parent must be refused before any herdr CLI call"
   pass "close safety: every locally marked supervisor parent is protected from workspace.close"
@@ -508,46 +544,67 @@ test_close_refuses_any_locally_marked_parent() {
 
 test_close_refuses_herdr_native_worktree_group_parent() {
   contig_case close-native-parent $'ws-parent\nws-child'
+  write_owned_meta "$CASE_STATE" owner ws-parent ws-other
   PATH="$FB:$PATH" \
     FM_FAKE_ORDER="$CASE_ORDER" FM_FAKE_CLI_LOG="$CASE_CLI_LOG" \
     FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" \
     FM_FAKE_NATIVE_PARENT=ws-parent \
-    fm_backend_herdr_close_owned_workspace "$SES" ws-parent ws-other "$CASE_STATE" >/dev/null 2>&1 && \
+    fm_backend_herdr_close_owned_workspace "$SES" ws-parent ws-other "$CASE_STATE" "$CASE_STATE/owner.meta" >/dev/null 2>&1 && \
     fail "close must refuse a Herdr-native marked worktree-group parent"
   ! grep -q '^workspace close' "$CASE_CLI_LOG" || fail "the group parent guard must prevent workspace.close"
   pass "close safety: Herdr-native marked worktree-group parent is protected from group close"
 }
 
-test_close_refuses_parent_registered_by_another_home() {
+test_unsafe_close_proofs_fall_back_to_pane_only() {
   contig_case close-cross-home $'ws-fm\nws-remote-parent\nws-child'
+  write_owned_meta "$CASE_STATE" task ws-remote-parent ws-fm
   PATH="$FB:$PATH" \
     FM_FAKE_ORDER="$CASE_ORDER" FM_FAKE_CLI_LOG="$CASE_CLI_LOG" \
     FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" \
-    FM_FAKE_FLEET_PARENT=ws-remote-parent \
-    fm_backend_herdr_close_owned_workspace "$SES" ws-remote-parent ws-other "$CASE_STATE" >/dev/null 2>&1 && \
-    fail "close must refuse a supervisor workspace registered outside the current home"
-  ! grep -q '^workspace close' "$CASE_CLI_LOG" || fail "the cross-home supervisor guard must prevent workspace.close"
-  pass "close safety: the fleet-wide registry protects another home's supervisor workspace"
-}
+    FM_FAKE_PROOF_WS=ws-remote-parent FM_FAKE_EXTRA_TAB=1 \
+    fm_backend_herdr_close_owned_workspace "$SES" ws-remote-parent ws-fm "$CASE_STATE" "$CASE_STATE/task.meta" >/dev/null 2>&1 && \
+    fail "cross-home-shaped workspace proof must refuse workspace.close"
+  PATH="$FB:$PATH" \
+    FM_FAKE_ORDER="$CASE_ORDER" FM_FAKE_CLI_LOG="$CASE_CLI_LOG" \
+    FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" \
+    FM_FAKE_PROOF_WS=ws-remote-parent FM_FAKE_EXTRA_TAB=1 \
+    fm_backend_herdr_close_task_pane_preserving_workspace "$SES" ws-remote-parent ws-remote-parent:p1 || \
+    fail "cross-home-shaped refusal did not use pane-only fallback"
+  ! grep -q '^workspace close' "$CASE_CLI_LOG" || fail "cross-home fallback must preserve the workspace"
+  grep -q '^pane close ws-remote-parent:p1 ' "$CASE_CLI_LOG" || fail "cross-home fallback did not close only the task pane"
 
-test_close_allows_secondmate_owned_child_label() {
-  contig_case close-secondmate-child $'ws-fm\nws-child'
-  PATH="$FB:$PATH" \
-    FM_FAKE_ORDER="$CASE_ORDER" FM_FAKE_CLI_LOG="$CASE_CLI_LOG" \
-    FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" \
-    FM_FAKE_FLEET_CHILD=ws-child \
-    fm_backend_herdr_close_owned_workspace "$SES" ws-child ws-parent "$CASE_STATE" >/dev/null 2>&1 || \
-    fail "a secondmate-owned child workspace must remain closable"
-  grep -q '^workspace close ws-child ' "$CASE_CLI_LOG" || fail "close must target the secondmate-owned child workspace"
-  pass "close safety: secondmate-owned child labels are not mistaken for supervisors"
+  contig_case close-ambiguous $'ws-child\nws-child'
+  write_owned_meta "$CASE_STATE" task ws-child ws-parent
+  PATH="$FB:$PATH" FM_FAKE_ORDER="$CASE_ORDER" FM_FAKE_CLI_LOG="$CASE_CLI_LOG" \
+    FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" FM_FAKE_PROOF_WS=ws-child \
+    fm_backend_herdr_close_owned_workspace "$SES" ws-child ws-parent "$CASE_STATE" "$CASE_STATE/task.meta" >/dev/null 2>&1 && \
+    fail "ambiguous workspace proof must refuse workspace.close"
+  PATH="$FB:$PATH" FM_FAKE_ORDER="$CASE_ORDER" FM_FAKE_CLI_LOG="$CASE_CLI_LOG" \
+    FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" FM_FAKE_PROOF_WS=ws-child \
+    fm_backend_herdr_close_task_pane_preserving_workspace "$SES" ws-child ws-child:p1 || fail "ambiguous refusal did not fall back"
+  ! grep -q '^workspace close' "$CASE_CLI_LOG" || fail "ambiguous fallback must preserve the workspace"
+
+  contig_case close-stale $'ws-parent\nws-child'
+  write_owned_meta "$CASE_STATE" task ws-child ws-parent
+  PATH="$FB:$PATH" FM_FAKE_ORDER="$CASE_ORDER" FM_FAKE_CLI_LOG="$CASE_CLI_LOG" \
+    FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" FM_FAKE_PROOF_WS=ws-child FM_FAKE_STALE_LOG=1 \
+    fm_backend_herdr_close_owned_workspace "$SES" ws-child ws-parent "$CASE_STATE" "$CASE_STATE/task.meta" >/dev/null 2>&1 && \
+    fail "stale owned metadata must refuse workspace.close"
+  PATH="$FB:$PATH" FM_FAKE_ORDER="$CASE_ORDER" FM_FAKE_CLI_LOG="$CASE_CLI_LOG" \
+    FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" FM_FAKE_PROOF_WS=ws-child FM_FAKE_STALE_LOG=1 \
+    fm_backend_herdr_close_task_pane_preserving_workspace "$SES" ws-child ws-child:p1 || fail "stale refusal did not fall back"
+  ! grep -q '^workspace close' "$CASE_CLI_LOG" || fail "stale fallback must preserve the workspace"
+  pass "close safety: cross-home, ambiguous, and stale proofs use pane-only fallback"
 }
 
 test_close_allows_exact_unmarked_owned_child() {
   contig_case close-child $'ws-parent\nws-child'
+  write_owned_meta "$CASE_STATE" task ws-child ws-parent
   PATH="$FB:$PATH" \
     FM_FAKE_ORDER="$CASE_ORDER" FM_FAKE_CLI_LOG="$CASE_CLI_LOG" \
     FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" \
-    fm_backend_herdr_close_owned_workspace "$SES" ws-child ws-parent "$CASE_STATE" >/dev/null 2>&1 || \
+    FM_FAKE_PROOF_WS=ws-child \
+    fm_backend_herdr_close_owned_workspace "$SES" ws-child ws-parent "$CASE_STATE" "$CASE_STATE/task.meta" >/dev/null 2>&1 || \
     fail "the exact unmarked interim child workspace should close"
   grep -q '^workspace close ws-child ' "$CASE_CLI_LOG" || fail "close must target exactly the owned child id"
   pass "close safety: exact unmarked interim child remains closable after parent guards"
@@ -580,8 +637,7 @@ test_child_workspace_flag_is_explicit_and_default_off
 test_cli_refuses_herdr_worktree_remove_before_execution
 test_close_refuses_any_locally_marked_parent
 test_close_refuses_herdr_native_worktree_group_parent
-test_close_refuses_parent_registered_by_another_home
-test_close_allows_secondmate_owned_child_label
+test_unsafe_close_proofs_fall_back_to_pane_only
 test_close_allows_exact_unmarked_owned_child
 
 echo "# all herdr workspace-contiguity unit tests passed"

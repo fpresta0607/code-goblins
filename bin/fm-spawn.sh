@@ -214,15 +214,20 @@ parse_orca_worktree_result() {
 }
 
 spawn_abort_cleanup() {
-  local status=$? herdr_abort_ok=0 abort_meta_tmp
+  local status=$? herdr_abort_ok=0 herdr_abort_pane_closed=0 abort_meta_tmp
   if [ "$HERDR_ABORT_CLEANUP" = 1 ]; then
     HERDR_ABORT_CLEANUP=0
     case "$HERDR_ABORT_MODE" in
       fresh)
-        FM_HOME="$HERDR_ABORT_HOME" fm_backend_herdr_discard_fresh_workspace "$HERDR_SES" "$HERDR_WORKSPACE_ID" && herdr_abort_ok=1
+        FM_HOME="$HERDR_ABORT_HOME" fm_backend_herdr_close_task_pane_preserving_workspace "$HERDR_SES" "$HERDR_WORKSPACE_ID" "${HERDR_PANE_ID:-}" || true
         ;;
       owned)
-        FM_HOME="$HERDR_ABORT_HOME" fm_backend_herdr_close_owned_workspace "$HERDR_SES" "$HERDR_WORKSPACE_ID" "$HERDR_PARENT_WS" "$STATE" && herdr_abort_ok=1
+        FM_HOME="$HERDR_ABORT_HOME" fm_backend_herdr_close_owned_workspace "$HERDR_SES" "$HERDR_WORKSPACE_ID" "$HERDR_PARENT_WS" "$STATE" "$STATE/$ID.meta" && herdr_abort_ok=1
+        if [ "$herdr_abort_ok" != 1 ]; then
+          if FM_HOME="$HERDR_ABORT_HOME" fm_backend_herdr_close_task_pane_preserving_workspace "$HERDR_SES" "$HERDR_WORKSPACE_ID" "${HERDR_PANE_ID:-}"; then
+            herdr_abort_pane_closed=1
+          fi
+        fi
         ;;
     esac
     if [ "$herdr_abort_ok" != 1 ]; then
@@ -235,12 +240,17 @@ spawn_abort_cleanup() {
           -v workspace="$HERDR_WORKSPACE_ID" \
           -v tab="${HERDR_TAB_ID:-}" \
           -v pane="${HERDR_PANE_ID:-}" \
+          -v log_tab="${HERDR_LOG_TAB_ID:-}" \
+          -v log_pane="${HERDR_LOG_PANE_ID:-}" \
+          -v pane_closed="$herdr_abort_pane_closed" \
           -v parent="$HERDR_PARENT_WS" '
-            /^window=/ { print "window=" window; next }
+            /^window=/ { if (pane_closed != 1) print "window=" window; else print; next }
             /^herdr_session=/ { print "herdr_session=" session; next }
             /^herdr_workspace_id=/ { print "herdr_workspace_id=" workspace; next }
-            /^herdr_tab_id=/ { print "herdr_tab_id=" tab; next }
-            /^herdr_pane_id=/ { print "herdr_pane_id=" pane; next }
+            /^herdr_tab_id=/ { if (pane_closed != 1) print "herdr_tab_id=" tab; else print; next }
+            /^herdr_pane_id=/ { if (pane_closed != 1) print "herdr_pane_id=" pane; else print; next }
+            /^herdr_log_tab_id=/ { print "herdr_log_tab_id=" log_tab; next }
+            /^herdr_log_pane_id=/ { print "herdr_log_pane_id=" log_pane; next }
             /^herdr_parent_ws=/ { print "herdr_parent_ws=" parent; next }
             { print }
           ' "$STATE/$ID.meta" > "$abort_meta_tmp" && mv "$abort_meta_tmp" "$STATE/$ID.meta"; then
@@ -265,6 +275,8 @@ spawn_abort_cleanup() {
           echo "herdr_workspace_id=$HERDR_WORKSPACE_ID"
           echo "herdr_tab_id=${HERDR_TAB_ID:-}"
           echo "herdr_pane_id=${HERDR_PANE_ID:-}"
+          echo "herdr_log_tab_id=${HERDR_LOG_TAB_ID:-}"
+          echo "herdr_log_pane_id=${HERDR_LOG_PANE_ID:-}"
           echo "herdr_parent_ws=$HERDR_PARENT_WS"
           echo "herdr_ws_owned=1"
         } > "$STATE/$ID.meta" 2>/dev/null || true
@@ -822,6 +834,8 @@ case "$BACKEND" in
         FM_BACKEND_HERDR_CHILD_SEED_TAB_ID=
       fi
       if ! fm_backend_herdr_child_workspace_populate "$HERDR_SES" "$HERDR_WORKSPACE_ID" "$ID" "$PROJ_ABS" "$STATE/$ID.status" "$FM_BACKEND_HERDR_CHILD_SEED_TAB_ID"; then
+        HERDR_LOG_TAB_ID=${FM_BACKEND_HERDR_CHILD_LOG_TAB_ID:-}
+        HERDR_LOG_PANE_ID=${FM_BACKEND_HERDR_CHILD_LOG_PANE_ID:-}
         if [ "$HERDR_CHILD_ACTION" = reuse ] && [ "${FM_BACKEND_HERDR_TASK_CREATED:-0}" = 1 ]; then
           HERDR_TAB_ID=$FM_BACKEND_HERDR_TASK_TAB_ID
           HERDR_PANE_ID=$FM_BACKEND_HERDR_TASK_PANE_ID
@@ -834,6 +848,8 @@ case "$BACKEND" in
       fi
       HERDR_TAB_ID=$FM_BACKEND_HERDR_CHILD_TAB_ID
       HERDR_PANE_ID=$FM_BACKEND_HERDR_CHILD_PANE_ID
+      HERDR_LOG_TAB_ID=$FM_BACKEND_HERDR_CHILD_LOG_TAB_ID
+      HERDR_LOG_PANE_ID=$FM_BACKEND_HERDR_CHILD_LOG_PANE_ID
       HERDR_WS_OWNED=1
       if [ "$HERDR_CHILD_ACTION" = reuse ]; then
         HERDR_ABORT_HOME=$HERDR_LABEL_HOME
@@ -1125,6 +1141,8 @@ META_WINDOW=$T
     if [ -n "${HERDR_WS_OWNED:-}" ]; then
       echo "herdr_parent_ws=$HERDR_PARENT_WS"
       echo "herdr_ws_owned=1"
+      echo "herdr_log_tab_id=${HERDR_LOG_TAB_ID:-}"
+      echo "herdr_log_pane_id=${HERDR_LOG_PANE_ID:-}"
     fi
   fi
   if [ "$BACKEND" = zellij ]; then

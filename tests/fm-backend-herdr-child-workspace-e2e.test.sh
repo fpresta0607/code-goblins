@@ -222,12 +222,14 @@ assert_not_contains_local "$SM_LIVE" "fm-cma" "recovery: secondmate must not see
 pass "recovery: list_live rediscovers child-workspace jobs by label, scoped per home, without surfacing log tabs"
 
 # === F. stale metadata + refuse-to-close-parent safety (function level) =======
-if FM_HOME="$PRIMARY_ON" fm_backend_herdr_close_owned_workspace "$SESSION" "$A_PARENT_WS" "$A_PARENT_WS" "$PRIMARY_ON/state" 2>/dev/null; then
+if FM_HOME="$PRIMARY_ON" fm_backend_herdr_close_owned_workspace "$SESSION" "$A_PARENT_WS" "$A_PARENT_WS" "$PRIMARY_ON/state" "$A_META" 2>/dev/null; then
   fail "close_owned_workspace must REFUSE when child == parent"
 fi
 ws_exists "$A_PARENT_WS" || fail "refused close must not have touched the parent workspace"
-FM_HOME="$PRIMARY_ON" fm_backend_herdr_close_owned_workspace "$SESSION" "w999999" "$A_PARENT_WS" "$PRIMARY_ON/state" || fail "close of an already-gone workspace id must be a safe no-op (returns 0)"
-pass "safety: close_owned_workspace refuses child==parent and no-ops on stale/already-gone ids"
+if FM_HOME="$PRIMARY_ON" fm_backend_herdr_close_owned_workspace "$SESSION" "w999999" "$A_PARENT_WS" "$PRIMARY_ON/state" "$A_META" 2>/dev/null; then
+  fail "stale workspace metadata must not pass positive ownership proof"
+fi
+pass "safety: close_owned_workspace refuses parent and stale workspace targets"
 
 # === G. EXACT cleanup: teardown closes ONLY the owned child workspace =========
 teardown "$PRIMARY_ON" cma
