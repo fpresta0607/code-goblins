@@ -812,6 +812,28 @@ test_child_workspace_respawn_reuses_exact_husk_workspace() {
   pass "fm-spawn.sh: reuses exact owned metadata and replaces a restored child husk in place"
 }
 
+test_child_workspace_adopts_preserved_workspace_after_teardown() {
+  local meta state_file workspace labels runtime_tabs log_tabs
+  make_child_respawn_case child-respawn-adopt respawnadoptz6
+  run_child_respawn >/dev/null || fail "initial owned child spawn failed"
+  meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
+  state_file="$CHILD_CASE_HERDR/state.json"
+  workspace=$(grep '^herdr_workspace_id=' "$meta" | cut -d= -f2-)
+  jq --arg w "$workspace" --arg task "fm-$CHILD_CASE_ID" \
+    '.tabs |= [.[] | select(.workspace_id != $w or .label != $task)]' "$state_file" > "$state_file.tmp"
+  mv "$state_file.tmp" "$state_file"
+  rm -f "$meta"
+  run_child_respawn >/dev/null || fail "same task id could not adopt its preserved child workspace"
+  [ "$(grep '^herdr_workspace_id=' "$meta" | cut -d= -f2-)" = "$workspace" ] || fail "same task id replaced the preserved workspace"
+  labels=$(jq -r --arg label "firstmate/$CHILD_CASE_ID" '[.workspaces[] | select(.label == $label)] | length' "$state_file")
+  runtime_tabs=$(jq -r --arg w "$workspace" --arg task "fm-$CHILD_CASE_ID" '[.tabs[] | select(.workspace_id == $w and .label == $task)] | length' "$state_file")
+  log_tabs=$(jq -r --arg w "$workspace" '[.tabs[] | select(.workspace_id == $w and .label == "log")] | length' "$state_file")
+  [ "$labels" = 1 ] || fail "same task id accumulated duplicate preserved workspaces"
+  [ "$runtime_tabs" = 1 ] || fail "adopted workspace did not contain exactly one runtime tab"
+  [ "$log_tabs" = 1 ] || fail "adopted workspace did not contain exactly one log tab"
+  pass "fm-spawn.sh: same task id adopts one preserved workspace without accumulation"
+}
+
 test_child_workspace_flag_off_preserves_owned_recovery_and_listing() {
   local meta workspace live
   make_child_respawn_case child-respawn-flag-off respawnflagz5
@@ -2333,6 +2355,7 @@ test_child_workspace_population_failure_preserves_unproven_workspace
 test_spawn_abort_preserves_unproven_child_with_recovery_metadata
 test_child_workspace_respawn_refuses_live_exact_endpoint
 test_child_workspace_respawn_reuses_exact_husk_workspace
+test_child_workspace_adopts_preserved_workspace_after_teardown
 test_child_workspace_flag_off_preserves_owned_recovery_and_listing
 test_child_workspace_respawn_refuses_ambiguous_workspace_duplicates
 test_child_workspace_failed_reuse_preserves_recoverable_husk_metadata

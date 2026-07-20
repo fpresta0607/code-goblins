@@ -220,17 +220,18 @@ When on, a DELEGATED job - a ship or scout crewmate, never a `--secondmate` supe
 
 - The parent is the already-ensured home workspace (`firstmate`, or `2ndmate-<id>` for a job delegated by a secondmate); its own seeded default tab is deliberately never pruned in this mode, since no task tab is created inside it and pruning its only tab would delete the parent.
 - The child workspace is labeled `<home-label>/<id>` and groups only the tabs that genuinely belong to that job: the runtime tab (`fm-<id>`, the crewmate agent) and a read-only log tab (`tail -F` of the job's own `state/<id>.status`). No parent, sibling, or fleet-wide view is placed in the job workspace.
-- A respawn first requires exact matching owned metadata and a dead or agent-free recorded endpoint. It then reuses the existing workspace, replaces only a husk runtime tab, refreshes the log tab, and refuses live, duplicate, missing-metadata, mismatched-parent, or otherwise ambiguous shapes instead of creating a duplicate workspace.
+- A respawn with exact owned metadata reuses a dead or agent-free recorded endpoint, while a reused task id with no metadata adopts one structurally restricted preserved workspace, safely replaces husk runtime and log tabs, and refuses live, duplicate, mismatched-parent, unrelated-tab, or otherwise ambiguous shapes.
 - Workspace and tab creation use `--no-focus`, so creating or restoring the task does not steal the captain's active space; the separate contiguity pass may reorder the flat workspace list as documented below.
 - `fm_backend_herdr_list_live` also enumerates child workspaces (label prefix `<home-label>/`) so restart/recovery orphan-discovery rediscovers child-workspace jobs by their `fm-<id>` runtime tab, per home; the log tab is never surfaced as a task endpoint.
 - Teardown does not close an owned child workspace because current-home metadata and live workspace shape cannot authoritatively exclude ownership by another home.
-- It closes only the recorded task pane when the workspace has another tab, leaving the workspace and every supervisor intact.
-- If pane-only cleanup cannot be positively completed, teardown fails before deleting recovery metadata and leaves the endpoint intact.
+- It closes only the recorded task pane after re-verifying another tab or creating and re-verifying a safe placeholder, leaving the workspace and every supervisor intact.
+- Before Treehouse return it durably records the return boundary, so a failed pane-only cleanup retains recovery metadata and every retry skips the already-returned worktree.
+- If placeholder creation or pane-only cleanup cannot be positively completed, teardown leaves the endpoint intact until a later retry can finish safely.
 - A failed spawn uses the same pane-only safe fallback and preserves or repairs exact owned-workspace metadata when later recovery remains necessary.
 - Complete cross-home empty-workspace cleanup is deferred to a follow-up; cosmetic leakage is preferred over an unsafe workspace close.
 
 The spawn-time branch and the two new meta fields live in `bin/fm-spawn.sh`'s herdr case arm; pane-only teardown lives in `bin/fm-teardown.sh`; the prepare, create, populate, close-refusal, and list functions live in `bin/backends/herdr.sh`.
-Empirical evidence (isolated real-herdr E2E covering flag-off byte-identity, child-workspace creation, concurrent jobs, nested homes, idempotent respawn, close refusal, pane-only teardown, retained single-tab recovery, and a byte-identical default session) is `tests/fm-backend-herdr-child-workspace-e2e.test.sh`.
+Empirical evidence (isolated real-herdr E2E covering flag-off byte-identity, child-workspace creation, concurrent jobs, nested homes, idempotent respawn, preserved-workspace adoption, close refusal, retry-safe pane-only teardown, and a byte-identical default session) is `tests/fm-backend-herdr-child-workspace-e2e.test.sh`.
 
 ## Workspace contiguity (depth-first supervisor order)
 

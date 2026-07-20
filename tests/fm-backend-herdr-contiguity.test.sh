@@ -73,11 +73,12 @@ case "${1:-} ${2:-}" in
       shift
     done
     if [ "$ws" = "${FM_FAKE_PROOF_WS:-}" ]; then
-      jq -n --arg w "$ws" --arg stale "${FM_FAKE_STALE_LOG:-}" --arg extra "${FM_FAKE_EXTRA_TAB:-}" --arg single "${FM_FAKE_SINGLE_TAB:-}" '
+      list_n=$(grep -c '^tab list' "$CLILOG")
+      jq -n --arg w "$ws" --arg stale "${FM_FAKE_STALE_LOG:-}" --arg extra "${FM_FAKE_EXTRA_TAB:-}" --arg single "${FM_FAKE_SINGLE_TAB:-}" --arg list_n "$list_n" '
         {result:{tabs:(([
           {workspace_id:$w,tab_id:($w+":t1"),label:"runtime"},
           {workspace_id:$w,tab_id:(if $stale == "1" then $w+":other-log" else $w+":tlog" end),label:"log"}
-        ] | if $single == "1" then .[0:1] else . end) + (if $extra == "1" then [{workspace_id:$w,tab_id:($w+":textra"),label:"other"}] else [] end))}}'
+        ] | if $single == "1" and $list_n == "1" then .[0:1] else . end) + (if $extra == "1" then [{workspace_id:$w,tab_id:($w+":textra"),label:"other"}] else [] end))}}'
     else
       printf '{"result":{"tabs":[]}}\n'
     fi
@@ -96,6 +97,10 @@ case "${1:-} ${2:-}" in
     else
       printf '{"result":{"panes":[]}}\n'
     fi
+    ;;
+  "tab create")
+    [ -z "${FM_FAKE_TAB_CREATE_FAIL:-}" ] || exit 1
+    printf '{"result":{"tab":{"tab_id":"placeholder"},"root_pane":{"pane_id":"placeholder-pane"}}}\n'
     ;;
   "pane close"|"workspace close")
     ;;
@@ -616,16 +621,24 @@ test_exact_local_child_also_uses_pane_only_fallback() {
   pass "close safety: exact local metadata still uses pane-only fallback"
 }
 
-test_single_tab_refuses_pane_fallback() {
+test_single_tab_pane_fallback_retries_safely() {
   contig_case close-single-tab $'ws-parent\nws-child'
   write_owned_meta "$CASE_STATE" task ws-child ws-parent
   PATH="$FB:$PATH" FM_FAKE_ORDER="$CASE_ORDER" FM_FAKE_CLI_LOG="$CASE_CLI_LOG" \
-    FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" FM_FAKE_PROOF_WS=ws-child FM_FAKE_SINGLE_TAB=1 \
+    FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" FM_FAKE_PROOF_WS=ws-child FM_FAKE_SINGLE_TAB=1 FM_FAKE_TAB_CREATE_FAIL=1 \
     fm_backend_herdr_close_task_pane_preserving_workspace "$SES" ws-child ws-child:p1 >/dev/null 2>&1 && \
-    fail "single-tab pane fallback must refuse to remove the workspace"
+    fail "single-tab pane fallback must retain the endpoint when placeholder creation fails"
   ! grep -q '^pane close' "$CASE_CLI_LOG" || fail "single-tab fallback must leave the endpoint intact"
   ! grep -q '^workspace close' "$CASE_CLI_LOG" || fail "single-tab fallback must preserve the workspace"
-  pass "close safety: single-tab fallback retains the endpoint"
+  : > "$CASE_CLI_LOG"
+  PATH="$FB:$PATH" FM_FAKE_ORDER="$CASE_ORDER" FM_FAKE_CLI_LOG="$CASE_CLI_LOG" \
+    FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" FM_FAKE_PROOF_WS=ws-child FM_FAKE_SINGLE_TAB=1 \
+    fm_backend_herdr_close_task_pane_preserving_workspace "$SES" ws-child ws-child:p1 "$TMP_ROOT" || \
+    fail "single-tab pane fallback did not converge after placeholder creation recovered"
+  grep -q '^tab create ' "$CASE_CLI_LOG" || fail "single-tab retry did not create a workspace-preserving placeholder"
+  grep -q '^pane close ws-child:p1 ' "$CASE_CLI_LOG" || fail "single-tab retry did not close the task pane"
+  ! grep -q '^workspace close' "$CASE_CLI_LOG" || fail "single-tab retry must preserve the workspace"
+  pass "close safety: single-tab fallback retries safely without closing the workspace"
 }
 
 test_target_canonical_render_direct_crews_before_secondmates
@@ -657,6 +670,6 @@ test_close_refuses_any_locally_marked_parent
 test_close_refuses_herdr_native_worktree_group_parent
 test_unsafe_close_proofs_fall_back_to_pane_only
 test_exact_local_child_also_uses_pane_only_fallback
-test_single_tab_refuses_pane_fallback
+test_single_tab_pane_fallback_retries_safely
 
 echo "# all herdr workspace-contiguity unit tests passed"

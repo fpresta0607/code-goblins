@@ -154,6 +154,36 @@ meta_value() {
   fm_meta_get "$meta" "$key"
 }
 
+set_meta_value() (
+  local meta=$1 key=$2 value=$3 tmp
+  tmp="$(dirname "$meta")/.$(basename "$meta").set.$$"
+  umask 077
+  if ! awk -v key="$key" -v value="$value" '
+    index($0, key "=") == 1 { if (!written) print key "=" value; written=1; next }
+    { print }
+    END { if (!written) print key "=" value }
+  ' "$meta" > "$tmp" || ! mv "$tmp" "$meta"; then
+    rm -f "$tmp"
+    return 1
+  fi
+)
+
+remove_meta_value() (
+  local meta=$1 key=$2 tmp
+  tmp="$(dirname "$meta")/.$(basename "$meta").remove.$$"
+  umask 077
+  if ! awk -v key="$key" 'index($0, key "=") != 1 { print }' "$meta" > "$tmp" || ! mv "$tmp" "$meta"; then
+    rm -f "$tmp"
+    return 1
+  fi
+)
+
+HERDR_WORKTREE_RETURNED=0
+if [ "$BACKEND" = herdr ] && [ "$(meta_value "$META" herdr_ws_owned)" = 1 ] \
+  && [ "$(meta_value "$META" worktree_returned)" = 1 ]; then
+  HERDR_WORKTREE_RETURNED=1
+fi
+
 require_orca_worktree_id() {
   local meta=$1 id
   id=$(meta_value "$meta" orca_worktree_id)
@@ -911,7 +941,7 @@ remove_firstmate_home() {
 }
 
 validate_firstmate_home_children_removal() {
-  local home=$1 sub_state child_meta child_id child_wt child_proj child_kind child_home child_backend child_orca_worktree_id
+  local home=$1 sub_state child_meta child_id child_wt child_proj child_kind child_home child_backend child_orca_worktree_id child_returned
   sub_state="$home/state"
   [ -d "$sub_state" ] || return 0
   for child_meta in "$sub_state"/*.meta; do
@@ -922,6 +952,7 @@ validate_firstmate_home_children_removal() {
     child_kind=$(meta_value "$child_meta" kind)
     [ -n "$child_kind" ] || child_kind=ship
     child_backend=$(fm_backend_of_meta "$child_meta")
+    child_returned=$(meta_value "$child_meta" worktree_returned)
     if [ "$child_kind" = secondmate ]; then
       child_home=$(meta_value "$child_meta" home)
       [ -n "$child_home" ] || child_home=$child_wt
@@ -934,7 +965,7 @@ validate_firstmate_home_children_removal() {
         validate_child_worktree_for_removal "$child_wt" "$child_proj" >/dev/null || return 1
         require_orca_worktree_path_match "$child_orca_worktree_id" "$child_wt" || return 1
       fi
-    elif [ -n "$child_wt" ] && [ -e "$child_wt" ]; then
+    elif [ "$child_returned" != 1 ] && [ -n "$child_wt" ] && [ -e "$child_wt" ]; then
       child_proj=$(meta_value "$child_meta" project)
       validate_child_worktree_for_removal "$child_wt" "$child_proj" >/dev/null || return 1
     fi
@@ -942,7 +973,7 @@ validate_firstmate_home_children_removal() {
 }
 
 cleanup_firstmate_home_children() {
-  local home=$1 sub_state child_meta child_id child_t child_wt child_proj child_kind child_home child_backend child_orca_worktree_id child_return_rc
+  local home=$1 sub_state child_meta child_id child_t child_wt child_proj child_kind child_home child_backend child_orca_worktree_id child_return_rc child_returned
   sub_state="$home/state"
   [ -d "$sub_state" ] || return 0
   for child_meta in "$sub_state"/*.meta; do
@@ -953,6 +984,7 @@ cleanup_firstmate_home_children() {
     child_kind=$(meta_value "$child_meta" kind)
     [ -n "$child_kind" ] || child_kind=ship
     child_backend=$(fm_backend_of_meta "$child_meta")
+    child_returned=$(meta_value "$child_meta" worktree_returned)
     if [ "$child_backend" = orca ]; then
       child_t=$(meta_value "$child_meta" terminal)
     else
@@ -986,7 +1018,7 @@ cleanup_firstmate_home_children() {
         rm -f "$child_wt/.claude/settings.local.json" "$child_wt/.opencode/plugins/fm-turn-end.js" "$child_wt/.fm-grok-turnend"
       fi
       fm_backend_remove_worktree "$child_backend" "$child_orca_worktree_id" || return 1
-    elif [ -n "$child_wt" ] && [ -d "$child_wt" ]; then
+    elif [ "$child_returned" != 1 ] && [ -n "$child_wt" ] && [ -d "$child_wt" ]; then
       validate_child_worktree_for_removal "$child_wt" "$child_proj" >/dev/null || return 1
       rm -f "$child_wt/.claude/settings.local.json" "$child_wt/.opencode/plugins/fm-turn-end.js" "$child_wt/.fm-grok-turnend"
       if [ -n "$child_proj" ] && [ -d "$child_proj" ] && command -v treehouse >/dev/null 2>&1; then
@@ -1068,7 +1100,7 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ] &&
   ORCA_PATH_MATCH_VERIFIED=1
 fi
 
-if [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
+if [ "$HERDR_WORKTREE_RETURNED" != 1 ] && [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
   if validate_worktree_teardown_safety; then
     :
   else
@@ -1099,7 +1131,7 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
   fi
   [ -z "$T_ORCA" ] || fm_backend_kill "$BACKEND" "$T" "$(meta_value "$META" zellij_tab_id)" "fm-$ID" 2>/dev/null || true
   fm_backend_remove_worktree "$BACKEND" "$ORCA_WORKTREE_ID"
-elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
+elif [ "$HERDR_WORKTREE_RETURNED" != 1 ] && [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
   if [ "$branch" != "HEAD" ]; then
     if git -C "$WT" checkout --detach -q 2>/dev/null; then
@@ -1116,7 +1148,19 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   if [ "$FORCE" != "--force" ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ]; then
     post_lock_cleanup_check=validate_worktree_teardown_safety
   fi
+  herdr_return_marker=0
+  if [ "$BACKEND" = herdr ] && [ "$(meta_value "$META" herdr_ws_owned)" = 1 ]; then
+    set_meta_value "$META" worktree_returned 1 || {
+      echo "error: could not persist the Herdr worktree return boundary for $ID; teardown aborted" >&2
+      exit 1
+    }
+    herdr_return_marker=1
+    HERDR_WORKTREE_RETURNED=1
+  fi
   teardown_treehouse_return "$WT" "$PROJ" "worktree" "$post_lock_cleanup_check" || {
+    if [ "$herdr_return_marker" = 1 ]; then
+      remove_meta_value "$META" worktree_returned || true
+    fi
     echo "error: treehouse return failed for worktree $WT; teardown aborted" >&2
     exit 1
   }
@@ -1128,7 +1172,8 @@ if [ "$BACKEND" = herdr ] && [ "$(meta_value "$META" herdr_ws_owned)" = 1 ]; the
   if ! fm_backend_herdr_close_task_pane_preserving_workspace \
     "$(meta_value "$META" herdr_session)" \
     "$(meta_value "$META" herdr_workspace_id)" \
-    "$(meta_value "$META" herdr_pane_id)" 2>/dev/null; then
+    "$(meta_value "$META" herdr_pane_id)" \
+    "$PROJ" 2>/dev/null; then
     echo "error: Herdr task pane for $ID could not be closed without risking its workspace; endpoint and recovery metadata retained" >&2
     exit 1
   fi

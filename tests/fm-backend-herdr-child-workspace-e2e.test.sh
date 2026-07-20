@@ -25,7 +25,8 @@
 #   - restart/recovery: list_live rediscovers child-workspace jobs by label
 #   - stale metadata + refuse-to-close-parent safety (function level)
 #   - pane-only cleanup: teardown preserves every workspace and supervisor
-#   - single-tab cleanup refusal retains the endpoint and recovery metadata
+#   - single-tab cleanup retries never return the Treehouse worktree twice
+#   - a reused task id adopts its one preserved workspace without accumulation
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -48,6 +49,7 @@ assert_not_contains_local() {  # <haystack> <needle> <msg>
 command -v herdr >/dev/null 2>&1 || { echo "skip: herdr not found"; exit 0; }
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found (required by the herdr adapter)"; exit 0; }
 command -v treehouse >/dev/null 2>&1 || { echo "skip: treehouse not found (required by fm-spawn.sh)"; exit 0; }
+REAL_TREEHOUSE=$(command -v treehouse)
 
 # shellcheck source=tests/herdr-test-safety.sh
 . "$ROOT/tests/herdr-test-safety.sh"
@@ -242,24 +244,67 @@ ws_exists "$C_CHILD_WS" || fail "tearing down cma must NOT close the secondmate'
 ws_exists "$SM_WS" || fail "tearing down cma must NOT close the secondmate's own workspace"
 pass "pane-only cleanup: teardown removed cma's endpoint while every workspace and supervisor survived"
 
+spawn "$PRIMARY_ON" cma "$PROJ1" "sh -c 'echo cma-reused-ok'"
+[ "$(meta_get "$A_META" herdr_workspace_id)" = "$A_CHILD_WS" ] || fail "same task id must adopt its preserved workspace"
+[ "$(ws_label_count firstmate/cma)" = 1 ] || fail "same task id must not accumulate child workspaces"
+[ "$(ws_tab_labels "$A_CHILD_WS" | grep -c '^fm-cma$')" = 1 ] || fail "adopted workspace must contain one runtime tab"
+[ "$(ws_tab_labels "$A_CHILD_WS" | grep -c '^log$')" = 1 ] || fail "adopted workspace must contain one log tab"
+teardown "$PRIMARY_ON" cma
+pass "pane-only cleanup: same task id reclaims one preserved workspace without accumulation"
+
 B_LOG_TAB=$(meta_get "$B_META" herdr_log_tab_id)
 fm_herdr_lab_cli "$SESSION" tab close "$B_LOG_TAB" >/dev/null 2>&1 || fail "could not create the single-tab teardown fixture"
 B_TD_OUT="$TMP_ROOT/td-cmb-single.out"
-FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$PRIMARY_ON/state" FM_DATA_OVERRIDE="$PRIMARY_ON/data" \
+RETURN_FAKEBIN="$TMP_ROOT/return-fakebin"
+RETURN_LOG="$TMP_ROOT/treehouse-return.log"
+FAIL_HELPER="$TMP_ROOT/fail-helper"
+FAIL_MARKER="$TMP_ROOT/fail-placeholder-once"
+mkdir -p "$RETURN_FAKEBIN"
+cat > "$RETURN_FAKEBIN/treehouse" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${FM_TREEHOUSE_RETURN_LOG:?}"
+exec "${FM_REAL_TREEHOUSE:?}" "$@"
+SH
+chmod +x "$RETURN_FAKEBIN/treehouse"
+cat > "$FAIL_HELPER" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = run ] && [ "${3:-}" = tab ] && [ "${4:-}" = create ] && [ -f "${FM_FAIL_PLACEHOLDER_MARKER:?}" ]; then
+  rm -f "$FM_FAIL_PLACEHOLDER_MARKER"
+  exit 1
+fi
+exec "${FM_REAL_HERDR_HELPER:?}" "$@"
+SH
+chmod +x "$FAIL_HELPER"
+: > "$RETURN_LOG"
+touch "$FAIL_MARKER"
+PATH="$RETURN_FAKEBIN:$PATH" FM_REAL_TREEHOUSE="$REAL_TREEHOUSE" FM_TREEHOUSE_RETURN_LOG="$RETURN_LOG" \
+  FM_BACKEND_HERDR_LAB_HELPER="$FAIL_HELPER" FM_REAL_HERDR_HELPER="$HERDR_LAB_HELPER" FM_FAIL_PLACEHOLDER_MARKER="$FAIL_MARKER" \
+  FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$PRIMARY_ON/state" FM_DATA_OVERRIDE="$PRIMARY_ON/data" \
   FM_CONFIG_OVERRIDE="$PRIMARY_ON/config" \
   "$ROOT/bin/fm-teardown.sh" cmb >"$B_TD_OUT" 2>&1
 B_TD_RC=$?
 [ "$B_TD_RC" -ne 0 ] || fail "single-tab teardown must fail instead of removing its workspace"
+[ "$(grep -c '^return --force ' "$RETURN_LOG")" = 1 ] || fail "first failed endpoint cleanup must cross one Treehouse return boundary"
 [ -f "$B_META" ] || fail "single-tab teardown must retain ownership recovery metadata"
+grep -qx 'worktree_returned=1' "$B_META" || fail "failed endpoint cleanup must persist the Treehouse return boundary"
 ws_exists "$B_CHILD_WS" || fail "single-tab teardown must preserve the child workspace"
 ws_exists "$B_PARENT_WS" || fail "single-tab teardown must preserve the supervisor workspace"
 pane_ws "$(meta_get "$B_META" herdr_pane_id)" | grep -q . || fail "single-tab teardown must retain the live endpoint"
-pass "pane-only cleanup: single-tab refusal retains endpoint, workspace, supervisor, and recovery metadata"
+PATH="$RETURN_FAKEBIN:$PATH" FM_REAL_TREEHOUSE="$REAL_TREEHOUSE" FM_TREEHOUSE_RETURN_LOG="$RETURN_LOG" \
+  FM_BACKEND_HERDR_LAB_HELPER="$FAIL_HELPER" FM_REAL_HERDR_HELPER="$HERDR_LAB_HELPER" FM_FAIL_PLACEHOLDER_MARKER="$FAIL_MARKER" \
+  FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$PRIMARY_ON/state" FM_DATA_OVERRIDE="$PRIMARY_ON/data" \
+  FM_CONFIG_OVERRIDE="$PRIMARY_ON/config" \
+  "$ROOT/bin/fm-teardown.sh" cmb >>"$B_TD_OUT" 2>&1 || fail "safe pane-only retry did not converge"
+[ "$(grep -c '^return --force ' "$RETURN_LOG")" = 1 ] || fail "converged retry must not return or reset the worktree twice"
+[ ! -f "$B_META" ] || fail "converged retry must remove recovery metadata"
+ws_exists "$B_CHILD_WS" || fail "converged retry must preserve the child workspace"
+ws_exists "$B_PARENT_WS" || fail "converged retry must preserve the supervisor workspace"
+pass "pane-only cleanup: retries cross Treehouse return once and converge from durable recovery state"
 
 # tidy remaining jobs
 teardown "$SM_HOME" cmc
 teardown "$OFF_HOME" cmoff
-ws_exists "$B_CHILD_WS" || fail "failed cmb teardown must leave its child workspace"
+ws_exists "$B_CHILD_WS" || fail "retried cmb teardown must leave its child workspace"
 ws_exists "$C_CHILD_WS" || fail "cmc teardown must leave its child workspace"
 pass "pane-only cleanup: owned child workspaces remain for deferred cleanup"
 

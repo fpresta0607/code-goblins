@@ -832,6 +832,11 @@ case "$BACKEND" in
       else
         HERDR_WORKSPACE_ID=$FM_BACKEND_HERDR_CHILD_WS_ID
         FM_BACKEND_HERDR_CHILD_SEED_TAB_ID=
+        if [ "$HERDR_CHILD_ACTION" = adopt ]; then
+          HERDR_ABORT_HOME=$HERDR_LABEL_HOME
+          HERDR_ABORT_MODE=fresh
+          HERDR_ABORT_CLEANUP=1
+        fi
       fi
       if ! fm_backend_herdr_child_workspace_populate "$HERDR_SES" "$HERDR_WORKSPACE_ID" "$ID" "$PROJ_ABS" "$STATE/$ID.status" "$FM_BACKEND_HERDR_CHILD_SEED_TAB_ID"; then
         HERDR_LOG_TAB_ID=${FM_BACKEND_HERDR_CHILD_LOG_TAB_ID:-}

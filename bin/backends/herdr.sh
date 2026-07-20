@@ -449,11 +449,17 @@ fm_backend_herdr_shell_quote() {
   printf "'"
 }
 
-fm_backend_herdr_close_task_pane_preserving_workspace() {  # <session> <workspace_id> <pane_id>
-  local session=$1 wsid=$2 pane=$3 tabs tab_count panes pane_count
+fm_backend_herdr_close_task_pane_preserving_workspace() {  # <session> <workspace_id> <pane_id> [<placeholder_cwd>]
+  local session=$1 wsid=$2 pane=$3 placeholder_cwd=${4:-$FM_HOME} tabs tab_count panes pane_count
   [ -n "$session" ] && [ -n "$wsid" ] && [ -n "$pane" ] || return 1
   tabs=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null) || return 1
   tab_count=$(printf '%s' "$tabs" | jq -r 'if (.result.tabs | type) == "array" then (.result.tabs | length) else error("missing result.tabs") end' 2>/dev/null) || return 1
+  if [ "$tab_count" -eq 1 ]; then
+    [ -d "$placeholder_cwd" ] || return 1
+    fm_backend_herdr_cli "$session" tab create --workspace "$wsid" --cwd "$placeholder_cwd" --label log --no-focus >/dev/null 2>&1 || return 1
+    tabs=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null) || return 1
+    tab_count=$(printf '%s' "$tabs" | jq -r 'if (.result.tabs | type) == "array" then (.result.tabs | length) else error("missing result.tabs") end' 2>/dev/null) || return 1
+  fi
   [ "$tab_count" -ge 2 ] || return 1
   panes=$(fm_backend_herdr_cli "$session" pane list --workspace "$wsid" 2>/dev/null) || return 1
   pane_count=$(printf '%s' "$panes" | jq -r --arg want "$pane" \
@@ -464,7 +470,7 @@ fm_backend_herdr_close_task_pane_preserving_workspace() {  # <session> <workspac
 
 fm_backend_herdr_prepare_child_workspace() {  # <session> <parent_ws_id> <id> <meta>
   local session=$1 parent=$2 id=$3 meta=$4 label list candidates candidate_count parent_tabs parent_dups
-  local backend msession owned child mparent mtab mpane close_class tabs runtime_tabs runtime_count runtime_tab runtime_pane pane_state
+  local backend msession owned child mparent mtab mpane close_class tabs tab_count allowed_count runtime_tabs runtime_count runtime_tab runtime_pane pane_state
   FM_BACKEND_HERDR_CHILD_ACTION=
   FM_BACKEND_HERDR_CHILD_WS_ID=
   label=$(fm_backend_herdr_child_label "$id")
@@ -496,9 +502,24 @@ fm_backend_herdr_prepare_child_workspace() {  # <session> <parent_ws_id> <id> <m
     return 1
   fi
   if [ ! -f "$meta" ]; then
-    if [ "$candidate_count" -ne 0 ]; then
-      echo "error: herdr child workspace '$label' already exists without exact task metadata; refusing ambiguous respawn" >&2
-      return 1
+    if [ "$candidate_count" -eq 1 ]; then
+      child=$candidates
+      close_class=$(fm_backend_herdr_workspace_close_class "$session" "$child") || return 1
+      [ "$close_class" = unmarked ] || {
+        echo "error: preserved herdr child workspace '$label' has unsafe ownership shape '$close_class'" >&2
+        return 1
+      }
+      tabs=$(fm_backend_herdr_cli "$session" tab list --workspace "$child" 2>/dev/null) || return 1
+      tab_count=$(printf '%s' "$tabs" | jq -r 'if (.result.tabs | type) == "array" then (.result.tabs | length) else error("missing result.tabs") end' 2>/dev/null) || return 1
+      allowed_count=$(printf '%s' "$tabs" | jq -r --arg task "fm-$id" \
+        '[.result.tabs[] | select(.label == "log" or .label == "1" or .label == $task)] | length' 2>/dev/null) || return 1
+      [ "$tab_count" -eq "$allowed_count" ] || {
+        echo "error: preserved herdr child workspace '$label' contains unrelated tabs; refusing adoption" >&2
+        return 1
+      }
+      FM_BACKEND_HERDR_CHILD_ACTION=adopt
+      FM_BACKEND_HERDR_CHILD_WS_ID=$child
+      return 0
     fi
     FM_BACKEND_HERDR_CHILD_ACTION=new
     return 0
@@ -643,6 +664,8 @@ fm_backend_herdr_child_workspace_populate() {  # <session> <workspace_id> <id> <
         done <<EOF
 $old_log_tabs
 EOF
+      else
+        fm_backend_herdr_cli "$session" tab close "$lg_tab" >/dev/null 2>&1 || true
       fi
     fi
   fi
