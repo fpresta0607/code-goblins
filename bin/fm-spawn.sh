@@ -913,6 +913,11 @@ case "$BACKEND" in
     HERDR_PARENT_WS=""
     HERDR_WS_OWNED=""
     HERDR_EXISTING_OWNED=""
+    if [ "$KIND" != secondmate ] && [ ! -e "$STATE/$ID.meta" ] \
+      && { [ -e "$STATE/.$ID.treehouse-acquire" ] || [ -L "$STATE/.$ID.treehouse-acquire" ]; }; then
+      echo "error: incomplete Treehouse lease acquisition evidence exists for $ID at $STATE/.$ID.treehouse-acquire; refusing a duplicate lease" >&2
+      exit 1
+    fi
     if [ "$KIND" != secondmate ] && [ -f "$STATE/$ID.meta" ] &&
        grep -qx 'backend=herdr' "$STATE/$ID.meta" 2>/dev/null &&
        grep -qx 'herdr_ws_owned=1' "$STATE/$ID.meta" 2>/dev/null; then
