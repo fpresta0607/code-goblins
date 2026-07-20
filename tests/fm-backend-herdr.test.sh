@@ -218,7 +218,8 @@ case "${1:-}" in
       shift || true
     done
     jq --arg path "$worktree" --arg holder "$holder" --arg leased_at "2026-07-20T00:00:00.${RANDOM}Z" \
-      '(.worktrees[] | select(.path == $path)) |= (.leased = true | .lease_holder = $holder | .leased_at = $leased_at)' \
+      '.get_calls = ((.get_calls // 0) + 1)
+       | (.worktrees[] | select(.path == $path)) |= (.leased = true | .lease_holder = $holder | .leased_at = $leased_at)' \
       "$state" > "$state.tmp" && mv "$state.tmp" "$state"
     printf '%s\n' "$worktree"
     ;;
@@ -853,12 +854,14 @@ test_interrupted_lease_publication_recovers_exact_treehouse_lease() {
   [ -n "$(grep '^herdr_pane_id=' "$meta" | cut -d= -f2-)" ] || fail "interrupted metadata lost the recovery endpoint"
   identity=$(grep '^treehouse_lease_identity=' "$meta" | cut -d= -f2-)
   [ "$identity" = "$(fm_treehouse_worktree_identity "$CHILD_CASE_WT")" ] || fail "interrupted metadata lost the authoritative lease identity"
+  [ "$(jq -r '.get_calls' "$CHILD_CASE_TREEHOUSE_STATE")" = 1 ] || fail "interrupted acquisition did not record exactly one Treehouse get"
 
   CHILD_CASE_INTERRUPT_AFTER_LEASE_RECOVERY=0
   out=$(run_child_respawn); rc=$?
   [ "$rc" -eq 0 ] || fail "recovery did not resume the interrupted owned spawn: $out"
   recovered_identity=$(grep '^treehouse_lease_identity=' "$meta" | cut -d= -f2-)
   [ "$recovered_identity" = "$identity" ] || fail "recovery acquired or substituted a different Treehouse lease"
+  [ "$(jq -r '.get_calls' "$CHILD_CASE_TREEHOUSE_STATE")" = 1 ] || fail "recovery acquired a duplicate Treehouse lease"
   ! grep -q '^spawn_recovery_' "$meta" || fail "final metadata retained the in-progress recovery state"
   run_child_teardown >/dev/null || fail "recovered lease did not tear down safely"
   [ ! -e "$meta" ] && [ ! -e "$binding" ] || fail "recovered teardown retained lease recovery artifacts"

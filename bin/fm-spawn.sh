@@ -219,13 +219,13 @@ parse_orca_worktree_result() {
 }
 
 write_task_meta() {
-  local recovery_state=${1:-} recovery_owner= meta_window=$T tmp
+  local recovery_state=${1:-} target=${2:-$STATE/$ID.meta} recovery_owner= meta_window=$T tmp
   [ "$BACKEND" = orca ] && meta_window=$W
   mkdir -p "$STATE" || return 1
   if [ -n "$recovery_state" ]; then
     recovery_owner="$(cd "$STATE" && pwd -P)/$ID"
   fi
-  tmp="$STATE/.$ID.meta.publish.$$"
+  tmp="$(dirname "$target")/.$(basename "$target").publish.$$"
   umask 077
   if ! {
     echo "window=$meta_window"
@@ -272,8 +272,9 @@ write_task_meta() {
     if [ -n "$recovery_state" ]; then
       echo "spawn_recovery_state=$recovery_state"
       echo "spawn_recovery_owner=$recovery_owner"
+      echo "treehouse_lease_holder=${TREEHOUSE_LEASE_HOLDER:-}"
     fi
-  } > "$tmp" || ! mv "$tmp" "$STATE/$ID.meta"; then
+  } > "$tmp" || ! mv "$tmp" "$target"; then
     rm -f "$tmp"
     return 1
   fi
@@ -281,6 +282,16 @@ write_task_meta() {
 
 spawn_abort_cleanup() {
   local status=$? herdr_abort_ok=0 herdr_abort_pane_closed=0 abort_meta_tmp current_identity
+  if [ "${HERDR_NEW_LEASE:-0}" = 1 ] && [ "$TREEHOUSE_ABORT_LEASE" != 1 ] \
+    && [ "$(grep '^spawn_recovery_state=' "$STATE/$ID.meta" 2>/dev/null | cut -d= -f2- || true)" = lease-acquired ] \
+    && [ "$(grep '^spawn_recovery_owner=' "$STATE/$ID.meta" 2>/dev/null | cut -d= -f2- || true)" = "$(cd "$STATE" 2>/dev/null && pwd -P)/$ID" ] \
+    && [ "$(grep '^treehouse_lease_holder=' "$STATE/$ID.meta" 2>/dev/null | cut -d= -f2- || true)" = "$TREEHOUSE_LEASE_HOLDER" ]; then
+    WT=$(grep '^worktree=' "$STATE/$ID.meta" | cut -d= -f2-)
+    TREEHOUSE_LEASE_IDENTITY=$(grep '^treehouse_lease_identity=' "$STATE/$ID.meta" | cut -d= -f2-)
+    current_identity=$(fm_treehouse_worktree_identity "$WT" "$TREEHOUSE_LEASE_HOLDER" 2>/dev/null || true)
+    [ -n "$TREEHOUSE_LEASE_IDENTITY" ] && [ "$current_identity" = "$TREEHOUSE_LEASE_IDENTITY" ] \
+      && TREEHOUSE_ABORT_LEASE=1
+  fi
   if [ "$HERDR_ABORT_CLEANUP" = 1 ]; then
     HERDR_ABORT_CLEANUP=0
     case "$HERDR_ABORT_MODE" in
@@ -1090,6 +1101,7 @@ spawn_send_key() {  # <target> <key>
   esac
 }
 if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
+  HERDR_NEW_LEASE=0
   if [ "$BACKEND" = herdr ] && [ -n "${HERDR_WS_OWNED:-}" ]; then
     if [ "$HERDR_EXISTING_OWNED" = 1 ]; then
       WT=$(grep '^worktree=' "$STATE/$ID.meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
@@ -1112,10 +1124,49 @@ if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
     fi
     if [ -z "$WT" ]; then
       TREEHOUSE_LEASE_HOLDER="firstmate-$ID-$(LC_ALL=C od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
-      spawn_send_text_line "$WT_TARGET" "FM_TREEHOUSE_WORKTREE=\"\$(treehouse get --lease --lease-holder $(shell_quote "$TREEHOUSE_LEASE_HOLDER"))\" && (cd \"\$FM_TREEHOUSE_WORKTREE\" && \"\${SHELL:-/bin/bash}\")"
+      HERDR_LEASE_TEMPLATE="$STATE/.$ID.treehouse-acquire"
+      write_task_meta lease-acquiring "$HERDR_LEASE_TEMPLATE" || {
+        echo "error: could not persist the Treehouse lease acquisition template for $ID" >&2
+        exit 1
+      }
+      HERDR_NEW_LEASE=1
+      spawn_send_text_line "$WT_TARGET" "FM_TREEHOUSE_WORKTREE=\"\$(treehouse get --lease --lease-holder $(shell_quote "$TREEHOUSE_LEASE_HOLDER"))\" && $(shell_quote "$SCRIPT_DIR/fm-treehouse-lease-journal.sh") $(shell_quote "$HERDR_LEASE_TEMPLATE") $(shell_quote "$STATE/$ID.meta") \"\$FM_TREEHOUSE_WORKTREE\" $(shell_quote "$TREEHOUSE_LEASE_HOLDER") && (cd \"\$FM_TREEHOUSE_WORKTREE\" && \"\${SHELL:-/bin/bash}\")"
+      if [ "${FM_TEST_INTERRUPT_AFTER_HERDR_LEASE_RECOVERY:-0}" = 1 ]; then
+        for _ in $(seq 1 60); do
+          [ "$(grep '^spawn_recovery_state=' "$STATE/$ID.meta" 2>/dev/null | cut -d= -f2- || true)" = lease-acquired ] && break
+          sleep 1
+        done
+        [ "$(grep '^spawn_recovery_state=' "$STATE/$ID.meta" 2>/dev/null | cut -d= -f2- || true)" = lease-acquired ] || exit 1
+        kill -KILL "$$"
+      fi
     fi
   else
     spawn_send_text_line "$WT_TARGET" 'treehouse get'
+  fi
+
+  if [ "$HERDR_NEW_LEASE" = 1 ]; then
+    TREEHOUSE_LEASE_IDENTITY=
+    for _ in $(seq 1 60); do
+      if [ -f "$STATE/$ID.meta" ] \
+        && [ "$(grep '^spawn_recovery_state=' "$STATE/$ID.meta" 2>/dev/null | cut -d= -f2- || true)" = lease-acquired ] \
+        && [ "$(grep '^spawn_recovery_owner=' "$STATE/$ID.meta" 2>/dev/null | cut -d= -f2- || true)" = "$(cd "$STATE" && pwd -P)/$ID" ] \
+        && [ "$(grep '^treehouse_lease_holder=' "$STATE/$ID.meta" 2>/dev/null | cut -d= -f2- || true)" = "$TREEHOUSE_LEASE_HOLDER" ]; then
+        WT=$(grep '^worktree=' "$STATE/$ID.meta" | cut -d= -f2-)
+        TREEHOUSE_LEASE_IDENTITY=$(grep '^treehouse_lease_identity=' "$STATE/$ID.meta" | cut -d= -f2-)
+        if [ -n "$WT" ] && [ -n "$TREEHOUSE_LEASE_IDENTITY" ] \
+          && [ "$(fm_treehouse_worktree_identity "$WT" "$TREEHOUSE_LEASE_HOLDER" 2>/dev/null || true)" = "$TREEHOUSE_LEASE_IDENTITY" ]; then
+          TREEHOUSE_ABORT_LEASE=1
+          break
+        fi
+        WT=
+        TREEHOUSE_LEASE_IDENTITY=
+      fi
+      sleep 1
+    done
+    [ -n "$WT" ] && [ -n "$TREEHOUSE_LEASE_IDENTITY" ] || {
+      echo "error: Treehouse lease acquisition did not publish authoritative recovery metadata within 60s" >&2
+      exit 1
+    }
   fi
 
   # Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.
@@ -1126,6 +1177,8 @@ if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   # Compare against PROJ_ABS_REAL (physical), not PROJ_ABS: a symlinked project
   # prefix would otherwise make the pane's OS-level cwd read differ from
   # PROJ_ABS on the very first poll, before the pane has actually moved.
+  HERDR_EXPECTED_WT=$WT
+  WT=
   for _ in $(seq 1 60); do
     p=$(spawn_current_path "$WT_TARGET" || true)
     if [ -n "$p" ] && [ "$(real_path_or_raw "$p")" != "$PROJ_ABS_REAL" ]; then
@@ -1138,25 +1191,17 @@ if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
     echo "error: treehouse get did not enter a worktree within 60s; inspect window $T" >&2
     exit 1
   fi
+  if [ -n "$HERDR_EXPECTED_WT" ] \
+    && [ "$(real_path_or_raw "$WT")" != "$(real_path_or_raw "$HERDR_EXPECTED_WT")" ]; then
+    echo "error: treehouse pane entered '$WT' instead of its recorded lease '$HERDR_EXPECTED_WT'; inspect window $T" >&2
+    exit 1
+  fi
 
-  if [ "$BACKEND" = herdr ] && [ -n "${HERDR_WS_OWNED:-}" ] && [ -z "$TREEHOUSE_LEASE_IDENTITY" ]; then
-    TREEHOUSE_LEASE_IDENTITY=$(fm_treehouse_worktree_identity "$WT" "$TREEHOUSE_LEASE_HOLDER") || {
-      echo "error: Treehouse did not record the expected durable lease for $WT" >&2
-      exit 1
-    }
-    case "$TREEHOUSE_LEASE_IDENTITY" in lease:*) ;; *) echo "error: Treehouse returned a non-lease identity for $WT" >&2; exit 1 ;; esac
-    TREEHOUSE_ABORT_LEASE=1
-    write_task_meta lease-acquired || {
-      echo "error: could not persist complete Treehouse lease recovery metadata for $ID" >&2
-      exit 1
-    }
+  if [ "$HERDR_NEW_LEASE" = 1 ]; then
     fm_treehouse_write_owned_binding "$STATE/$ID.meta" "$WT" "$TREEHOUSE_LEASE_IDENTITY" || {
       echo "error: could not persist the exact Treehouse lease binding for $ID" >&2
       exit 1
     }
-    if [ "${FM_TEST_INTERRUPT_AFTER_HERDR_LEASE_RECOVERY:-0}" = 1 ]; then
-      kill -KILL "$$"
-    fi
   fi
   validate_spawn_worktree "treehouse get" "$T"
 fi
