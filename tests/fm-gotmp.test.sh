@@ -108,6 +108,7 @@ test_spawn_contract_and_mkdir_pattern() {
     || fail "fm-spawn missing: mkdir of gotmp under TASK_TMP"
   local writer
   writer=$(awk '/^write_task_meta\(\)/,/^}$/' "$SPAWN")
+  # shellcheck disable=SC2016  # literal production source, not an expanding expression
   case "$writer" in
     *'echo "tasktmp=${TASK_TMP:-}"'*) : ;;
     *) fail "fm-spawn atomic metadata writer missing tasktmp publication" ;;
@@ -128,15 +129,32 @@ test_spawn_contract_and_mkdir_pattern() {
     WT="$sim_root/worktree" PROJ_ABS="$sim_root/project" HARNESS=claude \
     KIND=ship MODE=no-mistakes YOLO=off MODEL=default EFFORT=default
   eval "$writer"
-  write_task_meta lease-acquiring "$sim_root/state/$id.recovery"
+  write_task_meta lease-acquiring "$STATE/$ID.recovery"
   local provisional_read
-  provisional_read=$(grep '^tasktmp=' "$sim_root/state/$id.recovery" | cut -d= -f2-)
+  provisional_read=$(grep '^tasktmp=' "$STATE/$ID.recovery" | cut -d= -f2-)
   [ "$provisional_read" = "$task_tmp" ] \
     || fail "provisional recovery metadata did not publish readable tasktmp (got '$provisional_read')"
   write_task_meta
+  local final_meta="$STATE/$ID.meta" expected_meta
+  expected_meta=$(
+    printf '%s\n' \
+      "window=$T" \
+      "worktree=$WT" \
+      "project=$PROJ_ABS" \
+      "harness=$HARNESS" \
+      "kind=$KIND" \
+      "mode=$MODE" \
+      "yolo=$YOLO" \
+      "tasktmp=$TASK_TMP" \
+      "model=$MODEL" \
+      "effort=$EFFORT"
+    [ "$BACKEND" = tmux ] || printf 'backend=%s\n' "$BACKEND"
+  )
+  [ "$(cat "$final_meta")" = "$expected_meta" ] \
+    || fail "final metadata did not consume the complete spawn fixture"
   [ -d "$task_tmp/gotmp" ] || fail "simulated spawn did not create gotmp dir"
   local read_back
-  read_back=$(grep '^tasktmp=' "$sim_root/state/$id.meta" | cut -d= -f2-)
+  read_back=$(grep '^tasktmp=' "$final_meta" | cut -d= -f2-)
   [ "$read_back" = "$task_tmp" ] \
     || fail "tasktmp value not round-tripped by teardown's grep|cut (got '$read_back')"
   pass "fm-spawn atomically publishes readable tasktmp in provisional and final metadata"
