@@ -582,6 +582,9 @@ fm_backend_herdr_child_workspace_populate() {  # <session> <workspace_id> <id> <
   local session=$1 child_ws=$2 id=$3 cwd=$4 status_file=${5:-} seed_tab=${6:-} lg_out lg_pane tabs old_log_tabs old_log
   FM_BACKEND_HERDR_CHILD_TAB_ID=
   FM_BACKEND_HERDR_CHILD_PANE_ID=
+  FM_BACKEND_HERDR_TASK_CREATED=0
+  FM_BACKEND_HERDR_TASK_TAB_ID=
+  FM_BACKEND_HERDR_TASK_PANE_ID=
   tabs=$(fm_backend_herdr_cli "$session" tab list --workspace "$child_ws" 2>/dev/null) || return 1
   old_log_tabs=$(printf '%s' "$tabs" | jq -r \
     'if (.result.tabs | type) == "array" then .result.tabs[] | select(.label == "log") | .tab_id else error("missing result.tabs") end' 2>/dev/null) || return 1

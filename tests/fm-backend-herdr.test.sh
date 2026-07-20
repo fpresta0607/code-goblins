@@ -121,6 +121,7 @@ case "$cmd $sub" in
       "$wsid" "$label" "$wsid:t$dn" "$wsid:p$dn"
     ;;
   "workspace close")
+    [ "${FM_FAKE_HERDR_WORKSPACE_CLOSE_FAIL:-0}" != 1 ] || exit 1
     wsid=${3:-}
     jq_state --arg w "$wsid" \
       '.workspaces |= [.[]|select(.workspace_id != $w)]
@@ -145,6 +146,7 @@ case "$cmd $sub" in
     jq_state --arg p "$pane" '.tabs |= [.[]|select(.pane_id != $p)]' | save
     ;;
   "tab close")
+    [ "${FM_FAKE_HERDR_TAB_CLOSE_FAIL:-0}" != 1 ] || exit 1
     tab=${3:-}
     jq_state --arg t "$tab" '.tabs |= [.[]|select(.tab_id != $t)]' | save
     ;;
@@ -715,6 +717,8 @@ make_child_respawn_case() {
 run_child_respawn() {
   PATH="$CHILD_CASE_FAKEBIN:$PATH" HERDR_SESSION=fmtest FM_HERDR_LOG="$CHILD_CASE_LOG" \
     FM_FAKE_HERDR_STATE="$CHILD_CASE_HERDR/state.json" FM_FAKE_HERDR_FOREGROUND_CWD="$CHILD_CASE_WT" \
+    FM_FAKE_HERDR_TAB_CLOSE_FAIL="${CHILD_CASE_TAB_CLOSE_FAIL:-0}" \
+    FM_FAKE_HERDR_WORKSPACE_CLOSE_FAIL="${CHILD_CASE_WORKSPACE_CLOSE_FAIL:-0}" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CHILD_CASE_HOME" FM_STATE_OVERRIDE="$CHILD_CASE_STATE" \
     FM_DATA_OVERRIDE="$CHILD_CASE_DATA" FM_CONFIG_OVERRIDE="$CHILD_CASE_CONFIG" \
     FM_PROJECTS_OVERRIDE="$CHILD_CASE_HOME/projects" FM_SPAWN_NO_GUARD=1 \
@@ -776,6 +780,32 @@ test_child_workspace_respawn_refuses_ambiguous_workspace_duplicates() {
   after=$(jq '.workspaces | length' "$state_file")
   [ "$after" = "$before" ] || fail "ambiguous respawn refusal minted another workspace"
   pass "fm-spawn.sh: refuses ambiguous duplicate child workspaces before creating another"
+}
+
+test_child_workspace_failed_reuse_tracks_replacement_when_cleanup_fails() {
+  local meta state_file workspace old_tab old_pane old_worktree out rc new_tab new_pane tracked
+  make_child_respawn_case child-respawn-cleanup-fail respawncleanupz4
+  run_child_respawn >/dev/null || fail "initial owned child spawn failed"
+  meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
+  state_file="$CHILD_CASE_HERDR/state.json"
+  workspace=$(grep '^herdr_workspace_id=' "$meta" | cut -d= -f2-)
+  old_tab=$(grep '^herdr_tab_id=' "$meta" | cut -d= -f2-)
+  old_pane=$(grep '^herdr_pane_id=' "$meta" | cut -d= -f2-)
+  old_worktree=$(grep '^worktree=' "$meta" | cut -d= -f2-)
+  CHILD_CASE_TAB_CLOSE_FAIL=1
+  CHILD_CASE_WORKSPACE_CLOSE_FAIL=1
+  out=$(run_child_respawn); rc=$?
+  [ "$rc" -ne 0 ] || fail "reuse must fail when the old runtime husk cannot be removed"
+  new_tab=$(grep '^herdr_tab_id=' "$meta" | cut -d= -f2-)
+  new_pane=$(grep '^herdr_pane_id=' "$meta" | cut -d= -f2-)
+  [ "$new_tab" != "$old_tab" ] || fail "failed reuse cleanup left metadata pointing at the old runtime tab"
+  [ "$new_pane" != "$old_pane" ] || fail "failed reuse cleanup left metadata pointing at the old runtime pane"
+  [ "$(grep '^herdr_workspace_id=' "$meta" | cut -d= -f2-)" = "$workspace" ] || fail "failed reuse cleanup changed exact workspace ownership"
+  [ "$(grep '^worktree=' "$meta" | cut -d= -f2-)" = "$old_worktree" ] || fail "failed reuse cleanup discarded existing Treehouse metadata"
+  tracked=$(jq -r --arg w "$workspace" --arg t "$new_tab" --arg p "$new_pane" \
+    '[.tabs[] | select(.workspace_id == $w and .tab_id == $t and .pane_id == $p)] | length' "$state_file")
+  [ "$tracked" = 1 ] || fail "failed reuse cleanup metadata does not identify the replacement endpoint: $out"
+  pass "fm-spawn.sh: failed reused-workspace cleanup durably tracks the replacement endpoint"
 }
 
 # --- workspace_find: scoped to THIS home's own label, not just any match ----
@@ -2238,6 +2268,7 @@ test_spawn_abort_closes_owned_child_before_meta_is_durable
 test_child_workspace_respawn_refuses_live_exact_endpoint
 test_child_workspace_respawn_reuses_exact_husk_workspace
 test_child_workspace_respawn_refuses_ambiguous_workspace_duplicates
+test_child_workspace_failed_reuse_tracks_replacement_when_cleanup_fails
 test_workspace_find_matches_only_this_homes_own_label
 test_list_live_scoped_to_this_homes_workspace_only
 test_parse_target

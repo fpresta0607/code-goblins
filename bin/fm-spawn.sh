@@ -214,7 +214,7 @@ parse_orca_worktree_result() {
 }
 
 spawn_abort_cleanup() {
-  local status=$? herdr_abort_ok=0
+  local status=$? herdr_abort_ok=0 abort_meta_tmp
   if [ "$HERDR_ABORT_CLEANUP" = 1 ]; then
     HERDR_ABORT_CLEANUP=0
     case "$HERDR_ABORT_MODE" in
@@ -227,7 +227,28 @@ spawn_abort_cleanup() {
     esac
     if [ "$herdr_abort_ok" != 1 ]; then
       mkdir -p "$STATE" 2>/dev/null || true
-      if [ -d "$STATE" ]; then
+      if [ "$HERDR_ABORT_MODE" = owned ] && [ -f "$STATE/$ID.meta" ]; then
+        abort_meta_tmp="$STATE/.$ID.meta.abort.$$"
+        if awk \
+          -v window="$HERDR_SES:${HERDR_PANE_ID:-}" \
+          -v session="$HERDR_SES" \
+          -v workspace="$HERDR_WORKSPACE_ID" \
+          -v tab="${HERDR_TAB_ID:-}" \
+          -v pane="${HERDR_PANE_ID:-}" \
+          -v parent="$HERDR_PARENT_WS" '
+            /^window=/ { print "window=" window; next }
+            /^herdr_session=/ { print "herdr_session=" session; next }
+            /^herdr_workspace_id=/ { print "herdr_workspace_id=" workspace; next }
+            /^herdr_tab_id=/ { print "herdr_tab_id=" tab; next }
+            /^herdr_pane_id=/ { print "herdr_pane_id=" pane; next }
+            /^herdr_parent_ws=/ { print "herdr_parent_ws=" parent; next }
+            { print }
+          ' "$STATE/$ID.meta" > "$abort_meta_tmp" && mv "$abort_meta_tmp" "$STATE/$ID.meta"; then
+          :
+        else
+          rm -f "$abort_meta_tmp"
+        fi
+      elif [ -d "$STATE" ]; then
         {
           echo "window=$HERDR_SES:${HERDR_PANE_ID:-}"
           echo "worktree=${WT:-}"
@@ -797,7 +818,12 @@ case "$BACKEND" in
       fi
       if ! fm_backend_herdr_child_workspace_populate "$HERDR_SES" "$HERDR_WORKSPACE_ID" "$ID" "$PROJ_ABS" "$STATE/$ID.status" "$FM_BACKEND_HERDR_CHILD_SEED_TAB_ID"; then
         if [ "$HERDR_CHILD_ACTION" = reuse ] && [ "${FM_BACKEND_HERDR_TASK_CREATED:-0}" = 1 ]; then
-          FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_close_owned_workspace "$HERDR_SES" "$HERDR_WORKSPACE_ID" "$HERDR_PARENT_WS" "$STATE" || true
+          HERDR_TAB_ID=$FM_BACKEND_HERDR_TASK_TAB_ID
+          HERDR_PANE_ID=$FM_BACKEND_HERDR_TASK_PANE_ID
+          HERDR_WS_OWNED=1
+          HERDR_ABORT_HOME=$HERDR_LABEL_HOME
+          HERDR_ABORT_MODE=owned
+          HERDR_ABORT_CLEANUP=1
         fi
         exit 1
       fi
