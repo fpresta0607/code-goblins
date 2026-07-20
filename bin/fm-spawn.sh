@@ -192,6 +192,8 @@ fi
 ORCA_ABORT_CLEANUP=0
 ORCA_WORKTREE_ID=
 ORCA_TERMINAL=
+HERDR_ABORT_CLEANUP=0
+HERDR_ABORT_HOME=
 
 parse_orca_worktree_result() {
   local raw=$1 rest
@@ -210,19 +212,15 @@ parse_orca_worktree_result() {
   fi
 }
 
-orca_spawn_abort_cleanup() {
+spawn_abort_cleanup() {
   local status=$?
-  [ "$ORCA_ABORT_CLEANUP" = 1 ] || return "$status"
-  ORCA_ABORT_CLEANUP=0
-  if [ -n "${ORCA_TERMINAL:-}" ]; then
-    fm_backend_kill orca "$ORCA_TERMINAL" 2>/dev/null || true
-  fi
-  if [ -n "${ORCA_WORKTREE_ID:-}" ]; then
-    if ! fm_backend_remove_worktree orca "$ORCA_WORKTREE_ID" 2>/dev/null; then
+  if [ "$HERDR_ABORT_CLEANUP" = 1 ]; then
+    HERDR_ABORT_CLEANUP=0
+    if ! FM_HOME="$HERDR_ABORT_HOME" fm_backend_herdr_discard_fresh_workspace "$HERDR_SES" "$HERDR_WORKSPACE_ID"; then
       mkdir -p "$STATE" 2>/dev/null || true
       if [ -d "$STATE" ]; then
         {
-          echo "window=$W"
+          echo "window=$HERDR_SES:${HERDR_PANE_ID:-}"
           echo "worktree=${WT:-}"
           echo "project=$PROJ_ABS"
           echo "harness=$HARNESS"
@@ -232,16 +230,48 @@ orca_spawn_abort_cleanup() {
           echo "tasktmp=${TASK_TMP:-}"
           echo "model=${MODEL:-default}"
           echo "effort=${EFFORT:-default}"
-          echo "backend=orca"
-          echo "orca_worktree_id=$ORCA_WORKTREE_ID"
-          [ -z "${ORCA_TERMINAL:-}" ] || echo "terminal=$ORCA_TERMINAL"
+          echo "backend=herdr"
+          echo "herdr_session=$HERDR_SES"
+          echo "herdr_workspace_id=$HERDR_WORKSPACE_ID"
+          echo "herdr_tab_id=${HERDR_TAB_ID:-}"
+          echo "herdr_pane_id=${HERDR_PANE_ID:-}"
+          echo "herdr_parent_ws=$HERDR_PARENT_WS"
+          echo "herdr_ws_owned=1"
         } > "$STATE/$ID.meta" 2>/dev/null || true
+      fi
+    fi
+  fi
+  if [ "$ORCA_ABORT_CLEANUP" = 1 ]; then
+    ORCA_ABORT_CLEANUP=0
+    if [ -n "${ORCA_TERMINAL:-}" ]; then
+      fm_backend_kill orca "$ORCA_TERMINAL" 2>/dev/null || true
+    fi
+    if [ -n "${ORCA_WORKTREE_ID:-}" ]; then
+      if ! fm_backend_remove_worktree orca "$ORCA_WORKTREE_ID" 2>/dev/null; then
+        mkdir -p "$STATE" 2>/dev/null || true
+        if [ -d "$STATE" ]; then
+          {
+            echo "window=$W"
+            echo "worktree=${WT:-}"
+            echo "project=$PROJ_ABS"
+            echo "harness=$HARNESS"
+            echo "kind=$KIND"
+            echo "mode=${MODE:-no-mistakes}"
+            echo "yolo=${YOLO:-off}"
+            echo "tasktmp=${TASK_TMP:-}"
+            echo "model=${MODEL:-default}"
+            echo "effort=${EFFORT:-default}"
+            echo "backend=orca"
+            echo "orca_worktree_id=$ORCA_WORKTREE_ID"
+            [ -z "${ORCA_TERMINAL:-}" ] || echo "terminal=$ORCA_TERMINAL"
+          } > "$STATE/$ID.meta" 2>/dev/null || true
+        fi
       fi
     fi
   fi
   return "$status"
 }
-trap orca_spawn_abort_cleanup EXIT
+trap spawn_abort_cleanup EXIT
 
 # Batch dispatch (see header): when the first positional is an `id=repo` pair, treat every
 # positional as one and spawn each by re-execing this script in single-task mode. We use
@@ -744,10 +774,13 @@ case "$BACKEND" in
     # tab-per-task path and no herdr_parent_ws/herdr_ws_owned meta is written.
     if [ "$KIND" != secondmate ] && FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_child_ws_enabled; then
       HERDR_PARENT_WS=$HERDR_WORKSPACE_ID
-      HERDR_CHILD_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_child_workspace "$HERDR_SES" "$HERDR_PARENT_WS" "$ID" "$PROJ_ABS" "$STATE/$ID.status") || exit 1
-      read -r HERDR_WORKSPACE_ID HERDR_TAB_ID HERDR_PANE_ID <<EOF2
-$HERDR_CHILD_IDS
-EOF2
+      FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_child_workspace_create "$HERDR_SES" "$HERDR_PARENT_WS" "$ID" "$PROJ_ABS" || exit 1
+      HERDR_WORKSPACE_ID=$FM_BACKEND_HERDR_CHILD_WS_ID
+      HERDR_ABORT_HOME=$HERDR_LABEL_HOME
+      HERDR_ABORT_CLEANUP=1
+      fm_backend_herdr_child_workspace_populate "$HERDR_SES" "$HERDR_WORKSPACE_ID" "$ID" "$PROJ_ABS" "$STATE/$ID.status" "$FM_BACKEND_HERDR_CHILD_SEED_TAB_ID" || exit 1
+      HERDR_TAB_ID=$FM_BACKEND_HERDR_CHILD_TAB_ID
+      HERDR_PANE_ID=$FM_BACKEND_HERDR_CHILD_PANE_ID
       HERDR_WS_OWNED=1
     else
       HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$W" "$PROJ_ABS" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
@@ -1055,6 +1088,7 @@ META_WINDOW=$T
   fi
 } > "$STATE/$ID.meta"
 [ "$BACKEND" = orca ] && ORCA_ABORT_CLEANUP=0
+[ "$BACKEND" = herdr ] && HERDR_ABORT_CLEANUP=0
 
 sq_brief=$(shell_quote "$BRIEF")
 sq_turnend=$(shell_quote "$TURNEND")

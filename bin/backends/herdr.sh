@@ -412,6 +412,24 @@ fm_backend_herdr_child_label() {  # <id>
   printf '%s/%s' "$(fm_backend_herdr_workspace_label)" "$1"
 }
 
+fm_backend_herdr_shell_quote() {
+  printf "'"
+  printf '%s' "$1" | sed "s/'/'\\\\''/g"
+  printf "'"
+}
+
+fm_backend_herdr_discard_fresh_workspace() {  # <session> <workspace_id>
+  local session=$1 wsid=$2 close_class
+  [ -n "$session" ] && [ -n "$wsid" ] || return 1
+  close_class=$(fm_backend_herdr_workspace_close_class "$session" "$wsid") || return 1
+  case "$close_class" in
+    gone) return 0 ;;
+    unmarked) ;;
+    *) return 1 ;;
+  esac
+  fm_backend_herdr_cli "$session" workspace close "$wsid" >/dev/null 2>&1
+}
+
 # fm_backend_herdr_create_child_workspace: build a delegated job's OWN child
 # workspace under <parent_ws_id> (the already-ensured home/supervisor
 # workspace) and populate it with the tabs that GENUINELY belong to that one
@@ -426,14 +444,22 @@ fm_backend_herdr_child_label() {  # <id>
 # tabs exist alongside it, via the same structural (never label-heuristic)
 # prune used for the home workspace. Echoes "<child_ws_id> <runtime_tab_id>
 # <runtime_pane_id>".
-fm_backend_herdr_create_child_workspace() {  # <session> <parent_ws_id> <id> <cwd> [<status_file>]
-  local session=$1 parent=$2 id=$3 cwd=$4 status_file=${5:-} label out child_ws seed_tab rt_out rt_tab rt_pane lg_out lg_pane
+fm_backend_herdr_child_workspace_create() {  # <session> <parent_ws_id> <id> <cwd>
+  local session=$1 parent=$2 id=$3 cwd=$4 label out
+  FM_BACKEND_HERDR_CHILD_WS_ID=
+  FM_BACKEND_HERDR_CHILD_SEED_TAB_ID=
   [ -n "$parent" ] || { echo "error: create_child_workspace requires a parent workspace id" >&2; return 1; }
   label=$(fm_backend_herdr_child_label "$id")
   out=$(fm_backend_herdr_cli "$session" workspace create --cwd "$cwd" --label "$label" --no-focus 2>/dev/null) || return 1
-  child_ws=$(printf '%s' "$out" | jq -r '.result.workspace.workspace_id // empty' 2>/dev/null)
-  seed_tab=$(printf '%s' "$out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
-  [ -n "$child_ws" ] || { echo "error: could not parse child workspace id from herdr workspace create output" >&2; return 1; }
+  FM_BACKEND_HERDR_CHILD_WS_ID=$(printf '%s' "$out" | jq -r '.result.workspace.workspace_id // empty' 2>/dev/null)
+  FM_BACKEND_HERDR_CHILD_SEED_TAB_ID=$(printf '%s' "$out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
+  [ -n "$FM_BACKEND_HERDR_CHILD_WS_ID" ] || { echo "error: could not parse child workspace id from herdr workspace create output" >&2; return 1; }
+}
+
+fm_backend_herdr_child_workspace_populate() {  # <session> <workspace_id> <id> <cwd> [<status_file>] [<seed_tab_id>]
+  local session=$1 child_ws=$2 id=$3 cwd=$4 status_file=${5:-} seed_tab=${6:-} rt_out rt_tab rt_pane lg_out lg_pane
+  FM_BACKEND_HERDR_CHILD_TAB_ID=
+  FM_BACKEND_HERDR_CHILD_PANE_ID=
   rt_out=$(fm_backend_herdr_cli "$session" tab create --workspace "$child_ws" --cwd "$cwd" --label "fm-$id" --no-focus 2>/dev/null) || return 1
   rt_tab=$(printf '%s' "$rt_out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
   rt_pane=$(printf '%s' "$rt_out" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
@@ -445,11 +471,24 @@ fm_backend_herdr_create_child_workspace() {  # <session> <parent_ws_id> <id> <cw
     lg_out=$(fm_backend_herdr_cli "$session" tab create --workspace "$child_ws" --cwd "$cwd" --label "log" --no-focus 2>/dev/null)
     lg_pane=$(printf '%s' "$lg_out" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
     if [ -n "$lg_pane" ]; then
-      fm_backend_herdr_cli "$session" pane run "$lg_pane" "tail -n +1 -F $status_file" >/dev/null 2>&1 || true
+      fm_backend_herdr_cli "$session" pane run "$lg_pane" "tail -n +1 -F -- $(fm_backend_herdr_shell_quote "$status_file")" >/dev/null 2>&1 || true
     fi
   fi
   [ -n "$seed_tab" ] && fm_backend_herdr_workspace_prune_seeded_default_tab "$session" "$child_ws" "$seed_tab"
-  printf '%s %s %s' "$child_ws" "$rt_tab" "$rt_pane"
+  FM_BACKEND_HERDR_CHILD_TAB_ID=$rt_tab
+  FM_BACKEND_HERDR_CHILD_PANE_ID=$rt_pane
+}
+
+fm_backend_herdr_create_child_workspace() {  # <session> <parent_ws_id> <id> <cwd> [<status_file>]
+  local session=$1 parent=$2 id=$3 cwd=$4 status_file=${5:-} child_ws seed_tab
+  fm_backend_herdr_child_workspace_create "$session" "$parent" "$id" "$cwd" || return 1
+  child_ws=$FM_BACKEND_HERDR_CHILD_WS_ID
+  seed_tab=$FM_BACKEND_HERDR_CHILD_SEED_TAB_ID
+  fm_backend_herdr_child_workspace_populate "$session" "$child_ws" "$id" "$cwd" "$status_file" "$seed_tab" || {
+    fm_backend_herdr_discard_fresh_workspace "$session" "$child_ws" || true
+    return 1
+  }
+  printf '%s %s %s' "$child_ws" "$FM_BACKEND_HERDR_CHILD_TAB_ID" "$FM_BACKEND_HERDR_CHILD_PANE_ID"
 }
 
 # fm_backend_herdr_workspace_close_class: classify an exact live workspace id

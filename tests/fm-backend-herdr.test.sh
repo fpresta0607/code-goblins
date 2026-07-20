@@ -120,10 +120,17 @@ case "$cmd $sub" in
     printf '{"result":{"workspace":{"workspace_id":"%s","label":"%s"},"tab":{"tab_id":"%s"},"root_pane":{"pane_id":"%s"}}}\n' \
       "$wsid" "$label" "$wsid:t$dn" "$wsid:p$dn"
     ;;
+  "workspace close")
+    wsid=${3:-}
+    jq_state --arg w "$wsid" \
+      '.workspaces |= [.[]|select(.workspace_id != $w)]
+       | .tabs |= [.[]|select(.workspace_id != $w)]' | save
+    ;;
   "tab list")
     jq_state --arg w "$ws" '{result:{tabs:[.tabs[]|select(.workspace_id==$w)]}}'
     ;;
   "tab create")
+    [ "${FM_FAKE_HERDR_TAB_CREATE_FAIL:-0}" != 1 ] || exit 1
     n=$(jq_state -r '.next'); tabid="$ws:t$n"; paneid="$ws:p$n"
     jq_state --arg w "$ws" --arg wlabel "$label" --arg tabid "$tabid" --arg paneid "$paneid" \
       '.tabs += [{tab_id:$tabid, label:$wlabel, workspace_id:$w, pane_id:$paneid}]
@@ -149,6 +156,9 @@ case "$cmd $sub" in
     else
       printf '{"error":{"code":"agent_not_found","message":"agent target %s not found"}}\n' "$pane"
     fi
+    ;;
+  "pane get")
+    printf '{"result":{"pane":{"foreground_cwd":"%s"}}}\n' "${FM_FAKE_HERDR_FOREGROUND_CWD:-}"
     ;;
   *) : ;;
 esac
@@ -614,6 +624,62 @@ test_create_task_creates_with_no_focus_flag() {
   assert_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''create'$'\x1f''--workspace'$'\x1f''w1'$'\x1f''--cwd'$'\x1f''/tmp/proj'$'\x1f''--label'$'\x1f''fm-newtask'$'\x1f''--no-focus' \
     "create_task's tab create did not pass --no-focus"
   pass "fm_backend_herdr_create_task: tab create passes --no-focus"
+}
+
+test_child_workspace_log_path_is_shell_quoted() {
+  local dir log resp fb out status_file expected
+  dir="$TMP_ROOT/child-log-quote"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  status_file="/tmp/status path;touch /tmp/not-executed"
+  printf '{"result":{"workspace":{"workspace_id":"w2"},"tab":{}}}\n' > "$resp/1.out"
+  printf '{"result":{"tab":{"tab_id":"w2:t1"},"root_pane":{"pane_id":"w2:p1"}}}\n' > "$resp/2.out"
+  printf '{"result":{"tab":{"tab_id":"w2:t2"},"root_pane":{"pane_id":"w2:p2"}}}\n' > "$resp/3.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$(PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_child_workspace fmtest w1 task /tmp "$1"' "$ROOT" "$status_file")
+  [ "$out" = "w2 w2:t1 w2:p1" ] || fail "child workspace ids were not returned: $out"
+  expected="tail -n +1 -F -- '$status_file'"
+  assert_contains "$(cat "$log")" $'\x1f''pane'$'\x1f''run'$'\x1f''w2:p2'$'\x1f'"$expected" \
+    "the child log command did not preserve the status path as one shell-quoted argument"
+  pass "fm_backend_herdr_create_child_workspace: shell-quotes the status path in the log command"
+}
+
+test_child_workspace_population_failure_rolls_back_fresh_workspace() {
+  local dir log fb out rc
+  dir="$TMP_ROOT/child-populate-rollback"; log="$dir/log"
+  fb=$(make_herdr_statefake "$dir")
+  : > "$log"
+  out=$(PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_FAKE_HERDR_STATE="$dir/state.json" \
+    FM_FAKE_HERDR_TAB_CREATE_FAIL=1 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_child_workspace fmtest w-parent task /tmp' "$ROOT" 2>&1)
+  rc=$?
+  [ "$rc" -ne 0 ] || fail "a failed runtime-tab creation must fail child workspace construction"
+  [ "$(jq '.workspaces | length' "$dir/state.json")" = 0 ] || \
+    fail "a failed child workspace construction left its freshly-created workspace behind: $out"
+  pass "fm_backend_herdr_create_child_workspace: rolls back a fresh workspace when population fails"
+}
+
+test_spawn_abort_closes_owned_child_before_meta_is_durable() {
+  local dir home proj invalid data state config fakebin log id out rc live
+  dir="$TMP_ROOT/spawn-child-abort"; home="$dir/home"; proj="$dir/project"; invalid="$dir/not-a-worktree"
+  data="$home/data"; state="$home/state"; config="$home/config"; log="$dir/herdr.log"; id=abortchildz1
+  mkdir -p "$data/$id" "$state" "$config" "$invalid"
+  printf 'on\n' > "$config/herdr-child-workspaces"
+  printf 'brief\n' > "$data/$id/brief.md"
+  fm_git_init_commit "$proj"
+  fakebin=$(make_herdr_statefake "$dir/herdr")
+  fm_fake_exit0 "$fakebin" treehouse
+  : > "$log"
+  out=$(PATH="$fakebin:$PATH" HERDR_SESSION=fmtest FM_HERDR_LOG="$log" \
+    FM_FAKE_HERDR_STATE="$dir/herdr/state.json" FM_FAKE_HERDR_FOREGROUND_CWD="$invalid" \
+    FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_STATE_OVERRIDE="$state" \
+    FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" FM_PROJECTS_OVERRIDE="$home/projects" \
+    FM_SPAWN_NO_GUARD=1 "$ROOT/bin/fm-spawn.sh" "$id" "$proj" 'echo test' --backend herdr 2>&1)
+  rc=$?
+  [ "$rc" -ne 0 ] || fail "spawn should refuse a non-worktree path after Treehouse acquisition"
+  live=$(jq -r '[.workspaces[].label] | join(" ")' "$dir/herdr/state.json")
+  [ "$live" = firstmate ] || fail "aborted spawn leaked its owned child workspace; live labels: $live; output: $out"
+  [ ! -e "$state/$id.meta" ] || fail "successful abort cleanup should not leave recovery metadata"
+  pass "fm-spawn.sh: closes an owned child workspace when spawn aborts before durable metadata"
 }
 
 # --- workspace_find: scoped to THIS home's own label, not just any match ----
@@ -2070,6 +2136,9 @@ test_create_task_refuses_when_agent_state_ambiguous
 test_create_task_husk_replacement_creates_before_closing
 test_create_task_creates_and_parses_ids
 test_create_task_creates_with_no_focus_flag
+test_child_workspace_log_path_is_shell_quoted
+test_child_workspace_population_failure_rolls_back_fresh_workspace
+test_spawn_abort_closes_owned_child_before_meta_is_durable
 test_workspace_find_matches_only_this_homes_own_label
 test_list_live_scoped_to_this_homes_workspace_only
 test_parse_target

@@ -52,12 +52,13 @@ pass() {
 
 # --- self-cleaning temp root ------------------------------------------------
 #
-# fm_test_tmproot <prefix> echoes a fresh temp dir and registers it for removal
-# on EXIT. The first call installs the cleanup trap. A test file that needs
+# fm_test_tmproot <prefix> echoes a fresh temp dir beneath a parent-owned root
+# removed on EXIT. A test file that needs
 # extra teardown (e.g. killing a daemon) should define its own EXIT trap and
 # call fm_test_cleanup from inside it so registered dirs are still removed.
 
-FM_TEST_CLEANUP_DIRS=()
+FM_TEST_CLEANUP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-roots.XXXXXX")
+FM_TEST_CLEANUP_DIRS=("$FM_TEST_CLEANUP_ROOT")
 
 fm_test_cleanup() {
   local d
@@ -68,18 +69,11 @@ fm_test_cleanup() {
 
 fm_test_tmproot() {
   local prefix=${1:-fm-test} root
-  root=$(mktemp -d "${TMPDIR:-/tmp}/${prefix}.XXXXXX")
-  # Install the cleanup trap only in the PARENT test shell. Callers invoke
-  # this via command substitution, and an EXIT trap installed inside that
-  # subshell fires the instant the substitution returns - deleting the dir it
-  # just created (tests only survived this via later `mkdir -p` calls on
-  # paths under the returned root).
-  if [ "${BASHPID:-$$}" = "$$" ] && [ "${#FM_TEST_CLEANUP_DIRS[@]}" -eq 0 ]; then
-    trap fm_test_cleanup EXIT
-  fi
-  FM_TEST_CLEANUP_DIRS+=("$root")
+  root=$(mktemp -d "$FM_TEST_CLEANUP_ROOT/${prefix}.XXXXXX")
   printf '%s\n' "$root"
 }
+
+trap fm_test_cleanup EXIT
 
 # --- fakebin / PATH shims ---------------------------------------------------
 #
