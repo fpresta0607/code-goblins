@@ -7,18 +7,22 @@
 # protocol 14, macOS aarch64), refined by docs/herdr-backend.md's
 # "workspace-per-home" pass (AGENTS.md task herdr-sm-spaces-k4). Herdr is a
 # session provider ONLY (D3): the worktree provider stays treehouse, exactly
-# like tmux. Sourced only through bin/fm-backend.sh's fm_backend_source in
+# like tmux. This adapter never transfers lifecycle ownership to Herdr and
+# fm_backend_herdr_cli refuses `worktree remove` unconditionally: deleting a
+# Treehouse pool slot behind Treehouse's back would corrupt its ownership
+# state. Sourced only through bin/fm-backend.sh's fm_backend_source in
 # normal operation; the unit tests source it directly, so the FM_HOME fallback
 # below keeps that path sane without fm-backend.sh's preamble.
 #
 # Container shape (D4, decided empirically - see herdr-verification-p2.md
-# "Task container shape", refined by docs/herdr-backend.md "Task container
-# shape"): ONE herdr workspace PER FIRSTMATE HOME (the primary, and each
-# secondmate, gets its own), ONE herdr TAB per task inside its home's
-# workspace. Workspace-per-task was tried and rejected (bad human-watching
-# ergonomics); workspace-per-HOME keeps that same rejection while giving every
-# home its own space, labeled distinctly, in the shared spaces sidebar. Target
-# resolution and the human-watch story stay parallel to the tmux adapter.
+# "Task container shape", refined by docs/herdr-backend.md): the default-off
+# layout is one Herdr workspace per Firstmate home and one tab per task inside
+# it. The captain-authorized interim opt-in gives every ordinary crew its own
+# workspace associated with that home's supervisor workspace; secondmate agents
+# remain tabs in their own supervisor anchors. Firstmate records the association
+# and repairs the flat render because Herdr has no arbitrary workspace-parent
+# edge. Target resolution and the human-watch story stay parallel to the tmux
+# adapter in both layouts.
 #
 # Target string shape: "<herdr-session>:<pane-id>", e.g. "default:w1:p2" (the
 # pane id itself contains a colon; the session is always the FIRST field, the
@@ -127,6 +131,21 @@ fm_backend_herdr_workspace_label() {
 fm_backend_herdr_cli() {  # <session> <herdr-subcommand-and-args...>
   local session=$1
   shift
+  if [ "${1:-}" = worktree ] && [ "${2:-}" = remove ]; then
+    echo "error: refusing herdr worktree.remove: Treehouse is the sole worktree lifecycle owner" >&2
+    return 1
+  fi
+  # Real-Herdr lab tests set this to the guarded production helper from their
+  # crewmate brief. It keeps every adapter call inside the helper's named,
+  # non-default session contract while still exercising the real adapter.
+  if [ -n "${FM_BACKEND_HERDR_LAB_HELPER:-}" ]; then
+    [ -x "$FM_BACKEND_HERDR_LAB_HELPER" ] || {
+      echo "error: FM_BACKEND_HERDR_LAB_HELPER is not executable: $FM_BACKEND_HERDR_LAB_HELPER" >&2
+      return 1
+    }
+    "$FM_BACKEND_HERDR_LAB_HELPER" run "$session" "$@"
+    return
+  fi
   HERDR_SESSION="$session" herdr "$@" --session "$session"
 }
 
@@ -143,7 +162,14 @@ fm_backend_herdr_tool_check() {
 fm_backend_herdr_version_check() {
   fm_backend_herdr_tool_check || return 1
   local status protocol version
-  status=$(herdr status --json 2>/dev/null) || { echo "error: 'herdr status --json' failed; is herdr installed correctly?" >&2; return 1; }
+  if [ -n "${FM_BACKEND_HERDR_LAB_HELPER:-}" ]; then
+    status=$("$FM_BACKEND_HERDR_LAB_HELPER" run "$(fm_backend_herdr_session)" status --json 2>/dev/null) || {
+      echo "error: guarded lab 'herdr status --json' failed" >&2
+      return 1
+    }
+  else
+    status=$(herdr status --json 2>/dev/null) || { echo "error: 'herdr status --json' failed; is herdr installed correctly?" >&2; return 1; }
+  fi
   protocol=$(printf '%s' "$status" | jq -r '.client.protocol // empty' 2>/dev/null)
   version=$(printf '%s' "$status" | jq -r '.client.version // empty' 2>/dev/null)
   case "$protocol" in
@@ -351,18 +377,18 @@ fm_backend_herdr_container_ensure() {  # <cwd-for-a-fresh-workspace>
   printf '%s:%s\t%s' "$session" "$FM_BACKEND_HERDR_WS_ID" "$FM_BACKEND_HERDR_WS_SEEDED_TAB_ID"
 }
 
-# --- Child-workspace hierarchy (PROTOTYPE, default OFF) -----------------------
-# docs/herdr-backend.md "Child-workspace hierarchy (prototype)". Local-trial
-# only: gated entirely behind fm_backend_herdr_child_ws_enabled, so with the
+# --- Child-workspace grouping (INTERIM, default OFF) --------------------------
+# docs/herdr-backend.md "Child-workspace grouping (interim)". Opt-in interim
+# mechanism: gated entirely behind fm_backend_herdr_child_ws_enabled, so with the
 # flag absent/off EVERY path below is skipped and behavior is byte-identical to
 # the shipped tab-per-task shape. When ON, a DELEGATED job (a ship/scout
 # crewmate, never a --secondmate supervisor) gets its OWN child workspace under
 # the home/supervisor workspace instead of a sibling tab inside it, with the
 # job's runtime and log views grouped as tabs inside that child workspace.
 #
-# Herdr 0.7.3 has NO first-class parent<->child workspace edge (verified: the
-# api-schema WorkspaceInfo carries no parent field, `workspace create` has no
-# --parent flag; workspaces are a flat set ordered by `number`). The DURABLE,
+# Herdr 0.7.3 has no arbitrary supervisor-workspace parent edge (`workspace
+# create` has no --parent flag). Its native repo/worktree grouping is a separate
+# repo-scoped shape and is not used here. The DURABLE,
 # machine-readable association therefore lives in firstmate's own task meta
 # (herdr_parent_ws=, written by fm-spawn.sh), NOT in the label. The child label
 # "<home-label>/<id>" is DISPLAY SUGAR ONLY; teardown targets the exact owned
@@ -376,7 +402,7 @@ FM_BACKEND_HERDR_CHILD_WS_FLAG="herdr-child-workspaces"
 fm_backend_herdr_child_ws_enabled() {
   local cfg="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/$FM_BACKEND_HERDR_CHILD_WS_FLAG" val
   [ -f "$cfg" ] || return 1
-  val=$(grep -v '^[[:space:]]*$' "$cfg" 2>/dev/null | head -1 | tr -d '[:space:]')
+  val=$(grep -v '^[[:space:]]*$' "$cfg" 2>/dev/null | head -1 | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
   [ "$val" = "on" ]
 }
 
@@ -426,30 +452,134 @@ fm_backend_herdr_create_child_workspace() {  # <session> <parent_ws_id> <id> <cw
   printf '%s %s %s' "$child_ws" "$rt_tab" "$rt_pane"
 }
 
+# fm_backend_herdr_workspace_close_class: classify an exact live workspace id
+# before any adapter-owned workspace.close call. `parent` is Herdr's marked
+# source-checkout parent in a native worktree group (`worktree` present and
+# `is_linked_worktree=false`); closing it would close every child workspace and
+# kill every agent in that group. `child` is a marked linked-worktree child,
+# `unmarked` is the manual interim workspace shape, and `gone` is a healthy
+# already-closed id. Any unreadable, duplicate, or unrecognized shape fails
+# closed as `unknown`.
+fm_backend_herdr_workspace_close_class() {  # <session> <workspace_id>
+  local session=$1 wsid=$2 list classes count
+  list=$(fm_backend_herdr_cli "$session" workspace list 2>/dev/null) || {
+    printf 'unknown'
+    return 1
+  }
+  classes=$(printf '%s' "$list" | jq -r --arg want "$wsid" '
+    if (.result.workspaces | type) != "array" then error("missing result.workspaces")
+    else
+      .result.workspaces[]?
+      | select(.workspace_id == $want)
+      | if ((has("worktree") | not) or .worktree == null) then "unmarked"
+        elif .worktree.is_linked_worktree == false then "parent"
+        elif .worktree.is_linked_worktree == true then "child"
+        else "unknown"
+        end
+    end' 2>/dev/null) || {
+    printf 'unknown'
+    return 1
+  }
+  [ -n "$classes" ] || {
+    printf 'gone'
+    return 0
+  }
+  count=$(printf '%s\n' "$classes" | grep -c .)
+  [ "$count" -eq 1 ] || {
+    printf 'unknown'
+    return 1
+  }
+  printf '%s' "$classes"
+  [ "$classes" != unknown ]
+}
+
+# fm_backend_herdr_workspace_is_recorded_parent: return 0 when <workspace_id>
+# is marked as a parent by any task meta in <state_dir> for <session>, 1 when it
+# is not, and 2 when the required registry cannot be inspected. The scan uses
+# every herdr_parent_ws marker, not only the task being torn down, so corrupt or
+# stale child metadata cannot redirect close onto another supervisor anchor.
+fm_backend_herdr_workspace_is_recorded_parent() {  # <state_dir> <session> <workspace_id>
+  local state=$1 session=$2 wsid=$3 meta msession parent
+  [ -d "$state" ] || {
+    echo "error: cannot inspect herdr parent markers: state directory '$state' is missing" >&2
+    return 2
+  }
+  for meta in "$state"/*.meta; do
+    [ -f "$meta" ] || continue
+    [ -r "$meta" ] || {
+      echo "error: cannot inspect herdr parent marker in '$meta'" >&2
+      return 2
+    }
+    msession=$(grep '^herdr_session=' "$meta" 2>/dev/null | head -1 | cut -d= -f2-) || {
+      echo "error: cannot inspect herdr parent marker in '$meta'" >&2
+      return 2
+    }
+    [ "$msession" = "$session" ] || continue
+    parent=$(grep '^herdr_parent_ws=' "$meta" 2>/dev/null | head -1 | cut -d= -f2-) || {
+      echo "error: cannot inspect herdr parent marker in '$meta'" >&2
+      return 2
+    }
+    [ "$parent" = "$wsid" ] && return 0
+  done
+  return 1
+}
+
 # fm_backend_herdr_close_owned_workspace: teardown for a child-workspace job -
 # close EXACTLY <child_ws_id> and every tab it owns (runtime + log) in one
-# operation. Fail-closed safety refuses unless the id is present, differs from
-# <parent_ws_id>, and differs from this home's OWN (home-label) workspace, so a
-# stale or malformed meta can never make teardown close a parent, a
-# supervisor's home, or the default workspace. Best-effort like
-# fm_backend_herdr_kill: an already-gone workspace is a safe no-op (verified:
-# `workspace close` on a closed id returns workspace_not_found, non-fatal).
+# operation. Fail-closed safety requires the ownership registry, refuses the
+# task's recorded parent, every parent marked by this home's task metas, this
+# home's own workspace, and every Herdr-native marked worktree-group parent.
+# An already-gone workspace is a safe no-op (verified: `workspace close` on a
+# closed id returns workspace_not_found, non-fatal).
 # The caller only ever reaches this path when meta records herdr_ws_owned=1,
 # which fm-spawn.sh writes solely for a freshly-created, exclusively-owned
 # child workspace.
-fm_backend_herdr_close_owned_workspace() {  # <session> <child_ws_id> <parent_ws_id>
-  local session=$1 child=$2 parent=$3 home_ws
-  [ -n "$session" ] && [ -n "$child" ] || return 0
+fm_backend_herdr_close_owned_workspace() {  # <session> <child_ws_id> <parent_ws_id> <state_dir>
+  local session=$1 child=$2 parent=$3 state=${4:-} home_ws close_class parent_rc
+  [ -n "$session" ] && [ -n "$child" ] || {
+    echo "error: close_owned_workspace requires session and child workspace ids" >&2
+    return 1
+  }
+  [ -n "$state" ] || {
+    echo "error: close_owned_workspace requires the owning state directory" >&2
+    return 1
+  }
   if [ -n "$parent" ] && [ "$child" = "$parent" ]; then
     echo "error: refusing to close herdr workspace '$child': it equals the recorded parent workspace" >&2
     return 1
   fi
+  fm_backend_herdr_workspace_is_recorded_parent "$state" "$session" "$child"
+  parent_rc=$?
+  if [ "$parent_rc" -eq 0 ]; then
+    echo "error: refusing to close herdr workspace '$child': it is marked as a supervisor parent in '$state'" >&2
+    return 1
+  fi
+  [ "$parent_rc" -eq 1 ] || return 1
   home_ws=$(fm_backend_herdr_workspace_find "$session")
   if [ -n "$home_ws" ] && [ "$child" = "$home_ws" ]; then
     echo "error: refusing to close herdr workspace '$child': it is this home's own workspace" >&2
     return 1
   fi
-  fm_backend_herdr_cli "$session" workspace close "$child" >/dev/null 2>&1 || true
+  close_class=$(fm_backend_herdr_workspace_close_class "$session" "$child") || {
+    echo "error: refusing to close herdr workspace '$child': its live ownership shape is unreadable or ambiguous" >&2
+    return 1
+  }
+  case "$close_class" in
+    gone) return 0 ;;
+    parent)
+      echo "error: refusing to close herdr workspace '$child': it is a marked native worktree-group parent" >&2
+      return 1
+      ;;
+    child|unmarked) ;;
+    *)
+      echo "error: refusing to close herdr workspace '$child': unknown live ownership shape '$close_class'" >&2
+      return 1
+      ;;
+  esac
+  fm_backend_herdr_cli "$session" workspace close "$child" >/dev/null 2>&1 || {
+    echo "error: failed to close owned herdr workspace '$child'" >&2
+    return 1
+  }
 }
 
 # fm_backend_herdr_list_live_children: the child-workspace half of recovery
@@ -474,7 +604,7 @@ fm_backend_herdr_list_live_children() {  # <session>
   done < <(printf '%s' "$ws_list" | jq -r --arg p "$prefix" '.result.workspaces[]? | select(.label | startswith($p)) | .workspace_id' 2>/dev/null)
 }
 
-# --- Workspace contiguity (child-workspace prototype ordering) ----------------
+# --- Workspace contiguity (interim child-workspace ordering) ------------------
 # docs/herdr-backend.md "Workspace contiguity (depth-first supervisor order)".
 # Herdr 0.7.3 orders workspaces as a flat array and its ONLY reorder primitive
 # is the typed socket request workspace.move {workspace_id, insert_index}
@@ -1628,7 +1758,7 @@ fm_backend_herdr_list_live() {  # <session>
     [ -n "$pane_id" ] || continue
     printf '%s:%s\t%s\n' "$session" "$pane_id" "$label"
   done < <(printf '%s' "$tabs" | jq -r '.result.tabs[]? | select(.label | startswith("fm-")) | "\(.tab_id)\t\(.label)"' 2>/dev/null)
-  # Child-workspace prototype (default OFF): also recover jobs that live in
+  # Child-workspace interim mode (default OFF): also recover jobs that live in
   # their own child workspaces rather than as tabs in the home workspace.
   if fm_backend_herdr_child_ws_enabled; then
     fm_backend_herdr_list_live_children "$session"

@@ -14,10 +14,11 @@
 #      explicit per-spawn harness arg still wins.
 #   B) Inheritance. The primary pushes a declared, extensible set of LOCAL
 #      (gitignored) config items - config/crew-dispatch.json, config/crew-harness,
-#      and config/backlog-backend - down into each secondmate home's config/, so
-#      the secondmate's OWN crewmates, dispatch profiles, and backlog backend
-#      inherit the primary's settings. It is primary-authoritative (re-pushed at
-#      secondmate spawn, on the bootstrap secondmate sweep, and by config push).
+#      config/backlog-backend, and config/herdr-child-workspaces - down into each
+#      secondmate home's config/, so the secondmate's OWN crewmates, dispatch
+#      profiles, backlog backend, and Herdr workspace grouping inherit the
+#      primary's settings. It is primary-authoritative (re-pushed at secondmate
+#      spawn, on the bootstrap secondmate sweep, and by config push).
 #      config/secondmate-harness is deliberately NOT inherited (secondmates do
 #      not spawn secondmates).
 #   C) Model/effort pin. config/secondmate-harness may carry optional model and
@@ -128,6 +129,7 @@ test_propagate_lib() {
   printf '{"default":{"harness":"codex"}}\n' > "$src/crew-dispatch.json"
   printf 'codex\n' > "$src/crew-harness"
   printf 'manual\n' > "$src/backlog-backend"
+  printf 'on\n' > "$src/herdr-child-workspaces"
   stdout="$d/clean-copy.out"
   stderr="$d/clean-copy.err"
   propagate_inheritable_config "$src" "$dest" >"$stdout" 2>"$stderr" || fail "propagate returned non-zero"
@@ -136,6 +138,7 @@ test_propagate_lib() {
   [ "$(cat "$dest/crew-dispatch.json")" = '{"default":{"harness":"codex"}}' ] || fail "crew-dispatch.json not propagated"
   [ "$(cat "$dest/crew-harness")" = codex ] || fail "crew-harness not propagated"
   [ "$(cat "$dest/backlog-backend")" = manual ] || fail "backlog-backend not propagated"
+  [ "$(cat "$dest/herdr-child-workspaces")" = on ] || fail "herdr-child-workspaces not propagated"
 
   # 2. idempotent: an unchanged re-run does not churn the mtime
   m1=$(date -r "$dest/crew-harness" +%s 2>/dev/null || stat -c %Y "$dest/crew-harness")
@@ -152,10 +155,12 @@ test_propagate_lib() {
   printf '{"default":{"harness":"claude"}}\n' > "$src/crew-dispatch.json"
   printf 'claude\n' > "$src/crew-harness"
   printf 'tasks-axi\n' > "$src/backlog-backend"
+  printf 'off\n' > "$src/herdr-child-workspaces"
   propagate_inheritable_config "$src" "$dest"
   [ "$(cat "$dest/crew-dispatch.json")" = '{"default":{"harness":"claude"}}' ] || fail "changed dispatch profile did not converge"
   [ "$(cat "$dest/crew-harness")" = claude ] || fail "changed value did not converge"
   [ "$(cat "$dest/backlog-backend")" = tasks-axi ] || fail "changed backlog backend did not converge"
+  [ "$(cat "$dest/herdr-child-workspaces")" = off ] || fail "changed Herdr grouping flag did not converge"
 
   outside="$d/outside-target"
   rm -f "$dest/crew-harness" "$outside"
@@ -168,11 +173,12 @@ test_propagate_lib() {
   [ "$(cat "$outside")" = outside ] || fail "destination symlink target was overwritten"
 
   # 4. removing the source mirrors absence downstream (primary-authoritative)
-  rm -f "$src/crew-dispatch.json" "$src/crew-harness" "$src/backlog-backend"
+  rm -f "$src/crew-dispatch.json" "$src/crew-harness" "$src/backlog-backend" "$src/herdr-child-workspaces"
   propagate_inheritable_config "$src" "$dest"
   [ -e "$dest/crew-dispatch.json" ] && fail "dispatch profile absence not mirrored downstream"
   [ -e "$dest/crew-harness" ] && fail "absence not mirrored downstream"
   [ -e "$dest/backlog-backend" ] && fail "backlog-backend absence not mirrored downstream"
+  [ -e "$dest/herdr-child-workspaces" ] && fail "Herdr grouping flag absence not mirrored downstream"
 
   rm -f "$dest/crew-harness"
   ln -s "$d/missing-target" "$dest/crew-harness"
@@ -194,6 +200,7 @@ test_propagate_lib() {
   printf '{"default":{"harness":"codex"}}\n' > "$src/crew-dispatch.json"
   printf 'codex\n' > "$src/crew-harness"
   printf 'manual\n' > "$src/backlog-backend"
+  printf 'on\n' > "$src/herdr-child-workspaces"
   rm -rf "$d/dest2"
   mkdir -p "$d/dest2"
   propagate_inheritable_config "$src" "$d/dest2"
@@ -201,6 +208,7 @@ test_propagate_lib() {
   [ "$(cat "$d/dest2/crew-dispatch.json")" = '{"default":{"harness":"codex"}}' ] || fail "crew-dispatch.json not propagated alongside"
   [ "$(cat "$d/dest2/crew-harness")" = codex ] || fail "crew-harness not propagated alongside"
   [ "$(cat "$d/dest2/backlog-backend")" = manual ] || fail "backlog-backend not propagated alongside"
+  [ "$(cat "$d/dest2/herdr-child-workspaces")" = on ] || fail "Herdr grouping flag not propagated alongside"
 
   # 6. nothing to propagate -> destination dir is never created (a true no-op)
   rm -rf "$d/src3" "$d/dest3"
@@ -212,7 +220,7 @@ test_propagate_lib() {
   # stderr warning and a skip, not a silent miss.
   guard_repo="$d/guard-repo"
   git init -q -b main "$guard_repo"
-  printf 'config/crew-harness\nconfig/backlog-backend\n' > "$guard_repo/.gitignore"
+  printf 'config/crew-harness\nconfig/backlog-backend\nconfig/herdr-child-workspaces\n' > "$guard_repo/.gitignore"
   printf 'guard\n' > "$guard_repo/README.md"
   git -C "$guard_repo" add -A
   git -C "$guard_repo" commit -qm guard
@@ -295,6 +303,7 @@ test_spawn_split_and_inherit() {
   printf 'claude\n' > "$w/home/config/crew-harness"
   printf 'codex\n' > "$w/home/config/secondmate-harness"
   printf 'manual\n' > "$w/home/config/backlog-backend"
+  printf 'on\n' > "$w/home/config/herdr-child-workspaces"
   make_seeded_home "$sm" sm
 
   spawn_secondmate "$w" sm "$sm"
@@ -309,6 +318,8 @@ test_spawn_split_and_inherit() {
     || fail "split: home crew-dispatch.json not inherited"
   [ "$(cat "$sm/config/backlog-backend" 2>/dev/null)" = manual ] \
     || fail "split: home backlog-backend not inherited as manual"
+  [ "$(cat "$sm/config/herdr-child-workspaces" 2>/dev/null)" = on ] \
+    || fail "split: home Herdr workspace grouping opt-in not inherited"
   [ -e "$sm/config/secondmate-harness" ] \
     && fail "split: secondmate-harness leaked into the secondmate home"
   pass "B2 spawn: secondmate runs the secondmate harness; its home inherits declared config"
@@ -693,7 +704,7 @@ new_world() {
   {
     printf 'projects/\nstate/\ndata/\n.no-mistakes/\n'
     [ "$dispatch_ignore" = no ] || printf 'config/crew-dispatch.json\n'
-    printf 'config/crew-harness\nconfig/secondmate-harness\nconfig/backlog-backend\n'
+    printf 'config/crew-harness\nconfig/secondmate-harness\nconfig/backlog-backend\nconfig/herdr-child-workspaces\n'
   } > "$w/main/.gitignore"
   printf 'v1\n' > "$w/main/AGENTS.md"
   printf 'r1\n' > "$w/main/README.md"
@@ -773,6 +784,7 @@ test_bootstrap_sweep_propagates_and_reconverges() {
   printf '{"default":{"harness":"codex"}}\n' > "$w/home/config/crew-dispatch.json"
   printf 'codex\n' > "$w/home/config/crew-harness"
   printf 'manual\n' > "$w/home/config/backlog-backend"
+  printf 'on\n' > "$w/home/config/herdr-child-workspaces"
   printf 'grok\n' > "$w/home/config/secondmate-harness"
   run_bootstrap "$w" >/dev/null
   [ "$(cat "$w/sm/config/crew-harness" 2>/dev/null)" = codex ] \
@@ -781,6 +793,8 @@ test_bootstrap_sweep_propagates_and_reconverges() {
     || fail "sweep: crew-dispatch.json not pushed into the live home"
   [ "$(cat "$w/sm/config/backlog-backend" 2>/dev/null)" = manual ] \
     || fail "sweep: backlog-backend not pushed into the live home"
+  [ "$(cat "$w/sm/config/herdr-child-workspaces" 2>/dev/null)" = on ] \
+    || fail "sweep: Herdr grouping flag not pushed into the live home"
   [ -e "$w/sm/config/secondmate-harness" ] \
     && fail "sweep: secondmate-harness was inherited (must not be)"
 
@@ -788,6 +802,7 @@ test_bootstrap_sweep_propagates_and_reconverges() {
   printf '{"default":{"harness":"claude"}}\n' > "$w/home/config/crew-dispatch.json"
   printf 'claude\n' > "$w/home/config/crew-harness"
   printf 'tasks-axi\n' > "$w/home/config/backlog-backend"
+  printf 'off\n' > "$w/home/config/herdr-child-workspaces"
   run_bootstrap "$w" >/dev/null
   [ "$(cat "$w/sm/config/crew-harness" 2>/dev/null)" = claude ] \
     || fail "sweep: home did not re-converge to the primary's new crew-harness"
@@ -795,9 +810,12 @@ test_bootstrap_sweep_propagates_and_reconverges() {
     || fail "sweep: home did not re-converge to the primary's new crew-dispatch.json"
   [ "$(cat "$w/sm/config/backlog-backend" 2>/dev/null)" = tasks-axi ] \
     || fail "sweep: home did not re-converge to the primary's new backlog-backend"
+  [ "$(cat "$w/sm/config/herdr-child-workspaces" 2>/dev/null)" = off ] \
+    || fail "sweep: home did not re-converge to the primary's new Herdr grouping flag"
 
   # Mirror absence: primary clears inherited config; the home's copies are removed.
-  rm -f "$w/home/config/crew-dispatch.json" "$w/home/config/crew-harness" "$w/home/config/backlog-backend"
+  rm -f "$w/home/config/crew-dispatch.json" "$w/home/config/crew-harness" "$w/home/config/backlog-backend" \
+    "$w/home/config/herdr-child-workspaces"
   run_bootstrap "$w" >/dev/null
   [ -e "$w/sm/config/crew-dispatch.json" ] \
     && fail "sweep: home crew-dispatch.json not removed after the primary cleared it"
@@ -805,6 +823,8 @@ test_bootstrap_sweep_propagates_and_reconverges() {
     && fail "sweep: home crew-harness not removed after the primary cleared it"
   [ -e "$w/sm/config/backlog-backend" ] \
     && fail "sweep: home backlog-backend not removed after the primary cleared it"
+  [ -e "$w/sm/config/herdr-child-workspaces" ] \
+    && fail "sweep: home Herdr grouping flag not removed after the primary cleared it"
   pass "B7 bootstrap sweep pushes, re-converges, and mirrors absence; never inherits secondmate-harness"
 }
 
@@ -819,6 +839,7 @@ test_bootstrap_sweep_propagates_when_tracked_current() {
   printf '{"default":{"harness":"codex"}}\n' > "$w/home/config/crew-dispatch.json"
   printf 'codex\n' > "$w/home/config/crew-harness"
   printf 'manual\n' > "$w/home/config/backlog-backend"
+  printf 'on\n' > "$w/home/config/herdr-child-workspaces"
   run_bootstrap "$w" >/dev/null
   [ "$(cat "$w/sm/config/crew-dispatch.json" 2>/dev/null)" = '{"default":{"harness":"codex"}}' ] \
     || fail "crew-dispatch.json did not propagate to a tracked-current home"
@@ -826,6 +847,8 @@ test_bootstrap_sweep_propagates_when_tracked_current() {
     || fail "config did not propagate to a tracked-current home"
   [ "$(cat "$w/sm/config/backlog-backend" 2>/dev/null)" = manual ] \
     || fail "backlog-backend did not propagate to a tracked-current home"
+  [ "$(cat "$w/sm/config/herdr-child-workspaces" 2>/dev/null)" = on ] \
+    || fail "Herdr grouping flag did not propagate to a tracked-current home"
   pass "B8 bootstrap sweep propagates config even when the home's tracked files are already current"
 }
 
@@ -843,6 +866,7 @@ test_bootstrap_sweep_defers_dispatch_on_stale_unignored_home() {
   printf '{"default":{"harness":"codex"}}\n' > "$w/home/config/crew-dispatch.json"
   printf 'codex\n' > "$w/home/config/crew-harness"
   printf 'manual\n' > "$w/home/config/backlog-backend"
+  printf 'on\n' > "$w/home/config/herdr-child-workspaces"
   out=$(run_bootstrap "$w")
 
   assert_contains "$out" "SECONDMATE_SYNC: secondmate sm: skipped: diverged from" \
@@ -853,6 +877,8 @@ test_bootstrap_sweep_defers_dispatch_on_stale_unignored_home() {
     || fail "stale dispatch: existing ignored config stopped propagating"
   [ "$(cat "$w/sm/config/backlog-backend" 2>/dev/null)" = manual ] \
     || fail "stale dispatch: backlog backend stopped propagating"
+  [ "$(cat "$w/sm/config/herdr-child-workspaces" 2>/dev/null)" = on ] \
+    || fail "stale dispatch: Herdr grouping flag stopped propagating"
   status=$(git -C "$w/sm" status --porcelain -- config/crew-dispatch.json)
   [ -z "$status" ] || fail "stale dispatch: crew-dispatch.json dirtied the home: $status"
   pass "B9 bootstrap sweep defers new inherited config until the home ignores it"
@@ -877,6 +903,7 @@ test_bootstrap_sweep_no_inheritance_is_noop() {
 
   [ -e "$w/sm/config/crew-dispatch.json" ] && fail "no-inheritance sweep created a home crew-dispatch.json"
   [ -e "$w/sm/config/crew-harness" ] && fail "no-inheritance sweep created a home crew-harness"
+  [ -e "$w/sm/config/herdr-child-workspaces" ] && fail "no-inheritance sweep created a home Herdr grouping flag"
   [ -e "$w/sm/config" ] && fail "no-inheritance sweep created a home config/ dir"
   [ "$(git -C "$w/sm" rev-parse HEAD)" = "$head" ] \
     || fail "no-inheritance sweep did not still fast-forward the tracked files"
@@ -917,6 +944,7 @@ test_config_push_propagates_reports_without_ff_or_nudge() {
   printf '{"default":{"harness":"codex"}}\n' > "$w/home/config/crew-dispatch.json"
   printf 'codex\n' > "$w/home/config/crew-harness"
   printf 'manual\n' > "$w/home/config/backlog-backend"
+  printf 'on\n' > "$w/home/config/herdr-child-workspaces"
   err="$w/config-push-basic.err"
   out=$(run_config_push "$w" 2>"$err"); status=$?
 
@@ -931,6 +959,8 @@ test_config_push_propagates_reports_without_ff_or_nudge() {
     "config push did not report crew-harness as pushed"
   assert_contains "$out" "backlog-backend: pushed" \
     "config push did not report backlog-backend as pushed"
+  assert_contains "$out" "herdr-child-workspaces: pushed" \
+    "config push did not report Herdr grouping flag as pushed"
   assert_not_contains "$out" "NUDGE_SECONDMATES" \
     "config push must not nudge secondmates"
   [ "$(git -C "$w/sm" rev-parse HEAD)" = "$old_head" ] \
@@ -945,6 +975,8 @@ test_config_push_propagates_reports_without_ff_or_nudge() {
     "idempotent config push did not report crew-harness as unchanged"
   assert_contains "$out2" "backlog-backend: unchanged" \
     "idempotent config push did not report backlog-backend as unchanged"
+  assert_contains "$out2" "herdr-child-workspaces: unchanged" \
+    "idempotent config push did not report Herdr grouping flag as unchanged"
   pass "B12 config-push propagates via shared live discovery, reports items, and does not fast-forward or nudge"
 }
 

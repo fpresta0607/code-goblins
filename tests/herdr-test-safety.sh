@@ -12,7 +12,13 @@ export FM_GATE_REFUSE_BYPASS=1
 
 HERDR_TEST_SAFETY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=bin/fm-herdr-lab.sh
-. "$HERDR_TEST_SAFETY_DIR/bin/fm-herdr-lab.sh"
+HERDR_LAB_HELPER="${HERDR_LAB_HELPER:-$HERDR_TEST_SAFETY_DIR/bin/fm-herdr-lab.sh}"
+[ -f "$HERDR_LAB_HELPER" ] || {
+  echo "error: Herdr lab helper not found: $HERDR_LAB_HELPER" >&2
+  return 1
+}
+# shellcheck source=bin/fm-herdr-lab.sh
+. "$HERDR_LAB_HELPER"
 
 herdr_refuse_if_default() { # <session>
   fm_herdr_lab_refuse_if_default "$1"

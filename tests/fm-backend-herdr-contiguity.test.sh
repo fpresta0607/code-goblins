@@ -55,7 +55,10 @@ printf '%s\n' "$*" >> "$CLILOG"
 case "${1:-} ${2:-}" in
   "workspace list")
     [ -n "${FM_FAKE_LIST_FAIL:-}" ] && exit 1
-    jq -Rn '[inputs | select(length > 0) | {workspace_id: ., label: .}] | {result: {workspaces: .}}' < "$ORDER"
+    jq -Rn --arg native_parent "${FM_FAKE_NATIVE_PARENT:-}" '
+      [inputs | select(length > 0) | {workspace_id: ., label: .}
+        + if . == $native_parent then {worktree: {is_linked_worktree: false}} else {} end]
+      | {result: {workspaces: .}}' < "$ORDER"
     if [ -n "${FM_FAKE_CHURN_AFTER:-}" ]; then
       n=$(grep -c '^workspace list' "$CLILOG")
       if [ "$n" -eq "$FM_FAKE_CHURN_AFTER" ]; then
@@ -465,6 +468,67 @@ test_workspace_move_validates_arguments() {
   pass "workspace_move: refuses an empty workspace id and a non-numeric or negative insert index"
 }
 
+# --- w9 ownership and close safety -------------------------------------------
+
+test_child_workspace_flag_is_explicit_and_default_off() {
+  local cfg="$TMP_ROOT/flag-config"
+  mkdir -p "$cfg"
+  FM_CONFIG_OVERRIDE="$cfg" fm_backend_herdr_child_ws_enabled && \
+    fail "an absent child-workspace flag must stay off"
+  printf 'off\non\n' > "$cfg/herdr-child-workspaces"
+  FM_CONFIG_OVERRIDE="$cfg" fm_backend_herdr_child_ws_enabled && \
+    fail "only the first non-empty flag line may decide the rollout"
+  printf '  on  \n' > "$cfg/herdr-child-workspaces"
+  FM_CONFIG_OVERRIDE="$cfg" fm_backend_herdr_child_ws_enabled || \
+    fail "an explicit whitespace-trimmed 'on' must enable crew workspaces"
+  printf 'o n\n' > "$cfg/herdr-child-workspaces"
+  FM_CONFIG_OVERRIDE="$cfg" fm_backend_herdr_child_ws_enabled && \
+    fail "embedded whitespace must not accidentally enable crew workspaces"
+  pass "rollout: child-workspace grouping is explicit and default off"
+}
+
+test_cli_refuses_herdr_worktree_remove_before_execution() {
+  contig_case remove-guard $'ws-fm\nws-c1'
+  PATH="$FB:$PATH" \
+    fm_backend_herdr_cli "$SES" worktree remove ws-c1 --force >/dev/null 2>&1 && \
+    fail "the adapter must prohibit herdr worktree.remove for Treehouse-owned worktrees"
+  [ ! -s "$CASE_CLI_LOG" ] || fail "worktree.remove must be refused before the herdr CLI executes"
+  pass "ownership: adapter prohibits herdr worktree.remove before execution; Treehouse remains sole lifecycle owner"
+}
+
+test_close_refuses_any_locally_marked_parent() {
+  contig_case close-marked $'ws-fm\nws-c1'
+  write_owned_meta "$CASE_STATE" c1 ws-c1 ws-fm
+  PATH="$FB:$PATH" \
+    fm_backend_herdr_close_owned_workspace "$SES" ws-fm ws-other "$CASE_STATE" >/dev/null 2>&1 && \
+    fail "close must refuse a parent marked by any local ownership edge"
+  [ ! -s "$CASE_CLI_LOG" ] || fail "a locally marked parent must be refused before any herdr CLI call"
+  pass "close safety: every locally marked supervisor parent is protected from workspace.close"
+}
+
+test_close_refuses_herdr_native_worktree_group_parent() {
+  contig_case close-native-parent $'ws-parent\nws-child'
+  PATH="$FB:$PATH" \
+    FM_FAKE_ORDER="$CASE_ORDER" FM_FAKE_CLI_LOG="$CASE_CLI_LOG" \
+    FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" \
+    FM_FAKE_NATIVE_PARENT=ws-parent \
+    fm_backend_herdr_close_owned_workspace "$SES" ws-parent ws-other "$CASE_STATE" >/dev/null 2>&1 && \
+    fail "close must refuse a Herdr-native marked worktree-group parent"
+  ! grep -q '^workspace close' "$CASE_CLI_LOG" || fail "the group parent guard must prevent workspace.close"
+  pass "close safety: Herdr-native marked worktree-group parent is protected from group close"
+}
+
+test_close_allows_exact_unmarked_owned_child() {
+  contig_case close-child $'ws-parent\nws-child'
+  PATH="$FB:$PATH" \
+    FM_FAKE_ORDER="$CASE_ORDER" FM_FAKE_CLI_LOG="$CASE_CLI_LOG" \
+    FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" \
+    fm_backend_herdr_close_owned_workspace "$SES" ws-child ws-parent "$CASE_STATE" >/dev/null 2>&1 || \
+    fail "the exact unmarked interim child workspace should close"
+  grep -q '^workspace close ws-child ' "$CASE_CLI_LOG" || fail "close must target exactly the owned child id"
+  pass "close safety: exact unmarked interim child remains closable after parent guards"
+}
+
 test_target_canonical_render_direct_crews_before_secondmates
 test_target_multi_supervisor_contiguous_subtrees_stable_order
 test_target_preserves_unrelated_manual_workspace_order
@@ -488,5 +552,10 @@ test_reconcile_ambiguous_ownership_fails_closed_before_any_move
 test_reconcile_unreadable_list_fails_closed
 test_reconcile_no_owned_edges_is_a_noop
 test_workspace_move_validates_arguments
+test_child_workspace_flag_is_explicit_and_default_off
+test_cli_refuses_herdr_worktree_remove_before_execution
+test_close_refuses_any_locally_marked_parent
+test_close_refuses_herdr_native_worktree_group_parent
+test_close_allows_exact_unmarked_owned_child
 
 echo "# all herdr workspace-contiguity unit tests passed"

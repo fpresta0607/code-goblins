@@ -666,10 +666,10 @@ real_path_or_raw() {  # <path>
 
 # Session-provider container-ensure + task creation. tmux stays exactly as P1
 # left it (same session-name / new-window sequence, see bin/backends/tmux.sh);
-# a herdr spawn goes through the version-gated, workspace-per-HOME,
-# tab-per-task sequence in bin/backends/herdr.sh instead (D4/D5 as refined by
-# docs/herdr-backend.md's "workspace-per-home" pass, AGENTS.md task
-# herdr-sm-spaces-k4). Both branches converge on the same $T ("target") string
+# a herdr spawn goes through the version-gated per-home supervisor container in
+# bin/backends/herdr.sh instead, then selects either the default tab-per-task
+# path or the default-off owned-workspace-per-crew path. Both branches converge
+# on the same $T ("target") string
 # that every downstream operation (send/capture/kill) already treats as opaque
 # per-backend routing (fm_backend_resolve_selector).
 validate_spawn_worktree() {  # <source> <inspect-target>
@@ -733,7 +733,7 @@ case "$BACKEND" in
     HERDR_WORKSPACE_ID=${CONTAINER#*:}
     HERDR_PARENT_WS=""
     HERDR_WS_OWNED=""
-    # Child-workspace hierarchy (PROTOTYPE, default OFF -
+    # Child-workspace grouping (INTERIM, default OFF -
     # config/herdr-child-workspaces=on; docs/herdr-backend.md). A DELEGATED job
     # (ship/scout, never a --secondmate supervisor) gets its OWN child
     # workspace under the home/supervisor workspace HERDR_WORKSPACE_ID (which
@@ -1028,7 +1028,7 @@ META_WINDOW=$T
     echo "herdr_workspace_id=$HERDR_WORKSPACE_ID"
     echo "herdr_tab_id=$HERDR_TAB_ID"
     echo "herdr_pane_id=$HERDR_PANE_ID"
-    # Child-workspace prototype only (default OFF): the durable parent<-child
+    # Child-workspace interim mode only (default OFF): the durable parent<-child
     # association and teardown-ownership gate. Absent on the unchanged
     # tab-per-task path, so that path's meta stays byte-identical.
     if [ -n "${HERDR_WS_OWNED:-}" ]; then
@@ -1083,7 +1083,7 @@ spawn_send_literal "$T" "$LAUNCH"
 sleep 0.3
 spawn_send_key "$T" Enter
 
-# Herdr workspace contiguity (child-workspace prototype ordering;
+# Herdr workspace contiguity (interim child-workspace ordering;
 # docs/herdr-backend.md "Workspace contiguity"). Best-effort and strictly
 # after the launch: a reconcile failure logs and never fails the spawn.
 # - A new OWNED child workspace was appended at the end of the flat list;

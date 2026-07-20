@@ -41,8 +41,9 @@ command -v treehouse >/dev/null 2>&1 || { echo "skip: treehouse not found (requi
 . "$ROOT/tests/herdr-test-safety.sh"
 
 TMP_ROOT=$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd -P)/fm-herdr-contig-e2e.XXXXXX")
-SESSION="fm-lab-herdr-contig-e2e-$$"
+SESSION=$(fm_herdr_lab_name fm-herdr-contiguity-resume)
 export HERDR_SESSION="$SESSION"
+export FM_BACKEND_HERDR_LAB_HELPER="$HERDR_LAB_HELPER"
 WTS=()
 _CLEANED=
 cleanup_all() {
@@ -57,15 +58,7 @@ cleanup_all() {
 }
 trap cleanup_all EXIT
 
-default_fingerprint() {
-  local running count
-  running=$(herdr session list 2>/dev/null | awk '$1=="default"{print $2}')
-  count=$(herdr workspace list --session default 2>/dev/null | jq -r '.result.workspaces | length' 2>/dev/null)
-  echo "running=$running workspace_count=$count"
-}
-DEFAULT_BEFORE=$(default_fingerprint)
-
-fm_herdr_lab_prepare "$SESSION" || fail "could not prepare isolated Herdr lab session"
+fm_herdr_lab_provision "$SESSION" || fail "could not provision isolated Herdr lab session"
 
 # shellcheck source=bin/fm-backend.sh
 . "$ROOT/bin/fm-backend.sh"
@@ -143,7 +136,10 @@ fm_backend_herdr_workspace_move "$SESSION" "$WS_C" 2 || fail "rightward mid work
 [ "$(order_labels)" = $'manual-base\nprobe-c\nprobe-b' ] || fail "rightward move: insert_index 2 must land probe-c at final index 1 (pre-removal addressing), got: $(order_labels | tr '\n' ' ')"
 fm_backend_herdr_workspace_move "$SESSION" "$WS_C" 3 || fail "rightward end workspace.move (insert_index == length) failed"
 [ "$(order_labels)" = $'manual-base\nprobe-b\nprobe-c' ] || fail "rightward move: insert_index == length must land probe-c last, got: $(order_labels | tr '\n' ' ')"
-pass "real herdr ($(herdr --version 2>/dev/null | head -1)): workspace.move insert_index addresses the PRE-removal array (leftward lands AT it, rightward lands one before it, length is valid)"
+HERDR_STATUS=$(fm_herdr_lab_cli "$SESSION" status --json 2>/dev/null)
+HERDR_VERSION=$(printf '%s' "$HERDR_STATUS" | jq -r '.client.version // "unknown"')
+HERDR_PROTOCOL=$(printf '%s' "$HERDR_STATUS" | jq -r '.client.protocol // "unknown"')
+pass "real herdr ($HERDR_VERSION, protocol $HERDR_PROTOCOL): workspace.move insert_index addresses the PRE-removal array (leftward lands AT it, rightward lands one before it, length is valid)"
 
 fm_backend_herdr_cli "$SESSION" workspace close "$WS_B" >/dev/null 2>&1 || fail "could not close probe-b"
 fm_backend_herdr_cli "$SESSION" workspace close "$WS_C" >/dev/null 2>&1 || fail "could not close probe-c"
@@ -242,8 +238,7 @@ teardown "$SM_HOME" local-sandbox
 teardown "$SM_HOME" game-parity
 
 # === F. default session untouched throughout =================================
-DEFAULT_AFTER=$(default_fingerprint)
-[ "$DEFAULT_AFTER" = "$DEFAULT_BEFORE" ] || fail "the default session changed! before='$DEFAULT_BEFORE' after='$DEFAULT_AFTER'"
-pass "the captain's default herdr session is byte-identical (running-state + workspace count) before and after"
+fm_herdr_lab_check_tripwire "$SESSION" || fail "the default session fleet-state tripwire changed during the lab"
+pass "the default Herdr session matches the helper's byte-identical fleet-state tripwire"
 
 echo "# all workspace-contiguity E2E assertions passed"

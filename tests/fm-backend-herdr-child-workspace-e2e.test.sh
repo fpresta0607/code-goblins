@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # tests/fm-backend-herdr-child-workspace-e2e.test.sh - mandatory ISOLATED
-# end-to-end real-herdr test for the child-workspace hierarchy PROTOTYPE
+# end-to-end real-herdr test for the interim child-workspace grouping mode
 # (default OFF; config/herdr-child-workspaces=on; docs/herdr-backend.md
-# "Child-workspace hierarchy (prototype)").
+# "Child-workspace grouping (interim)").
 #
 # Drives the REAL bin/fm-spawn.sh and bin/fm-teardown.sh (raw `sh -c` launch
 # commands, no real agent), because the behavior under test lives in
@@ -15,7 +15,7 @@
 # scratch FM_HOME(s), scratch local-only projects, cleanup ONLY through
 # herdr_safe_stop_and_delete (bin/fm-herdr-lab.sh's refuse-default teardown).
 #
-# Covers, per the prototype brief:
+# Covers the opt-in interim contract:
 #   - flag OFF: byte-identical tab-per-task (no child workspace, no owned meta)
 #   - flag ON: a delegated job gets its OWN child workspace "<home>/<id>" with
 #     the parent recorded in meta and runtime+log tabs grouped inside it
@@ -53,8 +53,9 @@ command -v treehouse >/dev/null 2>&1 || { echo "skip: treehouse not found (requi
 . "$ROOT/tests/herdr-test-safety.sh"
 
 TMP_ROOT=$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd -P)/fm-herdr-childws-e2e.XXXXXX")
-SESSION="fm-lab-herdr-childws-e2e-$$"
+SESSION=$(fm_herdr_lab_name fm-herdr-contiguity-resume)
 export HERDR_SESSION="$SESSION"
+export FM_BACKEND_HERDR_LAB_HELPER="$HERDR_LAB_HELPER"
 WTS=()
 _CLEANED=
 cleanup_all() {
@@ -69,33 +70,23 @@ cleanup_all() {
 }
 trap cleanup_all EXIT
 
-# --- default-session tripwire (non-sensitive: running-state + workspace COUNT
-# only, never the captain's live fleet contents) --------------------------------
-default_fingerprint() {
-  local running count
-  running=$(herdr session list 2>/dev/null | awk '$1=="default"{print $2}')
-  count=$(herdr workspace list --session default 2>/dev/null | jq -r '.result.workspaces | length' 2>/dev/null)
-  echo "running=$running workspace_count=$count"
-}
-DEFAULT_BEFORE=$(default_fingerprint)
-
-fm_herdr_lab_prepare "$SESSION" || fail "could not prepare isolated Herdr lab session"
+fm_herdr_lab_provision "$SESSION" || fail "could not provision isolated Herdr lab session"
 
 # shellcheck source=bin/fm-backend.sh
 . "$ROOT/bin/fm-backend.sh"
 fm_backend_source herdr || fail "fm_backend_source herdr failed"
 
 pane_ws() {  # <pane_id> -> its workspace_id
-  herdr pane get "$1" --session "$SESSION" 2>/dev/null | jq -r '.result.pane.workspace_id // empty'
+  fm_herdr_lab_cli "$SESSION" pane get "$1" 2>/dev/null | jq -r '.result.pane.workspace_id // empty'
 }
 ws_label() {  # <workspace_id> -> its label
-  herdr workspace list --session "$SESSION" 2>&1 | jq -r --arg id "$1" '.result.workspaces[]? | select(.workspace_id == $id) | .label'
+  fm_herdr_lab_cli "$SESSION" workspace list 2>&1 | jq -r --arg id "$1" '.result.workspaces[]? | select(.workspace_id == $id) | .label'
 }
 ws_exists() {  # <workspace_id> -> 0 if present
-  herdr workspace get "$1" --session "$SESSION" >/dev/null 2>&1
+  fm_herdr_lab_cli "$SESSION" workspace get "$1" >/dev/null 2>&1
 }
 ws_tab_labels() {  # <workspace_id> -> newline-separated tab labels
-  herdr tab list --workspace "$1" --session "$SESSION" 2>/dev/null | jq -r '.result.tabs[]?.label'
+  fm_herdr_lab_cli "$SESSION" tab list --workspace "$1" 2>/dev/null | jq -r '.result.tabs[]?.label'
 }
 meta_get() { grep "^$2=" "$1" 2>/dev/null | cut -d= -f2-; }
 
@@ -142,7 +133,7 @@ teardown() {  # <home> <id>
 
 PRIMARY_ON="$TMP_ROOT/primary-on";     make_home "$PRIMARY_ON" "" on
 OFF_HOME="$TMP_ROOT/primary-off";      make_home "$OFF_HOME" "" off
-SM_HOME="$TMP_ROOT/secondmate-home";   make_home "$SM_HOME" "childe2" on
+SM_HOME="$TMP_ROOT/secondmate-home";   make_home "$SM_HOME" "childe2" off
 PROJ1="$TMP_ROOT/proj1"; make_project "$PROJ1"
 PROJ2="$TMP_ROOT/proj2"; make_project "$PROJ2"
 
@@ -192,7 +183,8 @@ SM_PANE=$(meta_get "$SM_META" herdr_pane_id)
 SM_WS=$(pane_ws "$SM_PANE")
 assert_not_contains_local "$(cat "$SM_META")" "herdr_ws_owned" "a --secondmate supervisor must NOT get a child workspace (stays a tab)"
 [ "$(ws_label "$SM_WS")" = "2ndmate-childe2" ] || fail "secondmate should land as a tab in '2ndmate-childe2', got '$(ws_label "$SM_WS")'"
-pass "nested homes: the supervisor itself stays a tab in its own '2ndmate-childe2' workspace"
+[ "$(cat "$SM_HOME/config/herdr-child-workspaces" 2>/dev/null)" = on ] || fail "primary opt-in must propagate to the secondmate home during supervisor spawn"
+pass "nested homes: the supervisor stays a tab in its own workspace and inherits the primary grouping opt-in"
 
 spawn "$SM_HOME" cmc "$PROJ1" "sh -c 'echo cmc-ok'"
 C_META="$SM_HOME/state/cmc.meta"
@@ -217,11 +209,11 @@ assert_not_contains_local "$SM_LIVE" "fm-cma" "recovery: secondmate must not see
 pass "recovery: list_live rediscovers child-workspace jobs by label, scoped per home, without surfacing log tabs"
 
 # === F. stale metadata + refuse-to-close-parent safety (function level) =======
-if FM_HOME="$PRIMARY_ON" fm_backend_herdr_close_owned_workspace "$SESSION" "$A_PARENT_WS" "$A_PARENT_WS" 2>/dev/null; then
+if FM_HOME="$PRIMARY_ON" fm_backend_herdr_close_owned_workspace "$SESSION" "$A_PARENT_WS" "$A_PARENT_WS" "$PRIMARY_ON/state" 2>/dev/null; then
   fail "close_owned_workspace must REFUSE when child == parent"
 fi
 ws_exists "$A_PARENT_WS" || fail "refused close must not have touched the parent workspace"
-FM_HOME="$PRIMARY_ON" fm_backend_herdr_close_owned_workspace "$SESSION" "w999999" "$A_PARENT_WS" || fail "close of an already-gone workspace id must be a safe no-op (returns 0)"
+FM_HOME="$PRIMARY_ON" fm_backend_herdr_close_owned_workspace "$SESSION" "w999999" "$A_PARENT_WS" "$PRIMARY_ON/state" || fail "close of an already-gone workspace id must be a safe no-op (returns 0)"
 pass "safety: close_owned_workspace refuses child==parent and no-ops on stale/already-gone ids"
 
 # === G. EXACT cleanup: teardown closes ONLY the owned child workspace =========
@@ -243,8 +235,7 @@ ws_exists "$C_CHILD_WS" && fail "teardown must close cmc's child workspace"
 pass "EXACT cleanup: every owned child workspace is removed by its own teardown"
 
 # === H. default session untouched throughout =================================
-DEFAULT_AFTER=$(default_fingerprint)
-[ "$DEFAULT_AFTER" = "$DEFAULT_BEFORE" ] || fail "the default session changed! before='$DEFAULT_BEFORE' after='$DEFAULT_AFTER'"
-pass "the captain's default herdr session is byte-identical (running-state + workspace count) before and after"
+fm_herdr_lab_check_tripwire "$SESSION" || fail "the default session fleet-state tripwire changed during the lab"
+pass "the default Herdr session matches the helper's byte-identical fleet-state tripwire"
 
-echo "# all child-workspace prototype E2E assertions passed"
+echo "# all interim child-workspace E2E assertions passed"

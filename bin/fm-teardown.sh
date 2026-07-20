@@ -1123,16 +1123,18 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
 fi
 
 if [ "$BACKEND" = herdr ] && [ "$(meta_value "$META" herdr_ws_owned)" = 1 ]; then
-  # Child-workspace prototype (default OFF): this job owns its whole child
+  # Child-workspace interim mode (default OFF): this job owns its whole child
   # workspace, so close EXACTLY that workspace and all its tabs (runtime + log)
   # in one safety-checked operation instead of closing a single pane.
-  # fm_backend_herdr_close_owned_workspace refuses to close the recorded parent
-  # or this home's own workspace; an already-gone workspace is a safe no-op.
-  fm_backend_source herdr 2>/dev/null || true
+  # fm_backend_herdr_close_owned_workspace refuses every locally marked or
+  # Herdr-native parent and this home's own workspace. A refusal is a teardown
+  # stop, not best-effort cleanup: retain task metadata for investigation.
+  fm_backend_source herdr || exit 1
   fm_backend_herdr_close_owned_workspace \
     "$(meta_value "$META" herdr_session)" \
     "$(meta_value "$META" herdr_workspace_id)" \
-    "$(meta_value "$META" herdr_parent_ws)" 2>/dev/null || true
+    "$(meta_value "$META" herdr_parent_ws)" \
+    "$STATE" || exit 1
   # Workspace contiguity self-heal (docs/herdr-backend.md "Workspace
   # contiguity"). Closing a workspace collapses the flat list, so a removal
   # already leaves the surviving blocks contiguous; this best-effort pass only
