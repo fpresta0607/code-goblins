@@ -67,6 +67,8 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 # through fm_transition_policy - it never re-encodes the mapping.
 # shellcheck source=bin/fm-transition-lib.sh
 . "$FM_BACKEND_HERDR_ROOT/bin/fm-transition-lib.sh"
+# shellcheck source=bin/fm-wake-lib.sh
+. "$FM_BACKEND_HERDR_ROOT/bin/fm-wake-lib.sh"
 
 FM_BACKEND_HERDR_MIN_PROTOCOL=14
 # events.subscribe (the native pane.agent_status_changed push stream) and its
@@ -364,11 +366,21 @@ fm_backend_herdr_workspace_ensure() {  # <session> <cwd>
 # must be threaded through to fm_backend_herdr_create_task, which is the only
 # function allowed to prune it (fm_backend_herdr_workspace_prune_seeded_default_tab).
 fm_backend_herdr_container_ensure() {  # <cwd-for-a-fresh-workspace>
-  local cwd=${1:-$PWD} session label
+  local cwd=${1:-$PWD} session label lock state rc=0
   fm_backend_herdr_version_check || return 1
   session=$(fm_backend_herdr_session)
   fm_backend_herdr_server_ensure "$session" || return 1
-  fm_backend_herdr_workspace_ensure "$session" "$cwd" >/dev/null || { label=$(fm_backend_herdr_workspace_label); echo "error: failed to ensure herdr workspace '$label' in session '$session'" >&2; return 1; }
+  state="$FM_HOME/state"
+  mkdir -p "$state" || return 1
+  lock="$state/.herdr-container.lock"
+  fm_lock_acquire_wait "$lock"
+  fm_backend_herdr_workspace_ensure "$session" "$cwd" >/dev/null || rc=$?
+  fm_lock_release "$lock"
+  if [ "$rc" -ne 0 ]; then
+    label=$(fm_backend_herdr_workspace_label)
+    echo "error: failed to ensure herdr workspace '$label' in session '$session'" >&2
+    return 1
+  fi
   if [ -z "$FM_BACKEND_HERDR_WS_ID" ]; then
     label=$(fm_backend_herdr_workspace_label)
     echo "error: failed to ensure herdr workspace '$label' in session '$session'" >&2
@@ -419,8 +431,11 @@ fm_backend_herdr_shell_quote() {
 }
 
 fm_backend_herdr_discard_fresh_workspace() {  # <session> <workspace_id>
-  local session=$1 wsid=$2 close_class
+  local session=$1 wsid=$2 close_class supervisor_rc
   [ -n "$session" ] && [ -n "$wsid" ] || return 1
+  fm_backend_herdr_workspace_is_fleet_supervisor "$session" "$wsid"
+  supervisor_rc=$?
+  [ "$supervisor_rc" -eq 1 ] || return 1
   close_class=$(fm_backend_herdr_workspace_close_class "$session" "$wsid") || return 1
   case "$close_class" in
     gone) return 0 ;;
@@ -692,6 +707,23 @@ fm_backend_herdr_workspace_is_recorded_parent() {  # <state_dir> <session> <work
   return 1
 }
 
+fm_backend_herdr_workspace_is_fleet_supervisor() {  # <session> <workspace_id>
+  local session=$1 wsid=$2 list labels count label
+  list=$(fm_backend_herdr_cli "$session" workspace list 2>/dev/null) || return 2
+  labels=$(printf '%s' "$list" | jq -r --arg want "$wsid" '
+    if (.result.workspaces | type) != "array" then error("missing result.workspaces")
+    else .result.workspaces[]? | select(.workspace_id == $want) | .label
+    end' 2>/dev/null) || return 2
+  [ -n "$labels" ] || return 1
+  count=$(printf '%s\n' "$labels" | grep -c .)
+  [ "$count" -eq 1 ] || return 2
+  label=$labels
+  case "$label" in
+    firstmate|2ndmate-*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # fm_backend_herdr_close_owned_workspace: teardown for a child-workspace job -
 # close EXACTLY <child_ws_id> and every tab it owns (runtime + log) in one
 # operation. Fail-closed safety requires the ownership registry, refuses the
@@ -703,7 +735,7 @@ fm_backend_herdr_workspace_is_recorded_parent() {  # <state_dir> <session> <work
 # which fm-spawn.sh writes only for an exclusively owned child workspace that
 # was freshly created or exactly re-verified for a safe respawn.
 fm_backend_herdr_close_owned_workspace() {  # <session> <child_ws_id> <parent_ws_id> <state_dir>
-  local session=$1 child=$2 parent=$3 state=${4:-} home_ws close_class parent_rc
+  local session=$1 child=$2 parent=$3 state=${4:-} home_ws close_class parent_rc supervisor_rc
   [ -n "$session" ] && [ -n "$child" ] || {
     echo "error: close_owned_workspace requires session and child workspace ids" >&2
     return 1
@@ -723,6 +755,16 @@ fm_backend_herdr_close_owned_workspace() {  # <session> <child_ws_id> <parent_ws
     return 1
   fi
   [ "$parent_rc" -eq 1 ] || return 1
+  fm_backend_herdr_workspace_is_fleet_supervisor "$session" "$child"
+  supervisor_rc=$?
+  if [ "$supervisor_rc" -eq 0 ]; then
+    echo "error: refusing to close herdr workspace '$child': it is registered as a fleet supervisor workspace" >&2
+    return 1
+  fi
+  [ "$supervisor_rc" -eq 1 ] || {
+    echo "error: refusing to close herdr workspace '$child': the fleet supervisor registry is unreadable or ambiguous" >&2
+    return 1
+  }
   home_ws=$(fm_backend_herdr_workspace_find "$session")
   if [ -n "$home_ws" ] && [ "$child" = "$home_ws" ]; then
     echo "error: refusing to close herdr workspace '$child': it is this home's own workspace" >&2
@@ -770,6 +812,20 @@ fm_backend_herdr_list_live_children() {  # <session>
       printf '%s:%s\t%s\n' "$session" "$pane_id" "$label"
     done < <(printf '%s' "$tabs" | jq -r '.result.tabs[]? | select(.label | startswith("fm-")) | "\(.tab_id)\t\(.label)"' 2>/dev/null)
   done < <(printf '%s' "$ws_list" | jq -r --arg p "$prefix" '.result.workspaces[]? | select(.label | startswith($p)) | .workspace_id' 2>/dev/null)
+}
+
+fm_backend_herdr_has_recorded_children() {  # <session>
+  local session=$1 state meta backend msession owned
+  state="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+  [ -d "$state" ] || return 1
+  for meta in "$state"/*.meta; do
+    [ -f "$meta" ] || continue
+    backend=$(grep '^backend=' "$meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
+    msession=$(grep '^herdr_session=' "$meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
+    owned=$(grep '^herdr_ws_owned=' "$meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
+    [ "$backend" = herdr ] && [ "$msession" = "$session" ] && [ "$owned" = 1 ] && return 0
+  done
+  return 1
 }
 
 # --- Workspace contiguity (interim child-workspace ordering) ------------------
@@ -1935,7 +1991,7 @@ fm_backend_herdr_list_live() {  # <session>
   done < <(printf '%s' "$tabs" | jq -r '.result.tabs[]? | select(.label | startswith("fm-")) | "\(.tab_id)\t\(.label)"' 2>/dev/null)
   # Child-workspace interim mode (default OFF): also recover jobs that live in
   # their own child workspaces rather than as tabs in the home workspace.
-  if fm_backend_herdr_child_ws_enabled; then
+  if fm_backend_herdr_child_ws_enabled || fm_backend_herdr_has_recorded_children "$session"; then
     fm_backend_herdr_list_live_children "$session"
   fi
 }

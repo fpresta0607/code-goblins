@@ -621,6 +621,30 @@ test_container_ensure_uses_secondmate_home_label() {
   pass "fm_backend_herdr_container_ensure: creates the workspace under the SECONDMATE home's own label, not 'firstmate'"
 }
 
+test_parallel_container_ensure_converges_on_one_supervisor_workspace() {
+  local dir home log fb i pid="" outputs workspaces unique
+  dir="$TMP_ROOT/container-parallel"; home="$dir/home"; log="$dir/log"
+  mkdir -p "$home/state"
+  fb=$(make_herdr_statefake "$dir/herdr")
+  : > "$log"
+  outputs=""
+  for i in 1 2 3 4 5 6; do
+    outputs="$outputs $dir/out.$i"
+    PATH="$fb:$PATH" FM_HOME="$home" FM_HERDR_LOG="$log" \
+      FM_FAKE_HERDR_STATE="$dir/herdr/state.json" HERDR_SESSION=fmtest \
+      bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_container_ensure /proj' "$ROOT" > "$dir/out.$i" &
+    pid="$pid $!"
+  done
+  for i in $pid; do
+    wait "$i" || fail "parallel spawn-time container ensure failed"
+  done
+  workspaces=$(jq '[.workspaces[] | select(.label == "firstmate")] | length' "$dir/herdr/state.json")
+  [ "$workspaces" = 1 ] || fail "parallel spawn-time ensures minted $workspaces supervisor workspaces"
+  unique=$(for i in $outputs; do cut -f1 "$i"; done | sort -u | wc -l | tr -d ' ')
+  [ "$unique" = 1 ] || fail "parallel spawn-time ensures returned different supervisor workspaces"
+  pass "fm-spawn container ensure: parallel first spawns converge on one supervisor workspace"
+}
+
 test_create_task_creates_with_no_focus_flag() {
   local dir log resp fb out
   dir="$TMP_ROOT/create-task-no-focus"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
@@ -763,6 +787,24 @@ test_child_workspace_respawn_reuses_exact_husk_workspace() {
   [ "$runtime_tabs" = 1 ] || fail "husk respawn left duplicate runtime tabs"
   [ "$log_tabs" = 1 ] || fail "husk respawn left duplicate log tabs"
   pass "fm-spawn.sh: reuses exact owned metadata and replaces a restored child husk in place"
+}
+
+test_child_workspace_flag_off_preserves_owned_recovery_and_listing() {
+  local meta workspace live
+  make_child_respawn_case child-respawn-flag-off respawnflagz5
+  run_child_respawn >/dev/null || fail "initial owned child spawn failed"
+  meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
+  workspace=$(grep '^herdr_workspace_id=' "$meta" | cut -d= -f2-)
+  rm -f "$CHILD_CASE_CONFIG/herdr-child-workspaces"
+  run_child_respawn >/dev/null || fail "owned child recovery failed after the creation flag was disabled"
+  [ "$(grep '^herdr_workspace_id=' "$meta" | cut -d= -f2-)" = "$workspace" ] || fail "flag-off recovery replaced the owned child workspace"
+  grep -qx 'herdr_ws_owned=1' "$meta" || fail "flag-off recovery discarded owned child metadata"
+  live=$(PATH="$CHILD_CASE_FAKEBIN:$PATH" HERDR_SESSION=fmtest FM_HERDR_LOG="$CHILD_CASE_LOG" \
+    FM_FAKE_HERDR_STATE="$CHILD_CASE_HERDR/state.json" FM_HOME="$CHILD_CASE_HOME" \
+    FM_STATE_OVERRIDE="$CHILD_CASE_STATE" FM_CONFIG_OVERRIDE="$CHILD_CASE_CONFIG" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_list_live fmtest' "$ROOT")
+  assert_contains "$live" "fm-$CHILD_CASE_ID" "flag-off live listing did not enumerate the existing owned child"
+  pass "fm-spawn recovery: existing owned children survive flag-off respawn and live listing"
 }
 
 test_child_workspace_respawn_refuses_ambiguous_workspace_duplicates() {
@@ -2245,6 +2287,7 @@ test_container_ensure_starts_server_and_workspace
 test_container_ensure_reuses_existing_workspace
 test_container_ensure_creates_with_no_focus_flag
 test_container_ensure_uses_secondmate_home_label
+test_parallel_container_ensure_converges_on_one_supervisor_workspace
 test_workspace_ensure_prunes_default_tab
 test_repeated_cycles_reuse_one_workspace_no_orphans
 test_adopted_workspace_never_prunes_default_tab
@@ -2267,6 +2310,7 @@ test_child_workspace_population_failure_rolls_back_fresh_workspace
 test_spawn_abort_closes_owned_child_before_meta_is_durable
 test_child_workspace_respawn_refuses_live_exact_endpoint
 test_child_workspace_respawn_reuses_exact_husk_workspace
+test_child_workspace_flag_off_preserves_owned_recovery_and_listing
 test_child_workspace_respawn_refuses_ambiguous_workspace_duplicates
 test_child_workspace_failed_reuse_tracks_replacement_when_cleanup_fails
 test_workspace_find_matches_only_this_homes_own_label

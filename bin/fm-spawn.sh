@@ -792,6 +792,12 @@ case "$BACKEND" in
     HERDR_WORKSPACE_ID=${CONTAINER#*:}
     HERDR_PARENT_WS=""
     HERDR_WS_OWNED=""
+    HERDR_EXISTING_OWNED=""
+    if [ "$KIND" != secondmate ] && [ -f "$STATE/$ID.meta" ] &&
+       grep -qx 'backend=herdr' "$STATE/$ID.meta" 2>/dev/null &&
+       grep -qx 'herdr_ws_owned=1' "$STATE/$ID.meta" 2>/dev/null; then
+      HERDR_EXISTING_OWNED=1
+    fi
     # Child-workspace grouping (INTERIM, default OFF -
     # config/herdr-child-workspaces=on; docs/herdr-backend.md). A DELEGATED job
     # (ship/scout, never a --secondmate supervisor) gets its OWN child
@@ -801,7 +807,7 @@ case "$BACKEND" in
     # inside it, so it is the parent's only tab and pruning it would delete the
     # parent workspace. When the flag is off, the else branch is the unchanged
     # tab-per-task path and no herdr_parent_ws/herdr_ws_owned meta is written.
-    if [ "$KIND" != secondmate ] && FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_child_ws_enabled; then
+    if [ "$KIND" != secondmate ] && { [ "$HERDR_EXISTING_OWNED" = 1 ] || FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_child_ws_enabled; }; then
       HERDR_PARENT_WS=$HERDR_WORKSPACE_ID
       FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_prepare_child_workspace "$HERDR_SES" "$HERDR_PARENT_WS" "$ID" "$STATE/$ID.meta" || exit 1
       HERDR_CHILD_ACTION=$FM_BACKEND_HERDR_CHILD_ACTION

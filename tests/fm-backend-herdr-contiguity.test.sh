@@ -55,8 +55,8 @@ printf '%s\n' "$*" >> "$CLILOG"
 case "${1:-} ${2:-}" in
   "workspace list")
     [ -n "${FM_FAKE_LIST_FAIL:-}" ] && exit 1
-    jq -Rn --arg native_parent "${FM_FAKE_NATIVE_PARENT:-}" '
-      [inputs | select(length > 0) | {workspace_id: ., label: .}
+    jq -Rn --arg native_parent "${FM_FAKE_NATIVE_PARENT:-}" --arg fleet_parent "${FM_FAKE_FLEET_PARENT:-}" '
+      [inputs | select(length > 0) | {workspace_id: ., label: (if . == $fleet_parent then "2ndmate-remote" else . end)}
         + if . == $native_parent then {worktree: {is_linked_worktree: false}} else {} end]
       | {result: {workspaces: .}}' < "$ORDER"
     if [ -n "${FM_FAKE_CHURN_AFTER:-}" ]; then
@@ -518,6 +518,18 @@ test_close_refuses_herdr_native_worktree_group_parent() {
   pass "close safety: Herdr-native marked worktree-group parent is protected from group close"
 }
 
+test_close_refuses_parent_registered_by_another_home() {
+  contig_case close-cross-home $'ws-fm\nws-remote-parent\nws-child'
+  PATH="$FB:$PATH" \
+    FM_FAKE_ORDER="$CASE_ORDER" FM_FAKE_CLI_LOG="$CASE_CLI_LOG" \
+    FM_FAKE_SESSION="$SES" FM_FAKE_SOCK="$TMP_ROOT/fake.sock" \
+    FM_FAKE_FLEET_PARENT=ws-remote-parent \
+    fm_backend_herdr_close_owned_workspace "$SES" ws-remote-parent ws-other "$CASE_STATE" >/dev/null 2>&1 && \
+    fail "close must refuse a supervisor workspace registered outside the current home"
+  ! grep -q '^workspace close' "$CASE_CLI_LOG" || fail "the cross-home supervisor guard must prevent workspace.close"
+  pass "close safety: the fleet-wide registry protects another home's supervisor workspace"
+}
+
 test_close_allows_exact_unmarked_owned_child() {
   contig_case close-child $'ws-parent\nws-child'
   PATH="$FB:$PATH" \
@@ -556,6 +568,7 @@ test_child_workspace_flag_is_explicit_and_default_off
 test_cli_refuses_herdr_worktree_remove_before_execution
 test_close_refuses_any_locally_marked_parent
 test_close_refuses_herdr_native_worktree_group_parent
+test_close_refuses_parent_registered_by_another_home
 test_close_allows_exact_unmarked_owned_child
 
 echo "# all herdr workspace-contiguity unit tests passed"
