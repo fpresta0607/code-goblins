@@ -5,33 +5,43 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bin/fm-treehouse-lib.sh
 . "$SCRIPT_DIR/fm-treehouse-lib.sh"
 
-[ "$#" -eq 3 ] || exit 2
-template=$1
-meta=$2
-holder=$3
-[ -f "$template" ] && [ ! -L "$template" ] || exit 1
-case "$meta" in *.meta) ;; *) exit 1 ;; esac
-[ "$(cd "$(dirname "$template")" && pwd -P)" = "$(cd "$(dirname "$meta")" && pwd -P)" ] || exit 1
-owner="$(cd "$(dirname "$meta")" && pwd -P)/$(basename "${meta%.meta}")"
-[ "$(grep -c '^spawn_recovery_state=lease-acquiring$' "$template" 2>/dev/null || true)" -eq 1 ] || exit 1
-[ "$(grep -c '^spawn_recovery_owner=' "$template" 2>/dev/null || true)" -eq 1 ] || exit 1
-[ "$(grep '^spawn_recovery_owner=' "$template" | cut -d= -f2-)" = "$owner" ] || exit 1
-[ "$(grep -c '^treehouse_lease_holder=' "$template" 2>/dev/null || true)" -eq 1 ] || exit 1
-[ "$(grep '^treehouse_lease_holder=' "$template" | cut -d= -f2-)" = "$holder" ] || exit 1
-[ "$(grep -c '^worktree=$' "$template" 2>/dev/null || true)" -eq 1 ] || exit 1
-[ "$(grep -c '^treehouse_lease_identity=$' "$template" 2>/dev/null || true)" -eq 1 ] || exit 1
-[ "$(grep -c '^herdr_ws_owned=1$' "$template" 2>/dev/null || true)" -eq 1 ] || exit 1
-[ -n "$(grep '^herdr_pane_id=' "$template" | cut -d= -f2-)" ] || exit 1
+seed_count() {
+  local key=$1
+  printf '%s\n' "$journal_seed" | grep -c "^${key}=" 2>/dev/null || true
+}
 
-evidence="$template.evidence"
-[ ! -e "$evidence" ] && [ ! -L "$evidence" ] || exit 1
-journal_seed=$(cat "$template") || exit 1
-tmp="$(dirname "$evidence")/.$(basename "$evidence").prepare.$$"
-umask 077
-if ! printf '%s\n' "$journal_seed" > "$tmp" || ! mv "$tmp" "$evidence"; then
-  rm -f "$tmp"
-  exit 1
-fi
+seed_value() {
+  local key=$1
+  printf '%s\n' "$journal_seed" | grep "^${key}=" | cut -d= -f2-
+}
+
+validate_seed() {
+  local expected_holder=$1 expected_project=$2 expected_state=$3 recovery=${4:-0} owner state
+  [ "$(seed_count spawn_recovery_owner)" -eq 1 ] || return 1
+  [ "$(seed_count treehouse_lease_holder)" -eq 1 ] || return 1
+  [ "$(seed_count project)" -eq 1 ] || return 1
+  [ "$(seed_count worktree)" -eq 1 ] || return 1
+  [ "$(seed_count treehouse_lease_identity)" -eq 1 ] || return 1
+  [ "$(seed_count treehouse_state)" -eq 1 ] || return 1
+  [ "$(seed_count spawn_recovery_state)" -eq 1 ] || return 1
+  [ "$(seed_count herdr_ws_owned)" -eq 1 ] || return 1
+  [ "$(seed_count herdr_pane_id)" -eq 1 ] || return 1
+  owner="$(cd "$(dirname "$meta")" && pwd -P)/$(basename "${meta%.meta}")"
+  [ "$(seed_value spawn_recovery_owner)" = "$owner" ] || return 1
+  [ "$(seed_value treehouse_lease_holder)" = "$expected_holder" ] || return 1
+  [ "$(seed_value project)" = "$expected_project" ] || return 1
+  [ "$(seed_value treehouse_state)" = "$expected_state" ] || return 1
+  [ "$(seed_value herdr_ws_owned)" = 1 ] || return 1
+  [ -n "$(seed_value herdr_pane_id)" ] || return 1
+  state=$(seed_value spawn_recovery_state)
+  if [ "$recovery" = 1 ]; then
+    case "$state" in lease-acquiring|lease-acquired-unverified|lease-acquired) ;; *) return 1 ;; esac
+  else
+    [ "$state" = lease-acquiring ] || return 1
+    [ -z "$(seed_value worktree)" ] || return 1
+    [ -z "$(seed_value treehouse_lease_identity)" ] || return 1
+  fi
+}
 
 rewrite_evidence() {
   local state=$1 lease_identity=$2 write_tmp
@@ -46,6 +56,73 @@ rewrite_evidence() {
     return 1
   fi
 }
+
+publish_recovery() {
+  rewrite_evidence lease-acquired "$identity" || return 1
+  fm_treehouse_write_owned_binding "$meta" "$worktree" "$identity" || return 1
+  mv "$evidence" "$meta" || return 1
+  rm -f "$template" || true
+  printf '%s\n' "$worktree" || true
+  return 0
+}
+
+if [ "${1:-}" = --recover ]; then
+  [ "$#" -eq 3 ] || exit 2
+  evidence=$2
+  meta=$3
+  template=${evidence%.evidence}
+  [ "$template" != "$evidence" ] || exit 1
+  [ -f "$evidence" ] && [ ! -L "$evidence" ] || exit 1
+  case "$meta" in *.meta) ;; *) exit 1 ;; esac
+  [ "$(cd "$(dirname "$evidence")" && pwd -P)" = "$(cd "$(dirname "$meta")" && pwd -P)" ] || exit 1
+  journal_seed=$(cat "$evidence") || exit 1
+  holder=$(seed_value treehouse_lease_holder)
+  project=$(seed_value project)
+  state_path=$(seed_value treehouse_state)
+  expected_state=$(fm_treehouse_state_path_for_project "$project") || exit 1
+  validate_seed "$holder" "$project" "$expected_state" 1 || exit 1
+  lease_record=$(fm_treehouse_lease_by_holder "$state_path" "$holder") || exit 1
+  worktree=${lease_record%%$'\t'*}
+  identity=${lease_record#*$'\t'}
+  [ -n "$worktree" ] && [ "$worktree" != "$identity" ] || exit 1
+  recorded_worktree=$(seed_value worktree)
+  recorded_identity=$(seed_value treehouse_lease_identity)
+  [ -z "$recorded_worktree" ] || [ "$recorded_worktree" = "$worktree" ] || exit 1
+  [ -z "$recorded_identity" ] || [ "$recorded_identity" = "$identity" ] || exit 1
+  publish_recovery || exit 1
+  exit 0
+fi
+
+[ "$#" -eq 4 ] || exit 2
+template=$1
+meta=$2
+holder=$3
+project=$4
+[ -f "$template" ] && [ ! -L "$template" ] || exit 1
+case "$meta" in *.meta) ;; *) exit 1 ;; esac
+[ "$(cd "$(dirname "$template")" && pwd -P)" = "$(cd "$(dirname "$meta")" && pwd -P)" ] || exit 1
+project=$(cd "$project" 2>/dev/null && pwd -P) || exit 1
+state_path=$(fm_treehouse_state_path_for_project "$project") || exit 1
+evidence="$template.evidence"
+[ ! -e "$evidence" ] && [ ! -L "$evidence" ] || exit 1
+tmp="$(dirname "$evidence")/.$(basename "$evidence").prepare.$$"
+umask 077
+if ! awk -v state_path="$state_path" '
+  /^treehouse_state=/ { next }
+  { print }
+  END { print "treehouse_state=" state_path }
+' "$template" > "$tmp" || ! mv "$tmp" "$evidence"; then
+  rm -f "$tmp"
+  exit 1
+fi
+if ! journal_seed=$(cat "$evidence"); then
+  rm -f "$evidence"
+  exit 1
+fi
+if ! validate_seed "$holder" "$project" "$state_path"; then
+  rm -f "$evidence"
+  exit 1
+fi
 
 rollback_exact_lease() {
   local expected_identity=$1 current_identity post_identity
@@ -75,13 +152,10 @@ transaction_failed() {
 worktree=$(treehouse get --lease --lease-holder "$holder") || exit 1
 [ -n "$worktree" ] || transaction_failed "Treehouse returned an empty leased worktree path"
 case "$worktree" in *$'\n'*) transaction_failed "Treehouse returned multiple leased worktree paths" ;; esac
+if [ "${FM_TEST_INTERRUPT_AFTER_TREEHOUSE_GET:-0}" = 1 ]; then
+  kill -KILL "$$"
+fi
 rewrite_evidence lease-acquired-unverified "" || transaction_failed "could not record the acquired Treehouse worktree"
 identity=$(fm_treehouse_worktree_identity "$worktree" "$holder") || transaction_failed "could not resolve the authoritative Treehouse lease identity"
 case "$identity" in lease:*) ;; *) transaction_failed "Treehouse did not report an exact durable lease" ;; esac
-rewrite_evidence lease-acquired "$identity" || transaction_failed "could not complete the Treehouse lease recovery journal" "$identity"
-fm_treehouse_write_owned_binding "$meta" "$worktree" "$identity" || transaction_failed "could not publish the exact Treehouse lease binding" "$identity"
-if ! mv "$evidence" "$meta"; then
-  transaction_failed "could not publish the complete Treehouse lease recovery journal" "$identity"
-fi
-rm -f "$template" || true
-printf '%s\n' "$worktree"
+publish_recovery || transaction_failed "could not publish the complete Treehouse lease recovery journal" "$identity"

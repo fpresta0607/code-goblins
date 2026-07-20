@@ -324,7 +324,12 @@ if [ "$dest" = "${FM_FAIL_MV_DEST:-}" ]; then
   esac
   exit 1
 fi
-exec /bin/mv "$@"
+/bin/mv "$@"
+status=$?
+if [ "$status" -eq 0 ] && [ "$dest" = "${FM_REPLACE_SOURCE_AFTER_DEST:-}" ]; then
+  printf 'replaced after immutable snapshot\n' > "${FM_REPLACE_SOURCE_PATH:?}"
+fi
+exit "$status"
 SH
   chmod +x "$fakebin/mv"
 }
@@ -893,8 +898,6 @@ make_child_respawn_case() {
   CHILD_CASE_DIR="$TMP_ROOT/$name"
   CHILD_CASE_HOME="$CHILD_CASE_DIR/home"
   CHILD_CASE_PROJ="$CHILD_CASE_DIR/project"
-  CHILD_CASE_WT="$CHILD_CASE_DIR/treehouse-pool/1/project"
-  CHILD_CASE_TREEHOUSE_STATE="$CHILD_CASE_DIR/treehouse-pool/treehouse-state.json"
   CHILD_CASE_STATE="$CHILD_CASE_HOME/state"
   CHILD_CASE_DATA="$CHILD_CASE_HOME/data"
   CHILD_CASE_CONFIG="$CHILD_CASE_HOME/config"
@@ -910,7 +913,15 @@ make_child_respawn_case() {
   mkdir -p "$CHILD_CASE_DATA/$id" "$CHILD_CASE_STATE" "$CHILD_CASE_CONFIG"
   printf 'on\n' > "$CHILD_CASE_CONFIG/herdr-child-workspaces"
   printf 'brief\n' > "$CHILD_CASE_DATA/$id/brief.md"
-  fm_git_worktree "$CHILD_CASE_PROJ" "$CHILD_CASE_WT" "fm/$id"
+  fm_git_init_commit "$CHILD_CASE_PROJ"
+  CHILD_CASE_PROJ=$(cd "$CHILD_CASE_PROJ" && pwd -P)
+  printf 'root = "%s"\n' "$CHILD_CASE_DIR/treehouse-root" > "$CHILD_CASE_PROJ/treehouse.toml"
+  CHILD_CASE_TREEHOUSE_STATE=$(fm_treehouse_state_path_for_project "$CHILD_CASE_PROJ") || \
+    fail "could not derive the child fixture Treehouse state path"
+  CHILD_CASE_WT="$(dirname "$CHILD_CASE_TREEHOUSE_STATE")/1/project"
+  mkdir -p "$(dirname "$CHILD_CASE_WT")"
+  git -C "$CHILD_CASE_PROJ" worktree add --quiet -b "fm/$id" "$CHILD_CASE_WT" || \
+    fail "could not create the child fixture worktree"
   CHILD_CASE_FAKEBIN=$(make_herdr_statefake "$CHILD_CASE_HERDR")
   make_treehouse_lease_fake "$CHILD_CASE_FAKEBIN" "$CHILD_CASE_WT" "$CHILD_CASE_TREEHOUSE_STATE"
   : > "$CHILD_CASE_LOG"
@@ -936,8 +947,7 @@ make_lease_journal_case() {
   local name=$1
   JOURNAL_CASE_DIR="$TMP_ROOT/$name"
   JOURNAL_CASE_STATE_DIR="$JOURNAL_CASE_DIR/home/state"
-  JOURNAL_CASE_WT="$JOURNAL_CASE_DIR/pool/1/project"
-  JOURNAL_CASE_TREEHOUSE_STATE="$JOURNAL_CASE_DIR/pool/treehouse-state.json"
+  JOURNAL_CASE_PROJECT="$JOURNAL_CASE_DIR/project"
   JOURNAL_CASE_META="$JOURNAL_CASE_STATE_DIR/task.meta"
   JOURNAL_CASE_TEMPLATE="$JOURNAL_CASE_STATE_DIR/.task.treehouse-acquire"
   JOURNAL_CASE_EVIDENCE="$JOURNAL_CASE_TEMPLATE.evidence"
@@ -948,9 +958,18 @@ make_lease_journal_case() {
   JOURNAL_CASE_REASSIGNED_HOLDER=
   JOURNAL_CASE_GET_MUTATION=
   JOURNAL_CASE_POST_RETURN_MUTATION=
+  JOURNAL_CASE_INTERRUPT_AFTER_GET=0
+  JOURNAL_CASE_REPLACE_SOURCE_AFTER_DEST=
   JOURNAL_CASE_RETURN_LOG="$JOURNAL_CASE_DIR/return.log"
   JOURNAL_CASE_GET_LOG="$JOURNAL_CASE_DIR/get.log"
-  mkdir -p "$JOURNAL_CASE_STATE_DIR" "$JOURNAL_CASE_WT" "$JOURNAL_CASE_FAKEBIN"
+  mkdir -p "$JOURNAL_CASE_STATE_DIR" "$JOURNAL_CASE_FAKEBIN"
+  fm_git_init_commit "$JOURNAL_CASE_PROJECT"
+  JOURNAL_CASE_PROJECT=$(cd "$JOURNAL_CASE_PROJECT" && pwd -P)
+  printf 'root = "%s"\n' "$JOURNAL_CASE_DIR/treehouse-root" > "$JOURNAL_CASE_PROJECT/treehouse.toml"
+  JOURNAL_CASE_TREEHOUSE_STATE=$(fm_treehouse_state_path_for_project "$JOURNAL_CASE_PROJECT") || \
+    fail "could not derive the journal fixture Treehouse state path"
+  JOURNAL_CASE_WT="$(dirname "$JOURNAL_CASE_TREEHOUSE_STATE")/1/project"
+  mkdir -p "$JOURNAL_CASE_WT"
   : > "$JOURNAL_CASE_RETURN_LOG"
   : > "$JOURNAL_CASE_GET_LOG"
   JOURNAL_CASE_OWNER="$(cd "$JOURNAL_CASE_STATE_DIR" && pwd -P)/task"
@@ -959,7 +978,7 @@ make_lease_journal_case() {
   cat > "$JOURNAL_CASE_TEMPLATE" <<EOF
 window=fmtest:pane
 worktree=
-project=$JOURNAL_CASE_DIR/project
+project=$JOURNAL_CASE_PROJECT
 harness=codex
 kind=crew
 mode=no-mistakes
@@ -989,8 +1008,19 @@ run_lease_journal_case() {
     FM_FAKE_TREEHOUSE_RETURN_LOG="$JOURNAL_CASE_RETURN_LOG" FM_FAKE_TREEHOUSE_GET_LOG="$JOURNAL_CASE_GET_LOG" \
     FM_FAIL_MV_DEST="$JOURNAL_CASE_FAIL_MV_DEST" FM_FAIL_MV_MUTATION="$JOURNAL_CASE_MV_MUTATION" \
     FM_REASSIGNED_HOLDER="$JOURNAL_CASE_REASSIGNED_HOLDER" \
+    FM_TEST_INTERRUPT_AFTER_TREEHOUSE_GET="$JOURNAL_CASE_INTERRUPT_AFTER_GET" \
+    FM_REPLACE_SOURCE_AFTER_DEST="$JOURNAL_CASE_REPLACE_SOURCE_AFTER_DEST" \
+    FM_REPLACE_SOURCE_PATH="$JOURNAL_CASE_TEMPLATE" \
     "$ROOT/bin/fm-treehouse-lease-journal.sh" "$JOURNAL_CASE_TEMPLATE" "$JOURNAL_CASE_META" \
-      "$JOURNAL_CASE_HOLDER" 2>&1
+      "$JOURNAL_CASE_HOLDER" "$JOURNAL_CASE_PROJECT" 2>&1
+}
+
+run_lease_journal_recovery() {
+  PATH="$JOURNAL_CASE_FAKEBIN:$PATH" FM_FAKE_TREEHOUSE_STATE="$JOURNAL_CASE_TREEHOUSE_STATE" \
+    FM_FAKE_TREEHOUSE_WT="$JOURNAL_CASE_WT" FM_FAKE_TREEHOUSE_RETURN_LOG="$JOURNAL_CASE_RETURN_LOG" \
+    FM_FAKE_TREEHOUSE_GET_LOG="$JOURNAL_CASE_GET_LOG" \
+    "$ROOT/bin/fm-treehouse-lease-journal.sh" --recover "$JOURNAL_CASE_EVIDENCE" \
+      "$JOURNAL_CASE_META" 2>&1
 }
 
 test_lease_journal_identity_failure_retains_recovery_evidence() {
@@ -1035,6 +1065,90 @@ test_lease_journal_rejects_invalid_template_before_acquisition() {
   [ ! -e "$JOURNAL_CASE_EVIDENCE" ] || fail "invalid template became recovery evidence"
   [ -z "$out" ] || fail "pre-acquisition validation emitted an unexpected diagnostic: $out"
   pass "fm-treehouse-lease-journal.sh: invalid templates fail before Treehouse acquisition"
+}
+
+test_lease_journal_recovers_interrupted_exact_holder_without_duplicate_get() {
+  local out rc identity
+  make_lease_journal_case lease-journal-interrupted-holder
+  JOURNAL_CASE_INTERRUPT_AFTER_GET=1
+  out=$(run_lease_journal_case); rc=$?
+  [ "$rc" -ne 0 ] || fail "post-acquisition interruption unexpectedly completed: $out"
+  [ -f "$JOURNAL_CASE_EVIDENCE" ] || fail "post-acquisition interruption lost holder evidence"
+  [ -z "$(grep '^worktree=' "$JOURNAL_CASE_EVIDENCE" | cut -d= -f2-)" ] || \
+    fail "interruption fixture ran after evidence enrichment"
+  [ "$(wc -l < "$JOURNAL_CASE_GET_LOG" | tr -d ' ')" = 1 ] || fail "interruption did not acquire exactly once"
+
+  JOURNAL_CASE_INTERRUPT_AFTER_GET=0
+  out=$(run_lease_journal_recovery); rc=$?
+  [ "$rc" -eq 0 ] || fail "exact holder recovery failed: $out"
+  [ "$out" = "$JOURNAL_CASE_WT" ] || fail "exact holder recovery returned the wrong worktree"
+  [ -f "$JOURNAL_CASE_META" ] || fail "exact holder recovery did not publish task metadata"
+  [ ! -e "$JOURNAL_CASE_EVIDENCE" ] || fail "exact holder recovery retained stale evidence"
+  identity=$(grep '^treehouse_lease_identity=' "$JOURNAL_CASE_META" | cut -d= -f2-)
+  [ "$identity" = "$(fm_treehouse_worktree_identity "$JOURNAL_CASE_WT")" ] || \
+    fail "exact holder recovery published the wrong lease identity"
+  [ "$(wc -l < "$JOURNAL_CASE_GET_LOG" | tr -d ' ')" = 1 ] || fail "exact holder recovery acquired a duplicate lease"
+  pass "fm-treehouse-lease-journal.sh: interrupted exact holders recover without duplicate acquisition"
+}
+
+test_lease_journal_recovery_refuses_missing_reassigned_or_ambiguous_holder() {
+  local mutation out rc
+  for mutation in missing reassigned ambiguous; do
+    make_lease_journal_case "lease-journal-recover-$mutation"
+    JOURNAL_CASE_INTERRUPT_AFTER_GET=1
+    run_lease_journal_case >/dev/null 2>&1
+    JOURNAL_CASE_INTERRUPT_AFTER_GET=0
+    case "$mutation" in
+      missing)
+        jq '(.worktrees[0]) |= (.leased = false | del(.lease_holder, .leased_at))' \
+          "$JOURNAL_CASE_TREEHOUSE_STATE" > "$JOURNAL_CASE_TREEHOUSE_STATE.tmp" \
+          && mv "$JOURNAL_CASE_TREEHOUSE_STATE.tmp" "$JOURNAL_CASE_TREEHOUSE_STATE"
+        ;;
+      reassigned)
+        jq --arg holder firstmate-other-fedcba9876543210fedcba9876543210 \
+          '(.worktrees[0]) |= (.lease_holder = $holder | .leased_at = "2026-07-20T03:00:00Z")' \
+          "$JOURNAL_CASE_TREEHOUSE_STATE" > "$JOURNAL_CASE_TREEHOUSE_STATE.tmp" \
+          && mv "$JOURNAL_CASE_TREEHOUSE_STATE.tmp" "$JOURNAL_CASE_TREEHOUSE_STATE"
+        ;;
+      ambiguous)
+        jq '.worktrees += [.worktrees[0]]' "$JOURNAL_CASE_TREEHOUSE_STATE" \
+          > "$JOURNAL_CASE_TREEHOUSE_STATE.tmp" \
+          && mv "$JOURNAL_CASE_TREEHOUSE_STATE.tmp" "$JOURNAL_CASE_TREEHOUSE_STATE"
+        ;;
+    esac
+    out=$(run_lease_journal_recovery); rc=$?
+    [ "$rc" -ne 0 ] || fail "$mutation holder unexpectedly produced authoritative recovery metadata"
+    [ -f "$JOURNAL_CASE_EVIDENCE" ] || fail "$mutation holder refusal discarded durable evidence"
+    [ ! -e "$JOURNAL_CASE_META" ] || fail "$mutation holder refusal published task metadata"
+    [ "$(wc -l < "$JOURNAL_CASE_GET_LOG" | tr -d ' ')" = 1 ] || fail "$mutation holder refusal acquired a duplicate lease"
+    [ -z "$out" ] || fail "$mutation holder refusal emitted unexpected output: $out"
+  done
+  pass "fm-treehouse-lease-journal.sh: missing, reassigned, and ambiguous holders retain evidence"
+}
+
+test_lease_journal_validates_and_uses_one_immutable_template_snapshot() {
+  local out rc
+  make_lease_journal_case lease-journal-template-replaced-before-copy
+  sed "s|^project=.*|project=$JOURNAL_CASE_DIR/other-project|" "$JOURNAL_CASE_TEMPLATE" \
+    > "$JOURNAL_CASE_TEMPLATE.tmp" && mv "$JOURNAL_CASE_TEMPLATE.tmp" "$JOURNAL_CASE_TEMPLATE"
+  out=$(run_lease_journal_case); rc=$?
+  [ "$rc" -ne 0 ] || fail "a replaced pre-copy template unexpectedly acquired a lease"
+  [ "$(wc -l < "$JOURNAL_CASE_GET_LOG" | tr -d ' ')" = 0 ] || fail "a replaced pre-copy template reached Treehouse get"
+  [ ! -e "$JOURNAL_CASE_EVIDENCE" ] || fail "the invalid pre-acquisition snapshot became recovery evidence"
+  [ -z "$out" ] || fail "pre-copy replacement emitted unexpected output: $out"
+
+  make_lease_journal_case lease-journal-template-replaced-after-copy
+  make_selective_mv_fake "$JOURNAL_CASE_FAKEBIN"
+  JOURNAL_CASE_REPLACE_SOURCE_AFTER_DEST=$JOURNAL_CASE_EVIDENCE
+  out=$(run_lease_journal_case); rc=$?
+  [ "$rc" -eq 0 ] || fail "post-copy source replacement influenced the immutable snapshot: $out"
+  [ "$out" = "$JOURNAL_CASE_WT" ] || fail "post-copy source replacement returned the wrong worktree"
+  [ "$(grep '^project=' "$JOURNAL_CASE_META" | cut -d= -f2-)" = "$JOURNAL_CASE_PROJECT" ] || \
+    fail "post-copy replacement changed the published project binding"
+  [ "$(grep '^treehouse_lease_holder=' "$JOURNAL_CASE_META" | cut -d= -f2-)" = "$JOURNAL_CASE_HOLDER" ] || \
+    fail "post-copy replacement changed the published holder binding"
+  [ "$(wc -l < "$JOURNAL_CASE_GET_LOG" | tr -d ' ')" = 1 ] || fail "post-copy replacement acquired more than once"
+  pass "fm-treehouse-lease-journal.sh: one validated immutable template snapshot drives acquisition"
 }
 
 test_lease_journal_survives_post_acquisition_template_failure() {
@@ -1272,9 +1386,10 @@ test_abort_recovery_rewrites_new_lease_worktree() {
   old_identity=$(grep '^treehouse_lease_identity=' "$meta" | cut -d= -f2-)
   fake_treehouse_release "$CHILD_CASE_TREEHOUSE_STATE" "$CHILD_CASE_WT"
   printf 'worktree_return_state=completed:%s\n' "$old_identity" >> "$meta"
-  new_root="$CHILD_CASE_DIR/treehouse-pool/2"
+  new_root="$(dirname "$CHILD_CASE_TREEHOUSE_STATE")/2"
   new_worktree="$new_root/project"
-  fm_git_worktree "$CHILD_CASE_PROJ" "$new_root" "fm/$CHILD_CASE_ID-replacement"
+  git -C "$CHILD_CASE_PROJ" worktree add --quiet -b "fm/$CHILD_CASE_ID-replacement" "$new_root" || \
+    fail "could not create the replacement Treehouse fixture worktree"
   mkdir -p "$new_worktree"
   jq --arg path "$new_worktree" '.worktrees += [{name:"2", path:$path, created_at:"2026-07-20T00:00:01Z"}]' \
     "$CHILD_CASE_TREEHOUSE_STATE" > "$CHILD_CASE_TREEHOUSE_STATE.tmp" && mv "$CHILD_CASE_TREEHOUSE_STATE.tmp" "$CHILD_CASE_TREEHOUSE_STATE"
@@ -1282,7 +1397,7 @@ test_abort_recovery_rewrites_new_lease_worktree() {
   CHILD_CASE_PANE_CLOSE_FAIL_N=2
   CHILD_CASE_TREEHOUSE_RETURN_FAIL=1
   out=$(run_child_respawn); rc=$?
-  [ "$rc" -ne 0 ] || fail "partial replacement with failed lease return must fail spawn"
+  [ "$rc" -ne 0 ] || fail "partial replacement with failed lease return must fail spawn: $out"
   [ "$(grep '^worktree=' "$meta" | cut -d= -f2-)" = "$new_worktree" ] || fail "abort recovery retained the old worktree path: $out"
   new_identity=$(grep '^treehouse_lease_identity=' "$meta" | cut -d= -f2-)
   expected_identity=$(fm_treehouse_worktree_identity "$new_worktree") || fail "new replacement lease was not recorded by Treehouse: $(cat "$CHILD_CASE_TREEHOUSE_STATE"); spawn: $out"
@@ -2926,6 +3041,9 @@ test_spawn_abort_preserves_unproven_child_with_recovery_metadata
 test_lease_journal_identity_failure_retains_recovery_evidence
 test_lease_journal_write_failure_retains_holder_evidence
 test_lease_journal_rejects_invalid_template_before_acquisition
+test_lease_journal_recovers_interrupted_exact_holder_without_duplicate_get
+test_lease_journal_recovery_refuses_missing_reassigned_or_ambiguous_holder
+test_lease_journal_validates_and_uses_one_immutable_template_snapshot
 test_lease_journal_survives_post_acquisition_template_failure
 test_lease_journal_rename_failure_rolls_back_exact_lease
 test_lease_journal_refuses_reassigned_or_ambiguous_rollback
