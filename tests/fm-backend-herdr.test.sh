@@ -810,6 +810,7 @@ make_child_respawn_case() {
   CHILD_CASE_PANE_CLOSE_FAIL=0
   CHILD_CASE_PANE_CLOSE_FAIL_N=0
   CHILD_CASE_TREEHOUSE_RETURN_FAIL=0
+  CHILD_CASE_INTERRUPT_AFTER_LEASE_RECOVERY=0
   mkdir -p "$CHILD_CASE_DATA/$id" "$CHILD_CASE_STATE" "$CHILD_CASE_CONFIG"
   printf 'on\n' > "$CHILD_CASE_CONFIG/herdr-child-workspaces"
   printf 'brief\n' > "$CHILD_CASE_DATA/$id/brief.md"
@@ -828,10 +829,41 @@ run_child_respawn() {
     FM_FAKE_HERDR_PANE_CLOSE_FAIL_N="${CHILD_CASE_PANE_CLOSE_FAIL_N:-0}" \
     FM_FAKE_TREEHOUSE_STATE="$CHILD_CASE_TREEHOUSE_STATE" FM_FAKE_TREEHOUSE_WT="$CHILD_CASE_WT" \
     FM_FAKE_TREEHOUSE_RETURN_FAIL="${CHILD_CASE_TREEHOUSE_RETURN_FAIL:-0}" \
+    FM_TEST_INTERRUPT_AFTER_HERDR_LEASE_RECOVERY="${CHILD_CASE_INTERRUPT_AFTER_LEASE_RECOVERY:-0}" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CHILD_CASE_HOME" FM_STATE_OVERRIDE="$CHILD_CASE_STATE" \
     FM_DATA_OVERRIDE="$CHILD_CASE_DATA" FM_CONFIG_OVERRIDE="$CHILD_CASE_CONFIG" \
     FM_PROJECTS_OVERRIDE="$CHILD_CASE_HOME/projects" FM_SPAWN_NO_GUARD=1 \
     "$ROOT/bin/fm-spawn.sh" "$CHILD_CASE_ID" "$CHILD_CASE_PROJ" 'echo test' --backend herdr 2>&1
+}
+
+test_interrupted_lease_publication_recovers_exact_treehouse_lease() {
+  local meta binding owner identity recovered_identity out rc
+  make_child_respawn_case child-lease-publication-interrupt leasepublicationz6
+  meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
+  binding="$CHILD_CASE_STATE/$CHILD_CASE_ID.treehouse-lease"
+  owner="$(cd "$CHILD_CASE_STATE" && pwd -P)/$CHILD_CASE_ID"
+  CHILD_CASE_INTERRUPT_AFTER_LEASE_RECOVERY=1
+  out=$(run_child_respawn); rc=$?
+  [ "$rc" -ne 0 ] || fail "lease-publication interruption must stop spawn before final metadata"
+  [ -f "$meta" ] || fail "interrupted spawn did not leave authoritative recovery metadata: $out"
+  [ -f "$binding" ] || fail "interrupted spawn did not leave its exact historical lease binding"
+  [ "$(grep '^spawn_recovery_state=' "$meta" | cut -d= -f2-)" = lease-acquired ] || fail "interrupted metadata was published as final"
+  [ "$(grep '^spawn_recovery_owner=' "$meta" | cut -d= -f2-)" = "$owner" ] || fail "interrupted metadata was not bound to this home and task"
+  [ "$(grep '^worktree=' "$meta" | cut -d= -f2-)" = "$CHILD_CASE_WT" ] || fail "interrupted metadata lost the leased worktree"
+  [ -n "$(grep '^herdr_pane_id=' "$meta" | cut -d= -f2-)" ] || fail "interrupted metadata lost the recovery endpoint"
+  identity=$(grep '^treehouse_lease_identity=' "$meta" | cut -d= -f2-)
+  [ "$identity" = "$(fm_treehouse_worktree_identity "$CHILD_CASE_WT")" ] || fail "interrupted metadata lost the authoritative lease identity"
+
+  CHILD_CASE_INTERRUPT_AFTER_LEASE_RECOVERY=0
+  out=$(run_child_respawn); rc=$?
+  [ "$rc" -eq 0 ] || fail "recovery did not resume the interrupted owned spawn: $out"
+  recovered_identity=$(grep '^treehouse_lease_identity=' "$meta" | cut -d= -f2-)
+  [ "$recovered_identity" = "$identity" ] || fail "recovery acquired or substituted a different Treehouse lease"
+  ! grep -q '^spawn_recovery_' "$meta" || fail "final metadata retained the in-progress recovery state"
+  run_child_teardown >/dev/null || fail "recovered lease did not tear down safely"
+  [ ! -e "$meta" ] && [ ! -e "$binding" ] || fail "recovered teardown retained lease recovery artifacts"
+  [ "$(fm_treehouse_worktree_identity "$CHILD_CASE_WT")" != "$identity" ] || fail "recovered teardown did not return the exact lease"
+  pass "fm-spawn.sh: interrupted lease publication resumes and returns the exact lease"
 }
 
 run_child_teardown() {
@@ -2603,6 +2635,7 @@ test_create_task_creates_with_no_focus_flag
 test_child_workspace_log_path_is_shell_quoted
 test_child_workspace_population_failure_preserves_unproven_workspace
 test_spawn_abort_preserves_unproven_child_with_recovery_metadata
+test_interrupted_lease_publication_recovers_exact_treehouse_lease
 test_legacy_child_metadata_migrates_matching_live_lease
 test_legacy_child_metadata_refuses_unowned_treehouse_states
 test_legacy_child_metadata_refuses_another_homes_same_id_binding

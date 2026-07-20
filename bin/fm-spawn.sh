@@ -218,6 +218,67 @@ parse_orca_worktree_result() {
   fi
 }
 
+write_task_meta() {
+  local recovery_state=${1:-} recovery_owner= meta_window=$T tmp
+  [ "$BACKEND" = orca ] && meta_window=$W
+  mkdir -p "$STATE" || return 1
+  if [ -n "$recovery_state" ]; then
+    recovery_owner="$(cd "$STATE" && pwd -P)/$ID"
+  fi
+  tmp="$STATE/.$ID.meta.publish.$$"
+  umask 077
+  if ! {
+    echo "window=$meta_window"
+    echo "worktree=$WT"
+    echo "project=$PROJ_ABS"
+    echo "harness=$HARNESS"
+    echo "kind=$KIND"
+    echo "mode=${MODE:-no-mistakes}"
+    echo "yolo=${YOLO:-off}"
+    echo "tasktmp=${TASK_TMP:-}"
+    echo "model=${MODEL:-default}"
+    echo "effort=${EFFORT:-default}"
+    [ "$BACKEND" = tmux ] || echo "backend=$BACKEND"
+    if [ "$BACKEND" = herdr ]; then
+      echo "herdr_session=$HERDR_SES"
+      echo "herdr_workspace_id=$HERDR_WORKSPACE_ID"
+      echo "herdr_tab_id=$HERDR_TAB_ID"
+      echo "herdr_pane_id=$HERDR_PANE_ID"
+      if [ -n "${HERDR_WS_OWNED:-}" ]; then
+        echo "herdr_parent_ws=$HERDR_PARENT_WS"
+        echo "herdr_ws_owned=1"
+        echo "herdr_log_tab_id=${HERDR_LOG_TAB_ID:-}"
+        echo "herdr_log_pane_id=${HERDR_LOG_PANE_ID:-}"
+        echo "treehouse_lease_identity=$TREEHOUSE_LEASE_IDENTITY"
+      fi
+    fi
+    if [ "$BACKEND" = zellij ]; then
+      echo "zellij_session=$ZELLIJ_SES"
+      echo "zellij_tab_id=$ZELLIJ_TAB_ID"
+      echo "zellij_pane_id=$ZELLIJ_PANE_ID"
+    fi
+    if [ "$BACKEND" = orca ]; then
+      echo "orca_worktree_id=$ORCA_WORKTREE_ID"
+      echo "terminal=$ORCA_TERMINAL"
+    fi
+    if [ "$BACKEND" = cmux ]; then
+      echo "cmux_workspace_id=$CMUX_WORKSPACE_ID"
+      echo "cmux_surface_id=$CMUX_SURFACE_ID"
+    fi
+    if [ "$KIND" = secondmate ]; then
+      echo "home=$PROJ_ABS"
+      echo "projects=${SECONDMATE_PROJECTS:-}"
+    fi
+    if [ -n "$recovery_state" ]; then
+      echo "spawn_recovery_state=$recovery_state"
+      echo "spawn_recovery_owner=$recovery_owner"
+    fi
+  } > "$tmp" || ! mv "$tmp" "$STATE/$ID.meta"; then
+    rm -f "$tmp"
+    return 1
+  fi
+}
+
 spawn_abort_cleanup() {
   local status=$? herdr_abort_ok=0 herdr_abort_pane_closed=0 abort_meta_tmp current_identity
   if [ "$HERDR_ABORT_CLEANUP" = 1 ]; then
@@ -845,6 +906,17 @@ case "$BACKEND" in
        grep -qx 'backend=herdr' "$STATE/$ID.meta" 2>/dev/null &&
        grep -qx 'herdr_ws_owned=1' "$STATE/$ID.meta" 2>/dev/null; then
       HERDR_EXISTING_OWNED=1
+      HERDR_RECOVERY_STATE=$(grep '^spawn_recovery_state=' "$STATE/$ID.meta" 2>/dev/null | cut -d= -f2- || true)
+      if [ -n "$HERDR_RECOVERY_STATE" ]; then
+        HERDR_RECOVERY_OWNER_COUNT=$(grep -c '^spawn_recovery_owner=' "$STATE/$ID.meta" 2>/dev/null || true)
+        HERDR_EXPECTED_RECOVERY_OWNER="$(cd "$STATE" && pwd -P)/$ID"
+        [ "$HERDR_RECOVERY_STATE" = lease-acquired ] \
+          && [ "$HERDR_RECOVERY_OWNER_COUNT" -eq 1 ] \
+          && [ "$(grep '^spawn_recovery_owner=' "$STATE/$ID.meta" | cut -d= -f2-)" = "$HERDR_EXPECTED_RECOVERY_OWNER" ] || {
+          echo "error: Herdr lease recovery metadata for $ID is not bound to this home and task; preserving recovery metadata" >&2
+          exit 1
+        }
+      fi
       HERDR_RECORDED_WORKTREE_COUNT=$(grep -c '^worktree=' "$STATE/$ID.meta" 2>/dev/null || true)
       [ "$HERDR_RECORDED_WORKTREE_COUNT" -eq 1 ] || {
         echo "error: Herdr recovery metadata for $ID does not contain one exact worktree record; preserving recovery metadata" >&2
@@ -1074,10 +1146,17 @@ if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
     }
     case "$TREEHOUSE_LEASE_IDENTITY" in lease:*) ;; *) echo "error: Treehouse returned a non-lease identity for $WT" >&2; exit 1 ;; esac
     TREEHOUSE_ABORT_LEASE=1
+    write_task_meta lease-acquired || {
+      echo "error: could not persist complete Treehouse lease recovery metadata for $ID" >&2
+      exit 1
+    }
     fm_treehouse_write_owned_binding "$STATE/$ID.meta" "$WT" "$TREEHOUSE_LEASE_IDENTITY" || {
       echo "error: could not persist the exact Treehouse lease binding for $ID" >&2
       exit 1
     }
+    if [ "${FM_TEST_INTERRUPT_AFTER_HERDR_LEASE_RECOVERY:-0}" = 1 ]; then
+      kill -KILL "$$"
+    fi
   fi
   validate_spawn_worktree "treehouse get" "$T"
 fi
@@ -1211,55 +1290,7 @@ fi
 
 META_WINDOW=$T
 [ "$BACKEND" = orca ] && META_WINDOW=$W
-{
-  echo "window=$META_WINDOW"
-  echo "worktree=$WT"
-  echo "project=$PROJ_ABS"
-  echo "harness=$HARNESS"
-  echo "kind=$KIND"
-  echo "mode=$MODE"
-  echo "yolo=$YOLO"
-  echo "tasktmp=$TASK_TMP"
-  echo "model=${MODEL:-default}"
-  echo "effort=${EFFORT:-default}"
-  # backend= is written only for a non-default (non-tmux) backend, so the
-  # default path's meta stays byte-identical (absent backend= means tmux;
-  # data/fm-backend-design-d7's P1 compatibility contract).
-  [ "$BACKEND" = tmux ] || echo "backend=$BACKEND"
-  if [ "$BACKEND" = herdr ]; then
-    echo "herdr_session=$HERDR_SES"
-    echo "herdr_workspace_id=$HERDR_WORKSPACE_ID"
-    echo "herdr_tab_id=$HERDR_TAB_ID"
-    echo "herdr_pane_id=$HERDR_PANE_ID"
-    # Child-workspace interim mode only (default OFF): the durable parent<-child
-    # association and teardown-ownership gate. Absent on the unchanged
-    # tab-per-task path, so that path's meta stays byte-identical.
-    if [ -n "${HERDR_WS_OWNED:-}" ]; then
-      echo "herdr_parent_ws=$HERDR_PARENT_WS"
-      echo "herdr_ws_owned=1"
-      echo "herdr_log_tab_id=${HERDR_LOG_TAB_ID:-}"
-      echo "herdr_log_pane_id=${HERDR_LOG_PANE_ID:-}"
-      echo "treehouse_lease_identity=$TREEHOUSE_LEASE_IDENTITY"
-    fi
-  fi
-  if [ "$BACKEND" = zellij ]; then
-    echo "zellij_session=$ZELLIJ_SES"
-    echo "zellij_tab_id=$ZELLIJ_TAB_ID"
-    echo "zellij_pane_id=$ZELLIJ_PANE_ID"
-  fi
-  if [ "$BACKEND" = orca ]; then
-    echo "orca_worktree_id=$ORCA_WORKTREE_ID"
-    echo "terminal=$ORCA_TERMINAL"
-  fi
-  if [ "$BACKEND" = cmux ]; then
-    echo "cmux_workspace_id=$CMUX_WORKSPACE_ID"
-    echo "cmux_surface_id=$CMUX_SURFACE_ID"
-  fi
-  if [ "$KIND" = secondmate ]; then
-    echo "home=$PROJ_ABS"
-    echo "projects=$SECONDMATE_PROJECTS"
-  fi
-} > "$STATE/$ID.meta"
+write_task_meta || exit 1
 [ "$BACKEND" = orca ] && ORCA_ABORT_CLEANUP=0
 [ "$BACKEND" = herdr ] && HERDR_ABORT_CLEANUP=0
 [ "$BACKEND" = herdr ] && TREEHOUSE_ABORT_LEASE=0
