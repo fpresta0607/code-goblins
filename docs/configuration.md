@@ -59,7 +59,7 @@ A cmux spawn additionally version-gates against the installed `cmux` binary's ve
 A backend spawn refusal from a missing dependency, version gate, or unauthenticated socket is terminal for that selected backend; firstmate surfaces it as a blocker instead of silently retrying another backend.
 Task meta records `backend=` only for a non-default backend; an absent `backend=` means `tmux`, preserving existing default-path meta files.
 A herdr task additionally records `herdr_session=`, `herdr_workspace_id=`, `herdr_tab_id=`, and `herdr_pane_id=`.
-An ordinary herdr ship or scout additionally records `herdr_parent_ws=` and `herdr_ws_owned=1` when the opt-in crew-workspace grouping below is enabled.
+An ordinary herdr ship or scout additionally records `herdr_parent_ws=`, `herdr_ws_owned=1`, the exact log endpoint fields, and Treehouse lease identity and recovery fields when the opt-in crew-workspace grouping below creates or recovers its workspace; [`docs/herdr-backend.md`](herdr-backend.md#child-workspace-grouping-interim) owns those fields' lifecycle and safety contract.
 A zellij task additionally records `zellij_session=`, `zellij_tab_id=`, and `zellij_pane_id=`.
 An Orca task additionally records `orca_worktree_id=` and `terminal=`, with `window=fm-<id>` kept as the shared firstmate alias.
 A cmux task additionally records `cmux_workspace_id=` and `cmux_surface_id=`.
@@ -86,7 +86,8 @@ The `config/backend` file is not inherited by secondmate homes.
 ### Herdr crew-workspace grouping (config/herdr-child-workspaces)
 
 `config/herdr-child-workspaces` is a local, gitignored, default-off feature flag for the captain-authorized interim Herdr grouping mechanism.
-The first non-empty line must be exactly `on` to enable it; an absent file or any other value keeps the default tab-per-task behavior.
+The first non-empty line must be exactly `on` to enable it; an absent file or any other value keeps new ordinary tasks on the default tab-per-task path.
+Turning the flag off does not strand a task already recorded in an owned crew workspace: recovery, live listing, and teardown continue to use that exact recorded layout until the task is gone.
 When enabled, every ordinary ship or scout crewmate gets its own Herdr workspace associated with the supervisor workspace for the home that delegated it.
 Secondmate agents remain tabs in their own `2ndmate-<id>` supervisor workspaces so those workspaces provide the stable anchors for their crews.
 The primary home's flag is inherited into secondmate homes through the declared local-material propagation contract, so one primary opt-in normally covers ordinary crews throughout the supervisor tree and primary absence normally returns every home to default off.

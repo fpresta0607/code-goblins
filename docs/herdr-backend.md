@@ -18,7 +18,7 @@ Firstmate only drives the `herdr` CLI as a separate process, which carries no AG
 
 Prerequisites:
 
-- `herdr` itself, protocol 14 or newer (0.7.1 and 0.7.3 verified) - see [herdr.dev](https://herdr.dev) for install instructions.
+- `herdr` itself, protocol 14 or newer (0.7.1, 0.7.3, and 0.7.4 verified) - see [herdr.dev](https://herdr.dev) for install instructions.
 - `jq`, required to parse herdr's JSON output: `brew install jq` (or your platform's package manager).
 - The universal firstmate prerequisites - a verified crew harness plus the required toolchain, owned by [`docs/configuration.md`](configuration.md) ("Harness support", "Toolchain"); treehouse still provides the worktree, herdr only provides the session.
 
@@ -145,6 +145,7 @@ The default-off interim differs by recording a supervisor edge for every owned c
 ## Workspace lifecycle: persistent supervisor anchors plus optional owned crew workspaces
 
 Each home's own workspace (`firstmate` for the primary, `2ndmate-<secondmate-id>` for a secondmate - see "Label derivation" above) is created once per session and reused by every subsequent spawn from that home: `fm_backend_herdr_workspace_ensure` calls `fm_backend_herdr_workspace_find` first and creates a workspace only when none labelled for that home exists yet.
+Parallel first spawns in one home serialize that find-or-create operation with the home's bounded Herdr container lock, so they converge on one supervisor workspace instead of minting duplicates.
 Default-layout teardown (`fm_backend_herdr_kill`) closes only the task's pane/tab, never the supervisor workspace.
 Opted-in ordinary-crew teardown also uses pane-only cleanup because no current signal authoritatively attributes a workspace to one home.
 
@@ -195,11 +196,14 @@ Herdr tasks additionally record:
 - `herdr_tab_id=` - the task's tab id.
 - `herdr_pane_id=` - the task's pane id, the fast-path operational target.
 - `herdr_parent_ws=` and `herdr_ws_owned=` - written only by the opt-in interim child-workspace mode below, absent on the default tab-per-task path; these records are also the contiguity reconciler's ownership registry (see "Workspace contiguity").
+- `herdr_log_tab_id=` and `herdr_log_pane_id=` - the exact best-effort read-only status-log endpoint in an opted-in crew workspace.
+- `treehouse_lease_identity=` - the durable Treehouse pool identity that authorizes recovery and return of an opted-in crew's worktree; acquisition recovery may also retain `treehouse_lease_owner=`, `treehouse_lease_holder=`, `spawn_recovery_state=`, and `spawn_recovery_owner=`, while teardown records `worktree_return_state=` before deleting completed task metadata.
 
 ## Child-workspace grouping (interim)
 
 This is the captain-authorized interim grouping mechanism and ships default OFF.
-When the flag is off, behavior is byte-identical to the tab-per-task shape documented above and every path in this section is skipped.
+When the flag is off, new ordinary tasks use the byte-identical tab-per-task shape documented above.
+An existing task with exact `herdr_ws_owned=1` metadata remains recoverable and discoverable in its recorded crew workspace after the flag is turned off, so changing a creation preference cannot strand live work.
 When explicitly enabled, every ordinary crewmate gets its own workspace associated with its supervisor's workspace while native arbitrary hierarchy is pursued separately.
 Space-per-crewmate is the primary emulation mechanism; flat-list contiguity repair is secondary.
 
@@ -209,7 +213,7 @@ Herdr 0.7.3 has native repo/worktree grouping but no arbitrary supervisor-worksp
 Verified against the real binary: `herdr api schema`'s `WorkspaceInfo` carries git-worktree membership, but `herdr workspace create` has no `--parent` flag and `workspace_moved` only reorders the flat list.
 The native tree is anchored to a repository source checkout and its linked worktrees, so it cannot express the interim's home/supervisor association across arbitrary project workspaces.
 The durable, machine-readable supervisor association therefore lives in Firstmate's own task meta (`herdr_parent_ws=`), and the child workspace's `<home-label>/<id>` label is human-facing display sugar only.
-Teardown never keys off that label - it targets the exact owned `workspace_id` under the `herdr_ws_owned=1` gate - so the 2026-07-02 label-collision self-kill class of bug cannot recur through this path.
+Teardown never keys off that label - it re-verifies the exact recorded workspace and task pane under the `herdr_ws_owned=1` gate, then performs pane-only cleanup - so the 2026-07-02 label-collision self-kill class of bug cannot recur through this path.
 A true home-anchored visual tree still needs an upstream arbitrary parent relationship; this interim delivers container isolation, durable association, and a contiguous flat render without taking over worktree ownership.
 
 ### What the flag changes
@@ -233,7 +237,7 @@ When on, a DELEGATED job - a ship or scout crewmate, never a `--secondmate` supe
 - A failed spawn uses the same pane-only safe fallback and preserves or repairs exact owned-workspace metadata when later recovery remains necessary.
 - Complete cross-home empty-workspace cleanup is deferred to a follow-up; cosmetic leakage is preferred over an unsafe workspace close.
 
-The spawn-time branch and the two new meta fields live in `bin/fm-spawn.sh`'s herdr case arm; pane-only teardown lives in `bin/fm-teardown.sh`; the prepare, create, populate, close-refusal, and list functions live in `bin/backends/herdr.sh`.
+The spawn-time branch and its grouping and recovery metadata live in `bin/fm-spawn.sh`'s herdr case arm; pane-only teardown lives in `bin/fm-teardown.sh`; the prepare, create, populate, close-refusal, and list functions live in `bin/backends/herdr.sh`.
 Empirical evidence (isolated real-herdr E2E covering flag-off byte-identity, child-workspace creation, concurrent jobs, nested homes, idempotent respawn, preserved-workspace adoption, close refusal, retry-safe pane-only teardown, and a byte-identical default session) is `tests/fm-backend-herdr-child-workspace-e2e.test.sh`.
 
 ## Workspace contiguity (depth-first supervisor order)
@@ -291,7 +295,7 @@ Contrast: herdr's own `workspace close` was observed to re-focus a neighboring w
 ### Lifecycle reconcile points
 
 - `bin/fm-spawn.sh` reconciles after a child-workspace spawn (the spawning home's scope, pulling the freshly-appended workspace into its block) and after a `--secondmate` launch or recovery (the SECONDMATE home's own scope, regrouping a recovered supervisor's surviving crews); both are best-effort and never fail the spawn.
-- `bin/fm-teardown.sh` runs a best-effort self-heal pass after closing an owned workspace; a close already collapses the flat list, so removal keeps the surviving blocks contiguous and the pass is normally a planned no-op.
+- `bin/fm-teardown.sh` runs a best-effort self-heal pass after pane-only cleanup; because the preserved workspace keeps its place in the flat list, the pass is normally a planned no-op.
 - `bin/fm-herdr-regroup.sh` is the explicit manual entry point (e.g. after hand-shuffling the spaces sidebar); `--all` also sweeps every secondmate home recorded in this home's `kind=secondmate` task metas.
 
 ### Evidence
@@ -316,7 +320,7 @@ Contrast: herdr's own `workspace close` was observed to re-focus a neighboring w
 | Busy state | `herdr agent get <pane>` -> `.result.agent.agent_status` | Verified live against an interactive `claude` session: reports `working` while generating, `done` once idle. Mapped: `working` -> busy; `idle`/`done` -> idle; `blocked` -> idle (surfaced like a stale pane, not suppressed as busy - a blocked agent is stuck waiting on the human, not grinding); anything else -> unknown (the cue for the shared tail-regex fallback). |
 | Kill | `herdr pane close <pane>` | Because closing a tab's only root pane also closes the tab, opted-in teardown closes the task pane only when another tab preserves the workspace, retains recovery metadata if that cannot be proven safe, and never uses `workspace close` or `worktree remove`; see "Workspace lifecycle" above. |
 | Default-tab prune (create_task, first task in a fresh workspace only) | `herdr workspace create`'s own response (`.result.tab.tab_id`) identifies the seeded tab; `herdr tab list` + `herdr agent get <pane>` re-verify it; `herdr pane close <pane>` closes exactly that tab id | `herdr workspace create` seeds the new workspace with one auto-created default tab (label `1`, id captured straight from the create response) firstmate never uses. `fm_backend_herdr_create_task` closes EXACTLY that captured tab id right after creating the first real task tab in a freshly created workspace - never right after `workspace create` itself (see Kill row), and never re-derived from a tab's label or the workspace's tab count at create_task time (see "Default-tab prune" above for the created-vs-adopted safety gate and the 2026-07-02 incident it fixes). Best-effort; an ADOPTED workspace (not freshly created by this same call) is never a prune candidate at all. |
-| Recovery / list-live | `herdr tab list --workspace <id>`, filter labels starting with `fm-` | Label-based, never trusts a stored id blindly - see "ID stability" below. `<id>` is always THIS home's own workspace (`fm_backend_herdr_workspace_find`), so recovery never sees a sibling home's tabs. |
+| Recovery / list-live | `herdr tab list --workspace <id>`, filter labels starting with `fm-` | Label-based, never trusts a stored pane id blindly - see "ID stability" below. It scans this home's supervisor workspace and, when grouping is enabled or owned-child metadata remains, crew workspaces under this home's label prefix; sibling homes remain out of scope and log tabs are never task endpoints. |
 | Workspace create / tab create (focus) | `herdr workspace create --no-focus`, `herdr tab create --no-focus` | Verified: neither focuses by default once a workspace already exists in the session, matching pre-P3 (flagless) behavior; `--no-focus` is passed anyway for defense in depth, since the very first workspace ever created in a brand-new session focuses regardless of the flag. `--focus` was separately verified to reliably focus, confirming the flag has real effect. |
 | Session targeting for DESTRUCTIVE calls | `herdr session stop <name> --session <name> --json`, then `herdr session delete <name> --session <name> --json`; never `herdr server stop` | Owned by `bin/fm-herdr-lab.sh` (which `tests/herdr-test-safety.sh` sources), re-querying `herdr session list --json` before every destructive call. See "Session targeting" below - `HERDR_SESSION` alone is not reliably honored once another herdr server is already running on the machine. |
 
