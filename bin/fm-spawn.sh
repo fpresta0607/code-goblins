@@ -194,6 +194,7 @@ ORCA_WORKTREE_ID=
 ORCA_TERMINAL=
 HERDR_ABORT_CLEANUP=0
 HERDR_ABORT_HOME=
+HERDR_ABORT_MODE=
 
 parse_orca_worktree_result() {
   local raw=$1 rest
@@ -213,10 +214,18 @@ parse_orca_worktree_result() {
 }
 
 spawn_abort_cleanup() {
-  local status=$?
+  local status=$? herdr_abort_ok=0
   if [ "$HERDR_ABORT_CLEANUP" = 1 ]; then
     HERDR_ABORT_CLEANUP=0
-    if ! FM_HOME="$HERDR_ABORT_HOME" fm_backend_herdr_discard_fresh_workspace "$HERDR_SES" "$HERDR_WORKSPACE_ID"; then
+    case "$HERDR_ABORT_MODE" in
+      fresh)
+        FM_HOME="$HERDR_ABORT_HOME" fm_backend_herdr_discard_fresh_workspace "$HERDR_SES" "$HERDR_WORKSPACE_ID" && herdr_abort_ok=1
+        ;;
+      owned)
+        FM_HOME="$HERDR_ABORT_HOME" fm_backend_herdr_close_owned_workspace "$HERDR_SES" "$HERDR_WORKSPACE_ID" "$HERDR_PARENT_WS" "$STATE" && herdr_abort_ok=1
+        ;;
+    esac
+    if [ "$herdr_abort_ok" != 1 ]; then
       mkdir -p "$STATE" 2>/dev/null || true
       if [ -d "$STATE" ]; then
         {
@@ -774,14 +783,32 @@ case "$BACKEND" in
     # tab-per-task path and no herdr_parent_ws/herdr_ws_owned meta is written.
     if [ "$KIND" != secondmate ] && FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_child_ws_enabled; then
       HERDR_PARENT_WS=$HERDR_WORKSPACE_ID
-      FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_child_workspace_create "$HERDR_SES" "$HERDR_PARENT_WS" "$ID" "$PROJ_ABS" || exit 1
-      HERDR_WORKSPACE_ID=$FM_BACKEND_HERDR_CHILD_WS_ID
-      HERDR_ABORT_HOME=$HERDR_LABEL_HOME
-      HERDR_ABORT_CLEANUP=1
-      fm_backend_herdr_child_workspace_populate "$HERDR_SES" "$HERDR_WORKSPACE_ID" "$ID" "$PROJ_ABS" "$STATE/$ID.status" "$FM_BACKEND_HERDR_CHILD_SEED_TAB_ID" || exit 1
+      FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_prepare_child_workspace "$HERDR_SES" "$HERDR_PARENT_WS" "$ID" "$STATE/$ID.meta" || exit 1
+      HERDR_CHILD_ACTION=$FM_BACKEND_HERDR_CHILD_ACTION
+      if [ "$HERDR_CHILD_ACTION" = new ]; then
+        FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_child_workspace_create "$HERDR_SES" "$HERDR_PARENT_WS" "$ID" "$PROJ_ABS" || exit 1
+        HERDR_WORKSPACE_ID=$FM_BACKEND_HERDR_CHILD_WS_ID
+        HERDR_ABORT_HOME=$HERDR_LABEL_HOME
+        HERDR_ABORT_MODE=fresh
+        HERDR_ABORT_CLEANUP=1
+      else
+        HERDR_WORKSPACE_ID=$FM_BACKEND_HERDR_CHILD_WS_ID
+        FM_BACKEND_HERDR_CHILD_SEED_TAB_ID=
+      fi
+      if ! fm_backend_herdr_child_workspace_populate "$HERDR_SES" "$HERDR_WORKSPACE_ID" "$ID" "$PROJ_ABS" "$STATE/$ID.status" "$FM_BACKEND_HERDR_CHILD_SEED_TAB_ID"; then
+        if [ "$HERDR_CHILD_ACTION" = reuse ] && [ "${FM_BACKEND_HERDR_TASK_CREATED:-0}" = 1 ]; then
+          FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_close_owned_workspace "$HERDR_SES" "$HERDR_WORKSPACE_ID" "$HERDR_PARENT_WS" "$STATE" || true
+        fi
+        exit 1
+      fi
       HERDR_TAB_ID=$FM_BACKEND_HERDR_CHILD_TAB_ID
       HERDR_PANE_ID=$FM_BACKEND_HERDR_CHILD_PANE_ID
       HERDR_WS_OWNED=1
+      if [ "$HERDR_CHILD_ACTION" = reuse ]; then
+        HERDR_ABORT_HOME=$HERDR_LABEL_HOME
+        HERDR_ABORT_MODE=owned
+        HERDR_ABORT_CLEANUP=1
+      fi
     else
       HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$W" "$PROJ_ABS" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
       read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF

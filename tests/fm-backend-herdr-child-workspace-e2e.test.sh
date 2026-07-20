@@ -88,6 +88,9 @@ ws_exists() {  # <workspace_id> -> 0 if present
 ws_tab_labels() {  # <workspace_id> -> newline-separated tab labels
   fm_herdr_lab_cli "$SESSION" tab list --workspace "$1" 2>/dev/null | jq -r '.result.tabs[]?.label'
 }
+ws_label_count() {
+  fm_herdr_lab_cli "$SESSION" workspace list 2>&1 | jq -r --arg label "$1" '[.result.workspaces[]? | select(.label == $label)] | length'
+}
 meta_get() { grep "^$2=" "$1" 2>/dev/null | cut -d= -f2-; }
 
 make_home() {  # <dir> [<secondmate-id>] [<flag on|off>]
@@ -165,6 +168,16 @@ assert_contains_local "$A_TABS" "log" "child workspace must contain the log tab"
 sleep 1
 assert_contains_local "$(fm_backend_herdr_capture "$SESSION:$A_PANE" 30)" "cma-ok" "runtime pane did not run the launch command"
 pass "flag ON: delegated job gets its own child workspace 'firstmate/cma' with runtime+log tabs; parent recorded in meta and preserved"
+
+OLD_A_PANE=$A_PANE
+spawn "$PRIMARY_ON" cma "$PROJ1" "sh -c 'echo cma-respawn-ok'"
+A_PANE=$(meta_get "$A_META" herdr_pane_id)
+[ "$(meta_get "$A_META" herdr_workspace_id)" = "$A_CHILD_WS" ] || fail "husk respawn must reuse cma's exact owned workspace"
+[ "$A_PANE" != "$OLD_A_PANE" ] || fail "husk respawn must replace cma's restored runtime pane"
+[ "$(ws_label_count firstmate/cma)" = 1 ] || fail "husk respawn must not mint a duplicate cma workspace"
+[ "$(ws_tab_labels "$A_CHILD_WS" | grep -c '^fm-cma$')" = 1 ] || fail "husk respawn must leave one cma runtime tab"
+[ "$(ws_tab_labels "$A_CHILD_WS" | grep -c '^log$')" = 1 ] || fail "husk respawn must leave one cma log tab"
+pass "respawn: restored child husk is replaced in its exact owned workspace without duplicates"
 
 # === C. multiple concurrent jobs => distinct child workspaces, one parent ====
 spawn "$PRIMARY_ON" cmb "$PROJ2" "sh -c 'echo cmb-ok'"

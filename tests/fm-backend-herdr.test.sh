@@ -158,7 +158,14 @@ case "$cmd $sub" in
     fi
     ;;
   "pane get")
-    printf '{"result":{"pane":{"foreground_cwd":"%s"}}}\n' "${FM_FAKE_HERDR_FOREGROUND_CWD:-}"
+    pane=${3:-}
+    pane_ws=$(jq_state -r --arg p "$pane" '.tabs[] | select(.pane_id == $p) | .workspace_id' | head -1)
+    if [ -n "$pane_ws" ]; then
+      printf '{"result":{"pane":{"pane_id":"%s","workspace_id":"%s","foreground_cwd":"%s"}}}\n' \
+        "$pane" "$pane_ws" "${FM_FAKE_HERDR_FOREGROUND_CWD:-}"
+    else
+      printf '{"error":{"code":"pane_not_found","message":"pane target %s not found"}}\n' "$pane"
+    fi
     ;;
   *) : ;;
 esac
@@ -631,8 +638,10 @@ test_child_workspace_log_path_is_shell_quoted() {
   dir="$TMP_ROOT/child-log-quote"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
   status_file="/tmp/status path;touch /tmp/not-executed"
   printf '{"result":{"workspace":{"workspace_id":"w2"},"tab":{}}}\n' > "$resp/1.out"
-  printf '{"result":{"tab":{"tab_id":"w2:t1"},"root_pane":{"pane_id":"w2:p1"}}}\n' > "$resp/2.out"
-  printf '{"result":{"tab":{"tab_id":"w2:t2"},"root_pane":{"pane_id":"w2:p2"}}}\n' > "$resp/3.out"
+  printf '{"result":{"tabs":[]}}\n' > "$resp/2.out"
+  printf '{"result":{"tabs":[]}}\n' > "$resp/3.out"
+  printf '{"result":{"tab":{"tab_id":"w2:t1"},"root_pane":{"pane_id":"w2:p1"}}}\n' > "$resp/4.out"
+  printf '{"result":{"tab":{"tab_id":"w2:t2"},"root_pane":{"pane_id":"w2:p2"}}}\n' > "$resp/5.out"
   fb=$(make_herdr_fakebin "$dir")
   out=$(PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_child_workspace fmtest w1 task /tmp "$1"' "$ROOT" "$status_file")
@@ -680,6 +689,93 @@ test_spawn_abort_closes_owned_child_before_meta_is_durable() {
   [ "$live" = firstmate ] || fail "aborted spawn leaked its owned child workspace; live labels: $live; output: $out"
   [ ! -e "$state/$id.meta" ] || fail "successful abort cleanup should not leave recovery metadata"
   pass "fm-spawn.sh: closes an owned child workspace when spawn aborts before durable metadata"
+}
+
+make_child_respawn_case() {
+  local name=$1 id=$2
+  CHILD_CASE_DIR="$TMP_ROOT/$name"
+  CHILD_CASE_HOME="$CHILD_CASE_DIR/home"
+  CHILD_CASE_PROJ="$CHILD_CASE_DIR/project"
+  CHILD_CASE_WT="$CHILD_CASE_DIR/worktree"
+  CHILD_CASE_STATE="$CHILD_CASE_HOME/state"
+  CHILD_CASE_DATA="$CHILD_CASE_HOME/data"
+  CHILD_CASE_CONFIG="$CHILD_CASE_HOME/config"
+  CHILD_CASE_HERDR="$CHILD_CASE_DIR/herdr"
+  CHILD_CASE_LOG="$CHILD_CASE_DIR/herdr.log"
+  CHILD_CASE_ID=$id
+  mkdir -p "$CHILD_CASE_DATA/$id" "$CHILD_CASE_STATE" "$CHILD_CASE_CONFIG"
+  printf 'on\n' > "$CHILD_CASE_CONFIG/herdr-child-workspaces"
+  printf 'brief\n' > "$CHILD_CASE_DATA/$id/brief.md"
+  fm_git_worktree "$CHILD_CASE_PROJ" "$CHILD_CASE_WT" "fm/$id"
+  CHILD_CASE_FAKEBIN=$(make_herdr_statefake "$CHILD_CASE_HERDR")
+  fm_fake_exit0 "$CHILD_CASE_FAKEBIN" treehouse
+  : > "$CHILD_CASE_LOG"
+}
+
+run_child_respawn() {
+  PATH="$CHILD_CASE_FAKEBIN:$PATH" HERDR_SESSION=fmtest FM_HERDR_LOG="$CHILD_CASE_LOG" \
+    FM_FAKE_HERDR_STATE="$CHILD_CASE_HERDR/state.json" FM_FAKE_HERDR_FOREGROUND_CWD="$CHILD_CASE_WT" \
+    FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CHILD_CASE_HOME" FM_STATE_OVERRIDE="$CHILD_CASE_STATE" \
+    FM_DATA_OVERRIDE="$CHILD_CASE_DATA" FM_CONFIG_OVERRIDE="$CHILD_CASE_CONFIG" \
+    FM_PROJECTS_OVERRIDE="$CHILD_CASE_HOME/projects" FM_SPAWN_NO_GUARD=1 \
+    "$ROOT/bin/fm-spawn.sh" "$CHILD_CASE_ID" "$CHILD_CASE_PROJ" 'echo test' --backend herdr 2>&1
+}
+
+test_child_workspace_respawn_refuses_live_exact_endpoint() {
+  local meta workspace pane before out rc after labels
+  make_child_respawn_case child-respawn-live respawnlivez1
+  run_child_respawn >/dev/null || fail "initial owned child spawn failed"
+  meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
+  workspace=$(grep '^herdr_workspace_id=' "$meta" | cut -d= -f2-)
+  pane=$(grep '^herdr_pane_id=' "$meta" | cut -d= -f2-)
+  fake_herdr_set_agent_status "$CHILD_CASE_HERDR/state.json" "$pane" idle
+  before=$(jq '.workspaces | length' "$CHILD_CASE_HERDR/state.json")
+  out=$(run_child_respawn); rc=$?
+  [ "$rc" -ne 0 ] || fail "a repeated spawn must refuse an existing live child endpoint"
+  assert_contains "$out" "still live" "live child respawn refusal did not name the live endpoint"
+  after=$(jq '.workspaces | length' "$CHILD_CASE_HERDR/state.json")
+  [ "$after" = "$before" ] || fail "live respawn refusal minted another workspace"
+  labels=$(jq -r --arg label "firstmate/$CHILD_CASE_ID" '[.workspaces[] | select(.label == $label)] | length' "$CHILD_CASE_HERDR/state.json")
+  [ "$labels" = 1 ] || fail "live respawn refusal changed the owned child workspace count"
+  [ "$(grep '^herdr_workspace_id=' "$meta" | cut -d= -f2-)" = "$workspace" ] || fail "live refusal overwrote exact workspace metadata"
+  pass "fm-spawn.sh: refuses a live exact child endpoint without minting a duplicate workspace"
+}
+
+test_child_workspace_respawn_reuses_exact_husk_workspace() {
+  local meta workspace old_pane new_pane labels runtime_tabs log_tabs
+  make_child_respawn_case child-respawn-husk respawnhuskz2
+  run_child_respawn >/dev/null || fail "initial owned child spawn failed"
+  meta="$CHILD_CASE_STATE/$CHILD_CASE_ID.meta"
+  workspace=$(grep '^herdr_workspace_id=' "$meta" | cut -d= -f2-)
+  old_pane=$(grep '^herdr_pane_id=' "$meta" | cut -d= -f2-)
+  run_child_respawn >/dev/null || fail "restored no-agent child workspace did not respawn"
+  [ "$(grep '^herdr_workspace_id=' "$meta" | cut -d= -f2-)" = "$workspace" ] || fail "husk respawn replaced the owned workspace instead of reusing exact metadata"
+  new_pane=$(grep '^herdr_pane_id=' "$meta" | cut -d= -f2-)
+  [ "$new_pane" != "$old_pane" ] || fail "husk respawn did not replace the restored runtime pane"
+  labels=$(jq -r --arg label "firstmate/$CHILD_CASE_ID" '[.workspaces[] | select(.label == $label)] | length' "$CHILD_CASE_HERDR/state.json")
+  runtime_tabs=$(jq -r --arg w "$workspace" --arg label "fm-$CHILD_CASE_ID" '[.tabs[] | select(.workspace_id == $w and .label == $label)] | length' "$CHILD_CASE_HERDR/state.json")
+  log_tabs=$(jq -r --arg w "$workspace" '[.tabs[] | select(.workspace_id == $w and .label == "log")] | length' "$CHILD_CASE_HERDR/state.json")
+  [ "$labels" = 1 ] || fail "husk respawn minted a duplicate child workspace"
+  [ "$runtime_tabs" = 1 ] || fail "husk respawn left duplicate runtime tabs"
+  [ "$log_tabs" = 1 ] || fail "husk respawn left duplicate log tabs"
+  pass "fm-spawn.sh: reuses exact owned metadata and replaces a restored child husk in place"
+}
+
+test_child_workspace_respawn_refuses_ambiguous_workspace_duplicates() {
+  local state_file before out rc after
+  make_child_respawn_case child-respawn-ambiguous respawnambigz3
+  run_child_respawn >/dev/null || fail "initial owned child spawn failed"
+  state_file="$CHILD_CASE_HERDR/state.json"
+  jq --arg label "firstmate/$CHILD_CASE_ID" \
+    '.workspaces += [{workspace_id:"w-duplicate", label:$label}]' "$state_file" > "$state_file.tmp"
+  mv "$state_file.tmp" "$state_file"
+  before=$(jq '.workspaces | length' "$state_file")
+  out=$(run_child_respawn); rc=$?
+  [ "$rc" -ne 0 ] || fail "respawn must refuse ambiguous same-label child workspaces"
+  assert_contains "$out" "multiple herdr workspaces" "ambiguous child respawn refusal was not explicit"
+  after=$(jq '.workspaces | length' "$state_file")
+  [ "$after" = "$before" ] || fail "ambiguous respawn refusal minted another workspace"
+  pass "fm-spawn.sh: refuses ambiguous duplicate child workspaces before creating another"
 }
 
 # --- workspace_find: scoped to THIS home's own label, not just any match ----
@@ -2139,6 +2235,9 @@ test_create_task_creates_with_no_focus_flag
 test_child_workspace_log_path_is_shell_quoted
 test_child_workspace_population_failure_rolls_back_fresh_workspace
 test_spawn_abort_closes_owned_child_before_meta_is_durable
+test_child_workspace_respawn_refuses_live_exact_endpoint
+test_child_workspace_respawn_reuses_exact_husk_workspace
+test_child_workspace_respawn_refuses_ambiguous_workspace_duplicates
 test_workspace_find_matches_only_this_homes_own_label
 test_list_live_scoped_to_this_homes_workspace_only
 test_parse_target

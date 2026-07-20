@@ -430,6 +430,128 @@ fm_backend_herdr_discard_fresh_workspace() {  # <session> <workspace_id>
   fm_backend_herdr_cli "$session" workspace close "$wsid" >/dev/null 2>&1
 }
 
+fm_backend_herdr_prepare_child_workspace() {  # <session> <parent_ws_id> <id> <meta>
+  local session=$1 parent=$2 id=$3 meta=$4 label list candidates candidate_count parent_tabs parent_dups
+  local backend msession owned child mparent mtab mpane close_class tabs runtime_tabs runtime_count runtime_tab runtime_pane pane_state
+  FM_BACKEND_HERDR_CHILD_ACTION=
+  FM_BACKEND_HERDR_CHILD_WS_ID=
+  label=$(fm_backend_herdr_child_label "$id")
+  list=$(fm_backend_herdr_cli "$session" workspace list 2>/dev/null) || {
+    echo "error: could not inspect herdr workspaces before spawning fm-$id" >&2
+    return 1
+  }
+  candidates=$(printf '%s' "$list" | jq -r --arg want "$label" \
+    'if (.result.workspaces | type) == "array" then .result.workspaces[] | select(.label == $want) | .workspace_id else error("missing result.workspaces") end' 2>/dev/null) || {
+    echo "error: could not parse herdr workspace list before spawning fm-$id" >&2
+    return 1
+  }
+  candidate_count=$(printf '%s\n' "$candidates" | grep -c . || true)
+  if [ "$candidate_count" -gt 1 ]; then
+    echo "error: multiple herdr workspaces already use child label '$label'; refusing ambiguous respawn" >&2
+    return 1
+  fi
+  parent_tabs=$(fm_backend_herdr_cli "$session" tab list --workspace "$parent" 2>/dev/null) || {
+    echo "error: could not inspect supervisor workspace $parent before spawning fm-$id" >&2
+    return 1
+  }
+  parent_dups=$(printf '%s' "$parent_tabs" | jq -r --arg want "fm-$id" \
+    'if (.result.tabs | type) == "array" then [.result.tabs[] | select(.label == $want)] | length else error("missing result.tabs") end' 2>/dev/null) || {
+    echo "error: could not parse supervisor tabs before spawning fm-$id" >&2
+    return 1
+  }
+  if [ "$parent_dups" -ne 0 ]; then
+    echo "error: herdr task fm-$id already exists in supervisor workspace $parent" >&2
+    return 1
+  fi
+  if [ ! -f "$meta" ]; then
+    if [ "$candidate_count" -ne 0 ]; then
+      echo "error: herdr child workspace '$label' already exists without exact task metadata; refusing ambiguous respawn" >&2
+      return 1
+    fi
+    FM_BACKEND_HERDR_CHILD_ACTION=new
+    return 0
+  fi
+  backend=$(grep '^backend=' "$meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
+  msession=$(grep '^herdr_session=' "$meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
+  owned=$(grep '^herdr_ws_owned=' "$meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
+  child=$(grep '^herdr_workspace_id=' "$meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
+  mparent=$(grep '^herdr_parent_ws=' "$meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
+  mtab=$(grep '^herdr_tab_id=' "$meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
+  mpane=$(grep '^herdr_pane_id=' "$meta" 2>/dev/null | head -1 | cut -d= -f2- || true)
+  if [ "$backend" != herdr ] || [ "$msession" != "$session" ] || [ "$owned" != 1 ] || \
+     [ -z "$child" ] || [ "$mparent" != "$parent" ] || [ -z "$mtab" ] || [ -z "$mpane" ] || [ "$child" = "$parent" ]; then
+    echo "error: existing metadata for fm-$id does not exactly identify an owned child workspace under $parent" >&2
+    return 1
+  fi
+  if [ "$candidate_count" -eq 1 ] && [ "$candidates" != "$child" ]; then
+    echo "error: herdr child label '$label' resolves to a different workspace than exact task metadata" >&2
+    return 1
+  fi
+  close_class=$(fm_backend_herdr_workspace_close_class "$session" "$child") || {
+    echo "error: could not verify owned child workspace $child before respawning fm-$id" >&2
+    return 1
+  }
+  if [ "$close_class" = gone ]; then
+    if [ "$candidate_count" -ne 0 ]; then
+      echo "error: workspace state changed while preparing respawn for fm-$id" >&2
+      return 1
+    fi
+    FM_BACKEND_HERDR_CHILD_ACTION=new
+    return 0
+  fi
+  if [ "$close_class" != unmarked ]; then
+    echo "error: recorded child workspace $child has unsafe ownership shape '$close_class'" >&2
+    return 1
+  fi
+  tabs=$(fm_backend_herdr_cli "$session" tab list --workspace "$child" 2>/dev/null) || {
+    echo "error: could not inspect recorded child workspace $child before respawning fm-$id" >&2
+    return 1
+  }
+  runtime_tabs=$(printf '%s' "$tabs" | jq -r --arg want "fm-$id" \
+    'if (.result.tabs | type) == "array" then .result.tabs[] | select(.label == $want) | .tab_id else error("missing result.tabs") end' 2>/dev/null) || {
+    echo "error: could not parse recorded child workspace tabs before respawning fm-$id" >&2
+    return 1
+  }
+  runtime_count=$(printf '%s\n' "$runtime_tabs" | grep -c . || true)
+  if [ "$runtime_count" -gt 1 ]; then
+    echo "error: multiple herdr runtime tabs already exist for fm-$id; refusing ambiguous respawn" >&2
+    return 1
+  fi
+  if [ "$runtime_count" -eq 1 ]; then
+    runtime_tab=$runtime_tabs
+    runtime_pane=$(fm_backend_herdr_pane_for_tab "$session" "$child" "$runtime_tab" || true)
+    if [ "$runtime_tab" != "$mtab" ] || [ -z "$runtime_pane" ] || [ "$runtime_pane" != "$mpane" ]; then
+      echo "error: live herdr child workspace for fm-$id does not match exact task metadata" >&2
+      return 1
+    fi
+  fi
+  pane_state=$(fm_backend_herdr_pane_agent_state "$session" "$mpane")
+  case "$pane_state" in
+    dead)
+      [ "$runtime_count" -eq 0 ] || {
+        echo "error: herdr runtime structure for fm-$id is inconsistent with a dead recorded pane" >&2
+        return 1
+      }
+      ;;
+    no-agent)
+      [ "$runtime_count" -eq 1 ] || {
+        echo "error: herdr runtime structure for fm-$id is inconsistent with its restored pane" >&2
+        return 1
+      }
+      ;;
+    live)
+      echo "error: herdr task fm-$id is still live in owned workspace $child" >&2
+      return 1
+      ;;
+    *)
+      echo "error: herdr task fm-$id has ambiguous runtime state; refusing respawn" >&2
+      return 1
+      ;;
+  esac
+  FM_BACKEND_HERDR_CHILD_ACTION=reuse
+  FM_BACKEND_HERDR_CHILD_WS_ID=$child
+}
+
 # fm_backend_herdr_create_child_workspace: build a delegated job's OWN child
 # workspace under <parent_ws_id> (the already-ensured home/supervisor
 # workspace) and populate it with the tabs that GENUINELY belong to that one
@@ -457,26 +579,29 @@ fm_backend_herdr_child_workspace_create() {  # <session> <parent_ws_id> <id> <cw
 }
 
 fm_backend_herdr_child_workspace_populate() {  # <session> <workspace_id> <id> <cwd> [<status_file>] [<seed_tab_id>]
-  local session=$1 child_ws=$2 id=$3 cwd=$4 status_file=${5:-} seed_tab=${6:-} rt_out rt_tab rt_pane lg_out lg_pane
+  local session=$1 child_ws=$2 id=$3 cwd=$4 status_file=${5:-} seed_tab=${6:-} lg_out lg_pane tabs old_log_tabs old_log
   FM_BACKEND_HERDR_CHILD_TAB_ID=
   FM_BACKEND_HERDR_CHILD_PANE_ID=
-  rt_out=$(fm_backend_herdr_cli "$session" tab create --workspace "$child_ws" --cwd "$cwd" --label "fm-$id" --no-focus 2>/dev/null) || return 1
-  rt_tab=$(printf '%s' "$rt_out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
-  rt_pane=$(printf '%s' "$rt_out" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
-  if [ -z "$rt_tab" ] || [ -z "$rt_pane" ]; then
-    echo "error: could not parse runtime tab/pane id from herdr tab create output" >&2
-    return 1
-  fi
+  tabs=$(fm_backend_herdr_cli "$session" tab list --workspace "$child_ws" 2>/dev/null) || return 1
+  old_log_tabs=$(printf '%s' "$tabs" | jq -r \
+    'if (.result.tabs | type) == "array" then .result.tabs[] | select(.label == "log") | .tab_id else error("missing result.tabs") end' 2>/dev/null) || return 1
+  fm_backend_herdr_create_task "$session:$child_ws" "fm-$id" "$cwd" "$seed_tab" >/dev/null || return 1
+  FM_BACKEND_HERDR_CHILD_TAB_ID=$FM_BACKEND_HERDR_TASK_TAB_ID
+  FM_BACKEND_HERDR_CHILD_PANE_ID=$FM_BACKEND_HERDR_TASK_PANE_ID
   if [ -n "$status_file" ]; then
     lg_out=$(fm_backend_herdr_cli "$session" tab create --workspace "$child_ws" --cwd "$cwd" --label "log" --no-focus 2>/dev/null)
     lg_pane=$(printf '%s' "$lg_out" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
     if [ -n "$lg_pane" ]; then
-      fm_backend_herdr_cli "$session" pane run "$lg_pane" "tail -n +1 -F -- $(fm_backend_herdr_shell_quote "$status_file")" >/dev/null 2>&1 || true
+      if fm_backend_herdr_cli "$session" pane run "$lg_pane" "tail -n +1 -F -- $(fm_backend_herdr_shell_quote "$status_file")" >/dev/null 2>&1; then
+        while IFS= read -r old_log; do
+          [ -n "$old_log" ] || continue
+          fm_backend_herdr_cli "$session" tab close "$old_log" >/dev/null 2>&1 || true
+        done <<EOF
+$old_log_tabs
+EOF
+      fi
     fi
   fi
-  [ -n "$seed_tab" ] && fm_backend_herdr_workspace_prune_seeded_default_tab "$session" "$child_ws" "$seed_tab"
-  FM_BACKEND_HERDR_CHILD_TAB_ID=$rt_tab
-  FM_BACKEND_HERDR_CHILD_PANE_ID=$rt_pane
 }
 
 fm_backend_herdr_create_child_workspace() {  # <session> <parent_ws_id> <id> <cwd> [<status_file>]
@@ -1103,6 +1228,9 @@ fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_ta
   local container=$1 label=$2 cwd=$3 seeded_tab_id=${4:-} session wsid list dup_tabs dup dup_pane dup_tab_ids out tab_id pane_id remaining_dup_tabs
   session=${container%%:*}
   wsid=${container#*:}
+  FM_BACKEND_HERDR_TASK_CREATED=0
+  FM_BACKEND_HERDR_TASK_TAB_ID=
+  FM_BACKEND_HERDR_TASK_PANE_ID=
   list=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null) || return 1
   dup_tabs=$(printf '%s' "$list" | jq -r --arg want "$label" 'if (.result.tabs | type) == "array" then .result.tabs[] | select(.label == $want) | .tab_id else error("missing result.tabs") end' 2>/dev/null) || {
     echo "error: could not parse herdr tab list output for workspace $wsid (session $session)" >&2
@@ -1129,6 +1257,9 @@ EOF
     echo "error: could not parse tab/pane id from herdr tab create output" >&2
     return 1
   fi
+  FM_BACKEND_HERDR_TASK_CREATED=1
+  FM_BACKEND_HERDR_TASK_TAB_ID=$tab_id
+  FM_BACKEND_HERDR_TASK_PANE_ID=$pane_id
   [ -z "$seeded_tab_id" ] || fm_backend_herdr_workspace_prune_seeded_default_tab "$session" "$wsid" "$seeded_tab_id"
   if [ -n "$dup_tab_ids" ]; then
     while IFS= read -r dup; do
