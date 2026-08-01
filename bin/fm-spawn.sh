@@ -119,7 +119,14 @@
 # grok uses a firstmate-owned global hook under ${GROK_HOME:-$HOME/.grok}/hooks
 # plus a gitignored .fm-grok-turnend worktree pointer and a state token.
 # On success prints: spawned <id> harness=<name> kind=<ship|scout|secondmate> mode=<mode> yolo=<on|off> window=<backend-target> worktree=<path>
-# mode/yolo are resolved per-project from data/projects.md for ship/scout tasks;
+# mode/yolo are this task's concrete delivery resolution for ship/scout tasks,
+# resolved through bin/fm-task-delivery.sh: the task's own recorded resolution when
+# it has one, otherwise the data/projects.md default. Its gate runs before the
+# spawn lock and again once the project is known, so an unusable record, a record
+# on a scout or secondmate, a record whose project policy changed, or a ship task
+# on a conditional no-mistakes-prod-only project with no recorded resolution
+# refuses before any home, worktree, endpoint, or metadata exists. Each pair of a
+# batch re-execs this script and therefore resolves only its own task.
 # secondmate spawns record mode=secondmate, yolo=off, home=, and projects=.
 set -eu
 
@@ -413,6 +420,14 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
 fi
 ID=${POS[0]}
 fm_task_id_creation_valid "$ID" || { echo "error: invalid task id" >&2; exit 2; }
+# Delivery-resolution gate, before this spawn takes a lock, provisions a
+# secondmate home, allocates a task copy, or creates an endpoint. The project is
+# not resolved yet, so this pass validates the record itself and the kinds that
+# never carry one; the ship/scout pass below adds the project-policy check
+# (bin/fm-task-delivery.sh). Resolved as this script's own sibling, exactly like
+# the libraries it sources, so a spawn never depends on FM_ROOT naming a complete
+# installation.
+"$SCRIPT_DIR/fm-task-delivery.sh" check "$ID" "$KIND" || exit 1
 SPAWN_TASK_LOCK="$STATE/.spawn-$ID.lock"
 if ! fm_lock_try_acquire "$SPAWN_TASK_LOCK"; then
   echo "error: another spawn is already creating task $ID" >&2
@@ -845,6 +860,14 @@ else
   BRIEF="$DATA/$ID/brief.md"
 fi
 [ -f "$BRIEF" ] || { echo "error: no brief at $BRIEF" >&2; exit 1; }
+if [ "$KIND" != secondmate ]; then
+  # The project is resolved now, so the same gate can also refuse a task whose
+  # recorded resolution no longer matches its project's registered policy, and a
+  # ship task on a conditional policy that has no recorded resolution. Still
+  # before any worktree, endpoint, or metadata exists.
+  PROJ_NAME=$(basename "$PROJ_ABS")
+  "$SCRIPT_DIR/fm-task-delivery.sh" check "$ID" "$KIND" "$PROJ_NAME" || exit 1
+fi
 BRIEF_DIR_REAL=$(cd "$(dirname "$BRIEF")" && pwd -P)
 BRIEF_REAL="$BRIEF_DIR_REAL/$(basename "$BRIEF")"
 
@@ -1585,18 +1608,25 @@ EOF
   esac
 fi
 
-# Per-project delivery mode + yolo flag (bin/fm-project-mode.sh; the project-management skill and AGENTS.md task lifecycle).
+# This task's concrete delivery mode + yolo flag (bin/fm-task-delivery.sh, which
+# applies a recorded task resolution over the data/projects.md default; the
+# project-management skill and AGENTS.md task lifecycle).
 # Recorded in meta so fm-teardown's safety check and the validate/merge stages can
 # branch on them. Mode governs ship tasks; a scout's deliverable is a report, not a
-# merge, so scout teardown ignores mode.
+# merge, so scout teardown ignores mode. Metadata always carries a concrete mode,
+# never a conditional project policy, and it is the same resolution the brief was
+# generated from.
 if [ "$KIND" = secondmate ]; then
   MODE=secondmate
   YOLO=off
   : "${SECONDMATE_PROJECTS:=}"
 else
-  PROJ_NAME=$(basename "$PROJ_ABS")
+  DELIVERY=$("$SCRIPT_DIR/fm-task-delivery.sh" resolve "$ID" "$KIND" "$PROJ_NAME") || {
+    echo "error: task $ID delivery resolution failed after its endpoint was created; inspect $STATE/$ID.delivery" >&2
+    exit 1
+  }
   read -r MODE YOLO <<EOF
-$("$FM_ROOT/bin/fm-project-mode.sh" "$PROJ_NAME")
+$DELIVERY
 EOF
 fi
 

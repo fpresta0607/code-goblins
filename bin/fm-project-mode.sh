@@ -12,12 +12,29 @@
 #   no-mistakes  full pipeline -> PR -> captain merge (default)
 #   direct-PR    push + PR via gh-axi, no pipeline -> captain merge
 #   local-only   local branch, no remote/PR -> captain approve -> guarded local merge
+#   no-mistakes-prod-only
+#                a conditional policy for a remote-backed project rather than one
+#                flat mode: genuinely internal-only tooling, automation,
+#                contributor or operator process, and release or submission work
+#                ships direct-PR, while product-facing, mixed, and uncertain work
+#                ships no-mistakes. It resolves per task, never per project, so
+#                this script reports the policy itself and bin/fm-task-delivery.sh
+#                turns it into one task's concrete mode from firstmate's explicit
+#                surface classification. Project-scoped consumers (fleet sync,
+#                secondmate seeding, no-mistakes initialization) treat it as the
+#                remote-backed, pipeline-capable project it is.
 # yolo (orthogonal) = when on, firstmate may make routine approval decisions itself.
 #   AGENTS.md section 7 is the single owner of authority exceptions, including
 #   ask-user contract expansion and stronger captain boundaries.
 #
 # An unknown/missing project or unknown mode falls back to "no-mistakes off" and warns
 # to stderr, so a typo never silently drops the gate.
+# A line with no bracket is the legacy "no-mistakes off" entry and keeps that meaning
+# forever: this parser never migrates or reinterprets an existing record. The
+# project-management skill owns intake, where a NEWLY added or created remote-backed
+# project is registered "[no-mistakes-prod-only]" unless the captain names another
+# policy, a project with no remote is registered "[local-only]", and "+yolo" is added
+# only on an explicit standing or current captain instruction.
 # Usage: fm-project-mode.sh <project-name>
 set -eu
 
@@ -59,7 +76,7 @@ fi
 mode=${parsed%% *}
 yolo=${parsed##* }
 case "$mode" in
-  no-mistakes|direct-PR|local-only) ;;
+  no-mistakes|direct-PR|local-only|no-mistakes-prod-only) ;;
   *) echo "warn: unknown mode \"$mode\" for $NAME; defaulting to no-mistakes off" >&2; mode=no-mistakes; yolo=off ;;
 esac
 case "$yolo" in on|off) ;; *) yolo=off ;; esac

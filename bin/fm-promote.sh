@@ -6,6 +6,12 @@
 # (inventory scratch state, reset to a clean default-branch base, carry over only
 # intended fix changes, create branch fm/<task-id>, implement, then report done
 # according to the project's delivery mode).
+# A promoted task keeps the delivery mode and yolo value its metadata already
+# records, which for a conditional no-mistakes-prod-only project is that policy's
+# strictest concrete mode. Shipping it another way is a new task-specific captain
+# instruction, and bin/fm-task-delivery.sh deliberately refuses to record one for a
+# task that is already dispatched, so promotion can never contradict the state the
+# lifecycle is already following.
 # Usage: fm-promote.sh <task-id>
 set -eu
 

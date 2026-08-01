@@ -206,8 +206,11 @@ The `data/secondmates.md` line contract is owned by the [`secondmate-provisionin
 
 ## Project modes are explicit
 
-`data/projects.md` records each project's delivery mode and optional `+yolo` autonomy flag.
+`data/projects.md` records each project's delivery mode or conditional policy and optional `+yolo` autonomy flag.
 `no-mistakes` projects run the full validation pipeline, `direct-PR` projects open PRs without that pipeline, and `local-only` projects stay local until firstmate performs an approved fast-forward merge.
+`no-mistakes-prod-only` is the one conditional policy: a remote-backed project whose internal-only work ships `direct-PR` and whose product-facing, mixed, or uncertain work runs the pipeline, resolved per task rather than per project.
+It is also what a newly added or created remote-backed project is registered as when no policy is named, while existing entries keep the meaning they already have and are never migrated; the [`project-management` skill](../.agents/skills/project-management/SKILL.md) owns that intake and `+yolo` stays off unless the captain says otherwise.
+[`bin/fm-task-delivery.sh`](../bin/fm-task-delivery.sh) is the single owner of that per-task resolution, including a task-specific captain instruction that overrides the project default; it records one concrete mode and yolo value that both brief generation and spawn read, and its header owns the record format, gate, and refusals.
 When a selected delivery path calls for a diff, `bin/fm-review-diff.sh` refreshes the authoritative base and, when task meta records `pr=`, always fetches and compares against `refs/pull/<n>/head` by default (recorded `pr_head=` is only an offline fallback) before falling back to the local branch with a warning.
 For target project repos shipped through their own no-mistakes pipeline, commits under `.no-mistakes/evidence/` are the pipeline's PR-viewable validation evidence and are expected to stay in the crew branch until the evidence-hosting design changes.
 The firstmate repo itself is the exception: its `.no-mistakes/` directory is local state, stays gitignored, and is rejected by CI if tracked.

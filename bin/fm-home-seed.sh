@@ -15,7 +15,8 @@
 #       project list, and omitting both still fails loudly. A project-less seed
 #       refuses a home with project clones or project-registry entries, so it
 #       never converts populated homes in place. The charter brief
-#       is copied to data/charter.md, newly cloned no-mistakes projects are
+#       is copied to data/charter.md, newly cloned projects whose registered
+#       policy runs the pipeline (no-mistakes and no-mistakes-prod-only) are
 #       initialized, an ignored .fm-secondmate-home identity marker is written, and
 #       data/secondmates.md is updated.
 #       Seeding is transactional: on validation, clone, init, or registry failure,
@@ -481,7 +482,7 @@ clone_project() {
 $(FM_HOME="$FM_HOME" FM_DATA_OVERRIDE="$DATA" "$FM_ROOT/bin/fm-project-mode.sh" "$project")
 EOF
   if [ "$mode" = local-only ]; then
-    echo "error: project $project is local-only; secondmate routes support only no-mistakes and direct-PR projects" >&2
+    echo "error: project $project is local-only; secondmate routes support only remote-backed projects" >&2
     return 1
   fi
   if [ -e "$dst" ]; then
@@ -508,7 +509,7 @@ validate_seed_project() {
 $(FM_HOME="$FM_HOME" FM_DATA_OVERRIDE="$DATA" "$FM_ROOT/bin/fm-project-mode.sh" "$project")
 EOF
   if [ "$mode" = local-only ]; then
-    echo "error: project $project is local-only; secondmate routes support only no-mistakes and direct-PR projects" >&2
+    echo "error: project $project is local-only; secondmate routes support only remote-backed projects" >&2
     return 1
   fi
   url=$(git -C "$src" remote get-url origin 2>/dev/null || true)
@@ -696,6 +697,12 @@ sync_project_registry() {
   fi
   today=$(date +%F)
   for project in "$@"; do
+    # A seeded clone mirrors the source home's registry line verbatim, including a
+    # conditional policy, so parent and secondmate always resolve the same posture.
+    # A project the source home never registered is mirrored as the same bracketless
+    # legacy entry it effectively already has: seeding an existing project is not
+    # new-project intake, so the new-project default must not be applied here and
+    # silently give the two homes different policies.
     line=$(registry_line_for_project "$project" || true)
     if [ -z "$line" ]; then
       line="- $project - cloned project (added $today)"
@@ -708,7 +715,13 @@ sync_project_registry() {
 initialize_no_mistakes_project() {
   local home=$1 project=$2 created=$3 mode dst
   mode=$(project_mode_in_home "$home" "$project")
-  [ "$mode" = no-mistakes ] || return 0
+  # A no-mistakes-prod-only project runs the pipeline for its product-facing work,
+  # so its seeded clone needs the same initialization. The per-task surface
+  # classification belongs to task intake, never to project registration.
+  case "$mode" in
+    no-mistakes|no-mistakes-prod-only) ;;
+    *) return 0 ;;
+  esac
   dst=$(validate_project_destination "$home" "$project") || return 1
   if git -C "$dst" remote get-url no-mistakes >/dev/null 2>&1; then
     return 0

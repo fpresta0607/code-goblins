@@ -26,15 +26,20 @@
 #   The flag must be explicit because {TASK} is filled after scaffolding and the
 #   caller-supplied repo string cannot reliably identify this repo. Briefs made
 #   without it carry a loud declaration so an omitted contract cannot be silent.
-# For ship tasks, the definition of done is shaped by the project's delivery mode
-# (data/projects.md via fm-project-mode.sh; see the project-management skill
-# and AGENTS.md task lifecycle):
+# For ship tasks, the definition of done is shaped by the task's resolved delivery
+# mode (bin/fm-task-delivery.sh, which applies a recorded task resolution over the
+# data/projects.md default; see the project-management skill and AGENTS.md task
+# lifecycle):
 #   no-mistakes  implement -> /no-mistakes pipeline -> PR -> captain merge (default)
 #   direct-PR    implement -> push + open PR via gh-axi (no pipeline) -> captain merge
 #   local-only   implement on branch, stop and report "ready in branch" (no push/PR);
 #                captain approves, firstmate merges to local main
 # Ship briefs begin with a worktree-isolation assertion before the branch step.
 # Scout tasks ignore mode - their deliverable is a report, not a merge.
+# Before writing anything, the scaffold runs bin/fm-task-delivery.sh's gate, so a
+# task whose recorded resolution is unusable, or a ship task on a conditional
+# no-mistakes-prod-only project that has no recorded resolution, refuses here
+# instead of producing instructions that contradict how the task will be shipped.
 # Every scaffold's status protocol distinguishes the configured
 # declared-external-wait verb (FM_CLASSIFY_PAUSED_VERB, default "paused") from
 # "blocked:": pause for a known external wait expected to clear on its own,
@@ -118,6 +123,16 @@ fi
 
 BRIEF="$DATA/$ID/brief.md"
 [ -e "$BRIEF" ] && { echo "error: $BRIEF already exists" >&2; exit 1; }
+# Delivery-resolution gate before the first write, so a refused task leaves no
+# brief and no task directory behind (bin/fm-task-delivery.sh). It is invoked as
+# this script's own sibling, never through FM_ROOT: FM_ROOT is the possibly
+# foreign firstmate path written INTO brief text, while the gate must run the
+# installation actually scaffolding this brief.
+if [ "$KIND" = secondmate ]; then
+  "$SCRIPT_DIR/fm-task-delivery.sh" check "$ID" secondmate || exit 1
+else
+  "$SCRIPT_DIR/fm-task-delivery.sh" check "$ID" "$KIND" "${POS[1]:-}" || exit 1
+fi
 mkdir -p "$DATA/$ID"
 
 shell_quote() {
@@ -295,11 +310,14 @@ echo "scaffolded: $BRIEF (scout; replace {TASK})"
 exit 0
 fi
 
-# Ship task: shape Setup / Rule 1 / Definition of done by the project's delivery mode.
-# yolo does not affect the brief because the worker never owns approval decisions;
-# firstmate applies the authority contract in AGENTS.md section 7, so discard it.
+# Ship task: shape Setup / Rule 1 / Definition of done by this task's resolved
+# delivery mode - its own recorded resolution when it has one, otherwise the
+# project default. yolo does not affect the brief because the worker never owns
+# approval decisions; firstmate applies the authority contract in AGENTS.md
+# section 7, so discard it.
+DELIVERY=$("$SCRIPT_DIR/fm-task-delivery.sh" resolve "$ID" ship "$REPO") || exit 1
 read -r MODE _ <<EOF
-$("$FM_ROOT/bin/fm-project-mode.sh" "$REPO")
+$DELIVERY
 EOF
 
 case "$MODE" in

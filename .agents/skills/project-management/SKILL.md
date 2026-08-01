@@ -37,26 +37,36 @@ Do not overwrite or repurpose an existing path.
 
 Choose the delivery mode when adding or creating the project:
 
-- `no-mistakes` runs the full validation pipeline before a PR and is the default when the captain does not specify a mode.
+- `no-mistakes` runs the full validation pipeline before a PR.
 - `direct-PR` pushes and opens a PR without the no-mistakes pipeline.
 - `local-only` has no required remote or PR and lands only through the approved local fast-forward path.
+- `no-mistakes-prod-only` is a conditional policy for a remote-backed project rather than one flat mode: genuinely internal-only tooling, automation, contributor or operator process, and release or submission work ships `direct-PR`, while product-facing, mixed, and uncertain work ships `no-mistakes`.
+
+`no-mistakes-prod-only` is the default for every newly added or created remote-backed project when no policy is specified, and a project with no remote defaults to `local-only`.
+State that resolved default while confirming the source, local name, and posture instead of asking the user to choose a policy from scratch, and record `direct-PR` or `local-only` instead whenever the user asks for one.
+Existing registry entries keep the meaning they already have and are never migrated or reinterpreted, so a legacy entry with no bracket stays `no-mistakes`.
+
+A conditional policy is a registration-time choice only, and registering it never requires classifying any change.
+Each ship task on such a project is classified once at intake and recorded with `bin/fm-task-delivery.sh`, which refuses to brief or dispatch that task until its surface is explicit; never infer internal-only from file location or project name.
+Its clone still needs the no-mistakes initialization below, because its product-facing work runs the pipeline while its internal-only work still takes the direct PR.
 
 The optional `+yolo` posture changes routine approval authority but does not change the delivery mode.
-Default it off, and enable it only on the captain's explicit instruction.
+Default it off for every project and every policy, including `no-mistakes-prod-only`, and enable it only on the captain's explicit standing or current instruction.
 `AGENTS.md` section 7 owns the complete authority boundary and exceptions when it is on.
 
 ## Add or clone an existing project
 
-Confirm the source URL, local project name, delivery mode, and autonomy posture.
+Confirm the source URL, local project name, delivery policy, and autonomy posture, stating the resolved default for each rather than asking the user to invent one.
 Clone into `projects/<name>` and add the registry entry only after the destination is known to be unused.
-A `no-mistakes` project must have an `origin` remote and must complete the initialization procedure below.
+A `no-mistakes` or `no-mistakes-prod-only` project must have an `origin` remote and must complete the initialization procedure below.
 A `direct-PR` project needs an `origin` remote but skips no-mistakes initialization.
 A `local-only` project may have no remote and skips no-mistakes initialization.
 
 ## Create a project
 
 Creating a GitHub repository is outward-facing.
-Before making that remote change, propose the repository name, owner or organization, visibility, and delivery mode, defaulting visibility to private and delivery mode to `no-mistakes`, then obtain the captain's explicit consent for those values.
+Before making that remote change, propose the repository name, owner or organization, visibility, and delivery policy, defaulting visibility to private and the policy to `no-mistakes-prod-only`, then obtain the captain's explicit consent for those exact values.
+A stated default never replaces that consent.
 Use `gh-axi` for the approved GitHub operation and consult its current help rather than relying on remembered flags.
 After remote creation succeeds, clone it locally, add the registry entry, and initialize it according to its delivery mode.
 
@@ -65,7 +75,7 @@ The captain's request to create that local project authorizes this local initial
 
 ## Initialize
 
-Run no-mistakes initialization only for `no-mistakes` projects:
+Run no-mistakes initialization for `no-mistakes` and `no-mistakes-prod-only` projects, so a conditional project is ready for the product-facing path it may take:
 
 ```sh
 cd projects/<name> && no-mistakes init && no-mistakes doctor

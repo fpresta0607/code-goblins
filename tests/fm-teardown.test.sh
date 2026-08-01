@@ -1264,6 +1264,26 @@ test_teardown_missing_busy_sidecar_completes() {
   pass "teardown completes when an exact busy-state sidecar is already absent"
 }
 
+# A task's recorded delivery resolution is task state and must not outlive the
+# task, so a future task that reuses the id can never inherit it.
+test_teardown_clears_delivery_resolution() {
+  local case_dir rc
+  case_dir=$(make_case delivery-resolution-cleanup)
+  write_meta "$case_dir" local-only ship
+  printf 'task=task-x1\npolicy=no-mistakes\nsurface=none\nmode=local-only\nyolo=off\n' \
+    > "$case_dir/state/task-x1.delivery"
+
+  set +e
+  run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "delivery-resolution-cleanup: teardown should complete"
+  assert_absent "$case_dir/state/task-x1.delivery" \
+    "delivery-resolution-cleanup: teardown left the task's delivery resolution behind"
+  pass "teardown clears the task's recorded delivery resolution"
+}
+
 test_herdr_teardown_clears_escalation_marker() {
   local case_dir marker
   case_dir=$(make_case herdr-marker-cleanup)
@@ -1833,6 +1853,7 @@ test_no_mistakes_origin_remote_allows
 test_no_mistakes_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed
 test_teardown_missing_busy_sidecar_completes
+test_teardown_clears_delivery_resolution
 test_herdr_teardown_clears_escalation_marker
 test_herdr_flat_teardown_refuses_orphaning_records_then_retry_completes
 test_herdr_flat_teardown_refuses_records_on_unparseable_presence
