@@ -44,18 +44,19 @@
 # so the failure is loud. A live cycle already present means re-arm attaches - do
 # not start a second watcher.
 #
-# AWAY MODE. While state/.afk exists this script arms nothing at all: it prints
-# the single stand-down line below and exits 0. The away-mode daemon
+# AWAY MODE. While state/.afk exists this script arms nothing and remains alive.
+# It parks without watcher ownership until the flag clears, then re-arms from the
+# same tracked process. The away-mode daemon
 # (bin/fm-supervise-daemon.sh) runs its own bin/fm-watch.sh child and owns triage
 # there, so a second arm here would take the watcher singleton away from the
 # daemon - and --restart would kill the daemon's watcher outright. With the
 # singleton stolen, every away-mode wake surfaces to the primary pane instead of
 # being classified in bash, which is exactly the firstmate turn the daemon exists
-# to save. The stand-down is the deterministic half of the contract; the primary
+# to save. Parking is the deterministic half of the contract; the primary
 # adapters that own automatic re-arm (.pi/extensions/fm-primary-pi-watch.ts,
 # .opencode/plugins/fm-primary-watch-arm.js) additionally stand down before
 # spawning and never deliver an ordinary wake to the primary while away mode is
-# active. docs/watcher-continuity.md "Away-mode stand-down" owns the full
+# active. docs/watcher-continuity.md "Away-mode parking" owns the full
 # cross-harness contract.
 #
 # Every observed watcher cycle appends one tab-separated lifecycle record to
@@ -81,15 +82,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WATCH="$SCRIPT_DIR/fm-watch.sh"
 WATCH_LOCK="$STATE/.watch.lock"
 BEAT="$STATE/.last-watcher-beat"
-# The single away-mode stand-down status line (see the AWAY MODE header note).
-# Primary watcher adapters match its `watcher: stood-down` prefix and treat it as
-# a benign, non-actionable close rather than a wake or a failure.
-AFK_STAND_DOWN_LINE="watcher: stood-down - away mode owns supervision; the away-mode daemon runs the watcher"
-stand_down_if_away() {
-  [ -e "$STATE/.afk" ] || return 1
-  printf '%s\n' "$AFK_STAND_DOWN_LINE"
-  return 0
-}
 # "Fresh" reuses the guard's threshold so there is one definition of liveness.
 GRACE=${FM_GUARD_GRACE:-300}
 # How long to wait for a freshly forked watcher to acquire the lock and beat.
@@ -102,6 +94,7 @@ esac
 CONFIRM_TIMEOUT=${FM_ARM_CONFIRM_TIMEOUT:-$ARM_CONFIRM_DEFAULT}
 # Poll interval while attached to an existing healthy watcher.
 ATTACH_POLL=${FM_ARM_ATTACH_POLL:-0.5}
+AFK_POLL=${FM_ARM_AFK_POLL:-0.5}
 CYCLE_LOG="$STATE/.watch-cycle-exits.log"
 CYCLE_LOG_LOCK="$STATE/.watch-cycle-exits.lock"
 CYCLE_LOG_MAX_BYTES=${FM_WATCH_CYCLE_LOG_MAX_BYTES:-262144}
@@ -324,10 +317,10 @@ close_unobserved_cycle() {
   fi
   fm_lock_release "$WATCH_DELIVERY_LOCK"
   if [ -n "$reason" ]; then
-    # Same boundary as owned_child_finished: an attached arm that outlived the
-    # away-mode transition must not hand its cycle's wake back to an adapterless
-    # caller either. The durable queue still carries it for the daemon.
-    stand_down_if_away && return 0
+    if [ -e "$STATE/.afk" ]; then
+      CLOSE_UNOBSERVED_AWAY=1
+      return 0
+    fi
     printf '%s\n' "$reason"
     return 0
   fi
@@ -361,6 +354,7 @@ attach_and_wait() {
     fi
     if close_unobserved_cycle; then
       cycle_log_append unknown unknown attached-delivered-wake none
+      [ "${CLOSE_UNOBSERVED_AWAY:-0}" -eq 0 ] || park_while_away
       return 0
     fi
     cycle_log_append unknown unknown attached-cycle-ended none
@@ -409,13 +403,17 @@ case "${1:-}" in
   *) echo "usage: $(basename "$0") [--restart]" >&2; exit 2 ;;
 esac
 
-# Away-mode stand-down (see the "AWAY MODE" note in this header). This is the one
-# deterministic gate that keeps every arm path - Pi extension, OpenCode plugin,
-# a Grok background task, a manual recovery probe - out of the daemon's way while
-# state/.afk exists. It must stay ahead of --restart's kill, which would
-# otherwise terminate the daemon's own watcher child and hand singleton ownership
-# to the primary pane.
-stand_down_if_away && exit 0
+park_while_away() {
+  local rearm_arg=--arm
+  [ -e "$STATE/.afk" ] || return 0
+  [ "$mode" != restart ] || rearm_arg=--restart
+  while [ -e "$STATE/.afk" ]; do
+    sleep "$AFK_POLL"
+  done
+  exec "$SCRIPT_DIR/fm-watch-arm.sh" "$rearm_arg"
+}
+
+park_while_away
 
 if [ "$mode" = restart ]; then
   # Home-scoped stop: only the watcher pid recorded in THIS home's lock.
@@ -423,7 +421,7 @@ if [ "$mode" = restart ]; then
   lock_identity=$(cat "$WATCH_LOCK/pid-identity" 2>/dev/null || true)
   if fm_pid_alive "$lock_pid"; then
     if fm_watcher_lock_matches_pid "$STATE" "$WATCH" "$lock_pid" "$FM_HOME"; then
-      stand_down_if_away && exit 0
+      park_while_away
       if fm_watcher_lock_matches_pid "$STATE" "$WATCH" "$lock_pid" "$FM_HOME"; then
         kill -TERM "$lock_pid" 2>/dev/null || true
         # Wait for it to actually exit before relaunching, so the fresh watcher
@@ -436,20 +434,20 @@ if [ "$mode" = restart ]; then
         done
       fi
     else
-      stand_down_if_away && exit 0
+      park_while_away
       clear_stale_recorded_watcher_lock "$lock_pid" "$lock_identity"
     fi
   fi
 fi
 
-stand_down_if_away && exit 0
+park_while_away
 
 # If a genuinely live+fresh watcher already holds the lock, do not start a second
 # one - attach to that cycle and wait until it ends so the harness notify fires
 # then, not as an immediate empty wake. (--restart skips this: it just stopped
 # this home's watcher and wants a fresh one.)
 if [ "$mode" = arm ] && healthy_watcher; then
-  stand_down_if_away && exit 0
+  park_while_away
   cycle_mark_predecessor_successor "attached:$HEALTHY_PID"
   cycle_begin "$HEALTHY_PID" attached "$HEALTHY_IDENTITY"
   report_attached
@@ -493,9 +491,10 @@ child_out=$(mktemp "$STATE/.watch-arm-output.XXXXXX") || {
   echo "watcher: FAILED - no live watcher with a fresh beacon"
   exit 1
 }
-if stand_down_if_away; then
+if [ -e "$STATE/.afk" ]; then
   cleanup_child
-  exit 0
+  child_out=
+  park_while_away
 fi
 "$WATCH" >"$child_out" &
 child=$!
@@ -508,16 +507,11 @@ owned_child_finished() {
   if [ "$rc" -eq 0 ] && watch_output_has_wake "$child_out"; then
     reason_type=$(watch_output_reason_type "$child_out")
     cycle_log_append "$rc" "$signal" "$reason_type" none
-    # Away mode began while this arm's own watcher child was live. Returning the
-    # reason here IS the wake for every caller with no adapter of its own - a
-    # Grok tracked background task notifies its model on completion, and a manual
-    # probe prints it - so hand back the stand-down line instead. The wake itself
-    # is already durable in state/.wake-queue for the daemon and the next drain.
-    if stand_down_if_away; then
+    if [ -e "$STATE/.afk" ]; then
       rm -f "$child_out" 2>/dev/null || true
       child=
       child_out=
-      return 0
+      park_while_away
     fi
     print_watch_output "$child_out"
     rm -f "$child_out" 2>/dev/null || true
