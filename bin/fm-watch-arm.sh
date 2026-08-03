@@ -47,7 +47,7 @@
 # AWAY MODE. While state/.afk exists this script arms nothing. A process that
 # reaches an arming gate parks without watcher ownership until the flag clears,
 # then re-arms from the same tracked process. A live cycle that reaches a
-# wake-return boundary parks and resumes in the same way. The
+# wake-return boundary instead exits successfully with watcher: stood-down. The
 # away-mode daemon (bin/fm-supervise-daemon.sh) runs its own bin/fm-watch.sh child
 # and owns triage there, so a second arm here would take the watcher singleton
 # away from the daemon - and --restart would kill the daemon's watcher outright. With the
@@ -83,6 +83,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WATCH="$SCRIPT_DIR/fm-watch.sh"
 WATCH_LOCK="$STATE/.watch.lock"
 BEAT="$STATE/.last-watcher-beat"
+# Primary watcher adapters classify this single status as a benign,
+# non-actionable close rather than a wake or failure.
+AFK_STAND_DOWN_LINE="watcher: stood-down - away mode owns supervision; the away-mode daemon runs the watcher"
+stand_down_if_away() {
+  [ -e "$STATE/.afk" ] || return 1
+  printf '%s\n' "$AFK_STAND_DOWN_LINE"
+  return 0
+}
 # "Fresh" reuses the guard's threshold so there is one definition of liveness.
 GRACE=${FM_GUARD_GRACE:-300}
 # How long to wait for a freshly forked watcher to acquire the lock and beat.
@@ -322,7 +330,7 @@ close_unobserved_cycle() {
     cycle_log_append "$cycle_exit" "$cycle_signal" "$delivered_reason" none
     # An attached or capture-less owned arm has the same adapterless return
     # boundary as owned_child_finished. The durable queue still carries the wake.
-    park_while_away
+    stand_down_if_away && return 0
     printf '%s\n' "$reason"
     return 0
   fi
@@ -507,13 +515,13 @@ owned_child_finished() {
   if [ "$rc" -eq 0 ] && watch_output_has_wake "$child_out"; then
     reason_type=$(watch_output_reason_type "$child_out")
     cycle_log_append "$rc" "$signal" "$reason_type" none
-    # Completing is itself a wake for adapterless callers such as a Grok tracked
-    # task, so park while the durable queue keeps the wake.
-    if [ -e "$STATE/.afk" ]; then
+    # Returning the reason is itself a wake for adapterless callers such as a
+    # Grok tracked task, so close benignly while the durable queue keeps the wake.
+    if stand_down_if_away; then
       rm -f "$child_out" 2>/dev/null || true
       child=
       child_out=
-      park_while_away
+      return 0
     fi
     print_watch_output "$child_out"
     rm -f "$child_out" 2>/dev/null || true
