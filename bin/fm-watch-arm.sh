@@ -85,6 +85,11 @@ BEAT="$STATE/.last-watcher-beat"
 # Primary watcher adapters match its `watcher: stood-down` prefix and treat it as
 # a benign, non-actionable close rather than a wake or a failure.
 AFK_STAND_DOWN_LINE="watcher: stood-down - away mode owns supervision; the away-mode daemon runs the watcher"
+stand_down_if_away() {
+  [ -e "$STATE/.afk" ] || return 1
+  printf '%s\n' "$AFK_STAND_DOWN_LINE"
+  return 0
+}
 # "Fresh" reuses the guard's threshold so there is one definition of liveness.
 GRACE=${FM_GUARD_GRACE:-300}
 # How long to wait for a freshly forked watcher to acquire the lock and beat.
@@ -241,10 +246,13 @@ cycle_mark_predecessor_successor() {
 }
 
 clear_stale_recorded_watcher_lock() {
-  local lock_home lock_path lock_identity
+  local expected_pid=$1 expected_identity=$2 lock_pid lock_home lock_path lock_identity
+  lock_pid=$(cat "$WATCH_LOCK/pid" 2>/dev/null || true)
   lock_home=$(cat "$WATCH_LOCK/fm-home" 2>/dev/null || true)
   lock_path=$(cat "$WATCH_LOCK/watcher-path" 2>/dev/null || true)
   lock_identity=$(cat "$WATCH_LOCK/pid-identity" 2>/dev/null || true)
+  [ "$lock_pid" = "$expected_pid" ] || return 0
+  [ "$lock_identity" = "$expected_identity" ] || return 0
   [ "$lock_home" = "$FM_HOME" ] || return 0
   [ "$lock_path" = "$WATCH" ] || return 0
   [ -n "$lock_identity" ] || return 0
@@ -403,36 +411,41 @@ esac
 # state/.afk exists. It must stay ahead of --restart's kill, which would
 # otherwise terminate the daemon's own watcher child and hand singleton ownership
 # to the primary pane.
-if [ -e "$STATE/.afk" ]; then
-  printf '%s\n' "$AFK_STAND_DOWN_LINE"
-  exit 0
-fi
+stand_down_if_away && exit 0
 
 if [ "$mode" = restart ]; then
   # Home-scoped stop: only the watcher pid recorded in THIS home's lock.
   lock_pid=$(cat "$WATCH_LOCK/pid" 2>/dev/null || true)
+  lock_identity=$(cat "$WATCH_LOCK/pid-identity" 2>/dev/null || true)
   if fm_pid_alive "$lock_pid"; then
     if fm_watcher_lock_matches_pid "$STATE" "$WATCH" "$lock_pid" "$FM_HOME"; then
-      kill -TERM "$lock_pid" 2>/dev/null || true
-      # Wait for it to actually exit before relaunching, so the fresh watcher
-      # either takes a released lock or reclaims a now-dead-pid stale lock instead
-      # of seeing the dying one as a live holder and no-opping.
-      i=0
-      while [ "$i" -lt 50 ] && fm_pid_alive "$lock_pid"; do
-        sleep 0.1
-        i=$((i + 1))
-      done
+      stand_down_if_away && exit 0
+      if fm_watcher_lock_matches_pid "$STATE" "$WATCH" "$lock_pid" "$FM_HOME"; then
+        kill -TERM "$lock_pid" 2>/dev/null || true
+        # Wait for it to actually exit before relaunching, so the fresh watcher
+        # either takes a released lock or reclaims a now-dead-pid stale lock instead
+        # of seeing the dying one as a live holder and no-opping.
+        i=0
+        while [ "$i" -lt 50 ] && fm_pid_alive "$lock_pid"; do
+          sleep 0.1
+          i=$((i + 1))
+        done
+      fi
     else
-      clear_stale_recorded_watcher_lock
+      stand_down_if_away && exit 0
+      clear_stale_recorded_watcher_lock "$lock_pid" "$lock_identity"
     fi
   fi
 fi
+
+stand_down_if_away && exit 0
 
 # If a genuinely live+fresh watcher already holds the lock, do not start a second
 # one - attach to that cycle and wait until it ends so the harness notify fires
 # then, not as an immediate empty wake. (--restart skips this: it just stopped
 # this home's watcher and wants a fresh one.)
 if [ "$mode" = arm ] && healthy_watcher; then
+  stand_down_if_away && exit 0
   cycle_mark_predecessor_successor "attached:$HEALTHY_PID"
   cycle_begin "$HEALTHY_PID" attached "$HEALTHY_IDENTITY"
   report_attached
@@ -476,6 +489,10 @@ child_out=$(mktemp "$STATE/.watch-arm-output.XXXXXX") || {
   echo "watcher: FAILED - no live watcher with a fresh beacon"
   exit 1
 }
+if stand_down_if_away; then
+  cleanup_child
+  exit 0
+fi
 "$WATCH" >"$child_out" &
 child=$!
 cycle_begin "$child" started "$(fm_pid_identity "$child" 2>/dev/null || true)"

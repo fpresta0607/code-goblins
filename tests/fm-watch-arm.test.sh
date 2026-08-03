@@ -28,6 +28,19 @@ TMP_ROOT=$(fm_test_tmproot fm-watch-arm-tests)
 SEED_PID=
 ARM_PID=
 
+wait_for_marker_file() {  # <path> <pid> <label>
+  local path=$1 pid=$2 label=$3 i=0
+  while [ "$i" -lt 120 ]; do
+    [ -e "$path" ] && return 0
+    is_live_non_zombie "$pid" || break
+    sleep 0.1
+    i=$((i + 1))
+  done
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  fail "$label"
+}
+
 # Start the real watcher as the singleton holder.
 start_seed_watcher() {  # <state> <fakebin> <watch-out>
   local state=$1 fakebin=$2 out=$3 i
@@ -198,7 +211,115 @@ test_arm_stands_down_while_away_mode_owns_supervision() {
   pass "watch-arm: away mode stands the arm down and leaves the daemon's watcher untouched"
 }
 
+test_restart_rechecks_away_mode_before_signaling() {
+  local dir state fakebin out armout lock_pid ready release once real_cat status
+  dir=$(make_case afk-restart-before-signal)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  out="$dir/watch.out"
+  armout="$dir/arm.out"
+  ready="$dir/cat.ready"
+  release="$dir/cat.release"
+  once="$dir/cat.once"
+  real_cat=$(command -v cat)
+  start_seed_watcher "$state" "$fakebin" "$out"
+  lock_pid=$SEED_PID
+  printf '%s\n' "$real_cat" > "$fakebin/real-cat-path"
+  cat > "$fakebin/cat" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = "${FM_RACE_LOCK_PID:-}" ] && [ ! -e "${FM_RACE_ONCE:-/dev/null}" ]; then
+  : > "$FM_RACE_ONCE"
+  : > "$FM_RACE_READY"
+  while [ ! -e "$FM_RACE_RELEASE" ]; do sleep 0.02; done
+fi
+IFS= read -r real_cat < "${0%/*}/real-cat-path"
+exec "${FM_REAL_CAT:-$real_cat}" "$@"
+SH
+  chmod +x "$fakebin/cat"
+
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_REAL_CAT="$real_cat" \
+    FM_RACE_LOCK_PID="$state/.watch.lock/pid" FM_RACE_ONCE="$once" \
+    FM_RACE_READY="$ready" FM_RACE_RELEASE="$release" \
+    "$WATCH_ARM" --restart > "$armout" 2>&1 &
+  ARM_PID=$!
+  wait_for_marker_file "$ready" "$ARM_PID" "restart did not reach the lock-holder read boundary"
+  date '+%s' > "$state/.afk"
+  : > "$release"
+  wait_for_exit "$ARM_PID" 80
+  status=$?
+
+  expect_code 0 "$status" "a restart must stand down when away mode begins before signaling"
+  grep -q '^watcher: stood-down' "$armout" \
+    || fail "restart did not stand down before signaling: $(cat "$armout")"
+  [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$lock_pid" ] \
+    || fail "restart replaced the watcher lock after away mode began"
+  kill -0 "$lock_pid" 2>/dev/null \
+    || fail "restart killed the watcher after away mode began"
+
+  kill "$lock_pid" 2>/dev/null || true
+  wait "$lock_pid" 2>/dev/null || true
+  pass "watch-arm: restart rechecks away mode before signaling the lock holder"
+}
+
+test_restart_rechecks_away_mode_before_fork() {
+  local dir state fakebin out armout old_pid daemon_pid ready release once real_mktemp status
+  dir=$(make_case afk-restart-before-fork)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  out="$dir/watch.out"
+  armout="$dir/arm.out"
+  ready="$dir/mktemp.ready"
+  release="$dir/mktemp.release"
+  once="$dir/mktemp.once"
+  real_mktemp=$(command -v mktemp)
+  start_seed_watcher "$state" "$fakebin" "$out"
+  old_pid=$SEED_PID
+  printf '%s\n' "$real_mktemp" > "$fakebin/real-mktemp-path"
+  cat > "$fakebin/mktemp" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  */.watch-arm-output.*)
+    if [ ! -e "${FM_RACE_ONCE:-/dev/null}" ]; then
+      : > "$FM_RACE_ONCE"
+      : > "$FM_RACE_READY"
+      while [ ! -e "$FM_RACE_RELEASE" ]; do sleep 0.02; done
+    fi
+    ;;
+esac
+IFS= read -r real_mktemp < "${0%/*}/real-mktemp-path"
+exec "${FM_REAL_MKTEMP:-$real_mktemp}" "$@"
+SH
+  chmod +x "$fakebin/mktemp"
+
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_REAL_MKTEMP="$real_mktemp" \
+    FM_RACE_ONCE="$once" FM_RACE_READY="$ready" FM_RACE_RELEASE="$release" \
+    "$WATCH_ARM" --restart > "$armout" 2>&1 &
+  ARM_PID=$!
+  wait_for_marker_file "$ready" "$ARM_PID" "restart did not reach the pre-fork boundary"
+  wait "$old_pid" 2>/dev/null || true
+  date '+%s' > "$state/.afk"
+  start_seed_watcher "$state" "$fakebin" "$out"
+  daemon_pid=$SEED_PID
+  : > "$release"
+  wait_for_exit "$ARM_PID" 80
+  status=$?
+
+  expect_code 0 "$status" "a restart must stand down when away mode begins before fork"
+  grep -q '^watcher: stood-down' "$armout" \
+    || fail "restart did not stand down before fork: $(cat "$armout")"
+  [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$daemon_pid" ] \
+    || fail "restart took the singleton from the daemon watcher before fork"
+  kill -0 "$daemon_pid" 2>/dev/null \
+    || fail "restart disturbed the daemon watcher before fork"
+
+  kill "$daemon_pid" 2>/dev/null || true
+  wait "$daemon_pid" 2>/dev/null || true
+  pass "watch-arm: restart rechecks away mode immediately before watcher fork"
+}
+
 test_attached_arm_reports_the_delivered_wake
 test_attached_arm_reports_the_delivered_wake_after_drain
 test_attached_arm_still_fails_on_a_wake_it_did_not_deliver
 test_arm_stands_down_while_away_mode_owns_supervision
+test_restart_rechecks_away_mode_before_signaling
+test_restart_rechecks_away_mode_before_fork
