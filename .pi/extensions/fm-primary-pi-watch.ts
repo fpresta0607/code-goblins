@@ -270,6 +270,10 @@ export default function (pi: ExtensionAPI) {
       "watcher",
       `FIRSTMATE WATCHER WAKE: ${message}\n\nRun bin/fm-wake-drain.sh first and handle the queued wake. Watcher continuity is extension-owned.`,
     );
+    // Accepted AFK-entry residual: activation after this final check can allow
+    // at most one extra wake before delivery. Point-in-time checks cannot close
+    // the race without the deferred cross-component AFK-transition handshake.
+    // The durable queue prevents loss, and established-away-state cases park.
     if (suppressWhileAway && awayModeActive()) return;
     await pi.sendUserMessage(content, { deliverAs: "followUp" });
   }

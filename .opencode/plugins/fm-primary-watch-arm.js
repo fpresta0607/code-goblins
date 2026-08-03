@@ -202,6 +202,10 @@ function observeArmOutput(stdout, stderr, settleReadiness) {
 
 async function sendPrompt(paths, client, sessionID, text, suppressWhileAway = false) {
   const encoded = await encodeFirstmateOperationalInput(paths.root, "watcher", text);
+  // Accepted AFK-entry residual: activation after this final check can allow
+  // at most one extra wake before delivery. Point-in-time checks cannot close
+  // the race without the deferred cross-component AFK-transition handshake.
+  // The durable queue prevents loss, and established-away-state cases park.
   if (suppressWhileAway && awayModeActive(paths)) return;
   await client.session.promptAsync({
     path: { id: sessionID },

@@ -317,11 +317,10 @@ close_unobserved_cycle() {
   fi
   fm_lock_release "$WATCH_DELIVERY_LOCK"
   if [ -n "$reason" ]; then
-    # Accepted Grok-only residual: AFK entry inside the millisecond window after
-    # this check can allow at most one task_completed wake before completion.
-    # Point-in-time checks cannot close that transition race; doing so requires
-    # the deferred AFK handshake or a Grok notification hook that does not exist.
-    # Every established-state case already parks.
+    # Accepted AFK-entry residual: activation after this final check can allow
+    # at most one extra wake before completion. Point-in-time checks cannot close
+    # the race without the deferred cross-component AFK-transition handshake.
+    # The durable queue prevents loss, and established-away-state cases park.
     if [ -e "$STATE/.afk" ]; then
       CLOSE_UNOBSERVED_AWAY=1
       return 0
@@ -512,11 +511,10 @@ owned_child_finished() {
   if [ "$rc" -eq 0 ] && watch_output_has_wake "$child_out"; then
     reason_type=$(watch_output_reason_type "$child_out")
     cycle_log_append "$rc" "$signal" "$reason_type" none
-    # Accepted Grok-only residual: AFK entry inside the millisecond window after
-    # this check can allow at most one task_completed wake before completion.
-    # Point-in-time checks cannot close that transition race; doing so requires
-    # the deferred AFK handshake or a Grok notification hook that does not exist.
-    # Every established-state case already parks.
+    # Accepted AFK-entry residual: activation after this final check can allow
+    # at most one extra wake before completion. Point-in-time checks cannot close
+    # the race without the deferred cross-component AFK-transition handshake.
+    # The durable queue prevents loss, and established-away-state cases park.
     if [ -e "$STATE/.afk" ]; then
       rm -f "$child_out" 2>/dev/null || true
       child=
