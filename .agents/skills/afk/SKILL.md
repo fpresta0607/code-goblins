@@ -236,7 +236,7 @@ the operational prefix lets firstmate distinguish it from a real captain message
 
 ## Stale-artifact lifecycle
 
-Treat `state/.subsuper-escalations`, its `.since` sidecar, and `state/.subsuper-inject-wedged` as session-scoped delivery artifacts, not as the durable work record.
+Treat `state/.subsuper-escalations`, its `.since` sidecar, `state/.subsuper-inject-wedged`, and `state/.subsuper-seen-wake-seq` as session-scoped delivery and queue-classification artifacts, not as the durable work record.
 Always enter through `bin/fm-afk-launch.sh`, which clears prior-session artifacts only for a fresh entry and preserves the current session's buffer on refresh.
 Always exit through `bin/fm-afk-launch.sh stop`, which keeps `state/.afk` present through the daemon's shutdown flush and clears it last.
 `docs/herdr-backend.md` "Away-mode supervisor support" owns the current mechanism, and `docs/verification/runtime-backends.md` "Away-mode transport" owns active evidence.
@@ -245,8 +245,7 @@ Always exit through `bin/fm-afk-launch.sh stop`, which keeps `state/.afk` presen
 
 These properties must hold:
 
-- Nothing is lost. The durable queue plus `fm-wake-drain.sh` recover any missed
-  or crashed injection.
+- Nothing is lost. Housekeeping classifies each unseen durable queue record without consuming it, and `fm-wake-drain.sh` remains the sole consumer and recovery path.
 - Wedge detection is bounded-latency, not lossy.
 - Declared external waits are rechecked on a separate, bounded cadence rather than being mislabeled as wedges.
 - The catch-all scan backs up the keyword classifier.
