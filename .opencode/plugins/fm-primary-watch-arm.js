@@ -197,8 +197,9 @@ function observeArmOutput(stdout, stderr, settleReadiness) {
   }
 }
 
-async function sendPrompt(paths, client, sessionID, text) {
+async function sendPrompt(paths, client, sessionID, text, suppressWhileAway = false) {
   const encoded = await encodeFirstmateOperationalInput(paths.root, "watcher", text);
+  if (suppressWhileAway && awayModeActive(paths)) return;
   await client.session.promptAsync({
     path: { id: sessionID },
     body: {
@@ -211,8 +212,8 @@ function wakePrompt(reason) {
   return `WATCHER FIRED - drain queued wakes with bin/fm-wake-drain.sh and handle the reported wake. Watcher continuity is plugin-owned.\n\n${reason}`;
 }
 
-function surfaceFailure(paths, client, sessionID, reason) {
-  void sendPrompt(paths, client, sessionID, wakePrompt(reason)).catch(() => {
+function surfaceFailure(paths, client, sessionID, reason, suppressWhileAway = false) {
+  void sendPrompt(paths, client, sessionID, wakePrompt(reason), suppressWhileAway).catch(() => {
   });
 }
 
@@ -278,13 +279,13 @@ async function scheduleRetry(paths, sessionID, client, reason, predecessorArmPid
   if (awayModeActive(paths)) return;
   if (!(await sessionOwnsLock(paths))) {
     setArmStatus("failed");
-    surfaceFailure(paths, client, sessionID, `watcher: FAILED - OpenCode cannot restore continuity because this session no longer owns the lock\n${reason}`);
+    surfaceFailure(paths, client, sessionID, `watcher: FAILED - OpenCode cannot restore continuity because this session no longer owns the lock\n${reason}`, true);
     return;
   }
   retryFailures += 1;
   if (retryFailures > REARM_RETRY_LIMIT) {
     setArmStatus("failed");
-    surfaceFailure(paths, client, sessionID, `watcher: FAILED - OpenCode could not restore watcher continuity after ${REARM_RETRY_LIMIT} retries\n${reason}`);
+    surfaceFailure(paths, client, sessionID, `watcher: FAILED - OpenCode could not restore watcher continuity after ${REARM_RETRY_LIMIT} retries\n${reason}`, true);
     return;
   }
   setArmStatus("retrying");
@@ -302,7 +303,7 @@ async function scheduleRetry(paths, sessionID, client, reason, predecessorArmPid
         return;
       }
       if (["armed", "starting", "wake"].includes(status)) return;
-      surfaceFailure(paths, client, sessionID, `watcher: FAILED - OpenCode could not launch a continuity retry (${status})`);
+      surfaceFailure(paths, client, sessionID, `watcher: FAILED - OpenCode could not launch a continuity retry (${status})`, true);
     });
   }, retryDelay(retryFailures));
   timer.unref();
@@ -392,7 +393,7 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
         // durable in state/.wake-queue and belongs to the daemon now.
         if (awayModeActive(paths)) return undefined;
         const message = failure ? `${classification.message}\n\n${failure}` : classification.message;
-        return sendPrompt(paths, client, sessionID, wakePrompt(message));
+        return sendPrompt(paths, client, sessionID, wakePrompt(message), true);
       }).catch(() => {
       });
       return;

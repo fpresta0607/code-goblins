@@ -252,17 +252,18 @@ export default function (pi: ExtensionAPI) {
     !calmPresentation.stockExportRendering &&
     !calmTranscriptClassIsVisible(itemClass);
 
-  async function sendWake(owner: SessionGeneration, message: string): Promise<void> {
+  async function sendWake(owner: SessionGeneration, message: string, suppressWhileAway = false): Promise<void> {
     if (!generationIsLive(owner)) return;
     const content = encodeFirstmateOperationalInput(
       "watcher",
       `FIRSTMATE WATCHER WAKE: ${message}\n\nRun bin/fm-wake-drain.sh first and handle the queued wake. Watcher continuity is extension-owned.`,
     );
+    if (suppressWhileAway && awayModeActive()) return;
     await pi.sendUserMessage(content, { deliverAs: "followUp" });
   }
 
-  function surfaceFailure(owner: SessionGeneration, message: string): void {
-    void sendWake(owner, message).catch(() => {
+  function surfaceFailure(owner: SessionGeneration, message: string, suppressWhileAway = false): void {
+    void sendWake(owner, message, suppressWhileAway).catch(() => {
       // Pi owns delivery errors; continuity restoration never waits on prompting.
     });
   }
@@ -338,12 +339,12 @@ export default function (pi: ExtensionAPI) {
     if (awayModeActive()) return;
     const ownership = lockOwnership();
     if (ownership !== "owned") {
-      surfaceFailure(owner, `watcher: FAILED - Pi extension cannot restore continuity because this session no longer owns the lock\n${message}`);
+      surfaceFailure(owner, `watcher: FAILED - Pi extension cannot restore continuity because this session no longer owns the lock\n${message}`, true);
       return;
     }
     owner.retryFailures += 1;
     if (owner.retryFailures > retryLimit) {
-      surfaceFailure(owner, `watcher: FAILED - Pi extension could not restore watcher continuity after ${retryLimit} retries\n${message}`);
+      surfaceFailure(owner, `watcher: FAILED - Pi extension could not restore watcher continuity after ${retryLimit} retries\n${message}`, true);
       return;
     }
     const timer = setTimeout(() => {
@@ -351,7 +352,7 @@ export default function (pi: ExtensionAPI) {
       if (!generationIsLive(owner)) return;
       const result = startArm(owner, predecessorArmPid);
       if (!result.ok) {
-        surfaceFailure(owner, `watcher: FAILED - Pi extension could not launch a continuity retry\n${result.message}`);
+        surfaceFailure(owner, `watcher: FAILED - Pi extension could not launch a continuity retry\n${result.message}`, true);
       }
     }, retryDelay(owner.retryFailures));
     timer.unref();
@@ -465,7 +466,7 @@ export default function (pi: ExtensionAPI) {
           // durable in state/.wake-queue and belongs to the daemon now.
           if (awayModeActive()) return;
           const message = failure ? `${classification.message}\n\n${failure}` : classification.message;
-          await sendWake(owner, message);
+          await sendWake(owner, message, true);
         })().catch(() => {
         });
         return;
