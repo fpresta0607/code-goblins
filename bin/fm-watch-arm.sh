@@ -296,6 +296,7 @@ fail_unexplained_cycle() {
 # Close a cycle whose reason line this arm could not read against the bounded
 # terminal-delivery ledger the watcher publishes before releasing its lock.
 close_unobserved_cycle() {
+  local cycle_exit=$1 cycle_signal=$2 delivered_reason=$3 undelivered_reason=$4
   local i reason clean_identity record_pid record_identity record_reason
   clean_identity=$(printf '%s' "$cycle_watcher_identity" | tr '\t\r\n' '   ')
   i=0
@@ -317,17 +318,18 @@ close_unobserved_cycle() {
   fi
   fm_lock_release "$WATCH_DELIVERY_LOCK"
   if [ -n "$reason" ]; then
+    cycle_log_append "$cycle_exit" "$cycle_signal" "$delivered_reason" none
     # Accepted AFK-entry residual: activation after this final check can allow
     # at most one extra wake before completion. Point-in-time checks cannot close
     # the race without the deferred cross-component AFK-transition handshake.
     # The durable queue prevents loss, and established-away-state cases park.
     if [ -e "$STATE/.afk" ]; then
-      CLOSE_UNOBSERVED_AWAY=1
-      return 0
+      park_while_away
     fi
     printf '%s\n' "$reason"
     return 0
   fi
+  cycle_log_append "$cycle_exit" "$cycle_signal" "$undelivered_reason" none
   fail_unexplained_cycle
   return 1
 }
@@ -356,12 +358,9 @@ attach_and_wait() {
       report_attached
       continue
     fi
-    if close_unobserved_cycle; then
-      cycle_log_append unknown unknown attached-delivered-wake none
-      [ "${CLOSE_UNOBSERVED_AWAY:-0}" -eq 0 ] || park_while_away
+    if close_unobserved_cycle unknown unknown attached-delivered-wake attached-cycle-ended; then
       return 0
     fi
-    cycle_log_append unknown unknown attached-cycle-ended none
     return 1
   done
 }
@@ -545,11 +544,9 @@ owned_child_finished() {
     rm -f "$child_out" 2>/dev/null || true
     child=
     child_out=
-    if close_unobserved_cycle; then
-      cycle_log_append "$rc" "$signal" clean-exit-delivered-wake none
+    if close_unobserved_cycle "$rc" "$signal" clean-exit-delivered-wake unexpected-clean-exit; then
       return 0
     fi
-    cycle_log_append "$rc" "$signal" unexpected-clean-exit none
     return 1
   fi
 

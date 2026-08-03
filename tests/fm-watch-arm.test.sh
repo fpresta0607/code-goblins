@@ -192,8 +192,9 @@ test_arm_parks_while_away_mode_owns_supervision() {
   done
   grep -q '^watcher: started' "$armout" \
     || fail "parked arm did not resume a normal cycle after away mode ended: $(cat "$armout")"
-  [ "$ARM_PID" = "$arm_pid" ] && is_live_non_zombie "$arm_pid" \
-    || fail "parked arm did not resume from the same tracked process"
+  if [ "$ARM_PID" != "$arm_pid" ] || ! is_live_non_zombie "$arm_pid"; then
+    fail "parked arm did not resume from the same tracked process"
+  fi
 
   kill "$ARM_PID" 2>/dev/null || true
   wait "$ARM_PID" 2>/dev/null || true
@@ -365,6 +366,51 @@ wait_for_owned_watcher() {  # <state> <arm-pid> <message>
   fail "$message"
 }
 
+test_owned_arm_parks_after_away_mode_delivery_record() {
+  local dir state fakebin armout output_file i
+  dir=$(make_case afk-owned-delivery-record)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  armout="$dir/arm.out"
+
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_CONFIRM_TIMEOUT=1 \
+    "$WATCH_ARM" > "$armout" 2>&1 &
+  ARM_PID=$!
+  wait_for_owned_watcher "$state" "$ARM_PID" "delivery-record arm never established its own watcher cycle"
+
+  output_file=
+  for output_file in "$state"/.watch-arm-output.*; do
+    [ -e "$output_file" ] && break
+    output_file=
+  done
+  [ -n "$output_file" ] || fail "owned arm did not expose its child capture"
+  rm -f "$output_file"
+  date '+%s' > "$state/.afk"
+  printf 'done: fixture finished\n' > "$state/demo.status"
+
+  i=0
+  while [ "$i" -lt 200 ]; do
+    grep -q 'reason=clean-exit-delivered-wake' "$state/.watch-cycle-exits.log" 2>/dev/null && break
+    is_live_non_zombie "$ARM_PID" || fail "owned arm completed instead of parking on its delivery record"
+    sleep 0.1
+    i=$((i + 1))
+  done
+
+  grep -q 'reason=clean-exit-delivered-wake' "$state/.watch-cycle-exits.log" 2>/dev/null \
+    || fail "owned arm did not classify its delivery-record wake before parking"
+  is_live_non_zombie "$ARM_PID" || fail "owned arm completed after resolving its away-mode delivery record"
+  [ ! -e "$state/.watch.lock/pid" ] || fail "delivery-record parked arm left a watcher lock"
+  ! grep -qE '^(signal:|stale:|check:|heartbeat)' "$armout" \
+    || fail "owned arm returned its delivery-record wake under away mode: $(cat "$armout")"
+  grep -q 'demo.status' "$state/.wake-queue" \
+    || fail "owned arm lost the durable delivery-record wake"
+
+  kill "$ARM_PID" 2>/dev/null || true
+  wait "$ARM_PID" 2>/dev/null || true
+  pass "watch-arm: an owned arm parks after an away-mode delivery record"
+}
+
 # The adapterless wake path: for a Grok tracked background task or a manual
 # probe there is no adapter to suppress delivery, so the arm's own return value
 # IS the wake. An arm already running when away mode begins must therefore hand
@@ -451,5 +497,6 @@ test_arm_parks_while_away_mode_owns_supervision
 test_restart_rechecks_away_mode_before_signaling
 test_restart_rechecks_away_mode_before_fork
 test_attached_arm_parks_after_away_mode_delivery
+test_owned_arm_parks_after_away_mode_delivery_record
 test_live_arm_parks_when_away_mode_begins_mid_cycle
 test_live_arm_still_reports_its_wake_with_away_mode_off
