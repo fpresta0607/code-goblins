@@ -49,12 +49,9 @@ batched digest rather than per-wake injections.
    The daemon is **presence-gated**: it injects escalations only while
    `state/.afk` exists, and stays quiet otherwise.
 
-3. **Do not separately arm `fm-watch.sh`.** The daemon manages the watcher as
-   its child, and `bin/fm-watch-arm.sh` stands down while `state/.afk` exists
-   instead of competing for the singleton, so a stray arm is a no-op.
-   The primary adapters that re-arm automatically (Pi's watcher extension,
-   OpenCode's watcher plugin) stand down the same way and deliver no ordinary
-   wake to the primary pane while away mode is on.
+3. **Do not separately arm `fm-watch.sh`.**
+   The daemon manages the watcher as its child, and `bin/fm-watch-arm.sh` stands down while `state/.afk` exists instead of competing for the singleton, so a stray arm is a no-op.
+   The primary adapters that re-arm automatically (Pi's watcher extension, OpenCode's watcher plugin) stand down the same way and deliver no ordinary wake to the primary pane while away mode is on.
    `docs/watcher-continuity.md` "Away-mode stand-down" owns that contract.
 
 4. **Acknowledge** in `AGENTS.md` section 9 language: "Captain, away mode is active; I will batch routine updates and surface only decisions, failures, credentials, or review-ready work until you return."
