@@ -13,11 +13,14 @@ const ARM_RETIRE_TIMEOUT_MS = positiveInteger("FM_WATCH_ARM_RETIRE_TIMEOUT_MS", 
 const REARM_RETRY_BASE_MS = positiveInteger("FM_WATCH_REARM_RETRY_BASE_MS", 250);
 const REARM_RETRY_MAX_MS = positiveInteger("FM_WATCH_REARM_RETRY_MAX_MS", 4000);
 const REARM_RETRY_LIMIT = positiveInteger("FM_WATCH_REARM_RETRY_LIMIT", 5);
+const AWAY_RESUME_POLL_MS = positiveInteger("FM_WATCH_AFK_RESUME_POLL_MS", 250);
 
 let child = null;
 let armStatus = "idle";
 let retryTimer = null;
 let retryFailures = 0;
+let awayResumeTimer = null;
+let awayResumeContext = null;
 let launchInFlight = null;
 let restorationInFlight = null;
 let armClose = new WeakMap();
@@ -255,7 +258,10 @@ async function restoreAfterActionableClose(paths, sessionID, client, predecessor
   for (let attempt = 0; attempt <= REARM_RETRY_LIMIT; attempt += 1) {
     // Away mode reclaims the watcher for the daemon; there is no successor to
     // restore here and no failure to report.
-    if (awayModeActive(paths)) return "";
+    if (awayModeActive(paths)) {
+      parkForAwayResume(paths, sessionID, client, predecessorArmPid);
+      return "";
+    }
     const { status, armChild } = await ensureArm(paths, sessionID, client, predecessorArmPid, true);
     if (status === "armed") return "";
     // An actionable line belongs to this arm's close handler.
@@ -274,12 +280,55 @@ async function restoreAfterActionableClose(paths, sessionID, client, predecessor
   return `${failure}\nwatcher: FAILED - OpenCode could not restore watcher continuity after ${REARM_RETRY_LIMIT} retries`;
 }
 
+function parkForAwayResume(paths, sessionID, client, predecessorArmPid) {
+  awayResumeContext = { paths, sessionID, client, predecessorArmPid };
+  if (awayResumeTimer) return;
+  const timer = setTimeout(() => {
+    if (awayResumeTimer === timer) awayResumeTimer = null;
+    const context = awayResumeContext;
+    if (!context) return;
+    if (awayModeActive(context.paths)) {
+      parkForAwayResume(context.paths, context.sessionID, context.client, context.predecessorArmPid);
+      return;
+    }
+    void sessionOwnsLock(context.paths).then((ownsLock) => {
+      if (awayResumeContext !== context) return;
+      if (!ownsLock) {
+        awayResumeContext = null;
+        return;
+      }
+      if (awayModeActive(context.paths)) {
+        parkForAwayResume(context.paths, context.sessionID, context.client, context.predecessorArmPid);
+        return;
+      }
+      awayResumeContext = null;
+      void ensureArm(context.paths, context.sessionID, context.client, context.predecessorArmPid).then((status) => {
+        if (awayModeActive(context.paths)) {
+          parkForAwayResume(context.paths, context.sessionID, context.client, context.predecessorArmPid);
+          return;
+        }
+        if (["armed", "starting", "wake", "existing", "retrying", "not-needed"].includes(status)) return;
+        surfaceFailure(context.paths, context.client, context.sessionID, `watcher: FAILED - OpenCode could not resume continuity after away mode (${status})`, true);
+      });
+    });
+  }, AWAY_RESUME_POLL_MS);
+  timer.unref();
+  awayResumeTimer = timer;
+}
+
 async function scheduleRetry(paths, sessionID, client, reason, predecessorArmPid) {
   if (child || retryTimer) return;
-  if (awayModeActive(paths)) return;
+  if (awayModeActive(paths)) {
+    parkForAwayResume(paths, sessionID, client, predecessorArmPid);
+    return;
+  }
   if (!(await sessionOwnsLock(paths))) {
     setArmStatus("failed");
     surfaceFailure(paths, client, sessionID, `watcher: FAILED - OpenCode cannot restore continuity because this session no longer owns the lock\n${reason}`, true);
+    return;
+  }
+  if (awayModeActive(paths)) {
+    parkForAwayResume(paths, sessionID, client, predecessorArmPid);
     return;
   }
   retryFailures += 1;
@@ -294,12 +343,14 @@ async function scheduleRetry(paths, sessionID, client, reason, predecessorArmPid
     if (awayModeActive(paths)) {
       retryFailures = 0;
       setArmStatus("stood-down");
+      parkForAwayResume(paths, sessionID, client, predecessorArmPid);
       return;
     }
     void ensureArm(paths, sessionID, client, predecessorArmPid).then((status) => {
       if (awayModeActive(paths)) {
         retryFailures = 0;
         setArmStatus("stood-down");
+        parkForAwayResume(paths, sessionID, client, predecessorArmPid);
         return;
       }
       if (["armed", "starting", "wake"].includes(status)) return;
@@ -374,6 +425,7 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
       if (classification.kind === "failure" && !restorationInFlight) {
         surfaceFailure(paths, client, sessionID, classification.message);
       }
+      parkForAwayResume(paths, sessionID, client, predecessor);
       return;
     }
     // A stand-down close with away mode already over means the flag was cleared
@@ -391,7 +443,10 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
         if (restorationInFlight === restoration) restorationInFlight = null;
         // Away mode can begin while restoration is in flight; the wake is
         // durable in state/.wake-queue and belongs to the daemon now.
-        if (awayModeActive(paths)) return undefined;
+        if (awayModeActive(paths)) {
+          parkForAwayResume(paths, sessionID, client, predecessor);
+          return undefined;
+        }
         const message = failure ? `${classification.message}\n\n${failure}` : classification.message;
         return sendPrompt(paths, client, sessionID, wakePrompt(message), true);
       }).catch(() => {
@@ -421,6 +476,7 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
       retryFailures = 0;
       setArmStatus("stood-down");
       surfaceFailure(paths, client, sessionID, spawnFailure);
+      parkForAwayResume(paths, sessionID, client, String(armChild.pid ?? ""));
       return;
     }
     void scheduleRetry(paths, sessionID, client, spawnFailure, String(armChild.pid ?? ""));

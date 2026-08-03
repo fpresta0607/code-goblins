@@ -51,6 +51,8 @@ type SessionGeneration = {
   stopping: boolean;
   child: ChildProcess | null;
   retryTimer: ReturnType<typeof setTimeout> | null;
+  awayResumeTimer: ReturnType<typeof setTimeout> | null;
+  awayResumePredecessor: string;
   retryFailures: number;
   restoring: boolean;
   seq: number;
@@ -88,6 +90,7 @@ const extensionVersion = `sha256:${createHash("sha256").update(readFileSync(exte
 const retryBaseMs = positiveInteger("FM_WATCH_REARM_RETRY_BASE_MS", 250);
 const retryMaxMs = positiveInteger("FM_WATCH_REARM_RETRY_MAX_MS", 4000);
 const retryLimit = positiveInteger("FM_WATCH_REARM_RETRY_LIMIT", 5);
+const awayResumePollMs = positiveInteger("FM_WATCH_AFK_RESUME_POLL_MS", 250);
 // 35s on Windows so the budget stays above arm's MSYS confirm default (30s in
 // bin/fm-watch-arm.sh): a slow but successful Git Bash cold start must not be
 // SIGTERMed mid-confirmation. Conditioned on win32 so other platforms keep 12s.
@@ -205,6 +208,8 @@ function createGeneration(): SessionGeneration {
     stopping: false,
     child: null,
     retryTimer: null,
+    awayResumeTimer: null,
+    awayResumePredecessor: "",
     retryFailures: 0,
     restoring: false,
     seq: 0,
@@ -223,6 +228,9 @@ function stopGeneration(generation: SessionGeneration): void {
   generation.stopping = true;
   if (generation.retryTimer) clearTimeout(generation.retryTimer);
   generation.retryTimer = null;
+  if (generation.awayResumeTimer) clearTimeout(generation.awayResumeTimer);
+  generation.awayResumeTimer = null;
+  generation.awayResumePredecessor = "";
   if (generation.child) generation.child.kill("SIGTERM");
   generation.child = null;
 }
@@ -313,7 +321,10 @@ export default function (pi: ExtensionAPI) {
       if (!generationIsLive(owner)) return "";
       // Away mode reclaims the watcher for the daemon; there is no successor to
       // restore here and no failure to report.
-      if (awayModeActive()) return "";
+      if (awayModeActive()) {
+        parkForAwayResume(owner, predecessorArmPid);
+        return "";
+      }
       const replacement = startArm(owner, predecessorArmPid);
       const successorChild = owner.child;
       if (replacement.ok && successorChild && await waitForReadiness(successorChild)) return "";
@@ -334,9 +345,41 @@ export default function (pi: ExtensionAPI) {
     return `${failure}\nwatcher: FAILED - Pi extension could not restore watcher continuity after ${retryLimit} retries`;
   }
 
+  function parkForAwayResume(owner: SessionGeneration, predecessorArmPid: string): void {
+    if (!generationIsLive(owner)) return;
+    owner.awayResumePredecessor = predecessorArmPid;
+    if (owner.awayResumeTimer) return;
+    const timer = setTimeout(() => {
+      if (owner.awayResumeTimer === timer) owner.awayResumeTimer = null;
+      if (!generationIsLive(owner)) {
+        owner.awayResumePredecessor = "";
+        return;
+      }
+      if (awayModeActive()) {
+        parkForAwayResume(owner, owner.awayResumePredecessor);
+        return;
+      }
+      const predecessor = owner.awayResumePredecessor;
+      owner.awayResumePredecessor = "";
+      const result = startArm(owner, predecessor);
+      if (result.message === awayModeMessage) {
+        parkForAwayResume(owner, predecessor);
+        return;
+      }
+      if (!result.ok) {
+        surfaceFailure(owner, `watcher: FAILED - Pi extension could not resume continuity after away mode\n${result.message}`, true);
+      }
+    }, awayResumePollMs);
+    timer.unref();
+    owner.awayResumeTimer = timer;
+  }
+
   function scheduleRetry(owner: SessionGeneration, message: string, predecessorArmPid: string): void {
     if (!generationIsLive(owner) || owner.child || owner.retryTimer) return;
-    if (awayModeActive()) return;
+    if (awayModeActive()) {
+      parkForAwayResume(owner, predecessorArmPid);
+      return;
+    }
     const ownership = lockOwnership();
     if (ownership !== "owned") {
       surfaceFailure(owner, `watcher: FAILED - Pi extension cannot restore continuity because this session no longer owns the lock\n${message}`, true);
@@ -350,7 +393,15 @@ export default function (pi: ExtensionAPI) {
     const timer = setTimeout(() => {
       if (owner.retryTimer === timer) owner.retryTimer = null;
       if (!generationIsLive(owner)) return;
+      if (awayModeActive()) {
+        parkForAwayResume(owner, predecessorArmPid);
+        return;
+      }
       const result = startArm(owner, predecessorArmPid);
+      if (result.message === awayModeMessage) {
+        parkForAwayResume(owner, predecessorArmPid);
+        return;
+      }
       if (!result.ok) {
         surfaceFailure(owner, `watcher: FAILED - Pi extension could not launch a continuity retry\n${result.message}`, true);
       }
@@ -450,6 +501,7 @@ export default function (pi: ExtensionAPI) {
         // A real arm failure still surfaces once, with no retry loop behind it.
         owner.retryFailures = 0;
         if (classification.kind === "failure" && !owner.restoring) surfaceFailure(owner, classification.message);
+        parkForAwayResume(owner, predecessor);
         return;
       }
       // A stand-down close with away mode already over means the flag was
@@ -464,7 +516,10 @@ export default function (pi: ExtensionAPI) {
           if (!generationIsLive(owner)) return;
           // Away mode can begin while restoration is in flight; the wake is
           // durable in state/.wake-queue and belongs to the daemon now.
-          if (awayModeActive()) return;
+          if (awayModeActive()) {
+            parkForAwayResume(owner, predecessor);
+            return;
+          }
           const message = failure ? `${classification.message}\n\n${failure}` : classification.message;
           await sendWake(owner, message, true);
         })().catch(() => {
@@ -488,6 +543,7 @@ export default function (pi: ExtensionAPI) {
         // daemon keep the watcher rather than opening a retry loop.
         owner.retryFailures = 0;
         surfaceFailure(owner, spawnFailure);
+        parkForAwayResume(owner, String(armChild.pid ?? ""));
         return;
       }
       scheduleRetry(owner, spawnFailure, String(armChild.pid ?? ""));
