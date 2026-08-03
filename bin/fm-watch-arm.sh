@@ -44,6 +44,20 @@
 # so the failure is loud. A live cycle already present means re-arm attaches - do
 # not start a second watcher.
 #
+# AWAY MODE. While state/.afk exists this script arms nothing at all: it prints
+# the single stand-down line below and exits 0. The away-mode daemon
+# (bin/fm-supervise-daemon.sh) runs its own bin/fm-watch.sh child and owns triage
+# there, so a second arm here would take the watcher singleton away from the
+# daemon - and --restart would kill the daemon's watcher outright. With the
+# singleton stolen, every away-mode wake surfaces to the primary pane instead of
+# being classified in bash, which is exactly the firstmate turn the daemon exists
+# to save. The stand-down is the deterministic half of the contract; the primary
+# adapters that own automatic re-arm (.pi/extensions/fm-primary-pi-watch.ts,
+# .opencode/plugins/fm-primary-watch-arm.js) additionally stand down before
+# spawning and never deliver an ordinary wake to the primary while away mode is
+# active. docs/watcher-continuity.md "Away-mode stand-down" owns the full
+# cross-harness contract.
+#
 # Every observed watcher cycle appends one tab-separated lifecycle record to
 # state/.watch-cycle-exits.log. The arm layer owns that bounded ledger; it records
 # arm/watcher identities, timestamps, exit/signal classification, beacon age,
@@ -67,6 +81,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WATCH="$SCRIPT_DIR/fm-watch.sh"
 WATCH_LOCK="$STATE/.watch.lock"
 BEAT="$STATE/.last-watcher-beat"
+# The single away-mode stand-down status line (see the AWAY MODE header note).
+# Primary watcher adapters match its `watcher: stood-down` prefix and treat it as
+# a benign, non-actionable close rather than a wake or a failure.
+AFK_STAND_DOWN_LINE="watcher: stood-down - away mode owns supervision; the away-mode daemon runs the watcher"
 # "Fresh" reuses the guard's threshold so there is one definition of liveness.
 GRACE=${FM_GUARD_GRACE:-300}
 # How long to wait for a freshly forked watcher to acquire the lock and beat.
@@ -378,6 +396,17 @@ case "${1:-}" in
   --restart) mode=restart ;;
   *) echo "usage: $(basename "$0") [--restart]" >&2; exit 2 ;;
 esac
+
+# Away-mode stand-down (see the "AWAY MODE" note in this header). This is the one
+# deterministic gate that keeps every arm path - Pi extension, OpenCode plugin,
+# a Grok background task, a manual recovery probe - out of the daemon's way while
+# state/.afk exists. It must stay ahead of --restart's kill, which would
+# otherwise terminate the daemon's own watcher child and hand singleton ownership
+# to the primary pane.
+if [ -e "$STATE/.afk" ]; then
+  printf '%s\n' "$AFK_STAND_DOWN_LINE"
+  exit 0
+fi
 
 if [ "$mode" = restart ]; then
   # Home-scoped stop: only the watcher pid recorded in THIS home's lock.

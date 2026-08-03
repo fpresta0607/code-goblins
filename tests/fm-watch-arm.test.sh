@@ -146,6 +146,59 @@ test_attached_arm_still_fails_on_a_wake_it_did_not_deliver() {
   pass "watch-arm: a cycle that delivered no wake of its own still fails loudly"
 }
 
+test_arm_stands_down_while_away_mode_owns_supervision() {
+  local dir state fakebin out armout status lock_pid i
+  dir=$(make_case afk-stand-down)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  out="$dir/watch.out"
+  armout="$dir/arm.out"
+  # The away-mode daemon's watcher child is the singleton holder here.
+  start_seed_watcher "$state" "$fakebin" "$out"
+  lock_pid=$(cat "$state/.watch.lock/pid")
+  date '+%s' > "$state/.afk"
+
+  # --restart is the shape every automatic primary adapter arms with, and the
+  # shape that would otherwise kill the daemon's watcher outright. It runs in the
+  # background with a bounded wait because an unguarded arm does not return at
+  # all: it takes the cycle over and blocks, so a regression must fail here
+  # rather than hang.
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" "$WATCH_ARM" --restart > "$armout" 2>&1 &
+  ARM_PID=$!
+  wait_for_exit "$ARM_PID" 120
+  status=$?
+
+  expect_code 0 "$status" "an away-mode arm must stand down cleanly instead of arming or failing"
+  grep -q '^watcher: stood-down' "$armout" \
+    || fail "away-mode arm did not report the stand-down line: $(cat "$armout")"
+  ! grep -qE '^(signal:|stale:|check:|heartbeat|watcher: (started|attached|FAILED))' "$armout" \
+    || fail "away-mode arm produced an actionable or arming line: $(cat "$armout")"
+  [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$lock_pid" ] \
+    || fail "away-mode arm took the watcher singleton away from the daemon's watcher"
+  kill -0 "$lock_pid" 2>/dev/null \
+    || fail "away-mode arm killed the daemon's watcher child"
+
+  # With away mode cleared, the same command arms normally again.
+  rm -f "$state/.afk"
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_ARM_CONFIRM_TIMEOUT=1 "$WATCH_ARM" > "$armout" 2>&1 &
+  ARM_PID=$!
+  i=0
+  while [ "$i" -lt 80 ]; do
+    grep -q '^watcher: \(started\|attached\)' "$armout" 2>/dev/null && break
+    sleep 0.1
+    i=$((i + 1))
+  done
+  grep -q '^watcher: \(started\|attached\)' "$armout" \
+    || fail "arm did not resume normal supervision after away mode ended: $(cat "$armout")"
+
+  kill "$ARM_PID" 2>/dev/null || true
+  wait "$ARM_PID" 2>/dev/null || true
+  kill "$SEED_PID" 2>/dev/null || true
+  wait "$SEED_PID" 2>/dev/null || true
+  pass "watch-arm: away mode stands the arm down and leaves the daemon's watcher untouched"
+}
+
 test_attached_arm_reports_the_delivered_wake
 test_attached_arm_reports_the_delivered_wake_after_drain
 test_attached_arm_still_fails_on_a_wake_it_did_not_deliver
+test_arm_stands_down_while_away_mode_owns_supervision

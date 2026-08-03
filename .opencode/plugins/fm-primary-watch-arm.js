@@ -100,8 +100,17 @@ async function isPrimaryRoot(root, home) {
   return gitDir.stdout.trim() === commonDir.stdout.trim();
 }
 
+// Away mode: while state/.afk exists the away-mode daemon owns the watcher and
+// classifies every wake in bash, so this plugin arms nothing and delivers no
+// ordinary wake. Read live on every decision rather than cached, because the
+// captain enters and leaves away mode inside one OpenCode session.
+// bin/fm-watch-arm.sh's "AWAY MODE" header owns the contract.
+function awayModeActive(paths) {
+  return existsSync(`${paths.state}/.afk`);
+}
+
 function shouldArm(paths) {
-  if (existsSync(`${paths.state}/.afk`)) return false;
+  if (awayModeActive(paths)) return false;
   if (existsSync(`${paths.config}/x-mode.env`)) return true;
   try {
     return readdirSync(paths.state).some((name) => name.endsWith(".meta"));
@@ -133,6 +142,11 @@ function classifyArmClose(stdout, stderr, code, signal) {
   const combined = `${stdout}\n${stderr}`;
   const reason = combined.split(/\r?\n/).find((line) => /^(signal:|stale:|check:|heartbeat($|:))/.test(line));
   if (reason) return { kind: "actionable", message: reason };
+  // Away mode was entered between this spawn and the arm's own gate. The arm
+  // refused rather than taking the watcher singleton from the daemon, which is a
+  // benign close, not a failure.
+  const stoodDown = combined.split(/\r?\n/).find((line) => /^watcher: stood-down\b/.test(line));
+  if (stoodDown) return { kind: "stood-down", message: stoodDown };
   const healthy = combined.split(/\r?\n/).find((line) => /^watcher: healthy\b/.test(line));
   if (healthy) {
     return {
@@ -238,6 +252,9 @@ function restorationFailure(status) {
 async function restoreAfterActionableClose(paths, sessionID, client, predecessorArmPid) {
   let failure = "";
   for (let attempt = 0; attempt <= REARM_RETRY_LIMIT; attempt += 1) {
+    // Away mode reclaims the watcher for the daemon; there is no successor to
+    // restore here and no failure to report.
+    if (awayModeActive(paths)) return "";
     const { status, armChild } = await ensureArm(paths, sessionID, client, predecessorArmPid, true);
     if (status === "armed") return "";
     // An actionable line belongs to this arm's close handler.
@@ -258,6 +275,7 @@ async function restoreAfterActionableClose(paths, sessionID, client, predecessor
 
 async function scheduleRetry(paths, sessionID, client, reason, predecessorArmPid) {
   if (child || retryTimer) return;
+  if (awayModeActive(paths)) return;
   if (!(await sessionOwnsLock(paths))) {
     setArmStatus("failed");
     surfaceFailure(paths, client, sessionID, `watcher: FAILED - OpenCode cannot restore continuity because this session no longer owns the lock\n${reason}`);
@@ -334,6 +352,22 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
     const classification = classifyArmClose(stdout, stderr, code, signal);
     settleReadiness(classification.kind === "actionable" ? "wake" : "failed");
     const predecessor = String(armChild.pid ?? "");
+    if (awayModeActive(paths)) {
+      // Away mode owns supervision. Stand down instead of re-arming: the daemon
+      // reclaims the watcher singleton and classifies this wake in bash, and the
+      // wake itself is already durable in state/.wake-queue. Delivering it here
+      // is the firstmate turn away mode exists to save. A real arm failure still
+      // surfaces once, with no retry loop behind it.
+      retryFailures = 0;
+      setArmStatus("stood-down");
+      if (classification.kind === "failure" && !restorationInFlight) {
+        surfaceFailure(paths, client, sessionID, classification.message);
+      }
+      return;
+    }
+    // A stand-down close with away mode already over means the flag was cleared
+    // mid-cycle: fall through to the ordinary bounded retry so the primary does
+    // not stay blind, and never report it as a failure.
     if (classification.kind === "actionable") {
       retryFailures = 0;
       setArmStatus("wake");
@@ -344,6 +378,9 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
       restorationInFlight = restoration;
       void restoration.then((failure) => {
         if (restorationInFlight === restoration) restorationInFlight = null;
+        // Away mode can begin while restoration is in flight; the wake is
+        // durable in state/.wake-queue and belongs to the daemon now.
+        if (awayModeActive(paths)) return undefined;
         const message = failure ? `${classification.message}\n\n${failure}` : classification.message;
         return sendPrompt(paths, client, sessionID, wakePrompt(message));
       }).catch(() => {
@@ -366,13 +403,16 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
       setArmStatus("failed");
       return;
     }
-    void scheduleRetry(
-      paths,
-      sessionID,
-      client,
-      `watcher: FAILED - OpenCode arm child failed: ${error.message}`,
-      String(armChild.pid ?? ""),
-    );
+    const spawnFailure = `watcher: FAILED - OpenCode arm child failed: ${error.message}`;
+    if (awayModeActive(paths)) {
+      // Away mode owns supervision, so surface the failure once and let the
+      // daemon keep the watcher rather than opening a retry loop.
+      retryFailures = 0;
+      setArmStatus("stood-down");
+      surfaceFailure(paths, client, sessionID, spawnFailure);
+      return;
+    }
+    void scheduleRetry(paths, sessionID, client, spawnFailure, String(armChild.pid ?? ""));
   });
   return armChild;
 }
