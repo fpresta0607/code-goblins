@@ -35,6 +35,10 @@ type CloseClassification = {
   message: string;
 };
 
+type RestorationResult =
+  | { kind: "restored"; failure: string }
+  | { kind: "parked" };
+
 type WatchToolShellState = {
   shell?: Box;
   call?: Component;
@@ -315,23 +319,28 @@ export default function (pi: ExtensionAPI) {
     });
   }
 
-  async function restoreAfterActionableClose(owner: SessionGeneration, predecessorArmPid: string): Promise<string> {
+  async function restoreAfterActionableClose(owner: SessionGeneration, predecessorArmPid: string): Promise<RestorationResult> {
     let failure = "";
     for (let attempt = 0; attempt <= retryLimit; attempt += 1) {
-      if (!generationIsLive(owner)) return "";
+      if (!generationIsLive(owner)) return { kind: "restored", failure: "" };
       // Away mode reclaims the watcher for the daemon; there is no successor to
       // restore here and no failure to report.
       if (awayModeActive()) {
         parkForAwayResume(owner, predecessorArmPid);
-        return "";
+        return { kind: "parked" };
       }
       const replacement = startArm(owner, predecessorArmPid);
       const successorChild = owner.child;
-      if (replacement.ok && successorChild && await waitForReadiness(successorChild)) return "";
+      if (replacement.ok && successorChild && await waitForReadiness(successorChild)) {
+        return { kind: "restored", failure: "" };
+      }
       if (replacement.ok) {
         failure = "watcher: FAILED - Pi extension could not verify a ready successor watcher";
         if (!(await retireArm(successorChild))) {
-          return `${failure}\nwatcher: FAILED - Pi extension could not restore watcher continuity because the unready successor arm did not exit within ${armRetireTimeoutMs}ms`;
+          return {
+            kind: "restored",
+            failure: `${failure}\nwatcher: FAILED - Pi extension could not restore watcher continuity because the unready successor arm did not exit within ${armRetireTimeoutMs}ms`,
+          };
         }
       } else {
         failure = /(?:read-only|no live session)/.test(replacement.message)
@@ -342,7 +351,10 @@ export default function (pi: ExtensionAPI) {
       if (attempt === retryLimit) break;
       await waitForRetry(attempt + 1);
     }
-    return `${failure}\nwatcher: FAILED - Pi extension could not restore watcher continuity after ${retryLimit} retries`;
+    return {
+      kind: "restored",
+      failure: `${failure}\nwatcher: FAILED - Pi extension could not restore watcher continuity after ${retryLimit} retries`,
+    };
   }
 
   function parkForAwayResume(owner: SessionGeneration, predecessorArmPid: string): void {
@@ -511,16 +523,17 @@ export default function (pi: ExtensionAPI) {
         owner.retryFailures = 0;
         owner.restoring = true;
         void (async () => {
-          const failure = await restoreAfterActionableClose(owner, predecessor);
+          const restoration = await restoreAfterActionableClose(owner, predecessor);
           if (generationIsLive(owner)) owner.restoring = false;
           if (!generationIsLive(owner)) return;
+          if (restoration.kind === "parked") return;
           // Away mode can begin while restoration is in flight; the wake is
           // durable in state/.wake-queue and belongs to the daemon now.
           if (awayModeActive()) {
             parkForAwayResume(owner, predecessor);
             return;
           }
-          const message = failure ? `${classification.message}\n\n${failure}` : classification.message;
+          const message = restoration.failure ? `${classification.message}\n\n${restoration.failure}` : classification.message;
           await sendWake(owner, message, true);
         })().catch(() => {
         });

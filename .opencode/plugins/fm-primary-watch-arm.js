@@ -260,24 +260,30 @@ async function restoreAfterActionableClose(paths, sessionID, client, predecessor
     // restore here and no failure to report.
     if (awayModeActive(paths)) {
       parkForAwayResume(paths, sessionID, client, predecessorArmPid);
-      return "";
+      return { kind: "parked" };
     }
     const { status, armChild } = await ensureArm(paths, sessionID, client, predecessorArmPid, true);
-    if (status === "armed") return "";
+    if (status === "armed") return { kind: "restored", failure: "" };
     // An actionable line belongs to this arm's close handler.
     // Do not retire it before that handler can start the successor cycle.
-    if (status === "wake") return "";
+    if (status === "wake") return { kind: "restored", failure: "" };
     failure = restorationFailure(status);
     if (!(await retireArm(armChild))) {
       setArmStatus("failed");
-      return `${failure}\nwatcher: FAILED - OpenCode could not restore watcher continuity because the unready successor arm did not exit within ${ARM_RETIRE_TIMEOUT_MS}ms`;
+      return {
+        kind: "restored",
+        failure: `${failure}\nwatcher: FAILED - OpenCode could not restore watcher continuity because the unready successor arm did not exit within ${ARM_RETIRE_TIMEOUT_MS}ms`,
+      };
     }
     if (status === "read-only" || status === "not-primary" || status === "skipped") break;
     if (attempt === REARM_RETRY_LIMIT) break;
     await waitForRetry(attempt + 1);
   }
   setArmStatus("failed");
-  return `${failure}\nwatcher: FAILED - OpenCode could not restore watcher continuity after ${REARM_RETRY_LIMIT} retries`;
+  return {
+    kind: "restored",
+    failure: `${failure}\nwatcher: FAILED - OpenCode could not restore watcher continuity after ${REARM_RETRY_LIMIT} retries`,
+  };
 }
 
 function parkForAwayResume(paths, sessionID, client, predecessorArmPid) {
@@ -436,18 +442,19 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
       setArmStatus("wake");
       const previousRestoration = restorationInFlight;
       const restoration = previousRestoration
-        ? previousRestoration.catch(() => "").then(() => restoreAfterActionableClose(paths, sessionID, client, predecessor))
+        ? previousRestoration.catch(() => ({ kind: "restored", failure: "" })).then(() => restoreAfterActionableClose(paths, sessionID, client, predecessor))
         : restoreAfterActionableClose(paths, sessionID, client, predecessor);
       restorationInFlight = restoration;
-      void restoration.then((failure) => {
+      void restoration.then((result) => {
         if (restorationInFlight === restoration) restorationInFlight = null;
+        if (result.kind === "parked") return undefined;
         // Away mode can begin while restoration is in flight; the wake is
         // durable in state/.wake-queue and belongs to the daemon now.
         if (awayModeActive(paths)) {
           parkForAwayResume(paths, sessionID, client, predecessor);
           return undefined;
         }
-        const message = failure ? `${classification.message}\n\n${failure}` : classification.message;
+        const message = result.failure ? `${classification.message}\n\n${result.failure}` : classification.message;
         return sendPrompt(paths, client, sessionID, wakePrompt(message), true);
       }).catch(() => {
       });
