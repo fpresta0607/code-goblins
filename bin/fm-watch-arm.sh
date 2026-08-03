@@ -324,6 +324,10 @@ close_unobserved_cycle() {
   fi
   fm_lock_release "$WATCH_DELIVERY_LOCK"
   if [ -n "$reason" ]; then
+    # Same boundary as owned_child_finished: an attached arm that outlived the
+    # away-mode transition must not hand its cycle's wake back to an adapterless
+    # caller either. The durable queue still carries it for the daemon.
+    stand_down_if_away && return 0
     printf '%s\n' "$reason"
     return 0
   fi
@@ -504,6 +508,17 @@ owned_child_finished() {
   if [ "$rc" -eq 0 ] && watch_output_has_wake "$child_out"; then
     reason_type=$(watch_output_reason_type "$child_out")
     cycle_log_append "$rc" "$signal" "$reason_type" none
+    # Away mode began while this arm's own watcher child was live. Returning the
+    # reason here IS the wake for every caller with no adapter of its own - a
+    # Grok tracked background task notifies its model on completion, and a manual
+    # probe prints it - so hand back the stand-down line instead. The wake itself
+    # is already durable in state/.wake-queue for the daemon and the next drain.
+    if stand_down_if_away; then
+      rm -f "$child_out" 2>/dev/null || true
+      child=
+      child_out=
+      return 0
+    fi
     print_watch_output "$child_out"
     rm -f "$child_out" 2>/dev/null || true
     child=

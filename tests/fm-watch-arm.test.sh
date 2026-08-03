@@ -317,9 +317,85 @@ SH
   pass "watch-arm: restart rechecks away mode immediately before watcher fork"
 }
 
+# Wait until the arm's own forked watcher child holds this home's singleton.
+wait_for_owned_watcher() {  # <state> <arm-pid> <message>
+  local state=$1 arm=$2 message=$3 i=0
+  while [ "$i" -lt 120 ]; do
+    [ -s "$state/.watch.lock/pid" ] && [ -e "$state/.last-watcher-beat" ] && return 0
+    is_live_non_zombie "$arm" || fail "$message (arm exited early)"
+    sleep 0.1
+    i=$((i + 1))
+  done
+  fail "$message"
+}
+
+# The adapterless wake path: for a Grok tracked background task or a manual
+# probe there is no adapter to suppress delivery, so the arm's own return value
+# IS the wake. An arm already running when away mode begins must therefore hand
+# back the stand-down line instead of its cycle's reason.
+test_live_arm_stands_down_when_away_mode_begins_mid_cycle() {
+  local dir state fakebin armout status
+  dir=$(make_case afk-live-arm-mid-cycle)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  armout="$dir/arm.out"
+
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_CONFIRM_TIMEOUT=10 \
+    "$WATCH_ARM" > "$armout" 2>&1 &
+  ARM_PID=$!
+  wait_for_owned_watcher "$state" "$ARM_PID" "arm never established its own watcher cycle"
+
+  # Away mode begins while this arm's watcher child is already live, then a real
+  # captain-relevant status change drives a real wake through that child.
+  date '+%s' > "$state/.afk"
+  printf 'done: fixture finished\n' > "$state/demo.status"
+  wait_for_exit "$ARM_PID" 200
+  status=$?
+
+  expect_code 0 "$status" "a live arm must stand down cleanly when away mode begins mid-cycle"
+  grep -q '^watcher: stood-down' "$armout" \
+    || fail "live arm did not stand down after away mode began: $(cat "$armout")"
+  ! grep -qE '^(signal:|stale:|check:|heartbeat)' "$armout" \
+    || fail "live arm handed a wake back to its caller under away mode: $(cat "$armout")"
+  # Suppressing delivery is only safe because the wake stays durable.
+  grep -q 'demo.status' "$state/.wake-queue" \
+    || fail "the suppressed wake was not preserved in the durable queue"
+  pass "watch-arm: a live arm stands down instead of returning its wake when away mode begins"
+}
+
+# The same path with away mode off must still return the wake, so the stand-down
+# above is a transition behavior rather than a permanent suppression.
+test_live_arm_still_reports_its_wake_with_away_mode_off() {
+  local dir state fakebin armout status
+  dir=$(make_case afk-live-arm-control)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  armout="$dir/arm.out"
+
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_CONFIRM_TIMEOUT=10 \
+    "$WATCH_ARM" > "$armout" 2>&1 &
+  ARM_PID=$!
+  wait_for_owned_watcher "$state" "$ARM_PID" "control arm never established its own watcher cycle"
+
+  printf 'done: fixture finished\n' > "$state/demo.status"
+  wait_for_exit "$ARM_PID" 200
+  status=$?
+
+  expect_code 0 "$status" "an ordinary arm cycle must still close successfully"
+  grep -q '^signal:' "$armout" \
+    || fail "arm did not report its wake with away mode off: $(cat "$armout")"
+  ! grep -q '^watcher: stood-down' "$armout" \
+    || fail "arm stood down with away mode off: $(cat "$armout")"
+  pass "watch-arm: an ordinary arm still returns its wake when away mode is off"
+}
+
 test_attached_arm_reports_the_delivered_wake
 test_attached_arm_reports_the_delivered_wake_after_drain
 test_attached_arm_still_fails_on_a_wake_it_did_not_deliver
 test_arm_stands_down_while_away_mode_owns_supervision
 test_restart_rechecks_away_mode_before_signaling
 test_restart_rechecks_away_mode_before_fork
+test_live_arm_stands_down_when_away_mode_begins_mid_cycle
+test_live_arm_still_reports_its_wake_with_away_mode_off
