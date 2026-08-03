@@ -290,7 +290,17 @@ async function scheduleRetry(paths, sessionID, client, reason, predecessorArmPid
   setArmStatus("retrying");
   const timer = setTimeout(() => {
     if (retryTimer === timer) retryTimer = null;
+    if (awayModeActive(paths)) {
+      retryFailures = 0;
+      setArmStatus("stood-down");
+      return;
+    }
     void ensureArm(paths, sessionID, client, predecessorArmPid).then((status) => {
+      if (awayModeActive(paths)) {
+        retryFailures = 0;
+        setArmStatus("stood-down");
+        return;
+      }
       if (["armed", "starting", "wake"].includes(status)) return;
       surfaceFailure(paths, client, sessionID, `watcher: FAILED - OpenCode could not launch a continuity retry (${status})`);
     });
