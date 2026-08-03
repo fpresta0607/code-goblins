@@ -319,8 +319,8 @@ SH
   pass "watch-arm: restart parks immediately before watcher fork"
 }
 
-test_attached_arm_parks_after_away_mode_delivery() {
-  local dir state fakebin out armout i
+test_attached_arm_stands_down_after_away_mode_delivery() {
+  local dir state fakebin out armout status
   dir=$(make_case afk-attached-delivery)
   state="$dir/state"
   fakebin="$dir/fakebin"
@@ -332,26 +332,20 @@ test_attached_arm_parks_after_away_mode_delivery() {
   date '+%s' > "$state/.afk"
   printf 'done: fixture finished\n' > "$state/demo.status"
   wait_for_exit "$SEED_PID" 120
-  i=0
-  while [ "$i" -lt 120 ]; do
-    grep -q 'reason=attached-delivered-wake' "$state/.watch-cycle-exits.log" 2>/dev/null && break
-    is_live_non_zombie "$ARM_PID" || fail "attached arm completed instead of parking"
-    sleep 0.1
-    i=$((i + 1))
-  done
+  wait_for_exit "$ARM_PID" 120
+  status=$?
 
   grep -q 'reason=attached-delivered-wake' "$state/.watch-cycle-exits.log" 2>/dev/null \
-    || fail "attached arm did not classify the delivered wake before parking"
-  is_live_non_zombie "$ARM_PID" || fail "attached arm completed after its away-mode delivery"
-  [ ! -e "$state/.watch.lock/pid" ] || fail "parked attached arm left a watcher lock"
+    || fail "attached arm did not classify the delivered wake before standing down"
+  expect_code 0 "$status" "attached arm must stand down cleanly after its away-mode delivery"
+  grep -q '^watcher: stood-down' "$armout" \
+    || fail "attached arm did not return the stand-down line: $(cat "$armout")"
   ! grep -qE '^(signal:|stale:|check:|heartbeat)' "$armout" \
     || fail "attached arm returned its away-mode wake: $(cat "$armout")"
   grep -q 'demo.status' "$state/.wake-queue" \
     || fail "attached arm lost the durable away-mode wake"
 
-  kill "$ARM_PID" 2>/dev/null || true
-  wait "$ARM_PID" 2>/dev/null || true
-  pass "watch-arm: an attached arm parks after an away-mode delivery"
+  pass "watch-arm: an attached arm stands down after an away-mode delivery"
 }
 
 # Wait until the arm's own forked watcher child holds this home's singleton.
@@ -366,8 +360,8 @@ wait_for_owned_watcher() {  # <state> <arm-pid> <message>
   fail "$message"
 }
 
-test_owned_arm_parks_after_away_mode_delivery_record() {
-  local dir state fakebin armout output_file i
+test_owned_arm_stands_down_after_away_mode_delivery_record() {
+  local dir state fakebin armout output_file status
   dir=$(make_case afk-owned-delivery-record)
   state="$dir/state"
   fakebin="$dir/fakebin"
@@ -388,35 +382,28 @@ test_owned_arm_parks_after_away_mode_delivery_record() {
   rm -f "$output_file"
   date '+%s' > "$state/.afk"
   printf 'done: fixture finished\n' > "$state/demo.status"
-
-  i=0
-  while [ "$i" -lt 200 ]; do
-    grep -q 'reason=clean-exit-delivered-wake' "$state/.watch-cycle-exits.log" 2>/dev/null && break
-    is_live_non_zombie "$ARM_PID" || fail "owned arm completed instead of parking on its delivery record"
-    sleep 0.1
-    i=$((i + 1))
-  done
+  wait_for_exit "$ARM_PID" 200
+  status=$?
 
   grep -q 'reason=clean-exit-delivered-wake' "$state/.watch-cycle-exits.log" 2>/dev/null \
-    || fail "owned arm did not classify its delivery-record wake before parking"
-  is_live_non_zombie "$ARM_PID" || fail "owned arm completed after resolving its away-mode delivery record"
-  [ ! -e "$state/.watch.lock/pid" ] || fail "delivery-record parked arm left a watcher lock"
+    || fail "owned arm did not classify its delivery-record wake before standing down"
+  expect_code 0 "$status" "owned arm must stand down cleanly after resolving its away-mode delivery record"
+  grep -q '^watcher: stood-down' "$armout" \
+    || fail "owned arm did not return the stand-down line: $(cat "$armout")"
   ! grep -qE '^(signal:|stale:|check:|heartbeat)' "$armout" \
     || fail "owned arm returned its delivery-record wake under away mode: $(cat "$armout")"
   grep -q 'demo.status' "$state/.wake-queue" \
     || fail "owned arm lost the durable delivery-record wake"
 
-  kill "$ARM_PID" 2>/dev/null || true
-  wait "$ARM_PID" 2>/dev/null || true
-  pass "watch-arm: an owned arm parks after an away-mode delivery record"
+  pass "watch-arm: an owned arm stands down after an away-mode delivery record"
 }
 
 # The adapterless wake path: for a Grok tracked background task or a manual
 # probe there is no adapter to suppress delivery, so the arm's own return value
 # IS the wake. An arm already running when away mode begins must therefore hand
-# complete or return its cycle's reason.
-test_live_arm_parks_when_away_mode_begins_mid_cycle() {
-  local dir state fakebin armout before_size i
+# back the stand-down line instead of its cycle's reason.
+test_live_arm_stands_down_when_away_mode_begins_mid_cycle() {
+  local dir state fakebin armout status
   dir=$(make_case afk-live-arm-mid-cycle)
   state="$dir/state"
   fakebin="$dir/fakebin"
@@ -432,38 +419,19 @@ test_live_arm_parks_when_away_mode_begins_mid_cycle() {
   # captain-relevant status change drives a real wake through that child.
   date '+%s' > "$state/.afk"
   printf 'done: fixture finished\n' > "$state/demo.status"
-  i=0
-  while [ "$i" -lt 200 ]; do
-    grep -q 'reason=actionable-signal' "$state/.watch-cycle-exits.log" 2>/dev/null && break
-    is_live_non_zombie "$ARM_PID" || fail "live arm completed instead of parking after its away-mode wake"
-    sleep 0.1
-    i=$((i + 1))
-  done
+  wait_for_exit "$ARM_PID" 200
+  status=$?
 
   grep -q 'reason=actionable-signal' "$state/.watch-cycle-exits.log" 2>/dev/null \
-    || fail "live arm did not classify its away-mode wake before parking"
-  is_live_non_zombie "$ARM_PID" || fail "live arm completed after its away-mode wake"
-  [ ! -e "$state/.watch.lock/pid" ] || fail "parked owned arm left a watcher lock"
+    || fail "live arm did not classify its away-mode wake before standing down"
+  expect_code 0 "$status" "a live arm must stand down cleanly when away mode begins mid-cycle"
+  grep -q '^watcher: stood-down' "$armout" \
+    || fail "live arm did not stand down after away mode began: $(cat "$armout")"
   ! grep -qE '^(signal:|stale:|check:|heartbeat)' "$armout" \
     || fail "live arm handed a wake back to its caller under away mode: $(cat "$armout")"
   grep -q 'demo.status' "$state/.wake-queue" \
     || fail "the suppressed wake was not preserved in the durable queue"
-  before_size=$(wc -c < "$armout")
-  sleep 0.5
-  [ "$(wc -c < "$armout")" = "$before_size" ] || fail "parked arm emitted further output"
-
-  rm -f "$state/.afk"
-  i=0
-  while [ "$i" -lt 120 ]; do
-    [ "$(grep -c '^watcher: started' "$armout" 2>/dev/null || true)" -ge 2 ] && break
-    sleep 0.1
-    i=$((i + 1))
-  done
-  [ "$(grep -c '^watcher: started' "$armout" 2>/dev/null || true)" -ge 2 ] \
-    || fail "mid-cycle parked arm did not re-arm after away mode ended: $(cat "$armout")"
-  kill "$ARM_PID" 2>/dev/null || true
-  wait "$ARM_PID" 2>/dev/null || true
-  pass "watch-arm: a live arm parks silently and resumes after away mode"
+  pass "watch-arm: a live arm stands down instead of returning its wake when away mode begins"
 }
 
 # The same path with away mode off must still return the wake.
@@ -496,7 +464,7 @@ test_attached_arm_still_fails_on_a_wake_it_did_not_deliver
 test_arm_parks_while_away_mode_owns_supervision
 test_restart_rechecks_away_mode_before_signaling
 test_restart_rechecks_away_mode_before_fork
-test_attached_arm_parks_after_away_mode_delivery
-test_owned_arm_parks_after_away_mode_delivery_record
-test_live_arm_parks_when_away_mode_begins_mid_cycle
+test_attached_arm_stands_down_after_away_mode_delivery
+test_owned_arm_stands_down_after_away_mode_delivery_record
+test_live_arm_stands_down_when_away_mode_begins_mid_cycle
 test_live_arm_still_reports_its_wake_with_away_mode_off
