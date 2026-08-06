@@ -206,9 +206,7 @@ SH
 
 # make_fake_ps_claude <fakebin>: harness_pid()/holder_alive() (fm-lock.sh) walk
 # `ps` output looking for a harness command name; this fake reports EVERY
-# queried pid as a live `claude` harness, so the very first ancestry check
-# (this test process's own pid) matches and lock acquisition succeeds
-# deterministically. Mirrors fm-grok-harness.test.sh's fake ps.
+# queried pid as a live `claude` harness unless a stable harness pid is set.
 make_fake_ps_claude() {
   local fakebin=$1
   make_fake_ps_harness "$fakebin" claude
@@ -220,9 +218,33 @@ make_fake_ps_harness() {
 #!/usr/bin/env bash
 set -u
 harness=${FM_FAKE_HARNESS:-claude}
+pid=
+previous=
+for argument in "$@"; do
+  [ "$previous" = -p ] && pid=$argument
+  previous=$argument
+done
 case "$*" in
-  *"comm="*) printf '/usr/local/bin/%s\n' "$harness"; exit 0 ;;
-  *"args="*) printf '%s\n' "$harness"; exit 0 ;;
+  *"comm="*)
+    if [ -z "${FM_FAKE_HARNESS_PID:-}" ] || [ "$pid" = "$FM_FAKE_HARNESS_PID" ]; then
+      printf '/usr/local/bin/%s\n' "$harness"
+    else
+      printf '/bin/bash\n'
+    fi
+    exit 0
+    ;;
+  *"args="*)
+    if [ -z "${FM_FAKE_HARNESS_PID:-}" ] || [ "$pid" = "$FM_FAKE_HARNESS_PID" ]; then
+      printf '%s\n' "$harness"
+    else
+      printf 'bash\n'
+    fi
+    exit 0
+    ;;
+  *"ppid="*)
+    [ -n "${FM_FAKE_HARNESS_PID:-}" ] || exit 1
+    /bin/ps -o ppid= -p "$pid"
+    ;;
 esac
 exit 1
 SH
@@ -536,6 +558,7 @@ run_session_start_secondmate() {
   TMUX='' FM_BACKEND=tmux FM_FAKE_TMUX_MODE="$mode" FM_FAKE_TMUX_LOG="$log" \
     FM_FAKE_TMUX_SPAWNED="$spawned" FM_FAKE_SECOND_MATE_HOME="$mate" \
     FM_FAKE_SECOND_MATE_ID="$SESSION_START_SECOND_MATE_ID" \
+    FM_FAKE_HARNESS_PID=$$ \
     run_session_start "$home" "$root" "$fakebin:$BASE_PATH"
 }
 
@@ -580,6 +603,7 @@ run_session_start_herdr_secondmate() {
   local root=$1 home=$2 fakebin=$3 mate=$4 log=$5 state=$6
   FM_BACKEND=herdr FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_STATE="$state" \
     FM_FAKE_SECOND_MATE_ID="$SESSION_START_HERDR_SECOND_MATE_ID" \
+    FM_FAKE_HARNESS_PID=$$ \
     run_session_start "$home" "$root" "$fakebin:$BASE_PATH"
 }
 
@@ -592,6 +616,16 @@ wait_for_network_stage() {
   local home=$1 root=$2 limit=${3:-30}
   FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
     "$ROOT/bin/fm-startup-network.sh" wait "$limit"
+}
+
+wait_for_network_wake() {
+  local home=$1 limit=${2:-30} waited=0
+  while ! grep -Fq $'check\tstartup-network' "$home/state/.wake-queue" 2>/dev/null \
+    && [ "$waited" -lt "$limit" ]; do
+    sleep 1
+    waited=$((waited + 1))
+  done
+  grep -Fq $'check\tstartup-network' "$home/state/.wake-queue" 2>/dev/null
 }
 
 network_stage_report() {
@@ -1382,6 +1416,7 @@ EOF
 
   run_session_start_secondmate "$root" "$home" "$fakebin" "$mate" "$log" "$spawned" missing >/dev/null
   wait_for_network_stage "$home" "$root" 60 || fail "the deferred stage never finished"
+  wait_for_network_wake "$home" 60 || fail "the deferred stage never settled wake delivery"
   assert_grep 'check	startup-network' "$queue" \
     "a result the digest could not print never reached the agent: $(cat "$queue" 2>/dev/null)"
   pass "session start: a deferred result the digest outran still reaches the agent as a wake"

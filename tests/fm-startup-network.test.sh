@@ -94,6 +94,16 @@ run_stage() {  # <home> <root> <args...>
     FM_HOME="$home" FM_ROOT_OVERRIDE="$root" "$root/bin/fm-startup-network.sh" "$@"
 }
 
+wait_for_startup_network_wake() {  # <home> [tenths]
+  local home=$1 limit=${2:-50} waited=0
+  while ! grep -Fq $'check\tstartup-network' "$home/state/.wake-queue" 2>/dev/null \
+    && [ "$waited" -lt "$limit" ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  grep -Fq $'check\tstartup-network' "$home/state/.wake-queue" 2>/dev/null
+}
+
 # --- tests -------------------------------------------------------------------
 
 # `start` is called from inside a session-open hook whose stdout the harness
@@ -164,6 +174,7 @@ EOF
   FM_FAKE_BOOTSTRAP_LOG="$log" \
     run_stage "$home" "$root" start --locked 0 --harvest-pid 999999999
   run_stage "$home" "$root" wait 30 >/dev/null || fail "the dead-claim worker never published"
+  wait_for_startup_network_wake "$home" || fail "the dead-claim worker never settled delivery"
   assert_grep 'check	startup-network' "$home/state/.wake-queue" \
     "a dead session's stale claim swallowed the result"
   assert_absent "$home/state/.startup-network.claim" "a dead claim was not reaped"
@@ -171,7 +182,7 @@ EOF
 }
 
 test_a_claimant_crash_after_publish_still_queues_the_wake() {
-  local rec home root log claimant waited=0
+  local rec home root log claimant
   rec=$(new_world claimant-crash)
   IFS='|' read -r home root log <<EOF
 $rec
@@ -185,10 +196,7 @@ EOF
     || fail "the claimant died before the worker published"
   kill "$claimant" 2>/dev/null || true
   wait "$claimant" 2>/dev/null || true
-  while [ ! -s "$home/state/.wake-queue" ] && [ "$waited" -lt 50 ]; do
-    sleep 0.1
-    waited=$((waited + 1))
-  done
+  wait_for_startup_network_wake "$home" || fail "the crash-window worker never settled delivery"
   assert_grep 'check	startup-network' "$home/state/.wake-queue" \
     "a claimant crash after publication silently lost the result"
   assert_absent "$home/state/.startup-network.delivered" \
@@ -227,7 +235,7 @@ EOF
 # The unbounded per-call network work is exactly what could wedge a startup. The
 # stage carries one aggregate bound, and hitting it is an actionable line.
 test_the_stage_bound_is_reported_not_swallowed() {
-  local rec home root log report waited=0
+  local rec home root log report
   rec=$(new_world stage-bound)
   IFS='|' read -r home root log <<EOF
 $rec
@@ -244,10 +252,7 @@ EOF
     "a wedged deferred stage was not reported: $report"
   assert_contains "$report" "fm-startup-network.sh run --locked 1" \
     "the timeout line did not say how to rerun the stage"
-  while [ ! -s "$home/state/.wake-queue" ] && [ "$waited" -lt 50 ]; do
-    sleep 0.1
-    waited=$((waited + 1))
-  done
+  wait_for_startup_network_wake "$home" || fail "the timed-out worker never settled delivery"
   assert_grep 'check	startup-network' "$home/state/.wake-queue" \
     "a timed-out stage did not surface to the agent"
   pass "fm-startup-network: an aggregate bound turns a wedged sweep into an actionable line"
@@ -366,7 +371,7 @@ EOF
 }
 
 test_lock_takeover_stays_read_only_while_a_sweep_holds_the_lease() {
-  local rec home root log next_owner out rc started elapsed waited=0
+  local rec home root log next_owner new_owner out rc started elapsed waited=0
   rec=$(new_world sweep-lease)
   IFS='|' read -r home root log <<EOF
 $rec
@@ -394,11 +399,13 @@ EOF
     || fail "the lease-blocked takeover replaced the prior owner"
 
   run_stage "$home" "$root" wait 30 >/dev/null || fail "the leased sweep never settled"
-  PATH="$root/bin:$PATH" FM_FAKE_HARNESS_PID="$next_owner" \
-    FM_HOME="$home" FM_ROOT_OVERRIDE="$root" "$root/bin/fm-lock.sh" >/dev/null \
+  out=$(PATH="$root/bin:$PATH" FM_FAKE_HARNESS_PID="$next_owner" \
+    FM_HOME="$home" FM_ROOT_OVERRIDE="$root" "$root/bin/fm-lock.sh" 2>&1) \
     || fail "lock takeover still failed after the sweep released its lease"
-  [ "$(cat "$home/state/.lock")" = "$next_owner" ] \
-    || fail "the new harness did not own the lock after lease release"
+  new_owner=$(cat "$home/state/.lock")
+  assert_contains "$out" "lock acquired: harness pid $new_owner" \
+    "the fleet lock did not record the harness owner reported by acquisition"
+  [ "$new_owner" != "$$" ] || fail "the prior harness still owned the lock after takeover"
   pass "fm-startup-network: fleet-lock takeover cannot overlap a mutating sweep"
 }
 
