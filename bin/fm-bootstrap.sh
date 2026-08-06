@@ -161,6 +161,25 @@ esac
 local_phase() { [ "$FM_BOOTSTRAP_NETWORK_PHASE" != only ]; }
 network_phase() { [ "$FM_BOOTSTRAP_NETWORK_PHASE" != skip ]; }
 
+network_mutation_authorized() {
+  local expected=${FM_BOOTSTRAP_NETWORK_LOCK_PID:-} current
+  [ -n "$expected" ] || return 0
+  case "$expected" in *[!0-9]*) return 1 ;; esac
+  [ -f "$STATE/.lock" ] && [ ! -L "$STATE/.lock" ] || return 1
+  current=$(cat "$STATE/.lock" 2>/dev/null) || return 1
+  [ "$current" = "$expected" ]
+}
+
+run_network_sweep() {
+  local label=$1
+  shift
+  if network_mutation_authorized; then
+    "$@"
+  else
+    echo "NETWORK_CHECKS: fleet lock ownership changed before $label, so this stale worker skipped that sweep"
+  fi
+}
+
 fleet_sync_origin_backed_project_count() {
   local count proj
   count=0
@@ -1141,13 +1160,13 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   # secondmate_sync consumes SECONDMATE_RESPAWNED_IDS from the liveness sweep, so
   # those two always run together in the same phase.
   if network_phase; then
-    secondmate_liveness_sweep
-    secondmate_sync
-    secondmate_handoff_resume
+    run_network_sweep 'dead-secondmate relaunch' secondmate_liveness_sweep
+    run_network_sweep 'secondmate convergence' secondmate_sync
+    run_network_sweep 'pending handoff delivery' secondmate_handoff_resume
   fi
   # x_mode_setup writes local Relay artifacts only and never leaves the machine.
   local_phase && x_mode_setup
-  network_phase && fleet_sync
+  network_phase && run_network_sweep 'project clone refresh' fleet_sync
 fi
 local_phase && secondmate_handoff_detect
 exit 0

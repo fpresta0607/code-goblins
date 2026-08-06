@@ -53,6 +53,25 @@ printf 'network=%s detect_only=%s\n' \
 exit "${FM_FAKE_BOOTSTRAP_RC:-0}"
 SH
   chmod +x "$root/bin/fm-bootstrap.sh"
+  cat > "$root/bin/ps" <<'SH'
+#!/usr/bin/env bash
+pid=
+previous=
+for argument in "$@"; do
+  [ "$previous" = -p ] && pid=$argument
+  previous=$argument
+done
+if [ "$pid" = "${FM_FAKE_HARNESS_PID:-}" ]; then
+  case "$*" in
+    *comm=*) printf '/usr/local/bin/claude\n' ;;
+    *args=*) printf 'claude\n' ;;
+    *ppid=*) /bin/ps -o ppid= -p "$pid" ;;
+  esac
+else
+  /bin/ps "$@"
+fi
+SH
+  chmod +x "$root/bin/ps"
   printf '%s|%s|%s\n' "$home" "$root" "$w/bootstrap.log"
 }
 
@@ -71,7 +90,8 @@ await_worker_record() {  # <home>
 run_stage() {  # <home> <root> <args...>
   local home=$1 root=$2
   shift 2
-  FM_HOME="$home" FM_ROOT_OVERRIDE="$root" "$root/bin/fm-startup-network.sh" "$@"
+  PATH="$root/bin:$PATH" FM_FAKE_HARNESS_PID="${FM_FAKE_HARNESS_PID_OVERRIDE:-$$}" \
+    FM_HOME="$home" FM_ROOT_OVERRIDE="$root" "$root/bin/fm-startup-network.sh" "$@"
 }
 
 # --- tests -------------------------------------------------------------------
@@ -87,7 +107,7 @@ test_start_returns_without_holding_the_callers_stdout() {
   IFS='|' read -r home root log <<EOF
 $rec
 EOF
-  printf '111111\n' > "$home/state/.lock"
+  printf '%s\n' $$ > "$home/state/.lock"
 
   started=$(date +%s)
   # Command substitution reads to EOF, exactly like a hook harvesting hook output.
@@ -107,30 +127,31 @@ EOF
 # The claim handshake is what stops a result being both printed and queued. Both
 # directions are decided here, without racing a digest.
 test_a_live_claim_suppresses_the_wake_and_no_claim_produces_it() {
-  local rec home root log
+  local rec home root log generation
   rec=$(new_world claim-handshake)
   IFS='|' read -r home root log <<EOF
 $rec
 EOF
-  printf '111111\n' > "$home/state/.lock"
+  printf '%s\n' $$ > "$home/state/.lock"
 
   # A live claim: some session start is still composing and will print this.
-  printf '%s\n' $$ > "$home/state/.startup-network.claim"
-  FM_FAKE_BOOTSTRAP_LOG="$log" run_stage "$home" "$root" run --locked 1 --lock-pid 111111
+  FM_FAKE_BOOTSTRAP_LOG="$log" run_stage "$home" "$root" start --locked 0 --harvest-pid $$
+  run_stage "$home" "$root" wait 30 >/dev/null || fail "the claimed worker never published"
   [ ! -s "$home/state/.wake-queue" ] \
     || fail "a result a live session start had claimed also queued a wake: $(cat "$home/state/.wake-queue")"
 
   # Harvest releases that claim, so the NEXT publication has nobody to print it.
   run_stage "$home" "$root" harvest --pid $$ >/dev/null
   assert_absent "$home/state/.startup-network.claim" "harvest did not release its own claim"
-  FM_FAKE_BOOTSTRAP_LOG="$log" run_stage "$home" "$root" run --locked 1 --lock-pid 111111
+  FM_FAKE_BOOTSTRAP_LOG="$log" run_stage "$home" "$root" run --locked 0
   assert_grep 'check	startup-network' "$home/state/.wake-queue" \
     "an unclaimed result never reached the wake queue"
 
   # A claim whose session died is not a claim.
   : > "$home/state/.wake-queue"
-  printf '999999999\n' > "$home/state/.startup-network.claim"
-  FM_FAKE_BOOTSTRAP_LOG="$log" run_stage "$home" "$root" run --locked 1 --lock-pid 111111
+  generation=$(sed -n 's/^generation=//p' "$home/state/.startup-network.status")
+  printf '%s\t999999999\n' "$generation" > "$home/state/.startup-network.claim"
+  FM_FAKE_BOOTSTRAP_LOG="$log" run_stage "$home" "$root" run --locked 0
   assert_grep 'check	startup-network' "$home/state/.wake-queue" \
     "a dead session's stale claim swallowed the result"
   assert_absent "$home/state/.startup-network.claim" "a dead claim was not reaped"
@@ -155,12 +176,14 @@ EOF
   assert_contains "$report" "NETWORK_CHECKS: the fleet lock was no longer held" \
     "the downgrade to a read-only probe was not reported"
 
-  # The same worker with the lock intact does run them.
+  # A detached start captures the lock itself and may run the mutating phase.
   : > "$log"
-  FM_FAKE_BOOTSTRAP_LOG="$log" run_stage "$home" "$root" run --locked 1 --lock-pid 222222
+  printf '%s\n' $$ > "$home/state/.lock"
+  FM_FAKE_BOOTSTRAP_LOG="$log" run_stage "$home" "$root" start --locked 1 --harvest-pid $$
+  run_stage "$home" "$root" wait 30 >/dev/null || fail "the lock-authorized worker never published"
   assert_grep 'network=only detect_only=0' "$log" \
     "the worker refused sweeps for the very session that still holds the lock"
-  pass "fm-startup-network: mutating sweeps need the lock still to name the session that asked"
+  pass "fm-startup-network: manual callers cannot forge mutation authority"
 }
 
 # The unbounded per-call network work is exactly what could wedge a startup. The
@@ -171,10 +194,13 @@ test_the_stage_bound_is_reported_not_swallowed() {
   IFS='|' read -r home root log <<EOF
 $rec
 EOF
-  printf '111111\n' > "$home/state/.lock"
+  printf '%s\n' $$ > "$home/state/.lock"
 
   FM_FAKE_BOOTSTRAP_LOG="$log" FM_FAKE_BOOTSTRAP_SLEEP=20 FM_STARTUP_NETWORK_TIMEOUT=2 \
-    run_stage "$home" "$root" run --locked 1 --lock-pid 111111
+    run_stage "$home" "$root" start --locked 1 --harvest-pid $$
+  run_stage "$home" "$root" harvest --pid $$ >/dev/null
+  FM_STARTUP_NETWORK_TIMEOUT=2 run_stage "$home" "$root" wait 10 >/dev/null \
+    || fail "the bounded worker never settled"
   report=$(run_stage "$home" "$root" report)
   assert_contains "$report" "NETWORK_CHECKS: hit the 2s bound before finishing" \
     "a wedged deferred stage was not reported: $report"
@@ -231,7 +257,7 @@ test_start_is_single_flight() {
   IFS='|' read -r home root log <<EOF
 $rec
 EOF
-  printf '111111\n' > "$home/state/.lock"
+  printf '%s\n' $$ > "$home/state/.lock"
 
   FM_FAKE_BOOTSTRAP_LOG="$log" FM_FAKE_BOOTSTRAP_SLEEP=6 \
     run_stage "$home" "$root" start --locked 1 --harvest-pid $$
@@ -245,11 +271,65 @@ EOF
   pass "fm-startup-network: a second start never launches a competing worker"
 }
 
+test_start_reserves_its_generation_before_returning() {
+  local rec home root log report
+  rec=$(new_world generation-reservation)
+  IFS='|' read -r home root log <<EOF
+$rec
+EOF
+  cat > "$home/state/.startup-network.status" <<EOF
+state=done
+pid=999999999
+started=1
+finished=2
+rc=0
+locked=0
+phases=probe
+generation=old
+lock_pid=
+EOF
+  printf 'old result\n' > "$home/state/.startup-network.report"
+
+  FM_FAKE_BOOTSTRAP_LOG="$log" FM_FAKE_BOOTSTRAP_SLEEP=5 \
+    run_stage "$home" "$root" start --locked 0 --harvest-pid $$
+  report=$(run_stage "$home" "$root" harvest --pid $$)
+  assert_contains "$report" "IN PROGRESS" \
+    "harvest exposed the previous generation after a new start returned: $report"
+  assert_not_contains "$report" "old result" \
+    "harvest printed a stale generation's report"
+  run_stage "$home" "$root" wait 30 >/dev/null || fail "the reserved generation never published"
+  pass "fm-startup-network: start atomically reserves the generation harvest observes"
+}
+
+test_new_lock_owner_does_not_reuse_the_previous_owners_worker() {
+  local rec home root log generation_one generation_two next_owner
+  rec=$(new_world owner-handoff)
+  IFS='|' read -r home root log <<EOF
+$rec
+EOF
+  printf '%s\n' $$ > "$home/state/.lock"
+  FM_FAKE_BOOTSTRAP_LOG="$log" FM_FAKE_BOOTSTRAP_SLEEP=6 \
+    run_stage "$home" "$root" start --locked 1 --harvest-pid $$
+  generation_one=$(sed -n 's/^generation=//p' "$home/state/.startup-network.status")
+
+  next_owner=$(/bin/ps -o ppid= -p $$ | tr -d ' ')
+  printf '%s\n' "$next_owner" > "$home/state/.lock"
+  FM_FAKE_HARNESS_PID_OVERRIDE="$next_owner" FM_FAKE_BOOTSTRAP_LOG="$log" FM_FAKE_BOOTSTRAP_SLEEP=1 \
+    run_stage "$home" "$root" start --locked 1 --harvest-pid $$
+  generation_two=$(sed -n 's/^generation=//p' "$home/state/.startup-network.status")
+  [ "$generation_one" != "$generation_two" ] \
+    || fail "the new lock owner reused the previous owner's generation"
+  run_stage "$home" "$root" wait 30 >/dev/null || fail "the new owner's generation never published"
+  pass "fm-startup-network: a new lock owner gets a distinct worker generation"
+}
+
 test_start_returns_without_holding_the_callers_stdout
 test_a_live_claim_suppresses_the_wake_and_no_claim_produces_it
 test_mutating_sweeps_are_refused_when_the_lock_changed_hands
 test_the_stage_bound_is_reported_not_swallowed
 test_an_abandoned_run_reads_as_needing_a_rerun
 test_start_is_single_flight
+test_start_reserves_its_generation_before_returning
+test_new_lock_owner_does_not_reuse_the_previous_owners_worker
 
 echo "# fm-startup-network.test.sh: all assertions passed"
