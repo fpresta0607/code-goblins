@@ -323,6 +323,43 @@ EOF
   pass "fm-startup-network: a new lock owner gets a distinct worker generation"
 }
 
+test_lock_takeover_stays_read_only_while_a_sweep_holds_the_lease() {
+  local rec home root log next_owner out rc started elapsed waited=0
+  rec=$(new_world sweep-lease)
+  IFS='|' read -r home root log <<EOF
+$rec
+EOF
+  printf '%s\n' $$ > "$home/state/.lock"
+  FM_FAKE_BOOTSTRAP_LOG="$log" FM_FAKE_BOOTSTRAP_SLEEP=6 \
+    run_stage "$home" "$root" start --locked 1 --harvest-pid $$
+  while [ ! -s "$log" ] && [ "$waited" -lt 50 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  [ -s "$log" ] || fail "the mutating sweep never started"
+
+  next_owner=$(/bin/ps -o ppid= -p $$ | tr -d ' ')
+  started=$(date +%s)
+  rc=0
+  out=$(PATH="$root/bin:$PATH" FM_FAKE_HARNESS_PID="$next_owner" \
+    FM_HOME="$home" FM_ROOT_OVERRIDE="$root" "$root/bin/fm-lock.sh" 2>&1) || rc=$?
+  elapsed=$(( $(date +%s) - started ))
+  [ "$rc" -ne 0 ] || fail "lock takeover succeeded while the prior sweep was mutating"
+  [ "$elapsed" -lt 4 ] || fail "lock takeover blocked ${elapsed}s behind deferred network work"
+  assert_contains "$out" "operate read-only" \
+    "a lease-blocked takeover did not fail closed to read-only: $out"
+  [ "$(cat "$home/state/.lock")" = "$$" ] \
+    || fail "the lease-blocked takeover replaced the prior owner"
+
+  run_stage "$home" "$root" wait 30 >/dev/null || fail "the leased sweep never settled"
+  PATH="$root/bin:$PATH" FM_FAKE_HARNESS_PID="$next_owner" \
+    FM_HOME="$home" FM_ROOT_OVERRIDE="$root" "$root/bin/fm-lock.sh" >/dev/null \
+    || fail "lock takeover still failed after the sweep released its lease"
+  [ "$(cat "$home/state/.lock")" = "$next_owner" ] \
+    || fail "the new harness did not own the lock after lease release"
+  pass "fm-startup-network: fleet-lock takeover cannot overlap a mutating sweep"
+}
+
 test_start_returns_without_holding_the_callers_stdout
 test_a_live_claim_suppresses_the_wake_and_no_claim_produces_it
 test_mutating_sweeps_are_refused_when_the_lock_changed_hands
@@ -331,5 +368,6 @@ test_an_abandoned_run_reads_as_needing_a_rerun
 test_start_is_single_flight
 test_start_reserves_its_generation_before_returning
 test_new_lock_owner_does_not_reuse_the_previous_owners_worker
+test_lock_takeover_stays_read_only_while_a_sweep_holds_the_lease
 
 echo "# fm-startup-network.test.sh: all assertions passed"

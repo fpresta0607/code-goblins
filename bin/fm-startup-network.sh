@@ -27,13 +27,11 @@
 #     digest or as a `check: startup-network` wake, and while the worker is still
 #     running the digest states by name what is not yet confirmed. A deferred
 #     check is never silently pending.
-#   - Mutation authority is re-verified. The worker outlives the command that
-#     launched it, so before running any mutating sweep it re-checks that the
-#     session lock still names the exact holder it was launched under, then
-#     fm-bootstrap.sh repeats that check at every mutating sweep boundary. A
-#     session that took the lock in the meantime has rewritten that value, so
-#     the stale worker skips the remaining sweeps rather than running underneath
-#     the new owner.
+#   - Mutation authority is leased. The worker outlives the command that launched
+#     it, so it takes the same acquisition lease a new session must hold before
+#     replacing a dead owner, re-checks the captured owner under that lease, and
+#     holds it through the bounded mutating run. A takeover stays read-only until
+#     that run settles, so old and new owners can never sweep concurrently.
 #
 # Usage: fm-startup-network.sh start --locked <0|1> --harvest-pid <pid>
 #          Launch the detached worker and return immediately. Single-flight: a
@@ -307,7 +305,7 @@ EOF
 }
 
 cmd_run() {  # <locked> <lock-pid> <generation>
-  local locked=$1 lock_pid=$2 generation=$3 phases started budget out rc sweep_locked=0 downgraded=0 internal=0
+  local locked=$1 lock_pid=$2 generation=$3 phases started budget out rc sweep_locked=0 downgraded=0 internal=0 lease_held=0
   mkdir -p "$STATE" 2>/dev/null || return 1
   started=$(now)
   budget=$(stage_budget)
@@ -356,6 +354,15 @@ EOF
   out=$(mktemp "${TMPDIR:-/tmp}/fm-startup-network.XXXXXX" 2>/dev/null) || return 1
   rc=0
   if [ "$sweep_locked" -eq 1 ]; then
+    fm_lock_acquire_wait "$STATE/.lock.acquire"
+    lease_held=1
+    if ! lock_unchanged "$lock_pid"; then
+      sweep_locked=0
+      phases=probe
+      downgraded=1
+    fi
+  fi
+  if [ "$sweep_locked" -eq 1 ]; then
     fm_run_timed "$budget" env FM_BOOTSTRAP_NETWORK=only \
       FM_BOOTSTRAP_NETWORK_LOCK_PID="$lock_pid" \
       "$SCRIPT_DIR/fm-bootstrap.sh" >"$out" 2>&1 || rc=$?
@@ -363,6 +370,7 @@ EOF
     fm_run_timed "$budget" env FM_BOOTSTRAP_NETWORK=only FM_BOOTSTRAP_DETECT_ONLY=1 \
       "$SCRIPT_DIR/fm-bootstrap.sh" >"$out" 2>&1 || rc=$?
   fi
+  [ "$lease_held" -eq 0 ] || fm_lock_release "$STATE/.lock.acquire"
 
   if [ "$downgraded" -eq 1 ]; then
     printf 'NETWORK_CHECKS: the fleet lock was no longer held by the session that requested these, so dead-secondmate relaunch, secondmate convergence, pending handoff delivery, and project clone refresh were skipped; they belong to whichever session holds the lock now\n' >> "$out"
