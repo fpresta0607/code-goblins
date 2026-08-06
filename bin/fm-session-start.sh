@@ -12,9 +12,10 @@
 # belong in a script, not in N agent turns.
 #
 # COMPOSITION, NOT DUPLICATION: this script calls fm-lock.sh, fm-bootstrap.sh,
-# and fm-wake-drain.sh as real subprocesses and prints their real output. It
-# never re-implements their logic; all sequencing/formatting logic added here
-# stays local to this file. Those three scripts remain fully working
+# fm-wake-drain.sh, and fm-startup-network.sh as real subprocesses and prints
+# their real output. It never re-implements their logic; all
+# sequencing/formatting logic added here stays local to this file. Those four
+# scripts remain fully working
 # standalone with unchanged default behavior - other flows (fm-bootstrap.sh
 # install <tools> after consent, /updatefirstmate, the afk daemon, existing
 # tests) still call them directly. The one seam this script needed -
@@ -33,7 +34,8 @@
 #                       (legacy PR-check migration, secondmate convergence,
 #                       secondmate liveness, pending remote handoff retry,
 #                       X-mode artifact writes, fleet sync) also run only when
-#                       locked.
+#                       locked; the four network sweeps run in the deferred
+#                       stage rather than this synchronous bootstrap section.
 #   3. wake-drain     - mutates the durable wake queue, so it also only runs
 #                       when locked.
 #   4. supervision-instructions - the one emitted operating block for the
@@ -107,11 +109,12 @@
 #
 # The tradeoff this ordering accepts: a refused (read-only) session must not
 # go dark. So on refusal, bootstrap still runs (in FM_BOOTSTRAP_DETECT_ONLY=1
-# mode) for its read-only detect lines - missing tools, gh auth, the
-# worktree-tangle check, the harness override, crew-dispatch validation,
-# tasks-axi and quota-axi tool checks, and tasks-axi availability - none of
-# which mutate shared state and all of which are safe to compute without
-# verified lock ownership.
+# mode) for its local read-only detect lines - missing tools, the worktree-tangle
+# check, the harness override, crew-dispatch validation, tasks-axi and quota-axi
+# tool checks, and tasks-axi availability - none of which mutate shared state
+# and all of which are safe to compute without verified lock ownership.
+# It deliberately skips the network-only GitHub-auth probe because a read-only
+# session has no dispatch, spawn, steer, or merge action for that verdict to gate.
 # Only projection cleanup, the six bootstrap mutating sweeps, and the
 # wake-queue drain are skipped.
 # The context and fleet-state digests

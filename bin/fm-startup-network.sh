@@ -549,7 +549,7 @@ case "$MODE" in
   run) cmd_run "$LOCKED" "$LOCK_PID" "$GENERATION" ;;
   harvest) cmd_harvest "${HARVEST_PID:-}" ;;
   report) print_state ;;
-  wait) cmd_wait "${1:-120}" ;;
+  wait) cmd_wait "${1:-120}" || exit $? ;;
   -h|--help) usage ;;
   *)
     printf 'fm-startup-network: unknown mode: %s\n' "${MODE:-<none>}" >&2

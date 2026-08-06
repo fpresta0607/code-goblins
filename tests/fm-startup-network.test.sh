@@ -87,6 +87,20 @@ await_worker_record() {  # <home>
   [ -s "$home/state/.startup-network.status" ] || fail "the detached worker never recorded itself"
 }
 
+test_wait_fails_without_a_published_stage() {
+  local rec home root log
+  rec=$(new_world wait-without-stage)
+  IFS='|' read -r home root log <<EOF
+$rec
+EOF
+
+  if run_stage "$home" "$root" wait 1 >/dev/null; then
+    fail "wait reported success even though no deferred stage had published"
+  fi
+
+  pass "fm-startup-network: wait fails when no deferred stage publishes before its deadline"
+}
+
 run_stage() {  # <home> <root> <args...>
   local home=$1 root=$2
   shift 2
@@ -258,9 +272,8 @@ EOF
   pass "fm-startup-network: an aggregate bound turns a wedged sweep into an actionable line"
 }
 
-# A digest that hits its own runtime bound kills its process group, taking the
-# worker with it. The leftover `running` record must read as work to redo, not as
-# work still in flight.
+# A worker killed before publication leaves a `running` record behind.
+# That record must read as work to redo, not as work still in flight.
 test_an_abandoned_run_reads_as_needing_a_rerun() {
   local rec home root log report
   rec=$(new_world abandoned)
@@ -409,6 +422,7 @@ EOF
   pass "fm-startup-network: fleet-lock takeover cannot overlap a mutating sweep"
 }
 
+test_wait_fails_without_a_published_stage
 test_start_returns_without_holding_the_callers_stdout
 test_harvest_acknowledgement_suppresses_the_wake_and_no_claim_produces_it
 test_a_claimant_crash_after_publish_still_queues_the_wake

@@ -1348,16 +1348,17 @@ EOF
 
 # --- deferred network stage -------------------------------------------------
 
-# install_slow_gh <fakebin> <seconds>: the only external-network call the digest
-# itself ever made. Making it pathologically slow is how a test stands in for an
+# install_slow_gh <fakebin> <seconds>: one external-network call the digest used
+# to make directly. Making it pathologically slow is how a test stands in for an
 # unreachable host without touching one: if any part of the blocking path still
 # waits on the network, the digest cannot finish before this does.
 install_slow_gh() {
-  local fakebin=$1 seconds=$2
+  local fakebin=$1 seconds=$2 finished_marker=${3:-}
   cat > "$fakebin/gh" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = auth ]; then
   sleep $seconds
+  [ -z '$finished_marker' ] || : > '$finished_marker'
   exit 1
 fi
 exit 0
@@ -1370,19 +1371,20 @@ SH
 # must say so rather than implying the checks passed, and the sweeps must still
 # run and land afterwards.
 test_unreachable_network_never_blocks_the_digest() {
-  local rec root home fakebin mate log spawned out started elapsed
+  local rec root home fakebin mate log spawned network_finished out started elapsed
   rec=$(prepare_session_start_secondmate secondmate-slow-network)
   IFS='|' read -r root home fakebin mate log spawned <<EOF
 $rec
 EOF
-  install_slow_gh "$fakebin" 12
+  network_finished="${root%/root}/network-finished"
+  install_slow_gh "$fakebin" 12 "$network_finished"
 
   started=$(date +%s)
   out=$(run_session_start_secondmate "$root" "$home" "$fakebin" "$mate" "$log" "$spawned" missing)
   elapsed=$(( $(date +%s) - started ))
 
-  [ "$elapsed" -lt 8 ] \
-    || fail "the digest waited $elapsed s on a 12s unreachable host - the blocking path still makes a network call"
+  [ ! -e "$network_finished" ] \
+    || fail "the digest waited for the 12s unreachable-host probe instead of returning from local state (${elapsed}s)"
   assert_contains "$out" "SESSION START" "the digest did not complete"
   assert_contains "$out" "IN PROGRESS - the deferred network checks have not finished yet." \
     "the digest did not disclose that its network checks were still running"
@@ -1890,7 +1892,7 @@ SH
 # --- context re-emit (--reemit) ----------------------------------------------
 
 test_reemit_skips_startup_sweeps_but_keeps_the_wake_drain() {
-  local rec root home fakebin full reemit
+  local rec root home fakebin full network_report reemit
   rec=$(new_world reemit)
   IFS='|' read -r root home fakebin <<EOF
 $rec
@@ -1902,11 +1904,15 @@ EOF
   append_wake "$home/state" signal task-r "done: queued after startup" || fail "seed wake failed"
 
   # A full startup reconciles the secondmate sweep and reports it.
-  full=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
-  assert_contains "$full" "SECONDMATE_LIVENESS" "the full startup fixture did not exercise a mutating sweep"
+  full=$(FM_FAKE_HARNESS_PID=$$ run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  wait_for_network_stage "$home" "$root" \
+    || fail "the full startup fixture's deferred network stage never published"
+  network_report=$(network_stage_report "$home" "$root")
+  assert_contains "$network_report" "SECONDMATE_LIVENESS" \
+    "the full startup fixture did not exercise a mutating sweep"
 
   append_wake "$home/state" signal task-r "done: queued after the re-emit too" || fail "seed second wake failed"
-  reemit=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" \
+  reemit=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_FAKE_HARNESS_PID=$$ PATH="$fakebin:$BASE_PATH" \
     env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
     "$SESSION_START" --reemit)
 
