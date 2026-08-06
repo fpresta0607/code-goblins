@@ -1892,7 +1892,7 @@ SH
 # --- context re-emit (--reemit) ----------------------------------------------
 
 test_reemit_skips_startup_sweeps_but_keeps_the_wake_drain() {
-  local rec root home fakebin full network_report reemit
+  local rec root home fakebin network_report reemit
   rec=$(new_world reemit)
   IFS='|' read -r root home fakebin <<EOF
 $rec
@@ -1904,7 +1904,7 @@ EOF
   append_wake "$home/state" signal task-r "done: queued after startup" || fail "seed wake failed"
 
   # A full startup reconciles the secondmate sweep and reports it.
-  full=$(FM_FAKE_HARNESS_PID=$$ run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  FM_FAKE_HARNESS_PID=$$ run_session_start "$home" "$root" "$fakebin:$BASE_PATH" >/dev/null
   wait_for_network_stage "$home" "$root" \
     || fail "the full startup fixture's deferred network stage never published"
   network_report=$(network_stage_report "$home" "$root")

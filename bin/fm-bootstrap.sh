@@ -170,14 +170,13 @@ network_mutation_authorized() {
   [ "$current" = "$expected" ]
 }
 
-run_network_sweep() {
+network_sweep_authorized() {
   local label=$1
-  shift
   if network_mutation_authorized; then
-    "$@"
-  else
-    echo "NETWORK_CHECKS: fleet lock ownership changed before $label, so this stale worker skipped that sweep"
+    return 0
   fi
+  echo "NETWORK_CHECKS: fleet lock ownership changed before $label, so this stale worker skipped that sweep"
+  return 1
 }
 
 fleet_sync_origin_backed_project_count() {
@@ -1160,13 +1159,13 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   # secondmate_sync consumes SECONDMATE_RESPAWNED_IDS from the liveness sweep, so
   # those two always run together in the same phase.
   if network_phase; then
-    run_network_sweep 'dead-secondmate relaunch' secondmate_liveness_sweep
-    run_network_sweep 'secondmate convergence' secondmate_sync
-    run_network_sweep 'pending handoff delivery' secondmate_handoff_resume
+    if network_sweep_authorized 'dead-secondmate relaunch'; then secondmate_liveness_sweep; fi
+    if network_sweep_authorized 'secondmate convergence'; then secondmate_sync; fi
+    if network_sweep_authorized 'pending handoff delivery'; then secondmate_handoff_resume; fi
   fi
   # x_mode_setup writes local Relay artifacts only and never leaves the machine.
   local_phase && x_mode_setup
-  network_phase && run_network_sweep 'project clone refresh' fleet_sync
+  if network_phase && network_sweep_authorized 'project clone refresh'; then fleet_sync; fi
 fi
 local_phase && secondmate_handoff_detect
 exit 0
