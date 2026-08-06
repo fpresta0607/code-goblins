@@ -8,8 +8,8 @@
 # to make deferral safe:
 #   - `start` returns immediately and does not hold the caller's stdout open,
 #     which is what would strand a session-open hook behind the worker
-#   - a live inline-print claim suppresses the wake, and no claim (or a dead one)
-#     produces it, so a result surfaces exactly once
+#   - a durable acknowledgement after harvest prints a finished result suppresses
+#     the wake, while an unacknowledged result always produces one
 #   - mutating sweeps are refused when the fleet lock no longer names the session
 #     that requested them, and the refusal is reported rather than silent
 #   - the aggregate bound turns a wedged sweep into an actionable line
@@ -124,38 +124,76 @@ EOF
   pass "fm-startup-network: start returns immediately and never holds the caller's stdout open"
 }
 
-# The claim handshake is what stops a result being both printed and queued. Both
-# directions are decided here, without racing a digest.
-test_a_live_claim_suppresses_the_wake_and_no_claim_produces_it() {
-  local rec home root log generation
+test_harvest_acknowledgement_suppresses_the_wake_and_no_claim_produces_it() {
+  local rec home root log claimant output waited=0 worker_pid
   rec=$(new_world claim-handshake)
   IFS='|' read -r home root log <<EOF
 $rec
 EOF
   printf '%s\n' $$ > "$home/state/.lock"
 
-  # A live claim: some session start is still composing and will print this.
-  FM_FAKE_BOOTSTRAP_LOG="$log" run_stage "$home" "$root" start --locked 0 --harvest-pid $$
+  sleep 10 &
+  claimant=$!
+  FM_SESSION_START_TIMEOUT=3 FM_FAKE_BOOTSTRAP_LOG="$log" FM_FAKE_BOOTSTRAP_OUT='acknowledged result' \
+    run_stage "$home" "$root" start --locked 0 --harvest-pid "$claimant"
   run_stage "$home" "$root" wait 30 >/dev/null || fail "the claimed worker never published"
+  worker_pid=$(sed -n 's/^pid=//p' "$home/state/.startup-network.status")
+  output=$(run_stage "$home" "$root" harvest --pid "$claimant")
+  assert_contains "$output" "acknowledged result" \
+    "harvest did not print the finished result it acknowledged"
+  [ -s "$home/state/.startup-network.delivered" ] \
+    || fail "harvest did not durably acknowledge the result it printed"
+  kill "$claimant" 2>/dev/null || true
+  wait "$claimant" 2>/dev/null || true
+  while kill -0 "$worker_pid" 2>/dev/null && [ "$waited" -lt 50 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  ! kill -0 "$worker_pid" 2>/dev/null \
+    || fail "the worker did not settle after harvest acknowledged its result"
   [ ! -s "$home/state/.wake-queue" ] \
-    || fail "a result a live session start had claimed also queued a wake: $(cat "$home/state/.wake-queue")"
+    || fail "a result harvest acknowledged also queued a wake: $(cat "$home/state/.wake-queue")"
 
   # Harvest releases that claim, so the NEXT publication has nobody to print it.
-  run_stage "$home" "$root" harvest --pid $$ >/dev/null
   assert_absent "$home/state/.startup-network.claim" "harvest did not release its own claim"
   FM_FAKE_BOOTSTRAP_LOG="$log" run_stage "$home" "$root" run --locked 0
   assert_grep 'check	startup-network' "$home/state/.wake-queue" \
     "an unclaimed result never reached the wake queue"
 
-  # A claim whose session died is not a claim.
   : > "$home/state/.wake-queue"
-  generation=$(sed -n 's/^generation=//p' "$home/state/.startup-network.status")
-  printf '%s\t999999999\n' "$generation" > "$home/state/.startup-network.claim"
-  FM_FAKE_BOOTSTRAP_LOG="$log" run_stage "$home" "$root" run --locked 0
+  FM_FAKE_BOOTSTRAP_LOG="$log" \
+    run_stage "$home" "$root" start --locked 0 --harvest-pid 999999999
+  run_stage "$home" "$root" wait 30 >/dev/null || fail "the dead-claim worker never published"
   assert_grep 'check	startup-network' "$home/state/.wake-queue" \
     "a dead session's stale claim swallowed the result"
   assert_absent "$home/state/.startup-network.claim" "a dead claim was not reaped"
   pass "fm-startup-network: exactly one of the digest and the wake reports each result"
+}
+
+test_a_claimant_crash_after_publish_still_queues_the_wake() {
+  local rec home root log claimant waited=0
+  rec=$(new_world claimant-crash)
+  IFS='|' read -r home root log <<EOF
+$rec
+EOF
+  sleep 10 &
+  claimant=$!
+  FM_SESSION_START_TIMEOUT=4 FM_FAKE_BOOTSTRAP_LOG="$log" \
+    run_stage "$home" "$root" start --locked 0 --harvest-pid "$claimant"
+  run_stage "$home" "$root" wait 30 >/dev/null || fail "the crash-window worker never published"
+  kill -0 "$claimant" 2>/dev/null \
+    || fail "the claimant died before the worker published"
+  kill "$claimant" 2>/dev/null || true
+  wait "$claimant" 2>/dev/null || true
+  while [ ! -s "$home/state/.wake-queue" ] && [ "$waited" -lt 50 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  assert_grep 'check	startup-network' "$home/state/.wake-queue" \
+    "a claimant crash after publication silently lost the result"
+  assert_absent "$home/state/.startup-network.delivered" \
+    "an unharvested result was recorded as delivered"
+  pass "fm-startup-network: a claimant crash after publication still surfaces the result"
 }
 
 # The worker outlives the command that launched it. If another session took the
@@ -189,7 +227,7 @@ EOF
 # The unbounded per-call network work is exactly what could wedge a startup. The
 # stage carries one aggregate bound, and hitting it is an actionable line.
 test_the_stage_bound_is_reported_not_swallowed() {
-  local rec home root log report
+  local rec home root log report waited=0
   rec=$(new_world stage-bound)
   IFS='|' read -r home root log <<EOF
 $rec
@@ -206,6 +244,10 @@ EOF
     "a wedged deferred stage was not reported: $report"
   assert_contains "$report" "fm-startup-network.sh run --locked 1" \
     "the timeout line did not say how to rerun the stage"
+  while [ ! -s "$home/state/.wake-queue" ] && [ "$waited" -lt 50 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
   assert_grep 'check	startup-network' "$home/state/.wake-queue" \
     "a timed-out stage did not surface to the agent"
   pass "fm-startup-network: an aggregate bound turns a wedged sweep into an actionable line"
@@ -361,7 +403,8 @@ EOF
 }
 
 test_start_returns_without_holding_the_callers_stdout
-test_a_live_claim_suppresses_the_wake_and_no_claim_produces_it
+test_harvest_acknowledgement_suppresses_the_wake_and_no_claim_produces_it
+test_a_claimant_crash_after_publish_still_queues_the_wake
 test_mutating_sweeps_are_refused_when_the_lock_changed_hands
 test_the_stage_bound_is_reported_not_swallowed
 test_an_abandoned_run_reads_as_needing_a_rerun
