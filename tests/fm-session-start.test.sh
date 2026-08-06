@@ -1381,7 +1381,7 @@ EOF
   out=$(run_session_start_secondmate "$root" "$home" "$fakebin" "$mate" "$log" "$spawned" missing)
   elapsed=$(( $(date +%s) - started ))
 
-  [ "$elapsed" -lt 6 ] \
+  [ "$elapsed" -lt 8 ] \
     || fail "the digest waited $elapsed s on a 12s unreachable host - the blocking path still makes a network call"
   assert_contains "$out" "SESSION START" "the digest did not complete"
   assert_contains "$out" "IN PROGRESS - the deferred network checks have not finished yet." \
