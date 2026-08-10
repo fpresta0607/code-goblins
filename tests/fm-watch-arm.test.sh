@@ -436,6 +436,34 @@ SH
   pass "watch-arm: recovery marker consumption serializes durable queue publication"
 }
 
+test_restart_preserves_recovery_across_reused_pid_lock() {
+  local dir home state fakebin armout unrelated owner
+  dir=$(make_case restart-reused-pid-recovery)
+  home="$dir/home"
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  armout="$dir/arm.out"
+  owner="$state/.watch.lock.owner.fixture"
+  mkdir -p "$home/data" "$owner"
+
+  sleep 300 &
+  unrelated=$!
+  printf '%s\n' "$unrelated" > "$owner/pid"
+  printf '%s\n' "$home" > "$owner/fm-home"
+  printf '%s\n' "$WATCH" > "$owner/watcher-path"
+  printf '%s\n' 'reused-pid-does-not-match' > "$owner/pid-identity"
+  ln -s "$owner" "$state/.watch.lock"
+
+  start_rearm_arm "$home" "$state" "$fakebin" "$armout"
+  wait_for_exit "$ARM_PID" 80 || fail "restart did not surface recovery after clearing a reused-pid lock"
+  grep -F 'check: rearm-resurface' "$armout" >/dev/null \
+    || fail "restart cleared reused-pid lock evidence without a recovery wake: $(cat "$armout")"
+  is_live_non_zombie "$unrelated" || fail "restart signaled the unrelated process whose pid was reused"
+  kill "$unrelated" 2>/dev/null || true
+  wait "$unrelated" 2>/dev/null || true
+  pass "watch-arm: restart publishes recovery before clearing a reused-pid watcher lock"
+}
+
 test_downtime_marker_does_not_follow_symlink() {
   local dir home state fakebin armout watcher_pid sentinel
   dir=$(make_case downtime-marker-symlink)
@@ -469,4 +497,5 @@ test_marker_publish_failure_retains_recovery_evidence
 test_delivery_gap_wake_is_recovered_once
 test_malformed_marker_is_quarantined_once
 test_recovery_consumption_serializes_queue_publication
+test_restart_preserves_recovery_across_reused_pid_lock
 test_downtime_marker_does_not_follow_symlink

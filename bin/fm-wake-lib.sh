@@ -399,7 +399,7 @@ fm_recovery_marker_read() {
   FM_RECOVERY_MARKER_TOKEN=$line
 }
 
-fm_recovery_marker_publish() {
+_fm_recovery_marker_publish() {
   local marker=$1 kind=${2:-downtime} lock tmp token
   case "$kind" in handling|downtime) ;; *) return 1 ;; esac
   lock="${marker}.lock"
@@ -430,7 +430,7 @@ fm_recovery_marker_snapshot() {
   fm_lock_release "$lock"
 }
 
-fm_recovery_marker_ack() {
+_fm_recovery_marker_ack() {
   local marker=$1 expected=$2 lock tmp line
   [ -n "$expected" ] || return 0
   lock="${marker}.lock"
@@ -455,7 +455,7 @@ fm_recovery_marker_ack() {
   fm_lock_release "$lock"
 }
 
-fm_recovery_marker_arm_check() {
+_fm_recovery_marker_arm_check() {
   local marker=$1 lock line quarantine consumed
   FM_RECOVERY_MARKER_ACTION=none
   lock="${marker}.lock"
@@ -519,6 +519,44 @@ fm_recovery_marker_arm_check() {
   rm -f -- "$consumed" 2>/dev/null || true
   fm_lock_release "$lock"
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+}
+
+fm_recovery_transition() {
+  local marker=$1 action=$2 target=${3:-} value=${4:-}
+  case "$action" in
+    publish)
+      _fm_recovery_marker_publish "$marker" "${target:-downtime}"
+      ;;
+    acknowledge)
+      _fm_recovery_marker_ack "$marker" "$target"
+      ;;
+    arm-check)
+      _fm_recovery_marker_arm_check "$marker"
+      ;;
+    release-lock)
+      [ -n "$target" ] || return 1
+      _fm_recovery_marker_publish "$marker" "${value:-downtime}" || return 1
+      fm_lock_release "$target"
+      ;;
+    clear-stale-lock)
+      [ -n "$target" ] || return 1
+      _fm_recovery_marker_publish "$marker" "${value:-downtime}" || return 1
+      fm_lock_remove_path "$target"
+      ;;
+    *) return 2 ;;
+  esac
+}
+
+fm_recovery_marker_publish() {
+  fm_recovery_transition "$1" publish "${2:-downtime}"
+}
+
+fm_recovery_marker_ack() {
+  fm_recovery_transition "$1" acknowledge "$2"
+}
+
+fm_recovery_marker_arm_check() {
+  fm_recovery_transition "$1" arm-check
 }
 
 fm_lock_try_acquire() {

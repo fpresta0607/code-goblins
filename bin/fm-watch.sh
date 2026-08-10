@@ -738,25 +738,24 @@ if [ -n "${FM_LOCK_RECOVERED_PID:-}" ]; then
   WATCHER_RECOVERY_PENDING=1
 fi
 if ! fm_recovery_marker_arm_check "$WATCHER_DOWNTIME_MARKER"; then
-  echo "watcher: recovery state could not be consumed safely" >&2
-  fm_lock_release "$WATCH_LOCK"
+  echo "watcher: recovery state could not be consumed safely; retaining stale lock evidence" >&2
   exit 1
 fi
 [ "$FM_RECOVERY_MARKER_ACTION" = recover ] && WATCHER_RECOVERY_PENDING=1
 watcher_cleanup() {
-  local cleanup_status=0 release_lock=1 marker_kind=downtime
+  local cleanup_status=0 marker_kind=downtime owns_lock=0
   if [ "$(cat "$WATCH_LOCK/pid" 2>/dev/null || true)" = "${WATCHER_PID:-}" ]; then
+    owns_lock=1
     [ -z "${FM_WATCH_DELIVERED_REASON:-}" ] || marker_kind=handling
-    if ! fm_recovery_marker_publish "$WATCHER_DOWNTIME_MARKER" "$marker_kind"; then
-      echo "watcher: recovery state could not be persisted; retaining stale lock evidence" >&2
-      release_lock=0
-      cleanup_status=1
-    fi
   fi
   fm_active_check_stop || cleanup_status=1
   fm_check_output_cleanup
   fm_custom_check_snapshot_cleanup
-  [ "$release_lock" -eq 0 ] || fm_lock_release "$WATCH_LOCK"
+  if [ "$owns_lock" -eq 1 ] \
+    && ! fm_recovery_transition "$WATCHER_DOWNTIME_MARKER" release-lock "$WATCH_LOCK" "$marker_kind"; then
+    echo "watcher: recovery state could not be persisted; retaining stale lock evidence" >&2
+    cleanup_status=1
+  fi
   return "$cleanup_status"
 }
 trap watcher_cleanup EXIT
