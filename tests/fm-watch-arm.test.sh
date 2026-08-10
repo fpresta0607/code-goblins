@@ -113,7 +113,8 @@ wait_for_file_text() {  # <file> <fixed-text>
 }
 
 ack_wakes() {  # <state>
-  local state=$1 sequence generation err="$state/.test-ack.err"
+  local state=$1 sequence generation err
+  err="$state/.test-ack.err"
   FM_STATE_OVERRIDE="$state" "$DRAIN" >/dev/null 2> "$err" || return 1
   sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' "$err")
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")

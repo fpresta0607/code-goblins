@@ -380,7 +380,7 @@ fm_lock_recheck_stale_owner() {
 }
 
 FM_RECOVERY_MARKER_TOKEN=
-FM_RECOVERY_MARKER_ACTION=none
+FM_RECOVERY_MARKER_ACTION='none'
 
 fm_recovery_marker_read() {
   local marker=$1 line count
@@ -461,7 +461,7 @@ _fm_recovery_marker_ack() {
 
 _fm_recovery_marker_arm_check() {
   local marker=$1 lock line quarantine
-  FM_RECOVERY_MARKER_ACTION=none
+  FM_RECOVERY_MARKER_ACTION='none'
   lock="${marker}.lock"
   fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" || return 1
   if ! fm_lock_acquire_wait "$lock"; then
@@ -486,7 +486,7 @@ _fm_recovery_marker_arm_check() {
       fm_lock_release "$FM_WAKE_QUEUE_LOCK"
       return 1
     fi
-    FM_RECOVERY_MARKER_ACTION=recover
+    FM_RECOVERY_MARKER_ACTION='recover'
     fm_lock_release "$lock"
     fm_lock_release "$FM_WAKE_QUEUE_LOCK"
     return 0
@@ -495,18 +495,19 @@ _fm_recovery_marker_arm_check() {
   case "$line" in
     pending:handling:*)
       if [ -s "$FM_WAKE_QUEUE" ]; then
-        FM_RECOVERY_MARKER_ACTION=recover
+        FM_RECOVERY_MARKER_ACTION='recover'
       else
-        FM_RECOVERY_MARKER_ACTION=wait
+        FM_RECOVERY_MARKER_ACTION='wait'
         fm_lock_release "$lock"
         fm_lock_release "$FM_WAKE_QUEUE_LOCK"
         return 0
       fi
       ;;
-    pending:downtime:*) FM_RECOVERY_MARKER_ACTION=recover ;;
+    pending:downtime:*) FM_RECOVERY_MARKER_ACTION='recover' ;;
     acked:*)
       if [ -s "$FM_WAKE_QUEUE" ]; then
-        FM_RECOVERY_MARKER_ACTION=recover
+        # shellcheck disable=SC2034 # Read by sourcing callers after the arm check.
+        FM_RECOVERY_MARKER_ACTION='recover'
       fi
       ;;
   esac
@@ -623,6 +624,7 @@ fm_lock_try_acquire() {
   rc=1
   if fm_lock_try_create "$lockdir" "$steal_owner"; then
     rc=0
+    # shellcheck disable=SC2034 # Read by sourcing callers after lock acquisition.
     FM_LOCK_RECOVERED_PID=$cur
   fi
   if [ "$rc" -ne 0 ]; then
