@@ -308,6 +308,12 @@ if [ "$lock_held" -ne 1 ]; then
   echo "PR_CHECK_MIGRATION: watcher exclusion could not be acquired; review state/.watch.lock before rearming polls" >&2
   exit 1
 fi
+if { [ "$stopped_watcher" -eq 1 ] || [ -n "${FM_LOCK_RECOVERED_PID:-}" ]; } \
+  && ! fm_recovery_marker_publish "$STATE/.watcher-down"; then
+  echo "PR_CHECK_MIGRATION: watcher recovery state could not be persisted; migration did not complete safely" >&2
+  fm_lock_release "$WATCH_LOCK"
+  exit 1
+fi
 
 MIGRATION_MARKER_TMP=
 MIGRATION_SCAN_MARKER_TMP=

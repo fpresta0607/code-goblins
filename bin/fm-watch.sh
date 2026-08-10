@@ -751,7 +751,7 @@ watcher_cleanup() {
     if [ -n "${FM_WATCH_DELIVERED_REASON:-}" ]; then
       rm -f "$WATCHER_DOWNTIME_MARKER" 2>/dev/null || true
     else
-      : > "$WATCHER_DOWNTIME_MARKER" 2>/dev/null || true
+      fm_recovery_marker_publish "$WATCHER_DOWNTIME_MARKER" 2>/dev/null || true
     fi
   fi
   fm_active_check_stop || cleanup_status=1

@@ -379,6 +379,17 @@ fm_lock_recheck_stale_owner() {
   return 0
 }
 
+fm_recovery_marker_publish() {
+  local marker=$1 tmp
+  if [ -d "$marker" ] && [ ! -L "$marker" ]; then
+    return 1
+  fi
+  tmp=$(mktemp "${marker}.tmp.XXXXXX") || return 1
+  chmod 0600 "$tmp" || { rm -f -- "$tmp"; return 1; }
+  rm -f -- "$marker" 2>/dev/null || { rm -f -- "$tmp"; return 1; }
+  mv -f -- "$tmp" "$marker" || { rm -f -- "$tmp"; return 1; }
+}
+
 fm_lock_try_acquire() {
   local lockdir=$1 pid steal cur rc steal_owner primary_owner
   FM_LOCK_HELD_PID=

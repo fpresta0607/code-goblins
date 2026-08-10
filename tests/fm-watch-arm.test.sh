@@ -239,6 +239,7 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
   kill -KILL "$watcher_pid" 2>/dev/null || fail "could not abruptly stop pre-outage watcher"
   wait "$ARM_PID" 2>/dev/null || true
   [ ! -e "$state/.watcher-down" ] || fail "abrupt watcher exit unexpectedly ran cleanup"
+  rm -f "$state/.pr-check-migration-v1" "$state/.pr-check-migration-scan-v1"
 
   # Two independent durable wakes arrive while no watcher exists. Neither gets
   # a later status change to rescue it, which is the down-window loss shape.
@@ -294,7 +295,33 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
   pass "watch-arm: re-arm surfaces every queued wake and an open remote decision after downtime"
 }
 
+test_downtime_marker_does_not_follow_symlink() {
+  local dir home state fakebin armout watcher_pid sentinel
+  dir=$(make_case downtime-marker-symlink)
+  home="$dir/home"
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  armout="$dir/arm.out"
+  sentinel="$dir/sentinel"
+  mkdir -p "$home/data"
+
+  start_rearm_arm "$home" "$state" "$fakebin" "$armout"
+  is_live_non_zombie "$ARM_PID" || fail "symlink fixture watcher did not stay live"
+  watcher_pid=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
+  printf 'must remain intact\n' > "$sentinel"
+  ln -s "$sentinel" "$state/.watcher-down"
+  kill -TERM "$watcher_pid" 2>/dev/null || fail "could not stop symlink fixture watcher"
+  wait "$ARM_PID" 2>/dev/null || true
+
+  [ "$(cat "$sentinel")" = "must remain intact" ] \
+    || fail "downtime marker publication followed and truncated a symlink"
+  [ -f "$state/.watcher-down" ] && [ ! -L "$state/.watcher-down" ] \
+    || fail "downtime marker was not safely published as a regular file"
+  pass "watch-arm: downtime marker publication does not follow symlinks"
+}
+
 test_attached_arm_reports_the_delivered_wake
 test_attached_arm_reports_the_delivered_wake_after_drain
 test_attached_arm_still_fails_on_a_wake_it_did_not_deliver
 test_rearm_resurfaces_durable_queue_and_remote_open_decision
+test_downtime_marker_does_not_follow_symlink
