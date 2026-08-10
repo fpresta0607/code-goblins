@@ -852,6 +852,11 @@ SH
     || fail "predecessor ledger record was not linked to its verified successor"
   kill -HUP "$successor_arm" 2>/dev/null || true
   wait "$successor_arm" 2>/dev/null || true
+  # The forced interruption is a watcher-down interval. Consume the prior
+  # delivered wake before beginning independent ledger cycles, just as the
+  # recovery handling turn does, so this fixture does not intentionally carry a
+  # durable wake into the next arm.
+  FM_STATE_OVERRIDE="$state" "$DRAIN" >/dev/null || fail "recovery drain after forced arm interruption failed"
 
   # Produce enough short cycles to cross a deliberately small cap. The cap is
   # applied by the arm layer itself and keeps only complete ledger records.

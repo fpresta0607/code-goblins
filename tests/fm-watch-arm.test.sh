@@ -61,6 +61,63 @@ start_attached_arm() {  # <state> <fakebin> <arm-out> <confirm-timeout>
     || fail "arm did not attach to the live watcher: $(cat "$armout")"
 }
 
+sha256_file() {  # <path>
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    sha256sum "$1" | awk '{print $1}'
+  fi
+}
+
+write_remote_delta() {  # <result-path> <status-line>
+  local result=$1 line=$2 payload empty payload_bytes payload_hash empty_hash
+  payload="$result.payload"
+  empty="$result.empty"
+  printf '%s\n' "$line" > "$payload"
+  : > "$empty"
+  payload_bytes=$(LC_ALL=C wc -c < "$payload" | tr -d '[:space:]')
+  payload_hash=$(sha256_file "$payload") || fail "could not hash remote delta payload"
+  empty_hash=$(sha256_file "$empty") || fail "could not hash empty remote delta prefix"
+  {
+    printf 'schema=fm-remote-delta.v1\n'
+    printf 'status=delta\n'
+    printf 'path=state/parent-replies.status\n'
+    printf 'from_offset=0\n'
+    printf 'to_offset=%s\n' "$payload_bytes"
+    printf 'from_prefix_sha256=%s\n' "$empty_hash"
+    printf 'to_prefix_sha256=%s\n' "$payload_hash"
+    printf 'payload_sha256=%s\n' "$payload_hash"
+    printf 'payload_bytes=%s\n' "$payload_bytes"
+    printf 'reason=fixture\n\n'
+    cat "$payload"
+  } > "$result"
+  rm -f "$payload" "$empty"
+}
+
+status_signature() {  # <status-path>
+  if [ "$(uname)" = Darwin ]; then
+    stat -f '%z:%Fm' "$1"
+  else
+    stat -c '%s:%Y' "$1"
+  fi
+}
+
+start_rearm_arm() {  # <home> <state> <fakebin> <arm-out>
+  local home=$1 state=$2 fakebin=$3 armout=$4 i
+  PATH="$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$state" \
+    FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$WATCH_ARM" --restart > "$armout" &
+  ARM_PID=$!
+  i=0
+  while [ "$i" -lt 80 ]; do
+    grep -q '^watcher: started ' "$armout" 2>/dev/null && return 0
+    is_live_non_zombie "$ARM_PID" || return 0
+    sleep 0.05
+    i=$((i + 1))
+  done
+  return 0
+}
+
 test_attached_arm_reports_the_delivered_wake() {
   local dir state fakebin out armout status
   dir=$(make_case attached-delivered-wake)
@@ -146,6 +203,96 @@ test_attached_arm_still_fails_on_a_wake_it_did_not_deliver() {
   pass "watch-arm: a cycle that delivered no wake of its own still fails loudly"
 }
 
+test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
+  local dir home state fakebin result armout drainout status
+  dir=$(make_case rearm-resurface)
+  home="$dir/home"
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  result="$dir/remote.result"
+  armout="$dir/arm.out"
+  drainout="$dir/drain.out"
+  mkdir -p "$home/data"
+
+  # This is the real remote parent-reply ingest boundary. It writes the remote
+  # secondmate's decision onto the parent status surface the shared fold owns.
+  write_remote_delta "$result" \
+    'needs-decision [key=remote-signoff]: remote secondmate is held for captain sign-off'
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$home/data" \
+    "$ROOT/bin/fm-procevent-remote-reply.sh" ingest ios "$result" >/dev/null \
+    || fail "remote parent-reply ingest failed"
+
+  # Drain once before the outage to establish the incremental cursor and the
+  # signal suppressor that a watcher had already observed. The decision remains
+  # intentionally open across the watcher-down interval.
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/baseline-drain.out" \
+    || fail "baseline drain failed"
+  grep -F 'remote secondmate is held for captain sign-off' "$dir/baseline-drain.out" >/dev/null \
+    || fail "baseline fold did not expose the remote decision"
+  printf '%s' "$(status_signature "$state/ios.status")" > "$state/.seen-ios_status"
+
+  # A real watcher is then interrupted before the next two durable updates.
+  # This is the accepted blocking-tool shape: no watcher runs during the gap.
+  start_rearm_arm "$home" "$state" "$fakebin" "$dir/down-arm.out"
+  is_live_non_zombie "$ARM_PID" || fail "pre-outage watcher did not stay live"
+  kill "$ARM_PID" 2>/dev/null || true
+  wait "$ARM_PID" 2>/dev/null || true
+
+  # Two independent durable wakes arrive while no watcher exists. Neither gets
+  # a later status change to rescue it, which is the down-window loss shape.
+  append_wake "$state" check remote-reply-ios \
+    'check: process-event result captured: remote-reply-ios:7'
+  append_wake "$state" check startup-network 'check: startup-network'
+
+  start_rearm_arm "$home" "$state" "$fakebin" "$armout"
+  sleep 0.25
+  if is_live_non_zombie "$ARM_PID"; then
+    # End the fixture through an ordinary actionable status transition so this
+    # failing pre-fix path leaves no child behind.
+    printf 'done: fixture cleanup\n' > "$state/cleanup.status"
+    wait_for_exit "$ARM_PID" 80 || true
+    fail "re-arm stayed live instead of surfacing durable wakes and the still-open remote decision"
+  fi
+  wait "$ARM_PID"
+  status=$?
+  expect_code 0 "$status" "re-arm re-surface wake must close successfully"
+  grep -F 'check: process-event result captured: remote-reply-ios:7' "$armout" >/dev/null \
+    || fail "re-arm did not report the oldest durable recovery wake: $(cat "$armout")"
+
+  # Persistent adapters establish a successor before they deliver the recovery
+  # prompt. That successor must stay live until the handler drains the same
+  # durable work rather than immediately looping on the recovery marker.
+  start_rearm_arm "$home" "$state" "$fakebin" "$dir/recovery-successor-arm.out"
+  is_live_non_zombie "$ARM_PID" || fail "recovery successor did not stay live before the drain"
+
+  # The normal wake-handling drain is the one owner of both queue consumption
+  # and the cursor-backed fold. It must expose every queued record and the
+  # already-open remote decision without relying on another user message.
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drainout" \
+    || fail "drain after re-arm recovery failed"
+  grep "$(printf '\tcheck\tremote-reply-ios\t')" "$drainout" >/dev/null \
+    || fail "remote-reply wake queued during downtime was not drained"
+  grep "$(printf '\tcheck\tstartup-network\t')" "$drainout" >/dev/null \
+    || fail "second durable wake queued during downtime was not drained"
+  grep -F 'ios [key=remote-signoff] needs-decision: remote secondmate is held for captain sign-off' "$drainout" >/dev/null \
+    || fail "remote parent-reply decision was not re-folded after watcher re-arm"
+  [ ! -s "$state/.wake-queue" ] || fail "re-arm recovery drain left durable wakes behind"
+
+  # A later down interval can have no new queue rows at all. The unchanged
+  # remote decision must still trigger a recovery wake and be folded again.
+  kill "$ARM_PID" 2>/dev/null || true
+  wait "$ARM_PID" 2>/dev/null || true
+  start_rearm_arm "$home" "$state" "$fakebin" "$dir/decision-only-arm.out"
+  wait_for_exit "$ARM_PID" 80 || fail "decision-only re-arm did not surface the open decision"
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/decision-only-drain.out" \
+    || fail "decision-only drain after re-arm recovery failed"
+  grep -F 'ios [key=remote-signoff] needs-decision: remote secondmate is held for captain sign-off' \
+    "$dir/decision-only-drain.out" >/dev/null \
+    || fail "unchanged remote decision was not re-folded after a later down interval"
+  pass "watch-arm: re-arm surfaces every queued wake and an open remote decision after downtime"
+}
+
 test_attached_arm_reports_the_delivered_wake
 test_attached_arm_reports_the_delivered_wake_after_drain
 test_attached_arm_still_fails_on_a_wake_it_did_not_deliver
+test_rearm_resurfaces_durable_queue_and_remote_open_decision
