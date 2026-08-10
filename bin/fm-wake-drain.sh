@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Atomically drain durable watcher wake records, optionally annotate validated
-# signal status keys after raw consumption commits, then assert liveness.
+# Present durable watcher wake records, optionally acknowledge handled records,
+# annotate validated signal status keys, then assert liveness.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,6 +16,17 @@ DRAIN_LOCK_HELD=false
 RAW_ROWS=
 RECOVERY_MARKER="$STATE/.watcher-down"
 RECOVERY_MARKER_TOKEN=
+ACK_THROUGH=
+
+case "${1:-}" in
+  '') ;;
+  --ack-through)
+    ACK_THROUGH=${2:-}
+    case "$ACK_THROUGH" in ''|*[!0-9]*) echo "wake drain: invalid acknowledgement sequence" >&2; exit 2 ;; esac
+    [ "$#" -eq 2 ] || { echo "wake drain: unexpected acknowledgement arguments" >&2; exit 2; }
+    ;;
+  *) echo "usage: fm-wake-drain.sh [--ack-through SEQUENCE]" >&2; exit 2 ;;
+esac
 
 # Defense in depth for the supervision chain: this script runs at the top of
 # every wake-handling and recovery turn, so assert supervision health here too. A
@@ -25,9 +36,7 @@ RECOVERY_MARKER_TOKEN=
 # its supervision verdict. Under Claude's between-turns auto-arm model, a normal
 # fire leaves a recent beacon well inside grace and stays silent mid-turn. Under
 # persistent-watcher models, the guard also requires the live identity-matched
-# watcher. Call after the queue is emptied so guard never re-prints its own
-# queued-wakes notice for the records this run just drained, and never let a
-# guard hiccup change the drain's exit status.
+# watcher. Never let a guard hiccup change the drain's exit status.
 assert_watcher_liveness() {
   "$SCRIPT_DIR/fm-guard.sh" || true
 }
@@ -104,11 +113,35 @@ trap 'exit 143' TERM
 
 fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
 DRAIN_LOCK_HELD=true
-fm_recovery_marker_snapshot "$RECOVERY_MARKER" || true
-RECOVERY_MARKER_TOKEN=$FM_RECOVERY_MARKER_TOKEN
+
+if [ -n "$ACK_THROUGH" ]; then
+  DRAIN_TMP=$(mktemp "$STATE/.wake-queue.ack.XXXXXX") || exit 1
+  chmod 0600 "$DRAIN_TMP" || exit 1
+  awk -F '\t' -v cutoff="$ACK_THROUGH" '
+    NF < 5 || $2 !~ /^[0-9]+$/ || $2 > cutoff { print }
+  ' "$FM_WAKE_QUEUE" > "$DRAIN_TMP" || exit 1
+  if [ ! -s "$DRAIN_TMP" ]; then
+    fm_recovery_marker_snapshot "$RECOVERY_MARKER" || true
+    RECOVERY_MARKER_TOKEN=$FM_RECOVERY_MARKER_TOKEN
+    if ! fm_recovery_marker_ack "$RECOVERY_MARKER" "$RECOVERY_MARKER_TOKEN"; then
+      echo "wake drain: recovery state could not be acknowledged safely" >&2
+      exit 1
+    fi
+  fi
+  if ! _fm_atomic_replace "$DRAIN_TMP" "$FM_WAKE_QUEUE"; then
+    echo "wake drain: acknowledged wakes could not be consumed safely" >&2
+    exit 1
+  fi
+  DRAIN_TMP=
+  fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+  DRAIN_LOCK_HELD=false
+  exit 0
+fi
 
 if [ ! -s "$FM_WAKE_QUEUE" ]; then
   : > "$FM_WAKE_QUEUE"
+  fm_recovery_marker_snapshot "$RECOVERY_MARKER" || true
+  RECOVERY_MARKER_TOKEN=$FM_RECOVERY_MARKER_TOKEN
   if ! fm_recovery_marker_ack "$RECOVERY_MARKER" "$RECOVERY_MARKER_TOKEN"; then
     echo "wake drain: recovery state could not be acknowledged safely" >&2
     exit 1
@@ -120,10 +153,8 @@ if [ ! -s "$FM_WAKE_QUEUE" ]; then
   exit 0
 fi
 
-DRAIN_TMP=$(mktemp "$STATE/.wake-queue.empty.XXXXXX") || exit 1
-chmod 0600 "$DRAIN_TMP" || exit 1
-
 RAW_ROWS=$(fm_wake_print_deduped "$FM_WAKE_QUEUE") || exit "$?"
+ACK_THROUGH=$(awk -F '\t' '$2 ~ /^[0-9]+$/ && $2 > max { max=$2 } END { print max + 0 }' "$FM_WAKE_QUEUE") || exit 1
 case "${FM_WAKE_DRAIN_TEST_DELAY_BEFORE_COMMIT:-0}" in
   0) ;;
   ''|*[!0-9]*) ;;
@@ -132,25 +163,10 @@ esac
 if [ -n "$RAW_ROWS" ]; then
   printf '%s\n' "$RAW_ROWS" || exit "$?"
 fi
-case "${FM_WAKE_DRAIN_TEST_DELAY_BEFORE_ACK:-0}" in
-  0) ;;
-  ''|*[!0-9]*) ;;
-  *) sleep "$FM_WAKE_DRAIN_TEST_DELAY_BEFORE_ACK" ;;
-esac
-if ! fm_recovery_marker_ack "$RECOVERY_MARKER" "$RECOVERY_MARKER_TOKEN"; then
-  echo "wake drain: recovery state could not be acknowledged safely" >&2
-  exit 1
-fi
-if ! _fm_atomic_replace "$DRAIN_TMP" "$FM_WAKE_QUEUE"; then
-  echo "wake drain: acknowledged wakes could not be consumed safely" >&2
-  exit 1
-fi
-DRAIN_TMP=
 fm_lock_release "$FM_WAKE_QUEUE_LOCK"
 DRAIN_LOCK_HELD=false
+printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through %s\n' "$ACK_THROUGH" >&2
 
-# Raw output, recovery acknowledgement, and atomic queue consumption are
-# authoritative. Everything below is best-effort and cannot hide or fail rows.
 (fm_wake_print_annotations "$RAW_ROWS") || true
 (print_open_decisions_section) || true
 assert_watcher_liveness
