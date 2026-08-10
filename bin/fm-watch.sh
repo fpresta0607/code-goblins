@@ -743,7 +743,7 @@ if [ -n "${FM_LOCK_RECOVERED_PID:-}" ] \
   WATCHER_RECOVERY_PENDING=1
 fi
 watcher_cleanup() {
-  local cleanup_status=0
+  local cleanup_status=0 release_lock=1
   # A normal wake already has an adapter-owned handling turn on its way. Any
   # other close creates a genuine watcher-down interval, so the next arm must
   # actively re-surface durable work instead of waiting for an incidental event.
@@ -751,13 +751,17 @@ watcher_cleanup() {
     if [ -n "${FM_WATCH_DELIVERED_REASON:-}" ]; then
       rm -f "$WATCHER_DOWNTIME_MARKER" 2>/dev/null || true
     else
-      fm_recovery_marker_publish "$WATCHER_DOWNTIME_MARKER" 2>/dev/null || true
+      if ! fm_recovery_marker_publish "$WATCHER_DOWNTIME_MARKER"; then
+        echo "watcher: recovery state could not be persisted; retaining stale lock evidence" >&2
+        release_lock=0
+        cleanup_status=1
+      fi
     fi
   fi
   fm_active_check_stop || cleanup_status=1
   fm_check_output_cleanup
   fm_custom_check_snapshot_cleanup
-  fm_lock_release "$WATCH_LOCK"
+  [ "$release_lock" -eq 0 ] || fm_lock_release "$WATCH_LOCK"
   return "$cleanup_status"
 }
 trap watcher_cleanup EXIT

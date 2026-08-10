@@ -295,6 +295,36 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
   pass "watch-arm: re-arm surfaces every queued wake and an open remote decision after downtime"
 }
 
+test_marker_publish_failure_retains_recovery_evidence() {
+  local dir home state fakebin first_arm watcher_pid armout
+  dir=$(make_case downtime-marker-publish-failure)
+  home="$dir/home"
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  mkdir -p "$home/data"
+
+  start_rearm_arm "$home" "$state" "$fakebin" "$dir/first-arm.out"
+  first_arm=$ARM_PID
+  is_live_non_zombie "$first_arm" || fail "marker-failure fixture watcher did not stay live"
+  watcher_pid=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
+  mkdir "$state/.watcher-down"
+  kill -TERM "$watcher_pid" 2>/dev/null || fail "could not stop marker-failure fixture watcher"
+  wait "$first_arm" 2>/dev/null || true
+
+  [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$watcher_pid" ] \
+    || fail "marker publication failure discarded stale-lock recovery evidence"
+  ! is_live_non_zombie "$watcher_pid" \
+    || fail "marker-failure fixture watcher remained live"
+
+  rmdir "$state/.watcher-down"
+  armout="$dir/recovery-arm.out"
+  start_rearm_arm "$home" "$state" "$fakebin" "$armout"
+  wait_for_exit "$ARM_PID" 80 || fail "stale-lock recovery did not surface downtime"
+  grep -F 'check: rearm-resurface' "$armout" >/dev/null \
+    || fail "stale-lock recovery did not emit the recovery wake: $(cat "$armout")"
+  pass "watch-arm: marker publication failure retains stale-lock recovery evidence"
+}
+
 test_downtime_marker_does_not_follow_symlink() {
   local dir home state fakebin armout watcher_pid sentinel
   dir=$(make_case downtime-marker-symlink)
@@ -324,4 +354,5 @@ test_attached_arm_reports_the_delivered_wake
 test_attached_arm_reports_the_delivered_wake_after_drain
 test_attached_arm_still_fails_on_a_wake_it_did_not_deliver
 test_rearm_resurfaces_durable_queue_and_remote_open_decision
+test_marker_publish_failure_retains_recovery_evidence
 test_downtime_marker_does_not_follow_symlink
