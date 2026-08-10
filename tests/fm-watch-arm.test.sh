@@ -325,6 +325,68 @@ test_marker_publish_failure_retains_recovery_evidence() {
   pass "watch-arm: marker publication failure retains stale-lock recovery evidence"
 }
 
+test_delivery_gap_wake_is_recovered_once() {
+  local dir home state fakebin first_arm
+  dir=$(make_case delivery-gap-recovery)
+  home="$dir/home"
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  mkdir -p "$home/data"
+
+  start_rearm_arm "$home" "$state" "$fakebin" "$dir/first-arm.out"
+  first_arm=$ARM_PID
+  is_live_non_zombie "$first_arm" || fail "delivery-gap fixture watcher did not stay live"
+  printf 'done: first delivered wake\n' > "$state/first.status"
+  wait_for_exit "$first_arm" 120 || fail "first watcher did not deliver its status wake"
+  grep -q '^signal:' "$dir/first-arm.out" \
+    || fail "first watcher did not report its delivered wake"
+
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/first-drain.out" \
+    || fail "first handling drain failed"
+  append_wake "$state" check startup-network 'check: startup-network during handling gap'
+
+  start_rearm_arm "$home" "$state" "$fakebin" "$dir/gap-arm.out"
+  wait_for_exit "$ARM_PID" 80 || fail "successor missed the wake queued in the delivery gap"
+  grep -F 'check: rearm-resurface' "$dir/gap-arm.out" >/dev/null \
+    || fail "delivery-gap successor did not emit one recovery wake: $(cat "$dir/gap-arm.out")"
+
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/gap-drain.out" \
+    || fail "delivery-gap recovery drain failed"
+  grep "$(printf '\tcheck\tstartup-network\t')" "$dir/gap-drain.out" >/dev/null \
+    || fail "wake queued in the delivery gap was not drained"
+
+  start_rearm_arm "$home" "$state" "$fakebin" "$dir/stable-successor.out"
+  is_live_non_zombie "$ARM_PID" || fail "successor looped after the delivery gap was drained"
+  kill "$ARM_PID" 2>/dev/null || true
+  wait "$ARM_PID" 2>/dev/null || true
+  pass "watch-arm: a wake queued after handling drain is recovered once at successor arm"
+}
+
+test_malformed_marker_is_quarantined_once() {
+  local dir home state fakebin invalid_count
+  dir=$(make_case malformed-downtime-marker)
+  home="$dir/home"
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  mkdir -p "$home/data" "$state/.watcher-down"
+  printf 'foreign state\n' > "$state/.watcher-down/payload"
+
+  start_rearm_arm "$home" "$state" "$fakebin" "$dir/recovery-arm.out"
+  wait_for_exit "$ARM_PID" 80 || fail "malformed marker did not produce a bounded recovery wake"
+  grep -F 'check: rearm-resurface' "$dir/recovery-arm.out" >/dev/null \
+    || fail "malformed marker did not emit the recovery wake"
+  invalid_count=$(find "$state" -maxdepth 1 -type d -name '.watcher-down.invalid.*' | wc -l | tr -d '[:space:]')
+  [ "$invalid_count" -eq 1 ] || fail "malformed marker was not quarantined exactly once"
+
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/recovery-drain.out" \
+    || fail "malformed-marker recovery drain failed"
+  start_rearm_arm "$home" "$state" "$fakebin" "$dir/stable-successor.out"
+  is_live_non_zombie "$ARM_PID" || fail "malformed marker caused a persistent recovery loop"
+  kill "$ARM_PID" 2>/dev/null || true
+  wait "$ARM_PID" 2>/dev/null || true
+  pass "watch-arm: malformed recovery state is quarantined without a successor loop"
+}
+
 test_downtime_marker_does_not_follow_symlink() {
   local dir home state fakebin armout watcher_pid sentinel
   dir=$(make_case downtime-marker-symlink)
@@ -355,4 +417,6 @@ test_attached_arm_reports_the_delivered_wake_after_drain
 test_attached_arm_still_fails_on_a_wake_it_did_not_deliver
 test_rearm_resurfaces_durable_queue_and_remote_open_decision
 test_marker_publish_failure_retains_recovery_evidence
+test_delivery_gap_wake_is_recovered_once
+test_malformed_marker_is_quarantined_once
 test_downtime_marker_does_not_follow_symlink

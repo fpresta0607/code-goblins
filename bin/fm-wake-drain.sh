@@ -14,6 +14,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DRAIN_TMP=
 DRAIN_LOCK_HELD=false
 RAW_ROWS=
+RECOVERY_MARKER="$STATE/.watcher-down"
+RECOVERY_MARKER_TOKEN=
 
 # Defense in depth for the supervision chain: this script runs at the top of
 # every wake-handling and recovery turn, so assert supervision health here too. A
@@ -102,6 +104,9 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+fm_recovery_marker_snapshot "$RECOVERY_MARKER" || true
+RECOVERY_MARKER_TOKEN=$FM_RECOVERY_MARKER_TOKEN
+
 fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
 DRAIN_LOCK_HELD=true
 
@@ -110,6 +115,7 @@ if [ ! -s "$FM_WAKE_QUEUE" ]; then
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
   DRAIN_LOCK_HELD=false
   (print_open_decisions_section) || true
+  fm_recovery_marker_ack "$RECOVERY_MARKER" "$RECOVERY_MARKER_TOKEN" || true
   assert_watcher_liveness
   exit 0
 fi
@@ -139,5 +145,6 @@ DRAIN_LOCK_HELD=false
 # best-effort and cannot restore, duplicate, hide, or fail the consumed rows.
 (fm_wake_print_annotations "$RAW_ROWS") || true
 (print_open_decisions_section) || true
+fm_recovery_marker_ack "$RECOVERY_MARKER" "$RECOVERY_MARKER_TOKEN" || true
 assert_watcher_liveness
 exit 0

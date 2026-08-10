@@ -85,9 +85,6 @@ mkdir -p "$STATE"
 
 WATCH_LOCK="$STATE/.watch.lock"
 WATCH_PATH="$SCRIPT_DIR/fm-watch.sh"
-# Written by this watcher's EXIT cleanup when a live cycle ends without
-# delivering a wake. A stale predecessor lock provides the same recovery signal
-# when abrupt termination bypasses cleanup.
 WATCHER_DOWNTIME_MARKER="$STATE/.watcher-down"
 WATCHER_STALE_GRACE=${FM_WATCHER_STALE_GRACE:-${FM_GUARD_GRACE:-300}}
 # The singleton-lock acquisition, EXIT trap, and the blocking supervision loop
@@ -737,25 +734,23 @@ if ! fm_lock_try_acquire "$WATCH_LOCK"; then
   exit 0
 fi
 WATCHER_RECOVERY_PENDING=0
-if [ -n "${FM_LOCK_RECOVERED_PID:-}" ] \
-  || [ -e "$WATCHER_DOWNTIME_MARKER" ] \
-  || [ -L "$WATCHER_DOWNTIME_MARKER" ]; then
+if [ -n "${FM_LOCK_RECOVERED_PID:-}" ]; then
   WATCHER_RECOVERY_PENDING=1
 fi
+if ! fm_recovery_marker_arm_check "$WATCHER_DOWNTIME_MARKER"; then
+  echo "watcher: recovery state could not be consumed safely" >&2
+  fm_lock_release "$WATCH_LOCK"
+  exit 1
+fi
+[ "$FM_RECOVERY_MARKER_ACTION" = recover ] && WATCHER_RECOVERY_PENDING=1
 watcher_cleanup() {
-  local cleanup_status=0 release_lock=1
-  # A normal wake already has an adapter-owned handling turn on its way. Any
-  # other close creates a genuine watcher-down interval, so the next arm must
-  # actively re-surface durable work instead of waiting for an incidental event.
+  local cleanup_status=0 release_lock=1 marker_kind=downtime
   if [ "$(cat "$WATCH_LOCK/pid" 2>/dev/null || true)" = "${WATCHER_PID:-}" ]; then
-    if [ -n "${FM_WATCH_DELIVERED_REASON:-}" ]; then
-      rm -f "$WATCHER_DOWNTIME_MARKER" 2>/dev/null || true
-    else
-      if ! fm_recovery_marker_publish "$WATCHER_DOWNTIME_MARKER"; then
-        echo "watcher: recovery state could not be persisted; retaining stale lock evidence" >&2
-        release_lock=0
-        cleanup_status=1
-      fi
+    [ -z "${FM_WATCH_DELIVERED_REASON:-}" ] || marker_kind=handling
+    if ! fm_recovery_marker_publish "$WATCHER_DOWNTIME_MARKER" "$marker_kind"; then
+      echo "watcher: recovery state could not be persisted; retaining stale lock evidence" >&2
+      release_lock=0
+      cleanup_status=1
     fi
   fi
   fm_active_check_stop || cleanup_status=1
@@ -788,12 +783,14 @@ if ! fm_pr_poll_retirement_recover_all "$STATE" "$SCRIPT_DIR/fm-pr-poll.sh"; the
   wake "$reason"
 fi
 
-# A normal actionable close has an adapter-owned handling turn, so its cleanup
-# removes the marker above. The first watcher after an interrupted cycle emits
-# one ordinary wake, and the handler calls fm-wake-drain.sh as the sole owner of
-# queue consumption and the incremental OPEN DECISIONS fold.
 resurface_after_downtime() {
-  [ "$WATCHER_RECOVERY_PENDING" -eq 1 ] || return 0
+  if [ "$WATCHER_RECOVERY_PENDING" -ne 1 ]; then
+    if ! fm_recovery_marker_arm_check "$WATCHER_DOWNTIME_MARKER"; then
+      echo "watcher: recovery state could not be consumed safely" >&2
+      exit 1
+    fi
+    [ "$FM_RECOVERY_MARKER_ACTION" = recover ] || return 0
+  fi
   wake "check: rearm-resurface"
 }
 

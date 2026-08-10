@@ -379,15 +379,131 @@ fm_lock_recheck_stale_owner() {
   return 0
 }
 
+FM_RECOVERY_MARKER_TOKEN=
+FM_RECOVERY_MARKER_ACTION=none
+
+fm_recovery_marker_read() {
+  local marker=$1 line count
+  FM_RECOVERY_MARKER_TOKEN=
+  [ -f "$marker" ] && [ ! -L "$marker" ] || return 1
+  count=$(wc -l < "$marker" 2>/dev/null | tr -d '[:space:]') || return 1
+  [ "$count" = 1 ] || return 1
+  IFS= read -r line < "$marker" || return 1
+  case "$line" in
+    pending:handling:*|pending:downtime:*|acked:handling:*|acked:downtime:*) ;;
+    *) return 1 ;;
+  esac
+  case "${line##*:}" in
+    ''|*[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  FM_RECOVERY_MARKER_TOKEN=$line
+}
+
 fm_recovery_marker_publish() {
-  local marker=$1 tmp
+  local marker=$1 kind=${2:-downtime} lock tmp token
+  case "$kind" in handling|downtime) ;; *) return 1 ;; esac
+  lock="${marker}.lock"
+  fm_lock_acquire_wait "$lock" || return 1
   if [ -d "$marker" ] && [ ! -L "$marker" ]; then
+    fm_lock_release "$lock"
     return 1
   fi
-  tmp=$(mktemp "${marker}.tmp.XXXXXX") || return 1
-  chmod 0600 "$tmp" || { rm -f -- "$tmp"; return 1; }
-  rm -f -- "$marker" 2>/dev/null || { rm -f -- "$tmp"; return 1; }
-  mv -f -- "$tmp" "$marker" || { rm -f -- "$tmp"; return 1; }
+  tmp=$(mktemp "${marker}.tmp.XXXXXX") || { fm_lock_release "$lock"; return 1; }
+  token="$(fm_current_pid).$(date +%s).${tmp##*.}"
+  if ! printf 'pending:%s:%s\n' "$kind" "$token" > "$tmp" \
+    || ! chmod 0600 "$tmp" \
+    || ! rm -f -- "$marker" 2>/dev/null \
+    || ! mv -f -- "$tmp" "$marker"; then
+    rm -f -- "$tmp"
+    fm_lock_release "$lock"
+    return 1
+  fi
+  fm_lock_release "$lock"
+}
+
+fm_recovery_marker_snapshot() {
+  local marker=$1 lock
+  FM_RECOVERY_MARKER_TOKEN=
+  lock="${marker}.lock"
+  fm_lock_acquire_wait "$lock" || return 1
+  fm_recovery_marker_read "$marker" || true
+  fm_lock_release "$lock"
+}
+
+fm_recovery_marker_ack() {
+  local marker=$1 expected=$2 lock tmp line
+  [ -n "$expected" ] || return 0
+  lock="${marker}.lock"
+  fm_lock_acquire_wait "$lock" || return 1
+  if ! fm_recovery_marker_read "$marker" || [ "$FM_RECOVERY_MARKER_TOKEN" != "$expected" ]; then
+    fm_lock_release "$lock"
+    return 0
+  fi
+  line=$FM_RECOVERY_MARKER_TOKEN
+  case "$line" in
+    pending:*) line="acked:${line#pending:}" ;;
+    acked:*) fm_lock_release "$lock"; return 0 ;;
+  esac
+  tmp=$(mktemp "${marker}.tmp.XXXXXX") || { fm_lock_release "$lock"; return 1; }
+  if ! printf '%s\n' "$line" > "$tmp" \
+    || ! chmod 0600 "$tmp" \
+    || ! mv -f -- "$tmp" "$marker"; then
+    rm -f -- "$tmp"
+    fm_lock_release "$lock"
+    return 1
+  fi
+  fm_lock_release "$lock"
+}
+
+fm_recovery_marker_arm_check() {
+  local marker=$1 lock line quarantine consumed
+  FM_RECOVERY_MARKER_ACTION=none
+  lock="${marker}.lock"
+  fm_lock_acquire_wait "$lock" || return 1
+  if [ ! -e "$marker" ] && [ ! -L "$marker" ]; then
+    fm_lock_release "$lock"
+    return 0
+  fi
+  if ! fm_recovery_marker_read "$marker"; then
+    quarantine=$(mktemp -d "${marker}.invalid.XXXXXX") \
+      || { fm_lock_release "$lock"; return 1; }
+    if ! mv -- "$marker" "$quarantine/marker"; then
+      rmdir "$quarantine" 2>/dev/null || true
+      fm_lock_release "$lock"
+      return 1
+    fi
+    FM_RECOVERY_MARKER_ACTION=recover
+    fm_lock_release "$lock"
+    return 0
+  fi
+  line=$FM_RECOVERY_MARKER_TOKEN
+  case "$line" in
+    pending:handling:*)
+      FM_RECOVERY_MARKER_ACTION=wait
+      fm_lock_release "$lock"
+      return 0
+      ;;
+    pending:downtime:*) FM_RECOVERY_MARKER_ACTION=recover ;;
+    acked:*)
+      fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" \
+        || { fm_lock_release "$lock"; return 1; }
+      if [ -s "$FM_WAKE_QUEUE" ]; then
+        FM_RECOVERY_MARKER_ACTION=recover
+      fi
+      fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+      ;;
+  esac
+  consumed=$(mktemp "${marker}.consumed.XXXXXX") \
+    || { fm_lock_release "$lock"; return 1; }
+  rm -f -- "$consumed"
+  if ! mv -- "$marker" "$consumed" \
+    || [ -e "$marker" ] || [ -L "$marker" ]; then
+    rm -f -- "$consumed" 2>/dev/null || true
+    fm_lock_release "$lock"
+    return 1
+  fi
+  rm -f -- "$consumed" 2>/dev/null || true
+  fm_lock_release "$lock"
 }
 
 fm_lock_try_acquire() {
