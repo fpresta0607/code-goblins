@@ -399,6 +399,10 @@ fm_recovery_marker_read() {
   FM_RECOVERY_MARKER_TOKEN=$line
 }
 
+_fm_atomic_replace() {
+  perl -e 'rename($ARGV[0], $ARGV[1]) or exit 1' -- "$1" "$2"
+}
+
 _fm_recovery_marker_publish() {
   local marker=$1 kind=${2:-downtime} lock tmp token
   case "$kind" in handling|downtime) ;; *) return 1 ;; esac
@@ -412,8 +416,7 @@ _fm_recovery_marker_publish() {
   token="$(fm_current_pid).$(date +%s).${tmp##*.}"
   if ! printf 'pending:%s:%s\n' "$kind" "$token" > "$tmp" \
     || ! chmod 0600 "$tmp" \
-    || ! rm -f -- "$marker" 2>/dev/null \
-    || ! mv -f -- "$tmp" "$marker"; then
+    || ! _fm_atomic_replace "$tmp" "$marker"; then
     rm -f -- "$tmp"
     fm_lock_release "$lock"
     return 1
@@ -760,17 +763,17 @@ fm_wake_append() {
   status=0
 
   fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
-  seq=$(cat "$seq_file" 2>/dev/null || echo 0)
-  case "$seq" in
-    ''|*[!0-9]*) seq=0 ;;
-  esac
-  seq=$((seq + 1))
-  printf '%s\n' "$seq" > "$seq_file" || status=$?
+  _fm_recovery_marker_publish "$recovery_marker" downtime || status=$?
   if [ "$status" -eq 0 ]; then
-    printf '%s\t%s\t%s\t%s\t%s\n' "$epoch" "$seq" "$kind" "$clean_key" "$clean_payload" >> "$FM_WAKE_QUEUE" || status=$?
+    seq=$(cat "$seq_file" 2>/dev/null || echo 0)
+    case "$seq" in
+      ''|*[!0-9]*) seq=0 ;;
+    esac
+    seq=$((seq + 1))
+    printf '%s\n' "$seq" > "$seq_file" || status=$?
   fi
   if [ "$status" -eq 0 ]; then
-    _fm_recovery_marker_publish "$recovery_marker" downtime || status=$?
+    printf '%s\t%s\t%s\t%s\t%s\n' "$epoch" "$seq" "$kind" "$clean_key" "$clean_payload" >> "$FM_WAKE_QUEUE" || status=$?
   fi
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
   return "$status"

@@ -393,6 +393,44 @@ test_slow_annotation_does_not_block_append_and_deleted_file_fails_open() {
   pass "slow annotation releases the append lock and a deleted status file fails open"
 }
 
+test_wake_publish_requires_atomic_recovery_evidence() {
+  local dir state fakebin real_perl rc out
+  dir=$(make_case wake-publish-recovery-evidence)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  real_perl=$(command -v perl) || fail "could not locate perl for recovery publication fixture"
+  printf 'pending:handling:existing\n' > "$state/.watcher-down"
+  cat > "$fakebin/perl" <<'SH'
+#!/usr/bin/env bash
+last=${!#}
+if [ "$last" = "${FM_TEST_PUBLISH_MARKER:-}" ]; then
+  exit 1
+fi
+exec "$FM_TEST_REAL_PERL" "$@"
+SH
+  chmod +x "$fakebin/perl"
+
+  set +e
+  PATH="$fakebin:$PATH" FM_TEST_REAL_PERL="$real_perl" FM_TEST_PUBLISH_MARKER="$state/.watcher-down" \
+    append_wake "$state" signal task.status "signal: publish failure"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "recovery publication failure allowed wake append to succeed"
+  [ "$(cat "$state/.watcher-down")" = 'pending:handling:existing' ] \
+    || fail "failed atomic publication erased existing recovery evidence"
+  [ ! -s "$state/.wake-queue" ] \
+    || fail "wake became durable before its recovery evidence"
+
+  append_wake "$state" signal task.status "signal: recovered retry" \
+    || fail "wake retry did not publish durable recovery evidence"
+  out="$dir/drain.out"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" \
+    || fail "wake retry did not drain"
+  grep -F "signal: recovered retry" "$out" >/dev/null \
+    || fail "retried wake was not recovered by the durable drain"
+  pass "wake append publishes atomic recovery evidence before durable rows"
+}
+
 test_recovery_ack_failure_is_reported() {
   local dir state fakebin real_mv rc
   dir=$(make_case recovery-ack-failure)
@@ -483,5 +521,6 @@ test_drain_asserts_watcher_liveness
 test_structural_signal_enrichment_preserves_raw_rows
 test_enrichment_caps_and_status_file_failures
 test_slow_annotation_does_not_block_append_and_deleted_file_fails_open
+test_wake_publish_requires_atomic_recovery_evidence
 test_recovery_ack_failure_is_reported
 test_interruption_before_and_after_raw_commit
