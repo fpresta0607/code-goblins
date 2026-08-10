@@ -91,9 +91,7 @@ EOF
 # shellcheck disable=SC2317,SC2329 # Invoked by trap handlers below.
 cleanup() {
   local status=$?
-  if [ "$status" -ne 0 ] && [ "$DRAIN_LOCK_HELD" = true ] && [ -n "$DRAIN_TMP" ] && [ -e "$DRAIN_TMP" ]; then
-    fm_wake_restore_queue "$DRAIN_TMP" || true
-  fi
+  [ -z "$DRAIN_TMP" ] || rm -f -- "$DRAIN_TMP" 2>/dev/null || true
   if [ "$DRAIN_LOCK_HELD" = true ]; then
     fm_lock_release "$FM_WAKE_QUEUE_LOCK"
   fi
@@ -104,11 +102,10 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-fm_recovery_marker_snapshot "$RECOVERY_MARKER" || true
-RECOVERY_MARKER_TOKEN=$FM_RECOVERY_MARKER_TOKEN
-
 fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
 DRAIN_LOCK_HELD=true
+fm_recovery_marker_snapshot "$RECOVERY_MARKER" || true
+RECOVERY_MARKER_TOKEN=$FM_RECOVERY_MARKER_TOKEN
 
 if [ ! -s "$FM_WAKE_QUEUE" ]; then
   : > "$FM_WAKE_QUEUE"
@@ -123,33 +120,37 @@ if [ ! -s "$FM_WAKE_QUEUE" ]; then
   exit 0
 fi
 
-DRAIN_TMP="$STATE/.wake-queue.drain.$(fm_current_pid)"
-rm -f "$DRAIN_TMP"
-mv "$FM_WAKE_QUEUE" "$DRAIN_TMP" || exit 1
-: > "$FM_WAKE_QUEUE" || exit 1
+DRAIN_TMP=$(mktemp "$STATE/.wake-queue.empty.XXXXXX") || exit 1
+chmod 0600 "$DRAIN_TMP" || exit 1
 
-RAW_ROWS=$(fm_wake_print_deduped "$DRAIN_TMP") || exit "$?"
+RAW_ROWS=$(fm_wake_print_deduped "$FM_WAKE_QUEUE") || exit "$?"
 case "${FM_WAKE_DRAIN_TEST_DELAY_BEFORE_COMMIT:-0}" in
   0) ;;
   ''|*[!0-9]*) ;;
   *) sleep "$FM_WAKE_DRAIN_TEST_DELAY_BEFORE_COMMIT" ;;
 esac
 if [ -n "$RAW_ROWS" ]; then
-  # Print-before-delete is the deliberate at-least-once no-loss boundary: a
-  # crash in this micro-gap may replay a wake, and annotations stay outside it.
   printf '%s\n' "$RAW_ROWS" || exit "$?"
 fi
-rm -f "$DRAIN_TMP" || exit "$?"
-DRAIN_TMP=
+case "${FM_WAKE_DRAIN_TEST_DELAY_BEFORE_ACK:-0}" in
+  0) ;;
+  ''|*[!0-9]*) ;;
+  *) sleep "$FM_WAKE_DRAIN_TEST_DELAY_BEFORE_ACK" ;;
+esac
 if ! fm_recovery_marker_ack "$RECOVERY_MARKER" "$RECOVERY_MARKER_TOKEN"; then
   echo "wake drain: recovery state could not be acknowledged safely" >&2
   exit 1
 fi
+if ! _fm_atomic_replace "$DRAIN_TMP" "$FM_WAKE_QUEUE"; then
+  echo "wake drain: acknowledged wakes could not be consumed safely" >&2
+  exit 1
+fi
+DRAIN_TMP=
 fm_lock_release "$FM_WAKE_QUEUE_LOCK"
 DRAIN_LOCK_HELD=false
 
-# Raw output and queue deletion are authoritative. Everything below is
-# best-effort and cannot restore, duplicate, hide, or fail the consumed rows.
+# Raw output, recovery acknowledgement, and atomic queue consumption are
+# authoritative. Everything below is best-effort and cannot hide or fail rows.
 (fm_wake_print_annotations "$RAW_ROWS") || true
 (print_open_decisions_section) || true
 assert_watcher_liveness

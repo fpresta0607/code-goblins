@@ -459,7 +459,7 @@ _fm_recovery_marker_ack() {
 }
 
 _fm_recovery_marker_arm_check() {
-  local marker=$1 lock line quarantine consumed
+  local marker=$1 lock line quarantine
   FM_RECOVERY_MARKER_ACTION=none
   lock="${marker}.lock"
   fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" || return 1
@@ -493,10 +493,14 @@ _fm_recovery_marker_arm_check() {
   line=$FM_RECOVERY_MARKER_TOKEN
   case "$line" in
     pending:handling:*)
-      FM_RECOVERY_MARKER_ACTION=wait
-      fm_lock_release "$lock"
-      fm_lock_release "$FM_WAKE_QUEUE_LOCK"
-      return 0
+      if [ -s "$FM_WAKE_QUEUE" ]; then
+        FM_RECOVERY_MARKER_ACTION=recover
+      else
+        FM_RECOVERY_MARKER_ACTION=wait
+        fm_lock_release "$lock"
+        fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+        return 0
+      fi
       ;;
     pending:downtime:*) FM_RECOVERY_MARKER_ACTION=recover ;;
     acked:*)
@@ -505,21 +509,6 @@ _fm_recovery_marker_arm_check() {
       fi
       ;;
   esac
-  consumed=$(mktemp "${marker}.consumed.XXXXXX") \
-    || {
-      fm_lock_release "$lock"
-      fm_lock_release "$FM_WAKE_QUEUE_LOCK"
-      return 1
-    }
-  rm -f -- "$consumed"
-  if ! mv -- "$marker" "$consumed" \
-    || [ -e "$marker" ] || [ -L "$marker" ]; then
-    rm -f -- "$consumed" 2>/dev/null || true
-    fm_lock_release "$lock"
-    fm_lock_release "$FM_WAKE_QUEUE_LOCK"
-    return 1
-  fi
-  rm -f -- "$consumed" 2>/dev/null || true
   fm_lock_release "$lock"
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
 }

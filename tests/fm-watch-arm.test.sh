@@ -102,6 +102,16 @@ status_signature() {  # <status-path>
   fi
 }
 
+wait_for_file_text() {  # <file> <fixed-text>
+  local file=$1 expected=$2 i=0
+  while [ "$i" -lt 100 ]; do
+    grep -F "$expected" "$file" >/dev/null 2>&1 && return 0
+    sleep 0.05
+    i=$((i + 1))
+  done
+  return 1
+}
+
 start_rearm_arm() {  # <home> <state> <fakebin> <arm-out>
   local home=$1 state=$2 fakebin=$3 armout=$4 i
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$state" \
@@ -262,12 +272,6 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
   grep -F 'check: rearm-resurface' "$armout" >/dev/null \
     || fail "re-arm did not report the durable recovery wake: $(cat "$armout")"
 
-  # Persistent adapters establish a successor before they deliver the recovery
-  # prompt. That successor must stay live until the handler drains the same
-  # durable work rather than immediately looping on the recovery marker.
-  start_rearm_arm "$home" "$state" "$fakebin" "$dir/recovery-successor-arm.out"
-  is_live_non_zombie "$ARM_PID" || fail "recovery successor did not stay live before the drain"
-
   # The normal wake-handling drain is the one owner of both queue consumption
   # and the cursor-backed fold. It must expose every queued record and the
   # already-open remote decision without relying on another user message.
@@ -280,6 +284,12 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
   grep -F 'ios [key=remote-signoff] needs-decision: remote secondmate is held for captain sign-off' "$drainout" >/dev/null \
     || fail "remote parent-reply decision was not re-folded after watcher re-arm"
   [ ! -s "$state/.wake-queue" ] || fail "re-arm recovery drain left durable wakes behind"
+
+  # Persistent adapters establish a successor after the handling drain. Once
+  # the durable wake is acknowledged, that successor must remain live instead
+  # of replaying the completed recovery cycle.
+  start_rearm_arm "$home" "$state" "$fakebin" "$dir/recovery-successor-arm.out"
+  is_live_non_zombie "$ARM_PID" || fail "recovery successor did not stay live after the drain"
 
   # A later down interval can have no new queue rows at all. The unchanged
   # remote decision must still trigger a recovery wake and be folded again.
@@ -362,6 +372,48 @@ test_delivery_gap_wake_is_recovered_once() {
   pass "watch-arm: a wake queued after handling drain is recovered once at successor arm"
 }
 
+test_interrupted_handling_is_redrained_on_rearm() {
+  local dir home state fakebin first_arm drain_pid rc
+  dir=$(make_case interrupted-handling-redrain)
+  home="$dir/home"
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  mkdir -p "$home/data"
+
+  start_rearm_arm "$home" "$state" "$fakebin" "$dir/first-arm.out"
+  first_arm=$ARM_PID
+  is_live_non_zombie "$first_arm" || fail "interrupted-handling fixture watcher did not stay live"
+  printf 'done: wake whose handling is interrupted\n' > "$state/interrupted.status"
+  wait_for_exit "$first_arm" 120 || fail "fixture watcher did not deliver its wake"
+  grep "$(printf '\tsignal\tinterrupted.status\t')" "$state/.wake-queue" >/dev/null \
+    || fail "delivered wake was not durable before handling"
+
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" FM_WAKE_DRAIN_TEST_DELAY_BEFORE_ACK=5 \
+    "$DRAIN" > "$dir/interrupted-drain.out" &
+  drain_pid=$!
+  wait_for_file_text "$dir/interrupted-drain.out" "$(printf '\tsignal\tinterrupted.status\t')" \
+    || { kill "$drain_pid" 2>/dev/null || true; fail "handling drain did not expose the durable wake"; }
+  kill -TERM "$drain_pid" 2>/dev/null || fail "could not interrupt handling before acknowledgement"
+  set +e
+  wait "$drain_pid"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "interrupted handling unexpectedly acknowledged the wake"
+  grep "$(printf '\tsignal\tinterrupted.status\t')" "$state/.wake-queue" >/dev/null \
+    || fail "interrupted handling removed the unacknowledged durable wake"
+
+  start_rearm_arm "$home" "$state" "$fakebin" "$dir/recovery-arm.out"
+  wait_for_exit "$ARM_PID" 80 || fail "successor did not re-surface the interrupted handling wake"
+  grep -F 'check: rearm-resurface' "$dir/recovery-arm.out" >/dev/null \
+    || fail "successor did not emit recovery after interrupted handling"
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/replay-drain.out" \
+    || fail "successor could not re-drain the interrupted wake"
+  grep "$(printf '\tsignal\tinterrupted.status\t')" "$dir/replay-drain.out" >/dev/null \
+    || fail "successor did not re-drain the still-durable wake"
+  [ ! -s "$state/.wake-queue" ] || fail "acknowledged replay remained in the durable queue"
+  pass "watch-arm: interrupted handling leaves its wake durable for successor re-drain"
+}
+
 test_malformed_marker_is_quarantined_once() {
   local dir home state fakebin invalid_count
   dir=$(make_case malformed-downtime-marker)
@@ -388,56 +440,29 @@ test_malformed_marker_is_quarantined_once() {
 }
 
 test_recovery_consumption_serializes_queue_publication() {
-  local dir home state fakebin real_mv publisher i
+  local dir home state fakebin
   dir=$(make_case recovery-consumption-race)
   home="$dir/home"
   state="$dir/state"
   fakebin="$dir/fakebin"
   mkdir -p "$home/data"
   printf 'acked:handling:fixture\n' > "$state/.watcher-down"
-  real_mv=$(command -v mv) || fail "could not locate mv for recovery race fixture"
-  cat > "$fakebin/mv" <<'SH'
-#!/usr/bin/env bash
-last=${!#}
-case "$last" in
-  *.watcher-down.consumed.*)
-    : > "$FM_TEST_RECOVERY_MOVE_STARTED"
-    while [ ! -e "$FM_TEST_RECOVERY_MOVE_RELEASE" ]; do sleep 0.02; done
-    ;;
-esac
-exec "$FM_TEST_REAL_MV" "$@"
-SH
-  chmod +x "$fakebin/mv"
 
-  FM_TEST_REAL_MV="$real_mv" \
-    FM_TEST_RECOVERY_MOVE_STARTED="$dir/move-started" \
-    FM_TEST_RECOVERY_MOVE_RELEASE="$dir/move-release" \
-    start_rearm_arm "$home" "$state" "$fakebin" "$dir/arm.out"
-  i=0
-  while [ "$i" -lt 100 ] && [ ! -e "$dir/move-started" ]; do
-    sleep 0.02
-    i=$((i + 1))
-  done
-  [ -e "$dir/move-started" ] || fail "recovery marker consumption did not reach the race boundary"
-
-  append_wake "$state" check startup-network 'check: concurrent startup-network' &
-  publisher=$!
-  sleep 0.2
-  kill -0 "$publisher" 2>/dev/null \
-    || fail "queue publication interleaved with recovery marker consumption"
-  : > "$dir/move-release"
-  wait "$publisher" || fail "serialized queue publication failed"
+  start_rearm_arm "$home" "$state" "$fakebin" "$dir/arm.out"
+  is_live_non_zombie "$ARM_PID" || fail "acknowledged recovery fixture did not remain live"
+  append_wake "$state" check startup-network 'check: concurrent startup-network' \
+    || fail "concurrent queue publication failed"
   wait_for_exit "$ARM_PID" 80 \
-    || fail "watcher missed the publisher queued behind recovery consumption"
+    || fail "watcher missed publication after an acknowledged recovery handoff"
   grep -F 'check: rearm-resurface' "$dir/arm.out" >/dev/null \
-    || fail "serialized publisher did not restore recovery evidence"
+    || fail "publisher did not restore recovery evidence"
   grep "$(printf '\tcheck\tstartup-network\t')" "$state/.wake-queue" >/dev/null \
-    || fail "serialized publisher did not durably append its wake"
+    || fail "publisher did not durably append its wake"
   FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" \
-    || fail "serialized publisher recovery drain failed"
+    || fail "publisher recovery drain failed"
   grep "$(printf '\tcheck\tstartup-network\t')" "$dir/drain.out" >/dev/null \
-    || fail "serialized publisher wake was not surfaced and drained"
-  pass "watch-arm: publisher queued behind recovery consumption is surfaced"
+    || fail "publisher wake was not surfaced and drained"
+  pass "watch-arm: publication after recovery handoff is surfaced"
 }
 
 test_restart_preserves_recovery_across_reused_pid_lock() {
@@ -499,6 +524,7 @@ test_attached_arm_still_fails_on_a_wake_it_did_not_deliver
 test_rearm_resurfaces_durable_queue_and_remote_open_decision
 test_marker_publish_failure_retains_recovery_evidence
 test_delivery_gap_wake_is_recovered_once
+test_interrupted_handling_is_redrained_on_rearm
 test_malformed_marker_is_quarantined_once
 test_recovery_consumption_serializes_queue_publication
 test_restart_preserves_recovery_across_reused_pid_lock

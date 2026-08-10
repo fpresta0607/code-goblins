@@ -485,11 +485,11 @@ test_interruption_before_and_after_raw_commit() {
   FM_STATE_OVERRIDE="$state" FM_WAKE_DRAIN_TEST_DELAY_BEFORE_COMMIT=5 "$DRAIN" > "$before_out" &
   pid=$!
   i=0
-  while [ "$i" -lt 100 ] && ! compgen -G "$state/.wake-queue.drain.*" >/dev/null; do
+  while [ "$i" -lt 100 ] && ! compgen -G "$state/.wake-queue.empty.*" >/dev/null; do
     sleep 0.05
     i=$((i + 1))
   done
-  compgen -G "$state/.wake-queue.drain.*" >/dev/null || { kill "$pid" 2>/dev/null || true; fail "pre-commit drain never rotated the queue"; }
+  compgen -G "$state/.wake-queue.empty.*" >/dev/null || { kill "$pid" 2>/dev/null || true; fail "pre-commit drain never prepared its atomic queue replacement"; }
   kill -TERM "$pid" 2>/dev/null || fail "could not interrupt drain before raw commitment"
   set +e
   wait "$pid"
@@ -505,6 +505,13 @@ test_interruption_before_and_after_raw_commit() {
   pid=$!
   wait_for_file_text "$after_out" "$(printf '\tsignal\ttask.status\t')" \
     || { kill "$pid" 2>/dev/null || true; fail "post-commit drain did not print its raw row"; }
+  i=0
+  while [ "$i" -lt 100 ] && [ -s "$state/.wake-queue" ]; do
+    sleep 0.02
+    i=$((i + 1))
+  done
+  [ ! -s "$state/.wake-queue" ] \
+    || { kill "$pid" 2>/dev/null || true; fail "post-commit drain did not acknowledge its raw row"; }
   kill -TERM "$pid" 2>/dev/null || fail "could not interrupt drain after raw commitment"
   set +e
   wait "$pid"
