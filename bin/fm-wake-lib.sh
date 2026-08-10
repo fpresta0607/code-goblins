@@ -400,7 +400,7 @@ fm_recovery_marker_read() {
 }
 
 _fm_atomic_replace() {
-  node -e 'require("fs").renameSync(process.argv[1], process.argv[2])' "$1" "$2"
+  mv -f -- "$1" "$2"
 }
 
 _fm_recovery_marker_publish() {
