@@ -436,13 +436,63 @@ SH
   pass "wake append publishes atomic recovery evidence before durable rows"
 }
 
+test_stale_recovery_generation_is_rejected() {
+  local dir state first_err replay_err sequence generation newer_marker newer_sequence newer_generation rc
+  dir=$(make_case stale-recovery-generation)
+  state="$dir/state"
+
+  append_wake "$state" check first 'check: first generation' \
+    || fail "first generation wake append failed"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/first.out" 2> "$dir/first.err" \
+    || fail "first generation drain failed"
+  first_err="$dir/first.err"
+  sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' "$first_err")
+  generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$first_err")
+  [ -n "$sequence" ] && [ -n "$generation" ] \
+    || fail "first drain did not emit a generation-bound acknowledgement"
+
+  append_wake "$state" check second 'check: newer recovery generation' \
+    || fail "newer generation wake append failed"
+  newer_marker=$(cat "$state/.watcher-down")
+  [ "${newer_marker##*:}" != "$generation" ] \
+    || fail "new durable publication did not advance the recovery generation"
+
+  set +e
+  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence" \
+    --recovery-generation "$generation" > "$dir/stale-ack.out" 2> "$dir/stale-ack.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "stale acknowledgement consumed a newer recovery generation"
+  [ "$(cat "$state/.watcher-down")" = "$newer_marker" ] \
+    || fail "stale acknowledgement changed the newer recovery marker"
+  grep "$(printf '\tcheck\tsecond\t')" "$state/.wake-queue" >/dev/null \
+    || fail "stale acknowledgement removed the newer durable wake"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/replay.out" 2> "$dir/replay.err" \
+    || fail "newer generation could not be re-drained"
+  replay_err="$dir/replay.err"
+  grep "$(printf '\tcheck\tsecond\t')" "$dir/replay.out" >/dev/null \
+    || fail "newer generation wake did not re-surface"
+  newer_sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' "$replay_err")
+  newer_generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$replay_err")
+  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$newer_sequence" \
+    --recovery-generation "$newer_generation" \
+    || fail "newer recovery generation could not be acknowledged"
+  [ ! -s "$state/.wake-queue" ] || fail "newer acknowledgement left durable wakes queued"
+  pass "wake drain: stale acknowledgement cannot consume a newer recovery generation"
+}
+
 test_recovery_ack_failure_is_reported() {
-  local dir state fakebin real_mv rc
+  local dir state fakebin real_mv rc generation
   dir=$(make_case recovery-ack-failure)
   state="$dir/state"
   fakebin="$dir/fakebin"
   real_mv=$(command -v mv) || fail "could not locate mv for recovery acknowledgement fixture"
   printf 'pending:handling:fixture\n' > "$state/.watcher-down"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/initial.out" 2> "$dir/initial.err" \
+    || fail "initial recovery drain failed"
+  generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through 0 --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$dir/initial.err")
+  [ -n "$generation" ] || fail "initial recovery drain omitted its generation"
   cat > "$fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 last=${!#}
@@ -455,18 +505,20 @@ SH
 
   set +e
   PATH="$fakebin:$PATH" FM_TEST_REAL_MV="$real_mv" FM_TEST_ACK_MARKER="$state/.watcher-down" \
-    FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err"
+    FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through 0 --recovery-generation "$generation" \
+      > "$dir/drain.out" 2> "$dir/drain.err"
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "recovery acknowledgement failure was reported as success"
-  grep -F 'recovery state could not be acknowledged safely' "$dir/drain.err" >/dev/null \
+  grep -F 'recovery generation is stale or could not be acknowledged safely' "$dir/drain.err" >/dev/null \
     || fail "recovery acknowledgement failure had no explicit diagnostic"
-  [ "$(cat "$state/.watcher-down")" = 'pending:handling:fixture' ] \
+  [ "$(cat "$state/.watcher-down")" = "pending:downtime:$generation" ] \
     || fail "failed acknowledgement corrupted the pending recovery marker"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/retry.out" 2> "$dir/retry.err" \
+  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through 0 --recovery-generation "$generation" \
+    > "$dir/retry.out" 2> "$dir/retry.err" \
     || fail "recovery acknowledgement did not succeed on retry"
-  [ "$(cat "$state/.watcher-down")" = 'acked:handling:fixture' ] \
+  [ "$(cat "$state/.watcher-down")" = "acked:downtime:$generation" ] \
     || fail "successful retry did not acknowledge pending recovery state"
   pass "wake drain: recovery acknowledgement failures are explicit and retryable"
 }
@@ -534,5 +586,6 @@ test_structural_signal_enrichment_preserves_raw_rows
 test_enrichment_caps_and_status_file_failures
 test_slow_annotation_does_not_block_append_and_deleted_file_fails_open
 test_wake_publish_requires_atomic_recovery_evidence
+test_stale_recovery_generation_is_rejected
 test_recovery_ack_failure_is_reported
 test_interruption_before_and_after_raw_commit

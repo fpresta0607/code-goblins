@@ -18,15 +18,20 @@ RECOVERY_MARKER="$STATE/.watcher-down"
 RECOVERY_MARKER_TOKEN=
 RECOVERY_ACK_REQUIRED=false
 ACK_THROUGH=
+ACK_GENERATION=
 
 case "${1:-}" in
   '') ;;
   --ack-through)
     ACK_THROUGH=${2:-}
     case "$ACK_THROUGH" in ''|*[!0-9]*) echo "wake drain: invalid acknowledgement sequence" >&2; exit 2 ;; esac
-    [ "$#" -eq 2 ] || { echo "wake drain: unexpected acknowledgement arguments" >&2; exit 2; }
+    [ "${3:-}" = --recovery-generation ] \
+      || { echo "wake drain: acknowledgement requires its recovery generation" >&2; exit 2; }
+    ACK_GENERATION=${4:-}
+    case "$ACK_GENERATION" in ''|*[!A-Za-z0-9._-]*) echo "wake drain: invalid recovery generation" >&2; exit 2 ;; esac
+    [ "$#" -eq 4 ] || { echo "wake drain: unexpected acknowledgement arguments" >&2; exit 2; }
     ;;
-  *) echo "usage: fm-wake-drain.sh [--ack-through SEQUENCE]" >&2; exit 2 ;;
+  *) echo "usage: fm-wake-drain.sh [--ack-through SEQUENCE --recovery-generation GENERATION]" >&2; exit 2 ;;
 esac
 
 # Defense in depth for the supervision chain: this script runs at the top of
@@ -116,16 +121,20 @@ fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
 DRAIN_LOCK_HELD=true
 
 if [ -n "$ACK_THROUGH" ]; then
+  fm_recovery_marker_snapshot "$RECOVERY_MARKER" || exit 1
+  RECOVERY_MARKER_TOKEN=$FM_RECOVERY_MARKER_TOKEN
+  if [ "${RECOVERY_MARKER_TOKEN##*:}" != "$ACK_GENERATION" ]; then
+    echo "wake drain: recovery generation is stale or could not be acknowledged safely" >&2
+    exit 1
+  fi
   DRAIN_TMP=$(mktemp "$STATE/.wake-queue.ack.XXXXXX") || exit 1
   chmod 0600 "$DRAIN_TMP" || exit 1
   awk -F '\t' -v cutoff="$ACK_THROUGH" '
     NF < 5 || $2 !~ /^[0-9]+$/ || $2 > cutoff { print }
   ' "$FM_WAKE_QUEUE" > "$DRAIN_TMP" || exit 1
   if [ ! -s "$DRAIN_TMP" ]; then
-    fm_recovery_marker_snapshot "$RECOVERY_MARKER" || true
-    RECOVERY_MARKER_TOKEN=$FM_RECOVERY_MARKER_TOKEN
-    if ! fm_recovery_marker_ack "$RECOVERY_MARKER" "$RECOVERY_MARKER_TOKEN"; then
-      echo "wake drain: recovery state could not be acknowledged safely" >&2
+    if ! fm_recovery_marker_ack "$RECOVERY_MARKER" "$ACK_GENERATION"; then
+      echo "wake drain: recovery generation is stale or could not be acknowledged safely" >&2
       exit 1
     fi
   fi
@@ -159,7 +168,7 @@ if [ ! -s "$FM_WAKE_QUEUE" ]; then
   DRAIN_LOCK_HELD=false
   (print_open_decisions_section) || true
   if [ "$RECOVERY_ACK_REQUIRED" = true ]; then
-    printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 0\n' >&2
+    printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 0 --recovery-generation %s\n' "${RECOVERY_MARKER_TOKEN##*:}" >&2
   fi
   assert_watcher_liveness
   exit 0
@@ -175,9 +184,16 @@ esac
 if [ -n "$RAW_ROWS" ]; then
   printf '%s\n' "$RAW_ROWS" || exit "$?"
 fi
+fm_recovery_marker_snapshot "$RECOVERY_MARKER" || exit 1
+RECOVERY_MARKER_TOKEN=$FM_RECOVERY_MARKER_TOKEN
+case "$RECOVERY_MARKER_TOKEN" in
+  pending:*|acked:*) ;;
+  *) echo "wake drain: durable wakes have no recovery generation" >&2; exit 1 ;;
+esac
 fm_lock_release "$FM_WAKE_QUEUE_LOCK"
 DRAIN_LOCK_HELD=false
-printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through %s\n' "$ACK_THROUGH" >&2
+printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through %s --recovery-generation %s\n' \
+  "$ACK_THROUGH" "${RECOVERY_MARKER_TOKEN##*:}" >&2
 
 (fm_wake_print_annotations "$RAW_ROWS") || true
 (print_open_decisions_section) || true

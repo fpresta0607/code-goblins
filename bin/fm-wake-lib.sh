@@ -434,13 +434,14 @@ fm_recovery_marker_snapshot() {
 }
 
 _fm_recovery_marker_ack() {
-  local marker=$1 expected=$2 lock tmp line
-  [ -n "$expected" ] || return 0
+  local marker=$1 expected_generation=$2 lock tmp line
+  [ -n "$expected_generation" ] || return 2
   lock="${marker}.lock"
   fm_lock_acquire_wait "$lock" || return 1
-  if ! fm_recovery_marker_read "$marker" || [ "$FM_RECOVERY_MARKER_TOKEN" != "$expected" ]; then
+  if ! fm_recovery_marker_read "$marker" \
+    || [ "${FM_RECOVERY_MARKER_TOKEN##*:}" != "$expected_generation" ]; then
     fm_lock_release "$lock"
-    return 0
+    return 3
   fi
   line=$FM_RECOVERY_MARKER_TOKEN
   case "$line" in

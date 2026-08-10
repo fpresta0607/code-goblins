@@ -113,9 +113,12 @@ wait_for_file_text() {  # <file> <fixed-text>
 }
 
 ack_wakes() {  # <state>
-  local state=$1 sequence
+  local state=$1 sequence generation
   sequence=$(awk -F '\t' '$2 ~ /^[0-9]+$/ && $2 > max { max=$2 } END { print max + 0 }' "$state/.wake-queue")
-  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence"
+  generation=$(awk -F: 'NF == 3 { print $3 }' "$state/.watcher-down" 2>/dev/null)
+  [ -n "$generation" ] || return 1
+  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence" \
+    --recovery-generation "$generation"
 }
 
 start_rearm_arm() {  # <home> <state> <fakebin> <arm-out>
@@ -221,7 +224,7 @@ test_attached_arm_still_fails_on_a_wake_it_did_not_deliver() {
 }
 
 test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
-  local dir home state fakebin result armout drainout status watcher_pid sequence
+  local dir home state fakebin result armout drainout status watcher_pid sequence generation
   dir=$(make_case rearm-resurface)
   home="$dir/home"
   state="$dir/state"
@@ -311,8 +314,10 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
   grep -F 'ios [key=remote-signoff] needs-decision: remote secondmate is held for captain sign-off' \
     "$dir/decision-only-drain.out" >/dev/null \
     || fail "unchanged remote decision was not re-folded after a later down interval"
-  sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\)$/\1/p' "$dir/decision-only-drain.err")
-  [ "$sequence" = 0 ] || fail "decision-only recovery did not require post-handling acknowledgement"
+  sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' "$dir/decision-only-drain.err")
+  generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$dir/decision-only-drain.err")
+  [ "$sequence" = 0 ] && [ -n "$generation" ] \
+    || fail "decision-only recovery did not require generation-bound post-handling acknowledgement"
 
   start_rearm_arm "$home" "$state" "$fakebin" "$dir/interrupted-decision-arm.out"
   wait_for_exit "$ARM_PID" 80 || fail "interrupted decision handling was not recovered on successor re-arm"
@@ -323,7 +328,7 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
   grep -F 'ios [key=remote-signoff] needs-decision: remote secondmate is held for captain sign-off' \
     "$dir/replayed-decision-drain.out" >/dev/null \
     || fail "interrupted decision recovery did not re-fold the open decision"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through 0 \
+  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through 0 --recovery-generation "$generation" \
     || fail "completed decision handling could not acknowledge recovery"
   start_rearm_arm "$home" "$state" "$fakebin" "$dir/decision-successor-arm.out"
   is_live_non_zombie "$ARM_PID" || fail "acknowledged decision recovery did not leave a live successor"
@@ -402,7 +407,7 @@ test_delivery_gap_wake_is_recovered_once() {
 }
 
 test_interrupted_handling_is_redrained_on_rearm() {
-  local dir home state fakebin first_arm sequence
+  local dir home state fakebin first_arm sequence generation
   dir=$(make_case interrupted-handling-redrain)
   home="$dir/home"
   state="$dir/state"
@@ -432,9 +437,12 @@ test_interrupted_handling_is_redrained_on_rearm() {
     2> "$dir/replay-drain.err" || fail "successor could not re-drain the interrupted wake"
   grep "$(printf '\tsignal\tinterrupted.status\t')" "$dir/replay-drain.out" >/dev/null \
     || fail "successor did not re-drain the still-durable wake"
-  sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\)$/\1/p' "$dir/replay-drain.err")
-  [ -n "$sequence" ] || fail "re-drain did not emit a post-handling acknowledgement command"
+  sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' "$dir/replay-drain.err")
+  generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$dir/replay-drain.err")
+  [ -n "$sequence" ] && [ -n "$generation" ] \
+    || fail "re-drain did not emit a generation-bound post-handling acknowledgement command"
   FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence" \
+    --recovery-generation "$generation" \
     || fail "completed replay could not acknowledge the handled wake"
   [ ! -s "$state/.wake-queue" ] || fail "acknowledged replay remained in the durable queue"
   pass "watch-arm: interrupted handling leaves its wake durable for successor re-drain"

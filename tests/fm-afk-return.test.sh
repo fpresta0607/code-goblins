@@ -34,6 +34,7 @@ SH
 #!/usr/bin/env bash
 file="$FM_HOME/state/.fake-drain"
 if [ "${1:-}" = --ack-through ]; then
+  [ "${3:-}" = --recovery-generation ] && [ "${4:-}" = fixture-generation ] || exit 2
   printf '%s\n' "$2" >> "$FM_HOME/state/.fake-drain-acks"
   : > "$file"
   exit 0
@@ -41,7 +42,7 @@ fi
 if [ -s "$file" ]; then
   cat "$file"
   sequence=$(awk -F '\t' '$2 ~ /^[0-9]+$/ && $2 > max { max=$2 } END { print max + 0 }' "$file")
-  printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through %s\n' "$sequence" >&2
+  printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through %s --recovery-generation fixture-generation\n' "$sequence" >&2
 fi
 SH
   chmod +x "$dir/bin/"*.sh

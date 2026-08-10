@@ -141,7 +141,7 @@ return_guard() {
 }
 
 return_reconcile() {
-  local evidence blockers drain_err drained wake_ack_through wedge escalations lifecycle_ok=1
+  local evidence blockers drain_err drained wake_ack_through wake_ack_generation wedge escalations lifecycle_ok=1
   evidence=$(mktemp "$STATE/.afk-return-evidence.XXXXXX") || return 1
   blockers=$(mktemp "$STATE/.afk-return-blockers.XXXXXX") || { rm -f "$evidence"; return 1; }
   drain_err=$(mktemp "$STATE/.afk-return-drain.XXXXXX") || { rm -f "$evidence" "$blockers"; return 1; }
@@ -160,7 +160,8 @@ return_reconcile() {
     drained=""
   }
   cat "$drain_err" >&2
-  wake_ack_through=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\)$/\1/p' "$drain_err" | tail -1)
+  wake_ack_through=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' "$drain_err" | tail -1)
+  wake_ack_generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$drain_err" | tail -1)
   append_evidence wake "$drained" "$evidence"
 
   if [ -s "$STATE/.subsuper-inject-wedged" ]; then
@@ -174,7 +175,9 @@ return_reconcile() {
 
   scan_open_blockers > "$blockers"
   if [ "$lifecycle_ok" -eq 1 ] && [ ! -s "$blockers" ] && [ -n "$wake_ack_through" ]; then
-    if ! "$SCRIPT_DIR/fm-wake-drain.sh" --ack-through "$wake_ack_through"; then
+    if [ -z "$wake_ack_generation" ] \
+      || ! "$SCRIPT_DIR/fm-wake-drain.sh" --ack-through "$wake_ack_through" \
+        --recovery-generation "$wake_ack_generation"; then
       append_evidence lifecycle 'durable wake acknowledgement failed; retry catch-up before ordinary work' "$evidence"
       lifecycle_ok=0
     fi
