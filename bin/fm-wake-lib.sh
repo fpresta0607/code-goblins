@@ -400,7 +400,7 @@ fm_recovery_marker_read() {
 }
 
 _fm_atomic_replace() {
-  perl -e 'rename($ARGV[0], $ARGV[1]) or exit 1' -- "$1" "$2"
+  node -e 'require("fs").renameSync(process.argv[1], process.argv[2])' "$1" "$2"
 }
 
 _fm_recovery_marker_publish() {
