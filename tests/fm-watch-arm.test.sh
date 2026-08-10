@@ -115,7 +115,7 @@ wait_for_file_text() {  # <file> <fixed-text>
 ack_wakes() {  # <state>
   local state=$1 sequence
   sequence=$(awk -F '\t' '$2 ~ /^[0-9]+$/ && $2 > max { max=$2 } END { print max + 0 }' "$state/.wake-queue")
-  [ "$sequence" -eq 0 ] || FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence"
 }
 
 start_rearm_arm() {  # <home> <state> <fakebin> <arm-out>
@@ -221,7 +221,7 @@ test_attached_arm_still_fails_on_a_wake_it_did_not_deliver() {
 }
 
 test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
-  local dir home state fakebin result armout drainout status watcher_pid
+  local dir home state fakebin result armout drainout status watcher_pid sequence
   dir=$(make_case rearm-resurface)
   home="$dir/home"
   state="$dir/state"
@@ -307,10 +307,28 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
   start_rearm_arm "$home" "$state" "$fakebin" "$dir/decision-only-arm.out"
   wait_for_exit "$ARM_PID" 80 || fail "decision-only re-arm did not surface the open decision"
   FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/decision-only-drain.out" \
-    || fail "decision-only drain after re-arm recovery failed"
+    2> "$dir/decision-only-drain.err" || fail "decision-only drain after re-arm recovery failed"
   grep -F 'ios [key=remote-signoff] needs-decision: remote secondmate is held for captain sign-off' \
     "$dir/decision-only-drain.out" >/dev/null \
     || fail "unchanged remote decision was not re-folded after a later down interval"
+  sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\)$/\1/p' "$dir/decision-only-drain.err")
+  [ "$sequence" = 0 ] || fail "decision-only recovery did not require post-handling acknowledgement"
+
+  start_rearm_arm "$home" "$state" "$fakebin" "$dir/interrupted-decision-arm.out"
+  wait_for_exit "$ARM_PID" 80 || fail "interrupted decision handling was not recovered on successor re-arm"
+  grep -F 'check: rearm-resurface' "$dir/interrupted-decision-arm.out" >/dev/null \
+    || fail "successor did not re-surface the unacknowledged decision recovery"
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/replayed-decision-drain.out" \
+    2> "$dir/replayed-decision-drain.err" || fail "replayed decision recovery drain failed"
+  grep -F 'ios [key=remote-signoff] needs-decision: remote secondmate is held for captain sign-off' \
+    "$dir/replayed-decision-drain.out" >/dev/null \
+    || fail "interrupted decision recovery did not re-fold the open decision"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through 0 \
+    || fail "completed decision handling could not acknowledge recovery"
+  start_rearm_arm "$home" "$state" "$fakebin" "$dir/decision-successor-arm.out"
+  is_live_non_zombie "$ARM_PID" || fail "acknowledged decision recovery did not leave a live successor"
+  kill "$ARM_PID" 2>/dev/null || true
+  wait "$ARM_PID" 2>/dev/null || true
   pass "watch-arm: re-arm surfaces every queued wake and an open remote decision after downtime"
 }
 

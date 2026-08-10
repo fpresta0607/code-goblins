@@ -33,8 +33,16 @@ SH
   cat > "$dir/bin/fm-wake-drain.sh" <<'SH'
 #!/usr/bin/env bash
 file="$FM_HOME/state/.fake-drain"
-[ -f "$file" ] && cat "$file"
-: > "$file"
+if [ "${1:-}" = --ack-through ]; then
+  printf '%s\n' "$2" >> "$FM_HOME/state/.fake-drain-acks"
+  : > "$file"
+  exit 0
+fi
+if [ -s "$file" ]; then
+  cat "$file"
+  sequence=$(awk -F '\t' '$2 ~ /^[0-9]+$/ && $2 > max { max=$2 } END { print max + 0 }' "$file")
+  printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through %s\n' "$sequence" >&2
+fi
 SH
   chmod +x "$dir/bin/"*.sh
 }
@@ -85,6 +93,8 @@ test_return_gate_orders_catchup_before_bearings() {
   grep -F $'evidence\twedge\tfm away-mode inject WEDGED: 4555s undelivered' "$gate" >/dev/null || fail "wedge evidence was not retained in the durable gate"
   grep -F $'evidence\tescalation\trepair-task.status: blocked synthetic dependency' "$gate" >/dev/null || fail "buffered escalation evidence was not retained in the durable gate"
   [ "$(wc -l < "$dir/home/stop.log" | tr -d ' ')" -eq 1 ] || fail "return begin did not stop away mode exactly once"
+  [ -s "$dir/home/state/.fake-drain" ] || fail "blocked return acknowledged its emitted wake before handling completed"
+  [ ! -e "$dir/home/state/.fake-drain-acks" ] || fail "blocked return crossed the post-handling acknowledgement boundary"
 
   # The exact incident regression: Bearings is an ordinary request and must
   # refuse before reading/rendering while this shared gate remains open.
@@ -114,6 +124,9 @@ test_return_gate_orders_catchup_before_bearings() {
   [ ! -e "$gate" ] || fail "successful check left the return gate behind"
   [ ! -e "$dir/home/state/.subsuper-escalations" ] || fail "successful check left delivered escalation state behind"
   [ ! -e "$dir/home/state/.subsuper-inject-wedged" ] || fail "successful check left the wedge marker behind"
+  [ ! -s "$dir/home/state/.fake-drain" ] || fail "successful return left its handled wake durable"
+  [ "$(cat "$dir/home/state/.fake-drain-acks" 2>/dev/null || true)" = 2 ] \
+    || fail "successful return did not acknowledge the emitted wake before clearing catch-up"
 
   out=$(run_return "$dir" check) || fail "an already-clear repeated check should be idempotent: $out"
   [ ! -e "$gate" ] || fail "idempotent clear check recreated a gate"

@@ -16,6 +16,7 @@ DRAIN_LOCK_HELD=false
 RAW_ROWS=
 RECOVERY_MARKER="$STATE/.watcher-down"
 RECOVERY_MARKER_TOKEN=
+RECOVERY_ACK_REQUIRED=false
 ACK_THROUGH=
 
 case "${1:-}" in
@@ -142,13 +143,24 @@ if [ ! -s "$FM_WAKE_QUEUE" ]; then
   : > "$FM_WAKE_QUEUE"
   fm_recovery_marker_snapshot "$RECOVERY_MARKER" || true
   RECOVERY_MARKER_TOKEN=$FM_RECOVERY_MARKER_TOKEN
-  if ! fm_recovery_marker_ack "$RECOVERY_MARKER" "$RECOVERY_MARKER_TOKEN"; then
-    echo "wake drain: recovery state could not be acknowledged safely" >&2
-    exit 1
-  fi
+  case "$RECOVERY_MARKER_TOKEN" in
+    pending:handling:*)
+      fm_recovery_marker_publish "$RECOVERY_MARKER" downtime || {
+        echo "wake drain: decision recovery could not remain durable through handling" >&2
+        exit 1
+      }
+      fm_recovery_marker_snapshot "$RECOVERY_MARKER" || exit 1
+      RECOVERY_MARKER_TOKEN=$FM_RECOVERY_MARKER_TOKEN
+      RECOVERY_ACK_REQUIRED=true
+      ;;
+    pending:*) RECOVERY_ACK_REQUIRED=true ;;
+  esac
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
   DRAIN_LOCK_HELD=false
   (print_open_decisions_section) || true
+  if [ "$RECOVERY_ACK_REQUIRED" = true ]; then
+    printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 0\n' >&2
+  fi
   assert_watcher_liveness
   exit 0
 fi

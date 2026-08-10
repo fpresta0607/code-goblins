@@ -141,9 +141,10 @@ return_guard() {
 }
 
 return_reconcile() {
-  local evidence blockers drained wedge escalations lifecycle_ok=1
+  local evidence blockers drain_err drained wake_ack_through wedge escalations lifecycle_ok=1
   evidence=$(mktemp "$STATE/.afk-return-evidence.XXXXXX") || return 1
   blockers=$(mktemp "$STATE/.afk-return-blockers.XXXXXX") || { rm -f "$evidence"; return 1; }
+  drain_err=$(mktemp "$STATE/.afk-return-drain.XXXXXX") || { rm -f "$evidence" "$blockers"; return 1; }
   preserve_evidence "$evidence"
 
   if [ -e "$STATE/.afk" ] || [ -e "$STATE/.afk-daemon-terminal" ]; then
@@ -153,11 +154,13 @@ return_reconcile() {
     fi
   fi
 
-  drained=$("$SCRIPT_DIR/fm-wake-drain.sh") || {
+  drained=$("$SCRIPT_DIR/fm-wake-drain.sh" 2> "$drain_err") || {
     append_evidence lifecycle 'durable wake drain failed; retry catch-up before ordinary work' "$evidence"
     lifecycle_ok=0
     drained=""
   }
+  cat "$drain_err" >&2
+  wake_ack_through=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\)$/\1/p' "$drain_err" | tail -1)
   append_evidence wake "$drained" "$evidence"
 
   if [ -s "$STATE/.subsuper-inject-wedged" ]; then
@@ -170,20 +173,26 @@ return_reconcile() {
   fi
 
   scan_open_blockers > "$blockers"
+  if [ "$lifecycle_ok" -eq 1 ] && [ ! -s "$blockers" ] && [ -n "$wake_ack_through" ]; then
+    if ! "$SCRIPT_DIR/fm-wake-drain.sh" --ack-through "$wake_ack_through"; then
+      append_evidence lifecycle 'durable wake acknowledgement failed; retry catch-up before ordinary work' "$evidence"
+      lifecycle_ok=0
+    fi
+  fi
   if [ "$lifecycle_ok" -ne 1 ] || [ -s "$blockers" ]; then
-    write_gate "$evidence" "$blockers" || { rm -f "$evidence" "$blockers"; return 1; }
+    write_gate "$evidence" "$blockers" || { rm -f "$evidence" "$blockers" "$drain_err"; return 1; }
     printf 'fm-afk-return: catch-up must finish before the captain request\n' >&2
     print_evidence "$GATE" >&2
     print_blockers "$GATE" >&2
     printf 'fm-afk-return: handle each blocker now, or close it with resolved [key=...] and append a durable reclassification reason, then run bin/fm-afk-return.sh check\n' >&2
-    rm -f "$evidence" "$blockers"
+    rm -f "$evidence" "$blockers" "$drain_err"
     return 3
   fi
 
   print_evidence "$evidence"
   rm -f "$GATE"
   clear_delivery_artifacts
-  rm -f "$evidence" "$blockers"
+  rm -f "$evidence" "$blockers" "$drain_err"
   printf 'fm-afk-return: catch-up clear; ordinary captain work may proceed\n'
   return 0
 }
