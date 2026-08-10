@@ -619,6 +619,13 @@ fm_lock_try_acquire() {
     return 1
   fi
 
+  if [ "$lockdir" = "$STATE/.watch.lock" ] \
+    && ! _fm_recovery_marker_publish "$STATE/.watcher-down" downtime; then
+    fm_lock_release "$steal"
+    FM_LOCK_HELD_PID=$cur
+    FM_LOCK_OWNER_DIR=
+    return 1
+  fi
   fm_lock_remove_path "$lockdir" || true
   rc=1
   if fm_lock_try_create "$lockdir" "$steal_owner"; then
@@ -739,6 +746,7 @@ fm_wake_clean_field() {
 
 fm_wake_append() {
   local kind=$1 key=$2 payload=$3 clean_key clean_payload epoch seq seq_file status
+  local recovery_marker
   case "$kind" in
     signal|stale|check|heartbeat) ;;
     *) printf 'fm_wake_append: invalid wake kind: %s\n' "$kind" >&2; return 2 ;;
@@ -748,6 +756,7 @@ fm_wake_append() {
   clean_payload=$(printf '%s' "$payload" | fm_wake_clean_field)
   epoch=$(date +%s)
   seq_file="$STATE/.wake-queue.seq"
+  recovery_marker="$STATE/.watcher-down"
   status=0
 
   fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
@@ -759,6 +768,9 @@ fm_wake_append() {
   printf '%s\n' "$seq" > "$seq_file" || status=$?
   if [ "$status" -eq 0 ]; then
     printf '%s\t%s\t%s\t%s\t%s\n' "$epoch" "$seq" "$kind" "$clean_key" "$clean_payload" >> "$FM_WAKE_QUEUE" || status=$?
+  fi
+  if [ "$status" -eq 0 ]; then
+    _fm_recovery_marker_publish "$recovery_marker" downtime || status=$?
   fi
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
   return "$status"

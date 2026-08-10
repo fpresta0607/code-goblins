@@ -427,13 +427,17 @@ SH
     || fail "queue publication interleaved with recovery marker consumption"
   : > "$dir/move-release"
   wait "$publisher" || fail "serialized queue publication failed"
-  is_live_non_zombie "$ARM_PID" || fail "watcher did not remain live after serialized recovery"
-  [ ! -e "$state/.watcher-down" ] || fail "acknowledged recovery marker was not consumed"
+  wait_for_exit "$ARM_PID" 80 \
+    || fail "watcher missed the publisher queued behind recovery consumption"
+  grep -F 'check: rearm-resurface' "$dir/arm.out" >/dev/null \
+    || fail "serialized publisher did not restore recovery evidence"
   grep "$(printf '\tcheck\tstartup-network\t')" "$state/.wake-queue" >/dev/null \
     || fail "serialized publisher did not durably append its wake"
-  kill "$ARM_PID" 2>/dev/null || true
-  wait "$ARM_PID" 2>/dev/null || true
-  pass "watch-arm: recovery marker consumption serializes durable queue publication"
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" \
+    || fail "serialized publisher recovery drain failed"
+  grep "$(printf '\tcheck\tstartup-network\t')" "$dir/drain.out" >/dev/null \
+    || fail "serialized publisher wake was not surfaced and drained"
+  pass "watch-arm: publisher queued behind recovery consumption is surfaced"
 }
 
 test_restart_preserves_recovery_across_reused_pid_lock() {
