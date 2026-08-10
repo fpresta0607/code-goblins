@@ -459,21 +459,32 @@ fm_recovery_marker_arm_check() {
   local marker=$1 lock line quarantine consumed
   FM_RECOVERY_MARKER_ACTION=none
   lock="${marker}.lock"
-  fm_lock_acquire_wait "$lock" || return 1
+  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" || return 1
+  if ! fm_lock_acquire_wait "$lock"; then
+    fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+    return 1
+  fi
   if [ ! -e "$marker" ] && [ ! -L "$marker" ]; then
     fm_lock_release "$lock"
+    fm_lock_release "$FM_WAKE_QUEUE_LOCK"
     return 0
   fi
   if ! fm_recovery_marker_read "$marker"; then
     quarantine=$(mktemp -d "${marker}.invalid.XXXXXX") \
-      || { fm_lock_release "$lock"; return 1; }
+      || {
+        fm_lock_release "$lock"
+        fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+        return 1
+      }
     if ! mv -- "$marker" "$quarantine/marker"; then
       rmdir "$quarantine" 2>/dev/null || true
       fm_lock_release "$lock"
+      fm_lock_release "$FM_WAKE_QUEUE_LOCK"
       return 1
     fi
     FM_RECOVERY_MARKER_ACTION=recover
     fm_lock_release "$lock"
+    fm_lock_release "$FM_WAKE_QUEUE_LOCK"
     return 0
   fi
   line=$FM_RECOVERY_MARKER_TOKEN
@@ -481,29 +492,33 @@ fm_recovery_marker_arm_check() {
     pending:handling:*)
       FM_RECOVERY_MARKER_ACTION=wait
       fm_lock_release "$lock"
+      fm_lock_release "$FM_WAKE_QUEUE_LOCK"
       return 0
       ;;
     pending:downtime:*) FM_RECOVERY_MARKER_ACTION=recover ;;
     acked:*)
-      fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" \
-        || { fm_lock_release "$lock"; return 1; }
       if [ -s "$FM_WAKE_QUEUE" ]; then
         FM_RECOVERY_MARKER_ACTION=recover
       fi
-      fm_lock_release "$FM_WAKE_QUEUE_LOCK"
       ;;
   esac
   consumed=$(mktemp "${marker}.consumed.XXXXXX") \
-    || { fm_lock_release "$lock"; return 1; }
+    || {
+      fm_lock_release "$lock"
+      fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+      return 1
+    }
   rm -f -- "$consumed"
   if ! mv -- "$marker" "$consumed" \
     || [ -e "$marker" ] || [ -L "$marker" ]; then
     rm -f -- "$consumed" 2>/dev/null || true
     fm_lock_release "$lock"
+    fm_lock_release "$FM_WAKE_QUEUE_LOCK"
     return 1
   fi
   rm -f -- "$consumed" 2>/dev/null || true
   fm_lock_release "$lock"
+  fm_lock_release "$FM_WAKE_QUEUE_LOCK"
 }
 
 fm_lock_try_acquire() {

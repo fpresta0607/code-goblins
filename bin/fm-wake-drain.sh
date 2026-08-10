@@ -112,10 +112,13 @@ DRAIN_LOCK_HELD=true
 
 if [ ! -s "$FM_WAKE_QUEUE" ]; then
   : > "$FM_WAKE_QUEUE"
+  if ! fm_recovery_marker_ack "$RECOVERY_MARKER" "$RECOVERY_MARKER_TOKEN"; then
+    echo "wake drain: recovery state could not be acknowledged safely" >&2
+    exit 1
+  fi
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
   DRAIN_LOCK_HELD=false
   (print_open_decisions_section) || true
-  fm_recovery_marker_ack "$RECOVERY_MARKER" "$RECOVERY_MARKER_TOKEN" || true
   assert_watcher_liveness
   exit 0
 fi
@@ -138,6 +141,10 @@ if [ -n "$RAW_ROWS" ]; then
 fi
 rm -f "$DRAIN_TMP" || exit "$?"
 DRAIN_TMP=
+if ! fm_recovery_marker_ack "$RECOVERY_MARKER" "$RECOVERY_MARKER_TOKEN"; then
+  echo "wake drain: recovery state could not be acknowledged safely" >&2
+  exit 1
+fi
 fm_lock_release "$FM_WAKE_QUEUE_LOCK"
 DRAIN_LOCK_HELD=false
 
@@ -145,6 +152,5 @@ DRAIN_LOCK_HELD=false
 # best-effort and cannot restore, duplicate, hide, or fail the consumed rows.
 (fm_wake_print_annotations "$RAW_ROWS") || true
 (print_open_decisions_section) || true
-fm_recovery_marker_ack "$RECOVERY_MARKER" "$RECOVERY_MARKER_TOKEN" || true
 assert_watcher_liveness
 exit 0

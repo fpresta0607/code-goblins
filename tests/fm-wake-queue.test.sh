@@ -393,6 +393,41 @@ test_slow_annotation_does_not_block_append_and_deleted_file_fails_open() {
   pass "slow annotation releases the append lock and a deleted status file fails open"
 }
 
+test_recovery_ack_failure_is_reported() {
+  local dir state fakebin real_mv rc
+  dir=$(make_case recovery-ack-failure)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  real_mv=$(command -v mv) || fail "could not locate mv for recovery acknowledgement fixture"
+  printf 'pending:handling:fixture\n' > "$state/.watcher-down"
+  cat > "$fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+last=${!#}
+if [ "$last" = "${FM_TEST_ACK_MARKER:-}" ]; then
+  exit 1
+fi
+exec "$FM_TEST_REAL_MV" "$@"
+SH
+  chmod +x "$fakebin/mv"
+
+  set +e
+  PATH="$fakebin:$PATH" FM_TEST_REAL_MV="$real_mv" FM_TEST_ACK_MARKER="$state/.watcher-down" \
+    FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "recovery acknowledgement failure was reported as success"
+  grep -F 'recovery state could not be acknowledged safely' "$dir/drain.err" >/dev/null \
+    || fail "recovery acknowledgement failure had no explicit diagnostic"
+  [ "$(cat "$state/.watcher-down")" = 'pending:handling:fixture' ] \
+    || fail "failed acknowledgement corrupted the pending recovery marker"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/retry.out" 2> "$dir/retry.err" \
+    || fail "recovery acknowledgement did not succeed on retry"
+  [ "$(cat "$state/.watcher-down")" = 'acked:handling:fixture' ] \
+    || fail "successful retry did not acknowledge pending recovery state"
+  pass "wake drain: recovery acknowledgement failures are explicit and retryable"
+}
+
 test_interruption_before_and_after_raw_commit() {
   local dir state before_out after_out replay_out empty_out pid rc count i
   dir=$(make_case interruption)
@@ -448,4 +483,5 @@ test_drain_asserts_watcher_liveness
 test_structural_signal_enrichment_preserves_raw_rows
 test_enrichment_caps_and_status_file_failures
 test_slow_annotation_does_not_block_append_and_deleted_file_fails_open
+test_recovery_ack_failure_is_reported
 test_interruption_before_and_after_raw_commit

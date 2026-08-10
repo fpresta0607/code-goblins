@@ -387,6 +387,55 @@ test_malformed_marker_is_quarantined_once() {
   pass "watch-arm: malformed recovery state is quarantined without a successor loop"
 }
 
+test_recovery_consumption_serializes_queue_publication() {
+  local dir home state fakebin real_mv publisher i
+  dir=$(make_case recovery-consumption-race)
+  home="$dir/home"
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  mkdir -p "$home/data"
+  printf 'acked:handling:fixture\n' > "$state/.watcher-down"
+  real_mv=$(command -v mv) || fail "could not locate mv for recovery race fixture"
+  cat > "$fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+last=${!#}
+case "$last" in
+  *.watcher-down.consumed.*)
+    : > "$FM_TEST_RECOVERY_MOVE_STARTED"
+    while [ ! -e "$FM_TEST_RECOVERY_MOVE_RELEASE" ]; do sleep 0.02; done
+    ;;
+esac
+exec "$FM_TEST_REAL_MV" "$@"
+SH
+  chmod +x "$fakebin/mv"
+
+  FM_TEST_REAL_MV="$real_mv" \
+    FM_TEST_RECOVERY_MOVE_STARTED="$dir/move-started" \
+    FM_TEST_RECOVERY_MOVE_RELEASE="$dir/move-release" \
+    start_rearm_arm "$home" "$state" "$fakebin" "$dir/arm.out"
+  i=0
+  while [ "$i" -lt 100 ] && [ ! -e "$dir/move-started" ]; do
+    sleep 0.02
+    i=$((i + 1))
+  done
+  [ -e "$dir/move-started" ] || fail "recovery marker consumption did not reach the race boundary"
+
+  append_wake "$state" check startup-network 'check: concurrent startup-network' &
+  publisher=$!
+  sleep 0.2
+  kill -0 "$publisher" 2>/dev/null \
+    || fail "queue publication interleaved with recovery marker consumption"
+  : > "$dir/move-release"
+  wait "$publisher" || fail "serialized queue publication failed"
+  is_live_non_zombie "$ARM_PID" || fail "watcher did not remain live after serialized recovery"
+  [ ! -e "$state/.watcher-down" ] || fail "acknowledged recovery marker was not consumed"
+  grep "$(printf '\tcheck\tstartup-network\t')" "$state/.wake-queue" >/dev/null \
+    || fail "serialized publisher did not durably append its wake"
+  kill "$ARM_PID" 2>/dev/null || true
+  wait "$ARM_PID" 2>/dev/null || true
+  pass "watch-arm: recovery marker consumption serializes durable queue publication"
+}
+
 test_downtime_marker_does_not_follow_symlink() {
   local dir home state fakebin armout watcher_pid sentinel
   dir=$(make_case downtime-marker-symlink)
@@ -419,4 +468,5 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision
 test_marker_publish_failure_retains_recovery_evidence
 test_delivery_gap_wake_is_recovered_once
 test_malformed_marker_is_quarantined_once
+test_recovery_consumption_serializes_queue_publication
 test_downtime_marker_does_not_follow_symlink
