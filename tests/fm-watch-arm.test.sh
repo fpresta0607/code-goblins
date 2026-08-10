@@ -204,7 +204,7 @@ test_attached_arm_still_fails_on_a_wake_it_did_not_deliver() {
 }
 
 test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
-  local dir home state fakebin result armout drainout status
+  local dir home state fakebin result armout drainout status watcher_pid
   dir=$(make_case rearm-resurface)
   home="$dir/home"
   state="$dir/state"
@@ -235,8 +235,10 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
   # This is the accepted blocking-tool shape: no watcher runs during the gap.
   start_rearm_arm "$home" "$state" "$fakebin" "$dir/down-arm.out"
   is_live_non_zombie "$ARM_PID" || fail "pre-outage watcher did not stay live"
-  kill "$ARM_PID" 2>/dev/null || true
+  watcher_pid=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
+  kill -KILL "$watcher_pid" 2>/dev/null || fail "could not abruptly stop pre-outage watcher"
   wait "$ARM_PID" 2>/dev/null || true
+  [ ! -e "$state/.watcher-down" ] || fail "abrupt watcher exit unexpectedly ran cleanup"
 
   # Two independent durable wakes arrive while no watcher exists. Neither gets
   # a later status change to rescue it, which is the down-window loss shape.
@@ -256,8 +258,8 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
   wait "$ARM_PID"
   status=$?
   expect_code 0 "$status" "re-arm re-surface wake must close successfully"
-  grep -F 'check: process-event result captured: remote-reply-ios:7' "$armout" >/dev/null \
-    || fail "re-arm did not report the oldest durable recovery wake: $(cat "$armout")"
+  grep -F 'check: rearm-resurface' "$armout" >/dev/null \
+    || fail "re-arm did not report the durable recovery wake: $(cat "$armout")"
 
   # Persistent adapters establish a successor before they deliver the recovery
   # prompt. That successor must stay live until the handler drains the same

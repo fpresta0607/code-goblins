@@ -85,9 +85,9 @@ mkdir -p "$STATE"
 
 WATCH_LOCK="$STATE/.watch.lock"
 WATCH_PATH="$SCRIPT_DIR/fm-watch.sh"
-# Written only by this watcher's EXIT cleanup when a live cycle ends without
-# delivering a wake. The next watcher consumes it by re-surfacing any durable
-# queue entries or still-open status decisions before ordinary polling resumes.
+# Written by this watcher's EXIT cleanup when a live cycle ends without
+# delivering a wake. A stale predecessor lock provides the same recovery signal
+# when abrupt termination bypasses cleanup.
 WATCHER_DOWNTIME_MARKER="$STATE/.watcher-down"
 WATCHER_STALE_GRACE=${FM_WATCHER_STALE_GRACE:-${FM_GUARD_GRACE:-300}}
 # The singleton-lock acquisition, EXIT trap, and the blocking supervision loop
@@ -736,6 +736,12 @@ if ! fm_lock_try_acquire "$WATCH_LOCK"; then
   fi
   exit 0
 fi
+WATCHER_RECOVERY_PENDING=0
+if [ -n "${FM_LOCK_RECOVERED_PID:-}" ] \
+  || [ -e "$WATCHER_DOWNTIME_MARKER" ] \
+  || [ -L "$WATCHER_DOWNTIME_MARKER" ]; then
+  WATCHER_RECOVERY_PENDING=1
+fi
 watcher_cleanup() {
   local cleanup_status=0
   # A normal wake already has an adapter-owned handling turn on its way. Any
@@ -779,41 +785,12 @@ if ! fm_pr_poll_retirement_recover_all "$STATE" "$SCRIPT_DIR/fm-pr-poll.sh"; the
 fi
 
 # A normal actionable close has an adapter-owned handling turn, so its cleanup
-# removes the marker above. A watcher interrupted by a blocking tool or an idle
-# failure leaves it behind. On the first replacement cycle, turn that durable
-# recovery fact into one ordinary wake without appending a duplicate queue row.
-# When one exists, preserve the oldest queued reason so the receiving harness
-# keeps its useful wake context. The handler then calls fm-wake-drain.sh, the one
-# owner of queue consumption and the incremental OPEN DECISIONS fold. A surviving
-# successor sees no marker, so persistent adapters that arm before delivering the
-# prompt cannot loop.
-rearm_queued_reason() {
-  local kind payload reason=''
-  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" || return 1
-  while IFS=$(printf '\t') read -r _ _ kind _ payload; do
-    case "$kind" in signal|stale|check|heartbeat) ;; *) continue ;; esac
-    case "$payload" in
-      signal:*|stale:*|check:*|heartbeat*) reason=$payload ;;
-      *) reason='check: rearm-resurface' ;;
-    esac
-    break
-  done < "$FM_WAKE_QUEUE"
-  fm_lock_release "$FM_WAKE_QUEUE_LOCK"
-  [ -n "$reason" ] || return 1
-  printf '%s' "$reason"
-}
-
+# removes the marker above. The first watcher after an interrupted cycle emits
+# one ordinary wake, and the handler calls fm-wake-drain.sh as the sole owner of
+# queue consumption and the incremental OPEN DECISIONS fold.
 resurface_after_downtime() {
-  local open reason
-  [ -e "$WATCHER_DOWNTIME_MARKER" ] || [ -L "$WATCHER_DOWNTIME_MARKER" ] || return 0
-  if [ -s "$FM_WAKE_QUEUE" ] && reason=$(rearm_queued_reason); then
-    wake "$reason"
-  fi
-  open=$(scan_open_decisions "$STATE") || open=
-  if [ -n "$open" ]; then
-    wake "check: rearm-resurface"
-  fi
-  rm -f "$WATCHER_DOWNTIME_MARKER" 2>/dev/null || true
+  [ "$WATCHER_RECOVERY_PENDING" -eq 1 ] || return 0
+  wake "check: rearm-resurface"
 }
 
 while :; do
@@ -849,9 +826,7 @@ while :; do
   procevent_surface_queued
 
   # A process-event result carries richer adapter-owned wake context than the
-  # generic recovery reason, so give that owner first refusal. Any remaining
-  # durable queue row or open decision then re-surfaces here on this first
-  # replacement cycle.
+  # generic recovery reason, so give that owner first refusal.
   resurface_after_downtime
 
   # Slow per-task checks (firstmate writes these, e.g. a merged-PR poll).
