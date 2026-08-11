@@ -749,7 +749,7 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
         invalidity:$invalidity,
         state:$state,
         active_children:$active_all[:$child_n],
-        terminal_children:$terminal_in_flight[:$child_n],
+        terminal_children:$terminal_in_flight,
         decisions_open:$decisions_all[:$decisions_n],
         holds:$holds_all[:$queued_n],
         queued:([$queued_all[] | {id:(.id | trunc(120)),title:(.title | trunc(120)),

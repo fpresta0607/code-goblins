@@ -36,12 +36,17 @@ printf 'state: %s · source: fake\n' "${FM_FAKE_CREW_STATE:-unknown}"
 SH
   cat > "$fake/fm-fleet-snapshot.sh" <<'SH'
 #!/usr/bin/env bash
-cat "$FM_HOME/summary.json"
+if [ "${FM_TEST_PRESERVE_SUMMARY_HOME:-0}" = 1 ]; then
+  cat "$FM_HOME/summary.json"
+else
+  jq --arg home "$FM_HOME" '.home=$home' "$FM_HOME/summary.json"
+fi
 SH
   cat > "$fake/fm-send.sh" <<'SH'
 #!/usr/bin/env bash
 set -u
 printf '%s\t%s\n' "$1" "$2" >> "${FM_TEST_SEND_LOG:?}"
+[ "${FM_TEST_SEND_FAIL:-0}" != 1 ] || exit 1
 corr=$(printf '%s' "$2" | grep -Eo 'corr=[A-Fa-f0-9]{16}' | head -1 | cut -d= -f2- || true)
 if [ -n "$corr" ]; then
   # The real fm-send confirms a successfully delivered existing expectation.
@@ -115,8 +120,10 @@ write_mate_meta() {
 }
 
 write_summary() { # <state>
+  local generated
+  generated=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   cat > "$MATE/summary.json" <<EOF
-{"schema":"fm-secondmate-home-summary.v1","terminal_children":[{"id":"child","state":"$1"}]}
+{"schema":"fm-secondmate-home-summary.v1","generated":"$generated","home":"$MATE","valid":false,"reason":"terminal child","invalidity":{"kind":"terminal_in_flight","ids":["child"]},"state":"unknown","active_children":[],"terminal_children":[{"id":"child","state":"$1"}],"decisions_open":[],"holds":[],"queued":[],"landed":[],"endpoints":[],"counts":{},"omitted":[]}
 EOF
 }
 
@@ -191,6 +198,37 @@ test_main_cross_home_discovers_missing_report_once() {
     || fail "matching automatic report did not settle its correlated request"
   [ "$(wake_count "$MAIN" 'inactive-outcome:')" = 1 ] || fail "matching parent report did not create presentation"
   pass "main cross-home backstop discovers, requests, and settles a missing terminal report"
+}
+
+# A transport failure retains the one correlation under the pending-reply owner;
+# later inactive scans only re-announce that durable obligation.
+test_failed_delivery_preserves_one_correlated_obligation() {
+  local corr
+  make_world failed-send; bind_secondmate local; write_mate_meta; write_summary failed
+  FM_TEST_SEND_FAIL=1 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  [ "$(find "$MAIN/state/pending-replies" -type f ! -name '.*' | wc -l | tr -d ' ')" = 1 ] \
+    || fail "failed delivery did not preserve exactly one pending reply"
+  corr=$(sed -n 's/^correlation=//p' "$MAIN/state/terminal-outcomes/"*.pending)
+  [ -n "$corr" ] || fail "failed delivery lost the outcome correlation"
+  grep -Fq 'phase=delivery_unknown' "$MAIN/state/pending-replies/$corr" \
+    || fail "failed delivery was not handed to pending-reply recovery"
+  FM_TEST_SEND_FAIL=1 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  [ "$(wc -l < "$WORLD/send.log" | tr -d ' ')" = 1 ] || fail "inactive scan created a second delivery loop"
+  [ "$(find "$MAIN/state/pending-replies" -type f ! -name '.*' | wc -l | tr -d ' ')" = 1 ] \
+    || fail "inactive scan created a second correlation"
+  pass "failed delivery preserves one pending-reply-owned obligation"
+}
+
+# Wrong-home and malformed summaries are never consumed as terminal authority,
+# but their unreadable reconciliation boundary remains durably visible.
+test_invalid_summary_raises_obligation_without_terminal_request() {
+  make_world invalid-summary; bind_secondmate local; write_mate_meta; write_summary done
+  jq '.home="/wrong/home"' "$MATE/summary.json" > "$MATE/summary.tmp" && mv "$MATE/summary.tmp" "$MATE/summary.json"
+  FM_TEST_PRESERVE_SUMMARY_HOME=1 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  [ ! -s "$WORLD/send.log" ] || fail "wrong-home summary produced a terminal request"
+  [ "$(outcome_count "$MAIN" pending)" = 1 ] || fail "invalid summary did not preserve a reconciliation obligation"
+  [ "$(wake_count "$MAIN" 'inactive-reconcile:')" = 1 ] || fail "invalid summary did not surface its obligation"
+  pass "invalid structured summaries fail safe with a durable obligation"
 }
 
 # A remote child route writes the existing mirror input once even across restarts.
@@ -271,6 +309,8 @@ test_reconciliation_never_calls_forge() {
 
 test_local_secondmate_report_and_main_receipt
 test_main_cross_home_discovers_missing_report_once
+test_failed_delivery_preserves_one_correlated_obligation
+test_invalid_summary_raises_obligation_without_terminal_request
 test_remote_parent_reply_is_idempotent
 test_heartbeat_cap_does_not_delay_reconciliation
 test_nonterminal_and_captain_held_states_do_not_report

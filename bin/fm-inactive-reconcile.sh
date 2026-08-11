@@ -196,9 +196,10 @@ queue_key_exists() { # <key>
 }
 
 queue_notice_once() { # <record> <key> <payload>
-  local record=$1 key=$2 payload=$3 notified
-  notified=$(record_value "$record" notice_emitted)
-  [ "$notified" = 1 ] && return 1
+  local record=$1 key=$2 payload=$3
+  if queue_key_exists "$key"; then
+    return 1
+  fi
   fm_wake_append check "$key" "$payload" || return 2
   record_field_set "$record" notice_emitted 1 || return 2
   printf 'actionable: %s\n' "$payload"
@@ -328,6 +329,7 @@ summary_for_secondmate() { # <id> <meta>
   local id=$1 meta=$2 home remote_host
   home=$(meta_field "$meta" home)
   remote_host=$(meta_field "$meta" remote_host)
+  SUMMARY_EXPECTED_HOME=$home
   # Session start keeps its documented blocking path network-free.
   # The existing watcher poll performs the remote summary on its normal cadence.
   if [ -n "$remote_host" ]; then
@@ -336,6 +338,7 @@ summary_for_secondmate() { # <id> <meta>
     return
   fi
   validate_secondmate_home "$id" "$home" 2>/dev/null || return 1
+  SUMMARY_EXPECTED_HOME=$VALIDATED_HOME
   run_bounded_summary env \
     FM_ROOT_OVERRIDE="$FM_ROOT" \
     FM_HOME="$VALIDATED_HOME" \
@@ -346,21 +349,94 @@ summary_for_secondmate() { # <id> <meta>
     "$SUMMARY_BIN" --secondmate-home-summary
 }
 
+summary_generated_is_fresh() { # <generated>
+  local generated=$1 epoch now age
+  epoch=$(date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$generated" +%s 2>/dev/null \
+    || date -u -d "$generated" +%s 2>/dev/null \
+    || true)
+  case "$epoch" in ''|*[!0-9]*) return 1 ;; esac
+  now=$(reconcile_now)
+  age=$((now - epoch))
+  [ "$age" -ge -60 ] && [ "$age" -le "$FM_INACTIVE_RECONCILE_SECS" ]
+}
+
+summary_is_authoritative() { # <summary> <expected-home>
+  local summary=$1 expected_home=$2 generated
+  SUMMARY_VALIDATION_REASON=shape
+  printf '%s' "$summary" | jq -e --arg home "$expected_home" '
+    .schema == "fm-secondmate-home-summary.v1"
+    and .home == $home
+    and (.generated | type) == "string"
+    and (.valid | type) == "boolean"
+    and (.state | type) == "string"
+    and (.invalidity | type) == "object"
+    and (.invalidity.kind == null or (.invalidity.kind | type) == "string")
+    and (.invalidity.ids | type) == "array"
+    and all(.invalidity.ids[]; type == "string" and test("^[A-Za-z0-9._-]+$"))
+    and (.active_children | type) == "array"
+    and (.decisions_open | type) == "array"
+    and (.holds | type) == "array"
+    and (.queued | type) == "array"
+    and (.landed | type) == "array"
+    and (.endpoints | type) == "array"
+    and (.counts | type) == "object"
+    and (.omitted | type) == "array"
+    and (.terminal_children | type) == "array"
+    and all(.terminal_children[];
+      (type == "object")
+      and (.id | type) == "string" and (.id | test("^[A-Za-z0-9._-]+$"))
+      and (.state == "done" or .state == "failed"))
+    and (if (.terminal_children | length) > 0 then
+      .valid == false
+      and .invalidity.kind == "terminal_in_flight"
+      and ([.terminal_children[].id] | sort) == ([.invalidity.ids[]] | sort)
+    else true end)
+  ' >/dev/null 2>&1 || return 1
+  generated=$(printf '%s' "$summary" | jq -r '.generated')
+  SUMMARY_VALIDATION_REASON=stale
+  summary_generated_is_fresh "$generated" || return 1
+  SUMMARY_VALIDATION_REASON=
+}
+
+summary_obligation() { # <secondmate-id> <reason>
+  local mate=$1 reason=$2 fingerprint payload
+  fingerprint=$(sha256_text "secondmate-summary|$mate")
+  ensure_record "$fingerprint" "$mate" unknown "inactive-summary-$mate" "secondmate-summary:$mate" upstream "" || return 1
+  [ -n "$RECORD_PENDING" ] || return 0
+  payload="inactive secondmate summary needs reconciliation: secondmate=$mate reason=$(clean_field "$reason")"
+  queue_notice_once "$RECORD_PENDING" "inactive-reconcile:$fingerprint" "$payload" || true
+}
+
+clear_summary_obligation() { # <secondmate-id>
+  local mate=$1 fingerprint record
+  fingerprint=$(sha256_text "secondmate-summary|$mate")
+  record=$(record_path "$fingerprint" pending)
+  [ ! -f "$record" ] || mark_reported "$record"
+}
+
 request_secondmate_report() { # <record> <secondmate-id> <child-id> <state> <outcome-key>
-  local record=$1 mate=$2 child=$3 state=$4 outcome_key=$5 msg corr rc=0
-  [ "$(record_value "$record" request_attempted)" = 1 ] && return 1
-  record_field_set "$record" request_attempted 1 || return 2
+  local record=$1 mate=$2 child=$3 state=$4 outcome_key=$5 msg corr rc=0 pending
   msg="INACTIVE OUTCOME RECONCILIATION: child $child is authoritatively $state but has no parent report. Append a terminal parent status report with [key=$outcome_key]."
-  corr=$(fm_pending_reply_create "$FM_HOME" "$STATE" "$mate" "$msg" 2>/dev/null || true)
-  if [ -n "$corr" ]; then
-    msg="$msg Include corr=$corr in that report."
-    fm_pending_reply_embed_corr "$msg" "$corr" msg || true
-    FM_PENDING_REPLY_EXISTING_CORR="$corr" "$SEND_BIN" "$mate" "$msg" >/dev/null 2>&1 || rc=$?
-    record_field_set "$record" correlation "$corr" || true
-  else
-    "$SEND_BIN" "$mate" "$msg" >/dev/null 2>&1 || rc=$?
+  corr=$(record_value "$record" correlation)
+  if [ -z "$corr" ]; then
+    corr=$(fm_pending_reply_create "$FM_HOME" "$STATE" "$mate" "$msg" 2>/dev/null || true)
+    [ -n "$corr" ] || return 2
+    if ! record_field_set "$record" correlation "$corr"; then
+      fm_pending_reply_discard_undelivered "$STATE" "$corr" || true
+      return 2
+    fi
   fi
+  fm_pending_reply_corr_reusable "$STATE" "$corr" "$mate" || return 2
+  [ "$(record_value "$record" request_attempted)" != 1 ] || return 1
+  fm_pending_reply_prepare_delivery "$STATE" "$corr" || return 2
+  msg="$msg Include corr=$corr in that report."
+  fm_pending_reply_embed_corr "$msg" "$corr" msg || return 2
+  FM_PENDING_REPLY_EXISTING_CORR="$corr" "$SEND_BIN" "$mate" "$msg" >/dev/null 2>&1 || rc=$?
+  record_field_set "$record" request_attempted 1 || return 2
   record_field_set "$record" request_result "$rc" || true
+  if [ "$rc" -ne 0 ]; then
+    fm_pending_reply_mark_delivery_unknown "$STATE" "$corr" || true
+  fi
   return "$rc"
 }
 
@@ -432,7 +508,7 @@ reconcile_secondmate_child() { # <secondmate-id> <child-id> <state>
 }
 
 scan_secondmates() {
-  local meta mate kind status last age summary child state
+  local meta mate kind status last age summary child state expected_home remote_host
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] || continue
     kind=$(meta_field "$meta" kind)
@@ -444,11 +520,25 @@ scan_secondmates() {
     status_line_verb "$last" | grep -Fx captain-held >/dev/null 2>&1 && continue
     age=$(last_activity_age "$meta" "$status" "$STATE/$mate.turn-ended")
     [ "$age" -ge "$FM_INACTIVE_RECONCILE_SECS" ] || continue
-    summary=$(summary_for_secondmate "$mate" "$meta" || true)
-    printf '%s' "$summary" | jq -e '
-      .schema == "fm-secondmate-home-summary.v1"
-      and (.terminal_children | type) == "array"
-    ' >/dev/null 2>&1 || continue
+    expected_home=$(meta_field "$meta" home)
+    remote_host=$(meta_field "$meta" remote_host)
+    if [ -z "$remote_host" ]; then
+      if ! validate_secondmate_home "$mate" "$expected_home" 2>/dev/null; then
+        summary_obligation "$mate" invalid-home
+        continue
+      fi
+      expected_home=$VALIDATED_HOME
+    fi
+    if ! summary=$(summary_for_secondmate "$mate" "$meta"); then
+      summary_obligation "$mate" unavailable
+      continue
+    fi
+    SUMMARY_VALIDATION_REASON=invalid
+    if ! summary_is_authoritative "$summary" "$expected_home"; then
+      summary_obligation "$mate" "$SUMMARY_VALIDATION_REASON"
+      continue
+    fi
+    clear_summary_obligation "$mate" || true
     while IFS=$(printf '\t') read -r child state; do
       [ -n "$child" ] || continue
       reconcile_secondmate_child "$mate" "$child" "$state"

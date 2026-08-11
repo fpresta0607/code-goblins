@@ -760,10 +760,11 @@ EOF
   printf 'failed: stopped\n' > "$mate/state/failed.status"
   rm "$mate/state/parked.meta" "$mate/state/parked.status"
   summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
+    FM_SNAPSHOT_SECONDMATE_CHILDREN=1 \
     "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
   printf '%s' "$summary" | jq -e '
     [.terminal_children[] | .id + "=" + .state] == ["done=done", "failed=failed"]
-  ' >/dev/null || fail "secondmate summary dropped terminal in-flight children: $summary"
+  ' >/dev/null || fail "secondmate summary dropped terminal in-flight children beyond the detail cap: $summary"
   canonical=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
     "$ROOT/bin/fm-fleet-snapshot.sh" --json)
   printf '%s' "$canonical" | jq -e '
