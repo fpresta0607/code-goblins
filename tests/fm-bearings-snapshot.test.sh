@@ -763,8 +763,16 @@ EOF
     FM_SNAPSHOT_SECONDMATE_CHILDREN=1 \
     "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
   printf '%s' "$summary" | jq -e '
-    [.terminal_children[] | .id + "=" + .state] == ["done=done", "failed=failed"]
-  ' >/dev/null || fail "secondmate summary dropped terminal in-flight children beyond the detail cap: $summary"
+    [.terminal_children[] | .id + "=" + .state] == ["done=done"]
+      and .terminal_page == {after:null,next_after:"done",has_more:true,total:2}
+  ' >/dev/null || fail "secondmate summary did not expose the first bounded terminal page: $summary"
+  summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
+    FM_SNAPSHOT_SECONDMATE_CHILDREN=1 FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER=done \
+    "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
+  printf '%s' "$summary" | jq -e '
+    [.terminal_children[] | .id + "=" + .state] == ["failed=failed"]
+      and .terminal_page == {after:"done",next_after:null,has_more:false,total:2}
+  ' >/dev/null || fail "secondmate summary did not expose the next terminal page: $summary"
   canonical=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
     "$ROOT/bin/fm-fleet-snapshot.sh" --json)
   printf '%s' "$canonical" | jq -e '

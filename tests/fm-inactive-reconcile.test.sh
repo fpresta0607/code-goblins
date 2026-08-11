@@ -37,15 +37,32 @@ SH
   cat > "$fake/fm-fleet-snapshot.sh" <<'SH'
 #!/usr/bin/env bash
 if [ "${FM_TEST_PRESERVE_SUMMARY_HOME:-0}" = 1 ]; then
-  cat "$FM_HOME/summary.json"
+  summary=$(cat "$FM_HOME/summary.json")
 else
-  jq --arg home "$FM_HOME" '.home=$home' "$FM_HOME/summary.json"
+  summary=$(jq --arg home "$FM_HOME" '.home=$home' "$FM_HOME/summary.json")
+fi
+if [ "${FM_TEST_PAGED_SUMMARY:-0}" = 1 ]; then
+  printf '%s' "$summary" | jq --arg after "${FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER:-}" --argjson n "${FM_SNAPSHOT_SECONDMATE_CHILDREN:-2}" '
+    (.terminal_children | sort_by(.id)) as $all
+    | ([$all[] | select($after == "" or .id > $after)]) as $remaining
+    | ($remaining[:$n]) as $page
+    | .terminal_children = $page
+    | .terminal_page = {
+        after:(if $after == "" then null else $after end),
+        next_after:(if ($remaining | length) > $n then $page[-1].id else null end),
+        has_more:(($remaining | length) > $n), total:($all | length)
+      }'
+else
+  printf '%s\n' "$summary"
 fi
 SH
   cat > "$fake/fm-send.sh" <<'SH'
 #!/usr/bin/env bash
 set -u
 printf '%s\t%s\n' "$1" "$2" >> "${FM_TEST_SEND_LOG:?}"
+if [ -n "${FM_TEST_ATTEMPT_LOG:-}" ]; then
+  sed -n 's/^request_attempted=//p' "${FM_STATE_OVERRIDE:?}/terminal-outcomes/"*.pending > "$FM_TEST_ATTEMPT_LOG"
+fi
 [ "${FM_TEST_SEND_FAIL:-0}" != 1 ] || exit 1
 corr=$(printf '%s' "$2" | grep -Eo 'corr=[A-Fa-f0-9]{16}' | head -1 | cut -d= -f2- || true)
 if [ -n "$corr" ]; then
@@ -228,7 +245,60 @@ test_invalid_summary_raises_obligation_without_terminal_request() {
   [ ! -s "$WORLD/send.log" ] || fail "wrong-home summary produced a terminal request"
   [ "$(outcome_count "$MAIN" pending)" = 1 ] || fail "invalid summary did not preserve a reconciliation obligation"
   [ "$(wake_count "$MAIN" 'inactive-reconcile:')" = 1 ] || fail "invalid summary did not surface its obligation"
-  pass "invalid structured summaries fail safe with a durable obligation"
+
+  jq '.valid=true | .reason=null | .invalidity={kind:null,ids:[]} | .terminal_children=[]' \
+    "$MATE/summary.json" > "$MATE/summary.tmp" && mv "$MATE/summary.tmp" "$MATE/summary.json"
+  FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  [ "$(outcome_count "$MAIN" pending)" = 0 ] || fail "valid summary did not close the failure episode"
+  jq '.home="/wrong/again"' "$MATE/summary.json" > "$MATE/summary.tmp" && mv "$MATE/summary.tmp" "$MATE/summary.json"
+  FM_TEST_PRESERVE_SUMMARY_HOME=1 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  [ "$(outcome_count "$MAIN" pending)" = 1 ] || fail "recurring summary failure was suppressed by its old receipt"
+  pass "invalid structured summaries fail safe and can recur after recovery"
+}
+
+test_request_attempt_is_durable_before_transport() {
+  make_world prepared-send; bind_secondmate local; write_mate_meta; write_summary failed
+  FM_TEST_ATTEMPT_LOG="$WORLD/attempt.log" FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  [ "$(cat "$WORLD/attempt.log")" = 1 ] || fail "transport began before the durable request attempt"
+  pass "request attempt is durable before uncertain transport"
+}
+
+test_competing_invalidity_does_not_hide_terminal_page() {
+  make_world competing-invalidity; bind_secondmate local; write_mate_meta; write_summary failed
+  jq '.invalidity={kind:"unstructured_current",ids:[]}
+      | .reason="unstructured current backlog row"' "$MATE/summary.json" > "$MATE/summary.tmp" \
+    && mv "$MATE/summary.tmp" "$MATE/summary.json"
+  FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  [ "$(wc -l < "$WORLD/send.log" | tr -d ' ')" = 1 ] || fail "competing invalidity hid terminal evidence"
+  pass "terminal evidence is validated independently from primary invalidity"
+}
+
+test_terminal_pages_eventually_expose_every_child() {
+  local i generated
+  make_world paged; bind_secondmate local; write_mate_meta
+  generated=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jq -n --arg generated "$generated" --arg home "$MATE" '
+    {schema:"fm-secondmate-home-summary.v1",generated:$generated,home:$home,valid:false,
+     reason:"terminal children",invalidity:{kind:"terminal_in_flight",ids:[]},state:"unknown",
+     active_children:[],terminal_children:[range(0;5) | {id:("child" + tostring),state:"failed"}],
+     decisions_open:[],holds:[],queued:[],landed:[],endpoints:[],counts:{},omitted:[]}' > "$MATE/summary.json"
+  i=0
+  while [ "$i" -lt 3 ]; do
+    FM_TEST_PAGED_SUMMARY=1 FM_SNAPSHOT_SECONDMATE_CHILDREN=2 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+    i=$((i + 1))
+  done
+  [ "$(wc -l < "$WORLD/send.log" | tr -d ' ')" = 5 ] || fail "paged summary did not expose every terminal child"
+  [ "$(outcome_count "$MAIN" pending)" = 5 ] || fail "paged terminal obligations were dropped"
+  pass "bounded terminal pages eventually expose every child"
+}
+
+test_remote_startup_deferral_is_silent() {
+  make_world remote-startup; write_mate_meta
+  printf 'remote_host=example.invalid\n' >> "$MAIN/state/mate.meta"
+  FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  [ "$(outcome_count "$MAIN" pending)" = 0 ] || fail "remote startup deferral created a summary obligation"
+  [ ! -s "$MAIN/state/.wake-queue" ] || fail "remote startup deferral emitted a false alert"
+  pass "remote summaries are silently deferred at startup"
 }
 
 # A remote child route writes the existing mirror input once even across restarts.
@@ -311,6 +381,10 @@ test_local_secondmate_report_and_main_receipt
 test_main_cross_home_discovers_missing_report_once
 test_failed_delivery_preserves_one_correlated_obligation
 test_invalid_summary_raises_obligation_without_terminal_request
+test_request_attempt_is_durable_before_transport
+test_competing_invalidity_does_not_hide_terminal_page
+test_terminal_pages_eventually_expose_every_child
+test_remote_startup_deferral_is_silent
 test_remote_parent_reply_is_idempotent
 test_heartbeat_cap_does_not_delay_reconciliation
 test_nonterminal_and_captain_held_states_do_not_report

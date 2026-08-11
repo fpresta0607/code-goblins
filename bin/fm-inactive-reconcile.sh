@@ -325,16 +325,15 @@ run_bounded_summary() { # <command> [args...]
   return "$rc"
 }
 
-summary_for_secondmate() { # <id> <meta>
-  local id=$1 meta=$2 home remote_host
+summary_for_secondmate() { # <id> <meta> <terminal-after>
+  local id=$1 meta=$2 terminal_after=$3 home remote_host
   home=$(meta_field "$meta" home)
   remote_host=$(meta_field "$meta" remote_host)
   SUMMARY_EXPECTED_HOME=$home
-  # Session start keeps its documented blocking path network-free.
-  # The existing watcher poll performs the remote summary on its normal cadence.
   if [ -n "$remote_host" ]; then
-    [ "${SCAN_STARTUP:-0}" != 1 ] || return 1
-    run_bounded_summary "$SCRIPT_DIR/fm-on.sh" "$id" fm-fleet-snapshot.sh --secondmate-home-summary
+    run_bounded_summary "$SCRIPT_DIR/fm-on.sh" "$id" env \
+      FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER="$terminal_after" \
+      fm-fleet-snapshot.sh --secondmate-home-summary
     return
   fi
   validate_secondmate_home "$id" "$home" 2>/dev/null || return 1
@@ -346,6 +345,7 @@ summary_for_secondmate() { # <id> <meta>
     FM_DATA_OVERRIDE="$VALIDATED_HOME/data" \
     FM_CONFIG_OVERRIDE="$VALIDATED_HOME/config" \
     FM_PROJECTS_OVERRIDE="$VALIDATED_HOME/projects" \
+    FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER="$terminal_after" \
     "$SUMMARY_BIN" --secondmate-home-summary
 }
 
@@ -360,10 +360,10 @@ summary_generated_is_fresh() { # <generated>
   [ "$age" -ge -60 ] && [ "$age" -le "$FM_INACTIVE_RECONCILE_SECS" ]
 }
 
-summary_is_authoritative() { # <summary> <expected-home>
-  local summary=$1 expected_home=$2 generated
+summary_is_authoritative() { # <summary> <expected-home> <terminal-after>
+  local summary=$1 expected_home=$2 terminal_after=$3 generated
   SUMMARY_VALIDATION_REASON=shape
-  printf '%s' "$summary" | jq -e --arg home "$expected_home" '
+  printf '%s' "$summary" | jq -e --arg home "$expected_home" --arg after "$terminal_after" '
     .schema == "fm-secondmate-home-summary.v1"
     and .home == $home
     and (.generated | type) == "string"
@@ -386,10 +386,21 @@ summary_is_authoritative() { # <summary> <expected-home>
       (type == "object")
       and (.id | type) == "string" and (.id | test("^[A-Za-z0-9._-]+$"))
       and (.state == "done" or .state == "failed"))
-    and (if (.terminal_children | length) > 0 then
-      .valid == false
-      and .invalidity.kind == "terminal_in_flight"
-      and ([.terminal_children[].id] | sort) == ([.invalidity.ids[]] | sort)
+    and (([.terminal_children[].id] | unique | length) == (.terminal_children | length))
+    and (if has("terminal_page") then
+      (.terminal_page | type) == "object"
+      and .terminal_page.after == (if $after == "" then null else $after end)
+      and (.terminal_page.has_more | type) == "boolean"
+      and (.terminal_page.total | type) == "number"
+      and (.terminal_page.total | floor) == .terminal_page.total
+      and .terminal_page.total >= (.terminal_children | length)
+      and (if .terminal_page.has_more then
+        (.terminal_children | length) > 0
+        and (.terminal_page.next_after | type) == "string"
+        and (.terminal_page.next_after | test("^[A-Za-z0-9._-]+$"))
+        and .terminal_page.next_after == .terminal_children[-1].id
+        and ($after == "" or .terminal_page.next_after > $after)
+      else .terminal_page.next_after == null end)
     else true end)
   ' >/dev/null 2>&1 || return 1
   generated=$(printf '%s' "$summary" | jq -r '.generated')
@@ -410,8 +421,9 @@ summary_obligation() { # <secondmate-id> <reason>
 clear_summary_obligation() { # <secondmate-id>
   local mate=$1 fingerprint record
   fingerprint=$(sha256_text "secondmate-summary|$mate")
-  record=$(record_path "$fingerprint" pending)
-  [ ! -f "$record" ] || mark_reported "$record"
+  for record in "$(record_path "$fingerprint" pending)" "$(record_path "$fingerprint" reported)"; do
+    [ ! -f "$record" ] || rm -f "$record" || return 1
+  done
 }
 
 request_secondmate_report() { # <record> <secondmate-id> <child-id> <state> <outcome-key>
@@ -431,8 +443,8 @@ request_secondmate_report() { # <record> <secondmate-id> <child-id> <state> <out
   fm_pending_reply_prepare_delivery "$STATE" "$corr" || return 2
   msg="$msg Include corr=$corr in that report."
   fm_pending_reply_embed_corr "$msg" "$corr" msg || return 2
-  FM_PENDING_REPLY_EXISTING_CORR="$corr" "$SEND_BIN" "$mate" "$msg" >/dev/null 2>&1 || rc=$?
   record_field_set "$record" request_attempted 1 || return 2
+  FM_PENDING_REPLY_EXISTING_CORR="$corr" "$SEND_BIN" "$mate" "$msg" >/dev/null 2>&1 || rc=$?
   record_field_set "$record" request_result "$rc" || true
   if [ "$rc" -ne 0 ]; then
     fm_pending_reply_mark_delivery_unknown "$STATE" "$corr" || true
@@ -507,8 +519,29 @@ reconcile_secondmate_child() { # <secondmate-id> <child-id> <state>
   queue_notice_once "$RECORD_PENDING" "inactive-reconcile:$fingerprint" "$payload" || true
 }
 
+summary_cursor_get() { # <secondmate-id>
+  local path="$OUTCOME_DIR/.summary-cursor-$1" cursor
+  [ -f "$path" ] && [ ! -L "$path" ] || return 0
+  cursor=$(head -1 "$path" 2>/dev/null || true)
+  valid_id "$cursor" && printf '%s\n' "$cursor"
+}
+
+summary_cursor_set() { # <secondmate-id> <cursor-or-empty>
+  local mate=$1 cursor=$2 path tmp
+  path="$OUTCOME_DIR/.summary-cursor-$mate"
+  if [ -z "$cursor" ]; then
+    rm -f "$path"
+    return
+  fi
+  valid_id "$cursor" || return 1
+  tmp=$(mktemp "$OUTCOME_DIR/.cursor.XXXXXX") || return 1
+  printf '%s\n' "$cursor" > "$tmp" || { rm -f "$tmp"; return 1; }
+  chmod 600 "$tmp" 2>/dev/null || true
+  mv -f "$tmp" "$path"
+}
+
 scan_secondmates() {
-  local meta mate kind status last age summary child state expected_home remote_host
+  local meta mate kind status last age summary child state expected_home remote_host terminal_after next_after
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] || continue
     kind=$(meta_field "$meta" kind)
@@ -522,6 +555,9 @@ scan_secondmates() {
     [ "$age" -ge "$FM_INACTIVE_RECONCILE_SECS" ] || continue
     expected_home=$(meta_field "$meta" home)
     remote_host=$(meta_field "$meta" remote_host)
+    if [ -n "$remote_host" ] && [ "${SCAN_STARTUP:-0}" = 1 ]; then
+      continue
+    fi
     if [ -z "$remote_host" ]; then
       if ! validate_secondmate_home "$mate" "$expected_home" 2>/dev/null; then
         summary_obligation "$mate" invalid-home
@@ -529,12 +565,13 @@ scan_secondmates() {
       fi
       expected_home=$VALIDATED_HOME
     fi
-    if ! summary=$(summary_for_secondmate "$mate" "$meta"); then
+    terminal_after=$(summary_cursor_get "$mate" || true)
+    if ! summary=$(summary_for_secondmate "$mate" "$meta" "$terminal_after"); then
       summary_obligation "$mate" unavailable
       continue
     fi
     SUMMARY_VALIDATION_REASON=invalid
-    if ! summary_is_authoritative "$summary" "$expected_home"; then
+    if ! summary_is_authoritative "$summary" "$expected_home" "$terminal_after"; then
       summary_obligation "$mate" "$SUMMARY_VALIDATION_REASON"
       continue
     fi
@@ -543,6 +580,8 @@ scan_secondmates() {
       [ -n "$child" ] || continue
       reconcile_secondmate_child "$mate" "$child" "$state"
     done < <(printf '%s' "$summary" | jq -r '.terminal_children[]? | [.id, .state] | @tsv')
+    next_after=$(printf '%s' "$summary" | jq -r 'if (.terminal_page.has_more // false) then .terminal_page.next_after else "" end')
+    summary_cursor_set "$mate" "$next_after" || true
   done
 }
 

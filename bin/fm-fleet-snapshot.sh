@@ -82,6 +82,7 @@ FM_SNAPSHOT_SECONDMATES=${FM_SNAPSHOT_SECONDMATES:-20}
 FM_SNAPSHOT_SECONDMATE_TIMEOUT=${FM_SNAPSHOT_SECONDMATE_TIMEOUT:-8}
 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=${FM_SNAPSHOT_SECONDMATE_MAX_BYTES:-262144}
 FM_SNAPSHOT_SECONDMATE_CHILDREN=${FM_SNAPSHOT_SECONDMATE_CHILDREN:-20}
+FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER=${FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER:-}
 FM_SNAPSHOT_SECONDMATE_QUEUED=${FM_SNAPSHOT_SECONDMATE_QUEUED:-20}
 FM_SNAPSHOT_SECONDMATE_DECISIONS=${FM_SNAPSHOT_SECONDMATE_DECISIONS:-20}
 FM_SNAPSHOT_TERMINAL_LINES=${FM_SNAPSHOT_TERMINAL_LINES:-8}
@@ -112,6 +113,14 @@ esac
 validate_positive_bound FM_SNAPSHOT_SECONDMATE_TIMEOUT "$FM_SNAPSHOT_SECONDMATE_TIMEOUT"
 validate_positive_bound FM_SNAPSHOT_SECONDMATE_MAX_BYTES "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES"
 validate_positive_bound FM_SNAPSHOT_SECONDMATE_CHILDREN "$FM_SNAPSHOT_SECONDMATE_CHILDREN"
+case "$FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER" in
+  ''|*[!A-Za-z0-9._-]*)
+    [ -z "$FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER" ] || {
+      echo "fm-fleet-snapshot: FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER must be a task id" >&2
+      exit 2
+    }
+    ;;
+esac
 validate_positive_bound FM_SNAPSHOT_SECONDMATE_QUEUED "$FM_SNAPSHOT_SECONDMATE_QUEUED"
 validate_positive_bound FM_SNAPSHOT_SECONDMATE_DECISIONS "$FM_SNAPSHOT_SECONDMATE_DECISIONS"
 validate_positive_bound FM_SNAPSHOT_TERMINAL_LINES "$FM_SNAPSHOT_TERMINAL_LINES"
@@ -641,6 +650,7 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
     --arg generated "$SNAPSHOT_NOW" \
     --arg home "$FM_HOME" \
     --argjson child_n "$FM_SNAPSHOT_SECONDMATE_CHILDREN" \
+    --arg terminal_after "$FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER" \
     --argjson queued_n "$FM_SNAPSHOT_SECONDMATE_QUEUED" \
     --argjson decisions_n "$FM_SNAPSHOT_SECONDMATE_DECISIONS" \
     --argjson landed_n "$FM_SNAPSHOT_SECONDMATE_LANDED_PER_HOME" \
@@ -678,7 +688,10 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
     | ([ $owned_in_flight[] as $work
          | $tasks[]
          | select(.id == $work.id and (.current_state.state == "done" or .current_state.state == "failed"))
-         | {id,state:.current_state.state} ]) as $terminal_in_flight
+         | {id,state:.current_state.state} ] | sort_by(.id)) as $terminal_in_flight
+    | ([ $terminal_in_flight[] | select($terminal_after == "" or .id > $terminal_after) ]) as $terminal_remaining
+    | ($terminal_remaining[:$child_n]) as $terminal_page
+    | (($terminal_remaining | length) > $child_n) as $terminal_has_more
     | ([if $backlog.present != true then
           {kind:"missing_backlog",ids:[],reason:"missing structured backlog"}
         else empty end,
@@ -695,9 +708,9 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
                    ($unowned_children | map(.id + "=" + .state) | join(", ")))}
         else empty end,
         if ($terminal_in_flight | length) > 0 then
-          {kind:"terminal_in_flight",ids:($terminal_in_flight | map(.id)),
-           reason:("in-flight backlog item has terminal child state: " +
-                   ($terminal_in_flight | map(.id + "=" + .state) | join(", ")))}
+          {kind:"terminal_in_flight",ids:($terminal_page | map(.id)),
+           reason:("in-flight backlog item has terminal child state" +
+                   (if ($terminal_page | length) > 0 then ": " + ($terminal_page | map(.id + "=" + .state) | join(", ")) else "" end))}
         else empty end]) as $strict_invalidities
     | ([ $owned_in_flight[] as $work
          | select($work.current_role != "program")
@@ -749,7 +762,13 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
         invalidity:$invalidity,
         state:$state,
         active_children:$active_all[:$child_n],
-        terminal_children:$terminal_in_flight,
+        terminal_children:$terminal_page,
+        terminal_page:{
+          after:(if $terminal_after == "" then null else $terminal_after end),
+          next_after:(if $terminal_has_more then $terminal_page[-1].id else null end),
+          has_more:$terminal_has_more,
+          total:($terminal_in_flight | length)
+        },
         decisions_open:$decisions_all[:$decisions_n],
         holds:$holds_all[:$queued_n],
         queued:([$queued_all[] | {id:(.id | trunc(120)),title:(.title | trunc(120)),
