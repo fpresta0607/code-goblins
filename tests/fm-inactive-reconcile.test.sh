@@ -52,7 +52,14 @@ while [ "$#" -gt 0 ]; do
   shift 2
 done
 if [ "${FM_TEST_LEGACY_SUMMARY:-0}" = 1 ] && [ -n "$summary_max_bytes" ]; then
+  printf '%s\n' \
+    'usage: fm-fleet-snapshot.sh --json' \
+    '       fm-fleet-snapshot.sh --secondmate-home-summary' >&2
   exit 2
+fi
+if [ "${FM_TEST_MODERN_SUMMARY_FAILURE:-0}" = 1 ] && [ -n "$summary_max_bytes" ]; then
+  printf 'fm-fleet-snapshot: internal snapshot failure\n' >&2
+  exit 1
 fi
 case "$summary_max_bytes" in *[!0-9]*) exit 2 ;; esac
 if [ "${FM_TEST_PRESERVE_SUMMARY_HOME:-0}" = 1 ]; then
@@ -626,6 +633,20 @@ test_remote_legacy_summary_fallback_is_compatible() {
   pass "remote legacy summaries use one compatible fallback"
 }
 
+test_remote_modern_summary_failure_does_not_fallback() {
+  make_world remote-modern-failure; write_mate_meta
+  printf 'remote_host=example.invalid\n' >> "$MAIN/state/mate.meta"
+  age "$MAIN/state/mate.meta"
+  FM_TEST_MODERN_SUMMARY_FAILURE=1 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN"
+  [ "$(wc -l < "$WORLD/on.log" | tr -d ' ')" = 1 ] \
+    || fail "remote modern summary failure triggered a legacy retry"
+  [ "$(outcome_count "$MAIN" pending)" = 1 ] \
+    || fail "remote modern summary failure did not preserve an obligation"
+  [ "$(wake_count "$MAIN" 'inactive-reconcile:')" = 1 ] \
+    || fail "remote modern summary failure was not surfaced"
+  pass "remote modern summary failures never use legacy fallback"
+}
+
 # A remote child route writes the existing mirror input once even across restarts.
 test_remote_parent_reply_is_idempotent() {
   make_world remote; bind_secondmate remote; write_child "$MATE" child 'done: green'
@@ -736,6 +757,7 @@ test_cursor_persistence_failure_is_actionable
 test_remote_startup_deferral_is_silent
 test_remote_summary_uses_supported_paged_command
 test_remote_legacy_summary_fallback_is_compatible
+test_remote_modern_summary_failure_does_not_fallback
 test_remote_parent_reply_is_idempotent
 test_heartbeat_cap_does_not_delay_reconciliation
 test_startup_respects_reconciliation_gate

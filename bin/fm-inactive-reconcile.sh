@@ -314,9 +314,10 @@ parent_has_outcome_report() { # <secondmate-id> <outcome-key>
 }
 
 run_bounded_summary() { # <command> [args...]
-  local tmp rc bytes limit
+  local tmp err rc bytes err_bytes limit
   limit=$((FM_SNAPSHOT_SECONDMATE_MAX_BYTES + 1))
   tmp=$(mktemp "$OUTCOME_DIR/.summary.XXXXXX") || return 1
+  err=$(mktemp "$OUTCOME_DIR/.summary-error.XXXXXX") || { rm -f "$tmp"; return 1; }
   fm_run_timed "$FM_SNAPSHOT_SECONDMATE_TIMEOUT" bash -o pipefail -c '
     limit=$1
     shift
@@ -324,25 +325,33 @@ run_bounded_summary() { # <command> [args...]
     status=("${PIPESTATUS[@]}")
     [ "${status[1]}" -eq 0 ] || exit "${status[1]}"
     case "${status[0]}" in 0|141) exit 0 ;; *) exit "${status[0]}" ;; esac
-  ' _ "$limit" "$@" < /dev/null > "$tmp" 2>/dev/null
+  ' _ "$limit" "$@" < /dev/null > "$tmp" 2> "$err"
   rc=$?
   if [ "$rc" -ne 0 ]; then
-    rm -f "$tmp"
+    bytes=$(LC_ALL=C wc -c < "$tmp" | tr -d ' ')
+    err_bytes=$(LC_ALL=C wc -c < "$err" | tr -d ' ')
+    if [ "$rc" -eq 2 ] && [ "$bytes" -eq 0 ] && [ "$err_bytes" -le 4096 ] \
+      && grep -Fxq 'usage: fm-fleet-snapshot.sh --json' "$err" \
+      && grep -Fxq '       fm-fleet-snapshot.sh --secondmate-home-summary' "$err"; then
+      rm -f "$tmp" "$err"
+      return 64
+    fi
+    rm -f "$tmp" "$err"
     return "$rc"
   fi
   bytes=$(LC_ALL=C wc -c < "$tmp" | tr -d ' ')
   if [ "$bytes" -gt "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" ]; then
-    rm -f "$tmp"
+    rm -f "$tmp" "$err"
     return 1
   fi
   cat "$tmp"
   rc=$?
-  rm -f "$tmp"
+  rm -f "$tmp" "$err"
   return "$rc"
 }
 
 summary_for_secondmate() { # <id> <meta> <terminal-after>
-  local id=$1 meta=$2 terminal_after=$3 home remote_host
+  local id=$1 meta=$2 terminal_after=$3 home remote_host rc
   local -a summary_args
   home=$(meta_field "$meta" home)
   remote_host=$(meta_field "$meta" remote_host)
@@ -352,7 +361,10 @@ summary_for_secondmate() { # <id> <meta> <terminal-after>
   if [ -n "$remote_host" ]; then
     if run_bounded_summary "$ON_BIN" "$id" fm-fleet-snapshot.sh "${summary_args[@]}"; then
       return 0
+    else
+      rc=$?
     fi
+    [ "$rc" -eq 64 ] || return "$rc"
     run_bounded_summary "$ON_BIN" "$id" fm-fleet-snapshot.sh --secondmate-home-summary
     return
   fi
@@ -668,19 +680,19 @@ scan_secondmates() {
     fi
     if [ -z "$remote_host" ]; then
       if ! validate_secondmate_home "$mate" "$expected_home" 2>/dev/null; then
-        summary_obligation "$mate" invalid-home
+        summary_obligation "$mate" invalid-home || return 1
         continue
       fi
       expected_home=$VALIDATED_HOME
     fi
     terminal_after=$(summary_cursor_get "$mate" || true)
     if ! summary=$(summary_for_secondmate "$mate" "$meta" "$terminal_after"); then
-      summary_obligation "$mate" unavailable
+      summary_obligation "$mate" unavailable || return 1
       continue
     fi
     SUMMARY_VALIDATION_REASON=invalid
     if ! summary_is_authoritative "$summary" "$expected_home" "$terminal_after"; then
-      summary_obligation "$mate" "$SUMMARY_VALIDATION_REASON"
+      summary_obligation "$mate" "$SUMMARY_VALIDATION_REASON" || return 1
       continue
     fi
     while IFS=$(printf '\t') read -r child state episode; do
