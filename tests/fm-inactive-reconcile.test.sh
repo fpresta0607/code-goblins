@@ -51,7 +51,10 @@ while [ "$#" -gt 0 ]; do
   esac
   shift 2
 done
-case "$summary_max_bytes" in ''|*[!0-9]*) exit 2 ;; esac
+if [ "${FM_TEST_LEGACY_SUMMARY:-0}" = 1 ] && [ -n "$summary_max_bytes" ]; then
+  exit 2
+fi
+case "$summary_max_bytes" in *[!0-9]*) exit 2 ;; esac
 if [ "${FM_TEST_PRESERVE_SUMMARY_HOME:-0}" = 1 ]; then
   summary=$(cat "$FM_HOME/summary.json")
 else
@@ -69,6 +72,8 @@ if [ "${FM_TEST_PAGED_SUMMARY:-0}" = 1 ]; then
         has_more:(($remaining | length) > $n), count:($page | length),
         remaining:($remaining | length), total:($all | length)
       }'
+elif [ "${FM_TEST_LEGACY_SUMMARY:-0}" = 1 ]; then
+  printf '%s' "$summary" | jq 'del(.terminal_children,.terminal_page)'
 else
   printf '%s\n' "$summary"
 fi
@@ -589,15 +594,36 @@ test_remote_summary_uses_supported_paged_command() {
      reason:"terminal children",invalidity:{kind:"terminal_in_flight",ids:[]},state:"unknown",
      active_children:[],terminal_children:[{id:"child0",state:"failed"},{id:"child1",state:"done"}],
      decisions_open:[],holds:[],queued:[],landed:[],endpoints:[],counts:{},omitted:[]}' > "$MATE/summary.json"
-  FM_TEST_PAGED_SUMMARY=1 FM_SNAPSHOT_SECONDMATE_CHILDREN=1 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=4096 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN"
-  FM_TEST_PAGED_SUMMARY=1 FM_SNAPSHOT_SECONDMATE_CHILDREN=1 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=4096 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN"
-  [ "$(sed -n '1p' "$WORLD/on.log")" = 'mate fm-fleet-snapshot.sh --secondmate-home-summary --summary-max-bytes 4096' ] \
+  FM_TEST_PAGED_SUMMARY=1 FM_SNAPSHOT_SECONDMATE_CHILDREN=1 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=32768 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN"
+  FM_TEST_PAGED_SUMMARY=1 FM_SNAPSHOT_SECONDMATE_CHILDREN=1 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=32768 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN"
+  [ "$(sed -n '1p' "$WORLD/on.log")" = 'mate fm-fleet-snapshot.sh --secondmate-home-summary --summary-max-bytes 32768' ] \
     || fail "remote summary did not carry the reader byte budget"
-  [ "$(sed -n '2p' "$WORLD/on.log")" = 'mate fm-fleet-snapshot.sh --secondmate-home-summary --summary-max-bytes 4096 --terminal-after child0' ] \
+  [ "$(sed -n '2p' "$WORLD/on.log")" = 'mate fm-fleet-snapshot.sh --secondmate-home-summary --summary-max-bytes 32768 --terminal-after child0' ] \
     || fail "remote summary did not carry its byte budget and page cursor"
   [ "$(wc -l < "$WORLD/send.log" | tr -d ' ')" = 2 ] \
     || fail "remote summary pages did not reconcile both terminal children"
   pass "remote summaries use supported deterministic paging"
+}
+
+test_remote_legacy_summary_fallback_is_compatible() {
+  local generated
+  make_world remote-legacy-summary; write_mate_meta
+  printf 'remote_host=example.invalid\n' >> "$MAIN/state/mate.meta"
+  age "$MAIN/state/mate.meta"
+  generated=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jq -n --arg generated "$generated" --arg home "$MATE" '
+    {schema:"fm-secondmate-home-summary.v1",generated:$generated,home:$home,valid:true,
+     reason:null,invalidity:{kind:null,ids:[]},state:"no_active_work",
+     active_children:[],decisions_open:[],holds:[],queued:[],landed:[],endpoints:[],counts:{},omitted:[]}' \
+    > "$MATE/summary.json"
+  FM_TEST_LEGACY_SUMMARY=1 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN"
+  [ "$(sed -n '1p' "$WORLD/on.log")" = 'mate fm-fleet-snapshot.sh --secondmate-home-summary --summary-max-bytes 262144' ] \
+    || fail "remote legacy probe did not try the bounded protocol first"
+  [ "$(sed -n '2p' "$WORLD/on.log")" = 'mate fm-fleet-snapshot.sh --secondmate-home-summary' ] \
+    || fail "remote legacy producer was not retried through fm-on"
+  [ "$(outcome_count "$MAIN" pending)" = 0 ] || fail "compatible legacy summary raised an obligation"
+  [ ! -s "$MAIN/state/.wake-queue" ] || fail "compatible legacy summary raised a false alert"
+  pass "remote legacy summaries use one compatible fallback"
 }
 
 # A remote child route writes the existing mirror input once even across restarts.
@@ -709,6 +735,7 @@ test_child_reconciliation_failure_retains_page_cursor
 test_cursor_persistence_failure_is_actionable
 test_remote_startup_deferral_is_silent
 test_remote_summary_uses_supported_paged_command
+test_remote_legacy_summary_fallback_is_compatible
 test_remote_parent_reply_is_idempotent
 test_heartbeat_cap_does_not_delay_reconciliation
 test_startup_respects_reconciliation_gate

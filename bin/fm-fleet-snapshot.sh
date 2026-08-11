@@ -81,7 +81,7 @@ case "$SNAPSHOT_EPOCH" in ''|*[!0-9]*) SNAPSHOT_EPOCH=$(date +%s) ;; esac
 FM_SNAPSHOT_SECONDMATES=${FM_SNAPSHOT_SECONDMATES:-20}
 FM_SNAPSHOT_SECONDMATE_TIMEOUT=${FM_SNAPSHOT_SECONDMATE_TIMEOUT:-8}
 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=${FM_SNAPSHOT_SECONDMATE_MAX_BYTES:-262144}
-FM_SNAPSHOT_SECONDMATE_MIN_BYTES=4096
+FM_SNAPSHOT_SECONDMATE_MIN_BYTES=32768
 FM_SNAPSHOT_SECONDMATE_CHILDREN=${FM_SNAPSHOT_SECONDMATE_CHILDREN:-20}
 FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER=${FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER:-}
 FM_SNAPSHOT_SECONDMATE_QUEUED=${FM_SNAPSHOT_SECONDMATE_QUEUED:-20}
@@ -166,7 +166,7 @@ JSON is the stable machine-readable output contract.
 --secondmate-home-summary emits the bounded structured summary used after a
 validated registered-home handoff. --terminal-after advances its deterministic
 terminal-anomaly page. --summary-max-bytes carries the validated reader budget
-across local and remote command boundaries (minimum 4096 bytes). This mode skips
+across local and remote command boundaries (minimum 32768 bytes). This mode skips
 nested secondmate aggregation and marks
 inventory contradictions or unavailable child state invalid.
 Its invalidity object names the normalized failure kind and affected ids.
@@ -936,26 +936,17 @@ bounded_secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
   bytes=$(printf '%s' "$summary" | LC_ALL=C wc -c | tr -d ' ')
   if [ "$bytes" -gt "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" ]; then
     summary=$(printf '%s' "$summary" | jq -c '
-      def omit($name; $items):
-        if ($items | length) > 0 then {surface:$name,count:($items | length)} else empty end;
-      .omitted += [
-        omit("active_children_byte_budget"; .active_children),
-        omit("decisions_open_byte_budget"; .decisions_open),
-        omit("holds_byte_budget"; .holds),
-        omit("queued_byte_budget"; .queued),
-        omit("landed_byte_budget"; .landed),
-        omit("endpoints_byte_budget"; .endpoints)
-      ]
-      | .active_children = [] | .decisions_open = [] | .holds = []
-      | .queued = [] | .landed = [] | .endpoints = []
-      | (.invalidity.ids | length) as $invalid_count
-      | .invalidity.ids = .invalidity.ids[:3]
-      | if $invalid_count > 3 then
-          .invalidity.omitted_count = ((.invalidity.omitted_count // 0) + $invalid_count - 3)
-        else . end
-      | if (.reason | type) == "string" and (.reason | length) > 240 then
-          .reason = (.reason[:239] + "…")
-        else . end
+      {
+        schema, generated, home, valid,
+        reason:(if .reason == null then null else (.reason[:160]) end),
+        invalidity:{kind:.invalidity.kind,ids:(.invalidity.ids[:3])},
+        state,
+        active_children:[],
+        terminal_children,
+        terminal_page,
+        decisions_open:[],holds:[],queued:[],landed:[],endpoints:[],
+        counts,omitted:[]
+      }
     ') || return 1
   fi
   while :; do
@@ -1393,6 +1384,12 @@ secondmate_current_json() {  # <parent-tasks-json>
           "$SCRIPT_DIR/fm-on.sh" "$id" fm-fleet-snapshot.sh --secondmate-home-summary \
             --summary-max-bytes "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" < /dev/null 2>/dev/null)
         summary_rc=$?
+        if [ "$summary_rc" -ne 0 ]; then
+          summary=$(fm_run_timed "$FM_SNAPSHOT_SECONDMATE_TIMEOUT" \
+            "$SCRIPT_DIR/fm-on.sh" "$id" fm-fleet-snapshot.sh --secondmate-home-summary \
+              < /dev/null 2>/dev/null)
+          summary_rc=$?
+        fi
       else
         summary=$(fm_run_timed "$FM_SNAPSHOT_SECONDMATE_TIMEOUT" env \
           FM_ROOT_OVERRIDE="$FM_ROOT" \

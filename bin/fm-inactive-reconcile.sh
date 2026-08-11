@@ -70,7 +70,7 @@ SEND_BIN="${FM_INACTIVE_RECONCILE_SEND_BIN:-$SCRIPT_DIR/fm-send.sh}"
 FM_INACTIVE_RECONCILE_SECS=${FM_INACTIVE_RECONCILE_SECS:-900}
 FM_SNAPSHOT_SECONDMATE_TIMEOUT=${FM_SNAPSHOT_SECONDMATE_TIMEOUT:-8}
 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=${FM_SNAPSHOT_SECONDMATE_MAX_BYTES:-262144}
-FM_SNAPSHOT_SECONDMATE_MIN_BYTES=4096
+FM_SNAPSHOT_SECONDMATE_MIN_BYTES=32768
 case "$FM_INACTIVE_RECONCILE_SECS" in
   ''|*[!0-9]*|0)
     printf 'fm-inactive-reconcile: FM_INACTIVE_RECONCILE_SECS must be a whole number from 60 to 1800\n' >&2
@@ -350,7 +350,10 @@ summary_for_secondmate() { # <id> <meta> <terminal-after>
   [ -z "$terminal_after" ] || summary_args+=(--terminal-after "$terminal_after")
   SUMMARY_EXPECTED_HOME=$home
   if [ -n "$remote_host" ]; then
-    run_bounded_summary "$ON_BIN" "$id" fm-fleet-snapshot.sh "${summary_args[@]}"
+    if run_bounded_summary "$ON_BIN" "$id" fm-fleet-snapshot.sh "${summary_args[@]}"; then
+      return 0
+    fi
+    run_bounded_summary "$ON_BIN" "$id" fm-fleet-snapshot.sh --secondmate-home-summary
     return
   fi
   validate_secondmate_home "$id" "$home" 2>/dev/null || return 1

@@ -801,10 +801,10 @@ test_nonterminal_invalidity_detail_preserves_terminal_page_bound() {
   printf 'done: complete\n' > "$mate/state/terminal.status"
   fakebin=$(make_fakebin "$mate")
   summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
-    FM_SNAPSHOT_SECONDMATE_CHILDREN=3 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=4096 \
+    FM_SNAPSHOT_SECONDMATE_CHILDREN=3 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=32768 \
     "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
   bytes=$(printf '%s' "$summary" | wc -c | tr -d ' ')
-  [ "$bytes" -le 4096 ] || fail "bounded summary exceeded reader cap: $bytes"
+  [ "$bytes" -le 32768 ] || fail "bounded summary exceeded reader cap: $bytes"
   printf '%s' "$summary" | jq -e '
     .invalidity.kind == "orphan_in_flight"
       and (.invalidity.ids | length) == 3
@@ -840,10 +840,10 @@ test_nested_nonterminal_detail_preserves_terminal_page_bound() {
   fakebin=$(make_fakebin "$mate")
   summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
     FM_SNAPSHOT_SECONDMATE_CHILDREN=3 FM_SNAPSHOT_SECONDMATE_QUEUED=1 \
-    FM_SNAPSHOT_SECONDMATE_MAX_BYTES=4096 \
+    FM_SNAPSHOT_SECONDMATE_MAX_BYTES=32768 \
     "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
   bytes=$(printf '%s' "$summary" | wc -c | tr -d ' ')
-  [ "$bytes" -le 4096 ] || fail "nested detail made summary exceed reader cap: $bytes"
+  [ "$bytes" -le 32768 ] || fail "nested detail made summary exceed reader cap: $bytes"
   printf '%s' "$summary" | jq -e '
     [.terminal_children[] | .id + "=" + .state] == ["terminal=done"]
       and (.holds[] | select(.id == "blocked")
@@ -890,10 +890,10 @@ EOF
   printf 'done: complete\n' > "$mate/state/terminal.status"
   fakebin=$(make_fakebin "$mate")
   summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
-    FM_SNAPSHOT_SECONDMATE_MAX_BYTES=4096 \
+    FM_SNAPSHOT_SECONDMATE_MAX_BYTES=32768 \
     "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
   bytes=$(printf '%s' "$summary" | wc -c | tr -d ' ')
-  [ "$bytes" -le 4096 ] || fail "malformed episode made summary exceed reader cap: $bytes"
+  [ "$bytes" -le 32768 ] || fail "malformed episode made summary exceed reader cap: $bytes"
   printf '%s' "$summary" | jq -e '
     .invalidity == {kind:"malformed_terminal_episode",ids:["terminal"]}
       and (.reason | contains("malformed episode identity: terminal"))
@@ -931,14 +931,14 @@ test_terminal_page_respects_summary_byte_budget() {
       summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
         FM_SNAPSHOT_SECONDMATE_CHILDREN=20 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=262144 \
         "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary \
-          --summary-max-bytes 4096 --terminal-after "$next")
+          --summary-max-bytes 32768 --terminal-after "$next")
     else
       summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
         FM_SNAPSHOT_SECONDMATE_CHILDREN=20 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=262144 \
-        "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary --summary-max-bytes 4096)
+        "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary --summary-max-bytes 32768)
     fi
     bytes=$(printf '%s' "$summary" | wc -c | tr -d ' ')
-    [ "$bytes" -le 4096 ] || fail "terminal page exceeded summary byte budget: $bytes"
+    [ "$bytes" -le 32768 ] || fail "terminal page exceeded summary byte budget: $bytes"
     i=$(printf '%s' "$summary" | jq -r '.terminal_page.count')
     [ "$i" -gt 0 ] || fail "byte-bounded terminal page made no cursor progress"
     total_seen=$((total_seen + i))
@@ -947,7 +947,7 @@ test_terminal_page_respects_summary_byte_budget() {
   done
   [ "$total_seen" -eq 20 ] || fail "byte-bounded pages did not traverse every terminal child: $total_seen"
   if PATH="$fakebin:$PATH" FM_HOME="$mate" \
-      "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary --summary-max-bytes 4095 \
+      "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary --summary-max-bytes 32767 \
       >/dev/null 2>&1; then
     fail "unsupported summary byte budget was accepted"
   fi
