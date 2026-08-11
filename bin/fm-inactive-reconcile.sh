@@ -318,6 +318,7 @@ run_bounded_summary() { # <command> [args...]
   limit=$((FM_SNAPSHOT_SECONDMATE_MAX_BYTES + 1))
   tmp=$(mktemp "$OUTCOME_DIR/.summary.XXXXXX") || return 1
   err=$(mktemp "$OUTCOME_DIR/.summary-error.XXXXXX") || { rm -f "$tmp"; return 1; }
+  # shellcheck disable=SC2016 # This script is intentionally evaluated by the nested bash.
   fm_run_timed "$FM_SNAPSHOT_SECONDMATE_TIMEOUT" bash -o pipefail -c '
     limit=$1
     shift
@@ -358,7 +359,6 @@ summary_for_secondmate() { # <id> <meta> <terminal-after>
   summary_args=(--secondmate-home-summary --summary-max-bytes "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" \
     --inactive-secs "$FM_INACTIVE_RECONCILE_SECS")
   [ -z "$terminal_after" ] || summary_args+=(--terminal-after "$terminal_after")
-  SUMMARY_EXPECTED_HOME=$home
   if [ -n "$remote_host" ]; then
     if run_bounded_summary "$ON_BIN" "$id" fm-fleet-snapshot.sh "${summary_args[@]}"; then
       return 0
@@ -370,7 +370,6 @@ summary_for_secondmate() { # <id> <meta> <terminal-after>
     return
   fi
   validate_secondmate_home "$id" "$home" 2>/dev/null || return 1
-  SUMMARY_EXPECTED_HOME=$VALIDATED_HOME
   run_bounded_summary env \
     FM_ROOT_OVERRIDE="$FM_ROOT" \
     FM_HOME="$VALIDATED_HOME" \

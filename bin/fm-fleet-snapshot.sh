@@ -1350,7 +1350,7 @@ parent_evidence_reconciliation_json() {  # <summary-json> <activities-json> <dec
 secondmate_current_json() {  # <parent-tasks-json>
   local tasks=$1 registry union rows total_registered total shown truncated
   local row id home host remote registered registry_error task status_file event_raw event_note event_epoch event_age
-  local activity_scan activities decisions reconciliation provenance freshness reason summary summary_rc summary_bytes summary_valid summary_reason summary_invalidity state current_reason terminal terminal_contradiction contradiction legacy_usage
+  local activity_scan activities decisions reconciliation provenance freshness reason summary summary_rc summary_bytes summary_valid summary_reason summary_invalidity state current_reason terminal terminal_contradiction contradiction
   local records='[]' seen_homes=''
   registry=$(registry_secondmates_json) || return 1
   union=$(jq -n --argjson registry "$registry" --argjson tasks "$tasks" '

@@ -830,7 +830,7 @@ EOF
   summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
     FM_SNAPSHOT_NOW_EPOCH=1783792800 FM_INACTIVE_RECONCILE_SECS=60 \
     FM_SNAPSHOT_SECONDMATE_CHILDREN=1 \
-    "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary --terminal-after done)
+    "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary --terminal-after "done")
   printf '%s' "$summary" | jq -e '
     [.terminal_children[] | .id + "=" + .state] == ["failed=failed"]
       and .terminal_page == {after:"done",next_after:null,has_more:false,count:1,remaining:1,total:2}

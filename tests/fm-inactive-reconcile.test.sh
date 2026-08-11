@@ -284,7 +284,7 @@ test_failed_delivery_preserves_one_correlated_obligation() {
 # Wrong-home and malformed summaries are never consumed as terminal authority,
 # but their unreadable reconciliation boundary remains durably visible.
 test_invalid_summary_raises_obligation_without_terminal_request() {
-  make_world invalid-summary; bind_secondmate local; write_mate_meta; write_summary done
+  make_world invalid-summary; bind_secondmate local; write_mate_meta; write_summary "done"
   jq '.home="/wrong/home"' "$MATE/summary.json" > "$MATE/summary.tmp" && mv "$MATE/summary.tmp" "$MATE/summary.json"
   FM_TEST_PRESERVE_SUMMARY_HOME=1 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
   [ ! -s "$WORLD/send.log" ] || fail "wrong-home summary produced a terminal request"
@@ -327,6 +327,7 @@ test_crashed_pending_reply_link_is_recovered() {
   FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
   [ "$(find "$MAIN/state/pending-replies" -type f ! -name '.*' | wc -l | tr -d ' ')" = 1 ] \
     || fail "restart created a second pending reply after the link crash"
+  # shellcheck disable=SC2031 # Sourced helper runs only inside the command substitution.
   grep -Fq "correlation=$corr" "$record" || fail "restart did not recover the owned correlation"
   [ "$(wc -l < "$WORLD/send.log" | tr -d ' ')" = 1 ] || fail "recovered request was not delivered exactly once"
   pass "crashed pending-reply links recover their original correlation"
@@ -348,6 +349,7 @@ test_orphaned_owned_reply_is_settled_after_report() {
   printf 'failed [key=inactive-outcome-mate-child-failed]: terminal report\n' >> "$MAIN/state/mate.status"
   age "$MAIN/state/mate.meta" "$MAIN/state/mate.status"
   FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  # shellcheck disable=SC2031 # Sourced helper runs only inside the command substitution.
   grep -Fq "correlation=$corr" "$record" || fail "reported outcome did not recover its owned correlation"
   grep -Fq 'phase=resolved' "$MAIN/state/pending-replies/$corr" \
     || fail "recovered owned expectation remained unresolved after its report"
@@ -363,6 +365,7 @@ test_owned_reply_recovery_covers_unresolved_phases() {
       . "$ROOT/bin/fm-pending-reply-lib.sh"
       fm_pending_reply_create "$MAIN" "$MAIN/state" mate "request $phase" "owner-$phase"
     )
+    # shellcheck disable=SC2031 # Sourced helper runs only inside the subshell.
     (
       . "$ROOT/bin/fm-pending-reply-lib.sh"
       fm_pending_reply_set "$MAIN/state/pending-replies/$corr" phase "$phase"
@@ -371,6 +374,7 @@ test_owned_reply_recovery_covers_unresolved_phases() {
       . "$ROOT/bin/fm-pending-reply-lib.sh"
       fm_pending_reply_find_owned "$MAIN/state" mate "owner-$phase"
     )
+    # shellcheck disable=SC2031 # Sourced helper runs only inside the command substitutions.
     [ "$found" = "$corr" ] || fail "owned $phase expectation was not recoverable"
   done
   pass "owner recovery retains every unresolved pending-reply phase"
@@ -408,12 +412,12 @@ test_terminal_episode_identity_allows_task_id_reuse() {
   write_child "$MATE" child 'done: first episode'
   printf 'episode_id=111111111111111111111111\n' >> "$MATE/state/child.meta"
   age "$MATE/state/child.meta"
-  FM_FAKE_CREW_STATE=done run_reconcile "$MATE" --startup
+  FM_FAKE_CREW_STATE="done" run_reconcile "$MATE" --startup
   rm -f "$MATE/state/child.meta" "$MATE/state/child.status" "$MATE/state/child.turn-ended"
   write_child "$MATE" child 'done: second episode'
   printf 'episode_id=222222222222222222222222\n' >> "$MATE/state/child.meta"
   age "$MATE/state/child.meta"
-  FM_FAKE_CREW_STATE=done run_reconcile "$MATE" --startup
+  FM_FAKE_CREW_STATE="done" run_reconcile "$MATE" --startup
   [ "$(grep -c 'inactive terminal child=child' "$MATE/state/parent-replies.status")" = 2 ] \
     || fail "reused task id suppressed a distinct terminal episode"
   [ "$(outcome_count "$MATE" reported)" = 2 ] \
@@ -453,7 +457,7 @@ test_malformed_episode_uses_shared_absent_identity() {
 }
 
 test_legacy_summary_without_terminal_channel_is_compatible() {
-  make_world legacy-summary; bind_secondmate local; write_mate_meta; write_summary done
+  make_world legacy-summary; bind_secondmate local; write_mate_meta; write_summary "done"
   jq 'del(.terminal_children,.terminal_page)
       | .valid=true | .reason=null | .invalidity={kind:null,ids:[]} | .state="no_active_work"' \
     "$MATE/summary.json" > "$MATE/summary.tmp" && mv "$MATE/summary.tmp" "$MATE/summary.json"
@@ -677,10 +681,10 @@ test_heartbeat_cap_does_not_delay_reconciliation() {
 test_startup_respects_reconciliation_gate() {
   make_world startup-gate; write_child "$MAIN" child 'working: not terminal yet'
   FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
-  FM_TEST_KEEP_RECONCILE_GATE=1 FM_FAKE_CREW_STATE=done run_reconcile "$MAIN" --startup
+  FM_TEST_KEEP_RECONCILE_GATE=1 FM_FAKE_CREW_STATE="done" run_reconcile "$MAIN" --startup
   [ "$(outcome_count "$MAIN" pending)" = 0 ] || fail "repeated startup bypassed the reconciliation gate"
   age "$MAIN/state/.inactive-outcome-reconcile"
-  FM_TEST_KEEP_RECONCILE_GATE=1 FM_FAKE_CREW_STATE=done run_reconcile "$MAIN" --startup
+  FM_TEST_KEEP_RECONCILE_GATE=1 FM_FAKE_CREW_STATE="done" run_reconcile "$MAIN" --startup
   [ "$(outcome_count "$MAIN" pending)" = 1 ] || fail "due startup reconciliation did not inspect terminal work"
   pass "startup invocation respects the bounded reconciliation gate"
 }
@@ -711,6 +715,7 @@ test_watcher_hook_and_idle_secondmate_exemption() {
     FM_INACTIVE_RECONCILE_SEND_BIN="$WORLD/fakebin/fm-send.sh" FM_TEST_SEND_LOG="$WORLD/send.log" \
     FM_FORGE_LOG="$WORLD/forge.log" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
     FM_FAKE_CREW_STATE='done' "$WATCH" > "$out" 2>&1 &
+  # shellcheck disable=SC2031 # The background watcher owns no parent-shell variables.
   pid=$!
   i=0
   while [ "$i" -lt 40 ]; do
@@ -725,6 +730,7 @@ test_watcher_hook_and_idle_secondmate_exemption() {
   make_world idle-secondmate; bind_secondmate local; write_mate_meta; prime_seen "$MAIN/state" "$MAIN/state/mate.status"
   PATH="$WORLD/fakebin:$PATH" FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$WORLD/idle.out" 2>&1 &
+  # shellcheck disable=SC2031 # The background watcher owns no parent-shell variables.
   pid=$!; sleep 2; kill -0 "$pid" 2>/dev/null || fail "idle secondmate watcher exited unexpectedly"; reap "$pid"
   grep -F 'stale:' "$WORLD/idle.out" >/dev/null && fail "idle secondmate was treated as a wedge"
   [ ! -s "$MAIN/state/.wake-queue" ] || fail "idle secondmate emitted a false wake"
