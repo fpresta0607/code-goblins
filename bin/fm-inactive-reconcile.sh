@@ -49,6 +49,7 @@ SCAN_MARKER="$STATE/.inactive-outcome-reconcile"
 SCAN_LOCK="$STATE/.inactive-outcome-reconcile.lock"
 CREW_STATE_BIN="${FM_INACTIVE_CREW_STATE_BIN:-$SCRIPT_DIR/fm-crew-state.sh}"
 SUMMARY_BIN="${FM_INACTIVE_RECONCILE_SUMMARY_BIN:-$SCRIPT_DIR/fm-fleet-snapshot.sh}"
+ON_BIN="${FM_INACTIVE_RECONCILE_ON_BIN:-$SCRIPT_DIR/fm-on.sh}"
 SEND_BIN="${FM_INACTIVE_RECONCILE_SEND_BIN:-$SCRIPT_DIR/fm-send.sh}"
 
 # shellcheck source=bin/fm-timeout-lib.sh
@@ -332,13 +333,14 @@ run_bounded_summary() { # <command> [args...]
 
 summary_for_secondmate() { # <id> <meta> <terminal-after>
   local id=$1 meta=$2 terminal_after=$3 home remote_host
+  local -a summary_args
   home=$(meta_field "$meta" home)
   remote_host=$(meta_field "$meta" remote_host)
+  summary_args=(--secondmate-home-summary)
+  [ -z "$terminal_after" ] || summary_args+=(--terminal-after "$terminal_after")
   SUMMARY_EXPECTED_HOME=$home
   if [ -n "$remote_host" ]; then
-    run_bounded_summary "$SCRIPT_DIR/fm-on.sh" "$id" env \
-      FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER="$terminal_after" \
-      fm-fleet-snapshot.sh --secondmate-home-summary
+    run_bounded_summary "$ON_BIN" "$id" fm-fleet-snapshot.sh "${summary_args[@]}"
     return
   fi
   validate_secondmate_home "$id" "$home" 2>/dev/null || return 1
@@ -350,8 +352,7 @@ summary_for_secondmate() { # <id> <meta> <terminal-after>
     FM_DATA_OVERRIDE="$VALIDATED_HOME/data" \
     FM_CONFIG_OVERRIDE="$VALIDATED_HOME/config" \
     FM_PROJECTS_OVERRIDE="$VALIDATED_HOME/projects" \
-    FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER="$terminal_after" \
-    "$SUMMARY_BIN" --secondmate-home-summary
+    "$SUMMARY_BIN" "${summary_args[@]}"
 }
 
 summary_generated_is_fresh() { # <generated>

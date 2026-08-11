@@ -767,8 +767,8 @@ EOF
       and .terminal_page == {after:null,next_after:"done",has_more:true,count:1,remaining:2,total:2}
   ' >/dev/null || fail "secondmate summary did not expose the first bounded terminal page: $summary"
   summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
-    FM_SNAPSHOT_SECONDMATE_CHILDREN=1 FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER=done \
-    "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
+    FM_SNAPSHOT_SECONDMATE_CHILDREN=1 \
+    "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary --terminal-after done)
   printf '%s' "$summary" | jq -e '
     [.terminal_children[] | .id + "=" + .state] == ["failed=failed"]
       and .terminal_page == {after:"done",next_after:null,has_more:false,count:1,remaining:1,total:2}

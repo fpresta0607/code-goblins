@@ -36,13 +36,22 @@ printf 'state: %s · source: fake\n' "${FM_FAKE_CREW_STATE:-unknown}"
 SH
   cat > "$fake/fm-fleet-snapshot.sh" <<'SH'
 #!/usr/bin/env bash
+terminal_after=
+case "${1:-}" in
+  --secondmate-home-summary) shift ;;
+  *) exit 2 ;;
+esac
+if [ "$#" -gt 0 ]; then
+  [ "$#" -eq 2 ] && [ "$1" = --terminal-after ] || exit 2
+  terminal_after=$2
+fi
 if [ "${FM_TEST_PRESERVE_SUMMARY_HOME:-0}" = 1 ]; then
   summary=$(cat "$FM_HOME/summary.json")
 else
   summary=$(jq --arg home "$FM_HOME" '.home=$home' "$FM_HOME/summary.json")
 fi
 if [ "${FM_TEST_PAGED_SUMMARY:-0}" = 1 ]; then
-  printf '%s' "$summary" | jq --arg after "${FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER:-}" --argjson n "${FM_SNAPSHOT_SECONDMATE_CHILDREN:-2}" '
+  printf '%s' "$summary" | jq --arg after "$terminal_after" --argjson n "${FM_SNAPSHOT_SECONDMATE_CHILDREN:-2}" '
     (.terminal_children | sort_by(.id)) as $all
     | ([$all[] | select($after == "" or .id > $after)]) as $remaining
     | ($remaining[:$n]) as $page
@@ -56,6 +65,13 @@ if [ "${FM_TEST_PAGED_SUMMARY:-0}" = 1 ]; then
 else
   printf '%s\n' "$summary"
 fi
+SH
+  cat > "$fake/fm-on.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${FM_TEST_ON_LOG:?}"
+[ "$#" -ge 3 ] && [ "$2" = fm-fleet-snapshot.sh ] || exit 2
+shift 2
+FM_HOME="${FM_TEST_REMOTE_HOME:?}" exec "${FM_INACTIVE_RECONCILE_SUMMARY_BIN:?}" "$@"
 SH
   cat > "$fake/fm-send.sh" <<'SH'
 #!/usr/bin/env bash
@@ -101,6 +117,7 @@ make_world() { # <name>
   make_tools "$WORLD"
   : > "$WORLD/forge.log"
   : > "$WORLD/send.log"
+  : > "$WORLD/on.log"
 }
 
 bind_secondmate() { # <local|remote>
@@ -154,8 +171,10 @@ run_reconcile() { # <home> [--startup]
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
     FM_INACTIVE_RECONCILE_SECS=60 FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" \
     FM_INACTIVE_RECONCILE_SUMMARY_BIN="$WORLD/fakebin/fm-fleet-snapshot.sh" \
+    FM_INACTIVE_RECONCILE_ON_BIN="$WORLD/fakebin/fm-on.sh" \
     FM_INACTIVE_RECONCILE_SEND_BIN="$WORLD/fakebin/fm-send.sh" \
-    FM_TEST_ROOT="$ROOT" FM_TEST_SEND_LOG="$WORLD/send.log" FM_FORGE_LOG="$WORLD/forge.log" "$RECON" scan ${option:+"$option"}
+    FM_TEST_ROOT="$ROOT" FM_TEST_REMOTE_HOME="$MATE" FM_TEST_ON_LOG="$WORLD/on.log" \
+    FM_TEST_SEND_LOG="$WORLD/send.log" FM_FORGE_LOG="$WORLD/forge.log" "$RECON" scan ${option:+"$option"}
 }
 
 wake_count() { # <home> <key prefix>
@@ -478,10 +497,33 @@ test_cursor_persistence_failure_is_actionable() {
 test_remote_startup_deferral_is_silent() {
   make_world remote-startup; write_mate_meta
   printf 'remote_host=example.invalid\n' >> "$MAIN/state/mate.meta"
+  age "$MAIN/state/mate.meta"
   FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
   [ "$(outcome_count "$MAIN" pending)" = 0 ] || fail "remote startup deferral created a summary obligation"
   [ ! -s "$MAIN/state/.wake-queue" ] || fail "remote startup deferral emitted a false alert"
   pass "remote summaries are silently deferred at startup"
+}
+
+test_remote_summary_uses_supported_paged_command() {
+  local generated
+  make_world remote-summary; write_mate_meta
+  printf 'remote_host=example.invalid\n' >> "$MAIN/state/mate.meta"
+  age "$MAIN/state/mate.meta"
+  generated=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jq -n --arg generated "$generated" --arg home "$MATE" '
+    {schema:"fm-secondmate-home-summary.v1",generated:$generated,home:$home,valid:false,
+     reason:"terminal children",invalidity:{kind:"terminal_in_flight",ids:[]},state:"unknown",
+     active_children:[],terminal_children:[{id:"child0",state:"failed"},{id:"child1",state:"done"}],
+     decisions_open:[],holds:[],queued:[],landed:[],endpoints:[],counts:{},omitted:[]}' > "$MATE/summary.json"
+  FM_TEST_PAGED_SUMMARY=1 FM_SNAPSHOT_SECONDMATE_CHILDREN=1 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN"
+  FM_TEST_PAGED_SUMMARY=1 FM_SNAPSHOT_SECONDMATE_CHILDREN=1 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN"
+  [ "$(sed -n '1p' "$WORLD/on.log")" = 'mate fm-fleet-snapshot.sh --secondmate-home-summary' ] \
+    || fail "remote summary did not use the supported fm-on command"
+  [ "$(sed -n '2p' "$WORLD/on.log")" = 'mate fm-fleet-snapshot.sh --secondmate-home-summary --terminal-after child0' ] \
+    || fail "remote summary did not carry its page cursor"
+  [ "$(wc -l < "$WORLD/send.log" | tr -d ' ')" = 2 ] \
+    || fail "remote summary pages did not reconcile both terminal children"
+  pass "remote summaries use supported deterministic paging"
 }
 
 # A remote child route writes the existing mirror input once even across restarts.
@@ -589,6 +631,7 @@ test_terminal_pages_eventually_expose_every_child
 test_child_reconciliation_failure_retains_page_cursor
 test_cursor_persistence_failure_is_actionable
 test_remote_startup_deferral_is_silent
+test_remote_summary_uses_supported_paged_command
 test_remote_parent_reply_is_idempotent
 test_heartbeat_cap_does_not_delay_reconciliation
 test_startup_respects_reconciliation_gate

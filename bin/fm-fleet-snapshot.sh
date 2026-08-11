@@ -151,14 +151,15 @@ validate_positive_bound FM_SNAPSHOT_REGISTRY_TIMEOUT "$FM_SNAPSHOT_REGISTRY_TIME
 usage() {
   cat <<'EOF'
 usage: fm-fleet-snapshot.sh --json
-       fm-fleet-snapshot.sh --secondmate-home-summary
+       fm-fleet-snapshot.sh --secondmate-home-summary [--terminal-after <task-id>]
 
 Print a read-only structured snapshot of the firstmate fleet.
 JSON is the stable machine-readable output contract.
 
 --secondmate-home-summary emits the bounded structured summary used after a
-validated registered-home handoff. It is local-only, skips nested secondmate
-aggregation, and marks inventory contradictions or unavailable child state invalid.
+validated registered-home handoff. --terminal-after advances its deterministic
+terminal-anomaly page. This mode skips nested secondmate aggregation and marks
+inventory contradictions or unavailable child state invalid.
 Its invalidity object names the normalized failure kind and affected ids.
 Actionable tasks-axi captain holds appear as decisions_open and stay visible in
 queued with hold_reason, hold_kind, and plural blocker fields for downstream
@@ -179,8 +180,24 @@ EOF
 
 OUTPUT_MODE=json
 case "${1:---json}" in
-  --json) ;;
-  --secondmate-home-summary) OUTPUT_MODE=secondmate-home-summary ;;
+  --json)
+    [ "$#" -eq 0 ] || [ "$#" -eq 1 ] || { usage >&2; exit 2; }
+    ;;
+  --secondmate-home-summary)
+    OUTPUT_MODE=secondmate-home-summary
+    shift
+    if [ "$#" -gt 0 ]; then
+      [ "$#" -eq 2 ] && [ "$1" = --terminal-after ] \
+        || { usage >&2; exit 2; }
+      FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER=$2
+      case "$FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER" in
+        ''|*[!A-Za-z0-9._-]*)
+          echo "fm-fleet-snapshot: --terminal-after must be a task id" >&2
+          exit 2
+          ;;
+      esac
+    fi
+    ;;
   -h|--help) usage; exit 0 ;;
   *) usage >&2; exit 2 ;;
 esac
