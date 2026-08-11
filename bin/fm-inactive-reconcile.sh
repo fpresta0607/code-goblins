@@ -590,7 +590,10 @@ scan_secondmates() {
     fi
     while IFS=$(printf '\t') read -r child state; do
       [ -n "$child" ] || continue
-      reconcile_secondmate_child "$mate" "$child" "$state"
+      if ! reconcile_secondmate_child "$mate" "$child" "$state"; then
+        summary_obligation "$mate" child-persist || true
+        return 1
+      fi
     done < <(printf '%s' "$summary" | jq -r '.terminal_children[]? | [.id, .state] | @tsv')
     next_after=$(printf '%s' "$summary" | jq -r 'if (.terminal_page.has_more // false) then .terminal_page.next_after else "" end')
     if ! summary_cursor_set "$mate" "$next_after"; then

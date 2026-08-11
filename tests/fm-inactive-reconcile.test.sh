@@ -345,6 +345,42 @@ test_terminal_pages_eventually_expose_every_child() {
   pass "bounded terminal pages eventually expose every child"
 }
 
+test_child_reconciliation_failure_retains_page_cursor() {
+  local generated record
+  make_world child-persist-failure; bind_secondmate local; write_mate_meta
+  generated=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jq -n --arg generated "$generated" --arg home "$MATE" '
+    {schema:"fm-secondmate-home-summary.v1",generated:$generated,home:$home,valid:false,
+     reason:"terminal children",invalidity:{kind:"terminal_in_flight",ids:[]},state:"unknown",
+     active_children:[],terminal_children:[{id:"child0",state:"failed"},{id:"child1",state:"failed"}],
+     decisions_open:[],holds:[],queued:[],landed:[],endpoints:[],counts:{},omitted:[]}' > "$MATE/summary.json"
+  FM_TEST_PAGED_SUMMARY=1 FM_SNAPSHOT_SECONDMATE_CHILDREN=1 FM_FAKE_CREW_STATE=unknown \
+    run_reconcile "$MAIN" --startup
+  rm -f "$MAIN/state/terminal-outcomes/.summary-cursor-mate"
+  record=$(grep -l '^task_id=child0$' "$MAIN/state/terminal-outcomes/"*.pending | head -1)
+  printf 'correlation=0123456789abcdef\n' >> "$record"
+  printf 'failed [key=inactive-outcome-mate-child0-failed]: terminal report\n' \
+    >> "$MAIN/state/mate.status"
+  cat > "$WORLD/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+case "${2:-}:${3:-}" in
+  */terminal-outcomes/.record.*:*/terminal-outcomes/*.pending) exit 73 ;;
+esac
+exec /bin/mv "$@"
+SH
+  chmod +x "$WORLD/fakebin/mv"
+  age "$MAIN/state/mate.meta" "$MAIN/state/mate.status"
+  if FM_TEST_PAGED_SUMMARY=1 FM_SNAPSHOT_SECONDMATE_CHILDREN=1 FM_FAKE_CREW_STATE=unknown \
+      run_reconcile "$MAIN" --startup; then
+    fail "child reconciliation failure did not fail the page"
+  fi
+  [ ! -e "$MAIN/state/terminal-outcomes/.summary-cursor-mate" ] \
+    || fail "failed child reconciliation advanced the page cursor"
+  [ "$(wake_count "$MAIN" 'inactive-reconcile:')" -ge 1 ] \
+    || fail "child reconciliation failure was not actionable"
+  pass "failed child reconciliation retains its page cursor"
+}
+
 test_cursor_persistence_failure_is_actionable() {
   local generated
   make_world cursor-failure; bind_secondmate local; write_mate_meta
@@ -459,6 +495,7 @@ test_crashed_pending_reply_link_is_recovered
 test_competing_invalidity_does_not_hide_terminal_page
 test_malformed_terminal_page_is_not_consumed
 test_terminal_pages_eventually_expose_every_child
+test_child_reconciliation_failure_retains_page_cursor
 test_cursor_persistence_failure_is_actionable
 test_remote_startup_deferral_is_silent
 test_remote_parent_reply_is_idempotent
