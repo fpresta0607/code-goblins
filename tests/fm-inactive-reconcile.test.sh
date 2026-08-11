@@ -288,6 +288,59 @@ test_crashed_pending_reply_link_is_recovered() {
   pass "crashed pending-reply links recover their original correlation"
 }
 
+test_orphaned_owned_reply_is_settled_after_report() {
+  local record fingerprint owner corr
+  make_world orphaned-settle; bind_secondmate local; write_mate_meta; write_summary failed
+  : > "$MAIN/state/pending-replies"
+  FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  rm -f "$MAIN/state/pending-replies"
+  record=$(find "$MAIN/state/terminal-outcomes" -type f -name '*.pending' | head -1)
+  fingerprint=$(sed -n 's/^fingerprint=//p' "$record")
+  owner="inactive-terminal-outcome:$fingerprint"
+  corr=$(
+    . "$ROOT/bin/fm-pending-reply-lib.sh"
+    fm_pending_reply_create "$MAIN" "$MAIN/state" mate 'crash-window request' "$owner"
+  )
+  printf 'failed [key=inactive-outcome-mate-child-failed]: terminal report\n' >> "$MAIN/state/mate.status"
+  age "$MAIN/state/mate.meta" "$MAIN/state/mate.status"
+  FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  grep -Fq "correlation=$corr" "$record" || fail "reported outcome did not recover its owned correlation"
+  grep -Fq 'phase=resolved' "$MAIN/state/pending-replies/$corr" \
+    || fail "recovered owned expectation remained unresolved after its report"
+  [ ! -s "$WORLD/send.log" ] || fail "already reported orphaned expectation was redelivered"
+  pass "reported outcomes settle orphaned owned expectations"
+}
+
+test_terminal_episode_identity_allows_task_id_reuse() {
+  make_world episode-reuse; bind_secondmate remote
+  write_child "$MATE" child 'done: first episode'
+  printf 'episode_id=episode-one\n' >> "$MATE/state/child.meta"
+  age "$MATE/state/child.meta"
+  FM_FAKE_CREW_STATE=done run_reconcile "$MATE" --startup
+  rm -f "$MATE/state/child.meta" "$MATE/state/child.status" "$MATE/state/child.turn-ended"
+  write_child "$MATE" child 'done: second episode'
+  printf 'episode_id=episode-two\n' >> "$MATE/state/child.meta"
+  age "$MATE/state/child.meta"
+  FM_FAKE_CREW_STATE=done run_reconcile "$MATE" --startup
+  [ "$(grep -c 'inactive terminal child=child' "$MATE/state/parent-replies.status")" = 2 ] \
+    || fail "reused task id suppressed a distinct terminal episode"
+  [ "$(outcome_count "$MATE" reported)" = 2 ] \
+    || fail "distinct terminal episodes shared one durable receipt"
+
+  make_world summarized-episode-reuse; bind_secondmate local; write_mate_meta; write_summary failed
+  jq '.terminal_children[0].episode_id="episode-one"' "$MATE/summary.json" > "$MATE/summary.tmp" \
+    && mv "$MATE/summary.tmp" "$MATE/summary.json"
+  FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  jq '.terminal_children[0].episode_id="episode-two"' "$MATE/summary.json" > "$MATE/summary.tmp" \
+    && mv "$MATE/summary.tmp" "$MATE/summary.json"
+  FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  [ "$(wc -l < "$WORLD/send.log" | tr -d ' ')" = 2 ] \
+    || fail "summary reconciliation collapsed distinct terminal episodes"
+  [ "$(outcome_count "$MAIN" pending)" = 2 ] \
+    || fail "summarized terminal episodes shared one obligation"
+  pass "terminal episode identity permits safe task id reuse"
+}
+
 test_legacy_summary_without_terminal_channel_is_compatible() {
   make_world legacy-summary; bind_secondmate local; write_mate_meta; write_summary done
   jq 'del(.terminal_children,.terminal_page)
@@ -513,6 +566,8 @@ test_failed_delivery_preserves_one_correlated_obligation
 test_invalid_summary_raises_obligation_without_terminal_request
 test_request_attempt_is_durable_before_transport
 test_crashed_pending_reply_link_is_recovered
+test_orphaned_owned_reply_is_settled_after_report
+test_terminal_episode_identity_allows_task_id_reuse
 test_legacy_summary_without_terminal_channel_is_compatible
 test_competing_invalidity_does_not_hide_terminal_page
 test_malformed_terminal_page_is_not_consumed

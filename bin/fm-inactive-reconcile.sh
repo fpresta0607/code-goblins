@@ -289,9 +289,14 @@ report_to_parent() { # <self-id> <task> <state> <outcome-key> <fingerprint> <pr>
   append_once "$destination" "$line"
 }
 
-parent_has_outcome_report() { # <secondmate-id> <child-id> <state>
-  local mate=$1 child=$2 state=$3 key status
-  key="inactive-outcome-$mate-$child-$state"
+terminal_outcome_key() { # <home-id> <child-id> <state> <episode-id>
+  local home_id=$1 child=$2 state=$3 episode=${4:-}
+  printf 'inactive-outcome-%s-%s-%s' "$home_id" "$child" "$state"
+  [ -z "$episode" ] || printf -- '-%s' "$episode"
+}
+
+parent_has_outcome_report() { # <secondmate-id> <outcome-key>
+  local mate=$1 key=$2 status
   status="$STATE/$mate.status"
   [ -f "$status" ] || return 1
   grep -Eq "^(done|failed) \[key=${key//./\\.}\]:" "$status" 2>/dev/null
@@ -398,7 +403,9 @@ summary_is_authoritative() { # <summary> <expected-home> <terminal-after>
       and all(.terminal_children[];
         (type == "object")
         and (.id | type) == "string" and (.id | test("^[A-Za-z0-9._-]+$"))
-        and (.state == "done" or .state == "failed"))
+        and (.state == "done" or .state == "failed")
+        and ((.episode_id // null) == null or
+          ((.episode_id | type) == "string" and (.episode_id | test("^[A-Za-z0-9._-]+$")) and (.episode_id | length) <= 120)))
       and ([.terminal_children[].id] == ([.terminal_children[].id] | sort | unique))
       and (if .valid then (.terminal_children | length) == 0 else true end)
       and (.terminal_page | type) == "object"
@@ -476,17 +483,27 @@ request_secondmate_report() { # <record> <secondmate-id> <child-id> <state> <out
   return "$rc"
 }
 
+recover_secondmate_request_link() { # <record> <secondmate-id>
+  local record=$1 mate=$2 corr owner_key
+  [ -z "$(record_value "$record" correlation)" ] || return 0
+  owner_key="inactive-terminal-outcome:$(record_value "$record" fingerprint)"
+  corr=$(fm_pending_reply_find_owned "$STATE" "$mate" "$owner_key" 2>/dev/null || true)
+  [ -n "$corr" ] || return 0
+  record_field_set "$record" correlation "$corr"
+}
+
 settle_secondmate_request_if_reported() { # <record> <secondmate-id> <fingerprint>
   local record=$1 mate=$2 fingerprint=$3 corr line
   corr=$(record_value "$record" correlation)
   case "$corr" in [A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9]) ;; *) return 0 ;; esac
+  fm_pending_reply_prepare_delivery "$STATE" "$corr" || return 1
   line="resolved [key=inactive-outcome-receipt-$fingerprint]: matching terminal parent report received corr=$corr"
   append_once "$STATE/$mate.status" "$line" || return 1
-  fm_pending_reply_try_resolve "$STATE" "$corr" "$STATE/$mate.status" >/dev/null 2>&1 || true
+  fm_pending_reply_try_resolve "$STATE" "$corr" "$STATE/$mate.status" >/dev/null 2>&1
 }
 
 reconcile_direct_child() { # <id> <meta> <secondmate-id-or-empty>
-  local id=$1 meta=$2 self=${3:-} status turn last age state_line state pr fingerprint outcome_key payload
+  local id=$1 meta=$2 self=${3:-} status turn last age state_line state pr episode fingerprint outcome_key payload
   status="$STATE/$id.status"
   turn="$STATE/$id.turn-ended"
   last=$(last_status_line "$status")
@@ -500,10 +517,12 @@ reconcile_direct_child() { # <id> <meta> <secondmate-id-or-empty>
     *) return 0 ;;
   esac
   pr=$(pr_for_task "$meta" "$status")
+  episode=$(meta_field "$meta" episode_id)
+  valid_id "$episode" || episode=
   if [ -n "$self" ]; then
-    outcome_key="inactive-outcome-$self-$id-$state"
+    outcome_key=$(terminal_outcome_key "$self" "$id" "$state" "$episode")
   else
-    outcome_key="inactive-outcome-main-$id-$state"
+    outcome_key=$(terminal_outcome_key main "$id" "$state" "$episode")
   fi
   fingerprint=$(sha256_text "direct|$outcome_key")
   ensure_record "$fingerprint" "$id" "$state" "$outcome_key" direct "upstream" "$pr" || return 1
@@ -523,15 +542,17 @@ reconcile_direct_child() { # <id> <meta> <secondmate-id-or-empty>
   queue_presentation "$RECORD_PENDING" "$fingerprint" "$payload" || true
 }
 
-reconcile_secondmate_child() { # <secondmate-id> <child-id> <state>
-  local mate=$1 child=$2 state=$3 fingerprint outcome_key payload
+reconcile_secondmate_child() { # <secondmate-id> <child-id> <state> <episode-id>
+  local mate=$1 child=$2 state=$3 episode=${4:-} fingerprint outcome_key payload
   valid_id "$mate" && valid_id "$child" || return 0
   case "$state" in done|failed) ;; *) return 0 ;; esac
-  fingerprint=$(sha256_text "secondmate|$mate|$child|$state")
-  outcome_key="inactive-outcome-$mate-$child-$state"
+  valid_id "$episode" || episode=
+  outcome_key=$(terminal_outcome_key "$mate" "$child" "$state" "$episode")
+  fingerprint=$(sha256_text "secondmate|$outcome_key")
   ensure_record "$fingerprint" "$child" "$state" "$outcome_key" "secondmate:$mate" upstream "" || return 1
   [ -n "$RECORD_PENDING" ] || return 0
-  if parent_has_outcome_report "$mate" "$child" "$state"; then
+  recover_secondmate_request_link "$RECORD_PENDING" "$mate" || return 1
+  if parent_has_outcome_report "$mate" "$outcome_key"; then
     settle_secondmate_request_if_reported "$RECORD_PENDING" "$mate" "$fingerprint" || return 1
     record_phase_set "$RECORD_PENDING" presentation || return 1
     payload="inactive terminal outcome awaiting captain presentation: secondmate=$mate child=$child state=$state"
@@ -566,7 +587,7 @@ summary_cursor_set() { # <secondmate-id> <cursor-or-empty>
 }
 
 scan_secondmates() {
-  local meta mate kind status last age summary child state expected_home remote_host terminal_after next_after
+  local meta mate kind status last age summary child state episode expected_home remote_host terminal_after next_after
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] || continue
     kind=$(meta_field "$meta" kind)
@@ -600,13 +621,13 @@ scan_secondmates() {
       summary_obligation "$mate" "$SUMMARY_VALIDATION_REASON"
       continue
     fi
-    while IFS=$(printf '\t') read -r child state; do
+    while IFS=$(printf '\t') read -r child state episode; do
       [ -n "$child" ] || continue
-      if ! reconcile_secondmate_child "$mate" "$child" "$state"; then
+      if ! reconcile_secondmate_child "$mate" "$child" "$state" "$episode"; then
         summary_obligation "$mate" child-persist || true
         return 1
       fi
-    done < <(printf '%s' "$summary" | jq -r '.terminal_children[]? | [.id, .state] | @tsv')
+    done < <(printf '%s' "$summary" | jq -r '.terminal_children[]? | [.id, .state, (.episode_id // "")] | @tsv')
     next_after=$(printf '%s' "$summary" | jq -r 'if (.terminal_page.has_more // false) then .terminal_page.next_after else "" end')
     if ! summary_cursor_set "$mate" "$next_after"; then
       summary_obligation "$mate" cursor-persist

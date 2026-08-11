@@ -2466,6 +2466,18 @@ fi
 META_WINDOW=$T
 [ "$BACKEND" = orca ] && META_WINDOW=$W
 SPAWN_META_PATH="$STATE/$ID.meta"
+SPAWN_EPISODE_ID=
+if [ "$RELAUNCH" -eq 1 ]; then
+  SPAWN_EPISODE_ID=$(fm_meta_get "$STATE/$ID.meta" episode_id)
+fi
+if [ -z "$SPAWN_EPISODE_ID" ]; then
+  SPAWN_EPISODE_SEED="$(date +%s).${BASHPID:-$$}.$RANDOM.$RANDOM"
+  if command -v shasum >/dev/null 2>&1; then
+    SPAWN_EPISODE_ID=$(printf '%s' "$SPAWN_EPISODE_SEED" | shasum -a 256 | awk '{print substr($1, 1, 24)}')
+  else
+    SPAWN_EPISODE_ID=$(printf '%s' "$SPAWN_EPISODE_SEED" | cksum | awk '{printf "%08x%08x", $1, $2}')
+  fi
+fi
 if [ "$RELAUNCH" -eq 1 ]; then
   SPAWN_META_LOCK=$(fm_meta_lock_path "$STATE/$ID.meta") || exit 1
   fm_lock_acquire_wait "$SPAWN_META_LOCK"
@@ -2476,7 +2488,7 @@ fi
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen episode_id traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -2495,6 +2507,7 @@ preserve_relaunch_meta() {
   echo "model=${MODEL:-default}"
   echo "effort=${EFFORT:-default}"
   [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
+  echo "episode_id=$SPAWN_EPISODE_ID"
   # Default-off writes no traceparent= line.
   # backend= is written only for a non-default (non-tmux) backend, so the
   # default path's meta stays byte-identical (absent backend= means tmux;

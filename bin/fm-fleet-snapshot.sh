@@ -411,7 +411,7 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
 }
 
 task_json_lines() {
-  local meta id kind harness mode yolo project worktree home projects backend target status_log report_path
+  local meta id kind harness mode yolo project worktree home projects episode_id backend target status_log report_path
   local remote_host remote_root remote_state remote_rc remote_home_present
   local pr pr_source event_json current_json endpoint_exists agent_alive meta_json status_json report_json worktree_json home_json
   local last_event_raw current_state current_source pending_decision blocked_event report_present=0 pr_from_status
@@ -429,6 +429,7 @@ task_json_lines() {
     worktree=$(meta_value "$meta" worktree)
     home=$(meta_value "$meta" home)
     projects=$(meta_value "$meta" projects)
+    episode_id=$(meta_value "$meta" episode_id)
     remote_host=$(meta_value "$meta" remote_host)
     remote_root=$(meta_value "$meta" remote_root)
     remote_home_present=null
@@ -548,6 +549,7 @@ task_json_lines() {
       --arg worktree "$worktree" \
       --arg home "$home" \
       --arg projects "$projects" \
+      --arg episode_id "$episode_id" \
       --arg backend "$backend" \
       --arg target "$target" \
       --arg remote_host "$remote_host" \
@@ -575,6 +577,7 @@ task_json_lines() {
         mode:($mode // ""),
         yolo:($yolo // ""),
         project:($project // ""),
+        episode_id:($episode_id | if . == "" then null else . end),
         backend:$backend,
         remote:(if $remote_host == "" then null else {host:$remote_host,root:$remote_root} end),
         paths:{
@@ -688,7 +691,7 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
     | ([ $owned_in_flight[] as $work
          | $tasks[]
          | select(.id == $work.id and (.current_state.state == "done" or .current_state.state == "failed"))
-         | {id,state:.current_state.state} ] | sort_by(.id)) as $terminal_in_flight
+         | {id,state:.current_state.state,episode_id:(.episode_id // null)} ] | sort_by(.id)) as $terminal_in_flight
     | ([ $terminal_in_flight[] | select($terminal_after == "" or .id > $terminal_after) ]) as $terminal_remaining
     | ($terminal_remaining[:$child_n]) as $terminal_page
     | (($terminal_remaining | length) > $child_n) as $terminal_has_more
