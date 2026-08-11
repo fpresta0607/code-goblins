@@ -333,6 +333,54 @@ test_orphaned_owned_reply_is_settled_after_report() {
   pass "reported outcomes settle orphaned owned expectations"
 }
 
+test_owned_reply_recovery_covers_unresolved_phases() {
+  local phase corr found
+  make_world owned-phases
+  for phase in awaiting_report delivery_unknown recovery_sending recovery_sent recovery_failed recovery_unknown escalated; do
+    corr=$(
+      . "$ROOT/bin/fm-pending-reply-lib.sh"
+      fm_pending_reply_create "$MAIN" "$MAIN/state" mate "request $phase" "owner-$phase"
+    )
+    (
+      . "$ROOT/bin/fm-pending-reply-lib.sh"
+      fm_pending_reply_set "$MAIN/state/pending-replies/$corr" phase "$phase"
+    ) || fail "could not prepare owned $phase expectation"
+    found=$(
+      . "$ROOT/bin/fm-pending-reply-lib.sh"
+      fm_pending_reply_find_owned "$MAIN/state" mate "owner-$phase"
+    )
+    [ "$found" = "$corr" ] || fail "owned $phase expectation was not recoverable"
+  done
+  pass "owner recovery retains every unresolved pending-reply phase"
+}
+
+test_disappeared_terminal_child_replays_durable_obligation() {
+  local record corr
+  make_world replay-obligation; bind_secondmate local; write_mate_meta; write_summary failed
+  : > "$MAIN/state/pending-replies"
+  FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  record=$(grep -l '^origin=secondmate:mate$' "$MAIN/state/terminal-outcomes/"*.pending | head -1)
+  [ -n "$record" ] || fail "failed request creation did not retain the terminal outcome"
+  rm -f "$MAIN/state/pending-replies"
+  jq '.valid=true | .reason=null | .invalidity={kind:null,ids:[]} | .state="no_active_work"
+      | .terminal_children=[]
+      | .terminal_page={after:null,next_after:null,has_more:false,count:0,remaining:0,total:0}' \
+    "$MATE/summary.json" > "$MATE/summary.tmp" && mv "$MATE/summary.tmp" "$MATE/summary.json"
+  FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  corr=$(sed -n 's/^correlation=//p' "$record")
+  [ -n "$corr" ] || fail "disappeared child obligation did not create its pending-reply owner"
+  [ "$(wc -l < "$WORLD/send.log" | tr -d ' ')" = 1 ] \
+    || fail "disappeared child obligation was not delivered exactly once"
+  printf 'failed [key=inactive-outcome-mate-child-failed]: delayed terminal report\n' >> "$MAIN/state/mate.status"
+  age "$MAIN/state/mate.meta" "$MAIN/state/mate.status"
+  FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  grep -Fq 'phase=resolved' "$MAIN/state/pending-replies/$corr" \
+    || fail "replayed obligation did not settle after its delayed report"
+  [ "$(wake_count "$MAIN" 'inactive-outcome:')" = 1 ] \
+    || fail "replayed obligation did not reach captain presentation"
+  pass "durable terminal obligations replay after source disappearance"
+}
+
 test_terminal_episode_identity_allows_task_id_reuse() {
   make_world episode-reuse; bind_secondmate remote
   write_child "$MATE" child 'done: first episode'
@@ -623,6 +671,8 @@ test_invalid_summary_raises_obligation_without_terminal_request
 test_request_attempt_is_durable_before_transport
 test_crashed_pending_reply_link_is_recovered
 test_orphaned_owned_reply_is_settled_after_report
+test_owned_reply_recovery_covers_unresolved_phases
+test_disappeared_terminal_child_replays_durable_obligation
 test_terminal_episode_identity_allows_task_id_reuse
 test_legacy_summary_without_terminal_channel_is_compatible
 test_competing_invalidity_does_not_hide_terminal_page

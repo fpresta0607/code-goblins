@@ -543,8 +543,23 @@ reconcile_direct_child() { # <id> <meta> <secondmate-id-or-empty>
   queue_presentation "$RECORD_PENDING" "$fingerprint" "$payload" || true
 }
 
+reconcile_secondmate_record() { # <record> <secondmate-id> <child-id> <state> <outcome-key> <fingerprint>
+  local record=$1 mate=$2 child=$3 state=$4 outcome_key=$5 fingerprint=$6 payload
+  recover_secondmate_request_link "$record" "$mate" || return 1
+  if parent_has_outcome_report "$mate" "$outcome_key"; then
+    settle_secondmate_request_if_reported "$record" "$mate" "$fingerprint" || return 1
+    record_phase_set "$record" presentation || return 1
+    payload="inactive terminal outcome awaiting captain presentation: secondmate=$mate child=$child state=$state"
+    queue_presentation "$record" "$fingerprint" "$payload" || true
+    return 0
+  fi
+  request_secondmate_report "$record" "$mate" "$child" "$state" "$outcome_key" || true
+  payload="inactive terminal outcome missing parent report: secondmate=$mate child=$child state=$state"
+  queue_notice_once "$record" "inactive-reconcile:$fingerprint" "$payload" || true
+}
+
 reconcile_secondmate_child() { # <secondmate-id> <child-id> <state> <episode-id>
-  local mate=$1 child=$2 state=$3 episode=${4:-} fingerprint outcome_key payload
+  local mate=$1 child=$2 state=$3 episode=${4:-} fingerprint outcome_key
   valid_id "$mate" && valid_id "$child" || return 0
   case "$state" in done|failed) ;; *) return 0 ;; esac
   valid_id "$episode" || episode=
@@ -552,17 +567,51 @@ reconcile_secondmate_child() { # <secondmate-id> <child-id> <state> <episode-id>
   fingerprint=$(sha256_text "secondmate|$outcome_key")
   ensure_record "$fingerprint" "$child" "$state" "$outcome_key" "secondmate:$mate" upstream "" || return 1
   [ -n "$RECORD_PENDING" ] || return 0
-  recover_secondmate_request_link "$RECORD_PENDING" "$mate" || return 1
-  if parent_has_outcome_report "$mate" "$outcome_key"; then
-    settle_secondmate_request_if_reported "$RECORD_PENDING" "$mate" "$fingerprint" || return 1
-    record_phase_set "$RECORD_PENDING" presentation || return 1
-    payload="inactive terminal outcome awaiting captain presentation: secondmate=$mate child=$child state=$state"
-    queue_presentation "$RECORD_PENDING" "$fingerprint" "$payload" || true
-    return 0
-  fi
-  request_secondmate_report "$RECORD_PENDING" "$mate" "$child" "$state" "$outcome_key" || true
-  payload="inactive terminal outcome missing parent report: secondmate=$mate child=$child state=$state"
-  queue_notice_once "$RECORD_PENDING" "inactive-reconcile:$fingerprint" "$payload" || true
+  reconcile_secondmate_record "$RECORD_PENDING" "$mate" "$child" "$state" "$outcome_key" "$fingerprint"
+}
+
+replay_pending_outcomes() { # <secondmate-id-or-empty>
+  local self=${1:-} record schema fingerprint task state outcome_key origin pr mate payload
+  for record in "$OUTCOME_DIR"/*.pending; do
+    [ -f "$record" ] && [ ! -L "$record" ] || continue
+    schema=$(record_value "$record" schema)
+    [ "$schema" = fm-terminal-outcome.v1 ] || return 1
+    fingerprint=$(record_value "$record" fingerprint)
+    task=$(record_value "$record" task_id)
+    state=$(record_value "$record" state)
+    outcome_key=$(record_value "$record" outcome_key)
+    origin=$(record_value "$record" origin)
+    pr=$(record_value "$record" pr)
+    case "$fingerprint" in ''|*[!A-Fa-f0-9]*) return 1 ;; esac
+    valid_id "$task" || return 1
+    case "$state" in done|failed) ;; unknown) [ "$origin" = "secondmate-summary:$task" ] || return 1 ;; *) return 1 ;; esac
+    case "$origin" in
+      direct)
+        if [ -n "$self" ]; then
+          if report_to_parent "$self" "$task" "$state" "$outcome_key" "$fingerprint" "$pr"; then
+            mark_reported "$record" || return 1
+          else
+            payload="inactive terminal outcome needs parent report: child=$task state=$state"
+            queue_notice_once "$record" "inactive-reconcile:$fingerprint" "$payload" || true
+          fi
+        elif [ -e "$FM_HOME/.fm-secondmate-home" ]; then
+          return 1
+        else
+          record_phase_set "$record" presentation || return 1
+          payload="inactive terminal outcome awaiting captain presentation: child=$task state=$state"
+          [ -z "$pr" ] || payload="$payload pr=$pr"
+          queue_presentation "$record" "$fingerprint" "$payload" || true
+        fi
+        ;;
+      secondmate:*)
+        mate=${origin#secondmate:}
+        valid_id "$mate" || return 1
+        reconcile_secondmate_record "$record" "$mate" "$task" "$state" "$outcome_key" "$fingerprint" || return 1
+        ;;
+      secondmate-summary:*) ;;
+      *) return 1 ;;
+    esac
+  done
 }
 
 summary_cursor_get() { # <secondmate-id>
@@ -648,6 +697,7 @@ scan() {
   fi
   printf '%s\n' "$(reconcile_now)" > "$SCAN_MARKER" || return 1
   self=$(home_secondmate_id || true)
+  replay_pending_outcomes "$self" || return 1
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] || continue
     id=$(basename "$meta" .meta)
