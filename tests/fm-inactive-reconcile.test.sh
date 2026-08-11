@@ -37,14 +37,21 @@ SH
   cat > "$fake/fm-fleet-snapshot.sh" <<'SH'
 #!/usr/bin/env bash
 terminal_after=
+summary_max_bytes=
 case "${1:-}" in
   --secondmate-home-summary) shift ;;
   *) exit 2 ;;
 esac
-if [ "$#" -gt 0 ]; then
-  [ "$#" -eq 2 ] && [ "$1" = --terminal-after ] || exit 2
-  terminal_after=$2
-fi
+while [ "$#" -gt 0 ]; do
+  [ "$#" -ge 2 ] || exit 2
+  case "$1" in
+    --terminal-after) terminal_after=$2 ;;
+    --summary-max-bytes) summary_max_bytes=$2 ;;
+    *) exit 2 ;;
+  esac
+  shift 2
+done
+case "$summary_max_bytes" in ''|*[!0-9]*) exit 2 ;; esac
 if [ "${FM_TEST_PRESERVE_SUMMARY_HOME:-0}" = 1 ]; then
   summary=$(cat "$FM_HOME/summary.json")
 else
@@ -582,12 +589,12 @@ test_remote_summary_uses_supported_paged_command() {
      reason:"terminal children",invalidity:{kind:"terminal_in_flight",ids:[]},state:"unknown",
      active_children:[],terminal_children:[{id:"child0",state:"failed"},{id:"child1",state:"done"}],
      decisions_open:[],holds:[],queued:[],landed:[],endpoints:[],counts:{},omitted:[]}' > "$MATE/summary.json"
-  FM_TEST_PAGED_SUMMARY=1 FM_SNAPSHOT_SECONDMATE_CHILDREN=1 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN"
-  FM_TEST_PAGED_SUMMARY=1 FM_SNAPSHOT_SECONDMATE_CHILDREN=1 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN"
-  [ "$(sed -n '1p' "$WORLD/on.log")" = 'mate fm-fleet-snapshot.sh --secondmate-home-summary' ] \
-    || fail "remote summary did not use the supported fm-on command"
-  [ "$(sed -n '2p' "$WORLD/on.log")" = 'mate fm-fleet-snapshot.sh --secondmate-home-summary --terminal-after child0' ] \
-    || fail "remote summary did not carry its page cursor"
+  FM_TEST_PAGED_SUMMARY=1 FM_SNAPSHOT_SECONDMATE_CHILDREN=1 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=4096 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN"
+  FM_TEST_PAGED_SUMMARY=1 FM_SNAPSHOT_SECONDMATE_CHILDREN=1 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=4096 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN"
+  [ "$(sed -n '1p' "$WORLD/on.log")" = 'mate fm-fleet-snapshot.sh --secondmate-home-summary --summary-max-bytes 4096' ] \
+    || fail "remote summary did not carry the reader byte budget"
+  [ "$(sed -n '2p' "$WORLD/on.log")" = 'mate fm-fleet-snapshot.sh --secondmate-home-summary --summary-max-bytes 4096 --terminal-after child0' ] \
+    || fail "remote summary did not carry its byte budget and page cursor"
   [ "$(wc -l < "$WORLD/send.log" | tr -d ' ')" = 2 ] \
     || fail "remote summary pages did not reconcile both terminal children"
   pass "remote summaries use supported deterministic paging"

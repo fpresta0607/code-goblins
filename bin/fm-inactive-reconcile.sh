@@ -70,6 +70,7 @@ SEND_BIN="${FM_INACTIVE_RECONCILE_SEND_BIN:-$SCRIPT_DIR/fm-send.sh}"
 FM_INACTIVE_RECONCILE_SECS=${FM_INACTIVE_RECONCILE_SECS:-900}
 FM_SNAPSHOT_SECONDMATE_TIMEOUT=${FM_SNAPSHOT_SECONDMATE_TIMEOUT:-8}
 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=${FM_SNAPSHOT_SECONDMATE_MAX_BYTES:-262144}
+FM_SNAPSHOT_SECONDMATE_MIN_BYTES=4096
 case "$FM_INACTIVE_RECONCILE_SECS" in
   ''|*[!0-9]*|0)
     printf 'fm-inactive-reconcile: FM_INACTIVE_RECONCILE_SECS must be a whole number from 60 to 1800\n' >&2
@@ -84,8 +85,15 @@ case "$FM_SNAPSHOT_SECONDMATE_TIMEOUT" in
   ''|*[!0-9]*|0) FM_SNAPSHOT_SECONDMATE_TIMEOUT=8 ;;
 esac
 case "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" in
-  ''|*[!0-9]*|0) FM_SNAPSHOT_SECONDMATE_MAX_BYTES=262144 ;;
+  ''|*[!0-9]*|0)
+    printf 'fm-inactive-reconcile: FM_SNAPSHOT_SECONDMATE_MAX_BYTES must be an integer of at least %s\n' "$FM_SNAPSHOT_SECONDMATE_MIN_BYTES" >&2
+    exit 2
+    ;;
 esac
+if [ "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" -lt "$FM_SNAPSHOT_SECONDMATE_MIN_BYTES" ]; then
+  printf 'fm-inactive-reconcile: FM_SNAPSHOT_SECONDMATE_MAX_BYTES must be an integer of at least %s\n' "$FM_SNAPSHOT_SECONDMATE_MIN_BYTES" >&2
+  exit 2
+fi
 
 if [ "$(uname)" = Darwin ]; then
   file_mtime() { stat -f %m "$1" 2>/dev/null; }
@@ -338,7 +346,7 @@ summary_for_secondmate() { # <id> <meta> <terminal-after>
   local -a summary_args
   home=$(meta_field "$meta" home)
   remote_host=$(meta_field "$meta" remote_host)
-  summary_args=(--secondmate-home-summary)
+  summary_args=(--secondmate-home-summary --summary-max-bytes "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES")
   [ -z "$terminal_after" ] || summary_args+=(--terminal-after "$terminal_after")
   SUMMARY_EXPECTED_HOME=$home
   if [ -n "$remote_host" ]; then

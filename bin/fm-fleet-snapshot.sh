@@ -81,6 +81,7 @@ case "$SNAPSHOT_EPOCH" in ''|*[!0-9]*) SNAPSHOT_EPOCH=$(date +%s) ;; esac
 FM_SNAPSHOT_SECONDMATES=${FM_SNAPSHOT_SECONDMATES:-20}
 FM_SNAPSHOT_SECONDMATE_TIMEOUT=${FM_SNAPSHOT_SECONDMATE_TIMEOUT:-8}
 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=${FM_SNAPSHOT_SECONDMATE_MAX_BYTES:-262144}
+FM_SNAPSHOT_SECONDMATE_MIN_BYTES=4096
 FM_SNAPSHOT_SECONDMATE_CHILDREN=${FM_SNAPSHOT_SECONDMATE_CHILDREN:-20}
 FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER=${FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER:-}
 FM_SNAPSHOT_SECONDMATE_QUEUED=${FM_SNAPSHOT_SECONDMATE_QUEUED:-20}
@@ -112,6 +113,10 @@ case "$FM_SNAPSHOT_SECONDMATES" in
 esac
 validate_positive_bound FM_SNAPSHOT_SECONDMATE_TIMEOUT "$FM_SNAPSHOT_SECONDMATE_TIMEOUT"
 validate_positive_bound FM_SNAPSHOT_SECONDMATE_MAX_BYTES "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES"
+if [ "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" -lt "$FM_SNAPSHOT_SECONDMATE_MIN_BYTES" ]; then
+  printf 'fm-fleet-snapshot: FM_SNAPSHOT_SECONDMATE_MAX_BYTES must be at least %s\n' "$FM_SNAPSHOT_SECONDMATE_MIN_BYTES" >&2
+  exit 2
+fi
 validate_positive_bound FM_SNAPSHOT_SECONDMATE_CHILDREN "$FM_SNAPSHOT_SECONDMATE_CHILDREN"
 case "$FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER" in
   ''|*[!A-Za-z0-9._-]*)
@@ -153,14 +158,16 @@ validate_positive_bound FM_SNAPSHOT_REGISTRY_TIMEOUT "$FM_SNAPSHOT_REGISTRY_TIME
 usage() {
   cat <<'EOF'
 usage: fm-fleet-snapshot.sh --json
-       fm-fleet-snapshot.sh --secondmate-home-summary [--terminal-after <task-id>]
+       fm-fleet-snapshot.sh --secondmate-home-summary [--terminal-after <task-id>] [--summary-max-bytes <bytes>]
 
 Print a read-only structured snapshot of the firstmate fleet.
 JSON is the stable machine-readable output contract.
 
 --secondmate-home-summary emits the bounded structured summary used after a
 validated registered-home handoff. --terminal-after advances its deterministic
-terminal-anomaly page. This mode skips nested secondmate aggregation and marks
+terminal-anomaly page. --summary-max-bytes carries the validated reader budget
+across local and remote command boundaries (minimum 4096 bytes). This mode skips
+nested secondmate aggregation and marks
 inventory contradictions or unavailable child state invalid.
 Its invalidity object names the normalized failure kind and affected ids.
 Actionable tasks-axi captain holds appear as decisions_open and stay visible in
@@ -188,16 +195,40 @@ case "${1:---json}" in
   --secondmate-home-summary)
     OUTPUT_MODE=secondmate-home-summary
     shift
-    if [ "$#" -gt 0 ]; then
-      [ "$#" -eq 2 ] && [ "$1" = --terminal-after ] \
-        || { usage >&2; exit 2; }
-      FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER=$2
-      case "$FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER" in
-        ''|*[!A-Za-z0-9._-]*)
-          echo "fm-fleet-snapshot: --terminal-after must be a task id" >&2
-          exit 2
+    terminal_after_seen=0
+    summary_budget_seen=0
+    while [ "$#" -gt 0 ]; do
+      [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+      case "$1" in
+        --terminal-after)
+          [ "$terminal_after_seen" -eq 0 ] || { usage >&2; exit 2; }
+          terminal_after_seen=1
+          FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER=$2
+          case "$FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER" in
+            ''|*[!A-Za-z0-9._-]*)
+              echo "fm-fleet-snapshot: --terminal-after must be a task id" >&2
+              exit 2
+              ;;
+          esac
           ;;
+        --summary-max-bytes)
+          [ "$summary_budget_seen" -eq 0 ] || { usage >&2; exit 2; }
+          summary_budget_seen=1
+          FM_SNAPSHOT_SECONDMATE_MAX_BYTES=$2
+          case "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" in
+            ''|*[!0-9]*|0)
+              echo "fm-fleet-snapshot: --summary-max-bytes must be an integer of at least $FM_SNAPSHOT_SECONDMATE_MIN_BYTES" >&2
+              exit 2
+              ;;
+          esac
+          ;;
+        *) usage >&2; exit 2 ;;
       esac
+      shift 2
+    done
+    if [ "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" -lt "$FM_SNAPSHOT_SECONDMATE_MIN_BYTES" ]; then
+      echo "fm-fleet-snapshot: summary byte budget must be at least $FM_SNAPSHOT_SECONDMATE_MIN_BYTES" >&2
+      exit 2
     fi
     ;;
   -h|--help) usage; exit 0 ;;
@@ -1359,7 +1390,8 @@ secondmate_current_json() {  # <parent-tasks-json>
     if [ -z "$reason" ]; then
       if [ "$remote" = true ]; then
         summary=$(fm_run_timed "$FM_SNAPSHOT_SECONDMATE_TIMEOUT" \
-          "$SCRIPT_DIR/fm-on.sh" "$id" fm-fleet-snapshot.sh --secondmate-home-summary < /dev/null 2>/dev/null)
+          "$SCRIPT_DIR/fm-on.sh" "$id" fm-fleet-snapshot.sh --secondmate-home-summary \
+            --summary-max-bytes "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" < /dev/null 2>/dev/null)
         summary_rc=$?
       else
         summary=$(fm_run_timed "$FM_SNAPSHOT_SECONDMATE_TIMEOUT" env \
@@ -1375,7 +1407,8 @@ secondmate_current_json() {  # <parent-tasks-json>
           FM_SNAPSHOT_SECONDMATE_QUEUED="$FM_SNAPSHOT_SECONDMATE_QUEUED" \
           FM_SNAPSHOT_SECONDMATE_DECISIONS="$FM_SNAPSHOT_SECONDMATE_DECISIONS" \
           FM_SNAPSHOT_SECONDMATE_LANDED_PER_HOME="$FM_SNAPSHOT_SECONDMATE_LANDED_PER_HOME" \
-          "$SCRIPT_DIR/fm-fleet-snapshot.sh" --secondmate-home-summary 2>/dev/null)
+          "$SCRIPT_DIR/fm-fleet-snapshot.sh" --secondmate-home-summary \
+            --summary-max-bytes "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" 2>/dev/null)
         summary_rc=$?
       fi
       if [ "$summary_rc" -ne 0 ]; then

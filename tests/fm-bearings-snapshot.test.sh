@@ -496,8 +496,8 @@ test_bad_secondmate_homes_never_revive_parent_work() {
   pass "missing, invalid, unreadable, malformed, and timed-out homes stay explicit unknowns"
 }
 
-test_oversized_secondmate_summary_stays_strict_unknown() {
-  local home mate fakebin json i
+test_unsupported_secondmate_summary_budget_is_rejected() {
+  local home mate fakebin i
   home=$(make_home oversized-home)
   mate="$TMP_ROOT/oversized-secondmate-home"
   make_valid_secondmate_home oversized "$mate"
@@ -518,16 +518,10 @@ EOF
     i=$((i + 1))
   done
   fakebin=$(make_fakebin "$home")
-  json=$(FM_SNAPSHOT_SECONDMATE_MAX_BYTES=512 run "$home" "$fakebin" --json)
-  printf '%s' "$json" | jq -e '
-    (.secondmates | any(.id == "oversized" and .state == "unknown"
-      and .provenance == "parent-event-fallback"
-      and (.reason | contains("exceeded byte limit"))))
-      and (.in_flight | any(.id == "oversized") | not)
-      and (.decisions_open | any(.owner == "oversized") | not)
-      and (.landed | any(.owner == "oversized") | not)
-  ' >/dev/null || fail "oversized summary revived or retained unvalidated surfaces: $json"
-  pass "an oversized secondmate summary retains the strict empty unknown fallback"
+  if FM_SNAPSHOT_SECONDMATE_MAX_BYTES=512 run "$home" "$fakebin" --json >/dev/null 2>&1; then
+    fail "unsupported cross-home summary byte budget was accepted"
+  fi
+  pass "unsupported cross-home summary budgets are rejected"
 }
 
 test_secondmate_and_child_bounds_are_disclosed() {
@@ -935,12 +929,13 @@ test_terminal_page_respects_summary_byte_budget() {
   while :; do
     if [ -n "$next" ]; then
       summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
-        FM_SNAPSHOT_SECONDMATE_CHILDREN=20 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=4096 \
-        "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary --terminal-after "$next")
+        FM_SNAPSHOT_SECONDMATE_CHILDREN=20 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=262144 \
+        "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary \
+          --summary-max-bytes 4096 --terminal-after "$next")
     else
       summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
-        FM_SNAPSHOT_SECONDMATE_CHILDREN=20 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=4096 \
-        "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
+        FM_SNAPSHOT_SECONDMATE_CHILDREN=20 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=262144 \
+        "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary --summary-max-bytes 4096)
     fi
     bytes=$(printf '%s' "$summary" | wc -c | tr -d ' ')
     [ "$bytes" -le 4096 ] || fail "terminal page exceeded summary byte budget: $bytes"
@@ -951,6 +946,11 @@ test_terminal_page_respects_summary_byte_budget() {
     [ -n "$next" ] || break
   done
   [ "$total_seen" -eq 20 ] || fail "byte-bounded pages did not traverse every terminal child: $total_seen"
+  if PATH="$fakebin:$PATH" FM_HOME="$mate" \
+      "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary --summary-max-bytes 4095 \
+      >/dev/null 2>&1; then
+    fail "unsupported summary byte budget was accepted"
+  fi
   pass "terminal pages remain consumable and deterministically traversable"
 }
 
@@ -2083,7 +2083,7 @@ test_parent_activity_evidence_is_bounded_and_disclosed
 test_active_child_overrides_old_parent_event
 test_structured_child_decision_reaches_captains_call
 test_bad_secondmate_homes_never_revive_parent_work
-test_oversized_secondmate_summary_stays_strict_unknown
+test_unsupported_secondmate_summary_budget_is_rejected
 test_secondmate_and_child_bounds_are_disclosed
 test_parent_decision_is_untrusted_contradiction_only
 test_parent_evidence_reconciles_by_verb_and_key
