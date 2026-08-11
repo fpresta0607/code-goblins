@@ -235,6 +235,7 @@ ok - Claude 2.1.219 (Claude Code) live E2E reclaimed a stale session lock throug
 Current entry points:
 
 ```sh
+tests/fm-inactive-reconcile.test.sh
 tests/fm-turnend-guard.test.sh
 tests/fm-supervision-instructions.test.sh
 FM_PI_LIVE_E2E=1 tests/fm-pi-primary-live-e2e.test.sh

@@ -1256,6 +1256,39 @@ test_include_prs_is_the_only_fetch_path() {
   pass "--include-prs is the only path that fetches, and it enriches correctly"
 }
 
+test_descendant_directory_is_not_treated_as_recorded_worktree_repo() {
+  local home fakebin json repo descendant
+  home=$(make_home descendant-worktree); write_fixture "$home"
+  repo="$TMP_ROOT/ancestor-repo"
+  descendant="$repo/nested/task-directory"
+  mkdir -p "$descendant"
+  git -C "$repo" init -q
+  git -C "$repo" remote add origin https://github.com/example/ancestor-only.git
+
+  # Leave no recorded PR URL and point every direct task at a directory below,
+  # rather than at the root of, the fixture repository.
+  fm_write_meta "$home/state/ship-task.meta" \
+    "window=firstmate:fm-ship-task" "worktree=$descendant" "project=firstmate" \
+    "harness=claude" "kind=ship" "mode=no-mistakes"
+  fm_write_meta "$home/state/scout-x.meta" \
+    "window=firstmate:fm-scout-x" "worktree=$descendant" "project=firstmate" \
+    "harness=claude" "kind=scout" "mode=scout"
+  fm_write_meta "$home/state/external-wait.meta" \
+    "window=firstmate:fm-external-wait" "worktree=$descendant" "project=firstmate" \
+    "harness=claude" "kind=ship" "mode=no-mistakes"
+
+  fakebin=$(make_fakebin "$home"); : > "$home/net.log"
+  json=$(run "$home" "$fakebin" --include-prs --json)
+  [ ! -s "$home/net.log" ] \
+    || fail "a descendant task directory caused ancestor-repository PR calls: $(cat "$home/net.log")"
+  printf '%s' "$json" | jq -e '
+    .schema == "fm-bearings.v1"
+      and (.candidate_prs | length) == 0
+      and (.prs | startswith("checked (0 repos"))
+  ' >/dev/null || fail "descendant-only worktrees did not produce an empty local PR projection: $json"
+  pass "PR enrichment does not treat a descendant directory as its ancestor repository"
+}
+
 test_partial_github_failure_degrades() {
   local home fakebin json rc
   home=$(make_home partial); write_fixture "$home"
@@ -2204,6 +2237,7 @@ test_open_decision_surfaces_end_to_end
 test_report_pointers_surface
 test_superseded_queued_item_dropped_by_default
 test_include_prs_is_the_only_fetch_path
+test_descendant_directory_is_not_treated_as_recorded_worktree_repo
 test_partial_github_failure_degrades
 test_perl_fallback_bounds_github_call
 test_section_caps_and_expansion_flags

@@ -606,10 +606,10 @@ test_remote_summary_uses_supported_paged_command() {
      decisions_open:[],holds:[],queued:[],landed:[],endpoints:[],counts:{},omitted:[]}' > "$MATE/summary.json"
   FM_TEST_PAGED_SUMMARY=1 FM_SNAPSHOT_SECONDMATE_CHILDREN=1 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=32768 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN"
   FM_TEST_PAGED_SUMMARY=1 FM_SNAPSHOT_SECONDMATE_CHILDREN=1 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=32768 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN"
-  [ "$(sed -n '1p' "$WORLD/on.log")" = 'mate fm-fleet-snapshot.sh --secondmate-home-summary --summary-max-bytes 32768' ] \
-    || fail "remote summary did not carry the reader byte budget"
-  [ "$(sed -n '2p' "$WORLD/on.log")" = 'mate fm-fleet-snapshot.sh --secondmate-home-summary --summary-max-bytes 32768 --terminal-after child0' ] \
-    || fail "remote summary did not carry its byte budget and page cursor"
+  [ "$(sed -n '1p' "$WORLD/on.log")" = 'mate fm-fleet-snapshot.sh --secondmate-home-summary --summary-max-bytes 32768 --inactive-secs 60' ] \
+    || fail "remote summary did not carry the reader byte budget and inactive threshold"
+  [ "$(sed -n '2p' "$WORLD/on.log")" = 'mate fm-fleet-snapshot.sh --secondmate-home-summary --summary-max-bytes 32768 --inactive-secs 60 --terminal-after child0' ] \
+    || fail "remote summary did not carry its byte budget, inactive threshold, and page cursor"
   [ "$(wc -l < "$WORLD/send.log" | tr -d ' ')" = 2 ] \
     || fail "remote summary pages did not reconcile both terminal children"
   pass "remote summaries use supported deterministic paging"
@@ -627,7 +627,7 @@ test_remote_legacy_summary_fallback_is_compatible() {
      active_children:[],decisions_open:[],holds:[],queued:[],landed:[],endpoints:[],counts:{},omitted:[]}' \
     > "$MATE/summary.json"
   FM_TEST_LEGACY_SUMMARY=1 FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN"
-  [ "$(sed -n '1p' "$WORLD/on.log")" = 'mate fm-fleet-snapshot.sh --secondmate-home-summary --summary-max-bytes 262144' ] \
+  [ "$(sed -n '1p' "$WORLD/on.log")" = 'mate fm-fleet-snapshot.sh --secondmate-home-summary --summary-max-bytes 262144 --inactive-secs 60' ] \
     || fail "remote legacy probe did not try the bounded protocol first"
   [ "$(sed -n '2p' "$WORLD/on.log")" = 'mate fm-fleet-snapshot.sh --secondmate-home-summary' ] \
     || fail "remote legacy producer was not retried through fm-on"

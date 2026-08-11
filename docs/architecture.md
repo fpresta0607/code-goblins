@@ -24,7 +24,10 @@ Live or inconclusive liveness remains fail-open at that initial surface, and the
 Its initial normal-mode status signal still surfaces through the no-verb path, while away mode self-handles that routine signal and owns the later recheck.
 Fresh stale panes use the same current-state read before trusting the status log, so an active run or a proven busy worker outranks an old captain-relevant status-log line left behind before validation.
 No-change heartbeats are also benign.
-Separately from heartbeat backoff and wedge handling, the same watcher poll and locked session start run `bin/fm-inactive-reconcile.sh` at a bounded cadence to detect a long-inactive direct child that is authoritatively terminal but still lacks its durable upstream outcome receipt; it uses local state and validated secondmate summaries only, so no forge check is involved.
+Separately from heartbeat backoff and wedge handling, the existing watcher poll and locked session start run `bin/fm-inactive-reconcile.sh` at their own bounded cadence.
+The reconciler considers only long-inactive, non-captain-held direct children whose current `fm-crew-state` is authoritatively `done` or `failed`; healthy parked or idle secondmates keep their ordinary non-wedged semantics.
+A secondmate home idempotently reports its own terminal child through its recorded local or remote parent channel, while the main home independently validates the secondmate's structured summary and creates one correlated pending-reply request when that report is absent.
+The resulting outcome receipt remains distinct from heartbeat markers until the parent report or captain presentation is acknowledged, and the entire path uses local state or the established secondmate route without invoking forge, PR-poll, or state-check machinery.
 Absorbed wakes advance their suppression markers, log to `state/.watch-triage.log`, and keep the watcher blocking without a queue record or LLM turn.
 Each `fm-wake-drain.sh` presentation runs the same liveness guard as the supervision scripts, so a lapsed watcher chain surfaces even on a turn that only handles queued wakes.
 Routine watcher polling, supervision no-ops, elapsed waiting time, and absorbed benign wakes stay silent.
