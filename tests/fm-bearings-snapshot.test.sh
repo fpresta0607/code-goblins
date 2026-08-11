@@ -496,6 +496,69 @@ test_bad_secondmate_homes_never_revive_parent_work() {
   pass "missing, invalid, unreadable, malformed, and timed-out homes stay explicit unknowns"
 }
 
+test_remote_legacy_summary_fallback_accepts_full_usage() {
+  local home remote_home fakebin fake_ssh log json
+  home=$(make_home remote-legacy-summary)
+  remote_home=/remote/legacy-home
+  log="$home/remote-calls.log"
+  : > "$home/data/secondmates.md"
+  printf -- '- legacy - fixture domain (host: legacy-host; root: /remote/root; home: %s; scope: fixture; projects: sample; added 2026-07-13)\n' \
+    "$remote_home" >> "$home/data/secondmates.md"
+  fm_write_meta "$home/state/legacy.meta" \
+    "window=remote:legacy" "home=$remote_home" "project=sample" "kind=secondmate" \
+    "mode=secondmate" "remote_host=legacy-host" "remote_root=/remote/root" \
+    "remote_backend=remote" "remote_target=remote:legacy"
+
+  fakebin=$(make_fakebin "$home")
+  fake_ssh="$fakebin/ssh-legacy-summary"
+  cat > "$fake_ssh" <<'SH'
+#!/usr/bin/env bash
+encoded=${!#}
+tmp=${TMPDIR:-/tmp}/fm-legacy-argv.$$
+trap 'rm -f "$tmp"' EXIT
+if ! printf '%s' "$encoded" | base64 -d > "$tmp" 2>/dev/null; then
+  printf '%s' "$encoded" | base64 -D > "$tmp"
+fi
+args=()
+while IFS= read -r -d '' arg; do args+=("$arg"); done < "$tmp"
+printf '%s\n' "${args[*]}" >> "$FAKE_REMOTE_LOG"
+if [ "${args[0]:-}" = fm-remote-secondmate-control.sh ]; then
+  printf 'alive\n'
+  exit 0
+fi
+if printf '%s\n' "${args[@]}" | grep -Fxq -- '--summary-max-bytes'; then
+  cat >&2 <<'EOF'
+usage: fm-fleet-snapshot.sh --json
+       fm-fleet-snapshot.sh --secondmate-home-summary
+
+Produces a structured fleet snapshot.
+Compatibility options vary by producer version.
+EOF
+  exit 2
+fi
+jq -n --arg home "$FAKE_REMOTE_HOME" '{
+  schema:"fm-secondmate-home-summary.v1", generated:"2026-07-13T00:00:00Z",
+  home:$home, valid:true, state:"no_active_work", reason:null,
+  invalidity:{kind:null,ids:[]}, active_children:[], decisions_open:[], holds:[],
+  queued:[], landed:[], endpoints:[], counts:{}, omitted:[]
+}'
+SH
+  chmod +x "$fake_ssh"
+
+  json=$(env -u FM_ROOT_OVERRIDE PATH="$fakebin:$PATH" FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    FM_CONFIG_OVERRIDE="$home/config" FM_PROJECTS_OVERRIDE="$home/projects" \
+    FM_SSH_BIN="$fake_ssh" FAKE_REMOTE_HOME="$remote_home" FAKE_REMOTE_LOG="$log" \
+    "$ROOT/bin/fm-fleet-snapshot.sh" --json)
+  printf '%s' "$json" | jq -e '
+    .secondmate_current.records[] | select(.id == "legacy")
+    | .provenance.summary_valid == true and .current.state == "no_active_work"
+  ' >/dev/null || fail "full legacy usage did not trigger the compatible summary fallback: $json"
+  [ "$(grep -c 'fm-fleet-snapshot.sh --secondmate-home-summary' "$log")" -eq 2 ] \
+    || fail "legacy summary fallback did not make exactly one bounded retry: $(cat "$log")"
+  pass "remote legacy summary fallback accepts full usage output"
+}
+
 test_unsupported_secondmate_summary_budget_is_rejected() {
   local home mate fakebin i
   home=$(make_home oversized-home)
@@ -2092,6 +2155,7 @@ test_parent_activity_evidence_is_bounded_and_disclosed
 test_active_child_overrides_old_parent_event
 test_structured_child_decision_reaches_captains_call
 test_bad_secondmate_homes_never_revive_parent_work
+test_remote_legacy_summary_fallback_accepts_full_usage
 test_unsupported_secondmate_summary_budget_is_rejected
 test_secondmate_and_child_bounds_are_disclosed
 test_parent_decision_is_untrusted_contradiction_only

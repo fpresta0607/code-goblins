@@ -1429,10 +1429,9 @@ secondmate_current_json() {  # <parent-tasks-json>
           "$SCRIPT_DIR/fm-on.sh" "$id" fm-fleet-snapshot.sh --secondmate-home-summary \
             --summary-max-bytes "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" < /dev/null 2>&1)
         summary_rc=$?
-        legacy_usage=$(printf '%s\n' \
-          'usage: fm-fleet-snapshot.sh --json' \
-          '       fm-fleet-snapshot.sh --secondmate-home-summary')
-        if [ "$summary_rc" -eq 2 ] && [ "$summary" = "$legacy_usage" ]; then
+        if [ "$summary_rc" -eq 2 ] \
+          && printf '%s\n' "$summary" | grep -Fxq 'usage: fm-fleet-snapshot.sh --json' \
+          && printf '%s\n' "$summary" | grep -Fxq '       fm-fleet-snapshot.sh --secondmate-home-summary'; then
           summary=$(fm_run_timed "$FM_SNAPSHOT_SECONDMATE_TIMEOUT" \
             "$SCRIPT_DIR/fm-on.sh" "$id" fm-fleet-snapshot.sh --secondmate-home-summary \
               < /dev/null 2>/dev/null)
