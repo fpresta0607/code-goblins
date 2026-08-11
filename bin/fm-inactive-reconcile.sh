@@ -355,7 +355,8 @@ summary_for_secondmate() { # <id> <meta> <terminal-after>
   local -a summary_args
   home=$(meta_field "$meta" home)
   remote_host=$(meta_field "$meta" remote_host)
-  summary_args=(--secondmate-home-summary --summary-max-bytes "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES")
+  summary_args=(--secondmate-home-summary --summary-max-bytes "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" \
+    --inactive-secs "$FM_INACTIVE_RECONCILE_SECS")
   [ -z "$terminal_after" ] || summary_args+=(--terminal-after "$terminal_after")
   SUMMARY_EXPECTED_HOME=$home
   if [ -n "$remote_host" ]; then

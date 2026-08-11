@@ -752,15 +752,20 @@ EOF
   record_claude_state "$mate/state" failed idle
   printf 'done: complete\n' > "$mate/state/done.status"
   printf 'failed: stopped\n' > "$mate/state/failed.status"
+  TZ=UTC touch -t 202607111700.00 "$mate/state/done.meta" "$mate/state/done.status"
+  TZ=UTC touch -t 202607111759.30 "$mate/state/failed.meta" "$mate/state/failed.status"
   rm "$mate/state/parked.meta" "$mate/state/parked.status"
   summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
+    FM_SNAPSHOT_NOW_EPOCH=1783792800 FM_INACTIVE_RECONCILE_SECS=60 \
     FM_SNAPSHOT_SECONDMATE_CHILDREN=1 \
     "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
   printf '%s' "$summary" | jq -e '
     [.terminal_children[] | .id + "=" + .state] == ["done=done"]
-      and .terminal_page == {after:null,next_after:"done",has_more:true,count:1,remaining:2,total:2}
-  ' >/dev/null || fail "secondmate summary did not expose the first bounded terminal page: $summary"
+      and .terminal_page == {after:null,next_after:null,has_more:false,count:1,remaining:1,total:1}
+  ' >/dev/null || fail "fresh terminal child became eligible for reconciliation: $summary"
+  TZ=UTC touch -t 202607111700.00 "$mate/state/failed.meta" "$mate/state/failed.status"
   summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
+    FM_SNAPSHOT_NOW_EPOCH=1783792800 FM_INACTIVE_RECONCILE_SECS=60 \
     FM_SNAPSHOT_SECONDMATE_CHILDREN=1 \
     "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary --terminal-after done)
   printf '%s' "$summary" | jq -e '
@@ -801,6 +806,7 @@ test_nonterminal_invalidity_detail_preserves_terminal_page_bound() {
   printf 'done: complete\n' > "$mate/state/terminal.status"
   fakebin=$(make_fakebin "$mate")
   summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
+    FM_SNAPSHOT_NOW_EPOCH=2000000000 \
     FM_SNAPSHOT_SECONDMATE_CHILDREN=3 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=32768 \
     "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
   bytes=$(printf '%s' "$summary" | wc -c | tr -d ' ')
@@ -839,6 +845,7 @@ test_nested_nonterminal_detail_preserves_terminal_page_bound() {
   printf 'done: complete\n' > "$mate/state/terminal.status"
   fakebin=$(make_fakebin "$mate")
   summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
+    FM_SNAPSHOT_NOW_EPOCH=2000000000 \
     FM_SNAPSHOT_SECONDMATE_CHILDREN=3 FM_SNAPSHOT_SECONDMATE_QUEUED=1 \
     FM_SNAPSHOT_SECONDMATE_MAX_BYTES=32768 \
     "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
@@ -890,7 +897,7 @@ EOF
   printf 'done: complete\n' > "$mate/state/terminal.status"
   fakebin=$(make_fakebin "$mate")
   summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
-    FM_SNAPSHOT_SECONDMATE_MAX_BYTES=32768 \
+    FM_SNAPSHOT_NOW_EPOCH=2000000000 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=32768 \
     "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
   bytes=$(printf '%s' "$summary" | wc -c | tr -d ' ')
   [ "$bytes" -le 32768 ] || fail "malformed episode made summary exceed reader cap: $bytes"
@@ -929,11 +936,13 @@ test_terminal_page_respects_summary_byte_budget() {
   while :; do
     if [ -n "$next" ]; then
       summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
+        FM_SNAPSHOT_NOW_EPOCH=2000000000 \
         FM_SNAPSHOT_SECONDMATE_CHILDREN=20 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=262144 \
         "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary \
           --summary-max-bytes 32768 --terminal-after "$next")
     else
       summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
+        FM_SNAPSHOT_NOW_EPOCH=2000000000 \
         FM_SNAPSHOT_SECONDMATE_CHILDREN=20 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=262144 \
         "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary --summary-max-bytes 32768)
     fi

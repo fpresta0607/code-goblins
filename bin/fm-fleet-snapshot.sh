@@ -84,6 +84,7 @@ FM_SNAPSHOT_SECONDMATE_MAX_BYTES=${FM_SNAPSHOT_SECONDMATE_MAX_BYTES:-262144}
 FM_SNAPSHOT_SECONDMATE_MIN_BYTES=32768
 FM_SNAPSHOT_SECONDMATE_CHILDREN=${FM_SNAPSHOT_SECONDMATE_CHILDREN:-20}
 FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER=${FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER:-}
+FM_INACTIVE_RECONCILE_SECS=${FM_INACTIVE_RECONCILE_SECS:-900}
 FM_SNAPSHOT_SECONDMATE_QUEUED=${FM_SNAPSHOT_SECONDMATE_QUEUED:-20}
 FM_SNAPSHOT_SECONDMATE_DECISIONS=${FM_SNAPSHOT_SECONDMATE_DECISIONS:-20}
 FM_SNAPSHOT_TERMINAL_LINES=${FM_SNAPSHOT_TERMINAL_LINES:-8}
@@ -118,6 +119,16 @@ if [ "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" -lt "$FM_SNAPSHOT_SECONDMATE_MIN_BYTES"
   exit 2
 fi
 validate_positive_bound FM_SNAPSHOT_SECONDMATE_CHILDREN "$FM_SNAPSHOT_SECONDMATE_CHILDREN"
+case "$FM_INACTIVE_RECONCILE_SECS" in
+  ''|*[!0-9]*)
+    echo "fm-fleet-snapshot: FM_INACTIVE_RECONCILE_SECS must be an integer from 60 to 1800" >&2
+    exit 2
+    ;;
+esac
+if [ "$FM_INACTIVE_RECONCILE_SECS" -lt 60 ] || [ "$FM_INACTIVE_RECONCILE_SECS" -gt 1800 ]; then
+  echo "fm-fleet-snapshot: FM_INACTIVE_RECONCILE_SECS must be an integer from 60 to 1800" >&2
+  exit 2
+fi
 case "$FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER" in
   ''|*[!A-Za-z0-9._-]*)
     [ -z "$FM_SNAPSHOT_SECONDMATE_TERMINAL_AFTER" ] || {
@@ -158,7 +169,7 @@ validate_positive_bound FM_SNAPSHOT_REGISTRY_TIMEOUT "$FM_SNAPSHOT_REGISTRY_TIME
 usage() {
   cat <<'EOF'
 usage: fm-fleet-snapshot.sh --json
-       fm-fleet-snapshot.sh --secondmate-home-summary [--terminal-after <task-id>] [--summary-max-bytes <bytes>]
+       fm-fleet-snapshot.sh --secondmate-home-summary [--terminal-after <task-id>] [--summary-max-bytes <bytes>] [--inactive-secs <seconds>]
 
 Print a read-only structured snapshot of the firstmate fleet.
 JSON is the stable machine-readable output contract.
@@ -166,7 +177,8 @@ JSON is the stable machine-readable output contract.
 --secondmate-home-summary emits the bounded structured summary used after a
 validated registered-home handoff. --terminal-after advances its deterministic
 terminal-anomaly page. --summary-max-bytes carries the validated reader budget
-across local and remote command boundaries (minimum 32768 bytes). This mode skips
+across local and remote command boundaries (minimum 32768 bytes). --inactive-secs
+carries the 60..1800 second terminal reconciliation eligibility interval. This mode skips
 nested secondmate aggregation and marks
 inventory contradictions or unavailable child state invalid.
 Its invalidity object names the normalized failure kind and affected ids.
@@ -197,6 +209,7 @@ case "${1:---json}" in
     shift
     terminal_after_seen=0
     summary_budget_seen=0
+    inactive_secs_seen=0
     while [ "$#" -gt 0 ]; do
       [ "$#" -ge 2 ] || { usage >&2; exit 2; }
       case "$1" in
@@ -221,6 +234,21 @@ case "${1:---json}" in
               exit 2
               ;;
           esac
+          ;;
+        --inactive-secs)
+          [ "$inactive_secs_seen" -eq 0 ] || { usage >&2; exit 2; }
+          inactive_secs_seen=1
+          FM_INACTIVE_RECONCILE_SECS=$2
+          case "$FM_INACTIVE_RECONCILE_SECS" in
+            ''|*[!0-9]*)
+              echo "fm-fleet-snapshot: --inactive-secs must be an integer from 60 to 1800" >&2
+              exit 2
+              ;;
+          esac
+          if [ "$FM_INACTIVE_RECONCILE_SECS" -lt 60 ] || [ "$FM_INACTIVE_RECONCILE_SECS" -gt 1800 ]; then
+            echo "fm-fleet-snapshot: --inactive-secs must be an integer from 60 to 1800" >&2
+            exit 2
+          fi
           ;;
         *) usage >&2; exit 2 ;;
       esac
@@ -464,8 +492,8 @@ task_json_lines() {
   local meta id kind harness mode yolo project worktree home projects episode_id episode_id_valid normalized_episode backend target status_log report_path
   local remote_host remote_root remote_state remote_rc remote_home_present
   local pr pr_source event_json current_json endpoint_exists agent_alive meta_json status_json report_json worktree_json home_json
-  local last_event_raw current_state current_source pending_decision blocked_event report_present=0 pr_from_status
-  local open_decisions_tsv open_decisions_json
+  local last_event_raw last_event_verb current_state current_source pending_decision blocked_event report_present=0 pr_from_status
+  local open_decisions_tsv open_decisions_json activity_epoch activity_mtime activity_path inactive_eligible
 
   for meta in "$STATE"/*.meta; do
     [ -e "$meta" ] || continue
@@ -516,8 +544,22 @@ task_json_lines() {
     current_json=$(crew_state_json "$id")
     event_json=$(status_event_json "$status_log")
     last_event_raw=$(printf '%s' "$event_json" | jq -r '.last_event.raw // ""')
+    last_event_verb=$(printf '%s' "$event_json" | jq -r '.last_event.state // ""')
     current_state=$(printf '%s' "$current_json" | jq -r '.state // ""')
     current_source=$(printf '%s' "$current_json" | jq -r '.source // ""')
+    activity_epoch=0
+    for activity_path in "$meta" "$status_log" "$STATE/$id.turn-ended"; do
+      [ -e "$activity_path" ] || continue
+      activity_mtime=$(file_mtime_epoch "$activity_path")
+      case "$activity_mtime" in ''|*[!0-9]*) continue ;; esac
+      [ "$activity_mtime" -le "$activity_epoch" ] || activity_epoch=$activity_mtime
+    done
+    inactive_eligible=false
+    if [ "$activity_epoch" -gt 0 ] && [ "$SNAPSHOT_EPOCH" -ge "$activity_epoch" ] \
+      && [ $((SNAPSHOT_EPOCH - activity_epoch)) -ge "$FM_INACTIVE_RECONCILE_SECS" ] \
+      && [ "$last_event_verb" != captain-held ]; then
+      inactive_eligible=true
+    fi
 
     # Durable keyed open-decision set: fold the WHOLE status stream
     # (fm-classify-lib.sh's status_open_decisions) so a later unrelated event can
@@ -627,6 +669,7 @@ task_json_lines() {
       --argjson home_path "$home_json" \
       --argjson endpoint_exists "$endpoint_exists" \
       --argjson open_decisions "$open_decisions_json" \
+      --argjson inactive_eligible "$inactive_eligible" \
       --argjson pending_decision "$(bool_json "$pending_decision")" \
       --argjson blocked_event "$(bool_json "$blocked_event")" \
       --argjson report_present "$(bool_json "$report_present")" \
@@ -639,6 +682,7 @@ task_json_lines() {
         project:($project // ""),
         episode_id:($episode_id | if . == "" then null else . end),
         episode_id_valid:$episode_id_valid,
+        inactive_reconcile_eligible:$inactive_eligible,
         backend:$backend,
         remote:(if $remote_host == "" then null else {host:$remote_host,root:$remote_root} end),
         paths:{
@@ -755,7 +799,8 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
          | {id,state:.current_state.state} ]) as $unowned_children
     | ([ $owned_in_flight[] as $work
          | $tasks[]
-         | select(.id == $work.id and (.current_state.state == "done" or .current_state.state == "failed"))
+         | select(.id == $work.id and .inactive_reconcile_eligible == true
+             and (.current_state.state == "done" or .current_state.state == "failed"))
          | {id,state:.current_state.state,episode_id:(.episode_id // null),episode_id_valid:(if has("episode_id_valid") then .episode_id_valid else true end)} ] | sort_by(.id)) as $terminal_candidates
     | ([ $terminal_candidates[] | select(.episode_id_valid == false) | .id | bounded_id ] | sort | unique) as $malformed_terminal_episode_ids_all
     | ($malformed_terminal_episode_ids_all[:$child_n]) as $malformed_terminal_episode_ids
@@ -1305,7 +1350,7 @@ parent_evidence_reconciliation_json() {  # <summary-json> <activities-json> <dec
 secondmate_current_json() {  # <parent-tasks-json>
   local tasks=$1 registry union rows total_registered total shown truncated
   local row id home host remote registered registry_error task status_file event_raw event_note event_epoch event_age
-  local activity_scan activities decisions reconciliation provenance freshness reason summary summary_rc summary_bytes summary_valid summary_reason summary_invalidity state current_reason terminal terminal_contradiction contradiction
+  local activity_scan activities decisions reconciliation provenance freshness reason summary summary_rc summary_bytes summary_valid summary_reason summary_invalidity state current_reason terminal terminal_contradiction contradiction legacy_usage
   local records='[]' seen_homes=''
   registry=$(registry_secondmates_json) || return 1
   union=$(jq -n --argjson registry "$registry" --argjson tasks "$tasks" '
@@ -1382,9 +1427,12 @@ secondmate_current_json() {  # <parent-tasks-json>
       if [ "$remote" = true ]; then
         summary=$(fm_run_timed "$FM_SNAPSHOT_SECONDMATE_TIMEOUT" \
           "$SCRIPT_DIR/fm-on.sh" "$id" fm-fleet-snapshot.sh --secondmate-home-summary \
-            --summary-max-bytes "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" < /dev/null 2>/dev/null)
+            --summary-max-bytes "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" < /dev/null 2>&1)
         summary_rc=$?
-        if [ "$summary_rc" -ne 0 ]; then
+        legacy_usage=$(printf '%s\n' \
+          'usage: fm-fleet-snapshot.sh --json' \
+          '       fm-fleet-snapshot.sh --secondmate-home-summary')
+        if [ "$summary_rc" -eq 2 ] && [ "$summary" = "$legacy_usage" ]; then
           summary=$(fm_run_timed "$FM_SNAPSHOT_SECONDMATE_TIMEOUT" \
             "$SCRIPT_DIR/fm-on.sh" "$id" fm-fleet-snapshot.sh --secondmate-home-summary \
               < /dev/null 2>/dev/null)

@@ -38,6 +38,7 @@ SH
 #!/usr/bin/env bash
 terminal_after=
 summary_max_bytes=
+inactive_secs=
 case "${1:-}" in
   --secondmate-home-summary) shift ;;
   *) exit 2 ;;
@@ -47,6 +48,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --terminal-after) terminal_after=$2 ;;
     --summary-max-bytes) summary_max_bytes=$2 ;;
+    --inactive-secs) inactive_secs=$2 ;;
     *) exit 2 ;;
   esac
   shift 2
@@ -62,6 +64,7 @@ if [ "${FM_TEST_MODERN_SUMMARY_FAILURE:-0}" = 1 ] && [ -n "$summary_max_bytes" ]
   exit 1
 fi
 case "$summary_max_bytes" in *[!0-9]*) exit 2 ;; esac
+case "$inactive_secs" in *[!0-9]*) exit 2 ;; esac
 if [ "${FM_TEST_PRESERVE_SUMMARY_HOME:-0}" = 1 ]; then
   summary=$(cat "$FM_HOME/summary.json")
 else
