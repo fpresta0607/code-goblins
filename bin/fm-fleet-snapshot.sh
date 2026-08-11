@@ -428,7 +428,7 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
 }
 
 task_json_lines() {
-  local meta id kind harness mode yolo project worktree home projects episode_id backend target status_log report_path
+  local meta id kind harness mode yolo project worktree home projects episode_id episode_id_valid backend target status_log report_path
   local remote_host remote_root remote_state remote_rc remote_home_present
   local pr pr_source event_json current_json endpoint_exists agent_alive meta_json status_json report_json worktree_json home_json
   local last_event_raw current_state current_source pending_decision blocked_event report_present=0 pr_from_status
@@ -447,6 +447,19 @@ task_json_lines() {
     home=$(meta_value "$meta" home)
     projects=$(meta_value "$meta" projects)
     episode_id=$(meta_value "$meta" episode_id)
+    episode_id_valid=true
+    if [ -n "$episode_id" ]; then
+      case "$episode_id" in
+        *[!0-9a-f]*) episode_id_valid=false ;;
+        *)
+          case ${#episode_id} in
+            16|24) ;;
+            *) episode_id_valid=false ;;
+          esac
+          ;;
+      esac
+    fi
+    [ "$episode_id_valid" = true ] || episode_id=
     remote_host=$(meta_value "$meta" remote_host)
     remote_root=$(meta_value "$meta" remote_root)
     remote_home_present=null
@@ -567,6 +580,7 @@ task_json_lines() {
       --arg home "$home" \
       --arg projects "$projects" \
       --arg episode_id "$episode_id" \
+      --argjson episode_id_valid "$episode_id_valid" \
       --arg backend "$backend" \
       --arg target "$target" \
       --arg remote_host "$remote_host" \
@@ -595,6 +609,7 @@ task_json_lines() {
         yolo:($yolo // ""),
         project:($project // ""),
         episode_id:($episode_id | if . == "" then null else . end),
+        episode_id_valid:$episode_id_valid,
         backend:$backend,
         remote:(if $remote_host == "" then null else {host:$remote_host,root:$remote_root} end),
         paths:{
@@ -712,7 +727,9 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
     | ([ $owned_in_flight[] as $work
          | $tasks[]
          | select(.id == $work.id and (.current_state.state == "done" or .current_state.state == "failed"))
-         | {id,state:.current_state.state,episode_id:(.episode_id // null)} ] | sort_by(.id)) as $terminal_in_flight
+         | {id,state:.current_state.state,episode_id:(.episode_id // null),episode_id_valid:(if has("episode_id_valid") then .episode_id_valid else true end)} ] | sort_by(.id)) as $terminal_candidates
+    | ([ $terminal_candidates[] | select(.episode_id_valid == false) | .id | bounded_id ] | sort | unique) as $malformed_terminal_episode_ids
+    | ($terminal_candidates | map(del(.episode_id_valid))) as $terminal_in_flight
     | ([ $terminal_in_flight[] | select($terminal_after == "" or .id > $terminal_after) ]) as $terminal_remaining
     | ($terminal_remaining[:$child_n]) as $terminal_page
     | (($terminal_remaining | length) > $child_n) as $terminal_has_more
@@ -748,6 +765,10 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
            (if ($unowned_all | length) > ($unowned_page | length) then
               {omitted_count:(($unowned_all | length) - ($unowned_page | length))}
             else {} end))
+        else empty end,
+        if ($malformed_terminal_episode_ids | length) > 0 then
+          {kind:"malformed_terminal_episode",ids:$malformed_terminal_episode_ids,
+           reason:("terminal child has malformed episode identity: " + ($malformed_terminal_episode_ids | join(", ")))}
         else empty end,
         if ($terminal_in_flight | length) > 0 then
           {kind:"terminal_in_flight",ids:($terminal_page | map(.id)),

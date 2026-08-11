@@ -870,6 +870,48 @@ test_nested_nonterminal_detail_preserves_terminal_page_bound() {
   pass "nested nonterminal detail remains bounded beside terminal evidence"
 }
 
+test_malformed_terminal_episode_preserves_terminal_page_bound() {
+  local mate fakebin summary episode bytes i
+  mate="$TMP_ROOT/bounded-terminal-episode-home"
+  make_valid_secondmate_home bounded-terminal-episode "$mate"
+  cat > "$mate/data/backlog.md" <<'EOF'
+## In flight
+- [ ] terminal - Terminal child (repo: sample) (kind: ship) (since 2026-07-11)
+
+## Queued
+
+## Done
+EOF
+  mkdir -p "$mate/projects/terminal"
+  episode=
+  i=0
+  while [ "$i" -lt 8000 ]; do
+    episode="${episode}x"
+    i=$((i + 1))
+  done
+  fm_write_meta "$mate/state/terminal.meta" \
+    "window=firstmate:fm-terminal" "worktree=$mate/projects/terminal" "project=sample" \
+    "harness=claude" "kind=ship" "mode=no-mistakes" "episode_id=$episode"
+  record_claude_state "$mate/state" terminal idle
+  printf 'done: complete\n' > "$mate/state/terminal.status"
+  fakebin=$(make_fakebin "$mate")
+  summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
+    FM_SNAPSHOT_SECONDMATE_MAX_BYTES=4096 \
+    "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
+  bytes=$(printf '%s' "$summary" | wc -c | tr -d ' ')
+  [ "$bytes" -le 4096 ] || fail "malformed episode made summary exceed reader cap: $bytes"
+  printf '%s' "$summary" | jq -e '
+    .invalidity == {kind:"malformed_terminal_episode",ids:["terminal"]}
+      and (.reason | contains("malformed episode identity: terminal"))
+      and .terminal_children == [{id:"terminal",state:"done",episode_id:null}]
+      and .terminal_page == {after:null,next_after:null,has_more:false,count:1,remaining:1,total:1}
+  ' >/dev/null || fail "malformed episode concealed bounded terminal evidence: $summary"
+  case "$summary" in
+    *xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx*) fail "malformed episode leaked into summary output" ;;
+  esac
+  pass "malformed terminal episode remains classified and bounded"
+}
+
 test_registry_unavailability_and_bounds_are_explicit() {
   local home fakebin json canonical id mate boundary
   home=$(make_home registry-unavailable)
@@ -2006,6 +2048,7 @@ test_parent_evidence_reconciles_by_verb_and_key
 test_nonprogressing_child_states_are_explicit
 test_nonterminal_invalidity_detail_preserves_terminal_page_bound
 test_nested_nonterminal_detail_preserves_terminal_page_bound
+test_malformed_terminal_episode_preserves_terminal_page_bound
 test_registry_unavailability_and_bounds_are_explicit
 test_current_landed_baseline_is_repeatable_and_prior_report_independent
 test_default_is_bounded_and_local_only
