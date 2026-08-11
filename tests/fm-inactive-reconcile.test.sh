@@ -147,6 +147,9 @@ EOF
 
 run_reconcile() { # <home> [--startup]
   local home=$1 option=${2:-}
+  if [ "${FM_TEST_KEEP_RECONCILE_GATE:-0}" != 1 ] && [ -e "$home/state/.inactive-outcome-reconcile" ]; then
+    age "$home/state/.inactive-outcome-reconcile"
+  fi
   PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
     FM_INACTIVE_RECONCILE_SECS=60 FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" \
@@ -505,6 +508,17 @@ test_heartbeat_cap_does_not_delay_reconciliation() {
   pass "terminal reconciliation ignores heartbeat backoff state"
 }
 
+test_startup_respects_reconciliation_gate() {
+  make_world startup-gate; write_child "$MAIN" child 'working: not terminal yet'
+  FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  FM_TEST_KEEP_RECONCILE_GATE=1 FM_FAKE_CREW_STATE=done run_reconcile "$MAIN" --startup
+  [ "$(outcome_count "$MAIN" pending)" = 0 ] || fail "repeated startup bypassed the reconciliation gate"
+  age "$MAIN/state/.inactive-outcome-reconcile"
+  FM_TEST_KEEP_RECONCILE_GATE=1 FM_FAKE_CREW_STATE=done run_reconcile "$MAIN" --startup
+  [ "$(outcome_count "$MAIN" pending)" = 1 ] || fail "due startup reconciliation did not inspect terminal work"
+  pass "startup invocation respects the bounded reconciliation gate"
+}
+
 # Only authoritative terminal states qualify. A captain-held item is excluded too.
 test_nonterminal_and_captain_held_states_do_not_report() {
   local state
@@ -577,6 +591,7 @@ test_cursor_persistence_failure_is_actionable
 test_remote_startup_deferral_is_silent
 test_remote_parent_reply_is_idempotent
 test_heartbeat_cap_does_not_delay_reconciliation
+test_startup_respects_reconciliation_gate
 test_nonterminal_and_captain_held_states_do_not_report
 test_watcher_hook_and_idle_secondmate_exemption
 test_reconciliation_never_calls_forge

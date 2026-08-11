@@ -642,7 +642,7 @@ scan() {
   SCAN_STARTUP=$startup
   mkdir -p "$STATE" "$OUTCOME_DIR" || return 1
   [ ! -L "$OUTCOME_DIR" ] || return 1
-  if [ "$startup" != 1 ] && [ "$(scan_marker_age)" -lt "$FM_INACTIVE_RECONCILE_SECS" ]; then
+  if [ "$(scan_marker_age)" -lt "$FM_INACTIVE_RECONCILE_SECS" ]; then
     return 0
   fi
   printf '%s\n' "$(reconcile_now)" > "$SCAN_MARKER" || return 1

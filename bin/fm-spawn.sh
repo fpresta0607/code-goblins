@@ -2474,6 +2474,8 @@ if [ -z "$SPAWN_EPISODE_ID" ]; then
   SPAWN_EPISODE_SEED="$(date +%s).${BASHPID:-$$}.$RANDOM.$RANDOM"
   if command -v shasum >/dev/null 2>&1; then
     SPAWN_EPISODE_ID=$(printf '%s' "$SPAWN_EPISODE_SEED" | shasum -a 256 | awk '{print substr($1, 1, 24)}')
+  elif command -v sha256sum >/dev/null 2>&1; then
+    SPAWN_EPISODE_ID=$(printf '%s' "$SPAWN_EPISODE_SEED" | sha256sum | awk '{print substr($1, 1, 24)}')
   else
     SPAWN_EPISODE_ID=$(printf '%s' "$SPAWN_EPISODE_SEED" | cksum | awk '{printf "%08x%08x", $1, $2}')
   fi
