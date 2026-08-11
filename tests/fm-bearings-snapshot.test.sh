@@ -822,6 +822,54 @@ test_nonterminal_invalidity_detail_preserves_terminal_page_bound() {
   pass "nonterminal invalidity detail remains bounded beside terminal evidence"
 }
 
+test_nested_nonterminal_detail_preserves_terminal_page_bound() {
+  local mate fakebin summary i bytes
+  mate="$TMP_ROOT/bounded-nested-detail-home"
+  make_valid_secondmate_home bounded-nested "$mate"
+  {
+    printf '## In flight\n'
+    printf -- '- [ ] terminal - Terminal child (repo: sample) (kind: ship) (since 2026-07-11)\n\n## Queued\n'
+    printf -- '- [ ] blocked - Blocked queued work'
+    i=1
+    while [ "$i" -le 80 ]; do
+      printf ' blocked-by: blocker-%03d-with-a-deliberately-long-identifier' "$i"
+      i=$((i + 1))
+    done
+    printf ' (repo: sample) (kind: ship)\n\n## Done\n'
+  } > "$mate/data/backlog.md"
+  mkdir -p "$mate/projects/terminal"
+  fm_write_meta "$mate/state/terminal.meta" \
+    "window=firstmate:fm-terminal" "worktree=$mate/projects/terminal" "project=sample" \
+    "harness=claude" "kind=ship" "mode=no-mistakes"
+  record_claude_state "$mate/state" terminal idle
+  printf 'done: complete\n' > "$mate/state/terminal.status"
+  fakebin=$(make_fakebin "$mate")
+  summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
+    FM_SNAPSHOT_SECONDMATE_CHILDREN=3 FM_SNAPSHOT_SECONDMATE_QUEUED=1 \
+    FM_SNAPSHOT_SECONDMATE_MAX_BYTES=4096 \
+    "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
+  bytes=$(printf '%s' "$summary" | wc -c | tr -d ' ')
+  [ "$bytes" -le 4096 ] || fail "nested detail made summary exceed reader cap: $bytes"
+  printf '%s' "$summary" | jq -e '
+    [.terminal_children[] | .id + "=" + .state] == ["terminal=done"]
+      and (.holds[] | select(.id == "blocked")
+        | (.blocked_by_ids | length) == 3
+          and (.unresolved_blocker_ids | length) == 3
+          and .blocked_by_ids_count == 80
+          and .blocked_by_ids_omitted_count == 77
+          and .unresolved_blocker_ids_count == 80
+          and .unresolved_blocker_ids_omitted_count == 77)
+      and (.queued[] | select(.id == "blocked")
+        | (.blocked_by_ids | length) == 3
+          and (.unresolved_blocker_ids | length) == 3
+          and .blocked_by_ids_count == 80
+          and .blocked_by_ids_omitted_count == 77
+          and .unresolved_blocker_ids_count == 80
+          and .unresolved_blocker_ids_omitted_count == 77)
+  ' >/dev/null || fail "nested nonterminal detail concealed terminal evidence: $summary"
+  pass "nested nonterminal detail remains bounded beside terminal evidence"
+}
+
 test_registry_unavailability_and_bounds_are_explicit() {
   local home fakebin json canonical id mate boundary
   home=$(make_home registry-unavailable)
@@ -1957,6 +2005,7 @@ test_parent_decision_is_untrusted_contradiction_only
 test_parent_evidence_reconciles_by_verb_and_key
 test_nonprogressing_child_states_are_explicit
 test_nonterminal_invalidity_detail_preserves_terminal_page_bound
+test_nested_nonterminal_detail_preserves_terminal_page_bound
 test_registry_unavailability_and_bounds_are_explicit
 test_current_landed_baseline_is_repeatable_and_prior_report_independent
 test_default_is_bounded_and_local_only

@@ -680,6 +680,9 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
       tostring | gsub("\\s+"; " ")
       | if length > $n then .[:$n] + "…" else . end;
     def bounded_id: tostring | .[:120];
+    def bounded_nested_ids:
+      map(trunc(120)) as $all
+      | {items:$all[:3], count:($all | length), omitted_count:([($all | length) - 3, 0] | max)};
     ([ $backlog.records[]?
        | select((.state == "in_flight" or .state == "queued") and (.structured | not)) ]) as $unstructured_current
     | ([ $backlog.records[]? | select(.state == "in_flight" and .structured) ]) as $owned_in_flight
@@ -762,11 +765,20 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
             | {id:$t.id,key,verb,summary:(.summary | trunc(160)),reason:null,source:"status"} ])) as $decisions_all
     | ([ $queued_all[]
          | select((.unresolved_blocker_ids | length) > 0 or (.hold_reason != null and .hold_kind != null))
-         | {id:(.id | trunc(120)),title:(.title | trunc(90)),
-            blocked_by:((.unresolved_blocker_ids | join(",")) | if . == "" then null else trunc(120) end),
-            blocked_by_ids:(.blocked_by_ids | map(trunc(120))),
-            unresolved_blocker_ids:(.unresolved_blocker_ids | map(trunc(120))),
-            reason:((.hold_reason // .blocked_reason // "blocked") | trunc(120)),source:"backlog"} ]
+         | (.blocked_by_ids | bounded_nested_ids) as $blocked
+         | (.unresolved_blocker_ids | bounded_nested_ids) as $unresolved
+         | ({id:(.id | trunc(120)),title:(.title | trunc(90)),
+             blocked_by:((.unresolved_blocker_ids | join(",")) | if . == "" then null else trunc(120) end),
+             blocked_by_ids:$blocked.items,
+             unresolved_blocker_ids:$unresolved.items,
+             reason:((.hold_reason // .blocked_reason // "blocked") | trunc(120)),source:"backlog"}
+            + (if $blocked.omitted_count > 0 then
+                 {blocked_by_ids_count:$blocked.count,blocked_by_ids_omitted_count:$blocked.omitted_count}
+               else {} end)
+            + (if $unresolved.omitted_count > 0 then
+                 {unresolved_blocker_ids_count:$unresolved.count,
+                  unresolved_blocker_ids_omitted_count:$unresolved.omitted_count}
+               else {} end)) ]
        + [ $owned_in_flight[] as $work
            | $tasks[]
            | select(.id == $work.id and (.current_state.state == "parked" or .current_state.state == "paused" or .current_state.state == "blocked"))
@@ -819,16 +831,26 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
         },
         decisions_open:$decisions_all[:$decisions_n],
         holds:$holds_all[:$queued_n],
-        queued:([$queued_all[] | {id:(.id | trunc(120)),title:(.title | trunc(120)),
-          blocked_by:((.blocked_by // null) | if . == null then null else trunc(120) end),
-          blocked_by_ids:((.blocked_by_ids // []) | map(trunc(120))),
-          unresolved_blocker_ids:((.unresolved_blocker_ids // []) | map(trunc(120))),
-          blocked_reason:((.blocked_reason // null) | if . == null then null else trunc(160) end),
-          hold_reason:((.hold_reason // null) | if . == null then null else trunc(160) end),
-          hold_kind:((.hold_kind // null) | if . == null then null else trunc(40) end),
-          captain_actionable:(.captain_actionable // false),
-          repo:((.repo // null) | if . == null then null else trunc(120) end),
-          kind:((.kind // null) | if . == null then null else trunc(40) end)}][:$queued_n]),
+        queued:([$queued_all[]
+          | ((.blocked_by_ids // []) | bounded_nested_ids) as $blocked
+          | ((.unresolved_blocker_ids // []) | bounded_nested_ids) as $unresolved
+          | ({id:(.id | trunc(120)),title:(.title | trunc(120)),
+             blocked_by:((.blocked_by // null) | if . == null then null else trunc(120) end),
+             blocked_by_ids:$blocked.items,
+             unresolved_blocker_ids:$unresolved.items,
+             blocked_reason:((.blocked_reason // null) | if . == null then null else trunc(160) end),
+             hold_reason:((.hold_reason // null) | if . == null then null else trunc(160) end),
+             hold_kind:((.hold_kind // null) | if . == null then null else trunc(40) end),
+             captain_actionable:(.captain_actionable // false),
+             repo:((.repo // null) | if . == null then null else trunc(120) end),
+             kind:((.kind // null) | if . == null then null else trunc(40) end)}
+            + (if $blocked.omitted_count > 0 then
+                 {blocked_by_ids_count:$blocked.count,blocked_by_ids_omitted_count:$blocked.omitted_count}
+               else {} end)
+            + (if $unresolved.omitted_count > 0 then
+                 {unresolved_blocker_ids_count:$unresolved.count,
+                  unresolved_blocker_ids_omitted_count:$unresolved.omitted_count}
+               else {} end))][:$queued_n]),
         landed:(if $landed_n == 0 then $landed_all else $landed_all[:$landed_n] end),
         endpoints:([$tasks[] | {id,state:.current_state.state,source:.current_state.source,
           endpoint:(.endpoint + {target:((.endpoint.target // null) | if . == null then null else trunc(240) end)})}][:$child_n]),
