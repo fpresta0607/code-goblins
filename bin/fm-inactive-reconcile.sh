@@ -51,6 +51,8 @@ CREW_STATE_BIN="${FM_INACTIVE_CREW_STATE_BIN:-$SCRIPT_DIR/fm-crew-state.sh}"
 SUMMARY_BIN="${FM_INACTIVE_RECONCILE_SUMMARY_BIN:-$SCRIPT_DIR/fm-fleet-snapshot.sh}"
 SEND_BIN="${FM_INACTIVE_RECONCILE_SEND_BIN:-$SCRIPT_DIR/fm-send.sh}"
 
+# shellcheck source=bin/fm-timeout-lib.sh
+. "$SCRIPT_DIR/fm-timeout-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-classify-lib.sh
@@ -63,6 +65,8 @@ SEND_BIN="${FM_INACTIVE_RECONCILE_SEND_BIN:-$SCRIPT_DIR/fm-send.sh}"
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
 
 FM_INACTIVE_RECONCILE_SECS=${FM_INACTIVE_RECONCILE_SECS:-900}
+FM_SNAPSHOT_SECONDMATE_TIMEOUT=${FM_SNAPSHOT_SECONDMATE_TIMEOUT:-8}
+FM_SNAPSHOT_SECONDMATE_MAX_BYTES=${FM_SNAPSHOT_SECONDMATE_MAX_BYTES:-262144}
 case "$FM_INACTIVE_RECONCILE_SECS" in
   ''|*[!0-9]*|0)
     printf 'fm-inactive-reconcile: FM_INACTIVE_RECONCILE_SECS must be a whole number from 60 to 1800\n' >&2
@@ -73,6 +77,12 @@ if [ "$FM_INACTIVE_RECONCILE_SECS" -lt 60 ] || [ "$FM_INACTIVE_RECONCILE_SECS" -
   printf 'fm-inactive-reconcile: FM_INACTIVE_RECONCILE_SECS must be a whole number from 60 to 1800\n' >&2
   exit 2
 fi
+case "$FM_SNAPSHOT_SECONDMATE_TIMEOUT" in
+  ''|*[!0-9]*|0) FM_SNAPSHOT_SECONDMATE_TIMEOUT=8 ;;
+esac
+case "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" in
+  ''|*[!0-9]*|0) FM_SNAPSHOT_SECONDMATE_MAX_BYTES=262144 ;;
+esac
 
 if [ "$(uname)" = Darwin ]; then
   file_mtime() { stat -f %m "$1" 2>/dev/null; }
@@ -286,6 +296,34 @@ parent_has_outcome_report() { # <secondmate-id> <child-id> <state>
   grep -Eq "^(done|failed) \[key=${key//./\\.}\]:" "$status" 2>/dev/null
 }
 
+run_bounded_summary() { # <command> [args...]
+  local tmp rc bytes limit
+  limit=$((FM_SNAPSHOT_SECONDMATE_MAX_BYTES + 1))
+  tmp=$(mktemp "$OUTCOME_DIR/.summary.XXXXXX") || return 1
+  fm_run_timed "$FM_SNAPSHOT_SECONDMATE_TIMEOUT" bash -o pipefail -c '
+    limit=$1
+    shift
+    "$@" | LC_ALL=C head -c "$limit"
+    status=("${PIPESTATUS[@]}")
+    [ "${status[1]}" -eq 0 ] || exit "${status[1]}"
+    case "${status[0]}" in 0|141) exit 0 ;; *) exit "${status[0]}" ;; esac
+  ' _ "$limit" "$@" < /dev/null > "$tmp" 2>/dev/null
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    rm -f "$tmp"
+    return "$rc"
+  fi
+  bytes=$(LC_ALL=C wc -c < "$tmp" | tr -d ' ')
+  if [ "$bytes" -gt "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" ]; then
+    rm -f "$tmp"
+    return 1
+  fi
+  cat "$tmp"
+  rc=$?
+  rm -f "$tmp"
+  return "$rc"
+}
+
 summary_for_secondmate() { # <id> <meta>
   local id=$1 meta=$2 home remote_host
   home=$(meta_field "$meta" home)
@@ -294,18 +332,18 @@ summary_for_secondmate() { # <id> <meta>
   # The existing watcher poll performs the remote summary on its normal cadence.
   if [ -n "$remote_host" ]; then
     [ "${SCAN_STARTUP:-0}" != 1 ] || return 1
-    "$SCRIPT_DIR/fm-on.sh" "$id" fm-fleet-snapshot.sh --secondmate-home-summary < /dev/null 2>/dev/null
+    run_bounded_summary "$SCRIPT_DIR/fm-on.sh" "$id" fm-fleet-snapshot.sh --secondmate-home-summary
     return
   fi
   validate_secondmate_home "$id" "$home" 2>/dev/null || return 1
-  env \
+  run_bounded_summary env \
     FM_ROOT_OVERRIDE="$FM_ROOT" \
     FM_HOME="$VALIDATED_HOME" \
     FM_STATE_OVERRIDE="$VALIDATED_HOME/state" \
     FM_DATA_OVERRIDE="$VALIDATED_HOME/data" \
     FM_CONFIG_OVERRIDE="$VALIDATED_HOME/config" \
     FM_PROJECTS_OVERRIDE="$VALIDATED_HOME/projects" \
-    "$SUMMARY_BIN" --secondmate-home-summary 2>/dev/null
+    "$SUMMARY_BIN" --secondmate-home-summary
 }
 
 request_secondmate_report() { # <record> <secondmate-id> <child-id> <state> <outcome-key>

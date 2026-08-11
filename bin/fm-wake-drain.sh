@@ -19,6 +19,7 @@ RECOVERY_MARKER_TOKEN=
 RECOVERY_ACK_REQUIRED=false
 ACK_THROUGH=
 ACK_GENERATION=
+INACTIVE_OUTCOME_FINGERPRINTS=
 
 case "${1:-}" in
   '') ;;
@@ -51,7 +52,7 @@ assert_watcher_liveness() {
 # turn has completed and before this acknowledgement consumes its queue rows.
 # The helper ignores non-presentation and legacy keys, so this is a narrow
 # receipt path rather than a second interpretation of general check wakes.
-acknowledge_inactive_outcomes() { # <sequence>
+collect_inactive_outcomes() { # <sequence>
   local cutoff=$1 epoch seq kind key payload fingerprint
   while IFS=$(printf '\t') read -r epoch seq kind key payload; do
     [ "$kind" = check ] || continue
@@ -61,8 +62,18 @@ acknowledge_inactive_outcomes() { # <sequence>
       inactive-outcome:*) fingerprint=${key#inactive-outcome:} ;;
       *) continue ;;
     esac
-    "$SCRIPT_DIR/fm-inactive-reconcile.sh" acknowledge "$fingerprint" || return 1
+    printf '%s\n' "$fingerprint"
   done < "$FM_WAKE_QUEUE"
+}
+
+acknowledge_inactive_outcomes() { # <newline-separated-fingerprints>
+  local fingerprints=$1 fingerprint
+  while IFS= read -r fingerprint; do
+    [ -n "$fingerprint" ] || continue
+    "$SCRIPT_DIR/fm-inactive-reconcile.sh" acknowledge "$fingerprint" || return 1
+  done <<EOF
+$fingerprints
+EOF
 }
 
 # Print the consolidated OPEN DECISIONS section: every still-open
@@ -145,12 +156,23 @@ if [ -n "$ACK_THROUGH" ]; then
     echo "wake drain: recovery generation is stale or could not be acknowledged safely" >&2
     exit 1
   fi
-  DRAIN_TMP=$(mktemp "$STATE/.wake-queue.ack.XXXXXX") || exit 1
-  chmod 0600 "$DRAIN_TMP" || exit 1
-  if ! acknowledge_inactive_outcomes "$ACK_THROUGH"; then
+  INACTIVE_OUTCOME_FINGERPRINTS=$(collect_inactive_outcomes "$ACK_THROUGH") || exit 1
+  fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+  DRAIN_LOCK_HELD=false
+  if ! acknowledge_inactive_outcomes "$INACTIVE_OUTCOME_FINGERPRINTS"; then
     echo "wake drain: inactive outcome presentation receipt could not be recorded safely" >&2
     exit 1
   fi
+  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" || exit 1
+  DRAIN_LOCK_HELD=true
+  fm_recovery_marker_snapshot "$RECOVERY_MARKER" || exit 1
+  RECOVERY_MARKER_TOKEN=$FM_RECOVERY_MARKER_TOKEN
+  if [ "${RECOVERY_MARKER_TOKEN##*:}" != "$ACK_GENERATION" ]; then
+    echo "wake drain: recovery generation is stale or could not be acknowledged safely" >&2
+    exit 1
+  fi
+  DRAIN_TMP=$(mktemp "$STATE/.wake-queue.ack.XXXXXX") || exit 1
+  chmod 0600 "$DRAIN_TMP" || exit 1
   awk -F '\t' -v cutoff="$ACK_THROUGH" '
     NF < 5 || $2 !~ /^[0-9]+$/ || $2 > cutoff { print }
   ' "$FM_WAKE_QUEUE" > "$DRAIN_TMP" || exit 1
