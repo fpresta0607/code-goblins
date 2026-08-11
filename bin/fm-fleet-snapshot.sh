@@ -978,7 +978,7 @@ bounded_secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
   local summary bytes count
   summary=$(secondmate_home_summary_json "$1" "$2") || return 1
   summary=$(printf '%s' "$summary" | jq -c '.') || return 1
-  bytes=$(printf '%s' "$summary" | LC_ALL=C wc -c | tr -d ' ')
+  bytes=$(printf '%s\n' "$summary" | LC_ALL=C wc -c | tr -d ' ')
   if [ "$bytes" -gt "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" ]; then
     summary=$(printf '%s' "$summary" | jq -c '
       {
@@ -995,7 +995,7 @@ bounded_secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
     ') || return 1
   fi
   while :; do
-    bytes=$(printf '%s' "$summary" | LC_ALL=C wc -c | tr -d ' ')
+    bytes=$(printf '%s\n' "$summary" | LC_ALL=C wc -c | tr -d ' ')
     [ "$bytes" -gt "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" ] || break
     count=$(printf '%s' "$summary" | jq -r '.terminal_children | length')
     if [ "$count" -eq 0 ]; then

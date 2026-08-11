@@ -977,12 +977,12 @@ EOF
 }
 
 test_terminal_page_respects_summary_byte_budget() {
-  local mate fakebin summary next i id bytes total_seen=0
+  local mate fakebin summary next i id bytes exact_file exact_budget exact_bytes total_seen=0 terminal_total=100
   mate="$TMP_ROOT/byte-bounded-terminal-page-home"
   make_valid_secondmate_home byte-bounded-terminal-page "$mate"
   printf '## In flight\n' > "$mate/data/backlog.md"
   i=1
-  while [ "$i" -le 20 ]; do
+  while [ "$i" -le "$terminal_total" ]; do
     id=$(printf 'terminal-%02d-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$i")
     printf -- '- [ ] %s - Terminal child (repo: sample) (kind: ship) (since 2026-07-11)\n' "$id" >> "$mate/data/backlog.md"
     mkdir -p "$mate/projects/$id"
@@ -995,18 +995,33 @@ test_terminal_page_respects_summary_byte_budget() {
   done
   printf '\n## Queued\n\n## Done\n' >> "$mate/data/backlog.md"
   fakebin=$(make_fakebin "$mate")
+  exact_file="$TMP_ROOT/byte-bounded-exact-summary.json"
+  PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
+    FM_SNAPSHOT_NOW_EPOCH=2000000000 \
+    FM_SNAPSHOT_SECONDMATE_CHILDREN="$terminal_total" FM_SNAPSHOT_SECONDMATE_MAX_BYTES=262144 \
+    "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary > "$exact_file"
+  exact_budget=$(( $(wc -c < "$exact_file" | tr -d ' ') - 1 ))
+  [ "$exact_budget" -ge 32768 ] || fail "summary fixture did not reach supported byte budget"
+  PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
+    FM_SNAPSHOT_NOW_EPOCH=2000000000 \
+    FM_SNAPSHOT_SECONDMATE_CHILDREN="$terminal_total" FM_SNAPSHOT_SECONDMATE_MAX_BYTES=262144 \
+    "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary \
+      --summary-max-bytes "$exact_budget" > "$exact_file"
+  exact_bytes=$(wc -c < "$exact_file" | tr -d ' ')
+  [ "$exact_bytes" -le "$exact_budget" ] \
+    || fail "summary framing exceeded exact byte budget: $exact_bytes > $exact_budget"
   next=
   while :; do
     if [ -n "$next" ]; then
       summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
         FM_SNAPSHOT_NOW_EPOCH=2000000000 \
-        FM_SNAPSHOT_SECONDMATE_CHILDREN=20 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=262144 \
+        FM_SNAPSHOT_SECONDMATE_CHILDREN="$terminal_total" FM_SNAPSHOT_SECONDMATE_MAX_BYTES=262144 \
         "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary \
           --summary-max-bytes 32768 --terminal-after "$next")
     else
       summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
         FM_SNAPSHOT_NOW_EPOCH=2000000000 \
-        FM_SNAPSHOT_SECONDMATE_CHILDREN=20 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=262144 \
+        FM_SNAPSHOT_SECONDMATE_CHILDREN="$terminal_total" FM_SNAPSHOT_SECONDMATE_MAX_BYTES=262144 \
         "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary --summary-max-bytes 32768)
     fi
     bytes=$(printf '%s' "$summary" | wc -c | tr -d ' ')
@@ -1017,7 +1032,7 @@ test_terminal_page_respects_summary_byte_budget() {
     next=$(printf '%s' "$summary" | jq -r '.terminal_page.next_after // ""')
     [ -n "$next" ] || break
   done
-  [ "$total_seen" -eq 20 ] || fail "byte-bounded pages did not traverse every terminal child: $total_seen"
+  [ "$total_seen" -eq "$terminal_total" ] || fail "byte-bounded pages did not traverse every terminal child: $total_seen"
   if PATH="$fakebin:$PATH" FM_HOME="$mate" \
       "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary --summary-max-bytes 32767 \
       >/dev/null 2>&1; then
