@@ -679,6 +679,7 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
     def trunc($n):
       tostring | gsub("\\s+"; " ")
       | if length > $n then .[:$n] + "…" else . end;
+    def bounded_id: tostring | .[:120];
     ([ $backlog.records[]?
        | select((.state == "in_flight" or .state == "queued") and (.structured | not)) ]) as $unstructured_current
     | ([ $backlog.records[]? | select(.state == "in_flight" and .structured) ]) as $owned_in_flight
@@ -712,6 +713,12 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
     | ([ $terminal_in_flight[] | select($terminal_after == "" or .id > $terminal_after) ]) as $terminal_remaining
     | ($terminal_remaining[:$child_n]) as $terminal_page
     | (($terminal_remaining | length) > $child_n) as $terminal_has_more
+    | ($orphan_in_flight | map(.id | bounded_id) | sort | unique) as $orphan_ids_all
+    | ($orphan_ids_all[:$child_n]) as $orphan_ids
+    | ($unowned_children | map({id:(.id | bounded_id),state:(.state | trunc(40))}) | sort_by(.id)) as $unowned_all
+    | ($unowned_all[:$child_n]) as $unowned_page
+    | ($unknown_children | map(.id | bounded_id) | sort | unique) as $unknown_ids_all
+    | ($unknown_ids_all[:$child_n]) as $unknown_ids
     | ([if $backlog.present != true then
           {kind:"missing_backlog",ids:[],reason:"missing structured backlog"}
         else empty end,
@@ -719,13 +726,25 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
           {kind:"unstructured_current",ids:[],reason:"unstructured current backlog row"}
         else empty end,
         if ($orphan_in_flight | length) > 0 then
-          {kind:"orphan_in_flight",ids:($orphan_in_flight | map(.id)),
-           reason:("in-flight backlog item has no child metadata: " + ($orphan_in_flight | map(.id) | join(", ")))}
+          ({kind:"orphan_in_flight",ids:$orphan_ids,
+            reason:("in-flight backlog item has no child metadata: " + ($orphan_ids | join(", ")) +
+                    (if ($orphan_ids_all | length) > ($orphan_ids | length) then
+                       " (and " + ((($orphan_ids_all | length) - ($orphan_ids | length)) | tostring) + " more)"
+                     else "" end))} +
+           (if ($orphan_ids_all | length) > ($orphan_ids | length) then
+              {omitted_count:(($orphan_ids_all | length) - ($orphan_ids | length))}
+            else {} end))
         else empty end,
         if ($unowned_children | length) > 0 then
-          {kind:"unowned_current",ids:($unowned_children | map(.id)),
-           reason:("live child state has no in-flight backlog item: " +
-                   ($unowned_children | map(.id + "=" + .state) | join(", ")))}
+          ({kind:"unowned_current",ids:($unowned_page | map(.id)),
+            reason:("live child state has no in-flight backlog item: " +
+                    ($unowned_page | map(.id + "=" + .state) | join(", ")) +
+                    (if ($unowned_all | length) > ($unowned_page | length) then
+                       " (and " + ((($unowned_all | length) - ($unowned_page | length)) | tostring) + " more)"
+                     else "" end))} +
+           (if ($unowned_all | length) > ($unowned_page | length) then
+              {omitted_count:(($unowned_all | length) - ($unowned_page | length))}
+            else {} end))
         else empty end,
         if ($terminal_in_flight | length) > 0 then
           {kind:"terminal_in_flight",ids:($terminal_page | map(.id)),
@@ -763,10 +782,17 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
        and ($terminal_in_flight | length) == 0) as $valid
     | (if ($strict_invalidities | length) > 0 then $strict_invalidities[0].reason
        elif ($unknown_children | length) > 0 then
-         "child current state unavailable: " + ($unknown_children | map(.id) | join(", "))
+         "child current state unavailable: " + ($unknown_ids | join(", ")) +
+         (if ($unknown_ids_all | length) > ($unknown_ids | length) then
+            " (and " + ((($unknown_ids_all | length) - ($unknown_ids | length)) | tostring) + " more)"
+          else "" end)
        else null end) as $reason
     | (if ($strict_invalidities | length) > 0 then $strict_invalidities[0] | del(.reason)
-       elif ($unknown_children | length) > 0 then {kind:"child_current_unavailable",ids:($unknown_children | map(.id))}
+       elif ($unknown_children | length) > 0 then
+         ({kind:"child_current_unavailable",ids:$unknown_ids} +
+          (if ($unknown_ids_all | length) > ($unknown_ids | length) then
+             {omitted_count:(($unknown_ids_all | length) - ($unknown_ids | length))}
+           else {} end))
        else {kind:null,ids:[]} end) as $invalidity
     | (if $valid | not then "unknown"
        elif any($decisions_all[]; .verb == "needs-decision" or .verb == "captain-hold") then "captain_decision"

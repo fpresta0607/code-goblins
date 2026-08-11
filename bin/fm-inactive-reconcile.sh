@@ -654,7 +654,7 @@ scan() {
     valid_id "$id" || continue
     kind=$(meta_field "$meta" kind)
     [ "$kind" = secondmate ] && continue
-    reconcile_direct_child "$id" "$meta" "$self"
+    reconcile_direct_child "$id" "$meta" "$self" || return 1
   done
   if [ -z "$self" ]; then
     scan_secondmates
