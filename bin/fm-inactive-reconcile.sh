@@ -373,6 +373,17 @@ summary_is_authoritative() { # <summary> <expected-home> <terminal-after>
     and (.invalidity.kind == null or (.invalidity.kind | type) == "string")
     and (.invalidity.ids | type) == "array"
     and all(.invalidity.ids[]; type == "string" and test("^[A-Za-z0-9._-]+$"))
+    and (if .valid then
+      .reason == null
+      and .invalidity.kind == null
+      and (.invalidity.ids | length) == 0
+      and (.state == "captain_decision" or .state == "active_child_work"
+        or .state == "externally_held" or .state == "no_active_work")
+    else
+      (.reason | type) == "string" and (.reason | length) > 0
+      and (.invalidity.kind | type) == "string" and (.invalidity.kind | length) > 0
+      and .state == "unknown"
+    end)
     and (.active_children | type) == "array"
     and (.decisions_open | type) == "array"
     and (.holds | type) == "array"
@@ -381,15 +392,16 @@ summary_is_authoritative() { # <summary> <expected-home> <terminal-after>
     and (.endpoints | type) == "array"
     and (.counts | type) == "object"
     and (.omitted | type) == "array"
-    and (.terminal_children | type) == "array"
-    and all(.terminal_children[];
-      (type == "object")
-      and (.id | type) == "string" and (.id | test("^[A-Za-z0-9._-]+$"))
-      and (.state == "done" or .state == "failed"))
-    and ([.terminal_children[].id] == ([.terminal_children[].id] | sort | unique))
-    and (if .valid then (.terminal_children | length) == 0 else true end)
-    and (if has("terminal_page") then
-      (.terminal_page | type) == "object"
+    and (has("terminal_children") == has("terminal_page"))
+    and (if has("terminal_children") then
+      (.terminal_children | type) == "array"
+      and all(.terminal_children[];
+        (type == "object")
+        and (.id | type) == "string" and (.id | test("^[A-Za-z0-9._-]+$"))
+        and (.state == "done" or .state == "failed"))
+      and ([.terminal_children[].id] == ([.terminal_children[].id] | sort | unique))
+      and (if .valid then (.terminal_children | length) == 0 else true end)
+      and (.terminal_page | type) == "object"
       and .terminal_page.after == (if $after == "" then null else $after end)
       and (.terminal_page.has_more | type) == "boolean"
       and (.terminal_page.count | type) == "number"
@@ -488,12 +500,12 @@ reconcile_direct_child() { # <id> <meta> <secondmate-id-or-empty>
     *) return 0 ;;
   esac
   pr=$(pr_for_task "$meta" "$status")
-  fingerprint=$(sha256_text "$id|$state|$pr|$(clean_field "$last")")
   if [ -n "$self" ]; then
     outcome_key="inactive-outcome-$self-$id-$state"
   else
     outcome_key="inactive-outcome-main-$id-$state"
   fi
+  fingerprint=$(sha256_text "direct|$outcome_key")
   ensure_record "$fingerprint" "$id" "$state" "$outcome_key" direct "upstream" "$pr" || return 1
   [ -n "$RECORD_PENDING" ] || return 0
   if [ -n "$self" ]; then

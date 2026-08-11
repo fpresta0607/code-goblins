@@ -141,7 +141,7 @@ write_summary() { # <state>
   local generated
   generated=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   cat > "$MATE/summary.json" <<EOF
-{"schema":"fm-secondmate-home-summary.v1","generated":"$generated","home":"$MATE","valid":false,"reason":"terminal child","invalidity":{"kind":"terminal_in_flight","ids":["child"]},"state":"unknown","active_children":[],"terminal_children":[{"id":"child","state":"$1"}],"decisions_open":[],"holds":[],"queued":[],"landed":[],"endpoints":[],"counts":{},"omitted":[]}
+{"schema":"fm-secondmate-home-summary.v1","generated":"$generated","home":"$MATE","valid":false,"reason":"terminal child","invalidity":{"kind":"terminal_in_flight","ids":["child"]},"state":"unknown","active_children":[],"terminal_children":[{"id":"child","state":"$1"}],"terminal_page":{"after":null,"next_after":null,"has_more":false,"count":1,"remaining":1,"total":1},"decisions_open":[],"holds":[],"queued":[],"landed":[],"endpoints":[],"counts":{},"omitted":[]}
 EOF
 }
 
@@ -247,7 +247,9 @@ test_invalid_summary_raises_obligation_without_terminal_request() {
   [ "$(outcome_count "$MAIN" pending)" = 1 ] || fail "invalid summary did not preserve a reconciliation obligation"
   [ "$(wake_count "$MAIN" 'inactive-reconcile:')" = 1 ] || fail "invalid summary did not surface its obligation"
 
-  jq '.valid=true | .reason=null | .invalidity={kind:null,ids:[]} | .terminal_children=[]' \
+  jq '.valid=true | .reason=null | .invalidity={kind:null,ids:[]} | .state="no_active_work"
+      | .terminal_children=[]
+      | .terminal_page={after:null,next_after:null,has_more:false,count:0,remaining:0,total:0}' \
     "$MATE/summary.json" > "$MATE/summary.tmp" && mv "$MATE/summary.tmp" "$MATE/summary.json"
   FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
   [ "$(outcome_count "$MAIN" pending)" = 0 ] || fail "valid summary did not close the failure episode"
@@ -286,6 +288,17 @@ test_crashed_pending_reply_link_is_recovered() {
   pass "crashed pending-reply links recover their original correlation"
 }
 
+test_legacy_summary_without_terminal_channel_is_compatible() {
+  make_world legacy-summary; bind_secondmate local; write_mate_meta; write_summary done
+  jq 'del(.terminal_children,.terminal_page)
+      | .valid=true | .reason=null | .invalidity={kind:null,ids:[]} | .state="no_active_work"' \
+    "$MATE/summary.json" > "$MATE/summary.tmp" && mv "$MATE/summary.tmp" "$MATE/summary.json"
+  FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  [ "$(outcome_count "$MAIN" pending)" = 0 ] || fail "legacy healthy summary raised a false obligation"
+  [ ! -s "$WORLD/send.log" ] || fail "legacy summary produced a terminal request"
+  pass "legacy structured summaries remain compatible"
+}
+
 test_competing_invalidity_does_not_hide_terminal_page() {
   make_world competing-invalidity; bind_secondmate local; write_mate_meta; write_summary failed
   jq '.invalidity={kind:"unstructured_current",ids:[]}
@@ -298,7 +311,7 @@ test_competing_invalidity_does_not_hide_terminal_page() {
 
 test_malformed_terminal_page_is_not_consumed() {
   local generated mutation
-  for mutation in unsorted bad-after bad-count bad-total valid-terminal; do
+  for mutation in unsorted bad-after bad-count bad-total valid-terminal missing-page orphan-page bad-validity bad-invalidity; do
     make_world "malformed-page-$mutation"; bind_secondmate local; write_mate_meta
     generated=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     jq -n --arg generated "$generated" --arg home "$MATE" --arg mutation "$mutation" '
@@ -313,7 +326,12 @@ test_malformed_terminal_page_is_not_consumed() {
           | .terminal_page.count=2 | .terminal_page.remaining=1
         elif $mutation == "bad-total" then .terminal_children=[{id:"child1",state:"failed"}]
           | .terminal_page={after:null,next_after:null,has_more:false,count:1,remaining:1,total:3}
-        elif $mutation == "valid-terminal" then .valid=true
+        elif $mutation == "valid-terminal" then .valid=true | .reason=null
+          | .invalidity={kind:null,ids:[]} | .state="no_active_work"
+        elif $mutation == "missing-page" then del(.terminal_page)
+        elif $mutation == "orphan-page" then del(.terminal_children)
+        elif $mutation == "bad-validity" then .valid=true
+        elif $mutation == "bad-invalidity" then .invalidity={kind:null,ids:[]}
         else . end' > "$MATE/summary.json"
     if [ "$mutation" = bad-after ]; then
       mkdir -p "$MAIN/state/terminal-outcomes"
@@ -414,11 +432,14 @@ test_remote_startup_deferral_is_silent() {
 test_remote_parent_reply_is_idempotent() {
   make_world remote; bind_secondmate remote; write_child "$MATE" child 'done: green'
   FM_FAKE_CREW_STATE='done' run_reconcile "$MATE" --startup
+  printf 'done: revised detail with late PR https://example.test/owner/repo/pull/99\n' >> "$MATE/state/child.status"
+  printf 'pr=https://example.test/owner/repo/pull/99\n' >> "$MATE/state/child.meta"
+  age "$MATE/state/child.meta" "$MATE/state/child.status"
   FM_FAKE_CREW_STATE='done' run_reconcile "$MATE" --startup
   [ "$(grep -c 'inactive-outcome-mate-child-done' "$MATE/state/parent-replies.status")" = 1 ] \
-    || fail "remote parent reply was not restart-idempotent"
-  [ "$(outcome_count "$MATE" reported)" = 1 ] || fail "remote parent report receipt missing"
-  pass "remote parent-replies mirror input is durable and idempotent"
+    || fail "mutable terminal details duplicated the remote parent reply"
+  [ "$(outcome_count "$MATE" reported)" = 1 ] || fail "mutable terminal details duplicated the durable receipt"
+  pass "remote parent replies use stable terminal episode identity"
 }
 
 # Heartbeat backoff state is deliberately irrelevant to the independent cadence.
@@ -492,6 +513,7 @@ test_failed_delivery_preserves_one_correlated_obligation
 test_invalid_summary_raises_obligation_without_terminal_request
 test_request_attempt_is_durable_before_transport
 test_crashed_pending_reply_link_is_recovered
+test_legacy_summary_without_terminal_channel_is_compatible
 test_competing_invalidity_does_not_hide_terminal_page
 test_malformed_terminal_page_is_not_consumed
 test_terminal_pages_eventually_expose_every_child
