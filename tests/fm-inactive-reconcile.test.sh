@@ -50,7 +50,8 @@ if [ "${FM_TEST_PAGED_SUMMARY:-0}" = 1 ]; then
     | .terminal_page = {
         after:(if $after == "" then null else $after end),
         next_after:(if ($remaining | length) > $n then $page[-1].id else null end),
-        has_more:(($remaining | length) > $n), total:($all | length)
+        has_more:(($remaining | length) > $n), count:($page | length),
+        remaining:($remaining | length), total:($all | length)
       }'
 else
   printf '%s\n' "$summary"
@@ -263,6 +264,28 @@ test_request_attempt_is_durable_before_transport() {
   pass "request attempt is durable before uncertain transport"
 }
 
+test_crashed_pending_reply_link_is_recovered() {
+  local record fingerprint owner corr
+  make_world crashed-link; bind_secondmate local; write_mate_meta; write_summary failed
+  : > "$MAIN/state/pending-replies"
+  FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  rm -f "$MAIN/state/pending-replies"
+  record=$(find "$MAIN/state/terminal-outcomes" -type f -name '*.pending' | head -1)
+  fingerprint=$(sed -n 's/^fingerprint=//p' "$record")
+  owner="inactive-terminal-outcome:$fingerprint"
+  corr=$(
+    # shellcheck source=bin/fm-pending-reply-lib.sh
+    . "$ROOT/bin/fm-pending-reply-lib.sh"
+    fm_pending_reply_create "$MAIN" "$MAIN/state" mate 'crash-window request' "$owner"
+  )
+  FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  [ "$(find "$MAIN/state/pending-replies" -type f ! -name '.*' | wc -l | tr -d ' ')" = 1 ] \
+    || fail "restart created a second pending reply after the link crash"
+  grep -Fq "correlation=$corr" "$record" || fail "restart did not recover the owned correlation"
+  [ "$(wc -l < "$WORLD/send.log" | tr -d ' ')" = 1 ] || fail "recovered request was not delivered exactly once"
+  pass "crashed pending-reply links recover their original correlation"
+}
+
 test_competing_invalidity_does_not_hide_terminal_page() {
   make_world competing-invalidity; bind_secondmate local; write_mate_meta; write_summary failed
   jq '.invalidity={kind:"unstructured_current",ids:[]}
@@ -271,6 +294,36 @@ test_competing_invalidity_does_not_hide_terminal_page() {
   FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
   [ "$(wc -l < "$WORLD/send.log" | tr -d ' ')" = 1 ] || fail "competing invalidity hid terminal evidence"
   pass "terminal evidence is validated independently from primary invalidity"
+}
+
+test_malformed_terminal_page_is_not_consumed() {
+  local generated mutation
+  for mutation in unsorted bad-after bad-count bad-total valid-terminal; do
+    make_world "malformed-page-$mutation"; bind_secondmate local; write_mate_meta
+    generated=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    jq -n --arg generated "$generated" --arg home "$MATE" --arg mutation "$mutation" '
+      {schema:"fm-secondmate-home-summary.v1",generated:$generated,home:$home,valid:false,
+       reason:"terminal children",invalidity:{kind:"terminal_in_flight",ids:[]},state:"unknown",
+       active_children:[],terminal_children:[{id:"child2",state:"failed"},{id:"child1",state:"done"}],
+       terminal_page:{after:null,next_after:null,has_more:false,count:2,remaining:2,total:2},
+       decisions_open:[],holds:[],queued:[],landed:[],endpoints:[],counts:{},omitted:[]}
+      | if $mutation == "bad-after" then .terminal_children=[{id:"child1",state:"failed"}]
+          | .terminal_page={after:"child1",next_after:null,has_more:false,count:1,remaining:1,total:2}
+        elif $mutation == "bad-count" then .terminal_children=[{id:"child1",state:"failed"}]
+          | .terminal_page.count=2 | .terminal_page.remaining=1
+        elif $mutation == "bad-total" then .terminal_children=[{id:"child1",state:"failed"}]
+          | .terminal_page={after:null,next_after:null,has_more:false,count:1,remaining:1,total:3}
+        elif $mutation == "valid-terminal" then .valid=true
+        else . end' > "$MATE/summary.json"
+    if [ "$mutation" = bad-after ]; then
+      mkdir -p "$MAIN/state/terminal-outcomes"
+      printf 'child1\n' > "$MAIN/state/terminal-outcomes/.summary-cursor-mate"
+    fi
+    FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+    [ ! -s "$WORLD/send.log" ] || fail "$mutation terminal page was consumed"
+    [ "$(wake_count "$MAIN" 'inactive-reconcile:')" = 1 ] || fail "$mutation terminal page did not surface"
+  done
+  pass "malformed terminal page semantics fail safe"
 }
 
 test_terminal_pages_eventually_expose_every_child() {
@@ -290,6 +343,26 @@ test_terminal_pages_eventually_expose_every_child() {
   [ "$(wc -l < "$WORLD/send.log" | tr -d ' ')" = 5 ] || fail "paged summary did not expose every terminal child"
   [ "$(outcome_count "$MAIN" pending)" = 5 ] || fail "paged terminal obligations were dropped"
   pass "bounded terminal pages eventually expose every child"
+}
+
+test_cursor_persistence_failure_is_actionable() {
+  local generated
+  make_world cursor-failure; bind_secondmate local; write_mate_meta
+  generated=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jq -n --arg generated "$generated" --arg home "$MATE" '
+    {schema:"fm-secondmate-home-summary.v1",generated:$generated,home:$home,valid:false,
+     reason:"terminal children",invalidity:{kind:"terminal_in_flight",ids:[]},state:"unknown",
+     active_children:[],terminal_children:[{id:"child0",state:"failed"},{id:"child1",state:"failed"}],
+     decisions_open:[],holds:[],queued:[],landed:[],endpoints:[],counts:{},omitted:[]}' > "$MATE/summary.json"
+  mkdir "$MAIN/state/terminal-outcomes"
+  mkdir "$MAIN/state/terminal-outcomes/.summary-cursor-mate"
+  if FM_TEST_PAGED_SUMMARY=1 FM_SNAPSHOT_SECONDMATE_CHILDREN=1 FM_FAKE_CREW_STATE=unknown \
+      run_reconcile "$MAIN" --startup; then
+    fail "cursor persistence failure did not fail reconciliation"
+  fi
+  [ "$(wake_count "$MAIN" 'inactive-reconcile:')" -ge 1 ] || fail "cursor persistence failure was not actionable"
+  [ "$(outcome_count "$MAIN" pending)" = 2 ] || fail "cursor failure did not preserve child and summary obligations"
+  pass "cursor persistence failure preserves an actionable obligation"
 }
 
 test_remote_startup_deferral_is_silent() {
@@ -382,8 +455,11 @@ test_main_cross_home_discovers_missing_report_once
 test_failed_delivery_preserves_one_correlated_obligation
 test_invalid_summary_raises_obligation_without_terminal_request
 test_request_attempt_is_durable_before_transport
+test_crashed_pending_reply_link_is_recovered
 test_competing_invalidity_does_not_hide_terminal_page
+test_malformed_terminal_page_is_not_consumed
 test_terminal_pages_eventually_expose_every_child
+test_cursor_persistence_failure_is_actionable
 test_remote_startup_deferral_is_silent
 test_remote_parent_reply_is_idempotent
 test_heartbeat_cap_does_not_delay_reconciliation

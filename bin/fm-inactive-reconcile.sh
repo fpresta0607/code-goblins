@@ -386,21 +386,30 @@ summary_is_authoritative() { # <summary> <expected-home> <terminal-after>
       (type == "object")
       and (.id | type) == "string" and (.id | test("^[A-Za-z0-9._-]+$"))
       and (.state == "done" or .state == "failed"))
-    and (([.terminal_children[].id] | unique | length) == (.terminal_children | length))
+    and ([.terminal_children[].id] == ([.terminal_children[].id] | sort | unique))
+    and (if .valid then (.terminal_children | length) == 0 else true end)
     and (if has("terminal_page") then
       (.terminal_page | type) == "object"
       and .terminal_page.after == (if $after == "" then null else $after end)
       and (.terminal_page.has_more | type) == "boolean"
+      and (.terminal_page.count | type) == "number"
+      and (.terminal_page.remaining | type) == "number"
       and (.terminal_page.total | type) == "number"
-      and (.terminal_page.total | floor) == .terminal_page.total
-      and .terminal_page.total >= (.terminal_children | length)
+      and all([.terminal_page.count, .terminal_page.remaining, .terminal_page.total][];
+        floor == . and . >= 0)
+      and .terminal_page.count == (.terminal_children | length)
+      and .terminal_page.count <= .terminal_page.remaining
+      and .terminal_page.remaining <= .terminal_page.total
+      and (if $after == "" then .terminal_page.remaining == .terminal_page.total else true end)
+      and all(.terminal_children[]; $after == "" or .id > $after)
+      and .terminal_page.has_more == (.terminal_page.remaining > .terminal_page.count)
       and (if .terminal_page.has_more then
-        (.terminal_children | length) > 0
+        .terminal_page.count > 0
         and (.terminal_page.next_after | type) == "string"
         and (.terminal_page.next_after | test("^[A-Za-z0-9._-]+$"))
         and .terminal_page.next_after == .terminal_children[-1].id
-        and ($after == "" or .terminal_page.next_after > $after)
       else .terminal_page.next_after == null end)
+      and (if .valid then .terminal_page.total == 0 else true end)
     else true end)
   ' >/dev/null 2>&1 || return 1
   generated=$(printf '%s' "$summary" | jq -r '.generated')
@@ -427,16 +436,19 @@ clear_summary_obligation() { # <secondmate-id>
 }
 
 request_secondmate_report() { # <record> <secondmate-id> <child-id> <state> <outcome-key>
-  local record=$1 mate=$2 child=$3 state=$4 outcome_key=$5 msg corr rc=0 pending
+  local record=$1 mate=$2 child=$3 state=$4 outcome_key=$5 msg corr rc=0 owner_key
   msg="INACTIVE OUTCOME RECONCILIATION: child $child is authoritatively $state but has no parent report. Append a terminal parent status report with [key=$outcome_key]."
+  owner_key="inactive-terminal-outcome:$(record_value "$record" fingerprint)"
   corr=$(record_value "$record" correlation)
   if [ -z "$corr" ]; then
-    corr=$(fm_pending_reply_create "$FM_HOME" "$STATE" "$mate" "$msg" 2>/dev/null || true)
+    corr=$(fm_pending_reply_find_owned "$STATE" "$mate" "$owner_key" 2>/dev/null || true)
+  fi
+  if [ -z "$corr" ]; then
+    corr=$(fm_pending_reply_create "$FM_HOME" "$STATE" "$mate" "$msg" "$owner_key" 2>/dev/null || true)
     [ -n "$corr" ] || return 2
-    if ! record_field_set "$record" correlation "$corr"; then
-      fm_pending_reply_discard_undelivered "$STATE" "$corr" || true
-      return 2
-    fi
+  fi
+  if [ "$(record_value "$record" correlation)" != "$corr" ]; then
+    record_field_set "$record" correlation "$corr" || return 2
   fi
   fm_pending_reply_corr_reusable "$STATE" "$corr" "$mate" || return 2
   [ "$(record_value "$record" request_attempted)" != 1 ] || return 1
@@ -529,6 +541,7 @@ summary_cursor_get() { # <secondmate-id>
 summary_cursor_set() { # <secondmate-id> <cursor-or-empty>
   local mate=$1 cursor=$2 path tmp
   path="$OUTCOME_DIR/.summary-cursor-$mate"
+  [ ! -e "$path" ] || { [ -f "$path" ] && [ ! -L "$path" ]; } || return 1
   if [ -z "$cursor" ]; then
     rm -f "$path"
     return
@@ -575,13 +588,16 @@ scan_secondmates() {
       summary_obligation "$mate" "$SUMMARY_VALIDATION_REASON"
       continue
     fi
-    clear_summary_obligation "$mate" || true
     while IFS=$(printf '\t') read -r child state; do
       [ -n "$child" ] || continue
       reconcile_secondmate_child "$mate" "$child" "$state"
     done < <(printf '%s' "$summary" | jq -r '.terminal_children[]? | [.id, .state] | @tsv')
     next_after=$(printf '%s' "$summary" | jq -r 'if (.terminal_page.has_more // false) then .terminal_page.next_after else "" end')
-    summary_cursor_set "$mate" "$next_after" || true
+    if ! summary_cursor_set "$mate" "$next_after"; then
+      summary_obligation "$mate" cursor-persist
+      return 1
+    fi
+    clear_summary_obligation "$mate" || return 1
   done
 }
 

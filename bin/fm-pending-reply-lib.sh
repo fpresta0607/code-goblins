@@ -230,10 +230,11 @@ fm_pending_reply_embed_corr() {  # <message> <corr_id> <result-var>
 
 # Create a durable pending-reply expectation. Prints corr_id on success.
 # Does not deliver anything. Fails if parent paths cannot be prepared.
-fm_pending_reply_create() {  # <parent-home> <state-dir> <task_id> <request-text>
-  local parent_home=$1 state=$2 task_id=$3 request_text=$4
+fm_pending_reply_create() {  # <parent-home> <state-dir> <task_id> <request-text> [owner-key]
+  local parent_home=$1 state=$2 task_id=$3 request_text=$4 owner_key=${5:-}
   local dir rec corr now summary status_path tmp
   [ -n "$parent_home" ] && [ -n "$state" ] && [ -n "$task_id" ] || return 2
+  case "$owner_key" in *$'\n'*|*$'\r'*|*=*) return 2 ;; esac
   dir=$(fm_pending_reply_dir "$state")
   mkdir -p "$dir" || return 1
   chmod 700 "$dir" 2>/dev/null || true
@@ -267,6 +268,7 @@ parent_home=$parent_home
 parent_status=$status_path
 parent_status_scan_signature=
 request_summary=$summary
+owner_key=$owner_key
 created_epoch=$now
 delivered_epoch=
 phase=awaiting_report
@@ -290,6 +292,30 @@ EOF
   chmod 600 "$tmp" 2>/dev/null || true
   mv -f "$tmp" "$rec" || return 1
   printf '%s' "$corr"
+}
+
+fm_pending_reply_find_owned() {  # <state-dir> <task_id> <owner-key>
+  local state=$1 task_id=$2 owner_key=$3 dir rec corr phase
+  [ -n "$state" ] && [ -n "$task_id" ] && [ -n "$owner_key" ] || return 1
+  dir=$(fm_pending_reply_dir "$state")
+  [ -d "$dir" ] || return 1
+  for rec in "$dir"/*; do
+    [ -f "$rec" ] || continue
+    [ "$(fm_pending_reply_get "$rec" owner_key)" = "$owner_key" ] || continue
+    [ "$(fm_pending_reply_get "$rec" task_id)" = "$task_id" ] || continue
+    corr=$(fm_pending_reply_get "$rec" corr_id)
+    phase=$(fm_pending_reply_get "$rec" phase)
+    case "$corr:$phase" in
+      [A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9]:awaiting_report|\
+      [A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9]:delivery_unknown|\
+      [A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9]:recovery_sending|\
+      [A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9]:recovery_sent)
+        printf '%s' "$corr"
+        return 0
+        ;;
+    esac
+  done
+  return 1
 }
 
 # Mark delivery success for an existing expectation. Never resolves.

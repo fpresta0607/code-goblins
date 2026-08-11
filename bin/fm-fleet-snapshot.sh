@@ -767,6 +767,8 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
           after:(if $terminal_after == "" then null else $terminal_after end),
           next_after:(if $terminal_has_more then $terminal_page[-1].id else null end),
           has_more:$terminal_has_more,
+          count:($terminal_page | length),
+          remaining:($terminal_remaining | length),
           total:($terminal_in_flight | length)
         },
         decisions_open:$decisions_all[:$decisions_n],
