@@ -912,6 +912,48 @@ EOF
   pass "malformed terminal episode remains classified and bounded"
 }
 
+test_terminal_page_respects_summary_byte_budget() {
+  local mate fakebin summary next i id bytes total_seen=0
+  mate="$TMP_ROOT/byte-bounded-terminal-page-home"
+  make_valid_secondmate_home byte-bounded-terminal-page "$mate"
+  printf '## In flight\n' > "$mate/data/backlog.md"
+  i=1
+  while [ "$i" -le 20 ]; do
+    id=$(printf 'terminal-%02d-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$i")
+    printf -- '- [ ] %s - Terminal child (repo: sample) (kind: ship) (since 2026-07-11)\n' "$id" >> "$mate/data/backlog.md"
+    mkdir -p "$mate/projects/$id"
+    fm_write_meta "$mate/state/$id.meta" \
+      "window=firstmate:fm-$id" "worktree=$mate/projects/$id" "project=sample" \
+      "harness=claude" "kind=ship" "mode=no-mistakes" "episode_id=$(printf '%024x' "$i")"
+    record_claude_state "$mate/state" "$id" idle
+    printf 'done: complete\n' > "$mate/state/$id.status"
+    i=$((i + 1))
+  done
+  printf '\n## Queued\n\n## Done\n' >> "$mate/data/backlog.md"
+  fakebin=$(make_fakebin "$mate")
+  next=
+  while :; do
+    if [ -n "$next" ]; then
+      summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
+        FM_SNAPSHOT_SECONDMATE_CHILDREN=20 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=4096 \
+        "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary --terminal-after "$next")
+    else
+      summary=$(PATH="$fakebin:$PATH" FM_HOME="$mate" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
+        FM_SNAPSHOT_SECONDMATE_CHILDREN=20 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=4096 \
+        "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
+    fi
+    bytes=$(printf '%s' "$summary" | wc -c | tr -d ' ')
+    [ "$bytes" -le 4096 ] || fail "terminal page exceeded summary byte budget: $bytes"
+    i=$(printf '%s' "$summary" | jq -r '.terminal_page.count')
+    [ "$i" -gt 0 ] || fail "byte-bounded terminal page made no cursor progress"
+    total_seen=$((total_seen + i))
+    next=$(printf '%s' "$summary" | jq -r '.terminal_page.next_after // ""')
+    [ -n "$next" ] || break
+  done
+  [ "$total_seen" -eq 20 ] || fail "byte-bounded pages did not traverse every terminal child: $total_seen"
+  pass "terminal pages remain consumable and deterministically traversable"
+}
+
 test_registry_unavailability_and_bounds_are_explicit() {
   local home fakebin json canonical id mate boundary
   home=$(make_home registry-unavailable)
@@ -2049,6 +2091,7 @@ test_nonprogressing_child_states_are_explicit
 test_nonterminal_invalidity_detail_preserves_terminal_page_bound
 test_nested_nonterminal_detail_preserves_terminal_page_bound
 test_malformed_terminal_episode_preserves_terminal_page_bound
+test_terminal_page_respects_summary_byte_budget
 test_registry_unavailability_and_bounds_are_explicit
 test_current_landed_baseline_is_repeatable_and_prior_report_independent
 test_default_is_bounded_and_local_only

@@ -64,6 +64,8 @@ SEND_BIN="${FM_INACTIVE_RECONCILE_SEND_BIN:-$SCRIPT_DIR/fm-send.sh}"
 . "$SCRIPT_DIR/fm-ff-lib.sh"
 # shellcheck source=bin/fm-pending-reply-lib.sh
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
+# shellcheck source=bin/fm-episode-id-lib.sh
+. "$SCRIPT_DIR/fm-episode-id-lib.sh"
 
 FM_INACTIVE_RECONCILE_SECS=${FM_INACTIVE_RECONCILE_SECS:-900}
 FM_SNAPSHOT_SECONDMATE_TIMEOUT=${FM_SNAPSHOT_SECONDMATE_TIMEOUT:-8}
@@ -406,7 +408,7 @@ summary_is_authoritative() { # <summary> <expected-home> <terminal-after>
         and (.id | type) == "string" and (.id | test("^[A-Za-z0-9._-]+$"))
         and (.state == "done" or .state == "failed")
         and ((.episode_id // null) == null or
-          ((.episode_id | type) == "string" and (.episode_id | test("^[A-Za-z0-9._-]+$")) and (.episode_id | length) <= 120)))
+          ((.episode_id | type) == "string" and (.episode_id | test("^([0-9a-f]{16}|[0-9a-f]{24})$")))))
       and ([.terminal_children[].id] == ([.terminal_children[].id] | sort | unique))
       and (if .valid then (.terminal_children | length) == 0 else true end)
       and (.terminal_page | type) == "object"
@@ -518,8 +520,7 @@ reconcile_direct_child() { # <id> <meta> <secondmate-id-or-empty>
     *) return 0 ;;
   esac
   pr=$(pr_for_task "$meta" "$status")
-  episode=$(meta_field "$meta" episode_id)
-  valid_id "$episode" || episode=
+  episode=$(fm_episode_id_normalize "$(meta_field "$meta" episode_id)" 2>/dev/null || true)
   if [ -n "$self" ]; then
     outcome_key=$(terminal_outcome_key "$self" "$id" "$state" "$episode")
   else
@@ -562,7 +563,7 @@ reconcile_secondmate_child() { # <secondmate-id> <child-id> <state> <episode-id>
   local mate=$1 child=$2 state=$3 episode=${4:-} fingerprint outcome_key
   valid_id "$mate" && valid_id "$child" || return 0
   case "$state" in done|failed) ;; *) return 0 ;; esac
-  valid_id "$episode" || episode=
+  episode=$(fm_episode_id_normalize "$episode" 2>/dev/null || true)
   outcome_key=$(terminal_outcome_key "$mate" "$child" "$state" "$episode")
   fingerprint=$(sha256_text "secondmate|$outcome_key")
   ensure_record "$fingerprint" "$child" "$state" "$outcome_key" "secondmate:$mate" upstream "" || return 1

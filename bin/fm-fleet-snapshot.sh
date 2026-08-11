@@ -138,6 +138,8 @@ validate_positive_bound FM_SNAPSHOT_REGISTRY_TIMEOUT "$FM_SNAPSHOT_REGISTRY_TIME
 # shellcheck source=bin/fm-backend.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-backend.sh"
+# shellcheck source=bin/fm-episode-id-lib.sh
+. "$SCRIPT_DIR/fm-episode-id-lib.sh"
 # shellcheck source=bin/fm-classify-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-classify-lib.sh"
@@ -428,7 +430,7 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
 }
 
 task_json_lines() {
-  local meta id kind harness mode yolo project worktree home projects episode_id episode_id_valid backend target status_log report_path
+  local meta id kind harness mode yolo project worktree home projects episode_id episode_id_valid normalized_episode backend target status_log report_path
   local remote_host remote_root remote_state remote_rc remote_home_present
   local pr pr_source event_json current_json endpoint_exists agent_alive meta_json status_json report_json worktree_json home_json
   local last_event_raw current_state current_source pending_decision blocked_event report_present=0 pr_from_status
@@ -449,17 +451,13 @@ task_json_lines() {
     episode_id=$(meta_value "$meta" episode_id)
     episode_id_valid=true
     if [ -n "$episode_id" ]; then
-      case "$episode_id" in
-        *[!0-9a-f]*) episode_id_valid=false ;;
-        *)
-          case ${#episode_id} in
-            16|24) ;;
-            *) episode_id_valid=false ;;
-          esac
-          ;;
-      esac
+      if normalized_episode=$(fm_episode_id_normalize "$episode_id" 2>/dev/null); then
+        episode_id=$normalized_episode
+      else
+        episode_id_valid=false
+        episode_id=
+      fi
     fi
-    [ "$episode_id_valid" = true ] || episode_id=
     remote_host=$(meta_value "$meta" remote_host)
     remote_root=$(meta_value "$meta" remote_root)
     remote_home_present=null
@@ -728,7 +726,8 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
          | $tasks[]
          | select(.id == $work.id and (.current_state.state == "done" or .current_state.state == "failed"))
          | {id,state:.current_state.state,episode_id:(.episode_id // null),episode_id_valid:(if has("episode_id_valid") then .episode_id_valid else true end)} ] | sort_by(.id)) as $terminal_candidates
-    | ([ $terminal_candidates[] | select(.episode_id_valid == false) | .id | bounded_id ] | sort | unique) as $malformed_terminal_episode_ids
+    | ([ $terminal_candidates[] | select(.episode_id_valid == false) | .id | bounded_id ] | sort | unique) as $malformed_terminal_episode_ids_all
+    | ($malformed_terminal_episode_ids_all[:$child_n]) as $malformed_terminal_episode_ids
     | ($terminal_candidates | map(del(.episode_id_valid))) as $terminal_in_flight
     | ([ $terminal_in_flight[] | select($terminal_after == "" or .id > $terminal_after) ]) as $terminal_remaining
     | ($terminal_remaining[:$child_n]) as $terminal_page
@@ -766,9 +765,15 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
               {omitted_count:(($unowned_all | length) - ($unowned_page | length))}
             else {} end))
         else empty end,
-        if ($malformed_terminal_episode_ids | length) > 0 then
-          {kind:"malformed_terminal_episode",ids:$malformed_terminal_episode_ids,
-           reason:("terminal child has malformed episode identity: " + ($malformed_terminal_episode_ids | join(", ")))}
+        if ($malformed_terminal_episode_ids_all | length) > 0 then
+          ({kind:"malformed_terminal_episode",ids:$malformed_terminal_episode_ids,
+            reason:("terminal child has malformed episode identity: " + ($malformed_terminal_episode_ids | join(", ")) +
+                    (if ($malformed_terminal_episode_ids_all | length) > ($malformed_terminal_episode_ids | length) then
+                       " (and " + ((($malformed_terminal_episode_ids_all | length) - ($malformed_terminal_episode_ids | length)) | tostring) + " more)"
+                     else "" end))} +
+           (if ($malformed_terminal_episode_ids_all | length) > ($malformed_terminal_episode_ids | length) then
+              {omitted_count:(($malformed_terminal_episode_ids_all | length) - ($malformed_terminal_episode_ids | length))}
+            else {} end))
         else empty end,
         if ($terminal_in_flight | length) > 0 then
           {kind:"terminal_in_flight",ids:($terminal_page | map(.id)),
@@ -891,6 +896,59 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
           (if $landed_n > 0 and ($landed_all | length) > $landed_n then {surface:"landed",count:(($landed_all | length) - $landed_n)} else empty end)
         ]
       }'
+}
+
+bounded_secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
+  local summary bytes count
+  summary=$(secondmate_home_summary_json "$1" "$2") || return 1
+  summary=$(printf '%s' "$summary" | jq -c '.') || return 1
+  bytes=$(printf '%s' "$summary" | LC_ALL=C wc -c | tr -d ' ')
+  if [ "$bytes" -gt "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" ]; then
+    summary=$(printf '%s' "$summary" | jq -c '
+      def omit($name; $items):
+        if ($items | length) > 0 then {surface:$name,count:($items | length)} else empty end;
+      .omitted += [
+        omit("active_children_byte_budget"; .active_children),
+        omit("decisions_open_byte_budget"; .decisions_open),
+        omit("holds_byte_budget"; .holds),
+        omit("queued_byte_budget"; .queued),
+        omit("landed_byte_budget"; .landed),
+        omit("endpoints_byte_budget"; .endpoints)
+      ]
+      | .active_children = [] | .decisions_open = [] | .holds = []
+      | .queued = [] | .landed = [] | .endpoints = []
+      | (.invalidity.ids | length) as $invalid_count
+      | .invalidity.ids = .invalidity.ids[:3]
+      | if $invalid_count > 3 then
+          .invalidity.omitted_count = ((.invalidity.omitted_count // 0) + $invalid_count - 3)
+        else . end
+      | if (.reason | type) == "string" and (.reason | length) > 240 then
+          .reason = (.reason[:239] + "…")
+        else . end
+    ') || return 1
+  fi
+  while :; do
+    bytes=$(printf '%s' "$summary" | LC_ALL=C wc -c | tr -d ' ')
+    [ "$bytes" -gt "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES" ] || break
+    count=$(printf '%s' "$summary" | jq -r '.terminal_children | length')
+    if [ "$count" -eq 0 ]; then
+      printf '%s\n' "$summary"
+      return 0
+    fi
+    [ "$count" -gt 1 ] || return 1
+    summary=$(printf '%s' "$summary" | jq -c '
+      .terminal_children = .terminal_children[:-1]
+      | .terminal_page.count = (.terminal_children | length)
+      | .terminal_page.has_more = (.terminal_page.remaining > .terminal_page.count)
+      | .terminal_page.next_after = (if .terminal_page.has_more then .terminal_children[-1].id else null end)
+      | if .invalidity.kind == "terminal_in_flight" then
+          .invalidity.ids = [.terminal_children[].id]
+          | .reason = ("in-flight backlog item has terminal child state: " +
+              ([.terminal_children[] | .id + "=" + .state] | join(", ")))
+        else . end
+    ') || return 1
+  done
+  printf '%s\n' "$summary"
 }
 
 # Current registered-secondmate aggregation.
@@ -1461,7 +1519,7 @@ BACKLOG_JSON=$(backlog_json) || { echo "fm-fleet-snapshot: backlog read failed" 
 TASKS_JSON=$(task_json_lines) || { echo "fm-fleet-snapshot: task snapshot failed" >&2; exit 1; }
 
 if [ "$OUTPUT_MODE" = secondmate-home-summary ]; then
-  secondmate_home_summary_json "$BACKLOG_JSON" "$TASKS_JSON" \
+  bounded_secondmate_home_summary_json "$BACKLOG_JSON" "$TASKS_JSON" \
     || { echo "fm-fleet-snapshot: secondmate home summary failed" >&2; exit 1; }
   exit 0
 fi

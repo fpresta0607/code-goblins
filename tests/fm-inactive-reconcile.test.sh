@@ -384,12 +384,12 @@ test_disappeared_terminal_child_replays_durable_obligation() {
 test_terminal_episode_identity_allows_task_id_reuse() {
   make_world episode-reuse; bind_secondmate remote
   write_child "$MATE" child 'done: first episode'
-  printf 'episode_id=episode-one\n' >> "$MATE/state/child.meta"
+  printf 'episode_id=111111111111111111111111\n' >> "$MATE/state/child.meta"
   age "$MATE/state/child.meta"
   FM_FAKE_CREW_STATE=done run_reconcile "$MATE" --startup
   rm -f "$MATE/state/child.meta" "$MATE/state/child.status" "$MATE/state/child.turn-ended"
   write_child "$MATE" child 'done: second episode'
-  printf 'episode_id=episode-two\n' >> "$MATE/state/child.meta"
+  printf 'episode_id=222222222222222222222222\n' >> "$MATE/state/child.meta"
   age "$MATE/state/child.meta"
   FM_FAKE_CREW_STATE=done run_reconcile "$MATE" --startup
   [ "$(grep -c 'inactive terminal child=child' "$MATE/state/parent-replies.status")" = 2 ] \
@@ -398,10 +398,10 @@ test_terminal_episode_identity_allows_task_id_reuse() {
     || fail "distinct terminal episodes shared one durable receipt"
 
   make_world summarized-episode-reuse; bind_secondmate local; write_mate_meta; write_summary failed
-  jq '.terminal_children[0].episode_id="episode-one"' "$MATE/summary.json" > "$MATE/summary.tmp" \
+  jq '.terminal_children[0].episode_id="111111111111111111111111"' "$MATE/summary.json" > "$MATE/summary.tmp" \
     && mv "$MATE/summary.tmp" "$MATE/summary.json"
   FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
-  jq '.terminal_children[0].episode_id="episode-two"' "$MATE/summary.json" > "$MATE/summary.tmp" \
+  jq '.terminal_children[0].episode_id="222222222222222222222222"' "$MATE/summary.json" > "$MATE/summary.tmp" \
     && mv "$MATE/summary.tmp" "$MATE/summary.json"
   FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
   [ "$(wc -l < "$WORLD/send.log" | tr -d ' ')" = 2 ] \
@@ -409,6 +409,25 @@ test_terminal_episode_identity_allows_task_id_reuse() {
   [ "$(outcome_count "$MAIN" pending)" = 2 ] \
     || fail "summarized terminal episodes shared one obligation"
   pass "terminal episode identity permits safe task id reuse"
+}
+
+test_malformed_episode_uses_shared_absent_identity() {
+  make_world malformed-episode-identity; bind_secondmate local; write_mate_meta
+  write_child "$MATE" child 'failed: malformed episode'
+  printf 'episode_id=not-a-valid-episode\n' >> "$MATE/state/child.meta"
+  age "$MATE/state/child.meta"
+  FM_FAKE_CREW_STATE=failed run_reconcile "$MATE" --startup
+  grep -Fq 'failed [key=inactive-outcome-mate-child-failed]:' "$MAIN/state/mate.status" \
+    || fail "direct report did not normalize malformed episode identity"
+  write_summary failed
+  jq '.terminal_children[0].episode_id=null
+      | .invalidity={kind:"malformed_terminal_episode",ids:["child"]}
+      | .reason="terminal child has malformed episode identity: child"' \
+    "$MATE/summary.json" > "$MATE/summary.tmp" && mv "$MATE/summary.tmp" "$MATE/summary.json"
+  age "$MAIN/state/mate.meta" "$MAIN/state/mate.status"
+  FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  [ ! -s "$WORLD/send.log" ] || fail "malformed episode mismatch created a redundant report request"
+  pass "direct and summary reconciliation share strict episode identity"
 }
 
 test_legacy_summary_without_terminal_channel_is_compatible() {
@@ -674,6 +693,7 @@ test_orphaned_owned_reply_is_settled_after_report
 test_owned_reply_recovery_covers_unresolved_phases
 test_disappeared_terminal_child_replays_durable_obligation
 test_terminal_episode_identity_allows_task_id_reuse
+test_malformed_episode_uses_shared_absent_identity
 test_legacy_summary_without_terminal_channel_is_compatible
 test_competing_invalidity_does_not_hide_terminal_page
 test_malformed_terminal_page_is_not_consumed
