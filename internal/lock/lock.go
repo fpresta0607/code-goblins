@@ -128,13 +128,33 @@ func Acquire(dir string) (*Info, error) {
 		// Holder is dead. Re-read immediately to check if it changed
 		// (another acquirer might have won the race and written a new holder).
 		holder2, herr2 := Read(dir)
-		if herr2 == nil && (holder2.PID != holder.PID || holder2.Start != holder.Start) {
+		if herr2 != nil {
+			// Re-read is unreadable (file mid-write). Treat as transient and retry
+			// using the same grace-period logic as first-read: never remove on an
+			// unreadable re-read, even if we already judged the first read dead.
+			if unreadableCount == 0 {
+				unreadableStart = time.Now()
+			}
+			unreadableCount++
+
+			if unreadableCount >= 3 && time.Since(unreadableStart) >= 150*time.Millisecond {
+				// Grace period elapsed; treat as crash orphan.
+				if rerr := os.Remove(path); rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
+					return nil, rerr
+				}
+				unreadableCount = 0
+			}
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+
+		if holder2.PID != holder.PID || holder2.Start != holder.Start {
 			// The file changed; continue without removing (let the race winner handle cleanup).
 			continue
 		}
 
-		// File still has the same dead holder (or is unreadable again).
-		// Attempt to remove it and retry the create.
+		// File still has the same dead holder; it is readable and unchanged.
+		// Safe to remove and retry the create.
 		if rerr := os.Remove(path); rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
 			return nil, rerr
 		}
