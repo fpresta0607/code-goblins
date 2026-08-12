@@ -17,6 +17,9 @@ import (
 // ErrHeld reports that a live process holds the session lock.
 var ErrHeld = errors.New("session lock held by a live process")
 
+// ErrOwnerDead reports that the process asked to take custody is verifiably gone.
+var ErrOwnerDead = errors.New("lock: owner process is not alive")
+
 // Info identifies a lock holder: the owner process in custody of the lock
 // (the harness ancestor, or the calling process for a plain Acquire) plus,
 // where known, the Claude session id currently running under that owner.
@@ -57,11 +60,13 @@ func (i *Info) Alive() bool {
 
 // ownerInfo builds the Info record for pid, the process taking custody of
 // the lock (the harness ancestor for a hook-driven acquire, or the calling
-// process itself for a plain Acquire), with session recorded verbatim.
-func ownerInfo(pid int, session string) *Info {
-	start, _ := processStart(pid)
+// process itself for a plain Acquire), with session recorded verbatim. The
+// returned status is processStart's verdict on pid, for callers that must
+// refuse a verifiably dead owner before writing a record for it.
+func ownerInfo(pid int, session string) (*Info, processStatus) {
+	start, status := processStart(pid)
 	hostname, _ := os.Hostname()
-	return &Info{PID: pid, OwnerPID: pid, Session: session, Start: start, Hostname: hostname, Acquired: time.Now().UTC()}
+	return &Info{PID: pid, OwnerPID: pid, Session: session, Start: start, Hostname: hostname, Acquired: time.Now().UTC()}, status
 }
 
 func writeInfo(path string, info *Info) error {
@@ -84,14 +89,22 @@ func writeInfo(path string, info *Info) error {
 // holder that already matches ownerPID's identity is treated as
 // already-acquired (idempotent re-acquire) regardless of session, never as
 // contention: a resumed session keeps custody.
+// A verifiably dead ownerPID is refused with ErrOwnerDead before any file is
+// created or touched; an unverifiable ownerPID (statusUnknown) still
+// proceeds, fail closed to alive exactly as Alive() does.
 // Strategy: exclusive create with read-back verification, grace period for
 // mid-write files, and retry with a constant backoff on transient errors.
 func AcquireOwner(dir string, ownerPID int, session string) (*Info, error) {
-	return acquire(dir, ownerInfo(ownerPID, session))
+	self, status := ownerInfo(ownerPID, session)
+	if status == statusDead {
+		return nil, fmt.Errorf("%w: pid %d", ErrOwnerDead, ownerPID)
+	}
+	return acquire(dir, self)
 }
 
 // Acquire takes dir/.lock for the current process, recording no session.
-// See AcquireOwner for the full acquisition semantics.
+// The calling process cannot be dead, so it never hits AcquireOwner's
+// ErrOwnerDead branch. See AcquireOwner for the full acquisition semantics.
 func Acquire(dir string) (*Info, error) {
 	return AcquireOwner(dir, os.Getpid(), "")
 }
@@ -208,6 +221,10 @@ func Read(dir string) (*Info, error) {
 // the hostname matches, the PID matches, and ownerPID's live creation time
 // matches the recorded Start within the same one-second tolerance Alive
 // uses. Any read error, including a missing lock file, returns false.
+// Fail closed applies here too: if ownerPID's process state cannot be
+// verified (statusUnknown), Alive() returns true without checking Start, so
+// an unverifiable owner reads as held and the recycled-PID defense is inert
+// in that branch.
 func HeldBy(dir string, ownerPID int) bool {
 	holder, err := Read(dir)
 	if err != nil {
@@ -226,7 +243,7 @@ func Release(dir string) error {
 	if err != nil {
 		return err
 	}
-	self := ownerInfo(os.Getpid(), "")
+	self, _ := ownerInfo(os.Getpid(), "")
 	localHostname, _ := os.Hostname()
 
 	// Refuse if the holder's hostname differs from the local hostname.
