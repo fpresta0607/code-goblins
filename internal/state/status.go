@@ -4,16 +4,27 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // AppendStatus appends one raw line to state/<id>.status, creating the log on
-// first use. Lines carry their own grammar; this layer adds nothing.
+// first use. Lines carry their own grammar; this layer adds nothing. The open
+// retries briefly because antivirus and indexer scans on Windows hold transient
+// sharing locks.
 func AppendStatus(dir, id, line string) error {
-	f, err := os.OpenFile(filepath.Join(dir, id+".status"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
+	path := filepath.Join(dir, id+".status")
+	var f *os.File
+	var openErr error
+	for attempt := 0; attempt < 10; attempt++ {
+		if f, openErr = os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); openErr == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if f == nil {
+		return openErr
 	}
 	_, werr := f.WriteString(line + "\n")
 	return errors.Join(werr, f.Close())
