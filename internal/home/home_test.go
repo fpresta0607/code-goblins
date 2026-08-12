@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -24,6 +25,9 @@ func TestResolveDefaultsToCwd(t *testing.T) {
 	h, err := Resolve()
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
+	}
+	if !strings.EqualFold(filepath.Clean(h.Root), filepath.Clean(dir)) {
+		t.Errorf("Root = %q, want the cwd %q", h.Root, dir)
 	}
 	if h.State != filepath.Join(h.Root, "state") || h.Data != filepath.Join(h.Root, "data") {
 		t.Errorf("derived dirs wrong: %+v", h)
