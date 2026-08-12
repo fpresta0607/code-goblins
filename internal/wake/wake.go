@@ -65,6 +65,8 @@ func readAll(dir string) ([]Record, error) {
 // Append adds one record and returns it with its assigned sequence.
 // ponytail: single-writer sequencing (the watcher); add a lock file here if a
 // second emitter ever appends concurrently.
+// Rewrite the entire queue atomically; O(n) is acceptable for small queue and
+// single-writer, and gains AtomicWriteFile's bounded retry on Windows sharing locks.
 func Append(dir, kind, detail string) (Record, error) {
 	records, err := readAll(dir)
 	if err != nil {
@@ -79,16 +81,17 @@ func Append(dir, kind, detail string) (Record, error) {
 		next = records[n-1].Seq + 1
 	}
 	rec := Record{Seq: next, Time: time.Now().UTC(), Kind: kind, Detail: detail}
-	line, err := json.Marshal(rec)
-	if err != nil {
-		return Record{}, err
+	records = append(records, rec)
+	var b []byte
+	for _, r := range records {
+		line, err := json.Marshal(r)
+		if err != nil {
+			return Record{}, err
+		}
+		b = append(b, line...)
+		b = append(b, '\n')
 	}
-	f, err := os.OpenFile(filepath.Join(dir, queueFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return Record{}, err
-	}
-	_, werr := f.Write(append(line, '\n'))
-	if err := errors.Join(werr, f.Close()); err != nil {
+	if err := fsx.AtomicWriteFile(filepath.Join(dir, queueFile), b); err != nil {
 		return Record{}, err
 	}
 	return rec, nil
@@ -112,6 +115,18 @@ func AckThrough(dir string, seq int) error {
 			kept = append(kept, rec)
 		}
 	}
+	floor, err := readAckFloor(dir)
+	if err != nil {
+		return err
+	}
+	// Persist ack floor first; a crash between writes leaves acked records in queue
+	// (harmless re-delivery) rather than an empty queue with a stale floor (sequence reuse).
+	if seq > floor {
+		floor = seq
+		if err := fsx.AtomicWriteFile(filepath.Join(dir, ackFile), []byte(fmt.Sprintf("%d\n", floor))); err != nil {
+			return err
+		}
+	}
 	var b []byte
 	for _, rec := range kept {
 		line, err := json.Marshal(rec)
@@ -121,15 +136,5 @@ func AckThrough(dir string, seq int) error {
 		b = append(b, line...)
 		b = append(b, '\n')
 	}
-	if err := fsx.AtomicWriteFile(filepath.Join(dir, queueFile), b); err != nil {
-		return err
-	}
-	floor, err := readAckFloor(dir)
-	if err != nil {
-		return err
-	}
-	if seq > floor {
-		floor = seq
-	}
-	return fsx.AtomicWriteFile(filepath.Join(dir, ackFile), []byte(fmt.Sprintf("%d\n", floor)))
+	return fsx.AtomicWriteFile(filepath.Join(dir, queueFile), b)
 }
