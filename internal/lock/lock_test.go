@@ -26,14 +26,44 @@ func TestAcquireOnEmptyDir(t *testing.T) {
 	}
 }
 
-func TestSecondAcquireFailsWhileHolderLives(t *testing.T) {
+func TestAcquireFailsWhileForeignHolderLives(t *testing.T) {
+	// A record whose PID and Start match this process (so the local liveness
+	// check alone would pass) but whose Hostname names a different host is
+	// still live, foreign contention: Acquire must fail with ErrHeld and must
+	// not modify the lock file.
 	dir := t.TempDir()
-	if _, err := Acquire(dir); err != nil {
+	self := selfInfo()
+	foreign := &Info{PID: self.PID, Start: self.Start, Hostname: "some-other-host", Acquired: time.Now()}
+	lockPath := filepath.Join(dir, ".lock")
+	if err := writeInfo(lockPath, foreign); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Acquire(dir)
 	if !errors.Is(err, ErrHeld) {
 		t.Errorf("err = %v, want ErrHeld", err)
+	}
+	after, rerr := Read(dir)
+	if rerr != nil {
+		t.Fatalf("Read after failed Acquire: %v", rerr)
+	}
+	if after.Hostname != "some-other-host" || after.PID != self.PID {
+		t.Errorf("lock file modified by failed Acquire: got %+v", after)
+	}
+}
+
+func TestAcquireSameProcessDoubleAcquireSucceeds(t *testing.T) {
+	// A process re-acquiring a lock it already holds gets the idempotent
+	// contract: success with its own identity, never ErrHeld.
+	dir := t.TempDir()
+	if _, err := Acquire(dir); err != nil {
+		t.Fatal(err)
+	}
+	info, err := Acquire(dir)
+	if err != nil {
+		t.Fatalf("second Acquire from same process: %v", err)
+	}
+	if info.PID != os.Getpid() {
+		t.Errorf("PID = %d, want %d", info.PID, os.Getpid())
 	}
 }
 
@@ -151,6 +181,28 @@ func TestReleaseAuthorizationWithForeignHostname(t *testing.T) {
 	// Verify the file still exists.
 	if _, err := os.Stat(lockPath); err != nil {
 		t.Errorf("lock file removed after failed Release: %v", err)
+	}
+}
+
+func TestAcquireIdempotentWhenHolderIsSelf(t *testing.T) {
+	// If the lock file already records this process's own identity (e.g. a
+	// transient read-back failure after a successful create left the file in
+	// place), Acquire must recognize it as already held and succeed, not
+	// return ErrHeld against itself.
+	dir := t.TempDir()
+	self := selfInfo()
+	if err := writeInfo(filepath.Join(dir, ".lock"), self); err != nil {
+		t.Fatal(err)
+	}
+	info, err := Acquire(dir)
+	if err != nil {
+		t.Fatalf("Acquire over self-held lock: %v", err)
+	}
+	if info.PID != os.Getpid() {
+		t.Errorf("PID = %d, want %d", info.PID, os.Getpid())
+	}
+	if !info.Start.Equal(self.Start) {
+		t.Errorf("Start = %v, want %v", info.Start, self.Start)
 	}
 }
 
