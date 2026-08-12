@@ -44,7 +44,8 @@ func TestAcquireStealsFromDeadHolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadPID := cmd.ProcessState.Pid()
-	stale := &Info{PID: deadPID, Start: time.Now().Add(-time.Hour), Hostname: "host", Acquired: time.Now().Add(-time.Hour)}
+	localHostname, _ := os.Hostname()
+	stale := &Info{PID: deadPID, Start: time.Now().Add(-time.Hour), Hostname: localHostname, Acquired: time.Now().Add(-time.Hour)}
 	if err := writeInfo(filepath.Join(dir, ".lock"), stale); err != nil {
 		t.Fatal(err)
 	}
@@ -82,5 +83,103 @@ func TestAliveForSelfAndDead(t *testing.T) {
 	dead := &Info{PID: cmd.ProcessState.Pid(), Start: time.Now().Add(-time.Hour)}
 	if dead.Alive() {
 		t.Error("exited process must not be alive (pid gone or start mismatch)")
+	}
+}
+
+func TestRecycledPIDRejection(t *testing.T) {
+	// A process with the current PID but a creation time from an hour ago
+	// must be judged dead (the PID was recycled).
+	localHostname, _ := os.Hostname()
+	recycled := &Info{PID: os.Getpid(), Start: time.Now().Add(-time.Hour), Hostname: localHostname}
+	if recycled.Alive() {
+		t.Error("recycled PID with old creation time must be dead")
+	}
+}
+
+func TestReleaseAuthorizationWithWrongStart(t *testing.T) {
+	// Release must fail if the holder's Start time does not match.
+	dir := t.TempDir()
+	localHostname, _ := os.Hostname()
+	wrongStart := &Info{PID: os.Getpid(), Start: time.Now().Add(-time.Hour), Hostname: localHostname, Acquired: time.Now()}
+	lockPath := filepath.Join(dir, ".lock")
+	if err := writeInfo(lockPath, wrongStart); err != nil {
+		t.Fatal(err)
+	}
+	if err := Release(dir); err == nil {
+		t.Error("Release must fail with wrong Start time")
+	}
+	// Verify the file still exists.
+	if _, err := os.Stat(lockPath); err != nil {
+		t.Errorf("lock file removed after failed Release: %v", err)
+	}
+}
+
+func TestReleaseAuthorizationWithDeadPID(t *testing.T) {
+	// Release must fail if the holder is a dead PID.
+	dir := t.TempDir()
+	cmd := exec.Command("cmd", "/c", "exit 0")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	deadPID := cmd.ProcessState.Pid()
+	localHostname, _ := os.Hostname()
+	dead := &Info{PID: deadPID, Start: time.Now().Add(-time.Hour), Hostname: localHostname, Acquired: time.Now().Add(-time.Hour)}
+	lockPath := filepath.Join(dir, ".lock")
+	if err := writeInfo(lockPath, dead); err != nil {
+		t.Fatal(err)
+	}
+	if err := Release(dir); err == nil {
+		t.Error("Release must fail with dead PID")
+	}
+	// Verify the file still exists.
+	if _, err := os.Stat(lockPath); err != nil {
+		t.Errorf("lock file removed after failed Release: %v", err)
+	}
+}
+
+func TestReleaseAuthorizationWithForeignHostname(t *testing.T) {
+	// Release must fail if the holder's hostname differs.
+	dir := t.TempDir()
+	foreign := &Info{PID: os.Getpid(), Start: time.Now(), Hostname: "foreign-host", Acquired: time.Now()}
+	lockPath := filepath.Join(dir, ".lock")
+	if err := writeInfo(lockPath, foreign); err != nil {
+		t.Fatal(err)
+	}
+	if err := Release(dir); err == nil {
+		t.Error("Release must fail with foreign hostname")
+	}
+	// Verify the file still exists.
+	if _, err := os.Stat(lockPath); err != nil {
+		t.Errorf("lock file removed after failed Release: %v", err)
+	}
+}
+
+func TestZeroByteOrphanRecovery(t *testing.T) {
+	// A zero-byte lock file (holder crashed mid-write) must be recovered
+	// by Acquire after the grace period elapses.
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, ".lock")
+	// Write a zero-byte file to simulate a crashed holder.
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	// Acquire should succeed after handling the orphan.
+	info, err := Acquire(dir)
+	if err != nil {
+		t.Fatalf("Acquire failed on zero-byte orphan: %v", err)
+	}
+	if info.PID != os.Getpid() {
+		t.Errorf("PID = %d, want %d", info.PID, os.Getpid())
+	}
+	// Verify the lock file now contains valid data.
+	read, err := Read(dir)
+	if err != nil {
+		t.Fatalf("Read after recovery: %v", err)
+	}
+	if read.PID != os.Getpid() {
+		t.Errorf("recovered lock has PID %d, want %d", read.PID, os.Getpid())
 	}
 }
