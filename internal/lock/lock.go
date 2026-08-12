@@ -69,9 +69,11 @@ func writeInfo(path string, info *Info) error {
 }
 
 // Acquire takes dir/.lock for the current process. A holder that is dead
-// (PID gone, or PID recycled with a different creation time) is stolen.
+// (PID gone, or PID recycled with a different creation time) is stolen. A
+// holder that already matches this process's own identity is treated as
+// already-acquired (idempotent re-acquire), never as contention.
 // Strategy: exclusive create with read-back verification, grace period for
-// mid-write files, and retry with exponential backoff on transient errors.
+// mid-write files, and retry with a constant backoff on transient errors.
 func Acquire(dir string) (*Info, error) {
 	path := filepath.Join(dir, ".lock")
 	self := selfInfo()
@@ -82,10 +84,13 @@ func Acquire(dir string) (*Info, error) {
 		err := writeInfo(path, self)
 		if err == nil {
 			// Verify we won the race: read back the file and confirm it records us.
-			if verified, verr := Read(dir); verr == nil && verified.PID == self.PID && verified.Start == self.Start {
+			if verified, verr := Read(dir); verr == nil && verified.PID == self.PID && verified.Start.Equal(self.Start) {
 				return self, nil
 			}
-			// We lost the race: another acquirer wrote after us. Continue the loop.
+			// Either we lost the race (another acquirer wrote after us) or the
+			// read-back failed transiently. Continue the loop either way: the
+			// self-match check below resolves the transient case once the file
+			// becomes readable again on a later iteration.
 			continue
 		}
 
@@ -120,6 +125,12 @@ func Acquire(dir string) (*Info, error) {
 		// File is readable; reset unreadable counter.
 		unreadableCount = 0
 
+		// The holder is already us (e.g., a transient read-back failure after
+		// our own successful create above). The lock is already ours.
+		if holder.PID == self.PID && holder.Start.Equal(self.Start) && holder.Hostname == self.Hostname {
+			return self, nil
+		}
+
 		if holder.Alive() {
 			return nil, fmt.Errorf("%w: pid %d on %s since %s",
 				ErrHeld, holder.PID, holder.Hostname, holder.Acquired.Format(time.RFC3339))
@@ -129,21 +140,14 @@ func Acquire(dir string) (*Info, error) {
 		// (another acquirer might have won the race and written a new holder).
 		holder2, herr2 := Read(dir)
 		if herr2 != nil {
-			// Re-read is unreadable (file mid-write). Treat as transient and retry
-			// using the same grace-period logic as first-read: never remove on an
-			// unreadable re-read, even if we already judged the first read dead.
+			// Re-read is unreadable (file mid-write). Never remove on an
+			// unreadable re-read, even though we already judged the first read
+			// dead; the increment here only seeds the first-read grace counter
+			// for later iterations.
 			if unreadableCount == 0 {
 				unreadableStart = time.Now()
 			}
 			unreadableCount++
-
-			if unreadableCount >= 3 && time.Since(unreadableStart) >= 150*time.Millisecond {
-				// Grace period elapsed; treat as crash orphan.
-				if rerr := os.Remove(path); rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
-					return nil, rerr
-				}
-				unreadableCount = 0
-			}
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
