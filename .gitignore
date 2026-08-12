@@ -1,5 +1,5 @@
 projects/
-state/
+/state/
 data/
 .no-mistakes/
 .lavish/
@@ -10,3 +10,4 @@ __pycache__/
 *.pyc
 .env
 config/
+/cfo.exe
