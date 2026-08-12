@@ -32,7 +32,7 @@ func TestAcquireFailsWhileForeignHolderLives(t *testing.T) {
 	// still live, foreign contention: Acquire must fail with ErrHeld and must
 	// not modify the lock file.
 	dir := t.TempDir()
-	self := selfInfo()
+	self := ownerInfo(os.Getpid(), "")
 	foreign := &Info{PID: self.PID, Start: self.Start, Hostname: "some-other-host", Acquired: time.Now()}
 	lockPath := filepath.Join(dir, ".lock")
 	if err := writeInfo(lockPath, foreign); err != nil {
@@ -102,7 +102,7 @@ func TestReleaseThenReacquire(t *testing.T) {
 }
 
 func TestAliveForSelfAndDead(t *testing.T) {
-	self := selfInfo()
+	self := ownerInfo(os.Getpid(), "")
 	if !self.Alive() {
 		t.Error("current process must be alive")
 	}
@@ -190,7 +190,7 @@ func TestAcquireIdempotentWhenHolderIsSelf(t *testing.T) {
 	// place), Acquire must recognize it as already held and succeed, not
 	// return ErrHeld against itself.
 	dir := t.TempDir()
-	self := selfInfo()
+	self := ownerInfo(os.Getpid(), "")
 	if err := writeInfo(filepath.Join(dir, ".lock"), self); err != nil {
 		t.Fatal(err)
 	}
@@ -233,5 +233,85 @@ func TestZeroByteOrphanRecovery(t *testing.T) {
 	}
 	if read.PID != os.Getpid() {
 		t.Errorf("recovered lock has PID %d, want %d", read.PID, os.Getpid())
+	}
+}
+
+func localHostnameForTest(t *testing.T) string {
+	t.Helper()
+	h, err := os.Hostname()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+func TestAcquireOwnerRecordsForeignPID(t *testing.T) {
+	dir := t.TempDir()
+	cmd := exec.Command("cmd", "/c", "ping -n 5 127.0.0.1 >NUL")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() }()
+	info, err := AcquireOwner(dir, cmd.Process.Pid, "sess-1")
+	if err != nil {
+		t.Fatalf("AcquireOwner: %v", err)
+	}
+	if info.PID != cmd.Process.Pid || info.OwnerPID != cmd.Process.Pid || info.Session != "sess-1" {
+		t.Errorf("recorded identity wrong: %+v", info)
+	}
+	if !HeldBy(dir, cmd.Process.Pid) {
+		t.Error("HeldBy(owner) = false for live owner")
+	}
+	if HeldBy(dir, os.Getpid()) {
+		t.Error("HeldBy(non-owner) = true")
+	}
+}
+
+func TestAcquireOwnerIdempotentAcrossSessions(t *testing.T) {
+	dir := t.TempDir()
+	cmd := exec.Command("cmd", "/c", "ping -n 5 127.0.0.1 >NUL")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() }()
+	if _, err := AcquireOwner(dir, cmd.Process.Pid, "sess-1"); err != nil {
+		t.Fatal(err)
+	}
+	info, err := AcquireOwner(dir, cmd.Process.Pid, "sess-2")
+	if err != nil {
+		t.Fatalf("same-owner reacquire with new session: %v", err)
+	}
+	if info.PID != cmd.Process.Pid {
+		t.Errorf("identity changed: %+v", info)
+	}
+}
+
+func TestAcquireOwnerContendedByLiveForeignOwner(t *testing.T) {
+	dir := t.TempDir()
+	cmd := exec.Command("cmd", "/c", "ping -n 5 127.0.0.1 >NUL")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() }()
+	if _, err := AcquireOwner(dir, cmd.Process.Pid, "s"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AcquireOwner(dir, os.Getpid(), "other"); !errors.Is(err, ErrHeld) {
+		t.Errorf("err = %v, want ErrHeld while foreign owner lives", err)
+	}
+}
+
+func TestAcquireOwnerStealsFromDeadOwner(t *testing.T) {
+	dir := t.TempDir()
+	cmd := exec.Command("cmd", "/c", "exit 0")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	stale := &Info{PID: cmd.ProcessState.Pid(), OwnerPID: cmd.ProcessState.Pid(), Start: time.Now().Add(-time.Hour), Hostname: localHostnameForTest(t), Session: "dead"}
+	if err := writeInfo(filepath.Join(dir, ".lock"), stale); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AcquireOwner(dir, os.Getpid(), "new"); err != nil {
+		t.Fatalf("steal from dead owner: %v", err)
 	}
 }
