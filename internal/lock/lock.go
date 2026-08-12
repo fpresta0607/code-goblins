@@ -1,6 +1,8 @@
 // Package lock owns the home's session lock: one primary session may mutate
-// fleet state. Identity is PID plus process creation time, replacing upstream's
-// MSYS symlink lock and harness-ancestry walk.
+// fleet state. The lock records CUSTODY of a long-lived owner process (the
+// harness), not the calling process; identity is the owner's PID plus its
+// process creation time, replacing upstream's MSYS symlink lock and
+// harness-ancestry walk.
 package lock
 
 import (
@@ -15,9 +17,13 @@ import (
 // ErrHeld reports that a live process holds the session lock.
 var ErrHeld = errors.New("session lock held by a live process")
 
-// Info identifies a lock holder.
+// Info identifies a lock holder: the owner process in custody of the lock
+// (the harness ancestor, or the calling process for a plain Acquire) plus,
+// where known, the Claude session id currently running under that owner.
 type Info struct {
 	PID      int       `json:"pid"`
+	OwnerPID int       `json:"owner_pid"`
+	Session  string    `json:"session"`
 	Start    time.Time `json:"start"`
 	Hostname string    `json:"hostname"`
 	Acquired time.Time `json:"acquired"`
@@ -49,10 +55,13 @@ func (i *Info) Alive() bool {
 	return diff > -time.Second && diff < time.Second
 }
 
-func selfInfo() *Info {
-	start, _ := processStart(os.Getpid())
+// ownerInfo builds the Info record for pid, the process taking custody of
+// the lock (the harness ancestor for a hook-driven acquire, or the calling
+// process itself for a plain Acquire), with session recorded verbatim.
+func ownerInfo(pid int, session string) *Info {
+	start, _ := processStart(pid)
 	hostname, _ := os.Hostname()
-	return &Info{PID: os.Getpid(), Start: start, Hostname: hostname, Acquired: time.Now().UTC()}
+	return &Info{PID: pid, OwnerPID: pid, Session: session, Start: start, Hostname: hostname, Acquired: time.Now().UTC()}
 }
 
 func writeInfo(path string, info *Info) error {
@@ -68,15 +77,29 @@ func writeInfo(path string, info *Info) error {
 	return errors.Join(werr, f.Close())
 }
 
-// Acquire takes dir/.lock for the current process. A holder that is dead
+// AcquireOwner takes dir/.lock for ownerPID, the long-lived process (the
+// harness ancestor) taking custody of the lock, recording session as the
+// Claude session currently running under that owner. A holder that is dead
 // (PID gone, or PID recycled with a different creation time) is stolen. A
-// holder that already matches this process's own identity is treated as
-// already-acquired (idempotent re-acquire), never as contention.
+// holder that already matches ownerPID's identity is treated as
+// already-acquired (idempotent re-acquire) regardless of session, never as
+// contention: a resumed session keeps custody.
 // Strategy: exclusive create with read-back verification, grace period for
 // mid-write files, and retry with a constant backoff on transient errors.
+func AcquireOwner(dir string, ownerPID int, session string) (*Info, error) {
+	return acquire(dir, ownerInfo(ownerPID, session))
+}
+
+// Acquire takes dir/.lock for the current process, recording no session.
+// See AcquireOwner for the full acquisition semantics.
 func Acquire(dir string) (*Info, error) {
+	return AcquireOwner(dir, os.Getpid(), "")
+}
+
+// acquire runs the exclusive-create/read-back/steal loop, recording self as
+// the new holder if the lock is free or its dead holder can be stolen.
+func acquire(dir string, self *Info) (*Info, error) {
 	path := filepath.Join(dir, ".lock")
-	self := selfInfo()
 	unreadableCount := 0
 	unreadableStart := time.Time{}
 
@@ -127,6 +150,7 @@ func Acquire(dir string) (*Info, error) {
 
 		// The holder is already us (e.g., a transient read-back failure after
 		// our own successful create above). The lock is already ours.
+		// Session is deliberately excluded: a resumed session keeps custody.
 		if holder.PID == self.PID && holder.Start.Equal(self.Start) && holder.Hostname == self.Hostname {
 			return self, nil
 		}
@@ -180,13 +204,29 @@ func Read(dir string) (*Info, error) {
 	return &info, nil
 }
 
+// HeldBy reports whether dir/.lock currently records ownerPID as its holder:
+// the hostname matches, the PID matches, and ownerPID's live creation time
+// matches the recorded Start within the same one-second tolerance Alive
+// uses. Any read error, including a missing lock file, returns false.
+func HeldBy(dir string, ownerPID int) bool {
+	holder, err := Read(dir)
+	if err != nil {
+		return false
+	}
+	localHostname, _ := os.Hostname()
+	if holder.Hostname != localHostname || holder.PID != ownerPID {
+		return false
+	}
+	return holder.Alive()
+}
+
 // Release removes the lock when the current process identity holds it.
 func Release(dir string) error {
 	holder, err := Read(dir)
 	if err != nil {
 		return err
 	}
-	self := selfInfo()
+	self := ownerInfo(os.Getpid(), "")
 	localHostname, _ := os.Hostname()
 
 	// Refuse if the holder's hostname differs from the local hostname.
