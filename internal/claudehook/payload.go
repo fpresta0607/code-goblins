@@ -5,6 +5,7 @@
 package claudehook
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 )
@@ -52,6 +53,13 @@ type toolInput struct {
 func ReadPayload(r io.Reader) (Payload, bool) {
 	data, err := io.ReadAll(r)
 	if err != nil || len(data) == 0 {
+		return Payload{}, false
+	}
+	// json.Unmarshal into a struct treats the JSON literal null as a no-op
+	// (err == nil, target left zeroed), so it would otherwise slip past the
+	// error guard below as a false "ok". Reject it explicitly as non-object
+	// input; TrimSpace tolerates surrounding CRLF/whitespace.
+	if string(bytes.TrimSpace(data)) == "null" {
 		return Payload{}, false
 	}
 

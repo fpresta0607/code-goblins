@@ -70,6 +70,15 @@ func TestReadPayloadJSONArray(t *testing.T) {
 	}
 }
 
+func TestReadPayloadNullFailsOpen(t *testing.T) {
+	if _, ok := ReadPayload(strings.NewReader("null")); ok {
+		t.Error("null payload must fail open (ok=false)")
+	}
+	if _, ok := ReadPayload(strings.NewReader(" null\r\n")); ok {
+		t.Error("whitespace-padded null must fail open")
+	}
+}
+
 func TestReadPayloadMissingToolInput(t *testing.T) {
 	p, ok := ReadPayload(strings.NewReader(`{"session_id":"s4","tool_name":"Bash"}`))
 	if !ok {
