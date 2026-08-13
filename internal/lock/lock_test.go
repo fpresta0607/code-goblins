@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -552,5 +553,39 @@ func TestExclusiveLeaseKeyCanonicalizesRelativePaths(t *testing.T) {
 	name := ".spawn-task.lock"
 	if relative, absolute := exclusiveLeaseKey("state", name), exclusiveLeaseKey(filepath.Join(cwd, "state"), name); relative != absolute {
 		t.Fatalf("exclusiveLeaseKey relative=%q absolute=%q, want one canonical key", relative, absolute)
+	}
+	dir := t.TempDir()
+	want := exclusiveLeaseKey(dir, name)
+	for _, variant := range []string{
+		strings.ToUpper(filepath.Clean(dir)),
+		filepath.ToSlash(dir),
+		`\\?\` + filepath.Clean(dir),
+	} {
+		if got := exclusiveLeaseKey(variant, name); got != want {
+			t.Fatalf("exclusiveLeaseKey(%q)=%q, want %q", variant, got, want)
+		}
+	}
+}
+
+func TestAcquireExclusiveNamedContendsAcrossWindowsCaseVariant(t *testing.T) {
+	dir := t.TempDir()
+	name := ".spawn-task.lock"
+	first, err := AcquireExclusiveNamed(dir, name)
+	if err != nil {
+		t.Fatalf("first AcquireExclusiveNamed: %v", err)
+	}
+	caseVariant := strings.ToUpper(filepath.Clean(dir))
+	if _, err := AcquireExclusiveNamed(caseVariant, name); !errors.Is(err, ErrHeld) {
+		t.Fatalf("case-variant AcquireExclusiveNamed error = %v, want ErrHeld", err)
+	}
+	holder, err := ReadNamed(dir, name)
+	if err != nil {
+		t.Fatalf("ReadNamed after case-variant attempt: %v", err)
+	}
+	if !holder.Acquired.Equal(first.Acquired) {
+		t.Fatalf("case-variant acquire replaced active lease: first=%s holder=%s", first.Acquired, holder.Acquired)
+	}
+	if err := ReleaseExclusiveNamed(dir, name); err != nil {
+		t.Fatalf("ReleaseExclusiveNamed cleanup: %v", err)
 	}
 }

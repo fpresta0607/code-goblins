@@ -11,8 +11,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 const exclusiveSpawnSession = "exclusive-spawn"
@@ -386,11 +389,11 @@ func exclusiveHeldError(holder *Info) error {
 }
 
 func exclusiveLeaseKey(dir, name string) string {
-	path := filepath.Join(dir, name)
-	if absolute, err := filepath.Abs(path); err == nil {
-		return filepath.Clean(absolute)
+	path, err := fsx.AbsClean(filepath.Join(dir, name))
+	if err != nil {
+		path = filepath.Clean(filepath.Join(dir, name))
 	}
-	return filepath.Clean(path)
+	return strings.ToLower(path)
 }
 
 func clearExclusiveLease(dir, name string) {
