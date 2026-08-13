@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // RenderJSON writes the complete typed snapshot. It does not inspect files,
@@ -116,7 +117,7 @@ func renderBacklogRows(w io.Writer, rows []BacklogRow, empty string) error {
 				}
 				inTable = false
 			}
-			if err := writeLine(w, row.Raw); err != nil {
+			if err := writeLine(w, markdownText(row.Raw)); err != nil {
 				return err
 			}
 			needsTableGap = true
@@ -148,10 +149,24 @@ func renderBacklogRows(w io.Writer, rows []BacklogRow, empty string) error {
 func markdownFields(values []string) []string {
 	fields := make([]string, len(values))
 	for index, value := range values {
-		fields[index] = strings.ReplaceAll(strings.ReplaceAll(dash(value), "\r", " "), "\n", " ")
+		fields[index] = markdownText(dash(value))
 		fields[index] = strings.ReplaceAll(fields[index], "|", "\\|")
 	}
 	return fields
+}
+
+// markdownText keeps persisted values visible without allowing terminal
+// control sequences into the human-readable Markdown projection.
+func markdownText(value string) string {
+	var out strings.Builder
+	for _, char := range value {
+		if unicode.IsControl(char) {
+			fmt.Fprintf(&out, "\\u%04X", char)
+			continue
+		}
+		out.WriteRune(char)
+	}
+	return out.String()
 }
 
 func currentText(task TaskRow) string {
