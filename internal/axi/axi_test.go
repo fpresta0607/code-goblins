@@ -74,7 +74,7 @@ func TestCommandFailuresIncludeOperationAndStderr(t *testing.T) {
 		{
 			name:      "tasks nonzero exit",
 			operation: "tasks-axi show task-42 --full",
-			result:    execx.Result{ExitCode: 17, Stderr: []byte("task not found")},
+			result:    execx.Result{ExitCode: 17, Stderr: []byte("task not found  \r\n")},
 			invoke: func(runner execx.Runner) error {
 				_, err := (Tasks{Commands: runner}).ShowFull(context.Background(), "task-42")
 				return err
