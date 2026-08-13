@@ -10,6 +10,7 @@ package watch
 import (
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -30,9 +31,14 @@ const (
 	heartbeatStreakFile = ".heartbeat-streak"
 	seenPrefix          = ".seen-"
 
-	// maxHeartbeatStreak bounds the value ConfigFromEnv's caller-independent
-	// backoff shift (Heartbeat << streak) ever sees, so a streak file grown
-	// past this by hand or by many quiet cycles can never overflow the shift.
+	// maxHeartbeatStreak bounds the shift COUNT (Heartbeat << streak) that
+	// readHeartbeatStreak ever returns, so a streak file grown past this by
+	// hand or by many quiet cycles cannot shift further. It does NOT bound
+	// the shift's PRODUCT: claudehook.Seconds has no upper bound, so an
+	// operator-supplied CFO_HEARTBEAT large enough still overflows the
+	// int64 Duration once shifted, wrapping to a negative value.
+	// heartbeatDue guards that directly rather than relying on this
+	// constant alone.
 	maxHeartbeatStreak = 8
 )
 
@@ -53,8 +59,21 @@ type Config struct {
 	Heartbeat    time.Duration
 	HeartbeatMax time.Duration
 	Sleep        func(time.Duration)
-	WaitEvent    func(timeout time.Duration) bool
-	Cleanup      func()
+
+	// WaitEvent is Task 9's filesystem-notification seam, replacing the
+	// plain Sleep(Poll) wait between checks. Its bool return has two
+	// halves, both load-bearing: true means an event was observed within
+	// timeout and Run proceeds to rescan immediately - that fast path is
+	// the entire point of supplying WaitEvent. False means the wait ended
+	// with no event observed, and Run itself then enforces the floor: it
+	// measures the elapsed time around the call and calls Sleep for
+	// whatever is left of timeout, so a WaitEvent that returns early for
+	// any reason (a broken directory handle, a bug) cannot spin the loop
+	// faster than Poll for the whole in-process eight-hour host Task 11
+	// runs.
+	WaitEvent func(timeout time.Duration) bool
+
+	Cleanup func()
 }
 
 // ConfigFromEnv fills Config from the timing env vars (internal/claudehook),
@@ -63,14 +82,22 @@ type Config struct {
 // touching the beat, and CFO_POLL=-5 converts to roughly 49 days of wait so
 // the watcher never beats and supervise.WatcherHealthy reads it as stale
 // against a live process. The clamp belongs at this consumer; Task 2, which
-// shipped claudehook.Seconds, is not reopened for it.
+// shipped claudehook.Seconds, is not reopened for it. HeartbeatMax is
+// additionally floored at Heartbeat itself (after both are floored at 1s),
+// so a CFO_HEARTBEAT_MAX set below CFO_HEARTBEAT cannot pin the backoff
+// cadence to something shorter than its own base interval.
 func ConfigFromEnv(h home.Home) Config {
+	heartbeat := clampMin1s(claudehook.Seconds("CFO_HEARTBEAT", 600))
+	heartbeatMax := clampMin1s(claudehook.Seconds("CFO_HEARTBEAT_MAX", 7200))
+	if heartbeatMax < heartbeat {
+		heartbeatMax = heartbeat
+	}
 	return Config{
 		Home:         h,
 		Poll:         clampMin1s(claudehook.Seconds("CFO_POLL", 15)),
 		SignalGrace:  clampMin1s(claudehook.Seconds("CFO_SIGNAL_GRACE", 30)),
-		Heartbeat:    clampMin1s(claudehook.Seconds("CFO_HEARTBEAT", 600)),
-		HeartbeatMax: clampMin1s(claudehook.Seconds("CFO_HEARTBEAT_MAX", 7200)),
+		Heartbeat:    heartbeat,
+		HeartbeatMax: heartbeatMax,
 		Sleep:        time.Sleep,
 	}
 }
@@ -91,12 +118,13 @@ type Change struct {
 
 // Sanitize maps every character outside [A-Za-z0-9_-] to '_', covering ':'
 // '/' '\' '.' which are illegal or ambiguous in NTFS filenames. The mapping
-// is deliberately lossy and collision-prone in principle, which is safe here
-// because a collision only merges two signatures and the worst consequence
-// is a duplicate wake that wake.Deduped folds away. Never widen it to
-// preserve dots: a signature file for "a.status" written as ".seen-a.status"
-// would itself end in ".status" and be indistinguishable from a hidden
-// status file the next scan picks up.
+// is deliberately lossy: two distinct names can sanitize to the same
+// string (for example "a.b.status" and "a_b.status" both become
+// "a_b_status"). Never widen it to preserve dots: a signature file for
+// "a.status" written with a literal dot would itself end in ".status" and
+// be indistinguishable from a hidden status file the next scan picks up.
+// Sanitize's output is therefore never used alone as a signature filename;
+// see SeenName, which disambiguates it.
 func Sanitize(name string) string {
 	var b strings.Builder
 	b.Grow(len(name))
@@ -111,13 +139,34 @@ func Sanitize(name string) string {
 	return b.String()
 }
 
+// SeenName returns the signature filename ScanSignals and CommitSignatures
+// use for a raw *.status/*.turn-ended basename: Sanitize(name) for a
+// human-readable prefix, plus an 8-hex-digit FNV-1a-32 hash of the RAW name
+// so two names that sanitize identically can never share one signature
+// file. Without the hash, a Sanitize collision is not a one-time duplicate
+// wake: CommitSignatures for whichever colliding file commits last leaves
+// the OTHER permanently stale against its own persisted signature, so every
+// following ScanSignals reports that file changed again, and every watcher
+// cycle closes on signal immediately - an unbounded rewake and
+// recovery-generation storm under Task 11's eight-hour arm loop, not
+// something wake.Deduped's last-write-wins fold has any power over (Deduped
+// dedupes wake records by (kind,key); it does nothing to a scan that
+// re-detects the same file as changed every cycle). The hash makes that
+// collision unreachable rather than merely unlikely, while the sanitized
+// prefix keeps the filename readable for a human inspecting state/.
+func SeenName(name string) string {
+	h := fnv.New32a()
+	h.Write([]byte(name))
+	return fmt.Sprintf("%s%s-%08x", seenPrefix, Sanitize(name), h.Sum32())
+}
+
 // ScanSignals is a pure read: it compares each *.status and *.turn-ended
 // file directly inside stateDir against the persisted size:mtime signature
-// in state/.seen-<Sanitize(name)> and returns the entries whose signature
-// moved, in filename order. It writes nothing anywhere; a file with no
-// signature file yet counts as changed, so a first sighting is reported the
-// same as any later change (the cross-restart contract: signals that land
-// while no watcher runs are caught on the next start).
+// in state/<SeenName(name)> and returns the entries whose signature moved,
+// in filename order. It writes nothing anywhere; a file with no signature
+// file yet counts as changed, so a first sighting is reported the same as
+// any later change (the cross-restart contract: signals that land while no
+// watcher runs are caught on the next start).
 func ScanSignals(stateDir string) ([]Change, error) {
 	entries, err := os.ReadDir(stateDir)
 	if err != nil {
@@ -142,7 +191,7 @@ func ScanSignals(stateDir string) ([]Change, error) {
 		}
 		sig := fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
 
-		seen, err := os.ReadFile(filepath.Join(stateDir, seenPrefix+Sanitize(name)))
+		seen, err := os.ReadFile(filepath.Join(stateDir, SeenName(name)))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
@@ -163,7 +212,7 @@ func ScanSignals(stateDir string) ([]Change, error) {
 // one.
 func CommitSignatures(stateDir string, changes []Change) error {
 	for _, c := range changes {
-		path := filepath.Join(stateDir, seenPrefix+Sanitize(c.Name))
+		path := filepath.Join(stateDir, SeenName(c.Name))
 		if err := fsx.AtomicWriteFile(path, []byte(c.Sig)); err != nil {
 			return err
 		}
@@ -242,8 +291,13 @@ func heartbeatDue(stateDir, heartbeatPath string, heartbeat, max time.Duration) 
 	if err != nil {
 		return false, 0, err
 	}
+	// interval <= 0 catches int64 overflow from the shift (an operator-
+	// supplied CFO_HEARTBEAT large enough wraps a positive Duration
+	// negative), not just the ordinary over-cap case; both fall back to
+	// max rather than letting a negative interval make every cycle read
+	// as due.
 	interval := heartbeat << streak
-	if interval > max {
+	if interval <= 0 || interval > max {
 		interval = max
 	}
 	fi, err := os.Stat(heartbeatPath)
@@ -258,7 +312,7 @@ func heartbeatDue(stateDir, heartbeatPath string, heartbeat, max time.Duration) 
 // cadence, waiting between checks. It returns the first actionable reason
 // (a "signal:..." detail or "heartbeat") and closes; one actionable reason
 // closes one watcher cycle, and continuity is the arm layer's job.
-func Run(cfg Config) (reason string, err error) {
+func Run(cfg Config) (string, error) {
 	if _, err := lock.AcquireNamedOwner(cfg.Home.State, watchLockName, os.Getpid(), "watch"); err != nil {
 		return "", fmt.Errorf("watch: acquire singleton: %w", err)
 	}
@@ -295,6 +349,16 @@ func Run(cfg Config) (reason string, err error) {
 			// the same turn's turn-end marker land as one wake, not two.
 			cfg.Sleep(cfg.SignalGrace)
 
+			// A successor may have stolen the singleton during the grace
+			// sleep. Re-check before this cycle commits to anything: a
+			// double-live watcher that both proceeded here would each
+			// append and publish, producing two episodes whose generations
+			// collide on the next ack. Return quietly, exactly as the
+			// mid-loop steal check below does.
+			if !lock.HeldByNamed(cfg.Home.State, watchLockName, os.Getpid()) {
+				return "", nil
+			}
+
 			// Nothing was committed between the two scans, so this rescan
 			// already returns the union of both: any file the first scan
 			// saw is still unequal to its (still uncommitted) persisted
@@ -304,6 +368,16 @@ func Run(cfg Config) (reason string, err error) {
 			changes, err = ScanSignals(cfg.Home.State)
 			if err != nil {
 				return "", err
+			}
+			if len(changes) == 0 {
+				// Everything that triggered this cycle vanished during the
+				// grace window (a goblin despawn inside SignalGrace is
+				// plausible). Closing here anyway would append nothing,
+				// commit nothing, and still publish an episode for a
+				// meaningless "signal:" reason with an empty wake queue.
+				// One extra fast iteration instead: no spin, since the next
+				// pass falls through to the normal heartbeat check and wait.
+				continue
 			}
 
 			names := make([]string, len(changes))
@@ -363,7 +437,17 @@ func Run(cfg Config) (reason string, err error) {
 		}
 
 		if cfg.WaitEvent != nil {
-			cfg.WaitEvent(cfg.Poll)
+			// A true return means WaitEvent observed something within
+			// Poll and Run should proceed to rescan right away. A false
+			// return means it did not, and Run enforces the Poll floor
+			// itself so a WaitEvent that returns early for any reason
+			// cannot spin the loop.
+			start := time.Now()
+			if !cfg.WaitEvent(cfg.Poll) {
+				if remaining := cfg.Poll - time.Since(start); remaining > 0 {
+					cfg.Sleep(remaining)
+				}
+			}
 		} else {
 			cfg.Sleep(cfg.Poll)
 		}
