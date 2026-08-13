@@ -22,6 +22,31 @@ type snapshotEndpoint struct {
 	calls      []string
 }
 
+func TestHerdrEndpointReadsOnlyLiveAgentEvidence(t *testing.T) {
+	runner := &fakeRunner{replies: []runnerReply{
+		jsonReply(`{"result":{"pane":{"pane_id":"pane-7"}}}`),
+		jsonReply(`{"result":{"agent":{"agent_status":"working"}}}`),
+		jsonReply(`{"result":{"agent":{"agent_status":"working"}}}`),
+	}}
+	var sleeps []time.Duration
+	endpoint := NewHerdrEndpoint(newHerdrClient(runner, &sleeps))
+	target := herdr.Target{Session: "fleet", Pane: "pane-7"}
+
+	exists, err := endpoint.Exists(context.Background(), target)
+	if err != nil || !exists {
+		t.Fatalf("Exists = %t, %v; want true, nil", exists, err)
+	}
+	busy, err := endpoint.BusyState(context.Background(), target)
+	if err != nil || busy != herdr.BusyWorking {
+		t.Fatalf("BusyState = %q, %v; want busy, nil", busy, err)
+	}
+	assertRequests(t, runner.requests, [][]string{
+		{"pane", "get", "pane-7", "--json", "--session", "fleet"},
+		{"agent", "get", "pane-7", "--json", "--session", "fleet"},
+		{"agent", "get", "pane-7", "--json", "--session", "fleet"},
+	})
+}
+
 func (e *snapshotEndpoint) Exists(_ context.Context, target herdr.Target) (bool, error) {
 	e.calls = append(e.calls, "exists:"+target.String())
 	return e.exists[target.String()], nil

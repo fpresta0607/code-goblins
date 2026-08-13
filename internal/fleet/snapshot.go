@@ -26,6 +26,36 @@ type EndpointReader interface {
 	crewstate.Endpoint
 }
 
+// NewHerdrEndpoint adapts the supported read-only Herdr client to the
+// endpoint evidence BuildSnapshot needs. It deliberately does not implement
+// crewstate.StructuralValidator: idle status-log fallback requires workspace,
+// tab, and label proof that an agent status response cannot establish.
+func NewHerdrEndpoint(client *herdr.Client) EndpointReader {
+	return herdrEndpoint{client: client}
+}
+
+type herdrEndpoint struct {
+	client *herdr.Client
+}
+
+func (e herdrEndpoint) Exists(ctx context.Context, target herdr.Target) (bool, error) {
+	if e.client == nil {
+		return false, errors.New("fleet: Herdr client is required")
+	}
+	status, err := e.client.AgentStatus(ctx, target)
+	if err != nil {
+		return false, err
+	}
+	return status == herdr.AgentAlive, nil
+}
+
+func (e herdrEndpoint) BusyState(ctx context.Context, target herdr.Target) (herdr.BusyState, error) {
+	if e.client == nil {
+		return herdr.BusyUnknown, errors.New("fleet: Herdr client is required")
+	}
+	return e.client.BusyState(ctx, target)
+}
+
 // Snapshot is the typed, read-only fleet view shared by JSON and Markdown
 // renderers.
 type Snapshot struct {
