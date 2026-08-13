@@ -17,14 +17,6 @@ type scriptedPane struct {
 	reads  int
 }
 
-type stringTargetPane struct {
-	scriptedPane
-}
-
-func (p *stringTargetPane) String() string {
-	return "fleet:string-target"
-}
-
 func (p *scriptedPane) Run(_ context.Context, text string) error {
 	p.runs = append(p.runs, text)
 	return nil
@@ -39,7 +31,7 @@ func (p *scriptedPane) ForegroundCWD(context.Context) (string, error) {
 	return cwd, nil
 }
 
-func (p *scriptedPane) Target() string {
+func (p *scriptedPane) String() string {
 	return p.target
 }
 
@@ -134,7 +126,7 @@ func TestAcquireUsesPaneStringForHerdrTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pane := &stringTargetPane{scriptedPane: scriptedPane{cwds: []string{project}}}
+	pane := &scriptedPane{target: "fleet:string-target", cwds: []string{project}}
 	service := Service{Poll: time.Second, Timeout: time.Second, Sleep: noWait}
 
 	_, err := service.Acquire(context.Background(), pane, project)

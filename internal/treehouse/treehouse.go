@@ -40,7 +40,6 @@ type Service struct {
 	Poll     time.Duration
 	Timeout  time.Duration
 	Sleep    func(context.Context, time.Duration) error
-	Target   string
 }
 
 // Worktree is an acquired isolated checkout.
@@ -87,7 +86,7 @@ func (s Service) Acquire(ctx context.Context, pane Pane, project string) (Worktr
 		}
 	}
 
-	return Worktree{}, fmt.Errorf("treehouse get did not enter a worktree within 60s for Herdr target %s", s.target(pane))
+	return Worktree{}, fmt.Errorf("treehouse get did not enter a worktree within 60s for Herdr target %s", target(pane))
 }
 
 // Freshen updates an acquired worktree to the current default-branch base.
@@ -179,13 +178,7 @@ func (s Service) sleep(ctx context.Context, duration time.Duration) error {
 	}
 }
 
-func (s Service) target(pane Pane) string {
-	if s.Target != "" {
-		return s.Target
-	}
-	if withTarget, ok := pane.(interface{ Target() string }); ok && withTarget.Target() != "" {
-		return withTarget.Target()
-	}
+func target(pane Pane) string {
 	if stringer, ok := pane.(fmt.Stringer); ok && stringer.String() != "" {
 		return stringer.String()
 	}
