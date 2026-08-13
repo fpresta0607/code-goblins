@@ -578,6 +578,10 @@ func TestRunHookTurnendGuardChargeBudgetErrorEscalates(t *testing.T) {
 func TestRunHookTurnendGuardCeilingTerminatesWithoutNotified(t *testing.T) {
 	dir := newPrimaryHome(t)
 	setSyncWait(t, "0") // nothing in this fixture is ever a proof; skip the wait
+	// Pin the block budget so an ambient CFO_CLAUDE_TURNEND_BLOCK_BUDGET
+	// override in a developer shell cannot break the 9/10 boundary asserted
+	// below.
+	t.Setenv("CFO_CLAUDE_TURNEND_BLOCK_BUDGET", "3")
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
 
@@ -659,6 +663,60 @@ func TestRunHookTurnendGuardBudgetErrorDoesNotConsumeLadderAlarm(t *testing.T) {
 	}
 	if !supervise.AlarmFired(state) {
 		t.Error("step B's own ladder arm must set the alarmed marker")
+	}
+}
+
+// TestRunHookTurnendGuardChargeBudgetErrorMarksAlarmWhenAlreadyNotified is
+// FIX 2's regression: a ChargeBudget error that persists across every Stop
+// (here, the budget path shadowed by a directory) must not wedge stop-
+// autoarm's repeat-failure arm behind an alarm that can never fire, because
+// AlarmFired is set from ONLY inside the normal ladder arm, which a
+// persistently erroring ChargeBudget can never reach. With NotifiedOnce
+// already true, the episode is a genuine reported failure, so the
+// ChargeBudget error branch marks the alarm itself, and a subsequent
+// stop-autoarm repeat-failure firing observes it and exits 0 silently
+// instead of looping exit 2 forever.
+func TestRunHookTurnendGuardChargeBudgetErrorMarksAlarmWhenAlreadyNotified(t *testing.T) {
+	dir := newPrimaryHome(t)
+	setSyncWait(t, "50")
+	state := filepath.Join(dir, "state")
+	writeMetaFixture(t, state, "g1.meta")
+	if err := os.MkdirAll(filepath.Join(state, ".turnend-claude-blocks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := supervise.MarkNotified(state); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	exit := runHook("turnend-guard", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "GENUINELY DOWN") {
+		t.Errorf("stdout = %q, want it to contain GENUINELY DOWN", stdout.String())
+	}
+	if !supervise.AlarmFired(state) {
+		t.Fatal("a persistently-failing ChargeBudget after NotifiedOnce must mark the alarm, or the sibling stop-autoarm repeat-failure arm can never release")
+	}
+
+	// Confirm the alarm actually unwedges stop-autoarm's repeat-failure arm:
+	// a subsequent firing must exit 0 silently rather than 2.
+	setAncestorPID(t, os.Getpid())
+	setTinyAutoarmIntervals(t)
+	foreign := startLiveForeignProcess(t)
+	if _, err := lock.AcquireNamedOwner(state, ".watch.lock", foreign.Process.Pid, "watch"); err != nil {
+		t.Fatal(err)
+	}
+	// No fresh beat: the attempt loop can only fail (ErrHeld, not healthy).
+
+	var stdoutAutoarm, stderrAutoarm bytes.Buffer
+	exitAutoarm := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdoutAutoarm, &stderrAutoarm)
+	if exitAutoarm != 0 {
+		t.Fatalf("stop-autoarm exit = %d, want 0; stdout=%s stderr=%s", exitAutoarm, stdoutAutoarm.String(), stderrAutoarm.String())
+	}
+	if stdoutAutoarm.Len() != 0 || stderrAutoarm.Len() != 0 {
+		t.Errorf("stdout=%q stderr=%q, want both empty", stdoutAutoarm.String(), stderrAutoarm.String())
 	}
 }
 

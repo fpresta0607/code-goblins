@@ -193,6 +193,18 @@ func TestRunDoesNotFreeRunOnItsOwnBeatTouch(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
+	// Guard the touchCount upper-bound check below against a vacuous pass: a
+	// Run that errored out right after its first beat touch would score a
+	// low touchCount and satisfy "at most ~2-3" without ever exercising the
+	// steady-state wait this test means to observe. Confirming the loop is
+	// still alive going into the observation window, combined with the
+	// touchCount >= 2 lower bound below, closes that gap.
+	select {
+	case <-done:
+		t.Fatalf("Run exited before the observation window began; the touchCount checks below would be vacuous")
+	default:
+	}
+
 	var lastMod time.Time
 	touchCount := 0
 	observeUntil := time.Now().Add(4 * time.Second)
@@ -223,5 +235,8 @@ func TestRunDoesNotFreeRunOnItsOwnBeatTouch(t *testing.T) {
 
 	if touchCount > 3 {
 		t.Fatalf("beat file touched %d times in ~4s at CFO_POLL=2s, want at most ~2-3: the watcher is free-running on its own beat touch (C1 regression)", touchCount)
+	}
+	if touchCount < 2 {
+		t.Fatalf("beat file touched %d times in ~4s at CFO_POLL=2s, want at least 2: a Run that errored out early (or otherwise never reached steady-state polling) would vacuously pass the upper-bound check above", touchCount)
 	}
 }
