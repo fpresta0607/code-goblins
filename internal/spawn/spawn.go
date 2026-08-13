@@ -391,10 +391,11 @@ func rejectTaskIDAlias(stateDir, id string) error {
 		return fmt.Errorf("spawn: list task metadata: %w", err)
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".meta") {
+		extension := filepath.Ext(entry.Name())
+		if entry.IsDir() || !strings.EqualFold(extension, ".meta") {
 			continue
 		}
-		existingID := strings.TrimSuffix(entry.Name(), ".meta")
+		existingID := strings.TrimSuffix(entry.Name(), extension)
 		if strings.EqualFold(existingID, id) {
 			return fmt.Errorf("spawn: task ID %q conflicts case-insensitively with existing task metadata %q", id, existingID)
 		}

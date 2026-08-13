@@ -35,6 +35,20 @@ func TestSpawnRejectsInvalidIDBeforeFilesystemMutation(t *testing.T) {
 	}
 }
 
+func TestSpawnRejectsTrailingDotIDBeforeFilesystemMutation(t *testing.T) {
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state-does-not-exist")
+	service := Service{StateDir: stateDir}
+
+	_, err := service.Spawn(context.Background(), Request{ID: "task."})
+	if err == nil || !strings.Contains(err.Error(), "must not end with '.'") {
+		t.Fatalf("Spawn trailing-dot ID error = %v, want task ID refusal", err)
+	}
+	if _, statErr := os.Stat(stateDir); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("trailing-dot ID created state directory: stat error = %v", statErr)
+	}
+}
+
 func TestSpawnRefusesMissingBriefAndDeliveryMismatchBeforeLock(t *testing.T) {
 	root := t.TempDir()
 	stateDir := filepath.Join(root, "state")
@@ -502,6 +516,20 @@ func TestSpawnRejectsCaseAliasBeforeHerdrOrWorktreeMutation(t *testing.T) {
 	}
 	if first.Meta.ID != "Foo" {
 		t.Errorf("first metadata ID = %q, want Foo", first.Meta.ID)
+	}
+}
+
+func TestSpawnRejectsCaseInsensitiveMetadataExtensionBeforeHerdrOrWorktreeMutation(t *testing.T) {
+	fixture := newFixture(t)
+	writeFile(t, filepath.Join(fixture.stateDir, "Foo.META"), "window=fleet:pane-1\n")
+
+	request := fixture.request
+	request.ID = "foo"
+	if _, err := fixture.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
+		t.Fatalf("case-insensitive extension Spawn error = %v, want collision refusal", err)
+	}
+	if fixture.runner.calls != 0 {
+		t.Errorf("Herdr calls = %d, want 0 before metadata-alias refusal", fixture.runner.calls)
 	}
 }
 
