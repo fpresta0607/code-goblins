@@ -73,12 +73,22 @@ func runDrain(h home.Home, args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// renderDrain prints the wake queue's three output shapes: an empty queue
-// with no pending episode, an empty queue with a pending episode, or the
-// full deduped listing. The header count and rendered rows are the deduped
-// presentation; the ack-through sequence a WAKE_ACK_REQUIRED line carries is
-// always the highest raw pending sequence, since records the fold collapsed
-// still need to be retired.
+// renderDrain prints the wake queue's four output shapes: an empty queue
+// with no pending episode (nothing further); an empty queue with a pending
+// episode; a non-empty queue with a pending episode (the full listing plus
+// a generation-qualified ack command); and a non-empty queue with NO
+// pending episode (the listing plus a sequence-only ack command, with no
+// --recovery-generation flag). The fourth shape is reachable by design, not
+// only by hand-editing: Task 8's watcher appends a wake record before it
+// calls PublishEpisode, so a watcher killed in that window (or a truncated
+// .watcher-down marker, which ReadEpisode degrades to Pending: false)
+// leaves queued records with no episode. That shape's ack line must never
+// carry --recovery-generation 0: acking generation 0 against a home that
+// never had an episode would fabricate one (see AckEpisode's guard).
+// The header count and rendered rows are the deduped presentation; the
+// ack-through sequence a WAKE_ACK_REQUIRED line carries is always the
+// highest raw pending sequence, since records the fold collapsed still need
+// to be retired.
 func renderDrain(stateDir string, stdout io.Writer) error {
 	records, err := wake.Pending(stateDir)
 	if err != nil {
@@ -109,16 +119,18 @@ func renderDrain(stateDir string, stdout io.Writer) error {
 		}
 	}
 
-	if !episode.Pending {
-		return nil
-	}
-
 	maxSeq := 0
 	for _, rec := range records {
 		if rec.Seq > maxSeq {
 			maxSeq = rec.Seq
 		}
 	}
+
+	if !episode.Pending {
+		_, err := fmt.Fprintf(stdout, "WAKE_ACK_REQUIRED: cfo drain --ack-through %d\n", maxSeq)
+		return err
+	}
+
 	if _, err := fmt.Fprintf(stdout, "RECOVERY EPISODE: pending, generation %d\n", episode.Gen); err != nil {
 		return err
 	}

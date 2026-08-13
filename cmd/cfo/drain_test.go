@@ -12,18 +12,13 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// buildDrainFixture builds the exact live-home fixture the drain output
+// writeDrainQueueFixture writes the exact live-home queue the drain output
 // block in the task brief was written against: ack floor pre-seeded to 1 so
 // the lowest pending sequence is 2, three records at seqs 2/5/7 (the gaps
-// standing for records already acked away), and four episode publishes so
-// the generation is 4.
-func buildDrainFixture(t *testing.T) home.Home {
+// standing for records already acked away). It does not touch the episode
+// marker, so callers decide separately whether an episode is published.
+func writeDrainQueueFixture(t *testing.T, state string) {
 	t.Helper()
-	root := t.TempDir()
-	state := filepath.Join(root, "state")
-	if err := os.MkdirAll(state, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(filepath.Join(state, ".wake-ack"), []byte("1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -44,6 +39,18 @@ func buildDrainFixture(t *testing.T) home.Home {
 	if err := os.WriteFile(filepath.Join(state, ".wake-queue"), b, 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// buildDrainFixture builds writeDrainQueueFixture's queue plus four episode
+// publishes, so the generation is 4.
+func buildDrainFixture(t *testing.T) home.Home {
+	t.Helper()
+	root := t.TempDir()
+	state := filepath.Join(root, "state")
+	if err := os.MkdirAll(state, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeDrainQueueFixture(t, state)
 	for i := 0; i < 4; i++ {
 		if _, err := wake.PublishEpisode(state); err != nil {
 			t.Fatal(err)
@@ -230,5 +237,42 @@ func TestRunDrainEmptyQueueWithPendingEpisode(t *testing.T) {
 	}
 	if ep.Pending {
 		t.Errorf("episode still pending after ack: %+v", ep)
+	}
+}
+
+func TestRunDrainNonEmptyQueueNoPendingEpisode(t *testing.T) {
+	// A watcher's Run appends its wake record before it calls PublishEpisode
+	// (or the episode marker is truncated), so a non-empty queue with no
+	// pending episode is a reachable shape, not just a hand-edited one.
+	root := t.TempDir()
+	state := filepath.Join(root, "state")
+	if err := os.MkdirAll(state, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeDrainQueueFixture(t, state)
+	h := home.Home{Root: root, State: state, Data: filepath.Join(root, "data")}
+
+	var stdout, stderr bytes.Buffer
+	if exit := runDrain(h, nil, &stdout, &stderr); exit != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+	}
+	assertLines(t, stdout.String(), []string{
+		"WAKE QUEUE: 3 pending",
+		"  2  signal  g1.status: signal:g1.status",
+		"  5  stale   w1: stale: w1 (idle 300s)",
+		"  7  heartbeat  heartbeat",
+		"WAKE_ACK_REQUIRED: cfo drain --ack-through 7",
+	})
+
+	var stdout2, stderr2 bytes.Buffer
+	if exit := runDrain(h, []string{"--ack-through", "7"}, &stdout2, &stderr2); exit != 0 {
+		t.Fatalf("running the printed ack command: exit = %d, want 0; stderr=%s", exit, stderr2.String())
+	}
+	pending, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 0 {
+		t.Errorf("pending = %+v, want empty", pending)
 	}
 }

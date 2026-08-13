@@ -733,8 +733,23 @@ WAKE_ACK_REQUIRED: cfo drain --ack-through 7 --recovery-generation 4
 
 Each record row is `  %d  %-6s  %s: %s` over seq, kind, key and detail, with the `%s: ` key segment omitted when key equals kind, which is why the heartbeat row shows one bare word.
 The header count is the number of RENDERED (deduped) rows, not the raw pending count; records collapsed by the fold are still retired by the ack-through sequence, which is always the highest raw pending sequence.
-There are exactly three output shapes. Queue empty and no episode pending prints exactly `WAKE QUEUE: empty` and nothing else. Queue empty with an episode pending prints `WAKE QUEUE: 0 pending`, the RECOVERY EPISODE line, and `WAKE_ACK_REQUIRED: cfo drain --ack-through 0 --recovery-generation <gen>`, which is reachable because Task 8 publishes an episode on every return path except lock-lost, including an error return that appended no record. Any non-empty queue prints the full listing above.
-Flag presence is detected with `FlagSet.Visit`, never by value, because `--ack-through 0` is a legitimate argument that a value test cannot distinguish from an absent flag, and an implementer branching on `*ackThrough > 0` leaves the third shape's episode permanently unretired.
+There are exactly four output shapes.
+Queue empty and no episode pending prints exactly `WAKE QUEUE: empty` and nothing else.
+Queue empty with an episode pending prints `WAKE QUEUE: 0 pending`, the RECOVERY EPISODE line, and `WAKE_ACK_REQUIRED: cfo drain --ack-through 0 --recovery-generation <gen>`, which is reachable because Task 8 publishes an episode on every return path except lock-lost, including an error return that appended no record.
+A non-empty queue with an episode pending prints the full listing above: the header, the rendered rows, the RECOVERY EPISODE line, and a WAKE_ACK_REQUIRED line carrying both flags.
+A non-empty queue with NO episode pending prints the header and the rendered rows, then `WAKE_ACK_REQUIRED: cfo drain --ack-through <maxSeq>` with no `--recovery-generation` flag, exact:
+
+```
+WAKE QUEUE: 3 pending
+  2  signal  g1.status: signal:g1.status
+  5  stale   w1: stale: w1 (idle 300s)
+  7  heartbeat  heartbeat
+WAKE_ACK_REQUIRED: cfo drain --ack-through 7
+```
+
+This fourth shape is reachable by design, not only by hand-editing: Task 8's `Run` appends its wake record before it calls `PublishEpisode`, so a watcher killed in that window leaves queued records with no episode, and a truncated `.watcher-down` marker degrades to `Pending: false` the same way.
+The fourth shape's ack line must NEVER carry `--recovery-generation 0`: that round-trips into `AckEpisode(dir, 0)`, which would match a home that never had an episode and fabricate one, so `AckEpisode` refuses gen 0 and any non-pending episode outright, returning `ErrGenerationMismatch` and writing nothing.
+Flag presence is detected with `FlagSet.Visit`, never by value, because `--ack-through 0` is a legitimate argument that a value test cannot distinguish from an absent flag, and an implementer branching on `*ackThrough > 0` leaves the second shape's episode permanently unretired.
 Ack ordering is fixed: apply `AckThrough` first, then call `AckEpisode` only when the resulting queue is empty, so a partial ack can never retire an episode whose records are still queued. On `wake.ErrGenerationMismatch` the sequence ack is KEPT (it is idempotent and forward-only), stdout gets `recovery generation moved, re-run: cfo drain`, and the exit code is 0.
 Detail text conventions (`signal:<paths>`, `stale: <window> (...)`, `check: <script>: <out>`, `heartbeat`) are the crew-facing contract; the watcher tasks emit them verbatim.
 
