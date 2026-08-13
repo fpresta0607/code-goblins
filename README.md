@@ -6,16 +6,6 @@
       alt="Platform"
       src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-blue?style=flat-square"
   /></a>
-  <a href="https://x.com/kunchenguid"
-    ><img
-      alt="X"
-      src="https://img.shields.io/badge/X-@kunchenguid-black?style=flat-square"
-  /></a>
-  <a href="https://discord.gg/Wsy2NpnZDu"
-    ><img
-      alt="Discord"
-      src="https://img.shields.io/discord/1439901831038763092?style=flat-square&label=discord"
-  /></a>
 </p>
 
 <h3 align="center">Talk to one agent. Ship with a crew.</h3>
@@ -78,7 +68,7 @@ Codex and OpenCode are also verified and supported as primary harnesses; Codex u
 
 ```sh
 gh auth login
-git clone https://github.com/kunchenguid/code-goblins
+git clone https://github.com/fpresta0607/code-goblins
 cd code-goblins
 ```
 

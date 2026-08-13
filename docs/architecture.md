@@ -164,7 +164,7 @@ Ship briefs also tell the goblin to verify `pwd -P` and `git rev-parse --show-to
 
 ## No-mistakes gate authority boundary
 
-CFO's own no-mistakes gate runs agents inside a checkout that also contains the fleet-overlord identity in `AGENTS.md`, so gate execution needs an authority boundary separate from ordinary goblin worktree isolation.
+CFO's own no-mistakes gate runs agents inside a checkout that also contains the CFO identity in `AGENTS.md`, so gate execution needs an authority boundary separate from ordinary goblin worktree isolation.
 The tracked `.no-mistakes.yaml` sets `disable_project_settings: true`; no-mistakes honors that setting only from the trusted default-branch copy, so a pushed branch cannot enable its own project instructions during validation.
 Independently, `fm-spawn.sh`, `fm-send.sh`, `fm-control.sh`, and `fm-teardown.sh` source `bin/fm-gate-refuse-lib.sh` and exit with status 3 before fleet mutation when the gate environment marker is present or the current checkout matches the default no-mistakes gate-repository topology.
 A normal primary checkout or goblin worktree has neither signal and remains unaffected.
