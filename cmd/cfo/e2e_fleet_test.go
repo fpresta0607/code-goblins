@@ -121,10 +121,30 @@ func TestPlan3AcceptanceScriptSelfTests(t *testing.T) {
 	}
 }
 
+func TestPlan3ScriptEnvRemovesCaseInsensitiveOptIn(t *testing.T) {
+	parent := []string{
+		"PATH=C:\\Windows",
+		"cfo_plan3_real=1",
+		"Cfo_Plan3_Real=0",
+		"CFO_PLAN3_REALLY=keep",
+	}
+	for _, value := range plan3ScriptEnvFrom(parent, false) {
+		key, _, _ := strings.Cut(value, "=")
+		if strings.EqualFold(key, "CFO_PLAN3_REAL") {
+			t.Fatalf("child environment retains Plan 3 opt-in variable %q", value)
+		}
+	}
+}
+
 func plan3ScriptEnv(optIn bool) []string {
-	env := make([]string, 0, len(os.Environ())+1)
-	for _, value := range os.Environ() {
-		if !strings.HasPrefix(value, "CFO_PLAN3_REAL=") {
+	return plan3ScriptEnvFrom(os.Environ(), optIn)
+}
+
+func plan3ScriptEnvFrom(parent []string, optIn bool) []string {
+	env := make([]string, 0, len(parent)+1)
+	for _, value := range parent {
+		key, _, _ := strings.Cut(value, "=")
+		if !strings.EqualFold(key, "CFO_PLAN3_REAL") {
 			env = append(env, value)
 		}
 	}
