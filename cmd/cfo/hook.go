@@ -251,6 +251,21 @@ func hookTurnendGuard(stdin io.Reader, stdout, stderr io.Writer) int {
 	// upstream step 5: charge the block-budget ladder.
 	count, err := supervise.ChargeBudget(state, payload.SessionID)
 	if err != nil {
+		// A persistently unwritable budget file (path shadowed by a
+		// directory, an ACL, an AV lock that never releases) means count can
+		// never advance, so the normal ladder arm below is unreachable and
+		// the escalation ceiling - which sits after this charge - is too. If
+		// NotifiedOnce is already true, stop-autoarm has genuinely reported a
+		// failure episode, so marking the alarm here represents a real
+		// reported failure rather than a bookkeeping hiccup: the
+		// operator-facing message is identical either way, and this restores
+		// the sibling hookStopAutoarm's waitForAlarm release so its
+		// repeat-failure arm can exit 0 instead of looping exit 2 forever.
+		// Best-effort: a MarkAlarm failure here is no worse than the charge
+		// failure that led here.
+		if supervise.NotifiedOnce(state) {
+			_ = supervise.MarkAlarm(state)
+		}
 		return attendedFailOpen(stdout)
 	}
 	if count > blockBudget && supervise.NotifiedOnce(state) && !supervise.AlarmFired(state) {
@@ -307,15 +322,17 @@ func pollAutoarmProof(state string, grace, epochFresh, syncWait time.Duration) b
 
 // attendedFailOpen is the failure posture for a ChargeBudget or ResetBudget
 // error: the ladder cannot run at all, so the guard escalates once instead
-// of blocking every Stop forever on a counter that can never advance. It
-// deliberately does NOT call MarkAlarm: this branch fires for errors with
+// of blocking every Stop forever on a counter that can never advance. The
+// function itself never touches MarkAlarm: this branch fires for errors with
 // nothing to do with the ladder's own escalation (a quiet-turn ResetBudget
 // failure has no episode to speak of), and marking the alarm here would
 // permanently disarm the ladder's own one-shot GENUINELY DOWN message for
 // whatever genuine failure episode comes next, routing it straight to a
 // permanent block instead. This branch can legitimately repeat on every
 // Stop until the home is repaired; that is fine precisely because it never
-// touches AlarmFired.
+// touches AlarmFired. The one exception lives at the ChargeBudget call site,
+// not here: see its comment for why a persistent ChargeBudget error after
+// NotifiedOnce is already true marks the alarm itself before calling in.
 func attendedFailOpen(stdout io.Writer) int {
 	return claudehook.InfoAllow(stdout, genuinelyDownMessage)
 }

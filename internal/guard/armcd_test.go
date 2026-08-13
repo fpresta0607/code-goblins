@@ -76,6 +76,10 @@ func TestClassifyCd(t *testing.T) {
 		{command: `git commit -m "wip; cd later"`, wantDeny: false},
 		{command: `echo "a | popd"`, wantDeny: false},
 		{command: `git -C C:\x status`, wantDeny: false},
+		{command: "go test ./...\ncd sub", wantDeny: true},
+		{command: "go test ./...\ngo build ./...", wantDeny: false},
+		{command: "sleep 5 & cd sub", wantDeny: true},
+		{command: ") ; cd x", wantDeny: true},
 	}
 
 	for _, tt := range tests {

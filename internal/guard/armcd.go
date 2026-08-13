@@ -138,8 +138,21 @@ func ClassifyCd(command string) (code, reason string, deny bool) {
 // statementHeads walks command once, tracking quote state and paren depth,
 // and returns the first word of every statement (top-level and nested). It
 // skips single-quoted, double-quoted and backtick-quoted spans before
-// looking for the statement separators && ; || |, so a separator inside a
-// quoted argument never creates a phantom statement.
+// looking for the statement separators && ; || | & (doubled or lone) and an
+// unquoted newline, so a separator inside a quoted argument never creates a
+// phantom statement. A lone & and an unquoted \n or \r are statement
+// separators exactly like ; - multi-line Bash is the single most common
+// command shape Claude Code produces, and `cmd1 & cmd2` starts cmd2 as a new
+// top-level statement just as surely as `cmd1 ; cmd2` does. depth is floored
+// at zero on an unbalanced ')' so a stray close paren cannot make everything
+// after it read as nested and exempt from the top-level relocation check
+// (e.g. ") ; cd x").
+//
+// Consciously accepted trade-off: heredoc bodies are not quote-tracked, so a
+// heredoc line beginning with "cd " now false-denies. That adds no new class
+// of false block - a heredoc body containing "; cd" already false-denied
+// before this change - and this guard's stated priority is zero false
+// ALLOWS, never zero false denies.
 func statementHeads(command string) []cdHead {
 	var heads []cdHead
 	var head strings.Builder
@@ -172,7 +185,7 @@ func statementHeads(command string) []cdHead {
 			continue
 		}
 		switch {
-		case r == ';' || r == '|':
+		case r == ';' || r == '|' || r == '&' || r == '\n' || r == '\r':
 			boundary()
 			expectingHead, headDepth = true, depth
 		case r == '\'' || r == '"' || r == '`':
@@ -184,7 +197,10 @@ func statementHeads(command string) []cdHead {
 		case r == ')':
 			boundary()
 			depth--
-		case r == ' ' || r == '\t' || r == '\r' || r == '\n':
+			if depth < 0 {
+				depth = 0
+			}
+		case r == ' ' || r == '\t':
 			boundary()
 		case expectingHead:
 			if head.Len() == 0 {
