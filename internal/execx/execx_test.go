@@ -24,9 +24,22 @@ func TestOSRunnerHelper(t *testing.T) {
 		time.Sleep(10 * time.Second)
 	case "short-sleep":
 		time.Sleep(200 * time.Millisecond)
-	case "survive-cancel":
+	case "survive-cancel", "survive-cancel-empty-marker":
+		marker := os.Getenv("EXECX_MARKER")
+		if os.Getenv("EXECX_MODE") == "survive-cancel-empty-marker" {
+			markerFile, err := os.Create(marker)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(9)
+			}
+			if err := markerFile.Close(); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(9)
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 		time.Sleep(200 * time.Millisecond)
-		if err := os.WriteFile(os.Getenv("EXECX_MARKER"), []byte("alive"), 0o600); err != nil {
+		if err := os.WriteFile(marker, []byte("alive"), 0o600); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(9)
 		}
@@ -158,7 +171,7 @@ func TestOSRunnerStartSurvivesRequestContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	err := (OSRunner{}).Start(ctx, helperRequest(t.TempDir(), []string{
 		"EXECX_HELPER=1",
-		"EXECX_MODE=survive-cancel",
+		"EXECX_MODE=survive-cancel-empty-marker",
 		"EXECX_MARKER=" + marker,
 	}))
 	if err != nil {
@@ -169,13 +182,18 @@ func TestOSRunnerStartSurvivesRequestContextCancellation(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		if data, err := os.ReadFile(marker); err == nil {
-			if string(data) != "alive" {
+			switch string(data) {
+			case "alive":
+				// Let the helper return and its asynchronous reaper finish before
+				// go test removes the Windows test executable.
+				time.Sleep(100 * time.Millisecond)
+				return
+			case "":
+				// os.WriteFile creates the marker before writing its contents.
+				// Keep polling while that write is in progress.
+			default:
 				t.Fatalf("marker = %q, want alive", data)
 			}
-			// Let the helper return and its asynchronous reaper finish before
-			// go test removes the Windows test executable.
-			time.Sleep(100 * time.Millisecond)
-			return
 		}
 		if time.Now().After(deadline) {
 			t.Fatal("started child did not survive request context cancellation")
