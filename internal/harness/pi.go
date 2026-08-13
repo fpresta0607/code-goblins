@@ -112,12 +112,28 @@ func optionAdvertised(help, option string) bool {
 }
 
 func advertisedOptionLine(help, option string) (string, bool) {
+	inOptions := false
 	for _, line := range strings.Split(help, "\n") {
+		if strings.TrimSpace(line) == "Options:" {
+			inOptions = true
+			continue
+		}
+		if !inOptions {
+			continue
+		}
+		if optionSectionHeading(line) {
+			return "", false
+		}
 		if optionDeclaration(line, option) {
 			return line, true
 		}
 	}
 	return "", false
+}
+
+func optionSectionHeading(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return trimmed != "" && len(line) == len(strings.TrimLeft(line, " \t")) && strings.HasSuffix(trimmed, ":")
 }
 
 func optionDeclaration(line, option string) bool {
