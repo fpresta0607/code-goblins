@@ -220,6 +220,28 @@ func TestCreateTaskRefusesDuplicateWithLiveAgent(t *testing.T) {
 	})
 }
 
+func TestCreateTaskRefusesDuplicateWhenAnyPaneIsAlive(t *testing.T) {
+	runner := &fakeRunner{replies: []runnerReply{
+		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-existing","label":"fm-task"}]}}`),
+		jsonReply(`{"result":{"panes":[{"pane_id":"pane-husk","tab_id":"tab-existing"},{"pane_id":"pane-live","tab_id":"tab-existing"}]}}`),
+		{result: execx.Result{Stdout: []byte(`{"error":{"code":"pane_not_found"}}`), ExitCode: 1}},
+		jsonReply(`{"result":{"pane":{"pane_id":"pane-live"}}}`),
+		jsonReply(`{"result":{"agent":{"agent_status":"working"}}}`),
+	}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+
+	_, err := client.CreateTask(context.Background(), Container{Session: "fleet", WorkspaceID: "ws-1"}, "fm-task", `C:\repo`)
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("CreateTask error = %v, want duplicate refusal after a live second pane", err)
+	}
+	for _, request := range runner.Requests() {
+		if len(request.Args) >= 2 && request.Args[0] == "tab" && (request.Args[1] == "create" || request.Args[1] == "close") {
+			t.Fatalf("CreateTask issued unsafe duplicate-tab mutation: %q", request.Args)
+		}
+	}
+}
+
 func TestCreateTaskReplacesHuskAndPrunesOnlyExactSafeSeed(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{
 		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-husk","label":"fm-task"}]}}`),
@@ -229,8 +251,8 @@ func TestCreateTaskReplacesHuskAndPrunesOnlyExactSafeSeed(t *testing.T) {
 		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-seeded","label":"1"},{"tab_id":"tab-husk","label":"fm-task"},{"tab_id":"tab-new","label":"fm-task"}]}}`),
 		jsonReply(`{"result":{"panes":[{"pane_id":"pane-seeded","tab_id":"tab-seeded"}]}}`),
 		jsonReply(`{"result":{"agent":{"agent_status":"idle"}}}`),
-		{result: execx.Result{ExitCode: 1, Stderr: []byte("already closed")}},
-		rawReply(""),
+		{result: execx.Result{ExitCode: 1, Stderr: []byte(`{"error":{"code":"pane_not_found"}}`)}},
+		{result: execx.Result{ExitCode: 1, Stderr: []byte(`{"error":{"code":"tab_not_found"}}`)}},
 		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-new","label":"fm-task"}]}}`),
 	}}
 	var sleeps []time.Duration
@@ -252,10 +274,28 @@ func TestCreateTaskReplacesHuskAndPrunesOnlyExactSafeSeed(t *testing.T) {
 		command("herdr", "tab", "list", "--workspace", "ws-1", "--json", "--session", "fleet"),
 		command("herdr", "pane", "list", "--workspace", "ws-1", "--json", "--session", "fleet"),
 		command("herdr", "agent", "get", "pane-seeded", "--json", "--session", "fleet"),
-		command("herdr", "pane", "close", "pane-seeded", "--session", "fleet"),
-		command("herdr", "tab", "close", "tab-husk", "--session", "fleet"),
+		command("herdr", "pane", "close", "pane-seeded", "--json", "--session", "fleet"),
+		command("herdr", "tab", "close", "tab-husk", "--json", "--session", "fleet"),
 		command("herdr", "tab", "list", "--workspace", "ws-1", "--json", "--session", "fleet"),
 	})
+}
+
+func TestCreateTaskRefusesUnsafeSeedCloseFailure(t *testing.T) {
+	runner := &fakeRunner{replies: []runnerReply{
+		jsonReply(`{"result":{"tabs":[]}}`),
+		jsonReply(`{"result":{"tab":{"tab_id":"tab-new"},"root_pane":{"pane_id":"pane-new"}}}`),
+		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-seeded","label":"1"},{"tab_id":"tab-new","label":"fm-task"}]}}`),
+		jsonReply(`{"result":{"panes":[{"pane_id":"pane-seeded","tab_id":"tab-seeded"}]}}`),
+		jsonReply(`{"result":{"agent":{"agent_status":"idle"}}}`),
+		{result: execx.Result{ExitCode: 1, Stderr: []byte("permission denied")}},
+	}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+
+	_, err := client.CreateTask(context.Background(), Container{Session: "fleet", WorkspaceID: "ws-1", SeededDefaultTab: "tab-seeded"}, "fm-task", `C:\repo`)
+	if err == nil || !strings.Contains(err.Error(), "pane close") || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("CreateTask error = %v, want unsafe pane-close refusal", err)
+	}
 }
 
 func TestCreateTaskDoesNotPruneSeedWhoseLiveLabelChanged(t *testing.T) {
@@ -362,10 +402,23 @@ func TestAgentStatusClassifiesLivenessFromJSONRatherThanExitCode(t *testing.T) {
 			want:    AgentMissing,
 		},
 		{
+			name:    "pane not found on stderr",
+			replies: []runnerReply{{result: execx.Result{Stderr: []byte(`{"error":{"code":"pane_not_found"}}`), ExitCode: 1}}},
+			want:    AgentMissing,
+		},
+		{
 			name: "agent not found",
 			replies: []runnerReply{
 				jsonReply(`{"result":{"pane":{"pane_id":"w1:p2"}}}`),
 				{result: execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`), ExitCode: 1}},
+			},
+			want: AgentDead,
+		},
+		{
+			name: "agent not found on stderr",
+			replies: []runnerReply{
+				jsonReply(`{"result":{"pane":{"pane_id":"w1:p2"}}}`),
+				{result: execx.Result{Stderr: []byte(`{"error":{"code":"agent_not_found"}}`), ExitCode: 1}},
 			},
 			want: AgentDead,
 		},
@@ -408,13 +461,12 @@ func TestAgentStatusClassifiesLivenessFromJSONRatherThanExitCode(t *testing.T) {
 			want: AgentAlive,
 		},
 		{
-			name: "unknown agent status",
+			name: "unknown agent is still registered",
 			replies: []runnerReply{
 				jsonReply(`{"result":{"pane":{"pane_id":"w1:p2"}}}`),
-				jsonReply(`{"result":{"agent":{"agent_status":"starting"}}}`),
+				jsonReply(`{"result":{"agent":{"agent_status":"unknown"}}}`),
 			},
-			want:      AgentUnreadable,
-			wantError: true,
+			want: AgentAlive,
 		},
 	}
 
@@ -442,6 +494,16 @@ func TestBusyStateAndWaitForWorking(t *testing.T) {
 		got, err := client.BusyState(context.Background(), Target{Session: "fleet", Pane: "w1:p2"})
 		if err != nil || got != BusyIdle {
 			t.Fatalf("BusyState = %q, %v; want idle", got, err)
+		}
+	})
+
+	t.Run("unknown registered agent is unknown but readable", func(t *testing.T) {
+		runner := &fakeRunner{replies: []runnerReply{jsonReply(`{"result":{"agent":{"agent_status":"unknown"}}}`)}}
+		var sleeps []time.Duration
+		client := newTestClient(runner, &sleeps)
+		got, err := client.BusyState(context.Background(), Target{Session: "fleet", Pane: "w1:p2"})
+		if err != nil || got != BusyUnknown {
+			t.Fatalf("BusyState = %q, %v; want unknown with nil error", got, err)
 		}
 	})
 
@@ -481,6 +543,24 @@ func TestBusyStateAndWaitForWorking(t *testing.T) {
 			replies: []runnerReply{
 				jsonReply(`{"result":{"agent":{"agent_status":"idle"}}}`),
 				jsonReply(`{`),
+			},
+			want:       SubmitPending,
+			wantSleeps: []time.Duration{time.Second},
+		},
+		{
+			name: "all unknown reads stay pending",
+			replies: []runnerReply{
+				jsonReply(`{"result":{"agent":{"agent_status":"unknown"}}}`),
+				jsonReply(`{"result":{"agent":{"agent_status":"unknown"}}}`),
+			},
+			want:       SubmitPending,
+			wantSleeps: []time.Duration{time.Second},
+		},
+		{
+			name: "mixed unknown and idle reads stay pending",
+			replies: []runnerReply{
+				jsonReply(`{"result":{"agent":{"agent_status":"unknown"}}}`),
+				jsonReply(`{"result":{"agent":{"agent_status":"idle"}}}`),
 			},
 			want:       SubmitPending,
 			wantSleeps: []time.Duration{time.Second},
