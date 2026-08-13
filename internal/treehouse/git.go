@@ -110,24 +110,17 @@ func (g RunnerGit) Return(ctx context.Context, project, worktree string) error {
 func (g RunnerGit) defaultBranch(ctx context.Context, dir string) (string, error) {
 	result, err := g.command(ctx, dir, "git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
 	if err != nil {
-		return "", fmt.Errorf("treehouse: read origin default branch: %w", err)
+		return "", fmt.Errorf("treehouse: read origin/HEAD: %w", err)
 	}
-	if result.ExitCode == 0 {
-		ref := strings.TrimSpace(string(result.Stdout))
-		if branch, ok := strings.CutPrefix(ref, "origin/"); ok && branch != "" {
-			return branch, nil
-		}
+	if result.ExitCode != 0 {
+		return "", fmt.Errorf("treehouse: origin/HEAD is unavailable: %w", commandFailure("git symbolic-ref --quiet --short refs/remotes/origin/HEAD", result))
 	}
-	for _, branch := range []string{"main", "master"} {
-		result, err := g.command(ctx, dir, "git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
-		if err != nil {
-			return "", fmt.Errorf("treehouse: inspect local default branch: %w", err)
-		}
-		if result.ExitCode == 0 {
-			return branch, nil
-		}
+	ref := strings.TrimSpace(string(result.Stdout))
+	branch, ok := strings.CutPrefix(ref, "origin/")
+	if !ok || branch == "" || strings.ContainsAny(branch, "\r\n") {
+		return "", fmt.Errorf("treehouse: origin/HEAD reference %q is malformed", ref)
 	}
-	return "", fmt.Errorf("treehouse: cannot determine origin default branch for %q", dir)
+	return branch, nil
 }
 
 func (g RunnerGit) required(ctx context.Context, dir, name string, args ...string) (execx.Result, error) {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -88,29 +89,43 @@ func TestRunnerGitFreshenRefusesDirtyWorktreeBeforeReset(t *testing.T) {
 	}
 }
 
-func TestRunnerGitFreshenFallsBackToLocalMainWhenOriginHeadIsUnavailable(t *testing.T) {
-	worktree := t.TempDir()
-	runner := &scriptedRunner{results: []scriptedResult{
-		{},
-		{},
-		{result: execx.Result{ExitCode: 1}},
-		{},
-		{},
-		{result: execx.Result{Stdout: []byte("abc123\n")}},
-		{},
-		{},
-		{result: execx.Result{Stdout: []byte("abc123\n")}},
-	}}
+func TestRunnerGitFreshenRefusesInvalidOriginHead(t *testing.T) {
+	tests := []struct {
+		name       string
+		originHead execx.Result
+		wantError  string
+	}{
+		{name: "unavailable", originHead: execx.Result{ExitCode: 1}, wantError: "origin/HEAD is unavailable"},
+		{name: "wrong ref", originHead: execx.Result{Stdout: []byte("main\n")}, wantError: "origin/HEAD reference"},
+		{name: "empty branch", originHead: execx.Result{Stdout: []byte("origin/\n")}, wantError: "origin/HEAD reference"},
+		{name: "multiple refs", originHead: execx.Result{Stdout: []byte("origin/main\norigin/other\n")}, wantError: "origin/HEAD reference"},
+	}
 
-	err := RunnerGit{Commands: runner}.FetchAndFreshen(context.Background(), worktree)
-	if err != nil {
-		t.Fatalf("FetchAndFreshen: %v", err)
-	}
-	if len(runner.calls) != 9 {
-		t.Fatalf("Git calls = %d, want 9", len(runner.calls))
-	}
-	if got := runner.calls[3].Args; !reflect.DeepEqual(got, []string{"show-ref", "--verify", "--quiet", "refs/heads/main"}) {
-		t.Errorf("fallback args = %q, want local main check", got)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			worktree := t.TempDir()
+			runner := &scriptedRunner{results: []scriptedResult{
+				{},
+				{},
+				{result: test.originHead},
+				{},
+				{},
+				{result: execx.Result{Stdout: []byte("abc123\n")}},
+				{},
+				{},
+				{result: execx.Result{Stdout: []byte("abc123\n")}},
+			}}
+
+			err := RunnerGit{Commands: runner}.FetchAndFreshen(context.Background(), worktree)
+			if err == nil {
+				t.Error("FetchAndFreshen returned nil for an invalid origin/HEAD")
+			} else if !strings.Contains(err.Error(), test.wantError) {
+				t.Errorf("FetchAndFreshen error = %q, want %q", err, test.wantError)
+			}
+			if len(runner.calls) != 3 {
+				t.Errorf("Git calls = %d, want 3 before origin/HEAD refusal", len(runner.calls))
+			}
+		})
 	}
 }
 
