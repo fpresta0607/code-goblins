@@ -22,6 +22,7 @@ commands:
   version   print the cfo version
   doctor    check the tools cfo needs (git, gh, claude, herdr, treehouse)
   drain     print or acknowledge the wake queue and recovery episode
+  hook <name>  claude code hook entry points (session-start, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm)
 `
 
 func main() {
@@ -57,6 +58,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		return runDrain(h, args[1:], stdout, stderr)
+	case "hook":
+		if len(args) < 2 {
+			fmt.Fprint(stderr, usage)
+			return 2
+		}
+		return runHook(args[1], os.Stdin, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "cfo: unknown command %q\n%s", args[0], usage)
 		return 2
