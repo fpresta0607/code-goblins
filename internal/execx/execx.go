@@ -79,7 +79,10 @@ func (OSRunner) Run(ctx context.Context, req Request) (Result, error) {
 // Startup callers intentionally receive no exit status because their own
 // protocol-level health check is the authoritative readiness signal.
 func (OSRunner) Start(ctx context.Context, req Request) error {
-	cmd := command(ctx, req)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	cmd := startCommand(req)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -91,11 +94,21 @@ func (OSRunner) Start(ctx context.Context, req Request) error {
 
 func command(ctx context.Context, req Request) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, req.Name, req.Args...)
+	configure(cmd, req)
+	return cmd
+}
+
+func startCommand(req Request) *exec.Cmd {
+	cmd := exec.Command(req.Name, req.Args...)
+	configure(cmd, req)
+	return cmd
+}
+
+func configure(cmd *exec.Cmd, req Request) {
 	if req.Dir != "" {
 		cmd.Dir = req.Dir
 	}
 	if req.Env != nil {
 		cmd.Env = req.Env
 	}
-	return cmd
 }

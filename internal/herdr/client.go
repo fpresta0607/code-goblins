@@ -25,6 +25,26 @@ type Client struct {
 	Sleep    func(context.Context, time.Duration) error
 }
 
+type requestError struct {
+	message string
+}
+
+func (e *requestError) Error() string {
+	return e.message
+}
+
+type runnerError struct {
+	err error
+}
+
+func (e *runnerError) Error() string {
+	return e.err.Error()
+}
+
+func (e *runnerError) Unwrap() error {
+	return e.err
+}
+
 // EnsureServer starts the selected Herdr server when absent, then confirms its
 // JSON-reported running state within the fixed ten-second startup budget.
 func (c *Client) EnsureServer(ctx context.Context) error {
@@ -40,15 +60,15 @@ func (c *Client) EnsureServer(ctx context.Context) error {
 		return fmt.Errorf("herdr: start server for session %q: %w", session, err)
 	}
 	for range serverPolls {
+		if err := c.sleep(ctx, serverPoll); err != nil {
+			return fmt.Errorf("herdr: wait for server %q: %w", session, err)
+		}
 		running, err := c.serverRunning(ctx, session)
 		if err != nil {
 			return err
 		}
 		if running {
 			return nil
-		}
-		if err := c.sleep(ctx, serverPoll); err != nil {
-			return fmt.Errorf("herdr: wait for server %q: %w", session, err)
 		}
 	}
 	return fmt.Errorf("herdr: server for session %q did not report running within 10s", session)
@@ -133,6 +153,16 @@ func (c *Client) CreateTask(ctx context.Context, container Container, label, cwd
 		}
 		husks = append(husks, tab.ID)
 	}
+	for _, husk := range husks {
+		if err := c.close(ctx, container.Session, "tab", husk); err != nil {
+			return Endpoint{}, err
+		}
+	}
+	if len(husks) > 0 {
+		if err := c.verifyHusksRemoved(ctx, container.Session, container.WorkspaceID, label); err != nil {
+			return Endpoint{}, err
+		}
+	}
 
 	result, err := c.required(ctx, container.Session, Target{}, "tab create", "tab", "create", "--workspace", container.WorkspaceID, "--cwd", cwd, "--label", label, "--no-focus", "--json")
 	if err != nil {
@@ -153,17 +183,7 @@ func (c *Client) CreateTask(ctx context.Context, container Container, label, cwd
 		return Endpoint{}, errors.New("herdr: tab create response is missing tab_id or root pane_id")
 	}
 
-	if err := c.pruneSeededDefault(ctx, container); err != nil {
-		return Endpoint{}, err
-	}
-	for _, husk := range husks {
-		if err := c.close(ctx, container.Session, "tab", husk); err != nil {
-			return Endpoint{}, err
-		}
-	}
-	if err := c.verifyReplacement(ctx, container.Session, container.WorkspaceID, label, create.Tab.ID); err != nil {
-		return Endpoint{}, err
-	}
+	c.pruneSeededDefault(ctx, container)
 
 	target := Target{Session: container.Session, Pane: create.RootPane.ID}
 	return Endpoint{Target: target, WorkspaceID: container.WorkspaceID, TabID: create.Tab.ID, PaneID: create.RootPane.ID}, nil
@@ -305,6 +325,12 @@ func (c *Client) WaitForWorking(ctx context.Context, target Target, budget time.
 	if polls < 1 {
 		return SubmitUnknown, errors.New("herdr: WaitForWorking requires at least one poll")
 	}
+	if err := ctx.Err(); err != nil {
+		return SubmitUnknown, err
+	}
+	if err := validateTarget(target); err != nil {
+		return SubmitUnknown, err
+	}
 	if budget < 0 {
 		budget = 0
 	}
@@ -323,6 +349,9 @@ func (c *Client) WaitForWorking(ctx context.Context, target Target, budget time.
 		}
 		status, err := c.readAgentStatus(ctx, target)
 		if err != nil {
+			if waitError(ctx, err) {
+				return SubmitUnknown, err
+			}
 			continue
 		}
 		switch status {
@@ -342,6 +371,28 @@ func (c *Client) WaitForWorking(ctx context.Context, target Target, budget time.
 		return SubmitUnknown, nil
 	}
 	return SubmitPending, nil
+}
+
+func validateTarget(target Target) error {
+	if target.Session == "" {
+		return &requestError{message: "herdr: target session is required"}
+	}
+	if target.Pane == "" {
+		return &requestError{message: "herdr: target pane is required"}
+	}
+	return nil
+}
+
+func waitError(ctx context.Context, err error) bool {
+	if ctx.Err() != nil {
+		return true
+	}
+	var request *requestError
+	if errors.As(err, &request) {
+		return true
+	}
+	var runner *runnerError
+	return errors.As(err, &runner)
 }
 
 // Run sends the atomic treehouse command required by treehouse.Pane.
@@ -471,13 +522,13 @@ func (c *Client) isHusk(ctx context.Context, session, workspaceID, tabID string)
 	return true, nil
 }
 
-func (c *Client) pruneSeededDefault(ctx context.Context, container Container) error {
+func (c *Client) pruneSeededDefault(ctx context.Context, container Container) {
 	if container.SeededDefaultTab == "" {
-		return nil
+		return
 	}
 	tabs, err := c.tabs(ctx, container.Session, container.WorkspaceID)
 	if err != nil || len(tabs) < 2 {
-		return nil
+		return
 	}
 	for _, tab := range tabs {
 		if tab.ID != container.SeededDefaultTab || tab.Label != "1" {
@@ -485,7 +536,7 @@ func (c *Client) pruneSeededDefault(ctx context.Context, container Container) er
 		}
 		panes, err := c.panes(ctx, container.Session, container.WorkspaceID)
 		if err != nil {
-			return nil
+			return
 		}
 		for _, pane := range panes {
 			if pane.TabID != tab.ID || pane.ID == "" {
@@ -493,13 +544,13 @@ func (c *Client) pruneSeededDefault(ctx context.Context, container Container) er
 			}
 			status, err := c.readAgentStatus(ctx, Target{Session: container.Session, Pane: pane.ID})
 			if err != nil || (status != "idle" && status != "done" && status != "blocked") {
-				return nil
+				return
 			}
-			return c.close(ctx, container.Session, "pane", pane.ID)
+			_ = c.close(ctx, container.Session, "pane", pane.ID)
+			return
 		}
-		return nil
+		return
 	}
-	return nil
 }
 
 func (c *Client) close(ctx context.Context, session, kind, id string) error {
@@ -518,13 +569,13 @@ func (c *Client) close(ctx context.Context, session, kind, id string) error {
 	return &CommandError{Operation: operation, Target: Target{Session: session, Pane: id}, Stderr: strings.TrimSpace(string(result.Stderr)), ExitCode: result.ExitCode}
 }
 
-func (c *Client) verifyReplacement(ctx context.Context, session, workspaceID, label, createdID string) error {
+func (c *Client) verifyHusksRemoved(ctx context.Context, session, workspaceID, label string) error {
 	tabs, err := c.tabs(ctx, session, workspaceID)
 	if err != nil {
 		return err
 	}
 	for _, tab := range tabs {
-		if tab.Label == label && tab.ID != createdID {
+		if tab.Label == label {
 			return fmt.Errorf("herdr: tab %q still has duplicate %s after replacement", label, tab.ID)
 		}
 	}
@@ -532,6 +583,9 @@ func (c *Client) verifyReplacement(ctx context.Context, session, workspaceID, la
 }
 
 func (c *Client) readAgentStatus(ctx context.Context, target Target) (string, error) {
+	if err := validateTarget(target); err != nil {
+		return "", err
+	}
 	result, err := c.raw(ctx, target.Session, "agent", "get", target.Pane, "--json")
 	if err != nil {
 		return "", err
@@ -583,13 +637,17 @@ func (c *Client) required(ctx context.Context, session string, target Target, op
 
 func (c *Client) raw(ctx context.Context, session string, args ...string) (execx.Result, error) {
 	if c == nil || c.Commands == nil {
-		return execx.Result{}, errors.New("herdr: command runner is required")
+		return execx.Result{}, &requestError{message: "herdr: command runner is required"}
 	}
 	if session == "" {
-		return execx.Result{}, errors.New("herdr: session is required")
+		return execx.Result{}, &requestError{message: "herdr: session is required"}
 	}
 	requestArgs := append(append([]string{}, args...), "--session", session)
-	return c.Commands.Run(ctx, execx.Request{Name: "herdr", Args: requestArgs})
+	result, err := c.Commands.Run(ctx, execx.Request{Name: "herdr", Args: requestArgs})
+	if err != nil {
+		return execx.Result{}, &runnerError{err: err}
+	}
+	return result, nil
 }
 
 func (c *Client) start(ctx context.Context, session string, args ...string) error {
