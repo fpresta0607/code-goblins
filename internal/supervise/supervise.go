@@ -17,14 +17,13 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 )
 
 const (
-	// watchLockName and watcherBeatFile name the files internal/watch's Run
-	// writes under the same names (unexported there): this package only
-	// ever reads them.
-	watchLockName   = ".watch.lock"
-	watcherBeatFile = ".last-watcher-beat"
+	// watchLockName names internal/watch's singleton lock. Watcher liveness
+	// itself comes from monitor's typed heartbeat record.
+	watchLockName = ".watch.lock"
 
 	// autoarmLockName is Task 11's lock: the Stop-owned auto-arm hook holds
 	// it, with Session set to autoarmSession, while it works to restore the
@@ -77,20 +76,18 @@ func Needed(stateDir string) (bool, string, error) {
 }
 
 // WatcherHealthy reports whether stateDir's .watch.lock names a live holder
-// AND .last-watcher-beat's mtime is younger than grace. Both conjuncts are
-// required and neither substitutes for the other: lock.Info.Alive fails
-// closed on an unverifiable process, so a lock record alone can read as
-// live indefinitely; the beat is the real liveness evidence.
+// and monitor's typed LastCycle is younger than grace. Both conjuncts are
+// required because a lock record alone cannot prove a live watcher loop.
 func WatcherHealthy(stateDir string, grace time.Duration) bool {
 	holder, err := lock.ReadNamed(stateDir, watchLockName)
 	if err != nil || !holder.Alive() {
 		return false
 	}
-	fi, err := os.Stat(filepath.Join(stateDir, watcherBeatFile))
+	heartbeat, err := monitor.ReadHeartbeat(stateDir)
 	if err != nil {
 		return false
 	}
-	return time.Since(fi.ModTime()) < grace
+	return !heartbeat.LastCycle.IsZero() && time.Since(heartbeat.LastCycle) < grace
 }
 
 // AutoarmOwnsRecovery reports whether the Stop-owned auto-arm (Task 11) is

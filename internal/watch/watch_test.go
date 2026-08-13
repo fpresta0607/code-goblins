@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -197,6 +200,37 @@ func baseConfig(dir string) Config {
 	}
 }
 
+type missingProbe struct{}
+
+func (missingProbe) Inspect(context.Context, state.TaskMeta) (monitor.EndpointSample, error) {
+	return monitor.EndpointSample{Verdict: monitor.ProbeMissing, Detail: "pane missing"}, nil
+}
+
+func monitoringService(t *testing.T, dir, id string) *monitor.Service {
+	t.Helper()
+	if err := state.WriteTaskMeta(dir, state.TaskMeta{
+		ID:               id,
+		Worktree:         `C:\work\` + id,
+		Backend:          "herdr",
+		HerdrSession:     "fleet",
+		HerdrWorkspaceID: "ws",
+		HerdrTabID:       "tab-" + id,
+		HerdrPaneID:      "pane-" + id,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return &monitor.Service{
+		StateDir:            dir,
+		Probe:               missingProbe{},
+		Now:                 time.Now,
+		StaleEscalateAfter:  time.Minute,
+		BusyTurnMax:         time.Hour,
+		PauseResurfaceAfter: time.Hour,
+		Heartbeat:           time.Minute,
+		HeartbeatMax:        time.Hour,
+	}
+}
+
 func TestRunClosesOnSignal(t *testing.T) {
 	dir := t.TempDir()
 	aPath := filepath.Join(dir, "a.status")
@@ -207,14 +241,6 @@ func TestRunClosesOnSignal(t *testing.T) {
 	if err := os.WriteFile(bPath, []byte("b1"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Pre-write a streak, as if a prior heartbeat cycle had already backed
-	// off, so this test can assert a signal close removes it (brief line
-	// 92: "A signal close then removes the streak file").
-	streakPath := filepath.Join(dir, ".heartbeat-streak")
-	if err := os.WriteFile(streakPath, []byte("3"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
 	sleepCalls := 0
 	cfg := baseConfig(dir)
 	cfg.Sleep = func(time.Duration) {
@@ -270,28 +296,8 @@ func TestRunClosesOnSignal(t *testing.T) {
 		t.Errorf("episode = %+v, want pending:1", ep)
 	}
 
-	// A signal close must remove the streak file entirely (not zero it),
-	// so the next heartbeat starts from a clean base interval instead of
-	// resuming wherever this streak had backed off to. Deleting
-	// removeHeartbeatStreak's call site must fail this assertion.
-	if _, err := os.Stat(streakPath); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("streak file survives a signal close: stat err = %v", err)
-	}
 }
 
-// TestRunContinuesWhenPostGraceRescanIsEmpty covers a status file that
-// vanishes during the SignalGrace window (a goblin despawn inside 30s is
-// plausible): the post-grace rescan then returns zero changes, and Run must
-// treat that as "nothing to report yet", not as a signal close with an
-// empty detail. It proves this by aging .last-heartbeat to already-due
-// before Run starts: if the empty rescan closed anyway, Run would return
-// the bare "signal:" reason on its first pass and never reach the
-// heartbeat check at all. If it correctly continues instead, the second
-// pass's heartbeat check fires and Run returns "heartbeat" with exactly
-// one (heartbeat, not signal) wake record and exactly one published
-// episode - proving the empty-rescan pass appended nothing and published
-// nothing. Removing the `if len(changes) == 0 { continue }` guard in Run
-// must fail this test.
 func TestRunContinuesWhenPostGraceRescanIsEmpty(t *testing.T) {
 	dir := t.TempDir()
 	aPath := filepath.Join(dir, "a.status")
@@ -299,19 +305,9 @@ func TestRunContinuesWhenPostGraceRescanIsEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	heartbeat := 2 * time.Second // see TestHeartbeatBackoffDoublesAndResets for why this is seconds, not ms
-	heartbeatPath := filepath.Join(dir, ".last-heartbeat")
-	if err := os.WriteFile(heartbeatPath, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	aged := time.Now().Add(-heartbeat)
-	if err := os.Chtimes(heartbeatPath, aged, aged); err != nil {
-		t.Fatal(err)
-	}
-
 	sleepCalls := 0
 	cfg := baseConfig(dir)
-	cfg.Heartbeat = heartbeat
+	cfg.Monitor = monitoringService(t, dir, "g1")
 	cfg.Sleep = func(time.Duration) {
 		sleepCalls++
 		if sleepCalls == 1 {
@@ -327,8 +323,8 @@ func TestRunContinuesWhenPostGraceRescanIsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if reason != "heartbeat" {
-		t.Fatalf("reason = %q, want heartbeat (an empty post-grace rescan must not close the cycle on a bare \"signal:\" reason)", reason)
+	if !strings.HasPrefix(reason, "stale:") {
+		t.Fatalf("reason = %q, want the monitor event after the empty rescan", reason)
 	}
 	if sleepCalls < 1 {
 		t.Fatalf("sleepCalls = %d, want at least 1", sleepCalls)
@@ -338,8 +334,8 @@ func TestRunContinuesWhenPostGraceRescanIsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 1 || records[0].Kind != "heartbeat" {
-		t.Fatalf("records = %+v, want exactly one heartbeat record (the empty rescan must append nothing)", records)
+	if len(records) != 1 || records[0].Kind != "stale" {
+		t.Fatalf("records = %+v, want exactly one monitor stale record", records)
 	}
 
 	ep, err := wake.ReadEpisode(dir)
@@ -351,98 +347,25 @@ func TestRunContinuesWhenPostGraceRescanIsEmpty(t *testing.T) {
 	}
 }
 
-func TestRunClosesOnHeartbeat(t *testing.T) {
+func TestRunClosesOnMonitorEvent(t *testing.T) {
 	dir := t.TempDir()
-	heartbeat := 50 * time.Millisecond
-	heartbeatPath := filepath.Join(dir, ".last-heartbeat")
-	if err := os.WriteFile(heartbeatPath, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	aged := time.Now().Add(-heartbeat)
-	if err := os.Chtimes(heartbeatPath, aged, aged); err != nil {
-		t.Fatal(err)
-	}
-
 	cfg := baseConfig(dir)
-	cfg.Heartbeat = heartbeat
+	cfg.Monitor = monitoringService(t, dir, "g1")
 
 	reason, err := Run(cfg)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if reason != "heartbeat" {
-		t.Fatalf("reason = %q, want heartbeat", reason)
+	if !strings.HasPrefix(reason, "stale:endpoint_missing") {
+		t.Fatalf("reason = %q, want endpoint-missing monitor event", reason)
 	}
 
 	records, err := wake.Pending(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 1 || records[0].Kind != "heartbeat" {
-		t.Fatalf("records = %+v, want one heartbeat record", records)
-	}
-
-	streak, err := os.ReadFile(filepath.Join(dir, ".heartbeat-streak"))
-	if err != nil {
-		t.Fatalf("streak file missing: %v", err)
-	}
-	if strings.TrimSpace(string(streak)) != "1" {
-		t.Errorf("streak = %q, want 1", streak)
-	}
-}
-
-func TestHeartbeatBackoffDoublesAndResets(t *testing.T) {
-	dir := t.TempDir()
-	// heartbeat is seconds, not milliseconds, deliberately: Run's Sleep is
-	// faked (no real time.Sleep call happens, so this does not slow the
-	// test down), but the assertion that the first pass does NOT close
-	// races real wall-clock scheduling between the os.Chtimes below and
-	// Run's first heartbeatDue check. A small interval leaves too thin a
-	// margin under a loaded `go test ./...` run, where scheduler jitter
-	// alone can eat tens of milliseconds and flip the race.
-	heartbeat := 2 * time.Second
-	heartbeatPath := filepath.Join(dir, ".last-heartbeat")
-	if err := os.WriteFile(heartbeatPath, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	aged := time.Now().Add(-heartbeat)
-	if err := os.Chtimes(heartbeatPath, aged, aged); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, ".heartbeat-streak"), []byte("1"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	sleepCalls := 0
-	cfg := baseConfig(dir)
-	cfg.Heartbeat = heartbeat
-	cfg.Sleep = func(time.Duration) {
-		sleepCalls++
-		if sleepCalls == 1 {
-			older := time.Now().Add(-2 * heartbeat)
-			if err := os.Chtimes(heartbeatPath, older, older); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-
-	reason, err := Run(cfg)
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if reason != "heartbeat" {
-		t.Fatalf("reason = %q, want heartbeat", reason)
-	}
-	if sleepCalls < 1 {
-		t.Fatalf("sleepCalls = %d, want at least 1 (proves the pass before it did not close on one Heartbeat)", sleepCalls)
-	}
-
-	streak, err := os.ReadFile(filepath.Join(dir, ".heartbeat-streak"))
-	if err != nil {
-		t.Fatalf("streak file missing: %v", err)
-	}
-	if strings.TrimSpace(string(streak)) != "2" {
-		t.Errorf("streak = %q, want 2", streak)
+	if len(records) != 1 || records[0].Kind != "stale" {
+		t.Fatalf("records = %+v, want one stale record", records)
 	}
 }
 
@@ -543,30 +466,20 @@ func TestRunReturnsQuietlyWhenSingletonStolen(t *testing.T) {
 	}
 }
 
-func TestRunTouchesBeat(t *testing.T) {
+func TestRunWritesTypedHeartbeat(t *testing.T) {
 	dir := t.TempDir()
-	heartbeat := 20 * time.Millisecond
-	heartbeatPath := filepath.Join(dir, ".last-heartbeat")
-	if err := os.WriteFile(heartbeatPath, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	aged := time.Now().Add(-heartbeat)
-	if err := os.Chtimes(heartbeatPath, aged, aged); err != nil {
-		t.Fatal(err)
-	}
-
 	cfg := baseConfig(dir)
-	cfg.Heartbeat = heartbeat
+	cfg.Monitor = monitoringService(t, dir, "g1")
 
 	if _, err := Run(cfg); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
-	fi, err := os.Stat(filepath.Join(dir, ".last-watcher-beat"))
+	heartbeat, err := monitor.ReadHeartbeat(dir)
 	if err != nil {
-		t.Fatalf("beat file missing: %v", err)
+		t.Fatalf("ReadHeartbeat: %v", err)
 	}
-	if age := time.Since(fi.ModTime()); age > 30*time.Second {
-		t.Errorf("beat age = %v, want under 30s", age)
+	if heartbeat.LastCycle.IsZero() {
+		t.Error("typed heartbeat LastCycle is zero")
 	}
 }

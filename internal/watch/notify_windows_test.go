@@ -2,6 +2,7 @@ package watch
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 )
 
 func TestWaitSeesFileWrite(t *testing.T) {
@@ -136,19 +138,9 @@ func TestWaitTimeoutsLeaveNothingOutstanding(t *testing.T) {
 	w.Close()
 }
 
-// TestRunDoesNotFreeRunOnItsOwnBeatTouch is the integration regression test
-// for C1: watch.Run touches state/.last-watcher-beat at the top of every
-// iteration, on the same directory a real ConfigFromEnv-wired DirWaiter
-// watches under FILE_NOTIFY_CHANGE_LAST_WRITE. Before the content filter,
-// the kernel buffered that self-inflicted touch on the handle and handed it
-// back on the very next read, so Wait returned true in 0ms starting from the
-// second iteration and Run free-ran at full CPU instead of waiting out
-// CFO_POLL. This test proves the fix by running Run for real, with a real
-// waiter, and counting how many times the beat file actually changes over a
-// fixed wall-clock window: at CFO_POLL=2s, a healthy loop touches it about
-// twice in four seconds, while a free-running loop touches it thousands of
-// times in the same window.
-func TestRunDoesNotFreeRunOnItsOwnBeatTouch(t *testing.T) {
+// TestRunUsesNoLegacyBeatMarker proves Task 4 moved watcher liveness to the
+// typed monitor heartbeat record instead of rewriting a shell-era marker.
+func TestRunUsesNoLegacyBeatMarker(t *testing.T) {
 	dir := t.TempDir()
 	stateDir := filepath.Join(dir, "state")
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
@@ -181,39 +173,18 @@ func TestRunDoesNotFreeRunOnItsOwnBeatTouch(t *testing.T) {
 		close(done)
 	}()
 
-	beatPath := filepath.Join(stateDir, watcherBeatFile)
-	beatDeadline := time.Now().Add(15 * time.Second)
-	for {
-		if _, err := os.Stat(beatPath); err == nil {
-			break
-		}
-		if time.Now().After(beatDeadline) {
-			t.Fatalf("watcher never touched its beat file")
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	// Guard the touchCount upper-bound check below against a vacuous pass: a
-	// Run that errored out right after its first beat touch would score a
-	// low touchCount and satisfy "at most ~2-3" without ever exercising the
-	// steady-state wait this test means to observe. Confirming the loop is
-	// still alive going into the observation window, combined with the
-	// touchCount >= 2 lower bound below, closes that gap.
+	time.Sleep(200 * time.Millisecond)
 	select {
 	case <-done:
-		t.Fatalf("Run exited before the observation window began; the touchCount checks below would be vacuous")
+		t.Fatalf("Run exited before the wait interval")
 	default:
 	}
-
-	var lastMod time.Time
-	touchCount := 0
-	observeUntil := time.Now().Add(4 * time.Second)
-	for time.Now().Before(observeUntil) {
-		if fi, err := os.Stat(beatPath); err == nil && !fi.ModTime().Equal(lastMod) {
-			touchCount++
-			lastMod = fi.ModTime()
-		}
-		time.Sleep(20 * time.Millisecond)
+	if _, err := os.Stat(filepath.Join(stateDir, ".last-watcher-beat")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("legacy watcher beat marker exists: %v", err)
+	}
+	heartbeat, err := monitor.ReadHeartbeat(stateDir)
+	if err != nil || heartbeat.LastCycle.IsZero() {
+		t.Fatalf("typed heartbeat = %+v, %v; want recent LastCycle", heartbeat, err)
 	}
 
 	// Steal the singleton so Run notices on its next ownership check and
@@ -233,10 +204,4 @@ func TestRunDoesNotFreeRunOnItsOwnBeatTouch(t *testing.T) {
 		t.Fatalf("Run did not exit after its singleton was stolen")
 	}
 
-	if touchCount > 3 {
-		t.Fatalf("beat file touched %d times in ~4s at CFO_POLL=2s, want at most ~2-3: the watcher is free-running on its own beat touch (C1 regression)", touchCount)
-	}
-	if touchCount < 2 {
-		t.Fatalf("beat file touched %d times in ~4s at CFO_POLL=2s, want at least 2: a Run that errored out early (or otherwise never reached steady-state polling) would vacuously pass the upper-bound check above", touchCount)
-	}
 }
