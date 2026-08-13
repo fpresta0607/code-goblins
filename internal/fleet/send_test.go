@@ -346,6 +346,54 @@ func TestSenderTextAcceptsCurrentPiComposerWithFooter(t *testing.T) {
 	}
 }
 
+func TestSenderTextPermitsOnlyOneImmediatePiFooter(t *testing.T) {
+	separator := strings.Repeat("\u2500", 8)
+	for _, test := range []struct {
+		name      string
+		capture   string
+		wantError string
+	}{
+		{
+			name:    "current pair with one immediate footer confirms",
+			capture: "\n" + separator + "\n\n" + separator + "\n~/project (main)\n",
+		},
+		{
+			name:      "stale terminal footer before current footer refuses",
+			capture:   "\n" + separator + "\n\n" + separator + "\n~/terminal-output (old)\n~/project (main)\n",
+			wantError: "unknown",
+		},
+		{
+			name:      "footer with later output refuses",
+			capture:   "\n" + separator + "\n\n" + separator + "\n~/project (main)\n~/later-output (main)\n",
+			wantError: "unknown",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &fakeRunner{replies: []runnerReply{
+				rawReply(""),
+				jsonReply(`{"result":{"agent":{"agent_status":"working"}}}`),
+				rawReply(""),
+				rawReply(test.capture),
+				jsonReply(`{"result":{"agent":{"agent":"pi","agent_status":"idle"}}}`),
+			}}
+			var clientSleeps []time.Duration
+			sender := Sender{
+				Resolve: &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}, meta: taskMeta("task-7", "pi")},
+				Herdr:   newHerdrClient(runner, &clientSleeps),
+				Sleep:   noSleep,
+			}
+
+			err := sender.Text(context.Background(), "task-7", "draft")
+			if test.wantError == "" && err != nil {
+				t.Fatalf("Text: %v", err)
+			}
+			if test.wantError != "" {
+				assertErrorContains(t, err, test.wantError)
+			}
+		})
+	}
+}
+
 func TestSenderTextConfirmsAndRefusesPiComposerState(t *testing.T) {
 	for _, test := range []struct {
 		name          string

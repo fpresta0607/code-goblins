@@ -184,11 +184,16 @@ func piComposerCandidate(captured string) herdr.SubmitState {
 			return herdr.SubmitIdle
 		}
 	}
+	footer := false
 	for _, line := range lines[close+1:] {
 		trimmed := strings.TrimSpace(line)
-		if trimmed != "" && !piFooter(trimmed) {
+		if trimmed == "" {
+			continue
+		}
+		if footer || !piFooter(trimmed) {
 			return herdr.SubmitUnknown
 		}
+		footer = true
 	}
 	return herdr.SubmitWorking
 }
