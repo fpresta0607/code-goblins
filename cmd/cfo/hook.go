@@ -1,16 +1,23 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
 	"github.com/fpresta0607/code-goblins/internal/guard"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
+	"github.com/fpresta0607/code-goblins/internal/wake"
+	"github.com/fpresta0607/code-goblins/internal/watch"
 )
 
 // runHook is the single dispatcher every `cfo hook <name>` case routes
@@ -28,6 +35,19 @@ func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return hookPretoolCd(stdin, stdout, stderr)
 	case "turnend-guard":
 		return hookTurnendGuard(stdin, stdout, stderr)
+	case "stop-autoarm":
+		payload, ok := claudehook.ReadPayload(stdin)
+		if !ok {
+			return 0
+		}
+		h, err := home.Resolve()
+		if err != nil {
+			return 0
+		}
+		if !home.IsPrimary(h) {
+			return 0
+		}
+		return hookStopAutoarm(h, payload, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "cfo hook: unknown hook %q\n", name)
 		return 0
@@ -288,4 +308,218 @@ func beatAge(state string) string {
 		return "never"
 	}
 	return time.Since(fi.ModTime()).Round(time.Second).String()
+}
+
+// autoarmLockName and autoarmSession mirror internal/supervise's private
+// constants of the same name: this hook is that lock's sole acquirer, and
+// supervise exports no helper to take it, only functions that read it
+// (WatcherHealthy, AutoarmOwnsRecovery).
+const (
+	autoarmLockName = ".claude-autoarm.lock"
+	autoarmSession  = "autoarm"
+)
+
+// actionableReasonPattern matches the watch.Run reasons that mean a real
+// supervision event needs a handling turn: a status/turn-ended signal, a
+// stale-pane sweep (NOT PORTED IN V1, reserved for Plan 3), a check.sh sweep
+// (NOT PORTED IN V1, reserved for Plan 4), or a heartbeat.
+var actionableReasonPattern = regexp.MustCompile(`^(signal:|stale:|check:|heartbeat($|:))`)
+
+// rewakeBannerFmt and failureBannerFmt are cfo hook stop-autoarm's two
+// stderr banners, verbatim per the plan brief. rewakeBannerFmt's %s is the
+// actionable reason line; failureBannerFmt's %d/%s are the attempt count and
+// the final attempt's error text.
+const rewakeBannerFmt = "cfo watcher wake - one supervision event needs a handling turn now.\n%s\nRun cfo drain, handle what it presents, and acknowledge with the WAKE_ACK_REQUIRED command it prints. Do not run cfo watch manually after an ordinary wake."
+
+const failureBannerFmt = "cfo auto-arm FAILED after %d attempt(s): the watcher could not hold this home.\nLast error: %s\nSupervision is down and needs a repair turn: run cfo doctor, then verify the stop-autoarm hook registration in .claude/settings.json, and check state\\.watch.lock for a holder that is not yours."
+
+// resolveAncestorPID is the stop-autoarm hook's identity gate: it returns
+// the harness ancestor's pid, or false if none is found. A manual shell
+// invocation with no harness ancestor above it must never arm.
+//
+// CFO_TEST_ANCESTOR_PID, when set, replaces the ambient proc.FindAncestor
+// walk entirely: a go test binary launched from a Claude Code session has
+// claude.exe about five hops up its own ancestry, well inside maxHops 16, so
+// the ambient walk cannot be used from this repo's own test suite to assert
+// "no harness ancestor found". The override is validated with
+// proc.Ancestry(pid, 1): a pid the Toolhelp snapshot no longer resolves, or
+// whose creation time cannot be resolved (both are Ancestry's own walk stop
+// conditions), yields an empty walk, which disables the override and fails
+// the identity gate outright rather than falling back to the ambient walk.
+// Test seam, not a production contract: production hosts never set this
+// variable.
+func resolveAncestorPID() (int, bool) {
+	if raw := os.Getenv("CFO_TEST_ANCESTOR_PID"); raw != "" {
+		pid, err := strconv.Atoi(raw)
+		if err != nil {
+			return 0, false
+		}
+		entries, err := proc.Ancestry(pid, 1)
+		if err != nil || len(entries) == 0 {
+			return 0, false
+		}
+		return pid, true
+	}
+	entry, ok := proc.FindAncestor(os.Getpid(), 16, "claude", "node")
+	if !ok {
+		return 0, false
+	}
+	return entry.PID, true
+}
+
+// hookStopAutoarm hosts the watcher in-process for up to eight hours: Claude
+// fires this hook on every Stop with asyncRewake:true and an 8h timeout,
+// undeduplicated, and this process IS the watcher host - its eventual exit 2
+// stderr is what rewakes the idle agent. Steps below are commented against
+// the plan brief's numbering (upstream analogue:
+// bin/fm-claude-stop-autoarm.sh). The stdin/home/IsPrimary prologue lives in
+// runHook's dispatch switch, shared with every other hook in this file.
+func hookStopAutoarm(h home.Home, payload claudehook.Payload, stdout, stderr io.Writer) int {
+	state := h.State
+
+	// Step 2: identity gate.
+	ancestorPID, ok := resolveAncestorPID()
+	if !ok {
+		return 0
+	}
+
+	// Session custody: claim or confirm the primary session lock for the
+	// harness ancestor. lock.ErrHeld (a different live owner holds the
+	// home) and lock.ErrOwnerDead (the harness exited between the
+	// ancestry walk and this acquire, per Task 4's cross-task contract)
+	// are both inert, never a failure episode.
+	if !lock.HeldBy(state, ancestorPID) {
+		if _, err := lock.AcquireOwner(state, ancestorPID, payload.SessionID); err != nil {
+			return 0
+		}
+	}
+
+	// Step 3: need gate. An unlistable state directory never arms.
+	needed, _, err := supervise.Needed(state)
+	if err != nil || !needed {
+		return 0
+	}
+
+	// Step 4: single-flight. ErrHeld means another firing already owns
+	// this Stop; exit 0 immediately rather than racing it.
+	if _, err := lock.AcquireNamedOwner(state, autoarmLockName, os.Getpid(), autoarmSession); err != nil {
+		return 0
+	}
+	defer lock.ReleaseNamed(state, autoarmLockName)
+
+	// Step 5: epoch ledger, best-effort. An unwritable ledger is not proof
+	// of anything, so every outcome write below (through recordOutcome)
+	// is best-effort too. Requirement 5: errors.Is distinguishes a
+	// benign, expected ErrStaleEpoch supersede from a genuine ledger I/O
+	// failure; neither is ever treated as a failure episode of its own -
+	// this firing's real exit code and stderr are decided independently
+	// of whether the ledger recorded them.
+	epoch, epochErr := supervise.NextEpoch(state)
+	hasEpoch := epochErr == nil
+	recordOutcome := func(outcome string) {
+		if !hasEpoch {
+			return
+		}
+		if err := supervise.SetOutcome(state, epoch, outcome); err != nil && !errors.Is(err, supervise.ErrStaleEpoch) {
+			_ = err // genuine ledger I/O failure; still best-effort here
+		}
+	}
+
+	guardGrace := claudehook.Seconds("CFO_GUARD_GRACE", 300)
+	attempts := claudehook.Int("CFO_CLAUDE_AUTOARM_ATTEMPTS", 2, 1, 3)
+
+	var (
+		reason      string
+		lastErr     error
+		actionable  bool
+		healthy     bool
+		attemptsRun int
+	)
+
+	// Step 6: attempt loop. Requirement 1: watch.Config is single-use on
+	// every exit path (Run calls Cleanup on success via defer and on
+	// acquire failure explicitly), so ConfigFromEnv is rebuilt fresh every
+	// attempt; reusing one Config across retries would hand a later
+	// attempt a closed directory-change waiter that scores a strike per
+	// Wait until the breaker degrades it to timer mode.
+	for i := 0; i < attempts; i++ {
+		attemptsRun = i + 1
+		reason, lastErr = watch.Run(watch.ConfigFromEnv(h))
+		if lastErr == nil && actionableReasonPattern.MatchString(reason) {
+			actionable = true
+			break
+		}
+		if lastErr != nil && !errors.Is(lastErr, lock.ErrHeld) {
+			// Requirement 6: watch.Run deliberately does not publish an
+			// episode on its own error paths, because a transient stat
+			// failure inside the loop must not churn the recovery
+			// generation. This arm owns that publish instead, scoped to
+			// genuine internal failures only: a lock.ErrHeld contention
+			// error means a different live watcher already holds
+			// .watch.lock, which is that watcher's own episode to
+			// publish (or not), not this attempt's failure to report.
+			_, _ = wake.PublishEpisode(state)
+		}
+		if supervise.WatcherHealthy(state, guardGrace) {
+			healthy = true
+			break
+		}
+		// Strike; continue to the next attempt.
+	}
+
+	// Step 7, need-vanished check first: it wins over whatever the loop
+	// found. If the goblin work that justified arming is already gone,
+	// whatever the loop durably queued (a wake record, a published
+	// episode) survives for a later drain regardless, and this firing
+	// does not need to force an immediate handling turn for it.
+	if stillNeeded, _, err := supervise.Needed(state); err != nil || !stillNeeded {
+		recordOutcome("clean")
+		return 0
+	}
+
+	if healthy {
+		_ = supervise.ResetBudget(state)
+		recordOutcome("clean")
+		return 0
+	}
+
+	if actionable {
+		_ = supervise.ResetBudget(state)
+		recordOutcome("rewake")
+		return claudehook.BlockStop(stderr, fmt.Sprintf(rewakeBannerFmt, reason))
+	}
+
+	// Genuine failure: neither actionable nor healthy, and the need has
+	// not vanished. Requirement 4: MarkNotified is called on every
+	// failure path below, not only the first-in-episode branch - it is
+	// the only writer of this marker, and the turnend-guard's normal
+	// escalation arm is unreachable without it having fired at least
+	// once. NotifiedOnce is read BEFORE marking so the branch below still
+	// correctly distinguishes first from repeat.
+	firstInEpisode := !supervise.NotifiedOnce(state)
+	_ = supervise.MarkNotified(state)
+
+	if firstInEpisode {
+		recordOutcome("failed")
+		lastErrText := "watcher closed without an actionable reason"
+		if lastErr != nil {
+			lastErrText = lastErr.Error()
+		}
+		return claudehook.BlockStop(stderr, fmt.Sprintf(failureBannerFmt, attemptsRun, lastErrText))
+	}
+
+	// Repeat failure: the outcome is failed-suppressed either way; only
+	// the exit code differs, gated on whether the synchronous
+	// turnend-guard has already spent this episode's one-time attended
+	// fail-open (AlarmFired). An unconditional exit 2 here would defeat
+	// that fail-open and produce an unbreakable loop of empty rewakes -
+	// the ONE turn the fail-open was meant to release would never end
+	// either. Later Stops still meet the guard's blind-turn banner; this
+	// arm only makes sure this hook is not the thing blocking the turn
+	// the guard just let through.
+	recordOutcome("failed-suppressed")
+	if supervise.AlarmFired(state) {
+		return 0
+	}
+	return 2
 }
