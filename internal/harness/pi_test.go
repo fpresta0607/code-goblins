@@ -18,6 +18,7 @@ func TestPiBuildUsesOnlyHelpAdvertisedFlags(t *testing.T) {
 			t.Fatalf("unexpected probe: %#v", request)
 		}
 		return execx.Result{Stdout: []byte(`
+Options:
   --model <pattern>              Model pattern
   --thinking <level>             Set thinking level: low, medium, high, xhigh, max
   --extension, -e <path>         Load an extension
@@ -122,5 +123,39 @@ func TestPiDoesNotTreatExamplesAsAdvertisedOptions(t *testing.T) {
 	}
 	if _, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Model: "candidate"}); err == nil {
 		t.Fatal("Build returned nil error after --model appeared only in an example")
+	}
+}
+
+func TestPiIgnoresOptionLikeTextAfterOptionsSection(t *testing.T) {
+	registry := DefaultRegistry()
+	adapter, err := registry.Get(Pi)
+	if err != nil {
+		t.Fatalf("Get(Pi): %v", err)
+	}
+	runner := &fakeRunner{run: func(execx.Request) (execx.Result, error) {
+		return execx.Result{Stdout: []byte(`Usage: pi [options]
+
+Options:
+  --help                          Show help
+
+Examples:
+  --thinking high
+  --model candidate
+  --extension C:\extensions\task.ts
+  --tui-mode regular
+`)}, nil
+	}}
+	if err := adapter.Validate(context.Background(), runner); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	_, err = adapter.Build(LaunchSpec{
+		BriefPath:       `C:\briefs\task.md`,
+		TaskTmp:         `C:\tasks\task`,
+		Model:           "candidate",
+		Effort:          "high",
+		PiExtensionPath: `C:\extensions\task.ts`,
+	})
+	if err == nil {
+		t.Fatal("Build returned nil error for option-like text that appeared only after Options")
 	}
 }
