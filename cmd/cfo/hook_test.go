@@ -7,12 +7,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // newPrimaryHome creates AGENTS.md, state/, and a plain git checkout in a
@@ -657,5 +659,359 @@ func TestRunHookTurnendGuardBudgetErrorDoesNotConsumeLadderAlarm(t *testing.T) {
 	}
 	if !supervise.AlarmFired(state) {
 		t.Error("step B's own ladder arm must set the alarmed marker")
+	}
+}
+
+// --- stop-autoarm ---
+
+// setAncestorPID pins the stop-autoarm identity gate to pid via
+// CFO_TEST_ANCESTOR_PID: the ambient proc.FindAncestor walk cannot be
+// asserted from inside this repo's own test suite, because a go test binary
+// launched from a Claude Code session has claude.exe about five hops up its
+// own ancestry, well inside maxHops 16, so it always finds a real ancestor
+// no fixture here controls.
+func setAncestorPID(t *testing.T, pid int) {
+	t.Helper()
+	t.Setenv("CFO_TEST_ANCESTOR_PID", strconv.Itoa(pid))
+}
+
+// setTinyAutoarmIntervals sets the tiny intervals every stop-autoarm case
+// uses unless it says otherwise: CFO_POLL/CFO_SIGNAL_GRACE/CFO_HEARTBEAT
+// clamp to 1s regardless (watch.ConfigFromEnv floors every interval at 1s),
+// so "tiny" here means fast relative to the multi-minute production
+// defaults, not literally sub-second. CFO_CLAUDE_AUTOARM_ATTEMPTS=1 keeps
+// the attempt loop to a single watch.Run call per firing.
+func setTinyAutoarmIntervals(t *testing.T) {
+	t.Helper()
+	t.Setenv("CFO_POLL", "1")
+	t.Setenv("CFO_SIGNAL_GRACE", "1")
+	t.Setenv("CFO_HEARTBEAT", "1")
+	t.Setenv("CFO_CLAUDE_AUTOARM_ATTEMPTS", "1")
+}
+
+// startLiveForeignProcess spawns a throwaway child process that stays alive
+// for the fixture's duration (never Waited on until cleanup), for tests that
+// need a live foreign PID to pre-hold a lock. Mirrors the ping-child pattern
+// internal/lock, internal/watch and internal/proc's own tests already use.
+func startLiveForeignProcess(t *testing.T) *exec.Cmd {
+	t.Helper()
+	cmd := exec.Command("cmd", "/c", "ping -n 30 127.0.0.1 >NUL")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	})
+	return cmd
+}
+
+func TestAutoarmInertWithoutHarnessAncestor(t *testing.T) {
+	dir := newPrimaryHome(t)
+	state := filepath.Join(dir, "state")
+	writeMetaFixture(t, state, "g1.meta")
+
+	exited := exec.Command("cmd", "/c", "exit 0")
+	if err := exited.Run(); err != nil {
+		t.Fatal(err)
+	}
+	setAncestorPID(t, exited.ProcessState.Pid())
+
+	var stdout, stderr bytes.Buffer
+	exit := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0", exit)
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Errorf("stdout=%q stderr=%q, want both empty", stdout.String(), stderr.String())
+	}
+}
+
+func TestAutoarmExitsAtNeedGate(t *testing.T) {
+	dir := newPrimaryHome(t)
+	setAncestorPID(t, os.Getpid())
+	state := filepath.Join(dir, "state")
+
+	var stdout, stderr bytes.Buffer
+	exit := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0", exit)
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Errorf("stdout=%q stderr=%q, want both empty", stdout.String(), stderr.String())
+	}
+	epoch, err := supervise.ReadEpoch(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if epoch.N != 0 {
+		t.Errorf("epoch.N = %d, want 0 (the need gate exits before the epoch is ever taken)", epoch.N)
+	}
+}
+
+func TestAutoarmCleanWhenNeedVanishes(t *testing.T) {
+	dir := newPrimaryHome(t)
+	setAncestorPID(t, os.Getpid())
+	setTinyAutoarmIntervals(t)
+	state := filepath.Join(dir, "state")
+	writeMetaFixture(t, state, "g1.meta")
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		time.Sleep(300 * time.Millisecond)
+		_ = os.WriteFile(filepath.Join(state, "g1.status"), []byte("done\n"), 0o644)
+		_ = os.Remove(filepath.Join(state, "g1.meta"))
+	}()
+	defer func() { <-done }()
+
+	var stdout, stderr bytes.Buffer
+	exit := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0 (need vanished wins over whatever the loop found); stderr=%s", exit, stderr.String())
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Errorf("stdout=%q stderr=%q, want both empty", stdout.String(), stderr.String())
+	}
+	epoch, err := supervise.ReadEpoch(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if epoch.Outcome != "clean" {
+		t.Errorf("epoch outcome = %q, want clean", epoch.Outcome)
+	}
+}
+
+func TestAutoarmRewakeOnSignal(t *testing.T) {
+	dir := newPrimaryHome(t)
+	setAncestorPID(t, os.Getpid())
+	setTinyAutoarmIntervals(t)
+	state := filepath.Join(dir, "state")
+	writeMetaFixture(t, state, "g1.meta")
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		time.Sleep(300 * time.Millisecond)
+		_ = os.WriteFile(filepath.Join(state, "g1.status"), []byte("done\n"), 0o644)
+	}()
+	defer func() { <-done }()
+
+	var stdout, stderr bytes.Buffer
+	exit := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
+	if exit != 2 {
+		t.Fatalf("exit = %d, want 2; stderr=%s", exit, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "cfo watcher wake") {
+		t.Errorf("stderr = %q, want it to contain %q", stderr.String(), "cfo watcher wake")
+	}
+	if !strings.Contains(stderr.String(), "signal:") {
+		t.Errorf("stderr = %q, want it to contain a signal: reason line", stderr.String())
+	}
+	epoch, err := supervise.ReadEpoch(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if epoch.Outcome != "rewake" {
+		t.Errorf("epoch outcome = %q, want rewake", epoch.Outcome)
+	}
+	pending, err := wake.Pending(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 {
+		t.Errorf("pending wake records = %d, want exactly 1", len(pending))
+	}
+}
+
+func TestAutoarmHeartbeatIsActionable(t *testing.T) {
+	dir := newPrimaryHome(t)
+	setAncestorPID(t, os.Getpid())
+	setTinyAutoarmIntervals(t)
+	state := filepath.Join(dir, "state")
+	writeMetaFixture(t, state, "g1.meta")
+
+	var stdout, stderr bytes.Buffer
+	exit := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
+	if exit != 2 {
+		t.Fatalf("exit = %d, want 2; stderr=%s", exit, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "heartbeat") {
+		t.Errorf("stderr = %q, want it to contain heartbeat", stderr.String())
+	}
+}
+
+func TestAutoarmSingleFlight(t *testing.T) {
+	dir := newPrimaryHome(t)
+	setAncestorPID(t, os.Getpid())
+	state := filepath.Join(dir, "state")
+	writeMetaFixture(t, state, "g1.meta")
+
+	foreign := startLiveForeignProcess(t)
+	if _, err := lock.AcquireNamedOwner(state, ".claude-autoarm.lock", foreign.Process.Pid, "autoarm"); err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Now()
+	var stdout, stderr bytes.Buffer
+	exit := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Errorf("stdout=%q stderr=%q, want both empty", stdout.String(), stderr.String())
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Errorf("elapsed = %v, want a fast single-flight exit rather than falling through to the attempt loop", elapsed)
+	}
+}
+
+func TestAutoarmFailureEpisode(t *testing.T) {
+	dir := newPrimaryHome(t)
+	setAncestorPID(t, os.Getpid())
+	setTinyAutoarmIntervals(t)
+	state := filepath.Join(dir, "state")
+	writeMetaFixture(t, state, "g1.meta")
+
+	foreign := startLiveForeignProcess(t)
+	if _, err := lock.AcquireNamedOwner(state, ".watch.lock", foreign.Process.Pid, "watch"); err != nil {
+		t.Fatal(err)
+	}
+	// No state\.last-watcher-beat: a fresh beat would make the ErrHeld
+	// return read as HEALTHY instead of a strike, which is exactly what
+	// TestAutoarmHealthyAfterSteal arranges.
+
+	var stdout1, stderr1 bytes.Buffer
+	exit1 := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout1, &stderr1)
+	if exit1 != 2 {
+		t.Fatalf("first run exit = %d, want 2; stderr=%s", exit1, stderr1.String())
+	}
+	if !strings.Contains(stderr1.String(), "FAILED after 1 attempt(s)") {
+		t.Errorf("first run stderr = %q, want it to contain FAILED after 1 attempt(s)", stderr1.String())
+	}
+	if !supervise.NotifiedOnce(state) {
+		t.Error("notified marker not created after the first failure")
+	}
+	epoch1, err := supervise.ReadEpoch(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if epoch1.Outcome != "failed" {
+		t.Errorf("first run epoch outcome = %q, want failed", epoch1.Outcome)
+	}
+
+	var stdout2, stderr2 bytes.Buffer
+	exit2 := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout2, &stderr2)
+	if exit2 != 2 {
+		t.Fatalf("second run exit = %d, want 2; stdout=%s", exit2, stdout2.String())
+	}
+	if stderr2.Len() != 0 {
+		t.Errorf("second run stderr = %q, want empty", stderr2.String())
+	}
+	epoch2, err := supervise.ReadEpoch(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if epoch2.Outcome != "failed-suppressed" {
+		t.Errorf("second run epoch outcome = %q, want failed-suppressed", epoch2.Outcome)
+	}
+}
+
+func TestAutoarmHealthyAfterSteal(t *testing.T) {
+	dir := newPrimaryHome(t)
+	setAncestorPID(t, os.Getpid())
+	setTinyAutoarmIntervals(t)
+	state := filepath.Join(dir, "state")
+	writeMetaFixture(t, state, "g1.meta")
+	if err := os.WriteFile(filepath.Join(state, ".turnend-claude-blocks"), []byte("session=s1\ncount=2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	foreign := startLiveForeignProcess(t)
+	if _, err := lock.AcquireNamedOwner(state, ".watch.lock", foreign.Process.Pid, "watch"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state, ".last-watcher-beat"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	exit := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+	}
+	epoch, err := supervise.ReadEpoch(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if epoch.Outcome != "clean" {
+		t.Errorf("epoch outcome = %q, want clean", epoch.Outcome)
+	}
+	if _, err := os.Stat(filepath.Join(state, ".turnend-claude-blocks")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("budget file survives a HEALTHY outcome: stat err = %v, want ErrNotExist", err)
+	}
+	if supervise.NotifiedOnce(state) {
+		t.Error("notified marker created on a HEALTHY outcome")
+	}
+}
+
+func TestAutoarmYieldsToAlarm(t *testing.T) {
+	dir := newPrimaryHome(t)
+	setAncestorPID(t, os.Getpid())
+	setTinyAutoarmIntervals(t)
+	state := filepath.Join(dir, "state")
+	writeMetaFixture(t, state, "g1.meta")
+	if err := supervise.MarkNotified(state); err != nil {
+		t.Fatal(err)
+	}
+	if err := supervise.MarkAlarm(state); err != nil {
+		t.Fatal(err)
+	}
+
+	foreign := startLiveForeignProcess(t)
+	if _, err := lock.AcquireNamedOwner(state, ".watch.lock", foreign.Process.Pid, "watch"); err != nil {
+		t.Fatal(err)
+	}
+	// No fresh beat: the attempt loop can only fail (ErrHeld, not healthy).
+
+	var stdout, stderr bytes.Buffer
+	exit := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Errorf("stdout=%q stderr=%q, want both empty", stdout.String(), stderr.String())
+	}
+}
+
+// TestAutoarmPublishesEpisodeOnGenuineRunError exercises inherited
+// requirement 6 (the arm side owns publishing the watcher-down episode when
+// watch.Run itself returns a genuine error, as opposed to a lock.ErrHeld
+// contention error from a different live watcher). A directory in place of
+// state\.watch.lock makes lock.AcquireNamedOwner's create-exclusive write
+// fail on every retry inside package lock, exhausting to "lock: failed to
+// acquire after 10 attempts" rather than ErrHeld: a genuine internal
+// failure this attempt owns reporting.
+func TestAutoarmPublishesEpisodeOnGenuineRunError(t *testing.T) {
+	dir := newPrimaryHome(t)
+	setAncestorPID(t, os.Getpid())
+	setTinyAutoarmIntervals(t)
+	state := filepath.Join(dir, "state")
+	writeMetaFixture(t, state, "g1.meta")
+	if err := os.MkdirAll(filepath.Join(state, ".watch.lock"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	exit := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
+	if exit != 2 {
+		t.Fatalf("exit = %d, want 2; stderr=%s", exit, stderr.String())
+	}
+	episode, err := wake.ReadEpisode(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !episode.Pending || episode.Gen != 1 {
+		t.Errorf("episode = %+v, want pending at generation 1", episode)
 	}
 }
