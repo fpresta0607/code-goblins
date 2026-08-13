@@ -120,17 +120,8 @@ func NewDirWaiter(dir string) (*DirWaiter, error) {
 // false, but the bookkeeping-only case reissues against the SAME deadline
 // instead of returning immediately: see the loop below.
 //
-// The bookkeeping-only case is not hypothetical. watch.Run touches
-// state/.last-watcher-beat at the top of every iteration, on this exact
-// directory, under this exact mask; the kernel buffers that touch on the
-// handle and hands it back on the very next read, often before any real
-// status write has happened. Returning true for that self-inflicted
-// notification would make Run's own bookkeeping wake Run immediately, every
-// iteration, forever: a free-running loop burning a full CPU core for as
-// long as the host process runs. Filtering to the two suffixes ScanSignals
-// actually acts on (an allowlist, not a denylist of today's known
-// bookkeeping files) is what keeps this waiter from waking on its own noise
-// without rotting the moment a later task adds a new bookkeeping filename.
+// Filtering to the two suffixes ScanSignals actually acts on keeps unrelated
+// typed monitor records and other bookkeeping from waking the watcher.
 func (w *DirWaiter) Wait(timeout time.Duration) bool {
 	// Degraded is checked before closed: once tripped it stays true for the
 	// waiter's remaining lifetime, including after Close, so every later

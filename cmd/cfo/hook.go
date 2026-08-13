@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/guard"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -337,14 +337,14 @@ func attendedFailOpen(stdout io.Writer) int {
 	return claudehook.InfoAllow(stdout, genuinelyDownMessage)
 }
 
-// beatAge renders state/.last-watcher-beat's age for the blind-turn banner,
-// or "never" if the beat file does not exist yet.
+// beatAge renders the typed monitor heartbeat's age for the blind-turn
+// banner, or "never" when no watcher cycle has been recorded.
 func beatAge(state string) string {
-	fi, err := os.Stat(filepath.Join(state, ".last-watcher-beat"))
-	if err != nil {
+	heartbeat, err := monitor.ReadHeartbeat(state)
+	if err != nil || heartbeat.LastCycle.IsZero() {
 		return "never"
 	}
-	return time.Since(fi.ModTime()).Round(time.Second).String()
+	return time.Since(heartbeat.LastCycle).Round(time.Second).String()
 }
 
 // autoarmLockName and autoarmSession mirror internal/supervise's private
@@ -358,8 +358,9 @@ const (
 
 // actionableReasonPattern matches the watch.Run reasons that mean a real
 // supervision event needs a handling turn: a status/turn-ended signal, a
-// stale-pane sweep (NOT PORTED IN V1, reserved for Plan 3), a check.sh sweep
-// (NOT PORTED IN V1, reserved for Plan 4), or a heartbeat.
+// monitor stale or heartbeat event, or a check.sh sweep (NOT PORTED IN V1,
+// reserved for Plan 4). A typed heartbeat record alone proves liveness; a
+// monitor heartbeat event is separately actionable.
 var actionableReasonPattern = regexp.MustCompile(`^(signal:|stale:|check:|heartbeat($|:))`)
 
 // rewakeBannerFmt and failureBannerFmt are cfo hook stop-autoarm's two
