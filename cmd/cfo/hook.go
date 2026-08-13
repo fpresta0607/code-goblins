@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -409,24 +408,24 @@ func hookStopAutoarm(h home.Home, payload claudehook.Payload, stdout, stderr io.
 
 	// Step 5: epoch ledger, best-effort. An unwritable ledger is not proof
 	// of anything, so every outcome write below (through recordOutcome)
-	// is best-effort too. Requirement 5: errors.Is distinguishes a
-	// benign, expected ErrStaleEpoch supersede from a genuine ledger I/O
-	// failure; neither is ever treated as a failure episode of its own -
-	// this firing's real exit code and stderr are decided independently
-	// of whether the ledger recorded them.
+	// is best-effort too. Requirement 5: a stale-epoch refusal (a benign,
+	// expected supersede) and a genuine ledger I/O failure are both
+	// best-effort here and neither is ever treated as a failure episode
+	// of its own - this firing's real exit code and stderr are decided
+	// independently of whether the ledger write itself succeeded, so the
+	// two error kinds need no separate handling beyond ignoring both.
 	epoch, epochErr := supervise.NextEpoch(state)
 	hasEpoch := epochErr == nil
 	recordOutcome := func(outcome string) {
 		if !hasEpoch {
 			return
 		}
-		if err := supervise.SetOutcome(state, epoch, outcome); err != nil && !errors.Is(err, supervise.ErrStaleEpoch) {
-			_ = err // genuine ledger I/O failure; still best-effort here
-		}
+		_ = supervise.SetOutcome(state, epoch, outcome)
 	}
 
 	guardGrace := claudehook.Seconds("CFO_GUARD_GRACE", 300)
 	attempts := claudehook.Int("CFO_CLAUDE_AUTOARM_ATTEMPTS", 2, 1, 3)
+	syncWait := time.Duration(claudehook.Int("CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS", 800, 0, 60000)) * time.Millisecond
 
 	var (
 		reason      string
@@ -441,24 +440,16 @@ func hookStopAutoarm(h home.Home, payload claudehook.Payload, stdout, stderr io.
 	// acquire failure explicitly), so ConfigFromEnv is rebuilt fresh every
 	// attempt; reusing one Config across retries would hand a later
 	// attempt a closed directory-change waiter that scores a strike per
-	// Wait until the breaker degrades it to timer mode.
+	// Wait until the breaker degrades it to timer mode. Requirement 6's
+	// watcher-down episode is NOT published per-attempt here: see the
+	// genuine-failure outcome arm below for why the publish has to happen
+	// after the outcome is settled, not inside this loop.
 	for i := 0; i < attempts; i++ {
 		attemptsRun = i + 1
 		reason, lastErr = watch.Run(watch.ConfigFromEnv(h))
 		if lastErr == nil && actionableReasonPattern.MatchString(reason) {
 			actionable = true
 			break
-		}
-		if lastErr != nil && !errors.Is(lastErr, lock.ErrHeld) {
-			// Requirement 6: watch.Run deliberately does not publish an
-			// episode on its own error paths, because a transient stat
-			// failure inside the loop must not churn the recovery
-			// generation. This arm owns that publish instead, scoped to
-			// genuine internal failures only: a lock.ErrHeld contention
-			// error means a different live watcher already holds
-			// .watch.lock, which is that watcher's own episode to
-			// publish (or not), not this attempt's failure to report.
-			_, _ = wake.PublishEpisode(state)
 		}
 		if supervise.WatcherHealthy(state, guardGrace) {
 			healthy = true
@@ -490,12 +481,28 @@ func hookStopAutoarm(h home.Home, payload claudehook.Payload, stdout, stderr io.
 	}
 
 	// Genuine failure: neither actionable nor healthy, and the need has
-	// not vanished. Requirement 4: MarkNotified is called on every
-	// failure path below, not only the first-in-episode branch - it is
-	// the only writer of this marker, and the turnend-guard's normal
-	// escalation arm is unreachable without it having fired at least
-	// once. NotifiedOnce is read BEFORE marking so the branch below still
-	// correctly distinguishes first from repeat.
+	// not vanished - supervision could not be re-established this firing.
+	//
+	// Requirement 6: watch.Run deliberately does not publish an episode
+	// on its own error paths, because a transient stat failure must not
+	// churn the recovery generation on every retry inside package watch.
+	// This arm owns that publish instead, exactly ONCE per firing, here
+	// where the outcome is finally settled, regardless of which error
+	// flavor closed the attempt loop: a live-but-wedged watcher returns
+	// lock.ErrHeld from a stale-beat home and IS the dominant
+	// watcher-down case, not an exemption from this publish. Publishing
+	// earlier (inside the loop, once per attempt, before HEALTHY is even
+	// checked) would both spuriously mark a HEALTHY home as down and
+	// churn the generation across every attempt and every repeat Stop of
+	// a sustained episode.
+	_, _ = wake.PublishEpisode(state)
+
+	// Requirement 4: MarkNotified is called on every failure path below,
+	// not only the first-in-episode branch - it is the only writer of
+	// this marker, and the turnend-guard's normal escalation arm is
+	// unreachable without it having fired at least once. NotifiedOnce is
+	// read BEFORE marking so the branch below still correctly
+	// distinguishes first from repeat.
 	firstInEpisode := !supervise.NotifiedOnce(state)
 	_ = supervise.MarkNotified(state)
 
@@ -517,9 +524,50 @@ func hookStopAutoarm(h home.Home, payload claudehook.Payload, stdout, stderr io.
 	// either. Later Stops still meet the guard's blind-turn banner; this
 	// arm only makes sure this hook is not the thing blocking the turn
 	// the guard just let through.
+	//
+	// waitForAlarm polls rather than reading AlarmFired once: this firing
+	// can settle its own failure in well under 150ms (a wedged foreign
+	// .watch.lock holder fails watch.Run's acquire near-instantly), but
+	// the sibling turnend-guard's own decision on this SAME Stop first
+	// burns up to CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS polling for autoarm
+	// proof (pollAutoarmProof) before it ever calls MarkAlarm. A single
+	// immediate read here would deterministically race ahead of that and
+	// see AlarmFired still false, returning exit 2 and re-waking the
+	// agent with empty stderr on the exact turn the guard's attended
+	// fail-open was meant to release.
 	recordOutcome("failed-suppressed")
-	if supervise.AlarmFired(state) {
+	if waitForAlarm(state, syncWait) {
 		return 0
 	}
 	return 2
+}
+
+// waitForAlarm polls supervise.AlarmFired for up to syncWait, checking
+// immediately and then every 100ms (or whatever remains, whichever is
+// shorter) until syncWait elapses. syncWait <= 0 means exactly one check
+// and no waiting at all. Mirrors pollAutoarmProof's shape for the same
+// reason: a fast decision on one side of a two-process race must not read
+// state before the slower side has had its full window to write it.
+func waitForAlarm(state string, syncWait time.Duration) bool {
+	if supervise.AlarmFired(state) {
+		return true
+	}
+	if syncWait <= 0 {
+		return false
+	}
+	deadline := time.Now().Add(syncWait)
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return false
+		}
+		wait := 100 * time.Millisecond
+		if remaining < wait {
+			wait = remaining
+		}
+		time.Sleep(wait)
+		if supervise.AlarmFired(state) {
+			return true
+		}
+	}
 }

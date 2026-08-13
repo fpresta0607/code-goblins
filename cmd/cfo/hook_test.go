@@ -708,6 +708,7 @@ func startLiveForeignProcess(t *testing.T) *exec.Cmd {
 
 func TestAutoarmInertWithoutHarnessAncestor(t *testing.T) {
 	dir := newPrimaryHome(t)
+	setTinyAutoarmIntervals(t) // regression guard: if the gate ever stops firing, watch.Run must not fall through to production-length waits and hang this test
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
 
@@ -844,6 +845,7 @@ func TestAutoarmHeartbeatIsActionable(t *testing.T) {
 func TestAutoarmSingleFlight(t *testing.T) {
 	dir := newPrimaryHome(t)
 	setAncestorPID(t, os.Getpid())
+	setTinyAutoarmIntervals(t) // regression guard: if single-flight ever stops firing, watch.Run must not fall through to production-length waits and hang this test
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
 
@@ -899,6 +901,19 @@ func TestAutoarmFailureEpisode(t *testing.T) {
 	if epoch1.Outcome != "failed" {
 		t.Errorf("first run epoch outcome = %q, want failed", epoch1.Outcome)
 	}
+	// Requirement 6 regression: this fixture is the DOMINANT watcher-down
+	// case (a live-but-wedged foreign holder of .watch.lock with no fresh
+	// beat), which fails via wrapped lock.ErrHeld. A publish scoped to
+	// exclude ErrHeld (the pre-fix code) never reaches this fixture at
+	// all, so cfo drain would show no recovery episode despite the FAILED
+	// banner telling the operator supervision is down.
+	episode1, err := wake.ReadEpisode(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !episode1.Pending || episode1.Gen != 1 {
+		t.Errorf("episode after first failure = %+v, want pending at generation 1", episode1)
+	}
 
 	var stdout2, stderr2 bytes.Buffer
 	exit2 := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout2, &stderr2)
@@ -914,6 +929,16 @@ func TestAutoarmFailureEpisode(t *testing.T) {
 	}
 	if epoch2.Outcome != "failed-suppressed" {
 		t.Errorf("second run epoch outcome = %q, want failed-suppressed", epoch2.Outcome)
+	}
+	// Each failing firing publishes its own episode exactly once: the
+	// second firing is a genuinely new failure to hold the home, so the
+	// generation advances again rather than staying pinned at 1.
+	episode2, err := wake.ReadEpisode(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !episode2.Pending || episode2.Gen != 2 {
+		t.Errorf("episode after second failure = %+v, want pending at generation 2", episode2)
 	}
 }
 
@@ -984,14 +1009,73 @@ func TestAutoarmYieldsToAlarm(t *testing.T) {
 	}
 }
 
+// TestAutoarmRepeatFailureWaitsForLateAlarm is Important 2's regression
+// test: this hook's own repeat-failure decision (identity gate, session
+// custody, need gate, single-flight, epoch write, one failing watch.Run
+// attempt against a wedged foreign .watch.lock holder, then the outcome
+// bookkeeping) settles in roughly 150-200ms end to end, measured directly
+// against this exact fixture. The sibling turnend-guard's MarkAlarm call on
+// the SAME Stop only lands after its own up-to-CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS
+// poll for autoarm proof, which can be materially longer. A single immediate
+// AlarmFired read races ahead of that write whenever the guard's poll runs
+// past this hook's own ~200ms. The goroutine below stands in for the
+// guard's concurrent, later MarkAlarm call at 400ms - comfortably past this
+// hook's own measured decision latency, and comfortably inside the 700ms
+// sync-wait budget below - so a correct implementation must still catch it.
+func TestAutoarmRepeatFailureWaitsForLateAlarm(t *testing.T) {
+	dir := newPrimaryHome(t)
+	setAncestorPID(t, os.Getpid())
+	setTinyAutoarmIntervals(t)
+	t.Setenv("CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS", "700")
+	state := filepath.Join(dir, "state")
+	writeMetaFixture(t, state, "g1.meta")
+	if err := supervise.MarkNotified(state); err != nil {
+		t.Fatal(err)
+	}
+
+	foreign := startLiveForeignProcess(t)
+	if _, err := lock.AcquireNamedOwner(state, ".watch.lock", foreign.Process.Pid, "watch"); err != nil {
+		t.Fatal(err)
+	}
+	// No fresh beat: the attempt loop can only fail (ErrHeld, not healthy).
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		time.Sleep(400 * time.Millisecond)
+		_ = supervise.MarkAlarm(state)
+	}()
+	defer func() { <-done }()
+
+	var stdout, stderr bytes.Buffer
+	exit := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0 (the poll should observe the late alarm mark rather than racing ahead of it); stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Errorf("stdout=%q stderr=%q, want both empty", stdout.String(), stderr.String())
+	}
+}
+
 // TestAutoarmPublishesEpisodeOnGenuineRunError exercises inherited
-// requirement 6 (the arm side owns publishing the watcher-down episode when
-// watch.Run itself returns a genuine error, as opposed to a lock.ErrHeld
-// contention error from a different live watcher). A directory in place of
+// requirement 6 (the arm side owns publishing the watcher-down episode)
+// against a genuine internal watch.Run failure, distinct from the lock
+// contention TestAutoarmFailureEpisode exercises: a directory in place of
 // state\.watch.lock makes lock.AcquireNamedOwner's create-exclusive write
 // fail on every retry inside package lock, exhausting to "lock: failed to
-// acquire after 10 attempts" rather than ErrHeld: a genuine internal
-// failure this attempt owns reporting.
+// acquire after 10 attempts" rather than ErrHeld.
+//
+// The fault injection is load-bearing but not self-verifying: it relies on
+// Windows mapping O_CREATE|O_EXCL against an existing directory to
+// something other than os.ErrExist. If that mapping ever changed, the
+// lock package's unreadable-holder grace period would instead remove the
+// empty directory and let a later attempt take the lock cleanly, closing
+// on a heartbeat (still exit 2, still a published episode at generation 1
+// under the post-fix unconditional publish) for an entirely different
+// reason than this test claims to cover. The stderr assertion below
+// catches that: only the FAILURE arm's banner says "FAILED after 1
+// attempt(s)", while a heartbeat close would emit the rewake banner
+// instead.
 func TestAutoarmPublishesEpisodeOnGenuineRunError(t *testing.T) {
 	dir := newPrimaryHome(t)
 	setAncestorPID(t, os.Getpid())
@@ -1006,6 +1090,9 @@ func TestAutoarmPublishesEpisodeOnGenuineRunError(t *testing.T) {
 	exit := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
 	if exit != 2 {
 		t.Fatalf("exit = %d, want 2; stderr=%s", exit, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "FAILED after 1 attempt(s)") {
+		t.Errorf("stderr = %q, want it to contain FAILED after 1 attempt(s) (proves the fault injection landed on the FAILURE arm, not a heartbeat close)", stderr.String())
 	}
 	episode, err := wake.ReadEpisode(state)
 	if err != nil {
