@@ -1,1 +1,22 @@
-{}
+{
+  "hooks": {
+    "SessionStart": [
+      {"hooks": [{"type": "command", "command": "[ -x \"$CLAUDE_PROJECT_DIR\"/cfo.exe ] || exit 0; \"$CLAUDE_PROJECT_DIR\"/cfo.exe hook session-start", "timeout": 120}]}
+    ],
+    "PreToolUse": [
+      {"matcher": "Bash", "hooks": [
+        {"type": "command", "command": "[ -x \"$CLAUDE_PROJECT_DIR\"/cfo.exe ] || exit 0; \"$CLAUDE_PROJECT_DIR\"/cfo.exe hook pretool-arm"},
+        {"type": "command", "command": "[ -x \"$CLAUDE_PROJECT_DIR\"/cfo.exe ] || exit 0; \"$CLAUDE_PROJECT_DIR\"/cfo.exe hook pretool-cd"}
+      ]},
+      {"matcher": ".*", "hooks": [
+        {"type": "command", "command": "[ -x \"$CLAUDE_PROJECT_DIR\"/cfo.exe ] || exit 0; \"$CLAUDE_PROJECT_DIR\"/cfo.exe hook pretool-subagent"}
+      ]}
+    ],
+    "Stop": [
+      {"hooks": [
+        {"type": "command", "command": "[ -x \"$CLAUDE_PROJECT_DIR\"/cfo.exe ] || exit 0; \"$CLAUDE_PROJECT_DIR\"/cfo.exe hook turnend-guard"},
+        {"type": "command", "command": "[ -x \"$CLAUDE_PROJECT_DIR\"/cfo.exe ] || exit 0; \"$CLAUDE_PROJECT_DIR\"/cfo.exe hook stop-autoarm", "asyncRewake": true, "timeout": 28800}
+      ]}
+    ]
+  }
+}

@@ -1,0 +1,719 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"reflect"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+)
+
+// TestHookFamilyEndToEnd is Task 13's whole-family proof: it builds the real
+// cfo.exe once, drives it exactly as Claude Code would (a subprocess reading
+// stdin JSON), and checks every contract Tasks 1-12 shipped from outside the
+// package. This is the only test in the repo that never calls runHook or any
+// internal package directly.
+//
+// Four phases, in this order, none parallel (t.Parallel is deliberately
+// never called; each phase's fixtures are self-contained rather than
+// depending on execution order):
+//  1. Seven invocations against a genuine primary home (the brief's table).
+//  2. The inertness proof: the same seven invocations against a bare dev
+//     home must be silent no-ops, verified by a recursive directory diff.
+//  3. The exact six command strings registered in .claude/settings.json, run
+//     through the POSIX shell Step 3a identified, against both homes.
+//  4. A timing sweep of the four hooks Global Constraints budgets.
+func TestHookFamilyEndToEnd(t *testing.T) {
+	goBin := resolveGoBin(t)
+	repoRoot := repoRootFromCmdCFO(t)
+	exe := buildCFOBinary(t, goBin, repoRoot)
+	buildDir := filepath.Dir(exe)
+
+	sessionStartPayload := hookPayload(t, "s1", "startup", "", "")
+	subagentPayload := hookPayload(t, "s1", "", "Agent", "")
+	armDenyPayload := hookPayload(t, "s1", "", "Bash", "cfo watch &")
+	cdDenyPayload := hookPayload(t, "s1", "", "Bash", `cd C:\`)
+	turnendPayload := hookPayload(t, "s1", "", "", "")
+	stopAutoarmPayload := hookPayload(t, "s1", "", "", "")
+	armAllowPayload := hookPayload(t, "s1", "", "Bash", "git log --oneline")
+	cdAllowPayload := hookPayload(t, "s1", "", "Bash", "go test ./...")
+	subagentAllowPayload := hookPayload(t, "s1", "", "Read", "")
+
+	// --- Phase 1: seven invocations against a genuine primary home ---
+
+	sharedHome := newPrimaryHome(t)
+
+	t.Run("case1 session-start full compose", func(t *testing.T) {
+		home := newPrimaryHome(t)
+		res := runHookBinary(t, exe, "session-start", sessionStartPayload, buildEnv(map[string]string{"CFO_HOME": home}))
+		assertExit(t, res, 0, "session-start")
+		assertEmptyStderr(t, res, "session-start")
+		assertHasHeaders(t, res.stdout, "session-start")
+	})
+
+	t.Run("case2 pretool-subagent deny", func(t *testing.T) {
+		res := runHookBinary(t, exe, "pretool-subagent", subagentPayload, buildEnv(map[string]string{"CFO_HOME": sharedHome}))
+		assertDeny(t, res, "", "pretool-subagent")
+	})
+
+	t.Run("case3 pretool-arm deny watcher-background", func(t *testing.T) {
+		res := runHookBinary(t, exe, "pretool-arm", armDenyPayload, buildEnv(map[string]string{"CFO_HOME": sharedHome}))
+		assertDeny(t, res, "watcher-background", "pretool-arm")
+	})
+
+	t.Run("case4 pretool-cd deny cwd-relocation", func(t *testing.T) {
+		res := runHookBinary(t, exe, "pretool-cd", cdDenyPayload, buildEnv(map[string]string{"CFO_HOME": sharedHome}))
+		assertDeny(t, res, "cwd-relocation", "pretool-cd")
+	})
+
+	t.Run("case5 turnend-guard blind block", func(t *testing.T) {
+		home := newPrimaryHome(t)
+		writeMetaFixture(t, filepath.Join(home, "state"), "g1.meta")
+		res := runHookBinary(t, exe, "turnend-guard", turnendPayload, buildEnv(map[string]string{
+			"CFO_HOME":                        home,
+			"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1",
+		}))
+		assertBlock(t, res, "TURN WOULD END BLIND", "turnend-guard")
+	})
+
+	t.Run("case6 stop-autoarm rewake", func(t *testing.T) {
+		home := newPrimaryHome(t)
+		state := filepath.Join(home, "state")
+		writeMetaFixture(t, state, "g1.meta")
+		done := statusApendAfter(state, "g1.status", 300*time.Millisecond)
+		res := runHookBinary(t, exe, "stop-autoarm", stopAutoarmPayload, buildEnv(map[string]string{
+			"CFO_HOME":                    home,
+			"CFO_TEST_ANCESTOR_PID":       strconv.Itoa(os.Getpid()),
+			"CFO_POLL":                    "1",
+			"CFO_SIGNAL_GRACE":            "1",
+			"CFO_HEARTBEAT":               "1",
+			"CFO_CLAUDE_AUTOARM_ATTEMPTS": "1",
+		}))
+		<-done
+		assertBlock(t, res, "cfo watcher wake", "stop-autoarm")
+	})
+
+	t.Run("case7 pretool-arm allow", func(t *testing.T) {
+		res := runHookBinary(t, exe, "pretool-arm", armAllowPayload, buildEnv(map[string]string{"CFO_HOME": sharedHome}))
+		assertSilentZero(t, res, "pretool-arm allow")
+	})
+
+	// --- Phase 2: the inertness proof ---
+
+	t.Run("inertness proof against dev home", func(t *testing.T) {
+		devHome := newDevHome(t)
+		before, err := recursiveListing(devHome)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		type inertCase struct {
+			name     string
+			hookName string
+			stdin    string
+			env      map[string]string
+		}
+		cases := []inertCase{
+			{"session-start", "session-start", sessionStartPayload, nil},
+			{"pretool-subagent", "pretool-subagent", subagentPayload, nil},
+			{"pretool-arm (deny shape)", "pretool-arm", armDenyPayload, nil},
+			{"pretool-cd (deny shape)", "pretool-cd", cdDenyPayload, nil},
+			{"turnend-guard", "turnend-guard", turnendPayload, map[string]string{"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1"}},
+			{"stop-autoarm", "stop-autoarm", stopAutoarmPayload, map[string]string{
+				"CFO_TEST_ANCESTOR_PID":       strconv.Itoa(os.Getpid()),
+				"CFO_POLL":                    "1",
+				"CFO_SIGNAL_GRACE":            "1",
+				"CFO_HEARTBEAT":               "1",
+				"CFO_CLAUDE_AUTOARM_ATTEMPTS": "1",
+			}},
+			{"pretool-arm (allow shape)", "pretool-arm", armAllowPayload, nil},
+		}
+
+		invocations := 0
+		for _, c := range cases {
+			env := buildEnv(mergeEnv(map[string]string{"CFO_HOME": devHome}, c.env))
+			res := runHookBinary(t, exe, c.hookName, c.stdin, env)
+			invocations++
+			assertSilentZero(t, res, c.name+" against dev home")
+		}
+		if invocations != len(cases) {
+			t.Fatalf("inertness loop ran %d invocations, want exactly %d", invocations, len(cases))
+		}
+		if invocations != 7 {
+			t.Fatalf("inertness loop ran %d invocations, want exactly 7", invocations)
+		}
+
+		after, err := recursiveListing(devHome)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(before, after) {
+			added, removed := diffListings(before, after)
+			t.Fatalf("dev home directory listing changed (INERT MEANS INERT violated): added=%v removed=%v\nbefore=%v\nafter=%v", added, removed, before, after)
+		}
+	})
+
+	// --- Phase 3: the exact registered command strings, through the shell Step 3a identified ---
+
+	t.Run("registered command strings via the POSIX shell", func(t *testing.T) {
+		bashPath, err := exec.LookPath("bash")
+		if err != nil {
+			t.Fatalf("bash not found on PATH, cannot execute the exact registered command strings: %v", err)
+		}
+
+		commands := loadRegisteredCommands(t, repoRoot)
+		wantNames := []string{"session-start", "pretool-arm", "pretool-cd", "pretool-subagent", "turnend-guard", "stop-autoarm"}
+		if len(commands) != len(wantNames) {
+			t.Fatalf(".claude/settings.json registered %d recognizable hook commands, want %d: %v", len(commands), len(wantNames), commands)
+		}
+		for _, name := range wantNames {
+			if _, ok := commands[name]; !ok {
+				t.Fatalf(".claude/settings.json is missing a registered command for %q", name)
+			}
+		}
+
+		baseEnv := func(home string, extra map[string]string) []string {
+			return buildEnv(mergeEnv(map[string]string{"CFO_HOME": home, "CLAUDE_PROJECT_DIR": buildDir}, extra))
+		}
+
+		t.Run("session-start", func(t *testing.T) {
+			home := newPrimaryHome(t)
+			res := runViaShell(t, bashPath, commands["session-start"], sessionStartPayload, baseEnv(home, nil))
+			assertExit(t, res, 0, "session-start via shell (primary)")
+			assertEmptyStderr(t, res, "session-start via shell (primary)")
+			assertHasHeaders(t, res.stdout, "session-start via shell (primary)")
+
+			devHome := newDevHome(t)
+			devRes := runViaShell(t, bashPath, commands["session-start"], sessionStartPayload, baseEnv(devHome, nil))
+			assertSilentZero(t, devRes, "session-start via shell (dev)")
+		})
+
+		t.Run("pretool-subagent", func(t *testing.T) {
+			res := runViaShell(t, bashPath, commands["pretool-subagent"], subagentPayload, baseEnv(sharedHome, nil))
+			assertDeny(t, res, "", "pretool-subagent via shell (primary)")
+
+			devHome := newDevHome(t)
+			devRes := runViaShell(t, bashPath, commands["pretool-subagent"], subagentPayload, baseEnv(devHome, nil))
+			assertSilentZero(t, devRes, "pretool-subagent via shell (dev)")
+		})
+
+		t.Run("pretool-arm", func(t *testing.T) {
+			res := runViaShell(t, bashPath, commands["pretool-arm"], armDenyPayload, baseEnv(sharedHome, nil))
+			assertDeny(t, res, "watcher-background", "pretool-arm via shell (primary)")
+
+			devHome := newDevHome(t)
+			devRes := runViaShell(t, bashPath, commands["pretool-arm"], armDenyPayload, baseEnv(devHome, nil))
+			assertSilentZero(t, devRes, "pretool-arm via shell (dev)")
+		})
+
+		t.Run("pretool-cd", func(t *testing.T) {
+			res := runViaShell(t, bashPath, commands["pretool-cd"], cdDenyPayload, baseEnv(sharedHome, nil))
+			assertDeny(t, res, "cwd-relocation", "pretool-cd via shell (primary)")
+
+			devHome := newDevHome(t)
+			devRes := runViaShell(t, bashPath, commands["pretool-cd"], cdDenyPayload, baseEnv(devHome, nil))
+			assertSilentZero(t, devRes, "pretool-cd via shell (dev)")
+		})
+
+		t.Run("turnend-guard", func(t *testing.T) {
+			home := newPrimaryHome(t)
+			writeMetaFixture(t, filepath.Join(home, "state"), "g1.meta")
+			extra := map[string]string{"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1"}
+			res := runViaShell(t, bashPath, commands["turnend-guard"], turnendPayload, baseEnv(home, extra))
+			assertBlock(t, res, "TURN WOULD END BLIND", "turnend-guard via shell (primary)")
+
+			devHome := newDevHome(t)
+			devRes := runViaShell(t, bashPath, commands["turnend-guard"], turnendPayload, baseEnv(devHome, extra))
+			assertSilentZero(t, devRes, "turnend-guard via shell (dev)")
+		})
+
+		t.Run("stop-autoarm", func(t *testing.T) {
+			home := newPrimaryHome(t)
+			state := filepath.Join(home, "state")
+			writeMetaFixture(t, state, "g1.meta")
+			extra := map[string]string{
+				"CFO_TEST_ANCESTOR_PID":       strconv.Itoa(os.Getpid()),
+				"CFO_POLL":                    "1",
+				"CFO_SIGNAL_GRACE":            "1",
+				"CFO_HEARTBEAT":               "1",
+				"CFO_CLAUDE_AUTOARM_ATTEMPTS": "1",
+			}
+			done := statusApendAfter(state, "g1.status", 300*time.Millisecond)
+			res := runViaShell(t, bashPath, commands["stop-autoarm"], stopAutoarmPayload, baseEnv(home, extra))
+			<-done
+			assertBlock(t, res, "cfo watcher wake", "stop-autoarm via shell (primary)")
+
+			devHome := newDevHome(t)
+			devRes := runViaShell(t, bashPath, commands["stop-autoarm"], stopAutoarmPayload, baseEnv(devHome, extra))
+			assertSilentZero(t, devRes, "stop-autoarm via shell (dev)")
+		})
+	})
+
+	// --- Phase 4: timing sweep, Global Constraints budgets ---
+
+	t.Run("timing budgets", func(t *testing.T) {
+		timingHome := newPrimaryHome(t)
+		env := buildEnv(map[string]string{"CFO_HOME": timingHome})
+
+		preToolCases := []struct {
+			hookName string
+			stdin    string
+		}{
+			{"pretool-arm", armAllowPayload},
+			{"pretool-cd", cdAllowPayload},
+			{"pretool-subagent", subagentAllowPayload},
+		}
+		for _, c := range preToolCases {
+			durs := make([]time.Duration, 20)
+			for i := range durs {
+				start := time.Now()
+				runHookBinary(t, exe, c.hookName, c.stdin, env)
+				durs[i] = time.Since(start)
+			}
+			med := median(durs)
+			t.Logf("%s: median=%v over %d runs (%v)", c.hookName, med, len(durs), durs)
+			if med > 150*time.Millisecond {
+				t.Errorf("%s median = %v, want <= 150ms (Global Constraints budget)", c.hookName, med)
+			}
+		}
+
+		durs := make([]time.Duration, 20)
+		for i := range durs {
+			start := time.Now()
+			runHookBinary(t, exe, "session-start", sessionStartPayload, env)
+			durs[i] = time.Since(start)
+		}
+		med := median(durs)
+		t.Logf("session-start: median=%v over %d runs (%v)", med, len(durs), durs)
+		if med > time.Second {
+			t.Errorf("session-start median = %v, want <= 1s (Global Constraints budget)", med)
+		}
+	})
+}
+
+// --- fixtures ---
+
+// newDevHome creates a bare dev checkout: AGENTS.md and a plain git init,
+// deliberately no state\, mirroring this repo's own real dev-checkout shape
+// (see CLAUDE.md / the task brief's environment note). IsPrimary is false
+// here on the state\ conjunct alone.
+func newDevHome(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("# dev checkout"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"init"}, {"config", "user.email", "t@t"}, {"config", "user.name", "t"}} {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	return dir
+}
+
+// statusApendAfter starts a goroutine that writes an empty state\<name>
+// status file after delay, standing in for a goblin's status completion, and
+// returns a channel closed once the write is done. Callers that start a hook
+// invocation expecting to observe this write must receive from the channel
+// before asserting, so the goroutine's write is never left racing test
+// teardown.
+func statusApendAfter(state, name string, delay time.Duration) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		time.Sleep(delay)
+		_ = os.WriteFile(filepath.Join(state, name), []byte("done\n"), 0o644)
+	}()
+	return done
+}
+
+// --- payload construction ---
+
+type e2eToolInput struct {
+	Command string `json:"command"`
+}
+
+type e2ePayload struct {
+	SessionID string        `json:"session_id"`
+	Source    string        `json:"source,omitempty"`
+	ToolName  string        `json:"tool_name,omitempty"`
+	ToolInput *e2eToolInput `json:"tool_input,omitempty"`
+}
+
+// hookPayload marshals Claude Code's hook JSON shape rather than building it
+// by string concatenation, so a Windows command containing a backslash (case
+// 4's `cd C:\`) is escaped correctly without hand-written JSON quoting.
+func hookPayload(t *testing.T, sessionID, source, toolName, command string) string {
+	t.Helper()
+	p := e2ePayload{SessionID: sessionID, Source: source, ToolName: toolName}
+	if command != "" {
+		p.ToolInput = &e2eToolInput{Command: command}
+	}
+	data, err := json.Marshal(p)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	return string(data)
+}
+
+// --- binary build ---
+
+// resolveGoBin locates the go toolchain at runtime.GOROOT()\bin\go.exe,
+// skipping (not failing) only when the toolchain itself is absent - the
+// brief's own carve-out, distinct from every other failure mode in this
+// file, which fails the test.
+func resolveGoBin(t *testing.T) string {
+	t.Helper()
+	goroot := runtime.GOROOT()
+	if goroot == "" {
+		t.Skip("runtime.GOROOT() is empty; cannot locate the go toolchain")
+	}
+	goBin := filepath.Join(goroot, "bin", "go.exe")
+	if _, err := os.Stat(goBin); err != nil {
+		t.Skip("go toolchain not found at " + goBin)
+	}
+	return goBin
+}
+
+// repoRootFromCmdCFO resolves the repository root from this test's working
+// directory, cmd\cfo, per the brief's filepath.Join(wd, "..", "..") recipe.
+func repoRootFromCmdCFO(t *testing.T) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(wd, "..", "..")
+}
+
+// buildCFOBinary builds the real cfo.exe once via `go build -o <exe>
+// ./cmd/cfo` with cmd.Dir set to repoRoot, exactly the package pattern the
+// brief requires (a `./...` pattern is rejected outright: it matches many
+// packages and -o cannot target a directory). A build failure fails the test
+// with the compiler's own CombinedOutput text, not a confusing downstream
+// assertion.
+func buildCFOBinary(t *testing.T, goBin, repoRoot string) string {
+	t.Helper()
+	exe := filepath.Join(t.TempDir(), "cfo.exe")
+	cmd := exec.Command(goBin, "build", "-o", exe, "./cmd/cfo")
+	cmd.Dir = repoRoot
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go build -o %s ./cmd/cfo failed: %v\n%s", exe, err, out)
+	}
+	return exe
+}
+
+// --- registered-command extraction (Step 3c) ---
+
+type settingsHookEntry struct {
+	Type    string `json:"type"`
+	Command string `json:"command"`
+}
+
+type settingsHookGroup struct {
+	Matcher string              `json:"matcher"`
+	Hooks   []settingsHookEntry `json:"hooks"`
+}
+
+type settingsFile struct {
+	Hooks struct {
+		SessionStart []settingsHookGroup `json:"SessionStart"`
+		PreToolUse   []settingsHookGroup `json:"PreToolUse"`
+		Stop         []settingsHookGroup `json:"Stop"`
+	} `json:"hooks"`
+}
+
+// loadRegisteredCommands reads .claude/settings.json from repoRoot and
+// returns, for each of the six cfo hook names it finds a "hook <name>"
+// substring for, the exact command string registered for it. Reading the
+// file that is actually checked in (rather than re-deriving the six strings
+// from a parallel Go constant) means this step always exercises what is
+// really wired, and a future settings.json edit that drops or renames a hook
+// fails this step loudly instead of silently testing stale strings.
+func loadRegisteredCommands(t *testing.T, repoRoot string) map[string]string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(repoRoot, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatalf("read .claude/settings.json: %v", err)
+	}
+	var sf settingsFile
+	if err := json.Unmarshal(data, &sf); err != nil {
+		t.Fatalf("parse .claude/settings.json: %v", err)
+	}
+
+	commands := make(map[string]string)
+	names := []string{"session-start", "pretool-arm", "pretool-cd", "pretool-subagent", "turnend-guard", "stop-autoarm"}
+	record := func(cmd string) {
+		for _, name := range names {
+			if strings.Contains(cmd, "hook "+name) {
+				commands[name] = cmd
+			}
+		}
+	}
+	for _, g := range sf.Hooks.SessionStart {
+		for _, h := range g.Hooks {
+			record(h.Command)
+		}
+	}
+	for _, g := range sf.Hooks.PreToolUse {
+		for _, h := range g.Hooks {
+			record(h.Command)
+		}
+	}
+	for _, g := range sf.Hooks.Stop {
+		for _, h := range g.Hooks {
+			record(h.Command)
+		}
+	}
+	return commands
+}
+
+// --- subprocess execution ---
+
+type hookResult struct {
+	exit   int
+	stdout string
+	stderr string
+}
+
+// runCmd executes cmd (stdin/env already set by the caller), capturing
+// stdout and stderr separately (never CombinedOutput, since the seven-row
+// table and the inertness proof both assert the two streams independently).
+func runCmd(t *testing.T, cmd *exec.Cmd) hookResult {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	exit := 0
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			exit = exitErr.ExitCode()
+		} else {
+			t.Fatalf("exec failed (not a process exit): %v", err)
+		}
+	}
+	return hookResult{exit: exit, stdout: stdout.String(), stderr: stderr.String()}
+}
+
+// runHookBinary invokes the real cfo.exe directly: `cfo.exe hook <name>`.
+// This is the artifact's binary contract, exercised without any shell layer.
+func runHookBinary(t *testing.T, exe, hookName, stdin string, env []string) hookResult {
+	t.Helper()
+	cmd := exec.Command(exe, "hook", hookName)
+	cmd.Stdin = strings.NewReader(stdin)
+	cmd.Env = env
+	return runCmd(t, cmd)
+}
+
+// runViaShell invokes script through bashPath -c, the shell Step 3a proved
+// hook commands actually run under. Stdin is written directly by exec, the
+// same direct byte transfer runHookBinary uses; no PowerShell layer sits
+// between this test and the child process at any point, so the BOM hazard
+// documented elsewhere in this plan does not apply here.
+func runViaShell(t *testing.T, bashPath, script, stdin string, env []string) hookResult {
+	t.Helper()
+	cmd := exec.Command(bashPath, "-c", script)
+	cmd.Stdin = strings.NewReader(stdin)
+	cmd.Env = env
+	return runCmd(t, cmd)
+}
+
+// --- environment construction ---
+
+// buildEnv starts from the current process's real environment (so PATH,
+// SystemRoot, and everything else a spawned git.exe or bash.exe needs on
+// Windows survives) and overrides only the keys named in overrides,
+// case-insensitively, matching Windows' own case-insensitive environment
+// block semantics.
+func buildEnv(overrides map[string]string) []string {
+	upper := make(map[string]bool, len(overrides))
+	for k := range overrides {
+		upper[strings.ToUpper(k)] = true
+	}
+	base := os.Environ()
+	result := make([]string, 0, len(base)+len(overrides))
+	for _, kv := range base {
+		key := kv
+		if i := strings.IndexByte(kv, '='); i >= 0 {
+			key = kv[:i]
+		}
+		if upper[strings.ToUpper(key)] {
+			continue
+		}
+		result = append(result, kv)
+	}
+	for k, v := range overrides {
+		result = append(result, k+"="+v)
+	}
+	return result
+}
+
+func mergeEnv(maps ...map[string]string) map[string]string {
+	result := make(map[string]string)
+	for _, m := range maps {
+		for k, v := range m {
+			result[k] = v
+		}
+	}
+	return result
+}
+
+// --- assertions ---
+
+var sevenDigestHeaders = []string{
+	"== SESSION LOCK ==", "== WAKE QUEUE ==", "== SUPERVISION OPERATING INSTRUCTIONS ==",
+	"== READ-ONCE CONTRACT ==", "== FLEET STATE ==", "== CONTEXT ==", "== NEXT STEP ==",
+}
+
+func assertHasHeaders(t *testing.T, stdout, context string) {
+	t.Helper()
+	for _, h := range sevenDigestHeaders {
+		if !strings.Contains(stdout, h) {
+			t.Errorf("%s: stdout missing header %q:\n%s", context, h, stdout)
+		}
+	}
+}
+
+func assertExit(t *testing.T, res hookResult, want int, context string) {
+	t.Helper()
+	if res.exit != want {
+		t.Errorf("%s: exit = %d, want %d; stdout=%q stderr=%q", context, res.exit, want, res.stdout, res.stderr)
+	}
+}
+
+func assertEmptyStdout(t *testing.T, res hookResult, context string) {
+	t.Helper()
+	if res.stdout != "" {
+		t.Errorf("%s: stdout = %q, want empty", context, res.stdout)
+	}
+}
+
+func assertEmptyStderr(t *testing.T, res hookResult, context string) {
+	t.Helper()
+	if res.stderr != "" {
+		t.Errorf("%s: stderr = %q, want empty", context, res.stderr)
+	}
+}
+
+// assertSilentZero asserts the shared inert/allow shape: exit 0, both
+// streams empty.
+func assertSilentZero(t *testing.T, res hookResult, context string) {
+	t.Helper()
+	assertExit(t, res, 0, context)
+	assertEmptyStdout(t, res, context)
+	assertEmptyStderr(t, res, context)
+}
+
+type denyEnvelope struct {
+	HookSpecificOutput struct {
+		HookEventName      string `json:"hookEventName"`
+		PermissionDecision string `json:"permissionDecision"`
+	} `json:"hookSpecificOutput"`
+	SystemMessage string `json:"systemMessage"`
+}
+
+// assertDeny asserts the PreToolUse deny contract: exit 2, empty stdout, and
+// a stderr JSON envelope with hookEventName/permissionDecision fixed and
+// systemMessage containing wantSubstr (skipped when empty).
+func assertDeny(t *testing.T, res hookResult, wantSubstr, context string) {
+	t.Helper()
+	assertExit(t, res, 2, context)
+	assertEmptyStdout(t, res, context)
+	trimmed := strings.TrimRight(res.stderr, "\r\n")
+	var env denyEnvelope
+	if err := json.Unmarshal([]byte(trimmed), &env); err != nil {
+		t.Fatalf("%s: stderr is not the deny envelope: %v; stderr=%q", context, err, res.stderr)
+	}
+	if env.HookSpecificOutput.HookEventName != "PreToolUse" || env.HookSpecificOutput.PermissionDecision != "deny" {
+		t.Errorf("%s: envelope = %+v, want PreToolUse/deny", context, env)
+	}
+	if wantSubstr != "" && !strings.Contains(env.SystemMessage, wantSubstr) {
+		t.Errorf("%s: systemMessage = %q, want it to contain %q", context, env.SystemMessage, wantSubstr)
+	}
+}
+
+// assertBlock asserts the Stop block/rewake contract: exit 2, empty stdout,
+// plain-text stderr containing wantSubstr.
+func assertBlock(t *testing.T, res hookResult, wantSubstr, context string) {
+	t.Helper()
+	assertExit(t, res, 2, context)
+	assertEmptyStdout(t, res, context)
+	if !strings.Contains(res.stderr, wantSubstr) {
+		t.Errorf("%s: stderr = %q, want it to contain %q", context, res.stderr, wantSubstr)
+	}
+}
+
+// --- recursive directory listing (inertness proof) ---
+
+func recursiveListing(root string) ([]string, error) {
+	var paths []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == root {
+			return nil
+		}
+		rel, rerr := filepath.Rel(root, path)
+		if rerr != nil {
+			return rerr
+		}
+		paths = append(paths, filepath.ToSlash(rel))
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
+// diffListings reports the paths present only in after (added) and only in
+// before (removed), so a failure names the exact offending path rather than
+// only a count mismatch.
+func diffListings(before, after []string) (added, removed []string) {
+	beforeSet := make(map[string]bool, len(before))
+	for _, p := range before {
+		beforeSet[p] = true
+	}
+	afterSet := make(map[string]bool, len(after))
+	for _, p := range after {
+		afterSet[p] = true
+	}
+	for _, p := range after {
+		if !beforeSet[p] {
+			added = append(added, p)
+		}
+	}
+	for _, p := range before {
+		if !afterSet[p] {
+			removed = append(removed, p)
+		}
+	}
+	return added, removed
+}
+
+// --- timing ---
+
+func median(durs []time.Duration) time.Duration {
+	sorted := append([]time.Duration(nil), durs...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	n := len(sorted)
+	if n%2 == 1 {
+		return sorted[n/2]
+	}
+	return (sorted[n/2-1] + sorted[n/2]) / 2
+}
