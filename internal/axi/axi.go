@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
@@ -81,7 +80,7 @@ func command(ctx context.Context, commands execx.Runner, operation, name string,
 func commandError(operation string, result execx.Result, cause error) error {
 	return &CommandError{
 		Operation: operation,
-		Stderr:    strings.TrimSpace(string(result.Stderr)),
+		Stderr:    string(result.Stderr),
 		ExitCode:  result.ExitCode,
 		Err:       cause,
 	}
