@@ -61,6 +61,7 @@ type SubmitState string
 
 const (
 	SubmitWorking SubmitState = "working"
+	SubmitBlocked SubmitState = "blocked"
 	SubmitIdle    SubmitState = "idle"
 	SubmitPending SubmitState = "pending"
 	SubmitUnknown SubmitState = "unknown"

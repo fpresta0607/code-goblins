@@ -319,8 +319,8 @@ func (c *Client) BusyState(ctx context.Context, target Target) (BusyState, error
 }
 
 // WaitForWorking observes agent state across the requested budget. It returns
-// working immediately, idle only after every read is idle, and unknown only
-// when no read supplied a recognized status.
+// working or blocked immediately, idle only after every read is idle, and
+// unknown only when no read supplied a recognized status.
 func (c *Client) WaitForWorking(ctx context.Context, target Target, budget time.Duration, polls int) (SubmitState, error) {
 	if polls < 1 {
 		return SubmitUnknown, errors.New("herdr: WaitForWorking requires at least one poll")
@@ -357,7 +357,9 @@ func (c *Client) WaitForWorking(ctx context.Context, target Target, budget time.
 		switch status {
 		case "working":
 			return SubmitWorking, nil
-		case "idle", "done", "blocked":
+		case "blocked":
+			return SubmitBlocked, nil
+		case "idle", "done":
 			readable++
 			idle++
 		case "unknown":

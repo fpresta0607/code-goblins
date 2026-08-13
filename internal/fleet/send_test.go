@@ -167,6 +167,66 @@ func TestSenderTextRefusesPendingAndUnknownConfirmation(t *testing.T) {
 	}
 }
 
+func TestSenderTextConfirmsBlockedAfterSubmit(t *testing.T) {
+	runner := &fakeRunner{replies: []runnerReply{
+		rawReply(""),
+		jsonReply(`{"result":{"agent":{"agent_status":"idle"}}}`),
+		rawReply(""),
+		jsonReply(`{"result":{"agent":{"agent_status":"blocked"}}}`),
+	}}
+	var clientSleeps []time.Duration
+	sender := Sender{
+		Resolve: &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}, meta: taskMeta("task-7", "claude")},
+		Herdr:   newHerdrClient(runner, &clientSleeps),
+		Sleep:   noSleep,
+	}
+
+	if err := sender.Text(context.Background(), "task-7", "needs approval"); err != nil {
+		t.Fatalf("Text: %v", err)
+	}
+	assertRequests(t, runner.requests, [][]string{
+		{"pane", "send-text", "pane-7", "needs approval", "--session", "fleet"},
+		{"agent", "get", "pane-7", "--json", "--session", "fleet"},
+		{"pane", "send-keys", "pane-7", "enter", "--session", "fleet"},
+		{"agent", "get", "pane-7", "--json", "--session", "fleet"},
+	})
+}
+
+func TestSenderTextUsesComposerConfirmationForBlockedBaseline(t *testing.T) {
+	replies := []runnerReply{
+		rawReply(""),
+		jsonReply(`{"result":{"agent":{"agent_status":"blocked"}}}`),
+	}
+	for range enterRetries {
+		replies = append(replies, rawReply(""), rawReply("\n  ❯ draft\n"))
+	}
+	runner := &fakeRunner{replies: replies}
+	var clientSleeps []time.Duration
+	sender := Sender{
+		Resolve: &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}, meta: taskMeta("task-7", "claude")},
+		Herdr:   newHerdrClient(runner, &clientSleeps),
+		Sleep:   noSleep,
+	}
+
+	assertErrorContains(t, sender.Text(context.Background(), "task-7", "draft"), "pending")
+	agentGets := 0
+	enters := 0
+	for _, request := range runner.requests {
+		if len(request.Args) >= 2 && request.Args[0] == "agent" && request.Args[1] == "get" {
+			agentGets++
+		}
+		if len(request.Args) >= 4 && request.Args[0] == "pane" && request.Args[1] == "send-keys" && request.Args[3] == "enter" {
+			enters++
+		}
+	}
+	if agentGets != 1 {
+		t.Errorf("agent get calls = %d, want only the blocked baseline", agentGets)
+	}
+	if enters != enterRetries {
+		t.Errorf("Enter calls = %d, want %d", enters, enterRetries)
+	}
+}
+
 func TestSenderTextUsesComposerEvidenceWhenTargetWasAlreadyWorking(t *testing.T) {
 	for _, test := range []struct {
 		name      string
@@ -216,6 +276,75 @@ func TestSenderTextUsesComposerEvidenceWhenTargetWasAlreadyWorking(t *testing.T)
 			}
 			if !reflect.DeepEqual(senderSleeps, []time.Duration{300 * time.Millisecond, 400 * time.Millisecond}) && test.wantEnter == 1 {
 				t.Errorf("sender sleeps = %v, want settle and composer confirmation wait", senderSleeps)
+			}
+		})
+	}
+}
+
+func TestSenderTextConfirmsAndRefusesPiComposerState(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		baseline  string
+		captures  []string
+		wantError string
+		wantEnter int
+	}{
+		{
+			name:      "working baseline with cleared composer confirms",
+			baseline:  `{"result":{"agent":{"agent_status":"working"}}}`,
+			captures:  []string{"\n────────\n\n────────\n"},
+			wantEnter: 1,
+		},
+		{
+			name:      "working baseline with typed composer refuses",
+			baseline:  `{"result":{"agent":{"agent_status":"working"}}}`,
+			captures:  []string{"\n────────\nactual text\n────────\n", "\n────────\nactual text\n────────\n", "\n────────\nactual text\n────────\n"},
+			wantError: "pending",
+			wantEnter: enterRetries,
+		},
+		{
+			name:      "unreadable baseline cannot confirm cleared composer",
+			baseline:  "{",
+			captures:  []string{"\n────────\n\n────────\n"},
+			wantError: "unknown",
+			wantEnter: 1,
+		},
+		{
+			name:      "unreadable baseline retains typed composer as pending",
+			baseline:  "{",
+			captures:  []string{"\n────────\nactual text\n────────\n", "\n────────\nactual text\n────────\n", "\n────────\nactual text\n────────\n"},
+			wantError: "pending",
+			wantEnter: enterRetries,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			replies := []runnerReply{rawReply(""), jsonReply(test.baseline)}
+			for _, capture := range test.captures {
+				replies = append(replies, rawReply(""), rawReply(capture))
+			}
+			runner := &fakeRunner{replies: replies}
+			var clientSleeps []time.Duration
+			sender := Sender{
+				Resolve: &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}, meta: taskMeta("task-7", "pi")},
+				Herdr:   newHerdrClient(runner, &clientSleeps),
+				Sleep:   noSleep,
+			}
+
+			err := sender.Text(context.Background(), "task-7", "actual text")
+			if test.wantError == "" && err != nil {
+				t.Fatalf("Text: %v", err)
+			}
+			if test.wantError != "" {
+				assertErrorContains(t, err, test.wantError)
+			}
+			enters := 0
+			for _, request := range runner.requests {
+				if len(request.Args) >= 4 && request.Args[0] == "pane" && request.Args[1] == "send-keys" && request.Args[3] == "enter" {
+					enters++
+				}
+			}
+			if enters != test.wantEnter {
+				t.Errorf("Enter calls = %d, want %d", enters, test.wantEnter)
 			}
 		})
 	}
