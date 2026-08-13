@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -120,5 +121,52 @@ func TestReadBacklogRetainsCanonicalBlockersAndRawIndentation(t *testing.T) {
 	}
 	if !bytes.Contains(markdown.Bytes(), []byte("  - indented free-form queue note")) {
 		t.Errorf("Markdown does not retain raw backlog indentation:\n%s", markdown.String())
+	}
+}
+
+func TestReadBacklogKeepsNestedHeadingsInsideTheCurrentSection(t *testing.T) {
+	h := snapshotHome(t)
+	if err := os.MkdirAll(h.Data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "## Queued\n- [ ] q1 - First\n### Notes\n- [ ] q2 - Second\n"
+	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	backlog, err := ReadBacklog(h)
+	if err != nil {
+		t.Fatalf("ReadBacklog: %v", err)
+	}
+	if len(backlog.Queued) != 3 || backlog.Queued[0].ID != "q1" || backlog.Queued[1].Structured || backlog.Queued[1].Raw != "### Notes" || backlog.Queued[2].ID != "q2" {
+		t.Errorf("queued rows = %+v, want both records and the nested heading as raw content", backlog.Queued)
+	}
+}
+
+func TestReadBacklogPreservesEveryCanonicalBlocker(t *testing.T) {
+	h := snapshotHome(t)
+	if err := os.MkdirAll(h.Data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "## Queued\n- [ ] q1 - Ship it blocked-by: worker blocked-by: review - needs final review (repo: goblins)\n"
+	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	backlog, err := ReadBacklog(h)
+	if err != nil {
+		t.Fatalf("ReadBacklog: %v", err)
+	}
+	row := backlog.Queued[0]
+	if row.Title != "Ship it" || row.BlockedBy != "worker" || !reflect.DeepEqual(row.BlockedByIDs, []string{"worker", "review"}) || row.BlockedReason != "needs final review" {
+		t.Errorf("multiple blocker row = %+v, want all blocker IDs and a clean final reason", row)
+	}
+
+	var markdown bytes.Buffer
+	if err := RenderMarkdown(&markdown, Snapshot{Backlog: backlog, Secondmates: []SecondmateRow{}}); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(markdown.Bytes(), []byte("| q1 | Ship it | goblins | - | worker, review - needs final review | - |")) {
+		t.Errorf("Markdown does not show every blocker:\n%s", markdown.String())
 	}
 }

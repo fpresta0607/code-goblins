@@ -19,6 +19,7 @@ var (
 	reportPattern      = regexp.MustCompile(`data/[^\s\)]+/report\.md`)
 	trailingMetadata   = regexp.MustCompile(`(?i)\s*\(\s*(?:(?:repo|kind|priority|hold|hold-kind)\s*:\s*[^)]*|(?:since|merged|reported|done)\s+[^)]*)\s*\)\s*$`)
 	blockerToken       = regexp.MustCompile(`(?i)\bblocked-by:\s*([^\s\)]+)`)
+	levelTwoHeading    = regexp.MustCompile(`^##[ \t]+(.+)$`)
 )
 
 // BacklogRows retains each rendered Plan 3 backlog section in source order.
@@ -32,15 +33,16 @@ type BacklogRows struct {
 // BacklogRow is either a typed tasks-axi-compatible record or a raw source
 // line that a renderer must keep outside Markdown tables.
 type BacklogRow struct {
-	Structured    bool   `json:"structured"`
-	ID            string `json:"id"`
-	Title         string `json:"title"`
-	Repo          string `json:"repo"`
-	Kind          string `json:"kind"`
-	BlockedBy     string `json:"blocked_by"`
-	BlockedReason string `json:"blocked_reason"`
-	Artifact      string `json:"artifact"`
-	Raw           string `json:"raw"`
+	Structured    bool     `json:"structured"`
+	ID            string   `json:"id"`
+	Title         string   `json:"title"`
+	Repo          string   `json:"repo"`
+	Kind          string   `json:"kind"`
+	BlockedBy     string   `json:"blocked_by"`
+	BlockedByIDs  []string `json:"blocked_by_ids"`
+	BlockedReason string   `json:"blocked_reason"`
+	Artifact      string   `json:"artifact"`
+	Raw           string   `json:"raw"`
 }
 
 // ReadBacklog parses the supported Queued and Done records without changing
@@ -60,8 +62,8 @@ func ReadBacklog(h home.Home) (BacklogRows, error) {
 	for _, raw := range strings.Split(string(data), "\n") {
 		line := strings.TrimSuffix(raw, "\r")
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "##") {
-			switch strings.TrimSpace(strings.TrimPrefix(trimmed, "##")) {
+		if heading := levelTwoHeading.FindStringSubmatch(trimmed); heading != nil {
+			switch strings.TrimSpace(heading[1]) {
 			case "Queued":
 				section = "queued"
 			case "Done":
@@ -94,7 +96,11 @@ func parseBacklogRow(line string) BacklogRow {
 		return BacklogRow{Raw: line}
 	}
 	rest := match[2]
-	blockedBy, blockedReason := parseBlocker(rest)
+	blockedByIDs, blockedReason := parseBlockers(rest)
+	blockedBy := ""
+	if len(blockedByIDs) > 0 {
+		blockedBy = blockedByIDs[0]
+	}
 	return BacklogRow{
 		Structured:    true,
 		ID:            strings.TrimSpace(match[1]),
@@ -102,6 +108,7 @@ func parseBacklogRow(line string) BacklogRow {
 		Repo:          metadataValue(rest, "repo"),
 		Kind:          metadataValue(rest, "kind"),
 		BlockedBy:     blockedBy,
+		BlockedByIDs:  blockedByIDs,
 		BlockedReason: blockedReason,
 		Artifact:      backlogArtifact(rest),
 		Raw:           line,
@@ -117,17 +124,27 @@ func metadataValue(text, key string) string {
 	return strings.TrimSpace(match[1])
 }
 
-func parseBlocker(text string) (string, string) {
-	match := blockerToken.FindStringSubmatchIndex(text)
-	if match == nil {
-		return "", ""
+func parseBlockers(text string) ([]string, string) {
+	matches := blockerToken.FindAllStringSubmatchIndex(text, -1)
+	if len(matches) == 0 {
+		return []string{}, ""
 	}
-	blockedBy := text[match[2]:match[3]]
-	remaining := strings.TrimSpace(text[match[1]:])
+	blockedByIDs := make([]string, 0, len(matches))
+	seen := make(map[string]struct{}, len(matches))
+	for _, match := range matches {
+		id := text[match[2]:match[3]]
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		blockedByIDs = append(blockedByIDs, id)
+	}
+	last := matches[len(matches)-1]
+	remaining := strings.TrimSpace(text[last[1]:])
 	if !strings.HasPrefix(remaining, "-") {
-		return blockedBy, ""
+		return blockedByIDs, ""
 	}
-	return blockedBy, cleanBacklogTitle(strings.TrimSpace(strings.TrimPrefix(remaining, "-")))
+	return blockedByIDs, cleanBacklogTitle(strings.TrimSpace(strings.TrimPrefix(remaining, "-")))
 }
 
 func backlogTitle(rest string) string {
