@@ -138,18 +138,20 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 			{"pretool-arm (allow shape)", "pretool-arm", armAllowPayload, nil},
 		}
 
-		invocations := 0
+		// Guards against a shrunk table (a deleted row silently running the
+		// loop fewer than seven times with no comment anywhere saying so). A
+		// short-circuit mid-loop is a different failure mode already covered
+		// by Go's own testing semantics: assertSilentZero's t.Errorf calls
+		// never abort the loop, so every row always runs and reports on its
+		// own; nothing here needs to additionally count executions to prove
+		// that.
+		if len(cases) != 7 {
+			t.Fatalf("inertness table has %d rows, want exactly 7", len(cases))
+		}
 		for _, c := range cases {
 			env := buildEnv(mergeEnv(map[string]string{"CFO_HOME": devHome}, c.env))
 			res := runHookBinary(t, exe, c.hookName, c.stdin, env)
-			invocations++
 			assertSilentZero(t, res, c.name+" against dev home")
-		}
-		if invocations != len(cases) {
-			t.Fatalf("inertness loop ran %d invocations, want exactly %d", invocations, len(cases))
-		}
-		if invocations != 7 {
-			t.Fatalf("inertness loop ran %d invocations, want exactly 7", invocations)
 		}
 
 		after, err := recursiveListing(devHome)
@@ -181,46 +183,57 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 			}
 		}
 
+		// The brief calls out two fields as preserved verbatim from upstream:
+		// SessionStart's 120s timeout, and stop-autoarm's asyncRewake plus its
+		// 28800s (8h) timeout. Pin both so a future edit that drops either
+		// fails here instead of silently shipping.
+		if got := commands["session-start"].Timeout; got != 120 {
+			t.Errorf("session-start hook: timeout = %d, want 120", got)
+		}
+		if got := commands["stop-autoarm"]; !got.AsyncRewake || got.Timeout != 28800 {
+			t.Errorf("stop-autoarm hook: asyncRewake=%v timeout=%d, want true/28800", got.AsyncRewake, got.Timeout)
+		}
+
 		baseEnv := func(home string, extra map[string]string) []string {
 			return buildEnv(mergeEnv(map[string]string{"CFO_HOME": home, "CLAUDE_PROJECT_DIR": buildDir}, extra))
 		}
 
 		t.Run("session-start", func(t *testing.T) {
 			home := newPrimaryHome(t)
-			res := runViaShell(t, bashPath, commands["session-start"], sessionStartPayload, baseEnv(home, nil))
+			res := runViaShell(t, bashPath, commands["session-start"].Command, sessionStartPayload, baseEnv(home, nil))
 			assertExit(t, res, 0, "session-start via shell (primary)")
 			assertEmptyStderr(t, res, "session-start via shell (primary)")
 			assertHasHeaders(t, res.stdout, "session-start via shell (primary)")
 
 			devHome := newDevHome(t)
-			devRes := runViaShell(t, bashPath, commands["session-start"], sessionStartPayload, baseEnv(devHome, nil))
+			devRes := runViaShell(t, bashPath, commands["session-start"].Command, sessionStartPayload, baseEnv(devHome, nil))
 			assertSilentZero(t, devRes, "session-start via shell (dev)")
 		})
 
 		t.Run("pretool-subagent", func(t *testing.T) {
-			res := runViaShell(t, bashPath, commands["pretool-subagent"], subagentPayload, baseEnv(sharedHome, nil))
+			res := runViaShell(t, bashPath, commands["pretool-subagent"].Command, subagentPayload, baseEnv(sharedHome, nil))
 			assertDeny(t, res, "", "pretool-subagent via shell (primary)")
 
 			devHome := newDevHome(t)
-			devRes := runViaShell(t, bashPath, commands["pretool-subagent"], subagentPayload, baseEnv(devHome, nil))
+			devRes := runViaShell(t, bashPath, commands["pretool-subagent"].Command, subagentPayload, baseEnv(devHome, nil))
 			assertSilentZero(t, devRes, "pretool-subagent via shell (dev)")
 		})
 
 		t.Run("pretool-arm", func(t *testing.T) {
-			res := runViaShell(t, bashPath, commands["pretool-arm"], armDenyPayload, baseEnv(sharedHome, nil))
+			res := runViaShell(t, bashPath, commands["pretool-arm"].Command, armDenyPayload, baseEnv(sharedHome, nil))
 			assertDeny(t, res, "watcher-background", "pretool-arm via shell (primary)")
 
 			devHome := newDevHome(t)
-			devRes := runViaShell(t, bashPath, commands["pretool-arm"], armDenyPayload, baseEnv(devHome, nil))
+			devRes := runViaShell(t, bashPath, commands["pretool-arm"].Command, armDenyPayload, baseEnv(devHome, nil))
 			assertSilentZero(t, devRes, "pretool-arm via shell (dev)")
 		})
 
 		t.Run("pretool-cd", func(t *testing.T) {
-			res := runViaShell(t, bashPath, commands["pretool-cd"], cdDenyPayload, baseEnv(sharedHome, nil))
+			res := runViaShell(t, bashPath, commands["pretool-cd"].Command, cdDenyPayload, baseEnv(sharedHome, nil))
 			assertDeny(t, res, "cwd-relocation", "pretool-cd via shell (primary)")
 
 			devHome := newDevHome(t)
-			devRes := runViaShell(t, bashPath, commands["pretool-cd"], cdDenyPayload, baseEnv(devHome, nil))
+			devRes := runViaShell(t, bashPath, commands["pretool-cd"].Command, cdDenyPayload, baseEnv(devHome, nil))
 			assertSilentZero(t, devRes, "pretool-cd via shell (dev)")
 		})
 
@@ -228,11 +241,11 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 			home := newPrimaryHome(t)
 			writeMetaFixture(t, filepath.Join(home, "state"), "g1.meta")
 			extra := map[string]string{"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1"}
-			res := runViaShell(t, bashPath, commands["turnend-guard"], turnendPayload, baseEnv(home, extra))
+			res := runViaShell(t, bashPath, commands["turnend-guard"].Command, turnendPayload, baseEnv(home, extra))
 			assertBlock(t, res, "TURN WOULD END BLIND", "turnend-guard via shell (primary)")
 
 			devHome := newDevHome(t)
-			devRes := runViaShell(t, bashPath, commands["turnend-guard"], turnendPayload, baseEnv(devHome, extra))
+			devRes := runViaShell(t, bashPath, commands["turnend-guard"].Command, turnendPayload, baseEnv(devHome, extra))
 			assertSilentZero(t, devRes, "turnend-guard via shell (dev)")
 		})
 
@@ -248,13 +261,61 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 				"CFO_CLAUDE_AUTOARM_ATTEMPTS": "1",
 			}
 			done := statusApendAfter(state, "g1.status", 300*time.Millisecond)
-			res := runViaShell(t, bashPath, commands["stop-autoarm"], stopAutoarmPayload, baseEnv(home, extra))
+			res := runViaShell(t, bashPath, commands["stop-autoarm"].Command, stopAutoarmPayload, baseEnv(home, extra))
 			<-done
 			assertBlock(t, res, "cfo watcher wake", "stop-autoarm via shell (primary)")
 
 			devHome := newDevHome(t)
-			devRes := runViaShell(t, bashPath, commands["stop-autoarm"], stopAutoarmPayload, baseEnv(devHome, extra))
+			devRes := runViaShell(t, bashPath, commands["stop-autoarm"].Command, stopAutoarmPayload, baseEnv(devHome, extra))
 			assertSilentZero(t, devRes, "stop-autoarm via shell (dev)")
+		})
+
+		// Important 1 (review): every one of these subtests so far points
+		// CLAUDE_PROJECT_DIR at buildDir, which DOES contain cfo.exe - the
+		// present-binary branch of every "[ -x ... ] || exit 0" guard. That is
+		// NOT the state this repo is actually in: cfo.exe is git-ignored and
+		// absent from the real repo root right now, so every live session
+		// here takes the ABSENT branch of all six guards. This subtest proves
+		// that branch directly: CLAUDE_PROJECT_DIR points at an empty
+		// directory with no cfo.exe, against a primary home that already has
+		// goblin work in flight (so an un-guarded hook would visibly deny,
+		// block, or rewake if the guard did not stop it first), and every one
+		// of the six exact registered command strings must still exit 0 with
+		// both streams empty.
+		t.Run("absent binary guard (cfo.exe missing at CLAUDE_PROJECT_DIR)", func(t *testing.T) {
+			emptyDir := t.TempDir()
+			home := newPrimaryHome(t)
+			state := filepath.Join(home, "state")
+			writeMetaFixture(t, state, "g1.meta")
+			env := func(extra map[string]string) []string {
+				return buildEnv(mergeEnv(map[string]string{"CFO_HOME": home, "CLAUDE_PROJECT_DIR": emptyDir}, extra))
+			}
+
+			absentCases := []struct {
+				name  string
+				stdin string
+				env   map[string]string
+			}{
+				{"session-start", sessionStartPayload, nil},
+				{"pretool-subagent", subagentPayload, nil},
+				{"pretool-arm", armDenyPayload, nil},
+				{"pretool-cd", cdDenyPayload, nil},
+				{"turnend-guard", turnendPayload, map[string]string{"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1"}},
+				{"stop-autoarm", stopAutoarmPayload, map[string]string{
+					"CFO_TEST_ANCESTOR_PID":       strconv.Itoa(os.Getpid()),
+					"CFO_POLL":                    "1",
+					"CFO_SIGNAL_GRACE":            "1",
+					"CFO_HEARTBEAT":               "1",
+					"CFO_CLAUDE_AUTOARM_ATTEMPTS": "1",
+				}},
+			}
+			if len(absentCases) != 6 {
+				t.Fatalf("absent-binary table has %d rows, want exactly 6 (one per registered command)", len(absentCases))
+			}
+			for _, c := range absentCases {
+				res := runViaShell(t, bashPath, commands[c.name].Command, c.stdin, env(c.env))
+				assertSilentZero(t, res, c.name+" via shell (cfo.exe absent)")
+			}
 		})
 	})
 
@@ -417,8 +478,10 @@ func buildCFOBinary(t *testing.T, goBin, repoRoot string) string {
 // --- registered-command extraction (Step 3c) ---
 
 type settingsHookEntry struct {
-	Type    string `json:"type"`
-	Command string `json:"command"`
+	Type        string `json:"type"`
+	Command     string `json:"command"`
+	Timeout     int    `json:"timeout"`
+	AsyncRewake bool   `json:"asyncRewake"`
 }
 
 type settingsHookGroup struct {
@@ -434,14 +497,26 @@ type settingsFile struct {
 	} `json:"hooks"`
 }
 
+// registeredHook is one settings.json hook entry, keyed by the cfo hook name
+// its command string invokes. Timeout and AsyncRewake are carried through
+// (not just Command) so a future edit that silently drops SessionStart's
+// timeout or stop-autoarm's asyncRewake/28800s timeout - both called out as
+// preserved verbatim by the brief - fails this test instead of going
+// unnoticed.
+type registeredHook struct {
+	Command     string
+	Timeout     int
+	AsyncRewake bool
+}
+
 // loadRegisteredCommands reads .claude/settings.json from repoRoot and
 // returns, for each of the six cfo hook names it finds a "hook <name>"
-// substring for, the exact command string registered for it. Reading the
-// file that is actually checked in (rather than re-deriving the six strings
-// from a parallel Go constant) means this step always exercises what is
-// really wired, and a future settings.json edit that drops or renames a hook
-// fails this step loudly instead of silently testing stale strings.
-func loadRegisteredCommands(t *testing.T, repoRoot string) map[string]string {
+// substring for, the registered entry for it. Reading the file that is
+// actually checked in (rather than re-deriving the six strings from a
+// parallel Go constant) means this step always exercises what is really
+// wired, and a future settings.json edit that drops or renames a hook fails
+// this step loudly instead of silently testing stale strings.
+func loadRegisteredCommands(t *testing.T, repoRoot string) map[string]registeredHook {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(repoRoot, ".claude", "settings.json"))
 	if err != nil {
@@ -452,28 +527,28 @@ func loadRegisteredCommands(t *testing.T, repoRoot string) map[string]string {
 		t.Fatalf("parse .claude/settings.json: %v", err)
 	}
 
-	commands := make(map[string]string)
+	commands := make(map[string]registeredHook)
 	names := []string{"session-start", "pretool-arm", "pretool-cd", "pretool-subagent", "turnend-guard", "stop-autoarm"}
-	record := func(cmd string) {
+	record := func(entry settingsHookEntry) {
 		for _, name := range names {
-			if strings.Contains(cmd, "hook "+name) {
-				commands[name] = cmd
+			if strings.Contains(entry.Command, "hook "+name) {
+				commands[name] = registeredHook{Command: entry.Command, Timeout: entry.Timeout, AsyncRewake: entry.AsyncRewake}
 			}
 		}
 	}
 	for _, g := range sf.Hooks.SessionStart {
 		for _, h := range g.Hooks {
-			record(h.Command)
+			record(h)
 		}
 	}
 	for _, g := range sf.Hooks.PreToolUse {
 		for _, h := range g.Hooks {
-			record(h.Command)
+			record(h)
 		}
 	}
 	for _, g := range sf.Hooks.Stop {
 		for _, h := range g.Hooks {
-			record(h.Command)
+			record(h)
 		}
 	}
 	return commands
