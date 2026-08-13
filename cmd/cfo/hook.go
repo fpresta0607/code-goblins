@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
+	"github.com/fpresta0607/code-goblins/internal/digest"
 	"github.com/fpresta0607/code-goblins/internal/guard"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -47,6 +48,19 @@ func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 0
 		}
 		return hookStopAutoarm(h, payload, stdout, stderr)
+	case "session-start":
+		payload, ok := claudehook.ReadPayload(stdin)
+		if !ok {
+			return 0
+		}
+		h, err := home.Resolve()
+		if err != nil {
+			return 0
+		}
+		if !home.IsPrimary(h) {
+			return 0
+		}
+		return hookSessionStart(h, payload, stdout)
 	default:
 		fmt.Fprintf(stderr, "cfo hook: unknown hook %q\n", name)
 		return 0
@@ -540,6 +554,59 @@ func hookStopAutoarm(h home.Home, payload claudehook.Payload, stdout, stderr io.
 		return 0
 	}
 	return 2
+}
+
+// sessionStartNudgeLine is the SessionStart routing shortcut's exact
+// stdout for a resume/reload/fork whose completion marker already names the
+// CURRENT custody's owner: printing a full digest again would just repeat
+// what an earlier SessionStart under the same lock already showed.
+const sessionStartNudgeLine = "CFO: operational input may be waiting; run cfo drain if supervision was active."
+
+// resolveSessionOwnerPID identifies the process taking custody of the
+// session lock for a SessionStart digest: the harness ancestor
+// (resolveAncestorPID, honoring the same CFO_TEST_ANCESTOR_PID test seam
+// stop-autoarm uses), or this process's own pid when no harness ancestor is
+// found, so a manual `cfo session-start` invocation still resolves an owner
+// instead of degrading to a read-only digest for no reason.
+func resolveSessionOwnerPID() int {
+	if pid, ok := resolveAncestorPID(); ok {
+		return pid
+	}
+	return os.Getpid()
+}
+
+// hookSessionStart is the SessionStart hook entry point. Unlike every other
+// hook in this file, its stdout is PLAIN TEXT with exit 0 always, never the
+// {"systemMessage":"..."} envelope: Claude Code injects SessionStart stdout
+// into the session context verbatim, so a JSON wrapper would deliver the
+// whole digest as one escaped blob. It always exits 0, even when Compose
+// fails: a SessionStart exit 2 would block session init entirely, so a
+// Compose failure is rendered as digest text (SESSION START DEGRADED)
+// instead of a nonzero exit.
+//
+// Routing: startup, new, clear, compact, empty, or any source this build
+// does not recognize all take the same single code path below, full
+// Compose, with no marker consulted. resume, reload, and fork take the
+// short-circuit nudge instead, but only when state\.session-start-complete
+// names THIS resolved owner and lock.HeldBy confirms that owner still holds
+// the home; otherwise they fall through to the same full Compose, so a
+// session resuming into a home that never received a digest under this
+// custody does not start blind.
+func hookSessionStart(h home.Home, payload claudehook.Payload, stdout io.Writer) int {
+	ownerPID := resolveSessionOwnerPID()
+
+	switch payload.Source {
+	case "resume", "reload", "fork":
+		if markerPID, ok := digest.ReadCompleteMarker(h.State); ok && markerPID == ownerPID && lock.HeldBy(h.State, ownerPID) {
+			fmt.Fprintln(stdout, sessionStartNudgeLine)
+			return 0
+		}
+	}
+
+	if err := digest.Compose(h, ownerPID, payload.SessionID, stdout); err != nil {
+		fmt.Fprintf(stdout, "SESSION START DEGRADED: %s\n", err)
+	}
+	return 0
 }
 
 // waitForAlarm polls supervise.AlarmFired for up to syncWait, checking

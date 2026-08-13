@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -209,4 +210,64 @@ func AckThrough(dir string, seq int) error {
 		}
 		return writeQueue(dir, kept)
 	})
+}
+
+// Render writes the wake queue's presentation for records (RAW, unfolded)
+// and ep to w: this is the shared renderer behind both `cfo drain` and the
+// session-start digest's WAKE QUEUE section, so the two call sites can never
+// drift in format. It folds records with Deduped internally for the printed
+// rows and takes the ack-through sequence from the raw maximum, so neither
+// caller has to decide what to pass; both simply hand it whatever
+// Pending/ReadEpisode returned.
+//
+// Render prints one of four output shapes: an empty queue with no pending
+// episode (nothing further); an empty queue with a pending episode; a
+// non-empty queue with a pending episode (the full listing plus a
+// generation-qualified ack command); and a non-empty queue with NO pending
+// episode (the listing plus a sequence-only ack command, with no
+// --recovery-generation flag). The fourth shape is reachable by design, not
+// only by hand-editing: a watcher appends a wake record before it calls
+// PublishEpisode, so a watcher killed in that window (or a truncated
+// .watcher-down marker, which ReadEpisode degrades to Pending: false) leaves
+// queued records with no episode. That shape's ack line must never carry
+// --recovery-generation 0: acking generation 0 against a home that never had
+// an episode would fabricate one (see AckEpisode's guard).
+func Render(w io.Writer, records []Record, ep Episode) error {
+	if len(records) == 0 && !ep.Pending {
+		_, err := fmt.Fprintln(w, "WAKE QUEUE: empty")
+		return err
+	}
+
+	deduped := Deduped(records)
+	if _, err := fmt.Fprintf(w, "WAKE QUEUE: %d pending\n", len(deduped)); err != nil {
+		return err
+	}
+	for _, rec := range deduped {
+		line := fmt.Sprintf("  %d  %-6s  ", rec.Seq, rec.Kind)
+		if rec.Key != rec.Kind {
+			line += rec.Key + ": "
+		}
+		line += rec.Detail
+		if _, err := fmt.Fprintln(w, line); err != nil {
+			return err
+		}
+	}
+
+	maxSeq := 0
+	for _, rec := range records {
+		if rec.Seq > maxSeq {
+			maxSeq = rec.Seq
+		}
+	}
+
+	if !ep.Pending {
+		_, err := fmt.Fprintf(w, "WAKE_ACK_REQUIRED: cfo drain --ack-through %d\n", maxSeq)
+		return err
+	}
+
+	if _, err := fmt.Fprintf(w, "RECOVERY EPISODE: pending, generation %d\n", ep.Gen); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(w, "WAKE_ACK_REQUIRED: cfo drain --ack-through %d --recovery-generation %d\n", maxSeq, ep.Gen)
+	return err
 }

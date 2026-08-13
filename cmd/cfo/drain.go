@@ -73,22 +73,10 @@ func runDrain(h home.Home, args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// renderDrain prints the wake queue's four output shapes: an empty queue
-// with no pending episode (nothing further); an empty queue with a pending
-// episode; a non-empty queue with a pending episode (the full listing plus
-// a generation-qualified ack command); and a non-empty queue with NO
-// pending episode (the listing plus a sequence-only ack command, with no
-// --recovery-generation flag). The fourth shape is reachable by design, not
-// only by hand-editing: Task 8's watcher appends a wake record before it
-// calls PublishEpisode, so a watcher killed in that window (or a truncated
-// .watcher-down marker, which ReadEpisode degrades to Pending: false)
-// leaves queued records with no episode. That shape's ack line must never
-// carry --recovery-generation 0: acking generation 0 against a home that
-// never had an episode would fabricate one (see AckEpisode's guard).
-// The header count and rendered rows are the deduped presentation; the
-// ack-through sequence a WAKE_ACK_REQUIRED line carries is always the
-// highest raw pending sequence, since records the fold collapsed still need
-// to be retired.
+// renderDrain reads the wake queue's raw pending records and current
+// episode, then hands them to wake.Render, the shared renderer behind both
+// this command and the session-start digest's WAKE QUEUE section. See
+// wake.Render's doc comment for the four output shapes it prints.
 func renderDrain(stateDir string, stdout io.Writer) error {
 	records, err := wake.Pending(stateDir)
 	if err != nil {
@@ -98,42 +86,5 @@ func renderDrain(stateDir string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-
-	if len(records) == 0 && !episode.Pending {
-		_, err := fmt.Fprintln(stdout, "WAKE QUEUE: empty")
-		return err
-	}
-
-	deduped := wake.Deduped(records)
-	if _, err := fmt.Fprintf(stdout, "WAKE QUEUE: %d pending\n", len(deduped)); err != nil {
-		return err
-	}
-	for _, rec := range deduped {
-		line := fmt.Sprintf("  %d  %-6s  ", rec.Seq, rec.Kind)
-		if rec.Key != rec.Kind {
-			line += rec.Key + ": "
-		}
-		line += rec.Detail
-		if _, err := fmt.Fprintln(stdout, line); err != nil {
-			return err
-		}
-	}
-
-	maxSeq := 0
-	for _, rec := range records {
-		if rec.Seq > maxSeq {
-			maxSeq = rec.Seq
-		}
-	}
-
-	if !episode.Pending {
-		_, err := fmt.Fprintf(stdout, "WAKE_ACK_REQUIRED: cfo drain --ack-through %d\n", maxSeq)
-		return err
-	}
-
-	if _, err := fmt.Fprintf(stdout, "RECOVERY EPISODE: pending, generation %d\n", episode.Gen); err != nil {
-		return err
-	}
-	_, err = fmt.Fprintf(stdout, "WAKE_ACK_REQUIRED: cfo drain --ack-through %d --recovery-generation %d\n", maxSeq, episode.Gen)
-	return err
+	return wake.Render(stdout, records, episode)
 }
