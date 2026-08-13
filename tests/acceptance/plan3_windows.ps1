@@ -152,15 +152,24 @@ function Convert-LastSeenToMarkdown {
 }
 
 function Convert-EndpointToMarkdown {
-    param($Exists)
+    param(
+        [string]$Target,
+        $Exists
+    )
 
     if ($null -eq $Exists) {
-        return 'unknown'
+        $verdict = 'unknown'
     }
-    if ([bool]$Exists) {
-        return 'present'
+    elseif ([bool]$Exists) {
+        $verdict = 'present'
     }
-    return 'absent'
+    else {
+        $verdict = 'absent'
+    }
+    if ([string]::IsNullOrWhiteSpace($Target)) {
+        return $verdict
+    }
+    return ((Convert-MarkdownCell $Target) + ' (' + $verdict + ')')
 }
 
 function Convert-BooleanToMarkdown {
@@ -219,7 +228,7 @@ function Assert-FleetProjectionParity {
         (Convert-MarkdownCell $kind),
         (Convert-MarkdownCell $project),
         (Convert-MarkdownCell $backend),
-        (Convert-EndpointToMarkdown $endpointExists),
+        (Convert-EndpointToMarkdown $endpointTarget $endpointExists),
         (Convert-MarkdownCell $Row.artifact),
         (Convert-MarkdownCell $path),
         (Convert-MarkdownCell $peek)
@@ -366,11 +375,20 @@ if ($SelfTest -eq 'fleet-parity') {
         path = 'C:\fixture\worker'
         actions = [pscustomobject]@{ peek = 'cfo peek fm-accept-claude' }
     }
-    $markdown = '| accept-claude | working / status | stale | 2m1s | 2026-08-13T12:34:56Z | 2 | yes | task | C:\fixture\project | herdr | present | - | C:\fixture\worker | cfo peek fm-accept-claude |'
+    $markdown = '| accept-claude | working / status | stale | 2m1s | 2026-08-13T12:34:56Z | 2 | yes | task | C:\fixture\project | herdr | fixture:pane:claude (present) | - | C:\fixture\worker | cfo peek fm-accept-claude |'
     Assert-FleetProjectionParity -Row $row -Worker $worker -Markdown $markdown
     try {
         Assert-FleetProjectionParity -Row $row -Worker $worker -Markdown ($markdown.Replace('present', 'absent'))
         throw 'Acceptance self-test expected Markdown endpoint parity to fail.'
+    }
+    catch {
+        if ($_.Exception.Message -notmatch 'does not exactly project') {
+            throw
+        }
+    }
+    try {
+        Assert-FleetProjectionParity -Row $row -Worker $worker -Markdown ($markdown.Replace('fixture:pane:claude', 'fixture:pane:wrong'))
+        throw 'Acceptance self-test expected Markdown endpoint target parity to fail.'
     }
     catch {
         if ($_.Exception.Message -notmatch 'does not exactly project') {

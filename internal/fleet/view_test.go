@@ -83,7 +83,7 @@ func TestRenderersProjectOneTypedSnapshot(t *testing.T) {
 		"## Done",
 		"## Secondmates",
 		"| ID | Current | Health | Stale | Last Seen | Escalation | Deep Inspection | Kind | Project | Backend | Endpoint | Artifact | Path | Peek |",
-		"| active | working / endpoint | active | - | 2026-08-13T12:00:00Z | 0 | no | ship | C:\\project | herdr | present | C:\\fleet\\data\\active\\report.md | C:\\work\\active | cfo peek fm-active |",
+		"| active | working / endpoint | active | - | 2026-08-13T12:00:00Z | 0 | no | ship | C:\\project | herdr | fleet:pane-active (present) | C:\\fleet\\data\\active\\report.md | C:\\work\\active | cfo peek fm-active |",
 		"| stale | done / status | stale | 12s | 2026-08-13T12:00:00Z | 2 | yes | scout | - | herdr | unknown | - | - | cfo peek fm-stale |",
 		"| unknown | unknown / none | unknown | - | - | 0 | no | - | - | - | unknown | - | - | cfo peek fm-unknown |",
 		"| q1 | Queued work | - | - | prep - wait | - |",
