@@ -85,7 +85,7 @@ func TestScanSignalsCommitIsTheOnlyCommitment(t *testing.T) {
 	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	seenPath := filepath.Join(dir, ".seen-a_status")
+	seenPath := filepath.Join(dir, SeenName("a.status"))
 
 	changes, err := ScanSignals(dir)
 	if err != nil {
@@ -133,6 +133,59 @@ func TestScanSignalsCommitIsTheOnlyCommitment(t *testing.T) {
 	}
 }
 
+// TestScanSignalsDistinguishesSanitizeCollisions proves the FNV-1a hash
+// suffix in SeenName does the job the doc comments on Sanitize and SeenName
+// claim: two distinct, valid-on-NTFS filenames that sanitize to the same
+// string must still get distinct signature files. Without the hash suffix
+// (i.e. if SeenName reverted to seenPrefix+Sanitize(name)), both files would
+// share one .seen-* file: CommitSignatures for whichever committed last
+// would leave the other permanently stale, so the second scan below would
+// keep reporting one of them changed forever instead of reading quiet. This
+// test fails under that mutation.
+func TestScanSignalsDistinguishesSanitizeCollisions(t *testing.T) {
+	dir := t.TempDir()
+	// Both are legal Windows filenames (":" is not, so the collision fixture
+	// cannot use it); both sanitize to "a_b_status".
+	nameA := "a.b.status"
+	nameB := "a_b.status"
+	if got := Sanitize(nameA); got != Sanitize(nameB) {
+		t.Fatalf("fixture invalid: Sanitize(%q) = %q, Sanitize(%q) = %q, want them equal so this test proves something", nameA, got, nameB, Sanitize(nameB))
+	}
+	if SeenName(nameA) == SeenName(nameB) {
+		t.Fatalf("SeenName(%q) and SeenName(%q) collide: %q", nameA, nameB, SeenName(nameA))
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, nameA), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, nameB), []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	changes, err := ScanSignals(dir)
+	if err != nil {
+		t.Fatalf("first scan: %v", err)
+	}
+	if len(changes) != 2 {
+		t.Fatalf("first scan = %+v, want both colliding files reported", changes)
+	}
+	if err := CommitSignatures(dir, changes); err != nil {
+		t.Fatalf("CommitSignatures: %v", err)
+	}
+
+	// If the two files shared one signature file, whichever committed last
+	// (alphabetically nameB, since ScanSignals/CommitSignatures process in
+	// os.ReadDir order) would have overwritten the other's signature, and
+	// this scan would report nameA changed again.
+	changes2, err := ScanSignals(dir)
+	if err != nil {
+		t.Fatalf("second scan: %v", err)
+	}
+	if len(changes2) != 0 {
+		t.Fatalf("second scan after committing both = %+v, want none (signature files must not collide)", changes2)
+	}
+}
+
 func baseConfig(dir string) Config {
 	return Config{
 		Home:         home.Home{State: dir},
@@ -152,6 +205,13 @@ func TestRunClosesOnSignal(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(bPath, []byte("b1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-write a streak, as if a prior heartbeat cycle had already backed
+	// off, so this test can assert a signal close removes it (brief line
+	// 92: "A signal close then removes the streak file").
+	streakPath := filepath.Join(dir, ".heartbeat-streak")
+	if err := os.WriteFile(streakPath, []byte("3"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -197,7 +257,7 @@ func TestRunClosesOnSignal(t *testing.T) {
 	}
 
 	for _, name := range []string{"a.status", "b.status"} {
-		if _, err := os.Stat(filepath.Join(dir, ".seen-"+Sanitize(name))); err != nil {
+		if _, err := os.Stat(filepath.Join(dir, SeenName(name))); err != nil {
 			t.Errorf("seen file missing for %s: %v", name, err)
 		}
 	}
@@ -208,6 +268,86 @@ func TestRunClosesOnSignal(t *testing.T) {
 	}
 	if !ep.Pending || ep.Gen != 1 {
 		t.Errorf("episode = %+v, want pending:1", ep)
+	}
+
+	// A signal close must remove the streak file entirely (not zero it),
+	// so the next heartbeat starts from a clean base interval instead of
+	// resuming wherever this streak had backed off to. Deleting
+	// removeHeartbeatStreak's call site must fail this assertion.
+	if _, err := os.Stat(streakPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("streak file survives a signal close: stat err = %v", err)
+	}
+}
+
+// TestRunContinuesWhenPostGraceRescanIsEmpty covers a status file that
+// vanishes during the SignalGrace window (a goblin despawn inside 30s is
+// plausible): the post-grace rescan then returns zero changes, and Run must
+// treat that as "nothing to report yet", not as a signal close with an
+// empty detail. It proves this by aging .last-heartbeat to already-due
+// before Run starts: if the empty rescan closed anyway, Run would return
+// the bare "signal:" reason on its first pass and never reach the
+// heartbeat check at all. If it correctly continues instead, the second
+// pass's heartbeat check fires and Run returns "heartbeat" with exactly
+// one (heartbeat, not signal) wake record and exactly one published
+// episode - proving the empty-rescan pass appended nothing and published
+// nothing. Removing the `if len(changes) == 0 { continue }` guard in Run
+// must fail this test.
+func TestRunContinuesWhenPostGraceRescanIsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	aPath := filepath.Join(dir, "a.status")
+	if err := os.WriteFile(aPath, []byte("a1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	heartbeat := 2 * time.Second // see TestHeartbeatBackoffDoublesAndResets for why this is seconds, not ms
+	heartbeatPath := filepath.Join(dir, ".last-heartbeat")
+	if err := os.WriteFile(heartbeatPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	aged := time.Now().Add(-heartbeat)
+	if err := os.Chtimes(heartbeatPath, aged, aged); err != nil {
+		t.Fatal(err)
+	}
+
+	sleepCalls := 0
+	cfg := baseConfig(dir)
+	cfg.Heartbeat = heartbeat
+	cfg.Sleep = func(time.Duration) {
+		sleepCalls++
+		if sleepCalls == 1 {
+			// The file that triggered this cycle is gone by the time the
+			// post-grace rescan runs.
+			if err := os.Remove(aPath); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	reason, err := Run(cfg)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if reason != "heartbeat" {
+		t.Fatalf("reason = %q, want heartbeat (an empty post-grace rescan must not close the cycle on a bare \"signal:\" reason)", reason)
+	}
+	if sleepCalls < 1 {
+		t.Fatalf("sleepCalls = %d, want at least 1", sleepCalls)
+	}
+
+	records, err := wake.Pending(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Kind != "heartbeat" {
+		t.Fatalf("records = %+v, want exactly one heartbeat record (the empty rescan must append nothing)", records)
+	}
+
+	ep, err := wake.ReadEpisode(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ep.Pending || ep.Gen != 1 {
+		t.Fatalf("episode = %+v, want pending:1 (the empty rescan must not publish its own episode)", ep)
 	}
 }
 
@@ -386,6 +526,20 @@ func TestRunReturnsQuietlyWhenSingletonStolen(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".watcher-down")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf(".watcher-down exists after a lock-lost return: stat err = %v", err)
+	}
+
+	// The load-bearing half of this scenario: the deferred
+	// lock.ReleaseNamed must refuse to remove a lock it no longer holds.
+	// ReleaseNamed's own self-check is what makes that refusal happen (Run
+	// defers it unconditionally), so assert directly on the lock file
+	// rather than trusting that behavior implicitly via another package's
+	// test suite.
+	holder, err := lock.ReadNamed(dir, ".watch.lock")
+	if err != nil {
+		t.Fatalf("lock file gone after Run's deferred release: %v", err)
+	}
+	if holder.PID != cmd.Process.Pid {
+		t.Errorf("lock holder PID = %d, want the successor's %d (Run's deferred release must not have torn down the successor's lock)", holder.PID, cmd.Process.Pid)
 	}
 }
 
