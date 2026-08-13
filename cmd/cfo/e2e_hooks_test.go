@@ -167,10 +167,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 	// --- Phase 3: the exact registered command strings, through the shell Step 3a identified ---
 
 	t.Run("registered command strings via the POSIX shell", func(t *testing.T) {
-		bashPath, err := exec.LookPath("bash")
-		if err != nil {
-			t.Fatalf("bash not found on PATH, cannot execute the exact registered command strings: %v", err)
-		}
+		bashPath := resolveMingwBash(t)
 
 		commands := loadRegisteredCommands(t, repoRoot)
 		wantNames := []string{"session-start", "pretool-arm", "pretool-cd", "pretool-subagent", "turnend-guard", "stop-autoarm"}
@@ -591,6 +588,66 @@ func runHookBinary(t *testing.T, exe, hookName, stdin string, env []string) hook
 	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Env = env
 	return runCmd(t, cmd)
+}
+
+// resolveMingwBash finds a verified MSYS/MINGW bash.exe and refuses to run
+// Phase 3 under anything else, because the POSIX-shell assumption behind
+// every registered command string is load-bearing for this proof.
+//
+// exec.LookPath("bash") is not safe here: on a Windows box with WSL
+// installed, "bash" on PATH frequently resolves to
+// C:\WINDOWS\system32\bash.exe, which is WSL2 bash (uname -s reports
+// "Linux", release "...microsoft-standard-WSL2"). WSL bash cannot resolve a
+// Windows path in any form the hooks use - it needs /mnt/c/... - so every
+// registered command's `[ -x "$CLAUDE_PROJECT_DIR"/cfo.exe ] || exit 0`
+// guard is false, the guard takes its exit-0 branch, and all six hooks
+// silently no-op. Every Phase 3 primary-home assertion then fails with
+// "exit = 0, want 2" and empty streams, and depending on PATH order the
+// suite passes or fails with no code change.
+//
+// That is a defect in this test's shell resolution, not in the production
+// wiring. Under Git bash (MINGW64, the shell Claude Code actually invokes
+// hooks through), CLAUDE_PROJECT_DIR passed as an ENVIRONMENT VARIABLE with
+// a Windows backslash path resolves correctly, because MSYS auto-converts
+// path-shaped env vars - confirmed empirically. The same path interpolated
+// INLINE into script text instead of via an env var does not resolve, but
+// that is a property of inline literals, not of the hooks, and is not a
+// defect. So: pin bash to a verified MINGW/MSYS build here rather than
+// trusting whatever LookPath("bash") happens to find first, and never
+// reintroduce a bare LookPath("bash") for this proof.
+func resolveMingwBash(t *testing.T) string {
+	t.Helper()
+	candidates := []string{
+		`C:\Program Files\Git\bin\bash.exe`,
+		`C:\Program Files\Git\usr\bin\bash.exe`,
+	}
+	if pathBash, err := exec.LookPath("bash"); err == nil {
+		candidates = append(candidates, pathBash)
+	}
+
+	var disqualified []string
+	for _, candidate := range candidates {
+		out, err := exec.Command(candidate, "-c", "uname -s").CombinedOutput()
+		if err != nil {
+			disqualified = append(disqualified, candidate+" (could not run uname -s: "+err.Error()+")")
+			continue
+		}
+		kernel := strings.TrimSpace(string(out))
+		if strings.Contains(kernel, "MINGW") || strings.Contains(kernel, "MSYS") {
+			t.Logf("resolved MINGW/MSYS bash for Phase 3: %s (uname -s = %q)", candidate, kernel)
+			return candidate
+		}
+		disqualified = append(disqualified, candidate+" (uname -s = "+kernel+")")
+	}
+
+	t.Fatalf("no MINGW/MSYS bash found; every candidate was disqualified: %s. "+
+		"The only bash on PATH is likely WSL, whose uname -s reports Linux; WSL bash "+
+		"cannot resolve Windows paths, so the registered command strings' "+
+		"`[ -x \"$CLAUDE_PROJECT_DIR\"/cfo.exe ] || exit 0` guard would silently take "+
+		"its exit-0 branch and no-op all six hooks. Install Git for Windows, or put its "+
+		"bash (bin\\bash.exe or usr\\bin\\bash.exe) ahead of System32 on PATH.",
+		strings.Join(disqualified, "; "))
+	return ""
 }
 
 // runViaShell invokes script through bashPath -c, the shell Step 3a proved
