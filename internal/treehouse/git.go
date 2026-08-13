@@ -71,8 +71,8 @@ func (g RunnerGit) FetchAndFreshen(ctx context.Context, dir string) error {
 	if strings.TrimSpace(string(status.Stdout)) != "" {
 		return fmt.Errorf("treehouse: worktree %q is dirty; refusing to discard uncommitted work", dir)
 	}
-	if _, err := g.required(ctx, dir, "git", "reset", "--hard", target); err != nil {
-		return fmt.Errorf("treehouse: reset worktree to %q: %w", target, err)
+	if _, err := g.required(ctx, dir, "git", "reset", "--hard", expected); err != nil {
+		return fmt.Errorf("treehouse: reset worktree to %q: %w", expected, err)
 	}
 	actualResult, err := g.required(ctx, dir, "git", "rev-parse", "--verify", "--quiet", "HEAD")
 	if err != nil {
