@@ -41,9 +41,11 @@ const (
 	budgetLockName = ".turnend-claude-blocks.lock"
 )
 
-// Needed reports whether any *.meta file exists directly inside stateDir,
-// dot-prefixed state files (locks, queues, temp files) excluded the same
-// way the watcher excludes them when enumerating task files. The error is a
+// Needed reports whether any *.meta file exists directly inside stateDir.
+// Dot-prefixed names (locks, queues, temp artifacts) are excluded so a state
+// file that happens to end in .meta is never miscounted as a task; this is
+// Needed's own defensive filter, not a mirror of internal/watch's
+// ScanSignals, which does no dot-prefix filtering of its own. The error is a
 // third return rather than a swallowed false: the failure posture the
 // turnend-guard hook applies treats an unlistable state directory
 // differently than a genuinely empty one, and a two-value signature cannot
@@ -191,16 +193,28 @@ func NextEpoch(stateDir string) (int, error) {
 	return next, nil
 }
 
-// SetOutcome records outcome for epoch, refusing a stale write: if the
-// ledger has already moved past epoch, the write is skipped rather than
-// clobbering a newer episode's outcome.
+// ErrStaleEpoch reports that SetOutcome's epoch argument does not equal the
+// ledger's current epoch number, so the write was refused. The check is a
+// plain inequality, not "epoch is behind": a missing or never-written ledger
+// reads as Epoch{} (N == 0), which also fails the equality check against any
+// epoch a caller legitimately passes (NextEpoch always returns >= 1), so a
+// SetOutcome call with no matching NextEpoch on record refuses the same way
+// a genuinely superseded one does. Callers use errors.Is to distinguish this
+// benign, expected outcome (the ledger moved on to a newer episode, or never
+// had this one) from a real I/O failure that should escalate instead.
+var ErrStaleEpoch = errors.New("supervise: epoch is not the ledger's current epoch")
+
+// SetOutcome records outcome for epoch, refusing with ErrStaleEpoch when
+// epoch does not equal the ledger's current epoch number, so the write can
+// never clobber a newer episode's outcome. See ErrStaleEpoch for exactly
+// which conditions trigger the refusal.
 func SetOutcome(stateDir string, epoch int, outcome string) error {
 	cur, err := readEpochFile(stateDir)
 	if err != nil {
 		return err
 	}
 	if cur.N != epoch {
-		return fmt.Errorf("supervise: epoch %d is stale, current is %d", epoch, cur.N)
+		return fmt.Errorf("%w: got %d, ledger is at %d", ErrStaleEpoch, epoch, cur.N)
 	}
 	cur.Outcome = outcome
 	cur.UpdatedAt = time.Now().UTC()
@@ -317,12 +331,34 @@ func ChargeBudget(stateDir, session string) (int, error) {
 	return count, err
 }
 
-// ResetBudget removes the budget record and both failure markers as one
-// group under the budget lock.
+// removeWithRetry deletes path, retrying up to 10 times at 50ms on a
+// transient Windows sharing violation (antivirus/indexer scans) - the same
+// bounded-retry shape fsx.AtomicWriteFile uses for its rename. A missing
+// file is success: there is nothing left to remove.
+func removeWithRetry(path string) error {
+	var lastErr error
+	for attempt := 0; attempt < 10; attempt++ {
+		err := os.Remove(path)
+		if err == nil || errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		lastErr = err
+		time.Sleep(50 * time.Millisecond)
+	}
+	return lastErr
+}
+
+// ResetBudget removes both failure markers, then the budget record, as one
+// group under the budget lock. Markers first, budget last: a crash (or a
+// removal that exhausts its retries) partway through then always leaves
+// NotifiedOnce false, so the turnend-guard hook's own "reset unless already
+// notified" check (hook.go step 2) retries the whole group on the very next
+// quiet Stop instead of getting stuck skipping it forever on a half-applied
+// reset.
 func ResetBudget(stateDir string) error {
 	return withBudgetLock(stateDir, func() error {
-		for _, name := range []string{budgetFile, notifiedFile, alarmedFile} {
-			if err := os.Remove(filepath.Join(stateDir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		for _, name := range []string{notifiedFile, alarmedFile, budgetFile} {
+			if err := removeWithRetry(filepath.Join(stateDir, name)); err != nil {
 				return err
 			}
 		}

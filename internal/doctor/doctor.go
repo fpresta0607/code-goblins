@@ -2,8 +2,13 @@
 package doctor
 
 import (
+	"encoding/json"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
 // Check is one tool's verdict. Err empty means usable.
@@ -27,9 +32,10 @@ var tools = []struct {
 	{name: "treehouse", presenceOnly: true, hint: "see github.com/kunchenguid/treehouse"},
 }
 
-// Run checks every required tool in a fixed order.
+// Run checks every required tool in a fixed order, plus the turnend-guard /
+// stop-autoarm hook pairing.
 func Run() []Check {
-	checks := make([]Check, 0, len(tools))
+	checks := make([]Check, 0, len(tools)+1)
 	for _, tool := range tools {
 		path, err := exec.LookPath(tool.name)
 		if err != nil {
@@ -48,7 +54,49 @@ func Run() []Check {
 		version, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
 		checks = append(checks, Check{Name: tool.name, Version: strings.TrimSpace(version)})
 	}
+	checks = append(checks, checkHookPairing())
 	return checks
+}
+
+// hookPairingHint is checkHookPairing's remedy for a guard registered alone.
+const hookPairingHint = `register "cfo hook stop-autoarm" as a Stop hook with asyncRewake, or the turn-end guard will block without anything restoring the watcher`
+
+// checkHookPairing reads the resolved home's .claude/settings.json and
+// reports unhealthy only when "cfo hook turnend-guard" is registered
+// somewhere in it without "cfo hook stop-autoarm" also present: a guard
+// with nothing to prove recovery is under way will eventually run its own
+// escalation ladder to the hard ceiling on every blocked turn instead of the
+// auto-arm ever recovering the watcher. Presence-only: it does not parse
+// which hook event either string is registered under, only that both
+// strings occur somewhere in the file. It passes silently (no Err) when the
+// home cannot be resolved, the file is absent or unreadable, the JSON is
+// malformed, or neither hook string appears - malformed JSON is deliberately
+// never a hard failure, since a broken settings.json is Claude Code's
+// problem to surface, not this check's.
+func checkHookPairing() Check {
+	h, err := home.Resolve()
+	if err != nil {
+		return Check{Name: "hook-pairing"}
+	}
+	data, err := os.ReadFile(filepath.Join(h.Root, ".claude", "settings.json"))
+	if err != nil {
+		return Check{Name: "hook-pairing"}
+	}
+	var parsed any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return Check{Name: "hook-pairing"}
+	}
+	text := string(data)
+	hasGuard := strings.Contains(text, "cfo hook turnend-guard")
+	hasAutoarm := strings.Contains(text, "cfo hook stop-autoarm")
+	if hasGuard && !hasAutoarm {
+		return Check{
+			Name: "hook-pairing",
+			Err:  `"cfo hook turnend-guard" is registered without "cfo hook stop-autoarm"`,
+			Hint: hookPairingHint,
+		}
+	}
+	return Check{Name: "hook-pairing"}
 }
 
 // Healthy reports whether every check passed.

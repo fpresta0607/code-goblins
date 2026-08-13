@@ -222,6 +222,28 @@ func TestEpochLedgerNextAndSetOutcome(t *testing.T) {
 	}
 }
 
+func TestSetOutcomeRefusesStaleEpoch(t *testing.T) {
+	dir := t.TempDir()
+	n, err := NextEpoch(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NextEpoch(dir); err != nil {
+		t.Fatal(err)
+	}
+	// n is now stale: the ledger has moved on to n+1.
+	if err := SetOutcome(dir, n, "rewake"); !errors.Is(err, ErrStaleEpoch) {
+		t.Errorf("SetOutcome with a stale epoch = %v, want ErrStaleEpoch", err)
+	}
+}
+
+func TestSetOutcomeRefusesAnEpochWithNoLedgerAtAll(t *testing.T) {
+	dir := t.TempDir()
+	if err := SetOutcome(dir, 1, "rewake"); !errors.Is(err, ErrStaleEpoch) {
+		t.Errorf("SetOutcome against a never-written ledger = %v, want ErrStaleEpoch", err)
+	}
+}
+
 // --- Step 1 row 5: AutoarmOwnsRecovery ---
 
 func TestAutoarmOwnsRecovery(t *testing.T) {

@@ -122,6 +122,23 @@ func hookPretoolCd(stdin io.Reader, stdout, stderr io.Writer) int {
 // blocking every Stop forever.
 const genuinelyDownMessage = "CFO SUPERVISION IS GENUINELY DOWN: the Stop-owned auto-arm could not restore the watcher and the block budget is exhausted. This turn may end, but supervision stays off. Run cfo doctor, verify the stop-autoarm hook registration in .claude/settings.json, and re-launch the session."
 
+// escalationCeilingMultiplier sets the hard ceiling (escalationCeilingMultiplier
+// * blockBudget) that fires regardless of NotifiedOnce or AlarmFired: the
+// guarantee that no configuration can wedge a session shut. NotifiedOnce has
+// exactly one writer, Task 11's stop-autoarm hook; if that hook is missing
+// from settings.json or dies before ever calling MarkNotified, nothing ever
+// satisfies the normal ladder arm below. stop_hook_active is also
+// deliberately ignored by hookTurnendGuard (see its doc comment below), so
+// Claude Code's own loop breaker cannot rescue the turn either. This arm is
+// the fallback that still does.
+const escalationCeilingMultiplier = 3
+
+// ladderNeverEscalatedMessage is the ceiling arm's message: %d fills count.
+// Distinct from genuinelyDownMessage because the likely cause is different -
+// nothing ever reported a failure at all, rather than a reported failure the
+// budget could not recover from.
+const ladderNeverEscalatedMessage = "CFO SUPERVISION IS DOWN AND THE ESCALATION LADDER NEVER ESCALATED: the turn-end guard blocked %d times without the Stop-owned auto-arm ever reporting a failure. The usual cause is that \"cfo hook stop-autoarm\" is not registered in .claude/settings.json, so nothing is trying to restore the watcher. This turn may end, but supervision stays off. Run cfo doctor and verify the Stop hook registration."
+
 // blindTurnBanner is step 6's block message: %s, %s fill inFlight (the
 // "<N> task(s) in flight" string from supervise.Needed) and the watcher
 // beat's age ("never" if no beat file exists yet).
@@ -171,7 +188,7 @@ func hookTurnendGuard(stdin io.Reader, stdout, stderr io.Writer) int {
 		// notified) survives a quiet turn instead of being reset away.
 		if !supervise.NotifiedOnce(state) {
 			if err := supervise.ResetBudget(state); err != nil {
-				return attendedFailOpen(state, stdout)
+				return attendedFailOpen(stdout)
 			}
 		}
 		return 0
@@ -180,7 +197,7 @@ func hookTurnendGuard(stdin io.Reader, stdout, stderr io.Writer) int {
 	// upstream step 3: is the watcher itself healthy?
 	if supervise.WatcherHealthy(state, guardGrace) {
 		if err := supervise.ResetBudget(state); err != nil {
-			return attendedFailOpen(state, stdout)
+			return attendedFailOpen(stdout)
 		}
 		return 0
 	}
@@ -194,7 +211,7 @@ func hookTurnendGuard(stdin io.Reader, stdout, stderr io.Writer) int {
 	// upstream step 5: charge the block-budget ladder.
 	count, err := supervise.ChargeBudget(state, payload.SessionID)
 	if err != nil {
-		return attendedFailOpen(state, stdout)
+		return attendedFailOpen(stdout)
 	}
 	if count > blockBudget && supervise.NotifiedOnce(state) && !supervise.AlarmFired(state) {
 		// The alarm message is one-time; the block is not (AlarmFired keeps
@@ -202,14 +219,28 @@ func hookTurnendGuard(stdin io.Reader, stdout, stderr io.Writer) int {
 		_ = supervise.MarkAlarm(state)
 		return claudehook.InfoAllow(stdout, genuinelyDownMessage)
 	}
+	if count > escalationCeilingMultiplier*blockBudget {
+		// Hard ceiling, independent of NotifiedOnce/AlarmFired: the
+		// guarantee that no configuration can wedge a session shut even
+		// when nothing ever calls MarkNotified. Deliberately unconditional
+		// and deliberately NOT one-time: once count crosses the ceiling it
+		// only ever grows, so every later Stop this session keeps taking
+		// this arm and the turn can always end. Ordered after the normal
+		// ladder arm above so a genuine, already-notified episode still
+		// gets the normal GENUINELY DOWN message first.
+		return claudehook.InfoAllow(stdout, fmt.Sprintf(ladderNeverEscalatedMessage, count))
+	}
 
 	// upstream step 6: block, with the blind-turn banner.
 	return claudehook.BlockStop(stderr, fmt.Sprintf(blindTurnBanner, inFlight, beatAge(state)))
 }
 
 // pollAutoarmProof checks supervise.AutoarmOwnsRecovery immediately, then
-// again every 100ms until syncWait elapses. syncWait <= 0 means exactly one
-// check and no waiting at all.
+// again every 100ms (or whatever is left of syncWait, whichever is shorter)
+// until syncWait elapses. syncWait <= 0 means exactly one check and no
+// waiting at all. Elapsed time is checked before each sleep, not after, so a
+// syncWait shorter than 100ms cannot overshoot the window by sleeping a full
+// 100ms anyway.
 func pollAutoarmProof(state string, grace, epochFresh, syncWait time.Duration) bool {
 	if supervise.AutoarmOwnsRecovery(state, grace, epochFresh) {
 		return true
@@ -218,23 +249,34 @@ func pollAutoarmProof(state string, grace, epochFresh, syncWait time.Duration) b
 		return false
 	}
 	deadline := time.Now().Add(syncWait)
-	for time.Now().Before(deadline) {
-		time.Sleep(100 * time.Millisecond)
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return false
+		}
+		wait := 100 * time.Millisecond
+		if remaining < wait {
+			wait = remaining
+		}
+		time.Sleep(wait)
 		if supervise.AutoarmOwnsRecovery(state, grace, epochFresh) {
 			return true
 		}
 	}
-	return false
 }
 
-// attendedFailOpen is step 5's failure posture for a ChargeBudget or
-// ResetBudget error: the ladder cannot run at all, so the guard escalates
-// once instead of blocking every Stop forever on a counter that can never
-// advance. Deliberately exempt from "the alarm message is one-time": this
-// branch is reached because the budget file itself is unwritable, and can
-// therefore repeat on every Stop until the home is repaired.
-func attendedFailOpen(state string, stdout io.Writer) int {
-	_ = supervise.MarkAlarm(state)
+// attendedFailOpen is the failure posture for a ChargeBudget or ResetBudget
+// error: the ladder cannot run at all, so the guard escalates once instead
+// of blocking every Stop forever on a counter that can never advance. It
+// deliberately does NOT call MarkAlarm: this branch fires for errors with
+// nothing to do with the ladder's own escalation (a quiet-turn ResetBudget
+// failure has no episode to speak of), and marking the alarm here would
+// permanently disarm the ladder's own one-shot GENUINELY DOWN message for
+// whatever genuine failure episode comes next, routing it straight to a
+// permanent block instead. This branch can legitimately repeat on every
+// Stop until the home is repaired; that is fine precisely because it never
+// touches AlarmFired.
+func attendedFailOpen(stdout io.Writer) int {
 	return claudehook.InfoAllow(stdout, genuinelyDownMessage)
 }
 
