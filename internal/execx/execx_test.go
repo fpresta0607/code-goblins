@@ -22,6 +22,15 @@ func TestOSRunnerHelper(t *testing.T) {
 		os.Exit(7)
 	case "sleep":
 		time.Sleep(10 * time.Second)
+	case "short-sleep":
+		time.Sleep(200 * time.Millisecond)
+	case "survive-cancel":
+		time.Sleep(200 * time.Millisecond)
+		if err := os.WriteFile(os.Getenv("EXECX_MARKER"), []byte("alive"), 0o600); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(9)
+		}
+		return
 	}
 
 	cwd, err := os.Getwd()
@@ -134,11 +143,52 @@ func TestOSRunnerStartsWithoutWaitingForChildExit(t *testing.T) {
 	defer cancel()
 
 	started := time.Now()
-	err := (OSRunner{}).Start(ctx, helperRequest(t.TempDir(), []string{"EXECX_HELPER=1", "EXECX_MODE=sleep"}))
+	err := (OSRunner{}).Start(ctx, helperRequest(t.TempDir(), []string{"EXECX_HELPER=1", "EXECX_MODE=short-sleep"}))
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	if elapsed := time.Since(started); elapsed > time.Second {
 		t.Fatalf("Start blocked for %s, want non-blocking child launch", elapsed)
+	}
+	time.Sleep(300 * time.Millisecond)
+}
+
+func TestOSRunnerStartSurvivesRequestContextCancellation(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "child-survived")
+	ctx, cancel := context.WithCancel(context.Background())
+	err := (OSRunner{}).Start(ctx, helperRequest(t.TempDir(), []string{
+		"EXECX_HELPER=1",
+		"EXECX_MODE=survive-cancel",
+		"EXECX_MARKER=" + marker,
+	}))
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	cancel()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if data, err := os.ReadFile(marker); err == nil {
+			if string(data) != "alive" {
+				t.Fatalf("marker = %q, want alive", data)
+			}
+			// Let the helper return and its asynchronous reaper finish before
+			// go test removes the Windows test executable.
+			time.Sleep(100 * time.Millisecond)
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("started child did not survive request context cancellation")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestOSRunnerStartRejectsCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := (OSRunner{}).Start(ctx, helperRequest(t.TempDir(), []string{"EXECX_HELPER=1"})); err == nil {
+		t.Fatal("Start returned nil for a cancelled context")
 	}
 }

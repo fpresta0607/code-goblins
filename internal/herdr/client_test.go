@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"reflect"
 	"strings"
 	"sync"
@@ -112,8 +113,29 @@ func TestEnsureServerStartsOnceAndPollsStatus(t *testing.T) {
 	if got, want := runner.StartRequests(), []execx.Request{command("herdr", "server", "--session", "fleet")}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("server starts = %#v, want %#v", got, want)
 	}
-	if got, want := sleeps, []time.Duration{500 * time.Millisecond}; !reflect.DeepEqual(got, want) {
+	if got, want := sleeps, []time.Duration{500 * time.Millisecond, 500 * time.Millisecond}; !reflect.DeepEqual(got, want) {
 		t.Errorf("sleeps = %v, want %v", got, want)
+	}
+}
+
+func TestEnsureServerAcceptsRunningAtLastAllowedInterval(t *testing.T) {
+	replies := []runnerReply{jsonReply(`{"server":{"running":false}}`)}
+	for range 19 {
+		replies = append(replies, jsonReply(`{"server":{"running":false}}`))
+	}
+	replies = append(replies, jsonReply(`{"server":{"running":true}}`))
+	runner := &fakeRunner{replies: replies}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+
+	if err := client.EnsureServer(context.Background()); err != nil {
+		t.Fatalf("EnsureServer: %v", err)
+	}
+	if got, want := len(sleeps), 20; got != want {
+		t.Errorf("sleep count = %d, want %d", got, want)
+	}
+	if got, want := len(runner.Requests()), 21; got != want {
+		t.Errorf("status probes = %d, want %d", got, want)
 	}
 }
 
@@ -247,13 +269,13 @@ func TestCreateTaskReplacesHuskAndPrunesOnlyExactSafeSeed(t *testing.T) {
 		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-husk","label":"fm-task"}]}}`),
 		jsonReply(`{"result":{"panes":[{"pane_id":"pane-husk","tab_id":"tab-husk"}]}}`),
 		{result: execx.Result{Stdout: []byte(`{"error":{"code":"pane_not_found"}}`), ExitCode: 1}},
+		{result: execx.Result{ExitCode: 1, Stderr: []byte(`{"error":{"code":"tab_not_found"}}`)}},
+		jsonReply(`{"result":{"tabs":[]}}`),
 		jsonReply(`{"result":{"tab":{"tab_id":"tab-new"},"root_pane":{"pane_id":"pane-new"}}}`),
-		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-seeded","label":"1"},{"tab_id":"tab-husk","label":"fm-task"},{"tab_id":"tab-new","label":"fm-task"}]}}`),
+		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-seeded","label":"1"},{"tab_id":"tab-new","label":"fm-task"}]}}`),
 		jsonReply(`{"result":{"panes":[{"pane_id":"pane-seeded","tab_id":"tab-seeded"}]}}`),
 		jsonReply(`{"result":{"agent":{"agent_status":"idle"}}}`),
 		{result: execx.Result{ExitCode: 1, Stderr: []byte(`{"error":{"code":"pane_not_found"}}`)}},
-		{result: execx.Result{ExitCode: 1, Stderr: []byte(`{"error":{"code":"tab_not_found"}}`)}},
-		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-new","label":"fm-task"}]}}`),
 	}}
 	var sleeps []time.Duration
 	client := newTestClient(runner, &sleeps)
@@ -270,17 +292,17 @@ func TestCreateTaskReplacesHuskAndPrunesOnlyExactSafeSeed(t *testing.T) {
 		command("herdr", "tab", "list", "--workspace", "ws-1", "--json", "--session", "fleet"),
 		command("herdr", "pane", "list", "--workspace", "ws-1", "--json", "--session", "fleet"),
 		command("herdr", "pane", "get", "pane-husk", "--json", "--session", "fleet"),
+		command("herdr", "tab", "close", "tab-husk", "--json", "--session", "fleet"),
+		command("herdr", "tab", "list", "--workspace", "ws-1", "--json", "--session", "fleet"),
 		command("herdr", "tab", "create", "--workspace", "ws-1", "--cwd", `C:\repo`, "--label", "fm-task", "--no-focus", "--json", "--session", "fleet"),
 		command("herdr", "tab", "list", "--workspace", "ws-1", "--json", "--session", "fleet"),
 		command("herdr", "pane", "list", "--workspace", "ws-1", "--json", "--session", "fleet"),
 		command("herdr", "agent", "get", "pane-seeded", "--json", "--session", "fleet"),
 		command("herdr", "pane", "close", "pane-seeded", "--json", "--session", "fleet"),
-		command("herdr", "tab", "close", "tab-husk", "--json", "--session", "fleet"),
-		command("herdr", "tab", "list", "--workspace", "ws-1", "--json", "--session", "fleet"),
 	})
 }
 
-func TestCreateTaskRefusesUnsafeSeedCloseFailure(t *testing.T) {
+func TestCreateTaskKeepsEndpointWhenOptionalSeedCloseFails(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{
 		jsonReply(`{"result":{"tabs":[]}}`),
 		jsonReply(`{"result":{"tab":{"tab_id":"tab-new"},"root_pane":{"pane_id":"pane-new"}}}`),
@@ -288,13 +310,54 @@ func TestCreateTaskRefusesUnsafeSeedCloseFailure(t *testing.T) {
 		jsonReply(`{"result":{"panes":[{"pane_id":"pane-seeded","tab_id":"tab-seeded"}]}}`),
 		jsonReply(`{"result":{"agent":{"agent_status":"idle"}}}`),
 		{result: execx.Result{ExitCode: 1, Stderr: []byte("permission denied")}},
+		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-new","label":"fm-task"}]}}`),
+		jsonReply(`{"result":{"panes":[{"pane_id":"pane-new","tab_id":"tab-new"}]}}`),
+		jsonReply(`{"result":{"pane":{"pane_id":"pane-new"}}}`),
+		jsonReply(`{"result":{"agent":{"agent_status":"working"}}}`),
 	}}
 	var sleeps []time.Duration
 	client := newTestClient(runner, &sleeps)
 
-	_, err := client.CreateTask(context.Background(), Container{Session: "fleet", WorkspaceID: "ws-1", SeededDefaultTab: "tab-seeded"}, "fm-task", `C:\repo`)
-	if err == nil || !strings.Contains(err.Error(), "pane close") || !strings.Contains(err.Error(), "permission denied") {
-		t.Fatalf("CreateTask error = %v, want unsafe pane-close refusal", err)
+	container := Container{Session: "fleet", WorkspaceID: "ws-1", SeededDefaultTab: "tab-seeded"}
+	endpoint, err := client.CreateTask(context.Background(), container, "fm-task", `C:\repo`)
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if endpoint.TabID != "tab-new" || endpoint.PaneID != "pane-new" {
+		t.Fatalf("CreateTask endpoint = %#v, want created tab and pane", endpoint)
+	}
+	if _, err := client.CreateTask(context.Background(), container, "fm-task", `C:\repo`); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("retry error = %v, want duplicate refusal", err)
+	}
+	createCount := 0
+	for _, request := range runner.Requests() {
+		if len(request.Args) >= 2 && request.Args[0] == "tab" && request.Args[1] == "create" {
+			createCount++
+		}
+	}
+	if createCount != 1 {
+		t.Fatalf("tab create count = %d, want one created task tab", createCount)
+	}
+}
+
+func TestCreateTaskRefusesUnsafeHuskCloseBeforeCreatingTask(t *testing.T) {
+	runner := &fakeRunner{replies: []runnerReply{
+		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-husk","label":"fm-task"}]}}`),
+		jsonReply(`{"result":{"panes":[{"pane_id":"pane-husk","tab_id":"tab-husk"}]}}`),
+		{result: execx.Result{Stdout: []byte(`{"error":{"code":"pane_not_found"}}`), ExitCode: 1}},
+		{result: execx.Result{ExitCode: 1, Stderr: []byte("permission denied")}},
+	}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+
+	_, err := client.CreateTask(context.Background(), Container{Session: "fleet", WorkspaceID: "ws-1"}, "fm-task", `C:\repo`)
+	if err == nil || !strings.Contains(err.Error(), "tab close") {
+		t.Fatalf("CreateTask error = %v, want unsafe husk-close refusal", err)
+	}
+	for _, request := range runner.Requests() {
+		if len(request.Args) >= 2 && request.Args[0] == "tab" && request.Args[1] == "create" {
+			t.Fatalf("CreateTask created a replacement after unsafe husk close: %q", request.Args)
+		}
 	}
 }
 
@@ -584,6 +647,33 @@ func TestBusyStateAndWaitForWorking(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("cancelled context is actionable", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		var sleeps []time.Duration
+		client := newTestClient(&fakeRunner{}, &sleeps)
+		if _, err := client.WaitForWorking(ctx, Target{Session: "fleet", Pane: "w1:p2"}, time.Second, 1); !errors.Is(err, context.Canceled) {
+			t.Fatalf("WaitForWorking error = %v, want context cancellation", err)
+		}
+	})
+
+	t.Run("runner start failure is actionable", func(t *testing.T) {
+		runner := &fakeRunner{replies: []runnerReply{{err: &exec.Error{Name: "herdr", Err: errors.New("not found")}}}}
+		var sleeps []time.Duration
+		client := newTestClient(runner, &sleeps)
+		if _, err := client.WaitForWorking(context.Background(), Target{Session: "fleet", Pane: "w1:p2"}, time.Second, 1); err == nil {
+			t.Fatal("WaitForWorking returned nil for a runner start failure")
+		}
+	})
+
+	t.Run("empty pane is an actionable local request error", func(t *testing.T) {
+		var sleeps []time.Duration
+		client := newTestClient(&fakeRunner{}, &sleeps)
+		if _, err := client.WaitForWorking(context.Background(), Target{Session: "fleet"}, time.Second, 1); err == nil {
+			t.Fatal("WaitForWorking returned nil for an empty target pane")
+		}
+	})
 }
 
 func TestCommandFailuresPreserveOperationTargetAndStderr(t *testing.T) {
