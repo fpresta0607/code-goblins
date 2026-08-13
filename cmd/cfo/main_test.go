@@ -13,6 +13,10 @@ func TestRun(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(drainHome, "state"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	sessionStartHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(sessionStartHome, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		name       string
 		args       []string
@@ -27,6 +31,7 @@ func TestRun(t *testing.T) {
 		{name: "doctor runs and reports each tool", args: []string{"doctor"}, wantExit: -1, wantStdout: "git"},
 		{name: "drain empty queue", args: []string{"drain"}, env: map[string]string{"CFO_HOME": drainHome}, wantExit: 0, wantStdout: "WAKE QUEUE: empty"},
 		{name: "watch refuses outside a primary home", args: []string{"watch"}, wantExit: 1, wantStderr: "not a primary", env: map[string]string{"CFO_HOME": t.TempDir()}},
+		{name: "session-start alias", args: []string{"session-start"}, wantExit: 0, wantStdout: "== SESSION LOCK ==", env: map[string]string{"CFO_HOME": sessionStartHome}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

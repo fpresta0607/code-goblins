@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/fpresta0607/code-goblins/internal/digest"
 	"github.com/fpresta0607/code-goblins/internal/doctor"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/watch"
@@ -24,6 +25,7 @@ commands:
   doctor    check the tools cfo needs (git, gh, claude, herdr, treehouse)
   drain     print or acknowledge the wake queue and recovery episode
   watch     run one triage cycle by hand (manual diagnostics; the hooks are the production entry)
+  session-start  print the full session-start digest by hand (manual diagnostics; the SessionStart hook is the production entry)
   hook <name>  claude code hook entry points (session-start, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm)
 `
 
@@ -60,6 +62,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		return runDrain(h, args[1:], stdout, stderr)
+	case "session-start":
+		h, err := home.Resolve()
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		if err := digest.Compose(h, resolveSessionOwnerPID(), "", stdout); err != nil {
+			fmt.Fprintf(stdout, "SESSION START DEGRADED: %s\n", err)
+		}
+		return 0
 	case "watch":
 		h, err := home.Resolve()
 		if err != nil {

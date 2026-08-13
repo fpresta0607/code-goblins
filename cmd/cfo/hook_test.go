@@ -1076,6 +1076,102 @@ func TestAutoarmRepeatFailureWaitsForLateAlarm(t *testing.T) {
 // catches that: only the FAILURE arm's banner says "FAILED after 1
 // attempt(s)", while a heartbeat close would emit the rewake banner
 // instead.
+// --- session-start ---
+
+func TestRunHookSessionStartNotPrimary(t *testing.T) {
+	dir := t.TempDir()
+	state := filepath.Join(dir, "state")
+	if err := os.MkdirAll(state, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_HOME", dir)
+
+	var stdout, stderr bytes.Buffer
+	exit := runHook("session-start", strings.NewReader(`{"session_id":"s1","source":"startup"}`), &stdout, &stderr)
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0", exit)
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Errorf("stdout=%q stderr=%q, want both empty", stdout.String(), stderr.String())
+	}
+}
+
+func TestRunHookSessionStartFullComposeOnStartup(t *testing.T) {
+	newPrimaryHome(t)
+	var stdout, stderr bytes.Buffer
+	exit := runHook("session-start", strings.NewReader(`{"session_id":"s1","source":"startup"}`), &stdout, &stderr)
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "== SESSION LOCK ==") {
+		t.Errorf("stdout = %q, want it to contain == SESSION LOCK ==", stdout.String())
+	}
+}
+
+func TestRunHookSessionStartResumeNoMarkerFallsThrough(t *testing.T) {
+	newPrimaryHome(t)
+	setAncestorPID(t, os.Getpid())
+	var stdout, stderr bytes.Buffer
+	exit := runHook("session-start", strings.NewReader(`{"session_id":"s1","source":"resume"}`), &stdout, &stderr)
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "== SESSION LOCK ==") {
+		t.Errorf("stdout = %q, want the fall-through full compose (== SESSION LOCK ==)", stdout.String())
+	}
+}
+
+const sessionStartNudge = "CFO: operational input may be waiting; run cfo drain if supervision was active.\n"
+
+// TestRunHookSessionStartRouting pins the owner pid via CFO_TEST_ANCESTOR_PID
+// to a live foreign process (the ping-child pattern; the ambient
+// proc.FindAncestor walk cannot be asserted from inside this repo's own test
+// suite, same reasoning as setAncestorPID's other callers), pre-writes the
+// session lock and completion marker to match it, then exercises every
+// SessionStart source against that one fixed custody window.
+func TestRunHookSessionStartRouting(t *testing.T) {
+	dir := newPrimaryHome(t)
+	state := filepath.Join(dir, "state")
+
+	foreign := startLiveForeignProcess(t)
+	ownerPID := foreign.Process.Pid
+	setAncestorPID(t, ownerPID)
+
+	if _, err := lock.AcquireOwner(state, ownerPID, "s0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state, ".session-start-complete"), []byte(strconv.Itoa(ownerPID)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, source := range []string{"resume", "reload", "fork"} {
+		t.Run(source+" with marker prints the nudge", func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			exit := runHook("session-start", strings.NewReader(`{"session_id":"s1","source":"`+source+`"}`), &stdout, &stderr)
+			if exit != 0 {
+				t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+			}
+			if stdout.String() != sessionStartNudge {
+				t.Errorf("stdout = %q, want exactly %q", stdout.String(), sessionStartNudge)
+			}
+			if stderr.Len() != 0 {
+				t.Errorf("stderr = %q, want empty", stderr.String())
+			}
+		})
+	}
+
+	t.Run("unrecognized source runs full compose", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		exit := runHook("session-start", strings.NewReader(`{"session_id":"s1","source":"banana"}`), &stdout, &stderr)
+		if exit != 0 {
+			t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+		}
+		if !strings.Contains(stdout.String(), "== SESSION LOCK ==") {
+			t.Errorf("stdout = %q, want the full compose (== SESSION LOCK ==)", stdout.String())
+		}
+	})
+}
+
 func TestAutoarmPublishesEpisodeOnGenuineRunError(t *testing.T) {
 	dir := newPrimaryHome(t)
 	setAncestorPID(t, os.Getpid())
