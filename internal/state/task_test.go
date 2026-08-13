@@ -20,6 +20,7 @@ func TestValidTaskID(t *testing.T) {
 		{id: valid64, want: true},
 		{id: "", want: false},
 		{id: ".hidden", want: false},
+		{id: "trailing.", want: false},
 		{id: "has space", want: false},
 		{id: "slash/name", want: false},
 		{id: "goblin-\u00e9", want: false},

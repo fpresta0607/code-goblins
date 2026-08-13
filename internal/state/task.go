@@ -43,6 +43,9 @@ func ValidTaskID(id string) error {
 	if id[0] == '.' {
 		return fmt.Errorf("state: task ID %q must not begin with '.'", id)
 	}
+	if id[len(id)-1] == '.' {
+		return fmt.Errorf("state: task ID %q must not end with '.'", id)
+	}
 	for _, ch := range id {
 		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '-' {
 			continue
