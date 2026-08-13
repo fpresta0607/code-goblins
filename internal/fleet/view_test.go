@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
@@ -146,5 +147,55 @@ func TestRenderMarkdownSeparatesRawBacklogRowsFromLaterTables(t *testing.T) {
 	}
 	if !strings.Contains(markdown.String(), "- keep this as prose\n\n| ID | Title |") {
 		t.Errorf("Markdown does not separate raw backlog content from a later table:\n%s", markdown.String())
+	}
+}
+
+func TestRenderMarkdownEscapesUnicodeControlsWithoutChangingJSON(t *testing.T) {
+	present := true
+	endpointTarget := "fleet:\x1b[2J\u009b2J"
+	snapshot := Snapshot{
+		Tasks: []TaskRow{{
+			ID:       "task",
+			Project:  "C:\\project\u009b2J",
+			Endpoint: EndpointSummary{Target: endpointTarget, Exists: &present},
+		}},
+		Backlog: BacklogRows{Queued: []BacklogRow{
+			{Structured: true, ID: "queued", Title: "queued\x1b[31m"},
+			{Raw: "  raw\u009b2J note"},
+		}},
+		Secondmates: []SecondmateRow{},
+	}
+
+	var jsonOutput bytes.Buffer
+	if err := RenderJSON(&jsonOutput, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	var decoded Snapshot
+	if err := json.Unmarshal(jsonOutput.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Tasks[0].Endpoint.Target != endpointTarget || decoded.Backlog.Queued[1].Raw != snapshot.Backlog.Queued[1].Raw {
+		t.Fatalf("JSON changed typed snapshot: %+v", decoded)
+	}
+
+	var markdown bytes.Buffer
+	if err := RenderMarkdown(&markdown, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	output := markdown.String()
+	for _, char := range output {
+		if unicode.IsControl(char) && char != '\n' {
+			t.Fatalf("Markdown exposes control character %U: %q", char, output)
+		}
+	}
+	for _, want := range []string{
+		"fleet:\\u001B[2J\\u009B2J (present)",
+		"C:\\project\\u009B2J",
+		"queued\\u001B[31m",
+		"  raw\\u009B2J note",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("Markdown missing escaped control text %q:\n%s", want, output)
+		}
 	}
 }
