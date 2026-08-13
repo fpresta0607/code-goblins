@@ -111,17 +111,17 @@ func (s Sender) confirm(ctx context.Context, target herdr.Target, meta state.Tas
 	if err := s.sleep(ctx, enterSleep); err != nil {
 		return herdr.SubmitUnknown, fmt.Errorf("fleet: wait for composer confirmation for %s: %w", target, err)
 	}
-	return s.composerState(ctx, target, meta, baseline)
+	return s.composerState(ctx, target, meta)
 }
 
-func (s Sender) composerState(ctx context.Context, target herdr.Target, meta state.TaskMeta, baseline herdr.SubmitState) (herdr.SubmitState, error) {
+func (s Sender) composerState(ctx context.Context, target herdr.Target, meta state.TaskMeta) (herdr.SubmitState, error) {
 	captured, err := s.Herdr.Capture(ctx, target, 200, true)
 	if err != nil {
 		return herdr.SubmitUnknown, fmt.Errorf("fleet: inspect composer for %s: %w", target, err)
 	}
 
 	if meta.Harness == "pi" {
-		return piComposerState(stripANSI(captured), baseline), nil
+		return s.piComposerState(ctx, target, stripANSI(captured))
 	}
 	prompt := composerPrompt(meta.Harness)
 	if prompt == "" {
@@ -141,7 +141,27 @@ func (s Sender) composerState(ctx context.Context, target herdr.Target, meta sta
 	return herdr.SubmitUnknown, nil
 }
 
-func piComposerState(captured string, baseline herdr.SubmitState) herdr.SubmitState {
+func (s Sender) piComposerState(ctx context.Context, target herdr.Target, captured string) (herdr.SubmitState, error) {
+	if state := piComposerCandidate(captured); state != herdr.SubmitWorking {
+		return state, nil
+	}
+
+	detail, err := s.Herdr.AgentDetail(ctx, target)
+	if err != nil {
+		return herdr.SubmitUnknown, fmt.Errorf("fleet: inspect Pi agent for %s: %w", target, err)
+	}
+	if detail.Agent != "pi" {
+		return herdr.SubmitUnknown, nil
+	}
+	switch detail.Status {
+	case "idle", "done", "blocked":
+		return herdr.SubmitWorking, nil
+	default:
+		return herdr.SubmitUnknown, nil
+	}
+}
+
+func piComposerCandidate(captured string) herdr.SubmitState {
 	lines := strings.Split(captured, "\n")
 	lastSeparator, open, close := -1, -1, -1
 	for index, line := range lines {
@@ -161,10 +181,12 @@ func piComposerState(captured string, baseline herdr.SubmitState) herdr.SubmitSt
 			return herdr.SubmitIdle
 		}
 	}
-	if baseline == herdr.SubmitWorking || baseline == herdr.SubmitBlocked {
-		return herdr.SubmitWorking
+	for _, line := range lines[close+1:] {
+		if strings.TrimSpace(line) != "" {
+			return herdr.SubmitUnknown
+		}
 	}
-	return herdr.SubmitUnknown
+	return herdr.SubmitWorking
 }
 
 func piSeparator(line string) bool {
