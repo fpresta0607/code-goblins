@@ -367,3 +367,43 @@ func TestAcquireOwnerRefusesDeadOwner(t *testing.T) {
 		t.Errorf("lock file created for a dead owner: stat err = %v", err)
 	}
 }
+
+func TestAcquireNamedOwnerDistinctFiles(t *testing.T) {
+	// A named lock and the plain .lock must coexist in the same directory as
+	// two distinct files. Asserting HeldByNamed alone would prove nothing: an
+	// implementation that ignores name and always keys on .lock would satisfy
+	// both predicates too, since the shipped acquire loop is idempotent for
+	// the same pid. The discriminating assertion is on disk.
+	dir := t.TempDir()
+	if _, err := Acquire(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AcquireNamedOwner(dir, ".watch.lock", os.Getpid(), "watch"); err != nil {
+		t.Fatalf("AcquireNamedOwner: %v", err)
+	}
+	if !HeldByNamed(dir, ".watch.lock", os.Getpid()) {
+		t.Error("HeldByNamed(.watch.lock) = false")
+	}
+	if !HeldByNamed(dir, ".lock", os.Getpid()) {
+		t.Error("HeldByNamed(.lock) = false")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".watch.lock")); err != nil {
+		t.Errorf(".watch.lock missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".lock")); err != nil {
+		t.Errorf(".lock missing: %v", err)
+	}
+}
+
+func TestReleaseNamed(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := AcquireNamedOwner(dir, ".watch.lock", os.Getpid(), ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := ReleaseNamed(dir, ".watch.lock"); err != nil {
+		t.Fatalf("ReleaseNamed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".watch.lock")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("stat err = %v, want ErrNotExist", err)
+	}
+}
