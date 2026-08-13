@@ -160,17 +160,15 @@ func plan3ScriptEnvFrom(parent []string, optIn bool) []string {
 // No installed tool, network service, credential, or production checkout is
 // reachable from this test.
 type fleetE2EFixture struct {
-	t        *testing.T
-	home     home.Home
-	project  string
-	briefs   map[string]string
-	now      time.Time
-	runner   *fleetE2ERunner
-	git      *fleetE2EGit
-	client   *herdr.Client
-	runtime  commandRuntime
-	prober   *fleetE2EProber
-	monitors int
+	t       *testing.T
+	home    home.Home
+	project string
+	now     time.Time
+	runner  *fleetE2ERunner
+	git     *fleetE2EGit
+	client  *herdr.Client
+	runtime commandRuntime
+	prober  *fleetE2EProber
 }
 
 func newFleetE2EFixture(t *testing.T) *fleetE2EFixture {
@@ -195,7 +193,6 @@ func newFleetE2EFixture(t *testing.T) *fleetE2EFixture {
 		t:       t,
 		home:    h,
 		project: project,
-		briefs:  make(map[string]string),
 		now:     time.Now().UTC().Truncate(time.Second),
 	}
 	fixture.runner = &fleetE2ERunner{
@@ -234,7 +231,6 @@ func (f *fleetE2EFixture) Spawn(harnessName string) {
 	if err := os.WriteFile(brief, []byte("Delivery contract: mode=local-only\n"), 0o644); err != nil {
 		f.t.Fatal(err)
 	}
-	f.briefs[harnessName] = brief
 	stdout, stderr := runFleetCommand(f.t, f.runtime, "spawn", harnessName,
 		"--project", f.project,
 		"--brief", brief,
@@ -356,12 +352,11 @@ func (f *fleetE2EFixture) AssertHeartbeatPersistsAcrossRestart() {
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	f.monitors++
-	after, err := monitor.ReadHeartbeat(f.home.State)
+	after, err := f.monitorService().Scan(context.Background())
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	if before != after || before.LastCycle.IsZero() || before.NextDue.IsZero() {
+	if before != after.Heartbeat || before.LastCycle.IsZero() || before.NextDue.IsZero() || after.Event != nil {
 		f.t.Fatalf("restart heartbeat changed before=%+v after=%+v", before, after)
 	}
 }
@@ -553,7 +548,6 @@ func (f *fleetE2EFixture) snapshot(ctx context.Context, h home.Home) (fleet.Snap
 }
 
 func (f *fleetE2EFixture) monitorService() monitor.Service {
-	f.monitors++
 	return monitor.Service{
 		StateDir:              f.home.State,
 		Probe:                 f.prober,
