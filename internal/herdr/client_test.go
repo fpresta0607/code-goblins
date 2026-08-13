@@ -549,6 +549,35 @@ func TestAgentStatusClassifiesLivenessFromJSONRatherThanExitCode(t *testing.T) {
 	}
 }
 
+func TestAgentDetailRequiresExactAgentIdentity(t *testing.T) {
+	t.Run("returns typed identity and status", func(t *testing.T) {
+		runner := &fakeRunner{replies: []runnerReply{jsonReply(`{"result":{"agent":{"agent":"pi","agent_status":"idle"}}}`)}}
+		var sleeps []time.Duration
+		client := newTestClient(runner, &sleeps)
+
+		got, err := client.AgentDetail(context.Background(), Target{Session: "fleet", Pane: "w1:p2"})
+		if err != nil {
+			t.Fatalf("AgentDetail: %v", err)
+		}
+		if got != (AgentDetail{Agent: "pi", Status: "idle"}) {
+			t.Errorf("AgentDetail = %#v, want pi idle", got)
+		}
+		assertRequests(t, runner.Requests(), []execx.Request{
+			command("herdr", "agent", "get", "w1:p2", "--json", "--session", "fleet"),
+		})
+	})
+
+	t.Run("refuses missing identity", func(t *testing.T) {
+		runner := &fakeRunner{replies: []runnerReply{jsonReply(`{"result":{"agent":{"agent_status":"idle"}}}`)}}
+		var sleeps []time.Duration
+		client := newTestClient(runner, &sleeps)
+
+		if _, err := client.AgentDetail(context.Background(), Target{Session: "fleet", Pane: "w1:p2"}); err == nil {
+			t.Fatal("AgentDetail accepted a response without an exact identity")
+		}
+	})
+}
+
 func TestBusyStateAndWaitForWorking(t *testing.T) {
 	t.Run("blocked is idle for watcher liveness", func(t *testing.T) {
 		runner := &fakeRunner{replies: []runnerReply{jsonReply(`{"result":{"agent":{"agent_status":"blocked"}}}`)}}

@@ -283,44 +283,80 @@ func TestSenderTextUsesComposerEvidenceWhenTargetWasAlreadyWorking(t *testing.T)
 
 func TestSenderTextConfirmsAndRefusesPiComposerState(t *testing.T) {
 	for _, test := range []struct {
-		name      string
-		baseline  string
-		captures  []string
-		wantError string
-		wantEnter int
+		name          string
+		baseline      string
+		captures      []string
+		postAgent     string
+		wantError     string
+		wantEnter     int
+		wantAgentGets int
 	}{
 		{
-			name:      "working baseline with cleared composer confirms",
-			baseline:  `{"result":{"agent":{"agent_status":"working"}}}`,
-			captures:  []string{"\n────────\n\n────────\n"},
-			wantEnter: 1,
+			name:          "current blank composer with post-send Pi identity confirms",
+			baseline:      `{"result":{"agent":{"agent_status":"working"}}}`,
+			captures:      []string{"\n────────\n\n────────\n"},
+			postAgent:     `{"result":{"agent":{"agent":"pi","agent_status":"idle"}}}`,
+			wantEnter:     1,
+			wantAgentGets: 2,
 		},
 		{
-			name:      "working baseline with typed composer refuses",
-			baseline:  `{"result":{"agent":{"agent_status":"working"}}}`,
-			captures:  []string{"\n────────\nactual text\n────────\n", "\n────────\nactual text\n────────\n", "\n────────\nactual text\n────────\n"},
-			wantError: "pending",
-			wantEnter: enterRetries,
+			name:          "working Pi alone cannot confirm blank composer",
+			baseline:      `{"result":{"agent":{"agent_status":"working"}}}`,
+			captures:      []string{"\n────────\n\n────────\n"},
+			postAgent:     `{"result":{"agent":{"agent":"pi","agent_status":"working"}}}`,
+			wantError:     "unknown",
+			wantEnter:     1,
+			wantAgentGets: 2,
 		},
 		{
-			name:      "unreadable baseline cannot confirm cleared composer",
-			baseline:  "{",
-			captures:  []string{"\n────────\n\n────────\n"},
-			wantError: "unknown",
-			wantEnter: 1,
+			name:          "non Pi identity cannot confirm blank composer",
+			baseline:      `{"result":{"agent":{"agent_status":"working"}}}`,
+			captures:      []string{"\n────────\n\n────────\n"},
+			postAgent:     `{"result":{"agent":{"agent":"claude","agent_status":"idle"}}}`,
+			wantError:     "unknown",
+			wantEnter:     1,
+			wantAgentGets: 2,
 		},
 		{
-			name:      "unreadable baseline retains typed composer as pending",
-			baseline:  "{",
-			captures:  []string{"\n────────\nactual text\n────────\n", "\n────────\nactual text\n────────\n", "\n────────\nactual text\n────────\n"},
-			wantError: "pending",
-			wantEnter: enterRetries,
+			name:          "stale blank pair above terminal content refuses",
+			baseline:      `{"result":{"agent":{"agent_status":"working"}}}`,
+			captures:      []string{"\n────────\n\n────────\nPS C:\\work>"},
+			wantError:     "unknown",
+			wantEnter:     1,
+			wantAgentGets: 1,
+		},
+		{
+			name:          "working baseline with typed composer refuses",
+			baseline:      `{"result":{"agent":{"agent_status":"working"}}}`,
+			captures:      []string{"\n────────\nactual text\n────────\n", "\n────────\nactual text\n────────\n", "\n────────\nactual text\n────────\n"},
+			wantError:     "pending",
+			wantEnter:     enterRetries,
+			wantAgentGets: 1,
+		},
+		{
+			name:          "unreadable baseline confirms only from post-send Pi identity",
+			baseline:      "{",
+			captures:      []string{"\n────────\n\n────────\n"},
+			postAgent:     `{"result":{"agent":{"agent":"pi","agent_status":"blocked"}}}`,
+			wantEnter:     1,
+			wantAgentGets: 2,
+		},
+		{
+			name:          "unreadable baseline retains typed composer as pending",
+			baseline:      "{",
+			captures:      []string{"\n────────\nactual text\n────────\n", "\n────────\nactual text\n────────\n", "\n────────\nactual text\n────────\n"},
+			wantError:     "pending",
+			wantEnter:     enterRetries,
+			wantAgentGets: 1,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			replies := []runnerReply{rawReply(""), jsonReply(test.baseline)}
-			for _, capture := range test.captures {
+			for index, capture := range test.captures {
 				replies = append(replies, rawReply(""), rawReply(capture))
+				if index == len(test.captures)-1 && test.postAgent != "" {
+					replies = append(replies, jsonReply(test.postAgent))
+				}
 			}
 			runner := &fakeRunner{replies: replies}
 			var clientSleeps []time.Duration
@@ -338,13 +374,20 @@ func TestSenderTextConfirmsAndRefusesPiComposerState(t *testing.T) {
 				assertErrorContains(t, err, test.wantError)
 			}
 			enters := 0
+			agentGets := 0
 			for _, request := range runner.requests {
 				if len(request.Args) >= 4 && request.Args[0] == "pane" && request.Args[1] == "send-keys" && request.Args[3] == "enter" {
 					enters++
 				}
+				if len(request.Args) >= 2 && request.Args[0] == "agent" && request.Args[1] == "get" {
+					agentGets++
+				}
 			}
 			if enters != test.wantEnter {
 				t.Errorf("Enter calls = %d, want %d", enters, test.wantEnter)
+			}
+			if agentGets != test.wantAgentGets {
+				t.Errorf("agent get calls = %d, want %d", agentGets, test.wantAgentGets)
 			}
 		})
 	}

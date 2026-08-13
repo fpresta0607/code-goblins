@@ -67,6 +67,14 @@ const (
 	SubmitUnknown SubmitState = "unknown"
 )
 
+// AgentDetail is the exact native identity and state reported for one agent.
+// Callers that need a particular harness must validate Agent instead of
+// inferring it from task metadata.
+type AgentDetail struct {
+	Agent  string
+	Status string
+}
+
 // CommandError preserves failed Herdr operation context without conflating a
 // normal tool exit code with a successfully interpreted business response.
 type CommandError struct {

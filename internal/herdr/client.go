@@ -602,6 +602,25 @@ func (c *Client) readAgentStatus(ctx context.Context, target Target) (string, er
 	return agentStatus(raw)
 }
 
+// AgentDetail reads the exact native agent identity and its current state.
+func (c *Client) AgentDetail(ctx context.Context, target Target) (AgentDetail, error) {
+	if err := validateTarget(target); err != nil {
+		return AgentDetail{}, err
+	}
+	result, err := c.raw(ctx, target.Session, "agent", "get", target.Pane, "--json")
+	if err != nil {
+		return AgentDetail{}, err
+	}
+	raw, code, err := envelope(result.Stdout)
+	if err != nil {
+		return AgentDetail{}, err
+	}
+	if code != "" {
+		return AgentDetail{}, fmt.Errorf("herdr: agent get for %s returned %s", target, code)
+	}
+	return agentDetail(raw)
+}
+
 func agentStatus(raw json.RawMessage) (string, error) {
 	var response struct {
 		Agent struct {
@@ -615,6 +634,25 @@ func agentStatus(raw json.RawMessage) (string, error) {
 		return "", errors.New("missing result.agent.agent_status")
 	}
 	return response.Agent.Status, nil
+}
+
+func agentDetail(raw json.RawMessage) (AgentDetail, error) {
+	var response struct {
+		Agent struct {
+			Agent  string `json:"agent"`
+			Status string `json:"agent_status"`
+		} `json:"agent"`
+	}
+	if err := decodeRaw(raw, &response); err != nil {
+		return AgentDetail{}, err
+	}
+	if response.Agent.Agent == "" {
+		return AgentDetail{}, errors.New("missing result.agent.agent")
+	}
+	if response.Agent.Status == "" {
+		return AgentDetail{}, errors.New("missing result.agent.agent_status")
+	}
+	return AgentDetail{Agent: response.Agent.Agent, Status: response.Agent.Status}, nil
 }
 
 func knownAgentStatus(status string) bool {
