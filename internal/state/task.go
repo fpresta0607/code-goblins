@@ -3,6 +3,7 @@ package state
 import (
 	"fmt"
 	"path/filepath"
+	"unicode"
 )
 
 // TaskMeta is the typed view of an upstream-compatible flat task metadata
@@ -94,6 +95,9 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 	if err := ValidTaskID(meta.ID); err != nil {
 		return err
 	}
+	if err := validateTaskMetaValues(meta); err != nil {
+		return err
+	}
 	if meta.Kind == "" {
 		meta.Kind = "ship"
 	}
@@ -137,4 +141,44 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 		}
 	}
 	return WriteMeta(filepath.Join(stateDir, meta.ID+".meta"), fields)
+}
+
+func validateTaskMetaValues(meta TaskMeta) error {
+	fields := []struct {
+		name  string
+		value string
+	}{
+		{"window", meta.Window},
+		{"endpoint_task_id", meta.EndpointTaskID},
+		{"worktree", meta.Worktree},
+		{"project", meta.Project},
+		{"harness", meta.Harness},
+		{"kind", meta.Kind},
+		{"mode", meta.Mode},
+		{"yolo", meta.Yolo},
+		{"tasktmp", meta.TaskTmp},
+		{"model", meta.Model},
+		{"effort", meta.Effort},
+		{"spawn_gen", meta.SpawnGen},
+		{"backend", meta.Backend},
+		{"herdr_session", meta.HerdrSession},
+		{"herdr_workspace_id", meta.HerdrWorkspaceID},
+		{"herdr_tab_id", meta.HerdrTabID},
+		{"herdr_pane_id", meta.HerdrPaneID},
+	}
+	for _, field := range fields {
+		if control, found := firstControlCharacter(field.value); found {
+			return fmt.Errorf("state: task metadata %s contains control character %U", field.name, control)
+		}
+	}
+	return nil
+}
+
+func firstControlCharacter(value string) (rune, bool) {
+	for _, char := range value {
+		if unicode.IsControl(char) {
+			return char, true
+		}
+	}
+	return 0, false
 }

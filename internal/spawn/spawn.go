@@ -297,7 +297,7 @@ func (s Service) treehouseGit() (treehouse.Git, error) {
 }
 
 func (s Service) launchFailure(id string, cause error) (Result, error) {
-	line := "failed: " + bounded(cause.Error(), 1000)
+	line := "failed: " + bounded(normalizeStatusDetail(cause.Error()), 1000)
 	if err := state.AppendStatus(s.StateDir, id, line); err != nil {
 		return Result{}, fmt.Errorf("%w; spawn: record launch failure: %v", cause, err)
 	}
@@ -353,4 +353,8 @@ func bounded(value string, limit int) string {
 		return value
 	}
 	return value[:limit]
+}
+
+func normalizeStatusDetail(value string) string {
+	return strings.NewReplacer("\r", " ", "\n", " ").Replace(value)
 }

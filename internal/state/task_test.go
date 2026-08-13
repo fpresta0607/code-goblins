@@ -140,3 +140,77 @@ func TestWriteTaskMetaOmitsShipOnlyFieldsForScout(t *testing.T) {
 		t.Errorf("scout metadata includes ship-only yolo=%q", values["yolo"])
 	}
 }
+
+func TestWriteTaskMetaRejectsControlCharactersInEveryValue(t *testing.T) {
+	dir := t.TempDir()
+	base := TaskMeta{
+		ID:               "safe",
+		Window:           "fleet:pane-1",
+		EndpointTaskID:   "safe",
+		Worktree:         `C:\work\safe`,
+		Project:          `C:\project`,
+		Harness:          "claude",
+		Kind:             "ship",
+		Mode:             "no-mistakes",
+		Yolo:             "on",
+		TaskTmp:          `C:\state\tasktmp\safe`,
+		Model:            "model-a",
+		Effort:           "high",
+		SpawnGen:         "s1",
+		Backend:          "herdr",
+		HerdrSession:     "fleet",
+		HerdrWorkspaceID: "workspace-1",
+		HerdrTabID:       "tab-1",
+		HerdrPaneID:      "pane-1",
+	}
+	if err := WriteTaskMeta(dir, base); err != nil {
+		t.Fatalf("WriteTaskMeta ordinary Windows paths: %v", err)
+	}
+
+	fields := []struct {
+		name string
+		set  func(*TaskMeta)
+	}{
+		{"id", func(meta *TaskMeta) { meta.ID = "bad\nother" }},
+		{"window", func(meta *TaskMeta) { meta.Window = "bad\nother" }},
+		{"endpoint_task_id", func(meta *TaskMeta) { meta.EndpointTaskID = "bad\nother" }},
+		{"worktree", func(meta *TaskMeta) { meta.Worktree = "bad\nother" }},
+		{"project", func(meta *TaskMeta) { meta.Project = "bad\nother" }},
+		{"harness", func(meta *TaskMeta) { meta.Harness = "bad\nother" }},
+		{"kind", func(meta *TaskMeta) { meta.Kind = "bad\nother" }},
+		{"mode", func(meta *TaskMeta) { meta.Mode = "bad\nother" }},
+		{"yolo", func(meta *TaskMeta) { meta.Yolo = "bad\nother" }},
+		{"tasktmp", func(meta *TaskMeta) { meta.TaskTmp = "bad\nother" }},
+		{"model", func(meta *TaskMeta) { meta.Model = "bad\rother" }},
+		{"effort", func(meta *TaskMeta) { meta.Effort = "bad\x00other" }},
+		{"spawn_gen", func(meta *TaskMeta) { meta.SpawnGen = "bad\nother" }},
+		{"backend", func(meta *TaskMeta) { meta.Backend = "bad\nother" }},
+		{"herdr_session", func(meta *TaskMeta) { meta.HerdrSession = "bad\nother" }},
+		{"herdr_workspace_id", func(meta *TaskMeta) { meta.HerdrWorkspaceID = "bad\nother" }},
+		{"herdr_tab_id", func(meta *TaskMeta) { meta.HerdrTabID = "bad\nother" }},
+		{"herdr_pane_id", func(meta *TaskMeta) { meta.HerdrPaneID = "bad\nother" }},
+	}
+	for _, field := range fields {
+		t.Run(field.name, func(t *testing.T) {
+			meta := base
+			meta.ID = "reject-" + field.name
+			field.set(&meta)
+
+			err := WriteTaskMeta(dir, meta)
+			if err == nil || (field.name != "id" && !strings.Contains(err.Error(), "control character")) {
+				t.Fatalf("WriteTaskMeta(%s) error = %v, want control character refusal", field.name, err)
+			}
+			if _, statErr := os.Stat(filepath.Join(dir, "reject-"+field.name+".meta")); !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("WriteTaskMeta(%s) wrote metadata: stat error = %v", field.name, statErr)
+			}
+		})
+	}
+
+	values, err := ReadMeta(filepath.Join(dir, "safe.meta"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := values["other"]; exists {
+		t.Fatalf("ordinary metadata readback includes forged key: %v", values)
+	}
+}

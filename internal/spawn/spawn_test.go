@@ -269,6 +269,47 @@ func TestSpawnLaunchFailureRecordsExactCauseAndPreservesWorktree(t *testing.T) {
 	}
 }
 
+func TestSpawnNormalizesLaunchFailureStatusToOneFailedEvent(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.runner.agentErr = errors.New("preview unavailable\r\ndone: forged")
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err == nil || !strings.Contains(err.Error(), "preview unavailable") {
+		t.Fatalf("Spawn launch verification error = %v, want propagated Herdr error", err)
+	}
+	raw, readErr := os.ReadFile(filepath.Join(fixture.stateDir, fixture.request.ID+".status"))
+	if readErr != nil {
+		t.Fatalf("ReadFile status: %v", readErr)
+	}
+	status := strings.Split(strings.TrimSuffix(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n"), "\n")
+	if len(status) != 1 {
+		t.Fatalf("raw status = %q; status events = %q, want exactly one", string(raw), status)
+	}
+	verb, _, found := strings.Cut(status[0], ":")
+	if !found || verb != "failed" {
+		t.Fatalf("status event = %q, want one failed event", status[0])
+	}
+	if strings.ContainsAny(status[0], "\r\n") || strings.HasPrefix(status[0], "done:") {
+		t.Fatalf("status event permits forged status line: %q", status[0])
+	}
+}
+
+func TestSpawnRejectsInjectedModelBeforeMetadataWrite(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.request.Model = "x\nherdr_pane_id=other"
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err == nil || !strings.Contains(err.Error(), "control character") {
+		t.Fatalf("Spawn metadata injection error = %v, want control character refusal", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(fixture.stateDir, fixture.request.ID+".meta")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("Spawn wrote injected metadata: stat error = %v", statErr)
+	}
+	if _, readErr := state.ReadTaskMeta(fixture.stateDir, fixture.request.ID); !errors.Is(readErr, os.ErrNotExist) {
+		t.Fatalf("injected metadata readback error = %v, want ErrNotExist", readErr)
+	}
+}
+
 func TestSpawnRejectsMissingHerdrIDsAndContendedLockThenReleases(t *testing.T) {
 	t.Run("missing Herdr IDs", func(t *testing.T) {
 		fixture := newFixture(t)
@@ -411,6 +452,7 @@ type herdrRunner struct {
 	worktree      string
 	session       string
 	agentStatus   string
+	agentErr      error
 	missingPaneID bool
 	literal       string
 	enterKeys     int
@@ -453,6 +495,9 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		r.enterKeys++
 		return jsonResult(`{}`), nil
 	case reflect.DeepEqual(args, []string{"agent", "get", "pane-1", "--json"}):
+		if r.agentErr != nil {
+			return execx.Result{}, r.agentErr
+		}
 		if r.agentStatus == "working" {
 			*r.events = append(*r.events, "agent-working")
 		}
