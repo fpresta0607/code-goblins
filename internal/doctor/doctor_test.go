@@ -78,6 +78,24 @@ func TestRunBrokenToolReportsFailure(t *testing.T) {
 	}
 }
 
+func TestRunBrokenTreehouseReportsFailure(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"git", "gh", "claude", "herdr", "codex", "pi", "tasks-axi", "quota-axi"} {
+		fakeTool(t, dir, name, name+" ok", 0)
+	}
+	fakeTool(t, dir, "treehouse", "boom", 1)
+	t.Setenv("PATH", dir)
+	t.Setenv("CFO_HOME", t.TempDir())
+
+	checks := Run()
+	if Healthy(checks) {
+		t.Fatal("Healthy = true with treehouse --version failing")
+	}
+	if checks[4].Name != "treehouse" || checks[4].Err == "" {
+		t.Errorf("treehouse check = %+v, want version failure", checks[4])
+	}
+}
+
 func TestRunMissingHarnessesCarryInstallHints(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"git", "gh", "claude", "herdr", "treehouse"} {
