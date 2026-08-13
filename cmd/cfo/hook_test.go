@@ -1108,6 +1108,42 @@ func TestRunHookSessionStartFullComposeOnStartup(t *testing.T) {
 	}
 }
 
+// TestRunHookSessionStartDegradesWakeReadErrorInline is the end-to-end leg
+// of Important 1's fix: a corrupt state\.wake-queue line must not turn the
+// SessionStart hook's output into a truncated four-line digest. The hook
+// must still exit 0 with the full seven-header digest and the inline
+// degrade line, never the SESSION START DEGRADED text (that text is
+// reserved for a genuine Compose-level failure, which a scoped read error
+// is not).
+func TestRunHookSessionStartDegradesWakeReadErrorInline(t *testing.T) {
+	dir := newPrimaryHome(t)
+	state := filepath.Join(dir, "state")
+	if err := os.WriteFile(filepath.Join(state, ".wake-queue"), []byte("not valid json\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	exit := runHook("session-start", strings.NewReader(`{"session_id":"s1","source":"startup"}`), &stdout, &stderr)
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+	}
+	out := stdout.String()
+	for _, header := range []string{
+		"== SESSION LOCK ==", "== WAKE QUEUE ==", "== SUPERVISION OPERATING INSTRUCTIONS ==",
+		"== READ-ONCE CONTRACT ==", "== FLEET STATE ==", "== CONTEXT ==", "== NEXT STEP ==",
+	} {
+		if !strings.Contains(out, header) {
+			t.Errorf("stdout missing header %q:\n%s", header, out)
+		}
+	}
+	if !strings.Contains(out, "WAKE QUEUE: UNREADABLE") {
+		t.Errorf("stdout missing the inline WAKE QUEUE degrade line:\n%s", out)
+	}
+	if strings.Contains(out, "SESSION START DEGRADED") {
+		t.Errorf("stdout unexpectedly contains SESSION START DEGRADED for a section-scoped read error:\n%s", out)
+	}
+}
+
 func TestRunHookSessionStartResumeNoMarkerFallsThrough(t *testing.T) {
 	newPrimaryHome(t)
 	setAncestorPID(t, os.Getpid())

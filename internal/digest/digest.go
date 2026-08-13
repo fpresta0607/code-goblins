@@ -81,42 +81,46 @@ func (e *werr) printf(format string, a ...any) {
 // order: SESSION LOCK, WAKE QUEUE, SUPERVISION OPERATING INSTRUCTIONS,
 // READ-ONCE CONTRACT, FLEET STATE, CONTEXT, NEXT STEP.
 //
-// A per-file read failure inside FLEET STATE or CONTEXT (a path that exists
-// but cannot be read as text, e.g. a directory in a file's place) renders
-// inline as "<name>: UNREADABLE (<err>)" and composition continues with
-// every remaining section; a missing path renders as "<name>: ABSENT". Only
-// a genuine Compose-level failure - a write error on w, or a wake-queue read
-// error that is not scoped to one named file - aborts composition early and
-// is returned to the caller, which is responsible for rendering it as digest
-// text (never a nonzero exit; see cmd/cfo/hook.go's session-start case).
+// A read failure anywhere below SESSION LOCK - a per-file read inside FLEET
+// STATE or CONTEXT (a path that exists but cannot be read as text, e.g. a
+// directory in a file's place), a wake-queue read, or a failure to list
+// state\ itself - renders inline (as "<name>: UNREADABLE (<err>)" or the
+// section's own equivalent) and composition continues with every remaining
+// section; a missing path renders as "<name>: ABSENT". Composition is never
+// aborted by a read failure. The ONLY things that can make Compose return a
+// non-nil error are a write error on w itself (every section writes through
+// the werr latch below, so one broken write silently no-ops every later
+// print and is surfaced here) and a failure to write the completion marker.
+// The caller is responsible for rendering a returned error as digest text
+// (never a nonzero exit; see cmd/cfo/hook.go's session-start case).
 //
 // ownerPID identifies the process taking custody of the session lock (see
 // lock.AcquireOwner); session is the Claude session id to record against
 // that custody, or "" for a manual, session-less invocation. On success
-// under a lock this call actually holds, Compose atomically writes
-// state\.session-start-complete naming ownerPID.
+// under a lock this call actually holds, AND only when composition itself
+// produced no write error, Compose atomically writes
+// state\.session-start-complete naming ownerPID: a marker written despite a
+// truncated or write-broken digest would tell a later resume/reload/fork
+// that this custody already saw a full digest when it did not, which is
+// exactly the start-blind failure the marker's fall-through exists to
+// prevent (see cmd/cfo/hook.go's session-start routing).
 func Compose(h home.Home, ownerPID int, session string, w io.Writer) error {
 	ew := &werr{w: w}
 
 	heldLock := writeSessionLock(h.State, ownerPID, session, ew)
 
-	if err := writeWakeQueue(h.State, ew); err != nil {
-		return err
-	}
-
+	writeWakeQueue(h.State, ew)
 	writeSupervisionInstructions(ew)
-	writeReadOnceContract(ew)
 
 	statusTail := claudehook.Int("CFO_SESSION_START_STATUS_TAIL", 5, 0, 1000000)
 	queuedLimit := claudehook.Int("CFO_SESSION_START_QUEUED_LIMIT", 20, 0, 1000000)
-	if err := writeFleetState(h, statusTail, queuedLimit, ew); err != nil {
-		return err
-	}
+	writeReadOnceContract(statusTail, queuedLimit, ew)
+	writeFleetState(h, statusTail, queuedLimit, ew)
 
 	writeContext(h.Data, ew)
 	writeNextStep(ew)
 
-	if heldLock {
+	if heldLock && ew.err == nil {
 		marker := filepath.Join(h.State, CompleteMarkerFile)
 		if err := fsx.AtomicWriteFile(marker, []byte(strconv.Itoa(ownerPID)+"\n")); err != nil {
 			return err
@@ -168,17 +172,31 @@ func writeSessionLock(stateDir string, ownerPID int, session string, ew *werr) b
 // then hands them to wake.Render, the same renderer `cfo drain` uses, so the
 // two presentations can never drift in format. This section never acks:
 // Pending and ReadEpisode are read-only calls that create nothing.
-func writeWakeQueue(stateDir string, ew *werr) error {
+//
+// A Pending or ReadEpisode read failure (e.g. a corrupt .wake-queue line)
+// degrades this section inline as "WAKE QUEUE: UNREADABLE (<err>)" and
+// returns, never aborting the rest of Compose - the same per-file-scoped
+// treatment CONTEXT and FLEET STATE already give a bad file. Only a write
+// failure from Render itself (a failure of w, not of the wake state) is
+// latched onto ew as the Compose-level failure.
+func writeWakeQueue(stateDir string, ew *werr) {
 	ew.println("== WAKE QUEUE ==")
 	records, err := wake.Pending(stateDir)
 	if err != nil {
-		return err
+		ew.printf("WAKE QUEUE: UNREADABLE (%s)\n", err)
+		return
 	}
 	episode, err := wake.ReadEpisode(stateDir)
 	if err != nil {
-		return err
+		ew.printf("WAKE QUEUE: UNREADABLE (%s)\n", err)
+		return
 	}
-	return wake.Render(ew.w, records, episode)
+	if ew.err != nil {
+		return
+	}
+	if err := wake.Render(ew.w, records, episode); err != nil {
+		ew.err = err
+	}
 }
 
 // writeSupervisionInstructions prints the fixed operating-instructions
@@ -194,13 +212,17 @@ func writeSupervisionInstructions(ew *werr) {
 	ew.println("Supervision is needed whenever tasks are in flight: any state\\*.meta file with no terminal status keeps the turn-end guard watching for a live watcher.")
 }
 
-// writeReadOnceContract names every source this digest already printed in
-// full, so the agent does not spend a turn re-reading what it was just
-// handed.
-func writeReadOnceContract(ew *werr) {
+// writeReadOnceContract names every source this digest already printed, so
+// the agent does not spend a turn re-reading what it was just handed. Only
+// the metas and the three context files are printed in full; the backlog
+// and each status log are capped (queuedLimit queued rows, statusTail
+// status lines), so the contract says so explicitly rather than claiming a
+// fresh read of a capped source would show nothing new - an overflowed
+// backlog or status log still has a real, unshown remainder.
+func writeReadOnceContract(statusTail, queuedLimit int, ew *werr) {
 	ew.println("== READ-ONCE CONTRACT ==")
-	ew.println("This digest already printed, in full, everything a fresh read of these sources would show right now: data\\backlog.md, every state\\*.meta, each goblin's status tail, data\\projects.md, data\\overlord.md, and data\\learnings.md.")
-	ew.println("Do not re-read any of them this turn. Treat what is printed above as current; the next digest reflects whatever changes.")
+	ew.printf("This digest already printed data\\backlog.md's first %d queued rows (not the full backlog), every state\\*.meta in full, each goblin's last %d status lines (not the full log), and data\\projects.md, data\\overlord.md, and data\\learnings.md in full.\n", queuedLimit, statusTail)
+	ew.println("Do not re-read anything shown above in full this turn. A backlog or status section that hit its cap only needs a fresh read for what is past the cap, not for what is already shown.")
 }
 
 // writeNextStep prints the fixed two-line closing reminder.
@@ -212,17 +234,19 @@ func writeNextStep(ew *werr) {
 
 // writeFleetState prints the backlog compact listing, then every
 // state\*.meta with its status tail, then orphan .status files (a status log
-// with no matching meta) by name only. Only a failure to list h.State itself
-// (beyond a simply-missing directory, which reads as no goblins at all)
-// propagates as a Compose-level failure; every per-file read failure inside
-// this section renders inline instead.
-func writeFleetState(h home.Home, statusTail, queuedLimit int, ew *werr) error {
+// with no matching meta) by name only, then "(no goblins in flight)" when
+// there were no metas at all. A failure to list h.State itself (beyond a
+// simply-missing directory, which reads as no goblins at all) renders
+// inline as "state\: UNREADABLE (<err>)", same as every other per-file read
+// failure in this section: it never propagates as a Compose-level failure.
+func writeFleetState(h home.Home, statusTail, queuedLimit int, ew *werr) {
 	ew.println("== FLEET STATE ==")
 	writeBacklog(h.Data, queuedLimit, ew)
 
 	entries, err := os.ReadDir(h.State)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+		ew.printf("state\\: UNREADABLE (%s)\n", err)
+		entries = nil
 	}
 
 	var metaIDs []string
@@ -247,17 +271,15 @@ func writeFleetState(h home.Home, statusTail, queuedLimit int, ew *werr) error {
 		}
 	}
 
-	if len(metaIDs) == 0 {
-		ew.println("(no goblins in flight)")
-	}
 	for _, id := range metaIDs {
 		writeMetaEntry(h.State, id, statusTail, ew)
 	}
 	for _, id := range orphanIDs {
 		ew.printf("%s.status: orphan status log, no matching meta\n", id)
 	}
-
-	return nil
+	if len(metaIDs) == 0 {
+		ew.println("(no goblins in flight)")
+	}
 }
 
 // writeBacklog prints the first limit unchecked "- [ ]" rows of

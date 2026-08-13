@@ -280,6 +280,117 @@ func TestComposeStatusTailCap(t *testing.T) {
 	}
 }
 
+// TestComposeSectionBodies pins each fixed section's content, not just its
+// header: with a header-only assertion, deleting any of the five
+// SUPERVISION facts, the READ-ONCE sentence, or a NEXT STEP line leaves the
+// suite green.
+func TestComposeSectionBodies(t *testing.T) {
+	h := newDigestHome(t)
+
+	var buf bytes.Buffer
+	if err := Compose(h, os.Getpid(), "s1", &buf); err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	out := buf.String()
+
+	supervisionFacts := []string{
+		"hosts the watcher in-process across every turn",
+		`Never run "cfo watch" from the agent shell`,
+		"Wakes arrive as rewake turns",
+		"Every drain presentation ends with a WAKE_ACK_REQUIRED command",
+		"Supervision is needed whenever tasks are in flight",
+	}
+	for _, fact := range supervisionFacts {
+		if !strings.Contains(out, fact) {
+			t.Errorf("SUPERVISION section missing fact %q:\n%s", fact, out)
+		}
+	}
+
+	readOnceFacts := []string{
+		"first 20 queued rows (not the full backlog)",
+		"last 5 status lines (not the full log)",
+		"Do not re-read anything shown above in full this turn",
+	}
+	for _, fact := range readOnceFacts {
+		if !strings.Contains(out, fact) {
+			t.Errorf("READ-ONCE CONTRACT missing %q:\n%s", fact, out)
+		}
+	}
+
+	nextStepLines := []string{
+		"Follow the SUPERVISION OPERATING INSTRUCTIONS above",
+		"This digest never arms anything itself",
+	}
+	for _, line := range nextStepLines {
+		if !strings.Contains(out, line) {
+			t.Errorf("NEXT STEP missing %q:\n%s", line, out)
+		}
+	}
+}
+
+// TestComposeDegradesWakeReadErrorInline is Important 1's regression test: a
+// corrupt .wake-queue line makes wake.Pending fail, and that failure must
+// degrade the WAKE QUEUE section inline rather than truncating the rest of
+// the digest. Composition must still succeed end to end (all seven headers,
+// the completion marker written), matching every other per-file UNREADABLE
+// case.
+func TestComposeDegradesWakeReadErrorInline(t *testing.T) {
+	h := newDigestHome(t)
+	if err := os.WriteFile(filepath.Join(h.State, ".wake-queue"), []byte("not valid json\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	pid := os.Getpid()
+	if err := Compose(h, pid, "s1", &buf); err != nil {
+		t.Fatalf("Compose: %v, want nil (a wake-queue read error degrades one section inline, not the whole digest)", err)
+	}
+	out := buf.String()
+
+	assertHeaderOrder(t, out, sectionHeaders)
+	if !strings.Contains(out, "WAKE QUEUE: UNREADABLE") {
+		t.Errorf("output missing the inline WAKE QUEUE degrade line:\n%s", out)
+	}
+	if strings.Contains(out, "SESSION START DEGRADED") {
+		t.Errorf("output unexpectedly contains SESSION START DEGRADED for a section-scoped read error:\n%s", out)
+	}
+
+	data, err := os.ReadFile(filepath.Join(h.State, CompleteMarkerFile))
+	if err != nil {
+		t.Fatalf("completion marker missing despite composition succeeding: %v", err)
+	}
+	got, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || got != pid {
+		t.Errorf("marker content = %q, want pid %d", string(data), pid)
+	}
+}
+
+// errWriter is an io.Writer that always fails, standing in for a broken
+// output stream (a genuine Compose-level failure, distinct from any
+// per-file read failure).
+type errWriter struct{}
+
+func (errWriter) Write([]byte) (int, error) {
+	return 0, fmt.Errorf("errWriter: simulated write failure")
+}
+
+// TestComposeMarkerNotWrittenOnWriteFailure is Important 2's regression
+// test: a write-stream failure must gate the completion marker even though
+// the session lock is genuinely held (heldLock true). Writing the marker
+// anyway would tell a later resume/reload/fork that this custody already
+// saw a full digest when composition never actually reached the reader.
+func TestComposeMarkerNotWrittenOnWriteFailure(t *testing.T) {
+	h := newDigestHome(t)
+
+	err := Compose(h, os.Getpid(), "s1", errWriter{})
+	if err == nil {
+		t.Fatal("Compose: want a write-stream error, got nil")
+	}
+	if _, statErr := os.Stat(filepath.Join(h.State, CompleteMarkerFile)); !os.IsNotExist(statErr) {
+		t.Errorf("completion marker written despite a Compose-level write failure: stat err = %v", statErr)
+	}
+}
+
 func TestComposeRendersUnreadableFilesInline(t *testing.T) {
 	h := newDigestHome(t)
 
