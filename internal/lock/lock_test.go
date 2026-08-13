@@ -432,3 +432,38 @@ func TestAcquireExclusiveNamedContendsButRetainsItsOwnVerifiedRecord(t *testing.
 		t.Fatalf("exclusive acquire did not retain its own verified record: %v", err)
 	}
 }
+
+func TestReleaseNamedRetriesTransientRemovalThenAllowsRetry(t *testing.T) {
+	dir := t.TempDir()
+	name := ".spawn-task.lock"
+	if _, err := AcquireExclusiveNamed(dir, name); err != nil {
+		t.Fatalf("AcquireExclusiveNamed: %v", err)
+	}
+
+	attempts := 0
+	sleeps := 0
+	err := releaseNamed(dir, name, func(path string) error {
+		attempts++
+		if attempts < 3 {
+			return errors.New("sharing violation")
+		}
+		return os.Remove(path)
+	}, func(time.Duration) {
+		sleeps++
+	})
+	if err != nil {
+		t.Fatalf("releaseNamed: %v", err)
+	}
+	if attempts != 3 || sleeps != 2 {
+		t.Fatalf("release attempts=%d sleeps=%d, want 3 and 2", attempts, sleeps)
+	}
+	if _, err := os.Stat(filepath.Join(dir, name)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("released lock stat error = %v, want ErrNotExist", err)
+	}
+	if _, err := AcquireExclusiveNamed(dir, name); err != nil {
+		t.Fatalf("AcquireExclusiveNamed after retrying release: %v", err)
+	}
+	if err := ReleaseNamed(dir, name); err != nil {
+		t.Fatalf("ReleaseNamed cleanup: %v", err)
+	}
+}

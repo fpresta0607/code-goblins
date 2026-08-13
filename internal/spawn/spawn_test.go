@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -294,20 +295,149 @@ func TestSpawnNormalizesLaunchFailureStatusToOneFailedEvent(t *testing.T) {
 	}
 }
 
-func TestSpawnRejectsInjectedModelBeforeMetadataWrite(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.request.Model = "x\nherdr_pane_id=other"
+func TestSpawnRejectsMetadataBearingControlsBeforeHerdrMutation(t *testing.T) {
+	tests := []struct {
+		name string
+		set  func(*Request)
+	}{
+		{"project", func(req *Request) { req.Project = "C:\\project\nbad" }},
+		{"brief", func(req *Request) { req.BriefPath = "C:\\brief\nbad" }},
+		{"kind", func(req *Request) { req.Kind = "ship\nbad" }},
+		{"mode", func(req *Request) { req.Mode = "no-mistakes\nbad" }},
+		{"harness", func(req *Request) { req.Harness = harness.Kind("claude\nbad") }},
+		{"model", func(req *Request) { req.Model = "x\nherdr_pane_id=other" }},
+		{"effort", func(req *Request) { req.Effort = "high\rmalformed" }},
+		{"session", func(req *Request) { req.Session = "fleet\nbad" }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newFixture(t)
+			test.set(&fixture.request)
 
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err == nil || !strings.Contains(err.Error(), "control character") {
-		t.Fatalf("Spawn metadata injection error = %v, want control character refusal", err)
+			_, err := fixture.service.Spawn(context.Background(), fixture.request)
+			if err == nil || !strings.Contains(err.Error(), "control character") {
+				t.Fatalf("Spawn control injection error = %v, want control character refusal", err)
+			}
+			if fixture.runner.calls != 0 || fixture.runner.literal != "" || fixture.runner.enterKeys != 0 || len(fixture.events) != 0 {
+				t.Fatalf("control injection mutated Herdr: calls=%d literal=%q enter=%d events=%v", fixture.runner.calls, fixture.runner.literal, fixture.runner.enterKeys, fixture.events)
+			}
+			if _, statErr := os.Stat(filepath.Join(fixture.stateDir, fixture.request.ID+".meta")); !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("Spawn wrote injected metadata: stat error = %v", statErr)
+			}
+		})
 	}
-	if _, statErr := os.Stat(filepath.Join(fixture.stateDir, fixture.request.ID+".meta")); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("Spawn wrote injected metadata: stat error = %v", statErr)
+}
+
+func TestSpawnRejectsMalformedHerdrIDsBeforeDownstreamWork(t *testing.T) {
+	tests := []struct {
+		name   string
+		set    func(*herdrRunner)
+		events []string
+	}{
+		{"container", func(r *herdrRunner) { r.workspaceID = "workspace-1\nbad" }, []string{"workspace-list"}},
+		{"endpoint", func(r *herdrRunner) { r.paneID = "pane-1\nbad" }, []string{"workspace-list", "tab-list", "tab-create"}},
 	}
-	if _, readErr := state.ReadTaskMeta(fixture.stateDir, fixture.request.ID); !errors.Is(readErr, os.ErrNotExist) {
-		t.Fatalf("injected metadata readback error = %v, want ErrNotExist", readErr)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newFixture(t)
+			test.set(fixture.runner)
+
+			_, err := fixture.service.Spawn(context.Background(), fixture.request)
+			if err == nil || !strings.Contains(err.Error(), "control character") {
+				t.Fatalf("Spawn malformed Herdr ID error = %v, want control character refusal", err)
+			}
+			if slices.Contains(fixture.events, "treehouse-get") || fixture.runner.literal != "" || fixture.runner.enterKeys != 0 {
+				t.Fatalf("malformed Herdr ID reached downstream work: literal=%q enter=%d events=%v", fixture.runner.literal, fixture.runner.enterKeys, fixture.events)
+			}
+			if !reflect.DeepEqual(fixture.events, test.events) {
+				t.Fatalf("malformed Herdr ID events = %v, want %v", fixture.events, test.events)
+			}
+		})
 	}
+}
+
+func TestSpawnPostAcquisitionFailuresReturnPartialResultAndStatus(t *testing.T) {
+	tests := []struct {
+		name string
+		set  func(*fixture)
+		want string
+	}{
+		{
+			name: "freshen",
+			set:  func(f *fixture) { f.git.freshenErr = errors.New("treehouse: worktree is dirty") },
+			want: "worktree is dirty",
+		},
+		{
+			name: "build",
+			set: func(f *fixture) {
+				f.service.Harness.Adapters[harness.Claude] = fixtureAdapter{events: &f.events, buildErr: errors.New("harness build refused")}
+			},
+			want: "harness build refused",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newFixture(t)
+			test.set(fixture)
+
+			result, err := fixture.service.Spawn(context.Background(), fixture.request)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Spawn error = %v, want %q", err, test.want)
+			}
+			if result.Meta.Worktree != fixture.worktree || result.Meta.Project != fixture.project || result.Endpoint.Target != (herdr.Target{Session: "fleet", Pane: "pane-1"}) {
+				t.Fatalf("partial result = %+v endpoint=%+v, want worktree, project, and target", result.Meta, result.Endpoint)
+			}
+			status, statusErr := state.TailStatus(fixture.stateDir, fixture.request.ID, 2)
+			if statusErr != nil || len(status) != 1 || !strings.HasPrefix(status[0], "failed: ") || !strings.Contains(status[0], test.want) {
+				t.Fatalf("status = %v, %v; want one failed event containing %q", status, statusErr, test.want)
+			}
+			if _, metaErr := state.ReadTaskMeta(fixture.stateDir, fixture.request.ID); !errors.Is(metaErr, os.ErrNotExist) {
+				t.Fatalf("post-acquisition failure wrote success metadata: %v", metaErr)
+			}
+			if fixture.runner.literal != "" || fixture.runner.enterKeys != 0 {
+				t.Fatalf("post-acquisition failure launched harness: literal=%q enter=%d", fixture.runner.literal, fixture.runner.enterKeys)
+			}
+		})
+	}
+}
+
+func TestSpawnSurfacesTaskLockReleaseFailure(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		fixture := newFixture(t)
+		fixture.service.ReleaseLock = func(string, string) error {
+			return errors.New("lock is still shared")
+		}
+
+		result, err := fixture.service.Spawn(context.Background(), fixture.request)
+		if err == nil || !strings.Contains(err.Error(), "release task lock") || !strings.Contains(err.Error(), "lock is still shared") {
+			t.Fatalf("Spawn release error = %v, want surfaced cleanup failure", err)
+		}
+		if result.Meta.Worktree != fixture.worktree || result.Endpoint.Target.Pane != "pane-1" {
+			t.Fatalf("success result was discarded by cleanup error: %+v endpoint=%+v", result.Meta, result.Endpoint)
+		}
+		if err := lock.ReleaseNamed(fixture.stateDir, spawnLockPrefix+fixture.request.ID+spawnLockSuffix); err != nil {
+			t.Fatalf("ReleaseNamed cleanup: %v", err)
+		}
+	})
+
+	t.Run("primary failure", func(t *testing.T) {
+		fixture := newFixture(t)
+		fixture.runner.agentStatus = "idle"
+		fixture.service.ReleaseLock = func(string, string) error {
+			return errors.New("lock is still shared")
+		}
+
+		result, err := fixture.service.Spawn(context.Background(), fixture.request)
+		if err == nil || !strings.Contains(err.Error(), "did not report working") || !strings.Contains(err.Error(), "release task lock") {
+			t.Fatalf("Spawn release error = %v, want joined primary and cleanup failures", err)
+		}
+		if result.Meta.Worktree != fixture.worktree || result.Endpoint.Target.Pane != "pane-1" {
+			t.Fatalf("primary failure discarded recovery result: %+v endpoint=%+v", result.Meta, result.Endpoint)
+		}
+		if err := lock.ReleaseNamed(fixture.stateDir, spawnLockPrefix+fixture.request.ID+spawnLockSuffix); err != nil {
+			t.Fatalf("ReleaseNamed cleanup: %v", err)
+		}
+	})
 }
 
 func TestSpawnRejectsMissingHerdrIDsAndContendedLockThenReleases(t *testing.T) {
@@ -405,7 +535,8 @@ func newFixture(t *testing.T) *fixture {
 }
 
 type fixtureAdapter struct {
-	events *[]string
+	events   *[]string
+	buildErr error
 }
 
 func (a fixtureAdapter) Kind() harness.Kind {
@@ -419,6 +550,9 @@ func (a fixtureAdapter) Validate(context.Context, execx.Runner) error {
 
 func (a fixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
 	*a.events = append(*a.events, "build-harness")
+	if a.buildErr != nil {
+		return harness.Launch{}, a.buildErr
+	}
 	return harness.Launch{
 		Executable: "claude",
 		Args:       []string{"--dangerously-skip-permissions"},
@@ -451,14 +585,18 @@ type herdrRunner struct {
 	events        *[]string
 	worktree      string
 	session       string
+	workspaceID   string
+	paneID        string
 	agentStatus   string
 	agentErr      error
 	missingPaneID bool
+	calls         int
 	literal       string
 	enterKeys     int
 }
 
 func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
+	r.calls++
 	wantSession := r.session
 	if wantSession == "" {
 		wantSession = "fleet"
@@ -470,16 +608,24 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 	switch {
 	case reflect.DeepEqual(args, []string{"workspace", "list", "--json"}):
 		*r.events = append(*r.events, "workspace-list")
-		return jsonResult(`{"workspaces":[{"workspace_id":"workspace-1","label":"firstmate"}]}`), nil
+		workspaceID := r.workspaceID
+		if workspaceID == "" {
+			workspaceID = "workspace-1"
+		}
+		return jsonResult(`{"workspaces":[{"workspace_id":` + quoteJSON(workspaceID) + `,"label":"firstmate"}]}`), nil
 	case reflect.DeepEqual(args, []string{"tab", "list", "--workspace", "workspace-1", "--json"}):
 		*r.events = append(*r.events, "tab-list")
 		return jsonResult(`{"tabs":[]}`), nil
 	case len(args) == 10 && args[0] == "tab" && args[1] == "create":
 		*r.events = append(*r.events, "tab-create")
+		paneID := r.paneID
+		if paneID == "" {
+			paneID = "pane-1"
+		}
 		if r.missingPaneID {
 			return jsonResult(`{"tab":{"tab_id":"tab-1"},"root_pane":{}}`), nil
 		}
-		return jsonResult(`{"tab":{"tab_id":"tab-1"},"root_pane":{"pane_id":"pane-1"}}`), nil
+		return jsonResult(`{"tab":{"tab_id":"tab-1"},"root_pane":{"pane_id":` + quoteJSON(paneID) + `}}`), nil
 	case reflect.DeepEqual(args, []string{"pane", "run", "pane-1", "treehouse get"}):
 		*r.events = append(*r.events, "treehouse-get")
 		return jsonResult(`{}`), nil
@@ -512,7 +658,7 @@ func jsonResult(result string) execx.Result {
 }
 
 func quoteJSON(value string) string {
-	return `"` + strings.ReplaceAll(strings.ReplaceAll(value, `\`, `\\`), `"`, `\"`) + `"`
+	return strconv.Quote(value)
 }
 
 func makeDir(t *testing.T, path string) string {
