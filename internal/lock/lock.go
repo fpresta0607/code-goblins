@@ -278,24 +278,42 @@ func HeldBy(dir string, ownerPID int) bool {
 
 // ReleaseNamed removes dir/name when the current process identity holds it.
 func ReleaseNamed(dir, name string) error {
-	holder, err := ReadNamed(dir, name)
-	if err != nil {
-		return err
-	}
-	self, _ := ownerInfo(os.Getpid(), "")
-	localHostname, _ := os.Hostname()
+	return releaseNamed(dir, name, os.Remove, time.Sleep)
+}
 
-	// Refuse if the holder's hostname differs from the local hostname.
-	if holder.Hostname != "" && holder.Hostname != localHostname {
-		return fmt.Errorf("lock: held by foreign host %s, not this process", holder.Hostname)
-	}
+func releaseNamed(dir, name string, remove func(string) error, sleep func(time.Duration)) error {
+	path := filepath.Join(dir, name)
+	var lastErr error
+	for attempt := 0; attempt < 10; attempt++ {
+		holder, err := ReadNamed(dir, name)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err == nil {
+			self, _ := ownerInfo(os.Getpid(), "")
+			localHostname, _ := os.Hostname()
 
-	// Refuse if the holder's PID or process identity does not match this process.
-	if holder.PID != self.PID || !holder.Alive() {
-		return fmt.Errorf("lock: held by pid %d, not this process", holder.PID)
-	}
+			// Refuse if the holder's hostname differs from the local hostname.
+			if holder.Hostname != "" && holder.Hostname != localHostname {
+				return fmt.Errorf("lock: held by foreign host %s, not this process", holder.Hostname)
+			}
 
-	return os.Remove(filepath.Join(dir, name))
+			// Refuse if the holder's PID or process identity does not match this process.
+			if holder.PID != self.PID || !holder.Alive() {
+				return fmt.Errorf("lock: held by pid %d, not this process", holder.PID)
+			}
+
+			err = remove(path)
+			if err == nil || errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+		}
+		lastErr = err
+		if attempt < 9 {
+			sleep(50 * time.Millisecond)
+		}
+	}
+	return fmt.Errorf("lock: release %s after 10 attempts: %w", name, lastErr)
 }
 
 // Release removes dir/.lock when the current process identity holds it. See
