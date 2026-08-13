@@ -63,6 +63,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		return runDrain(h, args[1:], stdout, stderr)
 	case "session-start":
+		// Deliberate deviation, recorded for the ledger: a home that cannot
+		// be resolved errors out here (stderr plus exit 1), matching this
+		// file's other manual commands (drain, watch) rather than exiting 0
+		// with "SESSION START DEGRADED" digest text. This entry point is a
+		// manual diagnostic, not the hook Claude Code drives, so a nonzero
+		// exit here carries no session-blocking risk.
 		h, err := home.Resolve()
 		if err != nil {
 			fmt.Fprintln(stderr, err)

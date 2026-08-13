@@ -53,6 +53,13 @@ func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if !ok {
 			return 0
 		}
+		// Deliberate deviation, recorded for the ledger: a home that cannot
+		// be resolved (os.Getwd fails; CFO_HOME unset) is silent exit 0 here,
+		// matching the fail-open prologue every other hook in this switch
+		// shares, rather than rendered as "SESSION START DEGRADED" digest
+		// text. Reaching this arm needs the working directory itself to be
+		// gone, which the shared prologue's uniformity was judged to
+		// outweigh; digest.Compose is never even reached in this case.
 		h, err := home.Resolve()
 		if err != nil {
 			return 0
