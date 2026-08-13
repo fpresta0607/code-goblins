@@ -92,7 +92,7 @@ func ConfigFromEnv(h home.Home) Config {
 	if heartbeatMax < heartbeat {
 		heartbeatMax = heartbeat
 	}
-	return Config{
+	cfg := Config{
 		Home:         h,
 		Poll:         clampMin1s(claudehook.Seconds("CFO_POLL", 15)),
 		SignalGrace:  clampMin1s(claudehook.Seconds("CFO_SIGNAL_GRACE", 30)),
@@ -100,6 +100,18 @@ func ConfigFromEnv(h home.Home) Config {
 		HeartbeatMax: heartbeatMax,
 		Sleep:        time.Sleep,
 	}
+	// A directory-change waiter is strictly an optimization: on failure
+	// (most commonly a dev checkout with no state/ dir yet) cfg is left in
+	// pure timer mode, exactly as it was before Task 9. WaitEvent and
+	// Cleanup are wired together or not at all - see the Config.WaitEvent
+	// doc for why a WaitEvent without a matching Cleanup would leak the
+	// waiter's handles into a Go heap buffer the kernel still holds a
+	// pointer to.
+	if waiter, err := NewDirWaiter(h.State); err == nil {
+		cfg.WaitEvent = waiter.Wait
+		cfg.Cleanup = waiter.Close
+	}
+	return cfg
 }
 
 func clampMin1s(d time.Duration) time.Duration {
