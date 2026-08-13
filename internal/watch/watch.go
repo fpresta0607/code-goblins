@@ -217,11 +217,10 @@ func CommitSignatures(stateDir string, changes []Change) error {
 	return nil
 }
 
-// Run acquires the state/.watch.lock singleton, then loops: touch the
-// watcher beat, scan for changed status files, and check the heartbeat
-// cadence, waiting between checks. It returns the first actionable reason
-// (a "signal:..." detail or "heartbeat") and closes; one actionable reason
-// closes one watcher cycle, and continuity is the arm layer's job.
+// Run acquires the state/.watch.lock singleton, scans raw status signals,
+// then runs the monitor before waiting. A raw signal remains this cycle's
+// close reason, while a monitor event discovered in the same cycle stays
+// persisted for the next cycle so two wake episodes never conflict.
 func Run(cfg Config) (string, error) {
 	if _, err := lock.AcquireNamedOwner(cfg.Home.State, watchLockName, os.Getpid(), "watch"); err != nil {
 		// The lock was never acquired, so there is no LIFO defer pair to
@@ -244,6 +243,7 @@ func Run(cfg Config) (string, error) {
 	}
 
 	for {
+		var signalDetail string
 		changes, err := ScanSignals(cfg.Home.State)
 		if err != nil {
 			return "", err
@@ -306,7 +306,7 @@ func Run(cfg Config) (string, error) {
 			if _, err := wake.PublishEpisode(cfg.Home.State); err != nil {
 				return "", err
 			}
-			return detail, nil
+			signalDetail = detail
 		}
 
 		if cfg.Monitor != nil {
@@ -314,7 +314,7 @@ func Run(cfg Config) (string, error) {
 			if err != nil {
 				return "", err
 			}
-			if result.Event != nil {
+			if result.Event != nil && signalDetail == "" {
 				if _, err := cfg.Monitor.Publish(*result.Event); err != nil {
 					return "", err
 				}
@@ -322,6 +322,9 @@ func Run(cfg Config) (string, error) {
 			}
 		} else if err := monitor.TouchHeartbeat(cfg.Home.State, time.Now()); err != nil {
 			return "", err
+		}
+		if signalDetail != "" {
+			return signalDetail, nil
 		}
 
 		if cfg.WaitEvent != nil {

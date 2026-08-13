@@ -50,11 +50,15 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 	}
 	now := s.now().UTC()
 	heartbeat, err := ReadHeartbeat(s.StateDir)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return ScanResult{}, err
-	}
+	heartbeatCorrupt := err != nil && !errors.Is(err, os.ErrNotExist)
 	if errors.Is(err, os.ErrNotExist) {
-		heartbeat = Heartbeat{LastHeartbeat: now, NextDue: now.Add(s.heartbeat())}
+		heartbeat = s.freshHeartbeat(now)
+	} else if heartbeatCorrupt {
+		heartbeat = s.freshHeartbeat(now)
+	} else if heartbeat.LastHeartbeat.IsZero() && heartbeat.NextDue.IsZero() {
+		heartbeat.LastHeartbeat = now
+		heartbeat.NextDue = now.Add(s.heartbeat())
+		heartbeat.NoChangeStreak = 0
 	}
 	heartbeat.LastCycle = now
 
@@ -105,6 +109,23 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 		if errors.Is(priorErr, os.ErrNotExist) {
 			prior = Observation{TaskID: id}
 		}
+		if heartbeatCorrupt {
+			observation := invalidRecordObservation(meta, prior, now)
+			if priorErr == nil {
+				if err := WriteObservation(s.StateDir, observation); err != nil {
+					return ScanResult{}, err
+				}
+			} else if errors.Is(priorErr, os.ErrNotExist) {
+				if err := WriteObservation(s.StateDir, observation); err != nil {
+					return ScanResult{}, err
+				}
+			}
+			result.Observations = append(result.Observations, observation)
+			if result.Event == nil {
+				result.Event = cloneEvent(observation.PendingEvent)
+			}
+			continue
+		}
 
 		observation := s.classify(ctx, meta, prior, now)
 		if err := WriteObservation(s.StateDir, observation); err != nil {
@@ -116,7 +137,7 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 		}
 	}
 
-	if s.heartbeatDue(heartbeat, now) {
+	if !heartbeatCorrupt && s.heartbeatDue(heartbeat, now) {
 		heartbeat.LastHeartbeat = now
 		if result.Event == nil && hasUnsurfacedActionable(result.Observations) {
 			event := Event{Source: HeartbeatEvent, Kind: "heartbeat", Key: "heartbeat", Detail: "actionable fleet observation"}
@@ -128,8 +149,10 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 		}
 		heartbeat.NextDue = now.Add(s.backoff(heartbeat.NoChangeStreak))
 	}
-	if err := WriteHeartbeat(s.StateDir, heartbeat); err != nil {
-		return ScanResult{}, err
+	if !heartbeatCorrupt {
+		if err := WriteHeartbeat(s.StateDir, heartbeat); err != nil {
+			return ScanResult{}, err
+		}
 	}
 	result.Heartbeat = heartbeat
 	return result, nil
@@ -280,9 +303,34 @@ func unknownObservation(observation Observation, reason Reason, detail string, n
 	}
 	observation.Health = HealthUnknown
 	observation.Reason = reason
+	observation.StaleSince = nil
+	observation.NextEscalation = nil
 	observation.NextPauseResurface = nil
+	observation.Escalation = 0
+	observation.DemandDeepInspection = false
 	if observation.PendingEvent == nil {
 		event := taskEvent(observation.TaskID, reason, detail)
+		observation.PendingEvent = &event
+	}
+	return observation
+}
+
+func invalidRecordObservation(meta state.TaskMeta, prior Observation, now time.Time) Observation {
+	observation := prior
+	observation.Schema = Schema
+	observation.TaskID = meta.ID
+	observation.Endpoint = endpointString(meta)
+	observation.EndpointVerdict = ProbeUnknown
+	observation.LastObserved = now
+	observation.Health = HealthUnknown
+	observation.Reason = InvalidRecord
+	observation.StaleSince = nil
+	observation.NextEscalation = nil
+	observation.NextPauseResurface = nil
+	observation.Escalation = 0
+	observation.DemandDeepInspection = false
+	if observation.PendingEvent == nil {
+		event := taskEvent(meta.ID, InvalidRecord, "")
 		observation.PendingEvent = &event
 	}
 	return observation
@@ -463,4 +511,8 @@ func (s Service) backoff(streak int) time.Duration {
 
 func (s Service) heartbeatDue(heartbeat Heartbeat, now time.Time) bool {
 	return !heartbeat.NextDue.IsZero() && !now.Before(heartbeat.NextDue)
+}
+
+func (s Service) freshHeartbeat(now time.Time) Heartbeat {
+	return Heartbeat{LastHeartbeat: now, NextDue: now.Add(s.heartbeat())}
 }

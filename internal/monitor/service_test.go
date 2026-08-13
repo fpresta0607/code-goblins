@@ -275,6 +275,94 @@ func TestScanUnknownEndpointPreservesCorruptRecordAndContinuesAfterRestart(t *te
 	}
 }
 
+func TestScanPreservesSemanticallyIncompleteObservationAsInvalidRecord(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	path := ObservationPath(stateDir, "g1")
+	incomplete := []byte(`{"schema":"cfo-monitor.v1","task_id":"g1"}`)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, incomplete, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	service := testService(stateDir, &fakeProber{}, &now)
+	result, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Event == nil || result.Event.Detail != string(InvalidRecord) || result.Observations[0].Reason != InvalidRecord {
+		t.Fatalf("Scan = %+v, want an actionable invalid-record event", result)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(incomplete) {
+		t.Errorf("incomplete observation changed to %q, want preservation", got)
+	}
+}
+
+func TestScanSurfacesCorruptHeartbeatWithoutOverwritingIt(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	bad := []byte("not heartbeat JSON")
+	if err := os.MkdirAll(filepath.Dir(HeartbeatPath(stateDir)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(HeartbeatPath(stateDir), bad, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	service := testService(stateDir, &fakeProber{}, &now)
+	result, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Event == nil || result.Observations[0].Health != HealthUnknown || result.Observations[0].Reason != InvalidRecord {
+		t.Fatalf("Scan = %+v, want safe invalid-record observation and event", result)
+	}
+	got, err := os.ReadFile(HeartbeatPath(stateDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(bad) {
+		t.Errorf("corrupt heartbeat changed to %q, want preservation", got)
+	}
+}
+
+func TestScanBootstrapsSignalsOnlyHeartbeatSchedule(t *testing.T) {
+	stateDir := t.TempDir()
+	firstCycle := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
+	if err := TouchHeartbeat(stateDir, firstCycle); err != nil {
+		t.Fatal(err)
+	}
+	now := firstCycle.Add(10 * time.Minute)
+	service := testService(stateDir, &fakeProber{}, &now)
+	bootstrapped, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bootstrapped.Heartbeat.LastHeartbeat.Equal(now) || !bootstrapped.Heartbeat.NextDue.Equal(now.Add(time.Minute)) {
+		t.Fatalf("bootstrap heartbeat = %+v, want initialized schedule", bootstrapped.Heartbeat)
+	}
+
+	now = now.Add(time.Minute)
+	restarted := testService(stateDir, &fakeProber{}, &now)
+	due, err := restarted.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if due.Heartbeat.NoChangeStreak != 1 || !due.Heartbeat.NextDue.Equal(now.Add(2*time.Minute)) {
+		t.Errorf("due heartbeat = %+v, want resumed due cadence", due.Heartbeat)
+	}
+}
+
 func TestScanPersistsHeartbeatBackoffAcrossServiceRestart(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)

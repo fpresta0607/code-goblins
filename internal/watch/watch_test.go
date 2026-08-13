@@ -206,6 +206,13 @@ func (missingProbe) Inspect(context.Context, state.TaskMeta) (monitor.EndpointSa
 	return monitor.EndpointSample{Verdict: monitor.ProbeMissing, Detail: "pane missing"}, nil
 }
 
+type countingMissingProbe struct{ calls int }
+
+func (p *countingMissingProbe) Inspect(context.Context, state.TaskMeta) (monitor.EndpointSample, error) {
+	p.calls++
+	return monitor.EndpointSample{Verdict: monitor.ProbeMissing, Detail: "pane missing"}, nil
+}
+
 func monitoringService(t *testing.T, dir, id string) *monitor.Service {
 	t.Helper()
 	if err := state.WriteTaskMeta(dir, state.TaskMeta{
@@ -296,6 +303,65 @@ func TestRunClosesOnSignal(t *testing.T) {
 		t.Errorf("episode = %+v, want pending:1", ep)
 	}
 
+}
+
+func TestRunScansMonitorAfterCommittingRawSignal(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "raw.status"), []byte("changed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteTaskMeta(dir, state.TaskMeta{
+		ID:               "g1",
+		Worktree:         `C:\work\g1`,
+		Backend:          "herdr",
+		HerdrSession:     "fleet",
+		HerdrWorkspaceID: "ws",
+		HerdrTabID:       "tab-g1",
+		HerdrPaneID:      "pane-g1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	probe := &countingMissingProbe{}
+	cfg := baseConfig(dir)
+	cfg.Monitor = &monitor.Service{
+		StateDir:            dir,
+		Probe:               probe,
+		Now:                 time.Now,
+		StaleEscalateAfter:  time.Minute,
+		BusyTurnMax:         time.Hour,
+		PauseResurfaceAfter: time.Hour,
+		Heartbeat:           time.Minute,
+		HeartbeatMax:        time.Hour,
+	}
+
+	reason, err := Run(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(reason, "signal:") {
+		t.Fatalf("reason = %q, want raw signal to remain the selected close reason", reason)
+	}
+	if probe.calls != 1 {
+		t.Fatalf("monitor probe calls = %d, want one scan after raw signal", probe.calls)
+	}
+	heartbeat, err := monitor.ReadHeartbeat(dir)
+	if err != nil || heartbeat.LastCycle.IsZero() {
+		t.Fatalf("typed heartbeat = %+v, %v; want monitor scan update", heartbeat, err)
+	}
+	observation, err := monitor.ReadObservation(dir, "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.PendingEvent == nil || observation.Reason != monitor.EndpointMissing {
+		t.Fatalf("monitor observation = %+v, want a persisted pending monitor event", observation)
+	}
+	records, err := wake.Pending(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Kind != "signal" {
+		t.Fatalf("wake records = %+v, want only the raw signal episode", records)
+	}
 }
 
 func TestRunContinuesWhenPostGraceRescanIsEmpty(t *testing.T) {

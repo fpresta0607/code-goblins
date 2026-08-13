@@ -18,7 +18,17 @@ func TestMonitorRecordPathsAndStrictJSON(t *testing.T) {
 	}
 
 	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
-	in := Observation{TaskID: "g1", Health: HealthActive, LastObserved: now, LastSeen: now, LastProgress: now}
+	in := Observation{
+		TaskID:          "g1",
+		Endpoint:        "fleet:pane-g1",
+		EndpointVerdict: ProbePresent,
+		Digest:          "digest",
+		Health:          HealthActive,
+		Reason:          None,
+		LastObserved:    now,
+		LastSeen:        now,
+		LastProgress:    now,
+	}
 	if err := WriteObservation(stateDir, in); err != nil {
 		t.Fatalf("WriteObservation: %v", err)
 	}
@@ -51,6 +61,30 @@ func TestMonitorRecordPathsAndStrictJSON(t *testing.T) {
 	}
 	if _, err := ReadObservation(stateDir, "missing"); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("missing observation error = %v, want ErrNotExist", err)
+	}
+}
+
+func TestMonitorRecordsRejectIncompleteAndInvalidSemantics(t *testing.T) {
+	stateDir := t.TempDir()
+	observationPath := ObservationPath(stateDir, "g1")
+	if err := os.MkdirAll(filepath.Dir(observationPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(observationPath, []byte(`{"schema":"cfo-monitor.v1","task_id":"g1"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadObservation(stateDir, "g1"); err == nil {
+		t.Error("ReadObservation accepted an incomplete record")
+	}
+
+	if err := os.MkdirAll(filepath.Dir(HeartbeatPath(stateDir)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(HeartbeatPath(stateDir), []byte(`{"schema":"cfo-monitor.v1","last_cycle":"not-a-time"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadHeartbeat(stateDir); err == nil {
+		t.Error("ReadHeartbeat accepted an invalid required timestamp")
 	}
 }
 
