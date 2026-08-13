@@ -153,9 +153,13 @@ func (c *Client) CreateTask(ctx context.Context, container Container, label, cwd
 		return Endpoint{}, errors.New("herdr: tab create response is missing tab_id or root pane_id")
 	}
 
-	c.pruneSeededDefault(ctx, container)
+	if err := c.pruneSeededDefault(ctx, container); err != nil {
+		return Endpoint{}, err
+	}
 	for _, husk := range husks {
-		c.ignoreClose(ctx, container.Session, "tab", husk)
+		if err := c.close(ctx, container.Session, "tab", husk); err != nil {
+			return Endpoint{}, err
+		}
 	}
 	if err := c.verifyReplacement(ctx, container.Session, container.WorkspaceID, label, create.Tab.ID); err != nil {
 		return Endpoint{}, err
@@ -229,7 +233,7 @@ func (c *Client) AgentStatus(ctx context.Context, target Target) (AgentStatus, e
 	if err != nil {
 		return AgentUnreadable, err
 	}
-	paneRaw, paneCode, err := envelope(paneResult.Stdout)
+	paneRaw, paneCode, err := responseEnvelope(paneResult)
 	if err != nil {
 		return AgentUnreadable, fmt.Errorf("herdr: decode pane presence for %s: %w", target, err)
 	}
@@ -255,7 +259,7 @@ func (c *Client) AgentStatus(ctx context.Context, target Target) (AgentStatus, e
 	if err != nil {
 		return AgentUnreadable, err
 	}
-	agentRaw, agentCode, err := envelope(agentResult.Stdout)
+	agentRaw, agentCode, err := responseEnvelope(agentResult)
 	if err != nil {
 		return AgentUnreadable, fmt.Errorf("herdr: decode agent status for %s: %w", target, err)
 	}
@@ -287,6 +291,8 @@ func (c *Client) BusyState(ctx context.Context, target Target) (BusyState, error
 		return BusyWorking, nil
 	case "idle", "done", "blocked":
 		return BusyIdle, nil
+	case "unknown":
+		return BusyUnknown, nil
 	default:
 		return BusyUnknown, fmt.Errorf("herdr: unrecognized agent status %q for %s", status, target)
 	}
@@ -308,6 +314,7 @@ func (c *Client) WaitForWorking(ctx context.Context, target Target, budget time.
 	}
 
 	readable := 0
+	idle := 0
 	for poll := 0; poll < polls; poll++ {
 		if poll > 0 {
 			if err := c.sleep(ctx, interval); err != nil {
@@ -323,9 +330,12 @@ func (c *Client) WaitForWorking(ctx context.Context, target Target, budget time.
 			return SubmitWorking, nil
 		case "idle", "done", "blocked":
 			readable++
+			idle++
+		case "unknown":
+			readable++
 		}
 	}
-	if readable == polls {
+	if idle == polls {
 		return SubmitIdle, nil
 	}
 	if readable == 0 {
@@ -454,18 +464,20 @@ func (c *Client) isHusk(ctx context.Context, session, workspaceID, tabID string)
 		if err != nil {
 			return false, err
 		}
-		return status == AgentMissing || status == AgentDead, nil
+		if status != AgentMissing && status != AgentDead {
+			return false, nil
+		}
 	}
 	return true, nil
 }
 
-func (c *Client) pruneSeededDefault(ctx context.Context, container Container) {
+func (c *Client) pruneSeededDefault(ctx context.Context, container Container) error {
 	if container.SeededDefaultTab == "" {
-		return
+		return nil
 	}
 	tabs, err := c.tabs(ctx, container.Session, container.WorkspaceID)
 	if err != nil || len(tabs) < 2 {
-		return
+		return nil
 	}
 	for _, tab := range tabs {
 		if tab.ID != container.SeededDefaultTab || tab.Label != "1" {
@@ -473,25 +485,37 @@ func (c *Client) pruneSeededDefault(ctx context.Context, container Container) {
 		}
 		panes, err := c.panes(ctx, container.Session, container.WorkspaceID)
 		if err != nil {
-			return
+			return nil
 		}
 		for _, pane := range panes {
 			if pane.TabID != tab.ID || pane.ID == "" {
 				continue
 			}
 			status, err := c.readAgentStatus(ctx, Target{Session: container.Session, Pane: pane.ID})
-			if err != nil || status == "working" {
-				return
+			if err != nil || (status != "idle" && status != "done" && status != "blocked") {
+				return nil
 			}
-			c.ignoreClose(ctx, container.Session, "pane", pane.ID)
-			return
+			return c.close(ctx, container.Session, "pane", pane.ID)
 		}
-		return
+		return nil
 	}
+	return nil
 }
 
-func (c *Client) ignoreClose(ctx context.Context, session, kind, id string) {
-	_, _ = c.required(ctx, session, Target{}, kind+" close", kind, "close", id)
+func (c *Client) close(ctx context.Context, session, kind, id string) error {
+	operation := kind + " close"
+	result, err := c.raw(ctx, session, kind, "close", id, "--json")
+	if err != nil {
+		return &CommandError{Operation: operation, Target: Target{Session: session, Pane: id}, Err: err}
+	}
+	if result.ExitCode == 0 {
+		return nil
+	}
+	_, code, decodeErr := responseEnvelope(result)
+	if decodeErr == nil && code == kind+"_not_found" {
+		return nil
+	}
+	return &CommandError{Operation: operation, Target: Target{Session: session, Pane: id}, Stderr: strings.TrimSpace(string(result.Stderr)), ExitCode: result.ExitCode}
 }
 
 func (c *Client) verifyReplacement(ctx context.Context, session, workspaceID, label, createdID string) error {
@@ -539,7 +563,7 @@ func agentStatus(raw json.RawMessage) (string, error) {
 
 func knownAgentStatus(status string) bool {
 	switch status {
-	case "working", "idle", "done", "blocked":
+	case "working", "idle", "done", "blocked", "unknown":
 		return true
 	default:
 		return false
@@ -637,6 +661,24 @@ func envelope(data []byte) (json.RawMessage, string, error) {
 		return nil, "", errors.New("response is missing result")
 	}
 	return result, "", nil
+}
+
+// responseEnvelope accepts a valid structured error emitted on either output
+// stream. Herdr may put normal business errors on stderr with a non-zero exit;
+// the JSON envelope, not that exit status, remains the liveness evidence.
+func responseEnvelope(result execx.Result) (json.RawMessage, string, error) {
+	raw, code, stdoutErr := envelope(result.Stdout)
+	if stdoutErr == nil {
+		return raw, code, nil
+	}
+	if len(result.Stderr) == 0 {
+		return nil, "", stdoutErr
+	}
+	_, stderrCode, stderrErr := envelope(result.Stderr)
+	if stderrErr == nil && stderrCode != "" {
+		return nil, stderrCode, nil
+	}
+	return nil, "", stdoutErr
 }
 
 func decodeRaw(raw json.RawMessage, destination any) error {
