@@ -144,6 +144,17 @@ func TestWatcherHealthyLiveLockFreshBeat(t *testing.T) {
 	}
 }
 
+func TestWatcherHealthyLiveLockFutureBeatFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := lock.AcquireNamedOwner(dir, ".watch.lock", os.Getpid(), "watch"); err != nil {
+		t.Fatal(err)
+	}
+	writeHeartbeat(t, dir, time.Now().Add(time.Minute))
+	if WatcherHealthy(dir, 300*time.Second) {
+		t.Error("WatcherHealthy = true, want false with a future heartbeat")
+	}
+}
+
 // --- Step 1 row 3: ChargeBudget / ResetBudget / markers ---
 
 func TestChargeBudgetCountsAndResetsOnSessionChange(t *testing.T) {
