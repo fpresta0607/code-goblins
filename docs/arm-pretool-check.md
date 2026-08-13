@@ -4,11 +4,11 @@ This document is the authoritative human-readable contract for the watcher arm P
 `bin/fm-arm-command-policy.mjs` is the single semantic owner.
 `bin/fm-arm-pretool-check.sh` is only the stable harness transport and output renderer.
 The tracked harness adapters forward command text without classifying it.
-`bin/fm-arm-command-policy.mjs` is also the sole owner of firstmate's shell classification: it exports the tokenizer and command-position analysis, which the sibling cd-guard seatbelt (`bin/fm-cd-pretool-check.sh`, `docs/cd-guard.md`) reuses instead of duplicating shell lexing.
+`bin/fm-arm-command-policy.mjs` is also the sole owner of CFO's shell classification: it exports the tokenizer and command-position analysis, which the sibling cd-guard seatbelt (`bin/fm-cd-pretool-check.sh`, `docs/cd-guard.md`) reuses instead of duplicating shell lexing.
 
 ## Purpose and boundary
 
-A firstmate primary must arm `bin/fm-watch-arm.sh` or run `bin/fm-watch-checkpoint.sh` through an observable harness call.
+A CFO primary must arm `bin/fm-watch-arm.sh` or run `bin/fm-watch-checkpoint.sh` through an observable harness call.
 A shell background operator, pipeline, redirection, wrapper, or unrelated command list can hide failure or let the watcher child die with the tool call.
 The seatbelt rejects those command shapes before execution.
 
@@ -29,7 +29,7 @@ It tokenizes the bytes and classifies lexical execution positions only.
 - `--claude` to preserve Claude's stderr-only deny requirement.
 
 The wrapper discovers the code root from its own location.
-The active firstmate home is `${FM_HOME:-<code-root>}`.
+The active CFO home is `${FM_HOME:-<code-root>}`.
 It passes both roots and the exact command string to the Node policy owner.
 
 The wrapper fast-allows a command without invoking the Node policy owner only when the command cannot contain the `fm-watch` byte sequence even after the classifier's decoders run.
@@ -67,7 +67,7 @@ bin/fm-watch.sh              (watch; protected but never blessed)
 ```
 
 The relative form, the `<code-root>`-anchored absolute form, and any word ending in `/bin/<script>` all resolve to that identity.
-Suffix matching recognizes an expanded-path prefix statically, so `$FM_HOME/bin/fm-watch-arm.sh`, `$HOME/firstmate/bin/fm-watch-arm.sh`, and `~/firstmate/bin/fm-watch-arm.sh` are the arm identity.
+Suffix matching recognizes an expanded-path prefix statically, so `$FM_HOME/bin/fm-watch-arm.sh`, `$HOME/CFO/bin/fm-watch-arm.sh`, and `~/CFO/bin/fm-watch-arm.sh` are the arm identity.
 The classifier never expands the variable or tilde; it matches the literal bytes only.
 Static quote forms are cooked before the suffix match, so a command word split by ordinary quotes (`fm-"watch"-arm.sh`), ANSI-C quoting (`fm-$'\x77'atch-arm.sh`), or a bash locale string (`fm-$"watch"-arm.sh`) all resolve to the same identity; this reads the fixed literal bytes as the shell would cook them and never runs an expansion or a command.
 This covers statically-visible literal words in command position; opaque dynamic dataflow such as `bash -lc "$WHOLE_COMMAND"` remains out of scope.
@@ -99,7 +99,7 @@ Approved setup nodes are:
 - `source <x-mode path>` or `. <x-mode path>`.
 - `[ -f <x-mode path> ] && source <x-mode path>` and the equivalent dot form.
 
-The allowed x-mode paths are `config/x-mode.env`, `./config/x-mode.env`, and an absolute path that normalizes to `<active-firstmate-home>/config/x-mode.env`.
+The allowed x-mode paths are `config/x-mode.env`, `./config/x-mode.env`, and an absolute path that normalizes to `<active-CFO-home>/config/x-mode.env`.
 An absolute x-mode path outside the active home is not an approved setup node.
 
 Approved nodes may be separated by `;`, a real newline, or `&&`.
@@ -169,7 +169,7 @@ The tracked Grok adapter therefore references `${GROK_WORKSPACE_ROOT:-}` directl
 
 ## Live validation record, 2026-07-09
 
-Validation ran in a git-initialized scratch firstmate-shaped project under this task worktree.
+Validation ran in a git-initialized scratch CFO-shaped project under this task worktree.
 The scratch project contained copies of the modified checker and policy, unchanged tracked adapters, a dummy checkpoint, a dummy arm script, a harmless `tmux` argument-capture fixture, and a private sentinel path.
 No modified file was installed into the primary checkout or a live harness configuration.
 No live watcher, fleet state, or herdr lifecycle command was used.

@@ -36,8 +36,8 @@ Two things about plain `glab` were established by running it, because assuming e
 
 First, plain `glab` has no field selector.
 `gh` reads one field with `--json state -q .state`; `glab mr view` offers only `-F, --output string  Format output as: text, json`.
-Its JSON would need a JSON processor, and `jq` is not one of firstmate's common tools, so the state is read from glab's own field output instead.
-Only an exact `merged` wakes firstmate, so a changed output format produces no wake rather than a false merge.
+Its JSON would need a JSON processor, and `jq` is not one of CFO's common tools, so the state is read from glab's own field output instead.
+Only an exact `merged` wakes CFO, so a changed output format produces no wake rather than a false merge.
 
 Second, `glab` cannot take a merge request URL the way `gh pr view` can.
 That form shells out to git for the current repository, and the watcher runs in no repository:
@@ -158,7 +158,7 @@ $ echo $?
 A GitHub task is unaffected by a missing `glab`:
 
 ```
-$ PATH="$noglab" fm-pr-check.sh e6 https://github.com/kunchenguid/firstmate/pull/750
+$ PATH="$noglab" fm-pr-check.sh e6 https://github.com/kunchenguid/CFO/pull/750
 armed: state/e6.check.sh
 ```
 
@@ -196,5 +196,5 @@ No armed watch is lost by upgrading.
 It refuses a GitLab merge request URL rather than sending it to the wrong forge, so merging a merge request stays a deliberate manual step until merge parity lands separately.
 
 A GitLab task records no `pr_head=`.
-`gh` exposes the head commit as a selectable field, while plain `glab` exposes it only inside its JSON output, which would need a JSON processor firstmate does not require.
+`gh` exposes the head commit as a selectable field, while plain `glab` exposes it only inside its JSON output, which would need a JSON processor CFO does not require.
 Both consumers already treat it as optional: `bin/fm-teardown.sh` reads the head from the forge at teardown rather than from metadata and falls back to its provider-agnostic content check, and `bin/fm-review-diff.sh` resolves the head from the remote when none is recorded.

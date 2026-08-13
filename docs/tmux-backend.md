@@ -1,6 +1,6 @@
 # tmux runtime backend
 
-tmux is Firstmate's verified reference runtime backend and the fully supported baseline for secondmate homes.
+tmux is CFO's verified reference runtime backend and the fully supported baseline for secondmate homes.
 [`configuration.md`](configuration.md#runtime-backend-configbackend--fm_backend) owns shared backend selection and metadata semantics.
 
 ## Setup
@@ -9,7 +9,7 @@ Install tmux with `brew install tmux` or your platform package manager.
 The universal harness and toolchain requirements are in [`configuration.md`](configuration.md#toolchain).
 
 tmux is the hard default when no explicit setting or runtime auto-detection selects another backend.
-Select it explicitly with local `config/backend` containing `tmux`, with `FM_BACKEND=tmux` for one launch, or by asking Firstmate to use tmux.
+Select it explicitly with local `config/backend` containing `tmux`, with `FM_BACKEND=tmux` for one launch, or by asking CFO to use tmux.
 An explicit selection is also the opt-out from Herdr or cmux runtime auto-detection.
 
 No provisioning is required before the first task.
@@ -19,15 +19,15 @@ No provisioning is required before the first task.
 For the best visible experience, launch the primary harness inside a tmux session:
 
 ```sh
-tmux new -s firstmate
+tmux new -s CFO
 ```
 
 Crew tasks become windows in that session.
 `tmux display-message -p '#S'` prints its name.
-If the primary harness runs outside tmux, Firstmate creates or reuses a detached session named `firstmate`:
+If the primary harness runs outside tmux, CFO creates or reuses a detached session named `CFO`:
 
 ```sh
-tmux attach -t firstmate
+tmux attach -t CFO
 ```
 
 Each task window is named `fm-<id>`.
