@@ -1,5 +1,7 @@
 [CmdletBinding()]
-param()
+param(
+    [string]$SelfTest = ''
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -110,6 +112,124 @@ function Assert-MetaValue {
     return $Meta[$Name]
 }
 
+function Convert-StaleSecondsToGoDuration {
+    param([Parameter(Mandatory = $true)][int64]$Seconds)
+
+    if ($Seconds -le 0) {
+        return '-'
+    }
+    $hours = [math]::Floor($Seconds / 3600)
+    $remaining = $Seconds % 3600
+    $minutes = [math]::Floor($remaining / 60)
+    $seconds = $remaining % 60
+    if ($hours -gt 0) {
+        return "${hours}h${minutes}m${seconds}s"
+    }
+    if ($minutes -gt 0) {
+        return "${minutes}m${seconds}s"
+    }
+    return "${seconds}s"
+}
+
+function Convert-MarkdownCell {
+    param($Value)
+
+    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) {
+        return '-'
+    }
+    return ([string]$Value).Replace("`r", ' ').Replace("`n", ' ').Replace('|', '\\|')
+}
+
+function Convert-LastSeenToMarkdown {
+    param([Parameter(Mandatory = $true)]$Value)
+
+    try {
+        return ([DateTimeOffset]$Value).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+    }
+    catch {
+        throw "ACCEPTANCE BLOCKER: fleet JSON last_seen is not an RFC3339 timestamp: $Value"
+    }
+}
+
+function Convert-EndpointToMarkdown {
+    param($Exists)
+
+    if ($null -eq $Exists) {
+        return 'unknown'
+    }
+    if ([bool]$Exists) {
+        return 'present'
+    }
+    return 'absent'
+}
+
+function Convert-BooleanToMarkdown {
+    param([Parameter(Mandatory = $true)][bool]$Value)
+
+    if ($Value) {
+        return 'yes'
+    }
+    return 'no'
+}
+
+function Assert-FleetProjectionParity {
+    param(
+        [Parameter(Mandatory = $true)]$Row,
+        [Parameter(Mandatory = $true)]$Worker,
+        [Parameter(Mandatory = $true)][string]$Markdown
+    )
+
+    $taskID = Assert-ObjectProperty -Object $Row -Name 'id' -Description 'fleet row'
+    $current = Assert-ObjectProperty -Object $Row -Name 'current_state' -Description "$taskID fleet row"
+    $state = Assert-ObjectProperty -Object $current -Name 'state' -Description "$taskID current state"
+    $source = Assert-ObjectProperty -Object $current -Name 'source' -Description "$taskID current source"
+    $monitor = Assert-ObjectProperty -Object $Row -Name 'monitor' -Description "$taskID fleet row"
+    $health = Assert-ObjectProperty -Object $monitor -Name 'health' -Description "$taskID monitor"
+    $staleSeconds = [int64](Assert-ObjectProperty -Object $monitor -Name 'stale_seconds' -Description "$taskID monitor")
+    $lastSeen = Convert-LastSeenToMarkdown (Assert-ObjectProperty -Object $monitor -Name 'last_seen' -Description "$taskID monitor")
+    $escalation = Assert-ObjectProperty -Object $monitor -Name 'escalation' -Description "$taskID monitor"
+    $deepInspection = [bool](Assert-ObjectProperty -Object $monitor -Name 'demand_deep_inspection' -Description "$taskID monitor")
+    $endpoint = Assert-ObjectProperty -Object $Row -Name 'endpoint' -Description "$taskID fleet row"
+    $endpointTarget = Assert-ObjectProperty -Object $endpoint -Name 'target' -Description "$taskID endpoint"
+    $null = Assert-ObjectProperty -Object $endpoint -Name 'session' -Description "$taskID endpoint"
+    $null = Assert-ObjectProperty -Object $endpoint -Name 'pane_id' -Description "$taskID endpoint"
+    $endpointExists = Assert-ObjectProperty -Object $endpoint -Name 'exists' -Description "$taskID endpoint"
+    $kind = Assert-ObjectProperty -Object $Row -Name 'kind' -Description "$taskID fleet row"
+    $project = Assert-ObjectProperty -Object $Row -Name 'project' -Description "$taskID fleet row"
+    $backend = Assert-ObjectProperty -Object $Row -Name 'backend' -Description "$taskID fleet row"
+    $path = Assert-ObjectProperty -Object $Row -Name 'path' -Description "$taskID fleet row"
+    $peek = Assert-ObjectProperty -Object $Row -Name 'actions' -Description "$taskID fleet row"
+    $peek = Assert-ObjectProperty -Object $peek -Name 'peek' -Description "$taskID fleet row"
+
+    if ($taskID -ne $Worker.ID -or $path -ne $Worker.Worktree) {
+        throw "ACCEPTANCE BLOCKER: fleet JSON task/worktree identity does not match $($Worker.ID)."
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$endpointTarget)) {
+        throw "ACCEPTANCE BLOCKER: fleet JSON does not expose an endpoint target for $taskID."
+    }
+
+    $fields = @(
+        (Convert-MarkdownCell $taskID),
+        ((Convert-MarkdownCell $state) + ' / ' + (Convert-MarkdownCell $source)),
+        (Convert-MarkdownCell $health),
+        (Convert-StaleSecondsToGoDuration $staleSeconds),
+        (Convert-MarkdownCell $lastSeen),
+        (Convert-MarkdownCell $escalation),
+        (Convert-BooleanToMarkdown $deepInspection),
+        (Convert-MarkdownCell $kind),
+        (Convert-MarkdownCell $project),
+        (Convert-MarkdownCell $backend),
+        (Convert-EndpointToMarkdown $endpointExists),
+        (Convert-MarkdownCell $Row.artifact),
+        (Convert-MarkdownCell $path),
+        (Convert-MarkdownCell $peek)
+    )
+    $expectedRow = '| ' + ($fields -join ' | ') + ' |'
+    if ($Markdown -notmatch [regex]::Escape($expectedRow)) {
+        throw "ACCEPTANCE BLOCKER: fleet Markdown does not exactly project task/current/worktree plus endpoint, stale duration, last seen, escalation, and deep inspection for $taskID. Expected row: $expectedRow"
+    }
+}
+
 function Test-CfoCleanupAvailable {
     param([Parameter(Mandatory = $true)][string]$Cfo)
 
@@ -119,6 +239,49 @@ function Test-CfoCleanupAvailable {
     $output = @(& $Cfo cleanup --help 2>&1)
     $text = $output -join [Environment]::NewLine
     return $LASTEXITCODE -eq 0 -and $text -match '(?m)usage:\s+cfo cleanup'
+}
+
+function New-MissingCleanupBlocker {
+    param([Parameter(Mandatory = $true)][string]$Root)
+    return "ACCEPTANCE BLOCKER: this cfo build has no cleanup command. Leaving disposable fixture intact at $Root because no direct treehouse return or worktree deletion is permitted."
+}
+
+function Initialize-DisposablePrimaryCfoHome {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$CfoHome
+    )
+
+    Assert-ContainedPath -Root $Root -Path $CfoHome -Description 'disposable CFO home'
+    $state = Join-Path $CfoHome 'state'
+    Assert-ContainedPath -Root $Root -Path $state -Description 'disposable CFO state directory'
+    New-Item -ItemType Directory -Path $state -Force -ErrorAction Stop | Out-Null
+    Set-Content -LiteralPath (Join-Path $CfoHome 'AGENTS.md') -Value '# Disposable CFO acceptance home.' -NoNewline
+    Invoke-Checked -FilePath 'git' -Arguments @('init', '--initial-branch=main', $CfoHome) -Description 'initialize disposable primary CFO home' | Out-Null
+    Assert-DisposablePrimaryCfoHome -Root $Root -CfoHome $CfoHome
+}
+
+function Assert-DisposablePrimaryCfoHome {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$CfoHome
+    )
+
+    Assert-ContainedPath -Root $Root -Path $CfoHome -Description 'disposable CFO home'
+    $agents = Join-Path $CfoHome 'AGENTS.md'
+    $state = Join-Path $CfoHome 'state'
+    if (-not (Test-Path -LiteralPath $agents -PathType Leaf) -or -not (Test-Path -LiteralPath $state -PathType Container)) {
+        throw "ACCEPTANCE BLOCKER: disposable CFO home is missing AGENTS.md or state directory."
+    }
+    $paths = @(Invoke-Checked -FilePath 'git' -Arguments @('-C', $CfoHome, 'rev-parse', '--git-dir', '--git-common-dir') -Description 'inspect disposable primary CFO Git paths' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+    if ($paths.Count -ne 2) {
+        throw "ACCEPTANCE BLOCKER: disposable CFO home Git probe returned $($paths.Count) paths, want two."
+    }
+    $gitDir = Get-FullPath (Join-Path $CfoHome $paths[0])
+    $commonDir = Get-FullPath (Join-Path $CfoHome $paths[1])
+    if (-not [string]::Equals($gitDir, $commonDir, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "ACCEPTANCE BLOCKER: disposable CFO home is a linked worktree instead of a primary checkout."
+    }
 }
 
 function Remove-FixtureRoot {
@@ -149,6 +312,67 @@ $marker = 'plan3-acceptance-' + [Guid]::NewGuid().ToString('N')
 $workers = @()
 $herdrProcess = $null
 $cleanupCompleted = $false
+$primaryFailure = $null
+$cleanupFailure = $null
+$previousCfoHome = $env:CFO_HOME
+$previousHerdrSession = $env:HERDR_SESSION
+$previousSignalGrace = $env:CFO_SIGNAL_GRACE
+
+if ($SelfTest -eq 'missing-cleanup') {
+    $missingCfo = Join-Path $fixtureRoot 'missing-cfo.exe'
+    if (Test-CfoCleanupAvailable -Cfo $missingCfo) {
+        throw 'Acceptance self-test expected a missing cfo cleanup command.'
+    }
+    throw (New-MissingCleanupBlocker -Root $fixtureRoot)
+}
+if ($SelfTest -eq 'primary-home') {
+    try {
+        New-Item -ItemType Directory -Path $fixtureRoot -ErrorAction Stop | Out-Null
+        Initialize-DisposablePrimaryCfoHome -Root $fixtureRoot -CfoHome $cfoHome
+        Write-Output 'Plan 3 primary-home self-test passed.'
+    }
+    finally {
+        Remove-FixtureRoot -Root $fixtureRoot -TempRoot $tempRoot
+    }
+    return
+}
+if ($SelfTest -eq 'fleet-parity') {
+    $worker = [pscustomobject]@{ ID = 'accept-claude'; Worktree = 'C:\fixture\worker' }
+    $row = [pscustomobject]@{
+        id = 'accept-claude'
+        current_state = [pscustomobject]@{ state = 'working'; source = 'status' }
+        monitor = [pscustomobject]@{
+            health = 'stale'
+            stale_seconds = 121
+            last_seen = '2026-08-13T12:34:56Z'
+            escalation = 2
+            demand_deep_inspection = $true
+        }
+        endpoint = [pscustomobject]@{ target = 'fixture:pane:claude'; session = 'fixture'; pane_id = 'pane:claude'; exists = $true }
+        kind = 'task'
+        project = 'C:\fixture\project'
+        backend = 'herdr'
+        artifact = ''
+        path = 'C:\fixture\worker'
+        actions = [pscustomobject]@{ peek = 'cfo peek fm-accept-claude' }
+    }
+    $markdown = '| accept-claude | working / status | stale | 2m1s | 2026-08-13T12:34:56Z | 2 | yes | task | C:\fixture\project | herdr | present | - | C:\fixture\worker | cfo peek fm-accept-claude |'
+    Assert-FleetProjectionParity -Row $row -Worker $worker -Markdown $markdown
+    try {
+        Assert-FleetProjectionParity -Row $row -Worker $worker -Markdown ($markdown.Replace('present', 'absent'))
+        throw 'Acceptance self-test expected Markdown endpoint parity to fail.'
+    }
+    catch {
+        if ($_.Exception.Message -notmatch 'does not exactly project') {
+            throw
+        }
+    }
+    Write-Output 'Plan 3 fleet parity self-test passed.'
+    return
+}
+if ($SelfTest -ne '') {
+    throw "Unknown Plan 3 acceptance self-test $SelfTest."
+}
 
 try {
     New-Item -ItemType Directory -Path $fixtureRoot -ErrorAction Stop | Out-Null
@@ -156,6 +380,7 @@ try {
     Assert-ContainedPath -Root $fixtureRoot -Path $origin -Description 'fixture Git origin'
     Assert-ContainedPath -Root $fixtureRoot -Path $project -Description 'fixture Git project'
     Assert-ContainedPath -Root $fixtureRoot -Path $cfo -Description 'CFO binary'
+    Initialize-DisposablePrimaryCfoHome -Root $fixtureRoot -CfoHome $cfoHome
 
     Push-Location $repoRoot
     try {
@@ -176,10 +401,9 @@ try {
     Invoke-Checked -FilePath 'git' -Arguments @('-C', $project, 'commit', '-m', 'fixture seed') -Description 'commit disposable project seed' | Out-Host
     Invoke-Checked -FilePath 'git' -Arguments @('-C', $project, 'push', '-u', 'origin', 'main') -Description 'push disposable project seed' | Out-Host
 
-    $previousCfoHome = $env:CFO_HOME
-    $previousHerdrSession = $env:HERDR_SESSION
     $env:CFO_HOME = $cfoHome
     $env:HERDR_SESSION = $session
+    $env:CFO_SIGNAL_GRACE = '1'
 
     $doctor = @(& $cfo doctor 2>&1)
     $doctorText = $doctor -join [Environment]::NewLine
@@ -266,6 +490,9 @@ try {
         $workers += [pscustomobject]@{ ID = $id; Worktree = $worktree; Meta = $meta }
     }
 
+    $watchStatus = Join-Path $cfoHome 'state\acceptance-watch.status'
+    Assert-ContainedPath -Root $fixtureRoot -Path $watchStatus -Description 'fixture watch trigger'
+    Set-Content -LiteralPath $watchStatus -Value 'working: fixture monitor trigger' -NoNewline
     & $cfo watch
     if ($LASTEXITCODE -ne 0) {
         throw 'ACCEPTANCE BLOCKER: cfo watch failed before monitor inspection.'
@@ -291,11 +518,7 @@ try {
         if ($row.Count -ne 1) {
             throw "ACCEPTANCE BLOCKER: fleet JSON has $($row.Count) rows for $($worker.ID)."
         }
-        foreach ($value in @($worker.ID, $row[0].current_state.state, $row[0].monitor.health, $row[0].monitor.escalation, $worker.Worktree)) {
-            if ($fleetMarkdown -notmatch [regex]::Escape([string]$value)) {
-                throw "ACCEPTANCE BLOCKER: fleet Markdown does not preserve JSON value $value for $($worker.ID)."
-            }
-        }
+        Assert-FleetProjectionParity -Row $row[0] -Worker $worker -Markdown $fleetMarkdown
     }
 
     $primaryStatus = Invoke-Checked -FilePath 'git' -Arguments @('-C', $project, 'status', '--porcelain') -Description 'verify disposable primary checkout status'
@@ -303,22 +526,28 @@ try {
         throw "ACCEPTANCE BLOCKER: disposable primary checkout is dirty.`n$($primaryStatus -join [Environment]::NewLine)"
     }
 }
+catch {
+    $primaryFailure = $_
+}
 finally {
     $cleanupAvailable = Test-CfoCleanupAvailable -Cfo $cfo
     if (-not $cleanupAvailable) {
-        [Console]::Error.WriteLine("ACCEPTANCE BLOCKER: this cfo build has no cleanup command. Leaving disposable fixture intact at $fixtureRoot because no direct treehouse return or worktree deletion is permitted.")
+        $cleanupFailure = New-MissingCleanupBlocker -Root $fixtureRoot
+        [Console]::Error.WriteLine($cleanupFailure)
     }
     else {
         $cleanupFailed = $false
         foreach ($worker in $workers) {
             $output = @(& $cfo cleanup $worker.ID 2>&1)
             if ($LASTEXITCODE -ne 0) {
-                [Console]::Error.WriteLine("ACCEPTANCE BLOCKER: cfo cleanup failed for $($worker.ID). Leaving fixture intact.`n$($output -join [Environment]::NewLine)")
+                $cleanupFailure = "ACCEPTANCE BLOCKER: cfo cleanup failed for $($worker.ID). Leaving fixture intact.`n$($output -join [Environment]::NewLine)"
+                [Console]::Error.WriteLine($cleanupFailure)
                 $cleanupFailed = $true
                 break
             }
             if (Test-Path -LiteralPath $worker.Worktree) {
-                [Console]::Error.WriteLine("ACCEPTANCE BLOCKER: cfo cleanup returned success but left $($worker.Worktree). Leaving fixture intact.")
+                $cleanupFailure = "ACCEPTANCE BLOCKER: cfo cleanup returned success but left $($worker.Worktree). Leaving fixture intact."
+                [Console]::Error.WriteLine($cleanupFailure)
                 $cleanupFailed = $true
                 break
             }
@@ -339,4 +568,12 @@ finally {
     }
     $env:CFO_HOME = $previousCfoHome
     $env:HERDR_SESSION = $previousHerdrSession
+    $env:CFO_SIGNAL_GRACE = $previousSignalGrace
+}
+
+if ($null -ne $primaryFailure) {
+    throw $primaryFailure
+}
+if ($null -ne $cleanupFailure) {
+    throw $cleanupFailure
 }
