@@ -90,7 +90,7 @@ func renderTasks(w io.Writer, tasks []TaskRow) error {
 			task.Kind,
 			task.Project,
 			task.Backend,
-			endpointText(task.Endpoint.Exists),
+			endpointText(task.Endpoint),
 			task.Artifact,
 			task.Path,
 			task.Actions.Peek,
@@ -179,14 +179,19 @@ func boolText(value bool) string {
 	return "no"
 }
 
-func endpointText(exists *bool) string {
-	if exists == nil {
-		return "unknown"
+func endpointText(endpoint EndpointSummary) string {
+	verdict := "unknown"
+	if endpoint.Exists != nil {
+		if *endpoint.Exists {
+			verdict = "present"
+		} else {
+			verdict = "absent"
+		}
 	}
-	if *exists {
-		return "present"
+	if endpoint.Target == "" {
+		return verdict
 	}
-	return "absent"
+	return endpoint.Target + " (" + verdict + ")"
 }
 
 func blockerText(row BacklogRow) string {
