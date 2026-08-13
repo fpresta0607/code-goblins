@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/fpresta0607/code-goblins/internal/doctor"
+	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
 // version is stamped by the release build:
@@ -20,6 +21,7 @@ const usage = `usage: cfo <command> [args]
 commands:
   version   print the cfo version
   doctor    check the tools cfo needs (git, gh, claude, herdr, treehouse)
+  drain     print or acknowledge the wake queue and recovery episode
 `
 
 func main() {
@@ -48,6 +50,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		return 0
+	case "drain":
+		h, err := home.Resolve()
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return runDrain(h, args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "cfo: unknown command %q\n%s", args[0], usage)
 		return 2

@@ -82,6 +82,21 @@ func writeInfo(path string, info *Info) error {
 	return errors.Join(werr, f.Close())
 }
 
+// AcquireNamedOwner takes dir/name for ownerPID, the long-lived process (the
+// harness ancestor, or a subsystem such as the wake queue) taking custody of
+// the lock, recording session as the Claude session currently running under
+// that owner. It is AcquireOwner generalized to a caller-chosen lock file
+// instead of the fixed ".lock", so unrelated locks (session custody, the
+// wake queue) can coexist in the same directory. See AcquireOwner for the
+// full acquisition semantics.
+func AcquireNamedOwner(dir, name string, ownerPID int, session string) (*Info, error) {
+	self, status := ownerInfo(ownerPID, session)
+	if status == statusDead {
+		return nil, fmt.Errorf("%w: pid %d", ErrOwnerDead, ownerPID)
+	}
+	return acquire(dir, name, self)
+}
+
 // AcquireOwner takes dir/.lock for ownerPID, the long-lived process (the
 // harness ancestor) taking custody of the lock, recording session as the
 // Claude session currently running under that owner. A holder that is dead
@@ -95,11 +110,7 @@ func writeInfo(path string, info *Info) error {
 // Strategy: exclusive create with read-back verification, grace period for
 // mid-write files, and retry with a constant backoff on transient errors.
 func AcquireOwner(dir string, ownerPID int, session string) (*Info, error) {
-	self, status := ownerInfo(ownerPID, session)
-	if status == statusDead {
-		return nil, fmt.Errorf("%w: pid %d", ErrOwnerDead, ownerPID)
-	}
-	return acquire(dir, self)
+	return AcquireNamedOwner(dir, ".lock", ownerPID, session)
 }
 
 // Acquire takes dir/.lock for the current process, recording no session.
@@ -110,9 +121,10 @@ func Acquire(dir string) (*Info, error) {
 }
 
 // acquire runs the exclusive-create/read-back/steal loop, recording self as
-// the new holder if the lock is free or its dead holder can be stolen.
-func acquire(dir string, self *Info) (*Info, error) {
-	path := filepath.Join(dir, ".lock")
+// the new holder of dir/name if the lock is free or its dead holder can be
+// stolen.
+func acquire(dir, name string, self *Info) (*Info, error) {
+	path := filepath.Join(dir, name)
 	unreadableCount := 0
 	unreadableStart := time.Time{}
 
@@ -120,7 +132,7 @@ func acquire(dir string, self *Info) (*Info, error) {
 		err := writeInfo(path, self)
 		if err == nil {
 			// Verify we won the race: read back the file and confirm it records us.
-			if verified, verr := Read(dir); verr == nil && verified.PID == self.PID && verified.Start.Equal(self.Start) {
+			if verified, verr := ReadNamed(dir, name); verr == nil && verified.PID == self.PID && verified.Start.Equal(self.Start) {
 				return self, nil
 			}
 			// Either we lost the race (another acquirer wrote after us) or the
@@ -137,7 +149,7 @@ func acquire(dir string, self *Info) (*Info, error) {
 		}
 
 		// File exists; read the holder.
-		holder, herr := Read(dir)
+		holder, herr := ReadNamed(dir, name)
 		if herr != nil {
 			// File is unreadable, corrupt, or zero-byte (holder mid-write).
 			// Treat as transient: sleep and retry, but only after seeing
@@ -175,7 +187,7 @@ func acquire(dir string, self *Info) (*Info, error) {
 
 		// Holder is dead. Re-read immediately to check if it changed
 		// (another acquirer might have won the race and written a new holder).
-		holder2, herr2 := Read(dir)
+		holder2, herr2 := ReadNamed(dir, name)
 		if herr2 != nil {
 			// Re-read is unreadable (file mid-write). Never remove on an
 			// unreadable re-read, even though we already judged the first read
@@ -204,9 +216,9 @@ func acquire(dir string, self *Info) (*Info, error) {
 	return nil, errors.New("lock: failed to acquire after 10 attempts")
 }
 
-// Read returns the current holder recorded in dir/.lock.
-func Read(dir string) (*Info, error) {
-	data, err := os.ReadFile(filepath.Join(dir, ".lock"))
+// ReadNamed returns the current holder recorded in dir/name.
+func ReadNamed(dir, name string) (*Info, error) {
+	data, err := os.ReadFile(filepath.Join(dir, name))
 	if err != nil {
 		return nil, err
 	}
@@ -217,16 +229,21 @@ func Read(dir string) (*Info, error) {
 	return &info, nil
 }
 
-// HeldBy reports whether dir/.lock currently records ownerPID as its holder:
-// the hostname matches, the PID matches, and ownerPID's live creation time
-// matches the recorded Start within the same one-second tolerance Alive
-// uses. Any read error, including a missing lock file, returns false.
-// Fail closed applies here too: if ownerPID's process state cannot be
-// verified (statusUnknown), Alive() returns true without checking Start, so
-// an unverifiable owner reads as held and the recycled-PID defense is inert
-// in that branch.
-func HeldBy(dir string, ownerPID int) bool {
-	holder, err := Read(dir)
+// Read returns the current holder recorded in dir/.lock.
+func Read(dir string) (*Info, error) {
+	return ReadNamed(dir, ".lock")
+}
+
+// HeldByNamed reports whether dir/name currently records ownerPID as its
+// holder: the hostname matches, the PID matches, and ownerPID's live
+// creation time matches the recorded Start within the same one-second
+// tolerance Alive uses. Any read error, including a missing lock file,
+// returns false. Fail closed applies here too: if ownerPID's process state
+// cannot be verified (statusUnknown), Alive() returns true without checking
+// Start, so an unverifiable owner reads as held and the recycled-PID
+// defense is inert in that branch.
+func HeldByNamed(dir, name string, ownerPID int) bool {
+	holder, err := ReadNamed(dir, name)
 	if err != nil {
 		return false
 	}
@@ -237,9 +254,15 @@ func HeldBy(dir string, ownerPID int) bool {
 	return holder.Alive()
 }
 
-// Release removes the lock when the current process identity holds it.
-func Release(dir string) error {
-	holder, err := Read(dir)
+// HeldBy reports whether dir/.lock currently records ownerPID as its
+// holder. See HeldByNamed for the full semantics.
+func HeldBy(dir string, ownerPID int) bool {
+	return HeldByNamed(dir, ".lock", ownerPID)
+}
+
+// ReleaseNamed removes dir/name when the current process identity holds it.
+func ReleaseNamed(dir, name string) error {
+	holder, err := ReadNamed(dir, name)
 	if err != nil {
 		return err
 	}
@@ -256,5 +279,11 @@ func Release(dir string) error {
 		return fmt.Errorf("lock: held by pid %d, not this process", holder.PID)
 	}
 
-	return os.Remove(filepath.Join(dir, ".lock"))
+	return os.Remove(filepath.Join(dir, name))
+}
+
+// Release removes dir/.lock when the current process identity holds it. See
+// ReleaseNamed for the full semantics.
+func Release(dir string) error {
+	return ReleaseNamed(dir, ".lock")
 }
