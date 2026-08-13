@@ -47,12 +47,14 @@ func TestSenderTextUsesLongSettleForSlashAndCodexDollarMessages(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		harness string
+		raw     string
 		message string
 		want    time.Duration
 	}{
 		{name: "slash", harness: "claude", message: "/compact", want: 1200 * time.Millisecond},
 		{name: "codex dollar", harness: "codex", message: "$review", want: 1200 * time.Millisecond},
 		{name: "other dollar", harness: "claude", message: "$5", want: 300 * time.Millisecond},
+		{name: "explicit target dollar without metadata", raw: "fleet:pane-7", message: "$review", want: 1200 * time.Millisecond},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			runner := &fakeRunner{replies: []runnerReply{
@@ -72,7 +74,11 @@ func TestSenderTextUsesLongSettleForSlashAndCodexDollarMessages(t *testing.T) {
 				},
 			}
 
-			if err := sender.Text(context.Background(), "task-7", test.message); err != nil {
+			raw := test.raw
+			if raw == "" {
+				raw = "task-7"
+			}
+			if err := sender.Text(context.Background(), raw, test.message); err != nil {
 				t.Fatalf("Text: %v", err)
 			}
 			if !reflect.DeepEqual(senderSleeps, []time.Duration{test.want}) {
@@ -278,6 +284,65 @@ func TestSenderTextUsesComposerEvidenceWhenTargetWasAlreadyWorking(t *testing.T)
 				t.Errorf("sender sleeps = %v, want settle and composer confirmation wait", senderSleeps)
 			}
 		})
+	}
+}
+
+func TestSenderTextConfirmsOnlyCurrentClaudeAndCodexComposer(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		harness   string
+		capture   string
+		wantError string
+	}{
+		{name: "current Claude prompt confirms", harness: "claude", capture: "\n  \u276f\n"},
+		{name: "current Codex prompt confirms", harness: "codex", capture: "\n  \u203a\n"},
+		{name: "stale Claude prompt above terminal output refuses", harness: "claude", capture: "\n  \u276f\nnew terminal output\n", wantError: "unknown"},
+		{name: "stale Codex prompt above terminal output refuses", harness: "codex", capture: "\n  \u203a\nnew terminal output\n", wantError: "unknown"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &fakeRunner{replies: []runnerReply{
+				rawReply(""),
+				jsonReply(`{"result":{"agent":{"agent_status":"working"}}}`),
+				rawReply(""),
+				rawReply(test.capture),
+			}}
+			var clientSleeps []time.Duration
+			sender := Sender{
+				Resolve: &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}, meta: taskMeta("task-7", test.harness)},
+				Herdr:   newHerdrClient(runner, &clientSleeps),
+				Sleep:   noSleep,
+			}
+
+			err := sender.Text(context.Background(), "task-7", "draft")
+			if test.wantError == "" && err != nil {
+				t.Fatalf("Text: %v", err)
+			}
+			if test.wantError != "" {
+				assertErrorContains(t, err, test.wantError)
+			}
+		})
+	}
+}
+
+func TestSenderTextAcceptsCurrentPiComposerWithFooter(t *testing.T) {
+	var currentPiIdleFixture = "\u001b[0m\u001b[38;2;129;162;190m\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\u001b[0m\n\u001b[0m\u001b[7m \u001b[0m                                                    \n\u001b[0m\u001b[38;2;129;162;190m\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\u001b[0m\n\u001b[0m\u001b[38;2;102;102;102m~/synthetic-primary (main)\u001b[0m\n"
+	currentPiIdleFixture = strings.ReplaceAll(currentPiIdleFixture, "\\u2500", "\u2500")
+	runner := &fakeRunner{replies: []runnerReply{
+		rawReply(""),
+		jsonReply(`{"result":{"agent":{"agent_status":"working"}}}`),
+		rawReply(""),
+		rawReply(currentPiIdleFixture),
+		jsonReply(`{"result":{"agent":{"agent":"pi","agent_status":"idle"}}}`),
+	}}
+	var clientSleeps []time.Duration
+	sender := Sender{
+		Resolve: &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}, meta: taskMeta("task-7", "pi")},
+		Herdr:   newHerdrClient(runner, &clientSleeps),
+		Sleep:   noSleep,
+	}
+
+	if err := sender.Text(context.Background(), "task-7", "draft"); err != nil {
+		t.Fatalf("Text: %v", err)
 	}
 }
 

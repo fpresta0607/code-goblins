@@ -37,8 +37,12 @@ func (r Resolver) Resolve(_ context.Context, raw string) (herdr.Target, state.Ta
 		return herdr.Target{}, state.TaskMeta{}, errors.New("fleet: state directory is required to resolve task selectors")
 	}
 
-	id := strings.TrimPrefix(raw, "fm-")
+	id := raw
 	meta, err := state.ReadTaskMeta(r.StateDir, id)
+	if errors.Is(err, os.ErrNotExist) && strings.HasPrefix(raw, "fm-") {
+		id = strings.TrimPrefix(raw, "fm-")
+		meta, err = state.ReadTaskMeta(r.StateDir, id)
+	}
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return herdr.Target{}, state.TaskMeta{}, fmt.Errorf("fleet: unknown selector %q; provide <session>:<pane-id> for an explicit Herdr pane", raw)

@@ -130,8 +130,11 @@ func (s Sender) composerState(ctx context.Context, target herdr.Target, meta sta
 	lines := strings.Split(stripANSI(captured), "\n")
 	for index := len(lines) - 1; index >= 0; index-- {
 		line := strings.TrimSpace(lines[index])
-		if !strings.HasPrefix(line, prompt) {
+		if line == "" {
 			continue
+		}
+		if !strings.HasPrefix(line, prompt) {
+			return herdr.SubmitUnknown, nil
 		}
 		if strings.TrimSpace(strings.TrimPrefix(line, prompt)) == "" {
 			return herdr.SubmitWorking, nil
@@ -182,11 +185,16 @@ func piComposerCandidate(captured string) herdr.SubmitState {
 		}
 	}
 	for _, line := range lines[close+1:] {
-		if strings.TrimSpace(line) != "" {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !piFooter(trimmed) {
 			return herdr.SubmitUnknown
 		}
 	}
 	return herdr.SubmitWorking
+}
+
+func piFooter(line string) bool {
+	return strings.HasPrefix(line, "~/") && strings.Contains(line, " (") && strings.HasSuffix(line, ")")
 }
 
 func piSeparator(line string) bool {
@@ -209,7 +217,7 @@ func (s Sender) sleep(ctx context.Context, duration time.Duration) error {
 }
 
 func settleDuration(meta state.TaskMeta, message string) time.Duration {
-	if strings.HasPrefix(message, "/") || (meta.Harness == "codex" && strings.HasPrefix(message, "$")) {
+	if strings.HasPrefix(message, "/") || (strings.HasPrefix(message, "$") && (meta.Harness == "" || meta.Harness == "codex")) {
 		return completionSettle
 	}
 	return plainSettle
