@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -88,5 +89,36 @@ func TestReadBacklogCleansWrappedURLsFromTitles(t *testing.T) {
 	row := backlog.Queued[0]
 	if row.Title != "Wrapped link" || row.Artifact != "https://github.com/example/repo/pull/42" {
 		t.Errorf("wrapped URL row = %+v, want URL-free title and PR artifact", row)
+	}
+}
+
+func TestReadBacklogRetainsCanonicalBlockersAndRawIndentation(t *testing.T) {
+	h := snapshotHome(t)
+	if err := os.MkdirAll(h.Data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "## Queued\r\n- [ ] q1 - Wait for prerequisite blocked-by: prep (repo: goblins)\r\n  - indented free-form queue note\r\n"
+	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	backlog, err := ReadBacklog(h)
+	if err != nil {
+		t.Fatalf("ReadBacklog: %v", err)
+	}
+	canonical := backlog.Queued[0]
+	if canonical.BlockedBy != "prep" || canonical.Title != "Wait for prerequisite" || canonical.Repo != "goblins" {
+		t.Errorf("canonical blocker row = %+v, want blocker metadata outside the title", canonical)
+	}
+	if raw := backlog.Queued[1].Raw; raw != "  - indented free-form queue note" {
+		t.Errorf("raw backlog row = %q, want its original normalized indentation", raw)
+	}
+
+	var markdown bytes.Buffer
+	if err := RenderMarkdown(&markdown, Snapshot{Backlog: backlog, Secondmates: []SecondmateRow{}}); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(markdown.Bytes(), []byte("  - indented free-form queue note")) {
+		t.Errorf("Markdown does not retain raw backlog indentation:\n%s", markdown.String())
 	}
 }
