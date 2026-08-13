@@ -18,7 +18,7 @@ var (
 	wrappedURLPattern  = regexp.MustCompile(`<?https?://[^\s\)\]"<>]+>?`)
 	reportPattern      = regexp.MustCompile(`data/[^\s\)]+/report\.md`)
 	trailingMetadata   = regexp.MustCompile(`(?i)\s*\(\s*(?:(?:repo|kind|priority|hold|hold-kind)\s*:\s*[^)]*|(?:since|merged|reported|done)\s+[^)]*)\s*\)\s*$`)
-	blockerPattern     = regexp.MustCompile(`(?i)\bblocked-by:\s*([^\s\)]+)(?:\s+-\s*(.*))?$`)
+	blockerToken       = regexp.MustCompile(`(?i)\bblocked-by:\s*([^\s\)]+)`)
 )
 
 // BacklogRows retains each rendered Plan 3 backlog section in source order.
@@ -75,6 +75,7 @@ func ReadBacklog(h home.Home) (BacklogRows, error) {
 			continue
 		}
 		row := parseBacklogRow(trimmed)
+		row.Raw = line
 		if section == "queued" {
 			result.Queued = append(result.Queued, row)
 		} else {
@@ -117,19 +118,23 @@ func metadataValue(text, key string) string {
 }
 
 func parseBlocker(text string) (string, string) {
-	match := blockerPattern.FindStringSubmatch(text)
+	match := blockerToken.FindStringSubmatchIndex(text)
 	if match == nil {
 		return "", ""
 	}
-	reason := ""
-	if len(match) > 2 {
-		reason = cleanBacklogTitle(match[2])
+	blockedBy := text[match[2]:match[3]]
+	remaining := strings.TrimSpace(text[match[1]:])
+	if !strings.HasPrefix(remaining, "-") {
+		return blockedBy, ""
 	}
-	return match[1], reason
+	return blockedBy, cleanBacklogTitle(strings.TrimSpace(strings.TrimPrefix(remaining, "-")))
 }
 
 func backlogTitle(rest string) string {
-	withoutBlocker := blockerPattern.ReplaceAllString(rest, "")
+	withoutBlocker := rest
+	if match := blockerToken.FindStringIndex(rest); match != nil {
+		withoutBlocker = rest[:match[0]]
+	}
 	withoutURLs := wrappedURLPattern.ReplaceAllString(withoutBlocker, "")
 	return cleanBacklogTitle(withoutURLs)
 }
