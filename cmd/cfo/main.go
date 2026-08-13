@@ -22,7 +22,7 @@ const usage = `usage: cfo <command> [args]
 
 commands:
   version   print the cfo version
-  doctor    check the tools cfo needs (git, gh, claude, herdr, treehouse)
+  doctor    check the tools cfo needs (git, gh, claude, herdr, treehouse, codex, pi)
   drain     print or acknowledge the wake queue and recovery episode
   watch     run one triage cycle by hand (manual diagnostics; the hooks are the production entry)
   session-start  print the full session-start digest by hand (manual diagnostics; the SessionStart hook is the production entry)
