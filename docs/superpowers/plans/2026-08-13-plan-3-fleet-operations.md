@@ -32,6 +32,7 @@ The following decisions are part of this plan and must not be reopened during im
 - Fresh metadata writes use the existing atomic `internal/fsx.AtomicWriteFile` primitive even where upstream used a direct shell redirection.
 - Plan 3 supports one local ship or scout spawn at a time, and batch dispatch, secondmate dispatch, and remote dispatch remain later work.
 - No task may launch into the primary checkout, and no failure may fall back to deleting an unreturned worktree.
+- Plan 3 adds a read-only monitoring contract whose exact records, classifications, durable wake handoff, restart behavior, and boundaries are owned by Task 4.
 
 ## Shared implementation rules
 
@@ -42,6 +43,7 @@ Return typed errors that preserve the failed operation, target, and external std
 Treat an unreadable or ambiguous Herdr response as `unknown` and refuse destructive cleanup or successful delivery claims.
 Keep all path comparisons absolute, cleaned, and case-insensitive on Windows.
 Keep all state writes atomic and CRLF-tolerant by routing through the existing `internal/fsx` and `internal/state` primitives.
+Task 4 is the sole owner for monitor record schemas, state paths, stale classification, and wake publication.
 Do not edit `bin/`, `tests/`, `AGENTS.md`, or any legacy Bash file.
 
 ## Task 1: Add the subprocess and Windows path seams
@@ -319,8 +321,16 @@ Expected: the target session is addressable through the explicit session flag.
 - Test: `internal/state/task_test.go`
 - Create: `internal/crewstate/crewstate.go`
 - Test: `internal/crewstate/crewstate_test.go`
+- Create: `internal/monitor/record.go`
+- Create: `internal/monitor/service.go`
+- Test: `internal/monitor/record_test.go`
+- Test: `internal/monitor/service_test.go`
 - Modify: `internal/state/meta.go`
 - Modify: `internal/state/status.go`
+- Modify: `internal/watch/watch.go`
+- Test: `internal/watch/watch_test.go`
+- Modify: `internal/supervise/supervise.go`
+- Test: `internal/supervise/supervise_test.go`
 
 **Interfaces:**
 
@@ -385,34 +395,186 @@ func ParseStatusLine(line string) (verb, detail string, ok bool)
 func FoldOpenDecisions(lines []string) []Decision
 ```
 
+```go
+package monitor
+
+const Schema = "cfo-monitor.v1"
+
+type ProbeVerdict string
+
+const (
+    ProbePresent ProbeVerdict = "present"
+    ProbeMissing ProbeVerdict = "missing"
+    ProbeUnknown ProbeVerdict = "unknown"
+)
+
+type EndpointSample struct {
+    Verdict  ProbeVerdict
+    Endpoint herdr.Endpoint
+    TabLabel string
+    Agent    herdr.AgentStatus
+    Capture  []byte
+    Detail   string
+}
+
+type Health string
+
+const (
+    HealthActive  Health = "active"
+    HealthBusy    Health = "busy"
+    HealthIdle    Health = "idle"
+    HealthPaused  Health = "paused"
+    HealthStale   Health = "stale"
+    HealthUnknown Health = "unknown"
+)
+
+type Reason string
+
+const (
+    None             Reason = "none"
+    UnchangedIdle    Reason = "unchanged_idle"
+    BusyTurnOverAge  Reason = "busy_turn_over_age"
+    DeclaredPause    Reason = "declared_pause"
+    EndpointMissing  Reason = "endpoint_missing"
+    EndpointUnknown  Reason = "endpoint_unknown"
+    InvalidRecord    Reason = "invalid_record"
+)
+
+type EventSource string
+
+const (
+    TaskEvent      EventSource = "task"
+    HeartbeatEvent EventSource = "heartbeat"
+)
+
+type Event struct {
+    Source EventSource `json:"source"`
+    TaskID string      `json:"task_id,omitempty"`
+    Kind   string      `json:"kind"`
+    Key    string      `json:"key"`
+    Detail string      `json:"detail"`
+}
+
+type Observation struct {
+    Schema               string       `json:"schema"`
+    TaskID               string       `json:"task_id"`
+    Endpoint             string       `json:"endpoint"`
+    EndpointVerdict      ProbeVerdict `json:"endpoint_verdict"`
+    Digest               string       `json:"digest"`
+    LastObserved         time.Time    `json:"last_observed"`
+    LastSeen             time.Time    `json:"last_seen"`
+    LastProgress         time.Time    `json:"last_progress"`
+    StaleSince           *time.Time   `json:"stale_since,omitempty"`
+    NextEscalation       *time.Time   `json:"next_escalation,omitempty"`
+    NextPauseResurface   *time.Time   `json:"next_pause_resurface,omitempty"`
+    Health               Health       `json:"health"`
+    Reason               Reason       `json:"reason"`
+    Escalation           int          `json:"escalation"`
+    DemandDeepInspection bool         `json:"demand_deep_inspection"`
+    PendingEvent         *Event       `json:"pending_event,omitempty"`
+}
+
+type Heartbeat struct {
+    Schema         string     `json:"schema"`
+    LastCycle      time.Time  `json:"last_cycle"`
+    LastHeartbeat  time.Time  `json:"last_heartbeat"`
+    NoChangeStreak int        `json:"no_change_streak"`
+    NextDue        time.Time  `json:"next_due"`
+    PendingEvent   *Event     `json:"pending_event,omitempty"`
+}
+
+type Prober interface {
+    Inspect(ctx context.Context, meta state.TaskMeta) (EndpointSample, error)
+}
+
+type Service struct {
+    StateDir              string
+    Probe                 Prober
+    Now                   func() time.Time
+    StaleEscalateAfter    time.Duration
+    BusyTurnMax           time.Duration
+    PauseResurfaceAfter   time.Duration
+    DemandInspectionAfter int
+    Heartbeat             time.Duration
+    HeartbeatMax          time.Duration
+}
+
+type ScanResult struct {
+    Observations []Observation
+    Heartbeat    Heartbeat
+    Event        *Event
+}
+
+func ObservationPath(stateDir, id string) string
+func HeartbeatPath(stateDir string) string
+func ReadObservation(stateDir, id string) (Observation, error)
+func WriteObservation(stateDir string, observation Observation) error
+func ReadHeartbeat(stateDir string) (Heartbeat, error)
+func WriteHeartbeat(stateDir string, heartbeat Heartbeat) error
+func (s Service) Scan(ctx context.Context) (ScanResult, error)
+func (s Service) Publish(event Event) (wake.Record, error)
+```
+
 `TaskMeta` must preserve the upstream flat key names, write `backend=herdr` and all Herdr IDs for Herdr tasks, and reject task IDs that are empty, begin with `.`, contain characters outside `A-Za-z0-9._-`, or exceed 64 bytes.
 `ReadTaskMeta` must retain last-value-wins for compatibility, while `WriteTaskMeta` must emit a deterministic map through `state.WriteMeta` and `fsx.AtomicWriteFile`.
-`Resolve` must implement the Plan 3 state order of missing metadata, missing worktree, unreadable or absent endpoint, Herdr busy state, and last usable status-log line.
+`Resolve` must implement the Plan 3 state order of missing metadata, missing worktree, unreadable or absent endpoint, exact Herdr busy state, and the last usable status-log line.
+`Resolve` may use a status-log line only after the live probe structurally validates the metadata's exact session, workspace, tab, pane, task-tab label, and registered agent, and then reports exact idle.
+`Resolve` must return `unknown` for a missing, malformed, unreadable, or ambiguous endpoint and must not trust the status log in those cases.
 The status-log mapping must produce `working`, `parked`, `blocked`, `paused`, `done`, `failed`, or `unknown`, with `needs-decision` mapping to `parked` and `resolved` never becoming a current state.
 Plan 3 must not invoke `no-mistakes` run attribution because that CLI is not a Windows-native Plan 3 dependency.
 `FoldOpenDecisions` must preserve keyed `needs-decision` and `blocked` records and close them only with matching `resolved` or `captain-held` events, but no secondmate-specific reserved namespaces are needed.
+
+The monitor record paths are exactly `<CFO_HOME>\state\monitor\tasks\<id>.json` and `<CFO_HOME>\state\monitor\heartbeat.json`.
+Every record is encoded with `Schema`, decoded with unknown-field rejection, and atomically replaced through `fsx.AtomicWriteFile`.
+The monitor must not read, write, or translate upstream shell marker filenames.
+Before every classification, `Scan` loads the task's prior observation and the fleet heartbeat record.
+A missing record establishes a fresh baseline, while an unreadable, malformed, or unsupported record remains intact, classifies the task as `unknown`, and produces an actionable `stale` event with reason `invalid_record`.
+`EndpointSample.Verdict` is `ProbePresent` only when the live Herdr response exactly matches every metadata endpoint ID, target session, and `fm-<id>` tab label and exposes a well-formed registered-agent state.
+The monitor stores only the SHA-256 digest of that validated pane's 200-line capture, never the capture text.
+A changed digest records `active`, sets `LastSeen` and `LastObserved`, and clears `StaleSince`, `Escalation`, and `DemandDeepInspection`.
+An unchanged exact-idle pane records `stale` with `unchanged_idle`, publishes one `stale` event without an escalation, and preserves its original `StaleSince`.
+After that stale event is published, the same unchanged observation must not publish again until its persisted `NextEscalation` is due.
+An exact-busy pane remains `busy` and emits no stale event until the newer of `state/<id>.turn-ended` and the task metadata write is older than `BusyTurnMax`.
+Once that busy-progress bound is crossed, the unchanged pane records `stale` with `busy_turn_over_age` and begins the same stale timer.
+Each elapsed `NextEscalation` interval increments `Escalation` once, advances that timestamp by `StaleEscalateAfter`, and reaching `DemandInspectionAfter` sets `DemandDeepInspection` and adds `demand-deep-inspection` to the event detail.
+A declared `paused` current state records `paused` with `declared_pause` and may re-surface only at `PauseResurfaceAfter`, never as a wedge escalation.
+`Missing`, `Unknown`, and probe errors always record `unknown`, publish a `stale` event that names the endpoint problem, and never become `idle`, `healthy`, or status-log fallback evidence.
+The heartbeat record updates `LastCycle` on every scan and persists `LastHeartbeat`, `NoChangeStreak`, and `NextDue` on every due heartbeat.
+A no-change heartbeat doubles the next interval up to `HeartbeatMax` and emits no wake, while a due heartbeat that discovers an otherwise unsurfaced actionable observation records a `heartbeat` event and resets the streak.
+`Scan` persists a pending event in its observation or heartbeat record before returning it.
+`Publish` calls `wake.Append`, then `wake.PublishEpisode`, and only then clears the matching pending event so a restart can retry after any interrupted handoff without losing evidence.
+The monitor is inspection-only and must not invoke send, key, interrupt, kill, restart, close-tab, treehouse-return, file-delete, or worktree-delete actions.
+`internal/watch/watch.go` must call `Service.Scan` after raw status-signal handling and before its wait, use `ScanResult.Event` as the one actionable close reason, and replace its monitor-specific heartbeat and liveness markers with the typed heartbeat record.
+`internal/supervise/supervise.go` must read the typed heartbeat's `LastCycle` for watcher-health checks.
 
 **Step 1: Write the failing tests.**
 
 Test all task ID validation boundaries and CRLF metadata parsing.
 Test deterministic metadata writes, Herdr-specific fields, default `kind=ship`, and absent optional fields.
-Test each current-state precedence branch with a fake endpoint and status log.
+Test each current-state precedence branch with a fake endpoint and status log, including the refusal to use a log after an unknown endpoint or anything other than exact structural idle.
 Test status lines with before-colon and after-colon decision keys, invalid keys, resolution, and unrelated terminal events.
+Test strict monitor JSON decoding, exact Windows monitor paths, atomic writes, missing-record baselines, and preservation of corrupt records.
+Test changed and unchanged capture digests, busy protection, busy-turn expiration, immediate idle stale classification, one-per-interval escalation, deep-inspection threshold, paused re-surfacing, and unknown endpoint classification.
+Test restart recovery by constructing a new `Service` over persisted records and proving that last-seen time, stale duration, escalation count, deep-inspection state, heartbeat backoff, and next due time continue without an in-memory reset.
+Test `Publish` writes the queue record before the recovery episode, leaves the matching pending event and durable queue record readable if episode publication fails, and never publishes when record persistence failed.
+Test that the monitoring fake receives no lifecycle, send, treehouse return, or delete operation.
+Test watcher and supervisor health read the typed heartbeat and do not require monitor-specific shell marker filenames.
 
 **Step 2: Run the tests to verify they fail.**
 
-Run: `go test ./internal/state ./internal/crewstate -count=1`
-Expected: FAIL because the typed task metadata and crew-state packages do not exist.
+Run: `go test ./internal/state ./internal/crewstate ./internal/monitor ./internal/watch ./internal/supervise -count=1`
+Expected: FAIL because the typed task metadata, crew-state, and monitor packages do not exist.
 
 **Step 3: Implement the typed persistence and resolver.**
 
 Keep the existing generic `ReadMeta`, `WriteMeta`, `AppendStatus`, and `TailStatus` APIs intact for Plan 2 callers.
-Build the typed layer on top of them instead of introducing a second on-disk format.
-Return `Current{State: Unknown, Source: None}` for ambiguous external reads and let callers decide whether that is actionable.
+Build the typed task layer on top of them instead of introducing a second task-metadata format.
+Return `Current{State: Unknown, Source: None}` for ambiguous external reads and let the monitor publish the human-inspection wake.
+Keep monitor evidence in its dedicated typed records and preserve the existing durable wake queue as the only wake transport.
 
 **Step 4: Run the focused tests.**
 
-Run: `go test ./internal/state ./internal/crewstate -count=1`
+Run: `go test ./internal/state ./internal/crewstate ./internal/monitor ./internal/watch ./internal/supervise -count=1`
 Expected: PASS.
 
 ## Task 5: Add typed Claude, Codex, and Pi harness adapters
@@ -722,15 +884,24 @@ type Snapshot struct {
 type SecondmateRow struct{}
 
 type TaskRow struct {
-    ID            string          `json:"id"`
+    ID            string            `json:"id"`
     Current       crewstate.Current `json:"current_state"`
-    Kind          string          `json:"kind"`
-    Project       string          `json:"project"`
-    Backend       string          `json:"backend"`
-    Endpoint      EndpointSummary `json:"endpoint"`
-    Artifact      string          `json:"artifact"`
-    Path          string          `json:"path"`
-    Actions       Actions         `json:"actions"`
+    Monitor       MonitorSummary    `json:"monitor"`
+    Kind          string            `json:"kind"`
+    Project       string            `json:"project"`
+    Backend       string            `json:"backend"`
+    Endpoint      EndpointSummary   `json:"endpoint"`
+    Artifact      string            `json:"artifact"`
+    Path          string            `json:"path"`
+    Actions       Actions           `json:"actions"`
+}
+
+type MonitorSummary struct {
+    Health               monitor.Health `json:"health"`
+    StaleSeconds         int64          `json:"stale_seconds"`
+    LastSeen             *time.Time     `json:"last_seen"`
+    Escalation           int            `json:"escalation"`
+    DemandDeepInspection bool           `json:"demand_deep_inspection"`
 }
 
 func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (Snapshot, error)
@@ -741,17 +912,19 @@ func RenderMarkdown(w io.Writer, snapshot Snapshot) error
 Use a concrete empty `[]SecondmateRow` slice because no secondmate rows are produced in Plan 3, and keep the JSON schema typed rather than building JSON strings.
 The schema name must be `fleet-snapshot.v1`.
 Tasks must be sorted by ID, while queued and done backlog records must preserve file order.
-The task table must include ID, current state and source, kind, project, backend, endpoint existence, artifact, path, and the peek action.
-The JSON snapshot may include decision hints, but the human table must not invent a new attention column in Plan 3.
+The task table must include ID, current state and source, health, stale duration, last-seen time, escalation, deep-inspection state, kind, project, backend, endpoint existence, artifact, path, and the peek action.
+The snapshot builder must derive `MonitorSummary` from the Task 4 observation record once per task and convert a missing or invalid record to typed `unknown` values.
+Neither renderer may read endpoints, pane output, monitor files, status logs, or clocks after receiving `Snapshot`.
 The human renderer must preserve the upstream headings `# Fleet View`, `## Under Way`, `## Queued`, `## Done`, and `## Secondmates`, and must print the Plan 3 boundary `Secondmates are not supported in Plan 3.` in the final section.
 The backlog parser must recognize `- [ ] <id> - <text>` and `- **<id>** - <text>` rows, derive titles with the documented URL and trailing-metadata cleanup, and preserve unstructured rows as non-table records.
 The renderer must print `-` for missing values and must never read terminal output separately from the typed snapshot builder.
 
 **Step 1: Write the failing tests.**
 
-Test deterministic task sorting, metadata defaults, Herdr endpoint summary, path preference, artifact preference, and action strings.
+Test deterministic task sorting, metadata defaults, Herdr endpoint summary, monitor summary values, path preference, artifact preference, and action strings.
 Test queued and done section parsing, order preservation, blocker formatting, title cleanup, and unstructured rows.
-Test JSON round-trip and exact human headings and fallback text.
+Test JSON round-trip and exact human headings, monitor columns, dash fallback text, and the Plan 3 secondmate boundary.
+Build one snapshot containing active, stale, and unknown monitor records, then assert the JSON and Markdown projections expose identical health, stale duration, last-seen, escalation, and deep-inspection values from that one value.
 
 **Step 2: Run the tests to verify they fail.**
 
@@ -762,6 +935,7 @@ Expected: FAIL because snapshot, backlog, and renderer types do not exist.
 
 Keep filesystem reads in the snapshot builder and keep rendering pure over `Snapshot`.
 Use the existing `crewstate.Resolve` result as the only current-state source.
+Use Task 4 records as the only monitor-health source.
 
 **Step 4: Run the focused tests.**
 
@@ -842,12 +1016,17 @@ The acceptance sequence must be:
 6. Assert that the metadata points to a non-primary isolated worktree, the Herdr target splits on the first colon, and the flat workspace contains exactly one task tab plus any safely retained default tab.
 7. Run `cfo peek fm-<id>` and require the marker or a documented startup-progress response.
 8. Run `cfo send fm-<id> "print the acceptance marker and exit"` and require a confirmed delivery result.
-9. Run `cfo fleet-view --json` and `cfo fleet-view`, and require the same task, endpoint, worktree, and current-state information in both views.
+9. Run `cfo fleet-view --json` and `cfo fleet-view`, and require the same task, endpoint, worktree, current-state, health, stale duration, last-seen, escalation, and deep-inspection information in both views.
 10. Repeat steps 5 through 9 for `--harness codex` and `--harness pi`, and fail the real-session acceptance if either binary is unavailable.
-11. Return every treehouse worktree through the project checkout and verify the primary checkout remains clean and is never recorded as a worker worktree.
-12. Restart the binary and re-read the fixture metadata and status logs to prove the state is restart-safe.
+11. With a short fixture-only monitor cadence, prove a visibly busy task remains protected from stale classification before `BusyTurnMax`, then prove an unchanged idle task produces a stale wake, increments its escalation on the next stale interval, and reports a deliberately nonexistent endpoint as `unknown`.
+12. Start a fresh `cfo watch` process, prove the persisted stale observation and heartbeat record retain their prior values, and rerun both fleet views to require JSON and Markdown parity for those monitor values.
+13. Verify every stale or unknown inspection leaves the corresponding Herdr task tab visible and the treehouse worktree present, then use `cfo drain` to confirm the durable wake records before acknowledgement.
+14. Return every treehouse worktree through the project checkout and verify the primary checkout remains clean and is never recorded as a worker worktree.
 
 The Go e2e test must use fake Herdr and treehouse binaries for deterministic CI coverage and must reserve real installed-tool execution for the PowerShell acceptance script.
+The fake Herdr fixture must expose the task tabs in its workspace JSON and give the monitor a controllable clock, capture digest, agent state, and endpoint verdict.
+The fake e2e must prove busy protection, stale escalation and deep-inspection state, unknown endpoint handling, persisted heartbeat backoff, restart recovery, durable stale and heartbeat wake publication, no automatic lifecycle or delete command, visible Herdr tabs, and JSON and Markdown parity.
+The PowerShell acceptance must make the same assertions against the disposable Herdr session and worktrees, with visible surviving tabs and worktrees as the proof that monitoring did not auto-kill or delete anything.
 The GitHub workflow must run the existing unit and build checks on `windows-latest` and must not require credentials or real harness binaries in ordinary CI.
 README changes must document the opt-in real-session command, the disposable-environment requirement, and the fact that the Go toolchain is not needed for installed users.
 
@@ -856,6 +1035,9 @@ README changes must document the opt-in real-session command, the disposable-env
 Test the fake-binary path end to end through `cfo spawn`, `cfo send`, `cfo peek`, and `cfo fleet-view`.
 Test primary-checkout protection, restart-safe metadata, and cleanup refusal on an ambiguous treehouse return.
 Test the PowerShell script's environment gate and path containment checks.
+Test the fake monitor's busy protection, first stale wake, repeat stale escalation, deep-inspection threshold, unknown endpoint wake, heartbeat persistence, restart load, durable queue and episode handoff, and absence of lifecycle or delete calls.
+Test that fake workspace JSON and the real acceptance script both require the Herdr task tab to remain visible after monitoring classification.
+Test that both fleet renderers use the same snapshot values for monitor health, stale duration, last seen, escalation, and deep inspection.
 
 **Step 2: Run the tests to verify they fail.**
 
@@ -887,14 +1069,17 @@ Plan 3 is ready for review only when every criterion below has fresh command evi
 - `go vet ./...` passes.
 - `go test ./... -count=1` passes.
 - `go build ./cmd/cfo` passes.
-- The fake-binary end-to-end test exercises spawn, send, peek, fleet JSON, fleet Markdown, metadata, status, and restart reads.
+- The fake-binary end-to-end test exercises spawn, send, peek, fleet JSON, fleet Markdown, metadata, status, monitor heartbeat persistence, stale escalation, durable wakes, and restart reads.
 - Treehouse acquisition requires two agreeing non-project foreground-cwd reads and rejects the primary checkout or a non-root Git directory.
 - Herdr requests always use explicit session routing, strict JSON IDs, a flat workspace, one tab per task, and the 200-line capture floor.
 - Claude, Codex, and Pi each have typed flag mapping tests and an installed-binary validation path.
 - Task metadata is atomic, deterministic, CRLF-tolerant, and restart-readable.
 - Crew-state resolution refuses to report success for unreadable endpoints and does not invent no-mistakes run attribution.
+- The monitor uses only `state\monitor\tasks\<id>.json` and `state\monitor\heartbeat.json` for new monitoring evidence, reloads them before classification, and never uses upstream shell marker filenames.
+- Busy protection, stale escalation, deep-inspection state, unknown endpoint handling, heartbeat persistence, and durable wake publication are proven by deterministic e2e coverage and opt-in Windows acceptance.
+- Monitoring never kills, interrupts, restarts, closes, returns, or deletes a worker, endpoint, tab, worktree, or file.
 - `cfo send` reports success only after confirmed submission, and `cfo peek` prints only the requested terminal tail.
-- `cfo fleet-view --json` and `cfo fleet-view` derive from the same typed snapshot.
+- `cfo fleet-view --json` and `cfo fleet-view` derive health, stale duration, last-seen, escalation, and deep-inspection state from the same typed snapshot.
 - No Plan 3 code touches secondmates, Relay, AFK, presentation spaces, or excluded backends and harnesses.
 - `tasks-axi` and `quota-axi` remain thin subprocess wrappers with no provider or quota policy duplicated in Go.
 - The real Windows acceptance run leaves the primary checkout clean and returns every acquired worktree through treehouse.
