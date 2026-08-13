@@ -128,3 +128,17 @@ func TestOSRunnerReturnsContextCancellation(t *testing.T) {
 		t.Errorf("result = %+v, want zero result on cancellation", result)
 	}
 }
+
+func TestOSRunnerStartsWithoutWaitingForChildExit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	started := time.Now()
+	err := (OSRunner{}).Start(ctx, helperRequest(t.TempDir(), []string{"EXECX_HELPER=1", "EXECX_MODE=sleep"}))
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("Start blocked for %s, want non-blocking child launch", elapsed)
+	}
+}

@@ -28,6 +28,14 @@ type Runner interface {
 	Run(ctx context.Context, req Request) (Result, error)
 }
 
+// Starter starts a child process without waiting for it to exit.
+//
+// It is intentionally separate from Runner because most callers need a fully
+// captured result, while a server launcher only needs a process start attempt.
+type Starter interface {
+	Start(ctx context.Context, req Request) error
+}
+
 // OSRunner executes processes through the operating system.
 type OSRunner struct{}
 
@@ -35,13 +43,7 @@ type OSRunner struct{}
 // result, not an execution error, so callers can distinguish tool refusals
 // from failures to start or wait for the process.
 func (OSRunner) Run(ctx context.Context, req Request) (Result, error) {
-	cmd := exec.CommandContext(ctx, req.Name, req.Args...)
-	if req.Dir != "" {
-		cmd.Dir = req.Dir
-	}
-	if req.Env != nil {
-		cmd.Env = req.Env
-	}
+	cmd := command(ctx, req)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -71,4 +73,29 @@ func (OSRunner) Run(ctx context.Context, req Request) (Result, error) {
 		return result, nil
 	}
 	return Result{}, waitErr
+}
+
+// Start starts a child process and arranges for it to be reaped after exit.
+// Startup callers intentionally receive no exit status because their own
+// protocol-level health check is the authoritative readiness signal.
+func (OSRunner) Start(ctx context.Context, req Request) error {
+	cmd := command(ctx, req)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() {
+		_ = cmd.Wait()
+	}()
+	return nil
+}
+
+func command(ctx context.Context, req Request) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, req.Name, req.Args...)
+	if req.Dir != "" {
+		cmd.Dir = req.Dir
+	}
+	if req.Env != nil {
+		cmd.Env = req.Env
+	}
+	return cmd
 }

@@ -17,6 +17,14 @@ type scriptedPane struct {
 	reads  int
 }
 
+type stringTargetPane struct {
+	scriptedPane
+}
+
+func (p *stringTargetPane) String() string {
+	return "fleet:string-target"
+}
+
 func (p *scriptedPane) Run(_ context.Context, text string) error {
 	p.runs = append(p.runs, text)
 	return nil
@@ -116,6 +124,22 @@ func TestAcquireTimeoutIncludesTargetAfterOneCandidateRead(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "fleet:timeout") {
 		t.Errorf("Acquire error = %q, want Herdr target", err)
+	}
+}
+
+func TestAcquireUsesPaneStringForHerdrTarget(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	if err := os.Mkdir(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	pane := &stringTargetPane{scriptedPane: scriptedPane{cwds: []string{project}}}
+	service := Service{Poll: time.Second, Timeout: time.Second, Sleep: noWait}
+
+	_, err := service.Acquire(context.Background(), pane, project)
+	if err == nil || !strings.Contains(err.Error(), "fleet:string-target") {
+		t.Fatalf("Acquire error = %v, want String target", err)
 	}
 }
 

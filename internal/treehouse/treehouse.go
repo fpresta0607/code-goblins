@@ -186,6 +186,9 @@ func (s Service) target(pane Pane) string {
 	if withTarget, ok := pane.(interface{ Target() string }); ok && withTarget.Target() != "" {
 		return withTarget.Target()
 	}
+	if stringer, ok := pane.(fmt.Stringer); ok && stringer.String() != "" {
+		return stringer.String()
+	}
 	return "unknown"
 }
 
