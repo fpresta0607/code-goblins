@@ -336,6 +336,55 @@ func TestScanSurfacesCorruptHeartbeatWithoutOverwritingIt(t *testing.T) {
 	}
 }
 
+func TestScanBothCorruptRecordsFailsWithoutUndurableEvent(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	observationPath := ObservationPath(stateDir, "g1")
+	observationBytes := []byte("not an observation")
+	heartbeatBytes := []byte("not a heartbeat")
+	if err := os.MkdirAll(filepath.Dir(observationPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(observationPath, observationBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(HeartbeatPath(stateDir), heartbeatBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	service := testService(stateDir, &fakeProber{}, &now)
+	result, err := service.Scan(context.Background())
+	if err == nil {
+		t.Fatalf("Scan = %+v, nil; want an error because no pending event can be persisted", result)
+	}
+	if result.Event != nil {
+		t.Errorf("Scan event = %+v, want nil when it is not durable", result.Event)
+	}
+	gotObservation, err := os.ReadFile(observationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotObservation) != string(observationBytes) {
+		t.Errorf("corrupt observation changed to %q, want preservation", gotObservation)
+	}
+	gotHeartbeat, err := os.ReadFile(HeartbeatPath(stateDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotHeartbeat) != string(heartbeatBytes) {
+		t.Errorf("corrupt heartbeat changed to %q, want preservation", gotHeartbeat)
+	}
+	records, err := wake.Pending(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 0 {
+		t.Errorf("wake records = %+v, want none without a persisted event", records)
+	}
+}
+
 func TestScanBootstrapsSignalsOnlyHeartbeatSchedule(t *testing.T) {
 	stateDir := t.TempDir()
 	firstCycle := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
