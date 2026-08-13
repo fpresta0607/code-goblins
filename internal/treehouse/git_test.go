@@ -58,7 +58,7 @@ func TestRunnerGitFreshenUsesExpectedGitSequence(t *testing.T) {
 		{Dir: worktree, Name: "git", Args: []string{"fetch", "--quiet", "origin", "+refs/heads/main:refs/remotes/origin/main"}},
 		{Dir: worktree, Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", "origin/main^{commit}"}},
 		{Dir: worktree, Name: "git", Args: []string{"status", "--porcelain"}},
-		{Dir: worktree, Name: "git", Args: []string{"reset", "--hard", "origin/main"}},
+		{Dir: worktree, Name: "git", Args: []string{"reset", "--hard", "abc123"}},
 		{Dir: worktree, Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", "HEAD"}},
 	}
 	if !reflect.DeepEqual(runner.calls, want) {
