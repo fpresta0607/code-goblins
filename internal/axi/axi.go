@@ -29,6 +29,32 @@ type Quota struct {
 	Commands execx.Runner
 }
 
+// CommandError identifies an AXI command failure and preserves its stderr.
+type CommandError struct {
+	Operation string
+	Stderr    string
+	ExitCode  int
+	Err       error
+}
+
+func (e *CommandError) Error() string {
+	if e.Err != nil {
+		if e.Stderr == "" {
+			return fmt.Sprintf("axi: %s: %v", e.Operation, e.Err)
+		}
+		return fmt.Sprintf("axi: %s: %s: %v", e.Operation, e.Stderr, e.Err)
+	}
+	if e.Stderr == "" {
+		return fmt.Sprintf("axi: %s exited with code %d", e.Operation, e.ExitCode)
+	}
+	return fmt.Sprintf("axi: %s exited with code %d: %s", e.Operation, e.ExitCode, e.Stderr)
+}
+
+// Unwrap returns the subprocess runner error, when present.
+func (e *CommandError) Unwrap() error {
+	return e.Err
+}
+
 // JSON returns quota-axi's raw JSON bytes.
 func (q Quota) JSON(ctx context.Context) ([]byte, error) {
 	result, err := command(ctx, q.Commands, "quota-axi --json", "quota-axi", "--json")
@@ -53,15 +79,10 @@ func command(ctx context.Context, commands execx.Runner, operation, name string,
 }
 
 func commandError(operation string, result execx.Result, cause error) error {
-	stderr := strings.TrimSpace(string(result.Stderr))
-	if cause != nil {
-		if stderr == "" {
-			return fmt.Errorf("axi: %s: %w", operation, cause)
-		}
-		return fmt.Errorf("axi: %s: %s: %w", operation, stderr, cause)
+	return &CommandError{
+		Operation: operation,
+		Stderr:    strings.TrimSpace(string(result.Stderr)),
+		ExitCode:  result.ExitCode,
+		Err:       cause,
 	}
-	if stderr == "" {
-		return fmt.Errorf("axi: %s exited with code %d", operation, result.ExitCode)
-	}
-	return fmt.Errorf("axi: %s exited with code %d: %s", operation, result.ExitCode, stderr)
 }
