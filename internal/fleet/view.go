@@ -190,13 +190,18 @@ func endpointText(exists *bool) string {
 }
 
 func blockerText(row BacklogRow) string {
-	if row.BlockedBy == "" {
+	blockedByIDs := row.BlockedByIDs
+	if len(blockedByIDs) == 0 && row.BlockedBy != "" {
+		blockedByIDs = []string{row.BlockedBy}
+	}
+	if len(blockedByIDs) == 0 {
 		return "-"
 	}
+	blockedBy := strings.Join(blockedByIDs, ", ")
 	if row.BlockedReason == "" {
-		return row.BlockedBy
+		return blockedBy
 	}
-	return row.BlockedBy + " - " + row.BlockedReason
+	return blockedBy + " - " + row.BlockedReason
 }
 
 func dash(value string) string {
