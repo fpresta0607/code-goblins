@@ -183,7 +183,7 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 	if got := fixture.runner.enterKeys; got != 1 {
 		t.Errorf("Enter sends = %d, want one separate key send", got)
 	}
-	if _, statErr := os.Stat(filepath.Join(fixture.stateDir, ".spawn-task-7.lock")); !errors.Is(statErr, os.ErrNotExist) {
+	if _, statErr := os.Stat(filepath.Join(fixture.stateDir, ".spawn.lock")); !errors.Is(statErr, os.ErrNotExist) {
 		t.Errorf("spawn lock persists after success: stat error = %v", statErr)
 	}
 }
@@ -409,13 +409,13 @@ func TestSpawnSurfacesTaskLockReleaseFailure(t *testing.T) {
 		}
 
 		result, err := fixture.service.Spawn(context.Background(), fixture.request)
-		if err == nil || !strings.Contains(err.Error(), "release task lock") || !strings.Contains(err.Error(), "lock is still shared") {
+		if err == nil || !strings.Contains(err.Error(), "release spawn lock") || !strings.Contains(err.Error(), "lock is still shared") {
 			t.Fatalf("Spawn release error = %v, want surfaced cleanup failure", err)
 		}
 		if result.Meta.Worktree != fixture.worktree || result.Endpoint.Target.Pane != "pane-1" {
 			t.Fatalf("success result was discarded by cleanup error: %+v endpoint=%+v", result.Meta, result.Endpoint)
 		}
-		if err := lock.ReleaseNamed(fixture.stateDir, spawnLockPrefix+fixture.request.ID+spawnLockSuffix); err != nil {
+		if err := lock.ReleaseNamed(fixture.stateDir, spawnLockName); err != nil {
 			t.Fatalf("ReleaseNamed cleanup: %v", err)
 		}
 	})
@@ -428,13 +428,13 @@ func TestSpawnSurfacesTaskLockReleaseFailure(t *testing.T) {
 		}
 
 		result, err := fixture.service.Spawn(context.Background(), fixture.request)
-		if err == nil || !strings.Contains(err.Error(), "did not report working") || !strings.Contains(err.Error(), "release task lock") {
+		if err == nil || !strings.Contains(err.Error(), "did not report working") || !strings.Contains(err.Error(), "release spawn lock") {
 			t.Fatalf("Spawn release error = %v, want joined primary and cleanup failures", err)
 		}
 		if result.Meta.Worktree != fixture.worktree || result.Endpoint.Target.Pane != "pane-1" {
 			t.Fatalf("primary failure discarded recovery result: %+v endpoint=%+v", result.Meta, result.Endpoint)
 		}
-		if err := lock.ReleaseNamed(fixture.stateDir, spawnLockPrefix+fixture.request.ID+spawnLockSuffix); err != nil {
+		if err := lock.ReleaseNamed(fixture.stateDir, spawnLockName); err != nil {
 			t.Fatalf("ReleaseNamed cleanup: %v", err)
 		}
 	})
@@ -455,21 +455,54 @@ func TestSpawnRejectsMissingHerdrIDsAndContendedLockThenReleases(t *testing.T) {
 
 	t.Run("contention releases", func(t *testing.T) {
 		fixture := newFixture(t)
-		lockName := ".spawn-" + fixture.request.ID + ".lock"
-		if _, err := lock.AcquireExclusiveNamed(fixture.stateDir, lockName); err != nil {
+		if _, err := lock.AcquireExclusiveNamed(fixture.stateDir, spawnLockName); err != nil {
 			t.Fatalf("AcquireExclusiveNamed setup: %v", err)
 		}
 		_, err := fixture.service.Spawn(context.Background(), fixture.request)
 		if !errors.Is(err, lock.ErrHeld) {
 			t.Fatalf("Spawn contention error = %v, want ErrHeld", err)
 		}
-		if err := lock.ReleaseNamed(fixture.stateDir, lockName); err != nil {
+		if err := lock.ReleaseNamed(fixture.stateDir, spawnLockName); err != nil {
 			t.Fatalf("ReleaseNamed setup lock: %v", err)
 		}
 		if _, err := fixture.service.Spawn(context.Background(), fixture.request); err != nil {
 			t.Fatalf("Spawn after lock release: %v", err)
 		}
 	})
+}
+
+func TestSpawnRejectsCaseAliasBeforeHerdrOrWorktreeMutation(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.request.ID = "Foo"
+	first, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("first Spawn: %v", err)
+	}
+	metaPath := filepath.Join(fixture.stateDir, "Foo.meta")
+	before, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := fixture.runner.calls
+
+	second := fixture.request
+	second.ID = "foo"
+	if _, err := fixture.service.Spawn(context.Background(), second); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
+		t.Fatalf("case-alias Spawn error = %v, want case-insensitive collision refusal", err)
+	}
+	if fixture.runner.calls != calls {
+		t.Errorf("Herdr calls = %d after alias rejection, want %d before any second task mutation", fixture.runner.calls, calls)
+	}
+	after, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("Foo metadata changed after foo rejection\n got: %q\nwant: %q", after, before)
+	}
+	if first.Meta.ID != "Foo" {
+		t.Errorf("first metadata ID = %q, want Foo", first.Meta.ID)
+	}
 }
 
 type fixture struct {
