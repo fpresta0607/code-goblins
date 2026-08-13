@@ -246,6 +246,17 @@ function New-MissingCleanupBlocker {
     return "ACCEPTANCE BLOCKER: this cfo build has no cleanup command. Leaving disposable fixture intact at $Root because no direct treehouse return or worktree deletion is permitted."
 }
 
+function Assert-CfoCleanupReady {
+    param(
+        [Parameter(Mandatory = $true)][string]$Cfo,
+        [Parameter(Mandatory = $true)][string]$Root
+    )
+
+    if (-not (Test-CfoCleanupAvailable -Cfo $Cfo)) {
+        throw (New-MissingCleanupBlocker -Root $Root)
+    }
+}
+
 function Initialize-DisposablePrimaryCfoHome {
     param(
         [Parameter(Mandatory = $true)][string]$Root,
@@ -311,6 +322,7 @@ $session = 'cfo-plan3-' + [Guid]::NewGuid().ToString('N')
 $marker = 'plan3-acceptance-' + [Guid]::NewGuid().ToString('N')
 $workers = @()
 $herdrProcess = $null
+$cleanupReady = $false
 $cleanupCompleted = $false
 $primaryFailure = $null
 $cleanupFailure = $null
@@ -320,10 +332,8 @@ $previousSignalGrace = $env:CFO_SIGNAL_GRACE
 
 if ($SelfTest -eq 'missing-cleanup') {
     $missingCfo = Join-Path $fixtureRoot 'missing-cfo.exe'
-    if (Test-CfoCleanupAvailable -Cfo $missingCfo) {
-        throw 'Acceptance self-test expected a missing cfo cleanup command.'
-    }
-    throw (New-MissingCleanupBlocker -Root $fixtureRoot)
+    Assert-CfoCleanupReady -Cfo $missingCfo -Root $fixtureRoot
+    throw 'Acceptance self-test expected a missing cfo cleanup command.'
 }
 if ($SelfTest -eq 'primary-home') {
     try {
@@ -370,6 +380,11 @@ if ($SelfTest -eq 'fleet-parity') {
     Write-Output 'Plan 3 fleet parity self-test passed.'
     return
 }
+if ($SelfTest -eq 'escaping-worker-path') {
+    $escapingWorker = Join-Path $tempRoot 'cfo-plan3-worker-outside-fixture'
+    Assert-ContainedPath -Root $fixtureRoot -Path $escapingWorker -Description 'worker worktree'
+    throw 'Acceptance self-test expected an escaping worker worktree to be refused.'
+}
 if ($SelfTest -ne '') {
     throw "Unknown Plan 3 acceptance self-test $SelfTest."
 }
@@ -391,6 +406,8 @@ try {
     finally {
         Pop-Location
     }
+    Assert-CfoCleanupReady -Cfo $cfo -Root $fixtureRoot
+    $cleanupReady = $true
 
     Invoke-Checked -FilePath 'git' -Arguments @('init', '--bare', '--initial-branch=main', $origin) -Description 'initialize disposable bare origin' | Out-Host
     Invoke-Checked -FilePath 'git' -Arguments @('clone', $origin, $project) -Description 'clone disposable project' | Out-Host
@@ -448,6 +465,8 @@ try {
         ) | Set-Content -LiteralPath $brief
 
         $spawn = Invoke-Checked -FilePath $cfo -Arguments @('spawn', $id, '--project', $project, '--brief', $brief, '--harness', $harness, '--mode', 'local-only') -Description "spawn $harness acceptance worker"
+        $worker = [pscustomobject]@{ ID = $id; Worktree = $null; Meta = $null }
+        $workers += $worker
         Write-Host ($spawn -join [Environment]::NewLine)
         $metaPath = Join-Path $cfoHome (Join-Path 'state' ($id + '.meta'))
         $meta = Read-TaskMeta -Path $metaPath
@@ -456,6 +475,8 @@ try {
         if ([string]::Equals((Get-FullPath $worktree), (Get-FullPath $project), [System.StringComparison]::OrdinalIgnoreCase)) {
             throw "ACCEPTANCE BLOCKER: $id recorded the primary checkout as its worker worktree."
         }
+        $worker.Worktree = $worktree
+        $worker.Meta = $meta
         $window = Assert-MetaValue -Meta $meta -Name 'window' -Description $id
         $separator = $window.IndexOf(':')
         if ($separator -le 0 -or $separator -ge ($window.Length - 1) -or $window.Substring(0, $separator) -ne $session) {
@@ -487,7 +508,6 @@ try {
         if (($send -join [Environment]::NewLine) -notmatch ('sent fm-' + [regex]::Escape($id))) {
             throw "ACCEPTANCE BLOCKER: cfo send did not confirm delivery for $id."
         }
-        $workers += [pscustomobject]@{ ID = $id; Worktree = $worktree; Meta = $meta }
     }
 
     $watchStatus = Join-Path $cfoHome 'state\acceptance-watch.status'
@@ -530,17 +550,24 @@ catch {
     $primaryFailure = $_
 }
 finally {
-    $cleanupAvailable = Test-CfoCleanupAvailable -Cfo $cfo
-    if (-not $cleanupAvailable) {
-        $cleanupFailure = New-MissingCleanupBlocker -Root $fixtureRoot
-        [Console]::Error.WriteLine($cleanupFailure)
+    $cleanupFailed = -not $cleanupReady
+    if ($cleanupFailed) {
+        if ($workers.Count -gt 0) {
+            $cleanupFailure = New-MissingCleanupBlocker -Root $fixtureRoot
+            [Console]::Error.WriteLine($cleanupFailure)
+        }
     }
     else {
-        $cleanupFailed = $false
         foreach ($worker in $workers) {
             $output = @(& $cfo cleanup $worker.ID 2>&1)
             if ($LASTEXITCODE -ne 0) {
                 $cleanupFailure = "ACCEPTANCE BLOCKER: cfo cleanup failed for $($worker.ID). Leaving fixture intact.`n$($output -join [Environment]::NewLine)"
+                [Console]::Error.WriteLine($cleanupFailure)
+                $cleanupFailed = $true
+                break
+            }
+            if ([string]::IsNullOrWhiteSpace($worker.Worktree)) {
+                $cleanupFailure = "ACCEPTANCE BLOCKER: cfo cleanup succeeded for $($worker.ID), but its worker worktree was not recorded. Leaving fixture intact because cleanup cannot be proven."
                 [Console]::Error.WriteLine($cleanupFailure)
                 $cleanupFailed = $true
                 break
@@ -552,7 +579,18 @@ finally {
                 break
             }
         }
-        if (-not $cleanupFailed) {
+    }
+    if (-not $cleanupFailed) {
+        $primaryStatus = @(& git -C $project status --porcelain 2>&1)
+        if ($LASTEXITCODE -ne 0) {
+            $cleanupFailure = "ACCEPTANCE BLOCKER: could not verify disposable primary checkout after cleanup. Leaving fixture intact.`n$($primaryStatus -join [Environment]::NewLine)"
+            [Console]::Error.WriteLine($cleanupFailure)
+        }
+        elseif ($primaryStatus.Count -ne 0) {
+            $cleanupFailure = "ACCEPTANCE BLOCKER: disposable primary checkout is dirty after cleanup. Leaving fixture intact.`n$($primaryStatus -join [Environment]::NewLine)"
+            [Console]::Error.WriteLine($cleanupFailure)
+        }
+        else {
             $cleanupCompleted = $true
         }
     }

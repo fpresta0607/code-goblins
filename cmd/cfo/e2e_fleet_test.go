@@ -66,30 +66,50 @@ func TestPlan3AcceptanceScriptSelfTests(t *testing.T) {
 	cases := []struct {
 		name      string
 		selfTest  string
+		optIn     bool
 		wantError bool
 		wantText  string
 	}{
 		{
+			name:      "opt-in gate fails closed",
+			wantError: true,
+			wantText:  "Plan 3 Windows acceptance is opt-in.",
+		},
+		{
 			name:      "missing cleanup fails closed",
 			selfTest:  "missing-cleanup",
+			optIn:     true,
 			wantError: true,
 			wantText:  "ACCEPTANCE BLOCKER: this cfo build has no cleanup command.",
 		},
 		{
 			name:     "fixture CFO home meets primary predicates",
 			selfTest: "primary-home",
+			optIn:    true,
 			wantText: "Plan 3 primary-home self-test passed.",
 		},
 		{
 			name:     "fleet Markdown projects every required monitor field",
 			selfTest: "fleet-parity",
+			optIn:    true,
 			wantText: "Plan 3 fleet parity self-test passed.",
+		},
+		{
+			name:      "escaping worker worktree fails containment",
+			selfTest:  "escaping-worker-path",
+			optIn:     true,
+			wantError: true,
+			wantText:  "ACCEPTANCE BLOCKER: worker worktree escapes disposable root.",
 		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			command := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-SelfTest", tt.selfTest)
-			command.Env = append(os.Environ(), "CFO_PLAN3_REAL=1")
+			args := []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script}
+			if tt.selfTest != "" {
+				args = append(args, "-SelfTest", tt.selfTest)
+			}
+			command := exec.Command("powershell", args...)
+			command.Env = plan3ScriptEnv(tt.optIn)
 			output, err := command.CombinedOutput()
 			if (err != nil) != tt.wantError {
 				t.Fatalf("self-test error = %v, wantError=%v\n%s", err, tt.wantError, output)
@@ -99,6 +119,19 @@ func TestPlan3AcceptanceScriptSelfTests(t *testing.T) {
 			}
 		})
 	}
+}
+
+func plan3ScriptEnv(optIn bool) []string {
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, value := range os.Environ() {
+		if !strings.HasPrefix(value, "CFO_PLAN3_REAL=") {
+			env = append(env, value)
+		}
+	}
+	if optIn {
+		env = append(env, "CFO_PLAN3_REAL=1")
+	}
+	return env
 }
 
 // fleetE2EFixture is a real command-path fixture. It drives the command
