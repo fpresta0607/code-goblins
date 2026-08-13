@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -303,6 +304,37 @@ func TestRunClosesOnSignal(t *testing.T) {
 		t.Errorf("episode = %+v, want pending:1", ep)
 	}
 
+}
+
+func TestRunPreservesControlFilenameInQueueButRendersItSafely(t *testing.T) {
+	dir := t.TempDir()
+	name := "state\u009b2J.status"
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("changed"), 0o644); err != nil {
+		t.Fatalf("create control-character state signal: %v", err)
+	}
+	cfg := baseConfig(dir)
+
+	if _, err := Run(cfg); err != nil {
+		t.Fatal(err)
+	}
+	records, err := wake.Pending(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Key != name || records[0].Detail != "signal:"+name {
+		t.Fatalf("durable wake record = %+v, want raw signal filename and detail", records)
+	}
+
+	var rendered bytes.Buffer
+	if err := wake.Render(&rendered, records, wake.Episode{}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(rendered.String(), "\u009b") {
+		t.Error("terminal presentation contains the C1 control sequence")
+	}
+	if !strings.Contains(rendered.String(), `state\u009B2J.status`) {
+		t.Errorf("terminal presentation = %q, want a visible escaped control sequence", rendered.String())
+	}
 }
 
 func TestRunScansMonitorAfterCommittingRawSignal(t *testing.T) {
