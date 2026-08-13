@@ -20,11 +20,10 @@ import (
 )
 
 const (
-	spawnLockPrefix = ".spawn-"
-	spawnLockSuffix = ".lock"
-	launchSettle    = 300 * time.Millisecond
-	launchWait      = 3 * time.Second
-	launchPolls     = 4
+	spawnLockName = ".spawn.lock"
+	launchSettle  = 300 * time.Millisecond
+	launchWait    = 3 * time.Second
+	launchPolls   = 4
 )
 
 // Request is the complete local task creation input. Ship delivery posture is
@@ -101,13 +100,12 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := os.MkdirAll(s.StateDir, 0o755); err != nil {
 		return Result{}, fmt.Errorf("spawn: create state directory: %w", err)
 	}
-	lockName := spawnLockPrefix + req.ID + spawnLockSuffix
-	if _, err := lock.AcquireExclusiveNamed(s.StateDir, lockName); err != nil {
-		return Result{}, fmt.Errorf("spawn: acquire task lock for %s: %w", req.ID, err)
+	if _, err := lock.AcquireExclusiveNamed(s.StateDir, spawnLockName); err != nil {
+		return Result{}, fmt.Errorf("spawn: acquire spawn lock: %w", err)
 	}
 	defer func() {
-		if releaseErr := s.releaseTaskLock(s.StateDir, lockName); releaseErr != nil {
-			releaseErr = fmt.Errorf("spawn: release task lock for %s: %w", req.ID, releaseErr)
+		if releaseErr := s.releaseTaskLock(s.StateDir, spawnLockName); releaseErr != nil {
+			releaseErr = fmt.Errorf("spawn: release spawn lock: %w", releaseErr)
 			if err == nil {
 				err = releaseErr
 			} else {
@@ -115,6 +113,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 			}
 		}
 	}()
+	if err := rejectTaskIDAlias(s.StateDir, req.ID); err != nil {
+		return Result{}, err
+	}
 
 	container, err := herdrClient.EnsureContainer(ctx, project)
 	if err != nil {
@@ -379,6 +380,26 @@ func (s Service) releaseTaskLock(dir, name string) error {
 		return s.ReleaseLock(dir, name)
 	}
 	return lock.ReleaseExclusiveNamed(dir, name)
+}
+
+// rejectTaskIDAlias prevents Windows state-file collisions before a spawn can
+// create any Herdr or worktree resources. Task IDs remain case-preserving in
+// metadata, but their state filenames are not case-distinct on Windows.
+func rejectTaskIDAlias(stateDir, id string) error {
+	entries, err := os.ReadDir(stateDir)
+	if err != nil {
+		return fmt.Errorf("spawn: list task metadata: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".meta") {
+			continue
+		}
+		existingID := strings.TrimSuffix(entry.Name(), ".meta")
+		if strings.EqualFold(existingID, id) {
+			return fmt.Errorf("spawn: task ID %q conflicts case-insensitively with existing task metadata %q", id, existingID)
+		}
+	}
+	return nil
 }
 
 func (s Service) sleep(ctx context.Context, duration time.Duration) error {
