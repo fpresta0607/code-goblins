@@ -871,15 +871,23 @@ Expected: PASS.
 
 - [ ] **Step 6: E2E verification**
 
+STDIN DELIVERY RULE, binding for every e2e step in this plan.
+Never pipe a PowerShell string literal into `cfo.exe`.
+PowerShell 5.1 encodes native-command stdin with a UTF-8 BOM, and the leading BOM bytes make the payload invalid JSON, so `ReadPayload` fails open and the hook exits 0 silently.
+That turns a genuine deny case into something indistinguishable from the inert case, which would silently pass a broken guard.
+Always write the payload to a file with `[System.IO.File]::WriteAllText` (which writes no BOM) and redirect that file into the binary.
+
 ```powershell
 & "C:\Program Files\Go\bin\go.exe" build ./cmd/cfo
 $fix = "$env:TEMP\cfo-e2e-sub"; New-Item -ItemType Directory -Force "$fix\state" | Out-Null
 Set-Content "$fix\AGENTS.md" "# home"; git -C $fix init 2>$null
 $env:CFO_HOME = $fix
-'{"session_id":"s","tool_name":"Agent"}' | .\cfo.exe hook pretool-subagent; "exit: $LASTEXITCODE"
+[System.IO.File]::WriteAllText("$fix\payload.json", '{"session_id":"s","tool_name":"Agent"}')
+cmd /c ".\cfo.exe hook pretool-subagent < ""$fix\payload.json"""; "exit: $LASTEXITCODE"
 ```
 Expected: stderr shows the deny envelope, `exit: 2`.
-Then unset CFO_HOME, run the same pipe from the repo root (no state/ dir): expect silence and exit 0.
+Confirm the payload actually arrived: a BOM-corrupted or empty stdin also produces silence, so an exit of 0 here means the fixture is broken, not that the guard is inert.
+Then unset CFO_HOME and run the same redirect from the repo root (no state/ dir): expect silence and exit 0, which is the genuine inert case.
 Delete `.\cfo.exe`.
 
 - [ ] **Step 7: Full-suite check and commit**
@@ -982,7 +990,8 @@ Expected: PASS.
 
 - [ ] **Step 6: E2E verification**
 
-Build, then in the Task 6 fixture home pipe `{"session_id":"s","tool_name":"Bash","tool_input":{"command":"cfo watch &"}}` into `.\cfo.exe hook pretool-arm`: expect deny envelope, exit 2.
+Obey the STDIN DELIVERY RULE from Task 6 Step 6 for every invocation below: write each payload with `[System.IO.File]::WriteAllText` and redirect it with `cmd /c ".\cfo.exe hook <name> < ""<file>"""`, never a PowerShell string pipe, because the BOM PowerShell 5.1 adds sends the hook down its fail-open path and makes a deny look identical to an inert exit.
+Build, then in the Task 6 fixture home feed `{"session_id":"s","tool_name":"Bash","tool_input":{"command":"cfo watch &"}}` to `.\cfo.exe hook pretool-arm`: expect deny envelope, exit 2.
 Pipe `{"tool_input":{"command":"cd C:\\"}}` into `hook pretool-cd`: expect deny, exit 2.
 From the dev repo root without CFO_HOME: both exit 0 silent.
 Delete `.\cfo.exe`.
@@ -1244,7 +1253,8 @@ Expected: PASS.
 
 - [ ] **Step 6: E2E verification**
 
-Build; in a fixture primary home with `state\g1.meta` present and no watcher, pipe `{"session_id":"s1"}` into `.\cfo.exe hook turnend-guard`: expect the blind-turn banner on stderr, exit 2.
+Obey the STDIN DELIVERY RULE from Task 6 Step 6: write the payload with `[System.IO.File]::WriteAllText` and redirect it with `cmd /c`, never a PowerShell string pipe, or the BOM turns this deny case into a silent exit 0 that looks like a pass.
+Build; in a fixture primary home with `state\g1.meta` present and no watcher, feed `{"session_id":"s1"}` to `.\cfo.exe hook turnend-guard`: expect the blind-turn banner on stderr, exit 2.
 Building a live `.watch.lock` from PowerShell is impractical, so prove the other exit-0 arm instead: delete `state\g1.meta` and re-run the same pipe, expecting exit 0 with both streams empty and no budget file left behind. Then `Remove-Item -Recurse -Force $fix` so the next task's fixture starts clean.
 Delete `.\cfo.exe`.
 
@@ -1330,7 +1340,7 @@ Expected: PASS.
 
 - [ ] **Step 5: E2E verification**
 
-Build; fixture primary home with `state\g1.meta` and NO status file yet; `CFO_TEST_ANCESTOR_PID=$PID` (current PowerShell pid), tiny intervals. Arrange stdin explicitly rather than relying on an inherited console handle, and give it a REAL payload rather than an empty file, because `claudehook.ReadPayload` returns ok false on empty input and the hook would fail open at step 1 and exit 0 silent: `Set-Content "$fix\stdin.json" '{"session_id":"s1"}'`, then `Start-Process -FilePath .\cfo.exe -ArgumentList "hook","stop-autoarm" -PassThru -NoNewWindow -RedirectStandardInput "$fix\stdin.json" -RedirectStandardError "$fix\autoarm-err.txt" -RedirectStandardOutput "$fix\autoarm-out.txt"`. Wait until `state\.last-watcher-beat` appears (with the same deadline and 500ms settle the Task 8 e2e uses), then create `state\g1.status`, then `Wait-Process -Id $p.Id -Timeout 30 -ErrorAction SilentlyContinue`.
+Build; fixture primary home with `state\g1.meta` and NO status file yet; `CFO_TEST_ANCESTOR_PID=$PID` (current PowerShell pid), tiny intervals. Arrange stdin explicitly rather than relying on an inherited console handle, and give it a REAL payload rather than an empty file, because `claudehook.ReadPayload` returns ok false on empty input and the hook would fail open at step 1 and exit 0 silent: `[System.IO.File]::WriteAllText("$fix\stdin.json", '{"session_id":"s1"}')` (WriteAllText rather than Set-Content, so the file carries no BOM under any console encoding, per the STDIN DELIVERY RULE in Task 6 Step 6), then `Start-Process -FilePath .\cfo.exe -ArgumentList "hook","stop-autoarm" -PassThru -NoNewWindow -RedirectStandardInput "$fix\stdin.json" -RedirectStandardError "$fix\autoarm-err.txt" -RedirectStandardOutput "$fix\autoarm-out.txt"`. Wait until `state\.last-watcher-beat` appears (with the same deadline and 500ms settle the Task 8 e2e uses), then create `state\g1.status`, then `Wait-Process -Id $p.Id -Timeout 30 -ErrorAction SilentlyContinue`.
 Expected: exit code 2, stderr file contains `cfo watcher wake` and the `signal:` reason, `.\cfo.exe drain` (same CFO_HOME) shows the pending signal and the WAKE_ACK_REQUIRED line; then `cfo drain --ack-through <seq> --recovery-generation <gen>` empties it.
 This is the full arm-wake-drain-ack cycle e2e, no Claude needed.
 Delete `.\cfo.exe`.
@@ -1416,15 +1426,19 @@ Expected: PASS.
 
 Build; fixture primary home with two metas, statuses, backlog, and context files; run:
 
+Obey the STDIN DELIVERY RULE stated in Task 6 Step 6: write the payload with `[System.IO.File]::WriteAllText` and redirect it, never pipe a PowerShell string literal, because PowerShell 5.1 adds a UTF-8 BOM that makes the payload invalid JSON and sends the hook down its fail-open path.
+
 ```powershell
+[System.IO.File]::WriteAllText("$fix\start.json", '{"session_id":"s","source":"startup"}')
 $sw = [Diagnostics.Stopwatch]::StartNew()
-'{"session_id":"s","source":"startup"}' | .\cfo.exe hook session-start | Out-File "$fix\digest.txt"
+cmd /c ".\cfo.exe hook session-start < ""$fix\start.json""" | Out-File "$fix\digest.txt"
 $code = $LASTEXITCODE
 $sw.Stop(); "elapsed ms: $($sw.ElapsedMilliseconds)  exit: $code"
 if ($code -ne 0) { throw "session-start must always exit 0, got $code" }
 ```
 Expected: exit 0, digest.txt shows all seven sections in order, elapsed under 1000ms.
-Then `Remove-Item "$fix\state\.lock"` and pipe `{"source":"resume"}` into the same fixture. Deleting the lock record is what forces the fall-through, and it has to be deliberate: the marker does NOT name the exited cfo.exe process, it names the resolved harness ancestor, which is the still-live PowerShell or claude.exe above it, so `lock.HeldBy` would otherwise be TRUE and this leg would print the nudge instead. With no lock record there is no custody evidence at all. Expected: exit 0 with `== SESSION LOCK ==` on stdout, which is the resumed-session-must-not-start-blind path. The one-line nudge is exercised by the routing test instead, where one pinned owner spans both calls.
+A digest that comes back empty or missing sections means the payload never arrived, not that the digest is broken; check the fixture file for a BOM before debugging the code.
+Then `Remove-Item "$fix\state\.lock"` and feed `{"source":"resume"}` into the same fixture by the same file-redirect method. Deleting the lock record is what forces the fall-through, and it has to be deliberate: the marker does NOT name the exited cfo.exe process, it names the resolved harness ancestor, which is the still-live PowerShell or claude.exe above it, so `lock.HeldBy` would otherwise be TRUE and this leg would print the nudge instead. With no lock record there is no custody evidence at all. Expected: exit 0 with `== SESSION LOCK ==` on stdout, which is the resumed-session-must-not-start-blind path. The one-line nudge is exercised by the routing test instead, where one pinned owner spans both calls.
 Delete `.\cfo.exe`.
 
 - [ ] **Step 6: Full-suite check and commit**
