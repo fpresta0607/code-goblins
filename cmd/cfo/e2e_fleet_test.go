@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -38,6 +40,10 @@ func TestFleetEndToEnd(t *testing.T) {
 	fixture.AssertTaskMetadataIsIsolated()
 	fixture.SendAndPeek("claude")
 
+	// These direct monitor.Service scans prove the deterministic state-machine
+	// boundary only. They do not claim that cfo watch wires a real Herdr prober;
+	// the opt-in Windows acceptance script independently requires watch to
+	// persist observations and fails closed until that production wiring exists.
 	fixture.ScanActive("claude")
 	fixture.ScanBusyProtected("claude")
 	fixture.ScanStaleEscalation("claude")
@@ -46,6 +52,53 @@ func TestFleetEndToEnd(t *testing.T) {
 	fixture.ScanUnknownEndpoint("codex")
 	fixture.AssertFleetJSONAndMarkdownParity()
 	fixture.AssertVisibleTabsAndNoLifecycleDeletes()
+}
+
+func TestPlan3AcceptanceScriptSelfTests(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Plan 3 acceptance script self-tests require Windows PowerShell")
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(wd, "..", "..", "tests", "acceptance", "plan3_windows.ps1")
+	cases := []struct {
+		name      string
+		selfTest  string
+		wantError bool
+		wantText  string
+	}{
+		{
+			name:      "missing cleanup fails closed",
+			selfTest:  "missing-cleanup",
+			wantError: true,
+			wantText:  "ACCEPTANCE BLOCKER: this cfo build has no cleanup command.",
+		},
+		{
+			name:     "fixture CFO home meets primary predicates",
+			selfTest: "primary-home",
+			wantText: "Plan 3 primary-home self-test passed.",
+		},
+		{
+			name:     "fleet Markdown projects every required monitor field",
+			selfTest: "fleet-parity",
+			wantText: "Plan 3 fleet parity self-test passed.",
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			command := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-SelfTest", tt.selfTest)
+			command.Env = append(os.Environ(), "CFO_PLAN3_REAL=1")
+			output, err := command.CombinedOutput()
+			if (err != nil) != tt.wantError {
+				t.Fatalf("self-test error = %v, wantError=%v\n%s", err, tt.wantError, output)
+			}
+			if !strings.Contains(string(output), tt.wantText) {
+				t.Fatalf("self-test output missing %q:\n%s", tt.wantText, output)
+			}
+		})
+	}
 }
 
 // fleetE2EFixture is a real command-path fixture. It drives the command
@@ -330,14 +383,14 @@ func (f *fleetE2EFixture) AssertFleetJSONAndMarkdownParity() {
 		f.t.Fatalf("fleet tasks=%d, want 3", len(snapshot.Tasks))
 	}
 	claude := taskRowFor(f.t, snapshot.Tasks, "claude")
-	if claude.Current.State != crewstate.Working || claude.Monitor.Health != monitor.HealthStale || claude.Monitor.Escalation != 2 || !claude.Monitor.DemandDeepInspection || claude.Monitor.LastSeen == nil {
+	if claude.Current.State != crewstate.Working || claude.Current.Source != crewstate.SourceStatus || claude.Monitor.Health != monitor.HealthStale || claude.Monitor.StaleSeconds <= 0 || claude.Monitor.Escalation != 2 || !claude.Monitor.DemandDeepInspection || claude.Monitor.LastSeen == nil || claude.Endpoint.Exists == nil || !*claude.Endpoint.Exists {
 		f.t.Fatalf("Claude fleet row=%+v", claude)
 	}
 	codex := taskRowFor(f.t, snapshot.Tasks, "codex")
 	if codex.Current.State != crewstate.Unknown || codex.Monitor.Health != monitor.HealthUnknown || codex.Endpoint.Exists == nil || *codex.Endpoint.Exists {
 		f.t.Fatalf("Codex unknown fleet row=%+v", codex)
 	}
-	if samePath(claude.Path, f.project) || claude.Path == "" || claude.Endpoint.Target != "fleet-e2e:pane:claude" {
+	if samePath(claude.Path, f.project) || claude.Path == "" || claude.Endpoint.Target != "fleet-e2e:pane:claude" || claude.Endpoint.Session != "fleet-e2e" || claude.Endpoint.PaneID != "pane:claude" {
 		f.t.Fatalf("Claude fleet identity=%+v", claude)
 	}
 
@@ -345,16 +398,27 @@ func (f *fleetE2EFixture) AssertFleetJSONAndMarkdownParity() {
 	if markdownStderr != "" {
 		f.t.Fatalf("fleet Markdown stderr=%q", markdownStderr)
 	}
-	for _, value := range []string{
-		"| claude | working / status | stale |",
-		"| codex | unknown / none | unknown |",
+	claudeRow := strings.Join([]string{
+		"| claude",
+		"working / status",
+		"stale",
+		(time.Duration(claude.Monitor.StaleSeconds) * time.Second).String(),
 		claude.Monitor.LastSeen.UTC().Format(time.RFC3339),
-		"| 2 | yes |",
+		"2",
+		"yes",
+		claude.Kind,
+		claude.Project,
+		claude.Backend,
+		"present",
+		"-",
 		claude.Path,
-	} {
-		if !strings.Contains(markdown, value) {
-			f.t.Fatalf("fleet Markdown missing %q:\n%s", value, markdown)
-		}
+		claude.Actions.Peek + " |",
+	}, " | ")
+	if !strings.Contains(markdown, claudeRow) {
+		f.t.Fatalf("fleet Markdown does not exactly project Claude JSON row %q:\n%s", claudeRow, markdown)
+	}
+	if !strings.Contains(markdown, "| codex | unknown / none | unknown |") {
+		f.t.Fatalf("fleet Markdown missing unknown endpoint/current-state projection:\n%s", markdown)
 	}
 }
 
