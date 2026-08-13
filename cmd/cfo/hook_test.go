@@ -120,6 +120,83 @@ func TestRunHookPretoolSubagentTransportFailure(t *testing.T) {
 	}
 }
 
+func TestRunHookPretoolArmDeniesInPrimaryHome(t *testing.T) {
+	newPrimaryHome(t)
+	var stdout, stderr bytes.Buffer
+	exit := runHook("pretool-arm", strings.NewReader(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"cfo watch &"}}`), &stdout, &stderr)
+	if exit != 2 {
+		t.Fatalf("exit = %d, want 2; stderr=%s", exit, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("stdout = %q, want empty", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "watcher-background") {
+		t.Errorf("stderr = %q, want it to contain %q", stderr.String(), "watcher-background")
+	}
+}
+
+func TestRunHookPretoolArmAllowsInPrimaryHome(t *testing.T) {
+	newPrimaryHome(t)
+	var stdout, stderr bytes.Buffer
+	exit := runHook("pretool-arm", strings.NewReader(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"git log --oneline"}}`), &stdout, &stderr)
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0", exit)
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Errorf("stdout=%q stderr=%q, want both empty", stdout.String(), stderr.String())
+	}
+}
+
+func TestRunHookPretoolArmInertWithoutState(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("# home"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"init"}, {"config", "user.email", "t@t"}, {"config", "user.name", "t"}} {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	t.Setenv("CFO_HOME", dir)
+
+	var stdout, stderr bytes.Buffer
+	exit := runHook("pretool-arm", strings.NewReader(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"cfo watch &"}}`), &stdout, &stderr)
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0", exit)
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Errorf("stdout=%q stderr=%q, want both empty", stdout.String(), stderr.String())
+	}
+}
+
+func TestRunHookPretoolCdDeniesInPrimaryHome(t *testing.T) {
+	newPrimaryHome(t)
+	var stdout, stderr bytes.Buffer
+	exit := runHook("pretool-cd", strings.NewReader(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"cd C:\\"}}`), &stdout, &stderr)
+	if exit != 2 {
+		t.Fatalf("exit = %d, want 2; stderr=%s", exit, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("stdout = %q, want empty", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "cwd-relocation") {
+		t.Errorf("stderr = %q, want it to contain %q", stderr.String(), "cwd-relocation")
+	}
+}
+
+func TestRunHookPretoolCdAllowsInPrimaryHome(t *testing.T) {
+	newPrimaryHome(t)
+	var stdout, stderr bytes.Buffer
+	exit := runHook("pretool-cd", strings.NewReader(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"go test ./..."}}`), &stdout, &stderr)
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0", exit)
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Errorf("stdout=%q stderr=%q, want both empty", stdout.String(), stderr.String())
+	}
+}
+
 func TestRunHookUnknownName(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	exit := runHook("no-such", strings.NewReader(""), &stdout, &stderr)

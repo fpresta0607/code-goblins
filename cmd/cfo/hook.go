@@ -19,6 +19,10 @@ func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	switch name {
 	case "pretool-subagent":
 		return hookPretoolSubagent(stdin, stdout, stderr)
+	case "pretool-arm":
+		return hookPretoolArm(stdin, stdout, stderr)
+	case "pretool-cd":
+		return hookPretoolCd(stdin, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "cfo hook: unknown hook %q\n", name)
 		return 0
@@ -54,4 +58,54 @@ func hookPretoolSubagent(stdin io.Reader, stdout, stderr io.Writer) int {
 		payload.ToolName, stem,
 	)
 	return claudehook.DenyPreTool(stderr, message)
+}
+
+// hookPretoolArm stops the agent shell from invoking the watcher directly:
+// the watcher is supposed to be armed by the Stop-owned auto-arm hook, and
+// running it (or killing it, backgrounding it, piping it, and the rest)
+// from a Bash call bypasses that supervision. Every early exit fails open
+// (exit 0, silent).
+func hookPretoolArm(stdin io.Reader, stdout, stderr io.Writer) int {
+	payload, ok := claudehook.ReadPayload(stdin)
+	if !ok {
+		return 0
+	}
+	h, err := home.Resolve()
+	if err != nil {
+		return 0
+	}
+	if !home.IsPrimary(h) {
+		return 0
+	}
+	code, reason, deny := guard.ClassifyArm(payload.Command)
+	if !deny {
+		return 0
+	}
+	return claudehook.DenyPreTool(stderr, fmt.Sprintf("[%s] %s", code, reason))
+}
+
+// hookPretoolCd stops the agent shell from relocating its working directory:
+// Claude Code's Bash tool keeps its working directory across calls, so a
+// relocation anywhere in the command outlives the tool call. Upstream's
+// cd-guard predicate is looser than IsPrimary; it is deliberately tightened
+// to IsPrimary here, same as pretool-arm, so both guards share the
+// inert-in-dev guarantee. This is a sanctioned deviation from upstream.
+// Every early exit fails open (exit 0, silent).
+func hookPretoolCd(stdin io.Reader, stdout, stderr io.Writer) int {
+	payload, ok := claudehook.ReadPayload(stdin)
+	if !ok {
+		return 0
+	}
+	h, err := home.Resolve()
+	if err != nil {
+		return 0
+	}
+	if !home.IsPrimary(h) {
+		return 0
+	}
+	code, reason, deny := guard.ClassifyCd(payload.Command)
+	if !deny {
+		return 0
+	}
+	return claudehook.DenyPreTool(stderr, fmt.Sprintf("[%s] %s", code, reason))
 }
