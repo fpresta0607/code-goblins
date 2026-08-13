@@ -129,6 +129,9 @@ func ReadObservation(stateDir, id string) (Observation, error) {
 	if observation.TaskID != id {
 		return Observation{}, fmt.Errorf("monitor: observation task ID %q does not match path ID %q", observation.TaskID, id)
 	}
+	if err := validateObservation(observation); err != nil {
+		return Observation{}, err
+	}
 	return observation, nil
 }
 
@@ -137,6 +140,9 @@ func WriteObservation(stateDir string, observation Observation) error {
 		return err
 	}
 	observation.Schema = Schema
+	if err := validateObservation(observation); err != nil {
+		return err
+	}
 	return writeJSON(ObservationPath(stateDir, observation.TaskID), observation)
 }
 
@@ -148,11 +154,17 @@ func ReadHeartbeat(stateDir string) (Heartbeat, error) {
 	if heartbeat.Schema != Schema {
 		return Heartbeat{}, fmt.Errorf("monitor: unsupported heartbeat schema %q", heartbeat.Schema)
 	}
+	if err := validateHeartbeat(heartbeat); err != nil {
+		return Heartbeat{}, err
+	}
 	return heartbeat, nil
 }
 
 func WriteHeartbeat(stateDir string, heartbeat Heartbeat) error {
 	heartbeat.Schema = Schema
+	if err := validateHeartbeat(heartbeat); err != nil {
+		return err
+	}
 	return writeJSON(HeartbeatPath(stateDir), heartbeat)
 }
 
@@ -200,4 +212,147 @@ func writeJSON(path string, value any) error {
 		return err
 	}
 	return fsx.AtomicWriteFile(path, data)
+}
+
+func validateObservation(observation Observation) error {
+	if observation.Schema != Schema {
+		return fmt.Errorf("monitor: unsupported observation schema %q", observation.Schema)
+	}
+	if err := state.ValidTaskID(observation.TaskID); err != nil {
+		return err
+	}
+	if observation.Endpoint == "" {
+		return errors.New("monitor: observation endpoint is required")
+	}
+	if !validProbeVerdict(observation.EndpointVerdict) {
+		return fmt.Errorf("monitor: invalid endpoint verdict %q", observation.EndpointVerdict)
+	}
+	if observation.LastObserved.IsZero() {
+		return errors.New("monitor: observation last_observed is required")
+	}
+	if observation.Escalation < 0 {
+		return errors.New("monitor: observation escalation must not be negative")
+	}
+	if err := validateObservationState(observation); err != nil {
+		return err
+	}
+	return validateEvent(observation.PendingEvent, observation.TaskID, TaskEvent)
+}
+
+func validateObservationState(observation Observation) error {
+	requireProgress := func() error {
+		if observation.Digest == "" || observation.LastSeen.IsZero() || observation.LastProgress.IsZero() {
+			return errors.New("monitor: observation progress fields are required")
+		}
+		return nil
+	}
+	switch observation.Health {
+	case HealthActive, HealthIdle, HealthBusy:
+		if observation.EndpointVerdict != ProbePresent || observation.Reason != None {
+			return errors.New("monitor: active, idle, and busy observations require a present endpoint and reason none")
+		}
+		if observation.StaleSince != nil || observation.NextEscalation != nil || observation.NextPauseResurface != nil || observation.Escalation != 0 || observation.DemandDeepInspection {
+			return errors.New("monitor: active, idle, and busy observations must not retain stale state")
+		}
+		return requireProgress()
+	case HealthStale:
+		if observation.EndpointVerdict != ProbePresent || (observation.Reason != UnchangedIdle && observation.Reason != BusyTurnOverAge) {
+			return errors.New("monitor: stale observation has incompatible endpoint or reason")
+		}
+		if observation.StaleSince == nil || observation.NextEscalation == nil || observation.NextPauseResurface != nil {
+			return errors.New("monitor: stale observation is missing escalation timestamps")
+		}
+		return requireProgress()
+	case HealthPaused:
+		if observation.EndpointVerdict != ProbePresent || observation.Reason != DeclaredPause {
+			return errors.New("monitor: paused observation has incompatible endpoint or reason")
+		}
+		if observation.StaleSince != nil || observation.NextEscalation != nil || observation.NextPauseResurface == nil || observation.Escalation != 0 || observation.DemandDeepInspection {
+			return errors.New("monitor: paused observation has incompatible timing state")
+		}
+		return requireProgress()
+	case HealthUnknown:
+		if observation.StaleSince != nil || observation.NextEscalation != nil || observation.NextPauseResurface != nil || observation.Escalation != 0 || observation.DemandDeepInspection {
+			return errors.New("monitor: unknown observation must not retain stale state")
+		}
+		switch observation.Reason {
+		case EndpointMissing:
+			if observation.EndpointVerdict != ProbeMissing {
+				return errors.New("monitor: endpoint-missing observation requires missing verdict")
+			}
+		case EndpointUnknown, InvalidRecord:
+			if observation.EndpointVerdict != ProbeUnknown {
+				return errors.New("monitor: unknown observation requires unknown verdict")
+			}
+		default:
+			return fmt.Errorf("monitor: invalid unknown observation reason %q", observation.Reason)
+		}
+		return nil
+	default:
+		return fmt.Errorf("monitor: invalid observation health %q", observation.Health)
+	}
+}
+
+func validateHeartbeat(heartbeat Heartbeat) error {
+	if heartbeat.Schema != Schema {
+		return fmt.Errorf("monitor: unsupported heartbeat schema %q", heartbeat.Schema)
+	}
+	if heartbeat.LastCycle.IsZero() {
+		return errors.New("monitor: heartbeat last_cycle is required")
+	}
+	if heartbeat.NoChangeStreak < 0 {
+		return errors.New("monitor: heartbeat no_change_streak must not be negative")
+	}
+	// Signals-only watch cycles legitimately create this transitional form.
+	// Scan initializes both scheduling timestamps before using the cadence.
+	bootstrap := heartbeat.LastHeartbeat.IsZero() && heartbeat.NextDue.IsZero()
+	if !bootstrap {
+		if heartbeat.LastHeartbeat.IsZero() || heartbeat.NextDue.IsZero() {
+			return errors.New("monitor: heartbeat scheduling timestamps must both be present")
+		}
+		if heartbeat.NextDue.Before(heartbeat.LastHeartbeat) {
+			return errors.New("monitor: heartbeat next_due precedes last_heartbeat")
+		}
+	}
+	if heartbeat.PendingEvent == nil {
+		return nil
+	}
+	switch heartbeat.PendingEvent.Source {
+	case HeartbeatEvent:
+		return validateEvent(heartbeat.PendingEvent, "", HeartbeatEvent)
+	case TaskEvent:
+		if err := state.ValidTaskID(heartbeat.PendingEvent.TaskID); err != nil {
+			return err
+		}
+		return validateEvent(heartbeat.PendingEvent, heartbeat.PendingEvent.TaskID, TaskEvent)
+	default:
+		return fmt.Errorf("monitor: pending heartbeat event source %q is invalid", heartbeat.PendingEvent.Source)
+	}
+}
+
+func validProbeVerdict(verdict ProbeVerdict) bool {
+	return verdict == ProbePresent || verdict == ProbeMissing || verdict == ProbeUnknown
+}
+
+func validateEvent(event *Event, taskID string, source EventSource) error {
+	if event == nil {
+		return nil
+	}
+	if event.Source != source {
+		return fmt.Errorf("monitor: pending event source %q is invalid", event.Source)
+	}
+	if event.Detail == "" {
+		return errors.New("monitor: pending event detail is required")
+	}
+	switch source {
+	case TaskEvent:
+		if event.TaskID != taskID || event.Kind != "stale" || event.Key != taskID {
+			return errors.New("monitor: task pending event does not match its observation")
+		}
+	case HeartbeatEvent:
+		if event.TaskID != "" || event.Kind != "heartbeat" || event.Key != "heartbeat" {
+			return errors.New("monitor: heartbeat pending event is invalid")
+		}
+	}
+	return nil
 }
