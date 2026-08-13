@@ -87,7 +87,11 @@ func WatcherHealthy(stateDir string, grace time.Duration) bool {
 	if err != nil {
 		return false
 	}
-	return !heartbeat.LastCycle.IsZero() && time.Since(heartbeat.LastCycle) < grace
+	if heartbeat.LastCycle.IsZero() {
+		return false
+	}
+	age := time.Since(heartbeat.LastCycle)
+	return age >= 0 && age < grace
 }
 
 // AutoarmOwnsRecovery reports whether the Stop-owned auto-arm (Task 11) is
