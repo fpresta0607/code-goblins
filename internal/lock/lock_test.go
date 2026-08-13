@@ -407,3 +407,28 @@ func TestReleaseNamed(t *testing.T) {
 		t.Errorf("stat err = %v, want ErrNotExist", err)
 	}
 }
+
+func TestAcquireExclusiveNamedContendsButRetainsItsOwnVerifiedRecord(t *testing.T) {
+	dir := t.TempDir()
+	name := ".spawn-task.lock"
+	if _, err := AcquireExclusiveNamed(dir, name); err != nil {
+		t.Fatalf("AcquireExclusiveNamed: %v", err)
+	}
+	if _, err := AcquireExclusiveNamed(dir, name); !errors.Is(err, ErrHeld) {
+		t.Fatalf("second AcquireExclusiveNamed error = %v, want ErrHeld", err)
+	}
+	if err := ReleaseNamed(dir, name); err != nil {
+		t.Fatalf("ReleaseNamed: %v", err)
+	}
+
+	self, status := ownerInfo(os.Getpid(), "")
+	if status == statusDead {
+		t.Fatal("current process unexpectedly dead")
+	}
+	if err := writeInfo(filepath.Join(dir, name), self); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := acquire(dir, name, self, false); err != nil {
+		t.Fatalf("exclusive acquire did not retain its own verified record: %v", err)
+	}
+}

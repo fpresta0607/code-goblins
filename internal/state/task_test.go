@@ -112,3 +112,31 @@ func TestWriteTaskMetaIsDeterministicAndRoundTripsHerdrFields(t *testing.T) {
 		t.Errorf("ReadTaskMeta missing error = %v, want ErrNotExist", err)
 	}
 }
+
+func TestWriteTaskMetaOmitsShipOnlyFieldsForScout(t *testing.T) {
+	dir := t.TempDir()
+	meta := TaskMeta{
+		ID:               "scout-1",
+		Kind:             "scout",
+		Mode:             "no-mistakes",
+		Yolo:             "on",
+		Backend:          "herdr",
+		HerdrSession:     "fleet",
+		HerdrWorkspaceID: "ws-1",
+		HerdrTabID:       "tab-1",
+		HerdrPaneID:      "pane-1",
+	}
+	if err := WriteTaskMeta(dir, meta); err != nil {
+		t.Fatalf("WriteTaskMeta: %v", err)
+	}
+	values, err := ReadMeta(filepath.Join(dir, "scout-1.meta"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := values["mode"]; exists {
+		t.Errorf("scout metadata includes ship-only mode=%q", values["mode"])
+	}
+	if _, exists := values["yolo"]; exists {
+		t.Errorf("scout metadata includes ship-only yolo=%q", values["yolo"])
+	}
+}
