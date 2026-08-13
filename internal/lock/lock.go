@@ -94,7 +94,19 @@ func AcquireNamedOwner(dir, name string, ownerPID int, session string) (*Info, e
 	if status == statusDead {
 		return nil, fmt.Errorf("%w: pid %d", ErrOwnerDead, ownerPID)
 	}
-	return acquire(dir, name, self)
+	return acquire(dir, name, self, true)
+}
+
+// AcquireExclusiveNamed takes dir/name for the current process without the
+// ordinary session-lock re-acquisition exception. A task spawn needs this
+// stricter form because two concurrent Spawn calls run under one process but
+// must still contend for the task's creation lock.
+func AcquireExclusiveNamed(dir, name string) (*Info, error) {
+	self, status := ownerInfo(os.Getpid(), "")
+	if status == statusDead {
+		return nil, fmt.Errorf("%w: pid %d", ErrOwnerDead, self.PID)
+	}
+	return acquire(dir, name, self, false)
 }
 
 // AcquireOwner takes dir/.lock for ownerPID, the long-lived process (the
@@ -122,8 +134,9 @@ func Acquire(dir string) (*Info, error) {
 
 // acquire runs the exclusive-create/read-back/steal loop, recording self as
 // the new holder of dir/name if the lock is free or its dead holder can be
-// stolen.
-func acquire(dir, name string, self *Info) (*Info, error) {
+// stolen. allowReacquire preserves the session-lock custody contract while
+// task-spawn locks require a same-process concurrent caller to contend.
+func acquire(dir, name string, self *Info, allowReacquire bool) (*Info, error) {
 	path := filepath.Join(dir, name)
 	unreadableCount := 0
 	unreadableStart := time.Time{}
@@ -173,11 +186,14 @@ func acquire(dir, name string, self *Info) (*Info, error) {
 		// File is readable; reset unreadable counter.
 		unreadableCount = 0
 
-		// The holder is already us (e.g., a transient read-back failure after
-		// our own successful create above). The lock is already ours.
-		// Session is deliberately excluded: a resumed session keeps custody.
+		// A normal session lock is re-entrant for its owner. An exclusive task
+		// lock instead recognizes only the exact record this invocation wrote,
+		// preserving a transient failed read-back without admitting another
+		// concurrent call from the same process.
 		if holder.PID == self.PID && holder.Start.Equal(self.Start) && holder.Hostname == self.Hostname {
-			return self, nil
+			if allowReacquire || holder.Acquired.Equal(self.Acquired) {
+				return self, nil
+			}
 		}
 
 		if holder.Alive() {

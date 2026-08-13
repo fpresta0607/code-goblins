@@ -117,8 +117,6 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 		"project":            meta.Project,
 		"harness":            meta.Harness,
 		"kind":               meta.Kind,
-		"mode":               meta.Mode,
-		"yolo":               meta.Yolo,
 		"tasktmp":            meta.TaskTmp,
 		"model":              meta.Model,
 		"effort":             meta.Effort,
@@ -128,6 +126,10 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 		"herdr_workspace_id": meta.HerdrWorkspaceID,
 		"herdr_tab_id":       meta.HerdrTabID,
 		"herdr_pane_id":      meta.HerdrPaneID,
+	}
+	if meta.Kind == "ship" {
+		fields["mode"] = meta.Mode
+		fields["yolo"] = meta.Yolo
 	}
 	for key, value := range fields {
 		if value == "" {
