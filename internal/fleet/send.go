@@ -55,7 +55,7 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 			return err
 		}
 		switch state {
-		case herdr.SubmitWorking:
+		case herdr.SubmitWorking, herdr.SubmitBlocked:
 			return nil
 		case herdr.SubmitIdle:
 			continue
@@ -111,15 +111,18 @@ func (s Sender) confirm(ctx context.Context, target herdr.Target, meta state.Tas
 	if err := s.sleep(ctx, enterSleep); err != nil {
 		return herdr.SubmitUnknown, fmt.Errorf("fleet: wait for composer confirmation for %s: %w", target, err)
 	}
-	return s.composerState(ctx, target, meta)
+	return s.composerState(ctx, target, meta, baseline)
 }
 
-func (s Sender) composerState(ctx context.Context, target herdr.Target, meta state.TaskMeta) (herdr.SubmitState, error) {
+func (s Sender) composerState(ctx context.Context, target herdr.Target, meta state.TaskMeta, baseline herdr.SubmitState) (herdr.SubmitState, error) {
 	captured, err := s.Herdr.Capture(ctx, target, 200, true)
 	if err != nil {
 		return herdr.SubmitUnknown, fmt.Errorf("fleet: inspect composer for %s: %w", target, err)
 	}
 
+	if meta.Harness == "pi" {
+		return piComposerState(stripANSI(captured), baseline), nil
+	}
 	prompt := composerPrompt(meta.Harness)
 	if prompt == "" {
 		return herdr.SubmitUnknown, nil
@@ -136,6 +139,37 @@ func (s Sender) composerState(ctx context.Context, target herdr.Target, meta sta
 		return herdr.SubmitIdle, nil
 	}
 	return herdr.SubmitUnknown, nil
+}
+
+func piComposerState(captured string, baseline herdr.SubmitState) herdr.SubmitState {
+	lines := strings.Split(captured, "\n")
+	lastSeparator, open, close := -1, -1, -1
+	for index, line := range lines {
+		if !piSeparator(line) {
+			continue
+		}
+		if lastSeparator >= 0 {
+			open, close = lastSeparator, index
+		}
+		lastSeparator = index
+	}
+	if close < 0 || close-open > 9 {
+		return herdr.SubmitUnknown
+	}
+	for _, line := range lines[open+1 : close] {
+		if strings.TrimSpace(line) != "" {
+			return herdr.SubmitIdle
+		}
+	}
+	if baseline == herdr.SubmitWorking || baseline == herdr.SubmitBlocked {
+		return herdr.SubmitWorking
+	}
+	return herdr.SubmitUnknown
+}
+
+func piSeparator(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.Count(trimmed, "─") >= 8 && strings.Trim(trimmed, "─") == ""
 }
 
 func (s Sender) sleep(ctx context.Context, duration time.Duration) error {

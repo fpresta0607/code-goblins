@@ -586,10 +586,14 @@ func TestBusyStateAndWaitForWorking(t *testing.T) {
 			replies: []runnerReply{
 				jsonReply(`{"result":{"agent":{"agent_status":"idle"}}}`),
 				jsonReply(`{"result":{"agent":{"agent_status":"done"}}}`),
-				jsonReply(`{"result":{"agent":{"agent_status":"blocked"}}}`),
 			},
 			want:       SubmitIdle,
-			wantSleeps: []time.Duration{500 * time.Millisecond, 500 * time.Millisecond},
+			wantSleeps: []time.Duration{time.Second},
+		},
+		{
+			name:    "blocked remains distinct for submit confirmation",
+			replies: []runnerReply{jsonReply(`{"result":{"agent":{"agent_status":"blocked"}}}`)},
+			want:    SubmitBlocked,
 		},
 		{
 			name: "every unreadable read returns unknown",
