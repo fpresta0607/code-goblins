@@ -36,7 +36,7 @@ func readEpisode(dir string) (Episode, error) {
 	if err != nil {
 		return Episode{}, err
 	}
-	line := strings.TrimSpace(strings.ReplaceAll(string(data), "\r\n", "\n"))
+	line := strings.TrimSpace(string(data))
 	status, genText, ok := strings.Cut(line, ":")
 	if !ok {
 		return Episode{}, nil
@@ -80,16 +80,19 @@ func PublishEpisode(dir string) (int, error) {
 }
 
 // AckEpisode retires a pending episode whose generation matches gen by
-// rewriting the marker as acked:<gen>. A generation mismatch returns
-// ErrGenerationMismatch and leaves the marker untouched; callers treat it as
-// a signal to re-drain, not a failure.
+// rewriting the marker as acked:<gen>. Acking is only meaningful against a
+// pending episode at a non-zero generation; a call that matches neither
+// (no marker, an already-acked marker, gen 0, or a different generation)
+// returns ErrGenerationMismatch and writes nothing, so it can never
+// fabricate a marker for a home that never had an episode. Callers treat
+// the mismatch as a signal to re-drain, not a failure.
 func AckEpisode(dir string, gen int) error {
 	return withLock(dir, func() error {
 		current, err := readEpisode(dir)
 		if err != nil {
 			return err
 		}
-		if current.Gen != gen {
+		if !current.Pending || gen == 0 || current.Gen != gen {
 			return ErrGenerationMismatch
 		}
 		return writeEpisode(dir, "acked", gen)

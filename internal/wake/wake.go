@@ -20,6 +20,14 @@ const queueFile = ".wake-queue"
 // AckThrough, PublishEpisode, AckEpisode) holds for its read-modify-write,
 // serializing them across processes. Read-only paths (Pending, ReadEpisode)
 // take no lock and create nothing, keeping INERT MEANS INERT intact.
+// The lock is NOT reentrant. Calling a second wake mutator from inside the
+// fn of one already in flight does not deadlock, because AcquireNamedOwner
+// treats the same process re-acquiring as an idempotent self-match; instead
+// the inner call's release drops the lock out from under the outer call,
+// which then finishes its own read-modify-write believing it is still
+// exclusive when it no longer is. A caller that needs several acks done
+// together, such as cfo drain, must call them sequentially, one at a time,
+// never nested.
 const wakeLockName = ".wake-queue.lock"
 
 // kinds is the whitelist Append enforces: upstream's four documented wake

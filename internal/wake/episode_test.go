@@ -77,6 +77,19 @@ func TestAckMismatchReturnsSentinel(t *testing.T) {
 	}
 }
 
+func TestAckEpisodeAgainstMissingMarkerWritesNothing(t *testing.T) {
+	// A home that never published an episode has no marker at all; acking
+	// generation 0 against it must not fabricate one (regression: this used
+	// to write "acked:0" because the zero Episode's Gen matched gen 0).
+	dir := t.TempDir()
+	if err := AckEpisode(dir, 0); !errors.Is(err, ErrGenerationMismatch) {
+		t.Errorf("err = %v, want ErrGenerationMismatch", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, episodeFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("stat err = %v, want ErrNotExist (AckEpisode must not fabricate a marker)", err)
+	}
+}
+
 func TestReadEpisodeMissingFileIsZero(t *testing.T) {
 	ep, err := ReadEpisode(t.TempDir())
 	if err != nil {
