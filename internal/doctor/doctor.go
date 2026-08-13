@@ -30,6 +30,8 @@ var tools = []struct {
 	{name: "herdr", hint: "irm https://herdr.dev/install.ps1 | iex"},
 	// Presence-only until Plan 3 verifies treehouse --version on Windows.
 	{name: "treehouse", presenceOnly: true, hint: "see github.com/kunchenguid/treehouse"},
+	{name: "codex", hint: "npm install -g @openai/codex"},
+	{name: "pi", hint: "npm install -g @mariozechner/pi-coding-agent"},
 }
 
 // Run checks every required tool in a fixed order, plus the turnend-guard /
