@@ -533,6 +533,35 @@ func TestSpawnRejectsCaseInsensitiveMetadataExtensionBeforeHerdrOrWorktreeMutati
 	}
 }
 
+func TestSpawnRejectsCaseAliasOfRetainedFailedTaskBeforeHerdrOrWorktreeMutation(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.request.ID = "Foo"
+	fixture.service.Harness.Adapters[harness.Claude] = fixtureAdapter{events: &fixture.events, buildErr: errors.New("harness build refused")}
+
+	if _, err := fixture.service.Spawn(context.Background(), fixture.request); err == nil || !strings.Contains(err.Error(), "harness build refused") {
+		t.Fatalf("failed Foo Spawn error = %v, want post-acquisition build failure", err)
+	}
+	if _, err := os.Stat(filepath.Join(fixture.stateDir, "Foo.status")); err != nil {
+		t.Fatalf("failed Foo status: %v", err)
+	}
+	if info, err := os.Stat(filepath.Join(fixture.stateDir, "tasktmp", "Foo")); err != nil || !info.IsDir() {
+		t.Fatalf("failed Foo tasktmp: info=%v err=%v, want retained directory", info, err)
+	}
+	if _, err := os.Stat(filepath.Join(fixture.stateDir, "Foo.meta")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed Foo unexpectedly wrote metadata: %v", err)
+	}
+	calls := fixture.runner.calls
+
+	request := fixture.request
+	request.ID = "foo"
+	if _, err := fixture.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
+		t.Fatalf("failed-task alias Spawn error = %v, want collision refusal", err)
+	}
+	if fixture.runner.calls != calls {
+		t.Errorf("Herdr calls = %d after alias rejection, want %d before a second task mutation", fixture.runner.calls, calls)
+	}
+}
+
 type fixture struct {
 	service  Service
 	request  Request

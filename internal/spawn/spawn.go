@@ -382,25 +382,44 @@ func (s Service) releaseTaskLock(dir, name string) error {
 	return lock.ReleaseExclusiveNamed(dir, name)
 }
 
-// rejectTaskIDAlias prevents Windows state-file collisions before a spawn can
+// rejectTaskIDAlias prevents Windows task-state collisions before a spawn can
 // create any Herdr or worktree resources. Task IDs remain case-preserving in
-// metadata, but their state filenames are not case-distinct on Windows.
+// metadata, but their retained state artifact paths are not case-distinct on
+// Windows.
 func rejectTaskIDAlias(stateDir, id string) error {
 	entries, err := os.ReadDir(stateDir)
 	if err != nil {
-		return fmt.Errorf("spawn: list task metadata: %w", err)
+		return fmt.Errorf("spawn: list task state artifacts: %w", err)
 	}
 	for _, entry := range entries {
 		extension := filepath.Ext(entry.Name())
-		if entry.IsDir() || !strings.EqualFold(extension, ".meta") {
+		if entry.IsDir() || (!strings.EqualFold(extension, ".meta") && !strings.EqualFold(extension, ".status")) {
 			continue
 		}
 		existingID := strings.TrimSuffix(entry.Name(), extension)
-		if strings.EqualFold(existingID, id) {
-			return fmt.Errorf("spawn: task ID %q conflicts case-insensitively with existing task metadata %q", id, existingID)
+		if taskIDsAlias(id, existingID) {
+			return fmt.Errorf("spawn: task ID %q conflicts case-insensitively with retained task state for %q", id, existingID)
+		}
+	}
+
+	taskTmp := filepath.Join(stateDir, "tasktmp")
+	entries, err = os.ReadDir(taskTmp)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("spawn: list task temporary directories: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && taskIDsAlias(id, entry.Name()) {
+			return fmt.Errorf("spawn: task ID %q conflicts case-insensitively with retained task temporary directory %q", id, entry.Name())
 		}
 	}
 	return nil
+}
+
+func taskIDsAlias(id, existingID string) bool {
+	return state.ValidTaskID(existingID) == nil && strings.EqualFold(existingID, id)
 }
 
 func (s Service) sleep(ctx context.Context, duration time.Duration) error {

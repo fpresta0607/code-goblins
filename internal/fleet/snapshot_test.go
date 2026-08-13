@@ -97,6 +97,27 @@ func writeObservation(t *testing.T, h home.Home, observation monitor.Observation
 	}
 }
 
+func TestBuildSnapshotFindsCaseInsensitiveMetadataExtension(t *testing.T) {
+	h := snapshotHome(t)
+	meta := writeSnapshotMeta(t, h, "Foo", "", filepath.Join(h.Root, "project"))
+	path := filepath.Join(h.State, meta.ID+".meta")
+	temporary := filepath.Join(h.State, meta.ID+".metadata-swap")
+	if err := os.Rename(path, temporary); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(temporary, filepath.Join(h.State, meta.ID+".META")); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := BuildSnapshot(context.Background(), h, &snapshotEndpoint{})
+	if err != nil {
+		t.Fatalf("BuildSnapshot: %v", err)
+	}
+	if len(snapshot.Tasks) != 1 || snapshot.Tasks[0].ID != "Foo" {
+		t.Fatalf("tasks = %+v, want Foo from Foo.META", snapshot.Tasks)
+	}
+}
+
 func TestBuildSnapshotSortsRowsAndProjectsTypedTaskState(t *testing.T) {
 	h := snapshotHome(t)
 	alphaWorktree := filepath.Join(h.Root, "alpha-worktree")

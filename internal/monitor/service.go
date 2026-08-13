@@ -75,10 +75,11 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 		entries = nil
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || !strings.HasSuffix(entry.Name(), ".meta") {
+		extension := filepath.Ext(entry.Name())
+		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || !strings.EqualFold(extension, ".meta") {
 			continue
 		}
-		id := strings.TrimSuffix(entry.Name(), ".meta")
+		id := strings.TrimSuffix(entry.Name(), extension)
 		if state.ValidTaskID(id) != nil {
 			continue
 		}
