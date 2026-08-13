@@ -55,3 +55,15 @@ func TestRun(t *testing.T) {
 		})
 	}
 }
+
+func TestRunUsageListsAllRequiredDoctorTools(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if exit := run(nil, &stdout, &stderr); exit != 2 {
+		t.Fatalf("exit = %d, want 2", exit)
+	}
+	for _, tool := range []string{"codex", "pi"} {
+		if !strings.Contains(stderr.String(), tool) {
+			t.Errorf("usage = %q, want it to contain %q", stderr.String(), tool)
+		}
+	}
+}
