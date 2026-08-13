@@ -89,6 +89,9 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 
 		prior, priorErr := ReadObservation(s.StateDir, id)
 		if priorErr != nil && !errors.Is(priorErr, os.ErrNotExist) {
+			if heartbeatCorrupt {
+				return ScanResult{}, fmt.Errorf("monitor: cannot persist invalid-record event for %s while heartbeat and observation records are corrupt", id)
+			}
 			observation := Observation{
 				Schema:          Schema,
 				TaskID:          id,
