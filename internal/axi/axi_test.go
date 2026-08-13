@@ -109,6 +109,13 @@ func TestCommandFailuresIncludeOperationAndStderr(t *testing.T) {
 			if err == nil {
 				t.Fatal("command returned nil error")
 			}
+			var commandErr *CommandError
+			if !errors.As(err, &commandErr) {
+				t.Fatalf("error = %T %v, want *CommandError", err, err)
+			}
+			if commandErr.Operation != tt.operation || commandErr.Stderr != string(tt.result.Stderr) {
+				t.Errorf("CommandError = %#v, want operation and stderr", commandErr)
+			}
 			if !strings.Contains(err.Error(), tt.operation) {
 				t.Errorf("error = %q, want operation %q", err, tt.operation)
 			}
