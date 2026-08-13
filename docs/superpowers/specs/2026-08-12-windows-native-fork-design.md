@@ -142,3 +142,7 @@ Herdr event-socket subscription is not required for Plan 3 acceptance because th
 Treehouse remains the sole worktree allocator, and Plan 3 preserves plain `treehouse get` inside the live Herdr pane with foreground-cwd polling and isolation validation rather than introducing a second allocator.
 Secondmates, Relay, and AFK remain outside Plan 3 even though the shared metadata and status primitives leave room for them later.
 The `tasks-axi` and `quota-axi` integrations remain external subprocess calls, and Plan 3 does not reimplement either tool.
+
+Plan 3 adds a read-only typed monitor that carries current endpoint health, staleness, heartbeats, and durable actionable wakes into the fleet snapshot.
+Task 4 owns the monitor's persistence and classification contract, while Tasks 9 and 11 own its projection and verification.
+The monitor never controls a worker or worktree, and the Plan 3 scope cuts remain unchanged.
