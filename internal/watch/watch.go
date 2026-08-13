@@ -326,6 +326,15 @@ func heartbeatDue(stateDir, heartbeatPath string, heartbeat, max time.Duration) 
 // closes one watcher cycle, and continuity is the arm layer's job.
 func Run(cfg Config) (string, error) {
 	if _, err := lock.AcquireNamedOwner(cfg.Home.State, watchLockName, os.Getpid(), "watch"); err != nil {
+		// The lock was never acquired, so there is no LIFO defer pair to
+		// register here: call Cleanup directly rather than deferring it,
+		// or a waiter Task 9 already constructed (its handles open, before
+		// Run ever got the singleton) would leak on this path, which Task
+		// 11's AutoarmAttempts retries against a held lock exercise on
+		// every acquire failure.
+		if cfg.Cleanup != nil {
+			cfg.Cleanup()
+		}
 		return "", fmt.Errorf("watch: acquire singleton: %w", err)
 	}
 	// LIFO: this defer is registered first and so runs SECOND (after
