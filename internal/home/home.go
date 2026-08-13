@@ -4,6 +4,7 @@
 package home
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,25 +50,40 @@ func IsPrimary(h Home) bool {
 	if fi, err := os.Stat(h.State); err != nil || !fi.IsDir() {
 		return false
 	}
-	gitDir, err := gitPath(h.Root, "--git-dir")
-	if err != nil {
-		return false
-	}
-	commonDir, err := gitPath(h.Root, "--git-common-dir")
+	gitDir, commonDir, err := gitPaths(h.Root)
 	if err != nil {
 		return false
 	}
 	return strings.EqualFold(gitDir, commonDir)
 }
 
-func gitPath(root, flag string) (string, error) {
-	out, err := exec.Command("git", "-C", root, "rev-parse", flag).Output()
+// gitPaths reads --git-dir and --git-common-dir from a single `git rev-parse`
+// spawn instead of two: git prints one path per line, in the order the flags
+// were given, so the two lines are read positionally rather than by a second
+// invocation. Blank lines (a trailing newline, or a stray CRLF remnant) are
+// dropped before positional assignment, so the parser accepts LF and CRLF
+// output equally.
+func gitPaths(root string) (gitDir, commonDir string, err error) {
+	out, err := exec.Command("git", "-C", root, "rev-parse", "--git-dir", "--git-common-dir").Output()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	p := strings.TrimSpace(string(out))
+	var lines []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) != 2 {
+		return "", "", fmt.Errorf("home: expected 2 lines from git rev-parse --git-dir --git-common-dir, got %d", len(lines))
+	}
+	return cleanGitPath(root, lines[0]), cleanGitPath(root, lines[1]), nil
+}
+
+func cleanGitPath(root, p string) string {
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(root, p)
 	}
-	return filepath.Clean(p), nil
+	return filepath.Clean(p)
 }
