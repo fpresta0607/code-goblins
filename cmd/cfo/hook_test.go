@@ -235,6 +235,16 @@ func setSyncWait(t *testing.T, ms string) {
 
 func TestRunHookTurnendGuardNotPrimary(t *testing.T) {
 	dir := t.TempDir()
+	// state/ exists (so the Needed/ResetBudget paths could in principle
+	// run) but AGENTS.md does not and there is no git checkout, so
+	// IsPrimary is false. Asserting state/ gains no files pins INERT MEANS
+	// INERT at the IsPrimary gate specifically, distinct from the Needed
+	// fail-open paths tested elsewhere, all of which require a primary
+	// home to even reach.
+	state := filepath.Join(dir, "state")
+	if err := os.MkdirAll(state, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("CFO_HOME", dir)
 	setSyncWait(t, "500")
 	var stdout, stderr bytes.Buffer
@@ -244,6 +254,13 @@ func TestRunHookTurnendGuardNotPrimary(t *testing.T) {
 	}
 	if stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Errorf("stdout=%q stderr=%q, want both empty", stdout.String(), stderr.String())
+	}
+	entries, err := os.ReadDir(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("state/ gained files from a non-primary home: %v", entries)
 	}
 }
 
@@ -517,10 +534,10 @@ func TestRunHookTurnendGuardZeroWindowDoesNotWait(t *testing.T) {
 // posture the brief prescribes for a genuine ChargeBudget error (distinct
 // from the icacls unlistable-Needed case above, which is caught earlier at
 // step 2 and never reaches ChargeBudget at all): the ladder cannot run, so
-// the guard skips straight to step 5's attended fail-open instead of
-// blocking every Stop forever on a counter that can never advance. Making
-// the budget file's own path a directory forces os.ReadFile to fail with a
-// genuine I/O error rather than ErrNotExist.
+// the guard skips straight to the attended fail-open instead of blocking
+// every Stop forever on a counter that can never advance. Making the budget
+// file's own path a directory forces os.ReadFile to fail with a genuine I/O
+// error rather than ErrNotExist.
 func TestRunHookTurnendGuardChargeBudgetErrorEscalates(t *testing.T) {
 	dir := newPrimaryHome(t)
 	setSyncWait(t, "50")
@@ -537,7 +554,108 @@ func TestRunHookTurnendGuardChargeBudgetErrorEscalates(t *testing.T) {
 	if !strings.Contains(stdout.String(), "GENUINELY DOWN") {
 		t.Errorf("stdout = %q, want it to contain GENUINELY DOWN", stdout.String())
 	}
+	// attendedFailOpen must NOT mark the alarm (C2 fix): this branch has
+	// nothing to do with the ladder's own one-shot escalation, and marking
+	// it here would permanently disarm that escalation for whatever
+	// genuine failure episode comes next. See
+	// TestRunHookTurnendGuardBudgetErrorDoesNotConsumeLadderAlarm below for
+	// the end-to-end regression.
+	if supervise.AlarmFired(state) {
+		t.Error("attendedFailOpen must not mark the alarm; it would consume the ladder's one-shot escalation")
+	}
+}
+
+// TestRunHookTurnendGuardCeilingTerminatesWithoutNotified is the C1 hard-
+// ceiling regression: NotifiedOnce has exactly one intended writer, Task
+// 11's stop-autoarm hook. If that hook is never registered (or dies before
+// ever calling MarkNotified), the normal ladder arm's NotifiedOnce conjunct
+// can never be true, so without the ceiling arm this fixture would block
+// forever. blockBudget defaults to 3, so the ceiling (escalationCeilingMultiplier
+// * blockBudget) is 9: the first 9 charges (count 1..9) must still block,
+// and the 10th (count 10) must cross the ceiling and let the turn end.
+func TestRunHookTurnendGuardCeilingTerminatesWithoutNotified(t *testing.T) {
+	dir := newPrimaryHome(t)
+	setSyncWait(t, "0") // nothing in this fixture is ever a proof; skip the wait
+	state := filepath.Join(dir, "state")
+	writeMetaFixture(t, state, "g1.meta")
+
+	for i := 1; i <= 9; i++ {
+		var stdout, stderr bytes.Buffer
+		exit := runHook("turnend-guard", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
+		if exit != 2 {
+			t.Fatalf("call #%d: exit = %d, want 2 (blocked, ceiling not yet reached); stdout=%s stderr=%s", i, exit, stdout.String(), stderr.String())
+		}
+	}
+
+	var stdout, stderr bytes.Buffer
+	exit := runHook("turnend-guard", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
+	if exit != 0 {
+		t.Fatalf("call #10: exit = %d, want 0 (hard ceiling reached); stderr=%s", exit, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "ESCALATION LADDER NEVER ESCALATED") {
+		t.Errorf("call #10 stdout = %q, want the ceiling message", stdout.String())
+	}
+}
+
+// TestRunHookTurnendGuardBudgetErrorDoesNotConsumeLadderAlarm is the C2
+// regression: a budget I/O error unrelated to any failure episode (here, a
+// quiet-turn ResetBudget failure) must not consume the ladder's one-shot
+// GENUINELY DOWN escalation. If attendedFailOpen still called MarkAlarm,
+// step B below would see AlarmFired already true and skip straight to a
+// permanent block instead of getting its own attended fail-open.
+func TestRunHookTurnendGuardBudgetErrorDoesNotConsumeLadderAlarm(t *testing.T) {
+	dir := newPrimaryHome(t)
+	setSyncWait(t, "0")
+	state := filepath.Join(dir, "state")
+
+	// Step A: force a genuine ResetBudget I/O error on a quiet turn (no
+	// g1.meta) by making the budget file's own path a NON-EMPTY directory,
+	// so os.Remove fails "directory not empty" through every bounded
+	// retry (a plain empty directory would not reproduce this: os.Remove
+	// succeeds on an empty directory).
+	blockerDir := filepath.Join(state, ".turnend-claude-blocks")
+	if err := os.MkdirAll(blockerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(blockerDir, "blocker"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdoutA, stderrA bytes.Buffer
+	exitA := runHook("turnend-guard", strings.NewReader(`{"session_id":"s1"}`), &stdoutA, &stderrA)
+	if exitA != 0 {
+		t.Fatalf("step A exit = %d, want 0; stderr=%s", exitA, stderrA.String())
+	}
+	if !strings.Contains(stdoutA.String(), "GENUINELY DOWN") {
+		t.Fatalf("step A stdout = %q, want the attended fail-open message", stdoutA.String())
+	}
+	if supervise.AlarmFired(state) {
+		t.Fatal("a quiet-turn budget I/O error must not consume the ladder's one-shot alarm")
+	}
+
+	// Step B: clear the obstruction, then arrange a genuine failure episode
+	// (goblin in flight, already notified, budget already at the block
+	// threshold) and confirm it still gets ITS OWN attended fail-open
+	// rather than being routed straight to a permanent block because
+	// AlarmFired was wrongly left set by step A.
+	if err := os.RemoveAll(blockerDir); err != nil {
+		t.Fatal(err)
+	}
+	writeMetaFixture(t, state, "g1.meta")
+	if err := os.WriteFile(filepath.Join(state, ".turnend-claude-blocks"), []byte("session=s1\ncount=3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := supervise.MarkNotified(state); err != nil {
+		t.Fatal(err)
+	}
+	var stdoutB, stderrB bytes.Buffer
+	exitB := runHook("turnend-guard", strings.NewReader(`{"session_id":"s1"}`), &stdoutB, &stderrB)
+	if exitB != 0 {
+		t.Fatalf("step B exit = %d, want 0 (the genuine episode's own attended fail-open); stderr=%s", exitB, stderrB.String())
+	}
+	if !strings.Contains(stdoutB.String(), "GENUINELY DOWN") {
+		t.Errorf("step B stdout = %q, want the GENUINELY DOWN message", stdoutB.String())
+	}
 	if !supervise.AlarmFired(state) {
-		t.Error("attended fail-open must best-effort MarkAlarm")
+		t.Error("step B's own ladder arm must set the alarmed marker")
 	}
 }
