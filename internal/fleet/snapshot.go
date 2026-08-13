@@ -137,10 +137,11 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 		return Snapshot{}, fmt.Errorf("fleet: read state directory: %w", err)
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || !strings.HasSuffix(entry.Name(), ".meta") {
+		extension := filepath.Ext(entry.Name())
+		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || !strings.EqualFold(extension, ".meta") {
 			continue
 		}
-		id := strings.TrimSuffix(entry.Name(), ".meta")
+		id := strings.TrimSuffix(entry.Name(), extension)
 		if err := state.ValidTaskID(id); err != nil {
 			continue
 		}
