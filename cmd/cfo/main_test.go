@@ -26,6 +26,7 @@ func TestRun(t *testing.T) {
 		{name: "version", args: []string{"version"}, wantExit: 0, wantStdout: "cfo dev"},
 		{name: "doctor runs and reports each tool", args: []string{"doctor"}, wantExit: -1, wantStdout: "git"},
 		{name: "drain empty queue", args: []string{"drain"}, env: map[string]string{"CFO_HOME": drainHome}, wantExit: 0, wantStdout: "WAKE QUEUE: empty"},
+		{name: "watch refuses outside a primary home", args: []string{"watch"}, wantExit: 1, wantStderr: "not a primary", env: map[string]string{"CFO_HOME": t.TempDir()}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/doctor"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/watch"
 )
 
 // version is stamped by the release build:
@@ -22,6 +23,7 @@ commands:
   version   print the cfo version
   doctor    check the tools cfo needs (git, gh, claude, herdr, treehouse)
   drain     print or acknowledge the wake queue and recovery episode
+  watch     run one triage cycle by hand (manual diagnostics; the hooks are the production entry)
   hook <name>  claude code hook entry points (session-start, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm)
 `
 
@@ -58,6 +60,25 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		return runDrain(h, args[1:], stdout, stderr)
+	case "watch":
+		h, err := home.Resolve()
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		if !home.IsPrimary(h) {
+			fmt.Fprintln(stderr, "cfo watch: not a primary home")
+			return 1
+		}
+		reason, err := watch.Run(watch.ConfigFromEnv(h))
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		if reason != "" {
+			fmt.Fprintln(stdout, reason)
+		}
+		return 0
 	case "hook":
 		if len(args) < 2 {
 			fmt.Fprint(stderr, usage)
