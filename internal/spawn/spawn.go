@@ -378,7 +378,7 @@ func (s Service) releaseTaskLock(dir, name string) error {
 	if s.ReleaseLock != nil {
 		return s.ReleaseLock(dir, name)
 	}
-	return lock.ReleaseNamed(dir, name)
+	return lock.ReleaseExclusiveNamed(dir, name)
 }
 
 func (s Service) sleep(ctx context.Context, duration time.Duration) error {

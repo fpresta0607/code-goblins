@@ -433,7 +433,7 @@ func TestAcquireExclusiveNamedContendsButRetainsItsOwnVerifiedRecord(t *testing.
 	}
 }
 
-func TestReleaseNamedRetriesTransientRemovalThenAllowsRetry(t *testing.T) {
+func TestReleaseExclusiveNamedRetriesTransientRemovalThenAllowsRetry(t *testing.T) {
 	dir := t.TempDir()
 	name := ".spawn-task.lock"
 	if _, err := AcquireExclusiveNamed(dir, name); err != nil {
@@ -442,7 +442,7 @@ func TestReleaseNamedRetriesTransientRemovalThenAllowsRetry(t *testing.T) {
 
 	attempts := 0
 	sleeps := 0
-	err := releaseNamed(dir, name, func(path string) error {
+	err := releaseExclusiveNamed(dir, name, func(path string) error {
 		attempts++
 		if attempts < 3 {
 			return errors.New("sharing violation")
@@ -465,5 +465,92 @@ func TestReleaseNamedRetriesTransientRemovalThenAllowsRetry(t *testing.T) {
 	}
 	if err := ReleaseNamed(dir, name); err != nil {
 		t.Fatalf("ReleaseNamed cleanup: %v", err)
+	}
+}
+
+func TestAcquireExclusiveNamedReclaimsAbandonedLeaseAfterReleaseFailure(t *testing.T) {
+	dir := t.TempDir()
+	name := ".spawn-task.lock"
+	first, err := AcquireExclusiveNamed(dir, name)
+	if err != nil {
+		t.Fatalf("first AcquireExclusiveNamed: %v", err)
+	}
+
+	attempts := 0
+	err = releaseExclusiveNamed(dir, name, func(string) error {
+		attempts++
+		return errors.New("sharing violation")
+	}, func(time.Duration) {})
+	if err == nil || attempts != 10 {
+		t.Fatalf("releaseExclusiveNamed error=%v attempts=%d, want terminal failure after 10 attempts", err, attempts)
+	}
+	holder, err := ReadNamed(dir, name)
+	if err != nil {
+		t.Fatalf("ReadNamed abandoned lock: %v", err)
+	}
+	if holder.Acquired != first.Acquired {
+		t.Fatalf("abandoned holder = %+v, want first lease %+v", holder, first)
+	}
+
+	second, err := AcquireExclusiveNamed(dir, name)
+	if err != nil {
+		t.Fatalf("second AcquireExclusiveNamed did not reclaim abandoned lease: %v", err)
+	}
+	if second.Acquired.Equal(first.Acquired) {
+		t.Fatalf("reclaimed lease retained first acquisition time: first=%s second=%s", first.Acquired, second.Acquired)
+	}
+	if _, err := AcquireExclusiveNamed(dir, name); !errors.Is(err, ErrHeld) {
+		t.Fatalf("concurrent same-process acquire after recovery error = %v, want ErrHeld", err)
+	}
+	if err := ReleaseExclusiveNamed(dir, name); err != nil {
+		t.Fatalf("ReleaseExclusiveNamed cleanup: %v", err)
+	}
+}
+
+func TestAcquireExclusiveNamedReclaimsOnlyAbandonedExclusiveLease(t *testing.T) {
+	t.Run("unmarked self lock", func(t *testing.T) {
+		dir := t.TempDir()
+		name := ".spawn-task.lock"
+		self, status := ownerInfo(os.Getpid(), "")
+		if status == statusDead {
+			t.Fatal("current process unexpectedly dead")
+		}
+		if err := writeInfo(filepath.Join(dir, name), self); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := AcquireExclusiveNamed(dir, name); !errors.Is(err, ErrHeld) {
+			t.Fatalf("AcquireExclusiveNamed over unmarked self lock error = %v, want ErrHeld", err)
+		}
+	})
+
+	t.Run("live foreign process", func(t *testing.T) {
+		dir := t.TempDir()
+		name := ".spawn-task.lock"
+		cmd := exec.Command("cmd", "/c", "ping -n 5 127.0.0.1 >NUL")
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() }()
+		foreign, status := ownerInfo(cmd.Process.Pid, exclusiveSpawnSession)
+		if status == statusDead {
+			t.Fatal("child process unexpectedly dead")
+		}
+		if err := writeInfo(filepath.Join(dir, name), foreign); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := AcquireExclusiveNamed(dir, name); !errors.Is(err, ErrHeld) {
+			t.Fatalf("AcquireExclusiveNamed over foreign live lock error = %v, want ErrHeld", err)
+		}
+	})
+}
+
+func TestExclusiveLeaseKeyCanonicalizesRelativePaths(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := ".spawn-task.lock"
+	if relative, absolute := exclusiveLeaseKey("state", name), exclusiveLeaseKey(filepath.Join(cwd, "state"), name); relative != absolute {
+		t.Fatalf("exclusiveLeaseKey relative=%q absolute=%q, want one canonical key", relative, absolute)
 	}
 }

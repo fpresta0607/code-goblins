@@ -11,8 +11,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
+
+const exclusiveSpawnSession = "exclusive-spawn"
+
+var exclusiveLeases = struct {
+	sync.Mutex
+	acquired map[string]time.Time
+}{acquired: make(map[string]time.Time)}
 
 // ErrHeld reports that a live process holds the session lock.
 var ErrHeld = errors.New("session lock held by a live process")
@@ -102,11 +110,37 @@ func AcquireNamedOwner(dir, name string, ownerPID int, session string) (*Info, e
 // stricter form because two concurrent Spawn calls run under one process but
 // must still contend for the task's creation lock.
 func AcquireExclusiveNamed(dir, name string) (*Info, error) {
-	self, status := ownerInfo(os.Getpid(), "")
+	key := exclusiveLeaseKey(dir, name)
+	exclusiveLeases.Lock()
+	defer exclusiveLeases.Unlock()
+	if _, held := exclusiveLeases.acquired[key]; held {
+		return nil, fmt.Errorf("%w: exclusive task lock %s", ErrHeld, name)
+	}
+
+	self, status := ownerInfo(os.Getpid(), exclusiveSpawnSession)
 	if status == statusDead {
 		return nil, fmt.Errorf("%w: pid %d", ErrOwnerDead, self.PID)
 	}
-	return acquire(dir, name, self, false)
+	if holder, readErr := ReadNamed(dir, name); readErr == nil && holder.PID == self.PID && holder.OwnerPID == self.PID && holder.Start.Equal(self.Start) && holder.Hostname == self.Hostname && holder.Alive() {
+		if holder.Session != exclusiveSpawnSession {
+			return nil, exclusiveHeldError(holder)
+		}
+		if reclaimErr := reclaimAbandonedExclusiveLease(dir, name, self); reclaimErr != nil {
+			return nil, reclaimErr
+		}
+	}
+	info, err := acquire(dir, name, self, false)
+	if errors.Is(err, ErrHeld) {
+		if reclaimErr := reclaimAbandonedExclusiveLease(dir, name, self); reclaimErr != nil {
+			return nil, reclaimErr
+		}
+		info, err = acquire(dir, name, self, false)
+	}
+	if err != nil {
+		return nil, err
+	}
+	exclusiveLeases.acquired[key] = info.Acquired
+	return info, nil
 }
 
 // AcquireOwner takes dir/.lock for ownerPID, the long-lived process (the
@@ -278,7 +312,27 @@ func HeldBy(dir string, ownerPID int) bool {
 
 // ReleaseNamed removes dir/name when the current process identity holds it.
 func ReleaseNamed(dir, name string) error {
-	return releaseNamed(dir, name, os.Remove, time.Sleep)
+	err := releaseNamed(dir, name, os.Remove, time.Sleep)
+	if err == nil {
+		clearExclusiveLease(dir, name)
+	}
+	return err
+}
+
+// ReleaseExclusiveNamed releases a task-spawn lock and marks a terminal
+// release failure as abandoned so a later same-process spawn can reclaim only
+// that proven exclusive lease.
+func ReleaseExclusiveNamed(dir, name string) error {
+	return releaseExclusiveNamed(dir, name, os.Remove, time.Sleep)
+}
+
+func releaseExclusiveNamed(dir, name string, remove func(string) error, sleep func(time.Duration)) error {
+	key := exclusiveLeaseKey(dir, name)
+	exclusiveLeases.Lock()
+	defer exclusiveLeases.Unlock()
+	err := releaseNamed(dir, name, remove, sleep)
+	delete(exclusiveLeases.acquired, key)
+	return err
 }
 
 func releaseNamed(dir, name string, remove func(string) error, sleep func(time.Duration)) error {
@@ -314,6 +368,35 @@ func releaseNamed(dir, name string, remove func(string) error, sleep func(time.D
 		}
 	}
 	return fmt.Errorf("lock: release %s after 10 attempts: %w", name, lastErr)
+}
+
+func reclaimAbandonedExclusiveLease(dir, name string, self *Info) error {
+	holder, err := ReadNamed(dir, name)
+	if err != nil {
+		return err
+	}
+	if holder.PID != self.PID || holder.OwnerPID != self.PID || !holder.Start.Equal(self.Start) || holder.Hostname != self.Hostname || holder.Session != exclusiveSpawnSession || !holder.Alive() {
+		return exclusiveHeldError(holder)
+	}
+	return releaseNamed(dir, name, os.Remove, time.Sleep)
+}
+
+func exclusiveHeldError(holder *Info) error {
+	return fmt.Errorf("%w: pid %d on %s since %s", ErrHeld, holder.PID, holder.Hostname, holder.Acquired.Format(time.RFC3339))
+}
+
+func exclusiveLeaseKey(dir, name string) string {
+	path := filepath.Join(dir, name)
+	if absolute, err := filepath.Abs(path); err == nil {
+		return filepath.Clean(absolute)
+	}
+	return filepath.Clean(path)
+}
+
+func clearExclusiveLease(dir, name string) {
+	exclusiveLeases.Lock()
+	delete(exclusiveLeases.acquired, exclusiveLeaseKey(dir, name))
+	exclusiveLeases.Unlock()
 }
 
 // Release removes dir/.lock when the current process identity holds it. See
