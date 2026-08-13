@@ -32,6 +32,8 @@ var tools = []struct {
 	{name: "treehouse", presenceOnly: true, hint: "see github.com/kunchenguid/treehouse"},
 	{name: "codex", hint: "npm install -g @openai/codex"},
 	{name: "pi", hint: "npm install -g @mariozechner/pi-coding-agent"},
+	{name: "tasks-axi", hint: "npm install -g tasks-axi"},
+	{name: "quota-axi", hint: "npm install -g quota-axi"},
 }
 
 // Run checks every required tool in a fixed order, plus the turnend-guard /
