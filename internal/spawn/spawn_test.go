@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -756,7 +757,11 @@ func makeDir(t *testing.T, path string) string {
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return path
+	canonical, err := fsx.Canonical(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return canonical
 }
 
 func writeFile(t *testing.T, path, contents string) {

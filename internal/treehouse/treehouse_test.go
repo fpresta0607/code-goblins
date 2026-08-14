@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 type scriptedPane struct {
@@ -60,7 +62,7 @@ func TestAcquireRequiresTwoConsecutiveNonPrimaryCanonicalReads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
-	if got.Path != worktree {
+	if !fsx.SamePath(got.Path, worktree) {
 		t.Errorf("Worktree.Path = %q, want %q", got.Path, worktree)
 	}
 	if len(pane.runs) != 1 || pane.runs[0] != "treehouse get" {
