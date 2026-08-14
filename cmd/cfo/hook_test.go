@@ -818,7 +818,24 @@ func TestAutoarmCleanWhenNeedVanishes(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		time.Sleep(300 * time.Millisecond)
+		// Wait until the hook has passed the need gate (Step 3) and taken
+		// the epoch ledger (Step 5) before removing the need. Polling the
+		// ledger is deterministic: NextEpoch runs only after the need gate
+		// and single-flight lock have succeeded, and always before the
+		// attempt loop (Step 6) and the need-vanished re-check (Step 7). A
+		// fixed sleep here races the need gate under load: if the remove
+		// lands first the hook exits at Step 3 and never records an outcome.
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			epoch, err := supervise.ReadEpoch(state)
+			if err == nil && epoch.N >= 1 {
+				break
+			}
+			if time.Now().After(deadline) {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
 		_ = os.WriteFile(filepath.Join(state, "g1.status"), []byte("done\n"), 0o644)
 		_ = os.Remove(filepath.Join(state, "g1.meta"))
 	}()
