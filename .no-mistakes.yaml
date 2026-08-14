@@ -4,3 +4,9 @@
 # instructions for gate agents so a no-mistakes review/fix/document/test/lint
 # agent never adopts that identity or drives the fleet.
 disable_project_settings: true
+
+# Gate agents here must neutralize AGENTS.md (the CFO identity above). Only
+# codex, claude, and pi have a verified suppression knob, so the ACP kimi
+# fallback from the global config is deliberately excluded for this repo; it
+# still serves as a fallback in repos without agent-instruction files.
+agent: [pi, claude, codex]
