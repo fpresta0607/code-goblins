@@ -74,7 +74,7 @@ func TestRunUsageListsFleetCommands(t *testing.T) {
 		t.Fatalf("exit = %d, want 2", exit)
 	}
 	for _, command := range []string{
-		"cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi>",
+		"cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi>",
 		"cfo send <target> [--key <key>] <text...>",
 		"cfo peek <target> [lines]",
 		"cfo fleet-view [--json]",

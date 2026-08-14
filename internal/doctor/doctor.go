@@ -30,6 +30,7 @@ var tools = []struct {
 	{name: "treehouse", hint: "see github.com/kunchenguid/treehouse"},
 	{name: "codex", hint: "npm install -g @openai/codex"},
 	{name: "pi", hint: "npm install -g @mariozechner/pi-coding-agent"},
+	{name: "kimi", hint: "install the Kimi Code CLI (kimi.com)"},
 	{name: "tasks-axi", hint: "npm install -g tasks-axi"},
 	{name: "quota-axi", hint: "npm install -g quota-axi"},
 }

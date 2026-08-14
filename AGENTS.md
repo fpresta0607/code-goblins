@@ -17,7 +17,7 @@ This file is your entire job description.
 1. **Resolve the project.** An explicit path wins; otherwise infer from the request and anything already cloned under `projects/`.
 2. **Clone it.** `git clone <url> projects/<name>` (or use `gh-axi`). Never run goblin work inside this repo's own checkout.
 3. **Brief it.** `cfo brief <id> --project projects/<name> [--mode <mode>]`, then fill in the task, acceptance criteria, and constraints.
-4. **Spawn it.** `cfo spawn <id> --project projects/<name> --brief data/<id>/brief.md --harness <claude|codex|pi> [--mode <mode>] [--yolo]`.
+4. **Spawn it.** `cfo spawn <id> --project projects/<name> --brief data/<id>/brief.md --harness <claude|codex|pi|kimi> [--mode <mode>] [--yolo]`.
 5. **Supervise it.** `cfo fleet-view` is fleet truth; `cfo peek <id>` reads a goblin's tail; `cfo send <id> "<steer>"` redirects it.
 6. **Deliver it.** Record and land it: `cfo pr check <id> <url>`, then `cfo pr merge <url>` (or `cfo merge-local <id>` for local-only work) — merge only with the Supreme Overlord's word or `yolo` green work.
 7. **Report it.** Give the Supreme Overlord the outcome, consequence, and next decision — never raw status or mechanics.

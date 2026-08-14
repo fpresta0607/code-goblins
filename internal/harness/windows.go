@@ -16,8 +16,11 @@ func (launch Launch) PowerShellLine() (string, error) {
 	if strings.TrimSpace(launch.Executable) == "" {
 		return "", errors.New("harness: launch executable is required")
 	}
-	if strings.TrimSpace(launch.PromptFile) == "" || !filepath.IsAbs(launch.PromptFile) {
+	if launch.PromptFile != "" && !filepath.IsAbs(launch.PromptFile) {
 		return "", errors.New("harness: launch PromptFile must be absolute")
+	}
+	if launch.PromptFile == "" && launch.FollowUpPrompt == "" {
+		return "", errors.New("harness: launch requires a PromptFile or FollowUpPrompt")
 	}
 	if launch.Env == nil || launch.Env["GOTMPDIR"] == "" {
 		return "", errors.New("harness: launch GOTMPDIR is required")
@@ -40,7 +43,9 @@ func (launch Launch) PowerShellLine() (string, error) {
 	for _, arg := range launch.Args {
 		command += " " + powerShellLiteral(arg)
 	}
-	command += " (Get-Content -Raw -LiteralPath " + powerShellLiteral(launch.PromptFile) + ")"
+	if launch.PromptFile != "" {
+		command += " (Get-Content -Raw -LiteralPath " + powerShellLiteral(launch.PromptFile) + ")"
+	}
 	parts = append(parts, command)
 	return strings.Join(parts, "; "), nil
 }

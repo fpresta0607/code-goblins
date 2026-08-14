@@ -181,6 +181,20 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := herdrClient.SendKey(ctx, endpoint.Target, "Enter"); err != nil {
 		return s.postAcquireFailure(result, fmt.Errorf("spawn: submit harness launch: %w", err))
 	}
+	if launch.FollowUpPrompt != "" {
+		if err := s.sleep(ctx, launchSettle); err != nil {
+			return s.postAcquireFailure(result, fmt.Errorf("spawn: wait before follow-up prompt: %w", err))
+		}
+		if err := herdrClient.SendLiteral(ctx, endpoint.Target, launch.FollowUpPrompt); err != nil {
+			return s.postAcquireFailure(result, fmt.Errorf("spawn: send follow-up prompt: %w", err))
+		}
+		if err := s.sleep(ctx, launchSettle); err != nil {
+			return s.postAcquireFailure(result, fmt.Errorf("spawn: wait before follow-up submit: %w", err))
+		}
+		if err := herdrClient.SendKey(ctx, endpoint.Target, "Enter"); err != nil {
+			return s.postAcquireFailure(result, fmt.Errorf("spawn: submit follow-up prompt: %w", err))
+		}
+	}
 	working, err := herdrClient.WaitForWorking(ctx, endpoint.Target, launchWait, launchPolls)
 	if err != nil {
 		return s.postAcquireFailure(result, fmt.Errorf("spawn: confirm harness launch: %w", err))

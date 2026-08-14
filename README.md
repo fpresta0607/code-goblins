@@ -37,7 +37,7 @@ The full design and the explicit v1 scope live in [docs/superpowers/specs/2026-0
 - **One binary** - `cfo.exe`, built from source with `go build ./cmd/cfo`. A prebuilt release and `install.ps1` are planned.
 - **Real Windows sessions** - goblins run in [Herdr](https://herdr.dev), one tab per goblin.
 - **Isolated worktrees** - every goblin gets a clean worktree from [treehouse](https://github.com/kunchenguid/treehouse).
-- **Three harnesses** - Claude Code, Codex, and Pi, each with typed, validated launch mapping.
+- **Four harnesses** - Claude Code, Codex, Pi, and Kimi, each with typed, validated launch mapping.
 - **Supervision without babysitting** - Claude Code hooks plus `cfo watch` wake the CFO only when something needs attention; a turn-end guard refuses to let a turn end blind while work is in flight.
 - **Restart-proof state** - tasks, metadata, and the wake queue live on disk under `$CFO_HOME`.
 - **AXI integrations** - `tasks-axi` and `quota-axi` stay thin subprocess integrations for the backlog and quota-aware dispatch.
@@ -46,7 +46,7 @@ The full design and the explicit v1 scope live in [docs/superpowers/specs/2026-0
 
 ```text
 cfo doctor                           check the tools cfo needs and how to install them
-cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi> [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--yolo]
+cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--yolo]
 cfo send <target> [--key <key>] <text...>
 cfo peek <target> [lines]
 cfo fleet-view [--json]
@@ -94,7 +94,7 @@ The CFO reads its contract and does the rest - goblins appear as Herdr tabs (`fm
 
 These upstream features are not yet ported to the Go binary:
 
-- Grok and OpenCode harness adapters
+- Grok and OpenCode harness adapters (Kimi is supported)
 - tmux, zellij, Orca, and cmux session backends
 - Secondmates (persistent and remote)
 - Relay (public X / Discord mentions)
