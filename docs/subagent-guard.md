@@ -1,20 +1,20 @@
 # Primary-session delegation guard
 
-This document is the authoritative human-readable contract for the guard that stops a firstmate primary from delegating work outside the fleet.
+This document is the authoritative human-readable contract for the guard that stops a CFO primary from delegating work outside the fleet.
 
 The shipped mechanism is `bin/fm-subagent-pretool-check.sh`, a PreToolUse guard that denies a delegation-SHAPED tool name in a genuine primary home.
 Claude primaries should also use an untracked per-home local `permissions.deny` list as hardening for known Claude delegation tools, because it removes them from the model's schema entirely.
-That deny list must not ship in tracked `.claude/settings.json` because it is Claude-only rather than harness-agnostic, and because tracked project settings propagate into linked worktrees where they disarm legitimate crewmates.
+That deny list must not ship in tracked `.claude/settings.json` because it is Claude-only rather than harness-agnostic, and because tracked project settings propagate into linked worktrees where they disarm legitimate goblins.
 
 ## Why this exists
 
-On 2026-07-22 a firstmate primary ran four workers through Claude Code's built-in subagent tool instead of `bin/fm-spawn.sh`.
+On 2026-07-22 a CFO primary ran four workers through Claude Code's built-in subagent tool instead of `bin/fm-spawn.sh`.
 Three consequences were observed, not hypothesized.
 
 - The fleet view showed zero work under way for the whole run, because no `state/<id>.meta` and no `data/<id>/brief.md` were ever created.
 - When the primary session restarted, two of those workers died mid-flight and their work was lost.
-  A real crewmate lives in its own backend session with durable state and survives a primary restart.
-- The supervision cycle then stayed down for 73 minutes unnoticed, which silently killed the captain's Workflowy intake channel, since that channel only fires while a watch cycle runs.
+  A real goblin lives in its own backend session with durable state and survives a primary restart.
+- The supervision cycle then stayed down for 73 minutes unnoticed, which silently killed the Supreme Overlord's Workflowy intake channel, since that channel only fires while a watch cycle runs.
 
 The deeper defect is that the bypass did not merely skip dispatch, it made the in-flight-work branch of the guard stack structurally inert.
 Only `bin/fm-spawn.sh` writes `state/<id>.meta`, so untracked project work contributes nothing to the in-flight count used by `bin/fm-supervision-lib.sh` and `bin/fm-turnend-guard.sh`.
@@ -57,8 +57,8 @@ Three exclusions keep the shape test from producing false positives.
   The shipped guard stays narrower on purpose so it can never be the reason a runaway task cannot be stopped.
 - `PLAN_ONLY_TOOLS`: the exact names `taskcreate` and `taskupdate` are allowed.
   These write, which is why they are a separate list rather than more entries in the observe-or-stop one, but what they write is the harness's session-local todo list.
-  That list has no executor: it spawns no agent, allocates no worktree, registers no schedule, and starts nothing that could outlive the session or escape a firstmate guard.
-  So it is not the "work, agent, schedule, or isolated workspace that firstmate would not know about" the guard exists to stop, and the stem match on `task` is a false positive rather than a policy.
+  That list has no executor: it spawns no agent, allocates no worktree, registers no schedule, and starts nothing that could outlive the session or escape a CFO guard.
+  So it is not the "work, agent, schedule, or isolated workspace that CFO would not know about" the guard exists to stop, and the stem match on `task` is a false positive rather than a policy.
   The cost of the false positive was concrete: the primary could not track its own plan, and the deny text told it to run `bin/fm-brief.sh` and `bin/fm-spawn.sh` to create a todo entry.
 
 Both exclusion lists match the whole normalized name, never a substring, so neither can widen by accident: `TaskCreateAgent` and `RemoteTaskCreate` stay denied.
@@ -104,16 +104,16 @@ This list is recommended local hardening because it closes the known Claude surf
 It is not tracked for two reasons.
 
 - It is Claude-only, so it can never be the harness-agnostic shipped fix.
-- A tracked `.claude/settings.json` propagates into linked worktrees and disarms legitimate crewmates.
+- A tracked `.claude/settings.json` propagates into linked worktrees and disarms legitimate goblins.
   This was verified when a Claude session in a task worktree of this repo lost its `Agent` tool.
 
-The width of the list remains a captain-owned decision, because denying some of these changes how the captain works with the primary session.
+The width of the list remains a overlord-owned decision, because denying some of these changes how the Supreme Overlord works with the primary session.
 Keep it as one flat local array that is reviewable at a glance and narrowable in one line.
 In particular `TaskOutput`, `TaskStop`, `TaskGet`, `TaskList`, and `CronList` only observe or stop work that already exists, yet the recommended local deny list still removes all five by default.
 The hook deliberately allows those five, so the shipped guard can never strand a runaway task with no way to inspect or end it, and it allows `TaskCreate` and `TaskUpdate` too, so it can never be the reason the primary cannot track its own plan.
 The two session-local todo tools are no longer recommended for local denial at all, because they write only the harness's session-local todo list, which has no executor and spawns nothing, so removing them from the schema removes no delegation power.
 Denying them there would instead reproduce at a stronger layer the exact false positive the shipped guard now avoids, leaving anyone who adopts this list verbatim unable to let a primary track its own plan.
-Narrowing the list further, including the five observe-or-stop names, is the captain's call, and this local list is the only layer that can remove a todo tool from the primary's schema.
+Narrowing the list further, including the five observe-or-stop names, is the Supreme Overlord's call, and this local list is the only layer that can remove a todo tool from the primary's schema.
 
 `permissions.allow` is a pre-approval list, not an availability list, so there is no fail-closed positive allowlist available.
 That is why any fixed deny list is fail-open against future tools and why the shape-based guard still exists.
@@ -133,20 +133,20 @@ It costs one line and removes the failure mode where a rename or a rollback sile
 
 ## Scope
 
-The shipped hook fires only in a genuine firstmate primary home, using the shared predicate `fm_primary_scope_matches` from `bin/fm-primary-scope-lib.sh`.
+The shipped hook fires only in a genuine CFO primary home, using the shared predicate `fm_primary_scope_matches` from `bin/fm-primary-scope-lib.sh`.
 This is the same predicate `bin/fm-sessionstart-nudge.sh` and `bin/fm-turnend-guard.sh` use, so the three tracked primary-scoped hooks cannot drift apart.
 
 A home is in scope when it has `AGENTS.md`, a `bin/` directory, an existing state directory, and either a plain checkout where git-dir equals git-common-dir or a valid `.fm-secondmate-home` marker.
 A marked secondmate home is in scope on purpose: it operates its own fleet and must dispatch through it for the same durability reasons.
 
-A crewmate's disposable task worktree is a linked git worktree, which is the shape `bin/fm-spawn.sh` always hands out, so it is out of scope.
-A crewmate using delegation tools inside its own task worktree is legitimate and stays allowed.
-A non-firstmate repo is out of scope.
+A goblin's disposable task worktree is a linked git worktree, which is the shape `bin/fm-spawn.sh` always hands out, so it is out of scope.
+A goblin using delegation tools inside its own task worktree is legitimate and stays allowed.
+A non-CFO repo is out of scope.
 Any failure to confirm the home is inert, never a block, so a broken environment can never deny a tool call.
 
 A local Claude deny list is upstream of hook scope and removes known Claude delegation tools wherever Claude applies it.
 Do not put that list in tracked project settings, because linked worktrees inherit those settings and would lose legitimate delegation tools.
-The hook scope is the shipped enforcement boundary, and the linked-worktree negative case proves the script itself does not block legitimate crewmate delegation.
+The hook scope is the shipped enforcement boundary, and the linked-worktree negative case proves the script itself does not block legitimate goblin delegation.
 
 ## Escape hatch
 
@@ -294,7 +294,7 @@ This distinction matters when reading the next result: a tool absent from a plai
 
 ### Local deny-list hardening
 
-Run in a scratch firstmate-shaped project containing `AGENTS.md`, `state/`, a full copy of `bin/`, and a Claude settings file containing the local deny list exactly as recommended on that date, which was the 18-name form that still included `TaskCreate` and `TaskUpdate`.
+Run in a scratch CFO-shaped project containing `AGENTS.md`, `state/`, a full copy of `bin/`, and a Claude settings file containing the local deny list exactly as recommended on that date, which was the 18-name form that still included `TaskCreate` and `TaskUpdate`.
 The result validates that local deny list rather than tracked repo state, and the recommendation above has since dropped those two session-local todo tools.
 Asking for deferred entries explicitly returned:
 
@@ -317,7 +317,7 @@ Claude reported:
 ```text
 I attempted the Workflow tool call as requested. It was blocked by a PreToolUse hook in this repo:
 
-> [subagent-dispatch] the firstmate primary dispatches through the fleet, not the harness's own
+> [subagent-dispatch] the CFO primary dispatches through the fleet, not the harness's own
 > delegation tools... (blocked tool: Workflow). Launch the session with FM_ALLOW_SUBAGENT=1 for a
 > deliberate exception.
 ```
@@ -333,7 +333,7 @@ The Workflow tool call was not blocked by a hook. It executed normally: launched
 and completed successfully returning {"result":"ok"}.
 ```
 
-Same hook, same bytes, deny in the primary home and allow in a crewmate-shaped worktree.
+Same hook, same bytes, deny in the primary home and allow in a goblin-shaped worktree.
 This is the scoping contract working end to end rather than a hook that simply never fires.
 
 ### Escape hatch
@@ -353,7 +353,7 @@ The live consequence is confirmed by the shipped-guard result above: Claude hono
 ## Automated validation
 
 `tests/fm-subagent-pretool-check.test.sh` owns the acceptance matrix and is registered in the `pure-contract-unit` family in `bin/fm-test-run.sh`.
-It covers the tracked Claude settings boundary that forbids a `permissions` key; the match-all Claude hook registration; denial of every work-creating delegation tool by shape; denial of twelve hypothetical future tool names that appear on no list; the observe-or-stop, plan-only, and MCP exclusions; the exactness of the plan-only exclusion against six near-miss names a substring or shorter-stem widening would release; the scout-present and scout-absent message variants; the escape hatch including its fail-closed values; inertness in a linked task worktree and in a non-firstmate repo; in-scope enforcement for a marked secondmate home; both stdin transports; the empty-stdout requirement; fail-open transport behavior; and the preserved `Bash` seatbelts and `Stop` guard.
+It covers the tracked Claude settings boundary that forbids a `permissions` key; the match-all Claude hook registration; denial of every work-creating delegation tool by shape; denial of twelve hypothetical future tool names that appear on no list; the observe-or-stop, plan-only, and MCP exclusions; the exactness of the plan-only exclusion against six near-miss names a substring or shorter-stem widening would release; the scout-present and scout-absent message variants; the escape hatch including its fail-closed values; inertness in a linked task worktree and in a non-CFO repo; in-scope enforcement for a marked secondmate home; both stdin transports; the empty-stdout requirement; fail-open transport behavior; and the preserved `Bash` seatbelts and `Stop` guard.
 
 Run:
 
@@ -371,7 +371,7 @@ The coverage it leaves is partial rather than correct - the tracked entry passes
 Wiring Grok properly still requires the matcher-token verification described above, and that is what closes this exception.
 
 This change does not close the deeper harness-agnostic defect.
-Every firstmate guard's in-flight-work branch keys off `state/<id>.meta`, and only `bin/fm-spawn.sh` writes that record.
+Every CFO guard's in-flight-work branch keys off `state/<id>.meta`, and only `bin/fm-spawn.sh` writes that record.
 `bin/fm-supervision-lib.sh` also recognizes a Relay poll as supervision need, but unaccounted primary work still contributes nothing to that predicate.
 Without an independent Relay need, unaccounted primary work therefore reads as idle rather than suspicious.
 

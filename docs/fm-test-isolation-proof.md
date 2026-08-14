@@ -1,4 +1,4 @@
-# Firstmate test isolation proof
+# CFO test isolation proof
 
 This record is the concurrent isolation proof for the portable parallel candidate set.
 `bin/fm-test-isolation-proof.sh` is the authoritative harness and `docs/fm-test-isolation-proof.json` is the machine-readable result.
