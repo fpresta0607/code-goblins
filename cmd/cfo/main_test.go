@@ -55,3 +55,32 @@ func TestRun(t *testing.T) {
 		})
 	}
 }
+
+func TestRunUsageListsAllRequiredDoctorTools(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if exit := run(nil, &stdout, &stderr); exit != 2 {
+		t.Fatalf("exit = %d, want 2", exit)
+	}
+	for _, tool := range []string{"codex", "pi"} {
+		if !strings.Contains(stderr.String(), tool) {
+			t.Errorf("usage = %q, want it to contain %q", stderr.String(), tool)
+		}
+	}
+}
+
+func TestRunUsageListsFleetCommands(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if exit := run(nil, &stdout, &stderr); exit != 2 {
+		t.Fatalf("exit = %d, want 2", exit)
+	}
+	for _, command := range []string{
+		"cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi>",
+		"cfo send <target> [--key <key>] <text...>",
+		"cfo peek <target> [lines]",
+		"cfo fleet-view [--json]",
+	} {
+		if !strings.Contains(stderr.String(), command) {
+			t.Errorf("usage = %q, want it to contain %q", stderr.String(), command)
+		}
+	}
+}

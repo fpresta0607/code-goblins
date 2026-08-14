@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -227,6 +228,13 @@ func writeMetaFixture(t *testing.T, state, name string) {
 	}
 }
 
+func writeHeartbeatFixture(t *testing.T, state string, lastCycle time.Time) {
+	t.Helper()
+	if err := monitor.WriteHeartbeat(state, monitor.Heartbeat{LastCycle: lastCycle}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // setSyncWait sets the default sync-wait window every turnend-guard case
 // uses unless it says otherwise: short enough to keep the suite fast, long
 // enough for the 100ms poll to observe a late proof.
@@ -365,9 +373,7 @@ func TestRunHookTurnendGuardHealthyWatcherExitsClean(t *testing.T) {
 	if _, err := lock.AcquireNamedOwner(state, ".watch.lock", os.Getpid(), "watch"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(state, ".last-watcher-beat"), nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeHeartbeatFixture(t, state, time.Now())
 	var stdout, stderr bytes.Buffer
 	exit := runHook("turnend-guard", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
 	if exit != 0 {
@@ -461,14 +467,8 @@ func TestRunHookTurnendGuardRendersBeatAge(t *testing.T) {
 	setSyncWait(t, "500")
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
-	beatPath := filepath.Join(state, ".last-watcher-beat")
-	if err := os.WriteFile(beatPath, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
 	aged := time.Now().Add(-10 * time.Minute)
-	if err := os.Chtimes(beatPath, aged, aged); err != nil {
-		t.Fatal(err)
-	}
+	writeHeartbeatFixture(t, state, aged)
 	var stdout, stderr bytes.Buffer
 	exit := runHook("turnend-guard", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
 	if exit != 2 {
@@ -881,22 +881,12 @@ func TestAutoarmRewakeOnSignal(t *testing.T) {
 	if len(pending) != 1 {
 		t.Errorf("pending wake records = %d, want exactly 1", len(pending))
 	}
-}
-
-func TestAutoarmHeartbeatIsActionable(t *testing.T) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
-	setTinyAutoarmIntervals(t)
-	state := filepath.Join(dir, "state")
-	writeMetaFixture(t, state, "g1.meta")
-
-	var stdout, stderr bytes.Buffer
-	exit := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
-	if exit != 2 {
-		t.Fatalf("exit = %d, want 2; stderr=%s", exit, stderr.String())
+	heartbeat, err := monitor.ReadHeartbeat(state)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(stderr.String(), "heartbeat") {
-		t.Errorf("stderr = %q, want it to contain heartbeat", stderr.String())
+	if heartbeat.LastCycle.IsZero() {
+		t.Error("watch did not record a typed heartbeat before the signal")
 	}
 }
 
@@ -937,7 +927,7 @@ func TestAutoarmFailureEpisode(t *testing.T) {
 	if _, err := lock.AcquireNamedOwner(state, ".watch.lock", foreign.Process.Pid, "watch"); err != nil {
 		t.Fatal(err)
 	}
-	// No state\.last-watcher-beat: a fresh beat would make the ErrHeld
+	// No typed heartbeat: a fresh beat would make the ErrHeld
 	// return read as HEALTHY instead of a strike, which is exactly what
 	// TestAutoarmHealthyAfterSteal arranges.
 
@@ -1014,9 +1004,7 @@ func TestAutoarmHealthyAfterSteal(t *testing.T) {
 	if _, err := lock.AcquireNamedOwner(state, ".watch.lock", foreign.Process.Pid, "watch"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(state, ".last-watcher-beat"), nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeHeartbeatFixture(t, state, time.Now())
 
 	var stdout, stderr bytes.Buffer
 	exit := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)

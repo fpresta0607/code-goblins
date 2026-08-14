@@ -9,7 +9,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -245,9 +247,9 @@ func Render(w io.Writer, records []Record, ep Episode) error {
 	for _, rec := range deduped {
 		line := fmt.Sprintf("  %d  %-6s  ", rec.Seq, rec.Kind)
 		if rec.Key != rec.Kind {
-			line += rec.Key + ": "
+			line += terminalText(rec.Key) + ": "
 		}
-		line += rec.Detail
+		line += terminalText(rec.Detail)
 		if _, err := fmt.Fprintln(w, line); err != nil {
 			return err
 		}
@@ -270,4 +272,19 @@ func Render(w io.Writer, records []Record, ep Episode) error {
 	}
 	_, err := fmt.Fprintf(w, "WAKE_ACK_REQUIRED: cfo drain --ack-through %d --recovery-generation %d\n", maxSeq, ep.Gen)
 	return err
+}
+
+// terminalText preserves durable wake evidence while making controls visible
+// in plain terminal output. Queue records remain raw for acknowledgement and
+// programmatic consumers; only presentation uses this escape form.
+func terminalText(value string) string {
+	var out strings.Builder
+	for _, char := range value {
+		if unicode.IsControl(char) {
+			fmt.Fprintf(&out, "\\u%04X", char)
+			continue
+		}
+		out.WriteRune(char)
+	}
+	return out.String()
 }

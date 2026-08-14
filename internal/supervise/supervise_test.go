@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 )
 
 // deadPID runs a throwaway process to completion and returns its now-dead
@@ -48,6 +49,13 @@ func writeDeadLock(t *testing.T, dir, name string, pid int) {
 func touchFile(t *testing.T, path string) {
 	t.Helper()
 	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeHeartbeat(t *testing.T, dir string, cycle time.Time) {
+	t.Helper()
+	if err := monitor.WriteHeartbeat(dir, monitor.Heartbeat{LastCycle: cycle}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -100,12 +108,7 @@ func TestWatcherHealthyLiveLockStaleBeat(t *testing.T) {
 	if _, err := lock.AcquireNamedOwner(dir, ".watch.lock", os.Getpid(), "watch"); err != nil {
 		t.Fatal(err)
 	}
-	beatPath := filepath.Join(dir, ".last-watcher-beat")
-	touchFile(t, beatPath)
-	aged := time.Now().Add(-10 * time.Minute)
-	if err := os.Chtimes(beatPath, aged, aged); err != nil {
-		t.Fatal(err)
-	}
+	writeHeartbeat(t, dir, time.Now().Add(-10*time.Minute))
 	if WatcherHealthy(dir, 300*time.Second) {
 		t.Error("WatcherHealthy = true, want false with a stale beat")
 	}
@@ -114,7 +117,7 @@ func TestWatcherHealthyLiveLockStaleBeat(t *testing.T) {
 func TestWatcherHealthyDeadOwnerFreshBeat(t *testing.T) {
 	dir := t.TempDir()
 	writeDeadLock(t, dir, ".watch.lock", deadPID(t))
-	touchFile(t, filepath.Join(dir, ".last-watcher-beat"))
+	writeHeartbeat(t, dir, time.Now())
 	if WatcherHealthy(dir, 300*time.Second) {
 		t.Error("WatcherHealthy = true, want false with a dead lock owner")
 	}
@@ -135,9 +138,20 @@ func TestWatcherHealthyLiveLockFreshBeat(t *testing.T) {
 	if _, err := lock.AcquireNamedOwner(dir, ".watch.lock", os.Getpid(), "watch"); err != nil {
 		t.Fatal(err)
 	}
-	touchFile(t, filepath.Join(dir, ".last-watcher-beat"))
+	writeHeartbeat(t, dir, time.Now())
 	if !WatcherHealthy(dir, 300*time.Second) {
 		t.Error("WatcherHealthy = false, want true with a live lock and a fresh beat")
+	}
+}
+
+func TestWatcherHealthyLiveLockFutureBeatFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := lock.AcquireNamedOwner(dir, ".watch.lock", os.Getpid(), "watch"); err != nil {
+		t.Fatal(err)
+	}
+	writeHeartbeat(t, dir, time.Now().Add(time.Minute))
+	if WatcherHealthy(dir, 300*time.Second) {
+		t.Error("WatcherHealthy = true, want false with a future heartbeat")
 	}
 }
 
@@ -261,7 +275,7 @@ func TestAutoarmOwnsRecovery(t *testing.T) {
 				if _, err := lock.AcquireNamedOwner(dir, ".watch.lock", os.Getpid(), "watch"); err != nil {
 					t.Fatal(err)
 				}
-				touchFile(t, filepath.Join(dir, ".last-watcher-beat"))
+				writeHeartbeat(t, dir, time.Now())
 			},
 			want: true,
 		},

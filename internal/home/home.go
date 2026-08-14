@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // Home names the three directories everything else keys on.
@@ -54,7 +56,7 @@ func IsPrimary(h Home) bool {
 	if err != nil {
 		return false
 	}
-	return strings.EqualFold(gitDir, commonDir)
+	return fsx.SamePath(gitDir, commonDir)
 }
 
 // gitPaths reads --git-dir and --git-common-dir from a single `git rev-parse`

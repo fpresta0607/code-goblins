@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 func gitInit(t *testing.T, dir string) {
@@ -93,6 +95,19 @@ func TestIsPrimaryFalseInLinkedWorktree(t *testing.T) {
 	h := Home{Root: wt, State: filepath.Join(wt, "state")}
 	if IsPrimary(h) {
 		t.Error("a linked worktree must never be primary")
+	}
+}
+
+func TestGitPathsUseTheSameCanonicalIdentityAsPrimaryCheck(t *testing.T) {
+	dir := t.TempDir()
+	gitInit(t, dir)
+
+	gitDir, commonDir, err := gitPaths(dir)
+	if err != nil {
+		t.Fatalf("gitPaths: %v", err)
+	}
+	if !fsx.SamePath(gitDir, commonDir) {
+		t.Fatalf("plain checkout git paths differ: git=%q common=%q", gitDir, commonDir)
 	}
 }
 

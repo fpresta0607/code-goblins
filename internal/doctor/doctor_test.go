@@ -18,14 +18,14 @@ func fakeTool(t *testing.T, dir, name, out string, code int) {
 
 func TestRunAllToolsPresent(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"git", "gh", "claude", "herdr", "treehouse"} {
+	for _, name := range []string{"git", "gh", "claude", "herdr", "treehouse", "codex", "pi", "tasks-axi", "quota-axi"} {
 		fakeTool(t, dir, name, name+" version 1.0.0", 0)
 	}
 	t.Setenv("PATH", dir)
 	t.Setenv("CFO_HOME", t.TempDir()) // no .claude/settings.json: hook-pairing passes
 	checks := Run()
-	if len(checks) != 6 {
-		t.Fatalf("len = %d, want 6 (5 tools + hook-pairing)", len(checks))
+	if len(checks) != 10 {
+		t.Fatalf("len = %d, want 10 (9 tools + hook-pairing)", len(checks))
 	}
 	if !Healthy(checks) {
 		t.Errorf("Healthy = false with all tools present: %+v", checks)
@@ -33,8 +33,14 @@ func TestRunAllToolsPresent(t *testing.T) {
 	if checks[0].Name != "git" || checks[0].Version != "git version 1.0.0" {
 		t.Errorf("git check = %+v, want captured version line", checks[0])
 	}
-	if checks[5].Name != "hook-pairing" {
-		t.Errorf("checks[5] = %+v, want hook-pairing", checks[5])
+	if checks[5].Name != "codex" || checks[6].Name != "pi" {
+		t.Errorf("harness checks = %+v, want codex and pi", checks[5:7])
+	}
+	if checks[7].Name != "tasks-axi" || checks[8].Name != "quota-axi" {
+		t.Errorf("AXI checks = %+v, want tasks-axi and quota-axi", checks[7:9])
+	}
+	if checks[9].Name != "hook-pairing" {
+		t.Errorf("checks[9] = %+v, want hook-pairing", checks[9])
 	}
 }
 
@@ -69,6 +75,66 @@ func TestRunBrokenToolReportsFailure(t *testing.T) {
 	}
 	if checks[0].Name != "git" || checks[0].Err == "" {
 		t.Errorf("git check = %+v, want Err set", checks[0])
+	}
+}
+
+func TestRunBrokenTreehouseReportsFailure(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"git", "gh", "claude", "herdr", "codex", "pi", "tasks-axi", "quota-axi"} {
+		fakeTool(t, dir, name, name+" ok", 0)
+	}
+	fakeTool(t, dir, "treehouse", "boom", 1)
+	t.Setenv("PATH", dir)
+	t.Setenv("CFO_HOME", t.TempDir())
+
+	checks := Run()
+	if Healthy(checks) {
+		t.Fatal("Healthy = true with treehouse --version failing")
+	}
+	if checks[4].Name != "treehouse" || checks[4].Err == "" {
+		t.Errorf("treehouse check = %+v, want version failure", checks[4])
+	}
+}
+
+func TestRunMissingHarnessesCarryInstallHints(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"git", "gh", "claude", "herdr", "treehouse"} {
+		fakeTool(t, dir, name, name+" ok", 0)
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("CFO_HOME", t.TempDir())
+
+	checks := Run()
+	byName := make(map[string]Check, len(checks))
+	for _, check := range checks {
+		byName[check.Name] = check
+	}
+	for _, name := range []string{"codex", "pi"} {
+		check, ok := byName[name]
+		if !ok || check.Err == "" || check.Hint == "" {
+			t.Errorf("%s check = %+v, want missing-tool error with install hint", name, check)
+		}
+	}
+}
+
+func TestRunMissingAXIToolsCarryInstallHints(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"git", "gh", "claude", "herdr", "treehouse", "codex", "pi"} {
+		fakeTool(t, dir, name, name+" ok", 0)
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("CFO_HOME", t.TempDir())
+
+	checks := Run()
+	byName := make(map[string]Check, len(checks))
+	for _, check := range checks {
+		byName[check.Name] = check
+	}
+	for _, name := range []string{"tasks-axi", "quota-axi"} {
+		check, ok := byName[name]
+		if !ok || check.Err == "" || check.Hint == "" {
+			t.Errorf("%s check = %+v, want missing-tool error with install hint", name, check)
+		}
 	}
 }
 

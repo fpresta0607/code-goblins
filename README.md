@@ -65,6 +65,20 @@ Full detail on every feature lives in [docs/architecture.md](docs/architecture.m
 The first mate detects and offers to install supported missing tools after you approve.
 Backend-specific setup is linked in [Documentation](#documentation).
 
+### Windows-native CFO acceptance
+
+Installed Windows users run the released `cfo.exe` and do not need a Go toolchain.
+Maintainers validating the source tree need Go because the opt-in acceptance fixture runs `go vet`, `go test`, and builds its own disposable `cfo.exe`.
+Run the real-session check only when Claude, Codex, Pi, Herdr, and treehouse are intentionally available and you accept real harness activity in a disposable Git project:
+
+```powershell
+$env:CFO_PLAN3_REAL = '1'
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/acceptance/plan3_windows.ps1
+```
+
+The fixture refuses to run without `CFO_PLAN3_REAL=1`, creates its project and CFO home below a unique temporary root, and rejects any worker path outside that root.
+Never redirect it to a production checkout, production Herdr session, or shared treehouse pool.
+
 ### Recommended harnesses
 
 **Claude Code, Grok, and Pi are equal co-primary recommendations** for running the primary firstmate session, with `pi-signed` supported as Pi's distinct signed-wrapper identity.
