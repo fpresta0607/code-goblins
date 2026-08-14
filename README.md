@@ -85,7 +85,8 @@ These upstream features are not yet ported to the Go binary:
 - `internal/` - one package per subsystem (herdr, treehouse, spawn, fleet, monitor, wake, lock, state, home, watch, harness, axi, execx, fsx, claudehook, digest, doctor, guard, crewstate, supervise, proc).
 - `docs/superpowers/` - the design spec and implementation plans.
 - `tests/acceptance/` - the opt-in real-session Windows acceptance script.
-- `bin/`, `tests/*.test.sh`, `AGENTS.md`, `skills/`, `.agents/` - upstream firstmate reference material for the port; not executed by the Go binary.
+- `AGENTS.md` - the CFO's operating contract; `CLAUDE.md` points to it.
+- `bin/`, `tests/*.test.sh`, `skills/`, `.agents/` - upstream firstmate reference material for the port; not executed by the Go binary.
 
 ## Development
 
