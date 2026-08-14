@@ -18,14 +18,14 @@ func fakeTool(t *testing.T, dir, name, out string, code int) {
 
 func TestRunAllToolsPresent(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"git", "gh", "claude", "herdr", "treehouse", "codex", "pi", "tasks-axi", "quota-axi"} {
+	for _, name := range []string{"git", "gh", "claude", "herdr", "treehouse", "codex", "pi", "kimi", "tasks-axi", "quota-axi"} {
 		fakeTool(t, dir, name, name+" version 1.0.0", 0)
 	}
 	t.Setenv("PATH", dir)
 	t.Setenv("CFO_HOME", t.TempDir()) // no .claude/settings.json: hook-pairing passes
 	checks := Run()
-	if len(checks) != 10 {
-		t.Fatalf("len = %d, want 10 (9 tools + hook-pairing)", len(checks))
+	if len(checks) != 11 {
+		t.Fatalf("len = %d, want 11 (10 tools + hook-pairing)", len(checks))
 	}
 	if !Healthy(checks) {
 		t.Errorf("Healthy = false with all tools present: %+v", checks)
@@ -36,11 +36,14 @@ func TestRunAllToolsPresent(t *testing.T) {
 	if checks[5].Name != "codex" || checks[6].Name != "pi" {
 		t.Errorf("harness checks = %+v, want codex and pi", checks[5:7])
 	}
-	if checks[7].Name != "tasks-axi" || checks[8].Name != "quota-axi" {
-		t.Errorf("AXI checks = %+v, want tasks-axi and quota-axi", checks[7:9])
+	if checks[7].Name != "kimi" {
+		t.Errorf("harness checks = %+v, want kimi", checks[7])
 	}
-	if checks[9].Name != "hook-pairing" {
-		t.Errorf("checks[9] = %+v, want hook-pairing", checks[9])
+	if checks[8].Name != "tasks-axi" || checks[9].Name != "quota-axi" {
+		t.Errorf("AXI checks = %+v, want tasks-axi and quota-axi", checks[8:10])
+	}
+	if checks[10].Name != "hook-pairing" {
+		t.Errorf("checks[10] = %+v, want hook-pairing", checks[10])
 	}
 }
 
