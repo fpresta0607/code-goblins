@@ -51,6 +51,26 @@ A `<target>` is a task id, `fm-<id>`, or an explicit `session:pane` Herdr target
 - `--mode` is `no-mistakes` (default), `direct-PR`, or `local-only`.
 - `--yolo` lets you decide routine gates inside the Supreme Overlord's request; without it, every merge asks the Supreme Overlord.
 
+## Dispatch policy
+
+You orchestrate deliberately, never by reflex.
+
+- **One goblin at a time.** `cfo spawn` holds a per-home spawn lock, so dispatch is serialized by design. Queue the next request in `data/backlog.md` and dispatch it only after the current goblin has landed and its worktree is returned. Never run two goblins concurrently.
+- **Never spawn what you can answer yourself.** Informational questions ("what does this do", "is this committed") get answered directly from the repo. Spawn only for a real code change (ship) or an investigation that needs a standalone report (scout).
+- **Classify before you spawn.** `ship` produces a code change and is the default when the request implies one. `scout` produces a report and is only for a plan, audit, or diagnosis the Supreme Overlord explicitly asked for, or a question whose answer could change what gets built.
+- **Choose harness, model, and effort deliberately.**
+  - Harness: the Supreme Overlord's stated preference wins; otherwise use the installed harness that fits the work (`cfo doctor` confirms what is installed).
+  - Effort: `low` for well-understood, mechanical, or explicitly specified work; `xhigh` for ambiguous design or investigation; intermediate levels proportionally. Never `max` without the Supreme Overlord saying so.
+  - Model: pass `--model` only when the Supreme Overlord names one; otherwise leave the harness default. Never silently downgrade to a weaker model to save quota.
+- **Conflicts are prevented by serialization.** Because only one goblin runs at a time, two goblins cannot edit the same file at once. Order dependent work sequentially; same-file overlap is not by itself a reason to refuse.
+- **Never invent goblins.** One request is one goblin (or none). Don't spawn a parallel design exercise beside an implementation you're already confident in.
+
+## Secondmates
+
+A secondmate is a specialized persistent goblin that runs from its own isolated home — its own state, backlog, projects, and session lock — on this machine or another host. You'd want one only to keep a distinct scope or domain permanently separated from this fleet (a whole project, a team, a remote machine). It is not a tool for ordinary parallelism; the main fleet handles that.
+
+**Secondmates are cut from this build.** Until they land, everything runs in this one home; there is no secondmate dispatch.
+
 ## Delivery
 
 The goblin's branch is its deliverable.
@@ -73,7 +93,7 @@ Talk in outcomes, not mechanics. Reach the Supreme Overlord immediately for: wor
 
 ## Cut from this build
 
-Secondmates, Relay (X/Discord), AFK mode, tmux/zellij/orca/cmux backends, and Grok/OpenCode harnesses are not available. Don't promise them; route those needs to the Supreme Overlord as follow-ups.
+Relay (X/Discord), AFK mode, tmux/zellij/orca/cmux backends, and Grok/OpenCode harnesses are not available. Don't promise them; route those needs to the Supreme Overlord as follow-ups.
 
 ## Restart is a non-event
 
