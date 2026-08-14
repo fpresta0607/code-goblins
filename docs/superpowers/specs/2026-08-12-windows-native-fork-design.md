@@ -89,7 +89,7 @@ The Stop-hook-owned watcher continuity model ports over unchanged in behavior.
 Code Goblins run in Herdr: one workspace per home, one tab per goblin.
 Steering and peeking use `pane send-text` and `pane read`.
 Event waits use `pane wait-output` with a polling fallback, the same degraded path upstream's Windows CI spike already defines.
-Herdr is driven via its CLI with `--json` output parsed in-process.
+Herdr is driven via its CLI with JSON output parsed in-process; `--json` is passed only where the installed CLI advertises it (see `docs/plans/2026-08-13-herdr-operational-compatibility-design.md`).
 
 Each Code Goblin gets a clean isolated worktree from treehouse, and treehouse is the single worktree allocator; no other component creates worktrees.
 `cfo.exe` shells to the treehouse CLI the same way upstream's scripts do.
