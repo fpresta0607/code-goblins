@@ -697,17 +697,17 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 	}
 	args := req.Args[:len(req.Args)-2]
 	switch {
-	case reflect.DeepEqual(args, []string{"workspace", "list", "--json"}):
+	case reflect.DeepEqual(args, []string{"workspace", "list"}):
 		*r.events = append(*r.events, "workspace-list")
 		workspaceID := r.workspaceID
 		if workspaceID == "" {
 			workspaceID = "workspace-1"
 		}
 		return jsonResult(`{"workspaces":[{"workspace_id":` + quoteJSON(workspaceID) + `,"label":"firstmate"}]}`), nil
-	case reflect.DeepEqual(args, []string{"tab", "list", "--workspace", "workspace-1", "--json"}):
+	case reflect.DeepEqual(args, []string{"tab", "list", "--workspace", "workspace-1"}):
 		*r.events = append(*r.events, "tab-list")
 		return jsonResult(`{"tabs":[]}`), nil
-	case len(args) == 10 && args[0] == "tab" && args[1] == "create":
+	case len(args) == 9 && args[0] == "tab" && args[1] == "create":
 		*r.events = append(*r.events, "tab-create")
 		paneID := r.paneID
 		if paneID == "" {
@@ -720,7 +720,7 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 	case reflect.DeepEqual(args, []string{"pane", "run", "pane-1", "treehouse get"}):
 		*r.events = append(*r.events, "treehouse-get")
 		return jsonResult(`{}`), nil
-	case reflect.DeepEqual(args, []string{"pane", "get", "pane-1", "--json"}):
+	case reflect.DeepEqual(args, []string{"pane", "get", "pane-1"}):
 		*r.events = append(*r.events, "foreground-cwd")
 		return jsonResult(`{"pane":{"foreground_cwd":` + quoteJSON(r.worktree) + `}}`), nil
 	case len(args) == 4 && args[0] == "pane" && args[1] == "send-text" && args[2] == "pane-1":
@@ -731,7 +731,7 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		*r.events = append(*r.events, "send-enter")
 		r.enterKeys++
 		return jsonResult(`{}`), nil
-	case reflect.DeepEqual(args, []string{"agent", "get", "pane-1", "--json"}):
+	case reflect.DeepEqual(args, []string{"agent", "get", "pane-1"}):
 		if r.agentErr != nil {
 			return execx.Result{}, r.agentErr
 		}

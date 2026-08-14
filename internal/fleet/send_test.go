@@ -37,9 +37,9 @@ func TestSenderTextTypesOnceSettlesAndConfirmsWorking(t *testing.T) {
 	}
 	assertRequests(t, runner.requests, [][]string{
 		{"pane", "send-text", "pane-7", "do the work", "--session", "fleet"},
-		{"agent", "get", "pane-7", "--json", "--session", "fleet"},
+		{"agent", "get", "pane-7", "--session", "fleet"},
 		{"pane", "send-keys", "pane-7", "enter", "--session", "fleet"},
-		{"agent", "get", "pane-7", "--json", "--session", "fleet"},
+		{"agent", "get", "pane-7", "--session", "fleet"},
 	})
 }
 
@@ -192,9 +192,9 @@ func TestSenderTextConfirmsBlockedAfterSubmit(t *testing.T) {
 	}
 	assertRequests(t, runner.requests, [][]string{
 		{"pane", "send-text", "pane-7", "needs approval", "--session", "fleet"},
-		{"agent", "get", "pane-7", "--json", "--session", "fleet"},
+		{"agent", "get", "pane-7", "--session", "fleet"},
 		{"pane", "send-keys", "pane-7", "enter", "--session", "fleet"},
-		{"agent", "get", "pane-7", "--json", "--session", "fleet"},
+		{"agent", "get", "pane-7", "--session", "fleet"},
 	})
 }
 
