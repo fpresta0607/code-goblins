@@ -26,7 +26,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	fs.SetOutput(stderr)
 	project := fs.String("project", "", "project checkout")
 	brief := fs.String("brief", "", "absolute brief file")
-	harnessName := fs.String("harness", "", "claude, codex, or pi")
+	harnessName := fs.String("harness", "", "claude, codex, pi, or kimi")
 	mode := fs.String("mode", "no-mistakes", "no-mistakes, direct-PR, or local-only")
 	model := fs.String("model", "", "harness model")
 	effort := fs.String("effort", "", "harness effort")
@@ -43,7 +43,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		return 2
 	}
 	if !validSpawnHarness(*harnessName) {
-		fmt.Fprintln(stderr, "cfo spawn: --harness must be claude, codex, or pi")
+		fmt.Fprintln(stderr, "cfo spawn: --harness must be claude, codex, pi, or kimi")
 		return 2
 	}
 	if !validSpawnMode(*mode) {
@@ -88,7 +88,7 @@ func herdrSession() string {
 
 func validSpawnHarness(name string) bool {
 	switch harness.Kind(name) {
-	case harness.Claude, harness.Codex, harness.Pi:
+	case harness.Claude, harness.Codex, harness.Pi, harness.Kimi:
 		return true
 	default:
 		return false

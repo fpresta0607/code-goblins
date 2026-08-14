@@ -19,6 +19,7 @@ const (
 	Claude Kind = "claude"
 	Codex  Kind = "codex"
 	Pi     Kind = "pi"
+	Kimi   Kind = "kimi"
 )
 
 // LaunchSpec contains the task-specific values used to build one harness
@@ -35,11 +36,15 @@ type LaunchSpec struct {
 
 // Launch is a shell-independent command specification. PromptFile is read by
 // the final PowerShell delivery expression, rather than copied into Args.
+// FollowUpPrompt is a bare-launch harness's follow-up message: it is sent as a
+// separate literal after the launch command lands (Kimi rejects a positional
+// brief, so it launches bare and is then told where the brief lives).
 type Launch struct {
-	Executable string
-	Args       []string
-	Env        map[string]string
-	PromptFile string
+	Executable    string
+	Args          []string
+	Env           map[string]string
+	PromptFile    string
+	FollowUpPrompt string
 }
 
 // Adapter builds and validates one supported harness launch.
@@ -60,6 +65,7 @@ func DefaultRegistry() Registry {
 		Claude: claudeAdapter{},
 		Codex:  codexAdapter{},
 		Pi:     &piAdapter{},
+		Kimi:   kimiAdapter{},
 	}}
 }
 

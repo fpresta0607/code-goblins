@@ -25,7 +25,7 @@ func (r *fakeRunner) Run(_ context.Context, request execx.Request) (execx.Result
 func TestDefaultRegistryAcceptsOnlyPlan3Harnesses(t *testing.T) {
 	registry := DefaultRegistry()
 
-	for _, kind := range []Kind{Claude, Codex, Pi} {
+	for _, kind := range []Kind{Claude, Codex, Pi, Kimi} {
 		adapter, err := registry.Get(kind)
 		if err != nil {
 			t.Fatalf("Get(%q): %v", kind, err)
