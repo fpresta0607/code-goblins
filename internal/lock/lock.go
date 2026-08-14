@@ -11,8 +11,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
+
+const exclusiveSpawnSession = "exclusive-spawn"
+
+var exclusiveLeases = struct {
+	sync.Mutex
+	acquired map[string]time.Time
+}{acquired: make(map[string]time.Time)}
 
 // ErrHeld reports that a live process holds the session lock.
 var ErrHeld = errors.New("session lock held by a live process")
@@ -94,7 +105,45 @@ func AcquireNamedOwner(dir, name string, ownerPID int, session string) (*Info, e
 	if status == statusDead {
 		return nil, fmt.Errorf("%w: pid %d", ErrOwnerDead, ownerPID)
 	}
-	return acquire(dir, name, self)
+	return acquire(dir, name, self, true)
+}
+
+// AcquireExclusiveNamed takes dir/name for the current process without the
+// ordinary session-lock re-acquisition exception. A task spawn needs this
+// stricter form because two concurrent Spawn calls run under one process but
+// must still contend for the task's creation lock.
+func AcquireExclusiveNamed(dir, name string) (*Info, error) {
+	key := exclusiveLeaseKey(dir, name)
+	exclusiveLeases.Lock()
+	defer exclusiveLeases.Unlock()
+	if _, held := exclusiveLeases.acquired[key]; held {
+		return nil, fmt.Errorf("%w: exclusive task lock %s", ErrHeld, name)
+	}
+
+	self, status := ownerInfo(os.Getpid(), exclusiveSpawnSession)
+	if status == statusDead {
+		return nil, fmt.Errorf("%w: pid %d", ErrOwnerDead, self.PID)
+	}
+	if holder, readErr := ReadNamed(dir, name); readErr == nil && holder.PID == self.PID && holder.OwnerPID == self.PID && holder.Start.Equal(self.Start) && holder.Hostname == self.Hostname && holder.Alive() {
+		if holder.Session != exclusiveSpawnSession {
+			return nil, exclusiveHeldError(holder)
+		}
+		if reclaimErr := reclaimAbandonedExclusiveLease(dir, name, self); reclaimErr != nil {
+			return nil, reclaimErr
+		}
+	}
+	info, err := acquire(dir, name, self, false)
+	if errors.Is(err, ErrHeld) {
+		if reclaimErr := reclaimAbandonedExclusiveLease(dir, name, self); reclaimErr != nil {
+			return nil, reclaimErr
+		}
+		info, err = acquire(dir, name, self, false)
+	}
+	if err != nil {
+		return nil, err
+	}
+	exclusiveLeases.acquired[key] = info.Acquired
+	return info, nil
 }
 
 // AcquireOwner takes dir/.lock for ownerPID, the long-lived process (the
@@ -122,8 +171,9 @@ func Acquire(dir string) (*Info, error) {
 
 // acquire runs the exclusive-create/read-back/steal loop, recording self as
 // the new holder of dir/name if the lock is free or its dead holder can be
-// stolen.
-func acquire(dir, name string, self *Info) (*Info, error) {
+// stolen. allowReacquire preserves the session-lock custody contract while
+// task-spawn locks require a same-process concurrent caller to contend.
+func acquire(dir, name string, self *Info, allowReacquire bool) (*Info, error) {
 	path := filepath.Join(dir, name)
 	unreadableCount := 0
 	unreadableStart := time.Time{}
@@ -173,11 +223,14 @@ func acquire(dir, name string, self *Info) (*Info, error) {
 		// File is readable; reset unreadable counter.
 		unreadableCount = 0
 
-		// The holder is already us (e.g., a transient read-back failure after
-		// our own successful create above). The lock is already ours.
-		// Session is deliberately excluded: a resumed session keeps custody.
+		// A normal session lock is re-entrant for its owner. An exclusive task
+		// lock instead recognizes only the exact record this invocation wrote,
+		// preserving a transient failed read-back without admitting another
+		// concurrent call from the same process.
 		if holder.PID == self.PID && holder.Start.Equal(self.Start) && holder.Hostname == self.Hostname {
-			return self, nil
+			if allowReacquire || holder.Acquired.Equal(self.Acquired) {
+				return self, nil
+			}
 		}
 
 		if holder.Alive() {
@@ -262,24 +315,91 @@ func HeldBy(dir string, ownerPID int) bool {
 
 // ReleaseNamed removes dir/name when the current process identity holds it.
 func ReleaseNamed(dir, name string) error {
+	err := releaseNamed(dir, name, os.Remove, time.Sleep)
+	if err == nil {
+		clearExclusiveLease(dir, name)
+	}
+	return err
+}
+
+// ReleaseExclusiveNamed releases a task-spawn lock and marks a terminal
+// release failure as abandoned so a later same-process spawn can reclaim only
+// that proven exclusive lease.
+func ReleaseExclusiveNamed(dir, name string) error {
+	return releaseExclusiveNamed(dir, name, os.Remove, time.Sleep)
+}
+
+func releaseExclusiveNamed(dir, name string, remove func(string) error, sleep func(time.Duration)) error {
+	key := exclusiveLeaseKey(dir, name)
+	exclusiveLeases.Lock()
+	defer exclusiveLeases.Unlock()
+	err := releaseNamed(dir, name, remove, sleep)
+	delete(exclusiveLeases.acquired, key)
+	return err
+}
+
+func releaseNamed(dir, name string, remove func(string) error, sleep func(time.Duration)) error {
+	path := filepath.Join(dir, name)
+	var lastErr error
+	for attempt := 0; attempt < 10; attempt++ {
+		holder, err := ReadNamed(dir, name)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err == nil {
+			self, _ := ownerInfo(os.Getpid(), "")
+			localHostname, _ := os.Hostname()
+
+			// Refuse if the holder's hostname differs from the local hostname.
+			if holder.Hostname != "" && holder.Hostname != localHostname {
+				return fmt.Errorf("lock: held by foreign host %s, not this process", holder.Hostname)
+			}
+
+			// Refuse if the holder's PID or process identity does not match this process.
+			if holder.PID != self.PID || !holder.Alive() {
+				return fmt.Errorf("lock: held by pid %d, not this process", holder.PID)
+			}
+
+			err = remove(path)
+			if err == nil || errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+		}
+		lastErr = err
+		if attempt < 9 {
+			sleep(50 * time.Millisecond)
+		}
+	}
+	return fmt.Errorf("lock: release %s after 10 attempts: %w", name, lastErr)
+}
+
+func reclaimAbandonedExclusiveLease(dir, name string, self *Info) error {
 	holder, err := ReadNamed(dir, name)
 	if err != nil {
 		return err
 	}
-	self, _ := ownerInfo(os.Getpid(), "")
-	localHostname, _ := os.Hostname()
-
-	// Refuse if the holder's hostname differs from the local hostname.
-	if holder.Hostname != "" && holder.Hostname != localHostname {
-		return fmt.Errorf("lock: held by foreign host %s, not this process", holder.Hostname)
+	if holder.PID != self.PID || holder.OwnerPID != self.PID || !holder.Start.Equal(self.Start) || holder.Hostname != self.Hostname || holder.Session != exclusiveSpawnSession || !holder.Alive() {
+		return exclusiveHeldError(holder)
 	}
+	return releaseNamed(dir, name, os.Remove, time.Sleep)
+}
 
-	// Refuse if the holder's PID or process identity does not match this process.
-	if holder.PID != self.PID || !holder.Alive() {
-		return fmt.Errorf("lock: held by pid %d, not this process", holder.PID)
+func exclusiveHeldError(holder *Info) error {
+	return fmt.Errorf("%w: pid %d on %s since %s", ErrHeld, holder.PID, holder.Hostname, holder.Acquired.Format(time.RFC3339))
+}
+
+func exclusiveLeaseKey(dir, name string) string {
+	path, err := fsx.AbsClean(filepath.Join(dir, name))
+	if err != nil {
+		path = filepath.Clean(filepath.Join(dir, name))
 	}
+	return strings.ToLower(path)
+}
 
-	return os.Remove(filepath.Join(dir, name))
+func clearExclusiveLease(dir, name string) {
+	exclusiveLeases.Lock()
+	delete(exclusiveLeases.acquired, exclusiveLeaseKey(dir, name))
+	exclusiveLeases.Unlock()
 }
 
 // Release removes dir/.lock when the current process identity holds it. See

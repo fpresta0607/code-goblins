@@ -17,5 +17,5 @@ jobs:
         with:
           go-version: stable
       - run: go vet ./...
-      - run: go test ./...
+      - run: go test ./... -count=1
       - run: go build ./cmd/cfo

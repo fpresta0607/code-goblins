@@ -8,12 +8,12 @@
 package watch
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"hash/fnv"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -21,43 +21,28 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 const (
-	watchLockName       = ".watch.lock"
-	watcherBeatFile     = ".last-watcher-beat"
-	lastHeartbeatFile   = ".last-heartbeat"
-	heartbeatStreakFile = ".heartbeat-streak"
-	seenPrefix          = ".seen-"
-
-	// maxHeartbeatStreak bounds the shift COUNT (Heartbeat << streak) that
-	// readHeartbeatStreak ever returns, so a streak file grown past this by
-	// hand or by many quiet cycles cannot shift further. It does NOT bound
-	// the shift's PRODUCT: claudehook.Seconds has no upper bound, so an
-	// operator-supplied CFO_HEARTBEAT large enough still overflows the
-	// int64 Duration once shifted, wrapping to a negative value.
-	// heartbeatDue guards that directly rather than relying on this
-	// constant alone.
-	maxHeartbeatStreak = 8
+	watchLockName = ".watch.lock"
+	seenPrefix    = ".seen-"
 )
 
-// Config carries watch.Run's tunables and its two injection seams. Every
-// timing decision in the loop reads a beacon's mtime against the wall clock
-// (time.Now): state/.last-watcher-beat and state/.last-heartbeat are read by
-// supervise.WatcherHealthy (a different package, a different process) and by
-// Run itself across restarts, so a beacon stamped from an injected clock
-// would make a healthy watcher read as stale to that outside reader. Sleep
-// is therefore the loop's only timing seam; tests move time on the beacons
-// directly with os.Chtimes instead. WaitEvent and Cleanup default to nil,
-// meaning pure timer mode with nothing to release, until Task 9 supplies
-// both for filesystem notifications.
+// Config carries watch.Run's tunables and its injection seams. Monitor is
+// optional until a later phase wires a structural Herdr prober; the
+// signals-only path still advances monitor's typed heartbeat through the one
+// watcher-health record. WaitEvent and Cleanup default to nil, meaning pure
+// timer mode with nothing to release, until Task 9 supplies both for
+// filesystem notifications.
 type Config struct {
 	Home         home.Home
 	Poll         time.Duration
 	SignalGrace  time.Duration
 	Heartbeat    time.Duration
 	HeartbeatMax time.Duration
+	Monitor      *monitor.Service
 	Sleep        func(time.Duration)
 
 	// WaitEvent is Task 9's filesystem-notification seam, replacing the
@@ -232,98 +217,10 @@ func CommitSignatures(stateDir string, changes []Change) error {
 	return nil
 }
 
-// touchBeacon stamps path with the current wall-clock time, creating an
-// empty file if it does not exist yet.
-func touchBeacon(path string) error {
-	now := time.Now()
-	err := os.Chtimes(path, now, now)
-	if err == nil {
-		return nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return os.WriteFile(path, nil, 0o644)
-}
-
-// ensureBeacon creates an empty path if it does not exist yet, and otherwise
-// leaves it untouched: a missing state/.last-heartbeat is created at Run
-// start so the heartbeat cadence has something to measure against, but an
-// existing one must survive Run start unmodified or the persisted cadence
-// (which is the whole point of stamping this file across watcher exits)
-// would reset every time the watcher restarts.
-func ensureBeacon(path string) error {
-	if _, err := os.Stat(path); err == nil {
-		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return os.WriteFile(path, nil, 0o644)
-}
-
-// readHeartbeatStreak reads state/.heartbeat-streak, clamped to 0..8 so the
-// backoff shift (Heartbeat << streak) can never overflow. A missing or
-// unreadable-as-an-integer file reads as 0, matching a fresh or hand-edited
-// home rather than erroring inside a loop that must not get stuck.
-func readHeartbeatStreak(stateDir string) (int, error) {
-	data, err := os.ReadFile(filepath.Join(stateDir, heartbeatStreakFile))
-	if errors.Is(err, os.ErrNotExist) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, err
-	}
-	n, convErr := strconv.Atoi(strings.TrimSpace(string(data)))
-	if convErr != nil || n < 0 {
-		return 0, nil
-	}
-	if n > maxHeartbeatStreak {
-		return maxHeartbeatStreak, nil
-	}
-	return n, nil
-}
-
-func writeHeartbeatStreak(stateDir string, n int) error {
-	return fsx.AtomicWriteFile(filepath.Join(stateDir, heartbeatStreakFile), []byte(strconv.Itoa(n)+"\n"))
-}
-
-func removeHeartbeatStreak(stateDir string) error {
-	err := os.Remove(filepath.Join(stateDir, heartbeatStreakFile))
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
-}
-
-// heartbeatDue reports whether the heartbeat at heartbeatPath has aged past
-// its current backoff interval, and the streak that interval was computed
-// from (so a caller that closes on it can increment the same value it read).
-func heartbeatDue(stateDir, heartbeatPath string, heartbeat, max time.Duration) (due bool, streak int, err error) {
-	streak, err = readHeartbeatStreak(stateDir)
-	if err != nil {
-		return false, 0, err
-	}
-	// interval <= 0 catches int64 overflow from the shift (an operator-
-	// supplied CFO_HEARTBEAT large enough wraps a positive Duration
-	// negative), not just the ordinary over-cap case; both fall back to
-	// max rather than letting a negative interval make every cycle read
-	// as due.
-	interval := heartbeat << streak
-	if interval <= 0 || interval > max {
-		interval = max
-	}
-	fi, err := os.Stat(heartbeatPath)
-	if err != nil {
-		return false, streak, err
-	}
-	return time.Since(fi.ModTime()) >= interval, streak, nil
-}
-
-// Run acquires the state/.watch.lock singleton, then loops: touch the
-// watcher beat, scan for changed status files, and check the heartbeat
-// cadence, waiting between checks. It returns the first actionable reason
-// (a "signal:..." detail or "heartbeat") and closes; one actionable reason
-// closes one watcher cycle, and continuity is the arm layer's job.
+// Run acquires the state/.watch.lock singleton, scans raw status signals,
+// then runs the monitor before waiting. A raw signal remains this cycle's
+// close reason, while a monitor event discovered in the same cycle stays
+// persisted for the next cycle so two wake episodes never conflict.
 func Run(cfg Config) (string, error) {
 	if _, err := lock.AcquireNamedOwner(cfg.Home.State, watchLockName, os.Getpid(), "watch"); err != nil {
 		// The lock was never acquired, so there is no LIFO defer pair to
@@ -345,22 +242,8 @@ func Run(cfg Config) (string, error) {
 		defer cfg.Cleanup()
 	}
 
-	beatPath := filepath.Join(cfg.Home.State, watcherBeatFile)
-	heartbeatPath := filepath.Join(cfg.Home.State, lastHeartbeatFile)
-
-	// A fresh home's heartbeat becomes due one interval after this touch,
-	// never at t=0: ensureBeacon only creates the beacon when it is absent,
-	// leaving an existing one (and the cadence it carries across restarts)
-	// untouched.
-	if err := ensureBeacon(heartbeatPath); err != nil {
-		return "", err
-	}
-
 	for {
-		if err := touchBeacon(beatPath); err != nil {
-			return "", err
-		}
-
+		var signalDetail string
 		changes, err := ScanSignals(cfg.Home.State)
 		if err != nil {
 			return "", err
@@ -420,41 +303,28 @@ func Run(cfg Config) (string, error) {
 			if err := CommitSignatures(cfg.Home.State, changes); err != nil {
 				return "", err
 			}
-			if err := touchBeacon(heartbeatPath); err != nil {
-				return "", err
-			}
-			if err := removeHeartbeatStreak(cfg.Home.State); err != nil {
-				return "", err
-			}
 			if _, err := wake.PublishEpisode(cfg.Home.State); err != nil {
 				return "", err
 			}
-			return detail, nil
+			signalDetail = detail
 		}
 
-		// NOT PORTED IN V1: upstream's stale-pane sweep (window/pane
-		// staleness against Herdr's tracking) is deferred to Plan 3.
-		// NOT PORTED IN V1: upstream's *.check.sh sweep (goblin health
-		// checks / process-event delivery) is deferred to Plan 4.
-
-		due, streak, err := heartbeatDue(cfg.Home.State, heartbeatPath, cfg.Heartbeat, cfg.HeartbeatMax)
-		if err != nil {
+		if cfg.Monitor != nil {
+			result, err := cfg.Monitor.Scan(context.Background())
+			if err != nil {
+				return "", err
+			}
+			if result.Event != nil && signalDetail == "" {
+				if _, err := cfg.Monitor.Publish(*result.Event); err != nil {
+					return "", err
+				}
+				return result.Event.Kind + ":" + result.Event.Detail, nil
+			}
+		} else if err := monitor.TouchHeartbeat(cfg.Home.State, time.Now()); err != nil {
 			return "", err
 		}
-		if due {
-			if _, err := wake.Append(cfg.Home.State, "heartbeat", "heartbeat", "heartbeat"); err != nil {
-				return "", err
-			}
-			if err := touchBeacon(heartbeatPath); err != nil {
-				return "", err
-			}
-			if err := writeHeartbeatStreak(cfg.Home.State, streak+1); err != nil {
-				return "", err
-			}
-			if _, err := wake.PublishEpisode(cfg.Home.State); err != nil {
-				return "", err
-			}
-			return "heartbeat", nil
+		if signalDetail != "" {
+			return signalDetail, nil
 		}
 
 		if cfg.WaitEvent != nil {

@@ -20,16 +20,18 @@ type Check struct {
 }
 
 var tools = []struct {
-	name         string
-	presenceOnly bool
-	hint         string
+	name string
+	hint string
 }{
 	{name: "git", hint: "winget install Git.Git"},
 	{name: "gh", hint: "winget install GitHub.cli, then gh auth login"},
 	{name: "claude", hint: "npm install -g @anthropic-ai/claude-code"},
 	{name: "herdr", hint: "irm https://herdr.dev/install.ps1 | iex"},
-	// Presence-only until Plan 3 verifies treehouse --version on Windows.
-	{name: "treehouse", presenceOnly: true, hint: "see github.com/kunchenguid/treehouse"},
+	{name: "treehouse", hint: "see github.com/kunchenguid/treehouse"},
+	{name: "codex", hint: "npm install -g @openai/codex"},
+	{name: "pi", hint: "npm install -g @mariozechner/pi-coding-agent"},
+	{name: "tasks-axi", hint: "npm install -g tasks-axi"},
+	{name: "quota-axi", hint: "npm install -g quota-axi"},
 }
 
 // Run checks every required tool in a fixed order, plus the turnend-guard /
@@ -40,10 +42,6 @@ func Run() []Check {
 		path, err := exec.LookPath(tool.name)
 		if err != nil {
 			checks = append(checks, Check{Name: tool.name, Err: "not found on PATH", Hint: tool.hint})
-			continue
-		}
-		if tool.presenceOnly {
-			checks = append(checks, Check{Name: tool.name, Version: "present at " + path})
 			continue
 		}
 		out, err := exec.Command(path, "--version").Output()
