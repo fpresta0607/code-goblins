@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -204,18 +205,18 @@ func (s Service) project(req Request) (string, error) {
 	if project == "" {
 		return "", errors.New("spawn: project is required")
 	}
-	absolute, err := filepath.Abs(project)
+	info, err := os.Stat(project)
 	if err != nil {
-		return "", fmt.Errorf("spawn: resolve project path: %w", err)
-	}
-	info, err := os.Stat(absolute)
-	if err != nil {
-		return "", fmt.Errorf("spawn: project %q: %w", absolute, err)
+		return "", fmt.Errorf("spawn: project %q: %w", project, err)
 	}
 	if !info.IsDir() {
-		return "", fmt.Errorf("spawn: project %q is not a directory", absolute)
+		return "", fmt.Errorf("spawn: project %q is not a directory", project)
 	}
-	return filepath.Clean(absolute), nil
+	canonical, err := fsx.Canonical(project)
+	if err != nil {
+		return "", fmt.Errorf("spawn: canonicalize project %q: %w", project, err)
+	}
+	return canonical, nil
 }
 
 func validateRequest(req Request) error {
