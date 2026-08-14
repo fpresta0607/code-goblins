@@ -50,6 +50,10 @@ cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi> [--mo
 cfo send <target> [--key <key>] <text...>
 cfo peek <target> [lines]
 cfo fleet-view [--json]
+cfo brief <id> --project <path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>]
+cfo pr check <id> <url>
+cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
+cfo merge-local <id>
 cfo drain                            print or acknowledge the wake queue
 cfo session-start                    print the session-start digest
 cfo watch                            run one triage cycle by hand
@@ -62,12 +66,29 @@ cfo version
 Prerequisites: Git, the GitHub CLI (`gh auth login`), Go, [Herdr](https://herdr.dev), and [treehouse](https://github.com/kunchenguid/treehouse).
 `cfo doctor` reports exactly what is missing and how to install it.
 
-```sh
+```powershell
 git clone https://github.com/fpresta0607/code-goblins
 cd code-goblins
-go build ./cmd/cfo
-cfo doctor
+powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
 ```
+
+`install.ps1` builds (or downloads) `cfo.exe` and verifies the toolchain; the Claude Code hooks in `.claude/settings.json` are already wired to it.
+
+### Daily flow
+
+```sh
+cd c:/dev/code-goblins
+herdr
+```
+
+Herdr is your cockpit. Launch the CFO in a pane, then ask away:
+
+```sh
+claude    # or: codex, pi
+```
+
+The CFO reads its contract and does the rest - goblins appear as Herdr tabs (`fm-<id>`), each in a clean treehouse worktree.
+`cfo spawn` targets the Herdr session named `default` (or `$HERDR_SESSION`), so keep the CFO and its goblins in the same session.
 
 ## Cut from v1
 

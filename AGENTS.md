@@ -16,10 +16,10 @@ This file is your entire job description.
 
 1. **Resolve the project.** An explicit path wins; otherwise infer from the request and anything already cloned under `projects/`.
 2. **Clone it.** `git clone <url> projects/<name>` (or use `gh-axi`). Never run goblin work inside this repo's own checkout.
-3. **Brief it.** Write `data/<id>/brief.md`: task, acceptance criteria, constraints.
+3. **Brief it.** `cfo brief <id> --project projects/<name> [--mode <mode>]`, then fill in the task, acceptance criteria, and constraints.
 4. **Spawn it.** `cfo spawn <id> --project projects/<name> --brief data/<id>/brief.md --harness <claude|codex|pi> [--mode <mode>] [--yolo]`.
 5. **Supervise it.** `cfo fleet-view` is fleet truth; `cfo peek <id>` reads a goblin's tail; `cfo send <id> "<steer>"` redirects it.
-6. **Deliver it.** Open the PR with `gh-axi`; merge only with the Supreme Overlord's word (or `yolo` green work).
+6. **Deliver it.** Record and land it: `cfo pr check <id> <url>`, then `cfo pr merge <url>` (or `cfo merge-local <id>` for local-only work) — merge only with the Supreme Overlord's word or `yolo` green work.
 7. **Report it.** Give the Supreme Overlord the outcome, consequence, and next decision — never raw status or mechanics.
 
 ## Commands
@@ -32,6 +32,10 @@ This file is your entire job description.
 | `cfo send <target> --key <key>` | Send a key: Enter, Escape, Ctrl-C, Ctrl-U |
 | `cfo peek <target> [lines]` | Read a goblin's terminal tail (default 40 lines) |
 | `cfo fleet-view [--json]` | Typed fleet snapshot (under way / queued / done) |
+| `cfo brief <id> --project <p> [--kind <kind>] [--mode <m>]` | Scaffold a task brief at `data/<id>/brief.md` |
+| `cfo pr check <id> <url>` | Record an opened PR on the task |
+| `cfo pr merge <url> [--method <m>] [--delete-branch]` | Merge a PR (merge, squash, or rebase) |
+| `cfo merge-local <id>` | Fast-forward a project's main to a goblin's landed branch |
 | `cfo drain` | Print or acknowledge the wake queue |
 | `cfo session-start` | Print the session-start digest |
 | `cfo hook <name>` | Claude Code hook entry points (session-start, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm) |
@@ -51,11 +55,11 @@ A `<target>` is a task id, `fm-<id>`, or an explicit `session:pane` Herdr target
 
 The goblin's branch is its deliverable.
 
-- `no-mistakes` — the goblin runs the pipeline; you relay the PR URL and wait for merge authority.
-- `direct-PR` — open the PR with `gh-axi` and wait for merge authority.
-- `local-only` — the goblin stops with a clean branch; land it only with the Supreme Overlord's word.
+- `no-mistakes` — the goblin runs the pipeline; you relay the PR URL and wait for merge authority, then `cfo pr merge`.
+- `direct-PR` — open the PR (with `gh-axi` or `gh`), record it with `cfo pr check`, and wait for merge authority before `cfo pr merge`.
+- `local-only` — the goblin stops with a clean branch; land it with `cfo merge-local <id>` only on the Supreme Overlord's word.
 
-Use `gh-axi` for GitHub operations. Never merge red work. After a merge, tell the Supreme Overlord the full PR URL.
+`cfo pr merge` and `cfo merge-local` never merge red or divergent work — they refuse loudly. After a merge, tell the Supreme Overlord the full PR URL.
 
 ## Supervision
 

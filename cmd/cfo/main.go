@@ -37,6 +37,10 @@ commands:
   cfo send <target> [--key <key>] <text...>
   cfo peek <target> [lines]
   cfo fleet-view [--json]
+  cfo brief <id> --project <path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>]
+  cfo pr check <id> <url>
+  cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
+  cfo merge-local <id>
   hook <name>  claude code hook entry points (session-start, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm)
 `
 
@@ -129,6 +133,16 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runPeek(args[1:], stdout, stderr, runtime)
 	case "fleet-view":
 		return runFleet(args[1:], stdout, stderr, runtime)
+	case "brief":
+		return runBrief(args[1:], stdout, stderr)
+	case "pr":
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "cfo pr: check or merge subcommand is required")
+			return 2
+		}
+		return runPR(args[1], args[2:], stdout, stderr)
+	case "merge-local":
+		return runMergeLocal(args[1:], stdout, stderr)
 	case "session-start":
 		// Deliberate deviation, recorded for the ledger: a home that cannot
 		// be resolved errors out here (stderr plus exit 1), matching this
