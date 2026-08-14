@@ -28,7 +28,6 @@ A pull request must keep all three green.
 - `docs/superpowers/` - the design spec and implementation plans.
 - `tests/acceptance/` - the opt-in real-session Windows acceptance script.
 - `AGENTS.md` - the CFO's operating contract; `CLAUDE.md` points to it.
-- `bin/`, `tests/*.test.sh`, `skills/`, `.agents/` - upstream firstmate reference material for the port; the Go binary does not execute them.
 
 ## Tests
 

@@ -107,7 +107,6 @@ These upstream features are not yet ported to the Go binary:
 - `docs/superpowers/` - the design spec and implementation plans.
 - `tests/acceptance/` - the opt-in real-session Windows acceptance script.
 - `AGENTS.md` - the CFO's operating contract; `CLAUDE.md` points to it.
-- `bin/`, `tests/*.test.sh`, `skills/`, `.agents/` - upstream firstmate reference material for the port; not executed by the Go binary.
 
 ## Development
 
