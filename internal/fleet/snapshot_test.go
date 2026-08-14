@@ -41,9 +41,9 @@ func TestHerdrEndpointReadsOnlyLiveAgentEvidence(t *testing.T) {
 		t.Fatalf("BusyState = %q, %v; want busy, nil", busy, err)
 	}
 	assertRequests(t, runner.requests, [][]string{
-		{"pane", "get", "pane-7", "--json", "--session", "fleet"},
-		{"agent", "get", "pane-7", "--json", "--session", "fleet"},
-		{"agent", "get", "pane-7", "--json", "--session", "fleet"},
+		{"pane", "get", "pane-7", "--session", "fleet"},
+		{"agent", "get", "pane-7", "--session", "fleet"},
+		{"agent", "get", "pane-7", "--session", "fleet"},
 	})
 }
 
