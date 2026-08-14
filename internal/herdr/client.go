@@ -101,7 +101,7 @@ func (c *Client) EnsureContainer(ctx context.Context, cwd string) (Container, er
 		return Container{}, fmt.Errorf("herdr: %d workspaces in session %q are labeled firstmate", len(matches), session)
 	}
 
-	result, err := c.required(ctx, session, Target{}, "workspace create", "workspace", "create", "--cwd", cwd, "--label", "firstmate", "--no-focus", "--json")
+	result, err := c.required(ctx, session, Target{}, "workspace create", "workspace", "create", "--cwd", cwd, "--label", "firstmate", "--no-focus")
 	if err != nil {
 		return Container{}, err
 	}
@@ -164,7 +164,7 @@ func (c *Client) CreateTask(ctx context.Context, container Container, label, cwd
 		}
 	}
 
-	result, err := c.required(ctx, container.Session, Target{}, "tab create", "tab", "create", "--workspace", container.WorkspaceID, "--cwd", cwd, "--label", label, "--no-focus", "--json")
+	result, err := c.required(ctx, container.Session, Target{}, "tab create", "tab", "create", "--workspace", container.WorkspaceID, "--cwd", cwd, "--label", label, "--no-focus")
 	if err != nil {
 		return Endpoint{}, err
 	}
@@ -210,7 +210,7 @@ func (c *Client) SendKey(ctx context.Context, target Target, key string) error {
 // ForegroundCWD reports the live pane foreground directory used by treehouse
 // acquisition polling.
 func (c *Client) ForegroundCWD(ctx context.Context, target Target) (string, error) {
-	result, err := c.required(ctx, target.Session, target, "pane get", "pane", "get", target.Pane, "--json")
+	result, err := c.required(ctx, target.Session, target, "pane get", "pane", "get", target.Pane)
 	if err != nil {
 		return "", err
 	}
@@ -249,7 +249,7 @@ func (c *Client) Capture(ctx context.Context, target Target, lines int, ansi boo
 // AgentStatus distinguishes structural pane absence, agent absence, live
 // registration, and unreadable Herdr responses without relying on exit codes.
 func (c *Client) AgentStatus(ctx context.Context, target Target) (AgentStatus, error) {
-	paneResult, err := c.raw(ctx, target.Session, "pane", "get", target.Pane, "--json")
+	paneResult, err := c.raw(ctx, target.Session, "pane", "get", target.Pane)
 	if err != nil {
 		return AgentUnreadable, err
 	}
@@ -275,7 +275,7 @@ func (c *Client) AgentStatus(ctx context.Context, target Target) (AgentStatus, e
 		return AgentUnreadable, fmt.Errorf("herdr: pane presence for %s did not round-trip pane_id", target)
 	}
 
-	agentResult, err := c.raw(ctx, target.Session, "agent", "get", target.Pane, "--json")
+	agentResult, err := c.raw(ctx, target.Session, "agent", "get", target.Pane)
 	if err != nil {
 		return AgentUnreadable, err
 	}
@@ -448,7 +448,7 @@ func (c *Client) serverRunning(ctx context.Context, session string) (bool, error
 }
 
 func (c *Client) workspaces(ctx context.Context, session string) ([]workspaceRecord, error) {
-	result, err := c.required(ctx, session, Target{}, "workspace list", "workspace", "list", "--json")
+	result, err := c.required(ctx, session, Target{}, "workspace list", "workspace", "list")
 	if err != nil {
 		return nil, err
 	}
@@ -466,7 +466,7 @@ func (c *Client) workspaces(ctx context.Context, session string) ([]workspaceRec
 }
 
 func (c *Client) tabs(ctx context.Context, session, workspaceID string) ([]tabRecord, error) {
-	result, err := c.required(ctx, session, Target{}, "tab list", "tab", "list", "--workspace", workspaceID, "--json")
+	result, err := c.required(ctx, session, Target{}, "tab list", "tab", "list", "--workspace", workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -484,7 +484,7 @@ func (c *Client) tabs(ctx context.Context, session, workspaceID string) ([]tabRe
 }
 
 func (c *Client) panes(ctx context.Context, session, workspaceID string) ([]paneRecord, error) {
-	result, err := c.required(ctx, session, Target{}, "pane list", "pane", "list", "--workspace", workspaceID, "--json")
+	result, err := c.required(ctx, session, Target{}, "pane list", "pane", "list", "--workspace", workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -557,7 +557,7 @@ func (c *Client) pruneSeededDefault(ctx context.Context, container Container) {
 
 func (c *Client) close(ctx context.Context, session, kind, id string) error {
 	operation := kind + " close"
-	result, err := c.raw(ctx, session, kind, "close", id, "--json")
+	result, err := c.raw(ctx, session, kind, "close", id)
 	if err != nil {
 		return &CommandError{Operation: operation, Target: Target{Session: session, Pane: id}, Err: err}
 	}
@@ -588,7 +588,7 @@ func (c *Client) readAgentStatus(ctx context.Context, target Target) (string, er
 	if err := validateTarget(target); err != nil {
 		return "", err
 	}
-	result, err := c.raw(ctx, target.Session, "agent", "get", target.Pane, "--json")
+	result, err := c.raw(ctx, target.Session, "agent", "get", target.Pane)
 	if err != nil {
 		return "", err
 	}
@@ -607,7 +607,7 @@ func (c *Client) AgentDetail(ctx context.Context, target Target) (AgentDetail, e
 	if err := validateTarget(target); err != nil {
 		return AgentDetail{}, err
 	}
-	result, err := c.raw(ctx, target.Session, "agent", "get", target.Pane, "--json")
+	result, err := c.raw(ctx, target.Session, "agent", "get", target.Pane)
 	if err != nil {
 		return AgentDetail{}, err
 	}

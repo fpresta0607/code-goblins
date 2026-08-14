@@ -174,8 +174,8 @@ func TestEnsureContainerUsesFlatLabelAndExplicitSession(t *testing.T) {
 		t.Errorf("EnsureContainer() = %#v, want %#v", got, want)
 	}
 	assertRequests(t, runner.Requests(), []execx.Request{
-		command("herdr", "workspace", "list", "--json", "--session", "fleet"),
-		command("herdr", "workspace", "create", "--cwd", `C:\repo`, "--label", "firstmate", "--no-focus", "--json", "--session", "fleet"),
+		command("herdr", "workspace", "list", "--session", "fleet"),
+		command("herdr", "workspace", "create", "--cwd", `C:\repo`, "--label", "firstmate", "--no-focus", "--session", "fleet"),
 	})
 }
 
@@ -235,10 +235,10 @@ func TestCreateTaskRefusesDuplicateWithLiveAgent(t *testing.T) {
 		t.Fatalf("CreateTask error = %v, want duplicate refusal", err)
 	}
 	assertRequests(t, runner.Requests(), []execx.Request{
-		command("herdr", "tab", "list", "--workspace", "ws-1", "--json", "--session", "fleet"),
-		command("herdr", "pane", "list", "--workspace", "ws-1", "--json", "--session", "fleet"),
-		command("herdr", "pane", "get", "pane-existing", "--json", "--session", "fleet"),
-		command("herdr", "agent", "get", "pane-existing", "--json", "--session", "fleet"),
+		command("herdr", "tab", "list", "--workspace", "ws-1", "--session", "fleet"),
+		command("herdr", "pane", "list", "--workspace", "ws-1", "--session", "fleet"),
+		command("herdr", "pane", "get", "pane-existing", "--session", "fleet"),
+		command("herdr", "agent", "get", "pane-existing", "--session", "fleet"),
 	})
 }
 
@@ -289,16 +289,16 @@ func TestCreateTaskReplacesHuskAndPrunesOnlyExactSafeSeed(t *testing.T) {
 		t.Errorf("CreateTask() = %#v, want %#v", got, want)
 	}
 	assertRequests(t, runner.Requests(), []execx.Request{
-		command("herdr", "tab", "list", "--workspace", "ws-1", "--json", "--session", "fleet"),
-		command("herdr", "pane", "list", "--workspace", "ws-1", "--json", "--session", "fleet"),
-		command("herdr", "pane", "get", "pane-husk", "--json", "--session", "fleet"),
-		command("herdr", "tab", "close", "tab-husk", "--json", "--session", "fleet"),
-		command("herdr", "tab", "list", "--workspace", "ws-1", "--json", "--session", "fleet"),
-		command("herdr", "tab", "create", "--workspace", "ws-1", "--cwd", `C:\repo`, "--label", "fm-task", "--no-focus", "--json", "--session", "fleet"),
-		command("herdr", "tab", "list", "--workspace", "ws-1", "--json", "--session", "fleet"),
-		command("herdr", "pane", "list", "--workspace", "ws-1", "--json", "--session", "fleet"),
-		command("herdr", "agent", "get", "pane-seeded", "--json", "--session", "fleet"),
-		command("herdr", "pane", "close", "pane-seeded", "--json", "--session", "fleet"),
+		command("herdr", "tab", "list", "--workspace", "ws-1", "--session", "fleet"),
+		command("herdr", "pane", "list", "--workspace", "ws-1", "--session", "fleet"),
+		command("herdr", "pane", "get", "pane-husk", "--session", "fleet"),
+		command("herdr", "tab", "close", "tab-husk", "--session", "fleet"),
+		command("herdr", "tab", "list", "--workspace", "ws-1", "--session", "fleet"),
+		command("herdr", "tab", "create", "--workspace", "ws-1", "--cwd", `C:\repo`, "--label", "fm-task", "--no-focus", "--session", "fleet"),
+		command("herdr", "tab", "list", "--workspace", "ws-1", "--session", "fleet"),
+		command("herdr", "pane", "list", "--workspace", "ws-1", "--session", "fleet"),
+		command("herdr", "agent", "get", "pane-seeded", "--session", "fleet"),
+		command("herdr", "pane", "close", "pane-seeded", "--session", "fleet"),
 	})
 }
 
@@ -563,7 +563,7 @@ func TestAgentDetailRequiresExactAgentIdentity(t *testing.T) {
 			t.Errorf("AgentDetail = %#v, want pi idle", got)
 		}
 		assertRequests(t, runner.Requests(), []execx.Request{
-			command("herdr", "agent", "get", "w1:p2", "--json", "--session", "fleet"),
+			command("herdr", "agent", "get", "w1:p2", "--session", "fleet"),
 		})
 	})
 
