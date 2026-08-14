@@ -17,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -186,6 +187,22 @@ func newFleetE2EFixture(t *testing.T) *fleetE2EFixture {
 	}
 	project := filepath.Join(root, "disposable-project")
 	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Canonicalize so the fixture's expected paths match what cfo spawn writes
+	// (spawn canonicalizes project and worktree paths; GitHub runners may hand
+	// back 8.3 short names through os.TempDir).
+	var err error
+	if h.Root, err = fsx.Canonical(h.Root); err != nil {
+		t.Fatal(err)
+	}
+	if h.State, err = fsx.Canonical(h.State); err != nil {
+		t.Fatal(err)
+	}
+	if h.Data, err = fsx.Canonical(h.Data); err != nil {
+		t.Fatal(err)
+	}
+	if project, err = fsx.Canonical(project); err != nil {
 		t.Fatal(err)
 	}
 
