@@ -1,8 +1,8 @@
 ---
 name: afk
 description: >-
-  Enter away-mode supervision when the captain invokes /afk, says they are going afk, `state/.afk` exists, an incoming message starts with `FM_INJECT_MARK`, or any `state/.subsuper-*` marker is involved.
-  It sets a durable away-mode flag so the sub-supervisor daemon can self-handle routine wakes and escalate captain-relevant events plus bounded declared-external-wait rechecks as batched digests during walk-away stretches, then exits automatically when any real unmarked message returns firstmate to full per-wake responsiveness.
+  Enter away-mode supervision when the Supreme Overlord invokes /afk, says they are going afk, `state/.afk` exists, an incoming message starts with `FM_INJECT_MARK`, or any `state/.subsuper-*` marker is involved.
+  It sets a durable away-mode flag so the sub-supervisor daemon can self-handle routine wakes and escalate overlord-relevant events plus bounded declared-external-wait rechecks as batched digests during walk-away stretches, then exits automatically when any real unmarked message returns CFO to full per-wake responsiveness.
 user-invocable: true
 metadata:
   internal: true
@@ -11,9 +11,9 @@ metadata:
 # afk
 
 Away-mode supervision. When invoked, `/afk` makes the daemon's token-saving
-tradeoff **consented** and **explicit**: the captain is stepping away, so the
-sub-supervisor may triage routine wakes in bash instead of waking firstmate's
-LLM for each one. Escalations still reach the captain, but as one pre-read,
+tradeoff **consented** and **explicit**: the Supreme Overlord is stepping away, so the
+sub-supervisor may triage routine wakes in bash instead of waking CFO's
+LLM for each one. Escalations still reach the Supreme Overlord, but as one pre-read,
 batched digest rather than per-wake injections.
 
 ## What it does
@@ -21,7 +21,7 @@ batched digest rather than per-wake injections.
 1. **Enter the lifecycle through `bin/fm-afk-launch.sh`.**
    This owns the durable state write, session-scoped stale-artifact clearing,
    terminal record, and rollback.
-   The flag survives a firstmate restart, so recovery re-enters afk when it is present.
+   The flag survives a CFO restart, so recovery re-enters afk when it is present.
 
 2. **Ensure the sub-supervisor daemon is running as a tracked background process.**
    Its hosting differs by harness.
@@ -31,17 +31,17 @@ batched digest rather than per-wake injections.
      `bin/fm-afk-launch.sh start-native`, then run
      `FM_AFK_STATE_PREPARED=1 bin/fm-afk-start.sh` through that native tool.
      This is a deliberate no-separate-terminal exception because the harness-hosted job creates no terminal or layout mutation, and a shell launcher cannot invoke a harness-native background tool.
-     The launcher still owns lifecycle state and records the no-terminal mode, while the daemon inherits and auto-discovers the captain pane.
+     The launcher still owns lifecycle state and records the no-terminal mode, while the daemon inherits and auto-discovers the Supreme Overlord pane.
      If the native launch fails, run `bin/fm-afk-launch.sh stop` to roll back the prepared lifecycle.
      Do not wrap it in `nohup ... &` (Codex/herdr can reap fire-and-forget shell children after a tool call returns).
    - **Harness WITHOUT one** (e.g. pi): run `bin/fm-afk-launch.sh start`. It is
      the single owner of the daemon terminal: it creates a NON-VISIBLE tracked
      terminal for the current backend (a herdr dedicated `--no-focus` workspace,
-     a detached tmux session), records its exact id, and passes the captain pane
-     in as `FM_SUPERVISOR_TARGET` so the daemon injects into the captain, not its
-     own new pane. **Never manufacture a terminal by splitting the captain's
+     a detached tmux session), records its exact id, and passes the Supreme Overlord pane
+     in as `FM_SUPERVISOR_TARGET` so the daemon injects into the Supreme Overlord, not its
+     own new pane. **Never manufacture a terminal by splitting the Supreme Overlord's
      active pane** (`herdr pane split`): a split co-tenants the tab and visibly
-     shrinks the captain's pane (docs/herdr-backend.md "Away-mode supervisor
+     shrinks the Supreme Overlord's pane (docs/herdr-backend.md "Away-mode supervisor
      support").
    Both paths share `bin/fm-afk-start.sh` as the daemon entry.
    The native path tells it that the launcher already prepared lifecycle state; the terminal-backed path lets the entry perform its existing state setup inside the new terminal.
@@ -52,30 +52,30 @@ batched digest rather than per-wake injections.
 3. **Do not separately arm `fm-watch.sh`.** The daemon manages the watcher as
    its child; the singleton lock no-ops a stray arm harmlessly.
 
-4. **Acknowledge** in `AGENTS.md` section 9 language: "Captain, away mode is active; I will batch routine updates and surface only decisions, failures, credentials, or review-ready work until you return."
+4. **Acknowledge** in `AGENTS.md` section 9 language: "Supreme Overlord, away mode is active; I will batch routine updates and surface only decisions, failures, credentials, or review-ready work until you return."
 
 ## How to exit afk
 
 No `/back` is needed. The first genuine message is the return signal:
 
-- A message **without** the current operational prefix or a legacy bare marker, and **not** starting with `/afk` -> the captain is back.
-  Run `bin/fm-afk-return.sh` before acting on the message that brought the captain back.
+- A message **without** the current operational prefix or a legacy bare marker, and **not** starting with `/afk` -> the Supreme Overlord is back.
+  Run `bin/fm-afk-return.sh` before acting on the message that brought the Supreme Overlord back.
   That script owns correct-ordered daemon shutdown, durable wake presentation and post-handling acknowledgement, escalation and wedge evidence, and the return-catch-up gate.
-  If it reports a firstmate-actionable `blocked:` event, remediate it immediately through the normal lifecycle, or explicitly reclassify it with a durable reason and close its decision key with `resolved [key=...]`, then run `bin/fm-afk-return.sh check`.
+  If it reports a CFO-actionable `blocked:` event, remediate it immediately through the normal lifecycle, or explicitly reclassify it with a durable reason and close its decision key with `resolved [key=...]`, then run `bin/fm-afk-return.sh check`.
   Once the daemon stops, resume full per-wake responsiveness through the emitted primary-harness supervision protocol while blocker handling proceeds, so the gate never creates a blind wait.
-  Do not answer a Bearings request or perform any other ordinary captain work until the check exits successfully.
+  Do not answer a Bearings request or perform any other ordinary Supreme Overlord work until the check exits successfully.
 - A message **with** the current operational prefix (`FM_OPERATIONAL_PREFIX`, U+2063 INVISIBLE SEPARATOR followed by `FIRSTMATE_OP: `), or a legacy bare `FM_INJECT_MARK` daemon escalation -> stay afk and process it.
 - Re-invoking `/afk` while already away -> stay afk (refresh the flag); this
   does **not** trigger an exit.
 
-Bias ambiguous cases toward exit: a present captain beats token savings, and
-a false exit is self-correcting (the captain re-runs `/afk`).
+Bias ambiguous cases toward exit: a present Supreme Overlord beats token savings, and
+a false exit is self-correcting (the Supreme Overlord re-runs `/afk`).
 
 ## Orthogonal to approval authority
 
-afk changes how aggressively firstmate surfaces things, **not who approves what**.
+afk changes how aggressively CFO surfaces things, **not who approves what**.
 "Away" never means "approves more" or "approves less."
-A PR ready for merge or a needs-decision finding keeps the same configured authority and exceptions from `AGENTS.md` section 7, while anything requiring the captain still waits for the captain's explicit word.
+A PR ready for merge or a needs-decision finding keeps the same configured authority and exceptions from `AGENTS.md` section 7, while anything requiring the Supreme Overlord still waits for the Supreme Overlord's explicit word.
 The daemon only batches the notification.
 
 ## Operational prefix contract
@@ -83,7 +83,7 @@ The daemon only batches the notification.
 The daemon constructs every current injection as the `away-supervisor` kind owned by `bin/fm-operational-input.sh`, beginning with `FM_OPERATIONAL_PREFIX`: `FM_INJECT_MARK` (U+2063 INVISIBLE SEPARATOR) followed by the stable `FIRSTMATE_OP: ` label.
 The bare `FM_INJECT_MARK` form remains accepted for legacy daemon escalations during rollout.
 U+2063 has no normal keyboard keystroke and survives terminal transport as UTF-8 text.
-This is how firstmate tells a daemon escalation apart from a real message in the same pane.
+This is how CFO tells a daemon escalation apart from a real message in the same pane.
 The operational prefix travels with the message text; it does not rely on harness-level typed-vs-injected detection, which is not portable across claude, codex, opencode, pi, pi-signed, grok, and kimi.
 
 ## Busy-guard and composer guard
@@ -101,7 +101,7 @@ backend (tmux or herdr; see "Auto-discovered supervisor pane" below):
   `pane_input_pending` is the tested fail-closed predicate for callers that need to know whether the composer is unsafe: it treats every result except exact `empty` as pending.
 
 A busy primary pane, or any composer verdict other than `empty`, defers the injection; the buffered escalation survives in `state/.subsuper-escalations` and is retried on the next housekeeping tick.
-In afk mode the composer guard is belt-and-suspenders (no human is typing), but it protects against the race window between the captain returning and their message landing, a dead shell, and the daemon's own previous injection sitting unsent.
+In afk mode the composer guard is belt-and-suspenders (no human is typing), but it protects against the race window between the Supreme Overlord returning and their message landing, a dead shell, and the daemon's own previous injection sitting unsent.
 
 **Max-defer escape (the daemon must never silently wedge).**
 If anything stays buffered past `FM_MAX_DEFER_SECS` (default 300), the daemon
@@ -126,7 +126,7 @@ Without that baseline, busy state never converts an `unknown` composer into conf
 For herdr, normal idle-baseline submits are confirmed by native agent-state showing a real turn started; the shared classifier remains the affirmative-empty pre-injection guard and conservative fallback for non-idle or unreadable baselines.
 A bordered-empty or ghost-only composer is recognized as empty where that backend uses composer confirmation, rather than mistaken for a swallowed Enter.
 `fm-send.sh` uses the same primitive and exits non-zero
-when a steer's Enter is positively swallowed, so firstmate learns an instruction
+when a steer's Enter is positively swallowed, so CFO learns an instruction
 did not land instead of leaving it unsubmitted.
 
 **Busy-queued Enter exception (tmux backend, opencode 1.18.4).** While opencode
@@ -147,34 +147,34 @@ behavior but needs a separate fix; the gap is recorded in
 ## Classification policy
 
 The daemon wraps `fm-watch.sh`, runs the watcher as a child, presents every durable wake after each actionable watcher close, classifies each presented record in bash, and acknowledges the presented generation only after routing completes.
-It self-handles the routine majority without consuming a firstmate turn.
-Captain-relevant events, plus a bounded recheck of a declared external wait that remains idle, escalate to firstmate's context as one pre-read, single-line, batched digest.
-The classification predicates (the captain-relevant verb set, declared-pause vocabulary, signal/stale tests, and fleet-scan) live in the shared `bin/fm-classify-lib.sh`, the same library the always-on watcher uses for its own triage when afk is off, so the two modes apply one identical policy.
+It self-handles the routine majority without consuming a CFO turn.
+overlord-relevant events, plus a bounded recheck of a declared external wait that remains idle, escalate to CFO's context as one pre-read, single-line, batched digest.
+The classification predicates (the overlord-relevant verb set, declared-pause vocabulary, signal/stale tests, and fleet-scan) live in the shared `bin/fm-classify-lib.sh`, the same library the always-on watcher uses for its own triage when afk is off, so the two modes apply one identical policy.
 While `state/.afk` exists the daemon owns the watcher, so the watcher reverts to one-shot and lets the daemon do the triage - the two never run their triage at the same time.
 
 Classify each wake this way:
 
-- `signal` with a terminal captain verb (`done:`, `needs-decision:`, `blocked:`, or `failed:`) -> escalate.
+- `signal` with a terminal Supreme Overlord verb (`done:`, `needs-decision:`, `blocked:`, or `failed:`) -> escalate.
   A nonterminal progress verb remains nonterminal even when its prose contains a legacy free-text token such as `PR ready`, `checks green`, `ready in branch`, or `merged`; only a bare legacy line with such a token escalates.
-  Other signals with no captain-relevant status -> self-handle.
+  Other signals with no overlord-relevant status -> self-handle.
 - `signal` or `stale` for a declared `paused:` external wait -> self-handle and track the pause rather than a wedge.
   If it remains declared and idle past `FM_PAUSE_RESURFACE_SECS` (default 3600s), housekeeping sends one awaiting-external recheck and resets the pause window.
-- `check` -> always escalate. Check scripts print only when firstmate should wake.
-- `stale` with a terminal status or bare legacy captain-relevant line -> escalate.
+- `check` -> always escalate. Check scripts print only when CFO should wake.
+- `stale` with a terminal status or bare legacy overlord-relevant line -> escalate.
   Nonterminal progress remains transient even when its prose contains a legacy free-text token or its seen-status marker already matches, so record a marker and self-handle.
   If the pane is still idle past `FM_STALE_ESCALATE_SECS` (default 240s), housekeeping escalates it as a possible wedge.
   This bounds wedge-detection latency to the threshold plus a tick: a delay, never a loss.
-  Healthy crewmates are autonomous and do not wait on firstmate mid-task.
+  Healthy goblins are autonomous and do not wait on CFO mid-task.
 - `heartbeat` -> self-handle. The daemon runs its own cheap bash fleet scan
   every `FM_HEARTBEAT_SCAN_SECS` (default 300s) as the catch-all for a
-  captain-relevant status line the per-wake classifier might miss.
+  overlord-relevant status line the per-wake classifier might miss.
 - Unknown reason, or any uncertainty -> escalate fail-safe.
 
 Escalations are buffered up to `FM_ESCALATE_BATCH_SECS` (default 90s; 0 =
 immediate) and flushed as one single-line digest prefixed with the current
 operational prefix, carrying pre-read status summaries and a recommended action.
 The single-line format makes the submission unambiguous across harnesses, and
-the operational prefix lets firstmate distinguish it from a real captain message.
+the operational prefix lets CFO distinguish it from a real Supreme Overlord message.
 
 ## Injection hardening
 
@@ -183,7 +183,7 @@ the operational prefix lets firstmate distinguish it from a real captain message
   harness.
 - **Busy and composer guards on the supervisor pane** - before injecting, the daemon runs the detected-primary-harness rendered busy guard and reads `fm_backend_composer_state` directly.
   Only `empty` permits injection; `pending` protects half-typed or swallowed input, and `unknown` protects unreadable panes and bare dead-shell prompts.
-  Every other result preserves the buffer for retry, so the daemon never merges its digest into the captain's half-typed line or types it into a shell.
+  Every other result preserves the buffer for retry, so the daemon never merges its digest into the Supreme Overlord's half-typed line or types it into a shell.
 - The active backend passes its capture plus declarative styled, cursor, identity, and row capabilities to the shared screen classifier; all structural recognition and verdict logic remains in `bin/fm-composer-lib.sh`.
   Styled captures let that owner remove dim/faint and dark-TRUECOLOR ghost or placeholder text while shape detection uses the ANSI-stripped screen, so a dark border is not lost with ghost content.
   A ghost-only or idle bordered composer such as claude's `│ > ... │` therefore reads empty without allowing an unbordered shell prompt to do the same.
@@ -207,10 +207,10 @@ the operational prefix lets firstmate distinguish it from a real captain message
   This lets ghost-only or bordered-empty composers count as empty where a composer read is the active confirmation signal.
 - **Marker strip** - `strip_injection_marker` removes the current operational
   prefix or legacy bare marker before classification or relay, so the digest
-  text firstmate sees is clean.
+  text CFO sees is clean.
 - **Portable singleton lock** - the daemon uses the repo's portable lock helper
   (`fm-wake-lib.sh`) instead of `flock`, which is absent on macOS.
-- **Dedupe across signal/stale/scan** - `classify_signal` and terminal `classify_stale` paths check the seen-status marker before escalating, so a captain-relevant status escalated by one path is not re-escalated by another in the same digest.
+- **Dedupe across signal/stale/scan** - `classify_signal` and terminal `classify_stale` paths check the seen-status marker before escalating, so a overlord-relevant status escalated by one path is not re-escalated by another in the same digest.
   The marker does not clear or suppress possible-wedge aging for a nonterminal progress line.
 - **Auto-discovered supervisor pane** - the daemon resolves its own BACKEND
   (tmux vs herdr) and TARGET independently, mirroring
@@ -220,7 +220,7 @@ the operational prefix lets firstmate distinguish it from a real captain message
   `FM_SUPERVISOR_TARGET` override (a tmux target or a herdr
   `"<session>:<pane-id>"` target), then `$TMUX_PANE`, then
   `"${HERDR_SESSION:-default}:${HERDR_PANE_ID}"` under herdr, then a
-  `firstmate:0` fallback with a warning. Both resolution sources are logged at
+  `CFO:0` fallback with a warning. Both resolution sources are logged at
   startup so a wrong-but-resolving fallback is detectable. Other runtime
   backends, including zellij, orca, and cmux, are not yet supported as
   supervisor backends; the daemon refuses loudly at startup instead of

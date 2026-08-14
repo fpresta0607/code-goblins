@@ -59,7 +59,7 @@ Claude Code is the harness whose title no longer attributes it at all; every oth
 Codex reported `codex-aarch64-a` at 0.145.0 and `codex` at 0.146.0, and Kimi Code reported `kimi-code` as its foreground `comm` at 0.29.1 and `kimi` at 0.31.1, so these identities move between ordinary patch releases in both directions.
 That is the evidence for treating any single process name as a surface under vendor control rather than a stable contract.
 
-The crewmate-only Muse Code 0.1.0-R708.1 adapter was verified separately on 2026-08-05 against tmux on macOS arm64.
+The goblin-only Muse Code 0.1.0-R708.1 adapter was verified separately on 2026-08-05 against tmux on macOS arm64.
 Its installed `muse-bin-0.1.0-R708.1` foreground identity classified `alive`, while `musescore`, `amuse`, `muse-binary`, and `muse-bind` remained ambiguous in the portable regression.
 [`muse.md`](muse.md#process-identity) owns the artifact identity and launcher evidence for that verification.
 
@@ -133,7 +133,7 @@ Both launches executed a submitted tool instruction and touched the generated `t
 The pi-signed launch retained `harness=pi-signed`, while the plain comparison retained `harness=pi`.
 The exact wrapper ancestry was `pi-signed` parent to Pi engine child, and the plain Pi Launcher path also traversed the signed wrapper on this installation.
 That shared plain-Pi path is retained as disconfirming evidence against using ancestry as runtime-selection authority.
-Firstmate therefore sets the exact `FM_PI_HARNESS` selection marker on both worker launch paths, while an unmarked Pi-family process remains `pi`.
+CFO therefore sets the exact `FM_PI_HARNESS` selection marker on both worker launch paths, while an unmarked Pi-family process remains `pi`.
 Both recorded runtime identities now classify the exact `pi-launcher` foreground command as `alive`.
 
 Backend applicability was reviewed across every spawn adapter.
@@ -251,7 +251,7 @@ HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
   tests/fm-backend-herdr-prune-safety-e2e.test.sh
 ```
 
-Observed guarantee: a pre-existing captain-owned workspace with a seed-shaped tab was adopted for routing but its tab was never eligible for prune because the current create call did not return that seed id.
+Observed guarantee: a pre-existing overlord-owned workspace with a seed-shaped tab was adopted for routing but its tab was never eligible for prune because the current create call did not return that seed id.
 
 Restart-husk replacement is owned by:
 
@@ -281,7 +281,7 @@ HERDR_WORKSPACE_ID=w1
 ```
 
 This complete injection shape is verified only for Herdr 0.7.5.
-Firstmate requires both `HERDR_PANE_ID` and `HERDR_SOCKET_PATH` before accepting claimed launcher ancestry.
+CFO requires both `HERDR_PANE_ID` and `HERDR_SOCKET_PATH` before accepting claimed launcher ancestry.
 
 `pane get` reports the pane's current owning tab and workspace, which is what placement resolves from; the injected `HERDR_TAB_ID` and `HERDR_WORKSPACE_ID` are creation-time snapshots and are not read as current identity:
 
@@ -303,10 +303,10 @@ HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
 Observed guarantees on 2026-07-30 against Herdr 0.7.5 protocol 17:
 
 ```text
-ok - real herdr E2E: with one 'firstmate' workspace and no herdr parent, a crewmate still lands in this home's own workspace without stealing focus
+ok - real herdr E2E: with one 'CFO' workspace and no herdr parent, a goblin still lands in this home's own workspace without stealing focus
 ok - real herdr E2E: the normal unique-label path is unchanged when the launcher's own pane identifies the workspace
 ok - real herdr E2E: presentation spaces still create the isolated child workspace and bind it under the launcher's exact parent, without stealing focus
-ok - real herdr E2E: with two 'firstmate' workspaces, a worker spawned from inside the second one lands in that exact workspace
+ok - real herdr E2E: with two 'CFO' workspaces, a worker spawned from inside the second one lands in that exact workspace
 ok - real herdr E2E: the duplicate-labeled sibling workspace is left entirely untouched and focus is preserved
 ok - real herdr E2E: with a duplicated home label, a projected worker still hangs off the launcher's exact workspace and the sibling stays untouched
 ok - real herdr E2E: an ambiguous home label with no launcher identity refuses before any worker endpoint exists
@@ -344,7 +344,7 @@ ok - real Herdr lab: primary and two secondmate homes each own a top-level conti
 ok - real Herdr lab: concurrent primary/A/B spawns stay session-locked with zero focus drift
 ok - real Herdr lab: session lock contention from a secondmate home falls back flat with no journal
 ok - real Herdr lab: legacy projection labels and flat secondmate tabs are left unmigrated
-ok - real Herdr lab: multi-home exact-pane teardowns restore captain focus without workspace close authority
+ok - real Herdr lab: multi-home exact-pane teardowns restore Supreme Overlord focus without workspace close authority
 ok - real Herdr lab validation completed on Herdr 0.7.4 with the default-session tripwire intact
 ```
 
@@ -585,12 +585,12 @@ FM_AFK_PI_HERDR_E2E=1 HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
 ```
 
 Observed guarantees: pending composer input refused injection and raised one alert; idle Pi accepted one marked escalation; the return gate refused ordinary work while a live blocker remained; resolving the blocker allowed the return flow.
-The dedicated Herdr daemon workspace topology is covered by `tests/fm-afk-launch.test.sh` and preserves the captain tab's pane count.
+The dedicated Herdr daemon workspace topology is covered by `tests/fm-afk-launch.test.sh` and preserves the Supreme Overlord tab's pane count.
 
 ## Zellij
 
 The current compatibility floor and latest verification are Zellij 0.44.0 with `jq` on macOS aarch64.
-All real tests use a uniquely named session and `tests/zellij-test-safety.sh`; they never touch a session named `firstmate` or call all-session deletion.
+All real tests use a uniquely named session and `tests/zellij-test-safety.sh`; they never touch a session named `CFO` or call all-session deletion.
 
 | Guarantee | Command shape | Result |
 | --- | --- | --- |
@@ -646,7 +646,7 @@ The fake-Orca suite covers readiness, registration, create response parsing, met
 ## cmux
 
 The current compatibility floor is cmux 0.64, and the active live evidence uses 0.64.17 build 97 on macOS aarch64.
-Real tests use only exact `fm-test-` workspaces guarded by `tests/cmux-test-safety.sh` and never quit or relaunch the captain's app.
+Real tests use only exact `fm-test-` workspaces guarded by `tests/cmux-test-safety.sh` and never quit or relaunch the Supreme Overlord's app.
 
 ```sh
 cmux version
@@ -662,14 +662,14 @@ cmux 0.64.17 (97) [9ed29d81a]
 Source and live checks established the five control modes:
 
 - `off` starts no listener.
-- `cmuxOnly` rejects an external Firstmate process by ancestry.
+- `cmuxOnly` rejects an external CFO process by ancestry.
 - `automation` uses an owner-only 0600 socket with no handshake.
 - `password` uses the same 0600 socket plus `auth <password>`.
 - `allowAll` uses a 0666 socket with no authentication.
 
 The live default rejection was `Access denied - only processes started inside cmux can connect`.
 The live password challenge was `Authentication required - send auth <password> first`.
-The app configuration writer did not retain a hand-added socket password, which is why the operator guide requires Settings and a local Firstmate password source.
+The app configuration writer did not retain a hand-added socket password, which is why the operator guide requires Settings and a local CFO password source.
 
 Current active CLI findings:
 
@@ -723,12 +723,12 @@ The host-tool sequence was:
 1. list a saved project;
 2. create a Desktop-owned worktree thread;
 3. recover and read the thread while active and after completion;
-4. verify the thread appended a Firstmate status line and wrote its report;
+4. verify the thread appended a CFO status line and wrote its report;
 5. send a follow-up to the same thread;
 6. read the completed follow-up;
 7. archive the exact thread;
 8. read the archived transcript with state `notLoaded`.
 
-Observed guarantee: a Desktop-owned thread can write Firstmate lifecycle files when the prompt provides an authorized absolute path, and create, send, read, and archive work at the Desktop host-tool layer.
-The missing guarantee remains a supported shell-callable bridge that lets Firstmate perform those operations against the same visible Desktop endpoint.
+Observed guarantee: a Desktop-owned thread can write CFO lifecycle files when the prompt provides an authorized absolute path, and create, send, read, and archive work at the Desktop host-tool layer.
+The missing guarantee remains a supported shell-callable bridge that lets CFO perform those operations against the same visible Desktop endpoint.
 App-server partial methods and raw socket experiments do not satisfy that bridge contract.

@@ -1,4 +1,4 @@
-# Firstmate portable test shards
+# CFO portable test shards
 
 `bin/fm-test-run.sh` owns portable lane composition and execution.
 `bin/fm-test-isolation-proof.sh` owns the proven-isolated candidate set.
@@ -55,8 +55,8 @@ Membership is derived rather than enumerated, so a newly added test lands here b
 
 ## Portable serial CI shards
 
-On green CI run [30725985757](https://github.com/kunchenguid/firstmate/actions/runs/30725985757), that remainder accumulated 19m04s of script time against a 20-minute job timeout.
-On [PR 1495](https://github.com/kunchenguid/firstmate/pull/1495), its main step ran about 19m51s before the job was cancelled at that boundary.
+On green CI run [30725985757](https://github.com/kunchenguid/CFO/actions/runs/30725985757), that remainder accumulated 19m04s of script time against a 20-minute job timeout.
+On [PR 1495](https://github.com/kunchenguid/CFO/pull/1495), its main step ran about 19m51s before the job was cancelled at that boundary.
 `portable-serial-<k>of<n>` splits it across `n` separate CI runners.
 Each shard is still strictly serial in itself, and separate runners mean no two of these stateful scripts ever share a machine, so the split needs no concurrency isolation proof.
 
@@ -81,7 +81,7 @@ The single longest script, `tests/fm-pr-check-security.test.sh` at 199573 ms, is
 Refresh the hints by downloading the per-shard timing artifacts from a green CI run, replacing the `portable_serial_weight_hints` table in `bin/fm-test-run.sh` with the measured `path`/`duration_ms` pairs, and updating the table above:
 
 ```sh
-gh run download <run-id> -R kunchenguid/firstmate --pattern 'fm-test-timing-portable-serial-*' -D /tmp/fm-serial
+gh run download <run-id> -R kunchenguid/CFO --pattern 'fm-test-timing-portable-serial-*' -D /tmp/fm-serial
 jq -r '.scripts[] | [.path, .duration_ms] | @tsv' /tmp/fm-serial/*.json | LC_ALL=C sort
 bin/fm-test-run.sh --check-coverage
 ```

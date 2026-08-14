@@ -1,7 +1,7 @@
 # Pi Calm mode
 
 Calm is a Pi-only conversation presentation toggle.
-It is off by default, and the last `/calm` choice persists for the effective Firstmate home across Pi session starts and resumes.
+It is off by default, and the last `/calm` choice persists for the effective CFO home across Pi session starts and resumes.
 
 While Calm is active and an agent run is under way, Calm hides Pi's built-in `Working...` row and shows a small two-row animated boat in its place, and no separate Calm status row is added.
 The water fills the usable width in standard ANSI blue and the complete boat is standard ANSI yellow.
@@ -13,13 +13,13 @@ Hidden elapsed time does not advance the animation, and a resize while hidden cl
 A fresh Pi session or new Calm extension lifetime starts at the normal initial position.
 Very narrow terminals fall back to a smaller deterministic sprite.
 While Calm is off, Pi's stock working row is left exactly as Pi renders it.
-Calm hides collapsed thinking labels, the shells for the Pi built-in tool names Calm owns, the `fm_watch_arm_pi` tool shell, and canonically classified Firstmate operational user rows.
+Calm hides collapsed thinking labels, the shells for the Pi built-in tool names Calm owns, the `fm_watch_arm_pi` tool shell, and canonically classified CFO operational user rows.
 The operational inputs remain ordinary user-role messages, while Pi's transcript layout renders their complete rows at zero height.
 The session-start nudge remains on its existing non-displayed custom-message path.
 
 Outside Pi's same-name built-in override collision described below, Calm changes presentation only.
 Calm's built-in wrappers preserve Pi's execution behavior, and input delivery, ordering, model context, session storage, diagnostics, and `/export` and `/share` operation remain unchanged.
-Every hidden Firstmate input remains available to the model and in serialized session data and exported artifacts.
+Every hidden CFO input remains available to the model and in serialized session data and exported artifacts.
 Legacy operational custom messages remain in session data and Pi's sidebar tree, although the main HTML transcript may omit them.
 Toggling Calm off restores ordinary rendering, and `Ctrl+O` expansion state is preserved.
 

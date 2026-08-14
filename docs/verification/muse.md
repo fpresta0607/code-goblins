@@ -1,6 +1,6 @@
-# Verification: the muse (Muse Code) crewmate adapter
+# Verification: the muse (Muse Code) goblin adapter
 
-Active empirical evidence for firstmate's muse adapter.
+Active empirical evidence for CFO's muse adapter.
 [`.agents/skills/harness-adapters/SKILL.md`](../../.agents/skills/harness-adapters/SKILL.md) owns the operating facts; this record owns how they were established and what is still unproven.
 
 ## Subject
@@ -22,7 +22,7 @@ $ shasum -a 256 muse-bin
 4290bfafa5bbb81a6fd493aaea12f848c789b1d22edfa0c4b849151deba3e70c  muse-bin
 ```
 
-Every run below used an isolated `XDG_CONFIG_HOME` and `XDG_DATA_HOME` in a scratch directory and a throwaway git workspace, driven through tmux the way firstmate drives a crewmate pane.
+Every run below used an isolated `XDG_CONFIG_HOME` and `XDG_DATA_HOME` in a scratch directory and a throwaway git workspace, driven through tmux the way CFO drives a goblin pane.
 `install.sh` was deliberately bypassed, so no shell profile and no `~/.local/bin` entry on the host was touched.
 
 ## What the model provider limits
@@ -57,7 +57,7 @@ The Muse launch clears `CLAUDECODE`, `PI_CODING_AGENT`, `GROK_AGENT`, and `FM_PI
 A two-turn session produced exactly two run brackets, the second closed by an Escape interrupt:
 
 ```
-9  {"kind":"run","run_id":"d352a097-...","event":{"kind":"started","prompt":"hello from firstmate"}}
+9  {"kind":"run","run_id":"d352a097-...","event":{"kind":"started","prompt":"hello from CFO"}}
 45 {"kind":"run","run_id":"d352a097-...","event":{"kind":"terminal","terminal":"completed","turn_duration_ms":8152}}
 49 {"kind":"run","run_id":"b50dac92-...","event":{"kind":"started","prompt":"second turn to interrupt"}}
 78 {"kind":"run","run_id":"b50dac92-...","event":{"kind":"terminal","terminal":"cancelled","reason":"cancelled during model step"}}
@@ -97,7 +97,7 @@ Use Up/Down or 1/2, then Enter. Esc quits.
 ```
 
 `--yolo` suppresses it entirely and the status bar reports `echo · <workspace> · YOLO`.
-This matters because approval and the sandbox are ON by default and `--sandbox-network` defaults to `proxy-only`, which the binary reports as requiring managed shell sandboxing - a crewmate needs ordinary git and network access.
+This matters because approval and the sandbox are ON by default and `--sandbox-network` defaults to `proxy-only`, which the binary reports as requiring managed shell sandboxing - a goblin needs ordinary git and network access.
 
 ### Credentials
 
@@ -147,7 +147,7 @@ The `tui.foreign_context_notice_shown` flag in `settings.json` suppresses only t
 Captured with `tmux capture-pane -p -e`:
 
 ```
-^[[38;2;90;160;255m^[[48;2;38;56;84m⟩ ^[[38;2;204;211;219mhello from firstmate^[[39m
+^[[38;2;90;160;255m^[[48;2;38;56;84m⟩ ^[[38;2;204;211;219mhello from CFO^[[39m
 ^[[0m^[[38;2;90;160;255m⟩ ^[[39m
 ```
 
@@ -160,10 +160,10 @@ This was the one item deferred until a `META_API_KEY` was available, because it 
 An open run was always positive proof of a turn in flight, but a settled log only proves no run is open at that instant, so the classifier held idle behind an opt-in in case a real turn spanned several runs.
 The smoke below answered that: one run brackets a whole multi-step turn, and an Escape interrupt closes that run with `terminal=cancelled` rather than leaving the turn to continue in another run.
 The credentialed result gives a settled Muse log the same idle trust as the Claude and Pi push sources, so the opt-in was removed and `bin/fm-busy-lib.sh` classifies a settled log `idle` outright.
-Muse auto-updates its vendor binary underneath the fleet, firstmate normalizes the versioned process identity to the `muse` harness before busy classification, and the session log's own metadata carries semver `0.1.0` plus a build SHA that cannot be matched to that normalized identity.
+Muse auto-updates its vendor binary underneath the fleet, CFO normalizes the versioned process identity to the `muse` harness before busy classification, and the session log's own metadata carries semver `0.1.0` plus a build SHA that cannot be matched to that normalized identity.
 A verified-build allowlist against this coarse identity would be false precision because it could not distinguish the running build, as well as a maintenance treadmill against the auto-updating binary.
 
-Both runs below used the default `meta` provider with model `muse-spark-1.2-contributor`, on a real firstmate-launched crewmate pane, authenticated through the stored `~/.config/muse/auth.json` written by `muse auth set --provider meta --api-key-stdin` so the key never entered `argv`.
+Both runs below used the default `meta` provider with model `muse-spark-1.2-contributor`, on a real CFO-launched goblin pane, authenticated through the stored `~/.config/muse/auth.json` written by `muse auth set --provider meta --api-key-stdin` so the key never entered `argv`.
 
 ### One turn stays inside one run
 
