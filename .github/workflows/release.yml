@@ -1,0 +1,24 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Build
+        run: go build -ldflags "-X main.version=${{ github.ref_name }}" -o cfo.exe ./cmd/cfo
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: cfo.exe
