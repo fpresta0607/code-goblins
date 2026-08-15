@@ -194,7 +194,7 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 	}; !reflect.DeepEqual(got, want) {
 		t.Errorf("operation order = %v\nwant %v", got, want)
 	}
-	if got, want := fixture.runner.literal, "Set-Location -LiteralPath '"+fixture.worktree+"'; $env:GOTMPDIR = '"+filepath.Join(meta.TaskTmp, "gotmp")+"'; & 'claude' '--dangerously-skip-permissions' (Get-Content -Raw -LiteralPath '"+fixture.brief+"')"; got != want {
+	if got, want := fixture.runner.literal, "Set-Location -LiteralPath '"+fixture.worktree+"'; $env:GOTMPDIR = '"+filepath.Join(meta.TaskTmp, "gotmp")+"'; & 'claude' '--dangerously-skip-permissions' 'Read the brief at "+fixture.brief+" and follow it exactly.'"; got != want {
 		t.Errorf("launch line = %q\nwant %q", got, want)
 	}
 	if got := fixture.runner.enterKeys; got != 1 {
@@ -771,7 +771,7 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 	case len(args) >= 3 && args[0] == "pane" && args[1] == "read" && args[2] == "pane-1":
 		*r.events = append(*r.events, "capture")
 		if r.trustDialog {
-			return execx.Result{Stdout: []byte("Accessing workspace:\n\nIs this a project you created or one you trust?\n")}, nil
+			return execx.Result{Stdout: []byte("Accessing workspace:\n\n Quick safety check: Is this a project you created or\n one you trust?\n")}, nil
 		}
 		return execx.Result{Stdout: []byte("claude is running\n")}, nil
 	case reflect.DeepEqual(args, []string{"agent", "get", "pane-1"}):
