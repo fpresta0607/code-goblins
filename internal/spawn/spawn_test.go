@@ -179,6 +179,7 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 		"schema",
 		"status",
 		"session-list",
+		"agent-manifests",
 		"workspace-list",
 		"tab-list",
 		"tab-create",
@@ -451,8 +452,8 @@ func TestSpawnRejectsMalformedHerdrIDsBeforeDownstreamWork(t *testing.T) {
 		set    func(*herdrRunner)
 		events []string
 	}{
-		{"container", func(r *herdrRunner) { r.workspaceID = "workspace-1\nbad" }, []string{"status", "schema", "status", "session-list", "workspace-list"}},
-		{"endpoint", func(r *herdrRunner) { r.paneID = "pane-1\nbad" }, []string{"status", "schema", "status", "session-list", "workspace-list", "tab-list", "tab-create"}},
+		{"container", func(r *herdrRunner) { r.workspaceID = "workspace-1\nbad" }, []string{"status", "schema", "status", "session-list", "agent-manifests", "workspace-list"}},
+		{"endpoint", func(r *herdrRunner) { r.paneID = "pane-1\nbad" }, []string{"status", "schema", "status", "session-list", "agent-manifests", "workspace-list", "tab-list", "tab-create"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -682,6 +683,45 @@ func TestSpawnRejectsCaseAliasOfRetainedFailedTaskBeforeHerdrOrWorktreeMutation(
 	}
 }
 
+func TestSpawnRejectsUnsupportedHerdrKindBeforeMutation(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.runner.manifests = []string{"codex", "pi", "kimi"}
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err == nil || !strings.Contains(err.Error(), `does not support harness kind "claude"`) {
+		t.Fatalf("Spawn unsupported Herdr kind error = %v, want kind refusal", err)
+	}
+	if got, want := fixture.events, []string{"status", "schema", "status", "session-list", "agent-manifests"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("events = %v, want preflight plus kind discovery only", got)
+	}
+	if fixture.runner.literal != "" || fixture.runner.enterKeys != 0 || fixture.git.returned != 0 {
+		t.Fatalf("unsupported kind mutated Herdr or treehouse: literal=%q enter=%d returned=%d", fixture.runner.literal, fixture.runner.enterKeys, fixture.git.returned)
+	}
+}
+
+func TestSpawnConfirmHarnessDialogsFailsFastOnTerminalCaptureError(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.runner.trustDialog = true
+	fixture.runner.captureErr = errors.New("herdr binary unavailable")
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err == nil || !strings.Contains(err.Error(), "herdr binary unavailable") {
+		t.Fatalf("Spawn terminal capture error = %v, want runner failure surfaced", err)
+	}
+	captures := 0
+	for _, event := range fixture.events {
+		if event == "capture" {
+			captures++
+		}
+	}
+	if captures != 1 {
+		t.Fatalf("capture attempts = %d, want one fail-fast capture", captures)
+	}
+	if strings.Contains(err.Error(), "did not clear") {
+		t.Fatalf("error = %v, want underlying failure instead of dialog timeout", err)
+	}
+}
+
 type fixture struct {
 	service  Service
 	request  Request
@@ -705,7 +745,7 @@ func newFixture(t *testing.T) *fixture {
 	writeFile(t, filepath.Join(project, "primary-marker.txt"), "unchanged")
 
 	fixture := &fixture{stateDir: stateDir, project: project, worktree: worktree, brief: brief}
-	fixture.runner = &herdrRunner{events: &fixture.events, worktree: worktree, agentStatus: "working"}
+	fixture.runner = &herdrRunner{events: &fixture.events, worktree: worktree, agentStatus: "working", manifests: []string{"claude", "codex", "pi", "kimi"}}
 	fixture.git = &treehouseGit{events: &fixture.events, top: worktree}
 	fixture.service = Service{
 		Herdr: &herdr.Client{
@@ -808,8 +848,10 @@ type herdrRunner struct {
 	agentStatus   string
 	agentErr      error
 	startErr      error
+	captureErr    error
 	missingPaneID bool
 	trustDialog   bool
+	manifests     []string
 	calls         int
 	literal       string
 	literals      []string
@@ -855,6 +897,17 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 	case reflect.DeepEqual(args, []string{"session", "list", "--json"}):
 		*r.events = append(*r.events, "session-list")
 		return execx.Result{Stdout: []byte(`{"sessions":[{"name":` + quoteJSON(wantSession) + `,"running":true}]}`)}, nil
+	case reflect.DeepEqual(args, []string{"server", "agent-manifests", "--json"}):
+		*r.events = append(*r.events, "agent-manifests")
+		manifests := r.manifests
+		if len(manifests) == 0 {
+			manifests = []string{"claude", "codex", "pi", "kimi"}
+		}
+		entries := make([]string, 0, len(manifests))
+		for _, kind := range manifests {
+			entries = append(entries, `{"agent":`+quoteJSON(kind)+`}`)
+		}
+		return jsonResult(`{"manifests":[` + strings.Join(entries, ",") + `]}`), nil
 	case reflect.DeepEqual(args, []string{"workspace", "list"}):
 		*r.events = append(*r.events, "workspace-list")
 		workspaceID := r.workspaceID
@@ -920,6 +973,9 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		return jsonResult(`{"agent":{"agent_status":"working"}}`), nil
 	case len(args) >= 3 && args[0] == "pane" && args[1] == "read" && args[2] == "pane-1":
 		*r.events = append(*r.events, "capture")
+		if r.captureErr != nil {
+			return execx.Result{}, r.captureErr
+		}
 		if r.trustDialog {
 			return execx.Result{Stdout: []byte("Accessing workspace:\n\n Quick safety check: Is this a project you created or\n one you trust?\n")}, nil
 		}
@@ -947,6 +1003,7 @@ func jsonResult(result string) execx.Result {
 // method CFO uses.
 func fixtureSchemaJSON() string {
 	methods := []string{
+		"server.agent_manifests",
 		"session.snapshot",
 		"workspace.create",
 		"workspace.list",

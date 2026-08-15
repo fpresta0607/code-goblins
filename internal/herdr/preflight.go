@@ -19,6 +19,7 @@ const (
 // fails before any workspace, tab, pane, agent, or worktree mutation when the
 // installed schema does not advertise every one of them.
 var requiredMethods = []string{
+	"server.agent_manifests",
 	"session.snapshot",
 	"workspace.create",
 	"workspace.list",
