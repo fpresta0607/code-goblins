@@ -516,6 +516,13 @@ func (c *Client) pruneSeededDefault(ctx context.Context, container Container) {
 	}
 }
 
+// CloseTab closes one task tab. Cleanup calls it only after the endpoint is
+// proven inactive; an already-absent tab is accepted, matching close's
+// not-found tolerance.
+func (c *Client) CloseTab(ctx context.Context, session, tabID string) error {
+	return c.close(ctx, session, "tab", tabID)
+}
+
 func (c *Client) close(ctx context.Context, session, kind, id string) error {
 	operation := kind + " close"
 	result, err := c.raw(ctx, session, kind, "close", id)
