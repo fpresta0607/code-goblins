@@ -25,6 +25,8 @@ const (
 	launchSettle       = 300 * time.Millisecond
 	launchConfirmPoll  = 1500 * time.Millisecond
 	launchConfirmTries = 80
+	registrationPoll   = 500 * time.Millisecond
+	registrationTries  = 40
 )
 
 // Request is the complete local task creation input. Ship delivery posture is
@@ -202,6 +204,12 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 	launchSubmitted = true
 	if launch.FollowUpPrompt != "" {
+		// A bare launch (Kimi) needs its composer ready before the follow-up
+		// lands; text sent during harness boot is lost silently. Wait for the
+		// agent to register with Herdr instead of a fixed settle.
+		if err := s.waitForAgentRegistered(ctx, &herdrClient, endpoint.Target); err != nil {
+			return fail(result, fmt.Errorf("spawn: wait for harness registration: %w", err))
+		}
 		if err := s.sleep(ctx, launchSettle); err != nil {
 			return fail(result, fmt.Errorf("spawn: wait before follow-up prompt: %w", err))
 		}
@@ -396,6 +404,26 @@ func partialResult(req Request, project, taskTmp string, endpoint herdr.Endpoint
 		meta.Yolo = yoloString(req.Yolo)
 	}
 	return Result{Meta: meta, Endpoint: endpoint}
+}
+
+// waitForAgentRegistered polls until Herdr reports a registered agent for the
+// pane, which is the earliest safe moment to type into a booted harness TUI.
+func (s Service) waitForAgentRegistered(ctx context.Context, client *herdr.Client, target herdr.Target) error {
+	for attempt := 0; attempt < registrationTries; attempt++ {
+		if attempt > 0 {
+			if err := s.sleep(ctx, registrationPoll); err != nil {
+				return fmt.Errorf("spawn: wait for agent registration: %w", err)
+			}
+		}
+		status, err := client.AgentStatus(ctx, target)
+		if err != nil {
+			continue
+		}
+		if status == herdr.AgentAlive {
+			return nil
+		}
+	}
+	return fmt.Errorf("spawn: harness agent did not register with Herdr within %ds", int(registrationPoll.Seconds()*registrationTries))
 }
 
 // confirmLaunch waits for the launched harness to report working, confirming
