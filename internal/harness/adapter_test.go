@@ -61,7 +61,7 @@ func TestPowerShellLineEscapesLiteralValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PowerShellLine: %v", err)
 	}
-	want := "$env:GOTMPDIR = 'C:\\task tmp\\O''Brien\\gotmp'; $env:PROMPT = '100% O''Brien'; & 'C:\\Program Files\\O''Brien\\claude.exe' '--model' 'model with spaces and 100%' 'C:\\work\\O''Brien\\input' (Get-Content -Raw -LiteralPath 'C:\\briefs\\O''Brien\\100% ready.md')"
+	want := "$env:GOTMPDIR = 'C:\\task tmp\\O''Brien\\gotmp'; $env:PROMPT = '100% O''Brien'; & 'C:\\Program Files\\O''Brien\\claude.exe' '--model' 'model with spaces and 100%' 'C:\\work\\O''Brien\\input' 'Read the brief at C:\\briefs\\O''Brien\\100% ready.md and follow it exactly.'"
 	if got != want {
 		t.Errorf("PowerShellLine() = %q\nwant %q", got, want)
 	}

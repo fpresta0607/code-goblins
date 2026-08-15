@@ -34,8 +34,9 @@ type LaunchSpec struct {
 	PiExtensionPath string
 }
 
-// Launch is a shell-independent command specification. PromptFile is read by
-// the final PowerShell delivery expression, rather than copied into Args.
+// Launch is a shell-independent command specification. PromptFile is
+// referenced by path in the final instruction argument, rather than copied
+// into Args or inlined into the shell line.
 // FollowUpPrompt is a bare-launch harness's follow-up message: it is sent as a
 // separate literal after the launch command lands (Kimi rejects a positional
 // brief, so it launches bare and is then told where the brief lives).
