@@ -88,7 +88,7 @@ type cleanupFixture struct {
 }
 
 func cleanupSnapshot(panes, agents string) string {
-	return `{"result":{"type":"session_snapshot","snapshot":{"protocol":19,"workspaces":[{"workspace_id":"ws","label":"code-goblins"}],"tabs":[{"tab_id":"tab-g1","workspace_id":"ws","label":"gb-g1"}],"panes":[` + panes + `],"agents":[` + agents + `]}}}`
+	return `{"result":{"type":"session_snapshot","snapshot":{"protocol":19,"workspaces":[{"workspace_id":"ws","label":"cfo"}],"tabs":[{"tab_id":"tab-g1","workspace_id":"ws","label":"gb-g1"}],"panes":[` + panes + `],"agents":[` + agents + `]}}}`
 }
 
 func newCleanupFixture(t *testing.T) *cleanupFixture {

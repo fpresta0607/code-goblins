@@ -72,7 +72,7 @@ func TestPreflightPinsDiscoveryArgumentSplits(t *testing.T) {
 
 func TestOperationalCommandsOmitJSONFlag(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{
-		jsonReply(`{"result":{"workspaces":[{"workspace_id":"ws-1","label":"code-goblins"}]}}`),
+		jsonReply(`{"result":{"workspaces":[{"workspace_id":"ws-1","label":"cfo"}]}}`),
 		jsonReply(`{"result":{"tabs":[]}}`),
 		jsonReply(`{"result":{"tab":{"tab_id":"tab-1"},"root_pane":{"pane_id":"w1:p1"}}}`),
 	}}

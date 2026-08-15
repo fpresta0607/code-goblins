@@ -75,8 +75,13 @@ func (c *Client) EnsureServer(ctx context.Context) error {
 	return fmt.Errorf("herdr: server for session %q did not report running within 10s", session)
 }
 
-// EnsureContainer adopts the unambiguous flat code-goblins workspace or creates
-// it and retains the exact default tab returned by that creation response.
+// fleetSpaceLabel is the one Herdr workspace every goblin tab lives in: the
+// CFO space. One space holds the CFO session plus all running goblins; there
+// is no separate fleet workspace.
+const fleetSpaceLabel = "cfo"
+
+// EnsureContainer adopts the unambiguous flat cfo workspace or creates it and
+// retains the exact default tab returned by that creation response.
 func (c *Client) EnsureContainer(ctx context.Context, cwd string) (Container, error) {
 	session := c.session()
 	workspaces, err := c.workspaces(ctx, session)
@@ -86,9 +91,9 @@ func (c *Client) EnsureContainer(ctx context.Context, cwd string) (Container, er
 
 	var matches []workspaceRecord
 	for _, workspace := range workspaces {
-		if workspace.Label == "code-goblins" {
+		if workspace.Label == fleetSpaceLabel {
 			if workspace.ID == "" {
-				return Container{}, errors.New("herdr: matching code-goblins workspace has no workspace_id")
+				return Container{}, errors.New("herdr: matching cfo workspace has no workspace_id")
 			}
 			matches = append(matches, workspace)
 		}
@@ -99,10 +104,10 @@ func (c *Client) EnsureContainer(ctx context.Context, cwd string) (Container, er
 	case 0:
 		// Create below.
 	default:
-		return Container{}, fmt.Errorf("herdr: %d workspaces in session %q are labeled code-goblins", len(matches), session)
+		return Container{}, fmt.Errorf("herdr: %d workspaces in session %q are labeled %s", len(matches), session, fleetSpaceLabel)
 	}
 
-	result, err := c.required(ctx, session, Target{}, "workspace create", "workspace", "create", "--cwd", cwd, "--label", "code-goblins", "--no-focus")
+	result, err := c.required(ctx, session, Target{}, "workspace create", "workspace", "create", "--cwd", cwd, "--label", fleetSpaceLabel, "--no-focus")
 	if err != nil {
 		return Container{}, err
 	}
