@@ -18,8 +18,8 @@ func (kimiAdapter) Validate(ctx context.Context, runner execx.Runner) error {
 }
 
 // Build produces a bare Kimi launch: the brief arrives through
-// `herdr agent prompt` like every other harness, so no positional prompt is
-// appended. Kimi shows its own workspace trust dialog in a fresh worktree but
+// `herdr agent prompt` like the other native-start harnesses, so no
+// positional prompt is appended. Kimi shows its own workspace trust dialog in a fresh worktree but
 // keeps reporting idle there (Herdr's kimi detection falls back to idle), and
 // the dialog highlights "Don't trust" by default, so confirming it takes Up
 // then Enter; a bare Enter would exit Kimi.
