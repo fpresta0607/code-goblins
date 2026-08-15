@@ -59,6 +59,8 @@ If the compatibility preflight, snapshot, identity proof, activity state, or cap
 
 ## Guarded cleanup
 
+> **Superseded — cleanup closes the task tab.** Cleanup now closes the task's recorded Herdr tab after proving the endpoint agent-free and before returning the worktree, so a completed task leaves no terminal behind. This replaces the "never close a Herdr pane or tab" and "only successful lifecycle call is `treehouse.Service.Return`" statements below and the cleanup summary in Command flow. The authoritative owner is the `internal/cleanup` package doc comment.
+
 The new command will be `cfo cleanup <id>` and will accept only a local task ID, not a raw path or explicit Herdr target.
 Cleanup will resolve a primary CFO home, validate the task metadata, and hold the task lifecycle lock across all checks and the return operation.
 Cleanup will require a Herdr task with complete session, workspace, tab, pane, project, and worktree metadata.
