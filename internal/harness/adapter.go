@@ -42,7 +42,7 @@ type LaunchSpec struct {
 // embedded in a shell line: PromptFile is referenced by path in the
 // instruction submitted through `herdr agent prompt` once the agent is ready.
 // ConfirmMarkers mark a blocking harness startup dialog (the workspace trust
-// prompt claude and kimi show in every fresh worktree): while a marker is on
+// prompt claude, kimi, and pi show in every fresh worktree): while a marker is on
 // screen, spawn sends ConfirmKeys to confirm the dialog. The keys differ per
 // harness because the default-highlighted option differs.
 // TypedLaunch is the fallback for harnesses Herdr cannot start natively

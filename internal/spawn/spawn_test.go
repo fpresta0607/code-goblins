@@ -423,6 +423,30 @@ func TestSpawnPiTypedLaunchTypesFullCommandAndSkipsNativeStart(t *testing.T) {
 	}
 }
 
+func TestSpawnPiTypedLaunchConfirmsTrustDialog(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.request.Harness = harness.Pi
+	fixture.request.Model = ""
+	fixture.request.Effort = ""
+	fixture.runner.agentStatus = "blocked"
+	fixture.runner.trustDialog = true
+	fixture.runner.trustDialogText = "Accessing workspace:\n\n Trust project folder?\n"
+	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
+		harness.Pi: harness.DefaultRegistry().Adapters[harness.Pi],
+	}
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn pi with trust dialog: %v", err)
+	}
+	if !strings.Contains(result.Output, "harness=pi") {
+		t.Errorf("Output = %q, want pi harness", result.Output)
+	}
+	if got, want := fixture.runner.keys, []string{"enter", "enter"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("keys = %v, want typed launch submit then pi trust confirmation", got)
+	}
+}
+
 func TestSpawnNormalizesLaunchFailureStatusToOneFailedEvent(t *testing.T) {
 	fixture := newFixture(t)
 	fixture.runner.agentErr = errors.New("preview unavailable\r\ndone: forged")
@@ -900,28 +924,29 @@ func (g *treehouseGit) Return(context.Context, string, string) error {
 }
 
 type herdrRunner struct {
-	events        *[]string
-	worktree      string
-	session       string
-	workspaceID   string
-	paneID        string
-	agentStatus   string
-	agentErr      error
-	startErr      error
-	captureErr    error
-	missingPaneID bool
-	trustDialog   bool
-	manifests     []string
-	calls         int
-	literal       string
-	literals      []string
-	startName     string
-	startKind     string
-	startArgs     []string
-	prompt        string
-	keys          []string
-	agentCalls    int
-	enterKeys     int
+	events          *[]string
+	worktree        string
+	session         string
+	workspaceID     string
+	paneID          string
+	agentStatus     string
+	agentErr        error
+	startErr        error
+	captureErr      error
+	missingPaneID   bool
+	trustDialog     bool
+	trustDialogText string
+	manifests       []string
+	calls           int
+	literal         string
+	literals        []string
+	startName       string
+	startKind       string
+	startArgs       []string
+	prompt          string
+	keys            []string
+	agentCalls      int
+	enterKeys       int
 }
 
 func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -936,6 +961,13 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 	wantSession := r.session
 	if wantSession == "" {
 		wantSession = "fleet"
+	}
+	if req.Name == "pi" {
+		*r.events = append(*r.events, "validate-harness")
+		if !reflect.DeepEqual(req.Args, []string{"--help"}) {
+			return execx.Result{}, fmt.Errorf("unexpected pi probe: %#v", req)
+		}
+		return execx.Result{Stdout: []byte("Usage: pi [options]\n\nOptions:\n  --tui-mode <mode>              TUI mode: regular (default) or fullscreen\n")}, nil
 	}
 	if req.Name != "herdr" {
 		return execx.Result{}, fmt.Errorf("unexpected Herdr request: %#v", req)
@@ -1037,7 +1069,11 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 			return execx.Result{}, r.captureErr
 		}
 		if r.trustDialog {
-			return execx.Result{Stdout: []byte("Accessing workspace:\n\n Quick safety check: Is this a project you created or\n one you trust?\n")}, nil
+			text := r.trustDialogText
+			if text == "" {
+				text = "Accessing workspace:\n\n Quick safety check: Is this a project you created or\n one you trust?\n"
+			}
+			return execx.Result{Stdout: []byte(text)}, nil
 		}
 		return execx.Result{Stdout: []byte("claude is running\n")}, nil
 	case reflect.DeepEqual(args, []string{"agent", "get", "pane-1"}):
