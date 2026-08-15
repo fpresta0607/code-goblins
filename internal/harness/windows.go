@@ -9,22 +9,13 @@ import (
 	"unicode"
 )
 
-// PowerShellLine renders a structured launch only at the Herdr delivery
-// boundary. Every value is a single-quoted PowerShell literal. The brief is
-// referenced by path through a fixed instruction rather than inlined:
+// PowerShellPrefix renders the pane-shell preparation line typed before
+// `herdr agent start`: agent start has no environment or working-directory
+// support, so the leased worktree and the harness environment are established
+// in the shell first. Every value is a single-quoted PowerShell literal;
 // Herdr panes run Windows PowerShell 5.1, whose native-argument quoting
-// corrupts any argument containing embedded double quotes, so an inlined
-// multi-line brief arrives at the harness as broken argument fragments.
-func (launch Launch) PowerShellLine() (string, error) {
-	if strings.TrimSpace(launch.Executable) == "" {
-		return "", errors.New("harness: launch executable is required")
-	}
-	if launch.PromptFile != "" && !filepath.IsAbs(launch.PromptFile) {
-		return "", errors.New("harness: launch PromptFile must be absolute")
-	}
-	if launch.PromptFile == "" && launch.FollowUpPrompt == "" {
-		return "", errors.New("harness: launch requires a PromptFile or FollowUpPrompt")
-	}
+// corrupts any argument containing embedded double quotes.
+func (launch Launch) PowerShellPrefix() (string, error) {
 	if launch.Env == nil || launch.Env["GOTMPDIR"] == "" {
 		return "", errors.New("harness: launch GOTMPDIR is required")
 	}
@@ -41,21 +32,13 @@ func (launch Launch) PowerShellLine() (string, error) {
 	}
 	sort.Strings(keys)
 
-	parts := make([]string, 0, len(keys)+len(launch.Args)+4)
+	parts := make([]string, 0, len(keys)+1)
 	if launch.Dir != "" {
 		parts = append(parts, "Set-Location -LiteralPath "+powerShellLiteral(launch.Dir))
 	}
 	for _, key := range keys {
 		parts = append(parts, "$env:"+key+" = "+powerShellLiteral(launch.Env[key]))
 	}
-	command := "& " + powerShellLiteral(launch.Executable)
-	for _, arg := range launch.Args {
-		command += " " + powerShellLiteral(arg)
-	}
-	if launch.PromptFile != "" {
-		command += " " + powerShellLiteral("Read the brief at "+launch.PromptFile+" and follow it exactly.")
-	}
-	parts = append(parts, command)
 	return strings.Join(parts, "; "), nil
 }
 

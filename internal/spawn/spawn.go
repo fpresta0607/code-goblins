@@ -25,8 +25,6 @@ const (
 	launchSettle       = 300 * time.Millisecond
 	launchConfirmPoll  = 1500 * time.Millisecond
 	launchConfirmTries = 80
-	registrationPoll   = 500 * time.Millisecond
-	registrationTries  = 40
 )
 
 // Request is the complete local task creation input. Ship delivery posture is
@@ -189,41 +187,39 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return fail(result, fmt.Errorf("spawn: build harness launch: %w", err))
 	}
 	launch.Dir = worktree.Path
-	line, err := launch.PowerShellLine()
+	prefix, err := launch.PowerShellPrefix()
 	if err != nil {
-		return fail(result, fmt.Errorf("spawn: render Windows harness launch: %w", err))
+		return fail(result, fmt.Errorf("spawn: render Windows launch prefix: %w", err))
 	}
-	if err := herdrClient.SendLiteral(ctx, endpoint.Target, line); err != nil {
-		return fail(result, fmt.Errorf("spawn: send harness launch: %w", err))
+	if err := herdrClient.SendLiteral(ctx, endpoint.Target, prefix); err != nil {
+		return fail(result, fmt.Errorf("spawn: send launch prefix: %w", err))
 	}
 	if err := s.sleep(ctx, launchSettle); err != nil {
-		return fail(result, fmt.Errorf("spawn: wait before launch submit: %w", err))
+		return fail(result, fmt.Errorf("spawn: wait before launch prefix submit: %w", err))
 	}
 	if err := herdrClient.SendKey(ctx, endpoint.Target, "Enter"); err != nil {
-		return fail(result, fmt.Errorf("spawn: submit harness launch: %w", err))
+		return fail(result, fmt.Errorf("spawn: submit launch prefix: %w", err))
+	}
+	if err := s.sleep(ctx, launchSettle); err != nil {
+		return fail(result, fmt.Errorf("spawn: wait before agent start: %w", err))
+	}
+	// The harness starts through Herdr's native agent facility under the gb-
+	// task name, so it is a named, registered agent from birth rather than a
+	// shell process Herdr happens to detect.
+	if err := herdrClient.AgentStart(ctx, endpoint.Target, "gb-"+req.ID, string(req.Harness), launch.Args); err != nil {
+		return fail(result, fmt.Errorf("spawn: start native harness agent: %w", err))
 	}
 	launchSubmitted = true
-	if launch.FollowUpPrompt != "" {
-		// A bare launch (Kimi) needs its composer ready before the follow-up
-		// lands; text sent during harness boot is lost silently. Wait for the
-		// agent to register with Herdr instead of a fixed settle.
-		if err := s.waitForAgentRegistered(ctx, &herdrClient, endpoint.Target); err != nil {
-			return fail(result, fmt.Errorf("spawn: wait for harness registration: %w", err))
-		}
-		if err := s.sleep(ctx, launchSettle); err != nil {
-			return fail(result, fmt.Errorf("spawn: wait before follow-up prompt: %w", err))
-		}
-		if err := herdrClient.SendLiteral(ctx, endpoint.Target, launch.FollowUpPrompt); err != nil {
-			return fail(result, fmt.Errorf("spawn: send follow-up prompt: %w", err))
-		}
-		if err := s.sleep(ctx, launchSettle); err != nil {
-			return fail(result, fmt.Errorf("spawn: wait before follow-up submit: %w", err))
-		}
-		if err := herdrClient.SendKey(ctx, endpoint.Target, "Enter"); err != nil {
-			return fail(result, fmt.Errorf("spawn: submit follow-up prompt: %w", err))
-		}
+	if err := s.confirmHarnessDialogs(ctx, &herdrClient, endpoint.Target, launch); err != nil {
+		return fail(result, err)
 	}
-	if err := s.confirmLaunch(ctx, &herdrClient, endpoint.Target, launch.ConfirmMarkers); err != nil {
+	if err := s.sleep(ctx, launchSettle); err != nil {
+		return fail(result, fmt.Errorf("spawn: wait before brief prompt: %w", err))
+	}
+	if err := herdrClient.AgentPrompt(ctx, endpoint.Target, "Read the brief at "+launch.PromptFile+" and follow it exactly."); err != nil {
+		return fail(result, fmt.Errorf("spawn: submit harness brief prompt: %w", err))
+	}
+	if err := s.confirmLaunch(ctx, &herdrClient, endpoint.Target); err != nil {
 		return fail(result, err)
 	}
 
@@ -406,33 +402,51 @@ func partialResult(req Request, project, taskTmp string, endpoint herdr.Endpoint
 	return Result{Meta: meta, Endpoint: endpoint}
 }
 
-// waitForAgentRegistered polls until Herdr reports a registered agent for the
-// pane, which is the earliest safe moment to type into a booted harness TUI.
-func (s Service) waitForAgentRegistered(ctx context.Context, client *herdr.Client, target herdr.Target) error {
-	for attempt := 0; attempt < registrationTries; attempt++ {
+// confirmHarnessDialogs clears any harness-declared blocking startup dialog
+// (the workspace trust prompt claude and kimi show in every fresh worktree)
+// by sending the adapter's confirm keys while the marker text stays on
+// screen. Herdr reports the dialog differently per harness (claude blocked,
+// kimi idle), so marker absence in two consecutive captures is the readiness
+// proof for every harness.
+func (s Service) confirmHarnessDialogs(ctx context.Context, client *herdr.Client, target herdr.Target, launch harness.Launch) error {
+	if len(launch.ConfirmMarkers) == 0 {
+		return nil
+	}
+	clean := 0
+	for attempt := 0; attempt < launchConfirmTries; attempt++ {
 		if attempt > 0 {
-			if err := s.sleep(ctx, registrationPoll); err != nil {
-				return fmt.Errorf("spawn: wait for agent registration: %w", err)
+			if err := s.sleep(ctx, launchConfirmPoll); err != nil {
+				return fmt.Errorf("spawn: wait while confirming harness dialogs: %w", err)
 			}
 		}
-		status, err := client.AgentStatus(ctx, target)
+		capture, err := client.Capture(ctx, target, 60, false)
 		if err != nil {
-			if herdr.WaitError(ctx, err) {
-				return fmt.Errorf("spawn: wait for agent registration: %w", err)
+			clean = 0
+			continue
+		}
+		if containsMarker(capture, launch.ConfirmMarkers) {
+			clean = 0
+			for _, key := range launch.ConfirmKeys {
+				if err := client.SendKey(ctx, target, key); err != nil {
+					return fmt.Errorf("spawn: confirm harness startup dialog: %w", err)
+				}
+				if err := s.sleep(ctx, launchSettle); err != nil {
+					return fmt.Errorf("spawn: wait between harness dialog keys: %w", err)
+				}
 			}
 			continue
 		}
-		if status == herdr.AgentAlive {
+		clean++
+		if clean >= 2 {
 			return nil
 		}
 	}
-	return fmt.Errorf("spawn: harness agent did not register with Herdr within %ds", int(registrationPoll.Seconds()*registrationTries))
+	return fmt.Errorf("spawn: harness startup dialog did not clear within %ds", int(launchConfirmPoll.Seconds()*launchConfirmTries))
 }
 
-// confirmLaunch waits for the launched harness to report working, confirming
-// any harness-declared blocking dialog (such as the Claude workspace trust
-// prompt shown for every fresh worktree) with a single Enter keypress.
-func (s Service) confirmLaunch(ctx context.Context, client *herdr.Client, target herdr.Target, markers []string) error {
+// confirmLaunch waits for the launched harness to report working after the
+// brief prompt lands through Herdr's native prompt channel.
+func (s Service) confirmLaunch(ctx context.Context, client *herdr.Client, target herdr.Target) error {
 	for attempt := 0; attempt < launchConfirmTries; attempt++ {
 		if attempt > 0 {
 			if err := s.sleep(ctx, launchConfirmPoll); err != nil {
@@ -443,20 +457,8 @@ func (s Service) confirmLaunch(ctx context.Context, client *herdr.Client, target
 		if err != nil {
 			return fmt.Errorf("spawn: confirm harness launch: %w", err)
 		}
-		switch state {
-		case herdr.SubmitWorking:
+		if state == herdr.SubmitWorking {
 			return nil
-		case herdr.SubmitBlocked:
-			if len(markers) == 0 {
-				continue
-			}
-			capture, err := client.Capture(ctx, target, 60, false)
-			if err != nil || !containsMarker(capture, markers) {
-				continue
-			}
-			if err := client.SendKey(ctx, target, "Enter"); err != nil {
-				return fmt.Errorf("spawn: confirm harness launch dialog: %w", err)
-			}
 		}
 	}
 	return fmt.Errorf("spawn: harness launch did not report working within %ds", int(launchConfirmPoll.Seconds()*launchConfirmTries))

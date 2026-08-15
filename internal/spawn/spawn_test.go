@@ -190,15 +190,34 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 		"send-literal",
 		"settle",
 		"send-enter",
+		"settle",
+		"agent-start",
+		"capture",
+		"settle",
+		"capture",
+		"settle",
+		"agent-prompt",
 		"agent-working",
 	}; !reflect.DeepEqual(got, want) {
 		t.Errorf("operation order = %v\nwant %v", got, want)
 	}
-	if got, want := fixture.runner.literal, "Set-Location -LiteralPath '"+fixture.worktree+"'; $env:GOTMPDIR = '"+filepath.Join(meta.TaskTmp, "gotmp")+"'; & 'claude' '--dangerously-skip-permissions' 'Read the brief at "+fixture.brief+" and follow it exactly.'"; got != want {
-		t.Errorf("launch line = %q\nwant %q", got, want)
+	if got, want := fixture.runner.literal, "Set-Location -LiteralPath '"+fixture.worktree+"'; $env:GOTMPDIR = '"+filepath.Join(meta.TaskTmp, "gotmp")+"'"; got != want {
+		t.Errorf("launch prefix = %q\nwant %q", got, want)
+	}
+	if got, want := fixture.runner.startName, "gb-task-7"; got != want {
+		t.Errorf("agent start name = %q, want %q", got, want)
+	}
+	if got, want := fixture.runner.startKind, "claude"; got != want {
+		t.Errorf("agent start kind = %q, want %q", got, want)
+	}
+	if got, want := fixture.runner.startArgs, []string{"--dangerously-skip-permissions"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("agent start args = %q, want %q", got, want)
+	}
+	if got, want := fixture.runner.prompt, "Read the brief at "+fixture.brief+" and follow it exactly."; got != want {
+		t.Errorf("agent prompt = %q\nwant %q", got, want)
 	}
 	if got := fixture.runner.enterKeys; got != 1 {
-		t.Errorf("Enter sends = %d, want one separate key send", got)
+		t.Errorf("Enter sends = %d, want one prefix submit key send", got)
 	}
 	if _, statErr := os.Stat(filepath.Join(fixture.stateDir, ".spawn.lock")); !errors.Is(statErr, os.ErrNotExist) {
 		t.Errorf("spawn lock persists after success: stat error = %v", statErr)
@@ -305,57 +324,66 @@ func TestSpawnConfirmsBlockingTrustDialogThenLaunches(t *testing.T) {
 	if !strings.Contains(result.Output, "spawned task-7") {
 		t.Errorf("Output = %q, want successful spawn", result.Output)
 	}
-	if fixture.runner.enterKeys != 2 {
-		t.Errorf("Enter sends = %d, want launch submit plus trust confirmation", fixture.runner.enterKeys)
+	if got, want := fixture.runner.keys, []string{"enter", "enter"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("keys = %v, want prefix submit then trust confirmation", got)
 	}
 	if !slices.Contains(fixture.events, "capture") {
 		t.Errorf("events = %v, want a pane capture before trust confirmation", fixture.events)
 	}
 }
 
-func TestSpawnFollowUpWaitFailsFastOnHerdrFailure(t *testing.T) {
+func TestSpawnConfirmsDialogWithAdapterKeys(t *testing.T) {
 	fixture := newFixture(t)
-	fixture.runner.agentErr = errors.New("herdr binary unavailable")
-	fixture.service.Harness.Adapters[harness.Claude] = fixtureAdapter{events: &fixture.events, followUp: "read the brief now"}
+	fixture.runner.agentStatus = "blocked"
+	fixture.runner.trustDialog = true
+	fixture.service.Harness.Adapters[harness.Claude] = fixtureAdapter{events: &fixture.events, confirmKeys: []string{"up", "enter"}}
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn with adapter dialog keys: %v", err)
+	}
+	if !strings.Contains(result.Output, "spawned task-7") {
+		t.Errorf("Output = %q, want successful spawn", result.Output)
+	}
+	if got, want := fixture.runner.keys, []string{"enter", "up", "enter"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("keys = %v, want prefix submit then adapter confirm keys", got)
+	}
+}
+
+func TestSpawnAgentStartFailureReturnsWorktree(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.runner.startErr = errors.New("herdr binary unavailable")
 
 	_, err := fixture.service.Spawn(context.Background(), fixture.request)
 	if err == nil || !strings.Contains(err.Error(), "herdr binary unavailable") {
 		t.Fatalf("Spawn error = %v, want runner failure surfaced", err)
 	}
-	if strings.Contains(err.Error(), "did not register") {
-		t.Fatalf("Spawn error = %v, want real cause not registration timeout", err)
+	if got := fixture.runner.prompt; got != "" {
+		t.Errorf("prompt = %q, want no prompt after a failed agent start", got)
 	}
-	if got := fixture.runner.agentCalls; got != 1 {
-		t.Errorf("agent status polls = %d, want 1 fail-fast poll", got)
-	}
-	if got := len(fixture.runner.literals); got != 1 {
-		t.Errorf("literals = %q, want launch line only before fail-fast", fixture.runner.literals)
+	if fixture.git.returned != 1 {
+		t.Fatalf("agent start failure returned the lease %d times, want 1 before any agent launched", fixture.git.returned)
 	}
 }
 
-func TestSpawnSendsFollowUpOnlyAfterAgentRegisters(t *testing.T) {
+func TestSpawnStartsNamedAgentThenPromptsNatively(t *testing.T) {
 	fixture := newFixture(t)
-	fixture.runner.unregistered = 2
-	fixture.service.Harness.Adapters[harness.Claude] = fixtureAdapter{events: &fixture.events, followUp: "read the brief now"}
 
 	result, err := fixture.service.Spawn(context.Background(), fixture.request)
 	if err != nil {
-		t.Fatalf("Spawn with follow-up: %v", err)
+		t.Fatalf("Spawn: %v", err)
 	}
 	if !strings.Contains(result.Output, "spawned task-7") {
 		t.Errorf("Output = %q, want successful spawn", result.Output)
 	}
-	if len(fixture.runner.literals) != 2 || !strings.Contains(fixture.runner.literals[0], "& 'claude'") || fixture.runner.literals[1] != "read the brief now" {
-		t.Fatalf("literals = %q, want launch line then follow-up prompt", fixture.runner.literals)
+	if len(fixture.runner.literals) != 1 || !strings.Contains(fixture.runner.literals[0], "Set-Location") {
+		t.Fatalf("literals = %q, want the launch prefix only", fixture.runner.literals)
 	}
-	// Every registration poll saw only the launch literal; the working
-	// confirmation is the first agent read after the follow-up was sent.
-	want := []int{1, 1, 1, 2}
-	if !reflect.DeepEqual(fixture.runner.agentReads, want) {
-		t.Errorf("agent read literal counts = %v, want %v (follow-up sent only after registration)", fixture.runner.agentReads, want)
-	}
-	if fixture.runner.enterKeys != 2 {
-		t.Errorf("Enter sends = %d, want launch submit plus follow-up submit", fixture.runner.enterKeys)
+	start := slices.Index(fixture.events, "agent-start")
+	prompt := slices.Index(fixture.events, "agent-prompt")
+	working := slices.Index(fixture.events, "agent-working")
+	if start < 0 || prompt < 0 || working < 0 || !(start < prompt && prompt < working) {
+		t.Errorf("events = %v, want agent-start before agent-prompt before agent-working", fixture.events)
 	}
 }
 
@@ -716,9 +744,9 @@ func newFixture(t *testing.T) *fixture {
 }
 
 type fixtureAdapter struct {
-	events   *[]string
-	buildErr error
-	followUp string
+	events      *[]string
+	buildErr    error
+	confirmKeys []string
 }
 
 func (a fixtureAdapter) Kind() harness.Kind {
@@ -735,13 +763,16 @@ func (a fixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
 	if a.buildErr != nil {
 		return harness.Launch{}, a.buildErr
 	}
+	confirmKeys := a.confirmKeys
+	if len(confirmKeys) == 0 {
+		confirmKeys = []string{"enter"}
+	}
 	return harness.Launch{
-		Executable:     "claude",
 		Args:           []string{"--dangerously-skip-permissions"},
 		Env:            map[string]string{"GOTMPDIR": filepath.Join(spec.TaskTmp, "gotmp")},
 		PromptFile:     spec.BriefPath,
-		FollowUpPrompt: a.followUp,
 		ConfirmMarkers: []string{"Is this a project you created or one you trust?"},
+		ConfirmKeys:    confirmKeys,
 	}, nil
 }
 
@@ -776,13 +807,17 @@ type herdrRunner struct {
 	paneID        string
 	agentStatus   string
 	agentErr      error
+	startErr      error
 	missingPaneID bool
 	trustDialog   bool
-	unregistered  int
 	calls         int
 	literal       string
 	literals      []string
-	agentReads    []int
+	startName     string
+	startKind     string
+	startArgs     []string
+	prompt        string
+	keys          []string
 	agentCalls    int
 	enterKeys     int
 }
@@ -800,10 +835,16 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 	if wantSession == "" {
 		wantSession = "fleet"
 	}
-	if req.Name != "herdr" || len(req.Args) < 2 || req.Args[len(req.Args)-2] != "--session" || req.Args[len(req.Args)-1] != wantSession {
+	if req.Name != "herdr" {
 		return execx.Result{}, fmt.Errorf("unexpected Herdr request: %#v", req)
 	}
-	args := req.Args[:len(req.Args)-2]
+	args := append([]string{}, req.Args...)
+	separator := slices.Index(args, "--")
+	sessionAt := slices.Index(args, "--session")
+	if sessionAt < 0 || sessionAt+1 >= len(args) || args[sessionAt+1] != wantSession || (separator >= 0 && sessionAt > separator) {
+		return execx.Result{}, fmt.Errorf("unexpected Herdr request: %#v", req)
+	}
+	args = slices.Delete(args, sessionAt, sessionAt+2)
 	switch {
 	case reflect.DeepEqual(args, []string{"status", "--json"}):
 		*r.events = append(*r.events, "status")
@@ -841,14 +882,42 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		return jsonResult(`{}`), nil
 	case reflect.DeepEqual(args, []string{"pane", "get", "pane-1"}):
 		return jsonResult(`{"pane":{"pane_id":"pane-1"}}`), nil
-	case reflect.DeepEqual(args, []string{"pane", "send-keys", "pane-1", "enter"}):
-		*r.events = append(*r.events, "send-enter")
-		r.enterKeys++
-		if r.trustDialog && r.enterKeys > 1 {
-			r.trustDialog = false
-			r.agentStatus = "working"
+	case len(args) == 4 && args[0] == "pane" && args[1] == "send-keys" && args[2] == "pane-1":
+		r.keys = append(r.keys, args[3])
+		if args[3] == "enter" {
+			*r.events = append(*r.events, "send-enter")
+			r.enterKeys++
+			if r.trustDialog && r.enterKeys > 1 {
+				r.trustDialog = false
+				r.agentStatus = "working"
+			}
+		} else {
+			*r.events = append(*r.events, "send-key")
 		}
 		return jsonResult(`{}`), nil
+	case len(args) >= 6 && args[0] == "agent" && args[1] == "start":
+		*r.events = append(*r.events, "agent-start")
+		if r.startErr != nil {
+			return execx.Result{}, r.startErr
+		}
+		r.startName = args[2]
+		for index := 3; index < len(args); index++ {
+			switch args[index] {
+			case "--kind":
+				r.startKind = args[index+1]
+				index++
+			case "--pane":
+				index++
+			case "--":
+				r.startArgs = append([]string{}, args[index+1:]...)
+				index = len(args)
+			}
+		}
+		return jsonResult(`{"agent":{"name":` + quoteJSON(r.startName) + `,"agent_status":"idle"}}`), nil
+	case len(args) == 4 && args[0] == "agent" && args[1] == "prompt" && args[2] == "pane-1":
+		*r.events = append(*r.events, "agent-prompt")
+		r.prompt = args[3]
+		return jsonResult(`{"agent":{"agent_status":"working"}}`), nil
 	case len(args) >= 3 && args[0] == "pane" && args[1] == "read" && args[2] == "pane-1":
 		*r.events = append(*r.events, "capture")
 		if r.trustDialog {
@@ -859,10 +928,6 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		r.agentCalls++
 		if r.agentErr != nil {
 			return execx.Result{}, r.agentErr
-		}
-		r.agentReads = append(r.agentReads, len(r.literals))
-		if len(r.agentReads) <= r.unregistered {
-			return execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`), ExitCode: 1}, nil
 		}
 		if r.agentStatus == "working" {
 			*r.events = append(*r.events, "agent-working")
@@ -889,6 +954,8 @@ func fixtureSchemaJSON() string {
 		"tab.create",
 		"tab.list",
 		"agent.get",
+		"agent.prompt",
+		"agent.start",
 		"pane.close",
 		"pane.get",
 		"pane.list",

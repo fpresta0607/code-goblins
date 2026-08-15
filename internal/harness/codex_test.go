@@ -20,7 +20,6 @@ func TestCodexBuildsStructuredLaunchWithoutBashNotify(t *testing.T) {
 		t.Fatalf("Build defaults: %v", err)
 	}
 	assertLaunch(t, defaults, Launch{
-		Executable: "codex",
 		Args:       []string{"--dangerously-bypass-approvals-and-sandbox"},
 		Env:        map[string]string{"GOTMPDIR": `C:\tasks\task\gotmp`},
 		PromptFile: `C:\briefs\task.md`,
