@@ -31,7 +31,7 @@ A pull request must keep all three green.
 
 ## Tests
 
-Unit tests are deterministic: they inject fake subprocess runners, fake Herdr panes, and scripted clocks instead of requiring installed tools.
+Unit tests are deterministic: they inject fake subprocess runners and scripted clocks instead of requiring installed tools.
 
 ```sh
 go test ./...

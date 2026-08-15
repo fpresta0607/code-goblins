@@ -288,12 +288,12 @@ func TestCleanupRefusals(t *testing.T) {
 			name: "incomplete metadata",
 			setup: func(f *cleanupFixture) {
 				if err := state.WriteMeta(filepath.Join(f.stateDir, "g1.meta"), map[string]string{
-					"backend":           "herdr",
-					"herdr_session":     "fleet",
-					"herdr_tab_id":      "tab-g1",
+					"backend":            "herdr",
+					"herdr_session":      "fleet",
+					"herdr_tab_id":       "tab-g1",
 					"herdr_workspace_id": "ws",
-					"project":           f.project,
-					"worktree":          f.worktree,
+					"project":            f.project,
+					"worktree":           f.worktree,
 				}); err != nil {
 					t.Fatal(err)
 				}

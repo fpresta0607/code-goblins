@@ -56,8 +56,8 @@ func (c *Client) CheckSchema(ctx context.Context) error {
 		return err
 	}
 	var document struct {
-		Protocol      int `json:"protocol"`
-		SchemaVersion int `json:"schema_version"`
+		Protocol      int                        `json:"protocol"`
+		SchemaVersion int                        `json:"schema_version"`
 		Schemas       map[string]json.RawMessage `json:"schemas"`
 	}
 	if err := json.Unmarshal(result.Stdout, &document); err != nil {
