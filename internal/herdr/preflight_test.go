@@ -72,7 +72,7 @@ func TestPreflightPinsDiscoveryArgumentSplits(t *testing.T) {
 
 func TestOperationalCommandsOmitJSONFlag(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{
-		jsonReply(`{"result":{"workspaces":[{"workspace_id":"ws-1","label":"firstmate"}]}}`),
+		jsonReply(`{"result":{"workspaces":[{"workspace_id":"ws-1","label":"code-goblins"}]}}`),
 		jsonReply(`{"result":{"tabs":[]}}`),
 		jsonReply(`{"result":{"tab":{"tab_id":"tab-1"},"root_pane":{"pane_id":"w1:p1"}}}`),
 	}}
@@ -83,7 +83,7 @@ func TestOperationalCommandsOmitJSONFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureContainer: %v", err)
 	}
-	if _, err := client.CreateTask(context.Background(), container, "fm-task", `C:\repo`); err != nil {
+	if _, err := client.CreateTask(context.Background(), container, "gb-task", `C:\repo`); err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 	for _, request := range runner.Requests() {

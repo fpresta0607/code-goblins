@@ -88,7 +88,7 @@ Herdr is your cockpit. Launch the CFO in a pane, then ask away:
 claude    # or: codex, pi
 ```
 
-The CFO reads its contract and does the rest - goblins appear as Herdr tabs (`fm-<id>`), each in a clean treehouse worktree.
+The CFO reads its contract and does the rest - goblins appear as Herdr tabs (`gb-<id>`), each in a clean treehouse worktree.
 `cfo spawn` targets the Herdr session named `default` (or `$HERDR_SESSION`), so keep the CFO and its goblins in the same session.
 
 ## Cut from v1

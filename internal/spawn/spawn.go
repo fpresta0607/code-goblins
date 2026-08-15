@@ -131,7 +131,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := validateContainer(container); err != nil {
 		return Result{}, err
 	}
-	endpoint, err := herdrClient.CreateTask(ctx, container, "fm-"+req.ID, project)
+	endpoint, err := herdrClient.CreateTask(ctx, container, "gb-"+req.ID, project)
 	if err != nil {
 		return Result{}, fmt.Errorf("spawn: create Herdr task tab: %w", err)
 	}
@@ -139,7 +139,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return Result{}, err
 	}
 
-	worktree, err := s.Treehouse.Acquire(ctx, project, "fm-"+req.ID)
+	worktree, err := s.Treehouse.Acquire(ctx, project, "gb-"+req.ID)
 	if err != nil {
 		return Result{}, fmt.Errorf("spawn: acquire treehouse worktree: %w", err)
 	}

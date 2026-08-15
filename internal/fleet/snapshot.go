@@ -172,7 +172,7 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 			Endpoint: endpointSummary(meta, endpointExists),
 			Artifact: artifact,
 			Path:     taskPath(meta),
-			Actions:  Actions{Peek: "cfo peek fm-" + meta.ID},
+			Actions:  Actions{Peek: "cfo peek gb-" + meta.ID},
 		})
 	}
 	sort.Slice(snapshot.Tasks, func(i, j int) bool {

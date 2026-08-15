@@ -356,7 +356,7 @@ func validSample(meta state.TaskMeta, sample EndpointSample) bool {
 	if sample.Endpoint.WorkspaceID != meta.HerdrWorkspaceID || sample.Endpoint.TabID != meta.HerdrTabID || sample.Endpoint.PaneID != meta.HerdrPaneID {
 		return false
 	}
-	if sample.TabLabel != "fm-"+meta.ID || sample.Agent != herdr.AgentAlive {
+	if sample.TabLabel != "gb-"+meta.ID || sample.Agent != herdr.AgentAlive {
 		return false
 	}
 	return len(sample.Capture) > 0

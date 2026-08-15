@@ -208,7 +208,7 @@ func TestBuildSnapshotSortsRowsAndProjectsTypedTaskState(t *testing.T) {
 	if alphaRow.Monitor.Health != monitor.HealthActive || alphaRow.Monitor.StaleSeconds != 0 || alphaRow.Monitor.LastSeen == nil || !alphaRow.Monitor.LastSeen.Equal(lastSeen) {
 		t.Errorf("alpha monitor = %+v, want active projection", alphaRow.Monitor)
 	}
-	if alphaRow.Actions.Peek != "cfo peek fm-alpha" {
+	if alphaRow.Actions.Peek != "cfo peek gb-alpha" {
 		t.Errorf("alpha actions = %+v, want typed peek action", alphaRow.Actions)
 	}
 
@@ -221,7 +221,7 @@ func TestBuildSnapshotSortsRowsAndProjectsTypedTaskState(t *testing.T) {
 	if zuluRow.Monitor.Health != monitor.HealthStale || zuluRow.Monitor.StaleSeconds != 10 || zuluRow.Monitor.Escalation != 2 || !zuluRow.Monitor.DemandDeepInspection {
 		t.Errorf("zulu monitor = %+v, want persisted stale monitor summary", zuluRow.Monitor)
 	}
-	if zuluRow.Actions.Peek != "cfo peek fm-zulu" {
+	if zuluRow.Actions.Peek != "cfo peek gb-zulu" {
 		t.Errorf("zulu actions = %+v, want task-local peek action", zuluRow.Actions)
 	}
 }

@@ -42,11 +42,11 @@ This file is your entire job description.
 | `cfo hook <name>` | Claude Code hook entry points (session-start, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm) |
 | `cfo version` | Print the version |
 
-A `<target>` is a task id, `fm-<id>`, or an explicit `session:pane` Herdr target.
+A `<target>` is a task id, `gb-<id>`, or an explicit `session:pane` Herdr target.
 
 ## Dispatching
 
-`cfo spawn` is the only way to start goblin work. It validates the id and mode before touching anything, starts the Herdr server and container, acquires a fresh treehouse worktree (never the primary checkout), creates a Herdr tab labeled `fm-<id>`, launches the harness with the brief as its prompt, and reports `spawned ...` only after confirming the agent is working.
+`cfo spawn` is the only way to start goblin work. It validates the id and mode before touching anything, starts the Herdr server and container, acquires a fresh treehouse worktree (never the primary checkout), creates a Herdr tab labeled `gb-<id>`, launches the harness with the brief as its prompt, and reports `spawned ...` only after confirming the agent is working.
 
 - `--brief` must be an absolute path to an existing file.
 - `--mode` is `no-mistakes` (default), `direct-PR`, or `local-only`.

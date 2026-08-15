@@ -739,10 +739,10 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 	r.calls++
 	if req.Name == "treehouse" {
 		*r.events = append(*r.events, "treehouse-get")
-		if len(req.Args) != 5 || req.Args[0] != "get" || req.Args[1] != "--lease" || req.Args[2] != "--json" || req.Args[3] != "--lease-holder" || !strings.HasPrefix(req.Args[4], "fm-") {
+		if len(req.Args) != 5 || req.Args[0] != "get" || req.Args[1] != "--lease" || req.Args[2] != "--json" || req.Args[3] != "--lease-holder" || !strings.HasPrefix(req.Args[4], "gb-") {
 			return execx.Result{}, fmt.Errorf("unexpected treehouse request: %#v", req)
 		}
-		return execx.Result{Stdout: []byte(`{"path":` + quoteJSON(r.worktree) + `,"lease_id":"lease-1","lease_holder":"fm"}`)}, nil
+		return execx.Result{Stdout: []byte(`{"path":` + quoteJSON(r.worktree) + `,"lease_id":"lease-1","lease_holder":"gb"}`)}, nil
 	}
 	wantSession := r.session
 	if wantSession == "" {
@@ -768,7 +768,7 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		if workspaceID == "" {
 			workspaceID = "workspace-1"
 		}
-		return jsonResult(`{"workspaces":[{"workspace_id":` + quoteJSON(workspaceID) + `,"label":"firstmate"}]}`), nil
+		return jsonResult(`{"workspaces":[{"workspace_id":` + quoteJSON(workspaceID) + `,"label":"code-goblins"}]}`), nil
 	case reflect.DeepEqual(args, []string{"tab", "list", "--workspace", "workspace-1"}):
 		*r.events = append(*r.events, "tab-list")
 		return jsonResult(`{"tabs":[]}`), nil
