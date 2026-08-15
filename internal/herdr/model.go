@@ -103,15 +103,3 @@ func (e *CommandError) Error() string {
 func (e *CommandError) Unwrap() error {
 	return e.Err
 }
-
-// Pane adapts a Client endpoint to treehouse.Pane without adding a second
-// terminal transport or making treehouse depend on Herdr internals.
-type Pane struct {
-	Client *Client
-	Target Target
-}
-
-// String identifies the Herdr target for diagnostics expected by treehouse.
-func (p Pane) String() string {
-	return p.Target.String()
-}

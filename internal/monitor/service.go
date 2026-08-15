@@ -21,6 +21,13 @@ type Prober interface {
 	Inspect(ctx context.Context, meta state.TaskMeta) (EndpointSample, error)
 }
 
+// CycleProber is the optional Prober extension for batch evidence: Scan marks
+// one cycle boundary before inspecting any task so a structural prober can
+// supply every task from one coherent snapshot.
+type CycleProber interface {
+	BeginScan(ctx context.Context)
+}
+
 // Service scans read-only endpoint samples and persists classification state.
 // It deliberately has no lifecycle, send, treehouse, or delete dependency.
 type Service struct {
@@ -73,6 +80,9 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 			return ScanResult{}, err
 		}
 		entries = nil
+	}
+	if cycler, ok := s.Probe.(CycleProber); ok {
+		cycler.BeginScan(ctx)
 	}
 	for _, entry := range entries {
 		extension := filepath.Ext(entry.Name())

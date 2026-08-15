@@ -41,6 +41,7 @@ commands:
   cfo pr check <id> <url>
   cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
   cfo merge-local <id>
+  cfo cleanup <id>
   hook <name>  claude code hook entry points (session-start, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm)
 `
 
@@ -62,6 +63,7 @@ type commandRuntime struct {
 	sendKey     func(context.Context, home.Home, string, string) error
 	peek        func(context.Context, home.Home, string, int) (string, error)
 	snapshot    func(context.Context, home.Home) (fleet.Snapshot, error)
+	cleanup     func(context.Context, home.Home, string) (string, error)
 }
 
 func defaultCommandRuntime() commandRuntime {
@@ -93,6 +95,7 @@ func defaultCommandRuntime() commandRuntime {
 		snapshot: func(ctx context.Context, h home.Home) (fleet.Snapshot, error) {
 			return fleet.BuildSnapshot(ctx, h, fleet.NewHerdrEndpoint(&herdr.Client{Commands: execx.OSRunner{}}))
 		},
+		cleanup: defaultCleanup,
 	}
 }
 
@@ -143,6 +146,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runPR(args[1], args[2:], stdout, stderr)
 	case "merge-local":
 		return runMergeLocal(args[1:], stdout, stderr)
+	case "cleanup":
+		return runCleanup(args[1:], stdout, stderr, runtime)
 	case "session-start":
 		// Deliberate deviation, recorded for the ledger: a home that cannot
 		// be resolved errors out here (stderr plus exit 1), matching this

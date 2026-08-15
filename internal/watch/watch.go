@@ -18,7 +18,9 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
@@ -30,12 +32,12 @@ const (
 	seenPrefix    = ".seen-"
 )
 
-// Config carries watch.Run's tunables and its injection seams. Monitor is
-// optional until a later phase wires a structural Herdr prober; the
-// signals-only path still advances monitor's typed heartbeat through the one
-// watcher-health record. WaitEvent and Cleanup default to nil, meaning pure
-// timer mode with nothing to release, until Task 9 supplies both for
-// filesystem notifications.
+// Config carries watch.Run's tunables and its injection seams. Monitor is the
+// structural Herdr monitor ConfigFromEnv installs for production; tests may
+// leave it nil, in which case the signals-only path still advances monitor's
+// typed heartbeat through the one watcher-health record. WaitEvent and
+// Cleanup default to nil, meaning pure timer mode with nothing to release,
+// until Task 9 supplies both for filesystem notifications.
 type Config struct {
 	Home         home.Home
 	Poll         time.Duration
@@ -84,6 +86,22 @@ func ConfigFromEnv(h home.Home) Config {
 		Heartbeat:    heartbeat,
 		HeartbeatMax: heartbeatMax,
 		Sleep:        time.Sleep,
+	}
+	// The production monitor prober is the read-only structural Herdr prober,
+	// resolved against the same session source spawn uses (HERDR_SESSION,
+	// default "default") so monitoring cannot drift to a different implicit
+	// session. Both watch entry paths (manual cfo watch and the Task 11
+	// stop-autoarm hook) build their Config here, so this one installation
+	// covers both.
+	session := os.Getenv("HERDR_SESSION")
+	if session == "" {
+		session = "default"
+	}
+	cfg.Monitor = &monitor.Service{
+		StateDir:     h.State,
+		Probe:        monitor.NewHerdrProber(&herdr.Client{Commands: execx.OSRunner{}, Session: session}),
+		Heartbeat:    heartbeat,
+		HeartbeatMax: heartbeatMax,
 	}
 	// A directory-change waiter is strictly an optimization: on failure
 	// (most commonly a dev checkout with no state/ dir yet) cfg is left in

@@ -389,7 +389,6 @@ func TestPaneOperationsUseCorrectPrimitiveAndCaptureTail(t *testing.T) {
 		rawReply(""),
 		rawReply(""),
 		rawReply(""),
-		rawReply(""),
 	}}
 	var sleeps []time.Duration
 	client := newTestClient(runner, &sleeps)
@@ -405,9 +404,6 @@ func TestPaneOperationsUseCorrectPrimitiveAndCaptureTail(t *testing.T) {
 	if got, err := client.Capture(context.Background(), target, 250, true); err != nil || got != "ansi-output" {
 		t.Fatalf("Capture ANSI = %q, %v", got, err)
 	}
-	if err := client.RunPane(context.Background(), target, "treehouse get"); err != nil {
-		t.Fatalf("RunPane: %v", err)
-	}
 	if err := client.SendLiteral(context.Background(), target, "hello"); err != nil {
 		t.Fatalf("SendLiteral: %v", err)
 	}
@@ -419,37 +415,11 @@ func TestPaneOperationsUseCorrectPrimitiveAndCaptureTail(t *testing.T) {
 	assertRequests(t, runner.Requests(), []execx.Request{
 		command("herdr", "pane", "read", "w1:p2", "--source", "recent", "--lines", "200", "--session", "fleet"),
 		command("herdr", "pane", "read", "w1:p2", "--source", "recent", "--lines", "250", "--format", "ansi", "--session", "fleet"),
-		command("herdr", "pane", "run", "w1:p2", "treehouse get", "--session", "fleet"),
 		command("herdr", "pane", "send-text", "w1:p2", "hello", "--session", "fleet"),
 		command("herdr", "pane", "send-keys", "w1:p2", "enter", "--session", "fleet"),
 		command("herdr", "pane", "send-keys", "w1:p2", "escape", "--session", "fleet"),
 		command("herdr", "pane", "send-keys", "w1:p2", "ctrl+c", "--session", "fleet"),
 	})
-}
-
-func TestForegroundCWDAndPaneAdapter(t *testing.T) {
-	runner := &fakeRunner{replies: []runnerReply{
-		jsonReply(`{"result":{"pane":{"foreground_cwd":"C:\\worktree"}}}`),
-		rawReply(""),
-		jsonReply(`{"result":{"pane":{"foreground_cwd":"C:\\worktree"}}}`),
-	}}
-	var sleeps []time.Duration
-	client := newTestClient(runner, &sleeps)
-	target := Target{Session: "fleet", Pane: "w1:p2"}
-
-	if got, err := client.ForegroundCWD(context.Background(), target); err != nil || got != `C:\worktree` {
-		t.Fatalf("ForegroundCWD = %q, %v", got, err)
-	}
-	pane := Pane{Client: client, Target: target}
-	if err := pane.Run(context.Background(), "treehouse get"); err != nil {
-		t.Fatalf("Pane.Run: %v", err)
-	}
-	if got, err := pane.ForegroundCWD(context.Background()); err != nil || got != `C:\worktree` {
-		t.Fatalf("Pane.ForegroundCWD = %q, %v", got, err)
-	}
-	if got, want := pane.Target.String(), "fleet:w1:p2"; got != want {
-		t.Errorf("Pane target = %q, want %q", got, want)
-	}
 }
 
 func TestAgentStatusClassifiesLivenessFromJSONRatherThanExitCode(t *testing.T) {
