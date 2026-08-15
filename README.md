@@ -70,7 +70,8 @@ cd code-goblins
 powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Bootstrap
 ```
 
-`install.ps1 -Bootstrap` downloads (or builds) `cfo.exe`, then installs every missing tool `cfo doctor` checks - git, gh, claude, herdr, treehouse, codex, pi, tasks-axi, quota-axi, no-mistakes, gh-axi, and chrome-devtools-axi.
+`install.ps1 -Bootstrap` downloads (or builds) `cfo.exe`, then installs every missing tool `cfo doctor` checks that has a scriptable installer - git, gh, claude, herdr, treehouse, codex, pi, tasks-axi, quota-axi, no-mistakes, gh-axi, and chrome-devtools-axi.
+Kimi is the one `cfo doctor` check with no scriptable installer, so it is printed as a manual step instead of being installed.
 It also wires the Claude Code hooks in `.claude/settings.json` and creates the `.claude/skills` / `.codex/skills` junctions that point at the bundled `.agents/skills/`.
 The script is idempotent and safe to rerun.
 
@@ -93,8 +94,11 @@ cfo cleanup smoke
 
 ### What still needs manual steps
 
-`install.ps1` installs binaries, not accounts, so do these once by hand:
+`install.ps1` installs binaries, not accounts, and it assumes Node.js (npm) and winget are already installed, so do these once by hand:
 
+- **Node.js (npm).** Seven tools install via `npm install -g`; if `npm` is missing, install Node.js first: `winget install OpenJS.NodeJS.LTS`.
+- **winget.** It installs git and gh; winget ships with Windows App Installer, which is preinstalled on Windows 10 and 11.
+- **Go.** Only needed for the source-build fallback when no release binary exists: `winget install GoLang.Go`.
 - **Harness sign-ins.** claude, codex, pi, and kimi each need their own login before they can run goblins.
 - **GitHub auth.** `gh auth login` (gh-axi reuses the same token).
 - **Kimi Code CLI.** It has no scriptable installer; get it from [kimi.com](https://www.kimi.com) and sign in.
