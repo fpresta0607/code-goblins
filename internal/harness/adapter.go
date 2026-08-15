@@ -46,12 +46,12 @@ type LaunchSpec struct {
 // Claude workspace trust prompt): when the agent reports blocked and the
 // marker is on screen, spawn confirms the dialog with Enter.
 type Launch struct {
-	Executable    string
-	Args          []string
-	Env           map[string]string
-	PromptFile    string
+	Executable     string
+	Args           []string
+	Env            map[string]string
+	PromptFile     string
 	FollowUpPrompt string
-	Dir           string
+	Dir            string
 	ConfirmMarkers []string
 }
 

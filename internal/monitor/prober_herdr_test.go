@@ -245,12 +245,12 @@ func TestHerdrProberStructuralVerdicts(t *testing.T) {
 	tabEntry := fmt.Sprintf(`{"tab_id":%q,"workspace_id":"ws","label":"fm-g1"}`, meta.HerdrTabID)
 
 	tests := []struct {
-		name       string
-		body       string
+		name        string
+		body        string
 		wantVerdict ProbeVerdict
-		wantAgent  herdr.AgentStatus
-		wantBusy   herdr.BusyState
-		wantDetail string
+		wantAgent   herdr.AgentStatus
+		wantBusy    herdr.BusyState
+		wantDetail  string
 	}{
 		{
 			name:        "missing pane is a typed missing verdict",

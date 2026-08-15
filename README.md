@@ -118,7 +118,7 @@ go build ./cmd/cfo
 ```
 
 CI runs on `windows-latest` and gates `go vet`, `go test ./... -count=1`, and `go build`.
-Unit tests use fakes for subprocess, Herdr, and pane behavior.
+Unit tests use fakes for subprocess and Herdr behavior.
 The real-session acceptance suite (`tests/acceptance/plan3_windows.ps1`) needs real Herdr, treehouse, and harness binaries and refuses to run without `CFO_PLAN3_REAL=1`.
 
 ## Contributing
