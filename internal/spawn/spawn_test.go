@@ -313,6 +313,32 @@ func TestSpawnConfirmsBlockingTrustDialogThenLaunches(t *testing.T) {
 	}
 }
 
+func TestSpawnSendsFollowUpOnlyAfterAgentRegisters(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.runner.unregistered = 2
+	fixture.service.Harness.Adapters[harness.Claude] = fixtureAdapter{events: &fixture.events, followUp: "read the brief now"}
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn with follow-up: %v", err)
+	}
+	if !strings.Contains(result.Output, "spawned task-7") {
+		t.Errorf("Output = %q, want successful spawn", result.Output)
+	}
+	if len(fixture.runner.literals) != 2 || !strings.Contains(fixture.runner.literals[0], "& 'claude'") || fixture.runner.literals[1] != "read the brief now" {
+		t.Fatalf("literals = %q, want launch line then follow-up prompt", fixture.runner.literals)
+	}
+	// Every registration poll saw only the launch literal; the working
+	// confirmation is the first agent read after the follow-up was sent.
+	want := []int{1, 1, 1, 2}
+	if !reflect.DeepEqual(fixture.runner.agentReads, want) {
+		t.Errorf("agent read literal counts = %v, want %v (follow-up sent only after registration)", fixture.runner.agentReads, want)
+	}
+	if fixture.runner.enterKeys != 2 {
+		t.Errorf("Enter sends = %d, want launch submit plus follow-up submit", fixture.runner.enterKeys)
+	}
+}
+
 func TestSpawnNormalizesLaunchFailureStatusToOneFailedEvent(t *testing.T) {
 	fixture := newFixture(t)
 	fixture.runner.agentErr = errors.New("preview unavailable\r\ndone: forged")
@@ -670,8 +696,9 @@ func newFixture(t *testing.T) *fixture {
 }
 
 type fixtureAdapter struct {
-	events   *[]string
-	buildErr error
+	events    *[]string
+	buildErr  error
+	followUp  string
 }
 
 func (a fixtureAdapter) Kind() harness.Kind {
@@ -693,6 +720,7 @@ func (a fixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
 		Args:           []string{"--dangerously-skip-permissions"},
 		Env:            map[string]string{"GOTMPDIR": filepath.Join(spec.TaskTmp, "gotmp")},
 		PromptFile:     spec.BriefPath,
+		FollowUpPrompt: a.followUp,
 		ConfirmMarkers: []string{"Is this a project you created or one you trust?"},
 	}, nil
 }
@@ -730,8 +758,11 @@ type herdrRunner struct {
 	agentErr      error
 	missingPaneID bool
 	trustDialog   bool
+	unregistered  int
 	calls         int
 	literal       string
+	literals      []string
+	agentReads    []int
 	enterKeys     int
 }
 
@@ -785,7 +816,10 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 	case len(args) == 4 && args[0] == "pane" && args[1] == "send-text" && args[2] == "pane-1":
 		*r.events = append(*r.events, "send-literal")
 		r.literal = args[3]
+		r.literals = append(r.literals, args[3])
 		return jsonResult(`{}`), nil
+	case reflect.DeepEqual(args, []string{"pane", "get", "pane-1"}):
+		return jsonResult(`{"pane":{"pane_id":"pane-1"}}`), nil
 	case reflect.DeepEqual(args, []string{"pane", "send-keys", "pane-1", "enter"}):
 		*r.events = append(*r.events, "send-enter")
 		r.enterKeys++
@@ -803,6 +837,10 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 	case reflect.DeepEqual(args, []string{"agent", "get", "pane-1"}):
 		if r.agentErr != nil {
 			return execx.Result{}, r.agentErr
+		}
+		r.agentReads = append(r.agentReads, len(r.literals))
+		if len(r.agentReads) <= r.unregistered {
+			return execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`), ExitCode: 1}, nil
 		}
 		if r.agentStatus == "working" {
 			*r.events = append(*r.events, "agent-working")
