@@ -189,12 +189,6 @@ func (c *Client) CreateTask(ctx context.Context, container Container, label, cwd
 	return Endpoint{Target: target, WorkspaceID: container.WorkspaceID, TabID: create.Tab.ID, PaneID: create.RootPane.ID}, nil
 }
 
-// RunPane types and submits one fixed command atomically.
-func (c *Client) RunPane(ctx context.Context, target Target, text string) error {
-	_, err := c.required(ctx, target.Session, target, "pane run", "pane", "run", target.Pane, text)
-	return err
-}
-
 // SendLiteral types unsubmitted literal text into the target pane.
 func (c *Client) SendLiteral(ctx context.Context, target Target, text string) error {
 	_, err := c.required(ctx, target.Session, target, "pane send-text", "pane", "send-text", target.Pane, text)
@@ -205,27 +199,6 @@ func (c *Client) SendLiteral(ctx context.Context, target Target, text string) er
 func (c *Client) SendKey(ctx context.Context, target Target, key string) error {
 	_, err := c.required(ctx, target.Session, target, "pane send-keys", "pane", "send-keys", target.Pane, normalizeKey(key))
 	return err
-}
-
-// ForegroundCWD reports the live pane foreground directory used by treehouse
-// acquisition polling.
-func (c *Client) ForegroundCWD(ctx context.Context, target Target) (string, error) {
-	result, err := c.required(ctx, target.Session, target, "pane get", "pane", "get", target.Pane)
-	if err != nil {
-		return "", err
-	}
-	var get struct {
-		Pane struct {
-			ForegroundCWD string `json:"foreground_cwd"`
-		} `json:"pane"`
-	}
-	if err := decodeResult(result.Stdout, &get); err != nil {
-		return "", fmt.Errorf("herdr: decode pane get response for %s: %w", target, err)
-	}
-	if get.Pane.ForegroundCWD == "" {
-		return "", fmt.Errorf("herdr: pane get response for %s is missing foreground_cwd", target)
-	}
-	return get.Pane.ForegroundCWD, nil
 }
 
 // Capture reads at least 200 lines to work around Herdr's viewport bug, then
@@ -395,22 +368,6 @@ func waitError(ctx context.Context, err error) bool {
 	}
 	var runner *runnerError
 	return errors.As(err, &runner)
-}
-
-// Run sends the atomic treehouse command required by treehouse.Pane.
-func (p Pane) Run(ctx context.Context, text string) error {
-	if p.Client == nil {
-		return errors.New("herdr: pane client is required")
-	}
-	return p.Client.RunPane(ctx, p.Target, text)
-}
-
-// ForegroundCWD reads the pane foreground directory required by treehouse.Pane.
-func (p Pane) ForegroundCWD(ctx context.Context) (string, error) {
-	if p.Client == nil {
-		return "", errors.New("herdr: pane client is required")
-	}
-	return p.Client.ForegroundCWD(ctx, p.Target)
 }
 
 type workspaceRecord struct {

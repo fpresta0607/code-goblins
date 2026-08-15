@@ -26,6 +26,10 @@ func TestClaudeBuildsStructuredLaunch(t *testing.T) {
 			"GOTMPDIR":                             `C:\tasks\task\gotmp`,
 		},
 		PromptFile: `C:\briefs\task.md`,
+		ConfirmMarkers: []string{
+			"Is this a project you created or one you trust?",
+			"Do you trust the files in this folder?",
+		},
 	})
 
 	explicit, err := adapter.Build(LaunchSpec{

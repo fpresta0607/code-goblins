@@ -39,12 +39,19 @@ type LaunchSpec struct {
 // FollowUpPrompt is a bare-launch harness's follow-up message: it is sent as a
 // separate literal after the launch command lands (Kimi rejects a positional
 // brief, so it launches bare and is then told where the brief lives).
+// Dir, when set, moves the pane shell into that directory as part of the same
+// atomic launch line so the harness starts inside the task worktree.
+// ConfirmMarkers mark a blocking harness confirmation dialog (such as the
+// Claude workspace trust prompt): when the agent reports blocked and the
+// marker is on screen, spawn confirms the dialog with Enter.
 type Launch struct {
 	Executable    string
 	Args          []string
 	Env           map[string]string
 	PromptFile    string
 	FollowUpPrompt string
+	Dir           string
+	ConfirmMarkers []string
 }
 
 // Adapter builds and validates one supported harness launch.

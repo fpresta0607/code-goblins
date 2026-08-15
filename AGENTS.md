@@ -36,6 +36,7 @@ This file is your entire job description.
 | `cfo pr check <id> <url>` | Record an opened PR on the task |
 | `cfo pr merge <url> [--method <m>] [--delete-branch]` | Merge a PR (merge, squash, or rebase) |
 | `cfo merge-local <id>` | Fast-forward a project's main to a goblin's landed branch |
+| `cfo cleanup <id>` | Return one clean, proven-inactive task worktree through treehouse |
 | `cfo drain` | Print or acknowledge the wake queue |
 | `cfo session-start` | Print the session-start digest |
 | `cfo hook <name>` | Claude Code hook entry points (session-start, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm) |

@@ -7,73 +7,20 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-type scriptedPane struct {
-	target string
-	cwds   []string
-	runs   []string
-	reads  int
+func leaseReply(path string) scriptedResult {
+	return scriptedResult{result: execx.Result{Stdout: []byte(`{"path":` + quote(path) + `,"lease_id":"abc123","lease_holder":"fm-task"}`)}}
 }
 
-func (p *scriptedPane) Run(_ context.Context, text string) error {
-	p.runs = append(p.runs, text)
-	return nil
+func quote(value string) string {
+	return `"` + strings.ReplaceAll(strings.ReplaceAll(value, `\`, `\\`), `"`, `\"`) + `"`
 }
 
-func (p *scriptedPane) ForegroundCWD(context.Context) (string, error) {
-	if p.reads >= len(p.cwds) {
-		return "", errors.New("unexpected foreground cwd read")
-	}
-	cwd := p.cwds[p.reads]
-	p.reads++
-	return cwd, nil
-}
-
-func (p *scriptedPane) String() string {
-	return p.target
-}
-
-func noWait(ctx context.Context, _ time.Duration) error {
-	return ctx.Err()
-}
-
-func TestAcquireRequiresTwoConsecutiveNonPrimaryCanonicalReads(t *testing.T) {
-	root := t.TempDir()
-	project := filepath.Join(root, "project")
-	stale := filepath.Join(root, "stale")
-	worktree := filepath.Join(root, "worktree")
-	for _, dir := range []string{project, stale, worktree} {
-		if err := os.Mkdir(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	pane := &scriptedPane{
-		target: "fleet:task-2",
-		cwds:   []string{project, stale, filepath.Join(worktree, "."), worktree},
-	}
-	service := Service{Poll: time.Second, Timeout: 4 * time.Second, Sleep: noWait}
-
-	got, err := service.Acquire(context.Background(), pane, project)
-	if err != nil {
-		t.Fatalf("Acquire: %v", err)
-	}
-	if !fsx.SamePath(got.Path, worktree) {
-		t.Errorf("Worktree.Path = %q, want %q", got.Path, worktree)
-	}
-	if len(pane.runs) != 1 || pane.runs[0] != "treehouse get" {
-		t.Errorf("Pane.Run calls = %q, want exactly [treehouse get]", pane.runs)
-	}
-	if pane.reads != 4 {
-		t.Errorf("ForegroundCWD reads = %d, want 4", pane.reads)
-	}
-}
-
-func TestAcquireResetsCandidateWhenPaneReturnsPrimary(t *testing.T) {
+func TestAcquireLeasesWorktreeThroughNonInteractiveTreehouseGet(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "project")
 	worktree := filepath.Join(root, "worktree")
@@ -83,57 +30,97 @@ func TestAcquireResetsCandidateWhenPaneReturnsPrimary(t *testing.T) {
 		}
 	}
 
-	pane := &scriptedPane{target: "fleet:reset", cwds: []string{worktree, project, worktree}}
-	service := Service{Poll: time.Second, Timeout: 3 * time.Second, Sleep: noWait}
+	runner := &scriptedRunner{results: []scriptedResult{leaseReply(worktree)}}
+	service := Service{Commands: runner}
 
-	_, err := service.Acquire(context.Background(), pane, project)
-	if err == nil {
-		t.Fatal("Acquire returned nil after primary cwd reset a single candidate read")
+	got, err := service.Acquire(context.Background(), project, "fm-task")
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
 	}
-	if !strings.Contains(err.Error(), "treehouse get did not enter a worktree within 60s") {
-		t.Errorf("Acquire error = %q, want timeout diagnostic", err)
+	if !fsx.SamePath(got.Path, worktree) {
+		t.Errorf("Worktree.Path = %q, want %q", got.Path, worktree)
 	}
-}
-
-func TestAcquireTimeoutIncludesTargetAfterOneCandidateRead(t *testing.T) {
-	root := t.TempDir()
-	project := filepath.Join(root, "project")
-	foreign := filepath.Join(root, "foreign")
-	worktree := filepath.Join(root, "worktree")
-	for _, dir := range []string{project, foreign, worktree} {
-		if err := os.Mkdir(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
+	if len(runner.calls) != 1 {
+		t.Fatalf("runner calls = %d, want 1", len(runner.calls))
 	}
-
-	pane := &scriptedPane{target: "fleet:timeout", cwds: []string{project, foreign, worktree}}
-	service := Service{Poll: time.Second, Timeout: 3 * time.Second, Sleep: noWait}
-
-	_, err := service.Acquire(context.Background(), pane, project)
-	if err == nil {
-		t.Fatal("Acquire returned nil after only one candidate worktree read")
+	call := runner.calls[0]
+	if call.Name != "treehouse" {
+		t.Errorf("call.Name = %q, want treehouse", call.Name)
 	}
-	if !strings.Contains(err.Error(), "treehouse get did not enter a worktree within 60s") {
-		t.Errorf("Acquire error = %q, want exact timeout diagnostic", err)
+	if !fsx.SamePath(call.Dir, project) {
+		t.Errorf("call.Dir = %q, want %q", call.Dir, project)
 	}
-	if !strings.Contains(err.Error(), "fleet:timeout") {
-		t.Errorf("Acquire error = %q, want Herdr target", err)
+	wantArgs := []string{"get", "--lease", "--json", "--lease-holder", "fm-task"}
+	if strings.Join(call.Args, " ") != strings.Join(wantArgs, " ") {
+		t.Errorf("call.Args = %q, want %q", call.Args, wantArgs)
 	}
 }
 
-func TestAcquireUsesPaneStringForHerdrTarget(t *testing.T) {
-	root := t.TempDir()
-	project := filepath.Join(root, "project")
-	if err := os.Mkdir(project, 0o755); err != nil {
-		t.Fatal(err)
+func TestAcquireOmitsLeaseHolderWhenEmpty(t *testing.T) {
+	project := t.TempDir()
+	worktree := t.TempDir()
+	runner := &scriptedRunner{results: []scriptedResult{leaseReply(worktree)}}
+	service := Service{Commands: runner}
+
+	if _, err := service.Acquire(context.Background(), project, ""); err != nil {
+		t.Fatalf("Acquire: %v", err)
 	}
+	wantArgs := []string{"get", "--lease", "--json"}
+	if strings.Join(runner.calls[0].Args, " ") != strings.Join(wantArgs, " ") {
+		t.Errorf("call.Args = %q, want %q", runner.calls[0].Args, wantArgs)
+	}
+}
 
-	pane := &scriptedPane{target: "fleet:string-target", cwds: []string{project}}
-	service := Service{Poll: time.Second, Timeout: time.Second, Sleep: noWait}
+func TestAcquireRejectsLeaseFailuresAndMalformedResponses(t *testing.T) {
+	project := t.TempDir()
+	worktree := t.TempDir()
+	tests := []struct {
+		name    string
+		results []scriptedResult
+		want    string
+	}{
+		{
+			name:    "treehouse exits nonzero",
+			results: []scriptedResult{{result: execx.Result{ExitCode: 1, Stderr: []byte("pool is empty")}}},
+			want:    "pool is empty",
+		},
+		{
+			name:    "runner error",
+			results: []scriptedResult{{err: errors.New("executable not found")}},
+			want:    "executable not found",
+		},
+		{
+			name:    "malformed JSON",
+			results: []scriptedResult{{result: execx.Result{Stdout: []byte("not json")}}},
+			want:    "decode lease response",
+		},
+		{
+			name:    "missing lease identity",
+			results: []scriptedResult{{result: execx.Result{Stdout: []byte(`{"path":"` + strings.ReplaceAll(worktree, `\`, `\\`) + `"}`)}}},
+			want:    "missing path or lease_id",
+		},
+		{
+			name:    "primary checkout leased",
+			results: []scriptedResult{leaseReply(project)},
+			want:    "is the primary project",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &scriptedRunner{results: test.results}
+			service := Service{Commands: runner}
+			_, err := service.Acquire(context.Background(), project, "fm-task")
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Acquire error = %v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
 
-	_, err := service.Acquire(context.Background(), pane, project)
-	if err == nil || !strings.Contains(err.Error(), "fleet:string-target") {
-		t.Fatalf("Acquire error = %v, want String target", err)
+func TestAcquireRequiresCommandRunner(t *testing.T) {
+	_, err := (Service{}).Acquire(context.Background(), t.TempDir(), "fm-task")
+	if err == nil || !strings.Contains(err.Error(), "command runner is required") {
+		t.Fatalf("Acquire error = %v, want command runner diagnostic", err)
 	}
 }
 

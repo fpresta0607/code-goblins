@@ -25,6 +25,9 @@ func (launch Launch) PowerShellLine() (string, error) {
 	if launch.Env == nil || launch.Env["GOTMPDIR"] == "" {
 		return "", errors.New("harness: launch GOTMPDIR is required")
 	}
+	if launch.Dir != "" && !filepath.IsAbs(launch.Dir) {
+		return "", errors.New("harness: launch Dir must be absolute")
+	}
 
 	keys := make([]string, 0, len(launch.Env))
 	for key := range launch.Env {
@@ -35,7 +38,10 @@ func (launch Launch) PowerShellLine() (string, error) {
 	}
 	sort.Strings(keys)
 
-	parts := make([]string, 0, len(keys)+len(launch.Args)+3)
+	parts := make([]string, 0, len(keys)+len(launch.Args)+4)
+	if launch.Dir != "" {
+		parts = append(parts, "Set-Location -LiteralPath "+powerShellLiteral(launch.Dir))
+	}
 	for _, key := range keys {
 		parts = append(parts, "$env:"+key+" = "+powerShellLiteral(launch.Env[key]))
 	}

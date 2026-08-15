@@ -26,6 +26,14 @@ func (claudeAdapter) Build(spec LaunchSpec) (Launch, error) {
 	launch.Executable = "claude"
 	launch.Env["CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION"] = "false"
 	launch.Args = []string{"--dangerously-skip-permissions"}
+	// Fresh treehouse worktrees are never in ~/.claude.json, so interactive
+	// Claude launches open the workspace trust dialog and report blocked until
+	// it is confirmed. The dialog has no typed Herdr or CLI bypass; spawn
+	// confirms it with Enter when the marker text is on screen.
+	launch.ConfirmMarkers = []string{
+		"Is this a project you created or one you trust?",
+		"Do you trust the files in this folder?",
+	}
 	if hasValue(spec.Model) {
 		launch.Args = append(launch.Args, "--model", spec.Model)
 	}
