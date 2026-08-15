@@ -2,11 +2,13 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
+> **Superseded — treehouse acquisition and Herdr pane adapter.** The pane-scoped acquisition design this plan originally specified was replaced during implementation: spawn acquires a pooled worktree through `treehouse get --lease --json`, where the durable lease is the allocation evidence, and the `treehouse.Pane` / `herdr.Pane` / `RunPane` / `ForegroundCWD` adapters were removed as dead code. The affected sections are Task 2 (acquisition) and Task 3 (pane adapter); their authoritative owners are the `internal/treehouse` doc comments, `docs/superpowers/specs/2026-08-12-windows-native-fork-design.md` §10, and `docs/plans/2026-08-13-herdr-operational-compatibility-design.md`. Everything else below remains the historical plan and is not re-synced.
+
 **Goal:** Build the Windows-native fleet operations needed to acquire isolated treehouse worktrees, run real Claude Code, Codex, and Pi sessions in Herdr, persist restart-safe task state, steer and inspect Code Goblins, and render one typed fleet view.
 
 **Architecture:** Keep `cfo.exe` as the single entry point, keep Herdr and treehouse as external Windows binaries, and move orchestration, JSON parsing, state interpretation, and rendering into small Go packages.
 The first Herdr implementation uses an injected `os/exec` wrapper for every CLI operation, while the watcher continues to rely on its existing polling fallback instead of introducing an unverified Windows socket client.
-Treehouse remains the only worktree allocator, and a fresh worker obtains its worktree by running `treehouse get` inside its live Herdr pane and observing the pane's live foreground directory.
+Treehouse remains the only worktree allocator; acquisition was superseded from pane-scoped `treehouse get` plus foreground-cwd polling to `treehouse get --lease --json` (see the superseded note at the top).
 
 **Tech Stack:** Go 1.26.5, the standard library only, Windows `os/exec`, Herdr CLI JSON, treehouse CLI, Git CLI, and the existing `internal/fsx`, `internal/home`, `internal/lock`, and `internal/state` packages.
 
@@ -26,7 +28,7 @@ The following decisions are part of this plan and must not be reopened during im
 - Every Herdr request goes through a typed subprocess wrapper that supplies an explicit trailing `--session` flag.
 - The initial Herdr client does not speak the control socket directly.
 - Herdr push-event subscription is not required for Plan 3, and polling remains the durable supervision path until the Windows socket family is verified in a later task.
-- Treehouse remains the sole allocator, and ordinary worker acquisition preserves the pane-scoped `treehouse get` contract instead of replacing it with direct `git worktree add`.
+- Treehouse remains the sole allocator, and ordinary worker acquisition uses `treehouse get --lease --json` (the pane-scoped `treehouse get` contract was superseded; see the note at the top).
 - Secondmates, Relay, and AFK are out of scope.
 - `tasks-axi` and `quota-axi` remain subprocess integrations, and their internal protocols are not reimplemented in Go.
 - Fresh metadata writes use the existing atomic `internal/fsx.AtomicWriteFile` primitive even where upstream used a direct shell redirection.
@@ -37,7 +39,7 @@ The following decisions are part of this plan and must not be reopened during im
 ## Shared implementation rules
 
 Use table-driven tests for parsers, classifiers, flag mapping, and state transitions.
-Use fake subprocess runners and fake Herdr panes for deterministic unit tests, and reserve installed-tool tests for the opt-in Windows acceptance suite.
+Use fake subprocess runners for deterministic unit tests, and reserve installed-tool tests for the opt-in Windows acceptance suite.
 Use `context.Context` on every operation that can invoke an external process or wait for a pane state.
 Return typed errors that preserve the failed operation, target, and external stderr without swallowing the original cause.
 Treat an unreadable or ambiguous Herdr response as `unknown` and refuse destructive cleanup or successful delivery claims.
@@ -119,6 +121,8 @@ Expected: PASS.
 Run: `git add internal/execx internal/fsx/path.go internal/fsx/path_test.go internal/home/home.go internal/home/home_test.go && git commit -m "feat(exec): add Windows subprocess and path seams"`
 
 ## Task 2: Port treehouse acquisition, validation, freshening, and return
+
+> **Superseded (acquisition):** the `treehouse.Pane` interface and `Service.Acquire(ctx, pane, project)` foreground-cwd polling below were replaced by `treehouse get --lease --json`, with the durable lease as the allocation evidence; `Acquire` now takes `(ctx, project, holder)` and the pane adapters were removed. See `internal/treehouse` and the spec §10.
 
 **Files:**
 
@@ -204,11 +208,13 @@ Run: `treehouse --version`
 Expected: a successful Windows-native version response.
 
 Run: `treehouse get --help`
-Expected: help text containing `--lease`, even though Plan 3 does not implement secondmate leasing.
+Expected: help text containing `--lease` (Plan 3 later adopted `treehouse get --lease --json` for durable acquisition).
 
 Record a failing Windows prerequisite as an acceptance blocker rather than adding a second worktree allocator.
 
 ## Task 3: Implement the flat Windows Herdr client
+
+> **Superseded (pane adapter):** `RunPane`, `ForegroundCWD`, and the `herdr.Pane` adapter below were removed with the pane-cwd acquisition redesign; the "pane adapter" note in Step 3 no longer applies.
 
 **Files:**
 
@@ -1070,7 +1076,7 @@ Plan 3 is ready for review only when every criterion below has fresh command evi
 - `go test ./... -count=1` passes.
 - `go build ./cmd/cfo` passes.
 - The fake-binary end-to-end test exercises spawn, send, peek, fleet JSON, fleet Markdown, metadata, status, monitor heartbeat persistence, stale escalation, durable wakes, and restart reads.
-- Treehouse acquisition requires two agreeing non-project foreground-cwd reads and rejects the primary checkout or a non-root Git directory.
+- Treehouse acquisition leases a pooled worktree through `treehouse get --lease --json` (the durable lease is the allocation evidence) and rejects the primary checkout or a non-root Git directory.
 - Herdr requests always use explicit session routing, strict JSON IDs, a flat workspace, one tab per task, and the 200-line capture floor.
 - Claude, Codex, and Pi each have typed flag mapping tests and an installed-binary validation path.
 - Task metadata is atomic, deterministic, CRLF-tolerant, and restart-readable.
