@@ -52,6 +52,10 @@ func (adapter *piAdapter) Build(spec LaunchSpec) (Launch, error) {
 	// execute the npm .cmd shim pi installs as; pi launches typed instead.
 	launch.TypedLaunch = true
 	launch.Executable = "pi"
+	// Pi asks "Trust project folder?" in every fresh worktree. Unlike kimi's
+	// dialog, pi highlights "Trust" by default, so a bare Enter confirms it.
+	launch.ConfirmMarkers = []string{"Trust project folder?"}
+	launch.ConfirmKeys = []string{"enter"}
 	if capabilities.tuiMode {
 		launch.Args = append(launch.Args, "--tui-mode", "regular")
 	}
