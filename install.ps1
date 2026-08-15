@@ -44,6 +44,11 @@ Write-Host "Installed cfo.exe -> $dest"
 Write-Host "The .claude/settings.json hooks are already wired to $dest."
 Write-Host ""
 
+# From here on, native stderr (npm progress, installer notes, mklink) must
+# not abort a bootstrap. Real failures are detected explicitly via exit codes
+# and existence checks instead.
+$ErrorActionPreference = "Continue"
+
 # Ship the bundled skills to the harnesses that read a different project
 # directory: claude reads .claude/skills and codex reads .codex/skills, while
 # kimi and pi read .agents/skills directly. A junction keeps one copy tracked
@@ -67,12 +72,16 @@ function Ensure-SkillJunctions {
             }
             continue
         }
-        cmd /c mklink /J `"$link`" `"$source`" | Out-Null
+        $parent = Split-Path -Parent $link
+        if (-not (Test-Path $parent)) {
+            New-Item -ItemType Directory -Path $parent -Force | Out-Null
+        }
+        $mklinkOut = cmd /c mklink /J `"$link`" `"$source`" 2>&1
         if (Test-Path $link) {
             Write-Host ("ok       {0,-20} skill junction created" -f $rel)
         }
         else {
-            Write-Host ("WARN     {0,-20} could not create skill junction (run: cmd /c mklink /J {0} .agents\skills)" -f $rel)
+            Write-Host ("WARN     {0,-20} could not create skill junction ({1}); run: cmd /c mklink /J {0} .agents\skills" -f $rel, ($mklinkOut -join "; "))
         }
     }
 }
@@ -126,6 +135,7 @@ foreach ($tool in $tools) {
         }
         else {
             Invoke-Expression $tool.Cmd
+            if ($LASTEXITCODE -ne 0) { throw "exited with code $LASTEXITCODE" }
         }
         $installedAny = $true
         Write-Host ("ok       {0,-20} installed" -f $tool.Name)
