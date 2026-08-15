@@ -322,7 +322,7 @@ func (c *Client) WaitForWorking(ctx context.Context, target Target, budget time.
 		}
 		status, err := c.readAgentStatus(ctx, target)
 		if err != nil {
-			if waitError(ctx, err) {
+			if WaitError(ctx, err) {
 				return SubmitUnknown, err
 			}
 			continue
@@ -358,7 +358,11 @@ func validateTarget(target Target) error {
 	return nil
 }
 
-func waitError(ctx context.Context, err error) bool {
+// WaitError reports whether err is a terminal poll failure (a cancelled
+// context, a missing runner, or a runner process error) rather than a
+// transient unreadable Herdr response. Wait loops fail fast on terminal
+// errors and keep polling on any other error.
+func WaitError(ctx context.Context, err error) bool {
 	if ctx.Err() != nil {
 		return true
 	}

@@ -313,6 +313,26 @@ func TestSpawnConfirmsBlockingTrustDialogThenLaunches(t *testing.T) {
 	}
 }
 
+func TestSpawnFollowUpWaitFailsFastOnHerdrFailure(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.runner.agentErr = errors.New("herdr binary unavailable")
+	fixture.service.Harness.Adapters[harness.Claude] = fixtureAdapter{events: &fixture.events, followUp: "read the brief now"}
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err == nil || !strings.Contains(err.Error(), "herdr binary unavailable") {
+		t.Fatalf("Spawn error = %v, want runner failure surfaced", err)
+	}
+	if strings.Contains(err.Error(), "did not register") {
+		t.Fatalf("Spawn error = %v, want real cause not registration timeout", err)
+	}
+	if got := fixture.runner.agentCalls; got != 1 {
+		t.Errorf("agent status polls = %d, want 1 fail-fast poll", got)
+	}
+	if got := len(fixture.runner.literals); got != 1 {
+		t.Errorf("literals = %q, want launch line only before fail-fast", fixture.runner.literals)
+	}
+}
+
 func TestSpawnSendsFollowUpOnlyAfterAgentRegisters(t *testing.T) {
 	fixture := newFixture(t)
 	fixture.runner.unregistered = 2
@@ -763,6 +783,7 @@ type herdrRunner struct {
 	literal       string
 	literals      []string
 	agentReads    []int
+	agentCalls    int
 	enterKeys     int
 }
 
@@ -835,6 +856,7 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		}
 		return execx.Result{Stdout: []byte("claude is running\n")}, nil
 	case reflect.DeepEqual(args, []string{"agent", "get", "pane-1"}):
+		r.agentCalls++
 		if r.agentErr != nil {
 			return execx.Result{}, r.agentErr
 		}
