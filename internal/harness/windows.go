@@ -42,6 +42,30 @@ func (launch Launch) PowerShellPrefix() (string, error) {
 	return strings.Join(parts, "; "), nil
 }
 
+// PowerShellTypedLine renders the full typed launch for harnesses Herdr cannot
+// start natively (npm .cmd shims): the shell prefix plus the harness command
+// with the brief instruction as its final positional argument. The instruction
+// is a single-quoted literal with no embedded quotes, safe for the Windows
+// PowerShell 5.1 native-argument path.
+func (launch Launch) PowerShellTypedLine() (string, error) {
+	if !launch.TypedLaunch {
+		return "", errors.New("harness: typed line requires a typed-launch harness")
+	}
+	if strings.TrimSpace(launch.Executable) == "" {
+		return "", errors.New("harness: typed launch executable is required")
+	}
+	prefix, err := launch.PowerShellPrefix()
+	if err != nil {
+		return "", err
+	}
+	command := "& " + powerShellLiteral(launch.Executable)
+	for _, arg := range launch.Args {
+		command += " " + powerShellLiteral(arg)
+	}
+	command += " " + powerShellLiteral(BriefInstruction(launch.PromptFile))
+	return prefix + "; " + command, nil
+}
+
 func powerShellLiteral(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
