@@ -662,6 +662,13 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 			return execx.Result{}, fmt.Errorf("session list is missing --json: %v", args)
 		}
 		return result(`{"sessions":[{"name":"fleet-e2e","running":true}]}`), nil
+	case matches(args, "server", "agent-manifests"):
+		return resultEnvelope(map[string]any{"manifests": []any{
+			map[string]string{"agent": "claude"},
+			map[string]string{"agent": "codex"},
+			map[string]string{"agent": "pi"},
+			map[string]string{"agent": "kimi"},
+		}}), nil
 	case matches(args, "workspace", "list"):
 		if !r.workspace {
 			return resultEnvelope(map[string]any{"workspaces": []any{}}), nil
@@ -898,6 +905,7 @@ func resultEnvelope(value any) execx.Result {
 // method CFO uses.
 func fleetE2ESchemaJSON() string {
 	methods := []string{
+		"server.agent_manifests",
 		"session.snapshot",
 		"workspace.create",
 		"workspace.list",

@@ -245,6 +245,33 @@ func (c *Client) AgentPrompt(ctx context.Context, target Target, text string) er
 	return err
 }
 
+// AgentKinds reports the agent kinds the running Herdr server can natively
+// start, read from its active detection manifests.
+func (c *Client) AgentKinds(ctx context.Context) (map[string]bool, error) {
+	result, err := c.required(ctx, c.session(), Target{}, "agent manifests", "server", "agent-manifests", "--json")
+	if err != nil {
+		return nil, err
+	}
+	var response struct {
+		Manifests []struct {
+			Agent string `json:"agent"`
+		} `json:"manifests"`
+	}
+	if err := decodeResult(result.Stdout, &response); err != nil {
+		return nil, fmt.Errorf("herdr: decode agent manifests response: %w", err)
+	}
+	kinds := make(map[string]bool, len(response.Manifests))
+	for _, manifest := range response.Manifests {
+		if manifest.Agent != "" {
+			kinds[manifest.Agent] = true
+		}
+	}
+	if len(kinds) == 0 {
+		return nil, errors.New("herdr: agent manifests response lists no agents")
+	}
+	return kinds, nil
+}
+
 // Capture reads at least 200 lines to work around Herdr's viewport bug, then
 // returns only the caller's requested tail.
 func (c *Client) Capture(ctx context.Context, target Target, lines int, ansi bool) (string, error) {

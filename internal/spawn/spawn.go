@@ -124,6 +124,13 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := herdrClient.Preflight(ctx); err != nil {
 		return Result{}, fmt.Errorf("spawn: Herdr compatibility preflight: %w", err)
 	}
+	kinds, err := herdrClient.AgentKinds(ctx)
+	if err != nil {
+		return Result{}, fmt.Errorf("spawn: list Herdr agent kinds: %w", err)
+	}
+	if !kinds[string(req.Harness)] {
+		return Result{}, fmt.Errorf("spawn: installed Herdr does not support harness kind %q", req.Harness)
+	}
 	container, err := herdrClient.EnsureContainer(ctx, project)
 	if err != nil {
 		return Result{}, fmt.Errorf("spawn: ensure Herdr container: %w", err)
@@ -421,6 +428,9 @@ func (s Service) confirmHarnessDialogs(ctx context.Context, client *herdr.Client
 		}
 		capture, err := client.Capture(ctx, target, 60, false)
 		if err != nil {
+			if herdr.WaitError(ctx, err) {
+				return fmt.Errorf("spawn: confirm harness startup dialog: %w", err)
+			}
 			clean = 0
 			continue
 		}

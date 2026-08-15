@@ -454,6 +454,38 @@ func TestAgentStartAndPromptUseNativeCommands(t *testing.T) {
 	})
 }
 
+func TestAgentKindsParsesManifestsAndRequiresAtLeastOne(t *testing.T) {
+	t.Run("parses advertised kinds", func(t *testing.T) {
+		runner := &fakeRunner{replies: []runnerReply{
+			jsonReply(`{"result":{"manifests":[{"agent":"claude"},{"agent":"codex"},{"agent":"pi"},{"agent":"kimi"}]}}`),
+		}}
+		var sleeps []time.Duration
+		client := newTestClient(runner, &sleeps)
+
+		got, err := client.AgentKinds(context.Background())
+		if err != nil {
+			t.Fatalf("AgentKinds: %v", err)
+		}
+		want := map[string]bool{"claude": true, "codex": true, "pi": true, "kimi": true}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("AgentKinds = %#v, want %#v", got, want)
+		}
+		assertRequests(t, runner.Requests(), []execx.Request{
+			command("herdr", "server", "agent-manifests", "--json", "--session", "fleet"),
+		})
+	})
+
+	t.Run("refuses empty manifest list", func(t *testing.T) {
+		runner := &fakeRunner{replies: []runnerReply{jsonReply(`{"result":{"manifests":[]}}`)}}
+		var sleeps []time.Duration
+		client := newTestClient(runner, &sleeps)
+
+		if _, err := client.AgentKinds(context.Background()); err == nil || !strings.Contains(err.Error(), "lists no agents") {
+			t.Fatalf("AgentKinds error = %v, want empty-manifest refusal", err)
+		}
+	})
+}
+
 func TestAgentStatusClassifiesLivenessFromJSONRatherThanExitCode(t *testing.T) {
 	tests := []struct {
 		name      string

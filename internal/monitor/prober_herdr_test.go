@@ -71,6 +71,7 @@ func proberSchemaJSON() string {
 	var b strings.Builder
 	b.WriteString(`{"protocol":19,"schema_version":1,"schemas":{"success_response":{},"error_response":{},"request":{"oneOf":[`)
 	methods := []string{
+		"server.agent_manifests",
 		"session.snapshot",
 		"workspace.create",
 		"workspace.list",
