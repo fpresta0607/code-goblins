@@ -46,7 +46,7 @@ A `<target>` is a task id, `gb-<id>`, or an explicit `session:pane` Herdr target
 
 ## Dispatching
 
-`cfo spawn` is the only way to start goblin work. It validates the id and mode before touching anything, starts the Herdr server and container, acquires a fresh treehouse worktree (never the primary checkout), creates a Herdr tab labeled `gb-<id>`, prepares the pane shell (worktree location plus harness environment), starts the harness as the named native Herdr agent `gb-<id>` (`herdr agent start`), delivers the brief instruction through `herdr agent prompt`, and reports `spawned ...` only after confirming the agent is working.
+`cfo spawn` is the only way to start goblin work. It validates the id and mode before touching anything, starts the Herdr server and container, acquires a fresh treehouse worktree (never the primary checkout), creates a Herdr tab labeled `gb-<id>`, prepares the pane shell (worktree location plus harness environment), starts the harness and delivers its brief instruction, and reports `spawned ...` only after confirming the agent is working.
 
 - `--brief` must be an absolute path to an existing file.
 - `--mode` is `no-mistakes` (default), `direct-PR`, or `local-only`.

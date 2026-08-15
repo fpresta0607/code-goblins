@@ -34,13 +34,13 @@ type LaunchSpec struct {
 	PiExtensionPath string
 }
 
-// Launch is a shell-independent native agent specification. Herdr starts the
+// Launch is a harness launch specification. By default Herdr starts the
 // harness itself through `herdr agent start` with Args after `--`, so the
 // agent is named and registered from birth; agent start has no environment or
 // working-directory support, so Env and Dir render the typed PowerShell prefix
-// that prepares the pane shell first. The brief is never embedded in a shell
-// line: PromptFile is referenced by path in the instruction submitted through
-// `herdr agent prompt` once the agent is ready.
+// that prepares the pane shell first. On that native path the brief is never
+// embedded in a shell line: PromptFile is referenced by path in the
+// instruction submitted through `herdr agent prompt` once the agent is ready.
 // ConfirmMarkers mark a blocking harness startup dialog (the workspace trust
 // prompt claude and kimi show in every fresh worktree): while a marker is on
 // screen, spawn sends ConfirmKeys to confirm the dialog. The keys differ per

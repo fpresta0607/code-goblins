@@ -9,8 +9,8 @@ import (
 	"unicode"
 )
 
-// PowerShellPrefix renders the pane-shell preparation line typed before
-// `herdr agent start`: agent start has no environment or working-directory
+// PowerShellPrefix renders the pane-shell preparation line typed before the
+// harness starts: agent start has no environment or working-directory
 // support, so the leased worktree and the harness environment are established
 // in the shell first. Every value is a single-quoted PowerShell literal;
 // Herdr panes run Windows PowerShell 5.1, whose native-argument quoting

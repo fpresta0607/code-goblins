@@ -477,8 +477,9 @@ func (s Service) confirmHarnessDialogs(ctx context.Context, client *herdr.Client
 	return fmt.Errorf("spawn: harness startup dialog did not clear within %ds", int(launchConfirmPoll.Seconds()*launchConfirmTries))
 }
 
-// confirmLaunch waits for the launched harness to report working after the
-// brief prompt lands through Herdr's native prompt channel.
+// confirmLaunch waits for the launched harness to report working after its
+// brief has been delivered through the native prompt channel or the typed
+// launch line.
 func (s Service) confirmLaunch(ctx context.Context, client *herdr.Client, target herdr.Target) error {
 	for attempt := 0; attempt < launchConfirmTries; attempt++ {
 		if attempt > 0 {
