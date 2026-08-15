@@ -19,11 +19,11 @@ func TestRunPeekStreamsOnlyTail(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	exit := runWithRuntime([]string{"peek", "fm-g1", "25"}, &stdout, &stderr, deps)
+	exit := runWithRuntime([]string{"peek", "gb-g1", "25"}, &stdout, &stderr, deps)
 	if exit != 0 {
 		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
 	}
-	if gotTarget != "fm-g1" || gotLines != 25 {
+	if gotTarget != "gb-g1" || gotLines != 25 {
 		t.Errorf("peek = target %q lines %d, want parsed input", gotTarget, gotLines)
 	}
 	if stdout.String() != "marker\n" || stderr.Len() != 0 {
@@ -40,7 +40,7 @@ func TestRunPeekDefaultsLineCount(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	exit := runWithRuntime([]string{"peek", "fm-g1"}, &stdout, &stderr, deps)
+	exit := runWithRuntime([]string{"peek", "gb-g1"}, &stdout, &stderr, deps)
 	if exit != 0 {
 		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
 	}
@@ -56,7 +56,7 @@ func TestRunPeekWritesFailureOnlyToStderr(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	exit := runWithRuntime([]string{"peek", "fm-g1"}, &stdout, &stderr, deps)
+	exit := runWithRuntime([]string{"peek", "gb-g1"}, &stdout, &stderr, deps)
 	if exit != 1 {
 		t.Fatalf("exit = %d, want 1", exit)
 	}
