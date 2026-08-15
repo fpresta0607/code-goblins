@@ -194,40 +194,63 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return fail(result, fmt.Errorf("spawn: build harness launch: %w", err))
 	}
 	launch.Dir = worktree.Path
-	prefix, err := launch.PowerShellPrefix()
-	if err != nil {
-		return fail(result, fmt.Errorf("spawn: render Windows launch prefix: %w", err))
-	}
-	if err := herdrClient.SendLiteral(ctx, endpoint.Target, prefix); err != nil {
-		return fail(result, fmt.Errorf("spawn: send launch prefix: %w", err))
-	}
-	if err := s.sleep(ctx, launchSettle); err != nil {
-		return fail(result, fmt.Errorf("spawn: wait before launch prefix submit: %w", err))
-	}
-	if err := herdrClient.SendKey(ctx, endpoint.Target, "Enter"); err != nil {
-		return fail(result, fmt.Errorf("spawn: submit launch prefix: %w", err))
-	}
-	if err := s.sleep(ctx, launchSettle); err != nil {
-		return fail(result, fmt.Errorf("spawn: wait before agent start: %w", err))
-	}
-	// The harness starts through Herdr's native agent facility under the gb-
-	// task name, so it is a named, registered agent from birth rather than a
-	// shell process Herdr happens to detect.
-	if err := herdrClient.AgentStart(ctx, endpoint.Target, "gb-"+req.ID, string(req.Harness), launch.Args); err != nil {
-		return fail(result, fmt.Errorf("spawn: start native harness agent: %w", err))
-	}
-	launchSubmitted = true
-	if err := s.confirmHarnessDialogs(ctx, &herdrClient, endpoint.Target, launch); err != nil {
-		return fail(result, err)
-	}
-	if err := s.sleep(ctx, launchSettle); err != nil {
-		return fail(result, fmt.Errorf("spawn: wait before brief prompt: %w", err))
-	}
-	if err := herdrClient.AgentPrompt(ctx, endpoint.Target, "Read the brief at "+launch.PromptFile+" and follow it exactly."); err != nil {
-		return fail(result, fmt.Errorf("spawn: submit harness brief prompt: %w", err))
-	}
-	if err := s.confirmLaunch(ctx, &herdrClient, endpoint.Target); err != nil {
-		return fail(result, err)
+	if launch.TypedLaunch {
+		line, err := launch.PowerShellTypedLine()
+		if err != nil {
+			return fail(result, fmt.Errorf("spawn: render typed harness launch: %w", err))
+		}
+		if err := herdrClient.SendLiteral(ctx, endpoint.Target, line); err != nil {
+			return fail(result, fmt.Errorf("spawn: send typed harness launch: %w", err))
+		}
+		if err := s.sleep(ctx, launchSettle); err != nil {
+			return fail(result, fmt.Errorf("spawn: wait before typed launch submit: %w", err))
+		}
+		if err := herdrClient.SendKey(ctx, endpoint.Target, "Enter"); err != nil {
+			return fail(result, fmt.Errorf("spawn: submit typed harness launch: %w", err))
+		}
+		launchSubmitted = true
+		if err := s.confirmHarnessDialogs(ctx, &herdrClient, endpoint.Target, launch); err != nil {
+			return fail(result, err)
+		}
+		if err := s.confirmLaunch(ctx, &herdrClient, endpoint.Target); err != nil {
+			return fail(result, err)
+		}
+	} else {
+		prefix, err := launch.PowerShellPrefix()
+		if err != nil {
+			return fail(result, fmt.Errorf("spawn: render Windows launch prefix: %w", err))
+		}
+		if err := herdrClient.SendLiteral(ctx, endpoint.Target, prefix); err != nil {
+			return fail(result, fmt.Errorf("spawn: send launch prefix: %w", err))
+		}
+		if err := s.sleep(ctx, launchSettle); err != nil {
+			return fail(result, fmt.Errorf("spawn: wait before launch prefix submit: %w", err))
+		}
+		if err := herdrClient.SendKey(ctx, endpoint.Target, "Enter"); err != nil {
+			return fail(result, fmt.Errorf("spawn: submit launch prefix: %w", err))
+		}
+		if err := s.sleep(ctx, launchSettle); err != nil {
+			return fail(result, fmt.Errorf("spawn: wait before agent start: %w", err))
+		}
+		// The harness starts through Herdr's native agent facility under the gb-
+		// task name, so it is a named, registered agent from birth rather than a
+		// shell process Herdr happens to detect.
+		if err := herdrClient.AgentStart(ctx, endpoint.Target, "gb-"+req.ID, string(req.Harness), launch.Args); err != nil {
+			return fail(result, fmt.Errorf("spawn: start native harness agent: %w", err))
+		}
+		launchSubmitted = true
+		if err := s.confirmHarnessDialogs(ctx, &herdrClient, endpoint.Target, launch); err != nil {
+			return fail(result, err)
+		}
+		if err := s.sleep(ctx, launchSettle); err != nil {
+			return fail(result, fmt.Errorf("spawn: wait before brief prompt: %w", err))
+		}
+		if err := herdrClient.AgentPrompt(ctx, endpoint.Target, harness.BriefInstruction(launch.PromptFile)); err != nil {
+			return fail(result, fmt.Errorf("spawn: submit harness brief prompt: %w", err))
+		}
+		if err := s.confirmLaunch(ctx, &herdrClient, endpoint.Target); err != nil {
+			return fail(result, err)
+		}
 	}
 
 	result.Meta.SpawnGen = fmt.Sprintf("s%d", time.Now().UTC().UnixNano())

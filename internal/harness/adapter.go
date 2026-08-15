@@ -45,6 +45,10 @@ type LaunchSpec struct {
 // prompt claude and kimi show in every fresh worktree): while a marker is on
 // screen, spawn sends ConfirmKeys to confirm the dialog. The keys differ per
 // harness because the default-highlighted option differs.
+// TypedLaunch is the fallback for harnesses Herdr cannot start natively
+// (Herdr's Windows agent start uses Start-Process -FilePath, which cannot
+// execute npm .cmd shims like pi): the full command plus the brief instruction
+// is typed into the prepared pane shell instead, and Herdr detects the agent.
 type Launch struct {
 	Args           []string
 	Env            map[string]string
@@ -52,6 +56,15 @@ type Launch struct {
 	Dir            string
 	ConfirmMarkers []string
 	ConfirmKeys    []string
+	TypedLaunch    bool
+	Executable     string
+}
+
+// BriefInstruction is the single prompt every goblin receives, delivered
+// through `herdr agent prompt` on the native path or as the final typed
+// argument on the typed-launch path.
+func BriefInstruction(promptFile string) string {
+	return "Read the brief at " + promptFile + " and follow it exactly."
 }
 
 // Adapter builds and validates one supported harness launch.
