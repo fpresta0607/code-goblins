@@ -861,7 +861,7 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		if workspaceID == "" {
 			workspaceID = "workspace-1"
 		}
-		return jsonResult(`{"workspaces":[{"workspace_id":` + quoteJSON(workspaceID) + `,"label":"code-goblins"}]}`), nil
+		return jsonResult(`{"workspaces":[{"workspace_id":` + quoteJSON(workspaceID) + `,"label":"cfo"}]}`), nil
 	case reflect.DeepEqual(args, []string{"tab", "list", "--workspace", "workspace-1"}):
 		*r.events = append(*r.events, "tab-list")
 		return jsonResult(`{"tabs":[]}`), nil
