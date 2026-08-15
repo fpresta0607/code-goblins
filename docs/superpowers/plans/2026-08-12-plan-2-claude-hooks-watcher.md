@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Superseded — deterministic zero-window guard test.** `TestRunHookTurnendGuardZeroWindowDoesNotWait` no longer races a 150ms goroutine against the hook start; the proof is written after the hook returns, which is equivalent for a guard that never polls and removes a load-induced flake. The affected section is Task 10's zero-window test case; its authoritative owner is `cmd/cfo/hook_test.go`. The task texts below remain historical and are not re-synced.
+
 **Goal:** Port the six Claude Code hook commands and the resident watcher to `cfo.exe`, preserving upstream First Mate's supervision contracts on Windows-native primitives.
 
 **Architecture:** A `cfo hook <name>` family reads Claude's hook JSON on stdin and honors the two distinct output contracts: PreToolUse denies emit a JSON envelope on stderr with exit 2, while Stop hooks block or rewake with plain stderr text and exit 2.

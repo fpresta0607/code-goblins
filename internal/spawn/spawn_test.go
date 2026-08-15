@@ -388,6 +388,41 @@ func TestSpawnStartsNamedAgentThenPromptsNatively(t *testing.T) {
 	}
 }
 
+func TestSpawnPiTypedLaunchTypesFullCommandAndSkipsNativeStart(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.request.Harness = harness.Pi
+	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
+		harness.Pi: typedFixtureAdapter{events: &fixture.events, kind: harness.Pi},
+	}
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn pi: %v", err)
+	}
+	if !strings.Contains(result.Output, "harness=pi") {
+		t.Errorf("Output = %q, want pi harness", result.Output)
+	}
+	if got := len(fixture.runner.literals); got != 1 {
+		t.Fatalf("literals = %q, want exactly one typed launch line", fixture.runner.literals)
+	}
+	wantLine := "Set-Location -LiteralPath '" + fixture.worktree + "'; $env:GOTMPDIR = '" + filepath.Join(result.Meta.TaskTmp, "gotmp") + "'; & 'pi' '--tui-mode' 'regular' 'Read the brief at " + fixture.brief + " and follow it exactly.'"
+	if got := fixture.runner.literal; got != wantLine {
+		t.Errorf("typed launch line = %q\nwant %q", got, wantLine)
+	}
+	if fixture.runner.startName != "" || fixture.runner.startKind != "" || fixture.runner.startArgs != nil {
+		t.Errorf("typed launch used native agent start: name=%q kind=%q args=%q", fixture.runner.startName, fixture.runner.startKind, fixture.runner.startArgs)
+	}
+	if fixture.runner.prompt != "" {
+		t.Errorf("typed launch sent a native agent prompt: %q", fixture.runner.prompt)
+	}
+	if slices.Contains(fixture.events, "agent-start") || slices.Contains(fixture.events, "agent-prompt") {
+		t.Errorf("events = %v, want typed launch without native start or prompt", fixture.events)
+	}
+	if !slices.Contains(fixture.events, "send-enter") || !slices.Contains(fixture.events, "agent-working") {
+		t.Errorf("events = %v, want typed submit followed by working confirmation", fixture.events)
+	}
+}
+
 func TestSpawnNormalizesLaunchFailureStatusToOneFailedEvent(t *testing.T) {
 	fixture := newFixture(t)
 	fixture.runner.agentErr = errors.New("preview unavailable\r\ndone: forged")
@@ -787,6 +822,31 @@ type fixtureAdapter struct {
 	events      *[]string
 	buildErr    error
 	confirmKeys []string
+}
+
+type typedFixtureAdapter struct {
+	events *[]string
+	kind   harness.Kind
+}
+
+func (a typedFixtureAdapter) Kind() harness.Kind {
+	return a.kind
+}
+
+func (a typedFixtureAdapter) Validate(context.Context, execx.Runner) error {
+	*a.events = append(*a.events, "validate-harness")
+	return nil
+}
+
+func (a typedFixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
+	*a.events = append(*a.events, "build-harness")
+	return harness.Launch{
+		Args:        []string{"--tui-mode", "regular"},
+		Env:         map[string]string{"GOTMPDIR": filepath.Join(spec.TaskTmp, "gotmp")},
+		PromptFile:  spec.BriefPath,
+		TypedLaunch: true,
+		Executable:  "pi",
+	}, nil
 }
 
 func (a fixtureAdapter) Kind() harness.Kind {
