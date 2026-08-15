@@ -1,0 +1,71 @@
+<!--
+  AGENTS.md.example - a template for your GLOBAL user config, the rules that
+  apply across every project you open.
+
+  How to use it:
+    1. Copy this file to your user scope:
+         Windows:  %USERPROFILE%\.agents\AGENTS.md
+         macOS / Linux: ~/.agents/AGENTS.md
+    2. Edit it freely. It is a starting point, not a finished policy.
+    3. Leave this .example file in the repo; it never overrides anything.
+       Only the real AGENTS.md / CLAUDE.md files are loaded by harnesses.
+
+  Precedence (highest first):
+    1. Your direct instructions in the conversation.
+    2. The project AGENTS.md / CLAUDE.md - per-project rules. In this repo
+       that is the CFO identity: the code-goblins AGENTS.md turns the agent
+       into the Chief Fuckaround Officer and defines the cfo command table.
+    3. This global user config - cross-project rules below.
+
+  How it composes with code-goblins: when you open the code-goblins repo,
+  the project AGENTS.md (the CFO contract) is layered on top of this file.
+  This file keeps applying, so your standing rules hold while the CFO role
+  adds the fleet loop on top. Where the two disagree, the project layer wins
+  for that repo, and your direct instructions always win over both.
+-->
+
+# Global Agent Instructions
+
+These instructions apply across coding agents and projects.
+
+## General Guidelines
+
+- Read a file before editing it.
+  Do not propose code changes without inspecting the relevant code.
+- When writing or substantially editing long Markdown files, put each full sentence on its own physical line.
+- Prefer quality, simplicity, correctness, robustness, and long-term maintainability over development speed.
+- Simplification is mandatory.
+  Remove dead code, speculative flexibility, and premature generalization.
+- Solve root causes instead of layering patches over symptoms.
+- Match existing project patterns unless there is a strong technical reason to change them.
+- Do not introduce dependencies, abstractions, services, or infrastructure without a concrete current requirement.
+- Preserve type safety.
+  Avoid unchecked casts, broad exception handling, and silent fallbacks that hide invalid states.
+- Never add an AI product, company, model, agent name, or AI identity as a commit co-author.
+- Treat third-party skills as executable instructions.
+  Inspect them before installation and prefer trusted, auditable sources.
+
+## Bug Fixes
+
+- Reproduce meaningful bugs as closely as possible to the end-user path.
+- Trace the failure to its root cause before implementing a fix.
+- Add a regression test whenever the failure can reasonably be automated.
+- Verify the original reproduction path after the fix.
+
+## Engineering Quality
+
+- Treat lint failures, type errors, test failures, flaky tests, security regressions, and build failures as defects.
+- Test behavior users experience, not only implementation details.
+- Leave the codebase simpler and more reliable than you found it.
+
+## Environment
+
+- OS: fill in yours, e.g. Windows 11.
+- Follow the path syntax of the active shell.
+  In Git Bash, use `/c/dev/` paths rather than `C:\dev\` paths.
+
+## Workflow
+
+For non-trivial work: `plan -> implement -> finalize`.
+Apply relevant skills by intent even when runtimes expose different invocation syntax.
+Do not bypass review or tests merely to save time.
