@@ -37,7 +37,7 @@ The full design and the explicit v1 scope live in [docs/superpowers/specs/2026-0
 - **One binary** - `cfo.exe`, built from source with `go build ./cmd/cfo`. A prebuilt release and `install.ps1` are planned.
 - **Real Windows sessions** - goblins run in [Herdr](https://herdr.dev), one tab per goblin.
 - **Isolated worktrees** - every goblin gets a clean worktree from [treehouse](https://github.com/kunchenguid/treehouse).
-- **Four harnesses** - Claude Code, Codex, Pi, and Kimi, each with typed, validated launch mapping; every goblin starts as a named native Herdr agent (`gb-<id>`) and receives its brief through `herdr agent prompt`.
+- **Four harnesses** - Claude Code, Codex, Pi, and Kimi, each with typed, validated launch mapping; claude, codex, and kimi start as named native Herdr agents (`gb-<id>`) and receive their brief through `herdr agent prompt`, while pi is typed into the prepared pane shell (Herdr's Windows agent start cannot run pi's npm `.cmd` shim).
 - **Supervision without babysitting** - Claude Code hooks plus `cfo watch` wake the CFO only when something needs attention; a turn-end guard refuses to let a turn end blind while work is in flight.
 - **Restart-proof state** - tasks, metadata, and the wake queue live on disk under `$CFO_HOME`.
 - **AXI integrations** - `tasks-axi` and `quota-axi` stay thin subprocess integrations for the backlog and quota-aware dispatch.
