@@ -139,7 +139,7 @@ Plan 3 expands the native Windows dispatch acceptance path to real Claude Code, 
 Herdr uses one flat workspace per CFO home and one tab per Code Goblin, with no presentation spaces or workspace projection lifecycle.
 The first Herdr client is a typed subprocess wrapper around the Windows `herdr` CLI that passes an explicit `--session` flag on every call and parses JSON in Go.
 Herdr event-socket subscription is not required for Plan 3 acceptance because the existing watcher keeps its polling fallback as the durable path while the Windows transport is verified separately.
-Treehouse remains the sole worktree allocator, and Plan 3 preserves plain `treehouse get` inside the live Herdr pane with foreground-cwd polling and isolation validation rather than introducing a second allocator.
+Treehouse remains the sole worktree allocator, and Plan 3 acquires a pooled worktree through `treehouse get --lease --json`, where the durable lease is the allocation evidence, with isolation validation rather than introducing a second allocator.
 Secondmates, Relay, and AFK remain outside Plan 3 even though the shared metadata and status primitives leave room for them later.
 The `tasks-axi` and `quota-axi` integrations remain external subprocess calls, and Plan 3 does not reimplement either tool.
 
