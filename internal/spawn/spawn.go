@@ -24,7 +24,7 @@ const (
 	spawnLockName      = ".spawn.lock"
 	launchSettle       = 300 * time.Millisecond
 	launchConfirmPoll  = 1500 * time.Millisecond
-	launchConfirmTries = 40
+	launchConfirmTries = 80
 )
 
 // Request is the complete local task creation input. Ship delivery posture is
@@ -406,7 +406,7 @@ func (s Service) confirmLaunch(ctx context.Context, client *herdr.Client, target
 				continue
 			}
 			capture, err := client.Capture(ctx, target, 60, false)
-			if err != nil || !containsAny(capture, markers) {
+			if err != nil || !containsMarker(capture, markers) {
 				continue
 			}
 			if err := client.SendKey(ctx, target, "Enter"); err != nil {
@@ -417,13 +417,26 @@ func (s Service) confirmLaunch(ctx context.Context, client *herdr.Client, target
 	return fmt.Errorf("spawn: harness launch did not report working within %ds", int(launchConfirmPoll.Seconds()*launchConfirmTries))
 }
 
-func containsAny(text string, markers []string) bool {
+// containsMarker matches against whitespace-normalized text: pane captures
+// wrap long dialog sentences across lines at the viewport width, so a marker
+// containing spaces never survives verbatim in the raw capture.
+func containsMarker(capture string, markers []string) bool {
+	compact := stripWhitespace(capture)
 	for _, marker := range markers {
-		if strings.Contains(text, marker) {
+		if strings.Contains(compact, stripWhitespace(marker)) {
 			return true
 		}
 	}
 	return false
+}
+
+func stripWhitespace(text string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, text)
 }
 
 func (s Service) postAcquireFailure(result Result, cause error) (Result, error) {

@@ -10,8 +10,11 @@ import (
 )
 
 // PowerShellLine renders a structured launch only at the Herdr delivery
-// boundary. Every value is a single-quoted PowerShell literal, and the brief
-// remains a final Get-Content expression so the full file is one prompt.
+// boundary. Every value is a single-quoted PowerShell literal. The brief is
+// referenced by path through a fixed instruction rather than inlined:
+// Herdr panes run Windows PowerShell 5.1, whose native-argument quoting
+// corrupts any argument containing embedded double quotes, so an inlined
+// multi-line brief arrives at the harness as broken argument fragments.
 func (launch Launch) PowerShellLine() (string, error) {
 	if strings.TrimSpace(launch.Executable) == "" {
 		return "", errors.New("harness: launch executable is required")
@@ -50,7 +53,7 @@ func (launch Launch) PowerShellLine() (string, error) {
 		command += " " + powerShellLiteral(arg)
 	}
 	if launch.PromptFile != "" {
-		command += " (Get-Content -Raw -LiteralPath " + powerShellLiteral(launch.PromptFile) + ")"
+		command += " " + powerShellLiteral("Read the brief at "+launch.PromptFile+" and follow it exactly.")
 	}
 	parts = append(parts, command)
 	return strings.Join(parts, "; "), nil
