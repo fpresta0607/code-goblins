@@ -4,6 +4,7 @@ package treehouse
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,18 +13,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
-
-const (
-	defaultPollInterval = time.Second
-	defaultTimeout      = 60 * time.Second
-)
-
-// Pane sends commands and observes the foreground shell directory of one live
-// Herdr pane.
-type Pane interface {
-	Run(ctx context.Context, text string) error
-	ForegroundCWD(ctx context.Context) (string, error)
-}
 
 // Git provides the Git and treehouse commands the service needs. It is an
 // interface so orchestration tests do not need real external tools.
@@ -37,8 +26,6 @@ type Git interface {
 type Service struct {
 	Commands execx.Runner
 	Git      Git
-	Poll     time.Duration
-	Timeout  time.Duration
 	Sleep    func(context.Context, time.Duration) error
 }
 
@@ -47,46 +34,51 @@ type Worktree struct {
 	Path string
 }
 
-// Acquire asks the live pane for a worktree, then waits for two matching
-// non-primary foreground-directory reads before trusting the result.
-func (s Service) Acquire(ctx context.Context, pane Pane, project string) (Worktree, error) {
+// leaseAllocation is the machine-readable `treehouse get --lease --json`
+// stdout contract. Banners go to stderr, so stdout carries only this object.
+type leaseAllocation struct {
+	Path    string `json:"path"`
+	LeaseID string `json:"lease_id"`
+}
+
+// Acquire durably leases a pooled worktree through treehouse's non-interactive
+// acquisition. The lease itself is the allocation evidence: treehouse never
+// hands a leased worktree to a later get and never prunes it until
+// treehouse.Service.Return releases it.
+func (s Service) Acquire(ctx context.Context, project, holder string) (Worktree, error) {
 	primary, err := fsx.Canonical(project)
 	if err != nil {
 		return Worktree{}, fmt.Errorf("treehouse: canonicalize primary project %q: %w", project, err)
 	}
-	if err := pane.Run(ctx, "treehouse get"); err != nil {
-		return Worktree{}, fmt.Errorf("treehouse: send treehouse get: %w", err)
+	if s.Commands == nil {
+		return Worktree{}, errors.New("treehouse: command runner is required")
 	}
-
-	poll, attempts := s.pollSettings()
-	var candidate string
-	for attempt := 0; attempt < attempts; attempt++ {
-		cwd, err := pane.ForegroundCWD(ctx)
-		if err != nil {
-			return Worktree{}, fmt.Errorf("treehouse: read foreground cwd: %w", err)
-		}
-		cwd, err = fsx.Canonical(cwd)
-		if err == nil {
-			switch {
-			case fsx.SamePath(cwd, primary):
-				candidate = ""
-			case candidate != "" && fsx.SamePath(cwd, candidate):
-				return Worktree{Path: cwd}, nil
-			default:
-				candidate = cwd
-			}
-		} else {
-			candidate = ""
-		}
-
-		if attempt+1 < attempts {
-			if err := s.sleep(ctx, poll); err != nil {
-				return Worktree{}, fmt.Errorf("treehouse: wait for foreground cwd: %w", err)
-			}
-		}
+	args := []string{"get", "--lease", "--json"}
+	if holder != "" {
+		args = append(args, "--lease-holder", holder)
 	}
-
-	return Worktree{}, fmt.Errorf("treehouse get did not enter a worktree within 60s for Herdr target %s", target(pane))
+	result, err := s.Commands.Run(ctx, execx.Request{Dir: primary, Name: "treehouse", Args: args})
+	if err != nil {
+		return Worktree{}, fmt.Errorf("treehouse: lease worktree for %q: %w", primary, err)
+	}
+	if result.ExitCode != 0 {
+		return Worktree{}, commandFailure("treehouse get --lease --json", result)
+	}
+	var lease leaseAllocation
+	if err := json.Unmarshal(result.Stdout, &lease); err != nil {
+		return Worktree{}, fmt.Errorf("treehouse: decode lease response: %w", err)
+	}
+	if lease.Path == "" || lease.LeaseID == "" {
+		return Worktree{}, errors.New("treehouse: lease response is missing path or lease_id")
+	}
+	path, err := fsx.Canonical(lease.Path)
+	if err != nil {
+		return Worktree{}, fmt.Errorf("treehouse: canonicalize leased worktree %q: %w", lease.Path, err)
+	}
+	if fsx.SamePath(path, primary) {
+		return Worktree{}, fmt.Errorf("treehouse: leased worktree %q is the primary project", path)
+	}
+	return Worktree{Path: path}, nil
 }
 
 // Freshen updates an acquired worktree to the current default-branch base.
@@ -140,49 +132,6 @@ func (s Service) git() (Git, error) {
 		return nil, errors.New("treehouse: Git or command runner is required")
 	}
 	return RunnerGit{Commands: s.Commands, Sleep: s.Sleep}, nil
-}
-
-func (s Service) pollSettings() (time.Duration, int) {
-	poll := s.Poll
-	if poll <= 0 {
-		poll = defaultPollInterval
-	}
-	timeout := s.Timeout
-	if timeout <= 0 {
-		timeout = defaultTimeout
-	}
-	attempts := int(timeout / poll)
-	if timeout%poll != 0 {
-		attempts++
-	}
-	if attempts < 1 {
-		attempts = 1
-	}
-	if attempts > 60 {
-		attempts = 60
-	}
-	return poll, attempts
-}
-
-func (s Service) sleep(ctx context.Context, duration time.Duration) error {
-	if s.Sleep != nil {
-		return s.Sleep(ctx, duration)
-	}
-	timer := time.NewTimer(duration)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
-}
-
-func target(pane Pane) string {
-	if stringer, ok := pane.(fmt.Stringer); ok && stringer.String() != "" {
-		return stringer.String()
-	}
-	return "unknown"
 }
 
 func readableDir(path string) error {

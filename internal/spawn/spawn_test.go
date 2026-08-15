@@ -175,12 +175,14 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 	}
 
 	if got, want := fixture.events, []string{
+		"status",
+		"schema",
+		"status",
+		"session-list",
 		"workspace-list",
 		"tab-list",
 		"tab-create",
 		"treehouse-get",
-		"foreground-cwd",
-		"foreground-cwd",
 		"validate-worktree",
 		"freshen",
 		"validate-harness",
@@ -192,7 +194,7 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 	}; !reflect.DeepEqual(got, want) {
 		t.Errorf("operation order = %v\nwant %v", got, want)
 	}
-	if got, want := fixture.runner.literal, "$env:GOTMPDIR = '"+filepath.Join(meta.TaskTmp, "gotmp")+"'; & 'claude' '--dangerously-skip-permissions' (Get-Content -Raw -LiteralPath '"+fixture.brief+"')"; got != want {
+	if got, want := fixture.runner.literal, "Set-Location -LiteralPath '"+fixture.worktree+"'; $env:GOTMPDIR = '"+filepath.Join(meta.TaskTmp, "gotmp")+"'; & 'claude' '--dangerously-skip-permissions' (Get-Content -Raw -LiteralPath '"+fixture.brief+"')"; got != want {
 		t.Errorf("launch line = %q\nwant %q", got, want)
 	}
 	if got := fixture.runner.enterKeys; got != 1 {
@@ -285,6 +287,26 @@ func TestSpawnLaunchFailureRecordsExactCauseAndPreservesWorktree(t *testing.T) {
 	}
 }
 
+func TestSpawnConfirmsBlockingTrustDialogThenLaunches(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.runner.agentStatus = "blocked"
+	fixture.runner.trustDialog = true
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn with trust dialog: %v", err)
+	}
+	if !strings.Contains(result.Output, "spawned task-7") {
+		t.Errorf("Output = %q, want successful spawn", result.Output)
+	}
+	if fixture.runner.enterKeys != 2 {
+		t.Errorf("Enter sends = %d, want launch submit plus trust confirmation", fixture.runner.enterKeys)
+	}
+	if !slices.Contains(fixture.events, "capture") {
+		t.Errorf("events = %v, want a pane capture before trust confirmation", fixture.events)
+	}
+}
+
 func TestSpawnNormalizesLaunchFailureStatusToOneFailedEvent(t *testing.T) {
 	fixture := newFixture(t)
 	fixture.runner.agentErr = errors.New("preview unavailable\r\ndone: forged")
@@ -349,8 +371,8 @@ func TestSpawnRejectsMalformedHerdrIDsBeforeDownstreamWork(t *testing.T) {
 		set    func(*herdrRunner)
 		events []string
 	}{
-		{"container", func(r *herdrRunner) { r.workspaceID = "workspace-1\nbad" }, []string{"workspace-list"}},
-		{"endpoint", func(r *herdrRunner) { r.paneID = "pane-1\nbad" }, []string{"workspace-list", "tab-list", "tab-create"}},
+		{"container", func(r *herdrRunner) { r.workspaceID = "workspace-1\nbad" }, []string{"status", "schema", "status", "session-list", "workspace-list"}},
+		{"endpoint", func(r *herdrRunner) { r.paneID = "pane-1\nbad" }, []string{"status", "schema", "status", "session-list", "workspace-list", "tab-list", "tab-create"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -595,10 +617,9 @@ func newFixture(t *testing.T) *fixture {
 			Sleep:    func(context.Context, time.Duration) error { return nil },
 		},
 		Treehouse: treehouse.Service{
-			Git:     fixture.git,
-			Poll:    time.Millisecond,
-			Timeout: time.Second,
-			Sleep:   func(context.Context, time.Duration) error { return nil },
+			Commands: fixture.runner,
+			Git:      fixture.git,
+			Sleep:    func(context.Context, time.Duration) error { return nil },
 		},
 		Harness: harness.Registry{Adapters: map[harness.Kind]harness.Adapter{
 			harness.Claude: fixtureAdapter{events: &fixture.events},
@@ -645,10 +666,11 @@ func (a fixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
 		return harness.Launch{}, a.buildErr
 	}
 	return harness.Launch{
-		Executable: "claude",
-		Args:       []string{"--dangerously-skip-permissions"},
-		Env:        map[string]string{"GOTMPDIR": filepath.Join(spec.TaskTmp, "gotmp")},
-		PromptFile: spec.BriefPath,
+		Executable:     "claude",
+		Args:           []string{"--dangerously-skip-permissions"},
+		Env:            map[string]string{"GOTMPDIR": filepath.Join(spec.TaskTmp, "gotmp")},
+		PromptFile:     spec.BriefPath,
+		ConfirmMarkers: []string{"Is this a project you created or one you trust?"},
 	}, nil
 }
 
@@ -681,6 +703,7 @@ type herdrRunner struct {
 	agentStatus   string
 	agentErr      error
 	missingPaneID bool
+	trustDialog   bool
 	calls         int
 	literal       string
 	enterKeys     int
@@ -688,6 +711,13 @@ type herdrRunner struct {
 
 func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
 	r.calls++
+	if req.Name == "treehouse" {
+		*r.events = append(*r.events, "treehouse-get")
+		if len(req.Args) != 5 || req.Args[0] != "get" || req.Args[1] != "--lease" || req.Args[2] != "--json" || req.Args[3] != "--lease-holder" || !strings.HasPrefix(req.Args[4], "fm-") {
+			return execx.Result{}, fmt.Errorf("unexpected treehouse request: %#v", req)
+		}
+		return execx.Result{Stdout: []byte(`{"path":` + quoteJSON(r.worktree) + `,"lease_id":"lease-1","lease_holder":"fm"}`)}, nil
+	}
 	wantSession := r.session
 	if wantSession == "" {
 		wantSession = "fleet"
@@ -697,6 +727,15 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 	}
 	args := req.Args[:len(req.Args)-2]
 	switch {
+	case reflect.DeepEqual(args, []string{"status", "--json"}):
+		*r.events = append(*r.events, "status")
+		return execx.Result{Stdout: []byte(`{"client":{"protocol":19},"server":{"running":true,"protocol":19,"compatible":true}}`)}, nil
+	case reflect.DeepEqual(args, []string{"api", "schema", "--json"}):
+		*r.events = append(*r.events, "schema")
+		return execx.Result{Stdout: []byte(fixtureSchemaJSON())}, nil
+	case reflect.DeepEqual(args, []string{"session", "list", "--json"}):
+		*r.events = append(*r.events, "session-list")
+		return execx.Result{Stdout: []byte(`{"sessions":[{"name":` + quoteJSON(wantSession) + `,"running":true}]}`)}, nil
 	case reflect.DeepEqual(args, []string{"workspace", "list"}):
 		*r.events = append(*r.events, "workspace-list")
 		workspaceID := r.workspaceID
@@ -717,12 +756,6 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 			return jsonResult(`{"tab":{"tab_id":"tab-1"},"root_pane":{}}`), nil
 		}
 		return jsonResult(`{"tab":{"tab_id":"tab-1"},"root_pane":{"pane_id":` + quoteJSON(paneID) + `}}`), nil
-	case reflect.DeepEqual(args, []string{"pane", "run", "pane-1", "treehouse get"}):
-		*r.events = append(*r.events, "treehouse-get")
-		return jsonResult(`{}`), nil
-	case reflect.DeepEqual(args, []string{"pane", "get", "pane-1"}):
-		*r.events = append(*r.events, "foreground-cwd")
-		return jsonResult(`{"pane":{"foreground_cwd":` + quoteJSON(r.worktree) + `}}`), nil
 	case len(args) == 4 && args[0] == "pane" && args[1] == "send-text" && args[2] == "pane-1":
 		*r.events = append(*r.events, "send-literal")
 		r.literal = args[3]
@@ -730,7 +763,17 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 	case reflect.DeepEqual(args, []string{"pane", "send-keys", "pane-1", "enter"}):
 		*r.events = append(*r.events, "send-enter")
 		r.enterKeys++
+		if r.trustDialog && r.enterKeys > 1 {
+			r.trustDialog = false
+			r.agentStatus = "working"
+		}
 		return jsonResult(`{}`), nil
+	case len(args) >= 3 && args[0] == "pane" && args[1] == "read" && args[2] == "pane-1":
+		*r.events = append(*r.events, "capture")
+		if r.trustDialog {
+			return execx.Result{Stdout: []byte("Accessing workspace:\n\nIs this a project you created or one you trust?\n")}, nil
+		}
+		return execx.Result{Stdout: []byte("claude is running\n")}, nil
 	case reflect.DeepEqual(args, []string{"agent", "get", "pane-1"}):
 		if r.agentErr != nil {
 			return execx.Result{}, r.agentErr
@@ -746,6 +789,37 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 
 func jsonResult(result string) execx.Result {
 	return execx.Result{Stdout: []byte(`{"result":` + result + `}`)}
+}
+
+// fixtureSchemaJSON is the minimal protocol-19 schema-1 document satisfying
+// the spawn compatibility preflight: both response envelopes plus every
+// method CFO uses.
+func fixtureSchemaJSON() string {
+	methods := []string{
+		"session.snapshot",
+		"workspace.create",
+		"workspace.list",
+		"tab.close",
+		"tab.create",
+		"tab.list",
+		"agent.get",
+		"pane.close",
+		"pane.get",
+		"pane.list",
+		"pane.read",
+		"pane.send_keys",
+		"pane.send_text",
+	}
+	var b strings.Builder
+	b.WriteString(`{"protocol":19,"schema_version":1,"schemas":{"success_response":{},"error_response":{},"request":{"oneOf":[`)
+	for i, method := range methods {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		b.WriteString(`{"properties":{"method":{"const":` + quoteJSON(method) + `}}}`)
+	}
+	b.WriteString(`]}}}`)
+	return b.String()
 }
 
 func quoteJSON(value string) string {

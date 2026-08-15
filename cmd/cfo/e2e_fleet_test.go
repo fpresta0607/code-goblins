@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -213,11 +214,10 @@ func newFleetE2EFixture(t *testing.T) *fleetE2EFixture {
 		now:     time.Now().UTC().Truncate(time.Second),
 	}
 	fixture.runner = &fleetE2ERunner{
-		fixture:   fixture,
-		tabs:      make(map[string]fleetE2ETab),
-		worktrees: make(map[string]string),
-		busy:      make(map[string]herdr.BusyState),
-		missing:   make(map[string]bool),
+		fixture: fixture,
+		tabs:    make(map[string]fleetE2ETab),
+		busy:    make(map[string]herdr.BusyState),
+		missing: make(map[string]bool),
 	}
 	fixture.git = &fleetE2EGit{fixture: fixture}
 	fixture.client = &herdr.Client{
@@ -515,6 +515,9 @@ func (f *fleetE2EFixture) AssertVisibleTabsAndNoLifecycleDeletes() {
 			if request.Name == "pi" && len(request.Args) == 1 && request.Args[0] == "--help" {
 				continue
 			}
+			if request.Name == "treehouse" && len(request.Args) == 5 && request.Args[0] == "get" && request.Args[1] == "--lease" && request.Args[2] == "--json" {
+				continue
+			}
 			f.t.Fatalf("unexpected fake external request=%+v", request)
 		}
 		if len(request.Args) < 2 || request.Args[len(request.Args)-2] != "--session" || request.Args[len(request.Args)-1] != "fleet-e2e" {
@@ -532,10 +535,9 @@ func (f *fleetE2EFixture) spawn(ctx context.Context, h home.Home, request spawn.
 	service := spawn.Service{
 		Herdr: f.client,
 		Treehouse: treehouse.Service{
-			Git:     f.git,
-			Poll:    time.Millisecond,
-			Timeout: time.Second,
-			Sleep:   noWait,
+			Commands: f.runner,
+			Git:      f.git,
+			Sleep:    noWait,
 		},
 		Harness:  harness.DefaultRegistry(),
 		StateDir: h.State,
@@ -597,7 +599,6 @@ type fleetE2ERunner struct {
 	fixture   *fleetE2EFixture
 	workspace bool
 	tabs      map[string]fleetE2ETab
-	worktrees map[string]string
 	busy      map[string]herdr.BusyState
 	missing   map[string]bool
 	lastText  string
@@ -618,6 +619,24 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 	if request.Name == "pi" {
 		return result("Usage:\nOptions:\n  --model\n  --thinking low medium high xhigh max\n  --extension\n  --tui-mode\n"), nil
 	}
+	if request.Name == "treehouse" {
+		holder, ok := flagValue(request.Args, "--lease-holder")
+		if !ok || !strings.HasPrefix(holder, "fm-") {
+			return execx.Result{}, fmt.Errorf("treehouse get is missing fm- lease holder: %v", request.Args)
+		}
+		if !samePath(request.Dir, r.fixture.project) {
+			return execx.Result{}, fmt.Errorf("treehouse get ran outside the project: %q", request.Dir)
+		}
+		worktree := filepath.Join(r.fixture.home.Root, "worktrees", strings.TrimPrefix(holder, "fm-"))
+		if err := os.MkdirAll(worktree, 0o755); err != nil {
+			return execx.Result{}, err
+		}
+		lease, err := json.Marshal(map[string]string{"path": worktree, "lease_id": "lease-" + holder, "lease_holder": holder})
+		if err != nil {
+			return execx.Result{}, err
+		}
+		return result(string(lease)), nil
+	}
 	if request.Name != "herdr" {
 		return execx.Result{}, fmt.Errorf("unexpected fake executable %q", request.Name)
 	}
@@ -626,6 +645,18 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 		return execx.Result{}, err
 	}
 	switch {
+	case matches(args, "status", "--json"):
+		return result(`{"client":{"protocol":19},"server":{"running":true,"protocol":19,"compatible":true}}`), nil
+	case matches(args, "api", "schema"):
+		if !hasArgument(args, "--json") {
+			return execx.Result{}, fmt.Errorf("api schema is missing --json: %v", args)
+		}
+		return result(fleetE2ESchemaJSON()), nil
+	case matches(args, "session", "list"):
+		if !hasArgument(args, "--json") {
+			return execx.Result{}, fmt.Errorf("session list is missing --json: %v", args)
+		}
+		return result(`{"sessions":[{"name":"fleet-e2e","running":true}]}`), nil
 	case matches(args, "workspace", "list"):
 		if !r.workspace {
 			return resultEnvelope(map[string]any{"workspaces": []any{}}), nil
@@ -651,32 +682,16 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 		}
 		id := strings.TrimPrefix(label, "fm-")
 		pane := "pane:" + id
-		tab := fleetE2ETab{id: "tab-" + id, pane: pane}
-		r.tabs[label] = tab
-		worktree := filepath.Join(r.fixture.home.Root, "worktrees", id)
-		if err := os.MkdirAll(worktree, 0o755); err != nil {
-			return execx.Result{}, err
-		}
-		r.worktrees[pane] = worktree
+		r.tabs[label] = fleetE2ETab{id: "tab-" + id, pane: pane}
 		return resultEnvelope(map[string]any{
-			"tab":       map[string]string{"tab_id": tab.id},
+			"tab":       map[string]string{"tab_id": "tab-" + id},
 			"root_pane": map[string]string{"pane_id": pane},
 		}), nil
-	case matches(args, "pane", "run"):
-		if len(args) < 4 || args[3] != "treehouse get" {
-			return execx.Result{}, fmt.Errorf("unexpected pane run: %v", args)
-		}
-		return resultEnvelope(map[string]any{}), nil
 	case matches(args, "pane", "get"):
 		if len(args) < 3 {
 			return execx.Result{}, fmt.Errorf("pane get is missing pane: %v", args)
 		}
-		pane := args[2]
-		worktree, ok := r.worktrees[pane]
-		if !ok {
-			return resultEnvelope(map[string]any{"pane": map[string]string{"pane_id": pane, "foreground_cwd": r.fixture.project}}), nil
-		}
-		return resultEnvelope(map[string]any{"pane": map[string]string{"pane_id": pane, "foreground_cwd": worktree}}), nil
+		return resultEnvelope(map[string]any{"pane": map[string]string{"pane_id": args[2]}}), nil
 	case matches(args, "pane", "send-text"):
 		if len(args) < 4 {
 			return execx.Result{}, fmt.Errorf("pane send-text is incomplete: %v", args)
@@ -785,7 +800,8 @@ type fleetE2EEndpoint struct {
 }
 
 func (e fleetE2EEndpoint) Exists(_ context.Context, target herdr.Target) (bool, error) {
-	_, known := e.fixture.runner.worktrees[target.Pane]
+	id := strings.TrimPrefix(target.Pane, "pane:")
+	_, known := e.fixture.runner.tabs["fm-"+id]
 	return known && !e.fixture.runner.missing[target.Pane], nil
 }
 
@@ -848,6 +864,37 @@ func resultEnvelope(value any) execx.Result {
 		panic(err)
 	}
 	return execx.Result{Stdout: data}
+}
+
+// fleetE2ESchemaJSON is the minimal protocol-19 schema-1 document satisfying
+// the spawn compatibility preflight: both response envelopes plus every
+// method CFO uses.
+func fleetE2ESchemaJSON() string {
+	methods := []string{
+		"session.snapshot",
+		"workspace.create",
+		"workspace.list",
+		"tab.close",
+		"tab.create",
+		"tab.list",
+		"agent.get",
+		"pane.close",
+		"pane.get",
+		"pane.list",
+		"pane.read",
+		"pane.send_keys",
+		"pane.send_text",
+	}
+	var b strings.Builder
+	b.WriteString(`{"protocol":19,"schema_version":1,"schemas":{"success_response":{},"error_response":{},"request":{"oneOf":[`)
+	for i, method := range methods {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		b.WriteString(`{"properties":{"method":{"const":` + strconv.Quote(method) + `}}}`)
+	}
+	b.WriteString(`]}}}`)
+	return b.String()
 }
 
 func matches(args []string, first, second string) bool {
