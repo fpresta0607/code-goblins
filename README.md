@@ -40,7 +40,7 @@ The full design and the explicit v1 scope live in [docs/superpowers/specs/2026-0
 - **Four harnesses** - Claude Code, Codex, Pi, and Kimi, each with typed, validated launch mapping; claude, codex, and kimi start as named native Herdr agents (`gb-<id>`) and receive their brief through `herdr agent prompt`, while pi is typed into the prepared pane shell (Herdr's Windows agent start cannot run pi's npm `.cmd` shim).
 - **Supervision without babysitting** - Claude Code hooks plus `cfo watch` wake the CFO only when something needs attention; a turn-end guard refuses to let a turn end blind while work is in flight.
 - **Restart-proof state** - tasks, metadata, and the wake queue live on disk under `$CFO_HOME`.
-- **AXI integrations** - `gh-axi` (GitHub), `chrome-devtools-axi` (browser), `tasks-axi` (backlog), and `quota-axi` (dispatch) stay thin subprocess integrations; their skills ship in `.agents/skills/`.
+- **AXI integrations** - `tasks-axi` (backlog) and `quota-axi` (dispatch) stay thin subprocess integrations in `cfo`; `gh-axi` (GitHub) and `chrome-devtools-axi` (browser) ship as skills in `.agents/skills/`.
 
 ## Commands
 
