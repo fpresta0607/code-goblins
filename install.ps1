@@ -44,6 +44,39 @@ Write-Host "Installed cfo.exe -> $dest"
 Write-Host "The .claude/settings.json hooks are already wired to $dest."
 Write-Host ""
 
+# Ship the bundled skills to the harnesses that read a different project
+# directory: claude reads .claude/skills and codex reads .codex/skills, while
+# kimi and pi read .agents/skills directly. A junction keeps one copy tracked
+# in git (no duplicate files, no developer-mode symlinks).
+function Ensure-SkillJunctions {
+    param([string]$Root)
+    $source = Join-Path $Root ".agents\skills"
+    if (-not (Test-Path $source)) {
+        Write-Host "WARN     skills           .agents\skills not found; skipping skill junctions"
+        return
+    }
+    foreach ($rel in @(".claude\skills", ".codex\skills")) {
+        $link = Join-Path $Root $rel
+        if (Test-Path $link) {
+            $item = Get-Item $link -Force
+            if ($item.LinkType -eq "Junction") {
+                Write-Host ("ok       {0,-20} skill junction present" -f $rel)
+            }
+            else {
+                Write-Host ("WARN     {0,-20} exists and is not a junction; leaving it alone" -f $rel)
+            }
+            continue
+        }
+        cmd /c mklink /J `"$link`" `"$source`" | Out-Null
+        if (Test-Path $link) {
+            Write-Host ("ok       {0,-20} skill junction created" -f $rel)
+        }
+        else {
+            Write-Host ("WARN     {0,-20} could not create skill junction (run: cmd /c mklink /J {0} .agents\skills)" -f $rel)
+        }
+    }
+}
+
 # The toolchain mirrors `cfo doctor`; its hints are the source of truth for
 # where each tool comes from. Kind says how a missing tool gets installed:
 #   winget     - a winget package (needs winget)
@@ -110,6 +143,12 @@ if ($Bootstrap -and $installedAny) {
     Write-Host "Refreshing PATH so newly installed tools are visible in this session ..."
     $parts = @($env:Path -split ';') + @([Environment]::GetEnvironmentVariable("Path", "Machine") -split ';') + @([Environment]::GetEnvironmentVariable("Path", "User") -split ';')
     $env:Path = ($parts | Where-Object { $_ -ne "" } | Select-Object -Unique) -join ';'
+}
+
+# Wire the bundled skills into the harness project-scope directories.
+if ($Bootstrap) {
+    Write-Host ""
+    Ensure-SkillJunctions -Root $InstallDir
 }
 
 Write-Host ""
