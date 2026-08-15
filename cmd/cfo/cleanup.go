@@ -15,7 +15,8 @@ import (
 
 const cleanupUsage = `usage: cfo cleanup <id>
 
-Return one clean, proven-inactive task worktree through treehouse.
+Close the task tab and return one clean, proven-inactive task worktree
+through treehouse.
 Refuses dirty worktrees, active agents, ambiguous identity, and the primary
 checkout. There is no force override.
 `
