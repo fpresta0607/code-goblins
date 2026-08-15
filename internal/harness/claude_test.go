@@ -19,8 +19,7 @@ func TestClaudeBuildsStructuredLaunch(t *testing.T) {
 		t.Fatalf("Build defaults: %v", err)
 	}
 	assertLaunch(t, defaults, Launch{
-		Executable: "claude",
-		Args:       []string{"--dangerously-skip-permissions"},
+		Args: []string{"--dangerously-skip-permissions"},
 		Env: map[string]string{
 			"CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "false",
 			"GOTMPDIR":                             `C:\tasks\task\gotmp`,
@@ -30,6 +29,7 @@ func TestClaudeBuildsStructuredLaunch(t *testing.T) {
 			"Is this a project you created or one you trust?",
 			"Do you trust the files in this folder?",
 		},
+		ConfirmKeys: []string{"enter"},
 	})
 
 	explicit, err := adapter.Build(LaunchSpec{

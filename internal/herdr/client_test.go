@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -87,8 +88,14 @@ func assertRequests(t *testing.T, got, want []execx.Request) {
 		t.Fatalf("requests = %#v, want %#v", got, want)
 	}
 	for _, request := range got {
-		if len(request.Args) < 2 || request.Args[len(request.Args)-2] != "--session" || request.Args[len(request.Args)-1] != "fleet" {
-			t.Errorf("request %q does not end in explicit fleet session routing", request.Args)
+		// The session flag must be present; with a `--` agent-args separator
+		// (agent start) it sits before the separator rather than at the tail.
+		sessionAt := slices.Index(request.Args, "--session")
+		if sessionAt < 0 || sessionAt+1 >= len(request.Args) || request.Args[sessionAt+1] != "fleet" {
+			t.Errorf("request %q is missing explicit fleet session routing", request.Args)
+		}
+		if separator := slices.Index(request.Args, "--"); separator >= 0 && sessionAt > separator {
+			t.Errorf("request %q routes the session flag to the agent", request.Args)
 		}
 	}
 }
@@ -419,6 +426,31 @@ func TestPaneOperationsUseCorrectPrimitiveAndCaptureTail(t *testing.T) {
 		command("herdr", "pane", "send-keys", "w1:p2", "enter", "--session", "fleet"),
 		command("herdr", "pane", "send-keys", "w1:p2", "escape", "--session", "fleet"),
 		command("herdr", "pane", "send-keys", "w1:p2", "ctrl+c", "--session", "fleet"),
+	})
+}
+
+func TestAgentStartAndPromptUseNativeCommands(t *testing.T) {
+	runner := &fakeRunner{replies: []runnerReply{rawReply(""), rawReply(""), rawReply(""), rawReply("")}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+	target := Target{Session: "fleet", Pane: "w1:p2"}
+
+	if err := client.AgentStart(context.Background(), target, "gb-task-7", "claude", []string{"--dangerously-skip-permissions"}); err != nil {
+		t.Fatalf("AgentStart: %v", err)
+	}
+	if err := client.AgentPrompt(context.Background(), target, "Read the brief at C:\\briefs\\task.md and follow it exactly."); err != nil {
+		t.Fatalf("AgentPrompt: %v", err)
+	}
+	if err := client.AgentStart(context.Background(), target, "gb-task-8", "kimi", nil); err != nil {
+		t.Fatalf("AgentStart without args: %v", err)
+	}
+	if err := client.AgentStart(context.Background(), Target{Session: "fleet"}, "gb-task-9", "kimi", nil); err == nil {
+		t.Fatal("AgentStart without pane returned nil error")
+	}
+	assertRequests(t, runner.Requests(), []execx.Request{
+		command("herdr", "agent", "start", "gb-task-7", "--kind", "claude", "--pane", "w1:p2", "--session", "fleet", "--", "--dangerously-skip-permissions"),
+		command("herdr", "agent", "prompt", "w1:p2", "Read the brief at C:\\briefs\\task.md and follow it exactly.", "--session", "fleet"),
+		command("herdr", "agent", "start", "gb-task-8", "--kind", "kimi", "--pane", "w1:p2", "--session", "fleet"),
 	})
 }
 

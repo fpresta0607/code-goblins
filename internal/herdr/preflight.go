@@ -26,6 +26,8 @@ var requiredMethods = []string{
 	"tab.create",
 	"tab.list",
 	"agent.get",
+	"agent.prompt",
+	"agent.start",
 	"pane.close",
 	"pane.get",
 	"pane.list",

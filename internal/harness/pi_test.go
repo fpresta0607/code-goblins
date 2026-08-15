@@ -34,7 +34,6 @@ Options:
 		t.Fatalf("Build defaults: %v", err)
 	}
 	assertLaunch(t, defaults, Launch{
-		Executable: "pi",
 		Args:       []string{"--tui-mode", "regular"},
 		Env:        map[string]string{"GOTMPDIR": `C:\tasks\task\gotmp`},
 		PromptFile: `C:\briefs\task.md`,
