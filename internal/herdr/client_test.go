@@ -175,7 +175,7 @@ func TestEnsureContainerUsesFlatLabelAndExplicitSession(t *testing.T) {
 	}
 	assertRequests(t, runner.Requests(), []execx.Request{
 		command("herdr", "workspace", "list", "--session", "fleet"),
-		command("herdr", "workspace", "create", "--cwd", `C:\repo`, "--label", "firstmate", "--no-focus", "--session", "fleet"),
+		command("herdr", "workspace", "create", "--cwd", `C:\repo`, "--label", "code-goblins", "--no-focus", "--session", "fleet"),
 	})
 }
 
@@ -188,17 +188,17 @@ func TestEnsureContainerAdoptsOnlyOneMatchingWorkspace(t *testing.T) {
 	}{
 		{
 			name: "one matching workspace is adopted",
-			body: `{"result":{"workspaces":[{"workspace_id":"ws-other","label":"other"},{"workspace_id":"ws-1","label":"firstmate"}]}}`,
+			body: `{"result":{"workspaces":[{"workspace_id":"ws-other","label":"other"},{"workspace_id":"ws-1","label":"code-goblins"}]}}`,
 			want: Container{Session: "fleet", WorkspaceID: "ws-1"},
 		},
 		{
 			name:    "matching workspaces are ambiguous",
-			body:    `{"result":{"workspaces":[{"workspace_id":"ws-1","label":"firstmate"},{"workspace_id":"ws-2","label":"firstmate"}]}}`,
+			body:    `{"result":{"workspaces":[{"workspace_id":"ws-1","label":"code-goblins"},{"workspace_id":"ws-2","label":"code-goblins"}]}}`,
 			wantErr: true,
 		},
 		{
 			name:    "missing workspace id is rejected",
-			body:    `{"result":{"workspaces":[{"label":"firstmate"}]}}`,
+			body:    `{"result":{"workspaces":[{"label":"code-goblins"}]}}`,
 			wantErr: true,
 		},
 	}
@@ -222,7 +222,7 @@ func TestEnsureContainerAdoptsOnlyOneMatchingWorkspace(t *testing.T) {
 
 func TestCreateTaskRefusesDuplicateWithLiveAgent(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{
-		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-existing","label":"fm-task"}]}}`),
+		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-existing","label":"gb-task"}]}}`),
 		jsonReply(`{"result":{"panes":[{"pane_id":"pane-existing","tab_id":"tab-existing"}]}}`),
 		jsonReply(`{"result":{"pane":{"pane_id":"pane-existing"}}}`),
 		jsonReply(`{"result":{"agent":{"agent_status":"working"}}}`),
@@ -230,7 +230,7 @@ func TestCreateTaskRefusesDuplicateWithLiveAgent(t *testing.T) {
 	var sleeps []time.Duration
 	client := newTestClient(runner, &sleeps)
 
-	_, err := client.CreateTask(context.Background(), Container{Session: "fleet", WorkspaceID: "ws-1"}, "fm-task", `C:\repo`)
+	_, err := client.CreateTask(context.Background(), Container{Session: "fleet", WorkspaceID: "ws-1"}, "gb-task", `C:\repo`)
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("CreateTask error = %v, want duplicate refusal", err)
 	}
@@ -244,7 +244,7 @@ func TestCreateTaskRefusesDuplicateWithLiveAgent(t *testing.T) {
 
 func TestCreateTaskRefusesDuplicateWhenAnyPaneIsAlive(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{
-		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-existing","label":"fm-task"}]}}`),
+		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-existing","label":"gb-task"}]}}`),
 		jsonReply(`{"result":{"panes":[{"pane_id":"pane-husk","tab_id":"tab-existing"},{"pane_id":"pane-live","tab_id":"tab-existing"}]}}`),
 		{result: execx.Result{Stdout: []byte(`{"error":{"code":"pane_not_found"}}`), ExitCode: 1}},
 		jsonReply(`{"result":{"pane":{"pane_id":"pane-live"}}}`),
@@ -253,7 +253,7 @@ func TestCreateTaskRefusesDuplicateWhenAnyPaneIsAlive(t *testing.T) {
 	var sleeps []time.Duration
 	client := newTestClient(runner, &sleeps)
 
-	_, err := client.CreateTask(context.Background(), Container{Session: "fleet", WorkspaceID: "ws-1"}, "fm-task", `C:\repo`)
+	_, err := client.CreateTask(context.Background(), Container{Session: "fleet", WorkspaceID: "ws-1"}, "gb-task", `C:\repo`)
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("CreateTask error = %v, want duplicate refusal after a live second pane", err)
 	}
@@ -266,13 +266,13 @@ func TestCreateTaskRefusesDuplicateWhenAnyPaneIsAlive(t *testing.T) {
 
 func TestCreateTaskReplacesHuskAndPrunesOnlyExactSafeSeed(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{
-		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-husk","label":"fm-task"}]}}`),
+		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-husk","label":"gb-task"}]}}`),
 		jsonReply(`{"result":{"panes":[{"pane_id":"pane-husk","tab_id":"tab-husk"}]}}`),
 		{result: execx.Result{Stdout: []byte(`{"error":{"code":"pane_not_found"}}`), ExitCode: 1}},
 		{result: execx.Result{ExitCode: 1, Stderr: []byte(`{"error":{"code":"tab_not_found"}}`)}},
 		jsonReply(`{"result":{"tabs":[]}}`),
 		jsonReply(`{"result":{"tab":{"tab_id":"tab-new"},"root_pane":{"pane_id":"pane-new"}}}`),
-		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-seeded","label":"1"},{"tab_id":"tab-new","label":"fm-task"}]}}`),
+		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-seeded","label":"1"},{"tab_id":"tab-new","label":"gb-task"}]}}`),
 		jsonReply(`{"result":{"panes":[{"pane_id":"pane-seeded","tab_id":"tab-seeded"}]}}`),
 		jsonReply(`{"result":{"agent":{"agent_status":"idle"}}}`),
 		{result: execx.Result{ExitCode: 1, Stderr: []byte(`{"error":{"code":"pane_not_found"}}`)}},
@@ -280,7 +280,7 @@ func TestCreateTaskReplacesHuskAndPrunesOnlyExactSafeSeed(t *testing.T) {
 	var sleeps []time.Duration
 	client := newTestClient(runner, &sleeps)
 
-	got, err := client.CreateTask(context.Background(), Container{Session: "fleet", WorkspaceID: "ws-1", SeededDefaultTab: "tab-seeded"}, "fm-task", `C:\repo`)
+	got, err := client.CreateTask(context.Background(), Container{Session: "fleet", WorkspaceID: "ws-1", SeededDefaultTab: "tab-seeded"}, "gb-task", `C:\repo`)
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestCreateTaskReplacesHuskAndPrunesOnlyExactSafeSeed(t *testing.T) {
 		command("herdr", "pane", "get", "pane-husk", "--session", "fleet"),
 		command("herdr", "tab", "close", "tab-husk", "--session", "fleet"),
 		command("herdr", "tab", "list", "--workspace", "ws-1", "--session", "fleet"),
-		command("herdr", "tab", "create", "--workspace", "ws-1", "--cwd", `C:\repo`, "--label", "fm-task", "--no-focus", "--session", "fleet"),
+		command("herdr", "tab", "create", "--workspace", "ws-1", "--cwd", `C:\repo`, "--label", "gb-task", "--no-focus", "--session", "fleet"),
 		command("herdr", "tab", "list", "--workspace", "ws-1", "--session", "fleet"),
 		command("herdr", "pane", "list", "--workspace", "ws-1", "--session", "fleet"),
 		command("herdr", "agent", "get", "pane-seeded", "--session", "fleet"),
@@ -306,11 +306,11 @@ func TestCreateTaskKeepsEndpointWhenOptionalSeedCloseFails(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{
 		jsonReply(`{"result":{"tabs":[]}}`),
 		jsonReply(`{"result":{"tab":{"tab_id":"tab-new"},"root_pane":{"pane_id":"pane-new"}}}`),
-		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-seeded","label":"1"},{"tab_id":"tab-new","label":"fm-task"}]}}`),
+		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-seeded","label":"1"},{"tab_id":"tab-new","label":"gb-task"}]}}`),
 		jsonReply(`{"result":{"panes":[{"pane_id":"pane-seeded","tab_id":"tab-seeded"}]}}`),
 		jsonReply(`{"result":{"agent":{"agent_status":"idle"}}}`),
 		{result: execx.Result{ExitCode: 1, Stderr: []byte("permission denied")}},
-		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-new","label":"fm-task"}]}}`),
+		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-new","label":"gb-task"}]}}`),
 		jsonReply(`{"result":{"panes":[{"pane_id":"pane-new","tab_id":"tab-new"}]}}`),
 		jsonReply(`{"result":{"pane":{"pane_id":"pane-new"}}}`),
 		jsonReply(`{"result":{"agent":{"agent_status":"working"}}}`),
@@ -319,14 +319,14 @@ func TestCreateTaskKeepsEndpointWhenOptionalSeedCloseFails(t *testing.T) {
 	client := newTestClient(runner, &sleeps)
 
 	container := Container{Session: "fleet", WorkspaceID: "ws-1", SeededDefaultTab: "tab-seeded"}
-	endpoint, err := client.CreateTask(context.Background(), container, "fm-task", `C:\repo`)
+	endpoint, err := client.CreateTask(context.Background(), container, "gb-task", `C:\repo`)
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 	if endpoint.TabID != "tab-new" || endpoint.PaneID != "pane-new" {
 		t.Fatalf("CreateTask endpoint = %#v, want created tab and pane", endpoint)
 	}
-	if _, err := client.CreateTask(context.Background(), container, "fm-task", `C:\repo`); err == nil || !strings.Contains(err.Error(), "already exists") {
+	if _, err := client.CreateTask(context.Background(), container, "gb-task", `C:\repo`); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("retry error = %v, want duplicate refusal", err)
 	}
 	createCount := 0
@@ -342,7 +342,7 @@ func TestCreateTaskKeepsEndpointWhenOptionalSeedCloseFails(t *testing.T) {
 
 func TestCreateTaskRefusesUnsafeHuskCloseBeforeCreatingTask(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{
-		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-husk","label":"fm-task"}]}}`),
+		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-husk","label":"gb-task"}]}}`),
 		jsonReply(`{"result":{"panes":[{"pane_id":"pane-husk","tab_id":"tab-husk"}]}}`),
 		{result: execx.Result{Stdout: []byte(`{"error":{"code":"pane_not_found"}}`), ExitCode: 1}},
 		{result: execx.Result{ExitCode: 1, Stderr: []byte("permission denied")}},
@@ -350,7 +350,7 @@ func TestCreateTaskRefusesUnsafeHuskCloseBeforeCreatingTask(t *testing.T) {
 	var sleeps []time.Duration
 	client := newTestClient(runner, &sleeps)
 
-	_, err := client.CreateTask(context.Background(), Container{Session: "fleet", WorkspaceID: "ws-1"}, "fm-task", `C:\repo`)
+	_, err := client.CreateTask(context.Background(), Container{Session: "fleet", WorkspaceID: "ws-1"}, "gb-task", `C:\repo`)
 	if err == nil || !strings.Contains(err.Error(), "tab close") {
 		t.Fatalf("CreateTask error = %v, want unsafe husk-close refusal", err)
 	}
@@ -365,13 +365,13 @@ func TestCreateTaskDoesNotPruneSeedWhoseLiveLabelChanged(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{
 		jsonReply(`{"result":{"tabs":[]}}`),
 		jsonReply(`{"result":{"tab":{"tab_id":"tab-new"},"root_pane":{"pane_id":"pane-new"}}}`),
-		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-seeded","label":"renamed"},{"tab_id":"tab-new","label":"fm-task"}]}}`),
-		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-new","label":"fm-task"}]}}`),
+		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-seeded","label":"renamed"},{"tab_id":"tab-new","label":"gb-task"}]}}`),
+		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-new","label":"gb-task"}]}}`),
 	}}
 	var sleeps []time.Duration
 	client := newTestClient(runner, &sleeps)
 
-	if _, err := client.CreateTask(context.Background(), Container{Session: "fleet", WorkspaceID: "ws-1", SeededDefaultTab: "tab-seeded"}, "fm-task", `C:\repo`); err != nil {
+	if _, err := client.CreateTask(context.Background(), Container{Session: "fleet", WorkspaceID: "ws-1", SeededDefaultTab: "tab-seeded"}, "gb-task", `C:\repo`); err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 	for _, req := range runner.Requests() {

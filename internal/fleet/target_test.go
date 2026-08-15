@@ -19,9 +19,9 @@ func TestResolverResolvesTaskSelectorsAndExplicitTargets(t *testing.T) {
 	if err := state.WriteTaskMeta(stateDir, meta); err != nil {
 		t.Fatal(err)
 	}
-	fmBuild := taskMeta("fm-build", "codex")
-	fmBuild.HerdrPaneID = "pane-fm-build"
-	if err := state.WriteTaskMeta(stateDir, fmBuild); err != nil {
+	gbBuild := taskMeta("gb-build", "codex")
+	gbBuild.HerdrPaneID = "pane-gb-build"
+	if err := state.WriteTaskMeta(stateDir, gbBuild); err != nil {
 		t.Fatal(err)
 	}
 
@@ -39,16 +39,16 @@ func TestResolverResolvesTaskSelectorsAndExplicitTargets(t *testing.T) {
 			wantMeta: meta,
 		},
 		{
-			name:     "fm task ID",
-			raw:      "fm-task-7",
+			name:     "gb task ID",
+			raw:      "gb-task-7",
 			want:     herdr.Target{Session: "fleet", Pane: "pane-7"},
 			wantMeta: meta,
 		},
 		{
-			name:     "exact task ID takes priority over fm selector fallback",
-			raw:      "fm-build",
-			want:     herdr.Target{Session: "fleet", Pane: "pane-fm-build"},
-			wantMeta: fmBuild,
+			name:     "exact task ID takes priority over gb selector fallback",
+			raw:      "gb-build",
+			want:     herdr.Target{Session: "fleet", Pane: "pane-gb-build"},
+			wantMeta: gbBuild,
 		},
 		{
 			name: "explicit target retains pane colons",

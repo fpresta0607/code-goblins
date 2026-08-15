@@ -100,12 +100,12 @@ func proberSchemaJSON() string {
 func proberSnapshotEnvelope(metas []state.TaskMeta, statuses map[string]string) string {
 	var b strings.Builder
 	b.WriteString(`{"id":"cli:api:snapshot","result":{"type":"session_snapshot","snapshot":{"version":"0.8.0-test","protocol":19,`)
-	b.WriteString(`"workspaces":[{"workspace_id":"ws","label":"firstmate"}],"tabs":[`)
+	b.WriteString(`"workspaces":[{"workspace_id":"ws","label":"code-goblins"}],"tabs":[`)
 	for i, meta := range metas {
 		if i > 0 {
 			b.WriteString(",")
 		}
-		fmt.Fprintf(&b, `{"tab_id":%q,"workspace_id":"ws","label":%q}`, meta.HerdrTabID, "fm-"+meta.ID)
+		fmt.Fprintf(&b, `{"tab_id":%q,"workspace_id":"ws","label":%q}`, meta.HerdrTabID, "gb-"+meta.ID)
 	}
 	b.WriteString(`],"panes":[`)
 	for i, meta := range metas {
@@ -240,9 +240,9 @@ func TestHerdrProberStructuralVerdicts(t *testing.T) {
 		return fmt.Sprintf(`{"pane_id":%q,"tab_id":%q,"workspace_id":"ws","agent":"claude","agent_status":%q}`, meta.HerdrPaneID, meta.HerdrTabID, status)
 	}
 	envelope := func(tabs, panes, agents string) string {
-		return `{"result":{"type":"session_snapshot","snapshot":{"protocol":19,"workspaces":[{"workspace_id":"ws","label":"firstmate"}],"tabs":[` + tabs + `],"panes":[` + panes + `],"agents":[` + agents + `]}}}`
+		return `{"result":{"type":"session_snapshot","snapshot":{"protocol":19,"workspaces":[{"workspace_id":"ws","label":"code-goblins"}],"tabs":[` + tabs + `],"panes":[` + panes + `],"agents":[` + agents + `]}}}`
 	}
-	tabEntry := fmt.Sprintf(`{"tab_id":%q,"workspace_id":"ws","label":"fm-g1"}`, meta.HerdrTabID)
+	tabEntry := fmt.Sprintf(`{"tab_id":%q,"workspace_id":"ws","label":"gb-g1"}`, meta.HerdrTabID)
 
 	tests := []struct {
 		name        string
@@ -266,13 +266,13 @@ func TestHerdrProberStructuralVerdicts(t *testing.T) {
 		},
 		{
 			name:        "cross-linked tab is unknown",
-			body:        envelope(`{"tab_id":"`+meta.HerdrTabID+`","workspace_id":"other","label":"fm-g1"}`, paneEntry, agent("idle")),
+			body:        envelope(`{"tab_id":"`+meta.HerdrTabID+`","workspace_id":"other","label":"gb-g1"}`, paneEntry, agent("idle")),
 			wantVerdict: ProbeUnknown,
 			wantDetail:  "belongs to workspace other",
 		},
 		{
 			name:        "wrong tab label is unknown",
-			body:        envelope(`{"tab_id":"`+meta.HerdrTabID+`","workspace_id":"ws","label":"fm-other"}`, paneEntry, agent("idle")),
+			body:        envelope(`{"tab_id":"`+meta.HerdrTabID+`","workspace_id":"ws","label":"gb-other"}`, paneEntry, agent("idle")),
 			wantVerdict: ProbeUnknown,
 			wantDetail:  "label",
 		},

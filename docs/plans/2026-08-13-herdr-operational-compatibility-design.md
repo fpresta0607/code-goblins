@@ -48,7 +48,7 @@ Unknown fields may be ignored for forward compatibility, but missing required id
 The production watcher will receive a read-only Herdr monitor prober through `watch.ConfigFromEnv` so both manual `cfo watch` and the production hook path use the same construction.
 The watcher will resolve the Herdr session from the same source used by spawn, defaulting to `default`, so monitoring cannot drift to a different implicit session.
 The prober will call `herdr api snapshot --session <session>` once per monitoring cycle and build in-memory indexes for workspaces, tabs, panes, and agents.
-For each task, the prober will require the metadata session, workspace ID, tab ID, pane ID, `fm-<id>` tab label, and agent association to agree with that one snapshot.
+For each task, the prober will require the metadata session, workspace ID, tab ID, pane ID, `gb-<id>` tab label, and agent association to agree with that one snapshot.
 A missing pane will produce a typed missing verdict, while malformed, duplicated, cross-linked, or otherwise inconsistent identity will produce an unknown verdict.
 Recognized `working` status will map to busy, recognized `idle`, `done`, or `blocked` status will map to idle, and any other status will map to unknown.
 After structural validation, the prober will request at most one bounded `pane read --source recent-unwrapped --lines 200` capture for each present task because the session snapshot does not include terminal contents.

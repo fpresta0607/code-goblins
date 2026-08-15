@@ -274,8 +274,8 @@ Every command must pass `--json` where the upstream contract reads JSON and must
 The client may also set `HERDR_SESSION` in the child environment for compatibility, but correctness must never depend on that environment variable.
 `ParseTarget` must split on the first colon only so `default:w1:p2` becomes session `default` and pane `w1:p2`.
 `EnsureServer` must read `.server.running`, start `herdr server` with `Start` semantics when needed, and poll status 20 times at 500 milliseconds before returning an error.
-`EnsureContainer` must use the flat label `firstmate`, call `workspace create --cwd <cwd> --label <label> --no-focus` when absent, and retain the exact seeded tab ID from the create response.
-`CreateTask` must use label `fm-<id>`, refuse a duplicate tab unless its pane is structurally dead or has no registered agent, create with `tab create --workspace <id> --cwd <cwd> --label <label> --no-focus`, and prune only the exact seeded default tab after the real tab exists.
+`EnsureContainer` must use the flat label `code-goblins`, call `workspace create --cwd <cwd> --label <label> --no-focus` when absent, and retain the exact seeded tab ID from the create response.
+`CreateTask` must use label `gb-<id>`, refuse a duplicate tab unless its pane is structurally dead or has no registered agent, create with `tab create --workspace <id> --cwd <cwd> --label <label> --no-focus`, and prune only the exact seeded default tab after the real tab exists.
 The seeded default tab may be closed only when the live tab ID still has label `1`, the workspace has at least two tabs, its pane is not working, and the close call succeeds or is safely ignored.
 `Capture` must request at least 200 lines from Herdr and trim locally to the caller's requested line count.
 `SendLiteral` must use `pane send-text`, `RunPane` must use `pane run`, and `SendKey` must use `pane send-keys` with the narrow key normalization from the extracted contract.
@@ -535,7 +535,7 @@ Every record is encoded with `Schema`, decoded with unknown-field rejection, and
 The monitor must not read, write, or translate upstream shell marker filenames.
 Before every classification, `Scan` loads the task's prior observation and the fleet heartbeat record.
 A missing record establishes a fresh baseline, while an unreadable, malformed, or unsupported record remains intact, classifies the task as `unknown`, and produces an actionable `stale` event with reason `invalid_record`.
-`EndpointSample.Verdict` is `ProbePresent` only when the live Herdr response exactly matches every metadata endpoint ID, target session, and `fm-<id>` tab label and exposes a well-formed registered-agent state.
+`EndpointSample.Verdict` is `ProbePresent` only when the live Herdr response exactly matches every metadata endpoint ID, target session, and `gb-<id>` tab label and exposes a well-formed registered-agent state.
 The monitor stores only the SHA-256 digest of that validated pane's 200-line capture, never the capture text.
 A changed digest records `active`, sets `LastSeen` and `LastObserved`, and clears `StaleSince`, `Escalation`, and `DemandDeepInspection`.
 An unchanged exact-idle pane records `stale` with `unchanged_idle`, publishes one `stale` event without an escalation, and preserves its original `StaleSince`.
@@ -768,7 +768,7 @@ type Service struct {
 func (s Service) Spawn(ctx context.Context, req Request) (Result, error)
 ```
 
-`Spawn` must validate the task ID before touching the filesystem, require an existing brief, validate the delivery mode line when present, acquire a per-task spawn lock, ensure the flat Herdr container, create the `fm-<id>` tab in the primary project, acquire and validate the treehouse worktree, freshen it, resolve the typed harness, build the Windows launch line, and publish metadata atomically.
+`Spawn` must validate the task ID before touching the filesystem, require an existing brief, validate the delivery mode line when present, acquire a per-task spawn lock, ensure the flat Herdr container, create the `gb-<id>` tab in the primary project, acquire and validate the treehouse worktree, freshen it, resolve the typed harness, build the Windows launch line, and publish metadata atomically.
 The launch sequence must set `GOTMPDIR=<tasktmp>\gotmp`, send the launch line literally, send Enter as a separate key, and confirm a working agent before reporting success.
 The metadata must contain `window`, `endpoint_task_id`, `worktree`, `project`, `harness`, `kind`, `mode` for ship tasks, `yolo` for ship tasks, `tasktmp`, `model`, `effort`, `spawn_gen`, `backend=herdr`, `herdr_session`, `herdr_workspace_id`, `herdr_tab_id`, and `herdr_pane_id`.
 The success line must be `spawned <id> harness=<name> kind=<kind> mode=<mode> yolo=<on|off> window=<target> worktree=<path>` for ship tasks and must omit mode and yolo for scouts.
@@ -836,7 +836,7 @@ func (p Peeker) Tail(ctx context.Context, raw string, lines int) (string, error)
 ```
 
 Use one shared resolver for Plan 3 because secondmate routing and `--resolve-key` are cut, but retain the explicit-target escape hatch for a canonical Herdr target containing a colon.
-Task IDs and `fm-<id>` selectors must resolve through local metadata, and a bare Herdr pane ID must be rejected with an instruction to provide `<session>:<pane-id>`.
+Task IDs and `gb-<id>` selectors must resolve through local metadata, and a bare Herdr pane ID must be rejected with an instruction to provide `<session>:<pane-id>`.
 Text sends must type once with `pane send-text`, wait the configured settle duration, send Enter up to the configured retry count, and confirm delivery from the Herdr agent or composer state without treating `pending` or `unknown` as success.
 Key sends must normalize Enter, Escape, Ctrl-C, and Ctrl-U through the typed Herdr mapping and must not accept text and `--key` in the same command.
 Slash messages and Codex `$` messages must use the 1.2-second pre-Enter settle, and all other messages must use the 0.3-second settle.
@@ -845,7 +845,7 @@ The `--resolve-key`, pending-reply, from-firstmate marker, and Muse-only interru
 
 **Step 1: Write the failing tests.**
 
-Test task-ID, `fm-<id>`, explicit Herdr target, unknown selector, and bare-pane collision resolution.
+Test task-ID, `gb-<id>`, explicit Herdr target, unknown selector, and bare-pane collision resolution.
 Test text and key argument exclusivity, settle selection, Enter retry behavior, confirmed delivery, pending delivery refusal, and unknown delivery refusal.
 Test peek default, invalid line count fallback to 200, exact Herdr capture arguments, and local tail output.
 
@@ -1020,8 +1020,8 @@ The acceptance sequence must be:
 4. Start a dedicated Herdr session and verify `herdr status --json --session <session>` and `herdr session list --json --session <session>` succeed.
 5. Dispatch one Code Goblin with `--harness claude`, a benign brief that prints a unique acceptance marker, and the dedicated Herdr session.
 6. Assert that the metadata points to a non-primary isolated worktree, the Herdr target splits on the first colon, and the flat workspace contains exactly one task tab plus any safely retained default tab.
-7. Run `cfo peek fm-<id>` and require the marker or a documented startup-progress response.
-8. Run `cfo send fm-<id> "print the acceptance marker and exit"` and require a confirmed delivery result.
+7. Run `cfo peek gb-<id>` and require the marker or a documented startup-progress response.
+8. Run `cfo send gb-<id> "print the acceptance marker and exit"` and require a confirmed delivery result.
 9. Run `cfo fleet-view --json` and `cfo fleet-view`, and require the same task, endpoint, worktree, current-state, health, stale duration, last-seen, escalation, and deep-inspection information in both views.
 10. Repeat steps 5 through 9 for `--harness codex` and `--harness pi`, and fail the real-session acceptance if either binary is unavailable.
 11. With a short fixture-only monitor cadence, prove a visibly busy task remains protected from stale classification before `BusyTurnMax`, then prove an unchanged idle task produces a stale wake, increments its escalation on the next stale interval, and reports a deliberately nonexistent endpoint as `unknown`.
