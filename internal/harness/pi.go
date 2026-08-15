@@ -48,6 +48,10 @@ func (adapter *piAdapter) Build(spec LaunchSpec) (Launch, error) {
 	if err != nil {
 		return Launch{}, err
 	}
+	// Herdr's Windows agent start uses Start-Process -FilePath, which cannot
+	// execute the npm .cmd shim pi installs as; pi launches typed instead.
+	launch.TypedLaunch = true
+	launch.Executable = "pi"
 	if capabilities.tuiMode {
 		launch.Args = append(launch.Args, "--tui-mode", "regular")
 	}

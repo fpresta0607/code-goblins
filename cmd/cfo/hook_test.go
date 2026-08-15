@@ -513,22 +513,21 @@ func TestRunHookTurnendGuardZeroWindowDoesNotWait(t *testing.T) {
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
 
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		time.Sleep(150 * time.Millisecond)
-		n, err := supervise.NextEpoch(state)
-		if err != nil {
-			return
-		}
-		_ = supervise.SetOutcome(state, n, "rewake")
-	}()
-	defer func() { <-done }()
-
 	var stdout, stderr bytes.Buffer
 	exit := runHook("turnend-guard", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
 	if exit != 2 {
 		t.Fatalf("exit = %d, want 2 (a zero sync window must not wait for the late proof)", exit)
+	}
+	// A proof landing after the fact must be unobservable to a zero-window
+	// guard. Writing it after the hook returns is deterministic; the previous
+	// form raced a 150ms goroutine against the hook start and flaked whenever
+	// a loaded host scheduled the goroutine first.
+	n, err := supervise.NextEpoch(state)
+	if err != nil {
+		t.Fatalf("NextEpoch after zero-window exit: %v", err)
+	}
+	if err := supervise.SetOutcome(state, n, "rewake"); err != nil {
+		t.Fatalf("SetOutcome after zero-window exit: %v", err)
 	}
 }
 
