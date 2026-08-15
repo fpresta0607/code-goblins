@@ -13,7 +13,7 @@ import (
 )
 
 func leaseReply(path string) scriptedResult {
-	return scriptedResult{result: execx.Result{Stdout: []byte(`{"path":` + quote(path) + `,"lease_id":"abc123","lease_holder":"fm-task"}`)}}
+	return scriptedResult{result: execx.Result{Stdout: []byte(`{"path":` + quote(path) + `,"lease_id":"abc123","lease_holder":"gb-task"}`)}}
 }
 
 func quote(value string) string {
@@ -33,7 +33,7 @@ func TestAcquireLeasesWorktreeThroughNonInteractiveTreehouseGet(t *testing.T) {
 	runner := &scriptedRunner{results: []scriptedResult{leaseReply(worktree)}}
 	service := Service{Commands: runner}
 
-	got, err := service.Acquire(context.Background(), project, "fm-task")
+	got, err := service.Acquire(context.Background(), project, "gb-task")
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestAcquireLeasesWorktreeThroughNonInteractiveTreehouseGet(t *testing.T) {
 	if !fsx.SamePath(call.Dir, project) {
 		t.Errorf("call.Dir = %q, want %q", call.Dir, project)
 	}
-	wantArgs := []string{"get", "--lease", "--json", "--lease-holder", "fm-task"}
+	wantArgs := []string{"get", "--lease", "--json", "--lease-holder", "gb-task"}
 	if strings.Join(call.Args, " ") != strings.Join(wantArgs, " ") {
 		t.Errorf("call.Args = %q, want %q", call.Args, wantArgs)
 	}
@@ -109,7 +109,7 @@ func TestAcquireRejectsLeaseFailuresAndMalformedResponses(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			runner := &scriptedRunner{results: test.results}
 			service := Service{Commands: runner}
-			_, err := service.Acquire(context.Background(), project, "fm-task")
+			_, err := service.Acquire(context.Background(), project, "gb-task")
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Acquire error = %v, want substring %q", err, test.want)
 			}
@@ -118,7 +118,7 @@ func TestAcquireRejectsLeaseFailuresAndMalformedResponses(t *testing.T) {
 }
 
 func TestAcquireRequiresCommandRunner(t *testing.T) {
-	_, err := (Service{}).Acquire(context.Background(), t.TempDir(), "fm-task")
+	_, err := (Service{}).Acquire(context.Background(), t.TempDir(), "gb-task")
 	if err == nil || !strings.Contains(err.Error(), "command runner is required") {
 		t.Fatalf("Acquire error = %v, want command runner diagnostic", err)
 	}

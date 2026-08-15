@@ -24,7 +24,7 @@ type Resolver struct {
 	StateDir string
 }
 
-// Resolve accepts a task ID, fm-<task-id>, or an explicit Herdr target. A
+// Resolve accepts a task ID, gb-<task-id>, or an explicit Herdr target. A
 // target only splits on its first colon because pane IDs can contain colons.
 func (r Resolver) Resolve(_ context.Context, raw string) (herdr.Target, state.TaskMeta, error) {
 	if target, err := herdr.ParseTarget(raw); err == nil {
@@ -39,8 +39,8 @@ func (r Resolver) Resolve(_ context.Context, raw string) (herdr.Target, state.Ta
 
 	id := raw
 	meta, err := state.ReadTaskMeta(r.StateDir, id)
-	if errors.Is(err, os.ErrNotExist) && strings.HasPrefix(raw, "fm-") {
-		id = strings.TrimPrefix(raw, "fm-")
+	if errors.Is(err, os.ErrNotExist) && strings.HasPrefix(raw, "gb-") {
+		id = strings.TrimPrefix(raw, "gb-")
 		meta, err = state.ReadTaskMeta(r.StateDir, id)
 	}
 	if err != nil {

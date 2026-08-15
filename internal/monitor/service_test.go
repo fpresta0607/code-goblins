@@ -54,7 +54,7 @@ func sampleFor(meta state.TaskMeta, busy herdr.BusyState, text string) EndpointS
 			TabID:       meta.HerdrTabID,
 			PaneID:      meta.HerdrPaneID,
 		},
-		TabLabel: "fm-" + meta.ID,
+		TabLabel: "gb-" + meta.ID,
 		Agent:    herdr.AgentAlive,
 		Busy:     busy,
 		Capture:  capture(text),

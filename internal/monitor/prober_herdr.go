@@ -124,8 +124,8 @@ func (p *HerdrProber) inspect(ctx context.Context, snapshot herdr.SessionSnapsho
 	if tab.WorkspaceID != meta.HerdrWorkspaceID {
 		return unknown(fmt.Sprintf("tab %s belongs to workspace %s, not %s", tab.ID, tab.WorkspaceID, meta.HerdrWorkspaceID)), nil
 	}
-	if tab.Label != "fm-"+meta.ID {
-		return unknown(fmt.Sprintf("tab %s label %q is not fm-%s", tab.ID, tab.Label, meta.ID)), nil
+	if tab.Label != "gb-"+meta.ID {
+		return unknown(fmt.Sprintf("tab %s label %q is not gb-%s", tab.ID, tab.Label, meta.ID)), nil
 	}
 	panes := 0
 	var pane herdr.SnapshotPane

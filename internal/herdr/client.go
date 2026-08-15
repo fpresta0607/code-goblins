@@ -74,7 +74,7 @@ func (c *Client) EnsureServer(ctx context.Context) error {
 	return fmt.Errorf("herdr: server for session %q did not report running within 10s", session)
 }
 
-// EnsureContainer adopts the unambiguous flat firstmate workspace or creates
+// EnsureContainer adopts the unambiguous flat code-goblins workspace or creates
 // it and retains the exact default tab returned by that creation response.
 func (c *Client) EnsureContainer(ctx context.Context, cwd string) (Container, error) {
 	session := c.session()
@@ -85,9 +85,9 @@ func (c *Client) EnsureContainer(ctx context.Context, cwd string) (Container, er
 
 	var matches []workspaceRecord
 	for _, workspace := range workspaces {
-		if workspace.Label == "firstmate" {
+		if workspace.Label == "code-goblins" {
 			if workspace.ID == "" {
-				return Container{}, errors.New("herdr: matching firstmate workspace has no workspace_id")
+				return Container{}, errors.New("herdr: matching code-goblins workspace has no workspace_id")
 			}
 			matches = append(matches, workspace)
 		}
@@ -98,10 +98,10 @@ func (c *Client) EnsureContainer(ctx context.Context, cwd string) (Container, er
 	case 0:
 		// Create below.
 	default:
-		return Container{}, fmt.Errorf("herdr: %d workspaces in session %q are labeled firstmate", len(matches), session)
+		return Container{}, fmt.Errorf("herdr: %d workspaces in session %q are labeled code-goblins", len(matches), session)
 	}
 
-	result, err := c.required(ctx, session, Target{}, "workspace create", "workspace", "create", "--cwd", cwd, "--label", "firstmate", "--no-focus")
+	result, err := c.required(ctx, session, Target{}, "workspace create", "workspace", "create", "--cwd", cwd, "--label", "code-goblins", "--no-focus")
 	if err != nil {
 		return Container{}, err
 	}
@@ -128,8 +128,8 @@ func (c *Client) CreateTask(ctx context.Context, container Container, label, cwd
 	if container.Session == "" || container.WorkspaceID == "" {
 		return Endpoint{}, errors.New("herdr: task container requires session and workspace_id")
 	}
-	if !strings.HasPrefix(label, "fm-") || len(label) == len("fm-") {
-		return Endpoint{}, fmt.Errorf("herdr: task tab label %q must be fm-<id>", label)
+	if !strings.HasPrefix(label, "gb-") || len(label) == len("gb-") {
+		return Endpoint{}, fmt.Errorf("herdr: task tab label %q must be gb-<id>", label)
 	}
 
 	tabs, err := c.tabs(ctx, container.Session, container.WorkspaceID)

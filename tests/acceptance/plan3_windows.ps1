@@ -373,9 +373,9 @@ if ($SelfTest -eq 'fleet-parity') {
         backend = 'herdr'
         artifact = ''
         path = 'C:\fixture\worker'
-        actions = [pscustomobject]@{ peek = 'cfo peek fm-accept-claude' }
+        actions = [pscustomobject]@{ peek = 'cfo peek gb-accept-claude' }
     }
-    $markdown = '| accept-claude | working / status | stale | 2m1s | 2026-08-13T12:34:56Z | 2 | yes | task | C:\fixture\project | herdr | fixture:pane:claude (present) | - | C:\fixture\worker | cfo peek fm-accept-claude |'
+    $markdown = '| accept-claude | working / status | stale | 2m1s | 2026-08-13T12:34:56Z | 2 | yes | task | C:\fixture\project | herdr | fixture:pane:claude (present) | - | C:\fixture\worker | cfo peek gb-accept-claude |'
     Assert-FleetProjectionParity -Row $row -Worker $worker -Markdown $markdown
     try {
         Assert-FleetProjectionParity -Row $row -Worker $worker -Markdown ($markdown.Replace('present', 'absent'))
@@ -508,12 +508,12 @@ try {
         $workspace = Assert-MetaValue -Meta $meta -Name 'herdr_workspace_id' -Description $id
         $tabs = Invoke-HerdrJson -Arguments @('tab', 'list', '--workspace', $workspace, '--json', '--session', $session) -Description "Herdr workspace tab list for $id"
         $tabRows = Assert-ObjectProperty -Object $tabs.result -Name 'tabs' -Description "$id workspace"
-        $taskTabs = @($tabRows | Where-Object { $_.label -eq ('fm-' + $id) })
+        $taskTabs = @($tabRows | Where-Object { $_.label -eq ('gb-' + $id) })
         if ($taskTabs.Count -ne 1) {
             throw "ACCEPTANCE BLOCKER: $id workspace has $($taskTabs.Count) matching task tabs, want exactly one."
         }
 
-        $peek = @(& $cfo peek ('fm-' + $id) 200 2>&1)
+        $peek = @(& $cfo peek ('gb-' + $id) 200 2>&1)
         if ($LASTEXITCODE -ne 0) {
             throw "ACCEPTANCE BLOCKER: cfo peek failed for $id.`n$($peek -join [Environment]::NewLine)"
         }
@@ -522,8 +522,8 @@ try {
             throw "ACCEPTANCE BLOCKER: cfo peek for $id has neither the marker nor a documented startup-progress response.`n$peekText"
         }
 
-        $send = Invoke-Checked -FilePath $cfo -Arguments @('send', ('fm-' + $id), "print the acceptance marker $marker and exit") -Description "send acceptance marker to $id"
-        if (($send -join [Environment]::NewLine) -notmatch ('sent fm-' + [regex]::Escape($id))) {
+        $send = Invoke-Checked -FilePath $cfo -Arguments @('send', ('gb-' + $id), "print the acceptance marker $marker and exit") -Description "send acceptance marker to $id"
+        if (($send -join [Environment]::NewLine) -notmatch ('sent gb-' + [regex]::Escape($id))) {
             throw "ACCEPTANCE BLOCKER: cfo send did not confirm delivery for $id."
         }
     }

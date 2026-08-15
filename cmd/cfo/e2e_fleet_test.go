@@ -284,8 +284,8 @@ func (f *fleetE2EFixture) AssertTaskMetadataIsIsolated() {
 		if !strings.Contains(target.Pane, ":") {
 			f.t.Fatalf("%s pane %q does not prove first-colon target parsing", id, target.Pane)
 		}
-		if _, exists := f.runner.tabs["fm-"+id]; !exists {
-			f.t.Fatalf("fake workspace is missing visible fm-%s tab", id)
+		if _, exists := f.runner.tabs["gb-"+id]; !exists {
+			f.t.Fatalf("fake workspace is missing visible gb-%s tab", id)
 		}
 	}
 	if len(f.git.freshened) != 3 {
@@ -306,15 +306,15 @@ func (f *fleetE2EFixture) AssertTaskMetadataIsIsolated() {
 
 func (f *fleetE2EFixture) SendAndPeek(id string) {
 	f.t.Helper()
-	stdout, stderr := runFleetCommand(f.t, f.runtime, "send", "fm-"+id, "print", "the", "acceptance", "marker")
-	if stdout != "sent fm-"+id+"\n" || stderr != "" {
+	stdout, stderr := runFleetCommand(f.t, f.runtime, "send", "gb-"+id, "print", "the", "acceptance", "marker")
+	if stdout != "sent gb-"+id+"\n" || stderr != "" {
 		f.t.Fatalf("send stdout=%q stderr=%q", stdout, stderr)
 	}
 	if got := f.runner.lastText; got != "print the acceptance marker" {
 		f.t.Fatalf("sent text=%q", got)
 	}
 
-	stdout, stderr = runFleetCommand(f.t, f.runtime, "peek", "fm-"+id, "5")
+	stdout, stderr = runFleetCommand(f.t, f.runtime, "peek", "gb-"+id, "5")
 	if stderr != "" || !strings.Contains(stdout, "acceptance marker") {
 		f.t.Fatalf("peek stdout=%q stderr=%q", stdout, stderr)
 	}
@@ -497,8 +497,8 @@ func (f *fleetE2EFixture) AssertVisibleTabsAndNoLifecycleDeletes() {
 		if err != nil {
 			f.t.Fatal(err)
 		}
-		if _, ok := f.runner.tabs["fm-"+id]; !ok {
-			f.t.Fatalf("monitoring removed fm-%s tab", id)
+		if _, ok := f.runner.tabs["gb-"+id]; !ok {
+			f.t.Fatalf("monitoring removed gb-%s tab", id)
 		}
 		if info, err := os.Stat(meta.Worktree); err != nil || !info.IsDir() {
 			f.t.Fatalf("monitoring removed %s worktree: %v", id, err)
@@ -621,13 +621,13 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 	}
 	if request.Name == "treehouse" {
 		holder, ok := flagValue(request.Args, "--lease-holder")
-		if !ok || !strings.HasPrefix(holder, "fm-") {
-			return execx.Result{}, fmt.Errorf("treehouse get is missing fm- lease holder: %v", request.Args)
+		if !ok || !strings.HasPrefix(holder, "gb-") {
+			return execx.Result{}, fmt.Errorf("treehouse get is missing gb- lease holder: %v", request.Args)
 		}
 		if !samePath(request.Dir, r.fixture.project) {
 			return execx.Result{}, fmt.Errorf("treehouse get ran outside the project: %q", request.Dir)
 		}
-		worktree := filepath.Join(r.fixture.home.Root, "worktrees", strings.TrimPrefix(holder, "fm-"))
+		worktree := filepath.Join(r.fixture.home.Root, "worktrees", strings.TrimPrefix(holder, "gb-"))
 		if err := os.MkdirAll(worktree, 0o755); err != nil {
 			return execx.Result{}, err
 		}
@@ -661,7 +661,7 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 		if !r.workspace {
 			return resultEnvelope(map[string]any{"workspaces": []any{}}), nil
 		}
-		return resultEnvelope(map[string]any{"workspaces": []any{map[string]string{"workspace_id": "workspace-e2e", "label": "firstmate"}}}), nil
+		return resultEnvelope(map[string]any{"workspaces": []any{map[string]string{"workspace_id": "workspace-e2e", "label": "code-goblins"}}}), nil
 	case matches(args, "workspace", "create"):
 		r.workspace = true
 		return resultEnvelope(map[string]any{
@@ -677,10 +677,10 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 		return resultEnvelope(map[string]any{"tabs": tabs}), nil
 	case matches(args, "tab", "create"):
 		label, ok := flagValue(args, "--label")
-		if !ok || !strings.HasPrefix(label, "fm-") {
-			return execx.Result{}, fmt.Errorf("tab create is missing fm- label: %v", args)
+		if !ok || !strings.HasPrefix(label, "gb-") {
+			return execx.Result{}, fmt.Errorf("tab create is missing gb- label: %v", args)
 		}
-		id := strings.TrimPrefix(label, "fm-")
+		id := strings.TrimPrefix(label, "gb-")
 		pane := "pane:" + id
 		r.tabs[label] = fleetE2ETab{id: "tab-" + id, pane: pane}
 		return resultEnvelope(map[string]any{
@@ -788,7 +788,7 @@ func (p *fleetE2EProber) Inspect(_ context.Context, meta state.TaskMeta) (monito
 			TabID:       meta.HerdrTabID,
 			PaneID:      meta.HerdrPaneID,
 		},
-		TabLabel: "fm-" + meta.ID,
+		TabLabel: "gb-" + meta.ID,
 		Agent:    herdr.AgentAlive,
 		Busy:     busy,
 		Capture:  []byte(strings.Repeat(capture+"\n", 200)),
@@ -801,7 +801,7 @@ type fleetE2EEndpoint struct {
 
 func (e fleetE2EEndpoint) Exists(_ context.Context, target herdr.Target) (bool, error) {
 	id := strings.TrimPrefix(target.Pane, "pane:")
-	_, known := e.fixture.runner.tabs["fm-"+id]
+	_, known := e.fixture.runner.tabs["gb-"+id]
 	return known && !e.fixture.runner.missing[target.Pane], nil
 }
 
@@ -817,7 +817,7 @@ func (e fleetE2EEndpoint) BusyState(_ context.Context, target herdr.Target) (her
 }
 
 func (e fleetE2EEndpoint) Validate(_ context.Context, meta state.TaskMeta) (bool, error) {
-	tab, ok := e.fixture.runner.tabs["fm-"+meta.ID]
+	tab, ok := e.fixture.runner.tabs["gb-"+meta.ID]
 	return ok && tab.id == meta.HerdrTabID && tab.pane == meta.HerdrPaneID, nil
 }
 

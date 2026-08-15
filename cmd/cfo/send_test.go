@@ -18,14 +18,14 @@ func TestRunSendStreamsConfirmedTextResult(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	exit := runWithRuntime([]string{"send", "fm-g1", "print", "the", "marker"}, &stdout, &stderr, deps)
+	exit := runWithRuntime([]string{"send", "gb-g1", "print", "the", "marker"}, &stdout, &stderr, deps)
 	if exit != 0 {
 		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
 	}
-	if gotTarget != "fm-g1" || gotText != "print the marker" {
+	if gotTarget != "gb-g1" || gotText != "print the marker" {
 		t.Errorf("send = target %q text %q, want parsed input", gotTarget, gotText)
 	}
-	if stdout.String() != "sent fm-g1\n" || stderr.Len() != 0 {
+	if stdout.String() != "sent gb-g1\n" || stderr.Len() != 0 {
 		t.Errorf("stdout=%q stderr=%q, want only user-facing confirmation", stdout.String(), stderr.String())
 	}
 }
@@ -63,7 +63,7 @@ func TestRunSendRejectsMixedKeyAndTextWithoutState(t *testing.T) {
 	deps.sendText = func(context.Context, home.Home, string, string) error { called = true; return nil }
 
 	var stdout, stderr bytes.Buffer
-	exit := runWithRuntime([]string{"send", "fm-g1", "--key", "Enter", "extra"}, &stdout, &stderr, deps)
+	exit := runWithRuntime([]string{"send", "gb-g1", "--key", "Enter", "extra"}, &stdout, &stderr, deps)
 	if exit != 2 {
 		t.Fatalf("exit = %d, want 2", exit)
 	}
@@ -95,7 +95,7 @@ func TestRunSendWritesFailureOnlyToStderr(t *testing.T) {
 	deps.sendText = func(context.Context, home.Home, string, string) error { return errors.New("delivery unconfirmed") }
 
 	var stdout, stderr bytes.Buffer
-	exit := runWithRuntime([]string{"send", "fm-g1", "draft"}, &stdout, &stderr, deps)
+	exit := runWithRuntime([]string{"send", "gb-g1", "draft"}, &stdout, &stderr, deps)
 	if exit != 1 {
 		t.Fatalf("exit = %d, want 1", exit)
 	}
