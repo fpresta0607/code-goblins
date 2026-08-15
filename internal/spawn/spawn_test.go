@@ -716,9 +716,9 @@ func newFixture(t *testing.T) *fixture {
 }
 
 type fixtureAdapter struct {
-	events    *[]string
-	buildErr  error
-	followUp  string
+	events   *[]string
+	buildErr error
+	followUp string
 }
 
 func (a fixtureAdapter) Kind() harness.Kind {
