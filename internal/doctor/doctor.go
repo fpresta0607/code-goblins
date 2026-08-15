@@ -27,12 +27,15 @@ var tools = []struct {
 	{name: "gh", hint: "winget install GitHub.cli, then gh auth login"},
 	{name: "claude", hint: "npm install -g @anthropic-ai/claude-code"},
 	{name: "herdr", hint: "irm https://herdr.dev/install.ps1 | iex"},
-	{name: "treehouse", hint: "see github.com/kunchenguid/treehouse"},
+	{name: "treehouse", hint: "irm https://kunchenguid.github.io/treehouse/install.ps1 | iex"},
 	{name: "codex", hint: "npm install -g @openai/codex"},
-	{name: "pi", hint: "npm install -g @mariozechner/pi-coding-agent"},
+	{name: "pi", hint: "npm install -g @earendil-works/pi-coding-agent"},
 	{name: "kimi", hint: "install the Kimi Code CLI (kimi.com)"},
 	{name: "tasks-axi", hint: "npm install -g tasks-axi"},
 	{name: "quota-axi", hint: "npm install -g quota-axi"},
+	{name: "no-mistakes", hint: "irm https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1 | iex"},
+	{name: "gh-axi", hint: "npm install -g gh-axi"},
+	{name: "chrome-devtools-axi", hint: "npm install -g chrome-devtools-axi"},
 }
 
 // Run checks every required tool in a fixed order, plus the turnend-guard /
