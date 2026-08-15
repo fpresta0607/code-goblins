@@ -173,16 +173,22 @@ func TestRunUsesNoLegacyBeatMarker(t *testing.T) {
 		close(done)
 	}()
 
-	time.Sleep(200 * time.Millisecond)
-	select {
-	case <-done:
-		t.Fatalf("Run exited before the wait interval")
-	default:
-	}
-	if _, err := os.Stat(filepath.Join(stateDir, ".last-watcher-beat")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("legacy watcher beat marker exists: %v", err)
-	}
+	// The watcher writes the typed heartbeat on its first cycle. That write
+	// races goroutine scheduling under a loaded test binary, so poll with a
+	// deadline instead of a fixed sleep that flakes when the machine is busy.
 	heartbeat, err := monitor.ReadHeartbeat(stateDir)
+	for deadline := time.Now().Add(5 * time.Second); (err != nil || heartbeat.LastCycle.IsZero()) && time.Now().Before(deadline); {
+		select {
+		case <-done:
+			t.Fatalf("Run exited before its first heartbeat")
+		default:
+		}
+		time.Sleep(20 * time.Millisecond)
+		heartbeat, err = monitor.ReadHeartbeat(stateDir)
+	}
+	if _, statErr := os.Stat(filepath.Join(stateDir, ".last-watcher-beat")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("legacy watcher beat marker exists: %v", statErr)
+	}
 	if err != nil || heartbeat.LastCycle.IsZero() {
 		t.Fatalf("typed heartbeat = %+v, %v; want recent LastCycle", heartbeat, err)
 	}
