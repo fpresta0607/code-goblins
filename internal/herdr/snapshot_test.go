@@ -9,7 +9,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
-const testSnapshotEnvelope = `{"id":"cli:api:snapshot","result":{"type":"session_snapshot","snapshot":{"version":"0.8.0-test","protocol":19,"workspaces":[{"workspace_id":"w3","label":"code-goblins"}],"tabs":[{"tab_id":"w3:t4","workspace_id":"w3","label":"gb-task"}],"panes":[{"pane_id":"w3:p4","tab_id":"w3:t4","workspace_id":"w3"}],"agents":[{"pane_id":"w3:p4","tab_id":"w3:t4","workspace_id":"w3","agent":"claude","agent_status":"done"}]}}}`
+const testSnapshotEnvelope = `{"id":"cli:api:snapshot","result":{"type":"session_snapshot","snapshot":{"version":"0.8.0-test","protocol":19,"workspaces":[{"workspace_id":"w3","label":"cfo"}],"tabs":[{"tab_id":"w3:t4","workspace_id":"w3","label":"gb-task"}],"panes":[{"pane_id":"w3:p4","tab_id":"w3:t4","workspace_id":"w3"}],"agents":[{"pane_id":"w3:p4","tab_id":"w3:t4","workspace_id":"w3","agent":"claude","agent_status":"done"}]}}}`
 
 func TestSnapshotParsesTypedEnvelopeWithoutJSONFlag(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{rawReply(testSnapshotEnvelope)}}
@@ -23,7 +23,7 @@ func TestSnapshotParsesTypedEnvelopeWithoutJSONFlag(t *testing.T) {
 	if snapshot.Protocol != 19 || snapshot.Version != "0.8.0-test" {
 		t.Errorf("Snapshot metadata = %+v, want protocol 19 and version", snapshot)
 	}
-	if len(snapshot.Workspaces) != 1 || snapshot.Workspaces[0].ID != "w3" || snapshot.Workspaces[0].Label != "code-goblins" {
+	if len(snapshot.Workspaces) != 1 || snapshot.Workspaces[0].ID != "w3" || snapshot.Workspaces[0].Label != "cfo" {
 		t.Errorf("workspaces = %+v", snapshot.Workspaces)
 	}
 	if len(snapshot.Tabs) != 1 || snapshot.Tabs[0].ID != "w3:t4" || snapshot.Tabs[0].WorkspaceID != "w3" || snapshot.Tabs[0].Label != "gb-task" {

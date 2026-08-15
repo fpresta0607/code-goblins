@@ -182,7 +182,7 @@ func TestEnsureContainerUsesFlatLabelAndExplicitSession(t *testing.T) {
 	}
 	assertRequests(t, runner.Requests(), []execx.Request{
 		command("herdr", "workspace", "list", "--session", "fleet"),
-		command("herdr", "workspace", "create", "--cwd", `C:\repo`, "--label", "code-goblins", "--no-focus", "--session", "fleet"),
+		command("herdr", "workspace", "create", "--cwd", `C:\repo`, "--label", "cfo", "--no-focus", "--session", "fleet"),
 	})
 }
 
@@ -195,17 +195,17 @@ func TestEnsureContainerAdoptsOnlyOneMatchingWorkspace(t *testing.T) {
 	}{
 		{
 			name: "one matching workspace is adopted",
-			body: `{"result":{"workspaces":[{"workspace_id":"ws-other","label":"other"},{"workspace_id":"ws-1","label":"code-goblins"}]}}`,
+			body: `{"result":{"workspaces":[{"workspace_id":"ws-other","label":"other"},{"workspace_id":"ws-1","label":"cfo"}]}}`,
 			want: Container{Session: "fleet", WorkspaceID: "ws-1"},
 		},
 		{
 			name:    "matching workspaces are ambiguous",
-			body:    `{"result":{"workspaces":[{"workspace_id":"ws-1","label":"code-goblins"},{"workspace_id":"ws-2","label":"code-goblins"}]}}`,
+			body:    `{"result":{"workspaces":[{"workspace_id":"ws-1","label":"cfo"},{"workspace_id":"ws-2","label":"cfo"}]}}`,
 			wantErr: true,
 		},
 		{
 			name:    "missing workspace id is rejected",
-			body:    `{"result":{"workspaces":[{"label":"code-goblins"}]}}`,
+			body:    `{"result":{"workspaces":[{"label":"cfo"}]}}`,
 			wantErr: true,
 		},
 	}

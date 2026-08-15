@@ -666,7 +666,7 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 		if !r.workspace {
 			return resultEnvelope(map[string]any{"workspaces": []any{}}), nil
 		}
-		return resultEnvelope(map[string]any{"workspaces": []any{map[string]string{"workspace_id": "workspace-e2e", "label": "code-goblins"}}}), nil
+		return resultEnvelope(map[string]any{"workspaces": []any{map[string]string{"workspace_id": "workspace-e2e", "label": "cfo"}}}), nil
 	case matches(args, "workspace", "create"):
 		r.workspace = true
 		return resultEnvelope(map[string]any{
