@@ -17,20 +17,22 @@ func (kimiAdapter) Validate(ctx context.Context, runner execx.Runner) error {
 	return err
 }
 
-// Build produces a bare Kimi launch: Kimi rejects a positional brief as an
-// unknown command, so the brief path is sent as a follow-up prompt after the
-// composer is ready instead of being appended to the launch expression.
+// Build produces a bare Kimi launch: the brief arrives through
+// `herdr agent prompt` like every other harness, so no positional prompt is
+// appended. Kimi shows its own workspace trust dialog in a fresh worktree but
+// keeps reporting idle there (Herdr's kimi detection falls back to idle), and
+// the dialog highlights "Don't trust" by default, so confirming it takes Up
+// then Enter; a bare Enter would exit Kimi.
 func (kimiAdapter) Build(spec LaunchSpec) (Launch, error) {
 	launch, err := buildBase(spec)
 	if err != nil {
 		return Launch{}, err
 	}
-	launch.Executable = "kimi"
 	if hasValue(spec.Model) {
 		launch.Args = append(launch.Args, "--model", spec.Model)
 	}
 	// Kimi has no effort flag.
-	launch.PromptFile = ""
-	launch.FollowUpPrompt = "Read the brief at " + spec.BriefPath + " and follow it exactly."
+	launch.ConfirmMarkers = []string{"Trust this folder?"}
+	launch.ConfirmKeys = []string{"up", "enter"}
 	return launch, nil
 }

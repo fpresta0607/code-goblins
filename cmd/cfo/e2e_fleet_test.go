@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -520,8 +521,12 @@ func (f *fleetE2EFixture) AssertVisibleTabsAndNoLifecycleDeletes() {
 			}
 			f.t.Fatalf("unexpected fake external request=%+v", request)
 		}
-		if len(request.Args) < 2 || request.Args[len(request.Args)-2] != "--session" || request.Args[len(request.Args)-1] != "fleet-e2e" {
+		sessionAt := slices.Index(request.Args, "--session")
+		if sessionAt < 0 || sessionAt+1 >= len(request.Args) || request.Args[sessionAt+1] != "fleet-e2e" {
 			f.t.Fatalf("Herdr request missing explicit session: %+v", request)
+		}
+		if separator := slices.Index(request.Args, "--"); separator >= 0 && sessionAt > separator {
+			f.t.Fatalf("Herdr session flag leaked past the agent args separator: %+v", request)
 		}
 		for _, argument := range request.Args {
 			if argument == "close" || argument == "delete" || argument == "return" || argument == "restart" {
@@ -707,16 +712,38 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 		return result(strings.Repeat("terminal line\n", 199) + "acceptance marker\n"), nil
 	case matches(args, "agent", "get"):
 		return resultEnvelope(map[string]any{"agent": map[string]string{"agent": "claude", "agent_status": "working"}}), nil
+	case matches(args, "agent", "start"):
+		if _, ok := flagValue(args, "--kind"); !ok {
+			return execx.Result{}, fmt.Errorf("agent start is missing --kind: %v", args)
+		}
+		if _, ok := flagValue(args, "--pane"); !ok {
+			return execx.Result{}, fmt.Errorf("agent start is missing --pane: %v", args)
+		}
+		if len(args) < 3 || !strings.HasPrefix(args[2], "gb-") {
+			return execx.Result{}, fmt.Errorf("agent start is missing gb- name: %v", args)
+		}
+		return resultEnvelope(map[string]any{"agent": map[string]string{"name": args[2], "agent_status": "idle"}}), nil
+	case matches(args, "agent", "prompt"):
+		if len(args) < 4 {
+			return execx.Result{}, fmt.Errorf("agent prompt is incomplete: %v", args)
+		}
+		return resultEnvelope(map[string]any{"agent": map[string]string{"agent_status": "working"}}), nil
 	default:
 		return execx.Result{}, fmt.Errorf("unexpected fake Herdr command: %v", args)
 	}
 }
 
 func (r *fleetE2ERunner) herdrArgs(args []string) ([]string, error) {
-	if len(args) < 3 || args[len(args)-2] != "--session" || args[len(args)-1] != "fleet-e2e" {
+	// The session flag may sit before a `--` agent-args separator rather than
+	// at the tail.
+	sessionAt := slices.Index(args, "--session")
+	if sessionAt < 0 || sessionAt+1 >= len(args) || args[sessionAt+1] != "fleet-e2e" {
 		return nil, fmt.Errorf("Herdr command must use explicit fleet-e2e session: %v", args)
 	}
-	return args[:len(args)-2], nil
+	if separator := slices.Index(args, "--"); separator >= 0 && sessionAt > separator {
+		return nil, fmt.Errorf("Herdr session flag leaked past the agent args separator: %v", args)
+	}
+	return slices.Delete(append([]string(nil), args...), sessionAt, sessionAt+2), nil
 }
 
 func (r *fleetE2ERunner) tabLabels() []string {
@@ -878,6 +905,8 @@ func fleetE2ESchemaJSON() string {
 		"tab.create",
 		"tab.list",
 		"agent.get",
+		"agent.prompt",
+		"agent.start",
 		"pane.close",
 		"pane.get",
 		"pane.list",

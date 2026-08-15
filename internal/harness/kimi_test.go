@@ -7,7 +7,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
-func TestKimiBuildsBareLaunchWithFollowUpPrompt(t *testing.T) {
+func TestKimiBuildsNativeLaunchWithTrustConfirm(t *testing.T) {
 	registry := DefaultRegistry()
 	adapter, err := registry.Get(Kimi)
 	if err != nil {
@@ -19,11 +19,12 @@ func TestKimiBuildsBareLaunchWithFollowUpPrompt(t *testing.T) {
 		t.Fatalf("Build defaults: %v", err)
 	}
 	assertLaunch(t, defaults, Launch{
-		Executable: "kimi",
 		Env: map[string]string{
 			"GOTMPDIR": `C:\tasks\task\gotmp`,
 		},
-		FollowUpPrompt: `Read the brief at C:\briefs\task.md and follow it exactly.`,
+		PromptFile:     `C:\briefs\task.md`,
+		ConfirmMarkers: []string{"Trust this folder?"},
+		ConfirmKeys:    []string{"up", "enter"},
 	})
 
 	explicit, err := adapter.Build(LaunchSpec{

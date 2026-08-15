@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -198,6 +199,44 @@ func (c *Client) SendLiteral(ctx context.Context, target Target, text string) er
 // SendKey sends one normalized named key to the target pane.
 func (c *Client) SendKey(ctx context.Context, target Target, key string) error {
 	_, err := c.required(ctx, target.Session, target, "pane send-keys", "pane", "send-keys", target.Pane, normalizeKey(key))
+	return err
+}
+
+// AgentStart natively starts a supported interactive agent in the pane under
+// the fleet's explicit name, so the agent is registered with Herdr from birth
+// rather than detected after the fact. Herdr waits for interactive readiness
+// and fails the command when the agent does not come up; harness args ride
+// after `--`. The pane must be at its interactive shell prompt.
+func (c *Client) AgentStart(ctx context.Context, target Target, name, kind string, args []string) error {
+	if err := validateTarget(target); err != nil {
+		return err
+	}
+	if name == "" {
+		return &requestError{message: "herdr: agent name is required"}
+	}
+	if kind == "" {
+		return &requestError{message: "herdr: agent kind is required"}
+	}
+	argv := []string{"agent", "start", name, "--kind", kind, "--pane", target.Pane}
+	if len(args) > 0 {
+		argv = append(argv, "--")
+		argv = append(argv, args...)
+	}
+	_, err := c.required(ctx, target.Session, target, "agent start", argv...)
+	return err
+}
+
+// AgentPrompt submits text to the registered agent through Herdr's native
+// channel rather than a typed shell line, so the text never crosses
+// PowerShell quoting.
+func (c *Client) AgentPrompt(ctx context.Context, target Target, text string) error {
+	if err := validateTarget(target); err != nil {
+		return err
+	}
+	if text == "" {
+		return &requestError{message: "herdr: agent prompt text is required"}
+	}
+	_, err := c.required(ctx, target.Session, target, "agent prompt", "agent", "prompt", target.Pane, text)
 	return err
 }
 
@@ -650,7 +689,15 @@ func (c *Client) raw(ctx context.Context, session string, args ...string) (execx
 	if session == "" {
 		return execx.Result{}, &requestError{message: "herdr: session is required"}
 	}
-	requestArgs := append(append([]string{}, args...), "--session", session)
+	// The session flag is a Herdr option, never an agent argument: when the
+	// command carries a `--` separator (agent start with harness args), the
+	// flag must precede it or Herdr forwards the flag to the agent.
+	requestArgs := append([]string{}, args...)
+	if separator := slices.Index(requestArgs, "--"); separator >= 0 {
+		requestArgs = slices.Insert(requestArgs, separator, "--session", session)
+	} else {
+		requestArgs = append(requestArgs, "--session", session)
+	}
 	result, err := c.Commands.Run(ctx, execx.Request{Name: "herdr", Args: requestArgs})
 	if err != nil {
 		return execx.Result{}, &runnerError{err: err}

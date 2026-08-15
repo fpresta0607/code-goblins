@@ -23,7 +23,6 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	if err != nil {
 		return Launch{}, err
 	}
-	launch.Executable = "codex"
 	launch.Args = []string{"--dangerously-bypass-approvals-and-sandbox"}
 	if hasValue(spec.Model) {
 		launch.Args = append(launch.Args, "--model", spec.Model)
