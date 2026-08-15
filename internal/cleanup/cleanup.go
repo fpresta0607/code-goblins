@@ -1,8 +1,10 @@
 // Package cleanup returns one clean, proven-inactive task worktree through
-// treehouse. It never invokes git worktree remove, deletes a directory,
-// closes a Herdr pane or tab, stops an agent, or discards changes: the only
-// lifecycle call it makes is treehouse.Service.Return, and only after every
-// guard has proven the exact recorded task safe to release.
+// treehouse and closes its task tab. It never invokes git worktree remove,
+// deletes a directory, stops an agent, or discards changes: the only
+// lifecycle calls it makes are the Herdr tab close of the exact recorded tab
+// (after the endpoint is proven agent-free) and treehouse.Service.Return,
+// and only after every guard has proven the exact recorded task safe to
+// release.
 package cleanup
 
 import (
@@ -96,6 +98,12 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	}
 	if err := s.requireInactive(ctx, meta); err != nil {
 		return Result{}, err
+	}
+
+	// The endpoint is proven agent-free: close the recorded tab so a completed
+	// task leaves no terminal behind, then return the worktree.
+	if err := s.Herdr.CloseTab(ctx, meta.HerdrSession, meta.HerdrTabID); err != nil {
+		return Result{}, fmt.Errorf("cleanup: close task tab: %w", err)
 	}
 
 	if err := s.Treehouse.Return(ctx, project, worktree); err != nil {
