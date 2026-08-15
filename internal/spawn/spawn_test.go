@@ -262,6 +262,9 @@ func TestSpawnRefusesDirtyWorktreeWithoutLaunching(t *testing.T) {
 	if _, statErr := os.Stat(fixture.worktree); statErr != nil {
 		t.Fatalf("dirty refusal removed acquired worktree: %v", statErr)
 	}
+	if fixture.git.returned != 1 {
+		t.Fatalf("dirty refusal returned the lease %d times, want 1", fixture.git.returned)
+	}
 }
 
 func TestSpawnLaunchFailureRecordsExactCauseAndPreservesWorktree(t *testing.T) {
@@ -281,6 +284,9 @@ func TestSpawnLaunchFailureRecordsExactCauseAndPreservesWorktree(t *testing.T) {
 	}
 	if _, statErr := os.Stat(fixture.worktree); statErr != nil {
 		t.Fatalf("launch failure removed worktree: %v", statErr)
+	}
+	if fixture.git.returned != 0 {
+		t.Fatalf("launch failure returned the lease %d times, want 0 for a possibly live worktree", fixture.git.returned)
 	}
 	if marker, readErr := os.ReadFile(filepath.Join(fixture.project, "primary-marker.txt")); readErr != nil || string(marker) != "unchanged" {
 		t.Fatalf("launch failure rewrote primary project: %q, %v", marker, readErr)
@@ -434,7 +440,24 @@ func TestSpawnPostAcquisitionFailuresReturnPartialResultAndStatus(t *testing.T) 
 			if fixture.runner.literal != "" || fixture.runner.enterKeys != 0 {
 				t.Fatalf("post-acquisition failure launched harness: literal=%q enter=%d", fixture.runner.literal, fixture.runner.enterKeys)
 			}
+			if fixture.git.returned != 1 {
+				t.Fatalf("post-acquisition failure returned the lease %d times, want 1", fixture.git.returned)
+			}
 		})
+	}
+}
+
+func TestSpawnPostAcquireFailureSurfacesReturnError(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.git.freshenErr = errors.New("treehouse: worktree is dirty")
+	fixture.git.returnErr = errors.New("treehouse: return refused")
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err == nil || !strings.Contains(err.Error(), "worktree is dirty") || !strings.Contains(err.Error(), "return refused") {
+		t.Fatalf("Spawn error = %v, want joined launch and return failures", err)
+	}
+	if fixture.git.returned != 1 {
+		t.Fatalf("post-acquire failure returned the lease %d times, want 1", fixture.git.returned)
 	}
 }
 
@@ -678,6 +701,8 @@ type treehouseGit struct {
 	events     *[]string
 	top        string
 	freshenErr error
+	returnErr  error
+	returned   int
 }
 
 func (g *treehouseGit) WorktreeTop(context.Context, string) (string, error) {
@@ -690,8 +715,9 @@ func (g *treehouseGit) FetchAndFreshen(context.Context, string) error {
 	return g.freshenErr
 }
 
-func (*treehouseGit) Return(context.Context, string, string) error {
-	return nil
+func (g *treehouseGit) Return(context.Context, string, string) error {
+	g.returned++
+	return g.returnErr
 }
 
 type herdrRunner struct {

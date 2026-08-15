@@ -342,6 +342,30 @@ func TestHerdrProberStructuralVerdicts(t *testing.T) {
 	}
 }
 
+func TestHerdrProberAcceptsShortCaptureFromLiveTask(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	runner := &proberRunner{
+		snapshotBodies: []string{proberSnapshotEnvelope([]state.TaskMeta{meta}, map[string]string{"g1": "working"})},
+		captureText:    map[string]string{meta.HerdrPaneID: "claude is running\n"},
+	}
+	service := testService(stateDir, NewHerdrProber(proberClient(runner)), &now)
+
+	result, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(result.Observations) != 1 {
+		t.Fatalf("observations = %+v, want one task", result.Observations)
+	}
+	observation := result.Observations[0]
+	if observation.Health != HealthActive || observation.EndpointVerdict != ProbePresent {
+		t.Fatalf("observation = %+v, want active with present endpoint for a short live capture", observation)
+	}
+}
+
 func TestHerdrProberUnreadableCaptureIsUnknown(t *testing.T) {
 	meta := metaFor("g1")
 	runner := &proberRunner{
