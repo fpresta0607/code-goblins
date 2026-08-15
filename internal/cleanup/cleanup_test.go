@@ -21,6 +21,8 @@ type cleanupRunner struct {
 	gitStatus    string
 	snapshotBody string
 	snapshotErr  bool
+	tabCloseErr  bool
+	tabClosed    []string
 	requests     []execx.Request
 }
 
@@ -42,7 +44,18 @@ func (r *cleanupRunner) Run(_ context.Context, req execx.Request) (execx.Result,
 		}
 		return execx.Result{Stdout: []byte(r.snapshotBody)}, nil
 	}
+	if len(args) == 3 && args[0] == "tab" && args[1] == "close" {
+		if r.tabCloseErr {
+			return execx.Result{ExitCode: 1, Stderr: []byte("tab close refused")}, nil
+		}
+		r.tabClosed = append(r.tabClosed, args[2])
+		return jsonResultOK(), nil
+	}
 	return execx.Result{}, fmt.Errorf("unexpected Herdr args: %q", args)
+}
+
+func jsonResultOK() execx.Result {
+	return execx.Result{Stdout: []byte(`{"result":{"type":"ok"}}`)}
 }
 
 type cleanupGit struct {
@@ -143,6 +156,26 @@ func (f *cleanupFixture) assertNoLifecycleRequests(t *testing.T) {
 	}
 }
 
+// assertOnlyTabCloseLifecycle proves the one lifecycle action a successful
+// cleanup takes: closing the recorded tab after the endpoint proved inactive.
+func (f *cleanupFixture) assertOnlyTabCloseLifecycle(t *testing.T) {
+	t.Helper()
+	if len(f.runner.tabClosed) != 1 || f.runner.tabClosed[0] != "tab-g1" {
+		t.Fatalf("tab closes = %v, want exactly [tab-g1]", f.runner.tabClosed)
+	}
+	for _, request := range f.runner.requests {
+		for _, argument := range request.Args {
+			switch argument {
+			case "delete", "remove", "restart", "send-text", "send-keys", "stop", "close":
+				if argument == "close" && request.Name == "herdr" {
+					continue
+				}
+				t.Fatalf("cleanup issued an unexpected lifecycle command: %s %q", request.Name, request.Args)
+			}
+		}
+	}
+}
+
 func (f *cleanupFixture) assertMetadataPreserved(t *testing.T) {
 	t.Helper()
 	meta, err := state.ReadTaskMeta(f.stateDir, "g1")
@@ -179,7 +212,7 @@ func TestCleanupReturnsCleanInactiveWorktree(t *testing.T) {
 	if err != nil || len(status) != 1 || status[0] != "done: returned worktree "+fixture.worktree+" via cfo cleanup" {
 		t.Fatalf("status = %v, %v; want one done line recording the returned worktree", status, err)
 	}
-	fixture.assertNoLifecycleRequests(t)
+	fixture.assertOnlyTabCloseLifecycle(t)
 	if _, err := lock.AcquireExclusiveNamed(fixture.stateDir, cleanupLockName("g1")); err != nil {
 		t.Fatalf("task lock still held after cleanup: %v", err)
 	}
@@ -197,6 +230,23 @@ func TestCleanupAcceptsMissingPaneAsInactiveEvidence(t *testing.T) {
 	}
 	if len(fixture.git.returned) != 1 {
 		t.Fatalf("treehouse return calls = %v, want one", fixture.git.returned)
+	}
+	fixture.assertOnlyTabCloseLifecycle(t)
+}
+
+func TestCleanupTabCloseFailurePreservesMetadataAndSkipsReturn(t *testing.T) {
+	fixture := newCleanupFixture(t)
+	fixture.runner.tabCloseErr = true
+
+	_, err := fixture.service.Cleanup(context.Background(), "g1")
+	if err == nil || !strings.Contains(err.Error(), "close task tab") {
+		t.Fatalf("Cleanup error = %v, want tab close refusal", err)
+	}
+	if _, metaErr := state.ReadTaskMeta(fixture.stateDir, "g1"); metaErr != nil {
+		t.Fatalf("metadata lost after tab close failure: %v", metaErr)
+	}
+	if len(fixture.git.returned) != 0 {
+		t.Fatalf("treehouse return calls = %v, want none when the tab close fails", fixture.git.returned)
 	}
 }
 
