@@ -207,6 +207,11 @@ func (c *Client) SendKey(ctx context.Context, target Target, key string) error {
 	return err
 }
 
+// agentStartTimeoutMs gives a harness two minutes to boot on a loaded host;
+// Herdr's 30s default is too tight for a cold pi or kimi start while test
+// suites are running.
+const agentStartTimeoutMs = "120000"
+
 // AgentStart natively starts a supported interactive agent in the pane under
 // the fleet's explicit name, so the agent is registered with Herdr from birth
 // rather than detected after the fact. Herdr waits for interactive readiness
@@ -222,7 +227,7 @@ func (c *Client) AgentStart(ctx context.Context, target Target, name, kind strin
 	if kind == "" {
 		return &requestError{message: "herdr: agent kind is required"}
 	}
-	argv := []string{"agent", "start", name, "--kind", kind, "--pane", target.Pane}
+	argv := []string{"agent", "start", name, "--kind", kind, "--pane", target.Pane, "--timeout", agentStartTimeoutMs}
 	if len(args) > 0 {
 		argv = append(argv, "--")
 		argv = append(argv, args...)
