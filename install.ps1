@@ -109,7 +109,12 @@ $tools = @(
     @{ Name = "chrome-devtools-axi"; Kind = "npm";        Cmd = "npm install -g chrome-devtools-axi" }
 )
 
+$npmPresent = [bool](Get-Command npm -ErrorAction SilentlyContinue)
+$wingetPresent = [bool](Get-Command winget -ErrorAction SilentlyContinue)
+
 $missing = @()
+$manualSteps = @()
+$failedInstalls = @()
 $installedAny = $false
 foreach ($tool in $tools) {
     $found = Get-Command $tool.Name -ErrorAction SilentlyContinue
@@ -120,11 +125,24 @@ foreach ($tool in $tools) {
     if ($tool.Kind -eq "manual") {
         Write-Host ("MANUAL   {0,-20} {1}" -f $tool.Name, $tool.Cmd)
         $missing += $tool.Name
+        $manualSteps += $tool.Name
         continue
     }
     if (-not $Bootstrap) {
         Write-Host ("MISSING  {0,-20} install: {1}" -f $tool.Name, $tool.Cmd)
         $missing += $tool.Name
+        continue
+    }
+    if ($tool.Kind -eq "npm" -and -not $npmPresent) {
+        Write-Host ("PREREQ   {0,-20} install Node.js first: winget install OpenJS.NodeJS.LTS" -f $tool.Name)
+        $missing += $tool.Name
+        $failedInstalls += $tool.Name
+        continue
+    }
+    if ($tool.Kind -eq "winget" -and -not $wingetPresent) {
+        Write-Host ("PREREQ   {0,-20} install winget first (ships with Windows App Installer)" -f $tool.Name)
+        $missing += $tool.Name
+        $failedInstalls += $tool.Name
         continue
     }
     Write-Host ("install  {0,-20} {1}" -f $tool.Name, $tool.Cmd)
@@ -143,6 +161,7 @@ foreach ($tool in $tools) {
     catch {
         Write-Host ("WARN     {0,-20} install failed: {1}" -f $tool.Name, $_.Exception.Message)
         $missing += $tool.Name
+        $failedInstalls += $tool.Name
     }
 }
 
@@ -169,13 +188,24 @@ $doctorExit = $LASTEXITCODE
 if ($missing.Count -gt 0) {
     Write-Host ""
     if ($Bootstrap) {
-        Write-Host "Still needs a manual step:"
+        if ($manualSteps.Count -gt 0) {
+            Write-Host "Still needs a manual step:"
+            foreach ($m in $manualSteps) {
+                Write-Host "  - $m"
+            }
+        }
+        if ($failedInstalls.Count -gt 0) {
+            Write-Host "These installs did not complete; see the lines above:"
+            foreach ($m in $failedInstalls) {
+                Write-Host "  - $m"
+            }
+        }
     }
     else {
         Write-Host "Run install.ps1 -Bootstrap to install the missing tools, or run the install commands printed above:"
-    }
-    foreach ($m in $missing) {
-        Write-Host "  - $m"
+        foreach ($m in $missing) {
+            Write-Host "  - $m"
+        }
     }
 }
 
