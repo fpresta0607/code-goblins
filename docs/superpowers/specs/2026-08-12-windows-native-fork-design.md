@@ -107,9 +107,9 @@ The instruction layer routes agent-performed GitHub operations through gh-axi, m
 Using code-goblins must not require a Go toolchain.
 
 - CI builds `cfo.exe` on tags and publishes it as a GitHub Release asset.
-- `install.ps1` downloads the release binary, verifies `git`, `gh`, `herdr`, `claude`, and `treehouse`, and wires `.claude/settings.json`.
+- `install.ps1` is the toolchain bootstrapper: it downloads (or builds) `cfo.exe`, then installs every missing tool `cfo doctor` checks that has a scriptable installer, wires `.claude/settings.json`, and junctions the bundled skills for claude and codex. Run it with `-Bootstrap`; it is idempotent and safe to rerun.
 - `cfo doctor` re-checks the environment on demand and says exactly what is missing and how to install it.
-- Quick start is three steps: clone the repo, run `install.ps1`, launch Claude Code in the repo.
+- Quick start: clone, run `install.ps1 -Bootstrap`, then follow README's "From clone to first goblin" (doctor green, spawn a trivial local-only task, cleanup).
 
 The Go toolchain is only needed for hacking on cfo itself.
 
