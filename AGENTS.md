@@ -26,7 +26,7 @@ This file is your entire job description.
 
 | Command | What it does |
 | --- | --- |
-| `cfo doctor` | Check git, gh, claude, herdr, treehouse, codex, pi, kimi and print install hints |
+| `cfo doctor` | Check git, gh, claude, herdr, treehouse, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi and print install hints |
 | `cfo spawn <id> --project <p> --brief <b> --harness <h> [--mode <m>] [--model <m>] [--effort <e>] [--yolo]` | Dispatch one goblin (ship task) |
 | `cfo send <target> <text>` | Type a steer to a goblin |
 | `cfo send <target> --key <key>` | Send a key: Enter, Escape, Ctrl-C, Ctrl-U |
