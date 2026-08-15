@@ -18,14 +18,14 @@ func fakeTool(t *testing.T, dir, name, out string, code int) {
 
 func TestRunAllToolsPresent(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"git", "gh", "claude", "herdr", "treehouse", "codex", "pi", "kimi", "tasks-axi", "quota-axi"} {
+	for _, name := range []string{"git", "gh", "claude", "herdr", "treehouse", "codex", "pi", "kimi", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi"} {
 		fakeTool(t, dir, name, name+" version 1.0.0", 0)
 	}
 	t.Setenv("PATH", dir)
 	t.Setenv("CFO_HOME", t.TempDir()) // no .claude/settings.json: hook-pairing passes
 	checks := Run()
-	if len(checks) != 11 {
-		t.Fatalf("len = %d, want 11 (10 tools + hook-pairing)", len(checks))
+	if len(checks) != 14 {
+		t.Fatalf("len = %d, want 14 (13 tools + hook-pairing)", len(checks))
 	}
 	if !Healthy(checks) {
 		t.Errorf("Healthy = false with all tools present: %+v", checks)
@@ -42,8 +42,11 @@ func TestRunAllToolsPresent(t *testing.T) {
 	if checks[8].Name != "tasks-axi" || checks[9].Name != "quota-axi" {
 		t.Errorf("AXI checks = %+v, want tasks-axi and quota-axi", checks[8:10])
 	}
-	if checks[10].Name != "hook-pairing" {
-		t.Errorf("checks[10] = %+v, want hook-pairing", checks[10])
+	if checks[10].Name != "no-mistakes" || checks[11].Name != "gh-axi" || checks[12].Name != "chrome-devtools-axi" {
+		t.Errorf("gate/API checks = %+v, want no-mistakes, gh-axi, chrome-devtools-axi", checks[10:13])
+	}
+	if checks[13].Name != "hook-pairing" {
+		t.Errorf("checks[13] = %+v, want hook-pairing", checks[13])
 	}
 }
 
@@ -134,6 +137,27 @@ func TestRunMissingAXIToolsCarryInstallHints(t *testing.T) {
 		byName[check.Name] = check
 	}
 	for _, name := range []string{"tasks-axi", "quota-axi"} {
+		check, ok := byName[name]
+		if !ok || check.Err == "" || check.Hint == "" {
+			t.Errorf("%s check = %+v, want missing-tool error with install hint", name, check)
+		}
+	}
+}
+
+func TestRunMissingGateAndAXICapabilityToolsCarryInstallHints(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"git", "gh", "claude", "herdr", "treehouse", "codex", "pi", "kimi", "tasks-axi", "quota-axi"} {
+		fakeTool(t, dir, name, name+" ok", 0)
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("CFO_HOME", t.TempDir())
+
+	checks := Run()
+	byName := make(map[string]Check, len(checks))
+	for _, check := range checks {
+		byName[check.Name] = check
+	}
+	for _, name := range []string{"no-mistakes", "gh-axi", "chrome-devtools-axi"} {
 		check, ok := byName[name]
 		if !ok || check.Err == "" || check.Hint == "" {
 			t.Errorf("%s check = %+v, want missing-tool error with install hint", name, check)
