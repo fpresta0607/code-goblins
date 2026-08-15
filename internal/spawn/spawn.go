@@ -144,25 +144,38 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return Result{}, fmt.Errorf("spawn: acquire treehouse worktree: %w", err)
 	}
 	result = partialResult(req, project, taskTmp, endpoint, worktree.Path)
+	launchSubmitted := false
+	fail := func(result Result, cause error) (Result, error) {
+		line := "failed: " + bounded(normalizeStatusDetail(cause.Error()), 1000)
+		if err := state.AppendStatus(s.StateDir, result.Meta.ID, line); err != nil {
+			cause = errors.Join(cause, fmt.Errorf("spawn: record launch failure: %w", err))
+		}
+		if !launchSubmitted {
+			if err := s.Treehouse.Return(ctx, project, worktree.Path); err != nil {
+				cause = errors.Join(cause, fmt.Errorf("spawn: return treehouse worktree after launch failure: %w", err))
+			}
+		}
+		return result, cause
+	}
 	if err := validateLineValues("worktree", worktree.Path); err != nil {
-		return s.postAcquireFailure(result, err)
+		return fail(result, err)
 	}
 	git, err := s.treehouseGit()
 	if err != nil {
-		return s.postAcquireFailure(result, err)
+		return fail(result, err)
 	}
 	if err := treehouse.Validate(ctx, git, project, worktree.Path); err != nil {
-		return s.postAcquireFailure(result, fmt.Errorf("spawn: validate treehouse worktree: %w", err))
+		return fail(result, fmt.Errorf("spawn: validate treehouse worktree: %w", err))
 	}
 	if err := s.Treehouse.Freshen(ctx, worktree.Path); err != nil {
-		return s.postAcquireFailure(result, fmt.Errorf("spawn: freshen treehouse worktree: %w", err))
+		return fail(result, fmt.Errorf("spawn: freshen treehouse worktree: %w", err))
 	}
 
 	if err := adapter.Validate(ctx, herdrClient.Commands); err != nil {
-		return s.postAcquireFailure(result, fmt.Errorf("spawn: validate harness %s: %w", req.Harness, err))
+		return fail(result, fmt.Errorf("spawn: validate harness %s: %w", req.Harness, err))
 	}
 	if err := os.MkdirAll(filepath.Join(taskTmp, "gotmp"), 0o755); err != nil {
-		return s.postAcquireFailure(result, fmt.Errorf("spawn: create task temporary directory: %w", err))
+		return fail(result, fmt.Errorf("spawn: create task temporary directory: %w", err))
 	}
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath: req.BriefPath,
@@ -171,43 +184,44 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		Effort:    req.Effort,
 	})
 	if err != nil {
-		return s.postAcquireFailure(result, fmt.Errorf("spawn: build harness launch: %w", err))
+		return fail(result, fmt.Errorf("spawn: build harness launch: %w", err))
 	}
 	launch.Dir = worktree.Path
 	line, err := launch.PowerShellLine()
 	if err != nil {
-		return s.postAcquireFailure(result, fmt.Errorf("spawn: render Windows harness launch: %w", err))
+		return fail(result, fmt.Errorf("spawn: render Windows harness launch: %w", err))
 	}
 	if err := herdrClient.SendLiteral(ctx, endpoint.Target, line); err != nil {
-		return s.postAcquireFailure(result, fmt.Errorf("spawn: send harness launch: %w", err))
+		return fail(result, fmt.Errorf("spawn: send harness launch: %w", err))
 	}
 	if err := s.sleep(ctx, launchSettle); err != nil {
-		return s.postAcquireFailure(result, fmt.Errorf("spawn: wait before launch submit: %w", err))
+		return fail(result, fmt.Errorf("spawn: wait before launch submit: %w", err))
 	}
 	if err := herdrClient.SendKey(ctx, endpoint.Target, "Enter"); err != nil {
-		return s.postAcquireFailure(result, fmt.Errorf("spawn: submit harness launch: %w", err))
+		return fail(result, fmt.Errorf("spawn: submit harness launch: %w", err))
 	}
+	launchSubmitted = true
 	if launch.FollowUpPrompt != "" {
 		if err := s.sleep(ctx, launchSettle); err != nil {
-			return s.postAcquireFailure(result, fmt.Errorf("spawn: wait before follow-up prompt: %w", err))
+			return fail(result, fmt.Errorf("spawn: wait before follow-up prompt: %w", err))
 		}
 		if err := herdrClient.SendLiteral(ctx, endpoint.Target, launch.FollowUpPrompt); err != nil {
-			return s.postAcquireFailure(result, fmt.Errorf("spawn: send follow-up prompt: %w", err))
+			return fail(result, fmt.Errorf("spawn: send follow-up prompt: %w", err))
 		}
 		if err := s.sleep(ctx, launchSettle); err != nil {
-			return s.postAcquireFailure(result, fmt.Errorf("spawn: wait before follow-up submit: %w", err))
+			return fail(result, fmt.Errorf("spawn: wait before follow-up submit: %w", err))
 		}
 		if err := herdrClient.SendKey(ctx, endpoint.Target, "Enter"); err != nil {
-			return s.postAcquireFailure(result, fmt.Errorf("spawn: submit follow-up prompt: %w", err))
+			return fail(result, fmt.Errorf("spawn: submit follow-up prompt: %w", err))
 		}
 	}
 	if err := s.confirmLaunch(ctx, &herdrClient, endpoint.Target, launch.ConfirmMarkers); err != nil {
-		return s.postAcquireFailure(result, err)
+		return fail(result, err)
 	}
 
 	result.Meta.SpawnGen = fmt.Sprintf("s%d", time.Now().UTC().UnixNano())
 	if err := state.WriteTaskMeta(s.StateDir, result.Meta); err != nil {
-		return s.postAcquireFailure(result, fmt.Errorf("spawn: publish task metadata: %w", err))
+		return fail(result, fmt.Errorf("spawn: publish task metadata: %w", err))
 	}
 	result.Output = successOutput(result.Meta)
 	return result, nil
@@ -437,14 +451,6 @@ func stripWhitespace(text string) string {
 		}
 		return r
 	}, text)
-}
-
-func (s Service) postAcquireFailure(result Result, cause error) (Result, error) {
-	line := "failed: " + bounded(normalizeStatusDetail(cause.Error()), 1000)
-	if err := state.AppendStatus(s.StateDir, result.Meta.ID, line); err != nil {
-		return result, errors.Join(cause, fmt.Errorf("spawn: record launch failure: %w", err))
-	}
-	return result, cause
 }
 
 func (s Service) releaseTaskLock(dir, name string) error {

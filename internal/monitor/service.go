@@ -1,7 +1,6 @@
 package monitor
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -360,18 +359,7 @@ func validSample(meta state.TaskMeta, sample EndpointSample) bool {
 	if sample.TabLabel != "fm-"+meta.ID || sample.Agent != herdr.AgentAlive {
 		return false
 	}
-	return captureHasAtLeast200Lines(sample.Capture)
-}
-
-func captureHasAtLeast200Lines(capture []byte) bool {
-	if len(capture) == 0 {
-		return false
-	}
-	lines := bytes.Count(capture, []byte("\n"))
-	if capture[len(capture)-1] != '\n' {
-		lines++
-	}
-	return lines >= 200
+	return len(sample.Capture) > 0
 }
 
 func (s Service) declaredPaused(id string) bool {
