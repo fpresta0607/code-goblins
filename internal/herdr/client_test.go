@@ -448,9 +448,9 @@ func TestAgentStartAndPromptUseNativeCommands(t *testing.T) {
 		t.Fatal("AgentStart without pane returned nil error")
 	}
 	assertRequests(t, runner.Requests(), []execx.Request{
-		command("herdr", "agent", "start", "gb-task-7", "--kind", "claude", "--pane", "w1:p2", "--session", "fleet", "--", "--dangerously-skip-permissions"),
+		command("herdr", "agent", "start", "gb-task-7", "--kind", "claude", "--pane", "w1:p2", "--timeout", "120000", "--session", "fleet", "--", "--dangerously-skip-permissions"),
 		command("herdr", "agent", "prompt", "w1:p2", "Read the brief at C:\\briefs\\task.md and follow it exactly.", "--session", "fleet"),
-		command("herdr", "agent", "start", "gb-task-8", "--kind", "kimi", "--pane", "w1:p2", "--session", "fleet"),
+		command("herdr", "agent", "start", "gb-task-8", "--kind", "kimi", "--pane", "w1:p2", "--timeout", "120000", "--session", "fleet"),
 	})
 }
 
