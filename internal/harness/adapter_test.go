@@ -42,35 +42,29 @@ func TestDefaultRegistryAcceptsOnlyPlan3Harnesses(t *testing.T) {
 	}
 }
 
-func TestPowerShellLineEscapesLiteralValues(t *testing.T) {
+func TestPowerShellPrefixEscapesLiteralValues(t *testing.T) {
 	launch := Launch{
-		Executable: `C:\Program Files\O'Brien\claude.exe`,
-		Args: []string{
-			"--model",
-			"model with spaces and 100%",
-			`C:\work\O'Brien\input`,
-		},
 		Env: map[string]string{
 			"GOTMPDIR": `C:\task tmp\O'Brien\gotmp`,
 			"PROMPT":   "100% O'Brien",
 		},
-		PromptFile: `C:\briefs\O'Brien\100% ready.md`,
+		Dir: `C:\work\O'Brien\task`,
 	}
 
-	got, err := launch.PowerShellLine()
+	got, err := launch.PowerShellPrefix()
 	if err != nil {
-		t.Fatalf("PowerShellLine: %v", err)
+		t.Fatalf("PowerShellPrefix: %v", err)
 	}
-	want := "$env:GOTMPDIR = 'C:\\task tmp\\O''Brien\\gotmp'; $env:PROMPT = '100% O''Brien'; & 'C:\\Program Files\\O''Brien\\claude.exe' '--model' 'model with spaces and 100%' 'C:\\work\\O''Brien\\input' 'Read the brief at C:\\briefs\\O''Brien\\100% ready.md and follow it exactly.'"
+	want := `Set-Location -LiteralPath 'C:\work\O''Brien\task'; $env:GOTMPDIR = 'C:\task tmp\O''Brien\gotmp'; $env:PROMPT = '100% O''Brien'`
 	if got != want {
-		t.Errorf("PowerShellLine() = %q\nwant %q", got, want)
+		t.Errorf("PowerShellPrefix() = %q\nwant %q", got, want)
 	}
 }
 
-func TestPowerShellLineRejectsRelativePrompt(t *testing.T) {
-	launch := Launch{Executable: "claude", Env: map[string]string{"GOTMPDIR": `C:\tmp\gotmp`}, PromptFile: "brief.md"}
-	if _, err := launch.PowerShellLine(); err == nil {
-		t.Fatal("PowerShellLine returned nil error for relative prompt")
+func TestPowerShellPrefixRejectsRelativeDir(t *testing.T) {
+	launch := Launch{Env: map[string]string{"GOTMPDIR": `C:\tmp\gotmp`}, Dir: "worktree"}
+	if _, err := launch.PowerShellPrefix(); err == nil {
+		t.Fatal("PowerShellPrefix returned nil error for relative dir")
 	}
 }
 

@@ -23,17 +23,18 @@ func (claudeAdapter) Build(spec LaunchSpec) (Launch, error) {
 	if err != nil {
 		return Launch{}, err
 	}
-	launch.Executable = "claude"
 	launch.Env["CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION"] = "false"
 	launch.Args = []string{"--dangerously-skip-permissions"}
 	// Fresh treehouse worktrees are never in ~/.claude.json, so interactive
-	// Claude launches open the workspace trust dialog and report blocked until
-	// it is confirmed. The dialog has no typed Herdr or CLI bypass; spawn
-	// confirms it with Enter when the marker text is on screen.
+	// Claude launches open the workspace trust dialog. herdr agent start
+	// returns success while Claude sits at that dialog and the agent reports
+	// blocked; the dialog highlights "Yes, I trust this folder" by default,
+	// so a single Enter confirms it once the marker text is on screen.
 	launch.ConfirmMarkers = []string{
 		"Is this a project you created or one you trust?",
 		"Do you trust the files in this folder?",
 	}
+	launch.ConfirmKeys = []string{"enter"}
 	if hasValue(spec.Model) {
 		launch.Args = append(launch.Args, "--model", spec.Model)
 	}
