@@ -54,6 +54,7 @@ cfo brief <id> --project <path> [--kind <ship|scout>] [--mode <no-mistakes|direc
 cfo pr check <id> <url>
 cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
 cfo merge-local <id>
+cfo cleanup <id>                       return one clean, proven-inactive task worktree through treehouse
 cfo drain                            print or acknowledge the wake queue
 cfo session-start                    print the session-start digest
 cfo watch                            run one triage cycle by hand

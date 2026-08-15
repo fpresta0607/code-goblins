@@ -21,10 +21,10 @@ import (
 )
 
 const (
-	spawnLockName = ".spawn.lock"
-	launchSettle  = 300 * time.Millisecond
-	launchWait    = 3 * time.Second
-	launchPolls   = 4
+	spawnLockName      = ".spawn.lock"
+	launchSettle       = 300 * time.Millisecond
+	launchConfirmPoll  = 1500 * time.Millisecond
+	launchConfirmTries = 40
 )
 
 // Request is the complete local task creation input. Ship delivery posture is
@@ -118,6 +118,12 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return Result{}, err
 	}
 
+	if err := herdrClient.EnsureServer(ctx); err != nil {
+		return Result{}, fmt.Errorf("spawn: ensure Herdr server: %w", err)
+	}
+	if err := herdrClient.Preflight(ctx); err != nil {
+		return Result{}, fmt.Errorf("spawn: Herdr compatibility preflight: %w", err)
+	}
 	container, err := herdrClient.EnsureContainer(ctx, project)
 	if err != nil {
 		return Result{}, fmt.Errorf("spawn: ensure Herdr container: %w", err)
@@ -133,8 +139,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return Result{}, err
 	}
 
-	pane := herdr.Pane{Client: &herdrClient, Target: endpoint.Target}
-	worktree, err := s.Treehouse.Acquire(ctx, pane, project)
+	worktree, err := s.Treehouse.Acquire(ctx, project, "fm-"+req.ID)
 	if err != nil {
 		return Result{}, fmt.Errorf("spawn: acquire treehouse worktree: %w", err)
 	}
@@ -168,6 +173,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err != nil {
 		return s.postAcquireFailure(result, fmt.Errorf("spawn: build harness launch: %w", err))
 	}
+	launch.Dir = worktree.Path
 	line, err := launch.PowerShellLine()
 	if err != nil {
 		return s.postAcquireFailure(result, fmt.Errorf("spawn: render Windows harness launch: %w", err))
@@ -195,12 +201,8 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 			return s.postAcquireFailure(result, fmt.Errorf("spawn: submit follow-up prompt: %w", err))
 		}
 	}
-	working, err := herdrClient.WaitForWorking(ctx, endpoint.Target, launchWait, launchPolls)
-	if err != nil {
-		return s.postAcquireFailure(result, fmt.Errorf("spawn: confirm harness launch: %w", err))
-	}
-	if working != herdr.SubmitWorking {
-		return s.postAcquireFailure(result, fmt.Errorf("spawn: harness launch did not report working: %s", working))
+	if err := s.confirmLaunch(ctx, &herdrClient, endpoint.Target, launch.ConfirmMarkers); err != nil {
+		return s.postAcquireFailure(result, err)
 	}
 
 	result.Meta.SpawnGen = fmt.Sprintf("s%d", time.Now().UTC().UnixNano())
@@ -380,6 +382,48 @@ func partialResult(req Request, project, taskTmp string, endpoint herdr.Endpoint
 		meta.Yolo = yoloString(req.Yolo)
 	}
 	return Result{Meta: meta, Endpoint: endpoint}
+}
+
+// confirmLaunch waits for the launched harness to report working, confirming
+// any harness-declared blocking dialog (such as the Claude workspace trust
+// prompt shown for every fresh worktree) with a single Enter keypress.
+func (s Service) confirmLaunch(ctx context.Context, client *herdr.Client, target herdr.Target, markers []string) error {
+	for attempt := 0; attempt < launchConfirmTries; attempt++ {
+		if attempt > 0 {
+			if err := s.sleep(ctx, launchConfirmPoll); err != nil {
+				return fmt.Errorf("spawn: wait while confirming harness launch: %w", err)
+			}
+		}
+		state, err := client.WaitForWorking(ctx, target, 0, 1)
+		if err != nil {
+			return fmt.Errorf("spawn: confirm harness launch: %w", err)
+		}
+		switch state {
+		case herdr.SubmitWorking:
+			return nil
+		case herdr.SubmitBlocked:
+			if len(markers) == 0 {
+				continue
+			}
+			capture, err := client.Capture(ctx, target, 60, false)
+			if err != nil || !containsAny(capture, markers) {
+				continue
+			}
+			if err := client.SendKey(ctx, target, "Enter"); err != nil {
+				return fmt.Errorf("spawn: confirm harness launch dialog: %w", err)
+			}
+		}
+	}
+	return fmt.Errorf("spawn: harness launch did not report working within %ds", int(launchConfirmPoll.Seconds()*launchConfirmTries))
+}
+
+func containsAny(text string, markers []string) bool {
+	for _, marker := range markers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s Service) postAcquireFailure(result Result, cause error) (Result, error) {

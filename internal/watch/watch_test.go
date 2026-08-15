@@ -581,3 +581,37 @@ func TestRunWritesTypedHeartbeat(t *testing.T) {
 		t.Error("typed heartbeat LastCycle is zero")
 	}
 }
+
+func TestConfigFromEnvInstallsStructuralProber(t *testing.T) {
+	dir := t.TempDir()
+	cfg := ConfigFromEnv(home.Home{State: dir})
+	if cfg.Monitor == nil {
+		t.Fatal("ConfigFromEnv Monitor = nil, want the structural Herdr monitor for both watch entry paths")
+	}
+	prober, ok := cfg.Monitor.Probe.(*monitor.HerdrProber)
+	if !ok {
+		t.Fatalf("ConfigFromEnv Probe = %T, want *monitor.HerdrProber", cfg.Monitor.Probe)
+	}
+	if cfg.Monitor.StateDir != dir {
+		t.Errorf("ConfigFromEnv Monitor StateDir = %q, want %q", cfg.Monitor.StateDir, dir)
+	}
+	if prober.Client == nil || prober.Client.EffectiveSession() != "default" {
+		t.Errorf("prober session = %+v, want the default Herdr session", prober.Client)
+	}
+	if cfg.Monitor.Heartbeat != cfg.Heartbeat || cfg.Monitor.HeartbeatMax != cfg.HeartbeatMax {
+		t.Errorf("monitor cadence = %v/%v, want the watcher's %v/%v", cfg.Monitor.Heartbeat, cfg.Monitor.HeartbeatMax, cfg.Heartbeat, cfg.HeartbeatMax)
+	}
+}
+
+func TestConfigFromEnvProberFollowsSpawnSessionSource(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HERDR_SESSION", "fleet-watch")
+	cfg := ConfigFromEnv(home.Home{State: dir})
+	prober, ok := cfg.Monitor.Probe.(*monitor.HerdrProber)
+	if !ok {
+		t.Fatalf("ConfigFromEnv Probe = %T, want *monitor.HerdrProber", cfg.Monitor.Probe)
+	}
+	if prober.Client.EffectiveSession() != "fleet-watch" {
+		t.Errorf("prober session = %q, want HERDR_SESSION so monitoring cannot drift to an implicit session", prober.Client.EffectiveSession())
+	}
+}
