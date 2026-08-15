@@ -417,6 +417,9 @@ func (s Service) waitForAgentRegistered(ctx context.Context, client *herdr.Clien
 		}
 		status, err := client.AgentStatus(ctx, target)
 		if err != nil {
+			if herdr.WaitError(ctx, err) {
+				return fmt.Errorf("spawn: wait for agent registration: %w", err)
+			}
 			continue
 		}
 		if status == herdr.AgentAlive {
