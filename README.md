@@ -34,13 +34,13 @@ The full design and the explicit v1 scope live in [docs/superpowers/specs/2026-0
 
 ## What works today
 
-- **One binary** - `cfo.exe`, built from source with `go build ./cmd/cfo`. A prebuilt release and `install.ps1` are planned.
+- **One binary** - `cfo.exe`, downloaded by `install.ps1` (or built from source with `go build ./cmd/cfo`). `install.ps1 -Bootstrap` also installs the rest of the toolchain.
 - **Real Windows sessions** - goblins run in [Herdr](https://herdr.dev), one tab per goblin.
 - **Isolated worktrees** - every goblin gets a clean worktree from [treehouse](https://github.com/kunchenguid/treehouse).
 - **Four harnesses** - Claude Code, Codex, Pi, and Kimi, each with typed, validated launch mapping; claude, codex, and kimi start as named native Herdr agents (`gb-<id>`) and receive their brief through `herdr agent prompt`, while pi is typed into the prepared pane shell (Herdr's Windows agent start cannot run pi's npm `.cmd` shim).
 - **Supervision without babysitting** - Claude Code hooks plus `cfo watch` wake the CFO only when something needs attention; a turn-end guard refuses to let a turn end blind while work is in flight.
 - **Restart-proof state** - tasks, metadata, and the wake queue live on disk under `$CFO_HOME`.
-- **AXI integrations** - `tasks-axi` and `quota-axi` stay thin subprocess integrations for the backlog and quota-aware dispatch.
+- **AXI integrations** - `gh-axi` (GitHub), `chrome-devtools-axi` (browser), `tasks-axi` (backlog), and `quota-axi` (dispatch) stay thin subprocess integrations; their skills ship in `.agents/skills/`.
 
 ## Commands
 
@@ -62,18 +62,43 @@ cfo hook <name>                      Claude Code hook entry points (session-star
 cfo version
 ```
 
-## Quick start
-
-Prerequisites: Git, the GitHub CLI (`gh auth login`), Go, [Herdr](https://herdr.dev), and [treehouse](https://github.com/kunchenguid/treehouse).
-`cfo doctor` reports exactly what is missing and how to install it.
+## From clone to first goblin
 
 ```powershell
 git clone https://github.com/fpresta0607/code-goblins
 cd code-goblins
-powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Bootstrap
 ```
 
-`install.ps1` builds (or downloads) `cfo.exe` and verifies the toolchain; the Claude Code hooks in `.claude/settings.json` are already wired to it.
+`install.ps1 -Bootstrap` downloads (or builds) `cfo.exe`, then installs every missing tool `cfo doctor` checks - git, gh, claude, herdr, treehouse, codex, pi, tasks-axi, quota-axi, no-mistakes, gh-axi, and chrome-devtools-axi.
+It also wires the Claude Code hooks in `.claude/settings.json` and creates the `.claude/skills` / `.codex/skills` junctions that point at the bundled `.agents/skills/`.
+The script is idempotent and safe to rerun.
+
+```powershell
+cfo doctor
+```
+
+Green means the toolchain is ready.
+Anything still missing is printed with its exact install command.
+
+Prove the loop end to end with a trivial local-only task:
+
+```powershell
+cfo brief smoke --project . --mode local-only
+# put a one-line task in data/smoke/brief.md, e.g. "add a line to README.md"
+cfo spawn smoke --project . --brief data/smoke/brief.md --harness pi --mode local-only
+# once the goblin has landed its branch:
+cfo cleanup smoke
+```
+
+### What still needs manual steps
+
+`install.ps1` installs binaries, not accounts, so do these once by hand:
+
+- **Harness sign-ins.** claude, codex, pi, and kimi each need their own login before they can run goblins.
+- **GitHub auth.** `gh auth login` (gh-axi reuses the same token).
+- **Kimi Code CLI.** It has no scriptable installer; get it from [kimi.com](https://www.kimi.com) and sign in.
+- **no-mistakes per project.** Each project you want gated needs `no-mistakes init` (plus a push target) before `no-mistakes` delivery mode works.
 
 ### Daily flow
 
@@ -85,7 +110,7 @@ herdr
 Herdr is your cockpit. Launch the CFO in a pane, then ask away:
 
 ```sh
-claude    # or: codex, pi
+claude    # or: codex, pi, kimi
 ```
 
 The CFO reads its contract and does the rest - goblins appear as Herdr tabs (`gb-<id>`), each in a clean treehouse worktree.
@@ -107,6 +132,8 @@ These upstream features are not yet ported to the Go binary:
 - `internal/` - one package per subsystem (herdr, treehouse, spawn, fleet, monitor, wake, lock, state, home, watch, harness, axi, execx, fsx, claudehook, digest, doctor, guard, crewstate, supervise, proc).
 - `docs/superpowers/` - the design spec and implementation plans.
 - `tests/acceptance/` - the opt-in real-session Windows acceptance script.
+- `.agents/skills/` - the fleet's skills, synced from user scope; kimi and pi read it directly, and `install.ps1` junctions it for claude and codex.
+- `AGENTS.md.example` / `CLAUDE.md.example` - templates for your global user config.
 - `AGENTS.md` - the CFO's operating contract; `CLAUDE.md` points to it.
 
 ## Development
