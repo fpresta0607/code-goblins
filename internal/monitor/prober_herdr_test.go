@@ -102,7 +102,7 @@ func proberSchemaJSON() string {
 func proberSnapshotEnvelope(metas []state.TaskMeta, statuses map[string]string) string {
 	var b strings.Builder
 	b.WriteString(`{"id":"cli:api:snapshot","result":{"type":"session_snapshot","snapshot":{"version":"0.8.0-test","protocol":19,`)
-	b.WriteString(`"workspaces":[{"workspace_id":"ws","label":"code-goblins"}],"tabs":[`)
+	b.WriteString(`"workspaces":[{"workspace_id":"ws","label":"cfo"}],"tabs":[`)
 	for i, meta := range metas {
 		if i > 0 {
 			b.WriteString(",")
@@ -242,7 +242,7 @@ func TestHerdrProberStructuralVerdicts(t *testing.T) {
 		return fmt.Sprintf(`{"pane_id":%q,"tab_id":%q,"workspace_id":"ws","agent":"claude","agent_status":%q}`, meta.HerdrPaneID, meta.HerdrTabID, status)
 	}
 	envelope := func(tabs, panes, agents string) string {
-		return `{"result":{"type":"session_snapshot","snapshot":{"protocol":19,"workspaces":[{"workspace_id":"ws","label":"code-goblins"}],"tabs":[` + tabs + `],"panes":[` + panes + `],"agents":[` + agents + `]}}}`
+		return `{"result":{"type":"session_snapshot","snapshot":{"protocol":19,"workspaces":[{"workspace_id":"ws","label":"cfo"}],"tabs":[` + tabs + `],"panes":[` + panes + `],"agents":[` + agents + `]}}}`
 	}
 	tabEntry := fmt.Sprintf(`{"tab_id":%q,"workspace_id":"ws","label":"gb-g1"}`, meta.HerdrTabID)
 
