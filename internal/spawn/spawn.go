@@ -433,11 +433,11 @@ func partialResult(req Request, project, taskTmp string, endpoint herdr.Endpoint
 }
 
 // confirmHarnessDialogs clears any harness-declared blocking startup dialog
-// (the workspace trust prompt claude and kimi show in every fresh worktree)
-// by sending the adapter's confirm keys while the marker text stays on
-// screen. Herdr reports the dialog differently per harness (claude blocked,
-// kimi idle), so marker absence in two consecutive captures is the readiness
-// proof for every harness.
+// (the workspace trust prompt the adapter declares) by sending the adapter's
+// confirm keys while the marker text stays on screen. Herdr reports the
+// dialog differently per harness (claude blocked, kimi idle), so marker
+// absence in two consecutive captures is the readiness proof for every
+// harness.
 func (s Service) confirmHarnessDialogs(ctx context.Context, client *herdr.Client, target herdr.Target, launch harness.Launch) error {
 	if len(launch.ConfirmMarkers) == 0 {
 		return nil
