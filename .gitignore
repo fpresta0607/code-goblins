@@ -9,3 +9,7 @@ __pycache__/
 .env
 config/
 /cfo.exe
+
+# Harness skill junctions created by install.ps1 -Bootstrap (point at .agents/skills).
+/.claude/skills/
+/.codex/skills/
