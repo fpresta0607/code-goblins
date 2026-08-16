@@ -121,7 +121,9 @@ func TestRunSendRejectsUnknownFlagInTargetPosition(t *testing.T) {
 
 func TestRunSendWritesFailureOnlyToStderr(t *testing.T) {
 	deps := testCommandRuntime(t)
-	deps.sendText = func(context.Context, home.Home, string, string, bool) error { return errors.New("delivery unconfirmed") }
+	deps.sendText = func(context.Context, home.Home, string, string, bool) error {
+		return errors.New("delivery unconfirmed")
+	}
 
 	var stdout, stderr bytes.Buffer
 	exit := runWithRuntime([]string{"send", "gb-g1", "draft"}, &stdout, &stderr, deps)
