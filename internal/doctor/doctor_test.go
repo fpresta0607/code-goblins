@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -19,14 +20,14 @@ func fakeTool(t *testing.T, dir, name, out string, code int) {
 
 func TestRunAllToolsPresent(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"git", "gh", "claude", "herdr", "treehouse", "codex", "pi", "kimi", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi"} {
+	for _, name := range []string{"git", "gh", "herdr", "treehouse", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi"} {
 		fakeTool(t, dir, name, name+" version 1.0.0", 0)
 	}
 	t.Setenv("PATH", dir)
 	t.Setenv("CFO_HOME", t.TempDir()) // no .claude/settings.json: hook-pairing passes
 	checks := Run()
-	if len(checks) != 14 {
-		t.Fatalf("len = %d, want 14 (13 tools + hook-pairing)", len(checks))
+	if len(checks) != 10 {
+		t.Fatalf("len = %d, want 10 (9 tools + hook-pairing)", len(checks))
 	}
 	if !Healthy(checks) {
 		t.Errorf("Healthy = false with all tools present: %+v", checks)
@@ -34,26 +35,20 @@ func TestRunAllToolsPresent(t *testing.T) {
 	if checks[0].Name != "git" || checks[0].Version != "git version 1.0.0" {
 		t.Errorf("git check = %+v, want captured version line", checks[0])
 	}
-	if checks[5].Name != "codex" || checks[6].Name != "pi" {
-		t.Errorf("harness checks = %+v, want codex and pi", checks[5:7])
+	if checks[4].Name != "tasks-axi" || checks[5].Name != "quota-axi" {
+		t.Errorf("AXI checks = %+v, want tasks-axi and quota-axi", checks[4:6])
 	}
-	if checks[7].Name != "kimi" {
-		t.Errorf("harness checks = %+v, want kimi", checks[7])
+	if checks[6].Name != "no-mistakes" || checks[7].Name != "gh-axi" || checks[8].Name != "chrome-devtools-axi" {
+		t.Errorf("gate/API checks = %+v, want no-mistakes, gh-axi, chrome-devtools-axi", checks[6:9])
 	}
-	if checks[8].Name != "tasks-axi" || checks[9].Name != "quota-axi" {
-		t.Errorf("AXI checks = %+v, want tasks-axi and quota-axi", checks[8:10])
-	}
-	if checks[10].Name != "no-mistakes" || checks[11].Name != "gh-axi" || checks[12].Name != "chrome-devtools-axi" {
-		t.Errorf("gate/API checks = %+v, want no-mistakes, gh-axi, chrome-devtools-axi", checks[10:13])
-	}
-	if checks[13].Name != "hook-pairing" {
-		t.Errorf("checks[13] = %+v, want hook-pairing", checks[13])
+	if checks[9].Name != "hook-pairing" {
+		t.Errorf("checks[9] = %+v, want hook-pairing", checks[9])
 	}
 }
 
 func TestRunMissingToolCarriesHint(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"git", "gh", "claude", "herdr"} {
+	for _, name := range []string{"git", "gh", "herdr"} {
 		fakeTool(t, dir, name, name+" ok", 0)
 	}
 	t.Setenv("PATH", dir) // no treehouse
@@ -62,7 +57,7 @@ func TestRunMissingToolCarriesHint(t *testing.T) {
 	if Healthy(checks) {
 		t.Error("Healthy = true with treehouse missing")
 	}
-	last := checks[4]
+	last := checks[3]
 	if last.Name != "treehouse" || last.Err == "" || last.Hint == "" {
 		t.Errorf("treehouse check = %+v, want Err and Hint set", last)
 	}
@@ -87,7 +82,7 @@ func TestRunBrokenToolReportsFailure(t *testing.T) {
 
 func TestRunBrokenTreehouseReportsFailure(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"git", "gh", "claude", "herdr", "codex", "pi", "tasks-axi", "quota-axi"} {
+	for _, name := range []string{"git", "gh", "herdr", "tasks-axi", "quota-axi"} {
 		fakeTool(t, dir, name, name+" ok", 0)
 	}
 	fakeTool(t, dir, "treehouse", "boom", 1)
@@ -98,28 +93,30 @@ func TestRunBrokenTreehouseReportsFailure(t *testing.T) {
 	if Healthy(checks) {
 		t.Fatal("Healthy = true with treehouse --version failing")
 	}
-	if checks[4].Name != "treehouse" || checks[4].Err == "" {
-		t.Errorf("treehouse check = %+v, want version failure", checks[4])
+	if checks[3].Name != "treehouse" || checks[3].Err == "" {
+		t.Errorf("treehouse check = %+v, want version failure", checks[3])
 	}
 }
 
-func TestRunMissingHarnessesCarryInstallHints(t *testing.T) {
+func TestProbeHarnessesReportsMissingWithInstallHints(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"git", "gh", "claude", "herdr", "treehouse"} {
+	for _, name := range []string{"git", "gh", "herdr", "treehouse"} {
 		fakeTool(t, dir, name, name+" ok", 0)
 	}
 	t.Setenv("PATH", dir)
-	t.Setenv("CFO_HOME", t.TempDir())
 
-	checks := Run()
-	byName := make(map[string]Check, len(checks))
-	for _, check := range checks {
-		byName[check.Name] = check
+	probes := ProbeHarnesses(context.Background())
+	if len(probes) != 4 {
+		t.Fatalf("len = %d, want 4 (every supported harness)", len(probes))
 	}
-	for _, name := range []string{"codex", "pi"} {
-		check, ok := byName[name]
-		if !ok || check.Err == "" || check.Hint == "" {
-			t.Errorf("%s check = %+v, want missing-tool error with install hint", name, check)
+	byName := make(map[string]HarnessProbe, len(probes))
+	for _, probe := range probes {
+		byName[probe.Name] = probe
+	}
+	for _, name := range []string{"claude", "codex", "pi", "kimi"} {
+		probe, ok := byName[name]
+		if !ok || probe.OK || !strings.Contains(probe.Detail, "not found on PATH") || !strings.Contains(probe.Detail, "install") {
+			t.Errorf("%s probe = %+v, want missing harness with install hint", name, probe)
 		}
 	}
 }
@@ -170,11 +167,11 @@ func TestProbeHarnessesReportsOkAndBroken(t *testing.T) {
 	dir := t.TempDir()
 	fakeTool(t, dir, "claude", "claude 1.0.0", 0)
 	fakeTool(t, dir, "codex", "boom", 1)
-	t.Setenv("PATH", dir) // pi and kimi absent: only installed harnesses are probed
+	t.Setenv("PATH", dir)
 
 	probes := ProbeHarnesses(context.Background())
-	if len(probes) != 2 {
-		t.Fatalf("len = %d, want 2 (only installed harnesses): %+v", len(probes), probes)
+	if len(probes) != 4 {
+		t.Fatalf("len = %d, want 4 (every supported harness): %+v", len(probes), probes)
 	}
 	if probes[0].Name != "claude" || !probes[0].OK || probes[0].Detail != "claude 1.0.0" {
 		t.Errorf("claude probe = %+v, want ok with the version line", probes[0])
@@ -182,15 +179,10 @@ func TestProbeHarnessesReportsOkAndBroken(t *testing.T) {
 	if probes[1].Name != "codex" || probes[1].OK || probes[1].Detail == "" {
 		t.Errorf("codex probe = %+v, want broken with failure detail", probes[1])
 	}
-}
-
-func TestProbeHarnessesSkipsMissingHarnesses(t *testing.T) {
-	dir := t.TempDir()
-	fakeTool(t, dir, "git", "git ok", 0) // not a harness
-	t.Setenv("PATH", dir)
-
-	if probes := ProbeHarnesses(context.Background()); len(probes) != 0 {
-		t.Errorf("probes = %+v, want none without installed harnesses", probes)
+	for _, index := range []int{2, 3} {
+		if probes[index].OK || !strings.Contains(probes[index].Detail, "not found on PATH") {
+			t.Errorf("probes[%d] = %+v, want missing harness reported broken", index, probes[index])
+		}
 	}
 }
 

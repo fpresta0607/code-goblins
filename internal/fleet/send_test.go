@@ -578,6 +578,80 @@ func TestSenderTextAutoSubmitKeepsEnterWhenComposerIsClear(t *testing.T) {
 	}
 }
 
+func TestSenderTextAutoSubmitVerifiesParkedPiComposer(t *testing.T) {
+	separator := strings.Repeat("─", 8)
+	tests := []struct {
+		name      string
+		capture   string
+		wantKeys  []string
+		wantReads int
+	}{
+		{
+			name:      "parked pi composer reads back and resubmits Enter",
+			capture:   "\n" + separator + "\nfix the thing\n" + separator + "\n~/project (main)\n",
+			wantKeys:  []string{"enter", "enter"},
+			wantReads: 1,
+		},
+		{
+			name:      "clear pi composer stays conservative",
+			capture:   "\n" + separator + "\n\n" + separator + "\n~/project (main)\n",
+			wantKeys:  []string{"enter", "enter"},
+			wantReads: 1,
+		},
+		{
+			name:      "absent pi composer stays conservative",
+			capture:   "\nterminal output\n",
+			wantKeys:  []string{"enter", "enter"},
+			wantReads: 1,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			replies := []runnerReply{
+				rawReply(""),
+				jsonReply(`{"result":{"agent":{"agent_status":"idle"}}}`),
+				rawReply(""),
+			}
+			for range confirmPolls {
+				replies = append(replies, jsonReply(`{"result":{"agent":{"agent_status":"idle"}}}`))
+			}
+			replies = append(replies,
+				rawReply(test.capture),
+				rawReply(""),
+				jsonReply(`{"result":{"agent":{"agent_status":"working"}}}`),
+			)
+			runner := &fakeRunner{replies: replies}
+			var clientSleeps []time.Duration
+			sender := Sender{
+				Resolve:    &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}, meta: taskMeta("task-7", "pi")},
+				Herdr:      newHerdrClient(runner, &clientSleeps),
+				Sleep:      noSleep,
+				AutoSubmit: true,
+			}
+
+			if err := sender.Text(context.Background(), "task-7", "fix the thing"); err != nil {
+				t.Fatalf("Text: %v", err)
+			}
+			var keys []string
+			reads := 0
+			for _, request := range runner.requests {
+				if len(request.Args) >= 4 && request.Args[0] == "pane" && request.Args[1] == "send-keys" {
+					keys = append(keys, request.Args[3])
+				}
+				if len(request.Args) >= 2 && request.Args[0] == "pane" && request.Args[1] == "read" {
+					reads++
+				}
+			}
+			if !reflect.DeepEqual(keys, test.wantKeys) {
+				t.Errorf("submit keys = %v, want %v", keys, test.wantKeys)
+			}
+			if reads != test.wantReads {
+				t.Errorf("pane read calls = %d, want %d", reads, test.wantReads)
+			}
+		})
+	}
+}
+
 func TestSenderTextWithoutAutoSubmitNeverReadsThePaneBack(t *testing.T) {
 	replies := []runnerReply{
 		rawReply(""),

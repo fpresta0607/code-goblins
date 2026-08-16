@@ -9,17 +9,25 @@ package telemetry
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
 // speedTableSQL measures count plus average and maximum invocation minutes
-// per agent and pipeline step.
-const speedTableSQL = `SELECT agent, step_name, COUNT(*) AS n, AVG(duration_ms)/60000.0 AS avg_min, MAX(duration_ms)/60000.0 AS max_min FROM agent_invocations GROUP BY agent, step_name ORDER BY agent, step_name`
+// per harness and pipeline step. Prefixed agent identities (kimi invocations
+// are recorded as acp:kimi) are normalized to the bare harness name so one
+// harness's rows group together.
+const speedTableSQL = `WITH normalized AS (SELECT CASE WHEN instr(agent, ':') > 0 THEN substr(agent, instr(agent, ':') + 1) ELSE agent END AS agent, step_name, duration_ms FROM agent_invocations) SELECT agent, step_name, COUNT(*) AS n, AVG(duration_ms)/60000.0 AS avg_min, MAX(duration_ms)/60000.0 AS max_min FROM normalized GROUP BY agent, step_name ORDER BY agent, step_name`
+
+// queryTimeout bounds one sqlite3 read so a wedged CLI cannot stall spawn or
+// doctor after the work is already done.
+const queryTimeout = 5 * time.Second
 
 // harnessAvgSQL measures the average invocation minutes for one agent. The
 // agent value is single-quote escaped by the caller. Prefixed identities
@@ -56,6 +64,9 @@ func (q Querier) SpeedTable(ctx context.Context) ([]SpeedRow, string) {
 	out, note := q.query(ctx, speedTableSQL)
 	if note != "" {
 		return nil, note
+	}
+	if len(strings.TrimSpace(string(out))) == 0 {
+		return nil, "telemetry database has no recorded invocations"
 	}
 	var rows []struct {
 		Agent  string  `json:"agent"`
@@ -121,9 +132,18 @@ func (q Querier) query(ctx context.Context, sql string) ([]byte, string) {
 	if _, err := os.Stat(q.DBPath); err != nil {
 		return nil, "no telemetry database at " + q.DBPath
 	}
-	result, err := q.Commands.Run(ctx, execx.Request{Name: "sqlite3", Args: []string{"-readonly", "-json", q.DBPath, sql}})
+	queryCtx, cancel := context.WithTimeout(ctx, queryTimeout)
+	defer cancel()
+	result, err := q.Commands.Run(queryCtx, execx.Request{Name: "sqlite3", Args: []string{"-readonly", "-json", q.DBPath, sql}})
 	if err != nil {
-		return nil, "sqlite3 is not available"
+		switch {
+		case errors.Is(queryCtx.Err(), context.DeadlineExceeded):
+			return nil, "telemetry query timed out"
+		case errors.Is(queryCtx.Err(), context.Canceled):
+			return nil, "telemetry query canceled"
+		default:
+			return nil, "sqlite3 is not available"
+		}
 	}
 	if result.ExitCode != 0 {
 		detail := strings.TrimSpace(string(result.Stderr))
