@@ -16,15 +16,17 @@ Thanks for wanting to contribute to code-goblins.
 go vet ./...
 go test ./...
 go build ./cmd/cfo
+go build ./cmd/showcase-axi
 ```
 
-CI runs the same three steps on `windows-latest` for every push to `main` and every pull request.
-A pull request must keep all three green.
+CI runs the same steps on `windows-latest` for every push to `main` and every pull request.
+A pull request must keep all of them green.
 
 ## Repo layout
 
 - `cmd/cfo/` - the `cfo.exe` entry point and command handlers.
-- `internal/` - one package per subsystem: `herdr`, `treehouse`, `spawn`, `fleet`, `monitor`, `wake`, `lock`, `state`, `home`, `watch`, `harness`, `axi`, `execx`, `fsx`, `claudehook`, `digest`, `doctor`, `guard`, `crewstate`, `supervise`, `proc`.
+- `cmd/showcase-axi/` - the `showcase-axi.exe` entry point for the review surface.
+- `internal/` - one package per subsystem: `herdr`, `treehouse`, `spawn`, `fleet`, `monitor`, `wake`, `lock`, `state`, `home`, `watch`, `harness`, `axi`, `execx`, `fsx`, `claudehook`, `digest`, `doctor`, `guard`, `crewstate`, `supervise`, `proc`, `showcase`.
 - `docs/superpowers/` - the design spec and implementation plans.
 - `tests/acceptance/` - the opt-in real-session Windows acceptance script.
 - `AGENTS.md` - the CFO's operating contract; `CLAUDE.md` points to it.
