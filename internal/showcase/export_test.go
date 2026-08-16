@@ -125,6 +125,42 @@ func TestExportHTMLInlinesSingleQuotedAssets(t *testing.T) {
 	assertSelfContained(t, page)
 }
 
+func TestExportHTMLInlinesImageWithDataSrc(t *testing.T) {
+	dir := t.TempDir()
+	png := []byte{0x89, 0x50, 0x4e, 0x47}
+	if err := os.WriteFile(filepath.Join(dir, "lazy.png"), png, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "placeholder.png"), png, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	artifact := filepath.Join(dir, "mock.html")
+	source := `<!DOCTYPE html><html><body><img data-src="lazy.png" src="placeholder.png"></body></html>`
+	if err := os.WriteFile(artifact, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := Export(artifact, filepath.Join(dir, "out.html"))
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(data)
+	if !strings.Contains(page, "data:image/png;base64,") {
+		t.Errorf("export did not inline the src attribute of an image with a data-src attribute")
+	}
+	if strings.Contains(page, "placeholder.png") {
+		t.Errorf("export left src as a dangling local reference")
+	}
+	if !strings.Contains(page, "lazy.png") {
+		t.Errorf("export rewrote data-src instead of src")
+	}
+	assertSelfContained(t, page)
+}
+
 func TestExportHTMLInlinesCSSURLAssets(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "css"), 0o755); err != nil {

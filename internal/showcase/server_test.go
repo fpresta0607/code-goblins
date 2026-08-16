@@ -142,6 +142,24 @@ func TestServerHTMLArtifactFrameSandbox(t *testing.T) {
 	}
 }
 
+func TestAllowMutationOriginHostCaseInsensitive(t *testing.T) {
+	server := NewServer(t.TempDir())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/stop", nil)
+	req.Host = "LOCALHOST:1234"
+	req.Header.Set("Origin", "http://localhost:1234")
+	if !server.allowMutation(req) {
+		t.Errorf("allowMutation rejected a same-origin request whose host case differs")
+	}
+
+	cross := httptest.NewRequest(http.MethodPost, "/api/stop", nil)
+	cross.Host = "localhost:1234"
+	cross.Header.Set("Origin", "http://evil.example")
+	if server.allowMutation(cross) {
+		t.Errorf("allowMutation accepted a cross-origin request")
+	}
+}
+
 func TestServerRejectsCrossOriginMutations(t *testing.T) {
 	artifact := artifactPath(t, "mock.html", "<h1>Mock</h1>\n")
 	_, ts := newTestServer(t)
