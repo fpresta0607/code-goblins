@@ -2,8 +2,10 @@ package showcase
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -142,21 +144,38 @@ func TestServerHTMLArtifactFrameSandbox(t *testing.T) {
 	}
 }
 
-func TestAllowMutationOriginHostCaseInsensitive(t *testing.T) {
+func TestAllowMutationPinsLoopbackOrigin(t *testing.T) {
 	server := NewServer(t.TempDir())
 
-	req := httptest.NewRequest(http.MethodPost, "/api/stop", nil)
-	req.Host = "LOCALHOST:1234"
-	req.Header.Set("Origin", "http://localhost:1234")
-	if !server.allowMutation(req) {
-		t.Errorf("allowMutation rejected a same-origin request whose host case differs")
+	newRequest := func(origin, host string) *http.Request {
+		req := httptest.NewRequest(http.MethodPost, "/api/stop", nil)
+		req.Host = host
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		req = req.WithContext(context.WithValue(req.Context(), http.LocalAddrContextKey, &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 4321}))
+		return req
 	}
 
-	cross := httptest.NewRequest(http.MethodPost, "/api/stop", nil)
-	cross.Host = "localhost:1234"
-	cross.Header.Set("Origin", "http://evil.example")
-	if server.allowMutation(cross) {
-		t.Errorf("allowMutation accepted a cross-origin request")
+	cases := []struct {
+		name   string
+		origin string
+		host   string
+		want   bool
+	}{
+		{"cli sends no origin", "", "", true},
+		{"localhost same port", "http://localhost:4321", "localhost:4321", true},
+		{"loopback ip same port", "http://127.0.0.1:4321", "127.0.0.1:4321", true},
+		{"mixed case localhost", "http://LOCALHOST:4321", "localhost:4321", true},
+		{"dns rebinding attacker", "http://evil.example:4321", "evil.example:4321", false},
+		{"null origin", "null", "localhost:4321", false},
+		{"different port", "http://localhost:9999", "localhost:9999", false},
+		{"https scheme", "https://localhost:4321", "localhost:4321", false},
+	}
+	for _, tc := range cases {
+		if got := server.allowMutation(newRequest(tc.origin, tc.host)); got != tc.want {
+			t.Errorf("%s: allowMutation = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
 
