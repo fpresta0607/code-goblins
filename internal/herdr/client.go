@@ -102,9 +102,13 @@ func (c *Client) EnsureContainer(ctx context.Context, cwd string) (Container, er
 	case 1:
 		return Container{Session: session, WorkspaceID: matches[0].ID}, nil
 	case 0:
-		// Create below.
+		// Adopt the factory state, or create below.
 	default:
 		return Container{}, fmt.Errorf("herdr: %d workspaces in session %q are labeled %s", len(matches), session, fleetSpaceLabel)
+	}
+
+	if container, adopted, err := c.adoptFactoryWorkspace(ctx, session, workspaces); err != nil || adopted {
+		return container, err
 	}
 
 	result, err := c.required(ctx, session, Target{}, "workspace create", "workspace", "create", "--cwd", cwd, "--label", fleetSpaceLabel, "--no-focus")
@@ -126,6 +130,32 @@ func (c *Client) EnsureContainer(ctx context.Context, cwd string) (Container, er
 		return Container{}, errors.New("herdr: workspace create response is missing workspace_id or seeded tab_id")
 	}
 	return Container{Session: session, WorkspaceID: create.Workspace.ID, SeededDefaultTab: create.Tab.ID}, nil
+}
+
+// adoptFactoryWorkspace renames the factory-default Herdr workspace ("~"
+// holding one tab "1") to the fleet label and adopts it, so a brand-new
+// install opens into the cfo space instead of growing a parallel one. The
+// adopted tab is deliberately not retained as the seeded default: on a live
+// install that tab may carry the operator's own CFO session, and the seeded
+// default is the one pane CreateTask is allowed to prune.
+func (c *Client) adoptFactoryWorkspace(ctx context.Context, session string, workspaces []workspaceRecord) (Container, bool, error) {
+	if len(workspaces) != 1 || workspaces[0].Label != "~" || workspaces[0].ID == "" {
+		return Container{}, false, nil
+	}
+	tabs, err := c.tabs(ctx, session, workspaces[0].ID)
+	if err != nil {
+		return Container{}, false, err
+	}
+	if len(tabs) != 1 || tabs[0].Label != "1" || tabs[0].ID == "" {
+		return Container{}, false, nil
+	}
+	if _, err := c.required(ctx, session, Target{}, "workspace rename", "workspace", "rename", workspaces[0].ID, fleetSpaceLabel); err != nil {
+		return Container{}, false, err
+	}
+	if _, err := c.required(ctx, session, Target{}, "tab rename", "tab", "rename", tabs[0].ID, fleetSpaceLabel); err != nil {
+		return Container{}, false, err
+	}
+	return Container{Session: session, WorkspaceID: workspaces[0].ID}, true, nil
 }
 
 // CreateTask creates one labeled tab in container. A duplicate is replaceable
