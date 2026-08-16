@@ -12,7 +12,7 @@ import (
 func TestRunSendStreamsConfirmedTextResult(t *testing.T) {
 	deps := testCommandRuntime(t)
 	var gotTarget, gotText string
-	deps.sendText = func(_ context.Context, _ home.Home, target, text string) error {
+	deps.sendText = func(_ context.Context, _ home.Home, target, text string, _ bool) error {
 		gotTarget, gotText = target, text
 		return nil
 	}
@@ -30,6 +30,35 @@ func TestRunSendStreamsConfirmedTextResult(t *testing.T) {
 	}
 }
 
+func TestRunSendAutoSubmitDefaultsOnAndOptsOut(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "default verifies and resubmits a parked composer", args: []string{"send", "gb-g1", "steer"}, want: true},
+		{name: "--no-auto-submit preserves the old behavior", args: []string{"send", "gb-g1", "--no-auto-submit", "steer"}, want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			deps := testCommandRuntime(t)
+			var got bool
+			deps.sendText = func(_ context.Context, _ home.Home, _, _ string, autoSubmit bool) error {
+				got = autoSubmit
+				return nil
+			}
+
+			var stdout, stderr bytes.Buffer
+			exit := runWithRuntime(test.args, &stdout, &stderr, deps)
+			if exit != 0 {
+				t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+			}
+			if got != test.want {
+				t.Errorf("autoSubmit = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 func TestRunSendRoutesKeyWithoutText(t *testing.T) {
 	deps := testCommandRuntime(t)
 	var gotTarget, gotKey string
@@ -37,7 +66,7 @@ func TestRunSendRoutesKeyWithoutText(t *testing.T) {
 		gotTarget, gotKey = target, key
 		return nil
 	}
-	deps.sendText = func(context.Context, home.Home, string, string) error {
+	deps.sendText = func(context.Context, home.Home, string, string, bool) error {
 		t.Fatal("key request called text sender")
 		return nil
 	}
@@ -60,7 +89,7 @@ func TestRunSendRejectsMixedKeyAndTextWithoutState(t *testing.T) {
 	deps := testCommandRuntimeForHome(h)
 	called := false
 	deps.sendKey = func(context.Context, home.Home, string, string) error { called = true; return nil }
-	deps.sendText = func(context.Context, home.Home, string, string) error { called = true; return nil }
+	deps.sendText = func(context.Context, home.Home, string, string, bool) error { called = true; return nil }
 
 	var stdout, stderr bytes.Buffer
 	exit := runWithRuntime([]string{"send", "gb-g1", "--key", "Enter", "extra"}, &stdout, &stderr, deps)
@@ -78,7 +107,7 @@ func TestRunSendRejectsMixedKeyAndTextWithoutState(t *testing.T) {
 func TestRunSendRejectsUnknownFlagInTargetPosition(t *testing.T) {
 	deps := testCommandRuntime(t)
 	called := false
-	deps.sendText = func(context.Context, home.Home, string, string) error { called = true; return nil }
+	deps.sendText = func(context.Context, home.Home, string, string, bool) error { called = true; return nil }
 
 	var stdout, stderr bytes.Buffer
 	exit := runWithRuntime([]string{"send", "--unknown", "message"}, &stdout, &stderr, deps)
@@ -92,7 +121,7 @@ func TestRunSendRejectsUnknownFlagInTargetPosition(t *testing.T) {
 
 func TestRunSendWritesFailureOnlyToStderr(t *testing.T) {
 	deps := testCommandRuntime(t)
-	deps.sendText = func(context.Context, home.Home, string, string) error { return errors.New("delivery unconfirmed") }
+	deps.sendText = func(context.Context, home.Home, string, string, bool) error { return errors.New("delivery unconfirmed") }
 
 	var stdout, stderr bytes.Buffer
 	exit := runWithRuntime([]string{"send", "gb-g1", "draft"}, &stdout, &stderr, deps)

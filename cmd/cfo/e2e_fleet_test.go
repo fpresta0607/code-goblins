@@ -551,11 +551,12 @@ func (f *fleetE2EFixture) spawn(ctx context.Context, h home.Home, request spawn.
 	return service.Spawn(ctx, request)
 }
 
-func (f *fleetE2EFixture) sendText(ctx context.Context, h home.Home, target, text string) error {
+func (f *fleetE2EFixture) sendText(ctx context.Context, h home.Home, target, text string, autoSubmit bool) error {
 	return fleet.Sender{
-		Resolve: fleet.Resolver{StateDir: h.State},
-		Herdr:   f.client,
-		Sleep:   noWait,
+		Resolve:    fleet.Resolver{StateDir: h.State},
+		Herdr:      f.client,
+		Sleep:      noWait,
+		AutoSubmit: autoSubmit,
 	}.Text(ctx, target, text)
 }
 
