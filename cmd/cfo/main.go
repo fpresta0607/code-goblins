@@ -9,13 +9,13 @@ import (
 	"os"
 
 	"github.com/fpresta0607/code-goblins/internal/digest"
-	"github.com/fpresta0607/code-goblins/internal/doctor"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
+	"github.com/fpresta0607/code-goblins/internal/telemetry"
 	"github.com/fpresta0607/code-goblins/internal/treehouse"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
@@ -34,7 +34,7 @@ commands:
   watch     run one triage cycle by hand (manual diagnostics; the hooks are the production entry)
   session-start  print the full session-start digest by hand (manual diagnostics; the SessionStart hook is the production entry)
   cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--yolo]
-  cfo send <target> [--key <key>] <text...>
+  cfo send <target> [--key <key>] [--no-auto-submit] <text...>
   cfo peek <target> [lines]
   cfo fleet-view [--json]
   cfo brief <id> --project <path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>]
@@ -59,11 +59,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 type commandRuntime struct {
 	resolveHome func() (home.Home, error)
 	spawn       func(context.Context, home.Home, spawn.Request) (spawn.Result, error)
-	sendText    func(context.Context, home.Home, string, string) error
+	sendText    func(context.Context, home.Home, string, string, bool) error
 	sendKey     func(context.Context, home.Home, string, string) error
 	peek        func(context.Context, home.Home, string, int) (string, error)
 	snapshot    func(context.Context, home.Home) (fleet.Snapshot, error)
 	cleanup     func(context.Context, home.Home, string) (string, error)
+	speedHint   func(context.Context, string) string
 }
 
 func defaultCommandRuntime() commandRuntime {
@@ -80,9 +81,9 @@ func defaultCommandRuntime() commandRuntime {
 			}
 			return service.Spawn(ctx, request)
 		},
-		sendText: func(ctx context.Context, h home.Home, target, text string) error {
+		sendText: func(ctx context.Context, h home.Home, target, text string, autoSubmit bool) error {
 			client := &herdr.Client{Commands: execx.OSRunner{}}
-			return fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Herdr: client}.Text(ctx, target, text)
+			return fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Herdr: client, AutoSubmit: autoSubmit}.Text(ctx, target, text)
 		},
 		sendKey: func(ctx context.Context, h home.Home, target, key string) error {
 			client := &herdr.Client{Commands: execx.OSRunner{}}
@@ -96,6 +97,9 @@ func defaultCommandRuntime() commandRuntime {
 			return fleet.BuildSnapshot(ctx, h, fleet.NewHerdrEndpoint(&herdr.Client{Commands: execx.OSRunner{}}))
 		},
 		cleanup: defaultCleanup,
+		speedHint: func(ctx context.Context, name string) string {
+			return telemetry.SpeedHint(ctx, execx.OSRunner{}, name)
+		},
 	}
 }
 
@@ -109,18 +113,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		fmt.Fprintf(stdout, "cfo %s\n", version)
 		return 0
 	case "doctor":
-		checks := doctor.Run()
-		for _, c := range checks {
-			if c.Err != "" {
-				fmt.Fprintf(stdout, "MISSING  %-10s %s (install: %s)\n", c.Name, c.Err, c.Hint)
-			} else {
-				fmt.Fprintf(stdout, "ok       %-10s %s\n", c.Name, c.Version)
-			}
-		}
-		if !doctor.Healthy(checks) {
-			return 1
-		}
-		return 0
+		return runDoctor(stdout)
 	case "drain":
 		h, err := home.Resolve()
 		if err != nil {

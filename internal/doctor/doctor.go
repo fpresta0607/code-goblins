@@ -2,11 +2,14 @@
 package doctor
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
@@ -99,6 +102,59 @@ func checkHookPairing() Check {
 		}
 	}
 	return Check{Name: "hook-pairing"}
+}
+
+// ProbeTimeout bounds one harness --version spawn sanity probe: a harness
+// that cannot answer cheaply would hang or waste every pipeline attempt.
+const ProbeTimeout = 15 * time.Second
+
+// harnesses are the interactive harnesses a spawn can select.
+var harnesses = []string{"claude", "codex", "pi", "kimi"}
+
+// HarnessProbe is one installed harness's spawn sanity verdict. OK false
+// means the harness is broken: every pipeline attempt on it is wasted time.
+type HarnessProbe struct {
+	Name   string
+	Detail string
+	OK     bool
+}
+
+// ProbeHarnesses runs a cheap spawn sanity check (<harness> --version under a
+// short timeout) for each installed harness, surfacing breakage like a
+// process that cannot start (exit 0xc0000142) before a run discovers it.
+// Harnesses absent from PATH are skipped; the tool checks already report
+// them.
+func ProbeHarnesses(ctx context.Context) []HarnessProbe {
+	probes := make([]HarnessProbe, 0, len(harnesses))
+	for _, name := range harnesses {
+		path, err := exec.LookPath(name)
+		if err != nil {
+			continue
+		}
+		probes = append(probes, probeHarness(ctx, name, path))
+	}
+	return probes
+}
+
+func probeHarness(ctx context.Context, name, path string) HarnessProbe {
+	probeCtx, cancel := context.WithTimeout(ctx, ProbeTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(probeCtx, path, "--version").Output()
+	if errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
+		return HarnessProbe{Name: name, Detail: name + " --version timed out"}
+	}
+	if err != nil {
+		detail := err.Error()
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			if stderr := strings.TrimSpace(string(exitErr.Stderr)); stderr != "" {
+				detail = detail + ": " + stderr
+			}
+		}
+		return HarnessProbe{Name: name, Detail: detail}
+	}
+	version, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	return HarnessProbe{Name: name, Detail: strings.TrimSpace(version), OK: true}
 }
 
 // Healthy reports whether every check passed.

@@ -18,6 +18,7 @@ func TestRunSpawnPassesValidatedRequestAndEnvironment(t *testing.T) {
 	t.Setenv("HERDR_SESSION", "fleet-session")
 
 	deps := defaultCommandRuntime()
+	deps.speedHint = nil // keep stdout deterministic; the hint has its own tests
 	var gotHome home.Home
 	var gotRequest spawn.Request
 	deps.spawn = func(_ context.Context, h home.Home, request spawn.Request) (spawn.Result, error) {
@@ -125,6 +126,48 @@ func TestRunSpawnWritesFailureOnlyToStderr(t *testing.T) {
 	}
 	if stdout.Len() != 0 || stderr.String() != "spawn failed\n" {
 		t.Errorf("stdout=%q stderr=%q, want diagnostics only", stdout.String(), stderr.String())
+	}
+}
+
+func TestRunSpawnPrintsSpeedHintWhenTelemetryHasOne(t *testing.T) {
+	deps := testCommandRuntime(t)
+	deps.spawn = func(context.Context, home.Home, spawn.Request) (spawn.Result, error) {
+		return spawn.Result{Output: "spawned g5"}, nil
+	}
+	var gotHarness string
+	deps.speedHint = func(_ context.Context, name string) string {
+		gotHarness = name
+		return "speed hint: kimi avg 12.3 min/invocation across 37 measured invocations"
+	}
+
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"spawn", "g5", "--project", `C:\project`, "--brief", `C:\brief.md`, "--harness", "kimi"}, &stdout, &stderr, deps)
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+	}
+	if gotHarness != "kimi" {
+		t.Errorf("speed hint harness = %q, want kimi", gotHarness)
+	}
+	want := "spawned g5\nspeed hint: kimi avg 12.3 min/invocation across 37 measured invocations\n"
+	if stdout.String() != want || stderr.Len() != 0 {
+		t.Errorf("stdout=%q stderr=%q, want result output plus speed hint", stdout.String(), stderr.String())
+	}
+}
+
+func TestRunSpawnOmitsSpeedHintWhenTelemetryHasNone(t *testing.T) {
+	deps := testCommandRuntime(t)
+	deps.spawn = func(context.Context, home.Home, spawn.Request) (spawn.Result, error) {
+		return spawn.Result{Output: "spawned g6"}, nil
+	}
+	deps.speedHint = func(context.Context, string) string { return "" }
+
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"spawn", "g6", "--project", `C:\project`, "--brief", `C:\brief.md`, "--harness", "pi"}, &stdout, &stderr, deps)
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+	}
+	if stdout.String() != "spawned g6\n" || stderr.Len() != 0 {
+		t.Errorf("stdout=%q stderr=%q, want unchanged output without telemetry", stdout.String(), stderr.String())
 	}
 }
 

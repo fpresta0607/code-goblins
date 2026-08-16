@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -21,10 +22,14 @@ const (
 )
 
 // Sender types text or sends named keys to one resolved Herdr pane.
+// AutoSubmit additionally verifies, after a failed Enter submit, whether the
+// delivered text is still parked in the harness composer and resubmits with
+// the harness-specific submit key; the zero value keeps the old behavior.
 type Sender struct {
-	Resolve TargetResolver
-	Herdr   *herdr.Client
-	Sleep   func(context.Context, time.Duration) error
+	Resolve    TargetResolver
+	Herdr      *herdr.Client
+	Sleep      func(context.Context, time.Duration) error
+	AutoSubmit bool
 }
 
 // Text types message once, submits it with bounded Enter retries, and returns
@@ -46,7 +51,11 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 		return fmt.Errorf("fleet: inspect target before submit for %s: %w", target, err)
 	}
 	for attempt := 0; attempt < enterRetries; attempt++ {
-		if err := s.Herdr.SendKey(ctx, target, "Enter"); err != nil {
+		key := "Enter"
+		if s.AutoSubmit && attempt > 0 && s.pendingComposer(ctx, target, meta, message) {
+			key = submitKey(meta.Harness)
+		}
+		if err := s.Herdr.SendKey(ctx, target, key); err != nil {
 			return fmt.Errorf("fleet: submit text for %s: %w", target, err)
 		}
 
@@ -205,6 +214,130 @@ func piFooter(line string) bool {
 func piSeparator(line string) bool {
 	trimmed := strings.TrimSpace(line)
 	return strings.Count(trimmed, "─") >= 8 && strings.Trim(trimmed, "─") == ""
+}
+
+// submitKey is the harness-specific key that submits a parked composer: kimi
+// needs ctrl+s while pi and claude submit with Enter. Unknown harnesses keep
+// the conservative Enter default.
+func submitKey(harness string) string {
+	if harness == "kimi" {
+		return "ctrl+s"
+	}
+	return "Enter"
+}
+
+// pendingComposer reports whether the delivered message is clearly still
+// sitting unsubmitted in the harness composer. Any doubt - an unreadable
+// pane, an unknown composer shape, or the message not visible - is false, so
+// the verification never invents a submit.
+func (s Sender) pendingComposer(ctx context.Context, target herdr.Target, meta state.TaskMeta, message string) bool {
+	captured, err := s.Herdr.Capture(ctx, target, 200, true)
+	if err != nil {
+		return false
+	}
+	return composerPending(stripANSI(captured), meta.Harness, message)
+}
+
+// composerPending is the pure conservative check behind pendingComposer. The
+// fragment is whitespace-normalized and capped so it survives composer line
+// wrapping while random scrollback cannot match it.
+func composerPending(captured, harness, message string) bool {
+	fragment := []rune(compact(message))
+	if len(fragment) == 0 {
+		return false
+	}
+	if len(fragment) > 40 {
+		fragment = fragment[:40]
+	}
+	switch harness {
+	case "kimi":
+		return strings.Contains(compact(kimiComposer(captured)), string(fragment))
+	case "pi":
+		return strings.Contains(compact(piComposer(captured)), string(fragment))
+	default:
+		prompt := composerPrompt(harness)
+		if prompt == "" {
+			return false
+		}
+		lines := strings.Split(captured, "\n")
+		for index := len(lines) - 1; index >= 0; index-- {
+			line := strings.TrimSpace(lines[index])
+			if line == "" {
+				continue
+			}
+			if !strings.HasPrefix(line, prompt) {
+				return false
+			}
+			return strings.Contains(compact(strings.TrimPrefix(line, prompt)), string(fragment))
+		}
+		return false
+	}
+}
+
+// kimiComposer extracts the text inside the trailing kimi composer box (the
+// │-bordered input area at the bottom of the pane), or "" when the pane tail
+// is not a composer box.
+func kimiComposer(captured string) string {
+	lines := strings.Split(captured, "\n")
+	index := len(lines) - 1
+	for index >= 0 && !strings.HasPrefix(strings.TrimSpace(lines[index]), "│") {
+		index--
+	}
+	var content []string
+	for index >= 0 {
+		line := strings.TrimSpace(lines[index])
+		if !strings.HasPrefix(line, "│") {
+			break
+		}
+		line = strings.TrimPrefix(line, "│")
+		line = strings.TrimSuffix(strings.TrimSpace(line), "│")
+		content = append([]string{line}, content...)
+		index--
+	}
+	return strings.Join(content, "\n")
+}
+
+// piComposer extracts the text between the trailing pi composer separators,
+// or "" when that region is not the current composer (terminal output or a
+// second footer after it means the box is stale scrollback).
+func piComposer(captured string) string {
+	lines := strings.Split(captured, "\n")
+	lastSeparator, open, close := -1, -1, -1
+	for index, line := range lines {
+		if !piSeparator(line) {
+			continue
+		}
+		if lastSeparator >= 0 {
+			open, close = lastSeparator, index
+		}
+		lastSeparator = index
+	}
+	if close < 0 || close-open > 9 {
+		return ""
+	}
+	footer := false
+	for _, line := range lines[close+1:] {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if footer || !piFooter(trimmed) {
+			return ""
+		}
+		footer = true
+	}
+	return strings.Join(lines[open+1:close], "\n")
+}
+
+// compact removes all whitespace so wrapped composer text matches a delivered
+// message regardless of pane width.
+func compact(text string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, text)
 }
 
 func (s Sender) sleep(ctx context.Context, duration time.Duration) error {

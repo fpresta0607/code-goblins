@@ -506,6 +506,149 @@ func TestSenderTextConfirmsAndRefusesPiComposerState(t *testing.T) {
 	}
 }
 
+func TestSenderTextAutoSubmitsParkedKimiComposerWithCtrlS(t *testing.T) {
+	kimiParkedBox := "\nprevious turn output\n╭────────────────────────────────╮\n│ > fix the thing                │\n╰────────────────────────────────╯\nstatus footer\n"
+	replies := []runnerReply{
+		rawReply(""),
+		jsonReply(`{"result":{"agent":{"agent_status":"idle"}}}`),
+		rawReply(""),
+	}
+	for range confirmPolls {
+		replies = append(replies, jsonReply(`{"result":{"agent":{"agent_status":"idle"}}}`))
+	}
+	replies = append(replies,
+		rawReply(kimiParkedBox),
+		rawReply(""),
+		jsonReply(`{"result":{"agent":{"agent_status":"working"}}}`),
+	)
+	runner := &fakeRunner{replies: replies}
+	var clientSleeps []time.Duration
+	sender := Sender{
+		Resolve:    &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}, meta: taskMeta("task-7", "kimi")},
+		Herdr:      newHerdrClient(runner, &clientSleeps),
+		Sleep:      noSleep,
+		AutoSubmit: true,
+	}
+
+	if err := sender.Text(context.Background(), "task-7", "fix the thing"); err != nil {
+		t.Fatalf("Text: %v", err)
+	}
+	var keys []string
+	for _, request := range runner.requests {
+		if len(request.Args) >= 4 && request.Args[0] == "pane" && request.Args[1] == "send-keys" {
+			keys = append(keys, request.Args[3])
+		}
+	}
+	if !reflect.DeepEqual(keys, []string{"enter", "ctrl+s"}) {
+		t.Errorf("submit keys = %v, want Enter then ctrl+s for the parked kimi composer", keys)
+	}
+}
+
+func TestSenderTextAutoSubmitKeepsEnterWhenComposerIsClear(t *testing.T) {
+	kimiEmptyBox := "\nprevious turn output\n╭────────────────────────────────╮\n│ >                              │\n╰────────────────────────────────╯\nstatus footer\n"
+	replies := []runnerReply{
+		rawReply(""),
+		jsonReply(`{"result":{"agent":{"agent_status":"idle"}}}`),
+		rawReply(""),
+	}
+	for range confirmPolls {
+		replies = append(replies, jsonReply(`{"result":{"agent":{"agent_status":"idle"}}}`))
+	}
+	replies = append(replies,
+		rawReply(kimiEmptyBox),
+		rawReply(""),
+		jsonReply(`{"result":{"agent":{"agent_status":"working"}}}`),
+	)
+	runner := &fakeRunner{replies: replies}
+	var clientSleeps []time.Duration
+	sender := Sender{
+		Resolve:    &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}, meta: taskMeta("task-7", "kimi")},
+		Herdr:      newHerdrClient(runner, &clientSleeps),
+		Sleep:      noSleep,
+		AutoSubmit: true,
+	}
+
+	if err := sender.Text(context.Background(), "task-7", "fix the thing"); err != nil {
+		t.Fatalf("Text: %v", err)
+	}
+	for _, request := range runner.requests {
+		if len(request.Args) >= 4 && request.Args[0] == "pane" && request.Args[1] == "send-keys" && request.Args[3] == "ctrl+s" {
+			t.Error("ctrl+s sent although the composer did not clearly hold the delivered text")
+		}
+	}
+}
+
+func TestSenderTextWithoutAutoSubmitNeverReadsThePaneBack(t *testing.T) {
+	replies := []runnerReply{
+		rawReply(""),
+		jsonReply(`{"result":{"agent":{"agent_status":"idle"}}}`),
+		rawReply(""),
+	}
+	for range confirmPolls {
+		replies = append(replies, jsonReply(`{"result":{"agent":{"agent_status":"idle"}}}`))
+	}
+	replies = append(replies,
+		rawReply(""),
+		jsonReply(`{"result":{"agent":{"agent_status":"working"}}}`),
+	)
+	runner := &fakeRunner{replies: replies}
+	var clientSleeps []time.Duration
+	sender := Sender{
+		Resolve: &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}, meta: taskMeta("task-7", "kimi")},
+		Herdr:   newHerdrClient(runner, &clientSleeps),
+		Sleep:   noSleep,
+	}
+
+	if err := sender.Text(context.Background(), "task-7", "fix the thing"); err != nil {
+		t.Fatalf("Text: %v", err)
+	}
+	for _, request := range runner.requests {
+		if len(request.Args) >= 2 && request.Args[0] == "pane" && request.Args[1] == "read" {
+			t.Error("pane read requested without AutoSubmit")
+		}
+	}
+}
+
+func TestComposerPending(t *testing.T) {
+	separator := strings.Repeat("─", 8)
+	for _, test := range []struct {
+		name     string
+		captured string
+		harness  string
+		message  string
+		want     bool
+	}{
+		{name: "kimi parked message", harness: "kimi", message: "fix the thing", captured: "\n╭────╮\n│ > fix the thing │\n╰────╯\nfooter\n", want: true},
+		{name: "kimi empty composer", harness: "kimi", message: "fix the thing", captured: "\n╭────╮\n│ >  │\n╰────╯\nfooter\n", want: false},
+		{name: "kimi message only in scrollback", harness: "kimi", message: "fix the thing", captured: "\nfix the thing\nworking on it\n", want: false},
+		{name: "kimi wrapped parked message", harness: "kimi", message: "please fix the thing", captured: "\n╭────╮\n│ > please fix │\n│ the thing    │\n╰────╯\nfooter\n", want: true},
+		{name: "pi parked message", harness: "pi", message: "fix the thing", captured: "\n" + separator + "\nfix the thing\n" + separator + "\n~/project (main)\n", want: true},
+		{name: "pi empty composer", harness: "pi", message: "fix the thing", captured: "\n" + separator + "\n\n" + separator + "\n~/project (main)\n", want: false},
+		{name: "pi stale composer above output", harness: "pi", message: "fix the thing", captured: "\n" + separator + "\nfix the thing\n" + separator + "\n~/project (main)\nnew output\n", want: false},
+		{name: "claude parked message", harness: "claude", message: "fix the thing", captured: "\n  ❯ fix the thing\n", want: true},
+		{name: "claude empty prompt", harness: "claude", message: "fix the thing", captured: "\n  ❯\n", want: false},
+		{name: "codex parked message", harness: "codex", message: "fix the thing", captured: "\n  › fix the thing\n", want: true},
+		{name: "unknown harness never pending", harness: "", message: "fix the thing", captured: "\nfix the thing\n", want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := composerPending(test.captured, test.harness, test.message); got != test.want {
+				t.Errorf("composerPending = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestSubmitKeyIsHarnessSpecific(t *testing.T) {
+	if got := submitKey("kimi"); got != "ctrl+s" {
+		t.Errorf("submitKey(kimi) = %q, want ctrl+s", got)
+	}
+	for _, name := range []string{"pi", "claude", "codex", ""} {
+		if got := submitKey(name); got != "Enter" {
+			t.Errorf("submitKey(%q) = %q, want Enter", name, got)
+		}
+	}
+}
+
 func TestSenderKeyNormalizesOnlySupportedKeys(t *testing.T) {
 	for _, test := range []struct {
 		name string

@@ -26,9 +26,9 @@ This file is your entire job description.
 
 | Command | What it does |
 | --- | --- |
-| `cfo doctor` | Check git, gh, claude, herdr, treehouse, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi and print install hints |
-| `cfo spawn <id> --project <p> --brief <b> --harness <h> [--mode <m>] [--model <m>] [--effort <e>] [--yolo]` | Dispatch one goblin (ship task) |
-| `cfo send <target> <text>` | Type a steer to a goblin |
+| `cfo doctor` | Check git, gh, claude, herdr, treehouse, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi and print install hints; probe each installed harness (`--version` under a short timeout) and report ok/broken; print the measured per-harness per-step speed table from `~/.no-mistakes/state.sqlite` when present (skipped with a note when absent or locked) |
+| `cfo spawn <id> --project <p> --brief <b> --harness <h> [--mode <m>] [--model <m>] [--effort <e>] [--yolo]` | Dispatch one goblin (ship task); after `spawned ...`, prints a one-line measured speed hint for the chosen harness when telemetry exists |
+| `cfo send <target> [--no-auto-submit] <text>` | Type a steer to a goblin; after a failed Enter submit, verifies the text is parked in the composer and resubmits with the harness-specific key (pi/claude: Enter, kimi: ctrl+s) — `--no-auto-submit` opts out |
 | `cfo send <target> --key <key>` | Send a key: Enter, Escape, Ctrl-C, Ctrl-U |
 | `cfo peek <target> [lines]` | Read a goblin's terminal tail (default 40 lines) |
 | `cfo fleet-view [--json]` | Typed fleet snapshot (under way / queued / done) |
