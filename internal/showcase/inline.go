@@ -12,7 +12,7 @@ import (
 
 var (
 	stylesheetRef = regexp.MustCompile(`(?i)<link\b[^>]*>`)
-	scriptSrcRef  = regexp.MustCompile(`(?i)<script\b[^>]*\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)')[^>]*>\s*</script>`)
+	scriptSrcRef  = regexp.MustCompile(`(?i)(<script\b[^>]*?)\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)')([^>]*>)\s*</script>`)
 	imageSrcRef   = regexp.MustCompile(`(?i)(<img\b[^>]*\ssrc\s*=\s*)(?:"([^"]*)"|'([^']*)')([^>]*>)`)
 	hrefAttr      = regexp.MustCompile(`(?i)\shref\s*=\s*(?:"([^"]*)"|'([^']*)')`)
 	relAttr       = regexp.MustCompile(`(?i)\srel\s*=\s*(?:"([^"]*)"|'([^']*)')`)
@@ -37,12 +37,24 @@ func InlineLocalAssets(source, dir string) string {
 		return "<style>\n" + inlineCSSURLs(string(data), filepath.Dir(clean), dir) + "\n</style>"
 	})
 	inlined = scriptSrcRef.ReplaceAllStringFunc(inlined, func(tag string) string {
-		src := attrValue(scriptSrcRef, tag)
+		match := scriptSrcRef.FindStringSubmatch(tag)
+		if match == nil {
+			return tag
+		}
+		src := match[2]
+		if src == "" {
+			src = match[3]
+		}
 		data, _, ok := readLocal(dir, dir, src)
 		if !ok {
 			return tag
 		}
-		return "<script>\n" + string(data) + "\n</script>"
+		attrs := strings.TrimSpace(strings.TrimSuffix(match[4], ">"))
+		open := match[1]
+		if attrs != "" {
+			open += " " + attrs
+		}
+		return open + ">\n" + string(data) + "\n</script>"
 	})
 	inlined = imageSrcRef.ReplaceAllStringFunc(inlined, func(tag string) string {
 		match := imageSrcRef.FindStringSubmatch(tag)

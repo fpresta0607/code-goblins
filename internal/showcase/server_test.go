@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -223,5 +225,25 @@ func TestServerServesArtifactSiblingsOnlyInsideTheDirectory(t *testing.T) {
 	res.Body.Close()
 	if res.StatusCode == http.StatusOK {
 		t.Errorf("path escape was served; want refusal")
+	}
+}
+
+func TestServerAssetEndpointsAllowOpaqueOrigin(t *testing.T) {
+	artifact := artifactPath(t, "mock.html", `<script type="module" src="app.js"></script>`)
+	if err := os.WriteFile(filepath.Join(filepath.Dir(artifact), "app.js"), []byte("export const x = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, ts := newTestServer(t)
+	registered := registerSession(t, ts, artifact, false)
+
+	for _, path := range []string{"raw", "app.js"} {
+		res, err := http.Get(ts.URL + registered.URL + path)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		res.Body.Close()
+		if got := res.Header.Get("Access-Control-Allow-Origin"); got != "null" {
+			t.Errorf("%s: Access-Control-Allow-Origin = %q, want %q", path, got, "null")
+		}
 	}
 }
