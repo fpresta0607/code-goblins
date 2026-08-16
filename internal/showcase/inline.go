@@ -13,7 +13,7 @@ import (
 var (
 	stylesheetRef = regexp.MustCompile(`(?i)<link\b[^>]*>`)
 	scriptSrcRef  = regexp.MustCompile(`(?i)<script\b[^>]*\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)')[^>]*>\s*</script>`)
-	imageSrcRef   = regexp.MustCompile(`(?i)(<img\b[^>]*\bsrc\s*=\s*)(?:"([^"]*)"|'([^']*)')([^>]*>)`)
+	imageSrcRef   = regexp.MustCompile(`(?i)(<img\b[^>]*\ssrc\s*=\s*)(?:"([^"]*)"|'([^']*)')([^>]*>)`)
 	hrefAttr      = regexp.MustCompile(`(?i)\bhref\s*=\s*(?:"([^"]*)"|'([^']*)')`)
 	relAttr       = regexp.MustCompile(`(?i)\brel\s*=\s*(?:"([^"]*)"|'([^']*)')`)
 	cssURLRef     = regexp.MustCompile(`(?i)url\(\s*(?:"([^"]*)"|'([^']*)'|([^"')]*))\s*\)`)

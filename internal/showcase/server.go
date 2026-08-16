@@ -141,7 +141,7 @@ func (s *Server) register(id, artifact string) {
 // cross-origin side-effect requests from sandboxed or foreign pages.
 func (s *Server) allowMutation(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
-	return origin == "" || origin == "http://"+r.Host
+	return origin == "" || strings.EqualFold(origin, "http://"+r.Host)
 }
 
 type registerRequest struct {
