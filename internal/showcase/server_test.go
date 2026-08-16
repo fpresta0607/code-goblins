@@ -123,6 +123,47 @@ func TestServerEndProtocol(t *testing.T) {
 	}
 }
 
+func TestServerHTMLArtifactFrameSandbox(t *testing.T) {
+	artifact := artifactPath(t, "mock.html", "<h1>Mock</h1>\n")
+	_, ts := newTestServer(t)
+	registered := registerSession(t, ts, artifact, false)
+
+	res, err := http.Get(ts.URL + registered.URL)
+	if err != nil {
+		t.Fatalf("page: %v", err)
+	}
+	defer res.Body.Close()
+	page, _ := io.ReadAll(res.Body)
+	if !strings.Contains(string(page), "allow-scripts") {
+		t.Errorf("HTML artifact frame is not script-sandboxed")
+	}
+	if strings.Contains(string(page), "allow-same-origin") {
+		t.Errorf("HTML artifact frame grants same-origin access to the artifact")
+	}
+}
+
+func TestServerRejectsCrossOriginMutations(t *testing.T) {
+	artifact := artifactPath(t, "mock.html", "<h1>Mock</h1>\n")
+	_, ts := newTestServer(t)
+	registered := registerSession(t, ts, artifact, false)
+
+	for _, target := range []string{"/api/stop", registered.URL + "end"} {
+		req, err := http.NewRequest(http.MethodPost, ts.URL+target, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Origin", "null")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s: %v", target, err)
+		}
+		res.Body.Close()
+		if res.StatusCode != http.StatusForbidden {
+			t.Errorf("%s status = %d, want 403", target, res.StatusCode)
+		}
+	}
+}
+
 func TestServerServesArtifactSiblingsOnlyInsideTheDirectory(t *testing.T) {
 	artifact := artifactPath(t, "mock.html", "<link rel=\"stylesheet\" href=\"style.css\"><h1>Mock</h1>\n")
 	_, ts := newTestServer(t)

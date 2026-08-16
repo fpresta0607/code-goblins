@@ -12,10 +12,11 @@ import (
 
 var (
 	stylesheetRef = regexp.MustCompile(`(?i)<link\b[^>]*>`)
-	scriptSrcRef  = regexp.MustCompile(`(?i)<script\b[^>]*\bsrc="([^"]+)"[^>]*>\s*</script>`)
-	imageSrcRef   = regexp.MustCompile(`(?i)<img\b[^>]*\bsrc="([^"]+)"`)
-	hrefAttr      = regexp.MustCompile(`(?i)\bhref="([^"]+)"`)
-	relAttr       = regexp.MustCompile(`(?i)\brel="([^"]+)"`)
+	scriptSrcRef  = regexp.MustCompile(`(?i)<script\b[^>]*\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)')[^>]*>\s*</script>`)
+	imageSrcRef   = regexp.MustCompile(`(?i)(<img\b[^>]*\bsrc\s*=\s*)(?:"([^"]*)"|'([^']*)')([^>]*>)`)
+	hrefAttr      = regexp.MustCompile(`(?i)\bhref\s*=\s*(?:"([^"]*)"|'([^']*)')`)
+	relAttr       = regexp.MustCompile(`(?i)\brel\s*=\s*(?:"([^"]*)"|'([^']*)')`)
+	cssURLRef     = regexp.MustCompile(`(?i)url\(\s*(?:"([^"]*)"|'([^']*)'|([^"')]*))\s*\)`)
 )
 
 // InlineLocalAssets rewrites references to files that sit beside an HTML
@@ -29,23 +30,30 @@ func InlineLocalAssets(source, dir string) string {
 			return tag
 		}
 		href := attrValue(hrefAttr, tag)
-		data, ok := readLocal(dir, href)
+		data, clean, ok := readLocal(dir, dir, href)
 		if !ok {
 			return tag
 		}
-		return "<style>\n" + string(data) + "\n</style>"
+		return "<style>\n" + inlineCSSURLs(string(data), filepath.Dir(clean), dir) + "\n</style>"
 	})
 	inlined = scriptSrcRef.ReplaceAllStringFunc(inlined, func(tag string) string {
-		src := scriptSrcRef.FindStringSubmatch(tag)[1]
-		data, ok := readLocal(dir, src)
+		src := attrValue(scriptSrcRef, tag)
+		data, _, ok := readLocal(dir, dir, src)
 		if !ok {
 			return tag
 		}
 		return "<script>\n" + string(data) + "\n</script>"
 	})
 	inlined = imageSrcRef.ReplaceAllStringFunc(inlined, func(tag string) string {
-		src := imageSrcRef.FindStringSubmatch(tag)[1]
-		data, ok := readLocal(dir, src)
+		match := imageSrcRef.FindStringSubmatch(tag)
+		if match == nil {
+			return tag
+		}
+		src := match[2]
+		if src == "" {
+			src = match[3]
+		}
+		data, _, ok := readLocal(dir, dir, src)
 		if !ok {
 			return tag
 		}
@@ -53,29 +61,54 @@ func InlineLocalAssets(source, dir string) string {
 		if mediaType == "" {
 			mediaType = "application/octet-stream"
 		}
-		return strings.Replace(tag, `"`+src+`"`, `"data:`+mediaType+`;base64,`+base64.StdEncoding.EncodeToString(data)+`"`, 1)
+		return match[1] + `"data:` + mediaType + `;base64,` + base64.StdEncoding.EncodeToString(data) + `"` + match[4]
 	})
 	return inlined
 }
 
-// readLocal reads a referenced file only when the reference is a relative
-// path that stays inside dir.
-func readLocal(dir, ref string) ([]byte, bool) {
+// inlineCSSURLs rewrites url(...) references inside an inlined stylesheet as
+// data URIs, resolving them relative to the stylesheet's own directory while
+// confining them to root.
+func inlineCSSURLs(css, cssDir, root string) string {
+	return cssURLRef.ReplaceAllStringFunc(css, func(m string) string {
+		match := cssURLRef.FindStringSubmatch(m)
+		ref := ""
+		for _, v := range match[1:] {
+			if v != "" {
+				ref = v
+				break
+			}
+		}
+		data, _, ok := readLocal(cssDir, root, ref)
+		if !ok {
+			return m
+		}
+		mediaType := mime.TypeByExtension(strings.ToLower(filepath.Ext(ref)))
+		if mediaType == "" {
+			mediaType = "application/octet-stream"
+		}
+		return `url("data:` + mediaType + `;base64,` + base64.StdEncoding.EncodeToString(data) + `")`
+	})
+}
+
+// readLocal reads a referenced file resolved against dir, only when the
+// reference is a relative path that stays inside root.
+func readLocal(dir, root, ref string) ([]byte, string, bool) {
 	if ref == "" || strings.HasPrefix(ref, "#") || strings.HasPrefix(ref, "//") ||
 		strings.Contains(ref, "://") || strings.HasPrefix(ref, "data:") || strings.HasPrefix(ref, "/") {
-		return nil, false
+		return nil, "", false
 	}
 	clean := filepath.Clean(filepath.Join(dir, filepath.FromSlash(ref)))
-	root := filepath.Clean(dir)
-	if clean != root && !strings.HasPrefix(clean, root+string(filepath.Separator)) {
-		return nil, false
+	rootClean := filepath.Clean(root)
+	if clean != rootClean && !strings.HasPrefix(clean, rootClean+string(filepath.Separator)) {
+		return nil, "", false
 	}
 	data, err := os.ReadFile(clean)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "showcase: export: skipping unreadable asset %s: %v\n", ref, err)
-		return nil, false
+		return nil, "", false
 	}
-	return data, true
+	return data, clean, true
 }
 
 func attrValue(pattern *regexp.Regexp, tag string) string {
@@ -83,5 +116,8 @@ func attrValue(pattern *regexp.Regexp, tag string) string {
 	if match == nil {
 		return ""
 	}
-	return match[1]
+	if match[1] != "" {
+		return match[1]
+	}
+	return match[2]
 }

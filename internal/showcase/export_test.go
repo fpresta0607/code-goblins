@@ -83,6 +83,87 @@ func TestExportHTMLInlinesLocalAssets(t *testing.T) {
 	assertSelfContained(t, page)
 }
 
+func TestExportHTMLInlinesSingleQuotedAssets(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "style.css"), []byte("body { color: red; }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app.js"), []byte("console.log('single');"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	png := []byte{0x89, 0x50, 0x4e, 0x47}
+	if err := os.WriteFile(filepath.Join(dir, "logo.png"), png, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	artifact := filepath.Join(dir, "mock.html")
+	source := `<!DOCTYPE html><html><head>
+<link rel='stylesheet' href='style.css'>
+<script src='app.js'></script>
+</head><body><h1>Mock</h1><img src='logo.png'></body></html>`
+	if err := os.WriteFile(artifact, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := Export(artifact, filepath.Join(dir, "out.html"))
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(data)
+	if !strings.Contains(page, "body { color: red; }") {
+		t.Errorf("export did not inline the single-quoted stylesheet")
+	}
+	if !strings.Contains(page, "console.log(") {
+		t.Errorf("export did not inline the single-quoted script")
+	}
+	if !strings.Contains(page, "data:image/png;base64,") {
+		t.Errorf("export did not inline the single-quoted image")
+	}
+	assertSelfContained(t, page)
+}
+
+func TestExportHTMLInlinesCSSURLAssets(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "css"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "img"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	png := []byte{0x89, 0x50, 0x4e, 0x47}
+	if err := os.WriteFile(filepath.Join(dir, "img", "bg.png"), png, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "css", "style.css"), []byte(`body { background: url(../img/bg.png); }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	artifact := filepath.Join(dir, "mock.html")
+	source := `<!DOCTYPE html><html><head><link rel="stylesheet" href="css/style.css"></head><body><h1>Mock</h1></body></html>`
+	if err := os.WriteFile(artifact, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := Export(artifact, filepath.Join(dir, "out.html"))
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(data)
+	if !strings.Contains(page, "data:image/png;base64,") {
+		t.Errorf("export did not inline the CSS url() asset")
+	}
+	if strings.Contains(page, "bg.png") {
+		t.Errorf("export still references the CSS url() asset by path")
+	}
+	assertSelfContained(t, page)
+}
+
 // assertSelfContained checks the export never calls back to a server and
 // pulls no local asset over a root or parent relative path.
 func assertSelfContained(t *testing.T, page string) {
