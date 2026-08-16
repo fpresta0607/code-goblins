@@ -236,14 +236,51 @@ func TestServerAssetEndpointsAllowOpaqueOrigin(t *testing.T) {
 	_, ts := newTestServer(t)
 	registered := registerSession(t, ts, artifact, false)
 
-	for _, path := range []string{"raw", "app.js"} {
+	res, err := http.Get(ts.URL + registered.URL + "app.js")
+	if err != nil {
+		t.Fatalf("app.js: %v", err)
+	}
+	res.Body.Close()
+	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "null" {
+		t.Errorf("app.js: Access-Control-Allow-Origin = %q, want %q", got, "null")
+	}
+
+	res, err = http.Get(ts.URL + registered.URL + "raw")
+	if err != nil {
+		t.Fatalf("raw: %v", err)
+	}
+	res.Body.Close()
+	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("raw: Access-Control-Allow-Origin = %q, want empty", got)
+	}
+}
+
+func TestServerAssetRefusesHiddenFiles(t *testing.T) {
+	artifact := artifactPath(t, "mock.html", `<script type="module" src="app.js"></script>`)
+	dir := filepath.Dir(artifact)
+	if err := os.WriteFile(filepath.Join(dir, "app.js"), []byte("export const x = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".showcase"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("SECRET=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".showcase", "plan.session.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, ts := newTestServer(t)
+	registered := registerSession(t, ts, artifact, false)
+
+	for _, path := range []string{".env", ".showcase/plan.session.json"} {
 		res, err := http.Get(ts.URL + registered.URL + path)
 		if err != nil {
 			t.Fatalf("%s: %v", path, err)
 		}
 		res.Body.Close()
-		if got := res.Header.Get("Access-Control-Allow-Origin"); got != "null" {
-			t.Errorf("%s: Access-Control-Allow-Origin = %q, want %q", path, got, "null")
+		if res.StatusCode != http.StatusForbidden {
+			t.Errorf("%s status = %d, want 403", path, res.StatusCode)
 		}
 	}
 }

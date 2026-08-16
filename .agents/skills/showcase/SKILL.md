@@ -62,3 +62,4 @@ showcase-axi renders each type deliberately, so a plan reads like a document and
 - For HTML mocks, keep every referenced asset (CSS, images, scripts) beside the artifact file and reference it with a relative path; root-absolute paths will not resolve.
 - The artifact itself is never modified or injected by the server, so what you write is what renders.
 - Give the artifact a clear point of view: visual hierarchy, deliberate spacing, and structure (sections, tables, diagrams) over long prose.
+- Export inlines only the top-level local assets referenced directly by the artifact (stylesheets, scripts, images). Multi-file ES-module mocks whose scripts import sibling files (e.g. `import ... from './lib.js'`) keep those relative imports in the exported file, so they are not yet fully self-contained; recursive import inlining is a v1 follow-up. Keep mocks single-file for a fully portable export.

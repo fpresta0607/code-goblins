@@ -275,7 +275,6 @@ func (s *Server) handleRaw(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown session", http.StatusNotFound)
 		return
 	}
-	w.Header().Set("Access-Control-Allow-Origin", "null")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	http.ServeFile(w, r, artifact)
 }
@@ -286,14 +285,28 @@ func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown session", http.StatusNotFound)
 		return
 	}
+	path := r.PathValue("path")
+	if hasDotPrefixedSegment(path) {
+		http.Error(w, "hidden files are not servable", http.StatusForbidden)
+		return
+	}
 	dir := filepath.Dir(artifact)
-	target := filepath.Clean(filepath.Join(dir, filepath.FromSlash(r.PathValue("path"))))
+	target := filepath.Clean(filepath.Join(dir, filepath.FromSlash(path)))
 	if target != dir && !strings.HasPrefix(target, dir+string(filepath.Separator)) {
 		http.Error(w, "asset escapes the artifact directory", http.StatusForbidden)
 		return
 	}
 	w.Header().Set("Access-Control-Allow-Origin", "null")
 	http.ServeFile(w, r, target)
+}
+
+func hasDotPrefixedSegment(path string) bool {
+	for _, part := range strings.Split(path, "/") {
+		if strings.HasPrefix(part, ".") {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
