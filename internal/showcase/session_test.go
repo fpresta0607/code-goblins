@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func artifactPath(t *testing.T, name, content string) string {
@@ -157,5 +158,51 @@ func TestLoadMissingSessionIsNotExist(t *testing.T) {
 	artifact := filepath.Join(t.TempDir(), "plan.md")
 	if _, err := Load(artifact); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("Load missing = %v, want ErrNotExist", err)
+	}
+}
+
+func TestAppendFeedbackResetsClientDeliveredFlag(t *testing.T) {
+	artifact := artifactPath(t, "plan.md", "# Plan\n")
+	if _, err := Open(artifact, KindMarkdown, false); err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if err := AppendFeedback(artifact, Feedback{Type: "message", Text: "must not be dropped", Delivered: true}); err != nil {
+		t.Fatalf("AppendFeedback: %v", err)
+	}
+	session, err := Load(artifact)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(session.Feedback) != 1 || session.Feedback[0].Delivered {
+		t.Fatalf("feedback after append = %+v, want one pending (undelivered) item", session.Feedback)
+	}
+}
+
+func TestMutateBreaksStaleLock(t *testing.T) {
+	artifact := artifactPath(t, "plan.md", "# Plan\n")
+	state := StatePath(artifact)
+	if err := os.MkdirAll(filepath.Dir(state), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lock := state + ".lock"
+	if err := os.WriteFile(lock, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stale := time.Now().Add(-11 * time.Second)
+	if err := os.Chtimes(lock, stale, stale); err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendFeedback(artifact, Feedback{Type: "message", Text: "recovered"}); err != nil {
+		t.Fatalf("AppendFeedback with stale lock: %v", err)
+	}
+	if _, err := os.Stat(lock); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("lock still present after mutate: %v", err)
+	}
+	session, err := Load(artifact)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(session.Feedback) != 1 || session.Feedback[0].Text != "recovered" {
+		t.Fatalf("feedback = %+v, want the recovered item", session.Feedback)
 	}
 }
