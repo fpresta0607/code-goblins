@@ -80,8 +80,11 @@ func (c *Client) EnsureServer(ctx context.Context) error {
 // is no separate fleet workspace.
 const fleetSpaceLabel = "cfo"
 
-// EnsureContainer adopts the unambiguous flat cfo workspace or creates it and
-// retains the exact default tab returned by that creation response.
+// EnsureContainer returns the one flat cfo workspace: it adopts an existing
+// cfo-labeled workspace, adopts the factory-default workspace ("~" holding one
+// tab "1") by renaming both to cfo, or creates the workspace when neither
+// shape is present. Only the create path retains the exact default tab from
+// its response as the seeded default.
 func (c *Client) EnsureContainer(ctx context.Context, cwd string) (Container, error) {
 	session := c.session()
 	workspaces, err := c.workspaces(ctx, session)
