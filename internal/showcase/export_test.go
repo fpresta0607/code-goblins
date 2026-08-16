@@ -125,6 +125,41 @@ func TestExportHTMLInlinesSingleQuotedAssets(t *testing.T) {
 	assertSelfContained(t, page)
 }
 
+func TestExportHTMLInlinesScriptWithDataSrc(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "app.js"), []byte("console.log('app');"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "analytics.js"), []byte("console.log('analytics');"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	artifact := filepath.Join(dir, "mock.html")
+	source := `<!DOCTYPE html><html><head><script src="app.js" data-src="analytics.js"></script></head><body><h1>Mock</h1></body></html>`
+	if err := os.WriteFile(artifact, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := Export(artifact, filepath.Join(dir, "out.html"))
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(data)
+	if !strings.Contains(page, "console.log(") {
+		t.Errorf("export did not inline the src script when a data-src attribute is present")
+	}
+	if strings.Contains(page, "analytics") {
+		t.Errorf("export inlined data-src instead of src")
+	}
+	if strings.Contains(page, `src="app.js"`) {
+		t.Errorf("export left the script src dangling")
+	}
+	assertSelfContained(t, page)
+}
+
 func TestExportHTMLInlinesImageWithDataSrc(t *testing.T) {
 	dir := t.TempDir()
 	png := []byte{0x89, 0x50, 0x4e, 0x47}

@@ -9,8 +9,10 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -136,12 +138,41 @@ func (s *Server) register(id, artifact string) {
 	s.sessions[id] = artifact
 }
 
-// allowMutation accepts browser requests that carry a same-origin Origin
-// header and non-browser clients (the CLI) that send none, while refusing
-// cross-origin side-effect requests from sandboxed or foreign pages.
+// allowMutation accepts browser requests whose Origin is the loopback
+// address the server binds (localhost or 127.0.0.1 on the bound port) and
+// non-browser clients (the CLI) that send none, while refusing cross-origin
+// side-effect requests from sandboxed or foreign pages. The Origin is
+// compared to the local bind address rather than the client-controlled Host
+// header so a DNS-rebinding page cannot spoof same-origin.
 func (s *Server) allowMutation(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
-	return origin == "" || strings.EqualFold(origin, "http://"+r.Host)
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	if !strings.EqualFold(u.Scheme, "http") {
+		return false
+	}
+	host := u.Hostname()
+	if !strings.EqualFold(host, "127.0.0.1") && !strings.EqualFold(host, "localhost") {
+		return false
+	}
+	local := requestLocalPort(r)
+	return local != 0 && u.Port() == strconv.Itoa(local)
+}
+
+func requestLocalPort(r *http.Request) int {
+	addr, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
+	if !ok {
+		return 0
+	}
+	if tcp, ok := addr.(*net.TCPAddr); ok {
+		return tcp.Port
+	}
+	return 0
 }
 
 type registerRequest struct {
