@@ -136,6 +136,14 @@ func (s *Server) register(id, artifact string) {
 	s.sessions[id] = artifact
 }
 
+// allowMutation accepts browser requests that carry a same-origin Origin
+// header and non-browser clients (the CLI) that send none, while refusing
+// cross-origin side-effect requests from sandboxed or foreign pages.
+func (s *Server) allowMutation(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	return origin == "" || origin == "http://"+r.Host
+}
+
 type registerRequest struct {
 	Path   string `json:"path"`
 	Reopen bool   `json:"reopen"`
@@ -148,6 +156,10 @@ type registerResponse struct {
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
+	if !s.allowMutation(r) {
+		http.Error(w, "cross-origin request rejected", http.StatusForbidden)
+		return
+	}
 	var request registerRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, "bad register body", http.StatusBadRequest)
@@ -183,7 +195,11 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(registerResponse{ID: session.ID, URL: "/s/" + session.ID + "/", Kind: kind})
 }
 
-func (s *Server) handleStop(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
+	if !s.allowMutation(r) {
+		http.Error(w, "cross-origin request rejected", http.StatusForbidden)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"ok":true}`))
 	go func() {
@@ -265,6 +281,10 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFeedback(w http.ResponseWriter, r *http.Request) {
+	if !s.allowMutation(r) {
+		http.Error(w, "cross-origin request rejected", http.StatusForbidden)
+		return
+	}
 	artifact, ok := s.artifact(r.PathValue("id"))
 	if !ok {
 		http.Error(w, "unknown session", http.StatusNotFound)
@@ -296,6 +316,10 @@ func (s *Server) handleFeedback(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEnd(w http.ResponseWriter, r *http.Request) {
+	if !s.allowMutation(r) {
+		http.Error(w, "cross-origin request rejected", http.StatusForbidden)
+		return
+	}
 	artifact, ok := s.artifact(r.PathValue("id"))
 	if !ok {
 		http.Error(w, "unknown session", http.StatusNotFound)

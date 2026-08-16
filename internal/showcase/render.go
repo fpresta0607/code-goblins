@@ -84,7 +84,7 @@ func buildContent(kind Kind, artifact string, static bool) (content string, toc 
 		if static {
 			return "", nil, InlineLocalAssets(string(source), filepath.Dir(artifact)), nil
 		}
-		return `<div id="frame-wrap"><iframe id="frame" src="raw" title="artifact preview" sandbox="allow-scripts allow-same-origin"></iframe><div id="annotate-overlay" hidden></div></div>`, nil, "", nil
+		return `<div id="frame-wrap"><iframe id="frame" src="raw" title="artifact preview" sandbox="allow-scripts"></iframe><div id="annotate-overlay" hidden></div></div>`, nil, "", nil
 	}
 	return "", nil, "", fmt.Errorf("showcase: unsupported artifact kind %q", kind)
 }
