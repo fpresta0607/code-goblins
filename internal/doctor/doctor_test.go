@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -162,6 +163,34 @@ func TestRunMissingGateAndAXICapabilityToolsCarryInstallHints(t *testing.T) {
 		if !ok || check.Err == "" || check.Hint == "" {
 			t.Errorf("%s check = %+v, want missing-tool error with install hint", name, check)
 		}
+	}
+}
+
+func TestProbeHarnessesReportsOkAndBroken(t *testing.T) {
+	dir := t.TempDir()
+	fakeTool(t, dir, "claude", "claude 1.0.0", 0)
+	fakeTool(t, dir, "codex", "boom", 1)
+	t.Setenv("PATH", dir) // pi and kimi absent: only installed harnesses are probed
+
+	probes := ProbeHarnesses(context.Background())
+	if len(probes) != 2 {
+		t.Fatalf("len = %d, want 2 (only installed harnesses): %+v", len(probes), probes)
+	}
+	if probes[0].Name != "claude" || !probes[0].OK || probes[0].Detail != "claude 1.0.0" {
+		t.Errorf("claude probe = %+v, want ok with the version line", probes[0])
+	}
+	if probes[1].Name != "codex" || probes[1].OK || probes[1].Detail == "" {
+		t.Errorf("codex probe = %+v, want broken with failure detail", probes[1])
+	}
+}
+
+func TestProbeHarnessesSkipsMissingHarnesses(t *testing.T) {
+	dir := t.TempDir()
+	fakeTool(t, dir, "git", "git ok", 0) // not a harness
+	t.Setenv("PATH", dir)
+
+	if probes := ProbeHarnesses(context.Background()); len(probes) != 0 {
+		t.Errorf("probes = %+v, want none without installed harnesses", probes)
 	}
 }
 
