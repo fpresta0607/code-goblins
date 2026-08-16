@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
@@ -88,12 +90,59 @@ func TestSpeedTableSkipsLockedDatabase(t *testing.T) {
 }
 
 func TestSpeedTableSkipsEmptyTelemetry(t *testing.T) {
-	runner := &fakeRunner{result: execx.Result{Stdout: []byte(`[]`)}}
-	querier := Querier{Commands: runner, DBPath: fakeDB(t)}
+	for _, stdout := range []string{"", "   \n", "[]"} {
+		runner := &fakeRunner{result: execx.Result{Stdout: []byte(stdout)}}
+		querier := Querier{Commands: runner, DBPath: fakeDB(t)}
 
-	rows, note := querier.SpeedTable(context.Background())
-	if rows != nil || !strings.Contains(note, "no recorded invocations") {
-		t.Errorf("rows = %v note = %q, want a skip note", rows, note)
+		rows, note := querier.SpeedTable(context.Background())
+		if rows != nil || !strings.Contains(note, "no recorded invocations") {
+			t.Errorf("stdout=%q: rows = %v note = %q, want a skip note", stdout, rows, note)
+		}
+	}
+}
+
+func TestSpeedTableNormalizesPrefixedAgentIdentities(t *testing.T) {
+	sqlite3, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 CLI not available")
+	}
+	path := filepath.Join(t.TempDir(), "state.sqlite")
+	setup := `CREATE TABLE agent_invocations(agent TEXT, step_name TEXT, duration_ms INTEGER);` +
+		`INSERT INTO agent_invocations VALUES('acp:kimi','review',60000),('kimi','review',120000);`
+	if out, err := exec.Command(sqlite3, path, setup).CombinedOutput(); err != nil {
+		t.Fatalf("create fixture database: %v\n%s", err, out)
+	}
+
+	rows, note := (Querier{Commands: execx.OSRunner{}, DBPath: path}).SpeedTable(context.Background())
+	if note != "" {
+		t.Fatalf("note = %q, want a parsed table", note)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("len(rows) = %d, want 1 normalized row: %+v", len(rows), rows)
+	}
+	if rows[0].Agent != "kimi" || rows[0].Step != "review" || rows[0].Count != 2 {
+		t.Errorf("rows[0] = %+v, want kimi/review merged across prefixed identities", rows[0])
+	}
+	if rows[0].AvgMin != 1.5 || rows[0].MaxMin != 2.0 {
+		t.Errorf("rows[0] = %+v, want merged avg 1.5 and max 2.0 minutes", rows[0])
+	}
+}
+
+type blockingRunner struct{}
+
+func (blockingRunner) Run(ctx context.Context, _ execx.Request) (execx.Result, error) {
+	<-ctx.Done()
+	return execx.Result{}, ctx.Err()
+}
+
+func TestSpeedTableTimesOutWhenSQLite3Hangs(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	querier := Querier{Commands: blockingRunner{}, DBPath: fakeDB(t)}
+
+	rows, note := querier.SpeedTable(ctx)
+	if rows != nil || !strings.Contains(note, "timed out") {
+		t.Fatalf("rows = %v note = %q, want a timeout skip note", rows, note)
 	}
 }
 

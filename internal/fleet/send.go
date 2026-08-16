@@ -136,21 +136,14 @@ func (s Sender) composerState(ctx context.Context, target herdr.Target, meta sta
 	if prompt == "" {
 		return herdr.SubmitUnknown, nil
 	}
-	lines := strings.Split(stripANSI(captured), "\n")
-	for index := len(lines) - 1; index >= 0; index-- {
-		line := strings.TrimSpace(lines[index])
-		if line == "" {
-			continue
-		}
-		if !strings.HasPrefix(line, prompt) {
-			return herdr.SubmitUnknown, nil
-		}
-		if strings.TrimSpace(strings.TrimPrefix(line, prompt)) == "" {
-			return herdr.SubmitWorking, nil
-		}
-		return herdr.SubmitIdle, nil
+	content, ok := currentComposerLine(stripANSI(captured), prompt)
+	if !ok {
+		return herdr.SubmitUnknown, nil
 	}
-	return herdr.SubmitUnknown, nil
+	if strings.TrimSpace(content) == "" {
+		return herdr.SubmitWorking, nil
+	}
+	return herdr.SubmitIdle, nil
 }
 
 func (s Sender) piComposerState(ctx context.Context, target herdr.Target, captured string) (herdr.SubmitState, error) {
@@ -174,35 +167,14 @@ func (s Sender) piComposerState(ctx context.Context, target herdr.Target, captur
 }
 
 func piComposerCandidate(captured string) herdr.SubmitState {
-	lines := strings.Split(captured, "\n")
-	lastSeparator, open, close := -1, -1, -1
-	for index, line := range lines {
-		if !piSeparator(line) {
-			continue
-		}
-		if lastSeparator >= 0 {
-			open, close = lastSeparator, index
-		}
-		lastSeparator = index
-	}
-	if close < 0 || close-open > 9 {
+	region, ok := piComposerRegion(captured)
+	if !ok {
 		return herdr.SubmitUnknown
 	}
-	for _, line := range lines[open+1 : close] {
+	for _, line := range strings.Split(region, "\n") {
 		if strings.TrimSpace(line) != "" {
 			return herdr.SubmitIdle
 		}
-	}
-	footer := false
-	for _, line := range lines[close+1:] {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		if footer || !piFooter(trimmed) {
-			return herdr.SubmitUnknown
-		}
-		footer = true
 	}
 	return herdr.SubmitWorking
 }
@@ -259,18 +231,11 @@ func composerPending(captured, harness, message string) bool {
 		if prompt == "" {
 			return false
 		}
-		lines := strings.Split(captured, "\n")
-		for index := len(lines) - 1; index >= 0; index-- {
-			line := strings.TrimSpace(lines[index])
-			if line == "" {
-				continue
-			}
-			if !strings.HasPrefix(line, prompt) {
-				return false
-			}
-			return strings.Contains(compact(strings.TrimPrefix(line, prompt)), string(fragment))
+		content, ok := currentComposerLine(captured, prompt)
+		if !ok {
+			return false
 		}
-		return false
+		return strings.Contains(compact(content), string(fragment))
 	}
 }
 
@@ -301,6 +266,16 @@ func kimiComposer(captured string) string {
 // or "" when that region is not the current composer (terminal output or a
 // second footer after it means the box is stale scrollback).
 func piComposer(captured string) string {
+	region, _ := piComposerRegion(captured)
+	return region
+}
+
+// piComposerRegion extracts the text between the trailing pi composer
+// separators. ok is false when the pane tail is not the current composer box
+// (no separator pair, an oversized region, terminal output, or a second
+// footer after it), so a blank current composer is still valid with empty
+// text.
+func piComposerRegion(captured string) (string, bool) {
 	lines := strings.Split(captured, "\n")
 	lastSeparator, open, close := -1, -1, -1
 	for index, line := range lines {
@@ -313,7 +288,7 @@ func piComposer(captured string) string {
 		lastSeparator = index
 	}
 	if close < 0 || close-open > 9 {
-		return ""
+		return "", false
 	}
 	footer := false
 	for _, line := range lines[close+1:] {
@@ -322,11 +297,11 @@ func piComposer(captured string) string {
 			continue
 		}
 		if footer || !piFooter(trimmed) {
-			return ""
+			return "", false
 		}
 		footer = true
 	}
-	return strings.Join(lines[open+1:close], "\n")
+	return strings.Join(lines[open+1:close], "\n"), true
 }
 
 // compact removes all whitespace so wrapped composer text matches a delivered
@@ -385,6 +360,23 @@ func composerPrompt(harness string) string {
 	default:
 		return ""
 	}
+}
+
+// currentComposerLine returns the text after the prompt on the last non-empty
+// line of the pane tail, or ok false when the tail has no such composer line.
+func currentComposerLine(captured, prompt string) (string, bool) {
+	lines := strings.Split(captured, "\n")
+	for index := len(lines) - 1; index >= 0; index-- {
+		line := strings.TrimSpace(lines[index])
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, prompt) {
+			return "", false
+		}
+		return strings.TrimPrefix(line, prompt), true
+	}
+	return "", false
 }
 
 func stripANSI(text string) string {
