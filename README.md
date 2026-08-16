@@ -34,13 +34,13 @@ The full design and the explicit v1 scope live in [docs/superpowers/specs/2026-0
 
 ## What works today
 
-- **One binary** - `cfo.exe`, downloaded by `install.ps1` (or built from source with `go build ./cmd/cfo`). `install.ps1 -Bootstrap` also installs the rest of the toolchain.
+- **One fleet binary** - `cfo.exe`, downloaded by `install.ps1` (or built from source with `go build ./cmd/cfo`). `install.ps1 -Bootstrap` also installs `showcase-axi.exe` (the repo-owned review surface) and the rest of the toolchain.
 - **Real Windows sessions** - goblins run in [Herdr](https://herdr.dev), one tab per goblin.
 - **Isolated worktrees** - every goblin gets a clean worktree from [treehouse](https://github.com/kunchenguid/treehouse).
 - **Four harnesses** - Claude Code, Codex, Pi, and Kimi, each with typed, validated launch mapping; claude, codex, and kimi start as named native Herdr agents (`gb-<id>`) and receive their brief through `herdr agent prompt`, while pi is typed into the prepared pane shell (Herdr's Windows agent start cannot run pi's npm `.cmd` shim).
 - **Supervision without babysitting** - Claude Code hooks plus `cfo watch` wake the CFO only when something needs attention; a turn-end guard refuses to let a turn end blind while work is in flight.
 - **Restart-proof state** - tasks, metadata, and the wake queue live on disk under `$CFO_HOME`.
-- **AXI integrations** - `tasks-axi` (backlog) and `quota-axi` (dispatch) stay thin subprocess integrations in `cfo`; `gh-axi` (GitHub) and `chrome-devtools-axi` (browser) ship as skills in `.agents/skills/`.
+- **AXI integrations** - `tasks-axi` (backlog) and `quota-axi` (dispatch) stay thin subprocess integrations in `cfo`; `gh-axi` (GitHub) and `chrome-devtools-axi` (browser) ship as skills in `.agents/skills/`; `showcase-axi` (review surface) is repo-owned and built alongside `cfo.exe`.
 
 ## Commands
 
@@ -70,7 +70,7 @@ cd code-goblins
 powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Bootstrap
 ```
 
-`install.ps1 -Bootstrap` downloads (or builds) `cfo.exe`, then installs every missing tool `cfo doctor` checks that has a scriptable installer - git, gh, claude, herdr, treehouse, codex, pi, tasks-axi, quota-axi, no-mistakes, gh-axi, and chrome-devtools-axi.
+`install.ps1 -Bootstrap` downloads (or builds) `cfo.exe` and `showcase-axi.exe`, then installs every missing tool `cfo doctor` checks that has a scriptable installer - git, gh, claude, herdr, treehouse, codex, pi, tasks-axi, quota-axi, no-mistakes, gh-axi, and chrome-devtools-axi.
 Kimi is the one `cfo doctor` check with no scriptable installer, so it is printed as a manual step instead of being installed.
 It also wires the Claude Code hooks in `.claude/settings.json` and creates the `.claude/skills` / `.codex/skills` junctions that point at the bundled `.agents/skills/`.
 The script is idempotent and safe to rerun.
@@ -133,10 +133,11 @@ These upstream features are not yet ported to the Go binary:
 ## Repo layout
 
 - `cmd/cfo/` - the `cfo.exe` entry point and command handlers.
-- `internal/` - one package per subsystem (herdr, treehouse, spawn, fleet, monitor, wake, lock, state, home, watch, harness, axi, execx, fsx, claudehook, digest, doctor, guard, crewstate, supervise, telemetry, proc).
+- `cmd/showcase-axi/` - the `showcase-axi.exe` entry point for the review surface.
+- `internal/` - one package per subsystem (herdr, treehouse, spawn, fleet, monitor, wake, lock, state, home, watch, harness, axi, execx, fsx, claudehook, digest, doctor, guard, crewstate, supervise, telemetry, proc, showcase).
 - `docs/superpowers/` - the design spec and implementation plans.
 - `tests/acceptance/` - the opt-in real-session Windows acceptance script.
-- `.agents/skills/` - the fleet's skills, synced from user scope; kimi and pi read it directly, and `install.ps1` junctions it for claude and codex.
+- `.agents/skills/` - the fleet's skills, synced from user scope except `showcase`, which this repo owns; kimi and pi read it directly, and `install.ps1` junctions it for claude and codex.
 - `AGENTS.md.example` / `CLAUDE.md.example` - templates for your global user config.
 - `AGENTS.md` - the CFO's operating contract; `CLAUDE.md` points to it.
 
@@ -146,9 +147,10 @@ These upstream features are not yet ported to the Go binary:
 go vet ./...
 go test ./...
 go build ./cmd/cfo
+go build ./cmd/showcase-axi
 ```
 
-CI runs on `windows-latest` and gates `go vet`, `go test ./... -count=1`, and `go build`.
+CI runs on `windows-latest` and gates `go vet`, `go test ./... -count=1`, and `go build` of both binaries.
 Unit tests use fakes for subprocess and Herdr behavior.
 The real-session acceptance suite (`tests/acceptance/plan3_windows.ps1`) needs real Herdr, treehouse, and harness binaries and refuses to run without `CFO_PLAN3_REAL=1`.
 
