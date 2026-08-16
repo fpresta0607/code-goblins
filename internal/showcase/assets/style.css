@@ -278,6 +278,16 @@ table.csv tbody tr:nth-child(even) { background: var(--panel); }
 }
 #composer textarea:focus { outline: none; border-color: var(--accent); }
 #composer .actions { display: flex; gap: 8px; margin-top: 8px; justify-content: flex-end; }
+#composer-error {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid #e06c75;
+  border-radius: 6px;
+  color: #e06c75;
+  background: var(--del);
+  font-size: 13px;
+  word-break: break-word;
+}
 
 /* Annotation affordances */
 
