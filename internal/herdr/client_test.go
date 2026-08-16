@@ -250,8 +250,31 @@ func TestEnsureContainerAdoptsFactoryWorkspace(t *testing.T) {
 	assertRequests(t, runner.Requests(), []execx.Request{
 		command("herdr", "workspace", "list", "--session", "fleet"),
 		command("herdr", "tab", "list", "--workspace", "ws-factory", "--session", "fleet"),
-		command("herdr", "workspace", "rename", "ws-factory", "cfo", "--session", "fleet"),
 		command("herdr", "tab", "rename", "tab-1", "cfo", "--session", "fleet"),
+		command("herdr", "workspace", "rename", "ws-factory", "cfo", "--session", "fleet"),
+	})
+}
+
+func TestEnsureContainerAdoptsFactoryWorkspaceAfterTabRename(t *testing.T) {
+	runner := &fakeRunner{replies: []runnerReply{
+		jsonReply(`{"result":{"workspaces":[{"workspace_id":"ws-factory","label":"~"}]}}`),
+		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-1","label":"cfo"}]}}`),
+		jsonReply(`{"result":{"type":"ok"}}`),
+	}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+
+	got, err := client.EnsureContainer(context.Background(), `C:\repo`)
+	if err != nil {
+		t.Fatalf("EnsureContainer: %v", err)
+	}
+	if want := (Container{Session: "fleet", WorkspaceID: "ws-factory"}); got != want {
+		t.Errorf("EnsureContainer() = %#v, want %#v", got, want)
+	}
+	assertRequests(t, runner.Requests(), []execx.Request{
+		command("herdr", "workspace", "list", "--session", "fleet"),
+		command("herdr", "tab", "list", "--workspace", "ws-factory", "--session", "fleet"),
+		command("herdr", "workspace", "rename", "ws-factory", "cfo", "--session", "fleet"),
 	})
 }
 
