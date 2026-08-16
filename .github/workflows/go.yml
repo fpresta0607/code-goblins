@@ -19,3 +19,4 @@ jobs:
       - run: go vet ./...
       - run: go test ./... -count=1
       - run: go build ./cmd/cfo
+      - run: go build ./cmd/showcase-axi
