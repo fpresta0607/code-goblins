@@ -38,6 +38,31 @@ func TestExportMarkdownIsSelfContained(t *testing.T) {
 	assertSelfContained(t, page)
 }
 
+func TestExportMarkdownInlinesLocalImages(t *testing.T) {
+	artifact := artifactPath(t, "plan.md", "# Plan\n\n![logo](logo.png)\n")
+	png := []byte{0x89, 0x50, 0x4e, 0x47}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(artifact), "logo.png"), png, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := Export(artifact, filepath.Join(filepath.Dir(artifact), "out.html"))
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(data)
+	if !strings.Contains(page, "data:image/png;base64,") {
+		t.Errorf("export did not inline the markdown image")
+	}
+	if strings.Contains(page, `src="logo.png"`) {
+		t.Errorf("export still references the markdown image by path")
+	}
+	assertSelfContained(t, page)
+}
+
 func TestExportHTMLInlinesLocalAssets(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "style.css"), []byte("body { color: red; }"), 0o644); err != nil {
@@ -79,6 +104,9 @@ func TestExportHTMLInlinesLocalAssets(t *testing.T) {
 	}
 	if strings.Contains(page, `href="style.css"`) || strings.Contains(page, `src="app.js"`) || strings.Contains(page, `src="logo.png"`) {
 		t.Errorf("export still references sibling files")
+	}
+	if strings.Contains(page, "data-width=") {
+		t.Errorf("static export renders the non-functional device switcher")
 	}
 	assertSelfContained(t, page)
 }

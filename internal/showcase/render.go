@@ -66,6 +66,9 @@ func buildContent(kind Kind, artifact string, static bool) (content string, toc 
 		if err != nil {
 			return "", nil, "", err
 		}
+		if static {
+			body = InlineLocalAssets(body, filepath.Dir(artifact))
+		}
 		return `<div class="markdown">` + body + `</div>`, toc, "", nil
 	case KindDiff:
 		return `<div class="diff">` + RenderDiff(ParseDiff(source)) + `</div>`, nil, "", nil

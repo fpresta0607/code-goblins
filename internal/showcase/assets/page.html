@@ -13,7 +13,7 @@
   <span class="title">{{.Title}}</span>
   <span class="badge">{{.Kind}}</span>
   <span class="spacer"></span>
-  {{if .Device}}
+  {{if and .Device (not .Static)}}
   <span class="device-switch" role="group" aria-label="Device width">
     <button data-width="390px">Mobile</button>
     <button data-width="1280px">Desktop</button>
@@ -40,6 +40,7 @@
     {{if not .Static}}
     <div id="composer">
       <textarea id="composer-text" rows="3" placeholder="Send a prompt to the agent..."></textarea>
+      <div id="composer-error" hidden></div>
       <div class="actions">
         <button id="send">Send</button>
         <button id="send-end" class="danger" title="Send any queued text and end the review">Send &amp; End</button>

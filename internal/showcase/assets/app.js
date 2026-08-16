@@ -12,6 +12,7 @@
   var sendEndBtn = document.getElementById("send-end");
   var annotateBtn = document.getElementById("annotate-toggle");
   var overlay = document.getElementById("annotate-overlay");
+  var composerError = document.getElementById("composer-error");
   var annotating = false;
   var pollTimer = null;
   var selectionBtn = null;
@@ -76,12 +77,30 @@
     }).then(renderState).catch(function () { /* server restarted; retry next tick */ });
   }
 
+  function clearError() {
+    if (composerError) composerError.hidden = true;
+  }
+
+  function showError(err) {
+    if (!composerError) return;
+    composerError.textContent = "Couldn't send: " + (err && err.message ? err.message : err);
+    composerError.hidden = false;
+  }
+
+  function ensureOk(res) {
+    if (res.ok) return res;
+    return res.text().then(function (text) {
+      throw new Error(res.status + (text ? ": " + text : ""));
+    });
+  }
+
   function postFeedback(body) {
+    clearError();
     return fetch("feedback", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
-    }).then(refresh);
+    }).then(ensureOk).then(refresh);
   }
 
   if (sendBtn) {
@@ -89,7 +108,7 @@
       var text = composerText.value.trim();
       if (!text) return;
       composerText.value = "";
-      postFeedback({ type: "message", text: text });
+      postFeedback({ type: "message", text: text }).catch(showError);
     });
     composerText.addEventListener("keydown", function (event) {
       if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) sendBtn.click();
@@ -99,11 +118,12 @@
   if (sendEndBtn) {
     sendEndBtn.addEventListener("click", function () {
       var text = composerText.value.trim();
+      clearError();
       var chain = text ? postFeedback({ type: "message", text: text }) : Promise.resolve();
       composerText.value = "";
       chain.then(function () {
-        return fetch("end", { method: "POST" });
-      }).then(refresh);
+        return fetch("end", { method: "POST" }).then(ensureOk);
+      }).then(refresh).catch(showError);
     });
   }
 
@@ -192,7 +212,7 @@
     target.classList.remove("sc-hl");
     target.classList.add("sc-marked");
     openPopover(event.clientX, event.clientY, snippet(target), function (text) {
-      postFeedback({ type: "annotation", text: text, selector: selectorFor(target), quote: snippet(target) });
+      postFeedback({ type: "annotation", text: text, selector: selectorFor(target), quote: snippet(target) }).catch(showError);
     });
   }, true);
 
@@ -206,7 +226,7 @@
       var x = Math.round(event.clientX - rect.left);
       var y = Math.round(event.clientY - rect.top);
       openPopover(event.clientX, event.clientY, "artifact at (" + x + ", " + y + ") in a " + Math.round(rect.width) + "px viewport", function (text) {
-        postFeedback({ type: "annotation", text: text, context: "viewport " + Math.round(rect.width) + "px @ (" + x + ", " + y + ")" });
+        postFeedback({ type: "annotation", text: text, context: "viewport " + Math.round(rect.width) + "px @ (" + x + ", " + y + ")" }).catch(showError);
       });
     });
   }
@@ -233,7 +253,7 @@
       selectionBtn.addEventListener("click", function () {
         hideSelectionBtn();
         openPopover(rect.left, rect.bottom + 6, quote.slice(0, 140), function (text) {
-          postFeedback({ type: "selection", text: text, quote: quote.slice(0, 500) });
+          postFeedback({ type: "selection", text: text, quote: quote.slice(0, 500) }).catch(showError);
         });
       });
       document.body.appendChild(selectionBtn);
