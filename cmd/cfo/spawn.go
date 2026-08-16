@@ -76,6 +76,11 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		return 1
 	}
 	fmt.Fprintln(stdout, result.Output)
+	if runtime.speedHint != nil {
+		if hint := runtime.speedHint(context.Background(), *harnessName); hint != "" {
+			fmt.Fprintln(stdout, hint)
+		}
+	}
 	return 0
 }
 
