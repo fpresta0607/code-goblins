@@ -119,7 +119,7 @@ func mutate(artifact string, fn func(*Session) error) error {
 		if !errors.Is(err, fs.ErrExist) {
 			return err
 		}
-		if info, statErr := os.Stat(lock); statErr == nil && time.Since(info.ModTime()) > 30*time.Second {
+		if info, statErr := os.Stat(lock); statErr == nil && time.Since(info.ModTime()) > 10*time.Second {
 			os.Remove(lock)
 			continue
 		}
@@ -191,6 +191,7 @@ func AppendFeedback(artifact string, feedback Feedback) error {
 		}
 		feedback.ID = maxID + 1
 		feedback.CreatedAt = time.Now()
+		feedback.Delivered = false
 		session.Feedback = append(session.Feedback, feedback)
 		return nil
 	})
