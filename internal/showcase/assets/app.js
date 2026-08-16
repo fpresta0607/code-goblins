@@ -206,6 +206,10 @@
   });
   contentEl.addEventListener("click", function (event) {
     if (!annotating || !event.target.closest) return;
+    // HTML artifacts are annotated by the #annotate-overlay handler below,
+    // which records viewport coordinates; let that handler run instead of
+    // swallowing the event and recording a meaningless overlay selector.
+    if (event.target.closest("#annotate-overlay")) return;
     event.preventDefault();
     event.stopPropagation();
     var target = event.target.closest(annotateSelector) || event.target;
