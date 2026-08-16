@@ -28,17 +28,26 @@ var tools = []struct {
 }{
 	{name: "git", hint: "winget install Git.Git"},
 	{name: "gh", hint: "winget install GitHub.cli, then gh auth login"},
-	{name: "claude", hint: "npm install -g @anthropic-ai/claude-code"},
 	{name: "herdr", hint: "irm https://herdr.dev/install.ps1 | iex"},
 	{name: "treehouse", hint: "irm https://kunchenguid.github.io/treehouse/install.ps1 | iex"},
-	{name: "codex", hint: "npm install -g @openai/codex"},
-	{name: "pi", hint: "npm install -g @earendil-works/pi-coding-agent"},
-	{name: "kimi", hint: "install the Kimi Code CLI (kimi.com)"},
 	{name: "tasks-axi", hint: "npm install -g tasks-axi"},
 	{name: "quota-axi", hint: "npm install -g quota-axi"},
 	{name: "no-mistakes", hint: "irm https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1 | iex"},
 	{name: "gh-axi", hint: "npm install -g gh-axi"},
 	{name: "chrome-devtools-axi", hint: "npm install -g chrome-devtools-axi"},
+}
+
+// harnessTools are the interactive harnesses a spawn can select. They are
+// checked only through the single probed --version path in ProbeHarnesses, so
+// each harness runs exactly one bounded sanity probe.
+var harnessTools = []struct {
+	name string
+	hint string
+}{
+	{name: "claude", hint: "npm install -g @anthropic-ai/claude-code"},
+	{name: "codex", hint: "npm install -g @openai/codex"},
+	{name: "pi", hint: "npm install -g @earendil-works/pi-coding-agent"},
+	{name: "kimi", hint: "install the Kimi Code CLI (kimi.com)"},
 }
 
 // Run checks every required tool in a fixed order, plus the turnend-guard /
@@ -108,10 +117,7 @@ func checkHookPairing() Check {
 // that cannot answer cheaply would hang or waste every pipeline attempt.
 const ProbeTimeout = 15 * time.Second
 
-// harnesses are the interactive harnesses a spawn can select.
-var harnesses = []string{"claude", "codex", "pi", "kimi"}
-
-// HarnessProbe is one installed harness's spawn sanity verdict. OK false
+// HarnessProbe is one supported harness's spawn sanity verdict. OK false
 // means the harness is broken: every pipeline attempt on it is wasted time.
 type HarnessProbe struct {
 	Name   string
@@ -120,18 +126,19 @@ type HarnessProbe struct {
 }
 
 // ProbeHarnesses runs a cheap spawn sanity check (<harness> --version under a
-// short timeout) for each installed harness, surfacing breakage like a
+// short timeout) for each supported harness, surfacing breakage like a
 // process that cannot start (exit 0xc0000142) before a run discovers it.
-// Harnesses absent from PATH are skipped; the tool checks already report
-// them.
+// A harness absent from PATH is reported broken with its install hint, so the
+// doctor exit code still fails closed for a missing harness.
 func ProbeHarnesses(ctx context.Context) []HarnessProbe {
-	probes := make([]HarnessProbe, 0, len(harnesses))
-	for _, name := range harnesses {
-		path, err := exec.LookPath(name)
+	probes := make([]HarnessProbe, 0, len(harnessTools))
+	for _, tool := range harnessTools {
+		path, err := exec.LookPath(tool.name)
 		if err != nil {
+			probes = append(probes, HarnessProbe{Name: tool.name, Detail: "not found on PATH (install: " + tool.hint + ")"})
 			continue
 		}
-		probes = append(probes, probeHarness(ctx, name, path))
+		probes = append(probes, probeHarness(ctx, tool.name, path))
 	}
 	return probes
 }
