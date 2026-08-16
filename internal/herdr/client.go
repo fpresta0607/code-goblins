@@ -146,13 +146,15 @@ func (c *Client) adoptFactoryWorkspace(ctx context.Context, session string, work
 	if err != nil {
 		return Container{}, false, err
 	}
-	if len(tabs) != 1 || tabs[0].Label != "1" || tabs[0].ID == "" {
+	if len(tabs) != 1 || tabs[0].ID == "" || (tabs[0].Label != "1" && tabs[0].Label != fleetSpaceLabel) {
 		return Container{}, false, nil
 	}
-	if _, err := c.required(ctx, session, Target{}, "workspace rename", "workspace", "rename", workspaces[0].ID, fleetSpaceLabel); err != nil {
-		return Container{}, false, err
+	if tabs[0].Label == "1" {
+		if _, err := c.required(ctx, session, Target{}, "tab rename", "tab", "rename", tabs[0].ID, fleetSpaceLabel); err != nil {
+			return Container{}, false, err
+		}
 	}
-	if _, err := c.required(ctx, session, Target{}, "tab rename", "tab", "rename", tabs[0].ID, fleetSpaceLabel); err != nil {
+	if _, err := c.required(ctx, session, Target{}, "workspace rename", "workspace", "rename", workspaces[0].ID, fleetSpaceLabel); err != nil {
 		return Container{}, false, err
 	}
 	return Container{Session: session, WorkspaceID: workspaces[0].ID}, true, nil
