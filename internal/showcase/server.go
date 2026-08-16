@@ -286,14 +286,18 @@ func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := r.PathValue("path")
-	if hasDotPrefixedSegment(path) {
-		http.Error(w, "hidden files are not servable", http.StatusForbidden)
+	if hasDotPrefixedSegment(path) || hasSensitiveSegment(path) {
+		http.Error(w, "hidden or private files are not servable", http.StatusForbidden)
 		return
 	}
 	dir := filepath.Dir(artifact)
 	target := filepath.Clean(filepath.Join(dir, filepath.FromSlash(path)))
 	if target != dir && !strings.HasPrefix(target, dir+string(filepath.Separator)) {
 		http.Error(w, "asset escapes the artifact directory", http.StatusForbidden)
+		return
+	}
+	if info, err := os.Stat(target); err == nil && info.IsDir() {
+		http.Error(w, "directories are not servable", http.StatusForbidden)
 		return
 	}
 	w.Header().Set("Access-Control-Allow-Origin", "null")
@@ -303,6 +307,15 @@ func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 func hasDotPrefixedSegment(path string) bool {
 	for _, part := range strings.Split(path, "/") {
 		if strings.HasPrefix(part, ".") {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSensitiveSegment(path string) bool {
+	for _, part := range strings.Split(path, "/") {
+		if strings.HasSuffix(part, ".session.json") || strings.HasSuffix(part, ".lock") {
 			return true
 		}
 	}

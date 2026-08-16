@@ -284,3 +284,35 @@ func TestServerAssetRefusesHiddenFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestServerAssetRefusesSessionFilesAndDirectories(t *testing.T) {
+	showcaseDir := filepath.Join(t.TempDir(), ".showcase")
+	if err := os.MkdirAll(showcaseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	artifact := filepath.Join(showcaseDir, "mock.html")
+	if err := os.WriteFile(artifact, []byte("<h1>Mock</h1>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(showcaseDir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, ts := newTestServer(t)
+	registered := registerSession(t, ts, artifact, false)
+
+	sessionFile := filepath.Join(showcaseDir, "mock.html.session.json")
+	if _, err := os.Stat(sessionFile); err != nil {
+		t.Fatalf("register should create the session file: %v", err)
+	}
+
+	for _, path := range []string{"mock.html.session.json", "mock.html.session.json.lock", "assets/"} {
+		res, err := http.Get(ts.URL + registered.URL + path)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		res.Body.Close()
+		if res.StatusCode != http.StatusForbidden {
+			t.Errorf("%s status = %d, want 403", path, res.StatusCode)
+		}
+	}
+}
