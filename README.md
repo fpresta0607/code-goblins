@@ -45,9 +45,9 @@ The full design and the explicit v1 scope live in [docs/superpowers/specs/2026-0
 ## Commands
 
 ```text
-cfo doctor                           check the tools cfo needs and how to install them
+cfo doctor                           check the tools cfo needs and how to install them; probe each harness's spawn health (ok/broken) and print the measured speed table when telemetry exists
 cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--yolo]
-cfo send <target> [--key <key>] <text...>
+cfo send <target> [--key <key>] [--no-auto-submit] <text...>
 cfo peek <target> [lines]
 cfo fleet-view [--json]
 cfo brief <id> --project <path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>]
@@ -133,7 +133,7 @@ These upstream features are not yet ported to the Go binary:
 ## Repo layout
 
 - `cmd/cfo/` - the `cfo.exe` entry point and command handlers.
-- `internal/` - one package per subsystem (herdr, treehouse, spawn, fleet, monitor, wake, lock, state, home, watch, harness, axi, execx, fsx, claudehook, digest, doctor, guard, crewstate, supervise, proc).
+- `internal/` - one package per subsystem (herdr, treehouse, spawn, fleet, monitor, wake, lock, state, home, watch, harness, axi, execx, fsx, claudehook, digest, doctor, guard, crewstate, supervise, telemetry, proc).
 - `docs/superpowers/` - the design spec and implementation plans.
 - `tests/acceptance/` - the opt-in real-session Windows acceptance script.
 - `.agents/skills/` - the fleet's skills, synced from user scope; kimi and pi read it directly, and `install.ps1` junctions it for claude and codex.
