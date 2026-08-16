@@ -275,6 +275,7 @@ func (s *Server) handleRaw(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown session", http.StatusNotFound)
 		return
 	}
+	w.Header().Set("Access-Control-Allow-Origin", "null")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	http.ServeFile(w, r, artifact)
 }
@@ -291,6 +292,7 @@ func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "asset escapes the artifact directory", http.StatusForbidden)
 		return
 	}
+	w.Header().Set("Access-Control-Allow-Origin", "null")
 	http.ServeFile(w, r, target)
 }
 
