@@ -227,6 +227,70 @@ func TestEnsureContainerAdoptsOnlyOneMatchingWorkspace(t *testing.T) {
 	}
 }
 
+func TestEnsureContainerAdoptsFactoryWorkspace(t *testing.T) {
+	runner := &fakeRunner{replies: []runnerReply{
+		jsonReply(`{"result":{"workspaces":[{"workspace_id":"ws-factory","label":"~"}]}}`),
+		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-1","label":"1"}]}}`),
+		jsonReply(`{"result":{"type":"ok"}}`),
+		jsonReply(`{"result":{"type":"ok"}}`),
+	}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+
+	got, err := client.EnsureContainer(context.Background(), `C:\repo`)
+	if err != nil {
+		t.Fatalf("EnsureContainer: %v", err)
+	}
+	// The adopted factory tab is never the seeded default: CreateTask may only
+	// prune a seed Herdr created, never a pane the operator might be using.
+	want := Container{Session: "fleet", WorkspaceID: "ws-factory"}
+	if got != want {
+		t.Errorf("EnsureContainer() = %#v, want %#v", got, want)
+	}
+	assertRequests(t, runner.Requests(), []execx.Request{
+		command("herdr", "workspace", "list", "--session", "fleet"),
+		command("herdr", "tab", "list", "--workspace", "ws-factory", "--session", "fleet"),
+		command("herdr", "workspace", "rename", "ws-factory", "cfo", "--session", "fleet"),
+		command("herdr", "tab", "rename", "tab-1", "cfo", "--session", "fleet"),
+	})
+}
+
+func TestEnsureContainerCreatesWhenFactoryShapeIsAbsent(t *testing.T) {
+	tests := []struct {
+		name string
+		ws   string
+		tabs string
+	}{
+		{"two workspaces", `{"result":{"workspaces":[{"workspace_id":"ws-factory","label":"~"},{"workspace_id":"ws-2","label":"other"}]}}`, ""},
+		{"factory workspace with two tabs", `{"result":{"workspaces":[{"workspace_id":"ws-factory","label":"~"}]}}`, `{"result":{"tabs":[{"tab_id":"tab-1","label":"1"},{"tab_id":"tab-2","label":"2"}]}}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			replies := []runnerReply{jsonReply(test.ws)}
+			if test.tabs != "" {
+				replies = append(replies, jsonReply(test.tabs))
+			}
+			replies = append(replies, jsonReply(`{"result":{"workspace":{"workspace_id":"ws-new"},"tab":{"tab_id":"tab-seeded"}}}`))
+			runner := &fakeRunner{replies: replies}
+			var sleeps []time.Duration
+			client := newTestClient(runner, &sleeps)
+
+			got, err := client.EnsureContainer(context.Background(), `C:\repo`)
+			if err != nil {
+				t.Fatalf("EnsureContainer: %v", err)
+			}
+			if got.WorkspaceID != "ws-new" {
+				t.Errorf("EnsureContainer() = %#v, want a created workspace, not an adoption", got)
+			}
+			for _, request := range runner.Requests() {
+				if slices.Contains(request.Args, "rename") {
+					t.Fatalf("non-factory state triggered a rename: %#v", request.Args)
+				}
+			}
+		})
+	}
+}
+
 func TestCreateTaskRefusesDuplicateWithLiveAgent(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{
 		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-existing","label":"gb-task"}]}}`),
