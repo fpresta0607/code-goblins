@@ -186,8 +186,12 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		if writeErr := s.publishSwitch(&meta, target); writeErr != nil {
 			err = errors.Join(err, writeErr)
 		}
-		err = fmt.Errorf("%w\nthe pane now has no harness: %s was stopped and %s did not start. Work in %s is untouched; start one with `cfo switch %s --harness <h>`",
-			err, from, describe(string(target.Harness), target.Model, target.Effort), worktree, req.ID)
+		recovery := fmt.Sprintf("the pane now has no harness: %s was stopped and %s did not start. Work in %s is untouched; start one with `cfo switch %s --harness <h>`",
+			from, describe(string(target.Harness), target.Model, target.Effort), worktree, req.ID)
+		if errors.Is(err, errBuildLaunch) {
+			recovery += " If the new harness refused an effort, retry with `--effort default` to clear it."
+		}
+		err = fmt.Errorf("%w\n%s", err, recovery)
 		if statusErr := state.AppendStatus(s.StateDir, req.ID, "failed: "+bounded(normalizeStatusDetail(err.Error()), 1000)); statusErr != nil {
 			err = errors.Join(err, statusErr)
 		}
@@ -219,6 +223,8 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	return result, nil
 }
 
+var errBuildLaunch = errors.New("switch: build harness launch")
+
 // relaunchHarness builds the target launch, injects credentials, writes the
 // resume instruction or handoff, and starts the new harness. Every step after
 // the old harness has stopped lives here, so any failure returns through the
@@ -232,7 +238,7 @@ func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, pane
 		Effort:    target.Effort,
 	})
 	if err != nil {
-		return "", false, fmt.Errorf("switch: build harness launch: %w", err)
+		return "", false, fmt.Errorf("%w: %w", errBuildLaunch, err)
 	}
 	launch.Dir = worktree
 	if _, err := s.injectProjectCredentials(ctx, project, meta.TaskTmp, &launch); err != nil {
@@ -278,11 +284,12 @@ func (t switchTarget) same(meta state.TaskMeta) bool {
 // requestedTarget fills the request's blanks from the task's current values,
 // so `--model` alone keeps the harness it is already running.
 //
-// A model name does not survive a change of harness - "opus" means nothing to
-// codex - so changing harness without naming a model resets it to the new
-// harness's default rather than carrying an incompatible one across. Effort
-// is a shared vocabulary and does carry; an effort the new harness does not
-// support is refused loudly when its launch is built.
+// Neither a model name nor an effort survives a change of harness - "opus"
+// means nothing to codex, and Kimi has no effort knob at all - so changing
+// harness without naming them resets both to the new harness's defaults
+// rather than carrying values the new harness cannot honour. An effort the
+// operator still passes explicitly is refused loudly when its launch is
+// built.
 func requestedTarget(meta state.TaskMeta, req SwitchRequest) switchTarget {
 	target := switchTarget{Harness: req.Harness, Model: req.Model, Effort: req.Effort}
 	if target.Harness == "" {
@@ -291,7 +298,7 @@ func requestedTarget(meta state.TaskMeta, req SwitchRequest) switchTarget {
 	if target.Model == "" && target.Harness == harness.Kind(meta.Harness) {
 		target.Model = meta.Model
 	}
-	if target.Effort == "" {
+	if target.Effort == "" && target.Harness == harness.Kind(meta.Harness) {
 		target.Effort = meta.Effort
 	}
 	return target

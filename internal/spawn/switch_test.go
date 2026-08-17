@@ -358,7 +358,7 @@ func TestSwitchTargetsTheRecordedSessionNotTheRequestSession(t *testing.T) {
 }
 
 // A failure between stopping the old harness and starting the new one - here
-// the target adapter refusing the carried effort - must leave the same empty-
+// the target adapter refusing to build its launch - must leave the same empty-
 // pane record as a failed start, not a silent pane with stale metadata.
 func TestSwitchRecordsAnEmptyPaneWhenTheTargetRefusesToBuild(t *testing.T) {
 	fixture := newSwitchFixture(t)
@@ -371,7 +371,7 @@ func TestSwitchRecordsAnEmptyPaneWhenTheTargetRefusesToBuild(t *testing.T) {
 	if err == nil {
 		t.Fatal("Switch = nil, want the build failure surfaced")
 	}
-	for _, want := range []string{"pane now has no harness", "is untouched", "cfo switch " + fixture.meta.ID} {
+	for _, want := range []string{"pane now has no harness", "is untouched", "cfo switch " + fixture.meta.ID, "--effort default"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v, want it to mention %q", err, want)
 		}
@@ -485,6 +485,43 @@ func TestSwitchDoesNotCarryAModelAcrossHarnesses(t *testing.T) {
 	}
 	if after.Harness != string(harness.Kimi) {
 		t.Errorf("harness = %q, want %q", after.Harness, harness.Kimi)
+	}
+}
+
+func TestSwitchDoesNotCarryAnEffortAcrossHarnesses(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	// Give the task an effort another harness may not honour: Kimi has no
+	// effort knob at all, so carrying one across would loop the recovery.
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Effort: "xhigh", Session: "fleet"}); err != nil {
+		t.Fatalf("seed effort switch: %v", err)
+	}
+
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"}); err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	after, err := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Effort != "default" {
+		t.Errorf("effort = %q, want the new harness's default rather than the old harness's effort", after.Effort)
+	}
+	if after.Harness != string(harness.Kimi) {
+		t.Errorf("harness = %q, want %q", after.Harness, harness.Kimi)
+	}
+}
+
+func TestSwitchKeepsAnExplicitEffortAcrossHarnesses(t *testing.T) {
+	fixture := newSwitchFixture(t)
+
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{
+		ID: fixture.meta.ID, Harness: harness.Kimi, Effort: "xhigh", Session: "fleet",
+	}); err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	after, _ := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
+	if after.Effort != "xhigh" {
+		t.Errorf("effort = %q, want the effort the operator asked for", after.Effort)
 	}
 }
 
