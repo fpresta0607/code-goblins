@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
@@ -213,6 +214,24 @@ type countingMissingProbe struct{ calls int }
 func (p *countingMissingProbe) Inspect(context.Context, state.TaskMeta) (monitor.EndpointSample, error) {
 	p.calls++
 	return monitor.EndpointSample{Verdict: monitor.ProbeMissing, Detail: "pane missing"}, nil
+}
+
+type erroringProbe struct{}
+
+func (erroringProbe) Inspect(_ context.Context, meta state.TaskMeta) (monitor.EndpointSample, error) {
+	return monitor.EndpointSample{
+		Verdict: monitor.ProbePresent,
+		Endpoint: herdr.Endpoint{
+			Target:      herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID},
+			WorkspaceID: meta.HerdrWorkspaceID,
+			TabID:       meta.HerdrTabID,
+			PaneID:      meta.HerdrPaneID,
+		},
+		TabLabel: "gb-" + meta.ID,
+		Agent:    herdr.AgentAlive,
+		Busy:     herdr.BusyWorking,
+		Capture:  []byte("quota exceeded for this organization\n"),
+	}, nil
 }
 
 func monitoringService(t *testing.T, dir, id string) *monitor.Service {
@@ -655,5 +674,73 @@ func TestRouteHarnessErrorUsesTheCarriedFault(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("routeHarnessError = %q, want it to contain %q", got, want)
 		}
+	}
+}
+
+func TestRunClearsPendingHarnessErrorAfterDecoratedPublish(t *testing.T) {
+	dir := t.TempDir()
+	if err := state.WriteTaskMeta(dir, state.TaskMeta{
+		ID:               "g1",
+		Worktree:         `C:\work\g1`,
+		Backend:          "herdr",
+		Harness:          "kimi",
+		HerdrSession:     "fleet",
+		HerdrWorkspaceID: "ws",
+		HerdrTabID:       "tab-g1",
+		HerdrPaneID:      "pane-g1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := baseConfig(dir)
+	cfg.Routing = routing.Policy{Rules: []routing.Rule{{
+		Harness: "kimi",
+		Fault:   routing.RateLimit,
+		Switch:  routing.Switch{Harness: "claude", Model: "opus", Effort: "xhigh"},
+		Auto:    true,
+	}}}
+	cfg.Monitor = &monitor.Service{
+		StateDir:            dir,
+		Probe:               erroringProbe{},
+		Now:                 time.Now,
+		StaleEscalateAfter:  time.Minute,
+		BusyTurnMax:         time.Hour,
+		PauseResurfaceAfter: time.Hour,
+		Heartbeat:           time.Minute,
+		HeartbeatMax:        time.Hour,
+	}
+
+	reason, err := Run(cfg)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.Contains(reason, "cfo switch g1 --harness claude --model opus --effort xhigh") {
+		t.Errorf("Run reason = %q, want the rule's switch command", reason)
+	}
+
+	records, err := wake.Pending(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Kind != "stale" {
+		t.Fatalf("wake queue = %+v, want one stale record", records)
+	}
+	if !strings.Contains(records[0].Detail, "cfo switch g1 --harness claude --model opus --effort xhigh") {
+		t.Errorf("wake detail = %q, want the rule's switch command", records[0].Detail)
+	}
+
+	obs, err := monitor.ReadObservation(dir, "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if obs.PendingEvent != nil {
+		t.Errorf("pending event after decorated publish = %+v, want cleared so the next cycle does not re-fire", obs.PendingEvent)
+	}
+
+	second, err := cfg.Monitor.Scan(context.Background())
+	if err != nil {
+		t.Fatalf("second Scan: %v", err)
+	}
+	if second.Event != nil {
+		t.Errorf("second scan event = %+v, want none (one wake per episode)", second.Event)
 	}
 }
