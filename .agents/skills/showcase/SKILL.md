@@ -47,6 +47,18 @@ showcase-axi renders each type deliberately, so a plan reads like a document and
   Deliver any remaining updates directly in the conversation.
 - Reopening a session the user ended is refused unless you pass `--reopen`; do that only when the user asks for another look.
 
+## Feedback payload
+
+Poll prints one JSON object: `session`, `artifact`, `kind`, `ended`, and a `feedback` array.
+Each feedback item has `type` (`message`, `annotation`, or `selection`), the user's `text`, and, when they attached it to something, the anchor that says where:
+
+- `quote` - the exact text the user selected, or the text of the element they clicked.
+- `section` - the nearest heading above it, or the section header for a diff file.
+- `selector` - the element path, preferring the nearest id (`#f0-n371 > code` for a diff line, `#stalls` for a mock section).
+- `context` - free-form locator used where no element applies, such as `viewport 1280px @ (412, 190)` for a click on an HTML mock.
+
+Use quote plus section to find the passage in the source file; the selector disambiguates when the quote appears more than once.
+
 ## Command reference
 
 - `showcase-axi <file> [--reopen]` - open or resume a review session.
@@ -60,6 +72,7 @@ showcase-axi renders each type deliberately, so a plan reads like a document and
 ## Artifact guidance
 
 - For HTML mocks, keep every referenced asset (CSS, images, scripts) beside the artifact file and reference it with a relative path; root-absolute paths will not resolve.
-- The artifact itself is never modified or injected by the server, so what you write is what renders.
+- The artifact file is never modified, and exports carry only what you wrote.
+  The one addition is invisible: the live preview response for an HTML mock carries a small script that forwards a text selection made inside the sandboxed frame to the review page, because the page cannot read across the frame's opaque origin.
 - Give the artifact a clear point of view: visual hierarchy, deliberate spacing, and structure (sections, tables, diagrams) over long prose.
 - Export inlines only the top-level local assets referenced directly by the artifact (stylesheets, scripts, images). Multi-file ES-module mocks whose scripts import sibling files (e.g. `import ... from './lib.js'`) keep those relative imports in the exported file, so they are not yet fully self-contained; recursive import inlining is a v1 follow-up. Keep mocks single-file for a fully portable export.

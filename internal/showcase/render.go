@@ -13,13 +13,16 @@ import (
 	"time"
 )
 
-//go:embed assets/page.html assets/style.css assets/app.js
+//go:embed assets/page.html assets/style.css assets/app.js assets/frame-helper.js
 var assets embed.FS
 
 var (
 	pageTemplate = htmltemplate.Must(htmltemplate.New("page").Parse(mustAsset("assets/page.html")))
 	pageCSS      = mustAsset("assets/style.css")
 	pageJS       = mustAsset("assets/app.js")
+	// frameHelperJS is appended to the live preview of an HTML artifact so a
+	// selection made inside the sandboxed frame reaches the review page.
+	frameHelperJS = mustAsset("assets/frame-helper.js")
 )
 
 func mustAsset(name string) string {
@@ -45,7 +48,7 @@ type pageData struct {
 }
 
 func renderPage(w io.Writer, data pageData) error {
-	data.CSS = htmltemplate.CSS(pageCSS)
+	data.CSS = htmltemplate.CSS(pageCSS + "\n" + highlightCSS)
 	if !data.Static {
 		data.JS = htmltemplate.JS(pageJS)
 	}
@@ -104,10 +107,10 @@ func renderConversation(session *Session) string {
 	}
 	var entries []entry
 	for _, message := range session.Messages {
-		entries = append(entries, entry{message.CreatedAt, bubble(message.Role, "", "", message.Text)})
+		entries = append(entries, entry{message.CreatedAt, bubble(message.Role, "", "", message.Text, "")})
 	}
 	for _, feedback := range session.Feedback {
-		entries = append(entries, entry{feedback.CreatedAt, bubble("user", feedback.Type, feedback.Quote, feedback.Text)})
+		entries = append(entries, entry{feedback.CreatedAt, bubble("user", feedback.Type, feedback.Quote, feedback.Text, whereLabel(feedback))})
 	}
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].at.Before(entries[j].at) })
 	var out strings.Builder
@@ -117,7 +120,21 @@ func renderConversation(session *Session) string {
 	return out.String()
 }
 
-func bubble(role, tag, quote, text string) string {
+// whereLabel names the spot a comment was attached to, the way the live
+// panel does: the nearest heading or section header, then the element path.
+func whereLabel(feedback Feedback) string {
+	switch {
+	case feedback.Section != "" && feedback.Selector != "":
+		return feedback.Section + "  ·  " + feedback.Selector
+	case feedback.Section != "":
+		return feedback.Section
+	case feedback.Selector != "":
+		return feedback.Selector
+	}
+	return feedback.Context
+}
+
+func bubble(role, tag, quote, text, where string) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, `<div class="msg %s">`, role)
 	if tag != "" && tag != "message" {
@@ -130,6 +147,12 @@ func bubble(role, tag, quote, text string) string {
 	}
 	out.WriteString(`<div class="text">`)
 	out.WriteString(html.EscapeString(text))
-	out.WriteString(`</div></div>`)
+	out.WriteString(`</div>`)
+	if where != "" {
+		out.WriteString(`<div class="where">`)
+		out.WriteString(html.EscapeString(where))
+		out.WriteString(`</div>`)
+	}
+	out.WriteString(`</div>`)
 	return out.String()
 }
