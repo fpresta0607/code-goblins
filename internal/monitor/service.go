@@ -473,7 +473,11 @@ func taskEvent(id string, reason Reason, detail string) Event {
 }
 
 func sameEvent(pending *Event, event Event) bool {
-	return pending != nil && *pending == event
+	return pending != nil &&
+		pending.Source == event.Source &&
+		pending.TaskID == event.TaskID &&
+		pending.Kind == event.Kind &&
+		pending.Key == event.Key
 }
 
 func cloneEvent(event *Event) *Event {
