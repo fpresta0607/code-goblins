@@ -403,8 +403,8 @@ func routeHarnessError(cfg Config, event monitor.Event) string {
 	if err != nil {
 		return event.Detail
 	}
-	fault, _, found := routing.Detect(event.Detail)
-	if !found {
+	fault := event.Fault
+	if fault == "" {
 		return event.Detail
 	}
 	rule, matched := cfg.Routing.Match(meta.Harness, fault)
@@ -418,6 +418,9 @@ func routeHarnessError(cfg Config, event monitor.Event) string {
 	detail := event.Detail + prefix + rule.Command(event.TaskID)
 	if rule.Note != "" {
 		detail += " (" + rule.Note + ")"
+	}
+	if !rule.ForceDirty {
+		detail += " (add --force-dirty if the worktree has uncommitted changes)"
 	}
 	return detail
 }

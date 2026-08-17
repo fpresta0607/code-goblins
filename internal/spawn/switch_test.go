@@ -2,6 +2,7 @@ package spawn
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -303,6 +304,90 @@ func TestSwitchRefusesANoOp(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "nothing to switch") {
 		t.Fatalf("err = %v, want a refusal to restart a harness for no change", err)
+	}
+}
+
+// A same-harness request is only a no-op while a harness is actually running.
+// When the pane is empty - the harness died on its own, or a previous switch
+// stopped it and failed before the replacement started - the same request is
+// the restart the recovery message tells the operator to run.
+func TestSwitchAllowsARestartWhenThePaneIsEmpty(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	// The first agent status read reports the pane as dead, so the switch must
+	// proceed as a restart rather than refuse the request as a no-op.
+	fixture.runner.stopAfter = 0
+
+	result, err := fixture.service.Switch(context.Background(), SwitchRequest{
+		ID:      fixture.meta.ID,
+		Harness: harness.Kind(fixture.meta.Harness),
+		Model:   fixture.meta.Model,
+		Effort:  fixture.meta.Effort,
+		Session: "fleet",
+	})
+	if err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	if !result.Resumed {
+		t.Error("Resumed = false, want the dead harness restarted through its own resume")
+	}
+	after, err := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.SpawnGen == fixture.meta.SpawnGen {
+		t.Error("spawn_gen was not bumped, so the watcher cannot tell the restarted harness is a new process")
+	}
+}
+
+// The recorded session is where the pane lives; a request naming a different
+// session must not redirect the switch there.
+func TestSwitchTargetsTheRecordedSessionNotTheRequestSession(t *testing.T) {
+	fixture := newSwitchFixture(t)
+
+	result, err := fixture.service.Switch(context.Background(), SwitchRequest{
+		ID:      fixture.meta.ID,
+		Harness: harness.Kimi,
+		Session: "elsewhere",
+	})
+	if err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	if !strings.Contains(result.Output, "switched "+fixture.meta.ID) {
+		t.Errorf("output = %q, want it to name the switched task", result.Output)
+	}
+}
+
+// A failure between stopping the old harness and starting the new one - here
+// the target adapter refusing the carried effort - must leave the same empty-
+// pane record as a failed start, not a silent pane with stale metadata.
+func TestSwitchRecordsAnEmptyPaneWhenTheTargetRefusesToBuild(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	fixture.service.Harness.Adapters[harness.Kimi] = fixtureAdapter{
+		events:   &[]string{},
+		buildErr: errors.New(`harness: Codex does not support effort "max"`),
+	}
+
+	_, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"})
+	if err == nil {
+		t.Fatal("Switch = nil, want the build failure surfaced")
+	}
+	for _, want := range []string{"pane now has no harness", "is untouched", "cfo switch " + fixture.meta.ID} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to mention %q", err, want)
+		}
+	}
+	status, err := state.TailStatus(fixture.stateDir, fixture.meta.ID, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, line := range status {
+		if strings.HasPrefix(line, "failed:") && strings.Contains(line, "no harness") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("status = %v, want a durable record of the empty pane", status)
 	}
 }
 

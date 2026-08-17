@@ -15,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
+	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -613,5 +614,46 @@ func TestConfigFromEnvProberFollowsSpawnSessionSource(t *testing.T) {
 	}
 	if prober.Client.EffectiveSession() != "fleet-watch" {
 		t.Errorf("prober session = %q, want HERDR_SESSION so monitoring cannot drift to an implicit session", prober.Client.EffectiveSession())
+	}
+}
+
+// A long single-line provider error can push its matching phrase past
+// evidence()'s 200-char cutoff, so re-running Detect over the truncated detail
+// would lose the recommendation. The fault is carried on the event instead.
+func TestRouteHarnessErrorUsesTheCarriedFault(t *testing.T) {
+	dir := t.TempDir()
+	if err := state.WriteTaskMeta(dir, state.TaskMeta{
+		ID:               "g1",
+		Worktree:         `C:\work\g1`,
+		Backend:          "herdr",
+		Harness:          "kimi",
+		HerdrSession:     "fleet",
+		HerdrWorkspaceID: "ws",
+		HerdrTabID:       "tab-g1",
+		HerdrPaneID:      "pane-g1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := baseConfig(dir)
+	cfg.Routing = routing.Policy{Rules: []routing.Rule{{
+		Harness: "kimi",
+		Fault:   routing.RateLimit,
+		Switch:  routing.Switch{Harness: "claude", Model: "opus", Effort: "xhigh"},
+		Auto:    true,
+	}}}
+	event := monitor.Event{
+		Source: monitor.TaskEvent,
+		TaskID: "g1",
+		Kind:   "stale",
+		Key:    "g1",
+		Detail: "harness_error: rate-limit: " + strings.Repeat("a", 200),
+		Fault:  routing.RateLimit,
+	}
+
+	got := routeHarnessError(cfg, event)
+	for _, want := range []string{"STANDING POLICY", "cfo switch g1 --harness claude --model opus --effort xhigh"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("routeHarnessError = %q, want it to contain %q", got, want)
+		}
 	}
 }
