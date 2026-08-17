@@ -7,6 +7,8 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/doctor"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
 )
 
@@ -47,8 +49,42 @@ func runDoctor(stdout io.Writer) int {
 		}
 	}
 
+	reportRouting(stdout)
+
 	if !healthy {
 		return 1
 	}
 	return 0
+}
+
+// reportRouting prints the standing switch policy, because a rule that
+// silently restarts a goblin's harness should be visible in the same place
+// the operator checks everything else.
+func reportRouting(stdout io.Writer) {
+	h, err := home.Resolve()
+	if err != nil {
+		return
+	}
+	policy, err := routing.Load(h.Data)
+	if err != nil {
+		fmt.Fprintf(stdout, "routing: unreadable (%v)\n", err)
+		return
+	}
+	if len(policy.Rules) == 0 {
+		fmt.Fprintf(stdout, "routing: no standing switch rules (add %s to answer a harness fault automatically)\n", policy.Path)
+		fmt.Fprintln(stdout, "  a goblin whose harness starts erroring wakes the CFO undecided; fix it with `cfo switch <id> --harness <h>`")
+		return
+	}
+	fmt.Fprintf(stdout, "routing: %d standing switch rule(s) from %s\n", len(policy.Rules), policy.Path)
+	for _, rule := range policy.Rules {
+		from := rule.Harness
+		if from == "" {
+			from = "any"
+		}
+		mode := "recommend"
+		if rule.Auto {
+			mode = "automatic"
+		}
+		fmt.Fprintf(stdout, "  %-9s %-11s %-9s %s\n", from, rule.Fault, mode, rule.Command("<id>"))
+	}
 }

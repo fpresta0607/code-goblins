@@ -20,6 +20,7 @@ type TaskMeta struct {
 	Mode             string
 	Yolo             string
 	TaskTmp          string
+	Brief            string
 	Model            string
 	Effort           string
 	SpawnGen         string
@@ -76,6 +77,7 @@ func ReadTaskMeta(stateDir, id string) (TaskMeta, error) {
 		Mode:             kv["mode"],
 		Yolo:             kv["yolo"],
 		TaskTmp:          kv["tasktmp"],
+		Brief:            kv["brief"],
 		Model:            kv["model"],
 		Effort:           kv["effort"],
 		SpawnGen:         kv["spawn_gen"],
@@ -125,6 +127,7 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 		"harness":            meta.Harness,
 		"kind":               meta.Kind,
 		"tasktmp":            meta.TaskTmp,
+		"brief":              meta.Brief,
 		"model":              meta.Model,
 		"effort":             meta.Effort,
 		"spawn_gen":          meta.SpawnGen,
@@ -160,6 +163,7 @@ func validateTaskMetaValues(meta TaskMeta) error {
 		{"mode", meta.Mode},
 		{"yolo", meta.Yolo},
 		{"tasktmp", meta.TaskTmp},
+		{"brief", meta.Brief},
 		{"model", meta.Model},
 		{"effort", meta.Effort},
 		{"spawn_gen", meta.SpawnGen},

@@ -24,6 +24,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
+	"github.com/fpresta0607/code-goblins/internal/routing"
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -45,7 +47,10 @@ type Config struct {
 	Heartbeat    time.Duration
 	HeartbeatMax time.Duration
 	Monitor      *monitor.Service
-	Sleep        func(time.Duration)
+	// Routing is the standing answer to a harness that starts erroring. An
+	// empty policy simply means every fault wakes the CFO undecided.
+	Routing routing.Policy
+	Sleep   func(time.Duration)
 
 	// WaitEvent is Task 9's filesystem-notification seam, replacing the
 	// plain Sleep(Poll) wait between checks. Its bool return has two
@@ -86,6 +91,11 @@ func ConfigFromEnv(h home.Home) Config {
 		Heartbeat:    heartbeat,
 		HeartbeatMax: heartbeatMax,
 		Sleep:        time.Sleep,
+	}
+	// A missing or unreadable policy is not fatal: the fleet simply wakes the
+	// CFO undecided, which is what it did before there was a policy at all.
+	if policy, err := routing.Load(h.Data); err == nil {
+		cfg.Routing = policy
 	}
 	// The production monitor prober is the read-only structural Herdr prober,
 	// resolved against the same session source spawn uses (HERDR_SESSION,
@@ -333,10 +343,12 @@ func Run(cfg Config) (string, error) {
 				return "", err
 			}
 			if result.Event != nil && signalDetail == "" {
-				if _, err := cfg.Monitor.Publish(*result.Event); err != nil {
+				event := *result.Event
+				event.Detail = routeHarnessError(cfg, event)
+				if _, err := cfg.Monitor.Publish(event); err != nil {
 					return "", err
 				}
-				return result.Event.Kind + ":" + result.Event.Detail, nil
+				return event.Kind + ":" + event.Detail, nil
 			}
 		} else if err := monitor.TouchHeartbeat(cfg.Home.State, time.Now()); err != nil {
 			return "", err
@@ -371,4 +383,41 @@ func Run(cfg Config) (string, error) {
 			return "", nil
 		}
 	}
+}
+
+// routeHarnessError answers a provider failure with the fleet's standing
+// policy, so the CFO reads the fix in the same breath as the fault instead of
+// diagnosing a rate limit from scratch every time.
+//
+// The watcher decides but does not switch. A switch stops a harness, waits
+// for it to exit, and relaunches it - seconds of interactive work - and this
+// loop holds the watch singleton while it runs. Stalling fleet triage behind
+// one goblin's relaunch would be worse than the churn it saves, so an `auto`
+// rule is delivered as an instruction the CFO carries out on wake, and a
+// non-auto rule as a recommendation it can weigh.
+func routeHarnessError(cfg Config, event monitor.Event) string {
+	if event.TaskID == "" || !strings.HasPrefix(event.Detail, string(monitor.HarnessError)) {
+		return event.Detail
+	}
+	meta, err := state.ReadTaskMeta(cfg.Home.State, event.TaskID)
+	if err != nil {
+		return event.Detail
+	}
+	fault, _, found := routing.Detect(event.Detail)
+	if !found {
+		return event.Detail
+	}
+	rule, matched := cfg.Routing.Match(meta.Harness, fault)
+	if !matched {
+		return event.Detail + " | no standing rule; decide and use `cfo switch " + event.TaskID + " --harness <h>` if a switch is right"
+	}
+	prefix := " | RECOMMENDED: "
+	if rule.Auto {
+		prefix = " | STANDING POLICY, run it now: "
+	}
+	detail := event.Detail + prefix + rule.Command(event.TaskID)
+	if rule.Note != "" {
+		detail += " (" + rule.Note + ")"
+	}
+	return detail
 }

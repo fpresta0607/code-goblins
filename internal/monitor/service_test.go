@@ -632,3 +632,107 @@ func TestScanDoesNotPublishWhenObservationPersistenceFails(t *testing.T) {
 		t.Errorf("wake records = %+v, want none before observation persistence", records)
 	}
 }
+
+// A goblin whose provider is refusing it is not merely quiet: waiting longer
+// will not help, so it gets its own health rather than being folded into
+// stale or, worse, reported as busy because the error text keeps scrolling.
+func TestScanReportsAHarnessBeingRefusedByItsProvider(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{
+		"g1": sampleFor(meta, herdr.BusyWorking, "Error: 429 rate limit reached for model kimi-k2"),
+	}}
+	service := testService(stateDir, probe, &now)
+
+	result, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(result.Observations) != 1 {
+		t.Fatalf("observations = %d, want 1", len(result.Observations))
+	}
+	observation := result.Observations[0]
+	if observation.Health != HealthErroring || observation.Reason != HarnessError {
+		t.Fatalf("health = %q reason = %q, want %q/%q", observation.Health, observation.Reason, HealthErroring, HarnessError)
+	}
+	if !observation.DemandDeepInspection {
+		t.Error("an erroring harness does not demand inspection, so nothing forces a decision")
+	}
+	if result.Event == nil || !strings.Contains(result.Event.Detail, "rate-limit") {
+		t.Fatalf("event = %+v, want one naming the fault", result.Event)
+	}
+	// The observation has to survive a reload, or the next cycle re-raises it.
+	persisted, err := ReadObservation(stateDir, "g1")
+	if err != nil {
+		t.Fatalf("ReadObservation: %v", err)
+	}
+	if persisted.Health != HealthErroring {
+		t.Errorf("persisted health = %q, want %q", persisted.Health, HealthErroring)
+	}
+}
+
+func TestScanRaisesOneEventPerErroringEpisode(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{
+		"g1": sampleFor(meta, herdr.BusyWorking, "quota exceeded for this organization"),
+	}}
+	service := testService(stateDir, probe, &now)
+
+	first, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatalf("first Scan: %v", err)
+	}
+	if first.Event == nil {
+		t.Fatal("the first sight of the fault raised no event")
+	}
+	if _, err := service.Publish(*first.Event); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	now = now.Add(time.Minute)
+	second, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatalf("second Scan: %v", err)
+	}
+	if second.Observations[0].Health != HealthErroring {
+		t.Errorf("health = %q, want it still erroring", second.Observations[0].Health)
+	}
+	// The fault does not resolve itself, so repeating the wake every cycle
+	// would be noise the CFO learns to ignore.
+	if second.Event != nil {
+		t.Errorf("event = %+v, want the episode raised once", second.Event)
+	}
+}
+
+func TestScanLetsAPaneRecoverOnceTheProviderStopsRefusing(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{
+		"g1": sampleFor(meta, herdr.BusyWorking, "Error: 429 rate limit reached"),
+	}}
+	service := testService(stateDir, probe, &now)
+
+	if _, err := service.Scan(context.Background()); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	probe.samples["g1"] = sampleFor(meta, herdr.BusyWorking, "running tests, 42 passed")
+	now = now.Add(time.Minute)
+
+	result, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatalf("Scan after recovery: %v", err)
+	}
+	if result.Observations[0].Health == HealthErroring {
+		t.Fatal("the pane stayed erroring after the provider stopped refusing")
+	}
+	if result.Observations[0].DemandDeepInspection {
+		t.Error("a recovered pane still demands inspection")
+	}
+}

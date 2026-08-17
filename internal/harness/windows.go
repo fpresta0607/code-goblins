@@ -92,7 +92,7 @@ func (launch Launch) PowerShellTypedLine() (string, error) {
 	for _, arg := range launch.Args {
 		command += " " + powerShellLiteral(arg)
 	}
-	command += " " + powerShellLiteral(BriefInstruction(launch.PromptFile))
+	command += " " + powerShellLiteral(launch.PromptInstruction())
 	return prefix + "; " + command, nil
 }
 
