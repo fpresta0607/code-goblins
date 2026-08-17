@@ -37,3 +37,14 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	}
 	return launch, nil
 }
+
+// Control resumes Codex through its resume subcommand, which is why
+// ResumeArgs lead the argument list: `codex resume --last` continues the most
+// recent recorded session without the picker.
+func (codexAdapter) Control() Control {
+	return Control{
+		StopKeys:    []string{"escape"},
+		StopCommand: "/quit",
+		ResumeArgs:  []string{"resume", "--last"},
+	}
+}

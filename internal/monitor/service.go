@@ -12,6 +12,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -215,6 +216,19 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 
 	observation.EndpointVerdict = ProbePresent
 	digest := fmt.Sprintf("%x", sha256.Sum256(sample.Capture))
+
+	// A harness being refused by its provider is checked before anything
+	// else. An erroring pane often keeps changing - the error scrolls, the
+	// harness retries - so treating a changed digest as progress would report
+	// a rate-limited goblin as healthy and busy.
+	if fault, detail, found := routing.Detect(string(sample.Capture)); found {
+		return erroringObservation(observation, digest, fault, detail, now)
+	}
+	if observation.Health == HealthErroring {
+		// The error cleared on its own; fall through so the ordinary rules
+		// classify the pane afresh rather than leaving it stuck erroring.
+		observation.Digest = ""
+	}
 	if observation.Digest == "" || observation.Digest != digest {
 		observation.Digest = digest
 		observation.LastSeen = now
@@ -303,6 +317,34 @@ func (s Service) pauseObservation(observation Observation, now time.Time) Observ
 		}
 		observation.NextPauseResurface = &next
 		event := taskEvent(observation.TaskID, DeclaredPause, "")
+		observation.PendingEvent = &event
+	}
+	return observation
+}
+
+// erroringObservation records a pane whose harness is being refused by its
+// provider. It raises a wake event once per episode - the fault does not
+// resolve itself, so repeating it every cycle would be noise - and demands
+// deep inspection, because the fix is a decision (switch, wait, or top up)
+// rather than another poll.
+func erroringObservation(observation Observation, digest string, fault routing.Fault, detail string, now time.Time) Observation {
+	first := observation.Health != HealthErroring
+	observation.Digest = digest
+	observation.LastObserved = now
+	observation.LastSeen = now
+	if first {
+		observation.LastProgress = now
+	}
+	observation.Health = HealthErroring
+	observation.Reason = HarnessError
+	observation.StaleSince = nil
+	observation.NextEscalation = nil
+	observation.NextPauseResurface = nil
+	observation.Escalation = 0
+	observation.DemandDeepInspection = true
+	if first && observation.PendingEvent == nil {
+		event := taskEvent(observation.TaskID, HarnessError, string(fault)+": "+detail)
+		event.Fault = fault
 		observation.PendingEvent = &event
 	}
 	return observation
@@ -431,7 +473,11 @@ func taskEvent(id string, reason Reason, detail string) Event {
 }
 
 func sameEvent(pending *Event, event Event) bool {
-	return pending != nil && *pending == event
+	return pending != nil &&
+		pending.Source == event.Source &&
+		pending.TaskID == event.TaskID &&
+		pending.Kind == event.Kind &&
+		pending.Key == event.Key
 }
 
 func cloneEvent(event *Event) *Event {

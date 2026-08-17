@@ -38,6 +38,7 @@ commands:
   cfo auth store <NAME> [value]        store one credential (omit the value to read it from stdin)
   cfo auth list                        list stored credential names
   cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--yolo]
+  cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place
   cfo send <target> [--key <key>] [--no-auto-submit] <text...>
   cfo peek <target> [lines]
   cfo fleet-view [--json]
@@ -63,6 +64,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 type commandRuntime struct {
 	resolveHome func() (home.Home, error)
 	spawn       func(context.Context, home.Home, spawn.Request) (spawn.Result, error)
+	switchTask  func(context.Context, home.Home, spawn.SwitchRequest) (spawn.SwitchResult, error)
 	sendText    func(context.Context, home.Home, string, string, bool) error
 	sendKey     func(context.Context, home.Home, string, string) error
 	peek        func(context.Context, home.Home, string, int) (string, error)
@@ -85,6 +87,19 @@ func defaultCommandRuntime() commandRuntime {
 				StateDir:  h.State,
 			}
 			return service.Spawn(ctx, request)
+		},
+		switchTask: func(ctx context.Context, h home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
+			commands := execx.OSRunner{}
+			client := &herdr.Client{Commands: commands, Session: request.Session}
+			service := spawn.Service{
+				Herdr:     client,
+				Treehouse: treehouse.Service{Commands: commands},
+				Harness:   harness.DefaultRegistry(),
+				Auth:      auth.SpawnPreflight{DataDir: h.Data, Runner: commands},
+				Commands:  commands,
+				StateDir:  h.State,
+			}
+			return service.Switch(ctx, request)
 		},
 		sendText: func(ctx context.Context, h home.Home, target, text string, autoSubmit bool) error {
 			client := &herdr.Client{Commands: execx.OSRunner{}}
@@ -130,6 +145,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runAuth(args[1:], stdout, stderr)
 	case "spawn":
 		return runSpawn(args[1:], stdout, stderr, runtime)
+	case "switch":
+		return runSwitch(args[1:], stdout, stderr, runtime)
 	case "send":
 		return runSend(args[1:], stdout, stderr, runtime)
 	case "peek":
