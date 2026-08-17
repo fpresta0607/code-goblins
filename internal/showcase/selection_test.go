@@ -155,3 +155,34 @@ func TestLivePreviewCarriesTheFrameHelperAndTheArtifactDoesNot(t *testing.T) {
 		t.Errorf("export leaked the frame helper")
 	}
 }
+
+// The raw route only exists to feed the HTML preview frame, so a direct
+// request for a non-HTML artifact must be refused rather than served as
+// text/html (which would interpret a literal script tag in the source as
+// markup in the server's own origin).
+func TestRawRouteRefusesNonHTMLArtifacts(t *testing.T) {
+	source := "# Plan\n\n```html\n<script>alert(1)</script>\n```\n"
+	artifact := artifactPath(t, "plan.md", source)
+	_, ts := newTestServer(t)
+	registered := registerSession(t, ts, artifact, false)
+
+	res, err := http.Get(ts.URL + registered.URL + "raw")
+	if err != nil {
+		t.Fatalf("raw: %v", err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+
+	if res.StatusCode != http.StatusNotFound {
+		t.Errorf("raw status = %d, want 404", res.StatusCode)
+	}
+	if ct := res.Header.Get("Content-Type"); strings.HasPrefix(ct, "text/html") {
+		t.Errorf("raw Content-Type = %q, want it not served as HTML", ct)
+	}
+	if strings.Contains(string(body), `__showcase: "selection"`) {
+		t.Errorf("raw response appended the frame helper to a non-HTML artifact")
+	}
+	if strings.Contains(string(body), "<script>") {
+		t.Errorf("raw response served non-HTML artifact source as markup")
+	}
+}

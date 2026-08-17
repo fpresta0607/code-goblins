@@ -278,6 +278,15 @@ func (s *Server) handleRaw(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown session", http.StatusNotFound)
 		return
 	}
+	kind, err := DetectFile(artifact)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if kind != KindHTML {
+		http.Error(w, "raw preview is only available for HTML artifacts", http.StatusNotFound)
+		return
+	}
 	source, err := os.ReadFile(artifact)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
