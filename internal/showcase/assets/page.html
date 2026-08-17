@@ -20,7 +20,7 @@
     <button data-width="100%" class="active">Full</button>
   </span>
   {{end}}
-  {{if not .Static}}<button id="annotate-toggle" title="Click an element to attach a comment to it">Annotate</button>{{end}}
+  {{if not .Static}}<button id="annotate-toggle" class="quiet" title="Click an element to attach a comment to it">Annotate</button>{{end}}
 </header>
 <div id="end-banner" hidden></div>
 <main>
@@ -42,8 +42,8 @@
       <textarea id="composer-text" rows="3" placeholder="Send a prompt to the agent..."></textarea>
       <div id="composer-error" hidden></div>
       <div class="actions">
-        <button id="send">Send</button>
-        <button id="send-end" class="danger" title="Send any queued text and end the review">Send &amp; End</button>
+        <button id="send-end" class="quiet danger" title="Send any queued text and end the review">Send &amp; End</button>
+        <button id="send" class="primary">Send</button>
       </div>
     </div>
     {{end}}

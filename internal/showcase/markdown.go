@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
+	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/yuin/goldmark"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
 	"github.com/yuin/goldmark/ast"
@@ -26,10 +28,37 @@ var markdown = goldmark.New(
 		extension.Strikethrough,
 		extension.Linkify,
 		extension.TaskList,
-		highlighting.NewHighlighting(highlighting.WithStyle("github-dark")),
+		// Class-based highlighting so code blocks follow the reviewer's
+		// system appearance like the rest of the surface; inline styles
+		// would pin one theme into the markup.
+		highlighting.NewHighlighting(
+			highlighting.WithFormatOptions(chromahtml.WithClasses(true)),
+		),
 	),
 	goldmark.WithParserOptions(parser.WithAutoHeadingID()),
 )
+
+// highlightCSS is the syntax palette for both appearances: Xcode's light
+// theme and its dark counterpart, each scoped to one appearance. The two
+// styles do not cover the same token set, so they have to be mutually
+// exclusive - overlaying the dark one leaves every token it omits reading in
+// the light palette, which is black text on a dark block.
+var highlightCSS = "@media not all and (prefers-color-scheme: dark) {\n" + chromaCSS("xcode") + "}\n" +
+	"@media (prefers-color-scheme: dark) {\n" + chromaCSS("xcode-dark") + "}\n"
+
+func chromaCSS(name string) string {
+	style := styles.Get(name)
+	// styles.Get substitutes a fallback for an unknown name, which silently
+	// ships the wrong palette; refuse to start on that instead.
+	if style == nil || style.Name != name {
+		panic(fmt.Sprintf("showcase: chroma style %q is not registered", name))
+	}
+	var out bytes.Buffer
+	if err := chromahtml.New(chromahtml.WithClasses(true)).WriteCSS(&out, style); err != nil {
+		panic(fmt.Sprintf("showcase: chroma css %q: %v", name, err))
+	}
+	return out.String()
+}
 
 // RenderMarkdown renders source to HTML body markup plus the table of
 // contents collected from its headings.

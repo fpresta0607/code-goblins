@@ -31,6 +31,7 @@ type Feedback struct {
 	Text      string    `json:"text"`
 	Quote     string    `json:"quote,omitempty"`
 	Selector  string    `json:"selector,omitempty"`
+	Section   string    `json:"section,omitempty"`
 	Context   string    `json:"context,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	Delivered bool      `json:"delivered,omitempty"`
