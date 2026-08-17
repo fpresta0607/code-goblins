@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} - showcase</title>
+<style>{{.CSS}}</style>
+{{if .Mermaid}}<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>{{end}}
+</head>
+<body class="kind-{{.Kind}}{{if .Static}} static{{end}}">
+<header id="topbar">
+  <span class="brand">showcase</span>
+  <span class="title">{{.Title}}</span>
+  <span class="badge">{{.Kind}}</span>
+  <span class="spacer"></span>
+  {{if and .Device (not .Static)}}
+  <span class="device-switch" role="group" aria-label="Device width">
+    <button data-width="390px">Mobile</button>
+    <button data-width="1280px">Desktop</button>
+    <button data-width="100%" class="active">Full</button>
+  </span>
+  {{end}}
+  {{if not .Static}}<button id="annotate-toggle" title="Click an element to attach a comment to it">Annotate</button>{{end}}
+</header>
+<div id="end-banner" hidden></div>
+<main>
+  {{if .TOC}}
+  <nav id="toc">
+    <h2>Contents</h2>
+    <ul>
+      {{range .TOC}}<li class="lv{{.Level}}"><a href="#{{.ID}}">{{.Text}}</a></li>
+      {{end}}
+    </ul>
+  </nav>
+  {{end}}
+  <section id="content">{{if .Srcdoc}}<div id="frame-wrap"><iframe id="frame" srcdoc="{{.Srcdoc}}" title="artifact preview" sandbox="allow-scripts"></iframe></div>{{else}}{{.Content}}{{end}}</section>
+  <aside id="panel">
+    <h2>Conversation</h2>
+    <div id="messages">{{if .Static}}{{.Conversation}}{{else}}<p class="empty">No feedback yet.</p>{{end}}</div>
+    {{if not .Static}}
+    <div id="composer">
+      <textarea id="composer-text" rows="3" placeholder="Send a prompt to the agent..."></textarea>
+      <div id="composer-error" hidden></div>
+      <div class="actions">
+        <button id="send">Send</button>
+        <button id="send-end" class="danger" title="Send any queued text and end the review">Send &amp; End</button>
+      </div>
+    </div>
+    {{end}}
+  </aside>
+</main>
+{{if not .Static}}<script>{{.JS}}</script>{{end}}
+</body>
+</html>

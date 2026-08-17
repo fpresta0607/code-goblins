@@ -2,6 +2,7 @@
 
 These skills ship with the repo so a clone carries the full fleet workflow.
 They are synced from the operator's user scope (`%USERPROFILE%\.agents\skills`); edit them there, then refresh the copies here.
+The exception is `showcase`, which is owned by this repo (its CLI is `cmd/showcase-axi`); edit it here, never sync it down over a user-scope copy.
 
 ## Which harness discovers what
 
@@ -25,6 +26,6 @@ A junction is a reparse point created at clone time instead, so the repo stays a
 After updating a skill in user scope, copy it back into the repo:
 
 ```powershell
-$skills = "no-mistakes","gh-axi","chrome-devtools-axi","lavish","maintaining-project-memory","gnhf","supabase","supabase-postgres-best-practices"
+$skills = "no-mistakes","gh-axi","chrome-devtools-axi","maintaining-project-memory","gnhf","supabase","supabase-postgres-best-practices"
 foreach ($s in $skills) { Copy-Item -Recurse -Force "$env:USERPROFILE\.agents\skills\$s" ".agents\skills\$s" }
 ```
