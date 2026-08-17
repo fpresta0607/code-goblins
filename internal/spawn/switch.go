@@ -201,14 +201,21 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		Harness:   target.Harness,
 		Launch:    launch,
 	}); err != nil {
-		// The old harness is already stopped, so the metadata is corrected to
-		// the harness that is actually installed and selected before the
-		// failure is reported: leaving it naming the stopped harness would
-		// make `cfo send` type the wrong submit key at the pane.
+		// The old harness is already stopped and the new one did not come up,
+		// so the pane is now empty. Say that plainly and leave a durable
+		// record: the task is not lost - its worktree, branch, and tab are
+		// untouched - but it needs a decision, and a silent failure here
+		// would leave a goblin that simply stopped existing.
+		from := describe(meta.Harness, meta.Model, meta.Effort)
 		if writeErr := s.publishSwitch(&meta, target); writeErr != nil {
 			err = errors.Join(err, writeErr)
 		}
-		return SwitchResult{Meta: meta, From: meta.Harness}, err
+		err = fmt.Errorf("%w\nthe pane now has no harness: %s was stopped and %s did not start. Work in %s is untouched; start one with `cfo switch %s --harness <h>`",
+			err, from, describe(string(target.Harness), target.Model, target.Effort), worktree, req.ID)
+		if statusErr := state.AppendStatus(s.StateDir, req.ID, "failed: "+bounded(normalizeStatusDetail(err.Error()), 1000)); statusErr != nil {
+			err = errors.Join(err, statusErr)
+		}
+		return SwitchResult{Meta: meta, From: from}, err
 	}
 
 	from := describe(meta.Harness, meta.Model, meta.Effort)
@@ -251,12 +258,18 @@ func (t switchTarget) same(meta state.TaskMeta) bool {
 
 // requestedTarget fills the request's blanks from the task's current values,
 // so `--model` alone keeps the harness it is already running.
+//
+// A model name does not survive a change of harness - "opus" means nothing to
+// codex - so changing harness without naming a model resets it to the new
+// harness's default rather than carrying an incompatible one across. Effort
+// is a shared vocabulary and does carry; an effort the new harness does not
+// support is refused loudly when its launch is built.
 func requestedTarget(meta state.TaskMeta, req SwitchRequest) switchTarget {
 	target := switchTarget{Harness: req.Harness, Model: req.Model, Effort: req.Effort}
 	if target.Harness == "" {
 		target.Harness = harness.Kind(meta.Harness)
 	}
-	if target.Model == "" {
+	if target.Model == "" && target.Harness == harness.Kind(meta.Harness) {
 		target.Model = meta.Model
 	}
 	if target.Effort == "" {
@@ -404,7 +417,13 @@ func (s Service) writeHandoff(ctx context.Context, meta state.TaskMeta, target s
 	fmt.Fprintf(&note, "## Where the work is\n\n")
 	fmt.Fprintf(&note, "- Worktree: %s\n", worktree)
 	fmt.Fprintf(&note, "- Project: %s\n", meta.Project)
-	if branch := s.gitLine(ctx, worktree, "rev-parse", "--abbrev-ref", "HEAD"); branch != "" {
+	// A detached worktree answers "HEAD" to --abbrev-ref, which reads as a
+	// branch named HEAD. Say what it actually is instead.
+	switch branch := s.gitLine(ctx, worktree, "rev-parse", "--abbrev-ref", "HEAD"); branch {
+	case "":
+	case "HEAD":
+		fmt.Fprintf(&note, "- Branch: none (detached HEAD) - create one before committing\n")
+	default:
 		fmt.Fprintf(&note, "- Branch: %s\n", branch)
 	}
 	if head := s.gitLine(ctx, worktree, "rev-parse", "HEAD"); head != "" {
