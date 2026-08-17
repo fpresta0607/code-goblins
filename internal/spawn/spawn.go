@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -49,12 +50,23 @@ type Result struct {
 	Output   string
 }
 
+// AuthPreflight resolves one project's credentials before a harness starts,
+// so a goblin inherits working CLIs and environment variables instead of
+// discovering an unauthenticated service mid-task.
+type AuthPreflight interface {
+	// Preflight returns the environment to inject and a single-line warning
+	// naming anything that is not usable. A project with no manifest is not
+	// an error: most projects need nothing.
+	Preflight(ctx context.Context, project string) (env map[string]string, warning string, err error)
+}
+
 // Service owns one local Herdr spawn. Its collaborators are injected through
 // their established package seams so operation ordering remains deterministic.
 type Service struct {
 	Herdr       *herdr.Client
 	Treehouse   treehouse.Service
 	Harness     harness.Registry
+	Auth        AuthPreflight
 	StateDir    string
 	Project     string
 	Sleep       func(context.Context, time.Duration) error
@@ -194,6 +206,10 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return fail(result, fmt.Errorf("spawn: build harness launch: %w", err))
 	}
 	launch.Dir = worktree.Path
+	authWarning, err := s.injectProjectCredentials(ctx, project, taskTmp, &launch)
+	if err != nil {
+		return fail(result, err)
+	}
 	if launch.TypedLaunch {
 		line, err := launch.PowerShellTypedLine()
 		if err != nil {
@@ -258,7 +274,49 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return fail(result, fmt.Errorf("spawn: publish task metadata: %w", err))
 	}
 	result.Output = successOutput(result.Meta)
+	if authWarning != "" {
+		result.Output += "\n" + authWarning
+	}
 	return result, nil
+}
+
+// injectProjectCredentials runs the project's auth preflight and puts every
+// usable credential into the pane shell the harness inherits. The values go
+// through a restricted file the shell dot-sources, never the typed line: a
+// credential typed into the pane would sit in its scrollback and in every
+// `cfo peek`.
+//
+// A red service does not block the spawn - most tasks need only some of a
+// project's services - but it is returned as a warning so the CFO reads it at
+// dispatch instead of the goblin hitting it mid-task.
+func (s Service) injectProjectCredentials(ctx context.Context, project, taskTmp string, launch *harness.Launch) (string, error) {
+	if s.Auth == nil {
+		return "", nil
+	}
+	env, warning, err := s.Auth.Preflight(ctx, project)
+	if err != nil {
+		return "", fmt.Errorf("spawn: project auth preflight: %w", err)
+	}
+	if len(env) == 0 {
+		return warning, nil
+	}
+	for name := range env {
+		if _, reserved := launch.Env[name]; reserved {
+			// The harness environment is the launch contract; a project
+			// manifest must not be able to redirect GOTMPDIR.
+			delete(env, name)
+		}
+	}
+	script, err := harness.RenderEnvScript(env)
+	if err != nil {
+		return "", fmt.Errorf("spawn: render project credentials: %w", err)
+	}
+	path := filepath.Join(taskTmp, "auth.ps1")
+	if err := auth.WriteSecretFile(path, script); err != nil {
+		return "", fmt.Errorf("spawn: write project credentials: %w", err)
+	}
+	launch.SecretsFile = path
+	return warning, nil
 }
 
 func (s Service) project(req Request) (string, error) {
