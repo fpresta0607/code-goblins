@@ -2,13 +2,14 @@ projects/
 /state/
 data/
 .no-mistakes/
-.lavish/
+.showcase/
 .DS_Store
 __pycache__/
 *.pyc
 .env
 config/
 /cfo.exe
+/showcase-axi.exe
 
 # Harness skill junctions created by install.ps1 -Bootstrap (point at .agents/skills).
 /.claude/skills/
