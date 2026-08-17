@@ -416,3 +416,82 @@ func TestCleanupRejectsInvalidIDBeforeAnyMutation(t *testing.T) {
 		t.Fatalf("invalid ID reached external tools: requests=%v returned=%v", fixture.runner.requests, fixture.git.returned)
 	}
 }
+
+// The id-reuse wall: a cleaned-up task used to leave a scratch directory
+// behind that made its id unusable, so a task had to be respawned under an
+// invented suffix. Archiving it frees the id while keeping the history.
+func TestCleanupArchivesScratchSoTheIDCanBeSpawnedAgain(t *testing.T) {
+	fixture := newCleanupFixture(t)
+	taskTmp := filepath.Join(fixture.stateDir, "tasktmp", "g1")
+	if err := os.MkdirAll(filepath.Join(taskTmp, "gotmp"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taskTmp, "auth.ps1"), []byte("$env:STRIPE_SECRET_KEY = 'sk_live_secret'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taskTmp, "handoff-1.md"), []byte("# Handoff\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := fixture.service.Cleanup(context.Background(), "g1")
+	if err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if _, err := os.Stat(taskTmp); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the scratch directory still occupies the id: %v", err)
+	}
+	if !strings.Contains(result.Output, "archive=") {
+		t.Errorf("Output = %q, want it to name the archive", result.Output)
+	}
+
+	archived := filepath.Join(fixture.stateDir, ArchiveDirName)
+	entries, err := os.ReadDir(archived)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("archive entries = %v, %v; want exactly one", entries, err)
+	}
+	kept := filepath.Join(archived, entries[0].Name())
+	if _, err := os.Stat(filepath.Join(kept, "handoff-1.md")); err != nil {
+		t.Errorf("the archive dropped the task's own artifacts: %v", err)
+	}
+	// Credentials are the one thing never kept: a finished task has no
+	// further use for them, and an archive is not a place for secrets.
+	if _, err := os.Stat(filepath.Join(kept, "auth.ps1")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the archive retained the injected credentials: %v", err)
+	}
+
+	// The status log stays where callers read it, at its known path.
+	status, err := state.TailStatus(fixture.stateDir, "g1", 5)
+	if err != nil || len(status) == 0 {
+		t.Fatalf("status = %v, %v; want the record of what happened kept in place", status, err)
+	}
+}
+
+// Archiving a directory that still holds credentials is the one outcome to
+// avoid: if the credential script cannot be dropped, refuse the archive and
+// leave the scratch directory - and the secret - in place.
+func TestCleanupRefusesToArchiveWhenCredentialsCannotBeDropped(t *testing.T) {
+	fixture := newCleanupFixture(t)
+	taskTmp := filepath.Join(fixture.stateDir, "tasktmp", "g1")
+	secretDir := filepath.Join(taskTmp, "auth.ps1")
+	if err := os.MkdirAll(secretDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(secretDir, "secret.txt"), []byte("sk_live_secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := fixture.service.Cleanup(context.Background(), "g1")
+	if err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if !strings.Contains(result.Output, "could not be archived") {
+		t.Errorf("Output = %q, want the retained-state warning", result.Output)
+	}
+	if _, err := os.Stat(filepath.Join(taskTmp, "auth.ps1", "secret.txt")); err != nil {
+		t.Fatalf("the credential file was not left in place: %v", err)
+	}
+	archived := filepath.Join(fixture.stateDir, ArchiveDirName)
+	if entries, err := os.ReadDir(archived); err == nil && len(entries) != 0 {
+		t.Errorf("archive entries = %v, want none when credentials cannot be dropped", entries)
+	}
+}

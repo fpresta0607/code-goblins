@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -67,6 +68,7 @@ type Service struct {
 	Treehouse   treehouse.Service
 	Harness     harness.Registry
 	Auth        AuthPreflight
+	Commands    execx.Runner
 	StateDir    string
 	Project     string
 	Sleep       func(context.Context, time.Duration) error
@@ -210,63 +212,14 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err != nil {
 		return fail(result, err)
 	}
-	if launch.TypedLaunch {
-		line, err := launch.PowerShellTypedLine()
-		if err != nil {
-			return fail(result, fmt.Errorf("spawn: render typed harness launch: %w", err))
-		}
-		if err := herdrClient.SendLiteral(ctx, endpoint.Target, line); err != nil {
-			return fail(result, fmt.Errorf("spawn: send typed harness launch: %w", err))
-		}
-		if err := s.sleep(ctx, launchSettle); err != nil {
-			return fail(result, fmt.Errorf("spawn: wait before typed launch submit: %w", err))
-		}
-		if err := herdrClient.SendKey(ctx, endpoint.Target, "Enter"); err != nil {
-			return fail(result, fmt.Errorf("spawn: submit typed harness launch: %w", err))
-		}
-		launchSubmitted = true
-		if err := s.confirmHarnessDialogs(ctx, &herdrClient, endpoint.Target, launch); err != nil {
-			return fail(result, err)
-		}
-		if err := s.confirmLaunch(ctx, &herdrClient, endpoint.Target); err != nil {
-			return fail(result, err)
-		}
-	} else {
-		prefix, err := launch.PowerShellPrefix()
-		if err != nil {
-			return fail(result, fmt.Errorf("spawn: render Windows launch prefix: %w", err))
-		}
-		if err := herdrClient.SendLiteral(ctx, endpoint.Target, prefix); err != nil {
-			return fail(result, fmt.Errorf("spawn: send launch prefix: %w", err))
-		}
-		if err := s.sleep(ctx, launchSettle); err != nil {
-			return fail(result, fmt.Errorf("spawn: wait before launch prefix submit: %w", err))
-		}
-		if err := herdrClient.SendKey(ctx, endpoint.Target, "Enter"); err != nil {
-			return fail(result, fmt.Errorf("spawn: submit launch prefix: %w", err))
-		}
-		if err := s.sleep(ctx, launchSettle); err != nil {
-			return fail(result, fmt.Errorf("spawn: wait before agent start: %w", err))
-		}
-		// The harness starts through Herdr's native agent facility under the gb-
-		// task name, so it is a named, registered agent from birth rather than a
-		// shell process Herdr happens to detect.
-		if err := herdrClient.AgentStart(ctx, endpoint.Target, "gb-"+req.ID, string(req.Harness), launch.Args); err != nil {
-			return fail(result, fmt.Errorf("spawn: start native harness agent: %w", err))
-		}
-		launchSubmitted = true
-		if err := s.confirmHarnessDialogs(ctx, &herdrClient, endpoint.Target, launch); err != nil {
-			return fail(result, err)
-		}
-		if err := s.sleep(ctx, launchSettle); err != nil {
-			return fail(result, fmt.Errorf("spawn: wait before brief prompt: %w", err))
-		}
-		if err := herdrClient.AgentPrompt(ctx, endpoint.Target, harness.BriefInstruction(launch.PromptFile)); err != nil {
-			return fail(result, fmt.Errorf("spawn: submit harness brief prompt: %w", err))
-		}
-		if err := s.confirmLaunch(ctx, &herdrClient, endpoint.Target); err != nil {
-			return fail(result, err)
-		}
+	submitted, err := s.startHarness(ctx, &herdrClient, endpoint.Target, launchPlan{
+		AgentName: "gb-" + req.ID,
+		Harness:   req.Harness,
+		Launch:    launch,
+	})
+	launchSubmitted = submitted
+	if err != nil {
+		return fail(result, err)
 	}
 
 	result.Meta.SpawnGen = fmt.Sprintf("s%d", time.Now().UTC().UnixNano())
@@ -317,6 +270,82 @@ func (s Service) injectProjectCredentials(ctx context.Context, project, taskTmp 
 	}
 	launch.SecretsFile = path
 	return warning, nil
+}
+
+// launchPlan is one harness start into an already-prepared Herdr pane. It is
+// shared by spawn and by an in-place switch, which differ only in how the
+// pane got there and what instruction the harness receives.
+type launchPlan struct {
+	AgentName string
+	Harness   harness.Kind
+	Launch    harness.Launch
+}
+
+// startHarness prepares the pane shell and starts the harness, then delivers
+// the plan's instruction once it is ready. The returned submitted flag
+// reports whether the launch reached the point where a harness may be
+// running: past it, a caller must not return the worktree on failure, because
+// something may still be working in it.
+func (s Service) startHarness(ctx context.Context, client *herdr.Client, target herdr.Target, plan launchPlan) (submitted bool, err error) {
+	launch := plan.Launch
+	if launch.TypedLaunch {
+		line, err := launch.PowerShellTypedLine()
+		if err != nil {
+			return false, fmt.Errorf("spawn: render typed harness launch: %w", err)
+		}
+		if err := client.SendLiteral(ctx, target, line); err != nil {
+			return false, fmt.Errorf("spawn: send typed harness launch: %w", err)
+		}
+		if err := s.sleep(ctx, launchSettle); err != nil {
+			return false, fmt.Errorf("spawn: wait before typed launch submit: %w", err)
+		}
+		if err := client.SendKey(ctx, target, "Enter"); err != nil {
+			return false, fmt.Errorf("spawn: submit typed harness launch: %w", err)
+		}
+		if err := s.confirmHarnessDialogs(ctx, client, target, launch); err != nil {
+			return true, err
+		}
+		if err := s.confirmLaunch(ctx, client, target); err != nil {
+			return true, err
+		}
+		return true, nil
+	}
+
+	prefix, err := launch.PowerShellPrefix()
+	if err != nil {
+		return false, fmt.Errorf("spawn: render Windows launch prefix: %w", err)
+	}
+	if err := client.SendLiteral(ctx, target, prefix); err != nil {
+		return false, fmt.Errorf("spawn: send launch prefix: %w", err)
+	}
+	if err := s.sleep(ctx, launchSettle); err != nil {
+		return false, fmt.Errorf("spawn: wait before launch prefix submit: %w", err)
+	}
+	if err := client.SendKey(ctx, target, "Enter"); err != nil {
+		return false, fmt.Errorf("spawn: submit launch prefix: %w", err)
+	}
+	if err := s.sleep(ctx, launchSettle); err != nil {
+		return false, fmt.Errorf("spawn: wait before agent start: %w", err)
+	}
+	// The harness starts through Herdr's native agent facility under the gb-
+	// task name, so it is a named, registered agent from birth rather than a
+	// shell process Herdr happens to detect.
+	if err := client.AgentStart(ctx, target, plan.AgentName, string(plan.Harness), launch.Args); err != nil {
+		return false, fmt.Errorf("spawn: start native harness agent: %w", err)
+	}
+	if err := s.confirmHarnessDialogs(ctx, client, target, launch); err != nil {
+		return true, err
+	}
+	if err := s.sleep(ctx, launchSettle); err != nil {
+		return true, fmt.Errorf("spawn: wait before brief prompt: %w", err)
+	}
+	if err := client.AgentPrompt(ctx, target, launch.PromptInstruction()); err != nil {
+		return true, fmt.Errorf("spawn: submit harness brief prompt: %w", err)
+	}
+	if err := s.confirmLaunch(ctx, client, target); err != nil {
+		return true, err
+	}
+	return true, nil
 }
 
 func (s Service) project(req Request) (string, error) {
@@ -475,6 +504,7 @@ func partialResult(req Request, project, taskTmp string, endpoint herdr.Endpoint
 		Harness:          string(req.Harness),
 		Kind:             req.Kind,
 		TaskTmp:          taskTmp,
+		Brief:            req.BriefPath,
 		Model:            valueOrDefault(req.Model),
 		Effort:           valueOrDefault(req.Effort),
 		Backend:          "herdr",
@@ -594,12 +624,25 @@ func rejectTaskIDAlias(stateDir, id string) error {
 	if err != nil {
 		return fmt.Errorf("spawn: list task state artifacts: %w", err)
 	}
+	live := map[string]bool{}
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.EqualFold(filepath.Ext(entry.Name()), ".meta") {
+			live[strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))] = true
+		}
+	}
 	for _, entry := range entries {
 		extension := filepath.Ext(entry.Name())
 		if entry.IsDir() || (!strings.EqualFold(extension, ".meta") && !strings.EqualFold(extension, ".status")) {
 			continue
 		}
 		existingID := strings.TrimSuffix(entry.Name(), extension)
+		// A status log whose task has no metadata is the history of a task
+		// that finished and was cleaned up. It is kept for the record, not as
+		// a claim on the id: refusing the id for it is what forced a cleaned-up
+		// task to be respawned under an invented suffix.
+		if strings.EqualFold(extension, ".status") && !live[existingID] {
+			continue
+		}
 		if taskIDsAlias(id, existingID) {
 			return fmt.Errorf("spawn: task ID %q conflicts case-insensitively with retained task state for %q", id, existingID)
 		}

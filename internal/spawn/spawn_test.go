@@ -170,7 +170,7 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 	if info, statErr := os.Stat(filepath.Join(meta.TaskTmp, "gotmp")); statErr != nil || !info.IsDir() {
 		t.Fatalf("GOTMPDIR = %q, stat = %v, want existing directory", filepath.Join(meta.TaskTmp, "gotmp"), statErr)
 	}
-	if got, want := sortedKeys(t, fixture.stateDir, fixture.request.ID), []string{"backend", "effort", "endpoint_task_id", "harness", "herdr_pane_id", "herdr_session", "herdr_tab_id", "herdr_workspace_id", "kind", "mode", "model", "project", "spawn_gen", "tasktmp", "window", "worktree", "yolo"}; !reflect.DeepEqual(got, want) {
+	if got, want := sortedKeys(t, fixture.stateDir, fixture.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "harness", "herdr_pane_id", "herdr_session", "herdr_tab_id", "herdr_workspace_id", "kind", "mode", "model", "project", "spawn_gen", "tasktmp", "window", "worktree", "yolo"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("metadata keys = %v, want %v", got, want)
 	}
 
@@ -244,7 +244,7 @@ func TestSpawnScoutOmitsShipFields(t *testing.T) {
 	if result.Meta.Mode != "" || result.Meta.Yolo != "" {
 		t.Errorf("scout metadata = %+v, want omitted mode and yolo", result.Meta)
 	}
-	if got, want := sortedKeys(t, fixture.stateDir, fixture.request.ID), []string{"backend", "effort", "endpoint_task_id", "harness", "herdr_pane_id", "herdr_session", "herdr_tab_id", "herdr_workspace_id", "kind", "model", "project", "spawn_gen", "tasktmp", "window", "worktree"}; !reflect.DeepEqual(got, want) {
+	if got, want := sortedKeys(t, fixture.stateDir, fixture.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "harness", "herdr_pane_id", "herdr_session", "herdr_tab_id", "herdr_workspace_id", "kind", "model", "project", "spawn_gen", "tasktmp", "window", "worktree"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("scout metadata keys = %v, want %v", got, want)
 	}
 }
@@ -853,6 +853,12 @@ type typedFixtureAdapter struct {
 	kind   harness.Kind
 }
 
+// Control gives the fixture a resume so switch tests can exercise the
+// same-harness path; the stop sequence mirrors a real adapter's shape.
+func (a typedFixtureAdapter) Control() harness.Control {
+	return harness.Control{StopKeys: []string{"escape"}, StopCommand: "/quit"}
+}
+
 func (a typedFixtureAdapter) Kind() harness.Kind {
 	return a.kind
 }
@@ -871,6 +877,10 @@ func (a typedFixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, err
 		TypedLaunch: true,
 		Executable:  "pi",
 	}, nil
+}
+
+func (a fixtureAdapter) Control() harness.Control {
+	return harness.Control{StopKeys: []string{"escape"}, StopCommand: "/exit", ResumeArgs: []string{"--continue"}}
 }
 
 func (a fixtureAdapter) Kind() harness.Kind {

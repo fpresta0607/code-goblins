@@ -183,3 +183,12 @@ func containsToken(line, token string) bool {
 func isTokenCharacter(character byte) bool {
 	return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') || character == '-' || character == '_'
 }
+
+// Control stops pi with /quit. pi advertises no resume flag, so a switch that
+// keeps pi still restarts it cold and hands it the written handoff instead.
+func (*piAdapter) Control() Control {
+	return Control{
+		StopKeys:    []string{"escape"},
+		StopCommand: "/quit",
+	}
+}

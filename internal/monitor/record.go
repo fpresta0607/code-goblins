@@ -14,6 +14,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -48,6 +49,11 @@ const (
 	HealthPaused  Health = "paused"
 	HealthStale   Health = "stale"
 	HealthUnknown Health = "unknown"
+	// HealthErroring is a pane whose harness is reporting a provider failure
+	// - a rate limit, a rejected credential, a service outage. It is distinct
+	// from stale because the goblin is not merely quiet: it is being refused,
+	// and waiting longer will not help.
+	HealthErroring Health = "harness-erroring"
 )
 
 type Reason string
@@ -60,6 +66,8 @@ const (
 	EndpointMissing Reason = "endpoint_missing"
 	EndpointUnknown Reason = "endpoint_unknown"
 	InvalidRecord   Reason = "invalid_record"
+	// HarnessError is a provider failure read out of the pane itself.
+	HarnessError Reason = "harness_error"
 )
 
 type EventSource string
@@ -75,6 +83,9 @@ type Event struct {
 	Kind   string      `json:"kind"`
 	Key    string      `json:"key"`
 	Detail string      `json:"detail"`
+	// Fault carries the provider fault a harness-error event observed, so
+	// consumers do not have to re-derive it from a possibly truncated detail.
+	Fault routing.Fault `json:"fault,omitempty"`
 }
 
 type Observation struct {
@@ -261,6 +272,14 @@ func validateObservationState(observation Observation) error {
 		}
 		if observation.StaleSince == nil || observation.NextEscalation == nil || observation.NextPauseResurface != nil {
 			return errors.New("monitor: stale observation is missing escalation timestamps")
+		}
+		return requireProgress()
+	case HealthErroring:
+		if observation.EndpointVerdict != ProbePresent || observation.Reason != HarnessError {
+			return errors.New("monitor: erroring observation requires a present endpoint and the harness-error reason")
+		}
+		if observation.NextPauseResurface != nil {
+			return errors.New("monitor: erroring observation must not carry pause timing")
 		}
 		return requireProgress()
 	case HealthPaused:

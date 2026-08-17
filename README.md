@@ -40,17 +40,19 @@ The full design and the explicit v1 scope live in [docs/superpowers/specs/2026-0
 - **Four harnesses** - Claude Code, Codex, Pi, and Kimi, each with typed, validated launch mapping; claude, codex, and kimi start as named native Herdr agents (`gb-<id>`) and receive their brief through `herdr agent prompt`, while pi is typed into the prepared pane shell (Herdr's Windows agent start cannot run pi's npm `.cmd` shim).
 - **Supervision without babysitting** - Claude Code hooks plus `cfo watch` wake the CFO only when something needs attention; a turn-end guard refuses to let a turn end blind while work is in flight.
 - **Restart-proof state** - tasks, metadata, and the wake queue live on disk under `$CFO_HOME`.
+- **In-place harness switching** - `cfo switch <id> --harness claude --model opus` stops a goblin's harness on its own terms and relaunches it in the same pane and worktree, resuming its session when the harness can and handing it a written handoff when it cannot. A harness being refused by its provider shows as `harness-erroring` in `cfo fleet-view`, and `data/routing.json` holds the standing answer.
 - **Per-project authentication** - each project declares its services in `data/projects/<name>/auth.json`; `cfo auth` probes them, adopts credentials the machine already holds, and `cfo spawn` injects the usable ones into the goblin's pane before the harness starts. Credentials live in Windows Credential Manager (or `~/.cfo/credentials/` with owner-only ACLs), never in a repository and never in the output.
 - **AXI integrations** - `tasks-axi` (backlog) and `quota-axi` (dispatch) stay thin subprocess integrations in `cfo`; `gh-axi` (GitHub) and `chrome-devtools-axi` (browser) ship as skills in `.agents/skills/`; `showcase-axi` (review surface) is repo-owned and built alongside `cfo.exe`.
 
 ## Commands
 
 ```text
-cfo doctor                           check the tools cfo needs and how to install them; probe each harness's spawn health (ok/broken) and print the measured speed table when telemetry exists
+cfo doctor                           check the tools cfo needs and how to install them; probe each harness's spawn health (ok/broken); print the measured speed table when telemetry exists; print the active switch rules from data/routing.json
 cfo auth <project> [--check|--fix] [--env]   preflight a project's services from data/projects/<name>/auth.json; --fix adopts credentials the machine already holds and asks once for the rest
 cfo auth store <NAME> [value]        store one credential (omit the value to read it from stdin)
 cfo auth list                        list stored credential names
 cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--yolo]
+cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place, keeping its id, pane, and worktree
 cfo send <target> [--key <key>] [--no-auto-submit] <text...>
 cfo peek <target> [lines]
 cfo fleet-view [--json]
@@ -138,7 +140,7 @@ These upstream features are not yet ported to the Go binary:
 
 - `cmd/cfo/` - the `cfo.exe` entry point and command handlers.
 - `cmd/showcase-axi/` - the `showcase-axi.exe` entry point for the review surface.
-- `internal/` - one package per subsystem (herdr, treehouse, spawn, fleet, monitor, wake, lock, state, home, watch, harness, auth, axi, execx, fsx, claudehook, digest, doctor, guard, crewstate, supervise, telemetry, proc, showcase).
+- `internal/` - one package per subsystem (herdr, treehouse, spawn, fleet, monitor, wake, lock, state, home, watch, harness, auth, routing, axi, execx, fsx, claudehook, digest, doctor, guard, crewstate, supervise, telemetry, proc, showcase).
 - `docs/superpowers/` - the design spec and implementation plans.
 - `tests/acceptance/` - the opt-in real-session Windows acceptance script.
 - `.agents/skills/` - the fleet's skills, synced from user scope except `showcase`, which this repo owns; kimi and pi read it directly, and `install.ps1` junctions it for claude and codex.

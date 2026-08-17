@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -37,6 +38,10 @@ func TestKimiBuildsNativeLaunchWithTrustConfirm(t *testing.T) {
 	}
 	if got, want := explicit.Args, []string{"--model", "kimi-code/k3"}; !equalStrings(got, want) {
 		t.Errorf("Args = %#v, want %#v", got, want)
+	}
+
+	if _, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Effort: "xhigh"}); err == nil || !strings.Contains(err.Error(), "does not support effort") {
+		t.Fatalf("err = %v, want a refusal naming the unsupported effort", err)
 	}
 }
 
