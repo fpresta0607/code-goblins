@@ -47,10 +47,10 @@ Upstream's LICENSE is retained with fork attribution.
 ## 2. cfo.exe architecture
 
 One pure-Go binary with no cgo, built with `go build ./cmd/cfo` on any Windows machine with the Go toolchain.
-Subcommands replace scripts one-to-one where the concept survives: `cfo spawn`, `cfo watch`, `cfo drain`, `cfo send`, `cfo peek`, `cfo fleet-view`, `cfo pr check|merge|poll`, `cfo merge-local`, `cfo brief`, `cfo session-start`, `cfo doctor`, and a `cfo hook ...` family for the harness contract.
+Subcommands replace scripts one-to-one where the concept survives: `cfo spawn`, `cfo watch`, `cfo drain`, `cfo send`, `cfo peek`, `cfo fleet-view`, `cfo pr check|merge|poll`, `cfo merge-local`, `cfo brief`, `cfo auth`, `cfo session-start`, `cfo doctor`, and a `cfo hook ...` family for the harness contract.
 Internal packages: `state`, `lock`, `wake`, `spawn`, `watch`, `backend/herdr`, `claudehook`, `gitops`.
 All JSON, string, and file work happens in-process.
-The only child processes ever spawned are `git`, `gh`, `herdr`, `claude`, `treehouse`, and the axi CLIs named in section 6.
+The only child processes ever spawned are `git`, `gh`, `herdr`, `claude`, `treehouse`, and the axi CLIs named in section 6; the per-project auth preflight additionally runs `icacls` (to apply an owner-only ACL to a credential file on Windows), `gh auth token` (to adopt the token gh already owns), `chrome-devtools-axi` (the browser fallback for an OAuth confirm), and the probe and login commands a project's own `auth.json` manifest declares. That last category is project-declared rather than a fixed list, and each such command runs under a bounded timeout.
 The watcher (`cfo watch`) is a single resident process using filesystem notifications and timers instead of poll-sleep loops, with zero idle CPU and instant wake.
 Performance targets: any hook invocation under 50ms, session-start digest under 1s.
 

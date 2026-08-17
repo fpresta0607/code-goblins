@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/digest"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
@@ -33,6 +34,9 @@ commands:
   drain     print or acknowledge the wake queue and recovery episode
   watch     run one triage cycle by hand (manual diagnostics; the hooks are the production entry)
   session-start  print the full session-start digest by hand (manual diagnostics; the SessionStart hook is the production entry)
+  cfo auth <project> [--check|--fix] [--env]   preflight a project's services; --fix repairs what needs no human
+  cfo auth store <NAME> [value]        store one credential (omit the value to read it from stdin)
+  cfo auth list                        list stored credential names
   cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--yolo]
   cfo send <target> [--key <key>] [--no-auto-submit] <text...>
   cfo peek <target> [lines]
@@ -77,6 +81,7 @@ func defaultCommandRuntime() commandRuntime {
 				Herdr:     client,
 				Treehouse: treehouse.Service{Commands: commands},
 				Harness:   harness.DefaultRegistry(),
+				Auth:      auth.SpawnPreflight{DataDir: h.Data, Runner: commands},
 				StateDir:  h.State,
 			}
 			return service.Spawn(ctx, request)
@@ -121,6 +126,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 			return 1
 		}
 		return runDrain(h, args[1:], stdout, stderr)
+	case "auth":
+		return runAuth(args[1:], stdout, stderr)
 	case "spawn":
 		return runSpawn(args[1:], stdout, stderr, runtime)
 	case "send":
