@@ -47,7 +47,7 @@ The full design and the explicit v1 scope live in [docs/superpowers/specs/2026-0
 ## Commands
 
 ```text
-cfo doctor                           check the tools cfo needs and how to install them; probe each harness's spawn health (ok/broken) and print the measured speed table when telemetry exists
+cfo doctor                           check the tools cfo needs and how to install them; probe each harness's spawn health (ok/broken); print the measured speed table when telemetry exists; print the active switch rules from data/routing.json
 cfo auth <project> [--check|--fix] [--env]   preflight a project's services from data/projects/<name>/auth.json; --fix adopts credentials the machine already holds and asks once for the rest
 cfo auth store <NAME> [value]        store one credential (omit the value to read it from stdin)
 cfo auth list                        list stored credential names
