@@ -22,17 +22,21 @@ This file is your entire job description.
 1. **Resolve the project.** An explicit path wins; otherwise infer from the request and anything already cloned under `projects/`.
 2. **Clone it.** `git clone <url> projects/<name>` (or use `gh-axi`). Never run goblin work inside this repo's own checkout.
 3. **Brief it.** `cfo brief <id> --project projects/<name> [--mode <mode>]`, then fill in the task, acceptance criteria, and constraints.
-4. **Spawn it.** `cfo spawn <id> --project projects/<name> --brief data/<id>/brief.md --harness <claude|codex|pi|kimi> [--mode <mode>] [--yolo]`.
-5. **Supervise it.** `cfo fleet-view` is fleet truth; `cfo peek <id>` reads a goblin's tail; `cfo send <id> "<steer>"` redirects it.
-6. **Deliver it.** Record and land it: `cfo pr check <id> <url>`, then `cfo pr merge <url>` (or `cfo merge-local <id>` for local-only work) — merge only with the Supreme Overlord's word or `yolo` green work.
-7. **Report it.** Give the Supreme Overlord the outcome, consequence, and next decision — never raw status or mechanics.
+4. **Authenticate it.** `cfo auth projects/<name> --fix` before the first dispatch into a project. It adopts what the machine already has and hands you one consolidated sign-in request for anything genuinely missing, so a goblin never stalls on an auth prompt mid-task.
+5. **Spawn it.** `cfo spawn <id> --project projects/<name> --brief data/<id>/brief.md --harness <claude|codex|pi|kimi> [--mode <mode>] [--yolo]`.
+6. **Supervise it.** `cfo fleet-view` is fleet truth; `cfo peek <id>` reads a goblin's tail; `cfo send <id> "<steer>"` redirects it.
+7. **Deliver it.** Record and land it: `cfo pr check <id> <url>`, then `cfo pr merge <url>` (or `cfo merge-local <id>` for local-only work) — merge only with the Supreme Overlord's word or `yolo` green work.
+8. **Report it.** Give the Supreme Overlord the outcome, consequence, and next decision — never raw status or mechanics.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
 | `cfo doctor` | Check git, gh, claude, herdr, treehouse, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi and print install hints; probe each installed harness (`--version` under a short timeout) and report ok/broken; print the measured per-harness per-step speed table from `~/.no-mistakes/state.sqlite` when present (skipped with a note when absent or locked) |
-| `cfo spawn <id> --project <p> --brief <b> --harness <h> [--mode <m>] [--model <m>] [--effort <e>] [--yolo]` | Dispatch one goblin (ship task); after `spawned ...`, prints a one-line measured speed hint for the chosen harness when telemetry exists |
+| `cfo auth <project> [--check\|--fix] [--env]` | Preflight a project's services against its manifest and print one honest line each (green / missing / expired / no-tool / skipped). `--fix` adopts credentials the machine already holds, runs non-interactive CLI logins, and confirms an OAuth page whose browser session is live. `--env` shows the redacted environment a goblin's pane would inherit. Ends with one consolidated sign-in request covering everything still blocked |
+| `cfo auth store <NAME> [value]` | Store one credential. Omit the value to read it from stdin, which keeps the secret out of shell history |
+| `cfo auth list` | List stored credential names (never values) |
+| `cfo spawn <id> --project <p> --brief <b> --harness <h> [--mode <m>] [--model <m>] [--effort <e>] [--yolo]` | Dispatch one goblin (ship task); runs the project's auth preflight and injects its usable credentials into the pane before the harness starts, appending a one-line warning naming anything blocking right after the `spawned ...` line; also prints a one-line measured speed hint for the chosen harness when telemetry exists |
 | `cfo send <target> [--no-auto-submit] <text>` | Type a steer to a goblin; after a failed Enter submit, verifies the text is parked in the composer and resubmits with the harness-specific key (pi/claude: Enter, kimi: ctrl+s) — `--no-auto-submit` opts out |
 | `cfo send <target> --key <key>` | Send a key: Enter, Escape, Ctrl-C, Ctrl-U |
 | `cfo peek <target> [lines]` | Read a goblin's terminal tail (default 40 lines) |
@@ -56,6 +60,41 @@ A `<target>` is a task id, `gb-<id>`, or an explicit `session:pane` Herdr target
 - `--brief` must be an absolute path to an existing file.
 - `--mode` is `no-mistakes` (default), `direct-PR`, or `local-only`.
 - `--yolo` lets you decide routine gates inside the Supreme Overlord's request; without it, every merge asks the Supreme Overlord.
+
+## Project authentication
+
+Every project declares what it needs to authenticate in `data/projects/<name>/auth.json`.
+The manifest holds names, probes, and links - never a credential.
+
+```json
+{
+  "project": "clock-in",
+  "services": [
+    {
+      "name": "neon",
+      "method": "cli",
+      "env": ["DATABASE_URL"],
+      "probe": ["neonctl", "projects", "list"],
+      "login": ["neonctl", "auth"],
+      "url": "https://console.neon.tech",
+      "optional": false,
+      "note": "serverless Postgres"
+    }
+  ]
+}
+```
+
+- `method` is `env` (the variable *is* the credential), `cli` (the tool holds its own login and the variable is what makes direct API access possible), or `oauth` (a browser handshake).
+- `env` names double as credential-store keys, so there is exactly one name to know per credential.
+- `probe` is a cheap command that exits zero only when the service genuinely answers. A `$NAME` in it is substituted from the resolved credential. A service with no probe is green once its variables resolve.
+- `login` is a non-interactive command `--fix` may run; `url` and `confirm` are what the browser fallback and the sign-in request use.
+- `optional: true` keeps a service a project can run without out of the blocking column.
+
+Credentials live in Windows Credential Manager, or in `~/.cfo/credentials/` with owner-only ACLs when the vault is unavailable (`CFO_CREDENTIAL_DIR` overrides the location).
+They are never written into a repository and never printed - reports show provenance and a redacted shape only.
+
+Before asking the Supreme Overlord for anything, run `cfo auth <project> --fix`: it adopts what the machine already holds (a project's local `.env`, the token `gh` already owns) rather than asking twice.
+Ask once, with the consolidated sign-in request that command prints, instead of letting goblins fail one credential at a time.
 
 ## Dispatch policy
 

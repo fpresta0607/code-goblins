@@ -26,7 +26,7 @@ A pull request must keep all of them green.
 
 - `cmd/cfo/` - the `cfo.exe` entry point and command handlers.
 - `cmd/showcase-axi/` - the `showcase-axi.exe` entry point for the review surface.
-- `internal/` - one package per subsystem: `herdr`, `treehouse`, `spawn`, `fleet`, `monitor`, `wake`, `lock`, `state`, `home`, `watch`, `harness`, `axi`, `execx`, `fsx`, `claudehook`, `digest`, `doctor`, `guard`, `crewstate`, `supervise`, `proc`, `showcase`.
+- `internal/` - one package per subsystem: `herdr`, `treehouse`, `spawn`, `fleet`, `monitor`, `wake`, `lock`, `state`, `home`, `watch`, `harness`, `auth`, `axi`, `execx`, `fsx`, `claudehook`, `digest`, `doctor`, `guard`, `crewstate`, `supervise`, `proc`, `showcase`.
 - `docs/superpowers/` - the design spec and implementation plans.
 - `tests/acceptance/` - the opt-in real-session Windows acceptance script.
 - `AGENTS.md` - the CFO's operating contract; `CLAUDE.md` points to it.
