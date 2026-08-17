@@ -49,9 +49,14 @@ type LaunchSpec struct {
 // (Herdr's Windows agent start uses Start-Process -FilePath, which cannot
 // execute npm .cmd shims like pi): the full command plus the brief instruction
 // is typed into the prepared pane shell instead, and Herdr detects the agent.
+// SecretsFile, when set, is dot-sourced by the prefix instead of the values
+// being typed into the pane. A credential typed inline would sit in the
+// pane's scrollback and in every `cfo peek`, so the pane only ever sees the
+// path.
 type Launch struct {
 	Args           []string
 	Env            map[string]string
+	SecretsFile    string
 	PromptFile     string
 	Dir            string
 	ConfirmMarkers []string

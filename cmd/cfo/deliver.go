@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -83,11 +84,16 @@ func runBrief(args []string, stdout, stderr io.Writer) int {
 
 {CONSTRAINTS - things not to touch, boundaries, non-goals}
 
+## Authentication
+
+Services this task needs are declared in %s.
+Run %s before dispatch; add any service the task needs that the manifest does not list yet.
+
 ## Delivery
 
 kind: %s
 mode: %s
-`, id, *project, *kind, *mode)
+`, id, *project, auth.ManifestPath("data", *project), "`cfo auth "+*project+" --fix`", *kind, *mode)
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
