@@ -34,7 +34,7 @@
       entries.push({ at: m.created_at, role: m.role, text: m.text });
     });
     (state.feedback || []).forEach(function (f) {
-      entries.push({ at: f.created_at, role: "user", text: f.text, tag: f.type, quote: f.quote, note: f.selector || f.context });
+      entries.push({ at: f.created_at, role: "user", text: f.text, tag: f.type, quote: f.quote, note: whereLabel(f.section, f.selector) || f.context });
     });
     entries.sort(function (a, b) { return a.at < b.at ? -1 : 1; });
 
@@ -53,7 +53,7 @@
       if (entry.tag && entry.tag !== "message") bubble.appendChild(el("span", "tag", entry.tag));
       if (entry.quote) bubble.appendChild(el("blockquote", "", entry.quote));
       bubble.appendChild(el("div", "text", entry.text));
-      if (entry.note) bubble.appendChild(el("div", "tag", entry.note));
+      if (entry.note) bubble.appendChild(el("div", "where", entry.note));
       messagesEl.appendChild(bubble);
     });
     messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -127,26 +127,41 @@
     });
   }
 
-  /* Annotation popover */
+  /* Annotation popover. It grows out of whatever triggered it and collapses
+     back along the same path, so the link between source and surface stays
+     obvious. */
+
+  var popover = null;
 
   function closePopover() {
-    var existing = document.querySelector(".sc-popover");
-    if (existing) existing.remove();
+    if (!popover) return;
+    var closing = popover;
+    popover = null;
+    closing.classList.add("closing");
+    setTimeout(function () { closing.remove(); }, 200);
   }
 
-  function openPopover(x, y, hint, onSave) {
+  function openPopover(x, y, quote, where, onSave) {
     closePopover();
     var pop = el("div", "sc-popover");
-    pop.style.left = Math.min(x, window.innerWidth - 320) + "px";
-    pop.style.top = Math.min(y, window.innerHeight - 190) + "px";
-    if (hint) pop.appendChild(el("p", "hint", hint));
+    popover = pop;
+    var left = Math.max(8, Math.min(x, window.innerWidth - 320));
+    var top = Math.max(8, Math.min(y, window.innerHeight - 220));
+    pop.style.left = left + "px";
+    pop.style.top = top + "px";
+    pop.style.transformOrigin = (x - left) + "px " + (y - top) + "px";
+    if (quote || where) {
+      var hint = el("p", "hint", quote);
+      if (where) hint.appendChild(el("span", "where", where));
+      pop.appendChild(hint);
+    }
     var area = el("textarea");
     area.rows = 3;
     area.placeholder = "What should the agent change here?";
     pop.appendChild(area);
     var actions = el("div", "actions");
-    var cancel = el("button", "", "Cancel");
-    var save = el("button", "", "Queue prompt");
+    var cancel = el("button", "quiet", "Cancel");
+    var save = el("button", "primary", "Queue prompt");
     actions.appendChild(cancel);
     actions.appendChild(save);
     pop.appendChild(actions);
@@ -157,14 +172,26 @@
       onSave(text);
       closePopover();
     });
+    area.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") closePopover();
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) save.click();
+    });
     document.body.appendChild(pop);
     area.focus();
   }
 
-  function selectorFor(node) {
-    if (node.id) return "#" + node.id;
+  /* Anchoring. A queued prompt has to be findable again in the source, so
+     every annotation carries the element path and the nearest heading or
+     section header above it. The same two functions run inside the sandboxed
+     frame (see frame-helper.js); they cannot be shared across documents. */
+
+  function selectorFor(node, root) {
     var parts = [];
-    while (node && node !== contentEl && node.tagName) {
+    while (node && node !== root && node.tagName) {
+      if (node.id) {
+        parts.unshift("#" + node.id);
+        return parts.join(" > ");
+      }
       var tag = node.tagName.toLowerCase();
       var parent = node.parentElement;
       if (parent) {
@@ -179,8 +206,32 @@
     return parts.join(" > ");
   }
 
+  function nearestSection(node, root) {
+    while (node && node !== root && node.tagName) {
+      var sibling = node.previousElementSibling;
+      while (sibling) {
+        var heading = /^H[1-6]$/.test(sibling.tagName)
+          ? sibling
+          : sibling.querySelector && sibling.querySelector("h1, h2, h3, h4, h5, h6");
+        if (heading) return heading.textContent.replace(/\s+/g, " ").trim().slice(0, 120);
+        sibling = sibling.previousElementSibling;
+      }
+      // A diff file (and many mocks) label their region with a <header>
+      // rather than a heading element.
+      var own = node.querySelector && node.querySelector(":scope > header");
+      if (own) return own.textContent.replace(/\s+/g, " ").trim().slice(0, 120);
+      node = node.parentElement;
+    }
+    return "";
+  }
+
   function snippet(node) {
     return (node.textContent || "").replace(/\s+/g, " ").trim().slice(0, 200);
+  }
+
+  function whereLabel(section, selector) {
+    if (section && selector) return section + "  ·  " + selector;
+    return section || selector || "";
   }
 
   if (annotateBtn) {
@@ -215,8 +266,16 @@
     var target = event.target.closest(annotateSelector) || event.target;
     target.classList.remove("sc-hl");
     target.classList.add("sc-marked");
-    openPopover(event.clientX, event.clientY, snippet(target), function (text) {
-      postFeedback({ type: "annotation", text: text, selector: selectorFor(target), quote: snippet(target) }).catch(showError);
+    var selector = selectorFor(target, contentEl);
+    var section = nearestSection(target, contentEl);
+    openPopover(event.clientX, event.clientY, snippet(target), whereLabel(section, selector), function (text) {
+      postFeedback({
+        type: "annotation",
+        text: text,
+        selector: selector,
+        section: section,
+        quote: snippet(target)
+      }).catch(showError);
     });
   }, true);
 
@@ -229,42 +288,107 @@
       var rect = wrap.getBoundingClientRect();
       var x = Math.round(event.clientX - rect.left);
       var y = Math.round(event.clientY - rect.top);
-      openPopover(event.clientX, event.clientY, "artifact at (" + x + ", " + y + ") in a " + Math.round(rect.width) + "px viewport", function (text) {
-        postFeedback({ type: "annotation", text: text, context: "viewport " + Math.round(rect.width) + "px @ (" + x + ", " + y + ")" }).catch(showError);
+      var context = "viewport " + Math.round(rect.width) + "px @ (" + x + ", " + y + ")";
+      openPopover(event.clientX, event.clientY, "", context, function (text) {
+        postFeedback({ type: "annotation", text: text, context: context }).catch(showError);
       });
     });
   }
 
-  /* Text-selection comments on server-rendered content. */
+  /* Text-selection comments. The affordance appears at the selection the
+     moment it exists, in whichever document holds it: server-rendered
+     content here, or the sandboxed HTML mock, which forwards its selection
+     because the parent cannot read across an opaque origin. */
 
   function hideSelectionBtn() {
     if (selectionBtn) { selectionBtn.remove(); selectionBtn = null; }
   }
 
-  document.addEventListener("mouseup", function () {
-    setTimeout(function () {
+  function offerSelectionComment(anchor) {
+    hideSelectionBtn();
+    selectionBtn = el("button", "", "Comment");
+    selectionBtn.id = "selection-btn";
+    selectionBtn.style.left = Math.max(8, Math.min(anchor.left, window.innerWidth - 120)) + "px";
+    selectionBtn.style.top = Math.max(8, Math.min(anchor.bottom + 6, window.innerHeight - 40)) + "px";
+    var opened = false;
+    function activate() {
+      if (opened) return;
+      opened = true;
+      var x = anchor.left;
+      var y = anchor.bottom + 6;
       hideSelectionBtn();
-      if (annotating) return;
-      var sel = window.getSelection();
-      if (!sel || sel.isCollapsed || !contentEl.contains(sel.anchorNode)) return;
-      var quote = sel.toString().trim();
-      if (!quote) return;
-      var rect = sel.getRangeAt(0).getBoundingClientRect();
-      selectionBtn = el("button", "", "Comment on selection");
-      selectionBtn.id = "selection-btn";
-      selectionBtn.style.left = rect.left + "px";
-      selectionBtn.style.top = (rect.bottom + 6) + "px";
-      selectionBtn.addEventListener("click", function () {
-        hideSelectionBtn();
-        openPopover(rect.left, rect.bottom + 6, quote.slice(0, 140), function (text) {
-          postFeedback({ type: "selection", text: text, quote: quote.slice(0, 500) }).catch(showError);
-        });
+      openPopover(x, y, anchor.quote, whereLabel(anchor.section, anchor.selector), function (text) {
+        postFeedback({
+          type: "selection",
+          text: text,
+          quote: anchor.quote,
+          selector: anchor.selector,
+          section: anchor.section,
+          context: anchor.context || ""
+        }).catch(showError);
       });
-      document.body.appendChild(selectionBtn);
-    }, 0);
+    }
+    // Commit on press, not on release: the document mouseup handler below
+    // retires the affordance, so waiting for `click` would mean clicking an
+    // element that is already gone. Suppressing the default also keeps the
+    // text selection alive instead of letting the press collapse it. The
+    // click binding is what a keyboard activation arrives as.
+    selectionBtn.addEventListener("mousedown", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      activate();
+    });
+    selectionBtn.addEventListener("click", activate);
+    document.body.appendChild(selectionBtn);
+  }
+
+  function readSelection() {
+    hideSelectionBtn();
+    if (annotating || popover) return;
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount || !contentEl.contains(sel.anchorNode)) return;
+    var quote = sel.toString().replace(/\s+/g, " ").trim();
+    if (!quote) return;
+    var range = sel.getRangeAt(0);
+    var node = range.commonAncestorContainer;
+    if (node && node.nodeType === 3) node = node.parentElement;
+    var rect = range.getBoundingClientRect();
+    offerSelectionComment({
+      quote: quote.slice(0, 500),
+      selector: node ? selectorFor(node, contentEl) : "",
+      section: node ? nearestSection(node, contentEl) : "",
+      left: rect.left,
+      bottom: rect.bottom
+    });
+  }
+
+  document.addEventListener("mouseup", function () { setTimeout(readSelection, 0); });
+  document.addEventListener("keyup", function (event) {
+    if (event.shiftKey || event.key === "Shift" || (event.ctrlKey || event.metaKey) && event.key === "a") {
+      setTimeout(readSelection, 0);
+    }
   });
   document.addEventListener("mousedown", function (event) {
     if (selectionBtn && event.target !== selectionBtn) hideSelectionBtn();
+  });
+
+  window.addEventListener("message", function (event) {
+    var frame = document.getElementById("frame");
+    // The mock runs in an opaque origin, so identity of the source window is
+    // the only trustworthy check available.
+    if (!frame || event.source !== frame.contentWindow) return;
+    var data = event.data;
+    if (!data || data.__showcase !== "selection") return;
+    if (annotating || popover || !data.quote) { hideSelectionBtn(); return; }
+    var rect = frame.getBoundingClientRect();
+    offerSelectionComment({
+      quote: String(data.quote).slice(0, 500),
+      selector: String(data.selector || ""),
+      section: String(data.section || ""),
+      context: "html mock",
+      left: rect.left + Number(data.left || 0),
+      bottom: rect.top + Number(data.bottom || 0)
+    });
   });
 
   /* Device-width switcher for HTML artifacts. */
@@ -288,7 +412,8 @@
       if (fallback) fallback.hidden = false;
     };
     if (window.mermaid) {
-      window.mermaid.initialize({ startOnLoad: false, theme: "dark" });
+      var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      window.mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "neutral" });
       window.mermaid.run({ querySelector: ".mermaid" }).catch(showFallback);
     } else {
       showFallback();

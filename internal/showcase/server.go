@@ -269,14 +269,23 @@ func (s *Server) handlePage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleRaw serves the HTML artifact for the preview frame with the frame
+// helper appended. The helper only ever exists in this response: the file on
+// disk and every export stay exactly as the agent wrote them.
 func (s *Server) handleRaw(w http.ResponseWriter, r *http.Request) {
 	artifact, ok := s.artifact(r.PathValue("id"))
 	if !ok {
 		http.Error(w, "unknown session", http.StatusNotFound)
 		return
 	}
+	source, err := os.ReadFile(artifact)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	http.ServeFile(w, r, artifact)
+	w.Write(source)
+	fmt.Fprintf(w, "\n<script>%s</script>\n", frameHelperJS)
 }
 
 func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
@@ -354,11 +363,15 @@ func (s *Server) handleFeedback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad feedback body", http.StatusBadRequest)
 		return
 	}
-	feedback.Text = strings.TrimSpace(feedback.Text)
+	feedback.Text = clampField(feedback.Text, 20000)
 	if feedback.Text == "" {
 		http.Error(w, "feedback text is empty", http.StatusBadRequest)
 		return
 	}
+	feedback.Quote = clampField(feedback.Quote, 2000)
+	feedback.Selector = clampField(feedback.Selector, 400)
+	feedback.Section = clampField(feedback.Section, 200)
+	feedback.Context = clampField(feedback.Context, 200)
 	switch feedback.Type {
 	case "message", "annotation", "selection":
 	default:
@@ -372,6 +385,16 @@ func (s *Server) handleFeedback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// clampField bounds a browser-supplied field so a buggy or hostile page
+// cannot grow the session file without limit.
+func clampField(value string, max int) string {
+	value = strings.TrimSpace(value)
+	if len(value) > max {
+		value = strings.ToValidUTF8(value[:max], "")
+	}
+	return value
 }
 
 func (s *Server) handleEnd(w http.ResponseWriter, r *http.Request) {
