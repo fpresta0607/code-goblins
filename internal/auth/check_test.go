@@ -263,6 +263,37 @@ func TestCheckSeparatesAnUninstalledProbeToolFromAnExpiredCredential(t *testing.
 	}
 }
 
+func TestCheckReportsAMissingCredentialWhenTheProbeToolIsAlsoAbsent(t *testing.T) {
+	clearEnv(t, "FLY_API_TOKEN")
+	manifest := Manifest{Project: "precisiondocs", Services: []Service{{
+		Name: "fly", Method: MethodCLI, Env: []string{"FLY_API_TOKEN"}, Probe: []string{"flyctl", "auth", "whoami"},
+	}}}
+	runner := &fakeRunner{errs: map[string]error{"flyctl": exec.ErrNotFound}}
+
+	report, err := Checker{Store: newMemoryStore(nil), Runner: runner}.Check(context.Background(), manifest)
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	status := report.Statuses[0]
+	if status.State != StateMissing {
+		t.Fatalf("state = %q, want %q: the credential is missing even though the probe tool is absent too", status.State, StateMissing)
+	}
+	if !strings.Contains(status.Detail, "FLY_API_TOKEN") {
+		t.Errorf("detail = %q, want the missing variable named", status.Detail)
+	}
+	blocking := report.Blocking()
+	if len(blocking) != 1 || blocking[0].Service != "fly" {
+		t.Fatalf("blocking = %v, want the missing credential to block", blocking)
+	}
+	var out strings.Builder
+	if err := WriteLoginRequest(&out, report); err != nil {
+		t.Fatalf("WriteLoginRequest: %v", err)
+	}
+	if !strings.Contains(out.String(), "fly") || !strings.Contains(out.String(), "FLY_API_TOKEN") {
+		t.Errorf("login request = %q, want it to name the fly service and FLY_API_TOKEN", out.String())
+	}
+}
+
 func TestCheckDoesNotProbeAnEnvServiceWhoseVariableIsMissing(t *testing.T) {
 	clearEnv(t, "QDRANT_URL")
 	// For an env service the variable is the credential, so a probe could
@@ -576,6 +607,29 @@ func TestRedactKeepsShortSecretsFullyHidden(t *testing.T) {
 	for value, want := range cases {
 		if got := Redact(value); got != want {
 			t.Errorf("Redact(%q) = %q, want %q", value, got, want)
+		}
+	}
+}
+
+func TestExpandMatchesLongestNameAndNeverRescansAValue(t *testing.T) {
+	resolved := map[string]Resolved{
+		"FOO":     {Name: "FOO", Value: "foo-value", Source: "store"},
+		"FOO_BAR": {Name: "FOO_BAR", Value: "bar-value", Source: "store"},
+		"OTHER":   {Name: "OTHER", Value: "$FOO", Source: "store"},
+	}
+	cases := []struct {
+		arg  string
+		want string
+	}{
+		{"$FOO_BAR", "bar-value"},
+		{"$FOO", "foo-value"},
+		{"$FOO_BAZ", "$FOO_BAZ"},
+		{"$OTHER", "$FOO"},
+		{"$FOO and $FOO_BAR", "foo-value and bar-value"},
+	}
+	for _, tc := range cases {
+		if got := expand(tc.arg, resolved); got != tc.want {
+			t.Errorf("expand(%q) = %q, want %q", tc.arg, got, tc.want)
 		}
 	}
 }

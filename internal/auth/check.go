@@ -172,11 +172,16 @@ func (c Checker) evaluate(ctx context.Context, service Service) Status {
 	result, err := c.exec(ctx, service.Probe, resolved)
 	switch {
 	case errors.Is(err, exec.ErrNotFound):
-		// The credential is fine; the tool that would confirm it is absent.
-		// Calling that "expired" would send the Overlord hunting for a
-		// credential problem that does not exist.
-		status.State = StateUnverified
-		status.Detail = "cannot verify: " + service.Probe[0] + " is not installed"
+		if len(missing) > 0 {
+			status.State = StateMissing
+			status.Detail = "not in the environment or the credential store: " + strings.Join(missing, ", ") + "; " + service.Probe[0] + " is not installed"
+		} else {
+			// The credential is fine; the tool that would confirm it is absent.
+			// Calling that "expired" would send the Overlord hunting for a
+			// credential problem that does not exist.
+			status.State = StateUnverified
+			status.Detail = "cannot verify: " + service.Probe[0] + " is not installed"
+		}
 	case err != nil:
 		status.State = StateExpired
 		status.Detail = "probe could not run: " + err.Error()
@@ -285,10 +290,43 @@ func expand(arg string, resolved map[string]Resolved) string {
 	if !strings.Contains(arg, "$") {
 		return arg
 	}
-	for name, value := range resolved {
-		arg = strings.ReplaceAll(arg, "$"+name, value.Value)
+	names := make([]string, 0, len(resolved))
+	for name := range resolved {
+		names = append(names, name)
 	}
-	return arg
+	sort.Slice(names, func(i, j int) bool { return len(names[i]) > len(names[j]) })
+
+	var b strings.Builder
+	for i := 0; i < len(arg); {
+		if arg[i] != '$' {
+			b.WriteByte(arg[i])
+			i++
+			continue
+		}
+		matched := false
+		for _, name := range names {
+			if !strings.HasPrefix(arg[i+1:], name) {
+				continue
+			}
+			next := i + 1 + len(name)
+			if next < len(arg) && isNameChar(arg[next]) {
+				continue
+			}
+			b.WriteString(resolved[name].Value)
+			i = next
+			matched = true
+			break
+		}
+		if !matched {
+			b.WriteByte(arg[i])
+			i++
+		}
+	}
+	return b.String()
+}
+
+func isNameChar(c byte) bool {
+	return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 }
 
 // Environ returns the current process environment with the resolved
