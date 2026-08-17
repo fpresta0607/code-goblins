@@ -14,6 +14,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -82,6 +83,9 @@ type Event struct {
 	Kind   string      `json:"kind"`
 	Key    string      `json:"key"`
 	Detail string      `json:"detail"`
+	// Fault carries the provider fault a harness-error event observed, so
+	// consumers do not have to re-derive it from a possibly truncated detail.
+	Fault routing.Fault `json:"fault,omitempty"`
 }
 
 type Observation struct {

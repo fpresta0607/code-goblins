@@ -152,15 +152,16 @@ func (s Service) archive(id string) (string, error) {
 	}
 
 	// The credential script is the one thing never archived: it holds the
-	// project's secrets, and a finished task has no further use for them.
-	var failures []error
+	// project's secrets, and a finished task has no further use for them. If
+	// it cannot be dropped, refuse to archive rather than move a directory
+	// that still holds credentials.
 	if err := os.Remove(filepath.Join(taskTmp, "auth.ps1")); err != nil && !errors.Is(err, os.ErrNotExist) {
-		failures = append(failures, fmt.Errorf("remove injected credentials: %w", err))
+		return "", fmt.Errorf("remove injected credentials: %w", err)
 	}
 	if err := os.Rename(taskTmp, dir); err != nil {
-		return "", errors.Join(append(failures, fmt.Errorf("task temporary directory: %w", err))...)
+		return "", fmt.Errorf("task temporary directory: %w", err)
 	}
-	return dir, errors.Join(failures...)
+	return dir, nil
 }
 
 // ArchiveDirName holds the scratch directories of finished tasks, one per

@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
@@ -31,7 +32,11 @@ func (kimiAdapter) Build(spec LaunchSpec) (Launch, error) {
 	if hasValue(spec.Model) {
 		launch.Args = append(launch.Args, "--model", spec.Model)
 	}
-	// Kimi has no effort flag.
+	// Kimi has no effort flag, so an effort the harness cannot honour must
+	// not be silently recorded in metadata.
+	if hasValue(spec.Effort) {
+		return Launch{}, fmt.Errorf("harness: Kimi does not support effort %q", spec.Effort)
+	}
 	launch.ConfirmMarkers = []string{"Trust this folder?"}
 	launch.ConfirmKeys = []string{"up", "enter"}
 	return launch, nil

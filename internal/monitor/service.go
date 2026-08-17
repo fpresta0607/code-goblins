@@ -344,6 +344,7 @@ func erroringObservation(observation Observation, digest string, fault routing.F
 	observation.DemandDeepInspection = true
 	if first && observation.PendingEvent == nil {
 		event := taskEvent(observation.TaskID, HarnessError, string(fault)+": "+detail)
+		event.Fault = fault
 		observation.PendingEvent = &event
 	}
 	return observation

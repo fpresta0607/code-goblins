@@ -119,6 +119,7 @@ The standing answers live in `data/routing.json`:
       "fault": "rate-limit",
       "switch": { "harness": "claude", "model": "opus", "effort": "xhigh" },
       "auto": true,
+      "force_dirty": true,
       "note": "standing Overlord rule"
     }
   ]
@@ -128,6 +129,7 @@ The standing answers live in `data/routing.json`:
 `fault` is `rate-limit`, `auth`, or `provider`.
 A rule with `auto` is a decision already made: run its `cfo switch` the moment you are woken with it, without asking.
 Without `auto` it is a recommendation to weigh.
+`force_dirty` renders `--force-dirty` in the rule's `cfo switch`, because a goblin that hits a quota refusal mid-work is overwhelmingly likely to have uncommitted changes; without it the delivered command is refused on a dirty worktree and the wake names that.
 The watcher never switches a harness itself - it holds the triage singleton, and stalling the whole fleet behind one goblin's relaunch would cost more than the churn it saves.
 `cfo doctor` prints the active rules.
 

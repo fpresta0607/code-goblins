@@ -113,6 +113,10 @@ type Rule struct {
 	// recommendation the CFO is woken with, which is the safer default for a
 	// policy that restarts someone's harness.
 	Auto bool `json:"auto,omitempty"`
+	// ForceDirty renders --force-dirty in the rule's switch command, so a
+	// standing answer still works on a goblin that hit its fault mid-work
+	// with uncommitted changes.
+	ForceDirty bool `json:"force_dirty,omitempty"`
 	// Note explains the rule to whoever reads the file next.
 	Note string `json:"note,omitempty"`
 }
@@ -181,6 +185,9 @@ func (r Rule) Command(id string) string {
 	}
 	if r.Switch.Effort != "" {
 		command += " --effort " + r.Switch.Effort
+	}
+	if r.ForceDirty {
+		command += " --force-dirty"
 	}
 	return command
 }

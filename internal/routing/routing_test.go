@@ -122,6 +122,10 @@ func TestCommandRendersTheSwitchTheRuleCallsFor(t *testing.T) {
 	if got, want := bare.Command("g1"), "cfo switch g1 --harness codex"; got != want {
 		t.Errorf("Command = %q, want %q", got, want)
 	}
+	forced := Rule{Switch: Switch{Harness: "claude", Model: "opus", Effort: "xhigh"}, ForceDirty: true}
+	if got, want := forced.Command("qm-v4"), "cfo switch qm-v4 --harness claude --model opus --effort xhigh --force-dirty"; got != want {
+		t.Errorf("Command = %q, want %q", got, want)
+	}
 }
 
 func write(t *testing.T, dir, content string) {

@@ -93,20 +93,32 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	}
 
 	target := requestedTarget(meta, req)
-	if target == (switchTarget{}) || target.same(meta) {
-		return SwitchResult{}, fmt.Errorf("switch: task %s already runs harness=%s model=%s effort=%s; nothing to switch", req.ID, meta.Harness, valueOrDefault(meta.Model), valueOrDefault(meta.Effort))
+	if target == (switchTarget{}) {
+		return SwitchResult{}, fmt.Errorf("switch: task %s has no harness to switch", req.ID)
 	}
+
+	session := meta.HerdrSession
+	if session == "" {
+		session = req.Session
+	}
+	herdrClient := *s.Herdr
+	herdrClient.Session = session
+	paneTarget := herdr.Target{Session: herdrClient.Session, Pane: meta.HerdrPaneID}
+
+	if target.same(meta) {
+		status, err := herdrClient.AgentStatus(ctx, paneTarget)
+		if err != nil {
+			return SwitchResult{}, fmt.Errorf("switch: read agent status: %w", err)
+		}
+		if status == herdr.AgentAlive {
+			return SwitchResult{}, fmt.Errorf("switch: task %s already runs harness=%s model=%s effort=%s; nothing to switch", req.ID, meta.Harness, valueOrDefault(meta.Model), valueOrDefault(meta.Effort))
+		}
+	}
+
 	adapter, err := s.Harness.Get(target.Harness)
 	if err != nil {
 		return SwitchResult{}, err
 	}
-
-	herdrClient := *s.Herdr
-	herdrClient.Session = meta.HerdrSession
-	if req.Session != "" {
-		herdrClient.Session = req.Session
-	}
-	paneTarget := herdr.Target{Session: herdrClient.Session, Pane: meta.HerdrPaneID}
 
 	if _, err := lock.AcquireExclusiveNamed(s.StateDir, switchLockName(req.ID)); err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: acquire task lock: %w", err)
@@ -163,49 +175,13 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		return SwitchResult{}, err
 	}
 
-	resume := target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0
 	briefPath := meta.Brief
 	if briefPath == "" {
 		briefPath = req.BriefPath
 	}
 
-	launch, err := adapter.Build(harness.LaunchSpec{
-		BriefPath: briefPath,
-		TaskTmp:   meta.TaskTmp,
-		Model:     target.Model,
-		Effort:    target.Effort,
-	})
+	handoff, resumed, err := s.relaunchHarness(ctx, &herdrClient, paneTarget, meta, target, adapter, project, worktree, briefPath, dirty, req.ID)
 	if err != nil {
-		return SwitchResult{}, fmt.Errorf("switch: build harness launch: %w", err)
-	}
-	launch.Dir = worktree
-	if _, err := s.injectProjectCredentials(ctx, project, meta.TaskTmp, &launch); err != nil {
-		return SwitchResult{}, err
-	}
-
-	if resume {
-		// ResumeArgs lead because codex takes its resume as a subcommand.
-		launch.Args = append(append([]string{}, adapter.Control().ResumeArgs...), launch.Args...)
-		launch.Instruction = resumeInstruction(meta, target)
-	} else {
-		handoff, err := s.writeHandoff(ctx, meta, target, worktree, briefPath, dirty)
-		if err != nil {
-			return SwitchResult{}, err
-		}
-		result.Handoff = handoff
-		launch.Instruction = handoffInstruction(handoff, briefPath)
-	}
-
-	if _, err := s.startHarness(ctx, &herdrClient, paneTarget, launchPlan{
-		AgentName: "gb-" + req.ID,
-		Harness:   target.Harness,
-		Launch:    launch,
-	}); err != nil {
-		// The old harness is already stopped and the new one did not come up,
-		// so the pane is now empty. Say that plainly and leave a durable
-		// record: the task is not lost - its worktree, branch, and tab are
-		// untouched - but it needs a decision, and a silent failure here
-		// would leave a goblin that simply stopped existing.
 		from := describe(meta.Harness, meta.Model, meta.Effort)
 		if writeErr := s.publishSwitch(&meta, target); writeErr != nil {
 			err = errors.Join(err, writeErr)
@@ -215,13 +191,15 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		if statusErr := state.AppendStatus(s.StateDir, req.ID, "failed: "+bounded(normalizeStatusDetail(err.Error()), 1000)); statusErr != nil {
 			err = errors.Join(err, statusErr)
 		}
-		return SwitchResult{Meta: meta, From: from}, err
+		return SwitchResult{Meta: meta, From: from, Handoff: handoff, Resumed: resumed}, err
 	}
 
 	from := describe(meta.Harness, meta.Model, meta.Effort)
 	if err := s.publishSwitch(&meta, target); err != nil {
 		return SwitchResult{}, err
 	}
+	result.Handoff = handoff
+	result.Resumed = resumed
 	line := fmt.Sprintf("switched: %s -> %s", from, describe(meta.Harness, meta.Model, meta.Effort))
 	if result.Handoff != "" {
 		line += " handoff=" + result.Handoff
@@ -234,12 +212,53 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 
 	result.Meta = meta
 	result.From = from
-	result.Resumed = resume
 	result.Output = fmt.Sprintf("switched %s %s -> %s worktree=%s window=%s", req.ID, from, describe(meta.Harness, meta.Model, meta.Effort), worktree, meta.Window)
 	if result.Handoff != "" {
 		result.Output += "\nhandoff " + result.Handoff
 	}
 	return result, nil
+}
+
+// relaunchHarness builds the target launch, injects credentials, writes the
+// resume instruction or handoff, and starts the new harness. Every step after
+// the old harness has stopped lives here, so any failure returns through the
+// same empty-pane recovery.
+func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktree, briefPath, dirty, id string) (handoff string, resumed bool, err error) {
+	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0
+	launch, err := adapter.Build(harness.LaunchSpec{
+		BriefPath: briefPath,
+		TaskTmp:   meta.TaskTmp,
+		Model:     target.Model,
+		Effort:    target.Effort,
+	})
+	if err != nil {
+		return "", false, fmt.Errorf("switch: build harness launch: %w", err)
+	}
+	launch.Dir = worktree
+	if _, err := s.injectProjectCredentials(ctx, project, meta.TaskTmp, &launch); err != nil {
+		return "", false, err
+	}
+
+	if resumed {
+		// ResumeArgs lead because codex takes its resume as a subcommand.
+		launch.Args = append(append([]string{}, adapter.Control().ResumeArgs...), launch.Args...)
+		launch.Instruction = resumeInstruction(meta, target)
+	} else {
+		handoff, err = s.writeHandoff(ctx, meta, target, worktree, briefPath, dirty)
+		if err != nil {
+			return "", false, err
+		}
+		launch.Instruction = handoffInstruction(handoff, briefPath)
+	}
+
+	if _, err := s.startHarness(ctx, client, paneTarget, launchPlan{
+		AgentName: "gb-" + id,
+		Harness:   target.Harness,
+		Launch:    launch,
+	}); err != nil {
+		return handoff, resumed, err
+	}
+	return handoff, resumed, nil
 }
 
 // switchTarget is the harness, model, and effort the task should run after
