@@ -36,3 +36,16 @@ func (kimiAdapter) Build(spec LaunchSpec) (Launch, error) {
 	launch.ConfirmKeys = []string{"up", "enter"}
 	return launch, nil
 }
+
+// Control stops Kimi with /quit after an Escape, because a streaming Kimi
+// ignores a typed command until the stream is interrupted. Kimi's --continue
+// resumes the previous session for the working directory; its -S/--session
+// form needs an id cfo does not record, and an in-place switch never leaves
+// the worktree, so --continue is the resume that fits.
+func (kimiAdapter) Control() Control {
+	return Control{
+		StopKeys:    []string{"escape"},
+		StopCommand: "/quit",
+		ResumeArgs:  []string{"--continue"},
+	}
+}

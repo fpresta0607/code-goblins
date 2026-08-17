@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -116,9 +117,59 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if err := os.Remove(filepath.Join(s.StateDir, id+".meta")); err != nil {
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
+	archived, archiveErr := s.archive(id)
+
 	result.Meta = meta
 	result.Output = fmt.Sprintf("cleaned %s worktree=%s", id, worktree)
+	if archived != "" {
+		result.Output += " archive=" + archived
+	}
+	if archiveErr != nil {
+		// The task is genuinely cleaned; only the id is still taken. Say so
+		// plainly rather than failing a completed cleanup.
+		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)
+	}
 	return result, nil
+}
+
+// archive moves a finished task's scratch directory out of the live state
+// tree. It is what frees the task id: a respawn refuses any id that collides
+// case-insensitively with retained state, which is why reusing a cleaned-up
+// id used to need a suffix.
+//
+// The status log is deliberately left where it is. It is the only record of
+// what the goblin reported and callers read it at its known path, so it stays
+// readable; spawn instead treats a status log with no live metadata beside it
+// as history rather than a live claim on the id.
+func (s Service) archive(id string) (string, error) {
+	taskTmp := filepath.Join(s.StateDir, "tasktmp", id)
+	if _, err := os.Stat(taskTmp); err != nil {
+		return "", nil
+	}
+	dir := filepath.Join(s.StateDir, ArchiveDirName, id+"."+archiveStamp())
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		return "", err
+	}
+
+	// The credential script is the one thing never archived: it holds the
+	// project's secrets, and a finished task has no further use for them.
+	var failures []error
+	if err := os.Remove(filepath.Join(taskTmp, "auth.ps1")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		failures = append(failures, fmt.Errorf("remove injected credentials: %w", err))
+	}
+	if err := os.Rename(taskTmp, dir); err != nil {
+		return "", errors.Join(append(failures, fmt.Errorf("task temporary directory: %w", err))...)
+	}
+	return dir, errors.Join(failures...)
+}
+
+// ArchiveDirName holds the scratch directories of finished tasks, one per
+// cleanup. It is a directory under the state tree so the spawn-time id
+// collision scan, which considers files and the tasktmp tree, never sees it.
+const ArchiveDirName = "archive"
+
+func archiveStamp() string {
+	return time.Now().UTC().Format("20060102T150405Z")
 }
 
 func cleanupLockName(id string) string {

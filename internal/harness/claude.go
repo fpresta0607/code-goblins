@@ -46,3 +46,14 @@ func (claudeAdapter) Build(spec LaunchSpec) (Launch, error) {
 	}
 	return launch, nil
 }
+
+// Control stops Claude with its own /exit command. --continue resumes the
+// most recent conversation in the working directory, which is exactly the
+// scope of an in-place switch, so no session id has to be tracked.
+func (claudeAdapter) Control() Control {
+	return Control{
+		StopKeys:    []string{"escape"},
+		StopCommand: "/exit",
+		ResumeArgs:  []string{"--continue"},
+	}
+}

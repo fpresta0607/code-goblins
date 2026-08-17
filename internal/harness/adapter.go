@@ -58,11 +58,22 @@ type Launch struct {
 	Env            map[string]string
 	SecretsFile    string
 	PromptFile     string
+	Instruction    string
 	Dir            string
 	ConfirmMarkers []string
 	ConfirmKeys    []string
 	TypedLaunch    bool
 	Executable     string
+}
+
+// PromptInstruction is the single instruction the harness receives once it is
+// ready. It is the brief instruction unless a caller supplied its own, which
+// is how an in-place switch hands the new harness a handoff instead.
+func (launch Launch) PromptInstruction() string {
+	if launch.Instruction != "" {
+		return launch.Instruction
+	}
+	return BriefInstruction(launch.PromptFile)
 }
 
 // BriefInstruction is the single prompt every goblin receives, delivered
@@ -72,11 +83,31 @@ func BriefInstruction(promptFile string) string {
 	return "Read the brief at " + promptFile + " and follow it exactly."
 }
 
+// Control is how a running harness is stopped in place and, where it can,
+// resumed. It exists so `cfo switch` can change a goblin's harness, model, or
+// effort without tearing down its tab or worktree.
+type Control struct {
+	// StopKeys are sent before StopCommand. A harness mid-stream ignores a
+	// typed slash command until the stream is interrupted.
+	StopKeys []string
+	// StopCommand is the harness's own exit command, typed and submitted.
+	// Switch falls back to an interrupt when a harness does not exit on it,
+	// so an imperfect command costs time rather than correctness.
+	StopCommand string
+	// ResumeArgs continue the harness's previous session in this working
+	// directory, for a switch that only changes model or effort. They are
+	// placed before the built launch arguments because codex takes its
+	// resume as a subcommand. Empty means the harness cannot resume.
+	ResumeArgs []string
+}
+
 // Adapter builds and validates one supported harness launch.
 type Adapter interface {
 	Kind() Kind
 	Validate(ctx context.Context, runner execx.Runner) error
 	Build(spec LaunchSpec) (Launch, error)
+	// Control returns how to stop and resume this harness in place.
+	Control() Control
 }
 
 // Registry contains the known typed adapters.
