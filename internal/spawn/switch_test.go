@@ -41,6 +41,13 @@ func (r *switchRunner) Run(ctx context.Context, req execx.Request) (execx.Result
 		}
 		return execx.Result{}, nil
 	}
+	// A typed slash command is the harness being told to exit, so the fake
+	// agent becomes stoppable again - otherwise a second switch in one test
+	// would find an agent that can never die.
+	if req.Name == "herdr" && len(req.Args) >= 4 && req.Args[0] == "pane" && req.Args[1] == "send-text" && strings.HasPrefix(req.Args[3], "/") {
+		r.restarted = false
+		r.agentGets = 0
+	}
 	// herdr puts the subcommand first and appends --session, so the head of
 	// the argument list is what identifies the call.
 	if req.Name == "herdr" && len(req.Args) >= 2 && req.Args[0] == "agent" {
@@ -349,3 +356,101 @@ func contains(values []string, want string) bool {
 	}
 	return false
 }
+
+func TestSwitchHandoffNamesADetachedWorktreePlainly(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	fixture.runner.gitBranch = "HEAD"
+
+	result, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"})
+	if err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	note, err := os.ReadFile(result.Handoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// git answers "HEAD" for a detached worktree, which reads as a branch
+	// actually named HEAD and would send the new harness looking for it.
+	if strings.Contains(string(note), "Branch: HEAD") {
+		t.Errorf("handoff reports a branch named HEAD:\n%s", note)
+	}
+	if !strings.Contains(string(note), "detached HEAD") {
+		t.Errorf("handoff does not say the worktree is detached:\n%s", note)
+	}
+}
+
+func TestSwitchDoesNotCarryAModelAcrossHarnesses(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	// Give the task a model that only its current harness understands.
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Model: "opus", Session: "fleet"}); err != nil {
+		t.Fatalf("seed model switch: %v", err)
+	}
+
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"}); err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	after, err := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// "opus" means nothing to another harness; carrying it would either fail
+	// the launch or silently select the wrong thing.
+	if after.Model != "default" {
+		t.Errorf("model = %q, want the new harness's default rather than the old harness's model", after.Model)
+	}
+	if after.Harness != string(harness.Kimi) {
+		t.Errorf("harness = %q, want %q", after.Harness, harness.Kimi)
+	}
+}
+
+func TestSwitchKeepsAnExplicitModelAcrossHarnesses(t *testing.T) {
+	fixture := newSwitchFixture(t)
+
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{
+		ID: fixture.meta.ID, Harness: harness.Kimi, Model: "kimi-k2", Session: "fleet",
+	}); err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	after, _ := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
+	if after.Model != "kimi-k2" {
+		t.Errorf("model = %q, want the model the operator asked for", after.Model)
+	}
+}
+
+func TestSwitchRecordsAnEmptyPaneWhenTheNewHarnessWillNotStart(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	fixture.runner.startErr = errStartFailed
+
+	_, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"})
+	if err == nil {
+		t.Fatal("Switch = nil, want the start failure surfaced")
+	}
+	// The operator has to learn three things: the pane is empty, the work is
+	// safe, and how to recover.
+	for _, want := range []string{"pane now has no harness", "is untouched", "cfo switch " + fixture.meta.ID} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to mention %q", err, want)
+		}
+	}
+	status, err := state.TailStatus(fixture.stateDir, fixture.meta.ID, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, line := range status {
+		if strings.HasPrefix(line, "failed:") && strings.Contains(line, "no harness") {
+			found = true
+		}
+	}
+	if !found {
+		// Without a record the task looks merely idle, and a goblin that
+		// stopped existing is indistinguishable from one that is thinking.
+		t.Errorf("status = %v, want a durable record of the empty pane", status)
+	}
+}
+
+var errStartFailed = &startFailure{}
+
+type startFailure struct{}
+
+func (*startFailure) Error() string { return "herdr: timed out waiting for agent startup" }
