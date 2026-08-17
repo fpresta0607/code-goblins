@@ -68,6 +68,43 @@ func TestPowerShellPrefixRejectsRelativeDir(t *testing.T) {
 	}
 }
 
+// TestControlContractForSwitch pins the stop/resume contract each real
+// adapter advertises, which switch relies on to stop a harness on its own
+// terms and to know whether a model-or-effort-only change can resume the
+// harness's own session. The resume-arg shape is load-bearing: codex takes
+// its resume as a subcommand and pi has none, so switch hands pi a written
+// handoff instead.
+func TestControlContractForSwitch(t *testing.T) {
+	cases := []struct {
+		kind       Kind
+		stopKeys   []string
+		stop       string
+		resumeArgs []string
+	}{
+		{Claude, []string{"escape"}, "/exit", []string{"--continue"}},
+		{Codex, []string{"escape"}, "/quit", []string{"resume", "--last"}},
+		{Pi, []string{"escape"}, "/quit", nil},
+		{Kimi, []string{"escape"}, "/quit", []string{"--continue"}},
+	}
+	registry := DefaultRegistry()
+	for _, test := range cases {
+		adapter, err := registry.Get(test.kind)
+		if err != nil {
+			t.Fatalf("Get(%q): %v", test.kind, err)
+		}
+		control := adapter.Control()
+		if !equalStrings(control.StopKeys, test.stopKeys) {
+			t.Errorf("%s StopKeys = %v, want %v", test.kind, control.StopKeys, test.stopKeys)
+		}
+		if control.StopCommand != test.stop {
+			t.Errorf("%s StopCommand = %q, want %q", test.kind, control.StopCommand, test.stop)
+		}
+		if !equalStrings(control.ResumeArgs, test.resumeArgs) {
+			t.Errorf("%s ResumeArgs = %v, want %v", test.kind, control.ResumeArgs, test.resumeArgs)
+		}
+	}
+}
+
 func TestValidateExecutablePreservesRunnerFailure(t *testing.T) {
 	registry := DefaultRegistry()
 	adapter, err := registry.Get(Claude)

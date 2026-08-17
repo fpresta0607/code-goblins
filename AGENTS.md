@@ -32,12 +32,12 @@ This file is your entire job description.
 
 | Command | What it does |
 | --- | --- |
-| `cfo doctor` | Check git, gh, claude, herdr, treehouse, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi and print install hints; probe each installed harness (`--version` under a short timeout) and report ok/broken; print the measured per-harness per-step speed table from `~/.no-mistakes/state.sqlite` when present (skipped with a note when absent or locked) |
+| `cfo doctor` | Check git, gh, claude, herdr, treehouse, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi and print install hints; probe each installed harness (`--version` under a short timeout) and report ok/broken; print the measured per-harness per-step speed table from `~/.no-mistakes/state.sqlite` when present (skipped with a note when absent or locked); print the standing switch rules from `data/routing.json` |
 | `cfo auth <project> [--check\|--fix] [--env]` | Preflight a project's services against its manifest and print one honest line each (green / missing / expired / no-tool / skipped). `--fix` adopts credentials the machine already holds, runs non-interactive CLI logins, and confirms an OAuth page whose browser session is live. `--env` shows the redacted environment a goblin's pane would inherit. Ends with one consolidated sign-in request covering everything still blocked |
 | `cfo auth store <NAME> [value]` | Store one credential. Omit the value to read it from stdin, which keeps the secret out of shell history |
 | `cfo auth list` | List stored credential names (never values) |
 | `cfo spawn <id> --project <p> --brief <b> --harness <h> [--mode <m>] [--model <m>] [--effort <e>] [--yolo]` | Dispatch one goblin (ship task); runs the project's auth preflight and injects its usable credentials into the pane before the harness starts, appending a one-line warning naming anything blocking right after the `spawned ...` line; also prints a one-line measured speed hint for the chosen harness when telemetry exists |
-| `cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]` | Change a running goblin's harness, model, or effort in place: same id, same worktree, same pane. Stops the old harness on its own terms, then relaunches. A model-or-effort-only change resumes the harness's own session; a harness change writes a handoff note and points the new harness at it. Refuses a dirty worktree unless `--force-dirty` |
+| `cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]` | Change a running goblin's harness, model, or effort in place: same id, same worktree, same pane. Stops the old harness on its own terms, then relaunches. A model-or-effort-only change resumes the harness's own session where the harness has one; otherwise it writes a handoff note and points the new harness at it. Refuses a dirty worktree unless `--force-dirty` |
 | `cfo send <target> [--no-auto-submit] <text>` | Type a steer to a goblin; after a failed Enter submit, verifies the text is parked in the composer and resubmits with the harness-specific key (pi/claude: Enter, kimi: ctrl+s) — `--no-auto-submit` opts out |
 | `cfo send <target> --key <key>` | Send a key: Enter, Escape, Ctrl-C, Ctrl-U |
 | `cfo peek <target> [lines]` | Read a goblin's terminal tail (default 40 lines) |
@@ -104,7 +104,7 @@ It is the one-step replacement for quitting, WIP-committing, cleaning up, and re
 
 - Nothing is torn down: the task id, tab, pane, worktree, branch, and any open PR all survive, which is why it is safe on work in progress.
 - A dirty worktree is refused. Commit first, or pass `--force-dirty` when the mess is deliberate - the handoff then tells the new harness so, and not to tidy it.
-- Same harness, new model or effort: the harness resumes its own session (`--continue`), so its context is intact.
+- Same harness, new model or effort: where the harness has a resume path it is used - claude and kimi continue with `--continue`, codex with `resume --last`. Pi advertises no resume, so even a same-harness pi change restarts it cold with the handoff below.
 - Different harness: context cannot cross, so a handoff note is written into the task's tasktmp with the brief path, branch, commits, uncommitted state, and the previous goblin's last status lines. The new harness is told to read it first.
 - `cfo send` follows the new harness immediately, because the submit key is read from the task metadata the switch just updated.
 
