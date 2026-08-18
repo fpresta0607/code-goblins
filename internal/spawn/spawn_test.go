@@ -910,7 +910,12 @@ func (a typedFixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, err
 }
 
 func (a fixtureAdapter) Control() harness.Control {
-	return harness.Control{StopKeys: []string{"escape"}, StopCommand: "/exit", ResumeArgs: []string{"--continue"}}
+	return harness.Control{
+		StopKeys:      []string{"escape"},
+		StopCommand:   "/exit",
+		ResumeArgs:    []string{"--continue"},
+		ResumeMarkers: []string{"Resume from summary"},
+	}
 }
 
 func (a fixtureAdapter) Kind() harness.Kind {
@@ -968,32 +973,33 @@ func (g *treehouseGit) EnsureSeeded(context.Context, string) (bool, error) {
 }
 
 type herdrRunner struct {
-	events          *[]string
-	worktree        string
-	session         string
-	workspaceID     string
-	paneID          string
-	agentStatus     string
-	agentErr        error
-	startErr        error
-	captureErr      error
-	missingPaneID   bool
-	trustDialog     bool
-	trustDialogText string
-	manifests       []string
-	calls           int
-	literal         string
-	literals        []string
-	startName       string
-	startKind       string
-	startArgs       []string
-	prompt          string
-	keys            []string
-	agentCalls      int
-	enterKeys       int
-	agentNotFound   bool
-	captureCount    int
+	events           *[]string
+	worktree         string
+	session          string
+	workspaceID      string
+	paneID           string
+	agentStatus      string
+	agentErr         error
+	startErr         error
+	captureErr       error
+	missingPaneID    bool
+	trustDialog      bool
+	trustDialogText  string
+	manifests        []string
+	calls            int
+	literal          string
+	literals         []string
+	startName        string
+	startKind        string
+	startArgs        []string
+	prompt           string
+	keys             []string
+	agentCalls       int
+	enterKeys        int
+	agentNotFound    bool
+	captureCount     int
 	corruptCaptureAt int
+	corruptCaptures  int
 }
 
 func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -1127,7 +1133,7 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 			return execx.Result{Stdout: []byte(text)}, nil
 		}
 		if r.literal != "" {
-			if r.corruptCaptureAt > 0 && r.captureCount == r.corruptCaptureAt {
+			if r.corruptCaptureAt > 0 && r.captureCount >= r.corruptCaptureAt && r.captureCount < r.corruptCaptureAt+max(1, r.corruptCaptures) {
 				// Simulate the first-instruction corruption: leading characters
 				// eaten so the remainder reads as a bogus slash command.
 				return execx.Result{Stdout: []byte("/ef" + r.literal[2:] + "\n")}, nil
@@ -1248,5 +1254,28 @@ func TestSpawnRetriesInstructionDeliveryWhenReadbackCorrupts(t *testing.T) {
 	}
 	if len(fixture.runner.literals) != 3 {
 		t.Errorf("literals = %q, want prefix plus two instruction deliveries", fixture.runner.literals)
+	}
+}
+
+// A harness takes seconds to boot; the first instruction used to be typed
+// 300ms after the agent started and abandoned after three tries inside two
+// seconds. Every goblin resumed on a loaded machine then failed delivery
+// while its harness was still coming up.
+func TestSpawnKeepsRetryingInstructionDeliveryWhileTheHarnessIsStillBooting(t *testing.T) {
+	fixture := newFixture(t)
+	// Twenty consecutive read-backs come back corrupted - far past the three
+	// attempts the old budget allowed - before the composer finally accepts.
+	fixture.runner.corruptCaptureAt = 3
+	fixture.runner.corruptCaptures = 20
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if !strings.Contains(result.Output, "spawned task-7") {
+		t.Errorf("Output = %q, want the spawn to survive a slow harness boot", result.Output)
+	}
+	if len(fixture.runner.literals) != 22 {
+		t.Errorf("literals = %d, want the prefix plus twenty-one instruction deliveries", len(fixture.runner.literals))
 	}
 }

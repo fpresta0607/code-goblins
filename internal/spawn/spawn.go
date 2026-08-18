@@ -28,7 +28,7 @@ const (
 	launchSettle       = 300 * time.Millisecond
 	launchConfirmPoll  = 1500 * time.Millisecond
 	launchConfirmTries = 80
-	instructionTries   = 3
+	instructionTries   = 60
 )
 
 // Request is the complete local task creation input. Ship delivery posture is
@@ -631,11 +631,22 @@ func (s Service) paneAlive(ctx context.Context, client *herdr.Client, target her
 // deliverVerifiedInstruction types one instruction into the pane composer,
 // reads it back, and submits it only once the read-back shows it intact. A
 // mismatch (leading characters eaten by a too-early first keystroke) clears
-// the composer and retries. This protects the first instruction after launch,
-// which is the moment most exposed to a harness that is not yet focused.
+// the composer and retries on the launch poll interval. This protects the
+// first instruction after launch, which is the moment most exposed to a
+// harness that is not yet focused, and the retry budget is sized for harness
+// boot rather than for a focus glitch: a harness that needs a minute to come
+// up must not read as a delivery failure.
 func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.Client, target herdr.Target, kind harness.Kind, instruction string) error {
 	for attempt := 0; attempt < instructionTries; attempt++ {
 		if attempt > 0 {
+			// A mismatch almost always means the harness composer was not
+			// accepting keystrokes yet: a harness takes seconds to boot,
+			// far longer than launchSettle. Waiting a full poll interval
+			// before retyping turns this loop into the readiness gate the
+			// first instruction never had.
+			if err := s.sleep(ctx, launchConfirmPoll); err != nil {
+				return fmt.Errorf("spawn: wait before retyping instruction: %w", err)
+			}
 			if err := client.SendKey(ctx, target, "Ctrl+U"); err != nil {
 				return fmt.Errorf("spawn: clear composer before retyping instruction: %w", err)
 			}
@@ -660,7 +671,7 @@ func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.C
 			return nil
 		}
 	}
-	return fmt.Errorf("spawn: instruction read-back did not match after %d attempts", instructionTries)
+	return fmt.Errorf("spawn: instruction read-back did not match within %ds", int(launchConfirmPoll.Seconds()*instructionTries))
 }
 
 // instructionIntact reports whether instruction survived typing intact in the

@@ -186,8 +186,20 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		if writeErr := s.publishSwitch(&meta, target); writeErr != nil {
 			err = errors.Join(err, writeErr)
 		}
-		recovery := fmt.Sprintf("the pane now has no harness: %s was stopped and %s did not start. Work in %s is untouched; start one with `cfo switch %s --harness <h>`",
-			from, describe(string(target.Harness), target.Model, target.Effort), worktree, req.ID)
+		// The failure may have come after the new harness was already
+		// running - a rejected instruction read-back, for instance - so the
+		// pane is re-probed before it is described. Reporting an empty pane
+		// that actually holds a live agent sends the operator to `cfo switch`
+		// again, which would stop a working goblin and lose its context.
+		to := describe(string(target.Harness), target.Model, target.Effort)
+		var recovery string
+		if s.paneAlive(ctx, &herdrClient, paneTarget) {
+			recovery = fmt.Sprintf("the pane still holds a live %s agent: it started but the switch did not complete cleanly. Work in %s is untouched. Steer the pane directly or inspect it with `cfo peek %s` - do NOT rerun `cfo switch`, which would stop a running harness.",
+				to, worktree, req.ID)
+		} else {
+			recovery = fmt.Sprintf("the pane now has no harness: %s was stopped and %s did not start. Work in %s is untouched; start one with `cfo switch %s --harness <h>`",
+				from, to, worktree, req.ID)
+		}
 		if errors.Is(err, errBuildLaunch) {
 			recovery += " If the new harness refused an effort, retry with `--effort default` to clear it."
 		}
@@ -246,9 +258,16 @@ func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, pane
 	}
 
 	if resumed {
+		control := adapter.Control()
 		// ResumeArgs lead because codex takes its resume as a subcommand.
-		launch.Args = append(append([]string{}, adapter.Control().ResumeArgs...), launch.Args...)
+		launch.Args = append(append([]string{}, control.ResumeArgs...), launch.Args...)
 		launch.Instruction = resumeInstruction(meta, target)
+		// A resume can open the harness's interactive resume dialog before
+		// the composer accepts input (claude asks how to resume a large idle
+		// session; summary is its default). Registering the dialog's markers
+		// lets the startup-dialog loop clear it, so the resume instruction is
+		// not typed into a dialog and read back as a mismatch.
+		launch.ConfirmMarkers = append(launch.ConfirmMarkers, control.ResumeMarkers...)
 	} else {
 		handoff, err = s.writeHandoff(ctx, meta, target, worktree, briefPath, dirty)
 		if err != nil {

@@ -61,5 +61,11 @@ func (claudeAdapter) Control() Control {
 		StopKeys:    []string{"escape"},
 		StopCommand: "/exit",
 		ResumeArgs:  []string{"--continue"},
+		// Resuming a session that sat idle past its prompt-cache lifetime
+		// opens Claude's resume dialog ("Resume from summary" / "Resume full
+		// session as-is" / "Don't ask me again"). Summary is the highlighted
+		// default and the right choice for a goblin, so the standard confirm
+		// Enter accepts it once a marker is on screen.
+		ResumeMarkers: []string{"Resume from summary", "Resume full session as-is"},
 	}
 }
