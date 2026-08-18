@@ -254,7 +254,7 @@ func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, pane
 		if err != nil {
 			return "", false, err
 		}
-		launch.Instruction = handoffInstruction(handoff, briefPath)
+		launch.Instruction = handoffInstruction(handoff, briefPath, id)
 	}
 
 	if _, err := s.startHarness(ctx, client, paneTarget, launchPlan{
@@ -483,17 +483,17 @@ func (s Service) writeHandoff(ctx context.Context, meta state.TaskMeta, target s
 	return path, nil
 }
 
-func handoffInstruction(handoff, briefPath string) string {
+func handoffInstruction(handoff, briefPath, id string) string {
 	instruction := "You are taking over a task in progress. Read the handoff at " + handoff + " first"
 	if briefPath != "" {
 		instruction += ", then the brief at " + briefPath
 	}
-	return instruction + ", then continue the work."
+	return instruction + ", then continue the work." + notifyInstruction(id)
 }
 
 func resumeInstruction(meta state.TaskMeta, target switchTarget) string {
 	return fmt.Sprintf("Your session was restarted as %s (was %s). Your prior context is intact; continue the task where you left off.",
-		describe(string(target.Harness), target.Model, target.Effort), describe(meta.Harness, meta.Model, meta.Effort))
+		describe(string(target.Harness), target.Model, target.Effort), describe(meta.Harness, meta.Model, meta.Effort)) + notifyInstruction(meta.ID)
 }
 
 // recentStatus returns the tail of the task's status log, which is the only
