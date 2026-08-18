@@ -1031,7 +1031,7 @@ func TestScanHoldsQuietADoneAgentWithTerminalVerb(t *testing.T) {
 	}
 }
 
-func TestScanWakesDoneAgentWithStaleParkedVerb(t *testing.T) {
+func TestScanHoldsQuietADoneAgentWithFreshParkedVerb(t *testing.T) {
 	for _, statusLine := range []string{"blocked: Should I merge this?", "needs-decision: pick a name", "checks-passed: green gate awaiting merge"} {
 		t.Run(statusLine, func(t *testing.T) {
 			stateDir := t.TempDir()
@@ -1044,17 +1044,88 @@ func TestScanWakesDoneAgentWithStaleParkedVerb(t *testing.T) {
 			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, herdr.AgentDone, "turn ended")}}
 			service := testService(stateDir, probe, &now)
 
-			result, err := service.Scan(context.Background())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if result.Event == nil || result.Observations[0].Reason != AwaitingAnswer {
-				t.Fatalf("done scan = %+v, want an awaiting-input wake despite the stale parked verb", result)
-			}
-			if result.Observations[0].Health != HealthStale {
-				t.Fatalf("health = %q, want stale", result.Observations[0].Health)
+			for i := 0; i < 3; i++ {
+				result, err := service.Scan(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Event != nil {
+					t.Fatalf("cycle %d woke a done agent with a fresh parked verb: %+v", i, result.Event)
+				}
+				if result.Observations[0].Health != HealthParked || result.Observations[0].Reason != AwaitingDecision {
+					t.Fatalf("cycle %d observation = %+v, want parked/awaiting_decision", i, result.Observations[0])
+				}
+				now = now.Add(time.Minute)
 			}
 		})
+	}
+}
+
+func TestScanWakesDoneAgentWithStaleParkedVerbAfterCountersAdvance(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	if err := state.AppendStatus(stateDir, "g1", "blocked: waiting for approval"); err != nil {
+		t.Fatal(err)
+	}
+	sample := sampleForStatus(meta, herdr.AgentDone, "turn ended")
+	sample.StateChangeSeq = 10
+	sample.Revision = 3
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sample}}
+	service := testService(stateDir, probe, &now)
+
+	first, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Event != nil || first.Observations[0].Health != HealthParked {
+		t.Fatalf("fresh parked scan = %+v, want parked without event", first)
+	}
+
+	sample.StateChangeSeq = 11
+	probe.samples["g1"] = sample
+	now = now.Add(time.Minute)
+	done, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Event == nil || done.Observations[0].Reason != AwaitingAnswer {
+		t.Fatalf("done-after-counter-advance scan = %+v, want an awaiting-input wake despite the stale parked verb", done)
+	}
+}
+
+func TestScanWakesDoneAgentWithStaleTerminalVerbAfterCountersAdvance(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	if err := state.AppendStatus(stateDir, "g1", "done: PR https://example.com/repo/pull/7"); err != nil {
+		t.Fatal(err)
+	}
+	sample := sampleForStatus(meta, herdr.AgentDone, "turn ended")
+	sample.StateChangeSeq = 20
+	sample.Revision = 5
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sample}}
+	service := testService(stateDir, probe, &now)
+
+	first, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Event != nil || first.Observations[0].Health != HealthIdle {
+		t.Fatalf("fresh terminal scan = %+v, want idle without event", first)
+	}
+
+	sample.StateChangeSeq = 21
+	probe.samples["g1"] = sample
+	now = now.Add(time.Minute)
+	done, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Event == nil || done.Observations[0].Reason != AwaitingAnswer {
+		t.Fatalf("done-after-counter-advance scan = %+v, want an awaiting-input wake despite the stale terminal verb", done)
 	}
 }
 

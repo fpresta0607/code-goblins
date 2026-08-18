@@ -256,7 +256,7 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		// The agent's turn ended and it is waiting on input - finished or
 		// blocked. This is the harness-agnostic wake the pane heuristics were
 		// blind to.
-		if gated, ok := s.statusVerbObservation(observation, meta.ID, now, sample.Status); ok {
+		if gated, ok := s.statusVerbObservation(observation, meta.ID, now, sample); ok {
 			return gated
 		}
 		return awaitingInputObservation(observation, now)
@@ -334,31 +334,31 @@ func workingObservation(observation Observation, sample EndpointSample, now time
 // pauses, or terminates the goblin, along with whether such a verb is present.
 // These verbs win over liveness because cfo notify (or the watcher's decision
 // signal) already woke the CFO, so the monitor must hold the pane quiet.
-func (s Service) statusVerbObservation(observation Observation, id string, now time.Time, status string) (Observation, bool) {
+func (s Service) statusVerbObservation(observation Observation, id string, now time.Time, sample EndpointSample) (Observation, bool) {
 	verb, line, ok := s.latestStatusVerb(id)
 	if !ok || line <= observation.ConsumedVerbLine {
 		return observation, false
 	}
-	switch status {
-	case herdr.AgentDone:
-		if parkedDecisionVerb(verb) {
-			return observation, false
-		}
-	case herdr.AgentBlocked:
-		if terminalVerb(verb) {
-			return observation, false
-		}
+	if observation.GatedVerbLine > 0 && line <= observation.GatedVerbLine &&
+		(sample.StateChangeSeq > observation.GatedStateChangeSeq || sample.Revision > observation.GatedRevision) {
+		return observation, false
 	}
 	if verb == "paused" {
 		observation.GatedVerbLine = line
+		observation.GatedStateChangeSeq = sample.StateChangeSeq
+		observation.GatedRevision = sample.Revision
 		return s.pauseObservation(observation, now), true
 	}
 	if parkedDecisionVerb(verb) {
 		observation.GatedVerbLine = line
+		observation.GatedStateChangeSeq = sample.StateChangeSeq
+		observation.GatedRevision = sample.Revision
 		return s.parkedObservation(observation, now), true
 	}
 	if terminalVerb(verb) {
 		observation.GatedVerbLine = line
+		observation.GatedStateChangeSeq = sample.StateChangeSeq
+		observation.GatedRevision = sample.Revision
 		return s.terminalObservation(observation, now), true
 	}
 	return observation, false
@@ -368,7 +368,7 @@ func (s Service) statusVerbObservation(observation Observation, id string, now t
 // revision (or a status-log write) is liveness: the goblin is working. Only a
 // pane with no counter movement for the stall window is genuinely wedged.
 func (s Service) idleClassification(observation Observation, sample EndpointSample, id string, now time.Time) Observation {
-	if gated, ok := s.statusVerbObservation(observation, id, now, sample.Status); ok {
+	if gated, ok := s.statusVerbObservation(observation, id, now, sample); ok {
 		return gated
 	}
 
