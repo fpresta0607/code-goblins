@@ -1095,6 +1095,40 @@ func TestScanWakesDoneAgentWithStaleParkedVerbAfterCountersAdvance(t *testing.T)
 	}
 }
 
+func TestScanHoldsQuietParkedVerbWhenOnlyRevisionAdvances(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	if err := state.AppendStatus(stateDir, "g1", "blocked: waiting for approval"); err != nil {
+		t.Fatal(err)
+	}
+	sample := sampleForStatus(meta, herdr.AgentDone, "turn ended")
+	sample.StateChangeSeq = 10
+	sample.Revision = 3
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sample}}
+	service := testService(stateDir, probe, &now)
+
+	first, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Event != nil || first.Observations[0].Health != HealthParked {
+		t.Fatalf("fresh parked scan = %+v, want parked without event", first)
+	}
+
+	sample.Revision = 4
+	probe.samples["g1"] = sample
+	now = now.Add(time.Minute)
+	second, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Event != nil || second.Observations[0].Health != HealthParked {
+		t.Fatalf("revision-only-advance scan = %+v, want still parked without event", second)
+	}
+}
+
 func TestScanWakesDoneAgentWithStaleTerminalVerbAfterCountersAdvance(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
