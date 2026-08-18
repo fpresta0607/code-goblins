@@ -36,6 +36,7 @@ type Service struct {
 	Now                   func() time.Time
 	StaleEscalateAfter    time.Duration
 	StallAfter            time.Duration
+	LaunchGrace           time.Duration
 	BusyTurnMax           time.Duration
 	PauseResurfaceAfter   time.Duration
 	DemandInspectionAfter int
@@ -214,9 +215,10 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		}
 		// A freshly created task publishes its metadata before the harness can
 		// register, so a present pane with no agent yet is still launching,
-		// not harness death. Stay quiet until it has been observed alive once;
-		// after that a missing agent is a real death and wakes normally.
-		if sample.Verdict == ProbePresent && sample.Agent == herdr.AgentDead && prior.LastSeen.IsZero() {
+		// not harness death. Stay quiet only within the launch budget: a task
+		// whose agent registers and dies before it is ever observed alive must
+		// not stay "launching" forever, so past the budget it wakes as death.
+		if sample.Verdict == ProbePresent && sample.Agent == herdr.AgentDead && prior.LastSeen.IsZero() && now.Before(s.launchDeadline(meta)) {
 			return launchingObservation(observation, now)
 		}
 		return unknownObservation(observation, EndpointUnknown, detail, now)
@@ -375,12 +377,14 @@ func (s Service) idleObservation(observation Observation, now time.Time) Observa
 	return s.staleObservation(observation, UnchangedIdle, now)
 }
 
-// awaitingAnswer reports whether a pane tail ends with a substantive question
-// the goblin is parked on, waiting for an answer. Pi has no interactive dialog
-// widget, so a parked question reads as merely "idle" to herdr; the pane text
-// is the only signal. Only a question-mark-terminated line near the tail (after
-// skipping empty and prompt/footer lines) counts. The goblin's own cfo notify
-// confirmation is never a question: it is the goblin reporting one.
+// awaitingAnswer reports whether a pane tail is parked on a substantive
+// question the goblin asked and is waiting to have answered. Pi has no
+// interactive dialog widget, so a parked question reads as merely "idle" to
+// herdr; the pane text is the only signal. The question must be the final
+// substantive line - any later output means the goblin moved on - and must not
+// be an interactive confirmation prompt (a script's "[y/N]", not a question to
+// the CFO). The goblin's own cfo notify confirmation is never a question: it
+// is the goblin reporting one.
 func awaitingAnswer(capture []byte) (string, bool) {
 	lines := strings.Split(strings.TrimRight(string(capture), "\r\n"), "\n")
 	if len(lines) > 20 {
@@ -391,15 +395,25 @@ func awaitingAnswer(capture []byte) (string, bool) {
 		if line == "" || isNotifyEcho(line) {
 			continue
 		}
-		if !strings.HasSuffix(line, "?") {
-			continue
-		}
-		if len(line) < 6 {
-			continue
+		if !strings.HasSuffix(line, "?") || len(line) < 6 || isConfirmationPrompt(line) {
+			return "", false
 		}
 		return line, true
 	}
 	return "", false
+}
+
+// isConfirmationPrompt reports whether a line is a machine confirmation prompt
+// (a script offering a y/n or yes/no choice) rather than a question a goblin
+// is asking the CFO.
+func isConfirmationPrompt(line string) bool {
+	lower := strings.ToLower(line)
+	for _, marker := range []string{"[y/n]", "(y/n)", "[yes/no]", "(yes/no)"} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // isNotifyEcho reports whether a pane line is the goblin's own cfo notify
@@ -580,6 +594,18 @@ func (s Service) declaredPaused(id string) bool {
 	return false
 }
 
+// launchDeadline bounds the launch-in-progress grace to the task's spawn time
+// plus a launch budget. A task whose agent registers and dies before the
+// monitor ever observes it alive would otherwise be "launching" forever; after
+// the budget it is classified as a dead endpoint and wakes normally.
+func (s Service) launchDeadline(meta state.TaskMeta) time.Time {
+	info, err := os.Stat(filepath.Join(s.StateDir, meta.ID+".meta"))
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime().Add(s.launchGrace())
+}
+
 func (s Service) busyReference(id string) time.Time {
 	var latest time.Time
 	for _, path := range []string{filepath.Join(s.StateDir, id+".meta"), filepath.Join(s.StateDir, id+".turn-ended")} {
@@ -674,6 +700,13 @@ func (s Service) stallAfter() time.Duration {
 		return s.StallAfter
 	}
 	return 10 * time.Minute
+}
+
+func (s Service) launchGrace() time.Duration {
+	if s.LaunchGrace > 0 {
+		return s.LaunchGrace
+	}
+	return 5 * time.Minute
 }
 
 // statusStamp is the status log's size and mtime as a cheap liveness signal.
