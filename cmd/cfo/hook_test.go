@@ -835,7 +835,7 @@ func TestAutoarmCleanWhenNeedVanishes(t *testing.T) {
 			}
 			time.Sleep(time.Millisecond)
 		}
-		_ = os.WriteFile(filepath.Join(state, "g1.status"), []byte("done\n"), 0o644)
+		_ = os.WriteFile(filepath.Join(state, "g1.status"), []byte("failed: done\n"), 0o644)
 		_ = os.Remove(filepath.Join(state, "g1.meta"))
 	}()
 	defer func() { <-done }()
@@ -868,7 +868,7 @@ func TestAutoarmRewakeOnSignal(t *testing.T) {
 	go func() {
 		defer close(done)
 		time.Sleep(300 * time.Millisecond)
-		_ = os.WriteFile(filepath.Join(state, "g1.status"), []byte("done\n"), 0o644)
+		_ = os.WriteFile(filepath.Join(state, "g1.status"), []byte("failed: done\n"), 0o644)
 	}()
 	defer func() { <-done }()
 

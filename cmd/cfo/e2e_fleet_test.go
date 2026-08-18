@@ -348,20 +348,26 @@ func (f *fleetE2EFixture) ScanStaleEscalation(id string) {
 	f.t.Helper()
 	f.runner.busy[id] = herdr.BusyIdle
 	f.now = f.now.Add(time.Second)
-	first := f.scan()
-	firstObservation := observationFor(f.t, first.Observations, id)
-	if first.Event == nil || first.Event.Kind != "stale" || firstObservation.Health != monitor.HealthStale || firstObservation.Escalation != 0 {
-		f.t.Fatalf("first stale scan observation=%+v event=%+v", firstObservation, first.Event)
+	idle := f.scan()
+	idleObservation := observationFor(f.t, idle.Observations, id)
+	if idle.Event != nil || idleObservation.Health != monitor.HealthIdle {
+		f.t.Fatalf("idle scan observation=%+v event=%+v, want idle grace without event", idleObservation, idle.Event)
 	}
-	f.publish(*first.Event)
 
 	f.now = f.now.Add(time.Minute)
-	escalated := f.scan()
-	observation := observationFor(f.t, escalated.Observations, id)
-	if escalated.Event == nil || observation.Escalation != 1 || observation.DemandDeepInspection {
-		f.t.Fatalf("first escalation observation=%+v event=%+v", observation, escalated.Event)
+	stalled := f.scan()
+	stalledObservation := observationFor(f.t, stalled.Observations, id)
+	if stalled.Event == nil || stalled.Event.Kind != "stale" || stalledObservation.Health != monitor.HealthStale {
+		f.t.Fatalf("stall scan observation=%+v event=%+v, want one stall wake", stalledObservation, stalled.Event)
 	}
-	f.publish(*escalated.Event)
+	f.publish(*stalled.Event)
+
+	// Dedupe: the same stall does not re-wake, however long it lasts.
+	f.now = f.now.Add(time.Minute)
+	quiet := f.scan()
+	if quiet.Event != nil {
+		f.t.Fatalf("dedupe scan event=%+v, want no re-wake for the unchanged stall", quiet.Event)
+	}
 }
 
 func (f *fleetE2EFixture) AssertHeartbeatPersistsAcrossRestart() {
@@ -381,40 +387,28 @@ func (f *fleetE2EFixture) AssertHeartbeatPersistsAcrossRestart() {
 
 func (f *fleetE2EFixture) AssertDurableWakesAndDeepInspection(id string) {
 	f.t.Helper()
-	heartbeat, err := monitor.ReadHeartbeat(f.home.State)
-	if err != nil {
-		f.t.Fatal(err)
+	// A stale goblin is doing its job: after its single stall wake, neither the
+	// heartbeat nor the escalation ladder re-wakes it.
+	f.now = f.now.Add(2 * time.Minute)
+	resurfaced := f.scan()
+	if resurfaced.Event != nil {
+		f.t.Fatalf("stale goblin was re-woken: event=%+v", resurfaced.Event)
 	}
-	f.now = heartbeat.NextDue
-	heartbeatResult := f.scan()
-	if heartbeatResult.Event == nil || heartbeatResult.Event.Source != monitor.HeartbeatEvent {
-		f.t.Fatalf("heartbeat scan event=%+v, want durable heartbeat", heartbeatResult.Event)
-	}
-	f.publish(*heartbeatResult.Event)
-
-	f.now = f.now.Add(time.Second)
-	deep := f.scan()
-	observation := observationFor(f.t, deep.Observations, id)
-	if deep.Event == nil || observation.Escalation != 2 || !observation.DemandDeepInspection || !strings.Contains(deep.Event.Detail, "demand-deep-inspection") {
-		f.t.Fatalf("deep-inspection scan observation=%+v event=%+v", observation, deep.Event)
-	}
-	f.publish(*deep.Event)
 
 	records, err := wake.Pending(f.home.State)
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	var stale, heartbeatWake bool
+	var stale bool
 	for _, record := range records {
 		stale = stale || record.Kind == "stale"
-		heartbeatWake = heartbeatWake || record.Kind == "heartbeat"
 	}
-	if !stale || !heartbeatWake {
-		f.t.Fatalf("durable wakes=%+v, want stale and heartbeat records", records)
+	if !stale {
+		f.t.Fatalf("durable wakes=%+v, want the stall wake", records)
 	}
 
 	var stdout, stderr bytes.Buffer
-	if exit := run([]string{"drain"}, &stdout, &stderr); exit != 0 || stderr.Len() != 0 || !strings.Contains(stdout.String(), "stale") || !strings.Contains(stdout.String(), "heartbeat") {
+	if exit := run([]string{"drain"}, &stdout, &stderr); exit != 0 || stderr.Len() != 0 || !strings.Contains(stdout.String(), "stale") {
 		f.t.Fatalf("cfo drain exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
 	}
 }
@@ -449,7 +443,7 @@ func (f *fleetE2EFixture) AssertFleetJSONAndMarkdownParity() {
 		f.t.Fatalf("fleet tasks=%d, want 3", len(snapshot.Tasks))
 	}
 	claude := taskRowFor(f.t, snapshot.Tasks, "claude")
-	if claude.Current.State != crewstate.Working || claude.Current.Source != crewstate.SourceStatus || claude.Monitor.Health != monitor.HealthStale || claude.Monitor.StaleSeconds <= 0 || claude.Monitor.Escalation != 2 || !claude.Monitor.DemandDeepInspection || claude.Monitor.LastSeen == nil || claude.Endpoint.Exists == nil || !*claude.Endpoint.Exists {
+	if claude.Current.State != crewstate.Working || claude.Current.Source != crewstate.SourceStatus || claude.Monitor.Health != monitor.HealthStale || claude.Monitor.StaleSeconds <= 0 || claude.Monitor.Escalation < 2 || !claude.Monitor.DemandDeepInspection || claude.Monitor.LastSeen == nil || claude.Endpoint.Exists == nil || !*claude.Endpoint.Exists {
 		f.t.Fatalf("Claude fleet row=%+v", claude)
 	}
 	codex := taskRowFor(f.t, snapshot.Tasks, "codex")
@@ -470,7 +464,7 @@ func (f *fleetE2EFixture) AssertFleetJSONAndMarkdownParity() {
 		"stale",
 		(time.Duration(claude.Monitor.StaleSeconds) * time.Second).String(),
 		claude.Monitor.LastSeen.UTC().Format(time.RFC3339),
-		"2",
+		strconv.Itoa(claude.Monitor.Escalation),
 		"yes",
 		claude.Kind,
 		claude.Project,
@@ -578,6 +572,7 @@ func (f *fleetE2EFixture) monitorService() monitor.Service {
 		Probe:                 f.prober,
 		Now:                   func() time.Time { return f.now },
 		StaleEscalateAfter:    time.Minute,
+		StallAfter:            time.Minute,
 		BusyTurnMax:           10 * time.Minute,
 		DemandInspectionAfter: 2,
 		Heartbeat:             time.Minute,
@@ -717,7 +712,12 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 		if hasArgument(args, "--format") {
 			return result(strings.Repeat("terminal line\n", 199) + "❯\n"), nil
 		}
+		if r.lastText != "" {
+			return result(r.lastText + "\n"), nil
+		}
 		return result(strings.Repeat("terminal line\n", 199) + "acceptance marker\n"), nil
+	case matches(args, "tab", "close"):
+		return resultEnvelope(map[string]any{}), nil
 	case matches(args, "agent", "get"):
 		return resultEnvelope(map[string]any{"agent": map[string]string{"agent": "claude", "agent_status": "working"}}), nil
 	case matches(args, "agent", "start"):
@@ -787,6 +787,10 @@ func (g *fleetE2EGit) FetchAndFreshen(_ context.Context, dir string) error {
 	}
 	g.freshened = append(g.freshened, dir)
 	return nil
+}
+
+func (g *fleetE2EGit) EnsureSeeded(context.Context, string) (bool, error) {
+	return false, nil
 }
 
 func (g *fleetE2EGit) Return(_ context.Context, project, worktree string) error {

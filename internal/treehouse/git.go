@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -83,6 +85,94 @@ func (g RunnerGit) FetchAndFreshen(ctx context.Context, dir string) error {
 		return fmt.Errorf("treehouse: refreshed HEAD is %q, want %q", actual, expected)
 	}
 	return nil
+}
+
+// EnsureSeeded makes an unborn or empty primary project a real repository with
+// one commit on its current branch pushed to origin, so treehouse can lease a
+// worktree against refs/remotes/origin/<branch>. A freshly created empty GitHub
+// repo has no commits, so `treehouse get --lease` dies on the invalid remote
+// branch reference. It reports true only when it seeded a commit. A repo that
+// already has a commit is left untouched; a repo with files but no commit is
+// refused with the fix named rather than silently committed.
+func (g RunnerGit) EnsureSeeded(ctx context.Context, project string) (bool, error) {
+	result, err := g.command(ctx, project, "git", "rev-parse", "--verify", "--quiet", "HEAD")
+	if err != nil {
+		return false, fmt.Errorf("treehouse: inspect %q for an existing commit: %w", project, err)
+	}
+	if result.ExitCode == 0 && strings.TrimSpace(string(result.Stdout)) != "" {
+		return false, nil
+	}
+
+	// Unborn HEAD: only a genuinely empty repository is safe to seed. A repo
+	// that already carries files must not be committed over by the fleet.
+	status, err := g.command(ctx, project, "git", "status", "--porcelain", "--untracked-files=all")
+	if err != nil {
+		return false, fmt.Errorf("treehouse: inspect %q contents: %w", project, err)
+	}
+	if strings.TrimSpace(string(status.Stdout)) != "" {
+		return false, fmt.Errorf("treehouse: project %q has no commits and contains files; commit them (or seed an initial commit) before spawning so a worktree can be leased", project)
+	}
+
+	if !g.hasOrigin(ctx, project) {
+		return false, fmt.Errorf("treehouse: project %q has no commits and no origin remote; add an origin (or commit and push) before spawning so a worktree can be leased", project)
+	}
+	branch, err := g.unbornBranch(ctx, project)
+	if err != nil {
+		return false, err
+	}
+
+	if err := os.WriteFile(filepath.Join(project, "README.md"), []byte("# "+repoName(project)+"\n"), 0o644); err != nil {
+		return false, fmt.Errorf("treehouse: seed %q: %w", project, err)
+	}
+	if _, err := g.required(ctx, project, "git", "add", "README.md"); err != nil {
+		return false, fmt.Errorf("treehouse: stage seeded commit in %q: %w", project, err)
+	}
+	if _, err := g.required(ctx, project, "git", "-c", "user.name=Code Goblins", "-c", "user.email=code-goblins@localhost", "commit", "-m", "Initial commit"); err != nil {
+		return false, fmt.Errorf("treehouse: seed initial commit in %q: %w", project, err)
+	}
+	if _, err := g.required(ctx, project, "git", "push", "-u", "origin", branch); err != nil {
+		return false, fmt.Errorf("treehouse: push seeded commit in %q: %w", project, err)
+	}
+	return true, nil
+}
+
+// hasOrigin reports whether the project lists an origin remote, so seeding can
+// push before treehouse tries to branch a worktree from origin/<branch>.
+func (g RunnerGit) hasOrigin(ctx context.Context, project string) bool {
+	result, err := g.command(ctx, project, "git", "remote")
+	if err != nil || result.ExitCode != 0 {
+		return false
+	}
+	for _, line := range strings.Split(string(result.Stdout), "\n") {
+		if strings.TrimSpace(line) == "origin" {
+			return true
+		}
+	}
+	return false
+}
+
+// unbornBranch returns the branch HEAD points at before its first commit.
+func (g RunnerGit) unbornBranch(ctx context.Context, project string) (string, error) {
+	result, err := g.command(ctx, project, "git", "symbolic-ref", "--quiet", "--short", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("treehouse: read %q current branch: %w", project, err)
+	}
+	if result.ExitCode != 0 {
+		return "", fmt.Errorf("treehouse: project %q has no commits and no current branch; create a branch, commit, and push before spawning", project)
+	}
+	branch := strings.TrimSpace(string(result.Stdout))
+	if branch == "" || strings.ContainsAny(branch, "\r\n") {
+		return "", fmt.Errorf("treehouse: project %q current branch %q is malformed", project, branch)
+	}
+	return branch, nil
+}
+
+func repoName(project string) string {
+	name := filepath.Base(filepath.Clean(project))
+	if name == "" || name == "." || name == string(filepath.Separator) {
+		return "repository"
+	}
+	return name
 }
 
 // Return invokes treehouse from the primary project directory. It retries only

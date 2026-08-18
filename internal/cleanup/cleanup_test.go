@@ -77,6 +77,10 @@ func (g *cleanupGit) Return(_ context.Context, project, worktree string) error {
 	return g.returnErr
 }
 
+func (g *cleanupGit) EnsureSeeded(context.Context, string) (bool, error) {
+	return false, nil
+}
+
 type cleanupFixture struct {
 	stateDir string
 	project  string

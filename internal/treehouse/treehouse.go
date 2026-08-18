@@ -20,6 +20,13 @@ type Git interface {
 	WorktreeTop(ctx context.Context, dir string) (string, error)
 	FetchAndFreshen(ctx context.Context, dir string) error
 	Return(ctx context.Context, project, worktree string) error
+	// EnsureSeeded makes an unborn or empty primary project a real repository
+	// with one commit on its default branch pushed to origin, so treehouse can
+	// lease a worktree against refs/remotes/origin/<branch>. A freshly created
+	// empty GitHub repo has no commits, so `treehouse get --lease` dies on the
+	// invalid remote-branch reference. It reports whether it seeded anything; a
+	// repo that already has a commit is left untouched.
+	EnsureSeeded(ctx context.Context, project string) (bool, error)
 }
 
 // Service coordinates a single treehouse worktree lifecycle.
