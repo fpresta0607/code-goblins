@@ -102,6 +102,55 @@ func TestCaptureEvidenceRefusesEmptyRead(t *testing.T) {
 	}
 }
 
+func TestAgentListParsesTypedEnvelopeAndRejectsErrors(t *testing.T) {
+	t.Run("typed result", func(t *testing.T) {
+		runner := &fakeRunner{replies: []runnerReply{rawReply(`{"id":"cli:agent:list","result":{"type":"agent_list","agents":[{"agent":"claude","agent_status":"working","pane_id":"w3:p1","tab_id":"w3:t1","workspace_id":"w3","state_change_seq":1,"revision":1}]}}`)} }
+		var sleeps []time.Duration
+		client := newTestClient(runner, &sleeps)
+
+		agents, err := client.AgentList(context.Background())
+		if err != nil {
+			t.Fatalf("AgentList: %v", err)
+		}
+		if len(agents) != 1 || agents[0].Status != "working" || agents[0].PaneID != "w3:p1" {
+			t.Errorf("agents = %+v", agents)
+		}
+		assertRequests(t, runner.Requests(), []execx.Request{
+			command("herdr", "agent", "list", "--session", "fleet"),
+		})
+	})
+
+	t.Run("error envelope", func(t *testing.T) {
+		runner := &fakeRunner{replies: []runnerReply{rawReply(`{"error":{"code":"server_unavailable"}}`)} }
+		var sleeps []time.Duration
+		client := newTestClient(runner, &sleeps)
+
+		if _, err := client.AgentList(context.Background()); err == nil || !strings.Contains(err.Error(), "server_unavailable") {
+			t.Fatalf("AgentList error = %v, want server_unavailable", err)
+		}
+	})
+
+	t.Run("wrong type", func(t *testing.T) {
+		runner := &fakeRunner{replies: []runnerReply{rawReply(`{"result":{"type":"workspace_list","agents":[]}}`)} }
+		var sleeps []time.Duration
+		client := newTestClient(runner, &sleeps)
+
+		if _, err := client.AgentList(context.Background()); err == nil || !strings.Contains(err.Error(), `type "workspace_list"`) {
+			t.Fatalf("AgentList error = %v, want wrong type", err)
+		}
+	})
+
+	t.Run("missing agents", func(t *testing.T) {
+		runner := &fakeRunner{replies: []runnerReply{rawReply(`{"result":{"type":"agent_list"}}`)} }
+		var sleeps []time.Duration
+		client := newTestClient(runner, &sleeps)
+
+		if _, err := client.AgentList(context.Background()); err == nil || !strings.Contains(err.Error(), "missing agents") {
+			t.Fatalf("AgentList error = %v, want missing agents", err)
+		}
+	})
+}
+
 func TestEffectiveSessionDefaults(t *testing.T) {
 	if got := (&Client{}).EffectiveSession(); got != "default" {
 		t.Errorf("EffectiveSession = %q, want default", got)

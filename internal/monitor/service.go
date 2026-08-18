@@ -197,10 +197,6 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	observation.TaskID = meta.ID
 	observation.Endpoint = endpointString(meta)
 	observation.LastObserved = now
-	if observation.LastSeen.IsZero() {
-		observation.LastSeen = now
-		observation.LastProgress = now
-	}
 
 	if s.Probe == nil {
 		return unknownObservation(observation, EndpointUnknown, "monitor probe is unavailable", now)
@@ -229,6 +225,10 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	}
 
 	observation.EndpointVerdict = ProbePresent
+	if observation.LastSeen.IsZero() {
+		observation.LastSeen = now
+		observation.LastProgress = now
+	}
 	digest := fmt.Sprintf("%x", sha256.Sum256(sample.Capture))
 
 	// A harness being refused by its provider is checked first: the pane
@@ -246,10 +246,13 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	case herdr.AgentWorking:
 		// Never wake: the goblin is working.
 		return workingObservation(observation, sample, now)
-	case herdr.AgentDone:
+	case herdr.AgentDone, herdr.AgentBlocked:
 		// The agent's turn ended and it is waiting on input - finished or
 		// blocked. This is the harness-agnostic wake the pane heuristics were
 		// blind to.
+		if gated, ok := s.statusVerbObservation(observation, meta.ID, now); ok {
+			return gated
+		}
 		return awaitingInputObservation(observation, now)
 	case herdr.AgentIdle:
 		// Between turns: liveness comes from the agent's own counters and the
@@ -316,18 +319,30 @@ func workingObservation(observation Observation, sample EndpointSample, now time
 	return observation
 }
 
+// statusVerbObservation returns the observation for a status verb that parks,
+// pauses, or terminates the goblin, along with whether such a verb is present.
+// These verbs win over liveness because cfo notify (or the watcher's decision
+// signal) already woke the CFO, so the monitor must hold the pane quiet.
+func (s Service) statusVerbObservation(observation Observation, id string, now time.Time) (Observation, bool) {
+	verb := s.latestStatusVerb(id)
+	if verb == "paused" {
+		return s.pauseObservation(observation, now), true
+	}
+	if parkedDecisionVerb(verb) {
+		return s.parkedObservation(observation, now), true
+	}
+	if terminalVerb(verb) {
+		return s.terminalObservation(observation, now), true
+	}
+	return observation, false
+}
+
 // idleClassification handles agent_status idle. Rising state_change_seq or
 // revision (or a status-log write) is liveness: the goblin is working. Only a
 // pane with no counter movement for the stall window is genuinely wedged.
 func (s Service) idleClassification(observation Observation, sample EndpointSample, id string, now time.Time) Observation {
-	// Status verbs that park or terminate the goblin win over liveness: a
-	// goblin that just wrote "blocked" or "done" is parked, not working.
-	if verb := s.latestStatusVerb(id); verb == "paused" {
-		return s.pauseObservation(observation, now)
-	} else if parkedDecisionVerb(verb) {
-		return s.parkedObservation(observation, now)
-	} else if terminalVerb(verb) {
-		return s.terminalObservation(observation, now)
+	if gated, ok := s.statusVerbObservation(observation, id, now); ok {
+		return gated
 	}
 
 	stamp := s.statusStamp(id)
