@@ -37,12 +37,12 @@ func TestSpawnInjectsProjectCredentialsThroughAFileTheShellSources(t *testing.T)
 
 	// The pane shell only ever sees a path. A credential typed inline would
 	// sit in the pane's scrollback and in every `cfo peek`.
-	if strings.Contains(fixture.runner.literal, "sk_live_do_not_print") {
-		t.Fatalf("the typed launch line disclosed a credential: %q", fixture.runner.literal)
+	if strings.Contains(fixture.runner.literals[0], "sk_live_do_not_print") {
+		t.Fatalf("the typed launch line disclosed a credential: %q", fixture.runner.literals[0])
 	}
 	secrets := filepath.Join(result.Meta.TaskTmp, "auth.ps1")
-	if !strings.Contains(fixture.runner.literal, ". '"+secrets+"'") {
-		t.Fatalf("literal = %q, want it to dot-source %q", fixture.runner.literal, secrets)
+	if !strings.Contains(fixture.runner.literals[0], ". '"+secrets+"'") {
+		t.Fatalf("literal = %q, want it to dot-source %q", fixture.runner.literals[0], secrets)
 	}
 
 	script, err := os.ReadFile(secrets)
@@ -91,8 +91,8 @@ func TestSpawnProceedsWhenAProjectDeclaresNothing(t *testing.T) {
 	if _, statErr := os.Stat(filepath.Join(result.Meta.TaskTmp, "auth.ps1")); !os.IsNotExist(statErr) {
 		t.Errorf("a project with no credentials still got a secrets script: %v", statErr)
 	}
-	if strings.Contains(fixture.runner.literal, "auth.ps1") {
-		t.Errorf("literal = %q, want no dot-source with nothing to inject", fixture.runner.literal)
+	if strings.Contains(fixture.runner.literals[0], "auth.ps1") {
+		t.Errorf("literal = %q, want no dot-source with nothing to inject", fixture.runner.literals[0])
 	}
 }
 
@@ -116,8 +116,8 @@ func TestSpawnKeepsTheHarnessEnvironmentAuthoritative(t *testing.T) {
 	if !strings.Contains(string(script), "$env:SAFE_KEY = 'value'") {
 		t.Errorf("secrets script dropped an unrelated credential:\n%s", script)
 	}
-	if !strings.Contains(fixture.runner.literal, "$env:GOTMPDIR = '"+filepath.Join(result.Meta.TaskTmp, "gotmp")+"'") {
-		t.Errorf("literal = %q, want the harness GOTMPDIR intact", fixture.runner.literal)
+	if !strings.Contains(fixture.runner.literals[0], "$env:GOTMPDIR = '"+filepath.Join(result.Meta.TaskTmp, "gotmp")+"'") {
+		t.Errorf("literal = %q, want the harness GOTMPDIR intact", fixture.runner.literals[0])
 	}
 }
 

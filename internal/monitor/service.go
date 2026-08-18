@@ -35,6 +35,7 @@ type Service struct {
 	Probe                 Prober
 	Now                   func() time.Time
 	StaleEscalateAfter    time.Duration
+	StallAfter            time.Duration
 	BusyTurnMax           time.Duration
 	PauseResurfaceAfter   time.Duration
 	DemandInspectionAfter int
@@ -233,6 +234,7 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		observation.Digest = digest
 		observation.LastSeen = now
 		observation.LastProgress = now
+		observation.IdleSince = nil
 		observation.StaleSince = nil
 		observation.NextEscalation = nil
 		observation.NextPauseResurface = nil
@@ -245,22 +247,32 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 
 	switch sample.Busy {
 	case herdr.BusyWorking:
-		if s.busyReference(meta.ID).Add(s.busyTurnMax()).After(now) {
-			observation.Health = HealthBusy
-			observation.Reason = None
-			observation.StaleSince = nil
-			observation.NextEscalation = nil
-			observation.NextPauseResurface = nil
-			observation.Escalation = 0
-			observation.DemandDeepInspection = false
-			return observation
-		}
-		return s.staleObservation(observation, BusyTurnOverAge, now)
+		return s.busyOrStale(observation, meta.ID, now)
 	case herdr.BusyIdle:
 		if s.declaredPaused(meta.ID) {
 			return s.pauseObservation(observation, now)
 		}
-		return s.staleObservation(observation, UnchangedIdle, now)
+		// A live spinner or rotating glyph is work, not idleness: herdr's
+		// "idle" status is unreliable for an agent that is streaming or
+		// waiting on a subprocess. Treat an active pane as busy.
+		if captureActive(sample.Capture) {
+			return s.busyOrStale(observation, meta.ID, now)
+		}
+		// A pane already classified stale stays stale while its digest is
+		// unchanged, whatever the stale reason was: the goblin is still stuck.
+		if observation.Health == HealthStale {
+			return s.staleObservation(observation, observation.Reason, now)
+		}
+		// A parked goblin awaiting an answer prints a question and sits at a
+		// prompt; pi has no dialog widget to report it as "blocked", so the
+		// pane text is the only signal. Detect it once the pane has been idle
+		// (unchanged, no spinner) for a cycle, and wake immediately.
+		if observation.IdleSince != nil {
+			if question, ok := awaitingAnswer(sample.Capture); ok {
+				return awaitingAnswerObservation(observation, question, now)
+			}
+		}
+		return s.idleObservation(observation, now)
 	default:
 		return unknownObservation(observation, EndpointUnknown, "endpoint activity is unknown", now)
 	}
@@ -279,7 +291,11 @@ func (s Service) staleObservation(observation Observation, reason Reason, now ti
 		observation.NextEscalation = &next
 		observation.Escalation = 0
 		observation.DemandDeepInspection = false
-		event := taskEvent(observation.TaskID, reason, "")
+		// A genuine stall: no liveness signal (pane, status log, busy, or
+		// spinner) moved for the stall window and no notify arrived. This is
+		// the uncooperative case a dead or wedged goblin cannot notify about,
+		// so it wakes once with the stall reason.
+		event := taskEvent(observation.TaskID, reason, "no liveness signal for "+s.stallAfter().String())
 		observation.PendingEvent = &event
 		return observation
 	}
@@ -290,11 +306,112 @@ func (s Service) staleObservation(observation Observation, reason Reason, now ti
 		if observation.Escalation >= s.demandInspectionAfter() {
 			observation.DemandDeepInspection = true
 		}
-		detail := string(reason)
-		if observation.DemandDeepInspection {
-			detail += " demand-deep-inspection"
+		// Dedupe: escalation does not re-wake. The CFO was already woken for
+		// this exact stale state; the only thing that advances is the
+		// escalation column, which fleet-view reads without a new wake. A
+		// genuinely new state (digest change, recovery, a fault) clears this
+		// and wakes on its own.
+	}
+	return observation
+}
+
+// busyOrStale classifies a pane that is working (or shows live activity) as
+// busy until its busy reference ages past the turn budget, at which point it
+// is stale by busy-turn-over-age.
+func (s Service) busyOrStale(observation Observation, id string, now time.Time) Observation {
+	observation.IdleSince = nil
+	if s.busyReference(id).Add(s.busyTurnMax()).After(now) {
+		observation.Health = HealthBusy
+		observation.Reason = None
+		observation.StaleSince = nil
+		observation.NextEscalation = nil
+		observation.NextPauseResurface = nil
+		observation.Escalation = 0
+		observation.DemandDeepInspection = false
+		return observation
+	}
+	return s.staleObservation(observation, BusyTurnOverAge, now)
+}
+
+// idleObservation classifies an idle-and-unchanged pane behind a substantial
+// grace period. A goblin legitimately thinking or running a quiet subprocess
+// can sit at an unchanged pane for minutes; it is only stale once it has been
+// genuinely idle (no digest change, no spinner) for the idle threshold.
+func (s Service) idleObservation(observation Observation, now time.Time) Observation {
+	if observation.IdleSince == nil {
+		observation.IdleSince = timePointer(now)
+	}
+	if now.Sub(*observation.IdleSince) < s.stallAfter() {
+		observation.Health = HealthIdle
+		observation.Reason = None
+		observation.StaleSince = nil
+		observation.NextEscalation = nil
+		observation.NextPauseResurface = nil
+		observation.Escalation = 0
+		observation.DemandDeepInspection = false
+		return observation
+	}
+	observation.IdleSince = nil
+	return s.staleObservation(observation, UnchangedIdle, now)
+}
+
+// captureActive reports whether a pane tail shows in-progress work: a live
+// spinner or rotating glyph. herdr's "idle" is unreliable for an agent that
+// is streaming or waiting on a subprocess, so a spinner is treated as working
+// rather than idle.
+func captureActive(capture []byte) bool {
+	for _, r := range string(capture) {
+		if r >= 0x2800 && r <= 0x28FF {
+			return true
 		}
-		event := Event{Source: TaskEvent, TaskID: observation.TaskID, Kind: "stale", Key: observation.TaskID, Detail: detail}
+	}
+	return false
+}
+
+// awaitingAnswer reports whether a pane tail ends with a substantive question
+// the goblin is parked on, waiting for an answer. Pi has no interactive dialog
+// widget, so a parked question reads as merely "idle" to herdr; the pane text
+// is the only signal. Only a question-mark-terminated line near the tail (after
+// skipping empty and prompt/footer lines) counts.
+func awaitingAnswer(capture []byte) (string, bool) {
+	lines := strings.Split(strings.TrimRight(string(capture), "\r\n"), "\n")
+	if len(lines) > 20 {
+		lines = lines[len(lines)-20:]
+	}
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		if !strings.HasSuffix(line, "?") {
+			continue
+		}
+		if len(line) < 6 {
+			continue
+		}
+		return line, true
+	}
+	return "", false
+}
+
+// awaitingAnswerObservation records a goblin parked on a printed question,
+// waiting for a decision. It wakes once per parked episode with the question
+// text, and demands deep inspection because the fix is a CFO decision, not
+// another poll.
+func awaitingAnswerObservation(observation Observation, question string, now time.Time) Observation {
+	first := observation.Reason != AwaitingAnswer
+	observation.IdleSince = nil
+	observation.Health = HealthStale
+	observation.Reason = AwaitingAnswer
+	observation.NextPauseResurface = nil
+	if observation.StaleSince == nil {
+		observation.StaleSince = timePointer(now)
+		observation.NextEscalation = timePointer(now.Add(time.Hour))
+	}
+	observation.Escalation = 0
+	observation.DemandDeepInspection = true
+	if first && observation.PendingEvent == nil {
+		event := taskEvent(observation.TaskID, AwaitingAnswer, question)
 		observation.PendingEvent = &event
 	}
 	return observation
@@ -457,7 +574,11 @@ func hasUnsurfacedActionable(observations []Observation) bool {
 		if observation.PendingEvent != nil {
 			continue
 		}
-		if observation.Health == HealthStale || observation.Health == HealthUnknown {
+		// Only a genuinely unknown endpoint (a goblin whose pane vanished) is
+		// worth a heartbeat re-surface. Stale goblins are doing their job, and
+		// an erroring or awaiting-answer goblin already woke once with its
+		// decision; re-surfacing it every cycle would be noise.
+		if observation.Health == HealthUnknown {
 			return true
 		}
 	}
@@ -502,6 +623,25 @@ func (s Service) now() time.Time {
 		return s.Now()
 	}
 	return time.Now()
+}
+
+func (s Service) stallAfter() time.Duration {
+	if s.StallAfter > 0 {
+		return s.StallAfter
+	}
+	return 10 * time.Minute
+}
+
+// statusStamp is the status log's size and mtime as a cheap liveness signal.
+// A goblin writing its status (no-mistakes steps, cfo notify, or a plain
+// progress line) advances this stamp, which is evidence it is working even
+// when the pane text is quiet.
+func (s Service) statusStamp(id string) string {
+	info, err := os.Stat(filepath.Join(s.StateDir, id+".status"))
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
 }
 
 func (s Service) staleEscalateAfter() time.Duration {

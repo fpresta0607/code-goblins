@@ -24,7 +24,13 @@ func (claudeAdapter) Build(spec LaunchSpec) (Launch, error) {
 		return Launch{}, err
 	}
 	launch.Env["CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION"] = "false"
-	launch.Args = []string{"--dangerously-skip-permissions"}
+	// Goblin panes must not inherit the operator's connected claude.ai MCP
+	// servers: those are interactive-auth (OAuth) servers that print "N MCP
+	// servers need authentication - run /mcp" on every launch and do the goblin
+	// no good. --strict-mcp-config with no --mcp-config starts Claude with no
+	// MCP servers at all; project credentials ride in through the injected
+	// environment instead.
+	launch.Args = []string{"--dangerously-skip-permissions", "--strict-mcp-config"}
 	// Fresh treehouse worktrees are never in ~/.claude.json, so interactive
 	// Claude launches open the workspace trust dialog. herdr agent start
 	// returns success while Claude sits at that dialog and the agent reports

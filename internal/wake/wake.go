@@ -40,6 +40,7 @@ var kinds = map[string]bool{
 	"stale":     true,
 	"check":     true,
 	"heartbeat": true,
+	"notify":    true,
 }
 
 // Record is one durable wake. Seq starts at 1 and is never reused; the ack

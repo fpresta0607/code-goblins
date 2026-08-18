@@ -134,3 +134,26 @@ func write(t *testing.T, dir, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestDetectDoesNotReadACFOsteerAsARateLimit(t *testing.T) {
+	// The real false positive: the CFO's own steer echoed into the composer
+	// contained the phrase "rate limit" in prose, with no error framing.
+	steer := "this is them, not you, and not a model rate limit, so no harness switch"
+	if fault, _, found := Detect(steer); found {
+		t.Errorf("Detect(%q) = %q, want no fault in conversational CFO text", steer, fault)
+	}
+}
+
+func TestDetectClassifiesAGitHubOutageAsProvider(t *testing.T) {
+	tails := []string{
+		"gh: 429 API rate limit exceeded for user 123456",
+		"fatal: unable to access 'https://github.com/x/y.git': The requested URL returned error: 503",
+		"You have exceeded a secondary rate limit on api.github.com",
+	}
+	for _, tail := range tails {
+		fault, _, found := Detect(tail)
+		if !found || fault != Provider {
+			t.Errorf("Detect(%q) = (%q, %v), want Provider for a GitHub outage", tail, fault, found)
+		}
+	}
+}

@@ -74,6 +74,7 @@ func testService(stateDir string, probe Prober, now *time.Time) Service {
 		Probe:                 probe,
 		Now:                   func() time.Time { return *now },
 		StaleEscalateAfter:    time.Minute,
+		StallAfter:            time.Minute,
 		BusyTurnMax:           10 * time.Minute,
 		PauseResurfaceAfter:   time.Hour,
 		DemandInspectionAfter: 2,
@@ -114,7 +115,7 @@ func renameMetadataExtension(t *testing.T, stateDir, id, extension string) {
 	}
 }
 
-func TestScanPersistsDigestAndEscalatesUnchangedIdle(t *testing.T) {
+func TestScanIdleGraceThenStallsOnce(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
 	meta := metaFor("g1")
@@ -126,7 +127,7 @@ func TestScanPersistsDigestAndEscalatesUnchangedIdle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Event != nil || len(first.Observations) != 1 || first.Observations[0].Health != HealthActive {
+	if first.Event != nil || first.Observations[0].Health != HealthActive {
 		t.Fatalf("first scan = %+v, want active baseline without event", first)
 	}
 	wantDigest := fmt.Sprintf("%x", sha256.Sum256(capture("first")))
@@ -134,46 +135,39 @@ func TestScanPersistsDigestAndEscalatesUnchangedIdle(t *testing.T) {
 		t.Errorf("digest = %q, want %q", first.Observations[0].Digest, wantDigest)
 	}
 
+	// Idle for one cycle is not a stall: the goblin is legitimately thinking
+	// or running a quiet subprocess.
 	now = now.Add(time.Second)
-	stale, err := service.Scan(context.Background())
+	idle, err := service.Scan(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stale.Event == nil || stale.Event.Kind != "stale" || stale.Observations[0].Reason != UnchangedIdle || stale.Observations[0].Escalation != 0 {
-		t.Fatalf("idle scan = %+v, want first unchanged-idle event without escalation", stale)
+	if idle.Event != nil || idle.Observations[0].Health != HealthIdle || idle.Observations[0].IdleSince == nil {
+		t.Fatalf("idle scan = %+v, want idle grace without event", idle)
 	}
-	if _, err := service.Publish(*stale.Event); err != nil {
+
+	// Past the stall window with no liveness signal and no notify, the goblin
+	// is genuinely wedged: wake once with the stall reason.
+	now = now.Add(time.Minute)
+	stalled, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stalled.Event == nil || stalled.Event.Kind != "stale" || stalled.Observations[0].Reason != UnchangedIdle {
+		t.Fatalf("stall scan = %+v, want one unchanged-idle stall event", stalled)
+	}
+	if _, err := service.Publish(*stalled.Event); err != nil {
 		t.Fatal(err)
 	}
 
-	now = now.Add(30 * time.Second)
+	// Dedupe: the same stall does not re-wake, however long it lasts.
+	now = now.Add(10 * time.Minute)
 	quiet, err := service.Scan(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if quiet.Event != nil || quiet.Observations[0].Escalation != 0 {
-		t.Fatalf("before escalation due = %+v, want no event", quiet)
-	}
-
-	now = now.Add(30 * time.Second)
-	one, err := service.Scan(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if one.Event == nil || one.Observations[0].Escalation != 1 || one.Observations[0].DemandDeepInspection {
-		t.Fatalf("first escalation = %+v, want escalation one", one)
-	}
-	if _, err := service.Publish(*one.Event); err != nil {
-		t.Fatal(err)
-	}
-
-	now = now.Add(time.Minute)
-	two, err := service.Scan(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if two.Event == nil || two.Observations[0].Escalation != 2 || !two.Observations[0].DemandDeepInspection || !strings.Contains(two.Event.Detail, "demand-deep-inspection") {
-		t.Fatalf("second escalation = %+v, want deep inspection", two)
+	if quiet.Event != nil {
+		t.Fatalf("dedupe scan = %+v, want no re-wake for the unchanged stall", quiet)
 	}
 }
 
@@ -471,7 +465,7 @@ func TestScanPersistsHeartbeatBackoffAcrossServiceRestart(t *testing.T) {
 	}
 }
 
-func TestScanRestartsTaskStaleCadenceWithoutReset(t *testing.T) {
+func TestScanRestartsTaskStallCadenceWithoutReset(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
 	meta := metaFor("g1")
@@ -490,14 +484,19 @@ func TestScanRestartsTaskStaleCadenceWithoutReset(t *testing.T) {
 	lastProgress := active.Observations[0].LastProgress
 
 	now = now.Add(time.Second)
-	stale, err := service.Scan(context.Background())
-	if err != nil || stale.Event == nil {
-		t.Fatalf("first stale = %+v, %v", stale, err)
-	}
-	if _, err := service.Publish(*stale.Event); err != nil {
+	if _, err := service.Scan(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	staleSince := *stale.Observations[0].StaleSince
+
+	now = now.Add(time.Minute)
+	stalled, err := service.Scan(context.Background())
+	if err != nil || stalled.Event == nil {
+		t.Fatalf("first stall = %+v, %v", stalled, err)
+	}
+	if _, err := service.Publish(*stalled.Event); err != nil {
+		t.Fatal(err)
+	}
+	staleSince := *stalled.Observations[0].StaleSince
 
 	now = now.Add(time.Minute)
 	restarted := testService(stateDir, probe, &now)
@@ -506,18 +505,15 @@ func TestScanRestartsTaskStaleCadenceWithoutReset(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := escalated.Observations[0]
-	if escalated.Event == nil || got.Escalation != 1 {
-		t.Fatalf("restart scan = %+v, want the persisted first escalation", escalated)
+	if escalated.Event != nil {
+		t.Fatalf("restart scan = %+v, want no re-wake for the unchanged stall", escalated)
 	}
 	if !got.LastSeen.Equal(lastSeen) || !got.LastProgress.Equal(lastProgress) || got.StaleSince == nil || !got.StaleSince.Equal(staleSince) {
-		t.Errorf("restart observation = %+v, want original progress and stale times retained", got)
-	}
-	if got.NextEscalation == nil || !got.NextEscalation.Equal(now.Add(time.Minute)) {
-		t.Errorf("NextEscalation = %v, want %v", got.NextEscalation, now.Add(time.Minute))
+		t.Errorf("restart observation = %+v, want original progress and stall times retained", got)
 	}
 }
 
-func TestDueHeartbeatResurfacesPublishedStaleObservation(t *testing.T) {
+func TestHeartbeatDoesNotResurfaceAStaleObservation(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
 	meta := metaFor("g1")
@@ -528,23 +524,25 @@ func TestDueHeartbeatResurfacesPublishedStaleObservation(t *testing.T) {
 		t.Fatal(err)
 	}
 	now = now.Add(time.Second)
-	stale, err := service.Scan(context.Background())
-	if err != nil || stale.Event == nil {
-		t.Fatalf("first stale = %+v, %v", stale, err)
-	}
-	if _, err := service.Publish(*stale.Event); err != nil {
+	if _, err := service.Scan(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	now = now.Add(59 * time.Second)
+	now = now.Add(time.Minute)
+	stalled, err := service.Scan(context.Background())
+	if err != nil || stalled.Event == nil {
+		t.Fatalf("first stall = %+v, %v", stalled, err)
+	}
+	if _, err := service.Publish(*stalled.Event); err != nil {
+		t.Fatal(err)
+	}
+	// A stale goblin is doing its job; the heartbeat must not re-wake it.
+	now = now.Add(2 * time.Minute)
 	resurfaced, err := service.Scan(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resurfaced.Event == nil || resurfaced.Event.Source != HeartbeatEvent || resurfaced.Event.Kind != "heartbeat" {
-		t.Fatalf("due heartbeat = %+v, want heartbeat re-surface event", resurfaced)
-	}
-	if resurfaced.Heartbeat.NoChangeStreak != 0 {
-		t.Errorf("NoChangeStreak = %d, want reset after actionable heartbeat", resurfaced.Heartbeat.NoChangeStreak)
+	if resurfaced.Event != nil {
+		t.Fatalf("heartbeat resurfaced a stale observation: %+v", resurfaced.Event)
 	}
 }
 
@@ -553,18 +551,15 @@ func TestPublishAppendsBeforeEpisodeAndRetainsPendingOnEpisodeFailure(t *testing
 	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": {Verdict: ProbeMissing, Detail: "pane missing"}}}
 	service := testService(stateDir, probe, &now)
-	if _, err := service.Scan(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	now = now.Add(time.Second)
+
 	result, err := service.Scan(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Event == nil {
-		t.Fatal("expected persisted stale event")
+		t.Fatal("expected persisted missing-endpoint event")
 	}
 	if err := os.Mkdir(filepath.Join(stateDir, ".watcher-down"), 0o755); err != nil {
 		t.Fatal(err)
@@ -734,5 +729,33 @@ func TestScanLetsAPaneRecoverOnceTheProviderStopsRefusing(t *testing.T) {
 	}
 	if result.Observations[0].DemandDeepInspection {
 		t.Error("a recovered pane still demands inspection")
+	}
+}
+
+func TestScanWakesForAParkedQuestion(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "Should I merge this PR now?")}}
+	service := testService(stateDir, probe, &now)
+
+	if _, err := service.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	if _, err := service.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	result, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Event == nil || result.Observations[0].Reason != AwaitingAnswer || !strings.Contains(result.Event.Detail, "Should I merge this PR now?") {
+		t.Fatalf("awaiting-answer scan = %+v, want a wake carrying the question", result)
+	}
+	if !result.Observations[0].DemandDeepInspection {
+		t.Error("a parked question does not demand inspection, so nothing forces a decision")
 	}
 }
