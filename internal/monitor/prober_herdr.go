@@ -67,7 +67,7 @@ func (p *HerdrProber) Inspect(ctx context.Context, meta state.TaskMeta) (Endpoin
 	}
 	agents, err := p.cycleAgents(ctx)
 	if err != nil {
-		return EndpointSample{Verdict: ProbeUnknown, Detail: err.Error()}, nil
+		agents = snapshotAgentRecords(snapshot.Agents)
 	}
 	return p.inspect(ctx, snapshot, agents, meta)
 }
@@ -121,6 +121,20 @@ func (p *HerdrProber) cycleAgents(ctx context.Context) ([]herdr.AgentRecord, err
 	}
 	p.agents = agents
 	return agents, nil
+}
+
+func snapshotAgentRecords(agents []herdr.SnapshotAgent) []herdr.AgentRecord {
+	records := make([]herdr.AgentRecord, 0, len(agents))
+	for _, agent := range agents {
+		records = append(records, herdr.AgentRecord{
+			Agent:       agent.Agent,
+			Status:      agent.Status,
+			PaneID:      agent.PaneID,
+			TabID:       agent.TabID,
+			WorkspaceID: agent.WorkspaceID,
+		})
+	}
+	return records
 }
 
 func (p *HerdrProber) inspect(ctx context.Context, snapshot herdr.SessionSnapshot, agents []herdr.AgentRecord, meta state.TaskMeta) (EndpointSample, error) {
