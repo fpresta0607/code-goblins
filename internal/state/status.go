@@ -4,10 +4,18 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
+
+// NormalizeStatusDetail replaces the control characters that would corrupt a
+// status line's one-line-per-event grammar (or a wake detail) with spaces, so
+// a caller-supplied value from a shell or a pane never injects extra lines.
+func NormalizeStatusDetail(value string) string {
+	return strings.NewReplacer("\r", " ", "\n", " ").Replace(value)
+}
 
 // AppendStatus appends one raw line to state/<id>.status, creating the log on
 // first use. Lines carry their own grammar; this layer adds nothing. The open
