@@ -1,5 +1,6 @@
 // Package spawn creates one local Windows-native Herdr task and publishes its
-// durable identity only after the typed harness has started working.
+// durable identity as soon as the pane and worktree exist, before the harness
+// is confirmed working, so a failed launch stays addressable and cleanable.
 package spawn
 
 import (
@@ -297,10 +298,9 @@ type launchPlan struct {
 }
 
 // startHarness prepares the pane shell and starts the harness, then delivers
-// the plan's instruction once it is ready. The returned submitted flag
-// reports whether the launch reached the point where a harness may be
-// running: past it, a caller must not return the worktree on failure, because
-// something may still be working in it.
+// the plan's instruction once it is ready. The returned submitted flag is now
+// ignored by both callers: spawn tears the whole launch down through
+// teardownLaunch on any error, and switch recovers the empty pane itself.
 func (s Service) startHarness(ctx context.Context, client *herdr.Client, target herdr.Target, plan launchPlan) (submitted bool, err error) {
 	launch := plan.Launch
 	if s.StateDir != "" {

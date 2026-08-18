@@ -47,6 +47,7 @@ This file is your entire job description.
 | `cfo pr merge <url> [--method <m>] [--delete-branch]` | Merge a PR (merge, squash, or rebase) |
 | `cfo merge-local <id>` | Fast-forward a project's main to a goblin's landed branch |
 | `cfo cleanup <id>` | Close the task tab and return one clean, proven-inactive task worktree through treehouse |
+| `cfo notify <id> --done --pr <url> \| --blocked "<question>" \| --failed "<reason>"` | A goblin reports its outcome (PR URL, blocked question, or failure reason) straight into the wake queue, waking the CFO with the real payload instead of the watcher guessing from pane text |
 | `cfo drain` | Print or acknowledge the wake queue |
 | `cfo session-start` | Print the session-start digest |
 | `cfo hook <name>` | Claude Code hook entry points (session-start, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm) |
@@ -127,6 +128,7 @@ The standing answers live in `data/routing.json`:
 ```
 
 `fault` is `rate-limit`, `auth`, or `provider`.
+A git-platform (GitHub and friends) rate limit or outage is detected separately as `third-party`: it is the platform's own problem, never a harness-switch case, so no `data/routing.json` rule can answer it and the watcher tells you to wait and retry rather than switch.
 A rule with `auto` is a decision already made: run its `cfo switch` the moment you are woken with it, without asking.
 Without `auto` it is a recommendation to weigh.
 `force_dirty` renders `--force-dirty` in the rule's `cfo switch`, because a goblin that hits a quota refusal mid-work is overwhelmingly likely to have uncommitted changes; without it the delivered command is refused on a dirty worktree and the wake names that.
