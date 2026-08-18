@@ -104,7 +104,7 @@ func TestCaptureEvidenceRefusesEmptyRead(t *testing.T) {
 
 func TestAgentListParsesTypedEnvelopeAndRejectsErrors(t *testing.T) {
 	t.Run("typed result", func(t *testing.T) {
-		runner := &fakeRunner{replies: []runnerReply{rawReply(`{"id":"cli:agent:list","result":{"type":"agent_list","agents":[{"agent":"claude","agent_status":"working","pane_id":"w3:p1","tab_id":"w3:t1","workspace_id":"w3","state_change_seq":1,"revision":1}]}}`)} }
+		runner := &fakeRunner{replies: []runnerReply{rawReply(`{"id":"cli:agent:list","result":{"type":"agent_list","agents":[{"agent":"claude","agent_status":"working","pane_id":"w3:p1","tab_id":"w3:t1","workspace_id":"w3","state_change_seq":1,"revision":1}]}}`)}}
 		var sleeps []time.Duration
 		client := newTestClient(runner, &sleeps)
 
@@ -121,7 +121,7 @@ func TestAgentListParsesTypedEnvelopeAndRejectsErrors(t *testing.T) {
 	})
 
 	t.Run("error envelope", func(t *testing.T) {
-		runner := &fakeRunner{replies: []runnerReply{rawReply(`{"error":{"code":"server_unavailable"}}`)} }
+		runner := &fakeRunner{replies: []runnerReply{rawReply(`{"error":{"code":"server_unavailable"}}`)}}
 		var sleeps []time.Duration
 		client := newTestClient(runner, &sleeps)
 
@@ -131,7 +131,7 @@ func TestAgentListParsesTypedEnvelopeAndRejectsErrors(t *testing.T) {
 	})
 
 	t.Run("wrong type", func(t *testing.T) {
-		runner := &fakeRunner{replies: []runnerReply{rawReply(`{"result":{"type":"workspace_list","agents":[]}}`)} }
+		runner := &fakeRunner{replies: []runnerReply{rawReply(`{"result":{"type":"workspace_list","agents":[]}}`)}}
 		var sleeps []time.Duration
 		client := newTestClient(runner, &sleeps)
 
@@ -141,7 +141,7 @@ func TestAgentListParsesTypedEnvelopeAndRejectsErrors(t *testing.T) {
 	})
 
 	t.Run("missing agents", func(t *testing.T) {
-		runner := &fakeRunner{replies: []runnerReply{rawReply(`{"result":{"type":"agent_list"}}`)} }
+		runner := &fakeRunner{replies: []runnerReply{rawReply(`{"result":{"type":"agent_list"}}`)}}
 		var sleeps []time.Duration
 		client := newTestClient(runner, &sleeps)
 
