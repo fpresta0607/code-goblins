@@ -66,7 +66,7 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	line := verb + ": " + detail
+	line := verb + ": " + state.NormalizeStatusDetail(detail)
 	if err := state.AppendStatus(h.State, id, line); err != nil {
 		fmt.Fprintln(stderr, "cfo notify: record status: "+err.Error())
 		return 1
