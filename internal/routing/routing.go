@@ -107,13 +107,36 @@ func thirdPartyFault(lowered string) (int, bool) {
 			continue
 		}
 		line := lineAt(lowered, index)
-		for _, indicator := range []string{"rate limit", "secondary rate", "429", "503", "502", "exceeded", "abuse"} {
-			if strings.Contains(line, indicator) {
+		// A status code is unambiguous error framing on its own.
+		for _, code := range []string{"429", "503", "502"} {
+			if strings.Contains(line, code) {
+				return index, true
+			}
+		}
+		// A prose keyword must carry a status code or error word on the same
+		// line, so a conversational mention of a git host is not an outage.
+		for _, indicator := range []string{"rate limit", "secondary rate", "exceeded", "abuse"} {
+			if strings.Contains(line, indicator) && thirdPartyFramed(line, indicator) {
 				return index, true
 			}
 		}
 	}
 	return 0, false
+}
+
+// thirdPartyFramed reports whether a line carries error framing beyond the
+// matched keyword itself: a status code or an error word. A prose keyword on
+// its own (a CFO steer saying "not a github rate limit") is not an outage.
+func thirdPartyFramed(line, keyword string) bool {
+	for _, signal := range []string{"429", "403", "503", "502", "error", "refused", "failed", "quota", "reached", "exceeded", "unable", "denied", "forbidden", "fatal"} {
+		if signal == keyword {
+			continue
+		}
+		if strings.Contains(line, signal) {
+			return true
+		}
+	}
+	return false
 }
 
 // errorFramed reports whether the line a match landed on also carries a
