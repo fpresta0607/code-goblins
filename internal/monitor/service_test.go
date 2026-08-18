@@ -993,7 +993,7 @@ func TestScanKeepsLaunchingQuietAcrossCyclesWithinGrace(t *testing.T) {
 	}
 }
 
-func TestScanHoldsQuietADoneAgentWithParkedOrTerminalVerb(t *testing.T) {
+func TestScanHoldsQuietADoneAgentWithTerminalVerb(t *testing.T) {
 	for _, test := range []struct {
 		name       string
 		statusLine string
@@ -1002,7 +1002,6 @@ func TestScanHoldsQuietADoneAgentWithParkedOrTerminalVerb(t *testing.T) {
 	}{
 		{"terminal done", "done: PR https://example.com/repo/pull/7", HealthIdle, None},
 		{"terminal failed", "failed: build broke", HealthIdle, None},
-		{"parked blocked", "blocked: Should I merge this?", HealthParked, AwaitingDecision},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			stateDir := t.TempDir()
@@ -1027,6 +1026,33 @@ func TestScanHoldsQuietADoneAgentWithParkedOrTerminalVerb(t *testing.T) {
 					t.Fatalf("cycle %d observation = %+v, want %s/%s", i, result.Observations[0], test.wantHealth, test.wantReason)
 				}
 				now = now.Add(time.Minute)
+			}
+		})
+	}
+}
+
+func TestScanWakesDoneAgentWithStaleParkedVerb(t *testing.T) {
+	for _, statusLine := range []string{"blocked: Should I merge this?", "needs-decision: pick a name", "checks-passed: green gate awaiting merge"} {
+		t.Run(statusLine, func(t *testing.T) {
+			stateDir := t.TempDir()
+			now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+			meta := metaFor("g1")
+			writeTask(t, stateDir, meta)
+			if err := state.AppendStatus(stateDir, "g1", statusLine); err != nil {
+				t.Fatal(err)
+			}
+			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, herdr.AgentDone, "turn ended")}}
+			service := testService(stateDir, probe, &now)
+
+			result, err := service.Scan(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Event == nil || result.Observations[0].Reason != AwaitingAnswer {
+				t.Fatalf("done scan = %+v, want an awaiting-input wake despite the stale parked verb", result)
+			}
+			if result.Observations[0].Health != HealthStale {
+				t.Fatalf("health = %q, want stale", result.Observations[0].Health)
 			}
 		})
 	}
