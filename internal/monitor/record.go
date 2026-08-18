@@ -57,6 +57,10 @@ const (
 	// HealthLaunching is a freshly created task whose pane exists but whose
 	// agent has not registered yet: launch-in-progress, not harness death.
 	HealthLaunching Health = "launching"
+	// HealthParked is a goblin whose latest status verb parks it awaiting the
+	// CFO's decision (blocked, needs-decision, or checks-passed). The outcome
+	// was already delivered, so the monitor stays quiet instead of stalling.
+	HealthParked Health = "parked"
 )
 
 type Reason string
@@ -75,6 +79,10 @@ const (
 	// decision. Pi has no interactive dialog widget, so herdr reports it as
 	// merely idle; the pane text is the only signal the goblin is blocked.
 	AwaitingAnswer Reason = "awaiting_answer"
+	// AwaitingDecision is a goblin parked on a status-verb decision
+	// (blocked, needs-decision, or checks-passed) whose wake was already
+	// delivered by the watcher's decision signal or cfo notify's own wake.
+	AwaitingDecision Reason = "awaiting_decision"
 )
 
 type EventSource string
@@ -305,6 +313,14 @@ func validateObservationState(observation Observation) error {
 		}
 		if observation.StaleSince != nil || observation.NextEscalation != nil || observation.NextPauseResurface == nil || observation.Escalation != 0 || observation.DemandDeepInspection {
 			return errors.New("monitor: paused observation has incompatible timing state")
+		}
+		return requireProgress()
+	case HealthParked:
+		if observation.EndpointVerdict != ProbePresent || observation.Reason != AwaitingDecision {
+			return errors.New("monitor: parked observation has incompatible endpoint or reason")
+		}
+		if observation.StaleSince != nil || observation.NextEscalation != nil || observation.NextPauseResurface != nil || observation.Escalation != 0 || observation.DemandDeepInspection {
+			return errors.New("monitor: parked observation must not retain stale or escalation state")
 		}
 		return requireProgress()
 	case HealthUnknown:
