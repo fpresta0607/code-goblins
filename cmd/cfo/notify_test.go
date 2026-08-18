@@ -100,3 +100,29 @@ func TestNotifyTargetsStateOverrideWithoutCFOHome(t *testing.T) {
 		t.Fatalf("wake records = %+v, want one notify in the override dir", records)
 	}
 }
+
+func TestNotifyNormalizesControlCharactersInTheDetail(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_HOME", dir)
+
+	var stdout, stderr bytes.Buffer
+	if exit := runNotify([]string{"g1", "--blocked", "Should I\nmerge this?"}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
+	}
+
+	stateDir := filepath.Join(dir, "state")
+	lines, err := state.TailStatus(stateDir, "g1", 5)
+	if err != nil || len(lines) != 1 || lines[0] != "blocked: Should I merge this?" {
+		t.Fatalf("status = %v, %v; want one normalized blocked line", lines, err)
+	}
+	records, err := wake.Pending(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Detail != "blocked: Should I merge this?" {
+		t.Fatalf("wake records = %+v, want one normalized notify detail", records)
+	}
+}

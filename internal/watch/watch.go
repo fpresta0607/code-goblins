@@ -465,11 +465,11 @@ func signalIsDecision(stateDir, name string) bool {
 		return false
 	}
 	id := strings.TrimSuffix(name, ".status")
-	lines, err := state.TailStatus(stateDir, id, 1)
-	if err != nil || len(lines) == 0 {
+	lines, err := state.TailStatus(stateDir, id, 200)
+	if err != nil {
 		return false
 	}
-	verb, _, ok := crewstate.ParseStatusLine(lines[0])
+	verb, ok := crewstate.LatestVerb(lines)
 	if !ok {
 		return false
 	}
