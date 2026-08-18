@@ -992,3 +992,63 @@ func TestScanWakesForAParkedQuestionDespiteAFrozenGlyph(t *testing.T) {
 		t.Fatalf("scan = %+v, want a parked-question wake despite the frozen glyph", result)
 	}
 }
+
+func TestScanWakesForAParkedQuestionBeforeAPromptFooter(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	sample := sampleFor(meta, herdr.BusyIdle, "Should I merge this PR now?")
+	sample.Capture = []byte("Should I merge this PR now?\n" + strings.Repeat("\u2500", 8) + "\n~/project (main)\n")
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sample}}
+	service := testService(stateDir, probe, &now)
+
+	if _, err := service.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	if _, err := service.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	result, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Event == nil || result.Observations[0].Reason != AwaitingAnswer || !strings.Contains(result.Event.Detail, "Should I merge this PR now?") {
+		t.Fatalf("scan = %+v, want a parked-question wake despite the trailing prompt/footer", result)
+	}
+}
+
+func TestScanDoesNotStallAParkedDecisionGoblin(t *testing.T) {
+	for _, status := range []string{"blocked: Should I merge this?", "needs-decision: pick a name", "checks-passed: green gate awaiting merge"} {
+		t.Run(status, func(t *testing.T) {
+			stateDir := t.TempDir()
+			now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+			meta := metaFor("g1")
+			writeTask(t, stateDir, meta)
+			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+			service := testService(stateDir, probe, &now)
+
+			if _, err := service.Scan(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.AppendStatus(stateDir, "g1", status); err != nil {
+				t.Fatal(err)
+			}
+			for i := 0; i < 3; i++ {
+				now = now.Add(time.Minute)
+				result, err := service.Scan(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Event != nil {
+					t.Fatalf("cycle %d woke a parked decision goblin: %+v", i, result.Event)
+				}
+				if result.Observations[0].Health != HealthParked || result.Observations[0].Reason != AwaitingDecision {
+					t.Fatalf("cycle %d observation = %+v, want parked/awaiting_decision", i, result.Observations[0])
+				}
+			}
+		})
+	}
+}

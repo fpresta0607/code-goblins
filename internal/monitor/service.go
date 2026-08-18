@@ -260,8 +260,10 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	case herdr.BusyWorking:
 		return s.busyOrStale(observation, meta.ID, now)
 	case herdr.BusyIdle:
-		if s.declaredPaused(meta.ID) {
+		if verb := s.latestStatusVerb(meta.ID); verb == "paused" {
 			return s.pauseObservation(observation, now)
+		} else if parkedDecisionVerb(verb) {
+			return s.parkedObservation(observation, now)
 		}
 		// A status line written since the last observation is liveness even
 		// when both the pane and herdr report quiet: the goblin is still
@@ -383,8 +385,9 @@ func (s Service) idleObservation(observation Observation, now time.Time) Observa
 // herdr; the pane text is the only signal. The question must be the final
 // substantive line - any later output means the goblin moved on - and must not
 // be an interactive confirmation prompt (a script's "[y/N]", not a question to
-// the CFO). The goblin's own cfo notify confirmation is never a question: it
-// is the goblin reporting one.
+// the CFO). Structural tail noise (empty lines, the goblin's own cfo notify
+// confirmation, and the pane prompt/footer that pi renders after the parked
+// message) is skipped, never read as evidence the goblin moved on.
 func awaitingAnswer(capture []byte) (string, bool) {
 	lines := strings.Split(strings.TrimRight(string(capture), "\r\n"), "\n")
 	if len(lines) > 20 {
@@ -392,7 +395,7 @@ func awaitingAnswer(capture []byte) (string, bool) {
 	}
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := strings.TrimSpace(lines[i])
-		if line == "" || isNotifyEcho(line) {
+		if line == "" || isNotifyEcho(line) || isPromptFooter(line) {
 			continue
 		}
 		if !strings.HasSuffix(line, "?") || len(line) < 6 || isConfirmationPrompt(line) {
@@ -401,6 +404,17 @@ func awaitingAnswer(capture []byte) (string, bool) {
 		return line, true
 	}
 	return "", false
+}
+
+// isPromptFooter reports whether a pane line is the prompt/footer chrome pi
+// renders at the tail of its pane (a `~/path (branch)` shell prompt or the
+// `────` separator line), not task content.
+func isPromptFooter(line string) bool {
+	if strings.HasPrefix(line, "~/") && strings.Contains(line, " (") && strings.HasSuffix(line, ")") {
+		return true
+	}
+	trimmed := strings.TrimSpace(line)
+	return trimmed != "" && strings.Trim(trimmed, "\u2500") == "" && strings.Count(trimmed, "\u2500") >= 8
 }
 
 // isConfirmationPrompt reports whether a line is a machine confirmation prompt
@@ -455,6 +469,23 @@ func awaitingAnswerObservation(observation Observation, question string, now tim
 		event := taskEvent(observation.TaskID, AwaitingAnswer, question)
 		observation.PendingEvent = &event
 	}
+	return observation
+}
+
+// parkedObservation records a goblin whose latest status verb parks it
+// awaiting the CFO's decision (blocked, needs-decision, or checks-passed).
+// The outcome was already delivered by the watcher's decision signal or by
+// cfo notify's own wake, so this state stays quiet: no new wake and no stall
+// escalation while the goblin waits for the CFO to respond.
+func (s Service) parkedObservation(observation Observation, now time.Time) Observation {
+	observation.Health = HealthParked
+	observation.Reason = AwaitingDecision
+	observation.IdleSince = nil
+	observation.StaleSince = nil
+	observation.NextEscalation = nil
+	observation.NextPauseResurface = nil
+	observation.Escalation = 0
+	observation.DemandDeepInspection = false
 	return observation
 }
 
@@ -579,17 +610,31 @@ func validSample(meta state.TaskMeta, sample EndpointSample) bool {
 	return len(sample.Capture) > 0
 }
 
-func (s Service) declaredPaused(id string) bool {
+// latestStatusVerb returns the most recent status verb recorded for the task,
+// or "" when the status log is absent, empty, or unparsable.
+func (s Service) latestStatusVerb(id string) string {
 	lines, err := state.TailStatus(s.StateDir, id, 200)
 	if err != nil {
-		return false
+		return ""
 	}
 	for i := len(lines) - 1; i >= 0; i-- {
 		verb, _, ok := crewstate.ParseStatusLine(lines[i])
 		if !ok {
 			continue
 		}
-		return verb == "paused"
+		return verb
+	}
+	return ""
+}
+
+// parkedDecisionVerb reports whether a status verb parks the goblin awaiting
+// the CFO's decision. needs-decision and checks-passed wake through the
+// watcher's decision signal; blocked wakes through cfo notify's own record.
+// The monitor must not re-wake any of them as a genuine stall.
+func parkedDecisionVerb(verb string) bool {
+	switch verb {
+	case "blocked", "needs-decision", "checks-passed", "checks_passed":
+		return true
 	}
 	return false
 }
