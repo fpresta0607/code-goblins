@@ -30,6 +30,8 @@ const (
 
 // EndpointSample is the one read-only response consumed by the monitor. Busy
 // is separate from Agent because liveness and activity are different facts.
+// Status, InteractiveReady, StateChangeSeq, and Revision come straight from
+// `herdr agent list` and are the primary supervision signal.
 type EndpointSample struct {
 	Verdict  ProbeVerdict
 	Endpoint herdr.Endpoint
@@ -38,6 +40,14 @@ type EndpointSample struct {
 	Busy     herdr.BusyState
 	Capture  []byte
 	Detail   string
+	// Status is the native agent_status: working, idle, or done.
+	Status string
+	// InteractiveReady is true when the agent is at its prompt awaiting input.
+	InteractiveReady bool
+	// StateChangeSeq and Revision are the agent's liveness counters. Both
+	// claude and pi advance state_change_seq; claude also advances revision.
+	StateChangeSeq int64
+	Revision       int64
 }
 
 type Health string
@@ -75,9 +85,9 @@ const (
 	InvalidRecord   Reason = "invalid_record"
 	// HarnessError is a provider failure read out of the pane itself.
 	HarnessError Reason = "harness_error"
-	// AwaitingAnswer is a goblin parked on a printed question, waiting for a
-	// decision. Pi has no interactive dialog widget, so herdr reports it as
-	// merely idle; the pane text is the only signal the goblin is blocked.
+	// AwaitingAnswer is a goblin whose agent turn ended (agent_status done) and
+	// is waiting on input - finished or blocked. It is the harness-agnostic
+	// "waiting for the CFO" signal that pane-text diffing was blind to.
 	AwaitingAnswer Reason = "awaiting_answer"
 	// AwaitingDecision is a goblin parked on a status-verb decision
 	// (blocked, needs-decision, or checks-passed) whose wake was already
@@ -110,6 +120,8 @@ type Observation struct {
 	EndpointVerdict      ProbeVerdict `json:"endpoint_verdict"`
 	Digest               string       `json:"digest"`
 	StatusStamp          string       `json:"status_stamp,omitempty"`
+	StateChangeSeq       int64        `json:"state_change_seq,omitempty"`
+	Revision             int64        `json:"revision,omitempty"`
 	LastObserved         time.Time    `json:"last_observed"`
 	LastSeen             time.Time    `json:"last_seen"`
 	LastProgress         time.Time    `json:"last_progress"`
