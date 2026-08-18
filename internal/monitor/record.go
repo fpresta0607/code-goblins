@@ -122,6 +122,8 @@ type Observation struct {
 	StatusStamp          string       `json:"status_stamp,omitempty"`
 	GatedVerbLine        int64        `json:"gated_verb_line,omitempty"`
 	ConsumedVerbLine     int64        `json:"consumed_verb_line,omitempty"`
+	GatedStateChangeSeq  int64        `json:"gated_state_change_seq,omitempty"`
+	GatedRevision        int64        `json:"gated_revision,omitempty"`
 	StateChangeSeq       int64        `json:"state_change_seq,omitempty"`
 	Revision             int64        `json:"revision,omitempty"`
 	LastObserved         time.Time    `json:"last_observed"`
