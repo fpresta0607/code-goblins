@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -23,6 +24,8 @@ type proberRunner struct {
 	schemaCalls    int
 	snapshotCalls  int
 	captureCalls   map[string]int
+	agentCalls     int
+	lastSnapshot   string
 	requests       []execx.Request
 }
 
@@ -49,7 +52,30 @@ func (r *proberRunner) Run(_ context.Context, req execx.Request) (execx.Result, 
 		}
 		body := r.snapshotBodies[0]
 		r.snapshotBodies = r.snapshotBodies[1:]
+		r.lastSnapshot = body
 		return execx.Result{Stdout: []byte(body)}, nil
+	case len(args) == 2 && args[0] == "agent" && args[1] == "list":
+		r.agentCalls++
+		var parsed struct {
+			Result struct {
+				Snapshot struct {
+					Agents []herdr.SnapshotAgent `json:"agents"`
+				} `json:"snapshot"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal([]byte(r.lastSnapshot), &parsed); err != nil {
+			return execx.Result{}, fmt.Errorf("agent list cannot parse the last snapshot: %v", err)
+		}
+		var b strings.Builder
+		b.WriteString(`{"id":"cli:agent:list","result":{"agents":[`)
+		for i, agent := range parsed.Result.Snapshot.Agents {
+			if i > 0 {
+				b.WriteString(",")
+			}
+			fmt.Fprintf(&b, `{"agent":%q,"agent_status":%q,"pane_id":%q,"tab_id":%q,"workspace_id":%q,"state_change_seq":1,"revision":1}`, agent.Agent, agent.Status, agent.PaneID, agent.TabID, agent.WorkspaceID)
+		}
+		b.WriteString(`],"type":"agent_list"}}`)
+		return execx.Result{Stdout: []byte(b.String())}, nil
 	case len(args) == 7 && args[0] == "pane" && args[1] == "read":
 		if args[3] != "--source" || args[4] != "recent-unwrapped" || args[5] != "--lines" || args[6] != "200" {
 			return execx.Result{}, fmt.Errorf("pane read is not the bounded unwrapped capture: %v", args)
@@ -167,8 +193,8 @@ func TestHerdrProberSuppliesOneSnapshotPerCycle(t *testing.T) {
 		t.Fatalf("observations = %+v, want both tasks", result.Observations)
 	}
 	for _, observation := range result.Observations {
-		if observation.Health != HealthActive || observation.EndpointVerdict != ProbePresent {
-			t.Errorf("observation = %+v, want active with a present endpoint", observation)
+		if observation.EndpointVerdict != ProbePresent || (observation.Health != HealthActive && observation.Health != HealthBusy && observation.Health != HealthIdle) {
+			t.Errorf("observation = %+v, want a live present endpoint", observation)
 		}
 	}
 	if runner.schemaCalls != 1 || runner.snapshotCalls != 1 {
@@ -202,6 +228,9 @@ func TestHerdrProberSuppliesOneSnapshotPerCycle(t *testing.T) {
 		if len(request.Args) >= 2 && request.Args[0] == "api" && (request.Args[1] == "schema" || request.Args[1] == "snapshot") {
 			continue
 		}
+		if len(request.Args) >= 2 && request.Args[0] == "agent" && request.Args[1] == "list" {
+			continue
+		}
 		t.Fatalf("prober issued an unexpected command: %q", request.Args)
 	}
 }
@@ -230,8 +259,8 @@ func TestHerdrProberRetainsBusyProtection(t *testing.T) {
 		t.Fatalf("second Scan: %v", err)
 	}
 	observation := second.Observations[0]
-	if first.Observations[0].Health != HealthActive || observation.Health != HealthBusy || second.Event != nil {
-		t.Fatalf("healths = %q then %q event=%+v, want active then protected busy", first.Observations[0].Health, observation.Health, second.Event)
+	if first.Observations[0].Health != HealthBusy || observation.Health != HealthBusy || second.Event != nil {
+		t.Fatalf("healths = %q then %q event=%+v, want busy then protected busy", first.Observations[0].Health, observation.Health, second.Event)
 	}
 	if runner.captureCalls["pane-g1"] != 2 {
 		t.Fatalf("captures = %v, want one bounded read per cycle", runner.captureCalls)
@@ -366,8 +395,8 @@ func TestHerdrProberAcceptsShortCaptureFromLiveTask(t *testing.T) {
 		t.Fatalf("observations = %+v, want one task", result.Observations)
 	}
 	observation := result.Observations[0]
-	if observation.Health != HealthActive || observation.EndpointVerdict != ProbePresent {
-		t.Fatalf("observation = %+v, want active with present endpoint for a short live capture", observation)
+	if observation.Health != HealthBusy || observation.EndpointVerdict != ProbePresent {
+		t.Fatalf("observation = %+v, want busy with present endpoint for a short live capture", observation)
 	}
 }
 

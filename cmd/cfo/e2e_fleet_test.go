@@ -812,12 +812,20 @@ func (p *fleetE2EProber) Inspect(_ context.Context, meta state.TaskMeta) (monito
 		return monitor.EndpointSample{Verdict: monitor.ProbeMissing, Detail: "fixture deliberately removed endpoint"}, nil
 	}
 	capture := "unchanged"
+	stateChangeSeq := int64(0)
 	if meta.ID != "claude" {
 		capture = fmt.Sprintf("%s-progress-%d", meta.ID, p.calls[meta.ID])
+		// The "progressing" goblins advance their liveness counter so they
+		// never stall; claude stays static so the stall test has a subject.
+		stateChangeSeq = int64(p.calls[meta.ID])
 	}
 	busy := p.fixture.runner.busy[meta.ID]
 	if busy == "" {
 		busy = herdr.BusyIdle
+	}
+	status := herdr.AgentIdle
+	if busy == herdr.BusyWorking {
+		status = herdr.AgentWorking
 	}
 	return monitor.EndpointSample{
 		Verdict: monitor.ProbePresent,
@@ -827,10 +835,12 @@ func (p *fleetE2EProber) Inspect(_ context.Context, meta state.TaskMeta) (monito
 			TabID:       meta.HerdrTabID,
 			PaneID:      meta.HerdrPaneID,
 		},
-		TabLabel: "gb-" + meta.ID,
-		Agent:    herdr.AgentAlive,
-		Busy:     busy,
-		Capture:  []byte(strings.Repeat(capture+"\n", 200)),
+		TabLabel:      "gb-" + meta.ID,
+		Agent:         herdr.AgentAlive,
+		Busy:          busy,
+		Status:        status,
+		StateChangeSeq: stateChangeSeq,
+		Capture:       []byte(strings.Repeat(capture+"\n", 200)),
 	}, nil
 }
 
