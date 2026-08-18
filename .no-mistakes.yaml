@@ -9,4 +9,7 @@ disable_project_settings: true
 # codex, claude, and pi have a verified suppression knob, so the ACP kimi
 # fallback from the global config is deliberately excluded for this repo; it
 # still serves as a fallback in repos without agent-instruction files.
-agent: [pi, claude, codex]
+# 2026-08-18: claude first, mirroring the global config - pi's API balance is
+# exhausted (402 Insufficient Balance, fails after spawn so the fallback chain
+# never engages). pi kept next so topping it up restores the old order.
+agent: [claude, pi, codex]
