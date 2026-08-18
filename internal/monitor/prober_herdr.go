@@ -66,10 +66,11 @@ func (p *HerdrProber) Inspect(ctx context.Context, meta state.TaskMeta) (Endpoin
 		return EndpointSample{Verdict: ProbeUnknown, Detail: err.Error()}, nil
 	}
 	agents, err := p.cycleAgents(ctx)
-	if err != nil {
+	countersUnavailable := err != nil
+	if countersUnavailable {
 		agents = snapshotAgentRecords(snapshot.Agents)
 	}
-	return p.inspect(ctx, snapshot, agents, meta)
+	return p.inspect(ctx, snapshot, agents, meta, countersUnavailable)
 }
 
 func (p *HerdrProber) cycleSnapshot(ctx context.Context) (herdr.SessionSnapshot, error) {
@@ -137,7 +138,7 @@ func snapshotAgentRecords(agents []herdr.SnapshotAgent) []herdr.AgentRecord {
 	return records
 }
 
-func (p *HerdrProber) inspect(ctx context.Context, snapshot herdr.SessionSnapshot, agents []herdr.AgentRecord, meta state.TaskMeta) (EndpointSample, error) {
+func (p *HerdrProber) inspect(ctx context.Context, snapshot herdr.SessionSnapshot, agents []herdr.AgentRecord, meta state.TaskMeta, countersUnavailable bool) (EndpointSample, error) {
 	unknown := func(detail string) EndpointSample {
 		return EndpointSample{Verdict: ProbeUnknown, Detail: detail}
 	}
@@ -227,6 +228,7 @@ func (p *HerdrProber) inspect(ctx context.Context, snapshot herdr.SessionSnapsho
 	sample.InteractiveReady = agent.InteractiveReady
 	sample.StateChangeSeq = agent.StateChangeSeq
 	sample.Revision = agent.Revision
+	sample.CountersUnavailable = countersUnavailable
 
 	capture, err := p.Client.CaptureEvidence(ctx, sample.Endpoint.Target)
 	if err != nil {

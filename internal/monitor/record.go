@@ -48,6 +48,10 @@ type EndpointSample struct {
 	// claude and pi advance state_change_seq; claude also advances revision.
 	StateChangeSeq int64
 	Revision       int64
+	// CountersUnavailable is true when the liveness counters could not be read
+	// from `herdr agent list` and were omitted from the snapshot fallback, so
+	// a zero counter is not a real regression.
+	CountersUnavailable bool
 }
 
 type Health string
