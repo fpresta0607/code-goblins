@@ -179,6 +179,55 @@ func TestScanIdleGraceThenStallsOnce(t *testing.T) {
 	}
 }
 
+func TestScanIgnoresUnavailableCountersInsteadOfResettingIdle(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	sample := sampleForStatus(meta, herdr.AgentIdle, "steady")
+	sample.StateChangeSeq = 2670
+	sample.Revision = 13807
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sample}}
+	service := testService(stateDir, probe, &now)
+
+	first, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Observations[0].Health != HealthActive {
+		t.Fatalf("first scan = %+v, want active baseline from the first counters", first)
+	}
+
+	now = now.Add(time.Second)
+	if _, err := service.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	// A fallback cycle omits the liveness counters; their zero values must not
+	// masquerade as a counter change and reset the idle clock.
+	sample.StateChangeSeq = 0
+	sample.Revision = 0
+	sample.CountersUnavailable = true
+	probe.samples["g1"] = sample
+	now = now.Add(time.Second)
+	fallback, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fallback.Observations[0].Health == HealthActive || fallback.Observations[0].IdleSince == nil {
+		t.Fatalf("fallback scan = %+v, want the idle clock preserved, not reset to active", fallback)
+	}
+
+	now = now.Add(time.Minute)
+	stalled, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stalled.Event == nil || stalled.Observations[0].Reason != UnchangedIdle {
+		t.Fatalf("stall scan = %+v, want an unchanged-idle stall despite the counter outage", stalled)
+	}
+}
+
 func TestScanStatusWritesKeepAQuietGoblinFromStalling(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
@@ -1269,7 +1318,7 @@ func TestScanDoesNotConsumeFreshVerbSeenWhileWorking(t *testing.T) {
 	}
 }
 
-func TestScanWakesDoneAgentAfterWorkingOnlySawStaleParkedVerb(t *testing.T) {
+func TestScanHoldsQuietDoneAgentAfterWorkingSawParkedVerb(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
 	meta := metaFor("g1")
@@ -1294,12 +1343,12 @@ func TestScanWakesDoneAgentAfterWorkingOnlySawStaleParkedVerb(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Event == nil || result.Observations[0].Reason != AwaitingAnswer {
-		t.Fatalf("done-after-working scan = %+v, want an awaiting-input wake despite the never-gated parked verb", result)
+	if result.Event != nil || result.Observations[0].Health != HealthParked || result.Observations[0].Reason != AwaitingDecision {
+		t.Fatalf("done-after-working scan = %+v, want parked/awaiting_decision without event for an ungated parked verb", result)
 	}
 }
 
-func TestScanWakesDoneAgentAfterWorkingOnlySawStaleTerminalVerb(t *testing.T) {
+func TestScanHoldsQuietDoneAgentAfterWorkingSawTerminalVerb(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
 	meta := metaFor("g1")
@@ -1324,8 +1373,8 @@ func TestScanWakesDoneAgentAfterWorkingOnlySawStaleTerminalVerb(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Event == nil || result.Observations[0].Reason != AwaitingAnswer {
-		t.Fatalf("done-after-working scan = %+v, want an awaiting-input wake despite the never-gated terminal verb", result)
+	if result.Event != nil || result.Observations[0].Health != HealthIdle || result.Observations[0].Reason != None {
+		t.Fatalf("done-after-working scan = %+v, want idle/none without event for an ungated terminal verb", result)
 	}
 }
 
