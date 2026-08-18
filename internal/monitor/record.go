@@ -120,6 +120,8 @@ type Observation struct {
 	EndpointVerdict      ProbeVerdict `json:"endpoint_verdict"`
 	Digest               string       `json:"digest"`
 	StatusStamp          string       `json:"status_stamp,omitempty"`
+	GatedVerbLine        int64        `json:"gated_verb_line,omitempty"`
+	ConsumedVerbLine     int64        `json:"consumed_verb_line,omitempty"`
 	StateChangeSeq       int64        `json:"state_change_seq,omitempty"`
 	Revision             int64        `json:"revision,omitempty"`
 	LastObserved         time.Time    `json:"last_observed"`
