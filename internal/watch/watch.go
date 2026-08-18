@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
+	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -312,29 +313,33 @@ func Run(cfg Config) (string, error) {
 				continue
 			}
 
-			names := make([]string, len(changes))
-			for i, c := range changes {
-				names[i] = c.Name
-			}
-			detail := "signal:" + strings.Join(names, " ")
-
-			// One record per changed file: a single record keyed on an
-			// arbitrary member of the changed set would let a later cycle's
-			// append overwrite an earlier cycle's mention of a file whose
-			// signature has already advanced, so that file's completion
-			// would never be presented and would then be acked away.
+			// Only decision signals wake the CFO: a goblin writing its
+			// working/review/test status is doing its job, not asking for a
+			// decision. Non-decision changes are committed silently and the
+			// heartbeat carries the fleet summary instead.
+			var decisions []string
 			for _, c := range changes {
-				if _, err := wake.Append(cfg.Home.State, "signal", c.Name, detail); err != nil {
-					return "", err
+				if signalIsDecision(cfg.Home.State, c.Name) {
+					decisions = append(decisions, c.Name)
 				}
+			}
+			if len(decisions) > 0 {
+				detail := "signal:" + strings.Join(decisions, " ")
+				for _, name := range decisions {
+					if _, err := wake.Append(cfg.Home.State, "signal", name, detail); err != nil {
+						return "", err
+					}
+				}
+				signalDetail = detail
 			}
 			if err := CommitSignatures(cfg.Home.State, changes); err != nil {
 				return "", err
 			}
-			if _, err := wake.PublishEpisode(cfg.Home.State); err != nil {
-				return "", err
+			if len(decisions) > 0 {
+				if _, err := wake.PublishEpisode(cfg.Home.State); err != nil {
+					return "", err
+				}
 			}
-			signalDetail = detail
 		}
 
 		if cfg.Monitor != nil {
@@ -409,7 +414,16 @@ func routeHarnessError(cfg Config, event monitor.Event) string {
 	}
 	rule, matched := cfg.Routing.Match(meta.Harness, fault)
 	if !matched {
-		return event.Detail + " | no standing rule; decide and use `cfo switch " + event.TaskID + " --harness <h>` if a switch is right"
+		switch fault {
+		case routing.Provider:
+			// A third-party outage is the platform's own problem, not the
+			// harness's: switching harnesses will not help. Wait and retry.
+			return event.Detail + " | third-party outage: wait and retry; `cfo switch` will not help"
+		case routing.Auth:
+			return event.Detail + " | credential failure: fix the credential, not the harness"
+		default:
+			return event.Detail + " | no standing rule; decide and use `cfo switch " + event.TaskID + " --harness <h>` if a switch is right"
+		}
 	}
 	prefix := " | RECOMMENDED: "
 	if rule.Auto {
@@ -423,4 +437,35 @@ func routeHarnessError(cfg Config, event monitor.Event) string {
 		detail += " (add --force-dirty if the worktree has uncommitted changes)"
 	}
 	return detail
+}
+
+// decisionVerb reports whether a status verb needs the CFO's immediate
+// attention: a gate question, a hard failure, or a green gate awaiting merge.
+// Everything else is a goblin doing its job and is folded into the heartbeat.
+func decisionVerb(verb string) bool {
+	switch verb {
+	case "needs-decision", "blocked", "failed", "checks-passed", "checks_passed":
+		return true
+	default:
+		return false
+	}
+}
+
+// signalIsDecision reports whether a changed *.status file's latest verb is a
+// decision the CFO must see immediately. *.turn-ended markers and unparsable
+// or non-decision verbs are treated as noise, never as a wake.
+func signalIsDecision(stateDir, name string) bool {
+	if !strings.HasSuffix(name, ".status") {
+		return false
+	}
+	id := strings.TrimSuffix(name, ".status")
+	lines, err := state.TailStatus(stateDir, id, 1)
+	if err != nil || len(lines) == 0 {
+		return false
+	}
+	verb, _, ok := crewstate.ParseStatusLine(lines[0])
+	if !ok {
+		return false
+	}
+	return decisionVerb(verb)
 }

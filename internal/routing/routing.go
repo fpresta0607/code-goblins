@@ -64,17 +64,76 @@ var faultPatterns = []struct {
 }
 
 // Detect reports the provider fault a pane's tail shows, if any. It reads the
-// tail the watcher already captured rather than probing anything.
+// tail the watcher already captured rather than probing anything. Third-party
+// platform failures (GitHub and other git hosts) are checked before the model
+// provider's own faults, because a platform rate limit or 5xx is a wait/backoff
+// case that must never route to a harness switch.
 func Detect(paneTail string) (Fault, string, bool) {
 	lowered := strings.ToLower(paneTail)
+	if index, ok := thirdPartyFault(lowered); ok {
+		return Provider, evidence(paneTail, index), true
+	}
 	for _, group := range faultPatterns {
 		for _, pattern := range group.patterns {
-			if index := strings.Index(lowered, pattern); index >= 0 {
-				return group.fault, evidence(paneTail, index), true
+			index := strings.Index(lowered, pattern)
+			if index < 0 {
+				continue
 			}
+			// A bare "rate limit" phrase also appears in prose (for example a
+			// CFO steer saying "not a model rate limit"); require the matched
+			// line to carry error framing so a conversational mention never
+			// reads as a provider refusal.
+			if pattern == "rate limit" && !errorFramed(lowered, index) {
+				continue
+			}
+			return group.fault, evidence(paneTail, index), true
 		}
 	}
 	return "", "", false
+}
+
+// thirdPartyFault recognizes a git-platform (GitHub and friends) rate limit or
+// outage: those are the platform's own quota, not the model provider's, so the
+// recommended action is wait/backoff rather than a harness switch.
+func thirdPartyFault(lowered string) (int, bool) {
+	for _, marker := range []string{"github", "api.github.com", "gitlab", "bitbucket", "gh:"} {
+		index := strings.Index(lowered, marker)
+		if index < 0 {
+			continue
+		}
+		line := lineAt(lowered, index)
+		for _, indicator := range []string{"rate limit", "secondary rate", "429", "503", "502", "exceeded", "abuse"} {
+			if strings.Contains(line, indicator) {
+				return index, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// errorFramed reports whether the line a match landed on also carries a
+// provider error signal (a status code or an error word), so a keyword alone
+// in a conversational line is not a fault.
+func errorFramed(lowered string, index int) bool {
+	line := lineAt(lowered, index)
+	for _, signal := range []string{"429", "403", "error", "refused", "failed", "quota", "exceeded", "reached"} {
+		if strings.Contains(line, signal) {
+			return true
+		}
+	}
+	return false
+}
+
+// lineAt returns the single line of text containing index.
+func lineAt(text string, index int) string {
+	start := strings.LastIndexByte(text[:index], '\n') + 1
+	end := strings.IndexByte(text[index:], '\n')
+	if end < 0 {
+		end = len(text)
+	} else {
+		end += index
+	}
+	return text[start:end]
 }
 
 // evidence returns the line the match landed on, so a report can quote what

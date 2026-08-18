@@ -184,8 +184,9 @@ func TestSwitchWritesAHandoffAcrossHarnessesAndInstructsTheNewOne(t *testing.T) 
 		}
 	}
 	// The new harness has to be told to read it before doing anything else.
-	if !strings.Contains(fixture.runner.prompt, result.Handoff) {
-		t.Errorf("prompt = %q, want it to point at the handoff", fixture.runner.prompt)
+	last := fixture.runner.literals[len(fixture.runner.literals)-1]
+	if !strings.Contains(last, result.Handoff) {
+		t.Errorf("delivered instruction = %q, want it to point at the handoff", last)
 	}
 }
 

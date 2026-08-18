@@ -27,6 +27,7 @@ const (
 	launchSettle       = 300 * time.Millisecond
 	launchConfirmPoll  = 1500 * time.Millisecond
 	launchConfirmTries = 80
+	instructionTries   = 3
 )
 
 // Request is the complete local task creation input. Ship delivery posture is
@@ -131,6 +132,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := rejectTaskIDAlias(s.StateDir, req.ID); err != nil {
 		return Result{}, err
 	}
+	if err := s.ensureProjectSeeded(ctx, project); err != nil {
+		return Result{}, err
+	}
 
 	if err := herdrClient.EnsureServer(ctx); err != nil {
 		return Result{}, fmt.Errorf("spawn: ensure Herdr server: %w", err)
@@ -165,16 +169,29 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return Result{}, fmt.Errorf("spawn: acquire treehouse worktree: %w", err)
 	}
 	result = partialResult(req, project, taskTmp, endpoint, worktree.Path)
-	launchSubmitted := false
+
+	// Publish metadata as soon as the pane and worktree exist, before the
+	// harness can start: a task whose launch later fails is then addressable
+	// and cleanable through `cfo peek`/`cfo cleanup` instead of an unnameable
+	// orphan whose pane the CFO has to hunt down by hand.
+	result.Meta.SpawnGen = fmt.Sprintf("s%d", time.Now().UTC().UnixNano())
+	if err := state.WriteTaskMeta(s.StateDir, result.Meta); err != nil {
+		return Result{}, errors.Join(
+			fmt.Errorf("spawn: publish task metadata: %w", err),
+			s.teardownLaunch(ctx, &herdrClient, endpoint, project, worktree.Path, result.Meta.ID),
+		)
+	}
+
+	// fail records the exact cause and tears the half-built task down cleanly
+	// (close the tab, return the worktree, retire the metadata). It is the one
+	// failure path: nothing here can leave an unaddressable pane behind.
 	fail := func(result Result, cause error) (Result, error) {
 		line := "failed: " + bounded(normalizeStatusDetail(cause.Error()), 1000)
 		if err := state.AppendStatus(s.StateDir, result.Meta.ID, line); err != nil {
 			cause = errors.Join(cause, fmt.Errorf("spawn: record launch failure: %w", err))
 		}
-		if !launchSubmitted {
-			if err := s.Treehouse.Return(ctx, project, worktree.Path); err != nil {
-				cause = errors.Join(cause, fmt.Errorf("spawn: return treehouse worktree after launch failure: %w", err))
-			}
+		if err := s.teardownLaunch(ctx, &herdrClient, endpoint, project, worktree.Path, result.Meta.ID); err != nil {
+			cause = errors.Join(cause, err)
 		}
 		return result, cause
 	}
@@ -208,24 +225,22 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return fail(result, fmt.Errorf("spawn: build harness launch: %w", err))
 	}
 	launch.Dir = worktree.Path
+	// Every goblin is told to report its outcome through cfo notify, so the
+	// CFO is woken with the actual PR URL, question, or failure reason instead
+	// of the watcher guessing from pane text.
+	launch.Instruction = spawnInstruction(req.BriefPath, req.ID)
 	authWarning, err := s.injectProjectCredentials(ctx, project, taskTmp, &launch)
 	if err != nil {
 		return fail(result, err)
 	}
-	submitted, err := s.startHarness(ctx, &herdrClient, endpoint.Target, launchPlan{
+	if _, err := s.startHarness(ctx, &herdrClient, endpoint.Target, launchPlan{
 		AgentName: "gb-" + req.ID,
 		Harness:   req.Harness,
 		Launch:    launch,
-	})
-	launchSubmitted = submitted
-	if err != nil {
+	}); err != nil {
 		return fail(result, err)
 	}
 
-	result.Meta.SpawnGen = fmt.Sprintf("s%d", time.Now().UTC().UnixNano())
-	if err := state.WriteTaskMeta(s.StateDir, result.Meta); err != nil {
-		return fail(result, fmt.Errorf("spawn: publish task metadata: %w", err))
-	}
 	result.Output = successOutput(result.Meta)
 	if authWarning != "" {
 		result.Output += "\n" + authWarning
@@ -339,8 +354,12 @@ func (s Service) startHarness(ctx context.Context, client *herdr.Client, target 
 	if err := s.sleep(ctx, launchSettle); err != nil {
 		return true, fmt.Errorf("spawn: wait before brief prompt: %w", err)
 	}
-	if err := client.AgentPrompt(ctx, target, launch.PromptInstruction()); err != nil {
-		return true, fmt.Errorf("spawn: submit harness brief prompt: %w", err)
+	// The first instruction after launch is the least protected moment: a
+	// too-early or too-fast first keystroke can eat leading characters and
+	// turn the brief instruction into a bogus slash command. Type it, read it
+	// back, and submit only once the composer shows it intact.
+	if err := s.deliverVerifiedInstruction(ctx, client, target, plan.Harness, launch.PromptInstruction()); err != nil {
+		return true, err
 	}
 	if err := s.confirmLaunch(ctx, client, target); err != nil {
 		return true, err
@@ -567,7 +586,10 @@ func (s Service) confirmHarnessDialogs(ctx context.Context, client *herdr.Client
 
 // confirmLaunch waits for the launched harness to report working after its
 // brief has been delivered through the native prompt channel or the typed
-// launch line.
+// launch line. On timeout it re-probes agent liveness: a pane whose agent is
+// registered and alive (even idle or blocked - a healthy Claude waiting at its
+// prompt) is adopted rather than declared failed, so a false timeout cannot
+// orphan a live goblin.
 func (s Service) confirmLaunch(ctx context.Context, client *herdr.Client, target herdr.Target) error {
 	for attempt := 0; attempt < launchConfirmTries; attempt++ {
 		if attempt > 0 {
@@ -583,7 +605,116 @@ func (s Service) confirmLaunch(ctx context.Context, client *herdr.Client, target
 			return nil
 		}
 	}
+	// The full working budget elapsed without a working report. Re-probe once:
+	// a live agent is adopted as launched, so the spawn reports success instead
+	// of writing a failed status beside a healthy pane.
+	if s.paneAlive(ctx, client, target) {
+		return nil
+	}
 	return fmt.Errorf("spawn: harness launch did not report working within %ds", int(launchConfirmPoll.Seconds()*launchConfirmTries))
+}
+
+// paneAlive reports whether the target pane has a registered agent in any
+// recognized state. It is the adoption proof for a readiness timeout: a dead or
+// missing agent means the launch genuinely failed.
+func (s Service) paneAlive(ctx context.Context, client *herdr.Client, target herdr.Target) bool {
+	status, err := client.AgentStatus(ctx, target)
+	return err == nil && status == herdr.AgentAlive
+}
+
+// deliverVerifiedInstruction types one instruction into the pane composer,
+// reads it back, and submits it only once the read-back shows it intact. A
+// mismatch (leading characters eaten by a too-early first keystroke) clears
+// the composer and retries. This protects the first instruction after launch,
+// which is the moment most exposed to a harness that is not yet focused.
+func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.Client, target herdr.Target, kind harness.Kind, instruction string) error {
+	for attempt := 0; attempt < instructionTries; attempt++ {
+		if attempt > 0 {
+			if err := client.SendKey(ctx, target, "Ctrl+U"); err != nil {
+				return fmt.Errorf("spawn: clear composer before retyping instruction: %w", err)
+			}
+			if err := s.sleep(ctx, launchSettle); err != nil {
+				return fmt.Errorf("spawn: wait after clearing composer: %w", err)
+			}
+		}
+		if err := client.SendLiteral(ctx, target, instruction); err != nil {
+			return fmt.Errorf("spawn: type harness instruction: %w", err)
+		}
+		if err := s.sleep(ctx, launchSettle); err != nil {
+			return fmt.Errorf("spawn: wait before instruction read-back: %w", err)
+		}
+		captured, err := client.Capture(ctx, target, 0, false)
+		if err != nil {
+			return fmt.Errorf("spawn: read back harness instruction: %w", err)
+		}
+		if instructionIntact(captured, instruction) {
+			if err := client.SendKey(ctx, target, submitKey(kind)); err != nil {
+				return fmt.Errorf("spawn: submit harness instruction: %w", err)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("spawn: instruction read-back did not match after %d attempts", instructionTries)
+}
+
+// instructionIntact reports whether instruction survived typing intact in the
+// captured pane tail. Whitespace is stripped from both sides so composer line
+// wrapping never reads as corruption.
+func instructionIntact(captured, instruction string) bool {
+	return strings.Contains(stripWhitespace(captured), stripWhitespace(instruction))
+}
+
+// submitKey is the harness-specific key that submits a parked composer: kimi
+// needs ctrl+s while every other harness submits with Enter.
+func submitKey(kind harness.Kind) string {
+	if kind == harness.Kimi {
+		return "ctrl+s"
+	}
+	return "Enter"
+}
+
+// teardownLaunch closes the task tab, returns the worktree, and retires the
+// task metadata. It is the clean-failure path: every step is attempted and
+// their failures joined, so one stuck teardown step never leaves the rest
+// undone.
+func (s Service) teardownLaunch(ctx context.Context, client *herdr.Client, endpoint herdr.Endpoint, project, worktree, id string) error {
+	var errs error
+	if err := client.CloseTab(ctx, endpoint.Target.Session, endpoint.TabID); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("spawn: close task tab: %w", err))
+	}
+	if err := s.Treehouse.Return(ctx, project, worktree); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("spawn: return treehouse worktree: %w", err))
+	}
+	if err := os.Remove(filepath.Join(s.StateDir, id+".meta")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		errs = errors.Join(errs, fmt.Errorf("spawn: retire task metadata: %w", err))
+	}
+	return errs
+}
+
+// ensureProjectSeeded makes an unborn or empty primary project leasable before
+// the first worktree acquisition, so a freshly created empty GitHub repo is
+// seeded with an initial commit instead of dying inside `treehouse get`.
+func (s Service) ensureProjectSeeded(ctx context.Context, project string) error {
+	git, err := s.treehouseGit()
+	if err != nil {
+		return err
+	}
+	if _, err := git.EnsureSeeded(ctx, project); err != nil {
+		return fmt.Errorf("spawn: prepare project for worktree lease: %w", err)
+	}
+	return nil
+}
+
+// spawnInstruction is the full first instruction a goblin receives: read the
+// brief, then report outcomes through cfo notify so the CFO is woken with the
+// real payload rather than a pane-derived guess.
+func spawnInstruction(briefPath, id string) string {
+	exe, err := os.Executable()
+	if err != nil {
+		exe = "cfo"
+	}
+	return harness.BriefInstruction(briefPath) +
+		" Report outcomes to the CFO: on completion with a PR run: " + exe + " notify " + id + " --done --pr <url>. When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\". On failure run: " + exe + " notify " + id + " --failed \"<reason>\"."
 }
 
 // containsMarker matches against whitespace-normalized text: pane captures

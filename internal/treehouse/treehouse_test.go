@@ -131,6 +131,9 @@ type gitStub struct {
 	returned   [][2]string
 	freshenErr error
 	returnErr  error
+	seeded     []string
+	seedErr    error
+	seedValue  bool
 }
 
 func (g *gitStub) WorktreeTop(_ context.Context, dir string) (string, error) {
@@ -148,6 +151,11 @@ func (g *gitStub) FetchAndFreshen(_ context.Context, dir string) error {
 func (g *gitStub) Return(_ context.Context, project, worktree string) error {
 	g.returned = append(g.returned, [2]string{project, worktree})
 	return g.returnErr
+}
+
+func (g *gitStub) EnsureSeeded(_ context.Context, project string) (bool, error) {
+	g.seeded = append(g.seeded, project)
+	return g.seedValue, g.seedErr
 }
 
 func TestValidateRejectsNonIsolatedDirectories(t *testing.T) {

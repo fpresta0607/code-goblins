@@ -263,10 +263,10 @@ func TestRunClosesOnSignal(t *testing.T) {
 	dir := t.TempDir()
 	aPath := filepath.Join(dir, "a.status")
 	bPath := filepath.Join(dir, "b.status")
-	if err := os.WriteFile(aPath, []byte("a1"), 0o644); err != nil {
+	if err := os.WriteFile(aPath, []byte("failed: a1"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(bPath, []byte("b1"), 0o644); err != nil {
+	if err := os.WriteFile(bPath, []byte("failed: b1"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	sleepCalls := 0
@@ -274,7 +274,7 @@ func TestRunClosesOnSignal(t *testing.T) {
 	cfg.Sleep = func(time.Duration) {
 		sleepCalls++
 		if sleepCalls == 1 {
-			appendFile(t, aPath, "a2")
+			appendFile(t, aPath, "failed: a2")
 		}
 	}
 
@@ -329,7 +329,7 @@ func TestRunClosesOnSignal(t *testing.T) {
 func TestRunPreservesControlFilenameInQueueButRendersItSafely(t *testing.T) {
 	dir := t.TempDir()
 	name := "state\u009b2J.status"
-	if err := os.WriteFile(filepath.Join(dir, name), []byte("changed"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("failed: changed"), 0o644); err != nil {
 		t.Fatalf("create control-character state signal: %v", err)
 	}
 	cfg := baseConfig(dir)
@@ -359,7 +359,7 @@ func TestRunPreservesControlFilenameInQueueButRendersItSafely(t *testing.T) {
 
 func TestRunScansMonitorAfterCommittingRawSignal(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "raw.status"), []byte("changed"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "raw.status"), []byte("failed: changed"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := state.WriteTaskMeta(dir, state.TaskMeta{
