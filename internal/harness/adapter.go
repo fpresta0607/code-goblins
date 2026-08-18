@@ -99,6 +99,11 @@ type Control struct {
 	// placed before the built launch arguments because codex takes its
 	// resume as a subcommand. Empty means the harness cannot resume.
 	ResumeArgs []string
+	// ResumeMarkers mark the interactive dialog ResumeArgs can open before
+	// the harness accepts input (claude asks how to resume a large idle
+	// session). While one is on screen, the relaunch clears it with the
+	// launch's ConfirmKeys, exactly like a startup dialog.
+	ResumeMarkers []string
 }
 
 // Adapter builds and validates one supported harness launch.
