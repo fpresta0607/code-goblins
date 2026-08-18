@@ -251,12 +251,6 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		if observation.GatedVerbLine > observation.ConsumedVerbLine {
 			observation.ConsumedVerbLine = observation.GatedVerbLine
 		}
-		if verb, line, ok := s.latestStatusVerb(meta.ID); ok && line > observation.ConsumedVerbLine {
-			if parkedDecisionVerb(verb) || terminalVerb(verb) {
-				observation.GatedVerbLine = line
-				observation.GatedStateChangeSeq = sample.StateChangeSeq
-			}
-		}
 		return workingObservation(observation, sample, now)
 	case herdr.AgentDone, herdr.AgentBlocked:
 		// The agent's turn ended and it is waiting on input - finished or
@@ -321,8 +315,10 @@ func (s Service) staleObservation(observation Observation, reason Reason, now ti
 // wakes and never walks toward a stall: a rising state_change_seq/revision is
 // the liveness evidence, and "working" is definitive.
 func workingObservation(observation Observation, sample EndpointSample, now time.Time) Observation {
-	observation.StateChangeSeq = sample.StateChangeSeq
-	observation.Revision = sample.Revision
+	if !sample.CountersUnavailable {
+		observation.StateChangeSeq = sample.StateChangeSeq
+		observation.Revision = sample.Revision
+	}
 	observation.LastSeen = now
 	observation.LastProgress = now
 	observation.IdleSince = nil
@@ -376,9 +372,12 @@ func (s Service) idleClassification(observation Observation, sample EndpointSamp
 	}
 
 	stamp := s.statusStamp(id)
-	if sample.StateChangeSeq != observation.StateChangeSeq || sample.Revision != observation.Revision || (stamp != "" && stamp != observation.StatusStamp) {
-		observation.StateChangeSeq = sample.StateChangeSeq
-		observation.Revision = sample.Revision
+	countersMoved := !sample.CountersUnavailable && (sample.StateChangeSeq != observation.StateChangeSeq || sample.Revision != observation.Revision)
+	if countersMoved || (stamp != "" && stamp != observation.StatusStamp) {
+		if !sample.CountersUnavailable {
+			observation.StateChangeSeq = sample.StateChangeSeq
+			observation.Revision = sample.Revision
+		}
 		observation.StatusStamp = stamp
 		observation.LastSeen = now
 		observation.LastProgress = now
