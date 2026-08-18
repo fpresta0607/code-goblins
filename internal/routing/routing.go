@@ -101,27 +101,56 @@ func Detect(paneTail string) (Fault, string, bool) {
 // outage: those are the platform's own quota, not the model provider's, so the
 // recommended action is wait/backoff rather than a harness switch.
 func thirdPartyFault(lowered string) (int, bool) {
-	for _, marker := range []string{"github", "api.github.com", "gitlab", "bitbucket", "gh:"} {
-		index := strings.Index(lowered, marker)
-		if index < 0 {
-			continue
+	for _, marker := range []string{"github", "api.github.com", "gitlab", "bitbucket"} {
+		if index := strings.Index(lowered, marker); index >= 0 && thirdPartyLine(lowered, index) {
+			return index, true
 		}
-		line := lineAt(lowered, index)
-		// A status code is unambiguous error framing on its own.
-		for _, code := range []string{"429", "503", "502"} {
-			if strings.Contains(line, code) {
-				return index, true
-			}
-		}
-		// A prose keyword must carry a status code or error word on the same
-		// line, so a conversational mention of a git host is not an outage.
-		for _, indicator := range []string{"rate limit", "secondary rate", "exceeded", "abuse"} {
-			if strings.Contains(line, indicator) && thirdPartyFramed(line, indicator) {
-				return index, true
-			}
+	}
+	// gh CLI errors begin with "gh:" at the start of a line; a bare
+	// substring would also flag words like "high:", "weigh:", or "sigh:".
+	for _, index := range lineStartMatches(lowered, "gh:") {
+		if thirdPartyLine(lowered, index) {
+			return index, true
 		}
 	}
 	return 0, false
+}
+
+// thirdPartyLine reports whether the line containing index is a git-platform
+// outage: a status code, or a prose keyword with error framing.
+func thirdPartyLine(lowered string, index int) bool {
+	line := lineAt(lowered, index)
+	// A status code is unambiguous error framing on its own.
+	for _, code := range []string{"429", "503", "502"} {
+		if strings.Contains(line, code) {
+			return true
+		}
+	}
+	// A prose keyword must carry a status code or error word on the same
+	// line, so a conversational mention of a git host is not an outage.
+	for _, indicator := range []string{"rate limit", "secondary rate", "exceeded", "abuse"} {
+		if strings.Contains(line, indicator) && thirdPartyFramed(line, indicator) {
+			return true
+		}
+	}
+	return false
+}
+
+// lineStartMatches returns the indexes where needle begins a line.
+func lineStartMatches(haystack, needle string) []int {
+	var indexes []int
+	for start := 0; start < len(haystack); {
+		index := strings.Index(haystack[start:], needle)
+		if index < 0 {
+			return indexes
+		}
+		index += start
+		if index == 0 || haystack[index-1] == '\n' {
+			indexes = append(indexes, index)
+		}
+		start = index + len(needle)
+	}
+	return indexes
 }
 
 // thirdPartyFramed reports whether a line carries error framing beyond the

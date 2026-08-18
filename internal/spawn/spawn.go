@@ -186,7 +186,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// (close the tab, return the worktree, retire the metadata). It is the one
 	// failure path: nothing here can leave an unaddressable pane behind.
 	fail := func(result Result, cause error) (Result, error) {
-		line := "failed: " + bounded(normalizeStatusDetail(cause.Error()), 1000)
+		line := "failed: " + bounded(state.NormalizeStatusDetail(cause.Error()), 1000)
 		if err := state.AppendStatus(s.StateDir, result.Meta.ID, line); err != nil {
 			cause = errors.Join(cause, fmt.Errorf("spawn: record launch failure: %w", err))
 		}
@@ -860,8 +860,4 @@ func bounded(value string, limit int) string {
 		return value
 	}
 	return value[:limit]
-}
-
-func normalizeStatusDetail(value string) string {
-	return strings.NewReplacer("\r", " ", "\n", " ").Replace(value)
 }

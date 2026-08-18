@@ -192,7 +192,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 			recovery += " If the new harness refused an effort, retry with `--effort default` to clear it."
 		}
 		err = fmt.Errorf("%w\n%s", err, recovery)
-		if statusErr := state.AppendStatus(s.StateDir, req.ID, "failed: "+bounded(normalizeStatusDetail(err.Error()), 1000)); statusErr != nil {
+		if statusErr := state.AppendStatus(s.StateDir, req.ID, "failed: "+bounded(state.NormalizeStatusDetail(err.Error()), 1000)); statusErr != nil {
 			err = errors.Join(err, statusErr)
 		}
 		return SwitchResult{Meta: meta, From: from, Handoff: handoff, Resumed: resumed}, err

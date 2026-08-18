@@ -170,6 +170,19 @@ func TestDetectClassifiesAGitHubOutageAsThirdParty(t *testing.T) {
 	}
 }
 
+func TestDetectDoesNotReadAGhSuffixWordAsAnOutage(t *testing.T) {
+	tails := []string{
+		"high: 429 rows",
+		"weigh: 503 bytes",
+		"sigh: 502 gates",
+	}
+	for _, tail := range tails {
+		if fault, _, found := Detect(tail); found {
+			t.Errorf("Detect(%q) = %q, want no fault for a word ending in gh:", tail, fault)
+		}
+	}
+}
+
 func TestThirdPartyFaultNeverMatchesAPolicyRule(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, `{"rules":[{"harness":"claude","fault":"third-party","switch":{"harness":"codex"}}]}`)

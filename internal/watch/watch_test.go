@@ -773,3 +773,13 @@ func TestSignalIsDecisionOwnsOnlyGateAndMergeVerbs(t *testing.T) {
 		}
 	}
 }
+
+func TestSignalIsDecisionScansBackPastATrailingNoiseLine(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "g1.status"), []byte("needs-decision: merge this PR?\nnot a status event"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !signalIsDecision(dir, "g1.status") {
+		t.Fatal("signalIsDecision ignored a decision line followed by a trailing noise line")
+	}
+}

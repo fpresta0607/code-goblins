@@ -112,6 +112,22 @@ func Resolve(ctx context.Context, stateDir, id string, endpoint Endpoint) (Curre
 	return Current{State: Unknown, Source: SourceStatus}, nil
 }
 
+// LatestVerb scans status lines newest-first and returns the first parseable
+// verb, so a trailing unparseable or noise line never hides the goblin's real
+// state. The watcher and the monitor must share this scan, or a decision line
+// followed by a trailing noise line would be committed silently by one and
+// parked as delivered by the other.
+func LatestVerb(lines []string) (string, bool) {
+	for i := len(lines) - 1; i >= 0; i-- {
+		verb, _, ok := ParseStatusLine(lines[i])
+		if !ok {
+			continue
+		}
+		return verb, true
+	}
+	return "", false
+}
+
 // ParseStatusLine parses one colon-delimited status event, accepting the
 // documented before-colon and note-head key forms while returning only the
 // status verb and human detail.

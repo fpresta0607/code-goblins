@@ -635,14 +635,8 @@ func (s Service) latestStatusVerb(id string) string {
 	if err != nil {
 		return ""
 	}
-	for i := len(lines) - 1; i >= 0; i-- {
-		verb, _, ok := crewstate.ParseStatusLine(lines[i])
-		if !ok {
-			continue
-		}
-		return verb
-	}
-	return ""
+	verb, _ := crewstate.LatestVerb(lines)
+	return verb
 }
 
 // parkedDecisionVerb reports whether a status verb parks the goblin awaiting
