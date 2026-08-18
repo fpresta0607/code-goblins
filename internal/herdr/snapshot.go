@@ -2,7 +2,6 @@ package herdr
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 )
 
@@ -113,14 +112,19 @@ func (c *Client) AgentList(ctx context.Context) ([]AgentRecord, error) {
 		return nil, err
 	}
 	var response struct {
-		Result struct {
-			Agents []AgentRecord `json:"agents"`
-		} `json:"result"`
+		Type   string        `json:"type"`
+		Agents []AgentRecord `json:"agents"`
 	}
-	if err := json.Unmarshal(result.Stdout, &response); err != nil {
+	if err := decodeResult(result.Stdout, &response); err != nil {
 		return nil, fmt.Errorf("herdr: decode agent list response for session %q: %w", session, err)
 	}
-	return response.Result.Agents, nil
+	if response.Type != "agent_list" {
+		return nil, fmt.Errorf("herdr: agent list for session %q returned type %q", session, response.Type)
+	}
+	if response.Agents == nil {
+		return nil, fmt.Errorf("herdr: agent list for session %q is missing agents", session)
+	}
+	return response.Agents, nil
 }
 
 // EffectiveSession reports the session every request routes to.

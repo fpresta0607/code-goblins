@@ -78,11 +78,13 @@ type AgentDetail struct {
 // Native agent_status values reported by `herdr agent list`. AgentWorking means
 // the agent is actively processing a turn; AgentDone means the turn ended and
 // the agent is waiting on input (finished or blocked); AgentIdle means the
-// agent is registered and interactive between turns.
+// agent is registered and interactive between turns; AgentBlocked means the
+// agent is parked on a permission or approval dialog awaiting human input.
 const (
 	AgentWorking = "working"
 	AgentIdle    = "idle"
 	AgentDone    = "done"
+	AgentBlocked = "blocked"
 )
 
 // AgentRecord is one entry from `herdr agent list` (socket API, JSON): the

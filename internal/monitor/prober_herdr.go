@@ -222,7 +222,7 @@ func (p *HerdrProber) inspect(ctx context.Context, snapshot herdr.SessionSnapsho
 	switch agent.Status {
 	case herdr.AgentWorking:
 		sample.Busy = herdr.BusyWorking
-	case herdr.AgentIdle, herdr.AgentDone, "blocked":
+	case herdr.AgentIdle, herdr.AgentDone, herdr.AgentBlocked:
 		sample.Busy = herdr.BusyIdle
 	default:
 		sample.Busy = herdr.BusyUnknown
