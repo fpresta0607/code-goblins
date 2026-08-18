@@ -709,12 +709,18 @@ func (s Service) ensureProjectSeeded(ctx context.Context, project string) error 
 // brief, then report outcomes through cfo notify so the CFO is woken with the
 // real payload rather than a pane-derived guess.
 func spawnInstruction(briefPath, id string) string {
+	return harness.BriefInstruction(briefPath) + notifyInstruction(id)
+}
+
+// notifyInstruction tells a goblin how to report its outcome through cfo
+// notify, so the CFO is woken with the actual payload instead of the watcher
+// guessing from pane text.
+func notifyInstruction(id string) string {
 	exe, err := os.Executable()
 	if err != nil {
 		exe = "cfo"
 	}
-	return harness.BriefInstruction(briefPath) +
-		" Report outcomes to the CFO: on completion with a PR run: " + exe + " notify " + id + " --done --pr <url>. When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\". On failure run: " + exe + " notify " + id + " --failed \"<reason>\"."
+	return " Report outcomes to the CFO: on completion with a PR run: " + exe + " notify " + id + " --done --pr <url>. When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\". On failure run: " + exe + " notify " + id + " --failed \"<reason>\"."
 }
 
 // containsMarker matches against whitespace-normalized text: pane captures

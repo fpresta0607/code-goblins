@@ -25,8 +25,13 @@ const (
 	RateLimit Fault = "rate-limit"
 	// Auth is a rejected or expired credential.
 	Auth Fault = "auth"
-	// Provider is the service failing on its own side.
+	// Provider is the model service failing on its own side (a 5xx, an
+	// overload, a gateway error). Switching harnesses may help here.
 	Provider Fault = "provider"
+	// ThirdParty is a git-platform (GitHub and friends) rate limit or
+	// outage. It is the platform's own problem, never the model provider's,
+	// so it must never route to a harness switch.
+	ThirdParty Fault = "third-party"
 )
 
 // faultPatterns are matched against a pane's tail, lowercased. Order matters:
@@ -71,7 +76,7 @@ var faultPatterns = []struct {
 func Detect(paneTail string) (Fault, string, bool) {
 	lowered := strings.ToLower(paneTail)
 	if index, ok := thirdPartyFault(lowered); ok {
-		return Provider, evidence(paneTail, index), true
+		return ThirdParty, evidence(paneTail, index), true
 	}
 	for _, group := range faultPatterns {
 		for _, pattern := range group.patterns {
@@ -219,6 +224,11 @@ func Load(dataDir string) (Policy, error) {
 // first matching rule wins, and a harness-specific rule is preferred over a
 // catch-all regardless of file order.
 func (p Policy) Match(harness string, fault Fault) (Rule, bool) {
+	// A third-party (git platform) outage is a wait/backoff case, never a
+	// harness-switch case, so no standing rule can answer it.
+	if fault == ThirdParty {
+		return Rule{}, false
+	}
 	var fallback Rule
 	found := false
 	for _, rule := range p.Rules {

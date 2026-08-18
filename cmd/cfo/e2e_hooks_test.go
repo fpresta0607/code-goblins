@@ -390,7 +390,7 @@ func statusApendAfter(state, name string, delay time.Duration) <-chan struct{} {
 	go func() {
 		defer close(done)
 		time.Sleep(delay)
-		_ = os.WriteFile(filepath.Join(state, name), []byte("failed: rewake\n"), 0o644)
+		_ = os.WriteFile(filepath.Join(state, name), []byte("needs-decision: rewake\n"), 0o644)
 	}()
 	return done
 }

@@ -217,6 +217,7 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 
 	observation.EndpointVerdict = ProbePresent
 	digest := fmt.Sprintf("%x", sha256.Sum256(sample.Capture))
+	stamp := s.statusStamp(meta.ID)
 
 	// A harness being refused by its provider is checked before anything
 	// else. An erroring pane often keeps changing - the error scrolls, the
@@ -232,6 +233,7 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	}
 	if observation.Digest == "" || observation.Digest != digest {
 		observation.Digest = digest
+		observation.StatusStamp = stamp
 		observation.LastSeen = now
 		observation.LastProgress = now
 		observation.IdleSince = nil
@@ -257,6 +259,23 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		// waiting on a subprocess. Treat an active pane as busy.
 		if captureActive(sample.Capture) {
 			return s.busyOrStale(observation, meta.ID, now)
+		}
+		// A status line written since the last observation is liveness even
+		// when both the pane and herdr report quiet: the goblin is still
+		// working. Reset the idle clock rather than walking toward a stall.
+		if stamp != "" && stamp != observation.StatusStamp {
+			observation.StatusStamp = stamp
+			observation.LastSeen = now
+			observation.LastProgress = now
+			observation.IdleSince = nil
+			observation.StaleSince = nil
+			observation.NextEscalation = nil
+			observation.NextPauseResurface = nil
+			observation.Health = HealthActive
+			observation.Reason = None
+			observation.Escalation = 0
+			observation.DemandDeepInspection = false
+			return observation
 		}
 		// A pane already classified stale stays stale while its digest is
 		// unchanged, whatever the stale reason was: the goblin is still stuck.
