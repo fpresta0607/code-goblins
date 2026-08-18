@@ -797,6 +797,9 @@ func TestScanTreatsFreshTaskWithNoAgentAsLaunching(t *testing.T) {
 	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
+	if err := os.Chtimes(filepath.Join(stateDir, "g1.meta"), now, now); err != nil {
+		t.Fatal(err)
+	}
 	probe := &fakeProber{samples: map[string]EndpointSample{"g1": {
 		Verdict: ProbePresent,
 		Endpoint: herdr.Endpoint{
@@ -835,6 +838,101 @@ func TestScanTreatsFreshTaskWithNoAgentAsLaunching(t *testing.T) {
 	}
 	if alive.Event != nil || alive.Observations[0].Health != HealthActive {
 		t.Fatalf("alive scan = %+v, want an active baseline without an event", alive)
+	}
+}
+
+func TestScanWakesWhenLaunchGraceExpiresWithoutAgent(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	if err := os.Chtimes(filepath.Join(stateDir, "g1.meta"), now, now); err != nil {
+		t.Fatal(err)
+	}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": {
+		Verdict: ProbePresent,
+		Endpoint: herdr.Endpoint{
+			Target:      herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID},
+			WorkspaceID: meta.HerdrWorkspaceID,
+			TabID:       meta.HerdrTabID,
+			PaneID:      meta.HerdrPaneID,
+		},
+		TabLabel: "gb-g1",
+		Agent:    herdr.AgentDead,
+		Busy:     herdr.BusyUnknown,
+		Detail:   "pane pane-g1 has no registered agent",
+	}}}
+	service := testService(stateDir, probe, &now)
+
+	result, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if result.Event != nil || result.Observations[0].Health != HealthLaunching {
+		t.Fatalf("in-grace scan = %+v, want quiet launching", result)
+	}
+
+	now = now.Add(6 * time.Minute)
+	result, err = service.Scan(context.Background())
+	if err != nil {
+		t.Fatalf("Scan after grace: %v", err)
+	}
+	if result.Event == nil || result.Observations[0].Reason != EndpointUnknown {
+		t.Fatalf("post-grace scan = %+v, want an endpoint-unknown death wake", result)
+	}
+}
+
+func TestScanDoesNotWakeOnAnEmbeddedQuestion(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{
+		"g1": sampleFor(meta, herdr.BusyIdle, "Should I merge this PR now?\ncontinuing to run tests"),
+	}}
+	service := testService(stateDir, probe, &now)
+
+	if _, err := service.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	if _, err := service.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	result, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Event != nil || result.Observations[0].Reason == AwaitingAnswer {
+		t.Fatalf("scan = %+v, want no parked-question wake for a question followed by output", result)
+	}
+}
+
+func TestScanDoesNotWakeOnAConfirmationPrompt(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{
+		"g1": sampleFor(meta, herdr.BusyIdle, "Continue? [y/N]"),
+	}}
+	service := testService(stateDir, probe, &now)
+
+	if _, err := service.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	if _, err := service.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	result, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Event != nil || result.Observations[0].Reason == AwaitingAnswer {
+		t.Fatalf("scan = %+v, want no parked-question wake for a confirmation prompt", result)
 	}
 }
 
