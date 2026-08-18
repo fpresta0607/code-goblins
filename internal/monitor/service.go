@@ -264,6 +264,8 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 			return s.pauseObservation(observation, now)
 		} else if parkedDecisionVerb(verb) {
 			return s.parkedObservation(observation, now)
+		} else if terminalVerb(verb) {
+			return s.terminalObservation(observation, now)
 		}
 		// A status line written since the last observation is liveness even
 		// when both the pane and herdr report quiet: the goblin is still
@@ -489,6 +491,22 @@ func (s Service) parkedObservation(observation Observation, now time.Time) Obser
 	return observation
 }
 
+// terminalObservation records a goblin whose latest status verb delivered a
+// terminal outcome (done or failed). cfo notify already woke the CFO with that
+// outcome, so the monitor holds the pane quiet: the idle clock never advances
+// and a finished goblin is not re-woken as a genuine stall.
+func (s Service) terminalObservation(observation Observation, now time.Time) Observation {
+	observation.Health = HealthIdle
+	observation.Reason = None
+	observation.IdleSince = nil
+	observation.StaleSince = nil
+	observation.NextEscalation = nil
+	observation.NextPauseResurface = nil
+	observation.Escalation = 0
+	observation.DemandDeepInspection = false
+	return observation
+}
+
 func (s Service) pauseObservation(observation Observation, now time.Time) Observation {
 	observation.Health = HealthPaused
 	observation.Reason = DeclaredPause
@@ -634,6 +652,18 @@ func (s Service) latestStatusVerb(id string) string {
 func parkedDecisionVerb(verb string) bool {
 	switch verb {
 	case "blocked", "needs-decision", "checks-passed", "checks_passed":
+		return true
+	}
+	return false
+}
+
+// terminalVerb reports whether a status verb delivered a terminal outcome.
+// done and failed already woke the CFO through cfo notify's own record (or a
+// spawn/switch error surfaced directly), so the monitor must not re-wake the
+// finished goblin as a genuine stall.
+func terminalVerb(verb string) bool {
+	switch verb {
+	case "done", "failed":
 		return true
 	}
 	return false
