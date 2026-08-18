@@ -340,25 +340,22 @@ func (s Service) statusVerbObservation(observation Observation, id string, now t
 		return observation, false
 	}
 	if observation.GatedVerbLine > 0 && line <= observation.GatedVerbLine &&
-		(sample.StateChangeSeq > observation.GatedStateChangeSeq || sample.Revision > observation.GatedRevision) {
+		sample.StateChangeSeq > observation.GatedStateChangeSeq {
 		return observation, false
 	}
 	if verb == "paused" {
 		observation.GatedVerbLine = line
 		observation.GatedStateChangeSeq = sample.StateChangeSeq
-		observation.GatedRevision = sample.Revision
 		return s.pauseObservation(observation, now), true
 	}
 	if parkedDecisionVerb(verb) {
 		observation.GatedVerbLine = line
 		observation.GatedStateChangeSeq = sample.StateChangeSeq
-		observation.GatedRevision = sample.Revision
 		return s.parkedObservation(observation, now), true
 	}
 	if terminalVerb(verb) {
 		observation.GatedVerbLine = line
 		observation.GatedStateChangeSeq = sample.StateChangeSeq
-		observation.GatedRevision = sample.Revision
 		return s.terminalObservation(observation, now), true
 	}
 	return observation, false
