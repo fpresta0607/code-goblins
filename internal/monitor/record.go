@@ -54,6 +54,9 @@ const (
 	// from stale because the goblin is not merely quiet: it is being refused,
 	// and waiting longer will not help.
 	HealthErroring Health = "harness-erroring"
+	// HealthLaunching is a freshly created task whose pane exists but whose
+	// agent has not registered yet: launch-in-progress, not harness death.
+	HealthLaunching Health = "launching"
 )
 
 type Reason string
@@ -288,6 +291,14 @@ func validateObservationState(observation Observation) error {
 			return errors.New("monitor: erroring observation must not carry pause timing")
 		}
 		return requireProgress()
+	case HealthLaunching:
+		if observation.EndpointVerdict != ProbePresent || observation.Reason != None {
+			return errors.New("monitor: launching observation requires a present endpoint and reason none")
+		}
+		if observation.StaleSince != nil || observation.NextEscalation != nil || observation.NextPauseResurface != nil || observation.Escalation != 0 || observation.DemandDeepInspection {
+			return errors.New("monitor: launching observation must not retain stale state")
+		}
+		return nil
 	case HealthPaused:
 		if observation.EndpointVerdict != ProbePresent || observation.Reason != DeclaredPause {
 			return errors.New("monitor: paused observation has incompatible endpoint or reason")

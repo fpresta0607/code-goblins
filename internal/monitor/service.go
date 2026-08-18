@@ -212,6 +212,13 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		if detail == "" {
 			detail = "endpoint identity did not validate"
 		}
+		// A freshly created task publishes its metadata before the harness can
+		// register, so a present pane with no agent yet is still launching,
+		// not harness death. Stay quiet until it has been observed alive once;
+		// after that a missing agent is a real death and wakes normally.
+		if sample.Verdict == ProbePresent && sample.Agent == herdr.AgentDead && prior.LastSeen.IsZero() {
+			return launchingObservation(observation, now)
+		}
 		return unknownObservation(observation, EndpointUnknown, detail, now)
 	}
 
@@ -253,12 +260,6 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	case herdr.BusyIdle:
 		if s.declaredPaused(meta.ID) {
 			return s.pauseObservation(observation, now)
-		}
-		// A live spinner or rotating glyph is work, not idleness: herdr's
-		// "idle" status is unreliable for an agent that is streaming or
-		// waiting on a subprocess. Treat an active pane as busy.
-		if captureActive(sample.Capture) {
-			return s.busyOrStale(observation, meta.ID, now)
 		}
 		// A status line written since the last observation is liveness even
 		// when both the pane and herdr report quiet: the goblin is still
@@ -310,8 +311,8 @@ func (s Service) staleObservation(observation Observation, reason Reason, now ti
 		observation.NextEscalation = &next
 		observation.Escalation = 0
 		observation.DemandDeepInspection = false
-		// A genuine stall: no liveness signal (pane, status log, busy, or
-		// spinner) moved for the stall window and no notify arrived. This is
+		// A genuine stall: no liveness signal (pane, status log, or busy)
+		// moved for the stall window and no notify arrived. This is
 		// the uncooperative case a dead or wedged goblin cannot notify about,
 		// so it wakes once with the stall reason.
 		event := taskEvent(observation.TaskID, reason, "no liveness signal for "+s.stallAfter().String())
@@ -374,24 +375,12 @@ func (s Service) idleObservation(observation Observation, now time.Time) Observa
 	return s.staleObservation(observation, UnchangedIdle, now)
 }
 
-// captureActive reports whether a pane tail shows in-progress work: a live
-// spinner or rotating glyph. herdr's "idle" is unreliable for an agent that
-// is streaming or waiting on a subprocess, so a spinner is treated as working
-// rather than idle.
-func captureActive(capture []byte) bool {
-	for _, r := range string(capture) {
-		if r >= 0x2800 && r <= 0x28FF {
-			return true
-		}
-	}
-	return false
-}
-
 // awaitingAnswer reports whether a pane tail ends with a substantive question
 // the goblin is parked on, waiting for an answer. Pi has no interactive dialog
 // widget, so a parked question reads as merely "idle" to herdr; the pane text
 // is the only signal. Only a question-mark-terminated line near the tail (after
-// skipping empty and prompt/footer lines) counts.
+// skipping empty and prompt/footer lines) counts. The goblin's own cfo notify
+// confirmation is never a question: it is the goblin reporting one.
 func awaitingAnswer(capture []byte) (string, bool) {
 	lines := strings.Split(strings.TrimRight(string(capture), "\r\n"), "\n")
 	if len(lines) > 20 {
@@ -399,7 +388,7 @@ func awaitingAnswer(capture []byte) (string, bool) {
 	}
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := strings.TrimSpace(lines[i])
-		if line == "" {
+		if line == "" || isNotifyEcho(line) {
 			continue
 		}
 		if !strings.HasSuffix(line, "?") {
@@ -411,6 +400,25 @@ func awaitingAnswer(capture []byte) (string, bool) {
 		return line, true
 	}
 	return "", false
+}
+
+// isNotifyEcho reports whether a pane line is the goblin's own cfo notify
+// confirmation ("notified <id> blocked: ...", "notified <id> done: ...", or
+// "notified <id> failed: ..."), which the goblin printed while reporting.
+func isNotifyEcho(line string) bool {
+	rest, ok := strings.CutPrefix(line, "notified ")
+	if !ok {
+		return false
+	}
+	fields := strings.Fields(rest)
+	if len(fields) < 2 {
+		return false
+	}
+	switch fields[1] {
+	case "done:", "blocked:", "failed:":
+		return true
+	}
+	return false
 }
 
 // awaitingAnswerObservation records a goblin parked on a printed question,
@@ -503,6 +511,23 @@ func unknownObservation(observation Observation, reason Reason, detail string, n
 		event := taskEvent(observation.TaskID, reason, detail)
 		observation.PendingEvent = &event
 	}
+	return observation
+}
+
+// launchingObservation records a present pane whose agent has not registered
+// yet on a task that has never been observed alive. It carries no pending
+// event: launch-in-progress is not a decision and must not wake the CFO.
+func launchingObservation(observation Observation, now time.Time) Observation {
+	observation.LastObserved = now
+	observation.EndpointVerdict = ProbePresent
+	observation.Health = HealthLaunching
+	observation.Reason = None
+	observation.StaleSince = nil
+	observation.NextEscalation = nil
+	observation.NextPauseResurface = nil
+	observation.Escalation = 0
+	observation.DemandDeepInspection = false
+	observation.PendingEvent = nil
 	return observation
 }
 
