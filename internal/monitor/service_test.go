@@ -171,6 +171,38 @@ func TestScanIdleGraceThenStallsOnce(t *testing.T) {
 	}
 }
 
+func TestScanStatusWritesKeepAQuietGoblinFromStalling(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	service := testService(stateDir, probe, &now)
+
+	if _, err := service.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// The pane stays quiet and herdr keeps reporting idle, but the goblin is
+	// still working: it writes a status line every cycle, which must count as
+	// liveness and keep pushing the stall window back.
+	for i := 0; i < 5; i++ {
+		now = now.Add(30 * time.Second)
+		if err := state.AppendStatus(stateDir, "g1", "working: step "+strings.Repeat("x", i)); err != nil {
+			t.Fatal(err)
+		}
+		result, err := service.Scan(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Event != nil {
+			t.Fatalf("cycle %d woke the CFO despite a fresh status write: %+v", i, result.Event)
+		}
+		if result.Observations[0].Health == HealthStale || result.Observations[0].IdleSince != nil {
+			t.Fatalf("cycle %d observation = %+v, want a working goblin, not idle or stale", i, result.Observations[0])
+		}
+	}
+}
+
 func TestScanProtectsBusyThenStalesAndResurfacesPause(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)

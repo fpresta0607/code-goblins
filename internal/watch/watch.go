@@ -415,10 +415,14 @@ func routeHarnessError(cfg Config, event monitor.Event) string {
 	rule, matched := cfg.Routing.Match(meta.Harness, fault)
 	if !matched {
 		switch fault {
-		case routing.Provider:
-			// A third-party outage is the platform's own problem, not the
+		case routing.ThirdParty:
+			// A git-platform outage is the platform's own problem, not the
 			// harness's: switching harnesses will not help. Wait and retry.
-			return event.Detail + " | third-party outage: wait and retry; `cfo switch` will not help"
+			return event.Detail + " | third-party outage (git platform): wait and retry; `cfo switch` will not help"
+		case routing.Provider:
+			// A model-provider 5xx is the provider's own side failing; a
+			// switch may help if it persists, but a retry is the first move.
+			return event.Detail + " | model-provider outage: wait and retry, or switch harness if it persists"
 		case routing.Auth:
 			return event.Detail + " | credential failure: fix the credential, not the harness"
 		default:
@@ -440,11 +444,13 @@ func routeHarnessError(cfg Config, event monitor.Event) string {
 }
 
 // decisionVerb reports whether a status verb needs the CFO's immediate
-// attention: a gate question, a hard failure, or a green gate awaiting merge.
-// Everything else is a goblin doing its job and is folded into the heartbeat.
+// attention: a gate question or a green gate awaiting merge. Blocked and
+// failed are deliberately absent: those outcomes are delivered by cfo notify's
+// own wake (or by a spawn/switch error surfaced to the CFO directly), so the
+// watcher must not re-wake on their status lines.
 func decisionVerb(verb string) bool {
 	switch verb {
-	case "needs-decision", "blocked", "failed", "checks-passed", "checks_passed":
+	case "needs-decision", "checks-passed", "checks_passed":
 		return true
 	default:
 		return false
