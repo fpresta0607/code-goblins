@@ -287,7 +287,7 @@ func (s Service) staleObservation(observation Observation, reason Reason, now ti
 		observation.NextEscalation = &next
 		observation.Escalation = 0
 		observation.DemandDeepInspection = false
-		// A genuine stall: no liveness signal (pane, status log, or busy)
+		// A genuine stall: no liveness signal (agent counters or status log)
 		// moved for the stall window and no notify arrived. This is
 		// the uncooperative case a dead or wedged goblin cannot notify about,
 		// so it wakes once with the stall reason.
@@ -305,8 +305,8 @@ func (s Service) staleObservation(observation Observation, reason Reason, now ti
 		// Dedupe: escalation does not re-wake. The CFO was already woken for
 		// this exact stale state; the only thing that advances is the
 		// escalation column, which fleet-view reads without a new wake. A
-		// genuinely new state (digest change, recovery, a fault) clears this
-		// and wakes on its own.
+		// genuinely new state (liveness movement, recovery, or a fault)
+		// clears this and wakes on its own.
 	}
 	return observation
 }
@@ -400,7 +400,7 @@ func (s Service) idleClassification(observation Observation, sample EndpointSamp
 // idleObservation classifies an idle-and-unchanged pane behind a substantial
 // grace period. A goblin legitimately thinking or running a quiet subprocess
 // can sit at an unchanged pane for minutes; it is only stale once it has been
-// genuinely idle (no digest change, no spinner) for the idle threshold.
+// genuinely idle (no counter or status-log movement) for the idle threshold.
 func (s Service) idleObservation(observation Observation, now time.Time) Observation {
 	if observation.IdleSince == nil {
 		observation.IdleSince = timePointer(now)

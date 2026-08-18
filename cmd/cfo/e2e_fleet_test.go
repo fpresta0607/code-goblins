@@ -835,12 +835,12 @@ func (p *fleetE2EProber) Inspect(_ context.Context, meta state.TaskMeta) (monito
 			TabID:       meta.HerdrTabID,
 			PaneID:      meta.HerdrPaneID,
 		},
-		TabLabel:      "gb-" + meta.ID,
-		Agent:         herdr.AgentAlive,
-		Busy:          busy,
-		Status:        status,
+		TabLabel:       "gb-" + meta.ID,
+		Agent:          herdr.AgentAlive,
+		Busy:           busy,
+		Status:         status,
 		StateChangeSeq: stateChangeSeq,
-		Capture:       []byte(strings.Repeat(capture+"\n", 200)),
+		Capture:        []byte(strings.Repeat(capture+"\n", 200)),
 	}, nil
 }
 
