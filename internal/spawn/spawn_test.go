@@ -914,7 +914,7 @@ func (a fixtureAdapter) Control() harness.Control {
 		StopKeys:      []string{"escape"},
 		StopCommand:   "/exit",
 		ResumeArgs:    []string{"--continue"},
-		ResumeMarkers: []string{"Resume from summary"},
+		ResumeMarkers: []string{"We recommend resuming from a summary"},
 	}
 }
 
@@ -1000,6 +1000,8 @@ type herdrRunner struct {
 	captureCount     int
 	corruptCaptureAt int
 	corruptCaptures  int
+	failCaptureAt    int
+	failCaptures     int
 }
 
 func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -1124,6 +1126,11 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		r.captureCount++
 		if r.captureErr != nil {
 			return execx.Result{}, r.captureErr
+		}
+		// A non-zero exit with no runner failure is the transient class: the
+		// pane was momentarily unreadable, which herdr reports as retryable.
+		if r.failCaptureAt > 0 && r.captureCount >= r.failCaptureAt && r.captureCount < r.failCaptureAt+max(1, r.failCaptures) {
+			return execx.Result{ExitCode: 1, Stderr: []byte("pane read: pane busy")}, nil
 		}
 		if r.trustDialog {
 			text := r.trustDialogText
@@ -1254,6 +1261,30 @@ func TestSpawnRetriesInstructionDeliveryWhenReadbackCorrupts(t *testing.T) {
 	}
 	if len(fixture.runner.literals) != 3 {
 		t.Errorf("literals = %q, want prefix plus two instruction deliveries", fixture.runner.literals)
+	}
+}
+
+// A pane that is momentarily unreadable while the harness redraws is part of
+// booting, not a delivery failure. A non-zero `herdr pane read` exit used to
+// abandon the whole read-back budget, so one unlucky poll tore down a launch
+// that was still coming up - the exact false failure the boot-aware budget
+// exists to prevent.
+func TestSpawnSurvivesATransientPaneReadFailureDuringInstructionDelivery(t *testing.T) {
+	fixture := newFixture(t)
+	// Two consecutive instruction read-backs (captures 3 and 4, after the two
+	// dialog probes) exit non-zero before the pane is readable again.
+	fixture.runner.failCaptureAt = 3
+	fixture.runner.failCaptures = 2
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if !strings.Contains(result.Output, "spawned task-7") {
+		t.Errorf("Output = %q, want the spawn to survive an unreadable pane", result.Output)
+	}
+	if len(fixture.runner.literals) != 4 {
+		t.Errorf("literals = %d, want the prefix plus three instruction deliveries", len(fixture.runner.literals))
 	}
 }
 
