@@ -947,3 +947,127 @@ func TestScanDoesNotStallATerminalOutcomeGoblin(t *testing.T) {
 		})
 	}
 }
+
+func TestScanKeepsLaunchingQuietAcrossCyclesWithinGrace(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	if err := os.Chtimes(filepath.Join(stateDir, "g1.meta"), now, now); err != nil {
+		t.Fatal(err)
+	}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": {
+		Verdict: ProbePresent,
+		Endpoint: herdr.Endpoint{
+			Target:      herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID},
+			WorkspaceID: meta.HerdrWorkspaceID,
+			TabID:       meta.HerdrTabID,
+			PaneID:      meta.HerdrPaneID,
+		},
+		TabLabel: "gb-g1",
+		Agent:    herdr.AgentDead,
+		Busy:     herdr.BusyUnknown,
+		Detail:   "pane pane-g1 has no registered agent",
+	}}}
+	service := testService(stateDir, probe, &now)
+
+	for i := 0; i < 3; i++ {
+		result, err := service.Scan(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Event != nil {
+			t.Fatalf("cycle %d woke a still-launching task: %+v", i, result.Event)
+		}
+		if len(result.Observations) != 1 || result.Observations[0].Health != HealthLaunching {
+			t.Fatalf("cycle %d observation = %+v, want launching", i, result.Observations)
+		}
+		persisted, err := ReadObservation(stateDir, "g1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !persisted.LastSeen.IsZero() {
+			t.Fatalf("cycle %d persisted LastSeen = %v, want zero while launching", i, persisted.LastSeen)
+		}
+		now = now.Add(30 * time.Second)
+	}
+}
+
+func TestScanHoldsQuietADoneAgentWithParkedOrTerminalVerb(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		statusLine string
+		wantHealth Health
+		wantReason Reason
+	}{
+		{"terminal done", "done: PR https://example.com/repo/pull/7", HealthIdle, None},
+		{"terminal failed", "failed: build broke", HealthIdle, None},
+		{"parked blocked", "blocked: Should I merge this?", HealthParked, AwaitingDecision},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stateDir := t.TempDir()
+			now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+			meta := metaFor("g1")
+			writeTask(t, stateDir, meta)
+			if err := state.AppendStatus(stateDir, "g1", test.statusLine); err != nil {
+				t.Fatal(err)
+			}
+			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, herdr.AgentDone, "turn ended")}}
+			service := testService(stateDir, probe, &now)
+
+			for i := 0; i < 3; i++ {
+				result, err := service.Scan(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Event != nil {
+					t.Fatalf("cycle %d woke a verb-gated done agent: %+v", i, result.Event)
+				}
+				if result.Observations[0].Health != test.wantHealth || result.Observations[0].Reason != test.wantReason {
+					t.Fatalf("cycle %d observation = %+v, want %s/%s", i, result.Observations[0], test.wantHealth, test.wantReason)
+				}
+				now = now.Add(time.Minute)
+			}
+		})
+	}
+}
+
+func TestScanWakesWhenBlockedAgentStatusHasNoVerb(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, herdr.AgentBlocked, "blocked")}}
+	service := testService(stateDir, probe, &now)
+
+	result, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Event == nil || result.Observations[0].Reason != AwaitingAnswer {
+		t.Fatalf("blocked scan = %+v, want an awaiting-input wake", result)
+	}
+	if result.Observations[0].Health != HealthStale {
+		t.Fatalf("health = %q, want stale", result.Observations[0].Health)
+	}
+}
+
+func TestScanHoldsQuietABlockedAgentWithParkedVerb(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	if err := state.AppendStatus(stateDir, "g1", "blocked: waiting for approval"); err != nil {
+		t.Fatal(err)
+	}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, herdr.AgentBlocked, "blocked")}}
+	service := testService(stateDir, probe, &now)
+
+	result, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Event != nil || result.Observations[0].Health != HealthParked || result.Observations[0].Reason != AwaitingDecision {
+		t.Fatalf("blocked+parked scan = %+v, want parked/awaiting_decision without event", result)
+	}
+}
