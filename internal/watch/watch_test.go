@@ -263,10 +263,10 @@ func TestRunClosesOnSignal(t *testing.T) {
 	dir := t.TempDir()
 	aPath := filepath.Join(dir, "a.status")
 	bPath := filepath.Join(dir, "b.status")
-	if err := os.WriteFile(aPath, []byte("failed: a1"), 0o644); err != nil {
+	if err := os.WriteFile(aPath, []byte("needs-decision: a1"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(bPath, []byte("failed: b1"), 0o644); err != nil {
+	if err := os.WriteFile(bPath, []byte("needs-decision: b1"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	sleepCalls := 0
@@ -274,7 +274,7 @@ func TestRunClosesOnSignal(t *testing.T) {
 	cfg.Sleep = func(time.Duration) {
 		sleepCalls++
 		if sleepCalls == 1 {
-			appendFile(t, aPath, "failed: a2")
+			appendFile(t, aPath, "needs-decision: a2")
 		}
 	}
 
@@ -329,7 +329,7 @@ func TestRunClosesOnSignal(t *testing.T) {
 func TestRunPreservesControlFilenameInQueueButRendersItSafely(t *testing.T) {
 	dir := t.TempDir()
 	name := "state\u009b2J.status"
-	if err := os.WriteFile(filepath.Join(dir, name), []byte("failed: changed"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("needs-decision: changed"), 0o644); err != nil {
 		t.Fatalf("create control-character state signal: %v", err)
 	}
 	cfg := baseConfig(dir)
@@ -359,7 +359,7 @@ func TestRunPreservesControlFilenameInQueueButRendersItSafely(t *testing.T) {
 
 func TestRunScansMonitorAfterCommittingRawSignal(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "raw.status"), []byte("failed: changed"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "raw.status"), []byte("needs-decision: changed"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := state.WriteTaskMeta(dir, state.TaskMeta{
@@ -742,5 +742,34 @@ func TestRunClearsPendingHarnessErrorAfterDecoratedPublish(t *testing.T) {
 	}
 	if second.Event != nil {
 		t.Errorf("second scan event = %+v, want none (one wake per episode)", second.Event)
+	}
+}
+
+// signalIsDecision must not re-wake on outcomes that cfo notify (or a
+// spawn/switch error) already delivered to the CFO; a second wake on those
+// status lines would double-report one goblin report.
+func TestSignalIsDecisionOwnsOnlyGateAndMergeVerbs(t *testing.T) {
+	dir := t.TempDir()
+	cases := []struct {
+		line string
+		want bool
+	}{
+		{"needs-decision: merge this PR?", true},
+		{"checks-passed: green gate awaiting merge", true},
+		{"checks_passed: green gate awaiting merge", true},
+		{"blocked: Should I merge this?", false},
+		{"failed: the build broke", false},
+		{"done: PR https://example/pr/1", false},
+		{"working: running tests", false},
+		{"switched: claude/default/default -> kimi/default/default", false},
+	}
+	for _, c := range cases {
+		name := "g1.status"
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(c.line+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := signalIsDecision(dir, name); got != c.want {
+			t.Errorf("signalIsDecision(%q) = %v, want %v", c.line, got, c.want)
+		}
 	}
 }

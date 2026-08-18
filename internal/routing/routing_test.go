@@ -144,7 +144,7 @@ func TestDetectDoesNotReadACFOsteerAsARateLimit(t *testing.T) {
 	}
 }
 
-func TestDetectClassifiesAGitHubOutageAsProvider(t *testing.T) {
+func TestDetectClassifiesAGitHubOutageAsThirdParty(t *testing.T) {
 	tails := []string{
 		"gh: 429 API rate limit exceeded for user 123456",
 		"fatal: unable to access 'https://github.com/x/y.git': The requested URL returned error: 503",
@@ -152,8 +152,26 @@ func TestDetectClassifiesAGitHubOutageAsProvider(t *testing.T) {
 	}
 	for _, tail := range tails {
 		fault, _, found := Detect(tail)
-		if !found || fault != Provider {
-			t.Errorf("Detect(%q) = (%q, %v), want Provider for a GitHub outage", tail, fault, found)
+		if !found || fault != ThirdParty {
+			t.Errorf("Detect(%q) = (%q, %v), want ThirdParty for a GitHub outage", tail, fault, found)
 		}
+	}
+}
+
+func TestThirdPartyFaultNeverMatchesAPolicyRule(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, `{"rules":[{"harness":"claude","fault":"third-party","switch":{"harness":"codex"}}]}`)
+	policy, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if rule, matched := policy.Match("claude", ThirdParty); matched {
+		t.Errorf("a third-party outage matched a switch rule: %+v", rule)
+	}
+	// A genuine model-provider outage must still match its own rule.
+	providerRule := Rule{Harness: "claude", Fault: Provider, Switch: Switch{Harness: "codex"}}
+	policy = Policy{Rules: []Rule{providerRule}}
+	if rule, matched := policy.Match("claude", Provider); !matched || rule.Switch.Harness != "codex" {
+		t.Errorf("a model-provider outage did not match its rule: rule=%+v matched=%v", rule, matched)
 	}
 }
