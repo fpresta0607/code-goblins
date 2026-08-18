@@ -379,18 +379,18 @@ func newDevHome(t *testing.T) string {
 	return dir
 }
 
-// statusApendAfter starts a goroutine that writes an empty state\<name>
-// status file after delay, standing in for a goblin's status completion, and
-// returns a channel closed once the write is done. Callers that start a hook
-// invocation expecting to observe this write must receive from the channel
-// before asserting, so the goroutine's write is never left racing test
-// teardown.
+// statusApendAfter starts a goroutine that writes a decision status line to
+// state\<name> after delay, standing in for a goblin reporting a decision the
+// CFO must wake for, and returns a channel closed once the write is done.
+// Callers that start a hook invocation expecting to observe this write must
+// receive from the channel before asserting, so the goroutine's write is never
+// left racing test teardown.
 func statusApendAfter(state, name string, delay time.Duration) <-chan struct{} {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		time.Sleep(delay)
-		_ = os.WriteFile(filepath.Join(state, name), []byte("done\n"), 0o644)
+		_ = os.WriteFile(filepath.Join(state, name), []byte("failed: rewake\n"), 0o644)
 	}()
 	return done
 }

@@ -19,7 +19,7 @@ func TestClaudeBuildsStructuredLaunch(t *testing.T) {
 		t.Fatalf("Build defaults: %v", err)
 	}
 	assertLaunch(t, defaults, Launch{
-		Args: []string{"--dangerously-skip-permissions"},
+		Args: []string{"--dangerously-skip-permissions", "--strict-mcp-config"},
 		Env: map[string]string{
 			"CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "false",
 			"GOTMPDIR":                             `C:\tasks\task\gotmp`,
@@ -41,7 +41,7 @@ func TestClaudeBuildsStructuredLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build explicit: %v", err)
 	}
-	if got, want := explicit.Args, []string{"--dangerously-skip-permissions", "--model", "sonnet", "--effort", "xhigh"}; !equalStrings(got, want) {
+	if got, want := explicit.Args, []string{"--dangerously-skip-permissions", "--strict-mcp-config", "--model", "sonnet", "--effort", "xhigh"}; !equalStrings(got, want) {
 		t.Errorf("Args = %#v, want %#v", got, want)
 	}
 

@@ -196,3 +196,78 @@ func TestRunnerGitReturnDoesNotRetryOtherFailures(t *testing.T) {
 		t.Errorf("treehouse return calls = %d, want 1", len(runner.calls))
 	}
 }
+
+func TestRunnerGitEnsureSeededLeavesACommitUntouched(t *testing.T) {
+	project := t.TempDir()
+	runner := &scriptedRunner{results: []scriptedResult{
+		{result: execx.Result{Stdout: []byte("abc123\n")}},
+	}}
+	seeded, err := (RunnerGit{Commands: runner}).EnsureSeeded(context.Background(), project)
+	if err != nil {
+		t.Fatalf("EnsureSeeded: %v", err)
+	}
+	if seeded {
+		t.Error("EnsureSeeded reported seeding a repo that already has a commit")
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("Git calls = %d, want 1 (rev-parse only)", len(runner.calls))
+	}
+	want := execx.Request{Dir: project, Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", "HEAD"}}
+	if !reflect.DeepEqual(runner.calls[0], want) {
+		t.Errorf("call = %#v, want %#v", runner.calls[0], want)
+	}
+}
+
+func TestRunnerGitEnsureSeededSeedsAnEmptyRepo(t *testing.T) {
+	project := t.TempDir()
+	runner := &scriptedRunner{results: []scriptedResult{
+		{result: execx.Result{ExitCode: 1}},                          // unborn HEAD
+		{},                                                           // empty status
+		{result: execx.Result{Stdout: []byte("origin\n")}},           // origin remote
+		{result: execx.Result{Stdout: []byte("main\n")}},             // current branch
+		{},                                                           // git add
+		{},                                                           // git commit
+		{},                                                           // git push
+	}}
+	seeded, err := (RunnerGit{Commands: runner}).EnsureSeeded(context.Background(), project)
+	if err != nil {
+		t.Fatalf("EnsureSeeded: %v", err)
+	}
+	if !seeded {
+		t.Error("EnsureSeeded did not report seeding an empty repo")
+	}
+	readme, err := os.ReadFile(filepath.Join(project, "README.md"))
+	if err != nil {
+		t.Fatalf("read seeded README: %v", err)
+	}
+	if got, want := string(readme), "# "+filepath.Base(project)+"\n"; got != want {
+		t.Errorf("README = %q, want %q", got, want)
+	}
+	want := []execx.Request{
+		{Dir: project, Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", "HEAD"}},
+		{Dir: project, Name: "git", Args: []string{"status", "--porcelain", "--untracked-files=all"}},
+		{Dir: project, Name: "git", Args: []string{"remote"}},
+		{Dir: project, Name: "git", Args: []string{"symbolic-ref", "--quiet", "--short", "HEAD"}},
+		{Dir: project, Name: "git", Args: []string{"add", "README.md"}},
+		{Dir: project, Name: "git", Args: []string{"-c", "user.name=Code Goblins", "-c", "user.email=code-goblins@localhost", "commit", "-m", "Initial commit"}},
+		{Dir: project, Name: "git", Args: []string{"push", "-u", "origin", "main"}},
+	}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Errorf("Git calls = %#v\nwant %#v", runner.calls, want)
+	}
+}
+
+func TestRunnerGitEnsureSeededRefusesFilesWithoutCommit(t *testing.T) {
+	project := t.TempDir()
+	runner := &scriptedRunner{results: []scriptedResult{
+		{result: execx.Result{ExitCode: 1}},                                  // unborn HEAD
+		{result: execx.Result{Stdout: []byte("?? existing.txt\n")}},          // files present
+	}}
+	_, err := (RunnerGit{Commands: runner}).EnsureSeeded(context.Background(), project)
+	if err == nil || !strings.Contains(err.Error(), "contains files") {
+		t.Fatalf("EnsureSeeded error = %v, want files refusal", err)
+	}
+	if len(runner.calls) != 2 {
+		t.Fatalf("Git calls = %d, want 2 before refusal", len(runner.calls))
+	}
+}

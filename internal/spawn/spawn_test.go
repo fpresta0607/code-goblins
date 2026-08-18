@@ -197,12 +197,15 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 		"settle",
 		"capture",
 		"settle",
-		"agent-prompt",
+		"send-literal",
+		"settle",
+		"capture",
+		"send-enter",
 		"agent-working",
 	}; !reflect.DeepEqual(got, want) {
 		t.Errorf("operation order = %v\nwant %v", got, want)
 	}
-	if got, want := fixture.runner.literal, "Set-Location -LiteralPath '"+fixture.worktree+"'; $env:GOTMPDIR = '"+filepath.Join(meta.TaskTmp, "gotmp")+"'"; got != want {
+	if got, want := fixture.runner.literals[0], "Set-Location -LiteralPath '"+fixture.worktree+"'; $env:GOTMPDIR = '"+filepath.Join(meta.TaskTmp, "gotmp")+"'"; got != want {
 		t.Errorf("launch prefix = %q\nwant %q", got, want)
 	}
 	if got, want := fixture.runner.startName, "gb-task-7"; got != want {
@@ -214,11 +217,11 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 	if got, want := fixture.runner.startArgs, []string{"--dangerously-skip-permissions"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("agent start args = %q, want %q", got, want)
 	}
-	if got, want := fixture.runner.prompt, "Read the brief at "+fixture.brief+" and follow it exactly."; got != want {
-		t.Errorf("agent prompt = %q\nwant %q", got, want)
+	if got, want := fixture.runner.literals[1], "Read the brief at "+fixture.brief+" and follow it exactly."; !strings.HasPrefix(got, want) {
+		t.Errorf("delivered instruction = %q\nwant prefix %q", got, want)
 	}
-	if got := fixture.runner.enterKeys; got != 1 {
-		t.Errorf("Enter sends = %d, want one prefix submit key send", got)
+	if got := fixture.runner.enterKeys; got != 2 {
+		t.Errorf("Enter sends = %d, want prefix submit plus instruction submit", got)
 	}
 	if _, statErr := os.Stat(filepath.Join(fixture.stateDir, ".spawn.lock")); !errors.Is(statErr, os.ErrNotExist) {
 		t.Errorf("spawn lock persists after success: stat error = %v", statErr)
@@ -287,9 +290,34 @@ func TestSpawnRefusesDirtyWorktreeWithoutLaunching(t *testing.T) {
 	}
 }
 
-func TestSpawnLaunchFailureRecordsExactCauseAndPreservesWorktree(t *testing.T) {
+func TestSpawnLaunchTimeoutAdoptsALivePane(t *testing.T) {
 	fixture := newFixture(t)
+	// The agent never reports "working", but is alive and idle: a healthy
+	// harness sitting at its prompt. Spawn must adopt it, not declare failure
+	// and orphan a live pane.
 	fixture.runner.agentStatus = "idle"
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if !strings.Contains(result.Output, "spawned task-7") {
+		t.Errorf("Output = %q, want the live pane adopted as launched", result.Output)
+	}
+	if _, statErr := os.Stat(fixture.worktree); statErr != nil {
+		t.Fatalf("adopted launch removed worktree: %v", statErr)
+	}
+	if fixture.git.returned != 0 {
+		t.Fatalf("adopted launch returned the lease %d times, want 0", fixture.git.returned)
+	}
+	if _, metaErr := state.ReadTaskMeta(fixture.stateDir, fixture.request.ID); metaErr != nil {
+		t.Fatalf("adopted launch lost metadata: %v", metaErr)
+	}
+}
+
+func TestSpawnLaunchFailureTearsDownPaneAndWorktree(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.runner.agentNotFound = true
 
 	_, err := fixture.service.Spawn(context.Background(), fixture.request)
 	if err == nil || !strings.Contains(err.Error(), "did not report working") {
@@ -302,11 +330,14 @@ func TestSpawnLaunchFailureRecordsExactCauseAndPreservesWorktree(t *testing.T) {
 	if got, want := status, []string{"failed: " + err.Error()}; !reflect.DeepEqual(got, want) {
 		t.Errorf("status = %v, want %v", got, want)
 	}
-	if _, statErr := os.Stat(fixture.worktree); statErr != nil {
-		t.Fatalf("launch failure removed worktree: %v", statErr)
+	if fixture.git.returned != 1 {
+		t.Fatalf("launch failure returned the lease %d times, want 1 for a proven-dead agent", fixture.git.returned)
 	}
-	if fixture.git.returned != 0 {
-		t.Fatalf("launch failure returned the lease %d times, want 0 for a possibly live worktree", fixture.git.returned)
+	if _, metaErr := state.ReadTaskMeta(fixture.stateDir, fixture.request.ID); !errors.Is(metaErr, os.ErrNotExist) {
+		t.Fatalf("launch failure left metadata behind: %v", metaErr)
+	}
+	if !slices.Contains(fixture.events, "tab-close") {
+		t.Errorf("events = %v, want the tab closed on a proven-dead launch", fixture.events)
 	}
 	if marker, readErr := os.ReadFile(filepath.Join(fixture.project, "primary-marker.txt")); readErr != nil || string(marker) != "unchanged" {
 		t.Fatalf("launch failure rewrote primary project: %q, %v", marker, readErr)
@@ -325,8 +356,8 @@ func TestSpawnConfirmsBlockingTrustDialogThenLaunches(t *testing.T) {
 	if !strings.Contains(result.Output, "spawned task-7") {
 		t.Errorf("Output = %q, want successful spawn", result.Output)
 	}
-	if got, want := fixture.runner.keys, []string{"enter", "enter"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("keys = %v, want prefix submit then trust confirmation", got)
+	if got, want := fixture.runner.keys, []string{"enter", "enter", "enter"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("keys = %v, want prefix submit, trust confirmation, then instruction submit", got)
 	}
 	if !slices.Contains(fixture.events, "capture") {
 		t.Errorf("events = %v, want a pane capture before trust confirmation", fixture.events)
@@ -346,8 +377,8 @@ func TestSpawnConfirmsDialogWithAdapterKeys(t *testing.T) {
 	if !strings.Contains(result.Output, "spawned task-7") {
 		t.Errorf("Output = %q, want successful spawn", result.Output)
 	}
-	if got, want := fixture.runner.keys, []string{"enter", "up", "enter"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("keys = %v, want prefix submit then adapter confirm keys", got)
+	if got, want := fixture.runner.keys, []string{"enter", "up", "enter", "enter"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("keys = %v, want prefix submit then adapter confirm keys then instruction submit", got)
 	}
 }
 
@@ -377,14 +408,13 @@ func TestSpawnStartsNamedAgentThenPromptsNatively(t *testing.T) {
 	if !strings.Contains(result.Output, "spawned task-7") {
 		t.Errorf("Output = %q, want successful spawn", result.Output)
 	}
-	if len(fixture.runner.literals) != 1 || !strings.Contains(fixture.runner.literals[0], "Set-Location") {
-		t.Fatalf("literals = %q, want the launch prefix only", fixture.runner.literals)
+	if len(fixture.runner.literals) != 2 || !strings.Contains(fixture.runner.literals[0], "Set-Location") || !strings.Contains(fixture.runner.literals[1], "Read the brief") {
+		t.Fatalf("literals = %q, want the launch prefix then the delivered instruction", fixture.runner.literals)
 	}
 	start := slices.Index(fixture.events, "agent-start")
-	prompt := slices.Index(fixture.events, "agent-prompt")
 	working := slices.Index(fixture.events, "agent-working")
-	if start < 0 || prompt < 0 || working < 0 || !(start < prompt && prompt < working) {
-		t.Errorf("events = %v, want agent-start before agent-prompt before agent-working", fixture.events)
+	if start < 0 || working < 0 || !(start < working) {
+		t.Errorf("events = %v, want agent-start before agent-working", fixture.events)
 	}
 }
 
@@ -405,9 +435,9 @@ func TestSpawnPiTypedLaunchTypesFullCommandAndSkipsNativeStart(t *testing.T) {
 	if got := len(fixture.runner.literals); got != 1 {
 		t.Fatalf("literals = %q, want exactly one typed launch line", fixture.runner.literals)
 	}
-	wantLine := "Set-Location -LiteralPath '" + fixture.worktree + "'; $env:GOTMPDIR = '" + filepath.Join(result.Meta.TaskTmp, "gotmp") + "'; & 'pi' '--tui-mode' 'regular' 'Read the brief at " + fixture.brief + " and follow it exactly.'"
-	if got := fixture.runner.literal; got != wantLine {
-		t.Errorf("typed launch line = %q\nwant %q", got, wantLine)
+	wantLine := "Set-Location -LiteralPath '" + fixture.worktree + "'; $env:GOTMPDIR = '" + filepath.Join(result.Meta.TaskTmp, "gotmp") + "'; & 'pi' '--tui-mode' 'regular' 'Read the brief at " + fixture.brief + " and follow it exactly."
+	if got := fixture.runner.literal; !strings.HasPrefix(got, wantLine) {
+		t.Errorf("typed launch line = %q\nwant prefix %q", got, wantLine)
 	}
 	if fixture.runner.startName != "" || fixture.runner.startKind != "" || fixture.runner.startArgs != nil {
 		t.Errorf("typed launch used native agent start: name=%q kind=%q args=%q", fixture.runner.startName, fixture.runner.startKind, fixture.runner.startArgs)
@@ -616,7 +646,7 @@ func TestSpawnSurfacesTaskLockReleaseFailure(t *testing.T) {
 
 	t.Run("primary failure", func(t *testing.T) {
 		fixture := newFixture(t)
-		fixture.runner.agentStatus = "idle"
+		fixture.runner.agentNotFound = true
 		fixture.service.ReleaseLock = func(string, string) error {
 			return errors.New("lock is still shared")
 		}
@@ -933,6 +963,10 @@ func (g *treehouseGit) Return(context.Context, string, string) error {
 	return g.returnErr
 }
 
+func (g *treehouseGit) EnsureSeeded(context.Context, string) (bool, error) {
+	return false, nil
+}
+
 type herdrRunner struct {
 	events          *[]string
 	worktree        string
@@ -957,6 +991,9 @@ type herdrRunner struct {
 	keys            []string
 	agentCalls      int
 	enterKeys       int
+	agentNotFound   bool
+	captureCount    int
+	corruptCaptureAt int
 }
 
 func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -1050,6 +1087,9 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 			*r.events = append(*r.events, "send-key")
 		}
 		return jsonResult(`{}`), nil
+	case len(args) == 3 && args[0] == "tab" && args[1] == "close":
+		*r.events = append(*r.events, "tab-close")
+		return jsonResult(`{}`), nil
 	case len(args) >= 6 && args[0] == "agent" && args[1] == "start":
 		*r.events = append(*r.events, "agent-start")
 		if r.startErr != nil {
@@ -1075,6 +1115,7 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		return jsonResult(`{"agent":{"agent_status":"working"}}`), nil
 	case len(args) >= 3 && args[0] == "pane" && args[1] == "read" && args[2] == "pane-1":
 		*r.events = append(*r.events, "capture")
+		r.captureCount++
 		if r.captureErr != nil {
 			return execx.Result{}, r.captureErr
 		}
@@ -1085,9 +1126,20 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 			}
 			return execx.Result{Stdout: []byte(text)}, nil
 		}
+		if r.literal != "" {
+			if r.corruptCaptureAt > 0 && r.captureCount == r.corruptCaptureAt {
+				// Simulate the first-instruction corruption: leading characters
+				// eaten so the remainder reads as a bogus slash command.
+				return execx.Result{Stdout: []byte("/ef" + r.literal[2:] + "\n")}, nil
+			}
+			return execx.Result{Stdout: []byte(r.literal + "\n")}, nil
+		}
 		return execx.Result{Stdout: []byte("claude is running\n")}, nil
 	case reflect.DeepEqual(args, []string{"agent", "get", "pane-1"}):
 		r.agentCalls++
+		if r.agentNotFound {
+			return execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`)}, nil
+		}
 		if r.agentErr != nil {
 			return execx.Result{}, r.agentErr
 		}
@@ -1175,4 +1227,26 @@ func sortedKeys(t *testing.T, stateDir, id string) []string {
 	}
 	slices.Sort(keys)
 	return keys
+}
+
+func TestSpawnRetriesInstructionDeliveryWhenReadbackCorrupts(t *testing.T) {
+	fixture := newFixture(t)
+	// The first capture after the instruction is typed (capture 3: two dialog
+	// probes, then the instruction read-back) comes back with leading
+	// characters eaten, so the verification must clear and retype.
+	fixture.runner.corruptCaptureAt = 3
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if !strings.Contains(result.Output, "spawned task-7") {
+		t.Errorf("Output = %q, want successful spawn after the retry", result.Output)
+	}
+	if !slices.Contains(fixture.runner.keys, "ctrl+u") {
+		t.Errorf("keys = %v, want a composer clear (ctrl+u) after the corrupted read-back", fixture.runner.keys)
+	}
+	if len(fixture.runner.literals) != 3 {
+		t.Errorf("literals = %q, want prefix plus two instruction deliveries", fixture.runner.literals)
+	}
 }

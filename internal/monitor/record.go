@@ -68,6 +68,10 @@ const (
 	InvalidRecord   Reason = "invalid_record"
 	// HarnessError is a provider failure read out of the pane itself.
 	HarnessError Reason = "harness_error"
+	// AwaitingAnswer is a goblin parked on a printed question, waiting for a
+	// decision. Pi has no interactive dialog widget, so herdr reports it as
+	// merely idle; the pane text is the only signal the goblin is blocked.
+	AwaitingAnswer Reason = "awaiting_answer"
 )
 
 type EventSource string
@@ -94,9 +98,11 @@ type Observation struct {
 	Endpoint             string       `json:"endpoint"`
 	EndpointVerdict      ProbeVerdict `json:"endpoint_verdict"`
 	Digest               string       `json:"digest"`
+	StatusStamp          string       `json:"status_stamp,omitempty"`
 	LastObserved         time.Time    `json:"last_observed"`
 	LastSeen             time.Time    `json:"last_seen"`
 	LastProgress         time.Time    `json:"last_progress"`
+	IdleSince            *time.Time   `json:"idle_since,omitempty"`
 	StaleSince           *time.Time   `json:"stale_since,omitempty"`
 	NextEscalation       *time.Time   `json:"next_escalation,omitempty"`
 	NextPauseResurface   *time.Time   `json:"next_pause_resurface,omitempty"`
@@ -267,7 +273,7 @@ func validateObservationState(observation Observation) error {
 		}
 		return requireProgress()
 	case HealthStale:
-		if observation.EndpointVerdict != ProbePresent || (observation.Reason != UnchangedIdle && observation.Reason != BusyTurnOverAge) {
+		if observation.EndpointVerdict != ProbePresent || (observation.Reason != UnchangedIdle && observation.Reason != BusyTurnOverAge && observation.Reason != AwaitingAnswer) {
 			return errors.New("monitor: stale observation has incompatible endpoint or reason")
 		}
 		if observation.StaleSince == nil || observation.NextEscalation == nil || observation.NextPauseResurface != nil {

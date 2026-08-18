@@ -47,6 +47,7 @@ commands:
   cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
   cfo merge-local <id>
   cfo cleanup <id>
+  cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>"   a goblin reports its outcome straight into the wake queue
   hook <name>  claude code hook entry points (session-start, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm)
 `
 
@@ -165,6 +166,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runMergeLocal(args[1:], stdout, stderr)
 	case "cleanup":
 		return runCleanup(args[1:], stdout, stderr, runtime)
+	case "notify":
+		return runNotify(args[1:], stdout, stderr)
 	case "session-start":
 		// Deliberate deviation, recorded for the ledger: a home that cannot
 		// be resolved errors out here (stderr plus exit 1), matching this
