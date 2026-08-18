@@ -197,6 +197,10 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	observation.TaskID = meta.ID
 	observation.Endpoint = endpointString(meta)
 	observation.LastObserved = now
+	if observation.LastSeen.IsZero() {
+		observation.LastSeen = now
+		observation.LastProgress = now
+	}
 
 	if s.Probe == nil {
 		return unknownObservation(observation, EndpointUnknown, "monitor probe is unavailable", now)
@@ -226,79 +230,31 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 
 	observation.EndpointVerdict = ProbePresent
 	digest := fmt.Sprintf("%x", sha256.Sum256(sample.Capture))
-	stamp := s.statusStamp(meta.ID)
 
-	// A harness being refused by its provider is checked before anything
-	// else. An erroring pane often keeps changing - the error scrolls, the
-	// harness retries - so treating a changed digest as progress would report
-	// a rate-limited goblin as healthy and busy.
+	// A harness being refused by its provider is checked first: the pane
+	// carries the provider's error framing (429, rate limit, auth), which is a
+	// reliable signal, not a pane-text heuristic.
 	if fault, detail, found := routing.Detect(string(sample.Capture)); found {
 		return erroringObservation(observation, digest, fault, detail, now)
 	}
-	if observation.Health == HealthErroring {
-		// The error cleared on its own; fall through so the ordinary rules
-		// classify the pane afresh rather than leaving it stuck erroring.
-		observation.Digest = ""
-	}
-	if observation.Digest == "" || observation.Digest != digest {
-		observation.Digest = digest
-		observation.StatusStamp = stamp
-		observation.LastSeen = now
-		observation.LastProgress = now
-		observation.IdleSince = nil
-		observation.StaleSince = nil
-		observation.NextEscalation = nil
-		observation.NextPauseResurface = nil
-		observation.Health = HealthActive
-		observation.Reason = None
-		observation.Escalation = 0
-		observation.DemandDeepInspection = false
-		return observation
-	}
 
-	switch sample.Busy {
-	case herdr.BusyWorking:
-		return s.busyOrStale(observation, meta.ID, now)
-	case herdr.BusyIdle:
-		if verb := s.latestStatusVerb(meta.ID); verb == "paused" {
-			return s.pauseObservation(observation, now)
-		} else if parkedDecisionVerb(verb) {
-			return s.parkedObservation(observation, now)
-		} else if terminalVerb(verb) {
-			return s.terminalObservation(observation, now)
-		}
-		// A status line written since the last observation is liveness even
-		// when both the pane and herdr report quiet: the goblin is still
-		// working. Reset the idle clock rather than walking toward a stall.
-		if stamp != "" && stamp != observation.StatusStamp {
-			observation.StatusStamp = stamp
-			observation.LastSeen = now
-			observation.LastProgress = now
-			observation.IdleSince = nil
-			observation.StaleSince = nil
-			observation.NextEscalation = nil
-			observation.NextPauseResurface = nil
-			observation.Health = HealthActive
-			observation.Reason = None
-			observation.Escalation = 0
-			observation.DemandDeepInspection = false
-			return observation
-		}
-		// A pane already classified stale stays stale while its digest is
-		// unchanged, whatever the stale reason was: the goblin is still stuck.
-		if observation.Health == HealthStale {
-			return s.staleObservation(observation, observation.Reason, now)
-		}
-		// A parked goblin awaiting an answer prints a question and sits at a
-		// prompt; pi has no dialog widget to report it as "blocked", so the
-		// pane text is the only signal. Detect it once the pane has been idle
-		// (unchanged, no spinner) for a cycle, and wake immediately.
-		if observation.IdleSince != nil {
-			if question, ok := awaitingAnswer(sample.Capture); ok {
-				return awaitingAnswerObservation(observation, question, now)
-			}
-		}
-		return s.idleObservation(observation, now)
+	observation.Digest = digest
+
+	// agent_status is the primary supervision signal (working | idle | done),
+	// read straight from `herdr agent list` for both claude and pi panes.
+	switch sample.Status {
+	case herdr.AgentWorking:
+		// Never wake: the goblin is working.
+		return workingObservation(observation, sample, now)
+	case herdr.AgentDone:
+		// The agent's turn ended and it is waiting on input - finished or
+		// blocked. This is the harness-agnostic wake the pane heuristics were
+		// blind to.
+		return awaitingInputObservation(observation, now)
+	case herdr.AgentIdle:
+		// Between turns: liveness comes from the agent's own counters and the
+		// status log. No movement for the stall window = genuinely wedged.
+		return s.idleClassification(observation, sample, meta.ID, now)
 	default:
 		return unknownObservation(observation, EndpointUnknown, "endpoint activity is unknown", now)
 	}
@@ -341,22 +297,60 @@ func (s Service) staleObservation(observation Observation, reason Reason, now ti
 	return observation
 }
 
-// busyOrStale classifies a pane that is working (or shows live activity) as
-// busy until its busy reference ages past the turn budget, at which point it
-// is stale by busy-turn-over-age.
-func (s Service) busyOrStale(observation Observation, id string, now time.Time) Observation {
+// workingObservation records a goblin whose agent_status is working. It never
+// wakes and never walks toward a stall: a rising state_change_seq/revision is
+// the liveness evidence, and "working" is definitive.
+func workingObservation(observation Observation, sample EndpointSample, now time.Time) Observation {
+	observation.StateChangeSeq = sample.StateChangeSeq
+	observation.Revision = sample.Revision
+	observation.LastSeen = now
+	observation.LastProgress = now
 	observation.IdleSince = nil
-	if s.busyReference(id).Add(s.busyTurnMax()).After(now) {
-		observation.Health = HealthBusy
-		observation.Reason = None
+	observation.StaleSince = nil
+	observation.NextEscalation = nil
+	observation.NextPauseResurface = nil
+	observation.Health = HealthBusy
+	observation.Reason = None
+	observation.Escalation = 0
+	observation.DemandDeepInspection = false
+	return observation
+}
+
+// idleClassification handles agent_status idle. Rising state_change_seq or
+// revision (or a status-log write) is liveness: the goblin is working. Only a
+// pane with no counter movement for the stall window is genuinely wedged.
+func (s Service) idleClassification(observation Observation, sample EndpointSample, id string, now time.Time) Observation {
+	// Status verbs that park or terminate the goblin win over liveness: a
+	// goblin that just wrote "blocked" or "done" is parked, not working.
+	if verb := s.latestStatusVerb(id); verb == "paused" {
+		return s.pauseObservation(observation, now)
+	} else if parkedDecisionVerb(verb) {
+		return s.parkedObservation(observation, now)
+	} else if terminalVerb(verb) {
+		return s.terminalObservation(observation, now)
+	}
+
+	stamp := s.statusStamp(id)
+	if sample.StateChangeSeq != observation.StateChangeSeq || sample.Revision != observation.Revision || (stamp != "" && stamp != observation.StatusStamp) {
+		observation.StateChangeSeq = sample.StateChangeSeq
+		observation.Revision = sample.Revision
+		observation.StatusStamp = stamp
+		observation.LastSeen = now
+		observation.LastProgress = now
+		observation.IdleSince = nil
 		observation.StaleSince = nil
 		observation.NextEscalation = nil
 		observation.NextPauseResurface = nil
+		observation.Health = HealthActive
+		observation.Reason = None
 		observation.Escalation = 0
 		observation.DemandDeepInspection = false
 		return observation
 	}
-	return s.staleObservation(observation, BusyTurnOverAge, now)
+	if observation.Health == HealthStale {
+		return s.staleObservation(observation, observation.Reason, now)
+	}
+	return s.idleObservation(observation, now)
 }
 
 // idleObservation classifies an idle-and-unchanged pane behind a substantial
@@ -381,81 +375,11 @@ func (s Service) idleObservation(observation Observation, now time.Time) Observa
 	return s.staleObservation(observation, UnchangedIdle, now)
 }
 
-// awaitingAnswer reports whether a pane tail is parked on a substantive
-// question the goblin asked and is waiting to have answered. Pi has no
-// interactive dialog widget, so a parked question reads as merely "idle" to
-// herdr; the pane text is the only signal. The question must be the final
-// substantive line - any later output means the goblin moved on - and must not
-// be an interactive confirmation prompt (a script's "[y/N]", not a question to
-// the CFO). Structural tail noise (empty lines, the goblin's own cfo notify
-// confirmation, and the pane prompt/footer that pi renders after the parked
-// message) is skipped, never read as evidence the goblin moved on.
-func awaitingAnswer(capture []byte) (string, bool) {
-	lines := strings.Split(strings.TrimRight(string(capture), "\r\n"), "\n")
-	if len(lines) > 20 {
-		lines = lines[len(lines)-20:]
-	}
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
-		if line == "" || isNotifyEcho(line) || isPromptFooter(line) {
-			continue
-		}
-		if !strings.HasSuffix(line, "?") || len(line) < 6 || isConfirmationPrompt(line) {
-			return "", false
-		}
-		return line, true
-	}
-	return "", false
-}
-
-// isPromptFooter reports whether a pane line is the prompt/footer chrome pi
-// renders at the tail of its pane (a `~/path (branch)` shell prompt or the
-// `────` separator line), not task content.
-func isPromptFooter(line string) bool {
-	if strings.HasPrefix(line, "~/") && strings.Contains(line, " (") && strings.HasSuffix(line, ")") {
-		return true
-	}
-	trimmed := strings.TrimSpace(line)
-	return trimmed != "" && strings.Trim(trimmed, "\u2500") == "" && strings.Count(trimmed, "\u2500") >= 8
-}
-
-// isConfirmationPrompt reports whether a line is a machine confirmation prompt
-// (a script offering a y/n or yes/no choice) rather than a question a goblin
-// is asking the CFO.
-func isConfirmationPrompt(line string) bool {
-	lower := strings.ToLower(line)
-	for _, marker := range []string{"[y/n]", "(y/n)", "[yes/no]", "(yes/no)"} {
-		if strings.Contains(lower, marker) {
-			return true
-		}
-	}
-	return false
-}
-
-// isNotifyEcho reports whether a pane line is the goblin's own cfo notify
-// confirmation ("notified <id> blocked: ...", "notified <id> done: ...", or
-// "notified <id> failed: ..."), which the goblin printed while reporting.
-func isNotifyEcho(line string) bool {
-	rest, ok := strings.CutPrefix(line, "notified ")
-	if !ok {
-		return false
-	}
-	fields := strings.Fields(rest)
-	if len(fields) < 2 {
-		return false
-	}
-	switch fields[1] {
-	case "done:", "blocked:", "failed:":
-		return true
-	}
-	return false
-}
-
-// awaitingAnswerObservation records a goblin parked on a printed question,
-// waiting for a decision. It wakes once per parked episode with the question
-// text, and demands deep inspection because the fix is a CFO decision, not
-// another poll.
-func awaitingAnswerObservation(observation Observation, question string, now time.Time) Observation {
+// awaitingInputObservation records a goblin whose agent turn ended
+// (agent_status done) and is waiting on input - finished or blocked. It wakes
+// once per episode and demands inspection, because the fix is a CFO decision,
+// not another poll.
+func awaitingInputObservation(observation Observation, now time.Time) Observation {
 	first := observation.Reason != AwaitingAnswer
 	observation.IdleSince = nil
 	observation.Health = HealthStale
@@ -468,7 +392,7 @@ func awaitingAnswerObservation(observation Observation, question string, now tim
 	observation.Escalation = 0
 	observation.DemandDeepInspection = true
 	if first && observation.PendingEvent == nil {
-		event := taskEvent(observation.TaskID, AwaitingAnswer, question)
+		event := taskEvent(observation.TaskID, AwaitingAnswer, "agent turn ended; waiting on input")
 		observation.PendingEvent = &event
 	}
 	return observation

@@ -75,6 +75,33 @@ type AgentDetail struct {
 	Status string
 }
 
+// Native agent_status values reported by `herdr agent list`. AgentWorking means
+// the agent is actively processing a turn; AgentDone means the turn ended and
+// the agent is waiting on input (finished or blocked); AgentIdle means the
+// agent is registered and interactive between turns.
+const (
+	AgentWorking = "working"
+	AgentIdle    = "idle"
+	AgentDone    = "done"
+)
+
+// AgentRecord is one entry from `herdr agent list` (socket API, JSON): the
+// native per-pane agent state Herdr's own UI colors from, including the
+// revision and state_change_seq liveness counters the stall detector consumes.
+// Both claude and pi advance state_change_seq; claude also advances revision
+// while pi's revision stays static.
+type AgentRecord struct {
+	Agent            string `json:"agent"`
+	Status           string `json:"agent_status"`
+	InteractiveReady bool   `json:"interactive_ready"`
+	Revision         int64  `json:"revision"`
+	StateChangeSeq   int64  `json:"state_change_seq"`
+	PaneID           string `json:"pane_id"`
+	TabID            string `json:"tab_id"`
+	WorkspaceID      string `json:"workspace_id"`
+	Name             string `json:"name"`
+}
+
 // CommandError preserves failed Herdr operation context without conflating a
 // normal tool exit code with a successfully interpreted business response.
 type CommandError struct {

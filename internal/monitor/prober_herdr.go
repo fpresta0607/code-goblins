@@ -24,6 +24,9 @@ type HerdrProber struct {
 	loaded        bool
 	snapshot      herdr.SessionSnapshot
 	snapshotErr   error
+	agentsLoaded  bool
+	agents        []herdr.AgentRecord
+	agentsErr     error
 }
 
 // NewHerdrProber binds the structural prober to one Herdr session through the
@@ -38,26 +41,35 @@ var (
 )
 
 // BeginScan marks one monitoring-cycle boundary: the previous cycle's
-// structural evidence is dropped so the next Inspect loads exactly one fresh
-// snapshot shared by every task in the cycle. The immutable schema check stays
-// cached for the process lifetime once it has succeeded.
+// structural evidence and agent list are dropped so the next Inspect loads
+// exactly one fresh snapshot and one fresh agent list shared by every task in
+// the cycle. The immutable schema check stays cached for the process lifetime
+// once it has succeeded.
 func (p *HerdrProber) BeginScan(context.Context) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.loaded = false
 	p.snapshot = herdr.SessionSnapshot{}
 	p.snapshotErr = nil
+	p.agentsLoaded = false
+	p.agents = nil
+	p.agentsErr = nil
 }
 
 // Inspect validates one task's recorded Herdr identity against the cycle's
 // single session snapshot and, only for a structurally valid task, requests
-// its one bounded terminal capture.
+// its one bounded terminal capture. The agent's native status and liveness
+// counters come from the cycle's single `herdr agent list`.
 func (p *HerdrProber) Inspect(ctx context.Context, meta state.TaskMeta) (EndpointSample, error) {
 	snapshot, err := p.cycleSnapshot(ctx)
 	if err != nil {
 		return EndpointSample{Verdict: ProbeUnknown, Detail: err.Error()}, nil
 	}
-	return p.inspect(ctx, snapshot, meta)
+	agents, err := p.cycleAgents(ctx)
+	if err != nil {
+		return EndpointSample{Verdict: ProbeUnknown, Detail: err.Error()}, nil
+	}
+	return p.inspect(ctx, snapshot, agents, meta)
 }
 
 func (p *HerdrProber) cycleSnapshot(ctx context.Context) (herdr.SessionSnapshot, error) {
@@ -91,7 +103,27 @@ func (p *HerdrProber) cycleSnapshot(ctx context.Context) (herdr.SessionSnapshot,
 	return p.snapshot, nil
 }
 
-func (p *HerdrProber) inspect(ctx context.Context, snapshot herdr.SessionSnapshot, meta state.TaskMeta) (EndpointSample, error) {
+func (p *HerdrProber) cycleAgents(ctx context.Context) ([]herdr.AgentRecord, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.agentsLoaded {
+		return p.agents, p.agentsErr
+	}
+	p.agentsLoaded = true
+	if p.Client == nil {
+		p.agentsErr = errors.New("monitor: Herdr prober client is required")
+		return nil, p.agentsErr
+	}
+	agents, err := p.Client.AgentList(ctx)
+	if err != nil {
+		p.agentsErr = err
+		return nil, err
+	}
+	p.agents = agents
+	return agents, nil
+}
+
+func (p *HerdrProber) inspect(ctx context.Context, snapshot herdr.SessionSnapshot, agents []herdr.AgentRecord, meta state.TaskMeta) (EndpointSample, error) {
 	unknown := func(detail string) EndpointSample {
 		return EndpointSample{Verdict: ProbeUnknown, Detail: detail}
 	}
@@ -156,18 +188,18 @@ func (p *HerdrProber) inspect(ctx context.Context, snapshot herdr.SessionSnapsho
 		TabLabel: tab.Label,
 	}
 
-	agents := 0
-	var agent herdr.SnapshotAgent
-	for _, candidate := range snapshot.Agents {
+	agentsOnPane := 0
+	var agent herdr.AgentRecord
+	for _, candidate := range agents {
 		if candidate.PaneID == meta.HerdrPaneID {
-			agents++
+			agentsOnPane++
 			agent = candidate
 		}
 	}
-	if agents > 1 {
-		return unknown(fmt.Sprintf("session snapshot has %d agents on pane %s", agents, meta.HerdrPaneID)), nil
+	if agentsOnPane > 1 {
+		return unknown(fmt.Sprintf("agent list has %d agents on pane %s", agentsOnPane, meta.HerdrPaneID)), nil
 	}
-	if agents == 0 {
+	if agentsOnPane == 0 {
 		sample.Agent = herdr.AgentDead
 		sample.Busy = herdr.BusyUnknown
 		sample.Detail = fmt.Sprintf("pane %s has no registered agent", meta.HerdrPaneID)
@@ -177,6 +209,10 @@ func (p *HerdrProber) inspect(ctx context.Context, snapshot herdr.SessionSnapsho
 		return unknown(fmt.Sprintf("agent on pane %s belongs to tab %s workspace %s, not tab %s workspace %s", agent.PaneID, agent.TabID, agent.WorkspaceID, meta.HerdrTabID, meta.HerdrWorkspaceID)), nil
 	}
 	sample.Agent = herdr.AgentAlive
+	sample.Status = agent.Status
+	sample.InteractiveReady = agent.InteractiveReady
+	sample.StateChangeSeq = agent.StateChangeSeq
+	sample.Revision = agent.Revision
 
 	capture, err := p.Client.CaptureEvidence(ctx, sample.Endpoint.Target)
 	if err != nil {
@@ -184,9 +220,9 @@ func (p *HerdrProber) inspect(ctx context.Context, snapshot herdr.SessionSnapsho
 	}
 	sample.Capture = capture
 	switch agent.Status {
-	case "working":
+	case herdr.AgentWorking:
 		sample.Busy = herdr.BusyWorking
-	case "idle", "done", "blocked":
+	case herdr.AgentIdle, herdr.AgentDone, "blocked":
 		sample.Busy = herdr.BusyIdle
 	default:
 		sample.Busy = herdr.BusyUnknown

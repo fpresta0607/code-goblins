@@ -2,6 +2,7 @@ package herdr
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 )
 
@@ -99,6 +100,27 @@ func (c *Client) CaptureEvidence(ctx context.Context, target Target) ([]byte, er
 		return nil, fmt.Errorf("herdr: pane read for %s returned no terminal text", target)
 	}
 	return result.Stdout, nil
+}
+
+// AgentList reads every registered agent's native state through
+// `herdr agent list` (socket API, JSON): agent_status (working | idle | done)
+// plus interactive_ready, revision, and state_change_seq. This is the primary
+// supervision signal for both claude and pi panes, unlike pane-text diffing.
+func (c *Client) AgentList(ctx context.Context) ([]AgentRecord, error) {
+	session := c.session()
+	result, err := c.required(ctx, session, Target{}, "agent list", "agent", "list")
+	if err != nil {
+		return nil, err
+	}
+	var response struct {
+		Result struct {
+			Agents []AgentRecord `json:"agents"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(result.Stdout, &response); err != nil {
+		return nil, fmt.Errorf("herdr: decode agent list response for session %q: %w", session, err)
+	}
+	return response.Result.Agents, nil
 }
 
 // EffectiveSession reports the session every request routes to.
