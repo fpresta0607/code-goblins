@@ -251,6 +251,12 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		if observation.GatedVerbLine > observation.ConsumedVerbLine {
 			observation.ConsumedVerbLine = observation.GatedVerbLine
 		}
+		if verb, line, ok := s.latestStatusVerb(meta.ID); ok && line > observation.ConsumedVerbLine {
+			if parkedDecisionVerb(verb) || terminalVerb(verb) {
+				observation.GatedVerbLine = line
+				observation.GatedStateChangeSeq = sample.StateChangeSeq
+			}
+		}
 		return workingObservation(observation, sample, now)
 	case herdr.AgentDone, herdr.AgentBlocked:
 		// The agent's turn ended and it is waiting on input - finished or
