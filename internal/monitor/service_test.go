@@ -1269,6 +1269,66 @@ func TestScanDoesNotConsumeFreshVerbSeenWhileWorking(t *testing.T) {
 	}
 }
 
+func TestScanWakesDoneAgentAfterWorkingOnlySawStaleParkedVerb(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	if err := state.AppendStatus(stateDir, "g1", "blocked: waiting for approval"); err != nil {
+		t.Fatal(err)
+	}
+	working := sampleForStatus(meta, herdr.AgentWorking, "resumed")
+	working.StateChangeSeq = 10
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": working}}
+	service := testService(stateDir, probe, &now)
+
+	if _, err := service.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	done := sampleForStatus(meta, herdr.AgentDone, "finished without notify")
+	done.StateChangeSeq = 11
+	probe.samples["g1"] = done
+	now = now.Add(time.Minute)
+	result, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Event == nil || result.Observations[0].Reason != AwaitingAnswer {
+		t.Fatalf("done-after-working scan = %+v, want an awaiting-input wake despite the never-gated parked verb", result)
+	}
+}
+
+func TestScanWakesDoneAgentAfterWorkingOnlySawStaleTerminalVerb(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	if err := state.AppendStatus(stateDir, "g1", "done: PR https://example.com/repo/pull/7"); err != nil {
+		t.Fatal(err)
+	}
+	working := sampleForStatus(meta, herdr.AgentWorking, "resumed")
+	working.StateChangeSeq = 20
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": working}}
+	service := testService(stateDir, probe, &now)
+
+	if _, err := service.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	done := sampleForStatus(meta, herdr.AgentDone, "finished without notify")
+	done.StateChangeSeq = 21
+	probe.samples["g1"] = done
+	now = now.Add(time.Minute)
+	result, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Event == nil || result.Observations[0].Reason != AwaitingAnswer {
+		t.Fatalf("done-after-working scan = %+v, want an awaiting-input wake despite the never-gated terminal verb", result)
+	}
+}
+
 func TestScanHoldsQuietAnIndeterminateUnknownAgent(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
