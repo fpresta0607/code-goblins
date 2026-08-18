@@ -1052,3 +1052,36 @@ func TestScanDoesNotStallAParkedDecisionGoblin(t *testing.T) {
 		})
 	}
 }
+
+func TestScanDoesNotStallATerminalOutcomeGoblin(t *testing.T) {
+	for _, status := range []string{"done: PR https://example.com/repo/pull/7", "failed: build broke"} {
+		t.Run(status, func(t *testing.T) {
+			stateDir := t.TempDir()
+			now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+			meta := metaFor("g1")
+			writeTask(t, stateDir, meta)
+			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+			service := testService(stateDir, probe, &now)
+
+			if _, err := service.Scan(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.AppendStatus(stateDir, "g1", status); err != nil {
+				t.Fatal(err)
+			}
+			for i := 0; i < 3; i++ {
+				now = now.Add(time.Minute)
+				result, err := service.Scan(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Event != nil {
+					t.Fatalf("cycle %d woke a terminal outcome goblin: %+v", i, result.Event)
+				}
+				if result.Observations[0].Health != HealthIdle || result.Observations[0].Reason != None {
+					t.Fatalf("cycle %d observation = %+v, want idle/none", i, result.Observations[0])
+				}
+			}
+		})
+	}
+}
