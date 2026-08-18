@@ -26,6 +26,7 @@ type switchRunner struct {
 	neverStops   bool
 	gitCalls     []execx.Request
 	resumeDialog string // pane text shown after the relaunch until an Enter lands
+	resumeReplay string // replayed conversation prepended to every post-relaunch read
 }
 
 func (r *switchRunner) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
@@ -60,6 +61,15 @@ func (r *switchRunner) Run(ctx context.Context, req execx.Request) (execx.Result
 		if req.Args[1] == "send-keys" && len(req.Args) >= 4 && req.Args[3] == "enter" {
 			r.resumeDialog = ""
 		}
+	}
+	// `claude --continue` replays the prior conversation into the same pane
+	// tail the dialog loop reads. No keystroke clears it.
+	if r.resumeReplay != "" && r.restarted && req.Name == "herdr" && len(req.Args) >= 3 && req.Args[0] == "pane" && req.Args[1] == "read" {
+		result, err := r.herdrRunner.Run(ctx, req)
+		if err != nil {
+			return result, err
+		}
+		return execx.Result{Stdout: append([]byte(r.resumeReplay), result.Stdout...)}, nil
 	}
 	// herdr puts the subcommand first and appends --session, so the head of
 	// the argument list is what identifies the call.
@@ -615,6 +625,24 @@ func TestSwitchReportsALivePaneInsteadOfClaimingItIsEmpty(t *testing.T) {
 	}
 }
 
+// The resume markers must not match the conversation `--continue` replays
+// into the same pane tail. A goblin that discussed the dialog's option labels
+// ("Resume from summary") replays them on every read, so option-label markers
+// held the dialog loop open until the switch failed on a harness that was
+// answering normally.
+func TestSwitchIgnoresAReplayedTranscriptThatNamesTheResumeOptions(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	fixture.runner.resumeReplay = "> the dialog offers Resume from summary and Resume full session as-is\n\n"
+
+	result, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Model: "opus", Session: "fleet"})
+	if err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	if !result.Resumed {
+		t.Fatal("Resumed = false, want the same-harness switch to resume in place")
+	}
+}
+
 // A resumed claude can open its interactive resume dialog (resume from
 // summary / full session) before the composer accepts input. The switch must
 // clear it like any startup dialog - Enter accepts the summary default -
@@ -622,7 +650,7 @@ func TestSwitchReportsALivePaneInsteadOfClaimingItIsEmpty(t *testing.T) {
 // mismatches, and a healthy relaunch reports failed.
 func TestSwitchClearsTheResumeDialogBeforeInstructingTheResumedHarness(t *testing.T) {
 	fixture := newSwitchFixture(t)
-	fixture.runner.resumeDialog = "Your session has been restored.\n\n> 1. Resume from summary (recommended)\n  2. Resume full session as-is\n  3. Don't ask me again\n"
+	fixture.runner.resumeDialog = "This session is 6 hours old and 120k tokens.\n\nResuming the full session will consume a substantial portion of your usage limits.\nWe recommend resuming from a summary.\n\n> 1. Resume from summary\n  2. Resume full session as-is\n  3. Don't ask me again\n"
 
 	result, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Model: "opus", Session: "fleet"})
 	if err != nil {

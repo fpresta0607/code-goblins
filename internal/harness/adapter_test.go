@@ -82,7 +82,7 @@ func TestControlContractForSwitch(t *testing.T) {
 		resumeArgs    []string
 		resumeMarkers []string
 	}{
-		{Claude, []string{"escape"}, "/exit", []string{"--continue"}, []string{"Resume from summary", "Resume full session as-is"}},
+		{Claude, []string{"escape"}, "/exit", []string{"--continue"}, []string{"will consume a substantial portion of your usage limits", "We recommend resuming from a summary"}},
 		{Codex, []string{"escape"}, "/quit", []string{"resume", "--last"}, nil},
 		{Pi, []string{"escape"}, "/quit", nil, nil},
 		{Kimi, []string{"escape"}, "/quit", []string{"--continue"}, nil},

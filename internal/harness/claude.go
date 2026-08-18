@@ -62,10 +62,17 @@ func (claudeAdapter) Control() Control {
 		StopCommand: "/exit",
 		ResumeArgs:  []string{"--continue"},
 		// Resuming a session that sat idle past its prompt-cache lifetime
-		// opens Claude's resume dialog ("Resume from summary" / "Resume full
-		// session as-is" / "Don't ask me again"). Summary is the highlighted
-		// default and the right choice for a goblin, so the standard confirm
-		// Enter accepts it once a marker is on screen.
-		ResumeMarkers: []string{"Resume from summary", "Resume full session as-is"},
+		// opens Claude's resume dialog. Summary is its highlighted default
+		// and the right choice for a goblin, so the standard confirm Enter
+		// accepts it once a marker is on screen. The markers are the
+		// dialog's static explanation sentence rather than its option
+		// labels ("Resume from summary" and friends): markers are matched as
+		// substrings of the pane tail, and --continue replays the prior
+		// conversation into that same tail, so an option label the goblin
+		// happened to discuss would hold the dialog loop open forever.
+		ResumeMarkers: []string{
+			"will consume a substantial portion of your usage limits",
+			"We recommend resuming from a summary",
+		},
 	}
 }

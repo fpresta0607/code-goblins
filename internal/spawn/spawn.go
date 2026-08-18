@@ -662,7 +662,13 @@ func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.C
 		}
 		captured, err := client.Capture(ctx, target, 0, false)
 		if err != nil {
-			return fmt.Errorf("spawn: read back harness instruction: %w", err)
+			// A pane that is momentarily unreadable is part of booting, not
+			// a delivery failure: spending an attempt keeps the boot budget
+			// intact where returning would tear down a live launch.
+			if herdr.WaitError(ctx, err) {
+				return fmt.Errorf("spawn: read back harness instruction: %w", err)
+			}
+			continue
 		}
 		if instructionIntact(captured, instruction) {
 			if err := client.SendKey(ctx, target, submitKey(kind)); err != nil {
