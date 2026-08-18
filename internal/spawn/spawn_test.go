@@ -205,7 +205,7 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 	}; !reflect.DeepEqual(got, want) {
 		t.Errorf("operation order = %v\nwant %v", got, want)
 	}
-	if got, want := fixture.runner.literals[0], "Set-Location -LiteralPath '"+fixture.worktree+"'; $env:GOTMPDIR = '"+filepath.Join(meta.TaskTmp, "gotmp")+"'"; got != want {
+	if got, want := fixture.runner.literals[0], "Set-Location -LiteralPath '"+fixture.worktree+"'; $env:CFO_STATE_OVERRIDE = '"+fixture.stateDir+"'; $env:GOTMPDIR = '"+filepath.Join(meta.TaskTmp, "gotmp")+"'"; got != want {
 		t.Errorf("launch prefix = %q\nwant %q", got, want)
 	}
 	if got, want := fixture.runner.startName, "gb-task-7"; got != want {
@@ -435,7 +435,7 @@ func TestSpawnPiTypedLaunchTypesFullCommandAndSkipsNativeStart(t *testing.T) {
 	if got := len(fixture.runner.literals); got != 1 {
 		t.Fatalf("literals = %q, want exactly one typed launch line", fixture.runner.literals)
 	}
-	wantLine := "Set-Location -LiteralPath '" + fixture.worktree + "'; $env:GOTMPDIR = '" + filepath.Join(result.Meta.TaskTmp, "gotmp") + "'; & 'pi' '--tui-mode' 'regular' 'Read the brief at " + fixture.brief + " and follow it exactly."
+	wantLine := "Set-Location -LiteralPath '" + fixture.worktree + "'; $env:CFO_STATE_OVERRIDE = '" + fixture.stateDir + "'; $env:GOTMPDIR = '" + filepath.Join(result.Meta.TaskTmp, "gotmp") + "'; & 'pi' '--tui-mode' 'regular' 'Read the brief at " + fixture.brief + " and follow it exactly."
 	if got := fixture.runner.literal; !strings.HasPrefix(got, wantLine) {
 		t.Errorf("typed launch line = %q\nwant prefix %q", got, wantLine)
 	}
