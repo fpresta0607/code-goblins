@@ -303,6 +303,12 @@ type launchPlan struct {
 // something may still be working in it.
 func (s Service) startHarness(ctx context.Context, client *herdr.Client, target herdr.Target, plan launchPlan) (submitted bool, err error) {
 	launch := plan.Launch
+	if s.StateDir != "" {
+		if launch.Env == nil {
+			launch.Env = map[string]string{}
+		}
+		launch.Env["CFO_STATE_OVERRIDE"] = s.StateDir
+	}
 	if launch.TypedLaunch {
 		line, err := launch.PowerShellTypedLine()
 		if err != nil {
