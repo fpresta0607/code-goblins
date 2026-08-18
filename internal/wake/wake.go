@@ -34,7 +34,7 @@ const queueFile = ".wake-queue"
 const wakeLockName = ".wake-queue.lock"
 
 // kinds is the whitelist Append enforces: upstream's four documented wake
-// kinds and no others.
+// kinds plus the `notify` kind cfo notify appends, and no others.
 var kinds = map[string]bool{
 	"signal":    true,
 	"stale":     true,

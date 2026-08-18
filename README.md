@@ -61,6 +61,7 @@ cfo pr check <id> <url>
 cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
 cfo merge-local <id>
 cfo cleanup <id>                       close the task tab and return its clean, proven-inactive worktree through treehouse
+cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>"   a goblin reports its outcome (PR URL, question, or failure) straight into the wake queue
 cfo drain                            print or acknowledge the wake queue
 cfo session-start                    print the session-start digest
 cfo watch                            run one triage cycle by hand

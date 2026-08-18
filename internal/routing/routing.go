@@ -44,10 +44,11 @@ const (
 //
 // ponytail: substring matching over a pane tail, which cannot tell a
 // provider's error from a project that happens to discuss one - a repo with
-// RATE_LIMIT_PER_WINDOW in its output can trip the rate-limit rule. The
-// consequence is bounded (a wake carrying a recommendation), so the ceiling
-// is accepted; if false wakes become real, the upgrade is to match only
-// within the harness's own error framing rather than the whole tail.
+// RATE_LIMIT_PER_WINDOW in its output can trip the rate-limit rule. The bare
+// "rate limit" phrase is the one pattern prone to conversational false wakes,
+// so Detect requires error framing on its line (see errorFramed); the
+// remaining patterns keep the bounded substring ceiling (a wake carrying a
+// recommendation).
 var faultPatterns = []struct {
 	fault    Fault
 	patterns []string
