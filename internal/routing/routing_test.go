@@ -144,6 +144,18 @@ func TestDetectDoesNotReadACFOsteerAsARateLimit(t *testing.T) {
 	}
 }
 
+func TestDetectDoesNotReadAGitHostMentionAsAnOutage(t *testing.T) {
+	steers := []string{
+		"this is not a github rate limit, so no harness switch",
+		"the goblin exceeded the github storage budget and is now cleaning up",
+	}
+	for _, steer := range steers {
+		if fault, _, found := Detect(steer); found {
+			t.Errorf("Detect(%q) = %q, want no fault in conversational text", steer, fault)
+		}
+	}
+}
+
 func TestDetectClassifiesAGitHubOutageAsThirdParty(t *testing.T) {
 	tails := []string{
 		"gh: 429 API rate limit exceeded for user 123456",
