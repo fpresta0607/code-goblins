@@ -25,6 +25,7 @@ type proberRunner struct {
 	snapshotCalls  int
 	captureCalls   map[string]int
 	agentCalls     int
+	agentListErr   bool
 	lastSnapshot   string
 	requests       []execx.Request
 }
@@ -56,6 +57,9 @@ func (r *proberRunner) Run(_ context.Context, req execx.Request) (execx.Result, 
 		return execx.Result{Stdout: []byte(body)}, nil
 	case len(args) == 2 && args[0] == "agent" && args[1] == "list":
 		r.agentCalls++
+		if r.agentListErr {
+			return execx.Result{ExitCode: 1, Stderr: []byte(`{"error":{"code":"method_not_found"}}`)}, nil
+		}
 		var parsed struct {
 			Result struct {
 				Snapshot struct {
@@ -448,6 +452,42 @@ func TestHerdrProberUnreadableSessionIsDurableUnknown(t *testing.T) {
 	}
 	if len(runner.captureCalls) != 0 {
 		t.Fatalf("captures = %v, want no reads against an unreadable session", runner.captureCalls)
+	}
+}
+
+func TestHerdrProberDegradesToSnapshotStatusWhenAgentListFails(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
+	metas := []state.TaskMeta{metaFor("g1"), metaFor("g2")}
+	for _, meta := range metas {
+		writeTask(t, stateDir, meta)
+	}
+	runner := &proberRunner{
+		snapshotBodies: []string{proberSnapshotEnvelope(metas, map[string]string{"g1": "working", "g2": "done"})},
+		captureText: map[string]string{
+			"pane-g1": string(capture("g1 text")),
+			"pane-g2": string(capture("g2 text")),
+		},
+		agentListErr: true,
+	}
+	service := testService(stateDir, NewHerdrProber(proberClient(runner)), &now)
+
+	result, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(result.Observations) != 2 {
+		t.Fatalf("observations = %+v, want both tasks", result.Observations)
+	}
+	byID := map[string]Observation{}
+	for _, observation := range result.Observations {
+		byID[observation.TaskID] = observation
+	}
+	if byID["g1"].Health != HealthBusy || byID["g1"].EndpointVerdict != ProbePresent {
+		t.Fatalf("g1 observation = %+v, want busy/present despite agent list failure", byID["g1"])
+	}
+	if byID["g2"].Reason != AwaitingAnswer || byID["g2"].EndpointVerdict != ProbePresent {
+		t.Fatalf("g2 observation = %+v, want awaiting-answer/present despite agent list failure", byID["g2"])
 	}
 }
 
