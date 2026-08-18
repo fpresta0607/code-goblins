@@ -85,6 +85,9 @@ const (
 	AgentIdle    = "idle"
 	AgentDone    = "done"
 	AgentBlocked = "blocked"
+	// AgentUnknown means the agent is registered but its activity is
+	// transiently indeterminate (for example right after registration).
+	AgentUnknown = "unknown"
 )
 
 // AgentRecord is one entry from `herdr agent list` (socket API, JSON): the
