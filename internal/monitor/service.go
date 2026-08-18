@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -244,7 +245,12 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	// read straight from `herdr agent list` for both claude and pi panes.
 	switch sample.Status {
 	case herdr.AgentWorking:
-		// Never wake: the goblin is working.
+		// Never wake: the goblin is working. A working observation supersedes
+		// whichever parked/terminal verb last held the pane quiet, so a later
+		// done/idle reading the same stale verb is not held quiet again.
+		if observation.GatedVerbLine > observation.ConsumedVerbLine {
+			observation.ConsumedVerbLine = observation.GatedVerbLine
+		}
 		return workingObservation(observation, sample, now)
 	case herdr.AgentDone, herdr.AgentBlocked:
 		// The agent's turn ended and it is waiting on input - finished or
@@ -257,6 +263,11 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	case herdr.AgentIdle:
 		// Between turns: liveness comes from the agent's own counters and the
 		// status log. No movement for the stall window = genuinely wedged.
+		return s.idleClassification(observation, sample, meta.ID, now)
+	case herdr.AgentUnknown:
+		// A registered agent whose activity is momentarily indeterminate is
+		// not an endpoint failure. Treat it like idle: it stays quiet unless
+		// its counters and status log both freeze for the stall window.
 		return s.idleClassification(observation, sample, meta.ID, now)
 	default:
 		return unknownObservation(observation, EndpointUnknown, "endpoint activity is unknown", now)
@@ -324,14 +335,20 @@ func workingObservation(observation Observation, sample EndpointSample, now time
 // These verbs win over liveness because cfo notify (or the watcher's decision
 // signal) already woke the CFO, so the monitor must hold the pane quiet.
 func (s Service) statusVerbObservation(observation Observation, id string, now time.Time) (Observation, bool) {
-	verb := s.latestStatusVerb(id)
+	verb, line, ok := s.latestStatusVerb(id)
+	if !ok || line <= observation.ConsumedVerbLine {
+		return observation, false
+	}
 	if verb == "paused" {
+		observation.GatedVerbLine = line
 		return s.pauseObservation(observation, now), true
 	}
 	if parkedDecisionVerb(verb) {
+		observation.GatedVerbLine = line
 		return s.parkedObservation(observation, now), true
 	}
 	if terminalVerb(verb) {
+		observation.GatedVerbLine = line
 		return s.terminalObservation(observation, now), true
 	}
 	return observation, false
@@ -567,15 +584,24 @@ func validSample(meta state.TaskMeta, sample EndpointSample) bool {
 	return len(sample.Capture) > 0
 }
 
-// latestStatusVerb returns the most recent status verb recorded for the task,
-// or "" when the status log is absent, empty, or unparsable.
-func (s Service) latestStatusVerb(id string) string {
-	lines, err := state.TailStatus(s.StateDir, id, 200)
+// latestStatusVerb returns the most recent status verb recorded for the task
+// and its 1-based line index in the append-only status log, or ("", 0, false)
+// when the log is absent, empty, or unparsable. The line index lets the
+// classifier ignore a parked/terminal verb from an earlier episode once the
+// agent has been observed working again.
+func (s Service) latestStatusVerb(id string) (string, int64, bool) {
+	lines, err := fsx.ReadLines(filepath.Join(s.StateDir, id+".status"))
 	if err != nil {
-		return ""
+		return "", 0, false
 	}
-	verb, _ := crewstate.LatestVerb(lines)
-	return verb
+	for i := len(lines) - 1; i >= 0; i-- {
+		verb, _, ok := crewstate.ParseStatusLine(lines[i])
+		if !ok {
+			continue
+		}
+		return verb, int64(i + 1), true
+	}
+	return "", 0, false
 }
 
 // parkedDecisionVerb reports whether a status verb parks the goblin awaiting
