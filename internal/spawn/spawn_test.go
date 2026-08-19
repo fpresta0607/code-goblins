@@ -1035,6 +1035,10 @@ type herdrRunner struct {
 	failCaptureAt    int
 	failCaptures     int
 	paneUnreadable   bool
+	sendTextCount    int
+	failSendTextAt   int
+	failSendTexts    int
+	failCtrlUs       int
 }
 
 func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -1110,6 +1114,12 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		return jsonResult(`{"tab":{"tab_id":"tab-1"},"root_pane":{"pane_id":` + quoteJSON(paneID) + `}}`), nil
 	case len(args) == 4 && args[0] == "pane" && args[1] == "send-text" && args[2] == "pane-1":
 		*r.events = append(*r.events, "send-literal")
+		r.sendTextCount++
+		// A non-zero exit with no runner failure is the transient class:
+		// herdr refused this one write, and nothing was typed.
+		if r.failSendTextAt > 0 && r.sendTextCount >= r.failSendTextAt && r.sendTextCount < r.failSendTextAt+max(1, r.failSendTexts) {
+			return execx.Result{ExitCode: 1, Stderr: []byte("pane send-text: pane busy")}, nil
+		}
 		r.literal = args[3]
 		r.literals = append(r.literals, args[3])
 		return jsonResult(`{}`), nil
@@ -1122,6 +1132,10 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		}
 		return jsonResult(`{"pane":{"pane_id":"pane-1"}}`), nil
 	case len(args) == 4 && args[0] == "pane" && args[1] == "send-keys" && args[2] == "pane-1":
+		if args[3] == "ctrl+u" && r.failCtrlUs > 0 {
+			r.failCtrlUs--
+			return execx.Result{ExitCode: 1, Stderr: []byte("pane send-keys: pane busy")}, nil
+		}
 		r.keys = append(r.keys, args[3])
 		if args[3] == "enter" {
 			*r.events = append(*r.events, "send-enter")
@@ -1324,6 +1338,56 @@ func TestSpawnSurvivesATransientPaneReadFailureDuringInstructionDelivery(t *test
 	}
 	if len(fixture.runner.literals) != 4 {
 		t.Errorf("literals = %d, want the prefix plus three instruction deliveries", len(fixture.runner.literals))
+	}
+}
+
+// A herdr write refused mid-boot is the same transient class as an unreadable
+// pane: the harness is coming up fine. Aborting the budget on one of them runs
+// teardownLaunch, which closes the tab and returns the worktree of a live
+// goblin - the false `failed: spawn` the boot-aware budget exists to remove.
+func TestSpawnRetriesTransientHerdrWritesWhileTheHarnessIsStillBooting(t *testing.T) {
+	fixture := newFixture(t)
+	// send-text 1 is the launch prefix, so send-text 2 is the first
+	// instruction delivery. herdr refuses that write, then refuses the ctrl+u
+	// that clears the composer for the retry: both writes in the loop body
+	// have to survive.
+	fixture.runner.failSendTextAt = 2
+	fixture.runner.failSendTexts = 1
+	fixture.runner.failCtrlUs = 1
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if !strings.Contains(result.Output, "spawned task-7") {
+		t.Errorf("Output = %q, want the spawn to survive transient herdr writes", result.Output)
+	}
+	if _, statErr := os.Stat(fixture.worktree); statErr != nil {
+		t.Fatalf("transient write removed worktree: %v", statErr)
+	}
+	if slices.Contains(fixture.events, "tab-close") {
+		t.Errorf("events = %v, want no teardown from a transient herdr write", fixture.events)
+	}
+}
+
+// When every write is refused the instruction was never typed, so a read-back
+// mismatch is a false cause and the herdr stderr is the operator's only lead.
+func TestSpawnReportsTheRefusedWriteWhenTheInstructionNeverLands(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.runner.failSendTextAt = 2
+	fixture.runner.failSendTexts = 1000
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err == nil {
+		t.Fatal("Spawn = nil, want the refused write surfaced")
+	}
+	for _, want := range []string{"could not type the instruction", "pane send-text: pane busy"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to mention %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "did not match") {
+		t.Errorf("err = %v, want no read-back mismatch claim when nothing was ever typed", err)
 	}
 }
 
