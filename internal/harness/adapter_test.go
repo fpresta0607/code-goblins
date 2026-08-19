@@ -76,15 +76,16 @@ func TestPowerShellPrefixRejectsRelativeDir(t *testing.T) {
 // handoff instead.
 func TestControlContractForSwitch(t *testing.T) {
 	cases := []struct {
-		kind       Kind
-		stopKeys   []string
-		stop       string
-		resumeArgs []string
+		kind          Kind
+		stopKeys      []string
+		stop          string
+		resumeArgs    []string
+		resumeMarkers []string
 	}{
-		{Claude, []string{"escape"}, "/exit", []string{"--continue"}},
-		{Codex, []string{"escape"}, "/quit", []string{"resume", "--last"}},
-		{Pi, []string{"escape"}, "/quit", nil},
-		{Kimi, []string{"escape"}, "/quit", []string{"--continue"}},
+		{Claude, []string{"escape"}, "/exit", []string{"--continue"}, []string{"will consume a substantial portion of your usage limits", "We recommend resuming from a summary"}},
+		{Codex, []string{"escape"}, "/quit", []string{"resume", "--last"}, nil},
+		{Pi, []string{"escape"}, "/quit", nil, nil},
+		{Kimi, []string{"escape"}, "/quit", []string{"--continue"}, nil},
 	}
 	registry := DefaultRegistry()
 	for _, test := range cases {
@@ -101,6 +102,9 @@ func TestControlContractForSwitch(t *testing.T) {
 		}
 		if !equalStrings(control.ResumeArgs, test.resumeArgs) {
 			t.Errorf("%s ResumeArgs = %v, want %v", test.kind, control.ResumeArgs, test.resumeArgs)
+		}
+		if !equalStrings(control.ResumeMarkers, test.resumeMarkers) {
+			t.Errorf("%s ResumeMarkers = %v, want %v", test.kind, control.ResumeMarkers, test.resumeMarkers)
 		}
 	}
 }
