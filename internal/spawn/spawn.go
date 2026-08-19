@@ -28,7 +28,7 @@ const (
 	launchSettle       = 300 * time.Millisecond
 	launchConfirmPoll  = 1500 * time.Millisecond
 	launchConfirmTries = 80
-	instructionTries   = 3
+	instructionTries   = 60
 )
 
 // Request is the complete local task creation input. Ship delivery posture is
@@ -592,10 +592,10 @@ func (s Service) confirmHarnessDialogs(ctx context.Context, client *herdr.Client
 
 // confirmLaunch waits for the launched harness to report working after its
 // brief has been delivered through the native prompt channel or the typed
-// launch line. On timeout it re-probes agent liveness: a pane whose agent is
-// registered and alive (even idle or blocked - a healthy Claude waiting at its
-// prompt) is adopted rather than declared failed, so a false timeout cannot
-// orphan a live goblin.
+// launch line. On timeout it re-probes agent liveness: a pane that herdr does
+// not report as empty - alive, or simply unreadable - is adopted rather than
+// declared failed, so a false timeout cannot orphan a live goblin. An idle or
+// blocked agent is a healthy Claude waiting at its prompt.
 func (s Service) confirmLaunch(ctx context.Context, client *herdr.Client, target herdr.Target) error {
 	for attempt := 0; attempt < launchConfirmTries; attempt++ {
 		if attempt > 0 {
@@ -612,47 +612,78 @@ func (s Service) confirmLaunch(ctx context.Context, client *herdr.Client, target
 		}
 	}
 	// The full working budget elapsed without a working report. Re-probe once:
-	// a live agent is adopted as launched, so the spawn reports success instead
-	// of writing a failed status beside a healthy pane.
-	if s.paneAlive(ctx, client, target) {
-		return nil
+	// only a pane herdr can prove is empty is declared failed, so the spawn
+	// reports success instead of writing a failed status beside a healthy pane.
+	if s.paneProvablyDead(ctx, client, target) {
+		return fmt.Errorf("spawn: harness launch did not report working within %ds", int(launchConfirmPoll.Seconds()*launchConfirmTries))
 	}
-	return fmt.Errorf("spawn: harness launch did not report working within %ds", int(launchConfirmPoll.Seconds()*launchConfirmTries))
+	return nil
 }
 
-// paneAlive reports whether the target pane has a registered agent in any
-// recognized state. It is the adoption proof for a readiness timeout: a dead or
-// missing agent means the launch genuinely failed.
-func (s Service) paneAlive(ctx context.Context, client *herdr.Client, target herdr.Target) bool {
+// paneProvablyDead reports whether herdr gave a trustworthy answer that the
+// target pane holds no agent. It gates the destructive half of a readiness
+// timeout - failing the launch runs teardownLaunch - so an unreadable probe
+// counts as not-dead: herdr admitting it cannot answer is no reason to close
+// the tab and return the worktree of a goblin that may be running.
+func (s Service) paneProvablyDead(ctx context.Context, client *herdr.Client, target herdr.Target) bool {
 	status, err := client.AgentStatus(ctx, target)
-	return err == nil && status == herdr.AgentAlive
+	return err == nil && (status == herdr.AgentDead || status == herdr.AgentMissing)
 }
 
 // deliverVerifiedInstruction types one instruction into the pane composer,
 // reads it back, and submits it only once the read-back shows it intact. A
 // mismatch (leading characters eaten by a too-early first keystroke) clears
-// the composer and retries. This protects the first instruction after launch,
-// which is the moment most exposed to a harness that is not yet focused.
+// the composer and retries on the launch poll interval. This protects the
+// first instruction after launch, which is the moment most exposed to a
+// harness that is not yet focused, and the retry budget is sized for harness
+// boot rather than for a focus glitch: a harness that needs a minute to come
+// up must not read as a delivery failure.
 func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.Client, target herdr.Target, kind harness.Kind, instruction string) error {
+	var lastCaptureErr, lastWriteErr error
+	readBack := false
 	for attempt := 0; attempt < instructionTries; attempt++ {
 		if attempt > 0 {
+			// A mismatch almost always means the harness composer was not
+			// accepting keystrokes yet: a harness takes seconds to boot,
+			// far longer than launchSettle. Waiting a full poll interval
+			// before retyping turns this loop into the readiness gate the
+			// first instruction never had.
+			if err := s.sleep(ctx, launchConfirmPoll); err != nil {
+				return fmt.Errorf("spawn: wait before retyping instruction: %w", err)
+			}
 			if err := client.SendKey(ctx, target, "Ctrl+U"); err != nil {
-				return fmt.Errorf("spawn: clear composer before retyping instruction: %w", err)
+				if herdr.WaitError(ctx, err) {
+					return fmt.Errorf("spawn: clear composer before retyping instruction: %w", err)
+				}
+				lastWriteErr = err
+				continue
 			}
 			if err := s.sleep(ctx, launchSettle); err != nil {
 				return fmt.Errorf("spawn: wait after clearing composer: %w", err)
 			}
 		}
 		if err := client.SendLiteral(ctx, target, instruction); err != nil {
-			return fmt.Errorf("spawn: type harness instruction: %w", err)
+			if herdr.WaitError(ctx, err) {
+				return fmt.Errorf("spawn: type harness instruction: %w", err)
+			}
+			lastWriteErr = err
+			continue
 		}
 		if err := s.sleep(ctx, launchSettle); err != nil {
 			return fmt.Errorf("spawn: wait before instruction read-back: %w", err)
 		}
 		captured, err := client.Capture(ctx, target, 0, false)
 		if err != nil {
-			return fmt.Errorf("spawn: read back harness instruction: %w", err)
+			// A pane that is momentarily unreadable is part of booting, not
+			// a delivery failure: spending an attempt keeps the boot budget
+			// intact where returning would tear down a live launch.
+			if herdr.WaitError(ctx, err) {
+				return fmt.Errorf("spawn: read back harness instruction: %w", err)
+			}
+			lastCaptureErr = err
+			continue
 		}
+		readBack = true
 		if instructionIntact(captured, instruction) {
 			if err := client.SendKey(ctx, target, submitKey(kind)); err != nil {
 				return fmt.Errorf("spawn: submit harness instruction: %w", err)
@@ -660,7 +691,26 @@ func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.C
 			return nil
 		}
 	}
-	return fmt.Errorf("spawn: instruction read-back did not match after %d attempts", instructionTries)
+	// Claiming a bare mismatch when herdr refused attempts buries the real
+	// cause - the herdr stderr - in a durable `failed:` status, so the
+	// retained transient error is reported whenever one exists.
+	budget := int(launchConfirmPoll.Seconds() * instructionTries)
+	if !readBack {
+		if lastCaptureErr != nil {
+			return fmt.Errorf("spawn: could not read the pane to verify the instruction within %ds: %w", budget, lastCaptureErr)
+		}
+		if lastWriteErr != nil {
+			return fmt.Errorf("spawn: could not type the instruction into the pane within %ds: %w", budget, lastWriteErr)
+		}
+		return fmt.Errorf("spawn: instruction read-back did not match within %ds", budget)
+	}
+	if lastCaptureErr != nil {
+		return fmt.Errorf("spawn: instruction read-back did not match within %ds; later pane reads were refused: %w", budget, lastCaptureErr)
+	}
+	if lastWriteErr != nil {
+		return fmt.Errorf("spawn: instruction read-back did not match within %ds; later pane writes were refused: %w", budget, lastWriteErr)
+	}
+	return fmt.Errorf("spawn: instruction read-back did not match within %ds", budget)
 }
 
 // instructionIntact reports whether instruction survived typing intact in the

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -16,15 +17,23 @@ import (
 // agent that stops answering once the harness has been told to exit.
 type switchRunner struct {
 	*herdrRunner
-	gitStatus  string
-	gitLog     string
-	gitBranch  string
-	stopped    bool
-	restarted  bool
-	stopAfter  int // agent-get calls before the harness reports gone
-	agentGets  int
-	neverStops bool
-	gitCalls   []execx.Request
+	gitStatus    string
+	gitLog       string
+	gitBranch    string
+	stopped      bool
+	restarted    bool
+	stopAfter    int // agent-get calls before the harness reports gone
+	agentGets    int
+	neverStops   bool
+	gitCalls     []execx.Request
+	resumeDialog string // pane text shown after the relaunch until an Enter lands
+	resumeReplay string // replayed conversation prepended to every post-relaunch read
+	// agentUnreadable makes herdr answer agent get untrustworthily once the
+	// relaunch has run, so the failure path cannot tell alive from gone.
+	agentUnreadable bool
+	// agentGoneAfterStart empties the pane only once the relaunch has run, so
+	// the stop sequence beforehand still runs against a live harness.
+	agentGoneAfterStart bool
 }
 
 func (r *switchRunner) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
@@ -49,6 +58,26 @@ func (r *switchRunner) Run(ctx context.Context, req execx.Request) (execx.Result
 		r.restarted = false
 		r.agentGets = 0
 	}
+	// A resume dialog exists only once the new harness is up: it covers the
+	// pane until an Enter lands, exactly like claude's resume-from-summary
+	// prompt. Ctrl+U and typed text do not dismiss it.
+	if r.resumeDialog != "" && r.restarted && req.Name == "herdr" && len(req.Args) >= 3 && req.Args[0] == "pane" {
+		if req.Args[1] == "read" {
+			return execx.Result{Stdout: []byte(r.resumeDialog)}, nil
+		}
+		if req.Args[1] == "send-keys" && len(req.Args) >= 4 && req.Args[3] == "enter" {
+			r.resumeDialog = ""
+		}
+	}
+	// `claude --continue` replays the prior conversation into the same pane
+	// tail the dialog loop reads. No keystroke clears it.
+	if r.resumeReplay != "" && r.restarted && req.Name == "herdr" && len(req.Args) >= 3 && req.Args[0] == "pane" && req.Args[1] == "read" {
+		result, err := r.herdrRunner.Run(ctx, req)
+		if err != nil {
+			return result, err
+		}
+		return execx.Result{Stdout: append([]byte(r.resumeReplay), result.Stdout...)}, nil
+	}
 	// herdr puts the subcommand first and appends --session, so the head of
 	// the argument list is what identifies the call.
 	if req.Name == "herdr" && len(req.Args) >= 2 && req.Args[0] == "agent" {
@@ -59,6 +88,14 @@ func (r *switchRunner) Run(ctx context.Context, req execx.Request) (execx.Result
 			r.restarted = true
 		case "get":
 			r.agentGets++
+			// An unexpected error code is herdr answering without being
+			// trustworthy, which is neither "alive" nor "gone".
+			if r.agentUnreadable && r.restarted {
+				return execx.Result{Stdout: []byte(`{"error":{"code":"herdr_unavailable"}}`), ExitCode: 1}, nil
+			}
+			if r.agentGoneAfterStart && r.restarted {
+				return execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`), ExitCode: 1}, nil
+			}
 			if !r.neverStops && !r.restarted && r.agentGets > r.stopAfter {
 				return execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`), ExitCode: 1}, nil
 			}
@@ -543,10 +580,19 @@ func TestSwitchKeepsAnExplicitModelAcrossHarnesses(t *testing.T) {
 func TestSwitchRecordsAnEmptyPaneWhenTheNewHarnessWillNotStart(t *testing.T) {
 	fixture := newSwitchFixture(t)
 	fixture.runner.startErr = errStartFailed
+	// The old harness is stopped normally; only then does the replacement fail
+	// to start, leaving no registered agent behind - which is what the
+	// empty-pane recovery is read off.
+	fixture.runner.agentGoneAfterStart = true
 
 	_, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"})
 	if err == nil {
 		t.Fatal("Switch = nil, want the start failure surfaced")
+	}
+	// The recovery text says the old harness was stopped, so the stop sequence
+	// has to have actually run before the failed start.
+	if !slices.Contains(fixture.runner.keys, "escape") {
+		t.Errorf("keys = %v, want the stop sequence driven before the failed start", fixture.runner.keys)
 	}
 	// The operator has to learn three things: the pane is empty, the work is
 	// safe, and how to recover.
@@ -577,3 +623,86 @@ var errStartFailed = &startFailure{}
 type startFailure struct{}
 
 func (*startFailure) Error() string { return "herdr: timed out waiting for agent startup" }
+
+// The switch failure path used to assert the pane was empty no matter where
+// the failure came from. A rejected instruction read-back happens after the
+// new harness is up, so that claim sent the operator to `cfo switch` again -
+// which stops a running goblin and loses its context.
+func TestSwitchReportsALivePaneInsteadOfClaimingItIsEmpty(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	fixture.runner.startErr = errStartFailed
+
+	_, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"})
+	if err == nil {
+		t.Fatal("Switch = nil, want the start failure surfaced")
+	}
+	for _, want := range []string{"still holds a live", "is untouched", "cfo peek " + fixture.meta.ID, "do NOT rerun `cfo switch`"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to mention %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "pane now has no harness") {
+		t.Errorf("err = %v, want no empty-pane claim while the agent is alive", err)
+	}
+}
+
+// An unreadable probe is herdr admitting it does not know, and the recovery
+// text must admit it too. Treating "could not answer" as "no harness" sends
+// the operator back to `cfo switch`, which stops whatever live goblin is
+// actually holding the pane - the exact context loss the re-probe prevents.
+func TestSwitchDoesNotGuessWhenTheProbeCannotReadThePane(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	fixture.runner.startErr = errStartFailed
+	fixture.runner.agentUnreadable = true
+
+	_, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"})
+	if err == nil {
+		t.Fatal("Switch = nil, want the start failure surfaced")
+	}
+	for _, want := range []string{"could not verify what the pane holds", "may still be running", "is untouched", "cfo peek " + fixture.meta.ID} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to mention %q", err, want)
+		}
+	}
+	for _, unwanted := range []string{"pane now has no harness", "still holds a live"} {
+		if strings.Contains(err.Error(), unwanted) {
+			t.Errorf("err = %v, want no %q claim from an unreadable probe", err, unwanted)
+		}
+	}
+}
+
+// The resume markers must not match the conversation `--continue` replays
+// into the same pane tail. A goblin that discussed the dialog's option labels
+// ("Resume from summary") replays them on every read, so option-label markers
+// held the dialog loop open until the switch failed on a harness that was
+// answering normally.
+func TestSwitchIgnoresAReplayedTranscriptThatNamesTheResumeOptions(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	fixture.runner.resumeReplay = "> the dialog offers Resume from summary and Resume full session as-is\n\n"
+
+	result, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Model: "opus", Session: "fleet"})
+	if err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	if !result.Resumed {
+		t.Fatal("Resumed = false, want the same-harness switch to resume in place")
+	}
+}
+
+// A resumed claude can open its interactive resume dialog (resume from
+// summary / full session) before the composer accepts input. The switch must
+// clear it like any startup dialog - Enter accepts the summary default -
+// otherwise the resume instruction is typed into the dialog, every read-back
+// mismatches, and a healthy relaunch reports failed.
+func TestSwitchClearsTheResumeDialogBeforeInstructingTheResumedHarness(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	fixture.runner.resumeDialog = "This session is 6 hours old and 120k tokens.\n\nResuming the full session will consume a substantial portion of your usage limits.\nWe recommend resuming from a summary.\n\n> 1. Resume from summary\n  2. Resume full session as-is\n  3. Don't ask me again\n"
+
+	result, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Model: "opus", Session: "fleet"})
+	if err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	if !result.Resumed {
+		t.Fatal("Resumed = false, want the same-harness switch to resume in place")
+	}
+}

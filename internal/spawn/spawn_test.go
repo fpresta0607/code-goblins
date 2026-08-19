@@ -315,6 +315,38 @@ func TestSpawnLaunchTimeoutAdoptsALivePane(t *testing.T) {
 	}
 }
 
+// Failing a readiness timeout is destructive - it closes the tab, returns the
+// worktree, and retires the metadata - so it needs proof the pane is empty.
+// An unreadable probe is herdr admitting it does not know, and tearing down on
+// that destroys a goblin that may well be running at its prompt.
+func TestSpawnLaunchTimeoutAdoptsAPaneItCannotProveIsEmpty(t *testing.T) {
+	fixture := newFixture(t)
+	// The agent never reports "working", and the liveness probe herdr answers
+	// afterwards is untrustworthy rather than a clean "no agent here".
+	fixture.runner.agentStatus = "idle"
+	fixture.runner.paneUnreadable = true
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if !strings.Contains(result.Output, "spawned task-7") {
+		t.Errorf("Output = %q, want the unverifiable pane adopted as launched", result.Output)
+	}
+	if _, statErr := os.Stat(fixture.worktree); statErr != nil {
+		t.Fatalf("unverifiable launch removed worktree: %v", statErr)
+	}
+	if fixture.git.returned != 0 {
+		t.Fatalf("unverifiable launch returned the lease %d times, want 0", fixture.git.returned)
+	}
+	if _, metaErr := state.ReadTaskMeta(fixture.stateDir, fixture.request.ID); metaErr != nil {
+		t.Fatalf("unverifiable launch lost metadata: %v", metaErr)
+	}
+	if slices.Contains(fixture.events, "tab-close") {
+		t.Errorf("events = %v, want no teardown of a pane herdr could not read", fixture.events)
+	}
+}
+
 func TestSpawnLaunchFailureTearsDownPaneAndWorktree(t *testing.T) {
 	fixture := newFixture(t)
 	fixture.runner.agentNotFound = true
@@ -910,7 +942,12 @@ func (a typedFixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, err
 }
 
 func (a fixtureAdapter) Control() harness.Control {
-	return harness.Control{StopKeys: []string{"escape"}, StopCommand: "/exit", ResumeArgs: []string{"--continue"}}
+	return harness.Control{
+		StopKeys:      []string{"escape"},
+		StopCommand:   "/exit",
+		ResumeArgs:    []string{"--continue"},
+		ResumeMarkers: []string{"We recommend resuming from a summary"},
+	}
 }
 
 func (a fixtureAdapter) Kind() harness.Kind {
@@ -968,32 +1005,40 @@ func (g *treehouseGit) EnsureSeeded(context.Context, string) (bool, error) {
 }
 
 type herdrRunner struct {
-	events          *[]string
-	worktree        string
-	session         string
-	workspaceID     string
-	paneID          string
-	agentStatus     string
-	agentErr        error
-	startErr        error
-	captureErr      error
-	missingPaneID   bool
-	trustDialog     bool
-	trustDialogText string
-	manifests       []string
-	calls           int
-	literal         string
-	literals        []string
-	startName       string
-	startKind       string
-	startArgs       []string
-	prompt          string
-	keys            []string
-	agentCalls      int
-	enterKeys       int
-	agentNotFound   bool
-	captureCount    int
+	events           *[]string
+	worktree         string
+	session          string
+	workspaceID      string
+	paneID           string
+	agentStatus      string
+	agentErr         error
+	startErr         error
+	captureErr       error
+	missingPaneID    bool
+	trustDialog      bool
+	trustDialogText  string
+	manifests        []string
+	calls            int
+	literal          string
+	literals         []string
+	startName        string
+	startKind        string
+	startArgs        []string
+	prompt           string
+	keys             []string
+	agentCalls       int
+	enterKeys        int
+	agentNotFound    bool
+	captureCount     int
 	corruptCaptureAt int
+	corruptCaptures  int
+	failCaptureAt    int
+	failCaptures     int
+	paneUnreadable   bool
+	sendTextCount    int
+	failSendTextAt   int
+	failSendTexts    int
+	failCtrlUs       int
 }
 
 func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -1069,12 +1114,28 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		return jsonResult(`{"tab":{"tab_id":"tab-1"},"root_pane":{"pane_id":` + quoteJSON(paneID) + `}}`), nil
 	case len(args) == 4 && args[0] == "pane" && args[1] == "send-text" && args[2] == "pane-1":
 		*r.events = append(*r.events, "send-literal")
+		r.sendTextCount++
+		// A non-zero exit with no runner failure is the transient class:
+		// herdr refused this one write, and nothing was typed.
+		if r.failSendTextAt > 0 && r.sendTextCount >= r.failSendTextAt && r.sendTextCount < r.failSendTextAt+max(1, r.failSendTexts) {
+			return execx.Result{ExitCode: 1, Stderr: []byte("pane send-text: pane busy")}, nil
+		}
 		r.literal = args[3]
 		r.literals = append(r.literals, args[3])
 		return jsonResult(`{}`), nil
 	case reflect.DeepEqual(args, []string{"pane", "get", "pane-1"}):
+		// An unexpected error code is herdr answering the liveness probe
+		// without being trustworthy: neither "alive" nor "gone". Only
+		// AgentStatus reads pane get, so this leaves WaitForWorking alone.
+		if r.paneUnreadable {
+			return execx.Result{Stdout: []byte(`{"error":{"code":"herdr_unavailable"}}`), ExitCode: 1}, nil
+		}
 		return jsonResult(`{"pane":{"pane_id":"pane-1"}}`), nil
 	case len(args) == 4 && args[0] == "pane" && args[1] == "send-keys" && args[2] == "pane-1":
+		if args[3] == "ctrl+u" && r.failCtrlUs > 0 {
+			r.failCtrlUs--
+			return execx.Result{ExitCode: 1, Stderr: []byte("pane send-keys: pane busy")}, nil
+		}
 		r.keys = append(r.keys, args[3])
 		if args[3] == "enter" {
 			*r.events = append(*r.events, "send-enter")
@@ -1119,6 +1180,11 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		if r.captureErr != nil {
 			return execx.Result{}, r.captureErr
 		}
+		// A non-zero exit with no runner failure is the transient class: the
+		// pane was momentarily unreadable, which herdr reports as retryable.
+		if r.failCaptureAt > 0 && r.captureCount >= r.failCaptureAt && r.captureCount < r.failCaptureAt+max(1, r.failCaptures) {
+			return execx.Result{ExitCode: 1, Stderr: []byte("pane read: pane busy")}, nil
+		}
 		if r.trustDialog {
 			text := r.trustDialogText
 			if text == "" {
@@ -1127,7 +1193,7 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 			return execx.Result{Stdout: []byte(text)}, nil
 		}
 		if r.literal != "" {
-			if r.corruptCaptureAt > 0 && r.captureCount == r.corruptCaptureAt {
+			if r.corruptCaptureAt > 0 && r.captureCount >= r.corruptCaptureAt && r.captureCount < r.corruptCaptureAt+max(1, r.corruptCaptures) {
 				// Simulate the first-instruction corruption: leading characters
 				// eaten so the remainder reads as a bogus slash command.
 				return execx.Result{Stdout: []byte("/ef" + r.literal[2:] + "\n")}, nil
@@ -1248,5 +1314,148 @@ func TestSpawnRetriesInstructionDeliveryWhenReadbackCorrupts(t *testing.T) {
 	}
 	if len(fixture.runner.literals) != 3 {
 		t.Errorf("literals = %q, want prefix plus two instruction deliveries", fixture.runner.literals)
+	}
+}
+
+// A pane that is momentarily unreadable while the harness redraws is part of
+// booting, not a delivery failure. A non-zero `herdr pane read` exit used to
+// abandon the whole read-back budget, so one unlucky poll tore down a launch
+// that was still coming up - the exact false failure the boot-aware budget
+// exists to prevent.
+func TestSpawnSurvivesATransientPaneReadFailureDuringInstructionDelivery(t *testing.T) {
+	fixture := newFixture(t)
+	// Two consecutive instruction read-backs (captures 3 and 4, after the two
+	// dialog probes) exit non-zero before the pane is readable again.
+	fixture.runner.failCaptureAt = 3
+	fixture.runner.failCaptures = 2
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if !strings.Contains(result.Output, "spawned task-7") {
+		t.Errorf("Output = %q, want the spawn to survive an unreadable pane", result.Output)
+	}
+	if len(fixture.runner.literals) != 4 {
+		t.Errorf("literals = %d, want the prefix plus three instruction deliveries", len(fixture.runner.literals))
+	}
+}
+
+// A herdr write refused mid-boot is the same transient class as an unreadable
+// pane: the harness is coming up fine. Aborting the budget on one of them runs
+// teardownLaunch, which closes the tab and returns the worktree of a live
+// goblin - the false `failed: spawn` the boot-aware budget exists to remove.
+func TestSpawnRetriesTransientHerdrWritesWhileTheHarnessIsStillBooting(t *testing.T) {
+	fixture := newFixture(t)
+	// send-text 1 is the launch prefix, so send-text 2 is the first
+	// instruction delivery. herdr refuses that write, then refuses the ctrl+u
+	// that clears the composer for the retry: both writes in the loop body
+	// have to survive.
+	fixture.runner.failSendTextAt = 2
+	fixture.runner.failSendTexts = 1
+	fixture.runner.failCtrlUs = 1
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if !strings.Contains(result.Output, "spawned task-7") {
+		t.Errorf("Output = %q, want the spawn to survive transient herdr writes", result.Output)
+	}
+	if _, statErr := os.Stat(fixture.worktree); statErr != nil {
+		t.Fatalf("transient write removed worktree: %v", statErr)
+	}
+	if slices.Contains(fixture.events, "tab-close") {
+		t.Errorf("events = %v, want no teardown from a transient herdr write", fixture.events)
+	}
+}
+
+// When every write is refused the instruction was never typed, so a read-back
+// mismatch is a false cause and the herdr stderr is the operator's only lead.
+func TestSpawnReportsTheRefusedWriteWhenTheInstructionNeverLands(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.runner.failSendTextAt = 2
+	fixture.runner.failSendTexts = 1000
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err == nil {
+		t.Fatal("Spawn = nil, want the refused write surfaced")
+	}
+	for _, want := range []string{"could not type the instruction", "pane send-text: pane busy"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to mention %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "did not match") {
+		t.Errorf("err = %v, want no read-back mismatch claim when nothing was ever typed", err)
+	}
+}
+
+// When the pane is never readable, the read-back never ran - so reporting a
+// mismatch is a false cause, and the herdr stderr that explains the real one
+// is the operator's only lead once it lands in the durable `failed:` status.
+func TestSpawnReportsTheUnreadablePaneWhenNoReadBackEverSucceeds(t *testing.T) {
+	fixture := newFixture(t)
+	// Every instruction read-back exits non-zero, so the budget drains
+	// without the loop ever seeing pane text to compare.
+	fixture.runner.failCaptureAt = 3
+	fixture.runner.failCaptures = 1000
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err == nil {
+		t.Fatal("Spawn = nil, want the unreadable pane surfaced")
+	}
+	for _, want := range []string{"could not read the pane", "pane read: pane busy"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to mention %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "did not match") {
+		t.Errorf("err = %v, want no read-back mismatch claim when nothing was ever read", err)
+	}
+}
+
+// One early successful read-back must not launder later refused attempts into
+// a bare mismatch: when the budget drains on transiently refused reads, the
+// retained herdr stderr is still the operator's real lead.
+func TestSpawnReportsTheRefusedReadsEvenAfterAnEarlyReadBackSucceeded(t *testing.T) {
+	fixture := newFixture(t)
+	// Capture 3 (the first instruction read-back) succeeds but comes back
+	// corrupted, then every later capture is refused until the budget drains.
+	fixture.runner.corruptCaptureAt = 3
+	fixture.runner.failCaptureAt = 4
+	fixture.runner.failCaptures = 1000
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err == nil {
+		t.Fatal("Spawn = nil, want the refused reads surfaced")
+	}
+	for _, want := range []string{"did not match", "pane read: pane busy"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to mention %q", err, want)
+		}
+	}
+}
+
+// A harness takes seconds to boot; the first instruction used to be typed
+// 300ms after the agent started and abandoned after three tries inside two
+// seconds. Every goblin resumed on a loaded machine then failed delivery
+// while its harness was still coming up.
+func TestSpawnKeepsRetryingInstructionDeliveryWhileTheHarnessIsStillBooting(t *testing.T) {
+	fixture := newFixture(t)
+	// Twenty consecutive read-backs come back corrupted - far past the three
+	// attempts the old budget allowed - before the composer finally accepts.
+	fixture.runner.corruptCaptureAt = 3
+	fixture.runner.corruptCaptures = 20
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if !strings.Contains(result.Output, "spawned task-7") {
+		t.Errorf("Output = %q, want the spawn to survive a slow harness boot", result.Output)
+	}
+	if len(fixture.runner.literals) != 22 {
+		t.Errorf("literals = %d, want the prefix plus twenty-one instruction deliveries", len(fixture.runner.literals))
 	}
 }
