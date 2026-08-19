@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -30,6 +31,9 @@ type switchRunner struct {
 	// agentUnreadable makes herdr answer agent get untrustworthily once the
 	// relaunch has run, so the failure path cannot tell alive from gone.
 	agentUnreadable bool
+	// agentGoneAfterStart empties the pane only once the relaunch has run, so
+	// the stop sequence beforehand still runs against a live harness.
+	agentGoneAfterStart bool
 }
 
 func (r *switchRunner) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
@@ -88,6 +92,9 @@ func (r *switchRunner) Run(ctx context.Context, req execx.Request) (execx.Result
 			// trustworthy, which is neither "alive" nor "gone".
 			if r.agentUnreadable && r.restarted {
 				return execx.Result{Stdout: []byte(`{"error":{"code":"herdr_unavailable"}}`), ExitCode: 1}, nil
+			}
+			if r.agentGoneAfterStart && r.restarted {
+				return execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`), ExitCode: 1}, nil
 			}
 			if !r.neverStops && !r.restarted && r.agentGets > r.stopAfter {
 				return execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`), ExitCode: 1}, nil
@@ -573,13 +580,19 @@ func TestSwitchKeepsAnExplicitModelAcrossHarnesses(t *testing.T) {
 func TestSwitchRecordsAnEmptyPaneWhenTheNewHarnessWillNotStart(t *testing.T) {
 	fixture := newSwitchFixture(t)
 	fixture.runner.startErr = errStartFailed
-	// A harness that never started leaves no registered agent behind, which
-	// is what the empty-pane recovery is read off.
-	fixture.runner.agentNotFound = true
+	// The old harness is stopped normally; only then does the replacement fail
+	// to start, leaving no registered agent behind - which is what the
+	// empty-pane recovery is read off.
+	fixture.runner.agentGoneAfterStart = true
 
 	_, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"})
 	if err == nil {
 		t.Fatal("Switch = nil, want the start failure surfaced")
+	}
+	// The recovery text says the old harness was stopped, so the stop sequence
+	// has to have actually run before the failed start.
+	if !slices.Contains(fixture.runner.keys, "escape") {
+		t.Errorf("keys = %v, want the stop sequence driven before the failed start", fixture.runner.keys)
 	}
 	// The operator has to learn three things: the pane is empty, the work is
 	// safe, and how to recover.

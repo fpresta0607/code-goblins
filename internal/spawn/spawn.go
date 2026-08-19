@@ -639,7 +639,7 @@ func (s Service) paneProvablyDead(ctx context.Context, client *herdr.Client, tar
 // boot rather than for a focus glitch: a harness that needs a minute to come
 // up must not read as a delivery failure.
 func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.Client, target herdr.Target, kind harness.Kind, instruction string) error {
-	var lastCaptureErr error
+	var lastCaptureErr, lastWriteErr error
 	readBack := false
 	for attempt := 0; attempt < instructionTries; attempt++ {
 		if attempt > 0 {
@@ -652,14 +652,22 @@ func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.C
 				return fmt.Errorf("spawn: wait before retyping instruction: %w", err)
 			}
 			if err := client.SendKey(ctx, target, "Ctrl+U"); err != nil {
-				return fmt.Errorf("spawn: clear composer before retyping instruction: %w", err)
+				if herdr.WaitError(ctx, err) {
+					return fmt.Errorf("spawn: clear composer before retyping instruction: %w", err)
+				}
+				lastWriteErr = err
+				continue
 			}
 			if err := s.sleep(ctx, launchSettle); err != nil {
 				return fmt.Errorf("spawn: wait after clearing composer: %w", err)
 			}
 		}
 		if err := client.SendLiteral(ctx, target, instruction); err != nil {
-			return fmt.Errorf("spawn: type harness instruction: %w", err)
+			if herdr.WaitError(ctx, err) {
+				return fmt.Errorf("spawn: type harness instruction: %w", err)
+			}
+			lastWriteErr = err
+			continue
 		}
 		if err := s.sleep(ctx, launchSettle); err != nil {
 			return fmt.Errorf("spawn: wait before instruction read-back: %w", err)
@@ -683,10 +691,15 @@ func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.C
 			return nil
 		}
 	}
-	// Claiming a mismatch when the pane was never readable buries the real
-	// cause - the herdr stderr - in a durable `failed:` status.
-	if !readBack && lastCaptureErr != nil {
-		return fmt.Errorf("spawn: could not read the pane to verify the instruction within %ds: %w", int(launchConfirmPoll.Seconds()*instructionTries), lastCaptureErr)
+	// Claiming a mismatch when the read-back never ran buries the real cause -
+	// the herdr stderr - in a durable `failed:` status.
+	if !readBack {
+		if lastCaptureErr != nil {
+			return fmt.Errorf("spawn: could not read the pane to verify the instruction within %ds: %w", int(launchConfirmPoll.Seconds()*instructionTries), lastCaptureErr)
+		}
+		if lastWriteErr != nil {
+			return fmt.Errorf("spawn: could not type the instruction into the pane within %ds: %w", int(launchConfirmPoll.Seconds()*instructionTries), lastWriteErr)
+		}
 	}
 	return fmt.Errorf("spawn: instruction read-back did not match within %ds", int(launchConfirmPoll.Seconds()*instructionTries))
 }
