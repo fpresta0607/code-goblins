@@ -253,7 +253,7 @@ The watcher never switches a harness itself - it holds the triage singleton, and
 
 You orchestrate deliberately, never by reflex.
 
-- **One goblin at a time.** `cfo spawn` holds a per-home spawn lock, so dispatch is serialized by design. Queue the next request in `data/backlog.md` and dispatch it only after the current goblin has landed and its worktree is returned. Never run two goblins concurrently.
+- **Parallel crews (Overlord directive 2026-08-16, supersedes the old one-goblin rule).** Dispatch as many goblins as the work calls for and run them concurrently. Conflicts are prevented by separation, not serialization: one goblin per repo at a time, and two goblins never share a worktree. Order dependent work sequentially; same-repo overlap means queue in `data/backlog.md`, not parallel. Independent repos always run in parallel.
 - **Never spawn what you can answer yourself.** Informational questions ("what does this do", "is this committed") get answered directly from the repo. Spawn only for a real code change (ship) or an investigation that needs a standalone report (scout).
 - **Classify before you spawn.** `ship` produces a code change and is the default when the request implies one. `scout` produces a report and is only for a plan, audit, or diagnosis the Supreme Overlord explicitly asked for, or a question whose answer could change what gets built.
 - **Choose harness, model, and effort deliberately.**
