@@ -637,6 +637,8 @@ func (s Service) paneAlive(ctx context.Context, client *herdr.Client, target her
 // boot rather than for a focus glitch: a harness that needs a minute to come
 // up must not read as a delivery failure.
 func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.Client, target herdr.Target, kind harness.Kind, instruction string) error {
+	var lastCaptureErr error
+	readBack := false
 	for attempt := 0; attempt < instructionTries; attempt++ {
 		if attempt > 0 {
 			// A mismatch almost always means the harness composer was not
@@ -668,14 +670,21 @@ func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.C
 			if herdr.WaitError(ctx, err) {
 				return fmt.Errorf("spawn: read back harness instruction: %w", err)
 			}
+			lastCaptureErr = err
 			continue
 		}
+		readBack = true
 		if instructionIntact(captured, instruction) {
 			if err := client.SendKey(ctx, target, submitKey(kind)); err != nil {
 				return fmt.Errorf("spawn: submit harness instruction: %w", err)
 			}
 			return nil
 		}
+	}
+	// Claiming a mismatch when the pane was never readable buries the real
+	// cause - the herdr stderr - in a durable `failed:` status.
+	if !readBack && lastCaptureErr != nil {
+		return fmt.Errorf("spawn: could not read the pane to verify the instruction within %ds: %w", int(launchConfirmPoll.Seconds()*instructionTries), lastCaptureErr)
 	}
 	return fmt.Errorf("spawn: instruction read-back did not match within %ds", int(launchConfirmPoll.Seconds()*instructionTries))
 }

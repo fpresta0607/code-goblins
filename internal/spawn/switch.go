@@ -190,15 +190,26 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		// running - a rejected instruction read-back, for instance - so the
 		// pane is re-probed before it is described. Reporting an empty pane
 		// that actually holds a live agent sends the operator to `cfo switch`
-		// again, which would stop a working goblin and lose its context.
+		// again, which would stop a working goblin and lose its context. Only
+		// a trustworthy answer earns a confident claim: an unreadable probe
+		// says so rather than guessing in either direction.
 		to := describe(string(target.Harness), target.Model, target.Effort)
 		var recovery string
-		if s.paneAlive(ctx, &herdrClient, paneTarget) {
+		status, statusErr := herdrClient.AgentStatus(ctx, paneTarget)
+		switch {
+		case statusErr == nil && status == herdr.AgentAlive:
 			recovery = fmt.Sprintf("the pane still holds a live %s agent: it started but the switch did not complete cleanly. Work in %s is untouched. Steer the pane directly or inspect it with `cfo peek %s` - do NOT rerun `cfo switch`, which would stop a running harness.",
 				to, worktree, req.ID)
-		} else {
+		case statusErr == nil && (status == herdr.AgentDead || status == herdr.AgentMissing):
 			recovery = fmt.Sprintf("the pane now has no harness: %s was stopped and %s did not start. Work in %s is untouched; start one with `cfo switch %s --harness <h>`",
 				from, to, worktree, req.ID)
+		default:
+			probe := string(status)
+			if statusErr != nil {
+				probe = statusErr.Error()
+			}
+			recovery = fmt.Sprintf("herdr could not verify what the pane holds (%s), so a working %s may still be running in it. Work in %s is untouched. Inspect it with `cfo peek %s` before any further `cfo switch`, which would stop a running harness.",
+				probe, to, worktree, req.ID)
 		}
 		if errors.Is(err, errBuildLaunch) {
 			recovery += " If the new harness refused an effort, retry with `--effort default` to clear it."

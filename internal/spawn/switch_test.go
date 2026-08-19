@@ -27,6 +27,9 @@ type switchRunner struct {
 	gitCalls     []execx.Request
 	resumeDialog string // pane text shown after the relaunch until an Enter lands
 	resumeReplay string // replayed conversation prepended to every post-relaunch read
+	// agentUnreadable makes herdr answer agent get untrustworthily once the
+	// relaunch has run, so the failure path cannot tell alive from gone.
+	agentUnreadable bool
 }
 
 func (r *switchRunner) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
@@ -81,6 +84,11 @@ func (r *switchRunner) Run(ctx context.Context, req execx.Request) (execx.Result
 			r.restarted = true
 		case "get":
 			r.agentGets++
+			// An unexpected error code is herdr answering without being
+			// trustworthy, which is neither "alive" nor "gone".
+			if r.agentUnreadable && r.restarted {
+				return execx.Result{Stdout: []byte(`{"error":{"code":"herdr_unavailable"}}`), ExitCode: 1}, nil
+			}
 			if !r.neverStops && !r.restarted && r.agentGets > r.stopAfter {
 				return execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`), ExitCode: 1}, nil
 			}
@@ -622,6 +630,31 @@ func TestSwitchReportsALivePaneInsteadOfClaimingItIsEmpty(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "pane now has no harness") {
 		t.Errorf("err = %v, want no empty-pane claim while the agent is alive", err)
+	}
+}
+
+// An unreadable probe is herdr admitting it does not know, and the recovery
+// text must admit it too. Treating "could not answer" as "no harness" sends
+// the operator back to `cfo switch`, which stops whatever live goblin is
+// actually holding the pane - the exact context loss the re-probe prevents.
+func TestSwitchDoesNotGuessWhenTheProbeCannotReadThePane(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	fixture.runner.startErr = errStartFailed
+	fixture.runner.agentUnreadable = true
+
+	_, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"})
+	if err == nil {
+		t.Fatal("Switch = nil, want the start failure surfaced")
+	}
+	for _, want := range []string{"could not verify what the pane holds", "may still be running", "is untouched", "cfo peek " + fixture.meta.ID} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to mention %q", err, want)
+		}
+	}
+	for _, unwanted := range []string{"pane now has no harness", "still holds a live"} {
+		if strings.Contains(err.Error(), unwanted) {
+			t.Errorf("err = %v, want no %q claim from an unreadable probe", err, unwanted)
+		}
 	}
 }
 
