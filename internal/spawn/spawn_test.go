@@ -1415,6 +1415,28 @@ func TestSpawnReportsTheUnreadablePaneWhenNoReadBackEverSucceeds(t *testing.T) {
 	}
 }
 
+// One early successful read-back must not launder later refused attempts into
+// a bare mismatch: when the budget drains on transiently refused reads, the
+// retained herdr stderr is still the operator's real lead.
+func TestSpawnReportsTheRefusedReadsEvenAfterAnEarlyReadBackSucceeded(t *testing.T) {
+	fixture := newFixture(t)
+	// Capture 3 (the first instruction read-back) succeeds but comes back
+	// corrupted, then every later capture is refused until the budget drains.
+	fixture.runner.corruptCaptureAt = 3
+	fixture.runner.failCaptureAt = 4
+	fixture.runner.failCaptures = 1000
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err == nil {
+		t.Fatal("Spawn = nil, want the refused reads surfaced")
+	}
+	for _, want := range []string{"did not match", "pane read: pane busy"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to mention %q", err, want)
+		}
+	}
+}
+
 // A harness takes seconds to boot; the first instruction used to be typed
 // 300ms after the agent started and abandoned after three tries inside two
 // seconds. Every goblin resumed on a loaded machine then failed delivery

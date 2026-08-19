@@ -691,17 +691,26 @@ func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.C
 			return nil
 		}
 	}
-	// Claiming a mismatch when the read-back never ran buries the real cause -
-	// the herdr stderr - in a durable `failed:` status.
+	// Claiming a bare mismatch when herdr refused attempts buries the real
+	// cause - the herdr stderr - in a durable `failed:` status, so the
+	// retained transient error is reported whenever one exists.
+	budget := int(launchConfirmPoll.Seconds() * instructionTries)
 	if !readBack {
 		if lastCaptureErr != nil {
-			return fmt.Errorf("spawn: could not read the pane to verify the instruction within %ds: %w", int(launchConfirmPoll.Seconds()*instructionTries), lastCaptureErr)
+			return fmt.Errorf("spawn: could not read the pane to verify the instruction within %ds: %w", budget, lastCaptureErr)
 		}
 		if lastWriteErr != nil {
-			return fmt.Errorf("spawn: could not type the instruction into the pane within %ds: %w", int(launchConfirmPoll.Seconds()*instructionTries), lastWriteErr)
+			return fmt.Errorf("spawn: could not type the instruction into the pane within %ds: %w", budget, lastWriteErr)
 		}
+		return fmt.Errorf("spawn: instruction read-back did not match within %ds", budget)
 	}
-	return fmt.Errorf("spawn: instruction read-back did not match within %ds", int(launchConfirmPoll.Seconds()*instructionTries))
+	if lastCaptureErr != nil {
+		return fmt.Errorf("spawn: instruction read-back did not match within %ds; later pane reads were refused: %w", budget, lastCaptureErr)
+	}
+	if lastWriteErr != nil {
+		return fmt.Errorf("spawn: instruction read-back did not match within %ds; later pane writes were refused: %w", budget, lastWriteErr)
+	}
+	return fmt.Errorf("spawn: instruction read-back did not match within %ds", budget)
 }
 
 // instructionIntact reports whether instruction survived typing intact in the
