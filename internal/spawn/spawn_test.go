@@ -1288,6 +1288,30 @@ func TestSpawnSurvivesATransientPaneReadFailureDuringInstructionDelivery(t *test
 	}
 }
 
+// When the pane is never readable, the read-back never ran - so reporting a
+// mismatch is a false cause, and the herdr stderr that explains the real one
+// is the operator's only lead once it lands in the durable `failed:` status.
+func TestSpawnReportsTheUnreadablePaneWhenNoReadBackEverSucceeds(t *testing.T) {
+	fixture := newFixture(t)
+	// Every instruction read-back exits non-zero, so the budget drains
+	// without the loop ever seeing pane text to compare.
+	fixture.runner.failCaptureAt = 3
+	fixture.runner.failCaptures = 1000
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err == nil {
+		t.Fatal("Spawn = nil, want the unreadable pane surfaced")
+	}
+	for _, want := range []string{"could not read the pane", "pane read: pane busy"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to mention %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "did not match") {
+		t.Errorf("err = %v, want no read-back mismatch claim when nothing was ever read", err)
+	}
+}
+
 // A harness takes seconds to boot; the first instruction used to be typed
 // 300ms after the agent started and abandoned after three tries inside two
 // seconds. Every goblin resumed on a loaded machine then failed delivery
