@@ -315,6 +315,38 @@ func TestSpawnLaunchTimeoutAdoptsALivePane(t *testing.T) {
 	}
 }
 
+// Failing a readiness timeout is destructive - it closes the tab, returns the
+// worktree, and retires the metadata - so it needs proof the pane is empty.
+// An unreadable probe is herdr admitting it does not know, and tearing down on
+// that destroys a goblin that may well be running at its prompt.
+func TestSpawnLaunchTimeoutAdoptsAPaneItCannotProveIsEmpty(t *testing.T) {
+	fixture := newFixture(t)
+	// The agent never reports "working", and the liveness probe herdr answers
+	// afterwards is untrustworthy rather than a clean "no agent here".
+	fixture.runner.agentStatus = "idle"
+	fixture.runner.paneUnreadable = true
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if !strings.Contains(result.Output, "spawned task-7") {
+		t.Errorf("Output = %q, want the unverifiable pane adopted as launched", result.Output)
+	}
+	if _, statErr := os.Stat(fixture.worktree); statErr != nil {
+		t.Fatalf("unverifiable launch removed worktree: %v", statErr)
+	}
+	if fixture.git.returned != 0 {
+		t.Fatalf("unverifiable launch returned the lease %d times, want 0", fixture.git.returned)
+	}
+	if _, metaErr := state.ReadTaskMeta(fixture.stateDir, fixture.request.ID); metaErr != nil {
+		t.Fatalf("unverifiable launch lost metadata: %v", metaErr)
+	}
+	if slices.Contains(fixture.events, "tab-close") {
+		t.Errorf("events = %v, want no teardown of a pane herdr could not read", fixture.events)
+	}
+}
+
 func TestSpawnLaunchFailureTearsDownPaneAndWorktree(t *testing.T) {
 	fixture := newFixture(t)
 	fixture.runner.agentNotFound = true
@@ -1002,6 +1034,7 @@ type herdrRunner struct {
 	corruptCaptures  int
 	failCaptureAt    int
 	failCaptures     int
+	paneUnreadable   bool
 }
 
 func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -1081,6 +1114,12 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		r.literals = append(r.literals, args[3])
 		return jsonResult(`{}`), nil
 	case reflect.DeepEqual(args, []string{"pane", "get", "pane-1"}):
+		// An unexpected error code is herdr answering the liveness probe
+		// without being trustworthy: neither "alive" nor "gone". Only
+		// AgentStatus reads pane get, so this leaves WaitForWorking alone.
+		if r.paneUnreadable {
+			return execx.Result{Stdout: []byte(`{"error":{"code":"herdr_unavailable"}}`), ExitCode: 1}, nil
+		}
 		return jsonResult(`{"pane":{"pane_id":"pane-1"}}`), nil
 	case len(args) == 4 && args[0] == "pane" && args[1] == "send-keys" && args[2] == "pane-1":
 		r.keys = append(r.keys, args[3])

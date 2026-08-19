@@ -592,10 +592,10 @@ func (s Service) confirmHarnessDialogs(ctx context.Context, client *herdr.Client
 
 // confirmLaunch waits for the launched harness to report working after its
 // brief has been delivered through the native prompt channel or the typed
-// launch line. On timeout it re-probes agent liveness: a pane whose agent is
-// registered and alive (even idle or blocked - a healthy Claude waiting at its
-// prompt) is adopted rather than declared failed, so a false timeout cannot
-// orphan a live goblin.
+// launch line. On timeout it re-probes agent liveness: a pane that herdr does
+// not report as empty - alive, or simply unreadable - is adopted rather than
+// declared failed, so a false timeout cannot orphan a live goblin. An idle or
+// blocked agent is a healthy Claude waiting at its prompt.
 func (s Service) confirmLaunch(ctx context.Context, client *herdr.Client, target herdr.Target) error {
 	for attempt := 0; attempt < launchConfirmTries; attempt++ {
 		if attempt > 0 {
@@ -612,20 +612,22 @@ func (s Service) confirmLaunch(ctx context.Context, client *herdr.Client, target
 		}
 	}
 	// The full working budget elapsed without a working report. Re-probe once:
-	// a live agent is adopted as launched, so the spawn reports success instead
-	// of writing a failed status beside a healthy pane.
-	if s.paneAlive(ctx, client, target) {
-		return nil
+	// only a pane herdr can prove is empty is declared failed, so the spawn
+	// reports success instead of writing a failed status beside a healthy pane.
+	if s.paneProvablyDead(ctx, client, target) {
+		return fmt.Errorf("spawn: harness launch did not report working within %ds", int(launchConfirmPoll.Seconds()*launchConfirmTries))
 	}
-	return fmt.Errorf("spawn: harness launch did not report working within %ds", int(launchConfirmPoll.Seconds()*launchConfirmTries))
+	return nil
 }
 
-// paneAlive reports whether the target pane has a registered agent in any
-// recognized state. It is the adoption proof for a readiness timeout: a dead or
-// missing agent means the launch genuinely failed.
-func (s Service) paneAlive(ctx context.Context, client *herdr.Client, target herdr.Target) bool {
+// paneProvablyDead reports whether herdr gave a trustworthy answer that the
+// target pane holds no agent. It gates the destructive half of a readiness
+// timeout - failing the launch runs teardownLaunch - so an unreadable probe
+// counts as not-dead: herdr admitting it cannot answer is no reason to close
+// the tab and return the worktree of a goblin that may be running.
+func (s Service) paneProvablyDead(ctx context.Context, client *herdr.Client, target herdr.Target) bool {
 	status, err := client.AgentStatus(ctx, target)
-	return err == nil && status == herdr.AgentAlive
+	return err == nil && (status == herdr.AgentDead || status == herdr.AgentMissing)
 }
 
 // deliverVerifiedInstruction types one instruction into the pane composer,

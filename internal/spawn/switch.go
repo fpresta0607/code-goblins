@@ -204,19 +204,15 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 			recovery = fmt.Sprintf("the pane now has no harness: %s was stopped and %s did not start. Work in %s is untouched; start one with `cfo switch %s --harness <h>`",
 				from, to, worktree, req.ID)
 		default:
-			probe := string(status)
-			if statusErr != nil {
-				probe = statusErr.Error()
-			}
 			recovery = fmt.Sprintf("herdr could not verify what the pane holds (%s), so a working %s may still be running in it. Work in %s is untouched. Inspect it with `cfo peek %s` before any further `cfo switch`, which would stop a running harness.",
-				probe, to, worktree, req.ID)
+				statusErr, to, worktree, req.ID)
 		}
 		if errors.Is(err, errBuildLaunch) {
 			recovery += " If the new harness refused an effort, retry with `--effort default` to clear it."
 		}
 		err = fmt.Errorf("%w\n%s", err, recovery)
-		if statusErr := state.AppendStatus(s.StateDir, req.ID, "failed: "+bounded(state.NormalizeStatusDetail(err.Error()), 1000)); statusErr != nil {
-			err = errors.Join(err, statusErr)
+		if appendErr := state.AppendStatus(s.StateDir, req.ID, "failed: "+bounded(state.NormalizeStatusDetail(err.Error()), 1000)); appendErr != nil {
+			err = errors.Join(err, appendErr)
 		}
 		return SwitchResult{Meta: meta, From: from, Handoff: handoff, Resumed: resumed}, err
 	}
