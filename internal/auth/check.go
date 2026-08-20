@@ -203,11 +203,17 @@ func (c Checker) evaluate(ctx context.Context, service Service) Status {
 		return optionalize(status)
 	}
 
+	probeState := StateGreen
 	if len(service.Probe) > 0 {
 		state, detail := c.runProbe(ctx, service, resolution)
+		probeState = state
 		status.State = state
 		status.Detail = detail
-		if state != StateGreen {
+		// A probe that established a failure has settled the service: there
+		// is nothing left to identify. A probe that could not run has settled
+		// nothing, and the identity check may need no tool at all - which is
+		// precisely the case a wrong target hides in.
+		if state != StateGreen && state != StateUnverified {
 			return optionalize(status)
 		}
 	} else {
@@ -227,12 +233,21 @@ func (c Checker) evaluate(ctx context.Context, service Service) Status {
 		// verified one, and that gap is what reported a stranger's database
 		// green.
 		status.Detail += "; liveness only, identity not verified"
-		return status
+		return optionalize(status)
 	}
 	state, detail := c.runIdentity(ctx, *service.Identity, resolution)
-	status.State = state
-	status.Detail = detail
-	if state == StateGreen {
+	status.Detail += "; " + detail
+	switch {
+	case state != StateGreen:
+		status.State = state
+	case probeState == StateGreen:
+		status.State = StateGreen
+		status.Identity = service.Identity.Describe()
+	default:
+		// The target is proven and the transport never was, so the weaker
+		// word stands - but the identity that was confirmed is still recorded
+		// rather than thrown away.
+		status.State = probeState
 		status.Identity = service.Identity.Describe()
 	}
 	return optionalize(status)

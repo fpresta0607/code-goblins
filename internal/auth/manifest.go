@@ -242,15 +242,24 @@ func validateIdentity(service Service) error {
 
 // ValidProjectName reports whether a project name is safe as a credential
 // scope. The scope becomes a directory name in the file store and part of a
-// vault target, so it is restricted to characters that cannot traverse or
-// collide.
+// vault target, so anything that could traverse or collide is refused: path
+// separators, a colon, and a leading or trailing dot or space, which also
+// rules out "..". The dots and spaces real checkout names carry are not a
+// traversal and stay usable, because refusing them would abort the spawn of
+// an ordinary project rather than refuse a credential.
 func ValidProjectName(project string) bool {
 	if project == "" {
 		return false
 	}
+	if edge := project[0]; edge == '.' || edge == ' ' {
+		return false
+	}
+	if edge := project[len(project)-1]; edge == '.' || edge == ' ' {
+		return false
+	}
 	for _, character := range project {
 		switch {
-		case character == '-' || character == '_':
+		case character == '-' || character == '_' || character == '.' || character == ' ':
 		case character >= 'A' && character <= 'Z':
 		case character >= 'a' && character <= 'z':
 		case character >= '0' && character <= '9':

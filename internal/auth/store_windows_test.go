@@ -77,7 +77,7 @@ func TestCredentialManagerRefusesAKeyThatIsNotAnEnvironmentName(t *testing.T) {
 	if _, _, err := store.Get(Shared("bad key")); err == nil {
 		t.Error("Get with an invalid name = nil, want a refusal")
 	}
-	if err := store.Set(Key{Project: "bad project", Name: "TOKEN"}, "value"); err == nil {
+	if err := store.Set(Key{Project: "../escaped", Name: "TOKEN"}, "value"); err == nil {
 		t.Error("Set with an invalid scope = nil, want a refusal")
 	}
 }

@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -190,6 +191,66 @@ func TestPostgresIdentitySeparatesTheRightInstanceFromAnInstance(t *testing.T) {
 				t.Errorf("injected = %v for %q; a credential pointing at another project's database must never reach a pane", injected, tc.want)
 			}
 			// The report proves the target without ever printing the value.
+			if strings.Contains(status.Detail, tc.value) {
+				t.Errorf("detail disclosed the connection string: %q", status.Detail)
+			}
+		})
+	}
+}
+
+func TestIdentityStillDecidesWhenTheProbeToolIsNotInstalled(t *testing.T) {
+	clearEnv(t, "DATABASE_URL")
+	// psql is absent on this host, which is exactly why the var form of the
+	// identity check exists: it needs no client tool, so a missing binary
+	// must not be what lets an unrelated project's database through.
+	service := postgresService("ep-precisiondocs-quiet-sun")
+	service.Probe = []string{"psql", "$DATABASE_URL", "-c", "select 1"}
+	manifest := Manifest{Services: []Service{service}}
+
+	cases := []struct {
+		name     string
+		value    string
+		want     State
+		injected bool
+	}{
+		{
+			"another project's branch",
+			"postgres://u:p@ep-steep-river-axsvclpp.aws.neon.tech/neondb",
+			StateWrongTarget,
+			false,
+		},
+		{
+			// The target is proven, the transport never was: the honest word
+			// is still unverified, and the value is still what the project
+			// reads.
+			"this project's branch with nothing to prove it answers",
+			"postgres://u:p@ep-precisiondocs-quiet-sun.aws.neon.tech/appdb",
+			StateUnverified,
+			true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newMemoryStore(map[string]string{"precisiondocs/DATABASE_URL": tc.value})
+			runner := &fakeRunner{errs: map[string]error{"psql": exec.ErrNotFound}}
+			report, err := Checker{Store: store, Runner: runner, Project: "precisiondocs"}.Check(context.Background(), manifest)
+			if err != nil {
+				t.Fatalf("Check: %v", err)
+			}
+			status := report.Statuses[0]
+			if status.State != tc.want {
+				t.Fatalf("state = %q, want %q (detail %q)", status.State, tc.want, status.Detail)
+			}
+			if !strings.Contains(status.Detail, "psql is not installed") {
+				t.Errorf("detail = %q, want the absent probe tool still reported", status.Detail)
+			}
+			env, err := InjectEnv(store, "precisiondocs", manifest, report)
+			if err != nil {
+				t.Fatalf("InjectEnv: %v", err)
+			}
+			if _, injected := env["DATABASE_URL"]; injected != tc.injected {
+				t.Errorf("injected = %v, want %v: a credential naming another project's database must never reach a pane", injected, tc.injected)
+			}
 			if strings.Contains(status.Detail, tc.value) {
 				t.Errorf("detail disclosed the connection string: %q", status.Detail)
 			}
@@ -506,12 +567,15 @@ func TestValidateRefusesAnIdentityCheckThatCannotEstablishAnything(t *testing.T)
 }
 
 func TestValidProjectNameRejectsAnythingThatCouldEscapeAScope(t *testing.T) {
-	for _, name := range []string{"precisiondocs", "clock-in", "code_goblins", "a1"} {
+	// A checkout is allowed to be called what it is called: refusing an
+	// ordinary dotted or spaced directory name would abort the spawn instead
+	// of refusing a credential.
+	for _, name := range []string{"precisiondocs", "clock-in", "code_goblins", "a1", "docs.example.com", "Retire 91"} {
 		if !ValidProjectName(name) {
 			t.Errorf("ValidProjectName(%q) = false, want true", name)
 		}
 	}
-	for _, name := range []string{"", "..", "a/b", `a\b`, "a b", "a.b", "a:b"} {
+	for _, name := range []string{"", "..", ".", "a/b", `a\b`, "a:b", ".hidden", "a.", "a ", " a"} {
 		if ValidProjectName(name) {
 			t.Errorf("ValidProjectName(%q) = true, want false", name)
 		}

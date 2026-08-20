@@ -121,6 +121,7 @@ func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Ma
 func wantedNames(store Store, scope string, manifest Manifest) map[string]bool {
 	resolver := Resolver{Store: store, Project: scope}
 	wanted := map[string]bool{}
+	resolved := map[string]bool{}
 	for _, service := range manifest.Services {
 		resolution, err := resolver.Resolve(service)
 		if err != nil {
@@ -129,6 +130,15 @@ func wantedNames(store Store, scope string, manifest Manifest) map[string]bool {
 		for _, name := range resolution.Missing {
 			wanted[name] = true
 		}
+		for name := range resolution.Values {
+			resolved[name] = true
+		}
+	}
+	// A name one service reads from the shared scope is not wanted just
+	// because another service cannot: adopting it would write a project copy
+	// that shadows the shared value and then drifts from it.
+	for name := range resolved {
+		delete(wanted, name)
 	}
 	return wanted
 }

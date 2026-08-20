@@ -166,10 +166,6 @@ func (s *fileStore) Set(key Key, value string) error {
 }
 
 func (s *fileStore) Keys() ([]Key, error) {
-	keys, err := s.scopeKeys("")
-	if err != nil {
-		return nil, err
-	}
 	entries, err := os.ReadDir(s.root)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -177,8 +173,17 @@ func (s *fileStore) Keys() ([]Key, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The root holds both: a file is a shared-scope credential, a directory
+	// is a project scope.
+	var keys []Key
 	for _, entry := range entries {
-		if !entry.IsDir() || !ValidProjectName(entry.Name()) {
+		if !entry.IsDir() {
+			if ValidEnvName(entry.Name()) {
+				keys = append(keys, Shared(entry.Name()))
+			}
+			continue
+		}
+		if !ValidProjectName(entry.Name()) {
 			continue
 		}
 		scoped, err := s.scopeKeys(entry.Name())
@@ -192,11 +197,7 @@ func (s *fileStore) Keys() ([]Key, error) {
 }
 
 func (s *fileStore) scopeKeys(project string) ([]Key, error) {
-	dir := s.root
-	if project != "" {
-		dir = filepath.Join(s.root, project)
-	}
-	entries, err := os.ReadDir(dir)
+	entries, err := os.ReadDir(filepath.Join(s.root, project))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
