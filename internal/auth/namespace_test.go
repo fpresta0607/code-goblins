@@ -388,6 +388,12 @@ func TestExpiredIsNeverPrintedWithoutEvidenceOfExpiry(t *testing.T) {
 		{"dial tcp 10.0.0.1:5432: connect: connection refused", StateUnreachable},
 		{"lookup db.example.test: no such host", StateUnreachable},
 		{"context deadline exceeded: i/o timeout", StateUnreachable},
+		// A forward-looking expiry notice next to a real failure is not
+		// evidence of expiry; the weaker, more specific fact wins.
+		{"Token expires in 29 days\nError: 401 Unauthorized", StateUnauthorized},
+		{"Token expires in 29 days\ndial tcp 10.0.0.1:5432: connect: connection refused", StateUnreachable},
+		{"usage: svctl whoami [--expiration]\nError: 401 Unauthorized", StateUnauthorized},
+		{"Token expiring soon\nError: something went wrong", StateFailed},
 		// No evidence at all: say the check failed, invent nothing.
 		{"", StateFailed},
 		{"unexpected end of JSON input", StateFailed},
@@ -410,6 +416,54 @@ func TestExpiredIsNeverPrintedWithoutEvidenceOfExpiry(t *testing.T) {
 				t.Fatalf("printed expired without evidence of expiry")
 			}
 		})
+	}
+}
+
+func TestAProbeThatEchoesItsCredentialNeverLeaksItIntoDetail(t *testing.T) {
+	clearEnv(t, "SERVICE_TOKEN", "SERVICE_URL")
+	const token = "sk_live_0123456789abc"
+	const url = "postgres://u:p@db.other.test/db"
+	manifest := Manifest{Services: []Service{{
+		Name: "svc", Method: MethodCLI, Env: []string{"SERVICE_TOKEN", "SERVICE_URL"}, Shared: true,
+		Probe:    []string{"svctl", "whoami", "--token=$SERVICE_TOKEN"},
+		Identity: &Identity{Command: []string{"svcid", "$SERVICE_URL"}, Expect: "db.this.test"},
+	}}}
+	store := newMemoryStore(map[string]string{"SERVICE_TOKEN": token, "SERVICE_URL": url})
+	cases := map[string]map[string]execx.Result{
+		"probe echoes its argument": {
+			"svctl": {ExitCode: 2, Stderr: []byte("unknown option: --token=" + token)},
+		},
+		"identity check echoes the URI": {
+			"svctl": {ExitCode: 0},
+			"svcid": {ExitCode: 1, Stdout: []byte("could not parse " + url + " with token " + token)},
+		},
+	}
+	for name, results := range cases {
+		t.Run(name, func(t *testing.T) {
+			runner := &fakeRunner{results: results}
+			report, err := Checker{Store: store, Runner: runner, Project: "precisiondocs"}.Check(context.Background(), manifest)
+			if err != nil {
+				t.Fatalf("Check: %v", err)
+			}
+			detail := report.Statuses[0].Detail
+			if strings.Contains(detail, token) || strings.Contains(detail, url) {
+				t.Fatalf("detail carries a credential value")
+			}
+			if !strings.Contains(detail, Redact(token)) {
+				t.Errorf("detail = %q, want the redacted token so the operator can tell which credential was echoed", detail)
+			}
+		})
+	}
+}
+
+func TestFixRemedyQuotesAProjectPathWithASpace(t *testing.T) {
+	status := Status{Service: "vercel", State: StateExpired}
+	got := remedies(`C:\dev\My Project`, status)
+	if len(got) != 1 || got[0] != `cfo auth "C:\dev\My Project" --fix` {
+		t.Errorf("remedies = %q, want the project path quoted so the command stays pasteable", got)
+	}
+	if got := remedies("projects/precisiondocs", status); got[0] != "cfo auth projects/precisiondocs --fix" {
+		t.Errorf("remedies = %q, want a plain path left unquoted", got)
 	}
 }
 

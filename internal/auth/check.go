@@ -352,12 +352,14 @@ func (c Checker) runIdentity(ctx context.Context, identity Identity, resolution 
 
 // failureEvidence maps the words a tool actually prints onto the fact they
 // establish. Order matters: expiry is the most specific claim and the one a
-// report may never assert without it.
+// report may never assert without it, so its pattern only matches an
+// assertion that expiry happened - "token expired", never "expires in 29
+// days" - and anything forward-looking falls through to the weaker word.
 var failureEvidence = []struct {
 	state   State
 	pattern *regexp.Regexp
 }{
-	{StateExpired, regexp.MustCompile(`(?i)expir(ed|es|ing|y|ation)|token is no longer valid|session has ended|past its lifetime`)},
+	{StateExpired, regexp.MustCompile(`(?i)\bexpired\b|token is no longer valid|session has ended|past its lifetime`)},
 	{StateUnauthorized, regexp.MustCompile(`(?i)\b(401|403|unauthorized|forbidden|authentication failed|bad credentials|access denied|permission denied|not logged in|not authenticated|must be authenticated|authentication required|requires authentication|invalid[ -](api[ -])?(key|token|credentials?|authentication))\b`)},
 	{StateUnreachable, regexp.MustCompile(`(?i)connection refused|connection reset|could ?n[o']t connect|could not connect|no such host|name or service not known|network is unreachable|host is unreachable|i/o timeout|timed out|dial tcp|getaddrinfo|eai_again|econnrefused|enotfound`)},
 }
@@ -451,11 +453,36 @@ func (c Checker) exec(ctx context.Context, argv []string, resolved map[string]Re
 	for _, arg := range argv[1:] {
 		args = append(args, expand(arg, resolved))
 	}
-	return c.Runner.Run(ctx, execx.Request{
+	result, err := c.Runner.Run(ctx, execx.Request{
 		Name: argv[0],
 		Args: args,
 		Env:  Environ(resolved),
 	})
+	result.Stdout = scrub(result.Stdout, resolved)
+	result.Stderr = scrub(result.Stderr, resolved)
+	return result, err
+}
+
+// scrub removes every resolved value from a tool's output before any caller
+// can see it. A tool that echoes a bad argument back ("unknown option:
+// --token=...") or prints the URI it failed to parse would otherwise carry a
+// live secret into a status detail, and from there into every report surface.
+func scrub(output []byte, resolved map[string]Resolved) []byte {
+	if len(output) == 0 {
+		return output
+	}
+	values := make([]string, 0, len(resolved))
+	for _, value := range resolved {
+		if value.Value != "" {
+			values = append(values, value.Value)
+		}
+	}
+	sort.Slice(values, func(i, j int) bool { return len(values[i]) > len(values[j]) })
+	text := string(output)
+	for _, value := range values {
+		text = strings.ReplaceAll(text, value, Redact(value))
+	}
+	return []byte(text)
 }
 
 // referencesAny reports whether a command reads any of the named variables as

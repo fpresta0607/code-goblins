@@ -129,7 +129,7 @@ func StoreCommand(project, name string) string {
 func quoteScope(scope string) string {
 	for _, character := range scope {
 		switch {
-		case character == '-' || character == '_' || character == '.':
+		case character == '-' || character == '_' || character == '.' || character == '/' || character == ':':
 		case character >= 'A' && character <= 'Z':
 		case character >= 'a' && character <= 'z':
 		case character >= '0' && character <= '9':
@@ -152,7 +152,7 @@ func remedies(project string, status Status) []string {
 		names = status.Declared
 	}
 	if len(names) == 0 {
-		return []string{"cfo auth " + project + " --fix"}
+		return []string{"cfo auth " + quoteScope(project) + " --fix"}
 	}
 	scope := ProjectName(project)
 	commands := make([]string, 0, len(names))
