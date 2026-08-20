@@ -118,6 +118,15 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := os.MkdirAll(s.StateDir, 0o755); err != nil {
 		return Result{}, fmt.Errorf("spawn: create state directory: %w", err)
 	}
+	// The spawn lock covers the whole dispatch, not just worktree acquisition:
+	// task id alias rejection, Herdr server and container start, pane and tab
+	// creation, metadata publication and the harness launch all mutate shared
+	// fleet state under it. Dependency provisioning (about 5s pnpm, about 22s
+	// uv against warm caches) therefore runs under it too, so concurrent
+	// dispatches into install-strategy projects serialize behind each other's
+	// installer. That is a chosen property: narrowing the lock to Acquire is a
+	// redesign of the spawn critical section, and the cost is a slower
+	// concurrent dispatch, never a wrong one.
 	if _, err := lock.AcquireExclusiveNamed(s.StateDir, spawnLockName); err != nil {
 		return Result{}, fmt.Errorf("spawn: acquire spawn lock: %w", err)
 	}
@@ -264,6 +273,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	result.Output = successOutput(result.Meta)
 	if provision.Installed != "" {
 		result.Output += "\ndependencies: " + provision.Installed
+	}
+	if len(provision.LinkSkipped) > 0 {
+		result.Output += "\nlink: " + strings.Join(provision.LinkSkipped, ", ") + " already present in the worktree (the project's own checked-out file), so the default share was skipped"
 	}
 	if provision.InstallFailed != "" {
 		// Reported, not fatal: the goblin can run the installer itself, and

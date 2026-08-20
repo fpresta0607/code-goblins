@@ -40,6 +40,11 @@ type ProvisionResult struct {
 	MCPDropped []string
 	// Linked names the config entries shared from the primary checkout.
 	Linked []string
+	// LinkSkipped names the default link entries whose destination the
+	// worktree already held (a project that commits .env), left as checked
+	// out. Only defaults are skipped; a declared entry in that state is an
+	// error, because the operator asked for it to be shared.
+	LinkSkipped []string
 	// Installed is the dependency command that ran, empty when none ran or
 	// the run failed.
 	Installed string
@@ -74,6 +79,10 @@ func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp s
 
 	for _, name := range manifest.Link {
 		linked, err := s.shareEntry(ctx, git, project, worktreePath, name)
+		if errors.Is(err, errDestinationOccupied) && manifest.LinkDefaulted {
+			result.LinkSkipped = append(result.LinkSkipped, name)
+			continue
+		}
 		if err != nil {
 			return result, err
 		}
@@ -124,7 +133,8 @@ func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp s
 // decrements the link count. A junction is removed as a link by Return before
 // Git ever sees it, because Git for Windows would otherwise delete the primary
 // checkout's directory through it. A missing source is skipped: the defaults
-// name config a project may simply not have.
+// name config a project may simply not have. An occupied destination returns
+// errDestinationOccupied; Provision decides whether that is fatal.
 func (s Service) shareEntry(ctx context.Context, git RunnerGit, project, worktreePath, name string) (bool, error) {
 	source := filepath.Join(project, name)
 	info, err := os.Stat(source)
@@ -136,7 +146,7 @@ func (s Service) shareEntry(ctx context.Context, git RunnerGit, project, worktre
 	}
 	destination := filepath.Join(worktreePath, name)
 	if _, err := os.Lstat(destination); err == nil {
-		return false, fmt.Errorf("worktree: %q already exists in the worktree; refusing to cover it with a shared link", name)
+		return false, fmt.Errorf("worktree: %q already exists in the worktree; refusing to cover it with a shared link: %w", name, errDestinationOccupied)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return false, fmt.Errorf("worktree: inspect worktree %q: %w", name, err)
 	}
@@ -154,6 +164,9 @@ func (s Service) shareEntry(ctx context.Context, git RunnerGit, project, worktre
 	}
 	return true, nil
 }
+
+// errDestinationOccupied marks a share whose worktree path already exists.
+var errDestinationOccupied = errors.New("destination occupied")
 
 // junction links a directory through cmd's mklink /J, which needs no
 // privilege elevation on Windows, unlike directory symlinks.

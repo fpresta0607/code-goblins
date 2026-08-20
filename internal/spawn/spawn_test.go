@@ -303,6 +303,31 @@ func TestSpawnDisclosesATrackedMCPConfigOnlyWhenSomethingWasWithheld(t *testing.
 	}
 }
 
+func TestSpawnReportsADefaultLinkSkippedForACheckedOutFile(t *testing.T) {
+	fixture := newFixture(t)
+	// The project commits .env, so git worktree add checks it out before
+	// provisioning runs. The default link set is not a declaration, so the
+	// occupied path is left alone and named on the spawn output instead of
+	// tearing the dispatch down.
+	writeFile(t, filepath.Join(fixture.project, ".env"), "K=primary\n")
+	writeFile(t, filepath.Join(fixture.worktree, ".env"), "K=checked-out\n")
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v, want the goblin dispatched with its checked-out .env", err)
+	}
+	if !strings.Contains(result.Output, "link: .env already present in the worktree") {
+		t.Errorf("output = %q, want the skipped default share reported", result.Output)
+	}
+	data, err := os.ReadFile(filepath.Join(fixture.worktree, ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(data)) != "K=checked-out" {
+		t.Errorf("worktree .env = %q, want the checked-out file untouched", data)
+	}
+}
+
 func TestSpawnDispatchesAndReportsWhenTheDependencyInstallFails(t *testing.T) {
 	fixture := newFixture(t)
 	// Strategy install is the default and its command is auto-detected from a

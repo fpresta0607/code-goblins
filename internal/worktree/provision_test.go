@@ -625,6 +625,88 @@ func writeFileLine(t *testing.T, path, line string) {
 	}
 }
 
+func TestProvisionSkipsADefaultLinkWhoseDestinationExists(t *testing.T) {
+	// A project that commits .env has it checked out by git worktree add. The
+	// default link set is applied to every project that declares nothing, so
+	// an occupied destination is the project's own config already in place,
+	// not a misconfiguration: skipped and reported, never a torn-down spawn.
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
+	writeFileLine(t, filepath.Join(project, ".env"), "K=primary")
+	writeFileLine(t, filepath.Join(worktreePath, ".env"), "K=checked-out")
+
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp)
+	if err != nil {
+		t.Fatalf("Provision: %v, want the occupied default entry skipped rather than fatal", err)
+	}
+	if !slices.Contains(result.LinkSkipped, ".env") {
+		t.Errorf("LinkSkipped = %v, want .env reported as skipped", result.LinkSkipped)
+	}
+	if slices.Contains(result.Linked, ".env") {
+		t.Errorf("Linked = %v, want .env not claimed as shared", result.Linked)
+	}
+	data, err := os.ReadFile(filepath.Join(worktreePath, ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(data)) != "K=checked-out" {
+		t.Errorf("worktree .env = %q, want the checked-out file left exactly as it was", data)
+	}
+	if len(runner.calls) != 0 {
+		t.Errorf("calls = %#v, want no ignore-rule writes for an entry that was not linked", runner.calls)
+	}
+}
+
+func TestProvisionRefusesADeclaredLinkWhoseDestinationExists(t *testing.T) {
+	// The same occupied destination under an explicit manifest declaration is
+	// a misconfiguration the operator must hear about: they asked for that
+	// file to be shared, so silently not sharing it would hide the problem.
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
+	dataDir := t.TempDir()
+	writeManifest(t, dataDir, project, Manifest{Project: "demo", Link: []string{".env"}})
+	writeFileLine(t, filepath.Join(project, ".env"), "K=primary")
+	writeFileLine(t, filepath.Join(worktreePath, ".env"), "K=checked-out")
+
+	result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp)
+	if err == nil || !strings.Contains(err.Error(), "already exists in the worktree") {
+		t.Fatalf("Provision error = %v, want a refusal naming the occupied declared entry", err)
+	}
+	if len(result.LinkSkipped) != 0 {
+		t.Errorf("LinkSkipped = %v, want a declared entry refused rather than skipped", result.LinkSkipped)
+	}
+}
+
+func TestResolveRefusesAnInvalidEnvName(t *testing.T) {
+	// Switch resolves the manifest before stopping the old harness so a
+	// malformed one cannot strand the goblin; that only holds if Resolve
+	// refuses every name the pane-shell renderer would refuse at launch.
+	for _, name := range []string{"", "FOO BAR", "FOO=BAR", "1ABC", "FOO-BAR"} {
+		t.Run(name, func(t *testing.T) {
+			project, _, _, _ := provisionFixture(t)
+			dataDir := t.TempDir()
+			writeManifest(t, dataDir, project, Manifest{Project: "demo", Env: map[string]string{name: "value"}})
+
+			_, err := Resolve(dataDir, project)
+			if err == nil || !strings.Contains(err.Error(), "not a valid environment name") {
+				t.Fatalf("Resolve error = %v, want the env name refused", err)
+			}
+		})
+	}
+}
+
+func TestResolveAcceptsAValidEnvName(t *testing.T) {
+	project, _, _, _ := provisionFixture(t)
+	dataDir := t.TempDir()
+	writeManifest(t, dataDir, project, Manifest{Project: "demo", Env: map[string]string{"PLAYWRIGHT_BROWSERS_PATH": "value", "_x1": "y"}})
+
+	manifest, err := Resolve(dataDir, project)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if manifest.Env["PLAYWRIGHT_BROWSERS_PATH"] != "value" {
+		t.Errorf("Env = %v, want the declared redirect kept", manifest.Env)
+	}
+}
+
 func TestProvisionRefusesWithoutATaskTemporaryDirectory(t *testing.T) {
 	project, worktreePath, _, runner := provisionFixture(t)
 	_, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, "")

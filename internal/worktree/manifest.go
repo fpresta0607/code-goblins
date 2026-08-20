@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 )
 
 // ManifestFileName is one project's worktree provisioning declaration under
@@ -56,7 +57,13 @@ type Manifest struct {
 	// never linked - goblins receive its token-authenticated subset,
 	// materialized fresh (see mcp.go).
 	Link []string `json:"link,omitempty"`
-	Dependencies Dependencies `json:"dependencies,omitempty"`
+	// LinkDefaulted records that Link is the built-in default set rather than
+	// the project's own declaration. A default entry whose destination the
+	// worktree already holds (a project that commits .env) is skipped and
+	// reported; a declared one is refused, because the operator asked for it.
+	// It is set by Resolve and not serialized.
+	LinkDefaulted bool         `json:"-"`
+	Dependencies  Dependencies `json:"dependencies,omitempty"`
 	// Env carries environment redirects into the goblin's pane, for large
 	// read-only caches with no baked absolute paths (PLAYWRIGHT_BROWSERS_PATH
 	// and friends).
@@ -100,6 +107,7 @@ func Resolve(dataDir, project string) (Manifest, error) {
 	}
 	if manifest.Link == nil {
 		manifest.Link = defaultLink
+		manifest.LinkDefaulted = true
 	}
 	if manifest.Dependencies.Strategy == "" {
 		manifest.Dependencies.Strategy = StrategyInstall
@@ -109,7 +117,9 @@ func Resolve(dataDir, project string) (Manifest, error) {
 
 // Validate refuses a manifest that would provision a misleading or unsafe
 // environment: an unknown strategy, a link path that escapes the checkout, or
-// an environment variable without a name.
+// an environment variable the pane shell could not assign. Env names are held
+// to the harness renderer's own rule so a malformed manifest fails here, before
+// a worktree is provisioned or a running harness is stopped, never at launch.
 func (m Manifest) Validate() error {
 	switch m.Dependencies.Strategy {
 	case "", StrategyInstall, StrategyLink, StrategyNone:
@@ -127,8 +137,8 @@ func (m Manifest) Validate() error {
 		}
 	}
 	for name := range m.Env {
-		if strings.TrimSpace(name) == "" {
-			return errors.New("env redirect with an empty name")
+		if !harness.ValidEnvironmentName(name) {
+			return fmt.Errorf("env redirect %q is not a valid environment name", name)
 		}
 	}
 	return nil
