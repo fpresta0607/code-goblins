@@ -22,7 +22,7 @@ This file is your entire job description.
 1. **Resolve the project.** An explicit path wins; otherwise infer from the request and anything already cloned under `projects/`.
 2. **Clone it.** `git clone <url> projects/<name>` (or use `gh-axi`). Never run goblin work inside this repo's own checkout.
 3. **Brief it.** `cfo brief <id> --project projects/<name> [--mode <mode>]`, then fill in the task, acceptance criteria, and constraints.
-4. **Authenticate it.** `cfo auth projects/<name> --fix` before the first dispatch into a project. It adopts what the machine already has and hands you one consolidated sign-in request for anything genuinely missing, so a goblin never stalls on an auth prompt mid-task.
+4. **Authenticate it.** `cfo auth projects/<name> --fix` before the first dispatch into a project. It adopts what the machine already has and hands you one consolidated sign-in request for anything genuinely missing, so a goblin never stalls on an auth prompt mid-task. A blocking service that is still red refuses the spawn, so answer the request before dispatching.
 5. **Spawn it.** `cfo spawn <id> --project projects/<name> --brief data/<id>/brief.md --harness <claude|codex|pi|kimi> [--mode <mode>] [--yolo]`.
 6. **Supervise it.** `cfo fleet-view` is fleet truth; `cfo peek <id>` reads a goblin's tail; `cfo send <id> "<steer>"` redirects it.
 7. **Deliver it.** Record and land it: `cfo pr check <id> <url>`, then `cfo pr merge <url>` (or `cfo merge-local <id>` for local-only work) — merge only with the Supreme Overlord's word or `yolo` green work.
@@ -34,10 +34,11 @@ This file is your entire job description.
 | --- | --- |
 | `cfo install [--uninstall]` | Wire this checkout into the machine so a Claude Code session opened in any repository is supervised: `CFO_HOME` and PATH at user scope, and the CFO hooks merged into the user's `~/.claude/settings.json` (their own hooks are kept, the file is backed up first). Idempotent; `--uninstall` reverses it. `cfo doctor` reports, this repairs |
 | `cfo doctor` | Check git, gh, claude, herdr, treehouse, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi and print install hints; probe each installed harness (`--version` under a short timeout) and report ok/broken; print the measured per-harness per-step speed table from `~/.no-mistakes/state.sqlite` when present (skipped with a note when absent or locked); print the standing switch rules from `data/routing.json` |
-| `cfo auth <project> [--check\|--fix] [--env]` | Preflight a project's services against its manifest and print one honest line each (green / missing / expired / no-tool / skipped). `--fix` adopts credentials the machine already holds, runs non-interactive CLI logins, and confirms an OAuth page whose browser session is live. `--env` shows the redacted environment a goblin's pane would inherit. Ends with one consolidated sign-in request covering everything still blocked |
-| `cfo auth store <NAME> [value]` | Store one credential. Omit the value to read it from stdin, which keeps the secret out of shell history |
-| `cfo auth list` | List stored credential names (never values) |
-| `cfo spawn <id> --project <p> --brief <b> --harness <h> [--mode <m>] [--model <m>] [--effort <e>] [--yolo]` | Dispatch one goblin (ship task); runs the project's auth preflight and injects its usable credentials into the pane before the harness starts, appending a one-line warning naming anything blocking right after the `spawned ...` line; also prints a one-line measured speed hint for the chosen harness when telemetry exists |
+| `cfo auth <project> [--check\|--fix] [--env]` | Preflight a project's services against its manifest and print one honest line each, plus the resolution order behind every variable it declares. `--fix` adopts credentials the machine already holds, runs non-interactive CLI logins, and confirms an OAuth page whose browser session is live. `--env` shows the redacted environment a goblin's pane would inherit. Ends with one consolidated sign-in request covering everything still blocked |
+| `cfo auth store [--project <p>] <NAME> [value]` | Store one credential in a project's scope, or in the shared scope when `--project` is omitted. Omit the value to read it from stdin, which keeps the secret out of shell history |
+| `cfo auth list [--project <p>]` | List stored credential keys, never values. A scoped key prints as `project/NAME` |
+| `cfo auth copy <NAME> --to <project> [--from <project>]` | Copy a stored value into a project's scope without re-entering it. The source is left in place |
+| `cfo spawn <id> --project <p> --brief <b> --harness <h> [--mode <m>] [--model <m>] [--effort <e>] [--yolo]` | Dispatch one goblin (ship task); runs the project's auth preflight before anything is built and **refuses to dispatch** while a blocking service is red, printing the exact `cfo auth store` command per fault (`--yolo` overrides and records the override). On a clean preflight it injects the usable credentials into the pane before the harness starts and appends a one-line summary right after the `spawned ...` line; also prints a one-line measured speed hint for the chosen harness when telemetry exists |
 | `cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]` | Change a running goblin's harness, model, or effort in place: same id, same worktree, same pane. Stops the old harness on its own terms, then relaunches. A model-or-effort-only change resumes the harness's own session where the harness has one; otherwise it writes a handoff note and points the new harness at it. Refuses a dirty worktree unless `--force-dirty` |
 | `cfo send <target> [--no-auto-submit] <text>` | Type a steer to a goblin; after a failed Enter submit, verifies the text is parked in the composer and resubmits with the harness-specific key (pi/claude: Enter, kimi: ctrl+s) — `--no-auto-submit` opts out |
 | `cfo send <target> --key <key>` | Send a key: Enter, Escape, Ctrl-C, Ctrl-U |
@@ -78,25 +79,69 @@ The manifest holds names, probes, and links - never a credential.
       "method": "cli",
       "env": ["DATABASE_URL"],
       "probe": ["neonctl", "projects", "list"],
+      "identity": {
+        "var": "DATABASE_URL",
+        "expect": "ep-clockin-cool-morning",
+        "note": "DATABASE_URL points at this project's Neon branch"
+      },
       "login": ["neonctl", "auth"],
       "url": "https://console.neon.tech",
       "optional": false,
       "note": "serverless Postgres"
+    },
+    {
+      "name": "github",
+      "method": "cli",
+      "env": ["GITHUB_TOKEN"],
+      "shared": true,
+      "probe": ["gh", "auth", "status"]
     }
   ]
 }
 ```
 
 - `method` is `env` (the variable *is* the credential), `cli` (the tool holds its own login and the variable is what makes direct API access possible), or `oauth` (a browser handshake).
-- `env` names double as credential-store keys, so there is exactly one name to know per credential.
-- `probe` is a cheap command that exits zero only when the service genuinely answers. A `$NAME` in it is substituted from the resolved credential. A service with no probe is green once its variables resolve.
+- `env` names are credential names, resolved inside this project's scope.
+- `shared: true` lets a service fall back to the store's shared scope. It is opt-in, so a credential that differs per project can never be answered from a scope that cannot say whose it is.
+- `aliases` maps a declared name to the stored names that may satisfy it, tried after the declared name: `"aliases": {"FLY_API_TOKEN": ["FLY_PROD_API_TOKEN"]}`. Nothing is ever matched by resemblance.
+- `probe` is a cheap command that exits zero only when the service genuinely answers. A `$NAME` in it is substituted from the resolved credential. A probe proves the transport, never the target.
+- `identity` proves the target. Declare exactly one of `var` (a resolved variable whose value must contain `expect`, which needs no tool installed) or `command` (a command whose output must contain `expect`). A service with no `identity` stays liveness-only and the report says so.
 - `login` is a non-interactive command `--fix` may run; `url` and `confirm` are what the browser fallback and the sign-in request use.
 - `optional: true` keeps a service a project can run without out of the blocking column.
+
+### The credential store
+
+Credentials are namespaced on `(project, NAME)`.
+`precisiondocs/DATABASE_URL` and `clock-in/DATABASE_URL` are different credentials that cannot alias.
+The shared scope is the fallback for a value that genuinely is one value everywhere, and it is where every credential stored before namespacing already lives - nothing had to move.
+
+Resolution order, printed under every service by `cfo auth <project> --check`:
+
+1. the process environment, so an operator can override for one command
+2. `store/<project>`
+3. `store/shared`, only for a service the manifest declares `shared`
+4. each declared alias, in order, through the same three steps
+
+A shared value the manifest does not claim is reported rather than used, with the `cfo auth copy` command that would claim it.
 
 Credentials live in Windows Credential Manager, or in `~/.cfo/credentials/` with owner-only ACLs when the vault is unavailable (`CFO_CREDENTIAL_DIR` overrides the location).
 They are never written into a repository and never printed - reports show provenance and a redacted shape only.
 
-Before asking the Supreme Overlord for anything, run `cfo auth <project> --fix`: it adopts what the machine already holds (a project's local `.env`, the token `gh` already owns) rather than asking twice.
+### Status words are earned
+
+| State | What it establishes | Blocking |
+| --- | --- | --- |
+| `green` | resolved, and everything the manifest declared as checkable passed | no |
+| `missing` | the credential is nowhere the manifest allows this project to look | yes |
+| `wrong_target` | the credential works and points at somebody else's instance | yes |
+| `unauthorized` | the service answered and rejected the credential | yes |
+| `expired` | the service said the credential expired; never printed on weaker evidence | yes |
+| `unreachable` | nothing answered: refused connection, unresolvable host, timeout | yes |
+| `failed` | the check failed and did not say why | yes |
+| `unverified` | resolved, but the probe tool is absent or the check could not run | no |
+| `skipped` | an optional service is unconfigured, which is a choice | no |
+
+Before asking the Supreme Overlord for anything, run `cfo auth <project> --fix`: it adopts what the machine already holds (a project's gitignored local `.env`, the token `gh` already owns, the token `flyctl` already holds) into that project's scope rather than asking twice.
 Ask once, with the consolidated sign-in request that command prints, instead of letting goblins fail one credential at a time.
 
 ## Switching a running goblin

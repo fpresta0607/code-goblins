@@ -41,7 +41,9 @@ func (r *fakeRunner) call(name string) (execx.Request, bool) {
 	return execx.Request{}, false
 }
 
-// memoryStore is a Store with no filesystem or vault behind it.
+// memoryStore is a Store with no filesystem or vault behind it. It is keyed
+// by the printed form of a Key, so a test can spell a shared entry "NAME" and
+// a scoped one "project/NAME" exactly as an operator would.
 type memoryStore struct {
 	values map[string]string
 	setErr error
@@ -54,24 +56,30 @@ func newMemoryStore(values map[string]string) *memoryStore {
 	return &memoryStore{values: values}
 }
 
-func (s *memoryStore) Get(key string) (string, bool, error) {
-	value, ok := s.values[key]
+func (s *memoryStore) Get(key Key) (string, bool, error) {
+	value, ok := s.values[key.String()]
 	return value, ok, nil
 }
 
-func (s *memoryStore) Set(key, value string) error {
+func (s *memoryStore) Set(key Key, value string) error {
 	if s.setErr != nil {
 		return s.setErr
 	}
-	s.values[key] = value
+	s.values[key.String()] = value
 	return nil
 }
 
-func (s *memoryStore) Keys() ([]string, error) {
-	var keys []string
+func (s *memoryStore) Keys() ([]Key, error) {
+	var keys []Key
 	for key := range s.values {
-		keys = append(keys, key)
+		project, name, scoped := strings.Cut(key, "/")
+		if !scoped {
+			keys = append(keys, Shared(key))
+			continue
+		}
+		keys = append(keys, Key{Project: project, Name: name})
 	}
+	sortKeys(keys)
 	return keys, nil
 }
 
@@ -87,7 +95,7 @@ func clearEnv(t *testing.T, names ...string) {
 	}
 }
 
-func TestCheckReportsGreenMissingAndExpiredPerService(t *testing.T) {
+func TestCheckReportsGreenMissingAndUnauthorizedPerService(t *testing.T) {
 	clearEnv(t, "STRIPE_SECRET_KEY", "QDRANT_URL", "SENTRY_DSN")
 	manifest := Manifest{
 		Project: "precisiondocs",
@@ -98,14 +106,14 @@ func TestCheckReportsGreenMissingAndExpiredPerService(t *testing.T) {
 		},
 	}
 	store := newMemoryStore(map[string]string{
-		"STRIPE_SECRET_KEY": "sk_test_value_long_enough",
-		"QDRANT_URL":        "http://127.0.0.1:6333",
+		"precisiondocs/STRIPE_SECRET_KEY": "sk_test_value_long_enough",
+		"precisiondocs/QDRANT_URL":        "http://127.0.0.1:6333",
 	})
 	runner := &fakeRunner{results: map[string]execx.Result{
 		"stripe": {ExitCode: 1, Stderr: []byte("Invalid API Key provided\nsecond line")},
 	}}
 
-	report, err := Checker{Store: store, Runner: runner}.Check(context.Background(), manifest)
+	report, err := Checker{Store: store, Runner: runner, Project: "precisiondocs"}.Check(context.Background(), manifest)
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -116,8 +124,11 @@ func TestCheckReportsGreenMissingAndExpiredPerService(t *testing.T) {
 	for _, status := range report.Statuses {
 		byName[status.Service] = status
 	}
-	if got := byName["stripe"].State; got != StateExpired {
-		t.Errorf("stripe state = %q, want %q", got, StateExpired)
+	// "Invalid API Key" is the service refusing the credential. It is not
+	// evidence the credential expired, and printing expired would send the
+	// Overlord to a re-authentication that is not the fix.
+	if got := byName["stripe"].State; got != StateUnauthorized {
+		t.Errorf("stripe state = %q, want %q", got, StateUnauthorized)
 	}
 	if !strings.Contains(byName["stripe"].Detail, "Invalid API Key") {
 		t.Errorf("stripe detail = %q, want the probe's first stderr line", byName["stripe"].Detail)
@@ -147,10 +158,10 @@ func TestCheckRunsProbeWithResolvedCredentialInEnvironment(t *testing.T) {
 		Env:    []string{"QDRANT_API_KEY"},
 		Probe:  []string{"curl", "-H", "api-key: $QDRANT_API_KEY", "http://q/healthz"},
 	}}}
-	store := newMemoryStore(map[string]string{"QDRANT_API_KEY": "stored-secret-value"})
+	store := newMemoryStore(map[string]string{"precisiondocs/QDRANT_API_KEY": "stored-secret-value"})
 	runner := &fakeRunner{results: map[string]execx.Result{"curl": {ExitCode: 0}}}
 
-	report, err := Checker{Store: store, Runner: runner}.Check(context.Background(), manifest)
+	report, err := Checker{Store: store, Runner: runner, Project: "precisiondocs"}.Check(context.Background(), manifest)
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -169,22 +180,33 @@ func TestCheckRunsProbeWithResolvedCredentialInEnvironment(t *testing.T) {
 	if !contains(call.Env, "QDRANT_API_KEY=stored-secret-value") {
 		t.Errorf("probe env lacks the resolved credential")
 	}
-	if report.Statuses[0].Sources["QDRANT_API_KEY"] != "store" {
-		t.Errorf("source = %q, want %q", report.Statuses[0].Sources["QDRANT_API_KEY"], "store")
+	if got := hit(report.Statuses[0], "QDRANT_API_KEY"); got != "store/precisiondocs" {
+		t.Errorf("resolution hit = %q, want the project scope to answer", got)
 	}
+}
+
+// hit names the candidate that answered for one variable, which is what makes
+// "which value did I actually get" answerable without printing it.
+func hit(status Status, name string) string {
+	for _, candidate := range status.Resolution[name] {
+		if candidate.Hit {
+			return candidate.Source
+		}
+	}
+	return ""
 }
 
 func TestCheckPrefersProcessEnvironmentOverStore(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://from-environment")
 	manifest := Manifest{Services: []Service{{Name: "postgres", Method: MethodEnv, Env: []string{"DATABASE_URL"}}}}
-	store := newMemoryStore(map[string]string{"DATABASE_URL": "postgres://from-store"})
+	store := newMemoryStore(map[string]string{"precisiondocs/DATABASE_URL": "postgres://from-store"})
 
-	report, err := Checker{Store: store, Runner: &fakeRunner{}}.Check(context.Background(), manifest)
+	report, err := Checker{Store: store, Runner: &fakeRunner{}, Project: "precisiondocs"}.Check(context.Background(), manifest)
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
-	if got := report.Statuses[0].Sources["DATABASE_URL"]; got != "environment" {
-		t.Errorf("source = %q, want the process environment to win", got)
+	if got := hit(report.Statuses[0], "DATABASE_URL"); got != "env" {
+		t.Errorf("resolution hit = %q, want the process environment to win", got)
 	}
 }
 
@@ -211,18 +233,19 @@ func TestCheckKeepsOptionalServicesOutOfBlocking(t *testing.T) {
 func TestCheckReportsAProbeThatCannotRun(t *testing.T) {
 	clearEnv(t, "FLY_API_TOKEN")
 	manifest := Manifest{Services: []Service{{
-		Name: "fly", Method: MethodCLI, Env: []string{"FLY_API_TOKEN"}, Probe: []string{"flyctl", "auth", "whoami"},
+		Name: "fly", Method: MethodCLI, Env: []string{"FLY_API_TOKEN"}, Shared: true, Probe: []string{"flyctl", "auth", "whoami"},
 	}}}
 	store := newMemoryStore(map[string]string{"FLY_API_TOKEN": "token-value-long-enough"})
 	runner := &fakeRunner{errs: map[string]error{"flyctl": errors.New("executable file not found in %PATH%")}}
 
-	report, err := Checker{Store: store, Runner: runner}.Check(context.Background(), manifest)
+	report, err := Checker{Store: store, Runner: runner, Project: "precisiondocs"}.Check(context.Background(), manifest)
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
 	status := report.Statuses[0]
-	if status.State != StateExpired {
-		t.Errorf("state = %q, want %q", status.State, StateExpired)
+	// A probe that could not start establishes only that the check failed.
+	if status.State != StateFailed {
+		t.Errorf("state = %q, want %q", status.State, StateFailed)
 	}
 	if !strings.Contains(status.Detail, "probe could not run") {
 		t.Errorf("detail = %q, want it to say the probe could not run", status.Detail)
@@ -232,12 +255,12 @@ func TestCheckReportsAProbeThatCannotRun(t *testing.T) {
 func TestCheckSeparatesAnUninstalledProbeToolFromAnExpiredCredential(t *testing.T) {
 	clearEnv(t, "FLY_API_TOKEN")
 	manifest := Manifest{Services: []Service{{
-		Name: "fly", Method: MethodCLI, Env: []string{"FLY_API_TOKEN"}, Probe: []string{"flyctl", "auth", "whoami"},
+		Name: "fly", Method: MethodCLI, Env: []string{"FLY_API_TOKEN"}, Shared: true, Probe: []string{"flyctl", "auth", "whoami"},
 	}}}
 	store := newMemoryStore(map[string]string{"FLY_API_TOKEN": "token-value-long-enough"})
 	runner := &fakeRunner{errs: map[string]error{"flyctl": exec.ErrNotFound}}
 
-	report, err := Checker{Store: store, Runner: runner}.Check(context.Background(), manifest)
+	report, err := Checker{Store: store, Runner: runner, Project: "precisiondocs"}.Check(context.Background(), manifest)
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -254,7 +277,7 @@ func TestCheckSeparatesAnUninstalledProbeToolFromAnExpiredCredential(t *testing.
 		t.Errorf("blocking = %v, want an uninstalled probe tool not to block", report.Blocking())
 	}
 	// The value is still what the project reads, so the goblin gets it.
-	env, err := InjectEnv(store, manifest, report)
+	env, err := InjectEnv(store, "precisiondocs", manifest, report)
 	if err != nil {
 		t.Fatalf("InjectEnv: %v", err)
 	}
@@ -270,7 +293,7 @@ func TestCheckReportsAMissingCredentialWhenTheProbeToolIsAlsoAbsent(t *testing.T
 	}}}
 	runner := &fakeRunner{errs: map[string]error{"flyctl": exec.ErrNotFound}}
 
-	report, err := Checker{Store: newMemoryStore(nil), Runner: runner}.Check(context.Background(), manifest)
+	report, err := Checker{Store: newMemoryStore(nil), Runner: runner, Project: "precisiondocs"}.Check(context.Background(), manifest)
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -380,8 +403,8 @@ func TestCheckReportsACLIToolThatIsNotLoggedIn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
-	if report.Statuses[0].State != StateExpired {
-		t.Errorf("state = %q, want %q", report.Statuses[0].State, StateExpired)
+	if report.Statuses[0].State != StateUnauthorized {
+		t.Errorf("state = %q, want %q", report.Statuses[0].State, StateUnauthorized)
 	}
 	if len(report.Blocking()) != 1 {
 		t.Errorf("blocking = %v, want the unauthenticated tool to block", report.Blocking())
@@ -397,11 +420,11 @@ func TestFixRunsTheNonInteractiveLoginAndReProbes(t *testing.T) {
 		Probe:  []string{"stripe", "balance", "retrieve"},
 		Login:  []string{"stripe", "login", "--api-key", "$STRIPE_SECRET_KEY"},
 	}}}
-	store := newMemoryStore(map[string]string{"STRIPE_SECRET_KEY": "sk_test_value_long_enough"})
+	store := newMemoryStore(map[string]string{"precisiondocs/STRIPE_SECRET_KEY": "sk_test_value_long_enough"})
 	// The probe fails first, the login succeeds, and the re-probe passes.
 	runner := &probeThenPassRunner{}
 
-	report, err := Checker{Store: store, Runner: runner}.Fix(context.Background(), manifest)
+	report, err := Checker{Store: store, Runner: runner, Project: "precisiondocs"}.Fix(context.Background(), manifest)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -431,7 +454,7 @@ func (r *probeThenPassRunner) Run(_ context.Context, req execx.Request) (execx.R
 	}
 	r.probes++
 	if r.probes == 1 {
-		return execx.Result{ExitCode: 1, Stderr: []byte("expired")}, nil
+		return execx.Result{ExitCode: 1, Stderr: []byte("API key expired")}, nil
 	}
 	return execx.Result{ExitCode: 0}, nil
 }
@@ -475,13 +498,13 @@ func TestInjectEnvCarriesOnlyGreenServices(t *testing.T) {
 		{Name: "green-one", Method: MethodEnv, Env: []string{"GREEN_KEY"}},
 		{Name: "red-one", Method: MethodEnv, Env: []string{"RED_KEY"}},
 	}}
-	store := newMemoryStore(map[string]string{"GREEN_KEY": "green-value"})
+	store := newMemoryStore(map[string]string{"precisiondocs/GREEN_KEY": "green-value"})
 
-	report, err := Checker{Store: store, Runner: &fakeRunner{}}.Check(context.Background(), manifest)
+	report, err := Checker{Store: store, Runner: &fakeRunner{}, Project: "precisiondocs"}.Check(context.Background(), manifest)
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
-	env, err := InjectEnv(store, manifest, report)
+	env, err := InjectEnv(store, "precisiondocs", manifest, report)
 	if err != nil {
 		t.Fatalf("InjectEnv: %v", err)
 	}
@@ -500,19 +523,19 @@ func TestInjectEnvExcludesAServiceWhoseProbeFailed(t *testing.T) {
 	manifest := Manifest{Services: []Service{{
 		Name: "supabase", Method: MethodCLI, Env: []string{"SUPABASE_SERVICE_KEY"}, Probe: []string{"supabase", "projects", "list"},
 	}}}
-	store := newMemoryStore(map[string]string{"SUPABASE_SERVICE_KEY": "service-key-value-long"})
+	store := newMemoryStore(map[string]string{"precisiondocs/SUPABASE_SERVICE_KEY": "service-key-value-long"})
 	runner := &fakeRunner{results: map[string]execx.Result{"supabase": {ExitCode: 1, Stderr: []byte("unauthorized")}}}
 
-	report, err := Checker{Store: store, Runner: runner}.Check(context.Background(), manifest)
+	report, err := Checker{Store: store, Runner: runner, Project: "precisiondocs"}.Check(context.Background(), manifest)
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
-	env, err := InjectEnv(store, manifest, report)
+	env, err := InjectEnv(store, "precisiondocs", manifest, report)
 	if err != nil {
 		t.Fatalf("InjectEnv: %v", err)
 	}
 	if len(env) != 0 {
-		t.Errorf("env = %v, want nothing injected for an expired credential", env)
+		t.Errorf("env = %v, want nothing injected for a rejected credential", env)
 	}
 }
 
@@ -545,9 +568,9 @@ func TestWarningLineOnACleanPreflight(t *testing.T) {
 func TestWriteTableNeverPrintsASecret(t *testing.T) {
 	clearEnv(t, "SECRET_TOKEN")
 	manifest := Manifest{Project: "p", Services: []Service{{Name: "svc", Method: MethodEnv, Env: []string{"SECRET_TOKEN"}}}}
-	store := newMemoryStore(map[string]string{"SECRET_TOKEN": "super-secret-value-42"})
+	store := newMemoryStore(map[string]string{"p/SECRET_TOKEN": "super-secret-value-42"})
 
-	report, err := Checker{Store: store, Runner: &fakeRunner{}}.Check(context.Background(), manifest)
+	report, err := Checker{Store: store, Runner: &fakeRunner{}, Project: "p"}.Check(context.Background(), manifest)
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -558,8 +581,8 @@ func TestWriteTableNeverPrintsASecret(t *testing.T) {
 	if strings.Contains(out.String(), "super-secret-value-42") {
 		t.Fatalf("table disclosed the credential:\n%s", out.String())
 	}
-	if !strings.Contains(out.String(), "SECRET_TOKEN from store") {
-		t.Errorf("table lost the provenance line:\n%s", out.String())
+	if !strings.Contains(out.String(), "store/p HIT") {
+		t.Errorf("table lost the resolution line:\n%s", out.String())
 	}
 }
 
@@ -578,7 +601,7 @@ func TestWriteLoginRequestConsolidatesEveryBlockingService(t *testing.T) {
 		t.Fatalf("WriteLoginRequest: %v", err)
 	}
 	text := out.String()
-	for _, want := range []string{"2 services", "precisiondocs / stripe", "clock-in / neon", "cfo auth store STRIPE_SECRET_KEY", "https://console.neon.tech"} {
+	for _, want := range []string{"2 services", "precisiondocs / stripe", "clock-in / neon", "cfo auth store --project precisiondocs STRIPE_SECRET_KEY", "https://console.neon.tech"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("login request lacks %q:\n%s", want, text)
 		}
@@ -613,9 +636,9 @@ func TestRedactKeepsShortSecretsFullyHidden(t *testing.T) {
 
 func TestExpandMatchesLongestNameAndNeverRescansAValue(t *testing.T) {
 	resolved := map[string]Resolved{
-		"FOO":     {Name: "FOO", Value: "foo-value", Source: "store"},
-		"FOO_BAR": {Name: "FOO_BAR", Value: "bar-value", Source: "store"},
-		"OTHER":   {Name: "OTHER", Value: "$FOO", Source: "store"},
+		"FOO":     {Name: "FOO", Value: "foo-value", From: "store/p"},
+		"FOO_BAR": {Name: "FOO_BAR", Value: "bar-value", From: "store/p"},
+		"OTHER":   {Name: "OTHER", Value: "$FOO", From: "store/p"},
 	}
 	cases := []struct {
 		arg  string
@@ -636,12 +659,12 @@ func TestExpandMatchesLongestNameAndNeverRescansAValue(t *testing.T) {
 
 func TestSpawnPreflightIsSilentForAProjectWithNoManifest(t *testing.T) {
 	dataDir := t.TempDir()
-	env, warning, err := SpawnPreflight{DataDir: dataDir, Runner: &fakeRunner{}}.Preflight(context.Background(), filepath.Join("projects", "nothing-declared"))
+	result, err := SpawnPreflight{DataDir: dataDir, Runner: &fakeRunner{}}.Preflight(context.Background(), filepath.Join("projects", "nothing-declared"))
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	if len(env) != 0 || warning != "" {
-		t.Errorf("preflight = (%v, %q), want a project with no manifest to be silent", env, warning)
+	if len(result.Env) != 0 || result.Warning != "" || result.Refusal != "" {
+		t.Errorf("preflight = %+v, want a project with no manifest to be silent", result)
 	}
 }
 

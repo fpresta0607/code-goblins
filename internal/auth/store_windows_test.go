@@ -7,10 +7,11 @@ import (
 	"testing"
 )
 
-// selfTestKey is written to the real vault under the cfo: namespace. There is
-// no delete path in this package, so the round trip deliberately uses one
-// stable, obviously-named entry rather than leaving a trail of new ones.
-const selfTestKey = "CFO_CREDENTIAL_SELFTEST"
+// selfTestKey is written to the real vault under the cfo: namespace, in a
+// scope no project uses. There is no delete path in this package, so the round
+// trip deliberately uses one stable, obviously-named entry rather than leaving
+// a trail of new ones.
+var selfTestKey = Scoped("cfo-selftest", "CFO_CREDENTIAL_SELFTEST")
 
 func TestCredentialManagerRoundTripsThroughTheRealVault(t *testing.T) {
 	store, err := openCredentialManager()
@@ -39,14 +40,18 @@ func TestCredentialManagerRoundTripsThroughTheRealVault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Keys: %v", err)
 	}
-	if !contains(keys, selfTestKey) {
-		t.Errorf("Keys() = %v, want it to include %q", keys, selfTestKey)
-	}
-	// Enumeration must not leak entries belonging to other applications.
+	found = false
 	for _, key := range keys {
-		if !ValidEnvName(key) {
-			t.Errorf("Keys() returned %q, which is not one of cfo's credential names", key)
+		if key == selfTestKey {
+			found = true
 		}
+		// Enumeration must not leak entries belonging to other applications.
+		if !key.Valid() {
+			t.Errorf("Keys() returned %q, which is not one of cfo's credential keys", key.String())
+		}
+	}
+	if !found {
+		t.Errorf("Keys() = %v, want it to include %q", keys, selfTestKey.String())
 	}
 }
 
@@ -55,7 +60,7 @@ func TestCredentialManagerReportsAnUnknownKeyAsAbsentNotAnError(t *testing.T) {
 	if err != nil {
 		t.Skipf("Windows Credential Manager unavailable: %v", err)
 	}
-	value, found, err := store.Get("CFO_CREDENTIAL_THAT_DOES_NOT_EXIST")
+	value, found, err := store.Get(Shared("CFO_CREDENTIAL_THAT_DOES_NOT_EXIST"))
 	if err != nil {
 		t.Fatalf("Get(absent) = error %v, want absence reported as an ordinary state", err)
 	}
@@ -66,10 +71,13 @@ func TestCredentialManagerReportsAnUnknownKeyAsAbsentNotAnError(t *testing.T) {
 
 func TestCredentialManagerRefusesAKeyThatIsNotAnEnvironmentName(t *testing.T) {
 	store := credentialManagerStore{}
-	if err := store.Set("bad key", "value"); err == nil {
+	if err := store.Set(Shared("bad key"), "value"); err == nil {
 		t.Error("Set with an invalid name = nil, want a refusal")
 	}
-	if _, _, err := store.Get("bad key"); err == nil {
+	if _, _, err := store.Get(Shared("bad key")); err == nil {
 		t.Error("Get with an invalid name = nil, want a refusal")
+	}
+	if err := store.Set(Key{Project: "bad project", Name: "TOKEN"}, "value"); err == nil {
+		t.Error("Set with an invalid scope = nil, want a refusal")
 	}
 }

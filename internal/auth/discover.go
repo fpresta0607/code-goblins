@@ -21,27 +21,42 @@ var envFileNames = []string{".env", ".env.local", ".env.development"}
 // node_modules tree to find more is waste, not thoroughness.
 const discoverDepth = 2
 
+// flyConfigRelative is where flyctl keeps the token it already holds, under
+// the user's home.
+var flyConfigRelative = filepath.Join(".fly", "config.yml")
+
 // Adopted records one credential that was found already present somewhere and
-// registered in the store, so the Overlord is never asked for something the
-// machine already has.
+// registered in this project's scope, so the Overlord is never asked for
+// something the machine already has.
 type Adopted struct {
 	Name   string
+	Key    Key
 	Origin string
 }
 
-// Discover registers credentials the machine already holds: values in a
-// project's local .env files, and the GitHub token gh already owns. It only
-// ever adopts names the manifest declares, and never overwrites a credential
-// the store already has, so an adopted value cannot silently replace a
-// deliberate one.
+// Discover registers credentials the machine already holds into this
+// project's scope: values in a project's local .env files, the token gh
+// already owns, and the token flyctl already holds.
+//
+// It is deliberately narrow, because adopting a credential from the wrong
+// place is how a goblin was handed an unrelated project's database. It only
+// adopts names this manifest declares; it never overwrites, and never fills a
+// name that already resolves for this project through any route the manifest
+// allows; and it reads a .env file only after git confirms that file is
+// ignored, so a value committed to a repository is never mistaken for a local
+// secret.
 func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Manifest, projectDir string) ([]Adopted, error) {
 	if store == nil {
 		return nil, fmt.Errorf("auth: no credential store configured")
 	}
-	wanted := map[string]bool{}
-	for _, name := range manifest.EnvNames() {
-		wanted[name] = true
+	scope := ProjectName(projectDir)
+	if scope == "" {
+		scope = manifest.Project
 	}
+	if !ValidProjectName(scope) {
+		return nil, fmt.Errorf("auth: %q cannot be a credential scope", scope)
+	}
+	wanted := wantedNames(store, scope, manifest)
 	if len(wanted) == 0 {
 		return nil, nil
 	}
@@ -51,21 +66,19 @@ func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Ma
 		if !wanted[name] || strings.TrimSpace(value) == "" {
 			return nil
 		}
-		existing, found, err := store.Get(name)
-		if err != nil {
+		key := Scoped(scope, name)
+		if err := store.Set(key, value); err != nil {
 			return err
 		}
-		if found && existing != "" {
-			return nil
-		}
-		if err := store.Set(name, value); err != nil {
-			return err
-		}
-		adopted = append(adopted, Adopted{Name: name, Origin: origin})
+		delete(wanted, name)
+		adopted = append(adopted, Adopted{Name: name, Key: key, Origin: origin})
 		return nil
 	}
 
 	for _, path := range envFiles(projectDir) {
+		if !gitIgnores(ctx, runner, projectDir, path) {
+			continue
+		}
 		values, err := ParseEnvFile(path)
 		if err != nil {
 			continue
@@ -85,13 +98,80 @@ func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Ma
 	if wanted["GITHUB_TOKEN"] && runner != nil {
 		result, err := runner.Run(ctx, execx.Request{Name: "gh", Args: []string{"auth", "token"}})
 		if err == nil && result.ExitCode == 0 {
-			token := strings.TrimSpace(string(result.Stdout))
-			if err := adopt("GITHUB_TOKEN", token, "gh auth token"); err != nil {
+			if err := adopt("GITHUB_TOKEN", strings.TrimSpace(string(result.Stdout)), "gh auth token"); err != nil {
+				return adopted, err
+			}
+		}
+	}
+
+	if wanted["FLY_API_TOKEN"] {
+		if token, path := flyAccessToken(); token != "" {
+			if err := adopt("FLY_API_TOKEN", token, path); err != nil {
 				return adopted, err
 			}
 		}
 	}
 	return adopted, nil
+}
+
+// wantedNames is every declared name that does not already resolve for this
+// project. Resolution is asked the same question the preflight asks, so a
+// name already served by a declared alias or an allowed shared value is left
+// alone instead of being shadowed by a second copy that can drift.
+func wantedNames(store Store, scope string, manifest Manifest) map[string]bool {
+	resolver := Resolver{Store: store, Project: scope}
+	wanted := map[string]bool{}
+	for _, service := range manifest.Services {
+		resolution, err := resolver.Resolve(service)
+		if err != nil {
+			continue
+		}
+		for _, name := range resolution.Missing {
+			wanted[name] = true
+		}
+	}
+	return wanted
+}
+
+// gitIgnores reports whether git ignores this file. A .env that git tracks is
+// not a local secret, and adopting from it would take a value that anyone
+// with the repository already has.
+func gitIgnores(ctx context.Context, runner execx.Runner, projectDir, path string) bool {
+	if runner == nil {
+		return false
+	}
+	result, err := runner.Run(ctx, execx.Request{
+		Dir:  projectDir,
+		Name: "git",
+		Args: []string{"check-ignore", "--quiet", path},
+	})
+	return err == nil && result.ExitCode == 0
+}
+
+// flyAccessToken reads the token flyctl already holds. The file is a small
+// YAML map whose only key that matters here is access_token, so it is read
+// with a line scan rather than a dependency.
+func flyAccessToken() (string, string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", ""
+	}
+	path := filepath.Join(home, flyConfigRelative)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		value, found := strings.CutPrefix(strings.TrimSpace(line), "access_token:")
+		if !found {
+			continue
+		}
+		token := unquote(strings.TrimSpace(value))
+		if token != "" {
+			return token, path
+		}
+	}
+	return "", ""
 }
 
 // envFiles lists the local secret files under a project, bounded in depth and
