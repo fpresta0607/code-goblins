@@ -241,12 +241,15 @@ func validateIdentity(service Service) error {
 }
 
 // ValidProjectName reports whether a project name is safe as a credential
-// scope. The scope becomes a directory name in the file store and part of a
-// vault target, so anything that could traverse or collide is refused: path
-// separators, a colon, and a leading or trailing dot or space, which also
-// rules out "..". The dots and spaces real checkout names carry are not a
-// traversal and stay usable, because refusing them would abort the spawn of
-// an ordinary project rather than refuse a credential.
+// scope. A scope is the name of a checkout that already exists, so the
+// operating system has already ruled on what a legal directory name is; the
+// only thing left to refuse is what would escape the store or address a
+// different key. That is: a path separator or a colon, which would reach out
+// of the scope directory or split the vault target; a control character; and
+// a leading or trailing dot or space, which also rules out "." and "..".
+// Everything else - parentheses, accents, interior dots, spaces - is an
+// ordinary directory name, and refusing one aborts a dispatch that has
+// nothing wrong with it.
 func ValidProjectName(project string) bool {
 	if project == "" {
 		return false
@@ -259,11 +262,9 @@ func ValidProjectName(project string) bool {
 	}
 	for _, character := range project {
 		switch {
-		case character == '-' || character == '_' || character == '.' || character == ' ':
-		case character >= 'A' && character <= 'Z':
-		case character >= 'a' && character <= 'z':
-		case character >= '0' && character <= '9':
-		default:
+		case character == '/' || character == '\\' || character == ':':
+			return false
+		case character < 0x20 || character == 0x7f:
 			return false
 		}
 	}

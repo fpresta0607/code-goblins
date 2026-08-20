@@ -513,19 +513,24 @@ func TestAWrongTargetIsRemediedByAReStoreRatherThanByFix(t *testing.T) {
 	if report.Statuses[0].State != StateWrongTarget {
 		t.Fatalf("state = %q, want %q", report.Statuses[0].State, StateWrongTarget)
 	}
-	refusal := RefusalLines("projects/precisiondocs", report)
-	if !strings.Contains(refusal, "cfo auth store --project precisiondocs DATABASE_URL") {
-		t.Errorf("refusal lacks the command that changes the target:\n%s", refusal)
-	}
-	if strings.Contains(refusal, "--fix") {
-		t.Errorf("refusal offered --fix, which cannot change a wrong target:\n%s", refusal)
-	}
-	var out strings.Builder
-	if err := WriteLoginRequest(&out, report); err != nil {
+	var request strings.Builder
+	if err := WriteLoginRequest(&request, report); err != nil {
 		t.Fatalf("WriteLoginRequest: %v", err)
 	}
-	if !strings.Contains(out.String(), "store with: cfo auth store --project precisiondocs DATABASE_URL") {
-		t.Errorf("sign-in request lacks the store command for a wrong target:\n%s", out.String())
+	// Every surface an operator reads must agree, or the one that still
+	// offers --fix is the one they act on.
+	surfaces := map[string]string{
+		"refusal":       RefusalLines("projects/precisiondocs", report),
+		"warning":       WarningLine("projects/precisiondocs", report),
+		"login request": request.String(),
+	}
+	for name, text := range surfaces {
+		if !strings.Contains(text, "cfo auth store --project precisiondocs DATABASE_URL") {
+			t.Errorf("%s lacks the command that changes the target:\n%s", name, text)
+		}
+		if strings.Contains(text, "--fix") {
+			t.Errorf("%s offered --fix, which cannot change a wrong target:\n%s", name, text)
+		}
 	}
 }
 
@@ -576,6 +581,56 @@ func TestAWrongTargetIsNotInjectedThroughASiblingServiceDeclaringTheSameName(t *
 		if strings.Contains(text, stranger) {
 			t.Errorf("%s disclosed the connection string:\n%s", name, text)
 		}
+	}
+	// A withheld variable that the table does not mention is a service that
+	// reads green while its credential never reaches the goblin.
+	if !strings.Contains(table.String(), "DATABASE_URL withheld: postgres") {
+		t.Errorf("table does not say the sibling's variable was withheld or who proved it:\n%s", table.String())
+	}
+}
+
+func TestAnOptionalServiceStillPoisonsTheNameItProvedWrong(t *testing.T) {
+	clearEnv(t, "DATABASE_URL")
+	// optional governs whether a service blocks, never whether the value it
+	// refused is fit to inject. Nothing blocks here, so this reaches a pane
+	// on a plain spawn with no --yolo.
+	postgres := postgresService("ep-precisiondocs-quiet-sun")
+	postgres.Optional = true
+	manifest := Manifest{Project: "precisiondocs", Services: []Service{
+		postgres,
+		{Name: "prisma", Method: MethodCLI, Env: []string{"DATABASE_URL"}, Probe: []string{"prisma", "--version"}},
+	}}
+	stranger := "postgres://u:p@ep-steep-river-axsvclpp.aws.neon.tech/neondb"
+	store := newMemoryStore(map[string]string{"precisiondocs/DATABASE_URL": stranger})
+	runner := &fakeRunner{results: map[string]execx.Result{"prisma": {ExitCode: 0}}}
+
+	report, err := Checker{Store: store, Runner: runner, Project: "precisiondocs"}.Check(context.Background(), manifest)
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if report.Statuses[0].State != StateSkipped {
+		t.Fatalf("optional postgres state = %q, want %q", report.Statuses[0].State, StateSkipped)
+	}
+	if len(report.Blocking()) != 0 {
+		t.Fatalf("blocking = %v, want an optional service not to block", report.Blocking())
+	}
+
+	env, err := InjectEnv(store, "precisiondocs", manifest, report)
+	if err != nil {
+		t.Fatalf("InjectEnv: %v", err)
+	}
+	if _, injected := env["DATABASE_URL"]; injected {
+		t.Error("a credential an optional service proved wrong reached the pane through a sibling")
+	}
+	var table strings.Builder
+	if err := WriteTable(&table, report); err != nil {
+		t.Fatalf("WriteTable: %v", err)
+	}
+	if strings.Contains(table.String(), stranger) {
+		t.Errorf("table disclosed the connection string:\n%s", table.String())
+	}
+	if !strings.Contains(table.String(), "DATABASE_URL withheld: postgres") {
+		t.Errorf("table does not say the sibling's variable was withheld or who proved it:\n%s", table.String())
 	}
 }
 
@@ -666,15 +721,18 @@ func TestValidateRefusesAnIdentityCheckThatCannotEstablishAnything(t *testing.T)
 }
 
 func TestValidProjectNameRejectsAnythingThatCouldEscapeAScope(t *testing.T) {
-	// A checkout is allowed to be called what it is called: refusing an
-	// ordinary dotted or spaced directory name would abort the spawn instead
-	// of refusing a credential.
-	for _, name := range []string{"precisiondocs", "clock-in", "code_goblins", "a1", "docs.example.com", "Retire 91"} {
+	// A checkout is allowed to be called what it is called: the operating
+	// system already ruled on the name, and refusing an ordinary one aborts
+	// the spawn instead of refusing a credential.
+	for _, name := range []string{
+		"precisiondocs", "clock-in", "code_goblins", "a1",
+		"docs.example.com", "Retire 91", "my app (2)", "código", "sales&ops",
+	} {
 		if !ValidProjectName(name) {
 			t.Errorf("ValidProjectName(%q) = false, want true", name)
 		}
 	}
-	for _, name := range []string{"", "..", ".", "a/b", `a\b`, "a:b", ".hidden", "a.", "a ", " a"} {
+	for _, name := range []string{"", "..", ".", "a/b", `a\b`, "a:b", ".hidden", "a.", "a ", " a", "a\tb", "a\nb"} {
 		if ValidProjectName(name) {
 			t.Errorf("ValidProjectName(%q) = true, want false", name)
 		}

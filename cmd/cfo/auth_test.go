@@ -126,7 +126,7 @@ func TestAuthStoreRefusesAScopeThatCouldEscapeTheStore(t *testing.T) {
 	// the spawn path already reads and writes credentials under that scope.
 	// Refusing it here would leave the operator unable to store the very
 	// credential a preflight refusal tells them to store.
-	for _, scope := range []string{"docs..example", "Retire 91"} {
+	for _, scope := range []string{"docs..example", "Retire 91", "my app (2)", "código"} {
 		if code, _, stderr := runCLI(t, "store", "--project", scope, "TOKEN_VALUE", "value"); code != 0 {
 			t.Fatalf("cfo auth store --project %q = %d: %s", scope, code, stderr)
 		}

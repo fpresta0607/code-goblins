@@ -75,6 +75,11 @@ type Status struct {
 	Resolution map[string][]Candidate
 	// Detail is the short reason behind this state, identity result included.
 	Detail string
+	// WrongTarget records that an identity check proved this service's
+	// credential names another instance. It is kept apart from State because
+	// State also carries whether the service blocks, and an optional service
+	// that does not block still must not hand anyone the value it refused.
+	WrongTarget bool
 	// Fixed records what --fix did that changed this service's state.
 	Fixed string
 	// URL is where a human authenticates when nothing automatic worked.
@@ -86,6 +91,14 @@ type Status struct {
 
 // Green reports whether this service was positively verified.
 func (s Status) Green() bool { return s.State == StateGreen }
+
+// ProvedWrongTarget reports that an identity check proved this service's
+// credential names another instance. The state says so too, right up until
+// optionalize softens a blocking optional service to skipped, which is why
+// the flag is what the fact travels on.
+func (s Status) ProvedWrongTarget() bool {
+	return s.WrongTarget || s.State == StateWrongTarget
+}
 
 // Usable reports whether the credential should reach a goblin's pane. An
 // unverified credential is still the value the project reads; withholding it
@@ -246,12 +259,15 @@ func (c Checker) evaluate(ctx context.Context, service Service) Status {
 		status.State = probeState
 	} else {
 		status.State = state
+		status.WrongTarget = state == StateWrongTarget
 	}
 	return optionalize(status)
 }
 
 // optionalize moves a red optional service out of the blocking column: a
-// project that runs without it has made a choice, not hit a fault.
+// project that runs without it has made a choice, not hit a fault. It moves
+// nothing else: optional governs whether a service blocks, never whether its
+// credential is fit to inject.
 func optionalize(status Status) Status {
 	if !status.Optional || !isBlockingState(status.State) {
 		return status

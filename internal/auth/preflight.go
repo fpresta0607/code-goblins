@@ -97,10 +97,19 @@ func WarningLine(project string, report Report) string {
 		return line
 	}
 	names := make([]string, 0, len(blocking))
+	commands := make([]string, 0, len(blocking))
+	seen := map[string]bool{}
 	for _, status := range blocking {
 		names = append(names, fmt.Sprintf("%s (%s)", status.Service, status.State))
+		for _, command := range remedies(project, status) {
+			if seen[command] {
+				continue
+			}
+			seen[command] = true
+			commands = append(commands, "`"+command+"`")
+		}
 	}
-	return fmt.Sprintf("%s; BLOCKING: %s - run `cfo auth %s --fix`", line, strings.Join(names, ", "), project)
+	return fmt.Sprintf("%s; BLOCKING: %s - run %s", line, strings.Join(names, ", "), strings.Join(commands, ", "))
 }
 
 // RefusalLines is what a spawn prints instead of dispatching: every blocking
@@ -116,12 +125,8 @@ func RefusalLines(project string, report Report) string {
 	fmt.Fprintf(&b, "%d blocking service(s) for %s; fix these or pass --yolo to dispatch anyway", len(blocking), scope)
 	for _, status := range blocking {
 		fmt.Fprintf(&b, "\n  %s (%s): %s", status.Service, status.State, status.Detail)
-		remedies := remedyNames(status)
-		for _, name := range remedies {
-			fmt.Fprintf(&b, "\n    %s", StoreCommand(scope, name))
-		}
-		if len(remedies) == 0 {
-			fmt.Fprintf(&b, "\n    cfo auth %s --fix", project)
+		for _, command := range remedies(project, status) {
+			fmt.Fprintf(&b, "\n    %s", command)
 		}
 	}
 	return b.String()
