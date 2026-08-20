@@ -33,7 +33,7 @@ This file is your entire job description.
 | Command | What it does |
 | --- | --- |
 | `cfo install [--uninstall]` | Wire this checkout into the machine so a Claude Code session opened in any repository is supervised: `CFO_HOME` and PATH at user scope, and the CFO hooks merged into the user's `~/.claude/settings.json` (their own hooks are kept, the file is backed up first). Idempotent; `--uninstall` reverses it. `cfo doctor` reports, this repairs |
-| `cfo doctor` | Check git, gh, claude, herdr, treehouse, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi and print install hints; probe each installed harness (`--version` under a short timeout) and report ok/broken; print the measured per-harness per-step speed table from `~/.no-mistakes/state.sqlite` when present (skipped with a note when absent or locked); print the standing switch rules from `data/routing.json` |
+| `cfo doctor` | Check git, gh, claude, herdr, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi and print install hints; probe each installed harness (`--version` under a short timeout) and report ok/broken; print the measured per-harness per-step speed table from `~/.no-mistakes/state.sqlite` when present (skipped with a note when absent or locked); print the standing switch rules from `data/routing.json` |
 | `cfo auth <project> [--check\|--fix] [--env]` | Preflight a project's services against its manifest and print one honest line each, plus the resolution order behind every variable it declares. `--fix` adopts credentials the machine already holds, runs non-interactive CLI logins, and confirms an OAuth page whose browser session is live. `--env` shows the redacted environment a goblin's pane would inherit. Ends with one consolidated sign-in request covering everything still blocked |
 | `cfo auth store [--project <p>] <NAME> [value]` | Store one credential in a project's scope, or in the shared scope when `--project` is omitted. Omit the value to read it from stdin, which keeps the secret out of shell history |
 | `cfo auth list [--project <p>]` | List stored credential keys, never values. A scoped key prints as `project/NAME` |
@@ -48,7 +48,7 @@ This file is your entire job description.
 | `cfo pr check <id> <url>` | Record an opened PR on the task |
 | `cfo pr merge <url> [--method <m>] [--delete-branch]` | Merge a PR (merge, squash, or rebase) |
 | `cfo merge-local <id>` | Fast-forward a project's main to a goblin's landed branch |
-| `cfo cleanup <id>` | Close the task tab and return one clean, proven-inactive task worktree through treehouse |
+| `cfo cleanup <id>` | Close the task tab and return one clean, proven-inactive task worktree: the in-repo worktree at `<project>/.worktrees/gb-<id>` is removed and its git administrative entry pruned. A worktree with uncommitted work is refused, never destroyed |
 | `cfo notify <id> --done --pr <url> \| --blocked "<question>" \| --failed "<reason>"` | A goblin reports its outcome (PR URL, blocked question, or failure reason) straight into the wake queue, waking the CFO with the real payload instead of the watcher guessing from pane text |
 | `cfo drain` | Print or acknowledge the wake queue |
 | `cfo session-start` | Print the session-start digest |
@@ -59,7 +59,7 @@ A `<target>` is a task id, `gb-<id>`, or an explicit `session:pane` Herdr target
 
 ## Dispatching
 
-`cfo spawn` is the only way to start goblin work. It validates the id and mode before touching anything, starts the Herdr server and container, acquires a fresh treehouse worktree (never the primary checkout), creates a Herdr tab labeled `gb-<id>`, prepares the pane shell (worktree location plus harness environment), starts the harness and delivers its brief instruction, and reports `spawned ...` only after confirming the agent is working.
+`cfo spawn` is the only way to start goblin work. It validates the id and mode before touching anything, starts the Herdr server and container, acquires a fresh in-repo git worktree at `<project>/.worktrees/gb-<id>` (never the primary checkout; the `.worktrees/` directory is registered in the clone's `info/exclude`, so status stays clean), provisions it per the project's worktree manifest (shared config files, dependencies, the token-authenticated subset of the project's `.mcp.json`), creates a Herdr tab labeled `gb-<id>`, prepares the pane shell (worktree location plus harness environment), starts the harness and delivers its brief instruction, and reports `spawned ...` only after confirming the agent is working.
 
 - `--brief` must be an absolute path to an existing file.
 - `--mode` is `no-mistakes` (default), `direct-PR`, or `local-only`.
@@ -143,6 +143,39 @@ They are never written into a repository and never printed - reports show proven
 
 Before asking the Supreme Overlord for anything, run `cfo auth <project> --fix`: it adopts what the machine already holds (a project's gitignored local `.env`, the token `gh` already owns, the token `flyctl` already holds) into that project's scope rather than asking twice.
 Ask once, with the consolidated sign-in request that command prints, instead of letting goblins fail one credential at a time.
+
+## Project worktree environment
+
+Every goblin works in an in-repo git worktree at `<project>/.worktrees/gb-<id>`, detached from the project's default branch.
+A project can declare how that worktree becomes runnable in `data/projects/<name>/worktree.json`, beside its auth manifest:
+
+```json
+{
+  "project": "precisiondocs",
+  "link": [".env", ".env.local", ".env.docker.local"],
+  "dependencies": {
+    "strategy": "install",
+    "install": ["uv venv", "uv pip install -r requirements.txt -r requirements-dev.txt"]
+  },
+  "env": { "PLAYWRIGHT_BROWSERS_PATH": "C:\\cache\\ms-playwright" }
+}
+```
+
+- `link` names root-level config files or directories shared from the primary checkout: files by hardlink, directories by junction. The defaults above apply when the manifest is absent; a missing source is skipped.
+  A default entry whose path the worktree already holds (a project that commits `.env`) is left as checked out and the `spawned` line says so; a declared entry in that state is refused, because the manifest asked for it to be shared.
+- `dependencies.strategy` is `install` (the default: run the installer the lockfile implies - pnpm, npm, yarn, or uv - against the shared per-user package cache), `link` (junction the declared `paths` from the primary checkout; instant and zero disk, but a package-manager run in one worktree mutates them all), or `none`.
+- `dependencies.install` overrides the detected install commands; each entry is one command line run in order in the worktree.
+  Provisioning runs under the per-home spawn lock, which covers the whole dispatch (task id, Herdr start, tab, metadata, harness launch), so concurrent dispatches into install-strategy projects serialize behind each other's installer.
+  That is a chosen property, not an oversight: the cost is a slower concurrent dispatch, never a wrong one.
+- `env` carries environment redirects into the goblin's pane for large read-only caches.
+- Everything provisioning places inside the worktree is registered in the clone's `info/exclude` when the project does not already ignore it, so the goblin's `git status` reflects only its own work.
+  That matters because `cfo cleanup` refuses a worktree whose status is not empty, so an unignored provisioned artifact would read as uncommitted goblin work and block removal.
+  Git has no per-worktree exclude file: `info/exclude` lives in the clone's shared common directory, so those entries - `.worktrees/`, plus whatever config and dependency paths a project's manifest provisions, such as `.env`, `node_modules`, or `.venv` - also apply to the primary checkout, and cleanup does not remove them.
+  Edit `.git/info/exclude` by hand if the primary checkout needs one of them back.
+- The goblin receives the token-authenticated subset of the project's `.mcp.json`: stdio servers and HTTP servers with a bearer token qualify; OAuth-only connectors are withheld and named on the `spawned` line, because a goblin can never complete their browser flow.
+  That filtered configuration is materialized under the task's temporary directory, outside the checkout, and it is the only file a harness is handed through `--mcp-config`.
+  A copy is also written to the worktree root for harnesses that read the project-scoped `.mcp.json` from their working directory, but only when that path is free and untracked.
+  A project that commits `.mcp.json` keeps its file exactly as committed, and the `spawned` line says so: a working-directory-reading harness then still sees every server declared there, withheld ones included.
 
 ## Switching a running goblin
 

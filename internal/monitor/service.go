@@ -30,7 +30,7 @@ type CycleProber interface {
 }
 
 // Service scans read-only endpoint samples and persists classification state.
-// It deliberately has no lifecycle, send, treehouse, or delete dependency.
+// It deliberately has no lifecycle, send, worktree, or delete dependency.
 type Service struct {
 	StateDir              string
 	Probe                 Prober

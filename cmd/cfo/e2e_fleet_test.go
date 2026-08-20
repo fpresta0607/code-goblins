@@ -26,12 +26,12 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/treehouse"
 	"github.com/fpresta0607/code-goblins/internal/wake"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 // TestFleetEndToEnd covers the public fleet command flow without reaching an
-// installed Herdr server, treehouse pool, harness binary, or credential.
+// installed Herdr server, worktree creation, harness binary, or credential.
 // The fixture is intentionally introduced after this test so this test first
 // proves the exact end-to-end behavior the fake transport must support.
 func TestFleetEndToEnd(t *testing.T) {
@@ -159,7 +159,7 @@ func plan3ScriptEnvFrom(parent []string, optIn bool) []string {
 
 // fleetE2EFixture is a real command-path fixture. It drives the command
 // parser and the spawn, send, peek, monitor, wake, and fleet packages while
-// replacing only subprocesses with an in-memory Herdr and treehouse model.
+// replacing only subprocesses with an in-memory Herdr and Git model.
 // No installed tool, network service, credential, or production checkout is
 // reachable from this test.
 type fleetE2EFixture struct {
@@ -289,16 +289,13 @@ func (f *fleetE2EFixture) AssertTaskMetadataIsIsolated() {
 			f.t.Fatalf("fake workspace is missing visible gb-%s tab", id)
 		}
 	}
-	if len(f.git.freshened) != 3 {
-		f.t.Fatalf("treehouse freshen calls=%v, want one per spawned task", f.git.freshened)
-	}
 
 	// The real cleanup command is not in this task's scope. This direct
 	// service boundary proves an ambiguous return is refused and cannot remove
 	// the primary checkout while the test keeps every worker alive.
-	err := (treehouse.Service{Git: f.git}).Return(context.Background(), f.project, f.project)
+	err := (worktree.Service{Git: f.git}).Return(context.Background(), f.project, f.project)
 	if err == nil {
-		f.t.Fatal("ambiguous treehouse return unexpectedly succeeded")
+		f.t.Fatal("ambiguous worktree return unexpectedly succeeded")
 	}
 	if info, statErr := os.Stat(f.project); statErr != nil || !info.IsDir() {
 		f.t.Fatalf("ambiguous return changed primary project: %v", statErr)
@@ -500,7 +497,7 @@ func (f *fleetE2EFixture) AssertVisibleTabsAndNoLifecycleDeletes() {
 		}
 	}
 	if len(f.git.returned) != 1 || f.git.returned[0].worktree != f.project {
-		f.t.Fatalf("treehouse return calls=%+v, want only explicit ambiguous refusal", f.git.returned)
+		f.t.Fatalf("worktree return calls=%+v, want only explicit ambiguous refusal", f.git.returned)
 	}
 	for _, request := range f.runner.requests {
 		if request.Name != "herdr" {
@@ -508,9 +505,6 @@ func (f *fleetE2EFixture) AssertVisibleTabsAndNoLifecycleDeletes() {
 				continue
 			}
 			if request.Name == "pi" && len(request.Args) == 1 && request.Args[0] == "--help" {
-				continue
-			}
-			if request.Name == "treehouse" && len(request.Args) == 5 && request.Args[0] == "get" && request.Args[1] == "--lease" && request.Args[2] == "--json" {
 				continue
 			}
 			f.t.Fatalf("unexpected fake external request=%+v", request)
@@ -533,7 +527,7 @@ func (f *fleetE2EFixture) AssertVisibleTabsAndNoLifecycleDeletes() {
 func (f *fleetE2EFixture) spawn(ctx context.Context, h home.Home, request spawn.Request) (spawn.Result, error) {
 	service := spawn.Service{
 		Herdr: f.client,
-		Treehouse: treehouse.Service{
+		Worktrees: worktree.Service{
 			Commands: f.runner,
 			Git:      f.git,
 			Sleep:    noWait,
@@ -619,24 +613,6 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 	}
 	if request.Name == "pi" {
 		return result("Usage:\nOptions:\n  --model\n  --thinking low medium high xhigh max\n  --extension\n  --tui-mode\n"), nil
-	}
-	if request.Name == "treehouse" {
-		holder, ok := flagValue(request.Args, "--lease-holder")
-		if !ok || !strings.HasPrefix(holder, "gb-") {
-			return execx.Result{}, fmt.Errorf("treehouse get is missing gb- lease holder: %v", request.Args)
-		}
-		if !samePath(request.Dir, r.fixture.project) {
-			return execx.Result{}, fmt.Errorf("treehouse get ran outside the project: %q", request.Dir)
-		}
-		worktree := filepath.Join(r.fixture.home.Root, "worktrees", strings.TrimPrefix(holder, "gb-"))
-		if err := os.MkdirAll(worktree, 0o755); err != nil {
-			return execx.Result{}, err
-		}
-		lease, err := json.Marshal(map[string]string{"path": worktree, "lease_id": "lease-" + holder, "lease_holder": holder})
-		if err != nil {
-			return execx.Result{}, err
-		}
-		return result(string(lease)), nil
 	}
 	if request.Name != "herdr" {
 		return execx.Result{}, fmt.Errorf("unexpected fake executable %q", request.Name)
@@ -764,14 +740,27 @@ func (r *fleetE2ERunner) tabLabels() []string {
 }
 
 type fleetE2EGit struct {
-	fixture   *fleetE2EFixture
-	freshened []string
-	returned  []fleetE2EReturn
+	fixture  *fleetE2EFixture
+	returned []fleetE2EReturn
 }
 
 type fleetE2EReturn struct {
 	project  string
 	worktree string
+}
+
+func (g *fleetE2EGit) Acquire(_ context.Context, project, holder string) (string, error) {
+	if !strings.HasPrefix(holder, "gb-") {
+		return "", fmt.Errorf("acquire is missing gb- holder: %q", holder)
+	}
+	if !samePath(project, g.fixture.project) {
+		return "", fmt.Errorf("acquire ran outside the project: %q", project)
+	}
+	path := filepath.Join(g.fixture.home.Root, "worktrees", strings.TrimPrefix(holder, "gb-"))
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func (g *fleetE2EGit) WorktreeTop(_ context.Context, dir string) (string, error) {
@@ -781,14 +770,6 @@ func (g *fleetE2EGit) WorktreeTop(_ context.Context, dir string) (string, error)
 	return dir, nil
 }
 
-func (g *fleetE2EGit) FetchAndFreshen(_ context.Context, dir string) error {
-	if samePath(dir, g.fixture.project) {
-		return fmt.Errorf("fixture treehouse refuses to freshen primary checkout %q", dir)
-	}
-	g.freshened = append(g.freshened, dir)
-	return nil
-}
-
 func (g *fleetE2EGit) EnsureSeeded(context.Context, string) (bool, error) {
 	return false, nil
 }
@@ -796,9 +777,9 @@ func (g *fleetE2EGit) EnsureSeeded(context.Context, string) (bool, error) {
 func (g *fleetE2EGit) Return(_ context.Context, project, worktree string) error {
 	g.returned = append(g.returned, fleetE2EReturn{project: project, worktree: worktree})
 	if samePath(project, worktree) || samePath(worktree, g.fixture.project) {
-		return fmt.Errorf("fixture treehouse refuses ambiguous return of primary checkout %q", worktree)
+		return fmt.Errorf("fixture git refuses ambiguous return of primary checkout %q", worktree)
 	}
-	return fmt.Errorf("fixture treehouse return is intentionally unavailable in deterministic e2e")
+	return fmt.Errorf("fixture worktree return is intentionally unavailable in deterministic e2e")
 }
 
 type fleetE2EProber struct {
@@ -978,7 +959,7 @@ func samePath(left, right string) bool {
 }
 
 var _ execx.Runner = (*fleetE2ERunner)(nil)
-var _ treehouse.Git = (*fleetE2EGit)(nil)
+var _ worktree.Git = (*fleetE2EGit)(nil)
 var _ monitor.Prober = (*fleetE2EProber)(nil)
 var _ fleet.EndpointReader = fleetE2EEndpoint{}
 var _ crewstate.StructuralValidator = fleetE2EEndpoint{}

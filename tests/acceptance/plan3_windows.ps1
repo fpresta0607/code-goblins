@@ -252,7 +252,7 @@ function Test-CfoCleanupAvailable {
 
 function New-MissingCleanupBlocker {
     param([Parameter(Mandatory = $true)][string]$Root)
-    return "ACCEPTANCE BLOCKER: this cfo build has no cleanup command. Leaving disposable fixture intact at $Root because no direct treehouse return or worktree deletion is permitted."
+    return "ACCEPTANCE BLOCKER: this cfo build has no cleanup command. Leaving disposable fixture intact at $Root because no direct worktree deletion outside cfo cleanup is permitted."
 }
 
 function Assert-CfoCleanupReady {
@@ -442,7 +442,7 @@ try {
 
     $doctor = @(& $cfo doctor 2>&1)
     $doctorText = $doctor -join [Environment]::NewLine
-    foreach ($tool in @('git', 'herdr', 'treehouse', 'claude', 'codex', 'pi')) {
+    foreach ($tool in @('git', 'herdr', 'claude', 'codex', 'pi')) {
         if ($doctorText -notmatch "(?m)^ok\s+$tool\s+") {
             throw "ACCEPTANCE BLOCKER: cfo doctor did not report usable $tool for the real-session target.`n$doctorText"
         }

@@ -26,7 +26,7 @@ A pull request must keep all of them green.
 
 - `cmd/cfo/` - the `cfo.exe` entry point and command handlers.
 - `cmd/showcase-axi/` - the `showcase-axi.exe` entry point for the review surface.
-- `internal/` - one package per subsystem: `herdr`, `treehouse`, `spawn`, `fleet`, `monitor`, `wake`, `lock`, `state`, `home`, `watch`, `harness`, `auth`, `routing`, `axi`, `execx`, `fsx`, `claudehook`, `digest`, `doctor`, `guard`, `crewstate`, `supervise`, `proc`, `showcase`.
+- `internal/` - one package per subsystem: `herdr`, `worktree`, `spawn`, `fleet`, `monitor`, `wake`, `lock`, `state`, `home`, `watch`, `harness`, `auth`, `routing`, `axi`, `execx`, `fsx`, `claudehook`, `digest`, `doctor`, `guard`, `crewstate`, `supervise`, `proc`, `showcase`.
 - `docs/superpowers/` - the design spec and implementation plans.
 - `tests/acceptance/` - the opt-in real-session Windows acceptance script.
 - `AGENTS.md` - the CFO's operating contract; `CLAUDE.md` points to it.
@@ -39,14 +39,14 @@ Unit tests are deterministic: they inject fake subprocess runners and scripted c
 go test ./...
 ```
 
-The real-session acceptance suite needs real Herdr, treehouse, Claude Code, Codex, and Pi, and is opt-in:
+The real-session acceptance suite needs real Herdr, Claude Code, Codex, and Pi, and is opt-in:
 
 ```powershell
 $env:CFO_PLAN3_REAL = '1'
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/acceptance/plan3_windows.ps1
 ```
 
-It creates a disposable project under a unique temporary root and refuses to run against a production checkout or shared treehouse pool.
+It creates a disposable project under a unique temporary root and refuses to run against a production checkout.
 
 ## Conventions
 

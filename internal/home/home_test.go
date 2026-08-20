@@ -23,6 +23,9 @@ func gitInit(t *testing.T, dir string) {
 func TestResolveDefaultsToCwd(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CFO_HOME", "")
+	// A goblin pane exports CFO_STATE_OVERRIDE, so the defaults this test
+	// asserts only hold once that inherited value is cleared too.
+	t.Setenv("CFO_STATE_OVERRIDE", "")
 	t.Chdir(dir)
 	h, err := Resolve()
 	if err != nil {
@@ -112,7 +115,16 @@ func TestGitPathsUseTheSameCanonicalIdentityAsPrimaryCheck(t *testing.T) {
 }
 
 func TestIsPrimaryFalseOutsideGit(t *testing.T) {
-	dir := t.TempDir()
+	// GOTMPDIR can put the test's temp directory inside a git checkout (a
+	// goblin pane points it at state/tasktmp/<id>/gotmp), so "outside git"
+	// has to be established rather than assumed: git stops its upward search
+	// below a ceiling directory, which makes the root genuinely repo-less.
+	ceiling := t.TempDir()
+	t.Setenv("GIT_CEILING_DIRECTORIES", ceiling)
+	dir := filepath.Join(ceiling, "outside")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}

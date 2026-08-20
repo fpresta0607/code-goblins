@@ -104,7 +104,6 @@ $tools = @(
     @{ Name = "gh";                  Kind = "winget";     Cmd = "winget install -e --id GitHub.cli --accept-package-agreements --accept-source-agreements" },
     @{ Name = "claude";              Kind = "npm";        Cmd = "npm install -g @anthropic-ai/claude-code" },
     @{ Name = "herdr";               Kind = "powershell"; Cmd = "irm https://herdr.dev/install.ps1 | iex" },
-    @{ Name = "treehouse";           Kind = "powershell"; Cmd = "irm https://kunchenguid.github.io/treehouse/install.ps1 | iex" },
     @{ Name = "codex";               Kind = "npm";        Cmd = "npm install -g @openai/codex" },
     @{ Name = "pi";                  Kind = "npm";        Cmd = "npm install -g @earendil-works/pi-coding-agent" },
     @{ Name = "kimi";                Kind = "manual";     Cmd = "install the Kimi Code CLI from https://www.kimi.com (no scriptable installer; sign in after)" },

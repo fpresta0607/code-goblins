@@ -19,7 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/treehouse"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 func TestSpawnRejectsInvalidIDBeforeFilesystemMutation(t *testing.T) {
@@ -183,9 +183,8 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 		"workspace-list",
 		"tab-list",
 		"tab-create",
-		"treehouse-get",
+		"worktree-acquire",
 		"validate-worktree",
-		"freshen",
 		"validate-harness",
 		"build-harness",
 		"send-literal",
@@ -266,27 +265,157 @@ func TestSpawnUsesRequestedHerdrSession(t *testing.T) {
 	}
 }
 
-func TestSpawnRefusesDirtyWorktreeWithoutLaunching(t *testing.T) {
+func TestSpawnDisclosesATrackedMCPConfigOnlyWhenSomethingWasWithheld(t *testing.T) {
+	const disclosure = "the project tracks .mcp.json"
+	for _, test := range []struct {
+		name      string
+		config    string
+		disclosed bool
+	}{
+		{
+			name:      "an OAuth connector is withheld",
+			config:    `{"mcpServers":{"neon":{"command":"npx"},"supabase":{"url":"https://mcp.supabase.com/mcp"}}}`,
+			disclosed: true,
+		},
+		{
+			// Nothing was dropped, so a working-directory-reading harness
+			// sees exactly the servers the filtered config would have given
+			// it. Claiming otherwise on every dispatch is a false statement.
+			name:      "every server qualifies",
+			config:    `{"mcpServers":{"neon":{"command":"npx"},"stripe":{"url":"https://mcp.stripe.com/","bearerTokenEnvVar":"STRIPE_KEY"}}}`,
+			disclosed: false,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newFixture(t)
+			writeFile(t, filepath.Join(fixture.project, ".mcp.json"), test.config)
+			writeFile(t, filepath.Join(fixture.worktree, ".mcp.json"), test.config)
+			fixture.runner.mcpTracked = true
+
+			result, err := fixture.service.Spawn(context.Background(), fixture.request)
+			if err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+			if got := strings.Contains(result.Output, disclosure); got != test.disclosed {
+				t.Errorf("output contains the tracked-config disclosure = %v, want %v:\n%s", got, test.disclosed, result.Output)
+			}
+		})
+	}
+}
+
+func TestSpawnReportsADefaultLinkSkippedForACheckedOutFile(t *testing.T) {
 	fixture := newFixture(t)
-	fixture.git.freshenErr = errors.New("treehouse: worktree is dirty")
+	// The project commits .env, so git worktree add checks it out before
+	// provisioning runs. The default link set is not a declaration, so the
+	// occupied path is left alone and named on the spawn output instead of
+	// tearing the dispatch down.
+	writeFile(t, filepath.Join(fixture.project, ".env"), "K=primary\n")
+	writeFile(t, filepath.Join(fixture.worktree, ".env"), "K=checked-out\n")
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v, want the goblin dispatched with its checked-out .env", err)
+	}
+	if !strings.Contains(result.Output, "link: .env already present in the worktree") {
+		t.Errorf("output = %q, want the skipped default share reported", result.Output)
+	}
+	data, err := os.ReadFile(filepath.Join(fixture.worktree, ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(data)) != "K=checked-out" {
+		t.Errorf("worktree .env = %q, want the checked-out file untouched", data)
+	}
+}
+
+func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
+	fixture := newFixture(t)
+	// The pane is PowerShell, where environment names are case-insensitive,
+	// so a redirect that differs from a reserved name only by case is the
+	// same variable. CFO_STATE_OVERRIDE is only written at harness start,
+	// after the manifest is merged, so it proves the reserved set does not
+	// depend on what the launch map happens to hold at merge time.
+	writeWorktreeManifest(t, fixture.dataDir, fixture.project, worktree.Manifest{
+		Project: "primary",
+		Env: map[string]string{
+			"gotmpdir":                 `C:\hijacked-gotmpdir`,
+			"cfo_state_override":       `C:\hijacked-state`,
+			"Cfo_Role":                 "overlord",
+			"PLAYWRIGHT_BROWSERS_PATH": `C:\cache\ms-playwright`,
+		},
+	})
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	line := fixture.runner.literals[0]
+	if strings.Contains(line, "hijacked") || strings.Contains(line, "overlord") {
+		t.Errorf("pane line = %q, want every case-aliased reserved redirect dropped", line)
+	}
+	if !strings.Contains(line, "$env:GOTMPDIR = '"+filepath.Join(result.Meta.TaskTmp, "gotmp")+"'") ||
+		!strings.Contains(line, "$env:CFO_STATE_OVERRIDE = '"+fixture.stateDir+"'") {
+		t.Errorf("pane line = %q, want the launch contract's own values intact", line)
+	}
+	if !strings.Contains(line, `$env:PLAYWRIGHT_BROWSERS_PATH = 'C:\cache\ms-playwright'`) {
+		t.Errorf("pane line = %q, want the unrelated redirect kept", line)
+	}
+}
+
+func TestSpawnDispatchesAndReportsWhenTheDependencyInstallFails(t *testing.T) {
+	fixture := newFixture(t)
+	// Strategy install is the default and its command is auto-detected from a
+	// lockfile, so no project opted into it. A drifted lockfile must not turn
+	// every dispatch into this repo into a failure.
+	writeFile(t, filepath.Join(fixture.worktree, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n")
+	fixture.runner.installer = "pnpm"
+	fixture.runner.installerStderr = "ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with frozen-lockfile\n"
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v, want the goblin dispatched anyway", err)
+	}
+	if !slices.Contains(fixture.events, "install") {
+		t.Fatalf("events = %v, want the detected installer to have run", fixture.events)
+	}
+	if !strings.Contains(result.Output, "pnpm install --frozen-lockfile") ||
+		!strings.Contains(result.Output, "ERR_PNPM_OUTDATED_LOCKFILE") {
+		t.Errorf("output = %q, want the failed install command and its cause reported", result.Output)
+	}
+	// Nothing was torn down: the task is published, the tab is open, and the
+	// harness got its brief.
+	if _, err := state.ReadTaskMeta(fixture.stateDir, fixture.request.ID); err != nil {
+		t.Fatalf("read metadata after a failed install: %v", err)
+	}
+	if slices.Contains(fixture.events, "tab-close") || fixture.git.returned != 0 {
+		t.Errorf("events = %v, worktree returns = %d; want the dispatch left intact", fixture.events, fixture.git.returned)
+	}
+	if fixture.runner.prompt == "" && fixture.runner.literal == "" {
+		t.Error("no harness was launched after the failed install")
+	}
+}
+
+func TestSpawnRefusesUnvalidatableWorktreeWithoutLaunching(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.git.topErr = errors.New("worktree: not a git worktree")
 	primaryMarker := filepath.Join(fixture.project, "primary-marker.txt")
 	writeFile(t, primaryMarker, "unchanged")
 
 	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err == nil || !strings.Contains(err.Error(), "dirty") {
-		t.Fatalf("Spawn dirty worktree error = %v, want dirty refusal", err)
+	if err == nil || !strings.Contains(err.Error(), "not a git worktree") {
+		t.Fatalf("Spawn unvalidatable worktree error = %v, want a validation refusal", err)
 	}
 	if fixture.runner.literal != "" || fixture.runner.enterKeys != 0 {
-		t.Fatalf("dirty worktree launched a harness: literal=%q enter=%d", fixture.runner.literal, fixture.runner.enterKeys)
+		t.Fatalf("unvalidatable worktree launched a harness: literal=%q enter=%d", fixture.runner.literal, fixture.runner.enterKeys)
 	}
 	if got, readErr := os.ReadFile(primaryMarker); readErr != nil || string(got) != "unchanged" {
-		t.Fatalf("primary project changed after dirty refusal: %q, %v", got, readErr)
+		t.Fatalf("primary project changed after the refusal: %q, %v", got, readErr)
 	}
 	if _, statErr := os.Stat(fixture.worktree); statErr != nil {
-		t.Fatalf("dirty refusal removed acquired worktree: %v", statErr)
+		t.Fatalf("refusal removed acquired worktree: %v", statErr)
 	}
 	if fixture.git.returned != 1 {
-		t.Fatalf("dirty refusal returned the lease %d times, want 1", fixture.git.returned)
+		t.Fatalf("refusal returned the lease %d times, want 1", fixture.git.returned)
 	}
 }
 
@@ -585,7 +714,7 @@ func TestSpawnRejectsMalformedHerdrIDsBeforeDownstreamWork(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "control character") {
 				t.Fatalf("Spawn malformed Herdr ID error = %v, want control character refusal", err)
 			}
-			if slices.Contains(fixture.events, "treehouse-get") || fixture.runner.literal != "" || fixture.runner.enterKeys != 0 {
+			if slices.Contains(fixture.events, "worktree-acquire") || fixture.runner.literal != "" || fixture.runner.enterKeys != 0 {
 				t.Fatalf("malformed Herdr ID reached downstream work: literal=%q enter=%d events=%v", fixture.runner.literal, fixture.runner.enterKeys, fixture.events)
 			}
 			if !reflect.DeepEqual(fixture.events, test.events) {
@@ -602,9 +731,9 @@ func TestSpawnPostAcquisitionFailuresReturnPartialResultAndStatus(t *testing.T) 
 		want string
 	}{
 		{
-			name: "freshen",
-			set:  func(f *fixture) { f.git.freshenErr = errors.New("treehouse: worktree is dirty") },
-			want: "worktree is dirty",
+			name: "validate",
+			set:  func(f *fixture) { f.git.topErr = errors.New("worktree: not a git worktree") },
+			want: "not a git worktree",
 		},
 		{
 			name: "build",
@@ -645,11 +774,11 @@ func TestSpawnPostAcquisitionFailuresReturnPartialResultAndStatus(t *testing.T) 
 
 func TestSpawnPostAcquireFailureSurfacesReturnError(t *testing.T) {
 	fixture := newFixture(t)
-	fixture.git.freshenErr = errors.New("treehouse: worktree is dirty")
-	fixture.git.returnErr = errors.New("treehouse: return refused")
+	fixture.git.topErr = errors.New("worktree: not a git worktree")
+	fixture.git.returnErr = errors.New("worktree: return refused")
 
 	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err == nil || !strings.Contains(err.Error(), "worktree is dirty") || !strings.Contains(err.Error(), "return refused") {
+	if err == nil || !strings.Contains(err.Error(), "not a git worktree") || !strings.Contains(err.Error(), "return refused") {
 		t.Fatalf("Spawn error = %v, want joined launch and return failures", err)
 	}
 	if fixture.git.returned != 1 {
@@ -816,7 +945,7 @@ func TestSpawnRejectsUnsupportedHerdrKindBeforeMutation(t *testing.T) {
 		t.Fatalf("events = %v, want preflight plus kind discovery only", got)
 	}
 	if fixture.runner.literal != "" || fixture.runner.enterKeys != 0 || fixture.git.returned != 0 {
-		t.Fatalf("unsupported kind mutated Herdr or treehouse: literal=%q enter=%d returned=%d", fixture.runner.literal, fixture.runner.enterKeys, fixture.git.returned)
+		t.Fatalf("unsupported kind mutated Herdr or worktree state: literal=%q enter=%d returned=%d", fixture.runner.literal, fixture.runner.enterKeys, fixture.git.returned)
 	}
 }
 
@@ -847,40 +976,44 @@ type fixture struct {
 	service  Service
 	request  Request
 	stateDir string
+	dataDir  string
 	project  string
 	worktree string
 	brief    string
 	events   []string
+	specs    []harness.LaunchSpec
 	runner   *herdrRunner
-	git      *treehouseGit
+	git      *worktreeGit
 }
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	root := t.TempDir()
 	stateDir := makeDir(t, filepath.Join(root, "state"))
+	dataDir := makeDir(t, filepath.Join(root, "data"))
 	project := makeDir(t, filepath.Join(root, "primary"))
-	worktree := makeDir(t, filepath.Join(root, "worktree"))
+	worktreeDir := makeDir(t, filepath.Join(root, "worktree"))
 	brief := filepath.Join(root, "brief.md")
 	writeFile(t, brief, "Delivery contract: mode=no-mistakes\nDo the work.\n")
 	writeFile(t, filepath.Join(project, "primary-marker.txt"), "unchanged")
 
-	fixture := &fixture{stateDir: stateDir, project: project, worktree: worktree, brief: brief}
-	fixture.runner = &herdrRunner{events: &fixture.events, worktree: worktree, agentStatus: "working", manifests: []string{"claude", "codex", "pi", "kimi"}}
-	fixture.git = &treehouseGit{events: &fixture.events, top: worktree}
+	fixture := &fixture{stateDir: stateDir, dataDir: dataDir, project: project, worktree: worktreeDir, brief: brief}
+	fixture.runner = &herdrRunner{events: &fixture.events, worktree: worktreeDir, agentStatus: "working", manifests: []string{"claude", "codex", "pi", "kimi"}}
+	fixture.git = &worktreeGit{events: &fixture.events, top: worktreeDir}
 	fixture.service = Service{
 		Herdr: &herdr.Client{
 			Commands: fixture.runner,
 			Session:  "fleet",
 			Sleep:    func(context.Context, time.Duration) error { return nil },
 		},
-		Treehouse: treehouse.Service{
+		Worktrees: worktree.Service{
 			Commands: fixture.runner,
 			Git:      fixture.git,
+			DataDir:  dataDir,
 			Sleep:    func(context.Context, time.Duration) error { return nil },
 		},
 		Harness: harness.Registry{Adapters: map[harness.Kind]harness.Adapter{
-			harness.Claude: fixtureAdapter{events: &fixture.events},
+			harness.Claude: fixtureAdapter{events: &fixture.events, specs: &fixture.specs},
 		}},
 		StateDir: stateDir,
 		Project:  project,
@@ -906,6 +1039,7 @@ func newFixture(t *testing.T) *fixture {
 
 type fixtureAdapter struct {
 	events      *[]string
+	specs       *[]harness.LaunchSpec
 	buildErr    error
 	confirmKeys []string
 }
@@ -961,6 +1095,9 @@ func (a fixtureAdapter) Validate(context.Context, execx.Runner) error {
 
 func (a fixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
 	*a.events = append(*a.events, "build-harness")
+	if a.specs != nil {
+		*a.specs = append(*a.specs, spec)
+	}
 	if a.buildErr != nil {
 		return harness.Launch{}, a.buildErr
 	}
@@ -977,30 +1114,39 @@ func (a fixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
 	}, nil
 }
 
-type treehouseGit struct {
-	events     *[]string
-	top        string
-	freshenErr error
-	returnErr  error
-	returned   int
+type worktreeGit struct {
+	events    *[]string
+	top       string
+	topErr    error
+	returnErr error
+	returned  int
 }
 
-func (g *treehouseGit) WorktreeTop(context.Context, string) (string, error) {
-	*g.events = append(*g.events, "validate-worktree")
+func (g *worktreeGit) Acquire(_ context.Context, project, holder string) (string, error) {
+	*g.events = append(*g.events, "worktree-acquire")
+	if !strings.HasPrefix(holder, "gb-") {
+		return "", fmt.Errorf("unexpected holder %q", holder)
+	}
+	if project == "" {
+		return "", fmt.Errorf("project is required")
+	}
 	return g.top, nil
 }
 
-func (g *treehouseGit) FetchAndFreshen(context.Context, string) error {
-	*g.events = append(*g.events, "freshen")
-	return g.freshenErr
+func (g *worktreeGit) WorktreeTop(context.Context, string) (string, error) {
+	*g.events = append(*g.events, "validate-worktree")
+	if g.topErr != nil {
+		return "", g.topErr
+	}
+	return g.top, nil
 }
 
-func (g *treehouseGit) Return(context.Context, string, string) error {
+func (g *worktreeGit) Return(context.Context, string, string) error {
 	g.returned++
 	return g.returnErr
 }
 
-func (g *treehouseGit) EnsureSeeded(context.Context, string) (bool, error) {
+func (g *worktreeGit) EnsureSeeded(context.Context, string) (bool, error) {
 	return false, nil
 }
 
@@ -1039,20 +1185,31 @@ type herdrRunner struct {
 	failSendTextAt   int
 	failSendTexts    int
 	failCtrlUs       int
+	installer        string
+	installerStderr  string
+	mcpTracked       bool
 }
 
 func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
 	r.calls++
-	if req.Name == "treehouse" {
-		*r.events = append(*r.events, "treehouse-get")
-		if len(req.Args) != 5 || req.Args[0] != "get" || req.Args[1] != "--lease" || req.Args[2] != "--json" || req.Args[3] != "--lease-holder" || !strings.HasPrefix(req.Args[4], "gb-") {
-			return execx.Result{}, fmt.Errorf("unexpected treehouse request: %#v", req)
-		}
-		return execx.Result{Stdout: []byte(`{"path":` + quoteJSON(r.worktree) + `,"lease_id":"lease-1","lease_holder":"gb"}`)}, nil
-	}
 	wantSession := r.session
 	if wantSession == "" {
 		wantSession = "fleet"
+	}
+	// Provisioning drives the same runner: it asks git whether a path is
+	// already ignored, then runs the project's own installer.
+	if req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "check-ignore" {
+		return execx.Result{}, nil
+	}
+	if req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "ls-files" {
+		if r.mcpTracked {
+			return execx.Result{Stdout: []byte(".mcp.json\n")}, nil
+		}
+		return execx.Result{ExitCode: 1}, nil
+	}
+	if r.installer != "" && req.Name == r.installer {
+		*r.events = append(*r.events, "install")
+		return execx.Result{ExitCode: 1, Stderr: []byte(r.installerStderr)}, nil
 	}
 	if req.Name == "pi" {
 		*r.events = append(*r.events, "validate-harness")

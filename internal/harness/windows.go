@@ -25,7 +25,7 @@ func (launch Launch) PowerShellPrefix() (string, error) {
 
 	keys := make([]string, 0, len(launch.Env))
 	for key := range launch.Env {
-		if !validEnvironmentName(key) {
+		if !ValidEnvironmentName(key) {
 			return "", fmt.Errorf("harness: invalid environment name %q", key)
 		}
 		keys = append(keys, key)
@@ -57,7 +57,7 @@ func (launch Launch) PowerShellPrefix() (string, error) {
 func RenderEnvScript(env map[string]string) (string, error) {
 	keys := make([]string, 0, len(env))
 	for key := range env {
-		if !validEnvironmentName(key) {
+		if !ValidEnvironmentName(key) {
 			return "", fmt.Errorf("harness: invalid environment name %q", key)
 		}
 		keys = append(keys, key)
@@ -100,7 +100,12 @@ func powerShellLiteral(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
-func validEnvironmentName(name string) bool {
+// ValidEnvironmentName reports whether name can be assigned as $env:name in
+// the pane shell. It is the single rule for environment names: rendering
+// enforces it, and a worktree manifest's env redirects are validated against it
+// at resolve time, so a bad name is refused before anything is stopped or
+// provisioned rather than at launch.
+func ValidEnvironmentName(name string) bool {
 	for index, character := range name {
 		if character == '_' || unicode.IsLetter(character) || (index > 0 && unicode.IsDigit(character)) {
 			continue
