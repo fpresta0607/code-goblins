@@ -2,6 +2,7 @@ package install
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -54,6 +55,7 @@ type fakeEnv struct {
 	values     map[string]string
 	broadcasts int
 	setCalls   []string
+	getErr     error
 }
 
 func newFakeEnv(values map[string]string) *fakeEnv {
@@ -65,6 +67,9 @@ func newFakeEnv(values map[string]string) *fakeEnv {
 }
 
 func (e *fakeEnv) Get(name string) (string, bool, error) {
+	if e.getErr != nil {
+		return "", false, e.getErr
+	}
 	value, ok := e.values[name]
 	return value, ok, nil
 }
@@ -452,6 +457,70 @@ func TestInstallDoesNotDuplicateAPathEntryWrittenWithVariables(t *testing.T) {
 
 	if got, want := f.env.values["Path"], `C:\Windows;%CFO_TEST_TOOLS%\code-goblins`; got != want {
 		t.Errorf("PATH = %q, want it untouched at %q", got, want)
+	}
+}
+
+func TestInstallRefusesWithNothingChangedWhenTheEnvironmentIsUnreadable(t *testing.T) {
+	f := newFixture(t, adopterSettings, nil)
+	f.env.getErr = errors.New("install: user-scope environment variables are Windows-only")
+	var out strings.Builder
+	if err := f.service.Install(&out); err == nil {
+		t.Fatal("install proceeded on a machine whose environment store cannot be read")
+	}
+	raw, err := os.ReadFile(f.user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != adopterSettings {
+		t.Errorf("the settings file was written before the environment refusal:\n%s", raw)
+	}
+	if _, err := os.Stat(f.user + backupSuffix); !os.IsNotExist(err) {
+		t.Errorf("a backup was written for an install that refused: %v", err)
+	}
+}
+
+func TestUninstallRefusesWithNothingChangedWhenTheEnvironmentIsUnreadable(t *testing.T) {
+	f := newFixture(t, adopterSettings, map[string]string{"Path": `C:\Windows`})
+	f.install()
+	installed, err := os.ReadFile(f.user)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f.env.getErr = errors.New("registry unreadable")
+	var out strings.Builder
+	if err := f.service.Uninstall(&out); err == nil {
+		t.Fatal("uninstall proceeded on a machine whose environment store cannot be read")
+	}
+	after, err := os.ReadFile(f.user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(installed) {
+		t.Errorf("the settings file was rewritten before the environment refusal:\n%s", after)
+	}
+}
+
+func TestInstallWarnsWhenTheBinaryIsMissing(t *testing.T) {
+	f := newFixture(t, adopterSettings, nil)
+	output := f.install()
+
+	for _, want := range []string{"WARNING", "UNSUPERVISED", "go build ./cmd/cfo"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output is missing %q on a root with no cfo.exe:\n%s", want, output)
+		}
+	}
+}
+
+func TestInstallDoesNotWarnWhenTheBinaryIsPresent(t *testing.T) {
+	f := newFixture(t, adopterSettings, nil)
+	if err := os.WriteFile(filepath.Join(f.root, "cfo.exe"), []byte("binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	output := f.install()
+
+	if strings.Contains(output, "WARNING") {
+		t.Errorf("output warns about a binary that exists:\n%s", output)
 	}
 }
 

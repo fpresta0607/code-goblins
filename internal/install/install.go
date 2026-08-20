@@ -40,10 +40,15 @@ type Service struct {
 func (s Service) Install(out io.Writer) error {
 	report := &reporter{out: out}
 
-	// The settings files go first. They are the step that can refuse - a
+	// The environment store is probed before anything is written, so an
+	// unsupported platform or an unreadable HKCU\Environment refuses here
+	// with the machine untouched. The settings files then go before the
+	// environment writes: they are the step that can refuse on content - a
 	// hooks block this package cannot understand is not something to guess
-	// at - and refusing before any environment variable has been written is
-	// what keeps a failed install from leaving half of one behind.
+	// at - and refusing there still leaves the environment as it was.
+	if _, _, err := s.Env.Get(homeVariable); err != nil {
+		return err
+	}
 	if err := s.writeUserHooks(report); err != nil {
 		return err
 	}
@@ -56,7 +61,11 @@ func (s Service) Install(out io.Writer) error {
 	if err := s.addToPath(report); err != nil {
 		return err
 	}
-	return s.finish(report, "cfo install: already installed - nothing changed")
+	if err := s.finish(report, "cfo install: already installed - nothing changed"); err != nil {
+		return err
+	}
+	s.warnMissingBinary(out)
+	return nil
 }
 
 // Uninstall reverses Install. An adopter who cannot cleanly back out will
@@ -65,6 +74,9 @@ func (s Service) Install(out io.Writer) error {
 func (s Service) Uninstall(out io.Writer) error {
 	report := &reporter{out: out}
 
+	if _, _, err := s.Env.Get(homeVariable); err != nil {
+		return err
+	}
 	if err := s.removeUserHooks(report); err != nil {
 		return err
 	}
@@ -89,6 +101,21 @@ func (s Service) finish(report *reporter, idleLine string) error {
 		fmt.Fprintln(report.out, idleLine)
 	}
 	return nil
+}
+
+// warnMissingBinary is the loud counterpart of the hooks' quiet `|| exit 0`
+// guard. Installing before the binary is built is a supported flow, so this
+// warns rather than refuses - but without it, `cfo install` would bless with
+// a success message the exact silent-inertness this package exists to kill.
+func (s Service) warnMissingBinary(out io.Writer) {
+	binary := filepath.Join(s.Root, "cfo.exe")
+	if _, err := os.Stat(binary); err == nil {
+		return
+	}
+	fmt.Fprintf(out, "\nWARNING: %s does not exist.\n", binary)
+	fmt.Fprintln(out, "Every installed hook checks for that binary and exits 0 when it is missing,")
+	fmt.Fprintln(out, "so sessions will run UNSUPERVISED with nothing announcing it.")
+	fmt.Fprintln(out, "Build it from the checkout: go build ./cmd/cfo")
 }
 
 func (s Service) setHome(report *reporter) error {
