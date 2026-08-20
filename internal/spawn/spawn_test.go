@@ -19,7 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/treehouse"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 func TestSpawnRejectsInvalidIDBeforeFilesystemMutation(t *testing.T) {
@@ -183,7 +183,7 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 		"workspace-list",
 		"tab-list",
 		"tab-create",
-		"treehouse-get",
+		"worktree-acquire",
 		"validate-worktree",
 		"freshen",
 		"validate-harness",
@@ -268,7 +268,7 @@ func TestSpawnUsesRequestedHerdrSession(t *testing.T) {
 
 func TestSpawnRefusesDirtyWorktreeWithoutLaunching(t *testing.T) {
 	fixture := newFixture(t)
-	fixture.git.freshenErr = errors.New("treehouse: worktree is dirty")
+	fixture.git.freshenErr = errors.New("worktree: worktree is dirty")
 	primaryMarker := filepath.Join(fixture.project, "primary-marker.txt")
 	writeFile(t, primaryMarker, "unchanged")
 
@@ -585,7 +585,7 @@ func TestSpawnRejectsMalformedHerdrIDsBeforeDownstreamWork(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "control character") {
 				t.Fatalf("Spawn malformed Herdr ID error = %v, want control character refusal", err)
 			}
-			if slices.Contains(fixture.events, "treehouse-get") || fixture.runner.literal != "" || fixture.runner.enterKeys != 0 {
+			if slices.Contains(fixture.events, "worktree-acquire") || fixture.runner.literal != "" || fixture.runner.enterKeys != 0 {
 				t.Fatalf("malformed Herdr ID reached downstream work: literal=%q enter=%d events=%v", fixture.runner.literal, fixture.runner.enterKeys, fixture.events)
 			}
 			if !reflect.DeepEqual(fixture.events, test.events) {
@@ -603,7 +603,7 @@ func TestSpawnPostAcquisitionFailuresReturnPartialResultAndStatus(t *testing.T) 
 	}{
 		{
 			name: "freshen",
-			set:  func(f *fixture) { f.git.freshenErr = errors.New("treehouse: worktree is dirty") },
+			set:  func(f *fixture) { f.git.freshenErr = errors.New("worktree: worktree is dirty") },
 			want: "worktree is dirty",
 		},
 		{
@@ -645,8 +645,8 @@ func TestSpawnPostAcquisitionFailuresReturnPartialResultAndStatus(t *testing.T) 
 
 func TestSpawnPostAcquireFailureSurfacesReturnError(t *testing.T) {
 	fixture := newFixture(t)
-	fixture.git.freshenErr = errors.New("treehouse: worktree is dirty")
-	fixture.git.returnErr = errors.New("treehouse: return refused")
+	fixture.git.freshenErr = errors.New("worktree: worktree is dirty")
+	fixture.git.returnErr = errors.New("worktree: return refused")
 
 	_, err := fixture.service.Spawn(context.Background(), fixture.request)
 	if err == nil || !strings.Contains(err.Error(), "worktree is dirty") || !strings.Contains(err.Error(), "return refused") {
@@ -816,7 +816,7 @@ func TestSpawnRejectsUnsupportedHerdrKindBeforeMutation(t *testing.T) {
 		t.Fatalf("events = %v, want preflight plus kind discovery only", got)
 	}
 	if fixture.runner.literal != "" || fixture.runner.enterKeys != 0 || fixture.git.returned != 0 {
-		t.Fatalf("unsupported kind mutated Herdr or treehouse: literal=%q enter=%d returned=%d", fixture.runner.literal, fixture.runner.enterKeys, fixture.git.returned)
+		t.Fatalf("unsupported kind mutated Herdr or worktree state: literal=%q enter=%d returned=%d", fixture.runner.literal, fixture.runner.enterKeys, fixture.git.returned)
 	}
 }
 
@@ -852,7 +852,7 @@ type fixture struct {
 	brief    string
 	events   []string
 	runner   *herdrRunner
-	git      *treehouseGit
+	git      *worktreeGit
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -860,21 +860,21 @@ func newFixture(t *testing.T) *fixture {
 	root := t.TempDir()
 	stateDir := makeDir(t, filepath.Join(root, "state"))
 	project := makeDir(t, filepath.Join(root, "primary"))
-	worktree := makeDir(t, filepath.Join(root, "worktree"))
+	worktreeDir := makeDir(t, filepath.Join(root, "worktree"))
 	brief := filepath.Join(root, "brief.md")
 	writeFile(t, brief, "Delivery contract: mode=no-mistakes\nDo the work.\n")
 	writeFile(t, filepath.Join(project, "primary-marker.txt"), "unchanged")
 
-	fixture := &fixture{stateDir: stateDir, project: project, worktree: worktree, brief: brief}
-	fixture.runner = &herdrRunner{events: &fixture.events, worktree: worktree, agentStatus: "working", manifests: []string{"claude", "codex", "pi", "kimi"}}
-	fixture.git = &treehouseGit{events: &fixture.events, top: worktree}
+	fixture := &fixture{stateDir: stateDir, project: project, worktree: worktreeDir, brief: brief}
+	fixture.runner = &herdrRunner{events: &fixture.events, worktree: worktreeDir, agentStatus: "working", manifests: []string{"claude", "codex", "pi", "kimi"}}
+	fixture.git = &worktreeGit{events: &fixture.events, top: worktreeDir}
 	fixture.service = Service{
 		Herdr: &herdr.Client{
 			Commands: fixture.runner,
 			Session:  "fleet",
 			Sleep:    func(context.Context, time.Duration) error { return nil },
 		},
-		Treehouse: treehouse.Service{
+		Worktrees: worktree.Service{
 			Commands: fixture.runner,
 			Git:      fixture.git,
 			Sleep:    func(context.Context, time.Duration) error { return nil },
@@ -977,7 +977,7 @@ func (a fixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
 	}, nil
 }
 
-type treehouseGit struct {
+type worktreeGit struct {
 	events     *[]string
 	top        string
 	freshenErr error
@@ -985,22 +985,33 @@ type treehouseGit struct {
 	returned   int
 }
 
-func (g *treehouseGit) WorktreeTop(context.Context, string) (string, error) {
+func (g *worktreeGit) Acquire(_ context.Context, project, holder string) (string, error) {
+	*g.events = append(*g.events, "worktree-acquire")
+	if !strings.HasPrefix(holder, "gb-") {
+		return "", fmt.Errorf("unexpected holder %q", holder)
+	}
+	if project == "" {
+		return "", fmt.Errorf("project is required")
+	}
+	return g.top, nil
+}
+
+func (g *worktreeGit) WorktreeTop(context.Context, string) (string, error) {
 	*g.events = append(*g.events, "validate-worktree")
 	return g.top, nil
 }
 
-func (g *treehouseGit) FetchAndFreshen(context.Context, string) error {
+func (g *worktreeGit) FetchAndFreshen(context.Context, string) error {
 	*g.events = append(*g.events, "freshen")
 	return g.freshenErr
 }
 
-func (g *treehouseGit) Return(context.Context, string, string) error {
+func (g *worktreeGit) Return(context.Context, string, string) error {
 	g.returned++
 	return g.returnErr
 }
 
-func (g *treehouseGit) EnsureSeeded(context.Context, string) (bool, error) {
+func (g *worktreeGit) EnsureSeeded(context.Context, string) (bool, error) {
 	return false, nil
 }
 
@@ -1043,13 +1054,6 @@ type herdrRunner struct {
 
 func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
 	r.calls++
-	if req.Name == "treehouse" {
-		*r.events = append(*r.events, "treehouse-get")
-		if len(req.Args) != 5 || req.Args[0] != "get" || req.Args[1] != "--lease" || req.Args[2] != "--json" || req.Args[3] != "--lease-holder" || !strings.HasPrefix(req.Args[4], "gb-") {
-			return execx.Result{}, fmt.Errorf("unexpected treehouse request: %#v", req)
-		}
-		return execx.Result{Stdout: []byte(`{"path":` + quoteJSON(r.worktree) + `,"lease_id":"lease-1","lease_holder":"gb"}`)}, nil
-	}
 	wantSession := r.session
 	if wantSession == "" {
 		wantSession = "fleet"

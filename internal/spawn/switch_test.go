@@ -135,7 +135,7 @@ func newSwitchFixture(t *testing.T) *switchFixture {
 	}
 	service := base.service
 	service.Herdr.Commands = runner
-	service.Treehouse.Commands = runner
+	service.Worktrees.Commands = runner
 	service.Commands = runner
 	service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{
 		harness.Claude: fixtureAdapter{events: &base.events},

@@ -15,7 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/treehouse"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 const (
@@ -138,27 +138,27 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: canonicalize project %q: %w", meta.Project, err)
 	}
-	worktree, err := fsx.Canonical(meta.Worktree)
+	worktreePath, err := fsx.Canonical(meta.Worktree)
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: canonicalize worktree %q: %w", meta.Worktree, err)
 	}
-	if fsx.SamePath(worktree, project) {
-		return SwitchResult{}, fmt.Errorf("switch: worktree %q is the primary checkout", worktree)
+	if fsx.SamePath(worktreePath, project) {
+		return SwitchResult{}, fmt.Errorf("switch: worktree %q is the primary checkout", worktreePath)
 	}
-	git, err := s.treehouseGit()
+	git, err := s.worktreeGit()
 	if err != nil {
 		return SwitchResult{}, err
 	}
-	if err := treehouse.Validate(ctx, git, project, worktree); err != nil {
+	if err := worktree.Validate(ctx, git, project, worktreePath); err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: validate worktree: %w", err)
 	}
 
-	dirty, err := s.worktreeStatus(ctx, worktree)
+	dirty, err := s.worktreeStatus(ctx, worktreePath)
 	if err != nil {
 		return SwitchResult{}, err
 	}
 	if dirty != "" && !req.ForceDirty {
-		return SwitchResult{}, fmt.Errorf("switch: worktree %q has uncommitted changes; commit them or rerun with --force-dirty:\n%s", worktree, dirty)
+		return SwitchResult{}, fmt.Errorf("switch: worktree %q has uncommitted changes; commit them or rerun with --force-dirty:\n%s", worktreePath, dirty)
 	}
 
 	if err := adapter.Validate(ctx, herdrClient.Commands); err != nil {
@@ -180,7 +180,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		briefPath = req.BriefPath
 	}
 
-	handoff, resumed, err := s.relaunchHarness(ctx, &herdrClient, paneTarget, meta, target, adapter, project, worktree, briefPath, dirty, req.ID)
+	handoff, resumed, err := s.relaunchHarness(ctx, &herdrClient, paneTarget, meta, target, adapter, project, worktreePath, briefPath, dirty, req.ID)
 	if err != nil {
 		from := describe(meta.Harness, meta.Model, meta.Effort)
 		if writeErr := s.publishSwitch(&meta, target); writeErr != nil {
@@ -199,13 +199,13 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		switch {
 		case statusErr == nil && status == herdr.AgentAlive:
 			recovery = fmt.Sprintf("the pane still holds a live %s agent: it started but the switch did not complete cleanly. Work in %s is untouched. Steer the pane directly or inspect it with `cfo peek %s` - do NOT rerun `cfo switch`, which would stop a running harness.",
-				to, worktree, req.ID)
+				to, worktreePath, req.ID)
 		case statusErr == nil && (status == herdr.AgentDead || status == herdr.AgentMissing):
 			recovery = fmt.Sprintf("the pane now has no harness: %s was stopped and %s did not start. Work in %s is untouched; start one with `cfo switch %s --harness <h>`",
-				from, to, worktree, req.ID)
+				from, to, worktreePath, req.ID)
 		default:
 			recovery = fmt.Sprintf("herdr could not verify what the pane holds (%s), so a working %s may still be running in it. Work in %s is untouched. Inspect it with `cfo peek %s` before any further `cfo switch`, which would stop a running harness.",
-				statusErr, to, worktree, req.ID)
+				statusErr, to, worktreePath, req.ID)
 		}
 		if errors.Is(err, errBuildLaunch) {
 			recovery += " If the new harness refused an effort, retry with `--effort default` to clear it."
@@ -235,7 +235,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 
 	result.Meta = meta
 	result.From = from
-	result.Output = fmt.Sprintf("switched %s %s -> %s worktree=%s window=%s", req.ID, from, describe(meta.Harness, meta.Model, meta.Effort), worktree, meta.Window)
+	result.Output = fmt.Sprintf("switched %s %s -> %s worktree=%s window=%s", req.ID, from, describe(meta.Harness, meta.Model, meta.Effort), worktreePath, meta.Window)
 	if result.Handoff != "" {
 		result.Output += "\nhandoff " + result.Handoff
 	}
@@ -255,6 +255,7 @@ func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, pane
 		TaskTmp:   meta.TaskTmp,
 		Model:     target.Model,
 		Effort:    target.Effort,
+		MCPConfig: goblinMCPConfig(worktree),
 	})
 	if err != nil {
 		return "", false, fmt.Errorf("%w: %w", errBuildLaunch, err)
@@ -454,7 +455,7 @@ func (s Service) commands() execx.Runner {
 	if s.Herdr != nil && s.Herdr.Commands != nil {
 		return s.Herdr.Commands
 	}
-	return s.Treehouse.Commands
+	return s.Worktrees.Commands
 }
 
 // writeHandoff records everything the new harness needs to pick the task up

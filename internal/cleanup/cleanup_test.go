@@ -14,7 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/treehouse"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 type cleanupRunner struct {
@@ -64,6 +64,10 @@ type cleanupGit struct {
 	returned  [][2]string
 }
 
+func (g *cleanupGit) Acquire(context.Context, string, string) (string, error) {
+	return "", errors.New("cleanup tests never acquire")
+}
+
 func (g *cleanupGit) WorktreeTop(_ context.Context, dir string) (string, error) {
 	return g.top, nil
 }
@@ -111,12 +115,12 @@ func newCleanupFixture(t *testing.T) *cleanupFixture {
 	}
 	stateDir := makeCanonicalDir("state")
 	project := makeCanonicalDir("project")
-	worktree := makeCanonicalDir("worktree")
+	worktreeDir := makeCanonicalDir("worktree")
 
 	meta := state.TaskMeta{
 		ID:               "g1",
 		Window:           "fleet:pane-g1",
-		Worktree:         worktree,
+		Worktree:         worktreeDir,
 		Project:          project,
 		Harness:          "claude",
 		Backend:          "herdr",
@@ -130,11 +134,11 @@ func newCleanupFixture(t *testing.T) *cleanupFixture {
 	}
 
 	runner := &cleanupRunner{snapshotBody: cleanupSnapshot(`{"pane_id":"pane-g1","tab_id":"tab-g1","workspace_id":"ws"}`, "")}
-	git := &cleanupGit{top: worktree}
+	git := &cleanupGit{top: worktreeDir}
 	fixture := &cleanupFixture{
 		stateDir: stateDir,
 		project:  project,
-		worktree: worktree,
+		worktree: worktreeDir,
 		runner:   runner,
 		git:      git,
 		meta:     meta,
@@ -143,7 +147,7 @@ func newCleanupFixture(t *testing.T) *cleanupFixture {
 		StateDir:  stateDir,
 		Commands:  runner,
 		Herdr:     &herdr.Client{Commands: runner, Session: "fleet"},
-		Treehouse: treehouse.Service{Git: git},
+		Worktrees: worktree.Service{Git: git},
 	}
 	return fixture
 }
@@ -190,7 +194,7 @@ func (f *cleanupFixture) assertMetadataPreserved(t *testing.T) {
 		t.Fatalf("metadata = %+v, want the task record retained for a safe retry", meta)
 	}
 	if len(f.git.returned) != 0 {
-		t.Fatalf("treehouse return calls = %v, want none for a refused cleanup", f.git.returned)
+		t.Fatalf("worktree return calls = %v, want none for a refused cleanup", f.git.returned)
 	}
 	f.assertNoLifecycleRequests(t)
 }
@@ -207,7 +211,7 @@ func TestCleanupReturnsCleanInactiveWorktree(t *testing.T) {
 		t.Errorf("Output = %q, want %q", result.Output, wantOutput)
 	}
 	if len(fixture.git.returned) != 1 || fixture.git.returned[0] != [2]string{fixture.project, fixture.worktree} {
-		t.Fatalf("treehouse return calls = %v, want one return of the exact canonical project and worktree", fixture.git.returned)
+		t.Fatalf("worktree return calls = %v, want one return of the exact canonical project and worktree", fixture.git.returned)
 	}
 	if _, err := os.Stat(filepath.Join(fixture.stateDir, "g1.meta")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("metadata survives successful cleanup: %v", err)
@@ -233,7 +237,7 @@ func TestCleanupAcceptsMissingPaneAsInactiveEvidence(t *testing.T) {
 		t.Fatalf("Cleanup with a structurally missing pane: %v", err)
 	}
 	if len(fixture.git.returned) != 1 {
-		t.Fatalf("treehouse return calls = %v, want one", fixture.git.returned)
+		t.Fatalf("worktree return calls = %v, want one", fixture.git.returned)
 	}
 	fixture.assertOnlyTabCloseLifecycle(t)
 }
@@ -250,7 +254,7 @@ func TestCleanupTabCloseFailurePreservesMetadataAndSkipsReturn(t *testing.T) {
 		t.Fatalf("metadata lost after tab close failure: %v", metaErr)
 	}
 	if len(fixture.git.returned) != 0 {
-		t.Fatalf("treehouse return calls = %v, want none when the tab close fails", fixture.git.returned)
+		t.Fatalf("worktree return calls = %v, want none when the tab close fails", fixture.git.returned)
 	}
 }
 
@@ -371,14 +375,14 @@ func TestCleanupRefusals(t *testing.T) {
 
 func TestCleanupPreservesMetadataWhenReturnFails(t *testing.T) {
 	fixture := newCleanupFixture(t)
-	fixture.git.returnErr = errors.New("treehouse: ambiguous return refused")
+	fixture.git.returnErr = errors.New("worktree: ambiguous return refused")
 
 	_, err := fixture.service.Cleanup(context.Background(), "g1")
 	if err == nil || !strings.Contains(err.Error(), "ambiguous return refused") {
-		t.Fatalf("Cleanup error = %v, want the treehouse return failure", err)
+		t.Fatalf("Cleanup error = %v, want the worktree return failure", err)
 	}
 	if len(fixture.git.returned) != 1 || fixture.git.returned[0] != [2]string{fixture.project, fixture.worktree} {
-		t.Fatalf("treehouse return calls = %v, want one attempted canonical return", fixture.git.returned)
+		t.Fatalf("worktree return calls = %v, want one attempted canonical return", fixture.git.returned)
 	}
 	meta, readErr := state.ReadTaskMeta(fixture.stateDir, "g1")
 	if readErr != nil {

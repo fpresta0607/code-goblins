@@ -36,7 +36,7 @@ The full design and the explicit v1 scope live in [docs/superpowers/specs/2026-0
 
 - **One fleet binary** - `cfo.exe`, downloaded by `install.ps1` (or built from source with `go build ./cmd/cfo`). `install.ps1 -Bootstrap` also installs `showcase-axi.exe` (the repo-owned review surface) and the rest of the toolchain.
 - **Real Windows sessions** - goblins run in [Herdr](https://herdr.dev), one tab per goblin.
-- **Isolated worktrees** - every goblin gets a clean worktree from [treehouse](https://github.com/kunchenguid/treehouse).
+- **Isolated worktrees** - every goblin gets a clean in-repo git worktree at `<project>/.worktrees/<id>`, provisioned with the project's config files, dependencies, and token-authenticated MCP servers so it is runnable without re-installing by hand.
 - **Four harnesses** - Claude Code, Codex, Pi, and Kimi, each with typed, validated launch mapping; claude, codex, and kimi start as named native Herdr agents (`gb-<id>`) and receive their brief through `herdr agent prompt`, while pi is typed into the prepared pane shell (Herdr's Windows agent start cannot run pi's npm `.cmd` shim).
 - **Supervision without babysitting** - Claude Code hooks plus `cfo watch` wake the CFO only when something needs attention; a turn-end guard refuses to let a turn end blind while work is in flight.
 - **Restart-proof state** - tasks, metadata, and the wake queue live on disk under `$CFO_HOME`.
@@ -62,7 +62,7 @@ cfo brief <id> --project <path> [--kind <ship|scout>] [--mode <no-mistakes|direc
 cfo pr check <id> <url>
 cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
 cfo merge-local <id>
-cfo cleanup <id>                       close the task tab and return its clean, proven-inactive worktree through treehouse
+cfo cleanup <id>                       close the task tab and return its clean, proven-inactive worktree (removed in-repo, git entry pruned)
 cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>"   a goblin reports its outcome (PR URL, question, or failure) straight into the wake queue
 cfo drain                            print or acknowledge the wake queue
 cfo session-start                    print the session-start digest
@@ -79,7 +79,7 @@ cd code-goblins
 powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Bootstrap
 ```
 
-`install.ps1 -Bootstrap` downloads (or builds) `cfo.exe` and `showcase-axi.exe`, then installs every missing tool `cfo doctor` checks that has a scriptable installer - git, gh, claude, herdr, treehouse, codex, pi, tasks-axi, quota-axi, no-mistakes, gh-axi, and chrome-devtools-axi.
+`install.ps1 -Bootstrap` downloads (or builds) `cfo.exe` and `showcase-axi.exe`, then installs every missing tool `cfo doctor` checks that has a scriptable installer - git, gh, claude, herdr, codex, pi, tasks-axi, quota-axi, no-mistakes, gh-axi, and chrome-devtools-axi.
 Kimi is the one `cfo doctor` check with no scriptable installer, so it is printed as a manual step instead of being installed.
 It also creates the `.claude/skills` / `.codex/skills` junctions that point at the bundled `.agents/skills/`.
 The Claude Code hooks are wired separately by `cfo install`, described below, because they are written to your own user configuration rather than to this repository.
@@ -159,7 +159,7 @@ Herdr is your cockpit. Launch the CFO in a pane, then ask away:
 claude    # or: codex, pi, kimi
 ```
 
-The CFO reads its contract and does the rest - goblins appear as Herdr tabs (`gb-<id>`), each in a clean treehouse worktree.
+The CFO reads its contract and does the rest - goblins appear as Herdr tabs (`gb-<id>`), each in a clean in-repo worktree at `<project>/.worktrees/<id>`.
 `cfo spawn` targets the Herdr session named `default` (or `$HERDR_SESSION`), so keep the CFO and its goblins in the same session.
 
 ## Cut from v1
@@ -176,7 +176,7 @@ These upstream features are not yet ported to the Go binary:
 
 - `cmd/cfo/` - the `cfo.exe` entry point and command handlers.
 - `cmd/showcase-axi/` - the `showcase-axi.exe` entry point for the review surface.
-- `internal/` - one package per subsystem (herdr, treehouse, spawn, fleet, monitor, wake, lock, state, home, watch, harness, auth, routing, axi, execx, fsx, claudehook, digest, doctor, guard, crewstate, supervise, telemetry, proc, showcase).
+- `internal/` - one package per subsystem (herdr, worktree, spawn, fleet, monitor, wake, lock, state, home, watch, harness, auth, routing, axi, execx, fsx, claudehook, digest, doctor, guard, crewstate, supervise, telemetry, proc, showcase).
 - `docs/superpowers/` - the design spec and implementation plans.
 - `tests/acceptance/` - the opt-in real-session Windows acceptance script.
 - `.agents/skills/` - the fleet's skills, synced from user scope except `showcase`, which this repo owns; kimi and pi read it directly, and `install.ps1` junctions it for claude and codex.
@@ -194,7 +194,7 @@ go build ./cmd/showcase-axi
 
 CI runs on `windows-latest` and gates `go vet`, `go test ./... -count=1`, and `go build` of both binaries.
 Unit tests use fakes for subprocess and Herdr behavior.
-The real-session acceptance suite (`tests/acceptance/plan3_windows.ps1`) needs real Herdr, treehouse, and harness binaries and refuses to run without `CFO_PLAN3_REAL=1`.
+The real-session acceptance suite (`tests/acceptance/plan3_windows.ps1`) needs real Herdr and harness binaries and refuses to run without `CFO_PLAN3_REAL=1`.
 
 ## Contributing
 

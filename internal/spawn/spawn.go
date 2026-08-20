@@ -20,7 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/treehouse"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 const (
@@ -68,7 +68,7 @@ type AuthPreflight interface {
 // their established package seams so operation ordering remains deterministic.
 type Service struct {
 	Herdr       *herdr.Client
-	Treehouse   treehouse.Service
+	Worktrees   worktree.Service
 	Harness     harness.Registry
 	Auth        AuthPreflight
 	Commands    execx.Runner
@@ -178,11 +178,11 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return Result{}, err
 	}
 
-	worktree, err := s.Treehouse.Acquire(ctx, project, "gb-"+req.ID)
+	wt, err := s.Worktrees.Acquire(ctx, project, "gb-"+req.ID)
 	if err != nil {
-		return Result{}, fmt.Errorf("spawn: acquire treehouse worktree: %w", err)
+		return Result{}, fmt.Errorf("spawn: acquire task worktree: %w", err)
 	}
-	result = partialResult(req, project, taskTmp, endpoint, worktree.Path)
+	result = partialResult(req, project, taskTmp, endpoint, wt.Path)
 
 	// Publish metadata as soon as the pane and worktree exist, before the
 	// harness can start: a task whose launch later fails is then addressable
@@ -192,7 +192,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := state.WriteTaskMeta(s.StateDir, result.Meta); err != nil {
 		return Result{}, errors.Join(
 			fmt.Errorf("spawn: publish task metadata: %w", err),
-			s.teardownLaunch(ctx, &herdrClient, endpoint, project, worktree.Path, result.Meta.ID),
+			s.teardownLaunch(ctx, &herdrClient, endpoint, project, wt.Path, result.Meta.ID),
 		)
 	}
 
@@ -204,23 +204,23 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		if err := state.AppendStatus(s.StateDir, result.Meta.ID, line); err != nil {
 			cause = errors.Join(cause, fmt.Errorf("spawn: record launch failure: %w", err))
 		}
-		if err := s.teardownLaunch(ctx, &herdrClient, endpoint, project, worktree.Path, result.Meta.ID); err != nil {
+		if err := s.teardownLaunch(ctx, &herdrClient, endpoint, project, wt.Path, result.Meta.ID); err != nil {
 			cause = errors.Join(cause, err)
 		}
 		return result, cause
 	}
-	if err := validateLineValues("worktree", worktree.Path); err != nil {
+	if err := validateLineValues("worktree", wt.Path); err != nil {
 		return fail(result, err)
 	}
-	git, err := s.treehouseGit()
+	git, err := s.worktreeGit()
 	if err != nil {
 		return fail(result, err)
 	}
-	if err := treehouse.Validate(ctx, git, project, worktree.Path); err != nil {
-		return fail(result, fmt.Errorf("spawn: validate treehouse worktree: %w", err))
+	if err := worktree.Validate(ctx, git, project, wt.Path); err != nil {
+		return fail(result, fmt.Errorf("spawn: validate task worktree: %w", err))
 	}
-	if err := s.Treehouse.Freshen(ctx, worktree.Path); err != nil {
-		return fail(result, fmt.Errorf("spawn: freshen treehouse worktree: %w", err))
+	if err := s.Worktrees.Freshen(ctx, wt.Path); err != nil {
+		return fail(result, fmt.Errorf("spawn: freshen task worktree: %w", err))
 	}
 
 	if err := adapter.Validate(ctx, herdrClient.Commands); err != nil {
@@ -229,16 +229,30 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := os.MkdirAll(filepath.Join(taskTmp, "gotmp"), 0o755); err != nil {
 		return fail(result, fmt.Errorf("spawn: create task temporary directory: %w", err))
 	}
+	// The worktree starts as tracked files only; provisioning is what makes it
+	// runnable as if it were the project - shared config, dependencies
+	// installed against the shared package cache, and the token-authenticated
+	// subset of the project's MCP servers.
+	provision, err := s.Worktrees.Provision(ctx, project, wt.Path)
+	if err != nil {
+		return fail(result, fmt.Errorf("spawn: provision worktree environment: %w", err))
+	}
+	mcpConfig := ""
+	if provision.HasMCP {
+		mcpConfig = filepath.Join(wt.Path, ".mcp.json")
+	}
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath: req.BriefPath,
 		TaskTmp:   taskTmp,
 		Model:     req.Model,
 		Effort:    req.Effort,
+		MCPConfig: mcpConfig,
 	})
 	if err != nil {
 		return fail(result, fmt.Errorf("spawn: build harness launch: %w", err))
 	}
-	launch.Dir = worktree.Path
+	launch.Dir = wt.Path
+	mergeProvisionEnv(launch.Env, provision.Env)
 	// Every goblin is told to report its outcome through cfo notify, so the
 	// CFO is woken with the actual PR URL, question, or failure reason instead
 	// of the watcher guessing from pane text.
@@ -255,6 +269,12 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 
 	result.Output = successOutput(result.Meta)
+	if provision.Installed != "" {
+		result.Output += "\ndependencies: " + provision.Installed
+	}
+	if len(provision.MCPDropped) > 0 {
+		result.Output += "\nmcp: withheld OAuth-only servers from the goblin: " + strings.Join(provision.MCPDropped, ", ") + " (declare a token-authenticated form in the project .mcp.json to reach goblins)"
+	}
 	if preflight.Warning != "" {
 		result.Output += "\n" + preflight.Warning
 	}
@@ -264,6 +284,31 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		result.Output += "\nauth: dispatched with --yolo over " + oneLine(preflight.Refusal)
 	}
 	return result, nil
+}
+
+// goblinMCPConfig returns the worktree's materialized goblin MCP
+// configuration when provisioning left one, so a switch relaunch hands the new
+// harness exactly what the original spawn did.
+func goblinMCPConfig(worktreePath string) string {
+	path := filepath.Join(worktreePath, ".mcp.json")
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return ""
+	}
+	return path
+}
+
+// mergeProvisionEnv folds provisioning's environment redirects into the
+// launch. The harness environment is the launch contract, so a redirect that
+// collides with a reserved name (GOTMPDIR, CFO_ROLE) loses rather than
+// redirecting it.
+func mergeProvisionEnv(env map[string]string, redirects map[string]string) {
+	for name, value := range redirects {
+		if _, reserved := env[name]; reserved {
+			continue
+		}
+		env[name] = value
+	}
 }
 
 // preflightCredentials resolves the project's credentials once, before the
@@ -538,14 +583,14 @@ func validateLineValues(values ...string) error {
 	return nil
 }
 
-func (s Service) treehouseGit() (treehouse.Git, error) {
-	if s.Treehouse.Git != nil {
-		return s.Treehouse.Git, nil
+func (s Service) worktreeGit() (worktree.Git, error) {
+	if s.Worktrees.Git != nil {
+		return s.Worktrees.Git, nil
 	}
-	if s.Treehouse.Commands == nil {
-		return nil, errors.New("spawn: treehouse Git dependency is required")
+	if s.Worktrees.Commands == nil {
+		return nil, errors.New("spawn: worktree Git dependency is required")
 	}
-	return treehouse.RunnerGit{Commands: s.Treehouse.Commands, Sleep: s.Treehouse.Sleep}, nil
+	return worktree.RunnerGit{Commands: s.Worktrees.Commands, Sleep: s.Worktrees.Sleep}, nil
 }
 
 func partialResult(req Request, project, taskTmp string, endpoint herdr.Endpoint, worktree string) Result {
@@ -767,8 +812,8 @@ func (s Service) teardownLaunch(ctx context.Context, client *herdr.Client, endpo
 	if err := client.CloseTab(ctx, endpoint.Target.Session, endpoint.TabID); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("spawn: close task tab: %w", err))
 	}
-	if err := s.Treehouse.Return(ctx, project, worktree); err != nil {
-		errs = errors.Join(errs, fmt.Errorf("spawn: return treehouse worktree: %w", err))
+	if err := s.Worktrees.Return(ctx, project, worktree); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("spawn: return task worktree: %w", err))
 	}
 	if err := os.Remove(filepath.Join(s.StateDir, id+".meta")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		errs = errors.Join(errs, fmt.Errorf("spawn: retire task metadata: %w", err))
@@ -776,16 +821,17 @@ func (s Service) teardownLaunch(ctx context.Context, client *herdr.Client, endpo
 	return errs
 }
 
-// ensureProjectSeeded makes an unborn or empty primary project leasable before
+// ensureProjectSeeded makes an unborn or empty primary project workable before
 // the first worktree acquisition, so a freshly created empty GitHub repo is
-// seeded with an initial commit instead of dying inside `treehouse get`.
+// seeded with an initial commit instead of having no remote branch to base a
+// worktree on.
 func (s Service) ensureProjectSeeded(ctx context.Context, project string) error {
-	git, err := s.treehouseGit()
+	git, err := s.worktreeGit()
 	if err != nil {
 		return err
 	}
 	if _, err := git.EnsureSeeded(ctx, project); err != nil {
-		return fmt.Errorf("spawn: prepare project for worktree lease: %w", err)
+		return fmt.Errorf("spawn: prepare project for worktree acquisition: %w", err)
 	}
 	return nil
 }

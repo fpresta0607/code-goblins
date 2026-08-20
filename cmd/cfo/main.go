@@ -17,8 +17,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
-	"github.com/fpresta0607/code-goblins/internal/treehouse"
 	"github.com/fpresta0607/code-goblins/internal/watch"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 // version is stamped by the release build:
@@ -31,7 +31,7 @@ const usage = `usage: cfo <command> [args]
 commands:
   version   print the cfo version
   install   wire this checkout into the machine (CFO_HOME, PATH, and the Claude Code hooks in your user settings) so a session in any repo is supervised; --uninstall reverses it
-  doctor    check the tools cfo needs (git, gh, claude, herdr, treehouse, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi)
+  doctor    check the tools cfo needs (git, gh, claude, herdr, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi)
   drain     print or acknowledge the wake queue and recovery episode
   watch     run one triage cycle by hand (manual diagnostics; the hooks are the production entry)
   session-start  print the full session-start digest by hand (manual diagnostics; the SessionStart hook is the production entry)
@@ -84,9 +84,10 @@ func defaultCommandRuntime() commandRuntime {
 			client := &herdr.Client{Commands: commands, Session: request.Session}
 			service := spawn.Service{
 				Herdr:     client,
-				Treehouse: treehouse.Service{Commands: commands},
+				Worktrees: worktree.Service{Commands: commands, DataDir: h.Data},
 				Harness:   harness.DefaultRegistry(),
 				Auth:      auth.SpawnPreflight{DataDir: h.Data, Runner: commands},
+				Commands:  commands,
 				StateDir:  h.State,
 			}
 			return service.Spawn(ctx, request)
@@ -96,7 +97,7 @@ func defaultCommandRuntime() commandRuntime {
 			client := &herdr.Client{Commands: commands, Session: request.Session}
 			service := spawn.Service{
 				Herdr:     client,
-				Treehouse: treehouse.Service{Commands: commands},
+				Worktrees: worktree.Service{Commands: commands, DataDir: h.Data},
 				Harness:   harness.DefaultRegistry(),
 				Auth:      auth.SpawnPreflight{DataDir: h.Data, Runner: commands},
 				Commands:  commands,
