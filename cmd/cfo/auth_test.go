@@ -122,4 +122,20 @@ func TestAuthStoreRefusesAScopeThatCouldEscapeTheStore(t *testing.T) {
 	if code, _, _ := runCLI(t, "store", "--project", "precisiondocs", "bad name", "value"); code == 0 {
 		t.Error("cfo auth store accepted a name that is not an environment variable")
 	}
+	// A checkout whose name contains dots or a space is not a traversal, and
+	// the spawn path already reads and writes credentials under that scope.
+	// Refusing it here would leave the operator unable to store the very
+	// credential a preflight refusal tells them to store.
+	for _, scope := range []string{"docs..example", "Retire 91"} {
+		if code, _, stderr := runCLI(t, "store", "--project", scope, "TOKEN_VALUE", "value"); code != 0 {
+			t.Fatalf("cfo auth store --project %q = %d: %s", scope, code, stderr)
+		}
+		code, stdout, stderr := runCLI(t, "list", "--project", scope)
+		if code != 0 {
+			t.Fatalf("cfo auth list --project %q = %d: %s", scope, code, stderr)
+		}
+		if !strings.Contains(stdout, scope+"/TOKEN_VALUE") {
+			t.Errorf("listing = %q, want the credential stored under scope %q", stdout, scope)
+		}
+	}
 }

@@ -356,8 +356,8 @@ func TestAServiceWithNoIdentityCheckSaysItVerifiedOnlyLiveness(t *testing.T) {
 	if !strings.Contains(status.Detail, "identity not verified") {
 		t.Errorf("detail = %q, want it to say identity was not verified", status.Detail)
 	}
-	if status.Identity != "" {
-		t.Errorf("Identity = %q, want nothing claimed", status.Identity)
+	if strings.Contains(status.Detail, "identity confirmed") {
+		t.Errorf("detail = %q, want nothing claimed about identity", status.Detail)
 	}
 }
 
@@ -468,16 +468,20 @@ func TestRefusalNamesEveryBlockingServiceAndItsExactFixCommand(t *testing.T) {
 	report := Report{Project: "precisiondocs", Statuses: []Status{
 		{Service: "postgres", State: StateMissing, Missing: []string{"DATABASE_URL"}, Detail: "did not resolve: DATABASE_URL"},
 		{Service: "qdrant", State: StateGreen},
-		{Service: "supabase", State: StateWrongTarget, Detail: "wrong target: SUPABASE_URL does not name abc.supabase.co"},
+		{Service: "supabase", State: StateWrongTarget, Declared: []string{"SUPABASE_URL"}, Detail: "wrong target: SUPABASE_URL does not name abc.supabase.co"},
+		{Service: "vercel", State: StateExpired, Detail: "probe exited 1: token expired"},
 		{Service: "sentry", State: StateSkipped},
 	}}
 	refusal := RefusalLines("projects/precisiondocs", report)
 	for _, want := range []string{
-		"2 blocking service(s) for precisiondocs",
+		"3 blocking service(s) for precisiondocs",
 		"--yolo",
 		"postgres (missing)",
 		"cfo auth store --project precisiondocs DATABASE_URL",
 		"supabase (wrong_target)",
+		// Only a re-store changes the target, so that is what is offered.
+		"cfo auth store --project precisiondocs SUPABASE_URL",
+		// An expired credential is what --fix exists for.
 		"cfo auth projects/precisiondocs --fix",
 	} {
 		if !strings.Contains(refusal, want) {
@@ -489,6 +493,101 @@ func TestRefusalNamesEveryBlockingServiceAndItsExactFixCommand(t *testing.T) {
 	}
 	if RefusalLines("projects/precisiondocs", Report{Statuses: []Status{{State: StateGreen}}}) != "" {
 		t.Error("a clean preflight produced a refusal")
+	}
+}
+
+func TestAWrongTargetIsRemediedByAReStoreRatherThanByFix(t *testing.T) {
+	clearEnv(t, "DATABASE_URL")
+	// --fix runs a login and re-probes. Neither can turn another project's
+	// Neon branch into this one, so offering it is incident (3) again: a
+	// remedy the Overlord cannot act on.
+	manifest := Manifest{Project: "precisiondocs", Services: []Service{postgresService("ep-precisiondocs-quiet-sun")}}
+	store := newMemoryStore(map[string]string{
+		"precisiondocs/DATABASE_URL": "postgres://u:p@ep-steep-river-axsvclpp.aws.neon.tech/neondb",
+	})
+
+	report, err := Checker{Store: store, Runner: &fakeRunner{}, Project: "precisiondocs"}.Check(context.Background(), manifest)
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if report.Statuses[0].State != StateWrongTarget {
+		t.Fatalf("state = %q, want %q", report.Statuses[0].State, StateWrongTarget)
+	}
+	refusal := RefusalLines("projects/precisiondocs", report)
+	if !strings.Contains(refusal, "cfo auth store --project precisiondocs DATABASE_URL") {
+		t.Errorf("refusal lacks the command that changes the target:\n%s", refusal)
+	}
+	if strings.Contains(refusal, "--fix") {
+		t.Errorf("refusal offered --fix, which cannot change a wrong target:\n%s", refusal)
+	}
+	var out strings.Builder
+	if err := WriteLoginRequest(&out, report); err != nil {
+		t.Fatalf("WriteLoginRequest: %v", err)
+	}
+	if !strings.Contains(out.String(), "store with: cfo auth store --project precisiondocs DATABASE_URL") {
+		t.Errorf("sign-in request lacks the store command for a wrong target:\n%s", out.String())
+	}
+}
+
+func TestAWrongTargetIsNotInjectedThroughASiblingServiceDeclaringTheSameName(t *testing.T) {
+	clearEnv(t, "DATABASE_URL")
+	// wrong_target is a fact about the value. A second service reading the
+	// same name resolves the same credential, so gating on its own green
+	// verdict would hand the pane exactly what the identity check refused -
+	// and `cfo switch` deliberately does not refuse a red preflight.
+	manifest := Manifest{Project: "precisiondocs", Services: []Service{
+		postgresService("ep-precisiondocs-quiet-sun"),
+		{Name: "prisma", Method: MethodCLI, Env: []string{"DATABASE_URL"}, Probe: []string{"prisma", "--version"}},
+	}}
+	stranger := "postgres://u:p@ep-steep-river-axsvclpp.aws.neon.tech/neondb"
+	store := newMemoryStore(map[string]string{"precisiondocs/DATABASE_URL": stranger})
+	runner := &fakeRunner{results: map[string]execx.Result{"prisma": {ExitCode: 0}}}
+
+	report, err := Checker{Store: store, Runner: runner, Project: "precisiondocs"}.Check(context.Background(), manifest)
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	byService := map[string]Status{}
+	for _, status := range report.Statuses {
+		byService[status.Service] = status
+	}
+	if byService["postgres"].State != StateWrongTarget {
+		t.Fatalf("postgres state = %q, want %q", byService["postgres"].State, StateWrongTarget)
+	}
+	if !byService["prisma"].Usable() {
+		t.Fatalf("prisma state = %q, want a usable sibling so the leak path is exercised", byService["prisma"].State)
+	}
+
+	env, err := InjectEnv(store, "precisiondocs", manifest, report)
+	if err != nil {
+		t.Fatalf("InjectEnv: %v", err)
+	}
+	if _, injected := env["DATABASE_URL"]; injected {
+		t.Error("a refused DATABASE_URL reached the pane environment through a sibling service")
+	}
+	var table strings.Builder
+	if err := WriteTable(&table, report); err != nil {
+		t.Fatalf("WriteTable: %v", err)
+	}
+	for name, text := range map[string]string{
+		"table":   table.String(),
+		"refusal": RefusalLines("projects/precisiondocs", report),
+	} {
+		if strings.Contains(text, stranger) {
+			t.Errorf("%s disclosed the connection string:\n%s", name, text)
+		}
+	}
+}
+
+func TestAPrintedStoreCommandSurvivesAScopeWithASpace(t *testing.T) {
+	// The refusal is pasted back verbatim. Unquoted, `--project Retire 91`
+	// binds the flag to "Retire" and makes "91" the credential name.
+	got := StoreCommand("Retire 91", "DATABASE_URL")
+	if want := `cfo auth store --project "Retire 91" DATABASE_URL`; got != want {
+		t.Errorf("StoreCommand = %q, want %q", got, want)
+	}
+	if got := StoreCommand("precisiondocs", "DATABASE_URL"); got != "cfo auth store --project precisiondocs DATABASE_URL" {
+		t.Errorf("StoreCommand quoted a scope that needs no quoting: %q", got)
 	}
 }
 

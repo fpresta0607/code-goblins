@@ -357,7 +357,7 @@ func (r Resolver) refusedShared(service Service, name string) string {
 	if err != nil || !ok || value == "" {
 		return ""
 	}
-	return fmt.Sprintf("present but not used: %s is not declared shared; run `cfo auth copy %s --to %s`", service.Name, name, r.Project)
+	return fmt.Sprintf("present but not used: %s is not declared shared; run `cfo auth copy %s --to %s`", service.Name, name, quoteScope(r.Project))
 }
 
 // Redact reduces a secret to a shape that proves which credential it is

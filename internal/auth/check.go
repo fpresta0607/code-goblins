@@ -63,17 +63,18 @@ type Status struct {
 	Service string
 	Method  string
 	State   State
+	// Declared lists every environment variable the service declares, so a
+	// report can name the credentials behind a verdict that is about the
+	// value rather than about one name that failed to resolve.
+	Declared []string
 	// Missing lists the environment variables that did not resolve.
 	Missing []string
 	// Resolution records the ordered candidates behind every declared
 	// variable, so a report can show how a value was reached - or why a
 	// stored one was refused - without showing the value.
 	Resolution map[string][]Candidate
-	// Detail is the short reason behind this state.
+	// Detail is the short reason behind this state, identity result included.
 	Detail string
-	// Identity names what an identity check proved, or is empty when the
-	// service declared none and was therefore only checked for liveness.
-	Identity string
 	// Fixed records what --fix did that changed this service's state.
 	Fixed string
 	// URL is where a human authenticates when nothing automatic worked.
@@ -178,6 +179,7 @@ func (c Checker) evaluate(ctx context.Context, service Service) Status {
 	status := Status{
 		Service:  service.Name,
 		Method:   service.Method,
+		Declared: service.Env,
 		URL:      service.URL,
 		Optional: service.Optional,
 	}
@@ -237,18 +239,13 @@ func (c Checker) evaluate(ctx context.Context, service Service) Status {
 	}
 	state, detail := c.runIdentity(ctx, *service.Identity, resolution)
 	status.Detail += "; " + detail
-	switch {
-	case state != StateGreen:
-		status.State = state
-	case probeState == StateGreen:
-		status.State = StateGreen
-		status.Identity = service.Identity.Describe()
-	default:
-		// The target is proven and the transport never was, so the weaker
-		// word stands - but the identity that was confirmed is still recorded
-		// rather than thrown away.
+	if state == StateGreen {
+		// The target is proven; the transport is only proven when the probe
+		// proved it, so the weaker word stands and the detail carries both
+		// facts.
 		status.State = probeState
-		status.Identity = service.Identity.Describe()
+	} else {
+		status.State = state
 	}
 	return optionalize(status)
 }

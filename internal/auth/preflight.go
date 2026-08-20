@@ -116,10 +116,11 @@ func RefusalLines(project string, report Report) string {
 	fmt.Fprintf(&b, "%d blocking service(s) for %s; fix these or pass --yolo to dispatch anyway", len(blocking), scope)
 	for _, status := range blocking {
 		fmt.Fprintf(&b, "\n  %s (%s): %s", status.Service, status.State, status.Detail)
-		for _, name := range status.Missing {
+		remedies := remedyNames(status)
+		for _, name := range remedies {
 			fmt.Fprintf(&b, "\n    %s", StoreCommand(scope, name))
 		}
-		if len(status.Missing) == 0 {
+		if len(remedies) == 0 {
 			fmt.Fprintf(&b, "\n    cfo auth %s --fix", project)
 		}
 	}

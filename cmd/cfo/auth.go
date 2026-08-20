@@ -236,8 +236,13 @@ func credentialKey(project, name string, stderr io.Writer) (auth.Key, bool) {
 // otherwise quietly become the scope `escaped`, and the operator would store a
 // credential where nothing will ever look for it.
 func credentialScope(project string) (string, bool) {
-	if strings.Contains(project, "..") {
-		return "", false
+	separator := func(r rune) bool { return r == '/' || r == '\\' }
+	for _, segment := range strings.FieldsFunc(project, separator) {
+		// A relative segment is what walks; a name that merely contains dots
+		// is one the spawn path already stores credentials under.
+		if segment == ".." || segment == "." {
+			return "", false
+		}
 	}
 	scope := auth.ProjectName(project)
 	return scope, auth.ValidProjectName(scope)

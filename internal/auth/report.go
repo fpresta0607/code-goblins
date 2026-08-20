@@ -105,13 +105,34 @@ func countState(report Report, state State) int {
 	return count
 }
 
-// StoreCommand is the exact command that fixes one missing credential. It is
-// printed rather than described so the Overlord can paste it.
+// StoreCommand is the exact command that fixes one credential. It is printed
+// rather than described so the Overlord can paste it.
 func StoreCommand(project, name string) string {
 	if project == "" {
 		return "cfo auth store " + name
 	}
-	return "cfo auth store --project " + project + " " + name
+	return "cfo auth store --project " + quoteScope(project) + " " + name
+}
+
+// quoteScope keeps a printed command pasteable. A checkout directory may
+// legitimately contain a space, and an unquoted scope would reach the flag
+// parser as two arguments - a command that names the wrong credential.
+func quoteScope(scope string) string {
+	if !strings.ContainsAny(scope, " \t") {
+		return scope
+	}
+	return `"` + scope + `"`
+}
+
+// remedyNames are the credentials an operator has to re-store to change this
+// verdict. A wrong target is a fact about the value, so every name the
+// service declares is a candidate: no login and no re-probe can turn another
+// project's instance into this one, which is why --fix is not offered for it.
+func remedyNames(status Status) []string {
+	if status.State == StateWrongTarget {
+		return status.Declared
+	}
+	return status.Missing
 }
 
 // WriteLoginRequest prints the single consolidated request a human answers:
@@ -142,7 +163,7 @@ func WriteLoginRequest(w io.Writer, reports ...Report) error {
 	for _, item := range asks {
 		fmt.Fprintf(w, "\n  %s / %s (%s)\n", item.project, item.status.Service, item.status.State)
 		fmt.Fprintf(w, "    why: %s\n", item.status.Detail)
-		for _, name := range item.status.Missing {
+		for _, name := range remedyNames(item.status) {
 			fmt.Fprintf(w, "    store with: %s\n", StoreCommand(item.project, name))
 		}
 		if item.status.URL != "" {
@@ -160,9 +181,19 @@ func WriteLoginRequest(w io.Writer, reports ...Report) error {
 // database.
 func InjectEnv(store Store, project string, manifest Manifest, report Report) (map[string]string, error) {
 	usable := map[string]bool{}
+	// A wrong target is a verdict about the value, not about the service that
+	// caught it: a sibling declaring the same name resolves the same
+	// credential, and gating on its own green verdict would hand the pane
+	// exactly the value the identity check just refused.
+	refused := map[string]bool{}
 	for _, status := range report.Statuses {
 		if status.Usable() {
 			usable[status.Service] = true
+		}
+		if status.State == StateWrongTarget {
+			for _, name := range status.Declared {
+				refused[name] = true
+			}
 		}
 	}
 	resolver := Resolver{Store: store, Project: project}
@@ -176,6 +207,9 @@ func InjectEnv(store Store, project string, manifest Manifest, report Report) (m
 			return nil, err
 		}
 		for name, resolved := range resolution.Values {
+			if refused[name] {
+				continue
+			}
 			env[name] = resolved.Value
 		}
 	}
