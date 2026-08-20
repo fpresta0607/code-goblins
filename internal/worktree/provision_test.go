@@ -156,6 +156,40 @@ func TestProvisionInstallsFromTheLockfile(t *testing.T) {
 	}
 }
 
+func TestProvisionPinsEveryDetectedInstallerToItsLockfile(t *testing.T) {
+	// A worktree holds tracked files, so an installer that resolves drift by
+	// rewriting its lockfile leaves uncommitted work no goblin authored, and
+	// Return then refuses to remove the worktree at all.
+	for _, test := range []struct {
+		lockfile string
+		ignored  string
+		want     []string
+	}{
+		{lockfile: "pnpm-lock.yaml", ignored: "node_modules", want: []string{"pnpm", "install", "--frozen-lockfile"}},
+		{lockfile: "package-lock.json", ignored: "node_modules", want: []string{"npm", "ci"}},
+		{lockfile: "yarn.lock", ignored: "node_modules", want: []string{"yarn", "install", "--frozen-lockfile"}},
+		{lockfile: "uv.lock", ignored: ".venv", want: []string{"uv", "sync", "--locked"}},
+	} {
+		t.Run(test.lockfile, func(t *testing.T) {
+			project, worktreePath, taskTmp, runner := provisionFixture(t)
+			writeFileLine(t, filepath.Join(worktreePath, test.lockfile), "lock")
+			runner.results = []scriptedResult{{}, {}}
+
+			result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp)
+			if err != nil {
+				t.Fatalf("Provision: %v", err)
+			}
+			if result.Installed != strings.Join(test.want, " ") {
+				t.Errorf("Installed = %q, want %q", result.Installed, strings.Join(test.want, " "))
+			}
+			install := runner.calls[len(runner.calls)-1]
+			if install.Dir != worktreePath || install.Name != test.want[0] || !slices.Equal(install.Args, test.want[1:]) {
+				t.Errorf("install call = %#v, want %q in the worktree", install, test.want)
+			}
+		})
+	}
+}
+
 func TestProvisionManifestOverridesTheInstallCommands(t *testing.T) {
 	project, worktreePath, taskTmp, runner := provisionFixture(t)
 	dataDir := t.TempDir()
@@ -409,6 +443,36 @@ func TestProvisionLeavesATrackedMCPConfigUntouched(t *testing.T) {
 	after, err := os.ReadFile(checkedOut)
 	if err != nil || !bytes.Equal(after, config) {
 		t.Fatalf("tracked worktree .mcp.json = %s (%v), want the committed bytes untouched", after, err)
+	}
+}
+
+func TestProvisionRefusesWhenTheTrackednessProbeCannotAnswer(t *testing.T) {
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
+	config := []byte(`{"mcpServers": {"neon": {"url": "https://mcp.neon.tech/mcp", "bearerTokenEnvVar": "NEON_API_KEY"}}}`)
+	if err := os.WriteFile(filepath.Join(project, ".mcp.json"), config, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A tracked .mcp.json is checked out into the worktree, and this is what
+	// git looks like when it cannot read its own index: exit 128, not the
+	// exit 1 that means "untracked".
+	checkedOut := filepath.Join(worktreePath, ".mcp.json")
+	if err := os.WriteFile(checkedOut, config, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner.results = []scriptedResult{
+		{result: execx.Result{ExitCode: 128, Stderr: []byte("fatal: not a git repository")}},
+	}
+
+	// Reading an unanswerable probe as "untracked" would overwrite the
+	// operator's committed file and leave the worktree permanently dirty,
+	// which is the exact outcome this probe exists to prevent.
+	_, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp)
+	if err == nil || !strings.Contains(err.Error(), "is tracked") {
+		t.Fatalf("Provision error = %v, want the unreadable trackedness probe surfaced", err)
+	}
+	after, readErr := os.ReadFile(checkedOut)
+	if readErr != nil || !bytes.Equal(after, config) {
+		t.Fatalf("worktree .mcp.json = %s (%v), want it untouched after an unanswerable probe", after, readErr)
 	}
 }
 

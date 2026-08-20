@@ -276,7 +276,10 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if provision.MCPWorktreeOccupied {
 		result.Output += "\nmcp: the worktree already held a .mcp.json this spawn did not write, so it was left alone; a harness that reads its working directory sees that file, not the filtered configuration"
 	}
-	if provision.MCPProjectTracked {
+	if provision.MCPProjectTracked && len(provision.MCPDropped) > 0 {
+		// Only worth saying when something was actually withheld: if nothing
+		// was dropped, a working-directory-reading harness sees exactly the
+		// servers the filtered config would have given it.
 		result.Output += "\nmcp: the project tracks .mcp.json, so the worktree keeps that file exactly as committed; a harness that reads its working directory sees every server declared there, including the ones the filtered config withholds"
 	}
 	if preflight.Warning != "" {

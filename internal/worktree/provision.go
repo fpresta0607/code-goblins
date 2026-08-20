@@ -237,12 +237,23 @@ func installFailureTail(result execx.Result) string {
 }
 
 // detectInstallCommand maps a lockfile to the install command that honors it.
+// Every command is pinned to its lockfile, because a worktree only holds
+// tracked files and a rewritten lockfile is uncommitted work no goblin
+// authored - which Return then refuses to remove, stranding the worktree.
+//
+// uv takes --locked rather than --frozen deliberately: --frozen installs from
+// the lockfile without checking it, hiding drift, while --locked asserts the
+// lockfile is up to date and exits non-zero when it is not. That is the exact
+// analogue of pnpm --frozen-lockfile and npm ci, so all four detected
+// installers now fail on drift instead of resolving it. A failed install is
+// reported on the spawn output and never tears down the dispatch, so drift
+// reaches the CFO as a named failure rather than a silently rewritten uv.lock.
 func detectInstallCommand(worktreePath string) string {
 	for _, candidate := range []struct{ lockfile, command string }{
 		{"pnpm-lock.yaml", "pnpm install --frozen-lockfile"},
 		{"package-lock.json", "npm ci"},
 		{"yarn.lock", "yarn install --frozen-lockfile"},
-		{"uv.lock", "uv sync"},
+		{"uv.lock", "uv sync --locked"},
 	} {
 		if _, err := os.Stat(filepath.Join(worktreePath, candidate.lockfile)); err == nil {
 			return candidate.command
@@ -364,13 +375,22 @@ func (s Service) materializeMCP(ctx context.Context, git RunnerGit, project, wor
 // what decides whether a path is safe to write, and only `git ls-files` can
 // answer it: `git check-ignore` reports exit 1 for a tracked path exactly as
 // it does for an unignored one, and no ignore rule ever applies to a file in
-// the index.
+// the index. It fails closed: exit 1 is the untracked answer, but anything
+// else means git could not answer, and an unanswerable probe must never
+// resolve to the permissive reading that lets the write proceed.
 func (s Service) tracked(ctx context.Context, worktreePath, name string) (bool, error) {
 	result, err := s.Commands.Run(ctx, execx.Request{Dir: worktreePath, Name: "git", Args: []string{"ls-files", "--error-unmatch", "--", name}})
 	if err != nil {
 		return false, fmt.Errorf("worktree: check whether %q is tracked: %w", name, err)
 	}
-	return result.ExitCode == 0, nil
+	switch result.ExitCode {
+	case 0:
+		return true, nil
+	case 1:
+		return false, nil
+	default:
+		return false, fmt.Errorf("worktree: check whether %q is tracked: %s", name, commandFailure("git ls-files --error-unmatch", result).Error())
+	}
 }
 
 // ensureIgnored guarantees name is ignored inside the worktree: the project's

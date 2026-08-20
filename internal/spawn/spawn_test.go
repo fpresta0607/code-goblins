@@ -265,6 +265,44 @@ func TestSpawnUsesRequestedHerdrSession(t *testing.T) {
 	}
 }
 
+func TestSpawnDisclosesATrackedMCPConfigOnlyWhenSomethingWasWithheld(t *testing.T) {
+	const disclosure = "the project tracks .mcp.json"
+	for _, test := range []struct {
+		name      string
+		config    string
+		disclosed bool
+	}{
+		{
+			name:      "an OAuth connector is withheld",
+			config:    `{"mcpServers":{"neon":{"command":"npx"},"supabase":{"url":"https://mcp.supabase.com/mcp"}}}`,
+			disclosed: true,
+		},
+		{
+			// Nothing was dropped, so a working-directory-reading harness
+			// sees exactly the servers the filtered config would have given
+			// it. Claiming otherwise on every dispatch is a false statement.
+			name:      "every server qualifies",
+			config:    `{"mcpServers":{"neon":{"command":"npx"},"stripe":{"url":"https://mcp.stripe.com/","bearerTokenEnvVar":"STRIPE_KEY"}}}`,
+			disclosed: false,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newFixture(t)
+			writeFile(t, filepath.Join(fixture.project, ".mcp.json"), test.config)
+			writeFile(t, filepath.Join(fixture.worktree, ".mcp.json"), test.config)
+			fixture.runner.mcpTracked = true
+
+			result, err := fixture.service.Spawn(context.Background(), fixture.request)
+			if err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+			if got := strings.Contains(result.Output, disclosure); got != test.disclosed {
+				t.Errorf("output contains the tracked-config disclosure = %v, want %v:\n%s", got, test.disclosed, result.Output)
+			}
+		})
+	}
+}
+
 func TestSpawnDispatchesAndReportsWhenTheDependencyInstallFails(t *testing.T) {
 	fixture := newFixture(t)
 	// Strategy install is the default and its command is auto-detected from a
@@ -1090,6 +1128,7 @@ type herdrRunner struct {
 	failCtrlUs       int
 	installer        string
 	installerStderr  string
+	mcpTracked       bool
 }
 
 func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -1102,6 +1141,12 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 	// already ignored, then runs the project's own installer.
 	if req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "check-ignore" {
 		return execx.Result{}, nil
+	}
+	if req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "ls-files" {
+		if r.mcpTracked {
+			return execx.Result{Stdout: []byte(".mcp.json\n")}, nil
+		}
+		return execx.Result{ExitCode: 1}, nil
 	}
 	if r.installer != "" && req.Name == r.installer {
 		*r.events = append(*r.events, "install")
