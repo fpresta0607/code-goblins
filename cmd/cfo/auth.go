@@ -17,8 +17,13 @@ import (
 )
 
 const authUsage = `usage: cfo auth <project> [--check|--fix] [--env]
-       cfo auth store <NAME> [value]   (omit value to read it from stdin)
-       cfo auth list
+       cfo auth store [--project <p>] <NAME> [value]   (omit value to read it from stdin)
+       cfo auth list [--project <p>]
+       cfo auth copy <NAME> --to <project> [--from <project>]   (copy a stored value into a project scope; the source is left in place)
+
+Credentials are namespaced on (project, NAME). Omitting --project stores or
+lists the shared scope, which is where every credential stored before
+namespacing already lives.
 `
 
 func runAuth(args []string, stdout, stderr io.Writer) int {
@@ -30,7 +35,9 @@ func runAuth(args []string, stdout, stderr io.Writer) int {
 	case "store":
 		return runAuthStore(args[1:], stdout, stderr)
 	case "list":
-		return runAuthList(stdout, stderr)
+		return runAuthList(args[1:], stdout, stderr)
+	case "copy":
+		return runAuthCopy(args[1:], stdout, stderr)
 	case "-h", "--help", "help":
 		fmt.Fprint(stdout, authUsage)
 		return 0
@@ -63,9 +70,10 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	project := positional[0]
+	scope := auth.ProjectName(project)
 	manifest, err := auth.LoadManifest(h.Data, project)
 	if errors.Is(err, fs.ErrNotExist) {
-		fmt.Fprintf(stderr, "cfo auth: no manifest for %s\n", auth.ProjectName(project))
+		fmt.Fprintf(stderr, "cfo auth: no manifest for %s\n", scope)
 		fmt.Fprintf(stderr, "create %s listing the services this project needs\n", auth.ManifestPath(h.Data, project))
 		return 1
 	}
@@ -80,7 +88,7 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	runner := execx.OSRunner{}
-	checker := auth.Checker{Store: store, Runner: runner, Browser: auth.ChromeBrowser{Runner: runner}}
+	checker := auth.Checker{Store: store, Runner: runner, Browser: auth.ChromeBrowser{Runner: runner}, Project: scope}
 
 	ctx := context.Background()
 	report := auth.Report{}
@@ -90,7 +98,7 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "cfo auth: adopt existing credentials: %v\n", err)
 		}
 		for _, item := range adopted {
-			fmt.Fprintf(stdout, "adopted %s from %s\n", item.Name, item.Origin)
+			fmt.Fprintf(stdout, "adopted %s from %s\n", item.Key, item.Origin)
 		}
 		report, err = checker.Fix(ctx, manifest)
 		if err != nil {
@@ -110,7 +118,7 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if *showEnv {
-		env, err := auth.InjectEnv(store, manifest, report)
+		env, err := auth.InjectEnv(store, scope, manifest, report)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -155,18 +163,24 @@ func parseAuthArgs(flags *flag.FlagSet, args []string) ([]string, error) {
 }
 
 func runAuthStore(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 || len(args) > 2 {
+	flags := flag.NewFlagSet("auth store", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	project := flags.String("project", "", "store in this project's scope instead of the shared scope")
+	positional, err := parseAuthArgs(flags, args)
+	if err != nil {
+		return 2
+	}
+	if len(positional) == 0 || len(positional) > 2 {
 		fmt.Fprint(stderr, authUsage)
 		return 2
 	}
-	name := args[0]
-	if !auth.ValidEnvName(name) {
-		fmt.Fprintf(stderr, "cfo auth store: %q is not a valid environment variable name\n", name)
+	key, ok := credentialKey(*project, positional[0], stderr)
+	if !ok {
 		return 2
 	}
 	value := ""
-	if len(args) == 2 {
-		value = args[1]
+	if len(positional) == 2 {
+		value = positional[1]
 	} else {
 		// Reading from stdin keeps the secret out of shell history, which is
 		// why it is the documented path.
@@ -186,15 +200,66 @@ func runAuthStore(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	if err := store.Set(name, value); err != nil {
+	if err := store.Set(key, value); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "stored %s (%s) in %s\n", name, auth.Redact(value), store.Describe())
+	fmt.Fprintf(stdout, "stored %s (%s) in %s\n", key, auth.Redact(value), store.Describe())
+	if key.IsShared() {
+		fmt.Fprintln(stdout, "shared scope: only services a manifest declares shared will read this")
+	}
 	return 0
 }
 
-func runAuthList(stdout, stderr io.Writer) int {
+// credentialKey builds and validates one store key from the operator's
+// arguments, refusing rather than sanitizing so a typo cannot land a
+// credential in a scope nobody will look in.
+func credentialKey(project, name string, stderr io.Writer) (auth.Key, bool) {
+	key := auth.Shared(name)
+	if project != "" {
+		scope, ok := credentialScope(project)
+		if !ok {
+			fmt.Fprintf(stderr, "cfo auth: %q is not a usable project scope\n", project)
+			return auth.Key{}, false
+		}
+		key = auth.Key{Project: scope, Name: name}
+	}
+	if !auth.ValidEnvName(name) {
+		fmt.Fprintf(stderr, "cfo auth: %q is not a valid environment variable name\n", name)
+		return auth.Key{}, false
+	}
+	return key, true
+}
+
+// credentialScope reduces a project name or checkout path to its scope. A path
+// that walks upward is refused rather than reduced: `../escaped` would
+// otherwise quietly become the scope `escaped`, and the operator would store a
+// credential where nothing will ever look for it.
+func credentialScope(project string) (string, bool) {
+	separator := func(r rune) bool { return r == '/' || r == '\\' }
+	for _, segment := range strings.FieldsFunc(project, separator) {
+		// A relative segment is what walks; a name that merely contains dots
+		// is one the spawn path already stores credentials under.
+		if segment == ".." || segment == "." {
+			return "", false
+		}
+	}
+	scope := auth.ProjectName(project)
+	return scope, auth.ValidProjectName(scope)
+}
+
+func runAuthList(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("auth list", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	project := flags.String("project", "", "list only this project's scope")
+	positional, err := parseAuthArgs(flags, args)
+	if err != nil {
+		return 2
+	}
+	if len(positional) > 0 {
+		fmt.Fprint(stderr, authUsage)
+		return 2
+	}
 	store, err := auth.OpenStore()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -205,13 +270,75 @@ func runAuthList(stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	scope := ""
+	if *project != "" {
+		valid := false
+		if scope, valid = credentialScope(*project); !valid {
+			fmt.Fprintf(stderr, "cfo auth list: %q is not a usable project scope\n", *project)
+			return 2
+		}
+	}
 	fmt.Fprintf(stdout, "store %s\n", store.Describe())
-	if len(keys) == 0 {
-		fmt.Fprintln(stdout, "no credentials stored")
-		return 0
-	}
+	listed := 0
 	for _, key := range keys {
+		if scope != "" && key.Project != scope {
+			continue
+		}
 		fmt.Fprintln(stdout, key)
+		listed++
 	}
+	if listed == 0 {
+		fmt.Fprintln(stdout, "no credentials stored")
+	}
+	return 0
+}
+
+func runAuthCopy(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("auth copy", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	to := flags.String("to", "", "project scope to copy the shared value into")
+	from := flags.String("from", "", "project scope to copy from (default: the shared scope)")
+	positional, err := parseAuthArgs(flags, args)
+	if err != nil {
+		return 2
+	}
+	if len(positional) != 1 || *to == "" {
+		fmt.Fprint(stderr, authUsage)
+		return 2
+	}
+	source, ok := credentialKey(*from, positional[0], stderr)
+	if !ok {
+		return 2
+	}
+	target, ok := credentialKey(*to, positional[0], stderr)
+	if !ok {
+		return 2
+	}
+	if source == target {
+		fmt.Fprintln(stderr, "cfo auth copy: source and target are the same scope")
+		return 2
+	}
+	store, err := auth.OpenStore()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	value, found, err := store.Get(source)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if !found || value == "" {
+		fmt.Fprintf(stderr, "cfo auth copy: %s is not stored\n", source)
+		return 1
+	}
+	// The source is left in place. A shared value more than one project
+	// could claim is not this command's to delete: which project owns it is
+	// exactly the question nobody may guess at.
+	if err := store.Set(target, value); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "copied %s to %s (%s); %s is unchanged\n", source, target, auth.Redact(value), source)
 	return 0
 }

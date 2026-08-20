@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
-	"sort"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -55,7 +54,7 @@ func openCredentialManager() (Store, error) {
 	// Prove the vault answers before claiming it: a read of a name that does
 	// not exist must come back as "not found", not as a load failure.
 	store := credentialManagerStore{}
-	if _, _, err := store.Get("CFO_CREDENTIAL_STORE_PROBE"); err != nil {
+	if _, _, err := store.Get(Shared("CFO_CREDENTIAL_STORE_PROBE")); err != nil {
 		return nil, err
 	}
 	return store, nil
@@ -65,11 +64,11 @@ func (credentialManagerStore) Describe() string {
 	return "Windows Credential Manager"
 }
 
-func (credentialManagerStore) Get(key string) (string, bool, error) {
-	if !ValidEnvName(key) {
-		return "", false, fmt.Errorf("auth: invalid credential key %q", key)
+func (credentialManagerStore) Get(key Key) (string, bool, error) {
+	if !key.Valid() {
+		return "", false, fmt.Errorf("auth: invalid credential key %q", key.String())
 	}
-	target, err := syscall.UTF16PtrFromString(credentialTarget + key)
+	target, err := syscall.UTF16PtrFromString(credentialTarget + key.String())
 	if err != nil {
 		return "", false, err
 	}
@@ -84,7 +83,7 @@ func (credentialManagerStore) Get(key string) (string, bool, error) {
 		if errors.Is(callErr, errorNotFound) {
 			return "", false, nil
 		}
-		return "", false, fmt.Errorf("auth: CredRead %s: %w", key, callErr)
+		return "", false, fmt.Errorf("auth: CredRead %s: %w", key.String(), callErr)
 	}
 	defer procCredFree.Call(uintptr(unsafe.Pointer(credential)))
 	if credential.CredentialBlobSize == 0 || credential.CredentialBlob == nil {
@@ -95,11 +94,11 @@ func (credentialManagerStore) Get(key string) (string, bool, error) {
 	return string(blob), true, nil
 }
 
-func (credentialManagerStore) Set(key, value string) error {
-	if !ValidEnvName(key) {
-		return fmt.Errorf("auth: invalid credential key %q", key)
+func (credentialManagerStore) Set(key Key, value string) error {
+	if !key.Valid() {
+		return fmt.Errorf("auth: invalid credential key %q", key.String())
 	}
-	target, err := syscall.UTF16PtrFromString(credentialTarget + key)
+	target, err := syscall.UTF16PtrFromString(credentialTarget + key.String())
 	if err != nil {
 		return err
 	}
@@ -123,12 +122,12 @@ func (credentialManagerStore) Set(key, value string) error {
 	// collector from moving or reclaiming it while the syscall reads it.
 	runtime.KeepAlive(blob)
 	if ret == 0 {
-		return fmt.Errorf("auth: CredWrite %s: %w", key, callErr)
+		return fmt.Errorf("auth: CredWrite %s: %w", key.String(), callErr)
 	}
 	return nil
 }
 
-func (credentialManagerStore) Keys() ([]string, error) {
+func (credentialManagerStore) Keys() ([]Key, error) {
 	filter, err := syscall.UTF16PtrFromString(credentialTarget + "*")
 	if err != nil {
 		return nil, err
@@ -148,18 +147,35 @@ func (credentialManagerStore) Keys() ([]string, error) {
 		return nil, fmt.Errorf("auth: CredEnumerate: %w", callErr)
 	}
 	defer procCredFree.Call(uintptr(unsafe.Pointer(credentials)))
-	var keys []string
+	var keys []Key
 	for _, credential := range unsafe.Slice(credentials, count) {
 		if credential == nil || credential.TargetName == nil {
 			continue
 		}
 		name := syscall.UTF16ToString(unsafe.Slice(credential.TargetName, targetNameLen(credential.TargetName)))
-		if key, found := strings.CutPrefix(name, credentialTarget); found && ValidEnvName(key) {
+		scoped, found := strings.CutPrefix(name, credentialTarget)
+		if !found {
+			continue
+		}
+		if key, ok := parseVaultKey(scoped); ok {
 			keys = append(keys, key)
 		}
 	}
-	sort.Strings(keys)
+	sortKeys(keys)
 	return keys, nil
+}
+
+// parseVaultKey reads back the target form Set wrote. Anything that is not a
+// key this package could have written is skipped, so an enumeration never
+// reports another application's entry as a cfo credential.
+func parseVaultKey(scoped string) (Key, bool) {
+	project, name, found := strings.Cut(scoped, "/")
+	if !found {
+		key := Shared(scoped)
+		return key, key.Valid()
+	}
+	key := Key{Project: project, Name: name}
+	return key, key.Valid()
 }
 
 // targetNameLen measures a NUL-terminated UTF-16 string the API returns

@@ -41,7 +41,7 @@ The full design and the explicit v1 scope live in [docs/superpowers/specs/2026-0
 - **Supervision without babysitting** - Claude Code hooks plus `cfo watch` wake the CFO only when something needs attention; a turn-end guard refuses to let a turn end blind while work is in flight.
 - **Restart-proof state** - tasks, metadata, and the wake queue live on disk under `$CFO_HOME`.
 - **In-place harness switching** - `cfo switch <id> --harness claude --model opus` stops a goblin's harness on its own terms and relaunches it in the same pane and worktree, resuming its session when the harness can and handing it a written handoff when it cannot. A harness being refused by its provider shows as `harness-erroring` in `cfo fleet-view`, and `data/routing.json` holds the standing answer.
-- **Per-project authentication** - each project declares its services in `data/projects/<name>/auth.json`; `cfo auth` probes them, adopts credentials the machine already holds, and `cfo spawn` injects the usable ones into the goblin's pane before the harness starts. Credentials live in Windows Credential Manager (or `~/.cfo/credentials/` with owner-only ACLs), never in a repository and never in the output.
+- **Per-project authentication** - each project declares its services in `data/projects/<name>/auth.json`; `cfo auth` probes them, checks that each credential points at this project's instance where the manifest says how, and adopts credentials the machine already holds; `cfo spawn` refuses to dispatch while a blocking service is red and otherwise injects the usable credentials into the goblin's pane before the harness starts. Credentials are namespaced per project in Windows Credential Manager (or `~/.cfo/credentials/` with owner-only ACLs), never in a repository and never in the output.
 - **AXI integrations** - `tasks-axi` (backlog) and `quota-axi` (dispatch) stay thin subprocess integrations in `cfo`; `gh-axi` (GitHub) and `chrome-devtools-axi` (browser) ship as skills in `.agents/skills/`; `showcase-axi` (review surface) is repo-owned and built alongside `cfo.exe`.
 
 ## Commands
@@ -50,8 +50,9 @@ The full design and the explicit v1 scope live in [docs/superpowers/specs/2026-0
 cfo install [--uninstall]            wire this checkout into the machine so a session in any repo is supervised: CFO_HOME and PATH at user scope, and the CFO hooks merged into ~/.claude/settings.json
 cfo doctor                           check the tools cfo needs and how to install them; probe each harness's spawn health (ok/broken); print the measured speed table when telemetry exists; print the active switch rules from data/routing.json
 cfo auth <project> [--check|--fix] [--env]   preflight a project's services from data/projects/<name>/auth.json; --fix adopts credentials the machine already holds and asks once for the rest
-cfo auth store <NAME> [value]        store one credential (omit the value to read it from stdin)
-cfo auth list                        list stored credential names
+cfo auth store [--project <p>] <NAME> [value]   store one credential in a project's scope, or the shared scope without --project (omit the value to read it from stdin)
+cfo auth list [--project <p>]        list stored credential keys, never values
+cfo auth copy <NAME> --to <project> [--from <project>]   copy a stored value into a project's scope; the source is left in place
 cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--yolo]
 cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place, keeping its id, pane, and worktree
 cfo send <target> [--key <key>] [--no-auto-submit] <text...>

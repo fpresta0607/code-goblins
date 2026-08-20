@@ -57,10 +57,11 @@ type Result struct {
 // so a goblin inherits working CLIs and environment variables instead of
 // discovering an unauthenticated service mid-task.
 type AuthPreflight interface {
-	// Preflight returns the environment to inject and a single-line warning
-	// naming anything that is not usable. A project with no manifest is not
-	// an error: most projects need nothing.
-	Preflight(ctx context.Context, project string) (env map[string]string, warning string, err error)
+	// Preflight returns the environment to inject, a single-line warning
+	// naming anything that is not usable, and the refusal that must stop the
+	// dispatch when a blocking service is red. A project with no manifest is
+	// not an error: most projects need nothing.
+	Preflight(ctx context.Context, project string) (auth.Result, error)
 }
 
 // Service owns one local Herdr spawn. Its collaborators are injected through
@@ -135,6 +136,18 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 	if err := s.ensureProjectSeeded(ctx, project); err != nil {
 		return Result{}, err
+	}
+
+	// The preflight runs before anything is built, so a goblin that would
+	// start without a credential it needs costs no pane and no worktree.
+	// Dispatching anyway is what let a stale DATABASE_URL reach a goblin, so
+	// a red blocking service stops here; --yolo is the existing override.
+	preflight, err := s.preflightCredentials(ctx, project)
+	if err != nil {
+		return Result{}, err
+	}
+	if preflight.Refusal != "" && !req.Yolo {
+		return Result{}, fmt.Errorf("spawn: %s", preflight.Refusal)
 	}
 
 	if err := herdrClient.EnsureServer(ctx); err != nil {
@@ -230,8 +243,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// CFO is woken with the actual PR URL, question, or failure reason instead
 	// of the watcher guessing from pane text.
 	launch.Instruction = spawnInstruction(req.BriefPath, req.ID)
-	authWarning, err := s.injectProjectCredentials(ctx, project, taskTmp, &launch)
-	if err != nil {
+	if err := s.injectProjectCredentials(preflight, taskTmp, &launch); err != nil {
 		return fail(result, err)
 	}
 	if _, err := s.startHarness(ctx, &herdrClient, endpoint.Target, launchPlan{
@@ -243,49 +255,66 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 
 	result.Output = successOutput(result.Meta)
-	if authWarning != "" {
-		result.Output += "\n" + authWarning
+	if preflight.Warning != "" {
+		result.Output += "\n" + preflight.Warning
+	}
+	if preflight.Refusal != "" {
+		// Reached only under --yolo: the Overlord's override is recorded in
+		// the output rather than silently swallowing what it overrode.
+		result.Output += "\nauth: dispatched with --yolo over " + oneLine(preflight.Refusal)
 	}
 	return result, nil
 }
 
-// injectProjectCredentials runs the project's auth preflight and puts every
-// usable credential into the pane shell the harness inherits. The values go
-// through a restricted file the shell dot-sources, never the typed line: a
-// credential typed into the pane would sit in its scrollback and in every
-// `cfo peek`.
-//
-// A red service does not block the spawn - most tasks need only some of a
-// project's services - but it is returned as a warning so the CFO reads it at
-// dispatch instead of the goblin hitting it mid-task.
-func (s Service) injectProjectCredentials(ctx context.Context, project, taskTmp string, launch *harness.Launch) (string, error) {
+// preflightCredentials resolves the project's credentials once, before the
+// pane and worktree exist, so both the refusal decision and the injected
+// environment come from the same probe run rather than two.
+func (s Service) preflightCredentials(ctx context.Context, project string) (auth.Result, error) {
 	if s.Auth == nil {
-		return "", nil
+		return auth.Result{}, nil
 	}
-	env, warning, err := s.Auth.Preflight(ctx, project)
+	result, err := s.Auth.Preflight(ctx, project)
 	if err != nil {
-		return "", fmt.Errorf("spawn: project auth preflight: %w", err)
+		return auth.Result{}, fmt.Errorf("spawn: project auth preflight: %w", err)
 	}
-	if len(env) == 0 {
-		return warning, nil
+	return result, nil
+}
+
+// oneLine flattens a multi-line refusal for the single-line spawn output.
+func oneLine(text string) string {
+	return strings.Join(strings.Fields(text), " ")
+}
+
+// injectProjectCredentials puts every usable credential from the preflight
+// into the pane shell the harness inherits. The values go through a
+// restricted file the shell dot-sources, never the typed line: a credential
+// typed into the pane would sit in its scrollback and in every `cfo peek`.
+func (s Service) injectProjectCredentials(preflight auth.Result, taskTmp string, launch *harness.Launch) error {
+	if len(preflight.Env) == 0 {
+		return nil
 	}
-	for name := range env {
+	env := make(map[string]string, len(preflight.Env))
+	for name, value := range preflight.Env {
 		if _, reserved := launch.Env[name]; reserved {
 			// The harness environment is the launch contract; a project
 			// manifest must not be able to redirect GOTMPDIR.
-			delete(env, name)
+			continue
 		}
+		env[name] = value
+	}
+	if len(env) == 0 {
+		return nil
 	}
 	script, err := harness.RenderEnvScript(env)
 	if err != nil {
-		return "", fmt.Errorf("spawn: render project credentials: %w", err)
+		return fmt.Errorf("spawn: render project credentials: %w", err)
 	}
 	path := filepath.Join(taskTmp, "auth.ps1")
 	if err := auth.WriteSecretFile(path, script); err != nil {
-		return "", fmt.Errorf("spawn: write project credentials: %w", err)
+		return fmt.Errorf("spawn: write project credentials: %w", err)
 	}
 	launch.SecretsFile = path
-	return warning, nil
+	return nil
 }
 
 // launchPlan is one harness start into an already-prepared Herdr pane. It is

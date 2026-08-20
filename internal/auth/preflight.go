@@ -22,35 +22,53 @@ type SpawnPreflight struct {
 	Runner  execx.Runner
 }
 
+// Result is what a spawn needs from the preflight: what to inject, what to
+// print, and whether a blocking service means this goblin must not start.
+type Result struct {
+	// Env is the credentials the pane inherits.
+	Env map[string]string
+	// Warning is the one-line summary printed after the spawn line.
+	Warning string
+	// Refusal is the multi-line reason a spawn must stop, with the exact
+	// command that fixes each blocking service. Empty when nothing blocks.
+	Refusal string
+}
+
 // Preflight satisfies spawn.AuthPreflight.
-func (p SpawnPreflight) Preflight(ctx context.Context, project string) (map[string]string, string, error) {
+func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, error) {
 	manifest, err := LoadManifest(p.DataDir, project)
 	if errors.Is(err, fs.ErrNotExist) {
 		// Most projects declare nothing. That is not a fault, and a spawn
 		// must not be held up by it.
-		return nil, "", nil
+		return Result{}, nil
 	}
 	if err != nil {
-		return nil, "", err
+		return Result{}, err
 	}
 	store, err := OpenStore()
 	if err != nil {
-		return nil, "", err
+		return Result{}, err
 	}
+	scope := ProjectName(project)
 	// Adopting is safe to do unattended: it only fills credentials that are
-	// absent, from files and tools already on this machine.
+	// absent, from files and tools already on this machine, into this
+	// project's own scope.
 	if _, err := Discover(ctx, store, p.Runner, manifest, project); err != nil {
-		return nil, "", err
+		return Result{}, err
 	}
-	report, err := Checker{Store: store, Runner: p.Runner}.Check(ctx, manifest)
+	report, err := Checker{Store: store, Runner: p.Runner, Project: scope}.Check(ctx, manifest)
 	if err != nil {
-		return nil, "", err
+		return Result{}, err
 	}
-	env, err := InjectEnv(store, manifest, report)
+	env, err := InjectEnv(store, scope, manifest, report)
 	if err != nil {
-		return nil, "", err
+		return Result{}, err
 	}
-	return env, WarningLine(project, report), nil
+	return Result{
+		Env:     env,
+		Warning: WarningLine(project, report),
+		Refusal: RefusalLines(project, report),
+	}, nil
 }
 
 // WarningLine summarizes a preflight in one line for the spawn output, so a
@@ -59,19 +77,57 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string) (map[stri
 // indistinguishable from "no manifest".
 func WarningLine(project string, report Report) string {
 	green := 0
+	unverified := 0
 	for _, status := range report.Statuses {
-		if status.Green() {
+		switch status.State {
+		case StateGreen:
 			green++
+		case StateUnverified:
+			unverified++
 		}
+	}
+	line := fmt.Sprintf("auth: %d/%d services green for %s", green, len(report.Statuses), ProjectName(project))
+	if unverified > 0 {
+		// A credential nothing could confirm is injected, so say it was not
+		// confirmed rather than letting the green count imply it was.
+		line += fmt.Sprintf(", %d unverified", unverified)
 	}
 	blocking := report.Blocking()
 	if len(blocking) == 0 {
-		return fmt.Sprintf("auth: %d/%d services green for %s", green, len(report.Statuses), ProjectName(project))
+		return line
 	}
 	names := make([]string, 0, len(blocking))
+	commands := make([]string, 0, len(blocking))
+	seen := map[string]bool{}
 	for _, status := range blocking {
 		names = append(names, fmt.Sprintf("%s (%s)", status.Service, status.State))
+		for _, command := range remedies(project, status) {
+			if seen[command] {
+				continue
+			}
+			seen[command] = true
+			commands = append(commands, "`"+command+"`")
+		}
 	}
-	return fmt.Sprintf("auth: %d/%d services green for %s; BLOCKING: %s - run `cfo auth %s --fix`",
-		green, len(report.Statuses), ProjectName(project), strings.Join(names, ", "), project)
+	return fmt.Sprintf("%s; BLOCKING: %s - run %s", line, strings.Join(names, ", "), strings.Join(commands, ", "))
+}
+
+// RefusalLines is what a spawn prints instead of dispatching: every blocking
+// service, the fact that was actually established about it, and the exact
+// command that fixes it. It is empty when nothing blocks.
+func RefusalLines(project string, report Report) string {
+	blocking := report.Blocking()
+	if len(blocking) == 0 {
+		return ""
+	}
+	scope := ProjectName(project)
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d blocking service(s) for %s; fix these or pass --yolo to dispatch anyway", len(blocking), scope)
+	for _, status := range blocking {
+		fmt.Fprintf(&b, "\n  %s (%s): %s", status.Service, status.State, status.Detail)
+		for _, command := range remedies(project, status) {
+			fmt.Fprintf(&b, "\n    %s", command)
+		}
+	}
+	return b.String()
 }
