@@ -265,6 +265,11 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if provision.Installed != "" {
 		result.Output += "\ndependencies: " + provision.Installed
 	}
+	if provision.InstallFailed != "" {
+		// Reported, not fatal: the goblin can run the installer itself, and
+		// repairing the lockfile may be the task it was dispatched for.
+		result.Output += "\ndependencies: strategy install failed at " + provision.InstallFailed + "; the goblin was dispatched without them: " + provision.InstallOutput
+	}
 	if len(provision.MCPDropped) > 0 {
 		result.Output += "\nmcp: withheld OAuth-only servers from the goblin: " + strings.Join(provision.MCPDropped, ", ") + " (declare a token-authenticated form in the project .mcp.json to reach goblins)"
 	}

@@ -26,10 +26,14 @@ type Git interface {
 	// project's own git status without touching .gitignore.
 	Acquire(ctx context.Context, project, holder string) (string, error)
 	WorktreeTop(ctx context.Context, dir string) (string, error)
-	// Return removes a worktree and prunes its administrative entry. Shared
-	// directory links provisioned into the worktree are unlinked first: Git
-	// for Windows follows a junction during recursive deletion and would
-	// otherwise delete the primary checkout's files through it.
+	// Return removes a worktree and prunes its administrative entry. The
+	// uncommitted-work check comes first and a refused Return must change
+	// nothing at all, so the operator it tells to commit still has a worktree
+	// that builds and tests. Only once removal is going to proceed are the
+	// shared directory links provisioned into the worktree unlinked, still
+	// before git runs: Git for Windows follows a junction during recursive
+	// deletion and would otherwise delete the primary checkout's files
+	// through it.
 	Return(ctx context.Context, project, worktree string) error
 	// EnsureSeeded makes an unborn or empty primary project a real repository
 	// with one commit on its default branch pushed to origin, so a worktree

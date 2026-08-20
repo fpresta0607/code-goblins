@@ -32,11 +32,13 @@ type LaunchSpec struct {
 	Model           string
 	Effort          string
 	PiExtensionPath string
-	// MCPConfig is the path of the worktree's goblin-safe MCP configuration
-	// (the token-authenticated subset of the project's .mcp.json), empty when
-	// the project declares none. Harnesses with an MCP config flag receive it;
-	// the rest load the same file from the worktree root themselves or go
-	// without.
+	// MCPConfig is the path of the goblin-safe MCP configuration (the
+	// token-authenticated subset of the project's .mcp.json), materialized
+	// under the task's temporary directory and empty when nothing qualified.
+	// Only the claude adapter reads it, through --mcp-config; codex ignores
+	// it and uses the operator's own codex configuration, and kimi has no
+	// config flag and loads the copy provisioning leaves at the worktree root
+	// when that path was safe to write.
 	MCPConfig string
 }
 

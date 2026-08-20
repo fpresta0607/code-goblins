@@ -36,7 +36,7 @@ The full design and the explicit v1 scope live in [docs/superpowers/specs/2026-0
 
 - **One fleet binary** - `cfo.exe`, downloaded by `install.ps1` (or built from source with `go build ./cmd/cfo`). `install.ps1 -Bootstrap` also installs `showcase-axi.exe` (the repo-owned review surface) and the rest of the toolchain.
 - **Real Windows sessions** - goblins run in [Herdr](https://herdr.dev), one tab per goblin.
-- **Isolated worktrees** - every goblin gets a clean in-repo git worktree at `<project>/.worktrees/<id>`, provisioned with the project's config files, dependencies, and token-authenticated MCP servers so it is runnable without re-installing by hand.
+- **Isolated worktrees** - every goblin gets a clean in-repo git worktree at `<project>/.worktrees/gb-<id>`, provisioned with the project's config files, dependencies, and token-authenticated MCP servers so it is runnable without re-installing by hand.
 - **Four harnesses** - Claude Code, Codex, Pi, and Kimi, each with typed, validated launch mapping; claude, codex, and kimi start as named native Herdr agents (`gb-<id>`) and receive their brief through `herdr agent prompt`, while pi is typed into the prepared pane shell (Herdr's Windows agent start cannot run pi's npm `.cmd` shim).
 - **Supervision without babysitting** - Claude Code hooks plus `cfo watch` wake the CFO only when something needs attention; a turn-end guard refuses to let a turn end blind while work is in flight.
 - **Restart-proof state** - tasks, metadata, and the wake queue live on disk under `$CFO_HOME`.
@@ -159,7 +159,7 @@ Herdr is your cockpit. Launch the CFO in a pane, then ask away:
 claude    # or: codex, pi, kimi
 ```
 
-The CFO reads its contract and does the rest - goblins appear as Herdr tabs (`gb-<id>`), each in a clean in-repo worktree at `<project>/.worktrees/<id>`.
+The CFO reads its contract and does the rest - goblins appear as Herdr tabs (`gb-<id>`), each in a clean in-repo worktree at `<project>/.worktrees/gb-<id>`.
 `cfo spawn` targets the Herdr session named `default` (or `$HERDR_SESSION`), so keep the CFO and its goblins in the same session.
 
 ## Cut from v1

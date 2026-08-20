@@ -48,7 +48,7 @@ This file is your entire job description.
 | `cfo pr check <id> <url>` | Record an opened PR on the task |
 | `cfo pr merge <url> [--method <m>] [--delete-branch]` | Merge a PR (merge, squash, or rebase) |
 | `cfo merge-local <id>` | Fast-forward a project's main to a goblin's landed branch |
-| `cfo cleanup <id>` | Close the task tab and return one clean, proven-inactive task worktree: the in-repo worktree at `<project>/.worktrees/<id>` is removed and its git administrative entry pruned. A worktree with uncommitted work is refused, never destroyed |
+| `cfo cleanup <id>` | Close the task tab and return one clean, proven-inactive task worktree: the in-repo worktree at `<project>/.worktrees/gb-<id>` is removed and its git administrative entry pruned. A worktree with uncommitted work is refused, never destroyed |
 | `cfo notify <id> --done --pr <url> \| --blocked "<question>" \| --failed "<reason>"` | A goblin reports its outcome (PR URL, blocked question, or failure reason) straight into the wake queue, waking the CFO with the real payload instead of the watcher guessing from pane text |
 | `cfo drain` | Print or acknowledge the wake queue |
 | `cfo session-start` | Print the session-start digest |
@@ -59,7 +59,7 @@ A `<target>` is a task id, `gb-<id>`, or an explicit `session:pane` Herdr target
 
 ## Dispatching
 
-`cfo spawn` is the only way to start goblin work. It validates the id and mode before touching anything, starts the Herdr server and container, acquires a fresh in-repo git worktree at `<project>/.worktrees/<id>` (never the primary checkout; the `.worktrees/` directory is registered in the clone's `info/exclude`, so status stays clean), provisions it per the project's worktree manifest (shared config files, dependencies, the token-authenticated subset of the project's `.mcp.json`), creates a Herdr tab labeled `gb-<id>`, prepares the pane shell (worktree location plus harness environment), starts the harness and delivers its brief instruction, and reports `spawned ...` only after confirming the agent is working.
+`cfo spawn` is the only way to start goblin work. It validates the id and mode before touching anything, starts the Herdr server and container, acquires a fresh in-repo git worktree at `<project>/.worktrees/gb-<id>` (never the primary checkout; the `.worktrees/` directory is registered in the clone's `info/exclude`, so status stays clean), provisions it per the project's worktree manifest (shared config files, dependencies, the token-authenticated subset of the project's `.mcp.json`), creates a Herdr tab labeled `gb-<id>`, prepares the pane shell (worktree location plus harness environment), starts the harness and delivers its brief instruction, and reports `spawned ...` only after confirming the agent is working.
 
 - `--brief` must be an absolute path to an existing file.
 - `--mode` is `no-mistakes` (default), `direct-PR`, or `local-only`.
@@ -146,7 +146,7 @@ Ask once, with the consolidated sign-in request that command prints, instead of 
 
 ## Project worktree environment
 
-Every goblin works in an in-repo git worktree at `<project>/.worktrees/<id>`, detached from the project's default branch.
+Every goblin works in an in-repo git worktree at `<project>/.worktrees/gb-<id>`, detached from the project's default branch.
 A project can declare how that worktree becomes runnable in `data/projects/<name>/worktree.json`, beside its auth manifest:
 
 ```json

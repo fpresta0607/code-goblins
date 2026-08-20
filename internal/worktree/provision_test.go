@@ -355,12 +355,17 @@ func TestProvisionWritesNoMCPConfigWhenNothingQualifies(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(project, ".mcp.json"), config, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	runner.results = untrackedScript()
+
 	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	if result.MCPConfig != "" {
 		t.Errorf("MCPConfig = %q for an all-OAuth config, want none", result.MCPConfig)
+	}
+	if result.MCPProjectTracked {
+		t.Error("MCPProjectTracked = true, want false when the project does not track .mcp.json")
 	}
 	if !slices.Equal(result.MCPDropped, []string{"supabase"}) {
 		t.Errorf("MCPDropped = %v, want supabase named", result.MCPDropped)
@@ -369,6 +374,127 @@ func TestProvisionWritesNoMCPConfigWhenNothingQualifies(t *testing.T) {
 		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("%s was materialized with zero qualifying servers: %v", path, err)
 		}
+	}
+}
+
+func TestProvisionDisclosesATrackedProjectConfigWhenNothingQualifies(t *testing.T) {
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
+	// The mainstream case: the project commits a .mcp.json holding only OAuth
+	// connectors. Nothing qualifies, so no filtered config is written at all -
+	// and the goblin's cwd-reading harness still finds every withheld server
+	// in the tracked file Acquire checked out. That is when the disclosure
+	// matters most, so it must not depend on anything having qualified.
+	config := []byte(`{"mcpServers": {
+		"notion": {"url": "https://mcp.notion.com/mcp"},
+		"supabase": {"url": "https://mcp.supabase.com/mcp"}
+	}}`)
+	if err := os.WriteFile(filepath.Join(project, ".mcp.json"), config, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	checkedOut := filepath.Join(worktreePath, ".mcp.json")
+	if err := os.WriteFile(checkedOut, config, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner.results = []scriptedResult{{}}
+
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp)
+	if err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if !result.MCPProjectTracked {
+		t.Error("MCPProjectTracked = false, want the tracked project config disclosed")
+	}
+	if result.MCPConfig != "" {
+		t.Errorf("MCPConfig = %q, want none when no server qualifies", result.MCPConfig)
+	}
+	if !slices.Equal(result.MCPDropped, []string{"notion", "supabase"}) {
+		t.Errorf("MCPDropped = %v, want both OAuth connectors named", result.MCPDropped)
+	}
+	after, err := os.ReadFile(checkedOut)
+	if err != nil || !bytes.Equal(after, config) {
+		t.Fatalf("tracked worktree .mcp.json = %s (%v), want the committed bytes untouched", after, err)
+	}
+}
+
+func TestProvisionReportsAFailedInstallWithoutFailingTheDispatch(t *testing.T) {
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
+	writeFileLine(t, filepath.Join(worktreePath, "pnpm-lock.yaml"), "lockfileVersion: '9.0'")
+	writeFileLine(t, filepath.Join(project, ".env"), "K=V")
+	runner.results = []scriptedResult{
+		{}, // check-ignore .env: already ignored
+		{}, // check-ignore node_modules: already ignored
+		{result: execx.Result{ExitCode: 1, Stderr: []byte("ERR_PNPM_OUTDATED_LOCKFILE  Cannot install" + "\n" + "with frozen-lockfile")}},
+	}
+
+	// A drifted lockfile must not abort the dispatch: the goblin can run the
+	// installer itself, and repairing it may be the task it was sent to do.
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp)
+	if err != nil {
+		t.Fatalf("Provision: %v, want a reported install failure rather than an error", err)
+	}
+	if result.InstallFailed != "pnpm install --frozen-lockfile" {
+		t.Errorf("InstallFailed = %q, want the exact command that failed", result.InstallFailed)
+	}
+	if !strings.Contains(result.InstallOutput, "ERR_PNPM_OUTDATED_LOCKFILE") {
+		t.Errorf("InstallOutput = %q, want the installer's own cause", result.InstallOutput)
+	}
+	if strings.ContainsAny(result.InstallOutput, "\r\n") {
+		t.Errorf("InstallOutput = %q, want one line for the spawn output", result.InstallOutput)
+	}
+	if result.Installed != "" {
+		t.Errorf("Installed = %q, want no successful command claimed", result.Installed)
+	}
+	if !slices.Contains(result.Linked, ".env") {
+		t.Errorf("Linked = %v, want provisioning to have continued past the failed install", result.Linked)
+	}
+}
+
+func TestProvisionAbandonsTheChainAfterAFailedInstallCommand(t *testing.T) {
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
+	dataDir := t.TempDir()
+	writeManifest(t, dataDir, project, Manifest{
+		Project:      "demo",
+		Dependencies: Dependencies{Install: []string{"uv venv", "uv pip install -r requirements.txt"}},
+	})
+	runner.results = []scriptedResult{
+		{}, // check-ignore .venv
+		{result: execx.Result{ExitCode: 1, Stderr: []byte("uv: no interpreter found")}},
+	}
+
+	result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp)
+	if err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if result.InstallFailed != "uv venv" {
+		t.Errorf("InstallFailed = %q, want the first command", result.InstallFailed)
+	}
+	// The second command builds on the environment the first was meant to
+	// create, so running it after the failure would only add noise.
+	if got := len(runner.calls); got != 2 {
+		t.Errorf("calls = %d (%#v), want the chain abandoned after the failure", got, runner.calls)
+	}
+}
+
+func TestProvisionSurfacesAnUnstartableInstaller(t *testing.T) {
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
+	writeFileLine(t, filepath.Join(worktreePath, "uv.lock"), "version = 1")
+	runner.results = []scriptedResult{
+		{}, // check-ignore .venv
+		{err: errors.New("executable file not found in PATH")},
+	}
+
+	// A runner that cannot start the process at all is the runner failing,
+	// not the project, so it stays an error.
+	_, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp)
+	if err == nil || !strings.Contains(err.Error(), "install dependencies") {
+		t.Fatalf("Provision error = %v, want the unstartable installer surfaced", err)
+	}
+}
+
+func writeFileLine(t *testing.T, path, line string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(line+"\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

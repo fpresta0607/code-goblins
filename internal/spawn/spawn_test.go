@@ -265,6 +265,39 @@ func TestSpawnUsesRequestedHerdrSession(t *testing.T) {
 	}
 }
 
+func TestSpawnDispatchesAndReportsWhenTheDependencyInstallFails(t *testing.T) {
+	fixture := newFixture(t)
+	// Strategy install is the default and its command is auto-detected from a
+	// lockfile, so no project opted into it. A drifted lockfile must not turn
+	// every dispatch into this repo into a failure.
+	writeFile(t, filepath.Join(fixture.worktree, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n")
+	fixture.runner.installer = "pnpm"
+	fixture.runner.installerStderr = "ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with frozen-lockfile\n"
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v, want the goblin dispatched anyway", err)
+	}
+	if !slices.Contains(fixture.events, "install") {
+		t.Fatalf("events = %v, want the detected installer to have run", fixture.events)
+	}
+	if !strings.Contains(result.Output, "pnpm install --frozen-lockfile") ||
+		!strings.Contains(result.Output, "ERR_PNPM_OUTDATED_LOCKFILE") {
+		t.Errorf("output = %q, want the failed install command and its cause reported", result.Output)
+	}
+	// Nothing was torn down: the task is published, the tab is open, and the
+	// harness got its brief.
+	if _, err := state.ReadTaskMeta(fixture.stateDir, fixture.request.ID); err != nil {
+		t.Fatalf("read metadata after a failed install: %v", err)
+	}
+	if slices.Contains(fixture.events, "tab-close") || fixture.git.returned != 0 {
+		t.Errorf("events = %v, worktree returns = %d; want the dispatch left intact", fixture.events, fixture.git.returned)
+	}
+	if fixture.runner.prompt == "" && fixture.runner.literal == "" {
+		t.Error("no harness was launched after the failed install")
+	}
+}
+
 func TestSpawnRefusesUnvalidatableWorktreeWithoutLaunching(t *testing.T) {
 	fixture := newFixture(t)
 	fixture.git.topErr = errors.New("worktree: not a git worktree")
@@ -1055,6 +1088,8 @@ type herdrRunner struct {
 	failSendTextAt   int
 	failSendTexts    int
 	failCtrlUs       int
+	installer        string
+	installerStderr  string
 }
 
 func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -1062,6 +1097,15 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 	wantSession := r.session
 	if wantSession == "" {
 		wantSession = "fleet"
+	}
+	// Provisioning drives the same runner: it asks git whether a path is
+	// already ignored, then runs the project's own installer.
+	if req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "check-ignore" {
+		return execx.Result{}, nil
+	}
+	if r.installer != "" && req.Name == r.installer {
+		*r.events = append(*r.events, "install")
+		return execx.Result{ExitCode: 1, Stderr: []byte(r.installerStderr)}, nil
 	}
 	if req.Name == "pi" {
 		*r.events = append(*r.events, "validate-harness")

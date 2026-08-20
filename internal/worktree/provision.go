@@ -34,8 +34,15 @@ type ProvisionResult struct {
 	MCPDropped []string
 	// Linked names the config entries shared from the primary checkout.
 	Linked []string
-	// Installed is the dependency command that ran, empty when none ran.
+	// Installed is the dependency command that ran, empty when none ran or
+	// the run failed.
 	Installed string
+	// InstallFailed is the dependency command that exited non-zero, empty
+	// when none did. Provisioning continues past it; see installDependencies.
+	InstallFailed string
+	// InstallOutput is a bounded single-line tail of the failed command's
+	// output, so the cause reaches the operator at dispatch.
+	InstallOutput string
 }
 
 // Provision makes one freshly acquired worktree runnable as if it were the
@@ -85,11 +92,13 @@ func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp s
 			}
 		}
 	case StrategyInstall:
-		command, err := s.installDependencies(ctx, git, manifest, worktreePath)
+		install, err := s.installDependencies(ctx, git, manifest, worktreePath)
 		if err != nil {
 			return result, err
 		}
-		result.Installed = command
+		result.Installed = install.ran
+		result.InstallFailed = install.failed
+		result.InstallOutput = install.output
 	}
 
 	mcp, err := s.materializeMCP(ctx, git, project, worktreePath, taskTmp)
@@ -152,11 +161,32 @@ func (s Service) junction(ctx context.Context, source, destination string) error
 	return nil
 }
 
+// installResult is what one dependency-install pass produced: the command
+// chain that completed, or the one that failed and why.
+type installResult struct {
+	ran    string
+	failed string
+	output string
+}
+
+// installFailureLimit bounds the failed installer's output on the spawn line.
+const installFailureLimit = 400
+
 // installDependencies runs the project's own installer in the worktree against
 // the shared per-user package cache. The installer is detected from the
 // lockfile unless the manifest overrides it; a Go-only project needs nothing
 // because the module cache is already shared per user.
-func (s Service) installDependencies(ctx context.Context, git RunnerGit, manifest Manifest, worktreePath string) (string, error) {
+//
+// A non-zero installer exit is reported, never fatal. A red credential refuses
+// a spawn because a goblin can never mint a credential itself, but a goblin
+// can always run an installer, and repairing a drifted lockfile may be the
+// very task it was dispatched for. Strategy install is the default and its
+// command is auto-detected from a lockfile, so no project opted into it, and
+// letting a heuristic block every dispatch into a repo is the wrong failure
+// mode; it also matches the rest of provisioning, where a missing link source
+// is skipped rather than fatal. A command that cannot be started at all stays
+// an error, because that is the runner failing rather than the project.
+func (s Service) installDependencies(ctx context.Context, git RunnerGit, manifest Manifest, worktreePath string) (installResult, error) {
 	commands := manifest.Dependencies.Install
 	if len(commands) == 0 {
 		if detected := detectInstallCommand(worktreePath); detected != "" {
@@ -164,11 +194,11 @@ func (s Service) installDependencies(ctx context.Context, git RunnerGit, manifes
 		}
 	}
 	if len(commands) == 0 {
-		return "", nil
+		return installResult{}, nil
 	}
 	for _, output := range installOutputs(commands) {
 		if err := s.ensureIgnored(ctx, git, worktreePath, output); err != nil {
-			return "", err
+			return installResult{}, err
 		}
 	}
 	for _, command := range commands {
@@ -178,13 +208,25 @@ func (s Service) installDependencies(ctx context.Context, git RunnerGit, manifes
 		}
 		result, err := s.Commands.Run(ctx, execx.Request{Dir: worktreePath, Name: fields[0], Args: fields[1:]})
 		if err != nil {
-			return command, fmt.Errorf("worktree: install dependencies (%q): %w", command, err)
+			return installResult{}, fmt.Errorf("worktree: install dependencies (%q): %w", command, err)
 		}
 		if result.ExitCode != 0 {
-			return command, fmt.Errorf("worktree: install dependencies: %s", commandFailure(command, result).Error())
+			// The rest of the chain is abandoned: a later command in a
+			// declared sequence builds on the one that just failed.
+			return installResult{failed: command, output: installFailureTail(result)}, nil
 		}
 	}
-	return strings.Join(commands, " && "), nil
+	return installResult{ran: strings.Join(commands, " && ")}, nil
+}
+
+// installFailureTail flattens a failed installer's output to one bounded line
+// ending where the error is, so a broken lockfile cannot flood the spawn line.
+func installFailureTail(result execx.Result) string {
+	output := strings.Join(strings.Fields(string(combinedOutput(result))), " ")
+	if len(output) > installFailureLimit {
+		output = "..." + output[len(output)-installFailureLimit:]
+	}
+	return output
 }
 
 // detectInstallCommand maps a lockfile to the install command that honors it.
@@ -242,8 +284,10 @@ type mcpResult struct {
 // config can carry OAuth connectors (its operator completes those flows
 // interactively), a linked copy would hand a goblin an authentication prompt
 // it can never satisfy, and a path inside the worktree could later be the
-// project's own file or one the goblin wrote. Claude and codex receive that
-// path through --mcp-config.
+// project's own file or one the goblin wrote. Claude is the only harness that
+// receives that path, through --mcp-config; the codex adapter ignores
+// LaunchSpec.MCPConfig, so a codex goblin uses the operator's own codex MCP
+// configuration and this filter does not reach it.
 //
 // The same bytes are additionally copied to <worktree>/.mcp.json, because
 // kimi has no config flag and reads the project-scoped .mcp.json from its
@@ -252,6 +296,12 @@ type mcpResult struct {
 // tracked .mcp.json would leave the worktree permanently modified, which the
 // return path refuses to remove, so a tracked file is left exactly as it is
 // and reported instead.
+//
+// Trackedness is probed before anything is filtered, because the disclosure
+// is about what the worktree already holds, not about what qualified. A
+// project whose committed .mcp.json is entirely OAuth connectors materializes
+// no filtered config at all, and that is exactly when a cwd-reading harness
+// sees the most withheld servers.
 func (s Service) materializeMCP(ctx context.Context, git RunnerGit, project, worktreePath, taskTmp string) (mcpResult, error) {
 	data, err := os.ReadFile(filepath.Join(project, ".mcp.json"))
 	if errors.Is(err, os.ErrNotExist) {
@@ -265,6 +315,11 @@ func (s Service) materializeMCP(ctx context.Context, git RunnerGit, project, wor
 		return mcpResult{}, err
 	}
 	result := mcpResult{dropped: dropped}
+	tracked, err := s.tracked(ctx, worktreePath, ".mcp.json")
+	if err != nil {
+		return result, err
+	}
+	result.projectTracked = tracked
 	if filtered == nil {
 		return result, nil
 	}
@@ -277,11 +332,6 @@ func (s Service) materializeMCP(ctx context.Context, git RunnerGit, project, wor
 	}
 	result.config = config
 
-	tracked, err := s.tracked(ctx, worktreePath, ".mcp.json")
-	if err != nil {
-		return result, err
-	}
-	result.projectTracked = tracked
 	if tracked {
 		return result, nil
 	}

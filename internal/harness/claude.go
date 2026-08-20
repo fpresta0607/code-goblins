@@ -29,10 +29,12 @@ func (claudeAdapter) Build(spec LaunchSpec) (Launch, error) {
 	// servers need authentication - run /mcp" on every launch and do the goblin
 	// no good. --strict-mcp-config restricts Claude to the configs named with
 	// --mcp-config, and spawn hands it exactly one: the token-authenticated
-	// subset of the project's own .mcp.json, materialized in the worktree.
-	// OAuth connectors are filtered out by construction, because a goblin can
-	// never complete their browser flow. Project credentials ride in through
-	// the injected environment instead.
+	// subset of the project's own .mcp.json, materialized under the task's
+	// temporary directory rather than inside the checkout. OAuth connectors
+	// are filtered out by construction, because a goblin can never complete
+	// their browser flow. Claude is the only adapter that reads
+	// LaunchSpec.MCPConfig, so this filter covers claude goblins alone.
+	// Project credentials ride in through the injected environment instead.
 	launch.Args = []string{"--dangerously-skip-permissions", "--strict-mcp-config"}
 	if hasValue(spec.MCPConfig) {
 		launch.Args = append(launch.Args, "--mcp-config", spec.MCPConfig)
