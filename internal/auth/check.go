@@ -358,7 +358,7 @@ var failureEvidence = []struct {
 	pattern *regexp.Regexp
 }{
 	{StateExpired, regexp.MustCompile(`(?i)expir(ed|es|ing|y|ation)|token is no longer valid|session has ended|past its lifetime`)},
-	{StateUnauthorized, regexp.MustCompile(`(?i)\b(401|403|unauthorized|forbidden|authentication failed|bad credentials|access denied|permission denied|not logged in|not authenticated|invalid[ -](api[ -])?(key|token|credentials?|authentication))\b`)},
+	{StateUnauthorized, regexp.MustCompile(`(?i)\b(401|403|unauthorized|forbidden|authentication failed|bad credentials|access denied|permission denied|not logged in|not authenticated|must be authenticated|authentication required|requires authentication|invalid[ -](api[ -])?(key|token|credentials?|authentication))\b`)},
 	{StateUnreachable, regexp.MustCompile(`(?i)connection refused|connection reset|could ?n[o']t connect|could not connect|no such host|name or service not known|network is unreachable|host is unreachable|i/o timeout|timed out|dial tcp|getaddrinfo|eai_again|econnrefused|enotfound`)},
 }
 

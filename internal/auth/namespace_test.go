@@ -381,6 +381,10 @@ func TestExpiredIsNeverPrintedWithoutEvidenceOfExpiry(t *testing.T) {
 		{"Invalid API Key provided", StateUnauthorized},
 		{"Error: not logged in", StateUnauthorized},
 		{"permission denied for schema public", StateUnauthorized},
+		// flyctl's wording when the token it was handed is not accepted.
+		// Reported as `failed` it reads as "no idea", and the fix for a
+		// rejected token is not the fix for an unexplained one.
+		{"Error: failed retrieving current user: failed to run query: You must be authenticated to view this.", StateUnauthorized},
 		{"dial tcp 10.0.0.1:5432: connect: connection refused", StateUnreachable},
 		{"lookup db.example.test: no such host", StateUnreachable},
 		{"context deadline exceeded: i/o timeout", StateUnreachable},
