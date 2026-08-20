@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/install"
 )
 
 // Check is one tool's verdict. Err empty means usable.
@@ -75,32 +76,41 @@ func Run() []Check {
 // hookPairingHint is checkHookPairing's remedy for a guard registered alone.
 const hookPairingHint = `register "cfo hook stop-autoarm" as a Stop hook with asyncRewake, or the turn-end guard will block without anything restoring the watcher`
 
-// checkHookPairing reads the resolved home's .claude/settings.json and
-// reports unhealthy only when "cfo hook turnend-guard" is registered
-// somewhere in it without "cfo hook stop-autoarm" also present: a guard
-// with nothing to prove recovery is under way will eventually run its own
-// escalation ladder to the hard ceiling on every blocked turn instead of the
-// auto-arm ever recovering the watcher. Presence-only: it does not parse
-// which hook event either string is registered under, only that both
-// strings occur somewhere in the file. It passes silently (no Err) when the
-// home cannot be resolved, the file is absent or unreadable, the JSON is
-// malformed, or neither hook string appears - malformed JSON is deliberately
-// never a hard failure, since a broken settings.json is Claude Code's
-// problem to surface, not this check's.
+// checkHookPairing reads the settings files a session's hooks can come from
+// and reports unhealthy only when "cfo hook turnend-guard" is registered
+// without "cfo hook stop-autoarm" also present: a guard with nothing to
+// prove recovery is under way will eventually run its own escalation ladder
+// to the hard ceiling on every blocked turn instead of the auto-arm ever
+// recovering the watcher. Presence-only: it does not parse which hook event
+// either string is registered under, only that both strings occur somewhere.
+//
+// Both scopes are read, because `cfo install` moves the CFO hooks to the
+// user settings and a check that only ever looked in the checkout would go
+// quiet exactly when the hooks were working. It passes silently (no Err)
+// when the home cannot be resolved, neither file is present or readable,
+// the JSON is malformed, or neither hook string appears - malformed JSON is
+// deliberately never a hard failure, since a broken settings.json is Claude
+// Code's problem to surface, not this check's.
 func checkHookPairing() Check {
-	h, err := home.Resolve()
-	if err != nil {
-		return Check{Name: "hook-pairing"}
+	paths := []string{}
+	if h, err := home.Resolve(); err == nil {
+		paths = append(paths, filepath.Join(h.Root, ".claude", "settings.json"))
 	}
-	data, err := os.ReadFile(filepath.Join(h.Root, ".claude", "settings.json"))
-	if err != nil {
-		return Check{Name: "hook-pairing"}
+	if userSettings, err := install.UserSettingsPath(); err == nil {
+		paths = append(paths, userSettings)
 	}
-	var parsed any
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		return Check{Name: "hook-pairing"}
+	var text string
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var parsed any
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			continue
+		}
+		text += string(data)
 	}
-	text := string(data)
 	hasGuard := strings.Contains(text, "cfo hook turnend-guard")
 	hasAutoarm := strings.Contains(text, "cfo hook stop-autoarm")
 	if hasGuard && !hasAutoarm {

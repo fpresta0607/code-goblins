@@ -11,6 +11,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
 	"github.com/fpresta0607/code-goblins/internal/digest"
 	"github.com/fpresta0607/code-goblins/internal/guard"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
@@ -26,6 +27,16 @@ import (
 // break the tool call, so it exits 0 with a one-line stderr diagnostic
 // instead of denying or failing the request.
 func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
+	// A goblin is never supervised by the CFO's hooks: it is the work being
+	// supervised. Until the hooks moved to user scope this held by accident
+	// - a goblin's worktree has no cfo.exe, so the repo-scoped `[ -x ... ]`
+	// guard fired - and an accident that has to be remembered is exactly the
+	// bug this replaces. The check sits above the dispatch rather than
+	// inside each arm so it covers every hook that exists and every hook
+	// anyone adds later.
+	if os.Getenv(harness.RoleVariable) == harness.RoleGoblin {
+		return 0
+	}
 	switch name {
 	case "pretool-subagent":
 		return hookPretoolSubagent(stdin, stdout, stderr)

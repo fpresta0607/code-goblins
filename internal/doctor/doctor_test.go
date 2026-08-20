@@ -252,3 +252,68 @@ func TestHookPairingMalformedJSONIsHealthy(t *testing.T) {
 		t.Errorf("Err = %q, want empty (never a hard failure) with malformed JSON", c.Err)
 	}
 }
+
+// TestHookPairingReadsTheUserScopeSettings covers the shape `cfo install`
+// leaves behind: the CFO hooks live in the user settings and the checkout
+// carries none, so a check that only read the checkout would go quiet
+// exactly when the hooks were working.
+func TestHookPairingReadsTheUserScopeSettings(t *testing.T) {
+	t.Setenv("CFO_HOME", t.TempDir())
+	configDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	settings := filepath.Join(configDir, "settings.json")
+
+	if err := os.WriteFile(settings, []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"cfo hook turnend-guard"}]}]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if c := checkHookPairing(); c.Err == "" {
+		t.Error("Err = empty, want non-empty with the guard registered alone in the user settings")
+	}
+
+	if err := os.WriteFile(settings, []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"cfo hook turnend-guard"},{"type":"command","command":"cfo hook stop-autoarm"}]}]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if c := checkHookPairing(); c.Err != "" {
+		t.Errorf("Err = %q, want empty with both hooks registered in the user settings", c.Err)
+	}
+}
+
+// TestHookPairingSpansBothScopes proves the two files are read together: a
+// half-installed machine with the guard in one scope and the auto-arm in the
+// other is healthy, because a session loads both.
+func TestHookPairingSpansBothScopes(t *testing.T) {
+	dir := t.TempDir()
+	writeSettings(t, dir, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"cfo hook turnend-guard"}]}]}}`)
+	t.Setenv("CFO_HOME", dir)
+	configDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	if err := os.WriteFile(filepath.Join(configDir, "settings.json"), []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"cfo hook stop-autoarm"}]}]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if c := checkHookPairing(); c.Err != "" {
+		t.Errorf("Err = %q, want empty when the pair is split across the two scopes", c.Err)
+	}
+}
+
+// TestMain keeps this suite off the machine's own fleet. On a host where the
+// CFO is installed, CFO_HOME, CFO_STATE_OVERRIDE, and a real ~/.claude are
+// all in the environment, and a test that resolves any of them writes into
+// the live wake queue - which is not a hypothetical: it is how this guard
+// came to be written.
+func TestMain(m *testing.M) {
+	for _, name := range []string{"CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_ROLE"} {
+		if err := os.Unsetenv(name); err != nil {
+			panic(err)
+		}
+	}
+	configDir, err := os.MkdirTemp("", "cfo-test-claude-config-")
+	if err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("CLAUDE_CONFIG_DIR", configDir); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	os.RemoveAll(configDir)
+	os.Exit(code)
+}

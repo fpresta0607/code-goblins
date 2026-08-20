@@ -47,7 +47,7 @@ catch {
 Write-Host ""
 Write-Host "Installed cfo.exe -> $dest"
 Write-Host "Installed showcase-axi.exe -> $destShowcase"
-Write-Host "The .claude/settings.json hooks are already wired to $dest."
+Write-Host "Next: run cfo install from this checkout to wire CFO_HOME, PATH, and the Claude Code hooks in your user settings."
 Write-Host ""
 
 # From here on, native stderr (npm progress, installer notes, mklink) must

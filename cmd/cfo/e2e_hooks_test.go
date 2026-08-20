@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -15,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/install"
 )
 
 // TestHookFamilyEndToEnd is Task 13's whole-family proof: it builds the real
@@ -50,7 +53,9 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 
 	// --- Phase 1: seven invocations against a genuine primary home ---
 
-	sharedHome := newPrimaryHome(t)
+	// The registered commands resolve cfo.exe through CFO_HOME, so a home
+	// that stands in for a real $CFO_HOME has to hold the binary.
+	sharedHome := homeWithBinary(t, exe)
 
 	t.Run("case1 session-start full compose", func(t *testing.T) {
 		home := newPrimaryHome(t)
@@ -172,11 +177,11 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 		commands := loadRegisteredCommands(t, repoRoot)
 		wantNames := []string{"session-start", "pretool-arm", "pretool-cd", "pretool-subagent", "turnend-guard", "stop-autoarm"}
 		if len(commands) != len(wantNames) {
-			t.Fatalf(".claude/settings.json registered %d recognizable hook commands, want %d: %v", len(commands), len(wantNames), commands)
+			t.Fatalf("cfo install registered %d recognizable hook commands, want %d: %v", len(commands), len(wantNames), commands)
 		}
 		for _, name := range wantNames {
 			if _, ok := commands[name]; !ok {
-				t.Fatalf(".claude/settings.json is missing a registered command for %q", name)
+				t.Fatalf("cfo install is missing a registered command for %q", name)
 			}
 		}
 
@@ -196,7 +201,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 		}
 
 		t.Run("session-start", func(t *testing.T) {
-			home := newPrimaryHome(t)
+			home := homeWithBinary(t, exe)
 			res := runViaShell(t, bashPath, commands["session-start"].Command, sessionStartPayload, baseEnv(home, nil))
 			assertExit(t, res, 0, "session-start via shell (primary)")
 			assertEmptyStderr(t, res, "session-start via shell (primary)")
@@ -235,7 +240,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 		})
 
 		t.Run("turnend-guard", func(t *testing.T) {
-			home := newPrimaryHome(t)
+			home := homeWithBinary(t, exe)
 			writeMetaFixture(t, filepath.Join(home, "state"), "g1.meta")
 			extra := map[string]string{"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1"}
 			res := runViaShell(t, bashPath, commands["turnend-guard"].Command, turnendPayload, baseEnv(home, extra))
@@ -247,7 +252,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 		})
 
 		t.Run("stop-autoarm", func(t *testing.T) {
-			home := newPrimaryHome(t)
+			home := homeWithBinary(t, exe)
 			state := filepath.Join(home, "state")
 			writeMetaFixture(t, state, "g1.meta")
 			extra := map[string]string{
@@ -267,19 +272,18 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 			assertSilentZero(t, devRes, "stop-autoarm via shell (dev)")
 		})
 
-		// Important 1 (review): every one of these subtests so far points
-		// CLAUDE_PROJECT_DIR at buildDir, which DOES contain cfo.exe - the
-		// present-binary branch of every "[ -x ... ] || exit 0" guard. That is
-		// NOT the state this repo is actually in: cfo.exe is git-ignored and
-		// absent from the real repo root right now, so every live session
-		// here takes the ABSENT branch of all six guards. This subtest proves
-		// that branch directly: CLAUDE_PROJECT_DIR points at an empty
-		// directory with no cfo.exe, against a primary home that already has
-		// goblin work in flight (so an un-guarded hook would visibly deny,
-		// block, or rewake if the guard did not stop it first), and every one
-		// of the six exact registered command strings must still exit 0 with
+		// Important 1 (review): every one of these subtests so far resolves
+		// cfo.exe successfully - the present-binary branch of every
+		// "[ -x ... ] || exit 0" guard. That is NOT the state a fresh clone
+		// is in: cfo.exe is git-ignored, so until it is built every session
+		// takes the ABSENT branch of all six guards. This subtest proves
+		// that branch directly: neither CFO_HOME nor CLAUDE_PROJECT_DIR
+		// holds a binary, against a primary home that already has goblin
+		// work in flight (so an un-guarded hook would visibly deny, block,
+		// or rewake if the guard did not stop it first), and every one of
+		// the six exact registered command strings must still exit 0 with
 		// both streams empty.
-		t.Run("absent binary guard (cfo.exe missing at CLAUDE_PROJECT_DIR)", func(t *testing.T) {
+		t.Run("absent binary guard (no cfo.exe to resolve)", func(t *testing.T) {
 			emptyDir := t.TempDir()
 			home := newPrimaryHome(t)
 			state := filepath.Join(home, "state")
@@ -312,6 +316,103 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 			for _, c := range absentCases {
 				res := runViaShell(t, bashPath, commands[c.name].Command, c.stdin, env(c.env))
 				assertSilentZero(t, res, c.name+" via shell (cfo.exe absent)")
+			}
+		})
+
+		// This is the whole point of installing at user scope: a session
+		// opened in some OTHER repository - one with no cfo.exe of its own,
+		// which is every repository - must still be supervised. Every hook
+		// here has CLAUDE_PROJECT_DIR pointing at a project directory with
+		// no binary in it, so the only thing that can resolve cfo.exe is
+		// CFO_HOME, and each command must do the same thing it does inside
+		// code-goblins.
+		t.Run("a session in a different repo (no cfo.exe at CLAUDE_PROJECT_DIR)", func(t *testing.T) {
+			otherRepo := t.TempDir()
+			// One fresh home per hook, exactly as the subtests above do:
+			// several of these hooks write supervision state, and reusing a
+			// home would let one firing decide the next one's outcome.
+			env := func(home string, extra map[string]string) []string {
+				return buildEnv(mergeEnv(map[string]string{"CFO_HOME": home, "CLAUDE_PROJECT_DIR": otherRepo}, extra))
+			}
+
+			home := homeWithBinary(t, exe)
+			res := runViaShell(t, bashPath, commands["session-start"].Command, sessionStartPayload, env(home, nil))
+			assertExit(t, res, 0, "session-start in a different repo")
+			assertHasHeaders(t, res.stdout, "session-start in a different repo")
+
+			home = homeWithBinary(t, exe)
+			writeMetaFixture(t, filepath.Join(home, "state"), "g1.meta")
+			res = runViaShell(t, bashPath, commands["pretool-subagent"].Command, subagentPayload, env(home, nil))
+			assertDeny(t, res, "", "pretool-subagent in a different repo")
+
+			res = runViaShell(t, bashPath, commands["pretool-arm"].Command, armDenyPayload, env(home, nil))
+			assertDeny(t, res, "watcher-background", "pretool-arm in a different repo")
+
+			res = runViaShell(t, bashPath, commands["pretool-cd"].Command, cdDenyPayload, env(home, nil))
+			assertDeny(t, res, "cwd-relocation", "pretool-cd in a different repo")
+
+			home = homeWithBinary(t, exe)
+			writeMetaFixture(t, filepath.Join(home, "state"), "g1.meta")
+			res = runViaShell(t, bashPath, commands["turnend-guard"].Command, turnendPayload,
+				env(home, map[string]string{"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1"}))
+			assertBlock(t, res, "TURN WOULD END BLIND", "turnend-guard in a different repo")
+
+			home = homeWithBinary(t, exe)
+			state := filepath.Join(home, "state")
+			writeMetaFixture(t, state, "g1.meta")
+			autoarmExtra := map[string]string{
+				"CFO_TEST_ANCESTOR_PID":       strconv.Itoa(os.Getpid()),
+				"CFO_POLL":                    "1",
+				"CFO_SIGNAL_GRACE":            "1",
+				"CFO_HEARTBEAT":               "1",
+				"CFO_CLAUDE_AUTOARM_ATTEMPTS": "1",
+			}
+			done := statusApendAfter(state, "g1.status", 300*time.Millisecond)
+			res = runViaShell(t, bashPath, commands["stop-autoarm"].Command, stopAutoarmPayload, env(home, autoarmExtra))
+			<-done
+			assertBlock(t, res, "cfo watcher wake", "stop-autoarm in a different repo")
+		})
+
+		// The other side of moving the hooks to user scope: a goblin pane
+		// now inherits them too, so the role stamp is the only thing keeping
+		// the CFO's supervision out of the work it is supervising. Same
+		// primary home and same in-flight goblin as the subtest above, where
+		// every one of these six denied, blocked, or printed a digest.
+		t.Run("a goblin pane receives no hook", func(t *testing.T) {
+			home := homeWithBinary(t, exe)
+			writeMetaFixture(t, filepath.Join(home, "state"), "g1.meta")
+			goblinEnv := func(extra map[string]string) []string {
+				return buildEnv(mergeEnv(map[string]string{
+					"CFO_HOME":           home,
+					"CLAUDE_PROJECT_DIR": home,
+					"CFO_ROLE":           "goblin",
+				}, extra))
+			}
+
+			goblinCases := []struct {
+				name  string
+				stdin string
+				env   map[string]string
+			}{
+				{"session-start", sessionStartPayload, nil},
+				{"pretool-subagent", subagentPayload, nil},
+				{"pretool-arm", armDenyPayload, nil},
+				{"pretool-cd", cdDenyPayload, nil},
+				{"turnend-guard", turnendPayload, map[string]string{"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1"}},
+				{"stop-autoarm", stopAutoarmPayload, map[string]string{
+					"CFO_TEST_ANCESTOR_PID":       strconv.Itoa(os.Getpid()),
+					"CFO_POLL":                    "1",
+					"CFO_SIGNAL_GRACE":            "1",
+					"CFO_HEARTBEAT":               "1",
+					"CFO_CLAUDE_AUTOARM_ATTEMPTS": "1",
+				}},
+			}
+			if len(goblinCases) != len(wantNames) {
+				t.Fatalf("goblin table has %d rows, want one per registered command (%d)", len(goblinCases), len(wantNames))
+			}
+			for _, c := range goblinCases {
+				res := runViaShell(t, bashPath, commands[c.name].Command, c.stdin, goblinEnv(c.env))
+				assertSilentZero(t, res, c.name+" via shell (goblin pane)")
 			}
 		})
 	})
@@ -506,22 +607,40 @@ type registeredHook struct {
 	AsyncRewake bool
 }
 
-// loadRegisteredCommands reads .claude/settings.json from repoRoot and
-// returns, for each of the six cfo hook names it finds a "hook <name>"
-// substring for, the registered entry for it. Reading the file that is
-// actually checked in (rather than re-deriving the six strings from a
-// parallel Go constant) means this step always exercises what is really
-// wired, and a future settings.json edit that drops or renames a hook fails
-// this step loudly instead of silently testing stale strings.
+// inertEnvStore is the user-scope environment as a no-op, so building the
+// settings file under test never reads or writes the machine's registry.
+type inertEnvStore struct{}
+
+func (inertEnvStore) Get(string) (string, bool, error) { return "", false, nil }
+func (inertEnvStore) Set(string, string) error         { return nil }
+func (inertEnvStore) Unset(string) error               { return nil }
+func (inertEnvStore) Broadcast() error                 { return nil }
+
+// loadRegisteredCommands runs the real installer into a temp settings file
+// and reads the six cfo hook entries back out of it. Reading the file the
+// installer actually writes (rather than re-deriving the six strings from a
+// parallel constant in this test) means this step always exercises what is
+// really wired, and an installer edit that drops or renames a hook fails
+// here loudly instead of silently testing stale strings.
 func loadRegisteredCommands(t *testing.T, repoRoot string) map[string]registeredHook {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(repoRoot, ".claude", "settings.json"))
+	settingsPath := filepath.Join(t.TempDir(), "settings.json")
+	service := install.Service{
+		Root:         repoRoot,
+		UserSettings: settingsPath,
+		RepoSettings: filepath.Join(t.TempDir(), "absent.json"),
+		Env:          inertEnvStore{},
+	}
+	if err := service.Install(io.Discard); err != nil {
+		t.Fatalf("install into %s: %v", settingsPath, err)
+	}
+	data, err := os.ReadFile(settingsPath)
 	if err != nil {
-		t.Fatalf("read .claude/settings.json: %v", err)
+		t.Fatalf("read the installed settings: %v", err)
 	}
 	var sf settingsFile
 	if err := json.Unmarshal(data, &sf); err != nil {
-		t.Fatalf("parse .claude/settings.json: %v", err)
+		t.Fatalf("parse the installed settings: %v", err)
 	}
 
 	commands := make(map[string]registeredHook)
@@ -549,6 +668,22 @@ func loadRegisteredCommands(t *testing.T, repoRoot string) map[string]registered
 		}
 	}
 	return commands
+}
+
+// homeWithBinary is a primary fleet home that also holds cfo.exe, which is
+// what a real $CFO_HOME looks like and what lets a session in another
+// repository resolve the binary at all.
+func homeWithBinary(t *testing.T, exe string) string {
+	t.Helper()
+	home := newPrimaryHome(t)
+	data, err := os.ReadFile(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "cfo.exe"), data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return home
 }
 
 // --- subprocess execution ---

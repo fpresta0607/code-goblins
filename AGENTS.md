@@ -32,6 +32,7 @@ This file is your entire job description.
 
 | Command | What it does |
 | --- | --- |
+| `cfo install [--uninstall]` | Wire this checkout into the machine so a Claude Code session opened in any repository is supervised: `CFO_HOME` and PATH at user scope, and the CFO hooks merged into the user's `~/.claude/settings.json` (their own hooks are kept, the file is backed up first). Idempotent; `--uninstall` reverses it. `cfo doctor` reports, this repairs |
 | `cfo doctor` | Check git, gh, claude, herdr, treehouse, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi and print install hints; probe each installed harness (`--version` under a short timeout) and report ok/broken; print the measured per-harness per-step speed table from `~/.no-mistakes/state.sqlite` when present (skipped with a note when absent or locked); print the standing switch rules from `data/routing.json` |
 | `cfo auth <project> [--check\|--fix] [--env]` | Preflight a project's services against its manifest and print one honest line each (green / missing / expired / no-tool / skipped). `--fix` adopts credentials the machine already holds, runs non-interactive CLI logins, and confirms an OAuth page whose browser session is live. `--env` shows the redacted environment a goblin's pane would inherit. Ends with one consolidated sign-in request covering everything still blocked |
 | `cfo auth store <NAME> [value]` | Store one credential. Omit the value to read it from stdin, which keeps the secret out of shell history |
