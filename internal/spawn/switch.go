@@ -248,19 +248,28 @@ var errBuildLaunch = errors.New("switch: build harness launch")
 // resume instruction or handoff, and starts the new harness. Every step after
 // the old harness has stopped lives here, so any failure returns through the
 // same empty-pane recovery.
-func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktree, briefPath, dirty, id string) (handoff string, resumed bool, err error) {
+func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id string) (handoff string, resumed bool, err error) {
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath: briefPath,
 		TaskTmp:   meta.TaskTmp,
 		Model:     target.Model,
 		Effort:    target.Effort,
-		MCPConfig: goblinMCPConfig(worktree),
+		MCPConfig: goblinMCPConfig(meta.TaskTmp),
 	})
 	if err != nil {
 		return "", false, fmt.Errorf("%w: %w", errBuildLaunch, err)
 	}
-	launch.Dir = worktree
+	launch.Dir = worktreePath
+	// The launch is rebuilt from scratch, so the project's declared
+	// environment redirects have to be re-applied or the new harness runs
+	// without the caches the spawned one had. They are read from the manifest
+	// rather than by re-provisioning: a switch must never reinstall anything.
+	manifest, err := worktree.Resolve(s.Worktrees.DataDir, project)
+	if err != nil {
+		return "", false, fmt.Errorf("switch: resolve worktree manifest: %w", err)
+	}
+	mergeProvisionEnv(launch.Env, manifest.Env)
 	// A switch re-injects the same credentials a spawn would, but never
 	// refuses on a red service: the goblin is already running, and stranding
 	// work in a stopped harness would cost more than the missing credential.
@@ -284,7 +293,7 @@ func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, pane
 		// not typed into a dialog and read back as a mismatch.
 		launch.ConfirmMarkers = append(launch.ConfirmMarkers, control.ResumeMarkers...)
 	} else {
-		handoff, err = s.writeHandoff(ctx, meta, target, worktree, briefPath, dirty)
+		handoff, err = s.writeHandoff(ctx, meta, target, worktreePath, briefPath, dirty)
 		if err != nil {
 			return "", false, err
 		}

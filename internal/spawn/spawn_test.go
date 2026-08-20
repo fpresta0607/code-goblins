@@ -185,7 +185,6 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 		"tab-create",
 		"worktree-acquire",
 		"validate-worktree",
-		"freshen",
 		"validate-harness",
 		"build-harness",
 		"send-literal",
@@ -266,27 +265,27 @@ func TestSpawnUsesRequestedHerdrSession(t *testing.T) {
 	}
 }
 
-func TestSpawnRefusesDirtyWorktreeWithoutLaunching(t *testing.T) {
+func TestSpawnRefusesUnvalidatableWorktreeWithoutLaunching(t *testing.T) {
 	fixture := newFixture(t)
-	fixture.git.freshenErr = errors.New("worktree: worktree is dirty")
+	fixture.git.topErr = errors.New("worktree: not a git worktree")
 	primaryMarker := filepath.Join(fixture.project, "primary-marker.txt")
 	writeFile(t, primaryMarker, "unchanged")
 
 	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err == nil || !strings.Contains(err.Error(), "dirty") {
-		t.Fatalf("Spawn dirty worktree error = %v, want dirty refusal", err)
+	if err == nil || !strings.Contains(err.Error(), "not a git worktree") {
+		t.Fatalf("Spawn unvalidatable worktree error = %v, want a validation refusal", err)
 	}
 	if fixture.runner.literal != "" || fixture.runner.enterKeys != 0 {
-		t.Fatalf("dirty worktree launched a harness: literal=%q enter=%d", fixture.runner.literal, fixture.runner.enterKeys)
+		t.Fatalf("unvalidatable worktree launched a harness: literal=%q enter=%d", fixture.runner.literal, fixture.runner.enterKeys)
 	}
 	if got, readErr := os.ReadFile(primaryMarker); readErr != nil || string(got) != "unchanged" {
-		t.Fatalf("primary project changed after dirty refusal: %q, %v", got, readErr)
+		t.Fatalf("primary project changed after the refusal: %q, %v", got, readErr)
 	}
 	if _, statErr := os.Stat(fixture.worktree); statErr != nil {
-		t.Fatalf("dirty refusal removed acquired worktree: %v", statErr)
+		t.Fatalf("refusal removed acquired worktree: %v", statErr)
 	}
 	if fixture.git.returned != 1 {
-		t.Fatalf("dirty refusal returned the lease %d times, want 1", fixture.git.returned)
+		t.Fatalf("refusal returned the lease %d times, want 1", fixture.git.returned)
 	}
 }
 
@@ -602,9 +601,9 @@ func TestSpawnPostAcquisitionFailuresReturnPartialResultAndStatus(t *testing.T) 
 		want string
 	}{
 		{
-			name: "freshen",
-			set:  func(f *fixture) { f.git.freshenErr = errors.New("worktree: worktree is dirty") },
-			want: "worktree is dirty",
+			name: "validate",
+			set:  func(f *fixture) { f.git.topErr = errors.New("worktree: not a git worktree") },
+			want: "not a git worktree",
 		},
 		{
 			name: "build",
@@ -645,11 +644,11 @@ func TestSpawnPostAcquisitionFailuresReturnPartialResultAndStatus(t *testing.T) 
 
 func TestSpawnPostAcquireFailureSurfacesReturnError(t *testing.T) {
 	fixture := newFixture(t)
-	fixture.git.freshenErr = errors.New("worktree: worktree is dirty")
+	fixture.git.topErr = errors.New("worktree: not a git worktree")
 	fixture.git.returnErr = errors.New("worktree: return refused")
 
 	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err == nil || !strings.Contains(err.Error(), "worktree is dirty") || !strings.Contains(err.Error(), "return refused") {
+	if err == nil || !strings.Contains(err.Error(), "not a git worktree") || !strings.Contains(err.Error(), "return refused") {
 		t.Fatalf("Spawn error = %v, want joined launch and return failures", err)
 	}
 	if fixture.git.returned != 1 {
@@ -847,10 +846,12 @@ type fixture struct {
 	service  Service
 	request  Request
 	stateDir string
+	dataDir  string
 	project  string
 	worktree string
 	brief    string
 	events   []string
+	specs    []harness.LaunchSpec
 	runner   *herdrRunner
 	git      *worktreeGit
 }
@@ -859,13 +860,14 @@ func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	root := t.TempDir()
 	stateDir := makeDir(t, filepath.Join(root, "state"))
+	dataDir := makeDir(t, filepath.Join(root, "data"))
 	project := makeDir(t, filepath.Join(root, "primary"))
 	worktreeDir := makeDir(t, filepath.Join(root, "worktree"))
 	brief := filepath.Join(root, "brief.md")
 	writeFile(t, brief, "Delivery contract: mode=no-mistakes\nDo the work.\n")
 	writeFile(t, filepath.Join(project, "primary-marker.txt"), "unchanged")
 
-	fixture := &fixture{stateDir: stateDir, project: project, worktree: worktreeDir, brief: brief}
+	fixture := &fixture{stateDir: stateDir, dataDir: dataDir, project: project, worktree: worktreeDir, brief: brief}
 	fixture.runner = &herdrRunner{events: &fixture.events, worktree: worktreeDir, agentStatus: "working", manifests: []string{"claude", "codex", "pi", "kimi"}}
 	fixture.git = &worktreeGit{events: &fixture.events, top: worktreeDir}
 	fixture.service = Service{
@@ -877,10 +879,11 @@ func newFixture(t *testing.T) *fixture {
 		Worktrees: worktree.Service{
 			Commands: fixture.runner,
 			Git:      fixture.git,
+			DataDir:  dataDir,
 			Sleep:    func(context.Context, time.Duration) error { return nil },
 		},
 		Harness: harness.Registry{Adapters: map[harness.Kind]harness.Adapter{
-			harness.Claude: fixtureAdapter{events: &fixture.events},
+			harness.Claude: fixtureAdapter{events: &fixture.events, specs: &fixture.specs},
 		}},
 		StateDir: stateDir,
 		Project:  project,
@@ -906,6 +909,7 @@ func newFixture(t *testing.T) *fixture {
 
 type fixtureAdapter struct {
 	events      *[]string
+	specs       *[]harness.LaunchSpec
 	buildErr    error
 	confirmKeys []string
 }
@@ -961,6 +965,9 @@ func (a fixtureAdapter) Validate(context.Context, execx.Runner) error {
 
 func (a fixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
 	*a.events = append(*a.events, "build-harness")
+	if a.specs != nil {
+		*a.specs = append(*a.specs, spec)
+	}
 	if a.buildErr != nil {
 		return harness.Launch{}, a.buildErr
 	}
@@ -978,11 +985,11 @@ func (a fixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
 }
 
 type worktreeGit struct {
-	events     *[]string
-	top        string
-	freshenErr error
-	returnErr  error
-	returned   int
+	events    *[]string
+	top       string
+	topErr    error
+	returnErr error
+	returned  int
 }
 
 func (g *worktreeGit) Acquire(_ context.Context, project, holder string) (string, error) {
@@ -998,12 +1005,10 @@ func (g *worktreeGit) Acquire(_ context.Context, project, holder string) (string
 
 func (g *worktreeGit) WorktreeTop(context.Context, string) (string, error) {
 	*g.events = append(*g.events, "validate-worktree")
+	if g.topErr != nil {
+		return "", g.topErr
+	}
 	return g.top, nil
-}
-
-func (g *worktreeGit) FetchAndFreshen(context.Context, string) error {
-	*g.events = append(*g.events, "freshen")
-	return g.freshenErr
 }
 
 func (g *worktreeGit) Return(context.Context, string, string) error {

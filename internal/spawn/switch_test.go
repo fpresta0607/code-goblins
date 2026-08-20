@@ -2,8 +2,10 @@ package spawn
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -11,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 // switchRunner adds the two things a switch needs beyond a spawn: git, and an
@@ -111,7 +114,9 @@ type switchFixture struct {
 	stateDir string
 	worktree string
 	project  string
+	dataDir  string
 	meta     state.TaskMeta
+	base     *fixture
 }
 
 func newSwitchFixture(t *testing.T) *switchFixture {
@@ -138,8 +143,8 @@ func newSwitchFixture(t *testing.T) *switchFixture {
 	service.Worktrees.Commands = runner
 	service.Commands = runner
 	service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{
-		harness.Claude: fixtureAdapter{events: &base.events},
-		harness.Kimi:   fixtureAdapter{events: &base.events},
+		harness.Claude: fixtureAdapter{events: &base.events, specs: &base.specs},
+		harness.Kimi:   fixtureAdapter{events: &base.events, specs: &base.specs},
 	}}
 
 	return &switchFixture{
@@ -148,7 +153,9 @@ func newSwitchFixture(t *testing.T) *switchFixture {
 		stateDir: base.stateDir,
 		worktree: base.worktree,
 		project:  base.project,
+		dataDir:  service.Worktrees.DataDir,
 		meta:     meta,
+		base:     base,
 	}
 }
 
@@ -704,5 +711,103 @@ func TestSwitchClearsTheResumeDialogBeforeInstructingTheResumedHarness(t *testin
 	}
 	if !result.Resumed {
 		t.Fatal("Resumed = false, want the same-harness switch to resume in place")
+	}
+}
+
+func TestSwitchReappliesTheProjectEnvironmentRedirects(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	// The launch is rebuilt from scratch by the switch, so a redirect the
+	// spawn injected is only there afterwards if the switch re-applies it.
+	// GOTMPDIR is declared alongside it to prove the launch contract still
+	// wins over a manifest that tries to redirect a reserved name.
+	writeWorktreeManifest(t, fixture.dataDir, fixture.project, worktree.Manifest{
+		Project: "primary",
+		Env: map[string]string{
+			"PLAYWRIGHT_BROWSERS_PATH": `C:\cache\ms-playwright`,
+			"GOTMPDIR":                 `C:\hijacked`,
+		},
+	})
+
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{
+		ID:      fixture.meta.ID,
+		Harness: harness.Kimi,
+		Session: "fleet",
+	}); err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+
+	launched := fixture.runner.literals[len(fixture.runner.literals)-2]
+	if !strings.Contains(launched, `$env:PLAYWRIGHT_BROWSERS_PATH = 'C:\cache\ms-playwright'`) {
+		t.Errorf("launch line = %q, want the project's declared redirect re-applied", launched)
+	}
+	if strings.Contains(launched, "hijacked") {
+		t.Errorf("launch line = %q, want the harness's own GOTMPDIR to win over the manifest", launched)
+	}
+}
+
+func TestSwitchHandsTheNewHarnessTheProvisionedMCPConfig(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	// Provisioning materializes the filtered configuration under the task's
+	// temporary directory, never inside the checkout, and a relaunch must
+	// hand over that file and no other.
+	provisioned := filepath.Join(fixture.meta.TaskTmp, "mcp.json")
+	if err := os.WriteFile(provisioned, []byte(`{"mcpServers":{"neon":{"command":"npx"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A .mcp.json in the worktree is the project's own unfiltered file or one
+	// the goblin wrote; either way it must never reach --mcp-config.
+	if err := os.WriteFile(filepath.Join(fixture.worktree, ".mcp.json"), []byte(`{"mcpServers":{"oauth":{"url":"https://example.com/mcp"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{
+		ID:         fixture.meta.ID,
+		Harness:    harness.Kimi,
+		ForceDirty: true,
+		Session:    "fleet",
+	}); err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+
+	spec := fixture.base.specs[len(fixture.base.specs)-1]
+	if spec.MCPConfig != provisioned {
+		t.Errorf("MCPConfig = %q, want the provisioned %q", spec.MCPConfig, provisioned)
+	}
+}
+
+func TestSwitchPassesNoMCPConfigWhenProvisioningMaterializedNone(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	if err := os.WriteFile(filepath.Join(fixture.worktree, ".mcp.json"), []byte(`{"mcpServers":{"oauth":{"url":"https://example.com/mcp"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{
+		ID:         fixture.meta.ID,
+		Harness:    harness.Kimi,
+		ForceDirty: true,
+		Session:    "fleet",
+	}); err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+
+	if spec := fixture.base.specs[len(fixture.base.specs)-1]; spec.MCPConfig != "" {
+		t.Errorf("MCPConfig = %q, want none - the worktree's own .mcp.json is not the goblin's config", spec.MCPConfig)
+	}
+}
+
+// writeWorktreeManifest declares one project's worktree environment where
+// worktree.Resolve reads it.
+func writeWorktreeManifest(t *testing.T, dataDir, project string, manifest worktree.Manifest) {
+	t.Helper()
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := worktree.ManifestPath(dataDir, project)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

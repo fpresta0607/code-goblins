@@ -72,10 +72,6 @@ func (g *cleanupGit) WorktreeTop(_ context.Context, dir string) (string, error) 
 	return g.top, nil
 }
 
-func (g *cleanupGit) FetchAndFreshen(context.Context, string) error {
-	return nil
-}
-
 func (g *cleanupGit) Return(_ context.Context, project, worktree string) error {
 	g.returned = append(g.returned, [2]string{project, worktree})
 	return g.returnErr

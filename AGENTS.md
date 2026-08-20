@@ -166,7 +166,13 @@ A project can declare how that worktree becomes runnable in `data/projects/<name
 - `dependencies.install` overrides the detected install commands; each entry is one command line run in order in the worktree.
 - `env` carries environment redirects into the goblin's pane for large read-only caches.
 - Everything provisioning places inside the worktree is registered in the clone's `info/exclude` when the project does not already ignore it, so the goblin's `git status` reflects only its own work.
-- The goblin receives the token-authenticated subset of the project's `.mcp.json`, materialized fresh at the worktree root: stdio servers and HTTP servers with a bearer token qualify; OAuth-only connectors are withheld and named on the `spawned` line, because a goblin can never complete their browser flow.
+  That matters because `cfo cleanup` refuses a worktree whose status is not empty, so an unignored provisioned artifact would read as uncommitted goblin work and block removal.
+  Git has no per-worktree exclude file: `info/exclude` lives in the clone's shared common directory, so those entries - `.worktrees/`, plus whatever config and dependency paths a project's manifest provisions, such as `.env`, `node_modules`, or `.venv` - also apply to the primary checkout, and cleanup does not remove them.
+  Edit `.git/info/exclude` by hand if the primary checkout needs one of them back.
+- The goblin receives the token-authenticated subset of the project's `.mcp.json`: stdio servers and HTTP servers with a bearer token qualify; OAuth-only connectors are withheld and named on the `spawned` line, because a goblin can never complete their browser flow.
+  That filtered configuration is materialized under the task's temporary directory, outside the checkout, and it is the only file a harness is handed through `--mcp-config`.
+  A copy is also written to the worktree root for harnesses that read the project-scoped `.mcp.json` from their working directory, but only when that path is free and untracked.
+  A project that commits `.mcp.json` keeps its file exactly as committed, and the `spawned` line says so: a working-directory-reading harness then still sees every server declared there, withheld ones included.
 
 ## Switching a running goblin
 

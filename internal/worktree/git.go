@@ -69,38 +69,9 @@ func (g RunnerGit) WorktreeTop(ctx context.Context, dir string) (string, error) 
 	return top, nil
 }
 
-// FetchAndFreshen updates a clean worktree to origin's verified default-branch
-// commit and confirms the resulting HEAD matches that commit.
-func (g RunnerGit) FetchAndFreshen(ctx context.Context, dir string) error {
-	_, expected, err := g.fetchDefault(ctx, dir)
-	if err != nil {
-		return err
-	}
-	status, err := g.required(ctx, dir, "git", "status", "--porcelain")
-	if err != nil {
-		return fmt.Errorf("worktree: inspect worktree status: %w", err)
-	}
-	if strings.TrimSpace(string(status.Stdout)) != "" {
-		return fmt.Errorf("worktree: worktree %q is dirty; refusing to discard uncommitted work", dir)
-	}
-	if _, err := g.required(ctx, dir, "git", "reset", "--hard", expected); err != nil {
-		return fmt.Errorf("worktree: reset worktree to %q: %w", expected, err)
-	}
-	actualResult, err := g.required(ctx, dir, "git", "rev-parse", "--verify", "--quiet", "HEAD")
-	if err != nil {
-		return fmt.Errorf("worktree: resolve refreshed HEAD: %w", err)
-	}
-	actual := strings.TrimSpace(string(actualResult.Stdout))
-	if actual != expected {
-		return fmt.Errorf("worktree: refreshed HEAD is %q, want %q", actual, expected)
-	}
-	return nil
-}
-
 // fetchDefault fetches origin, resolves its default branch, fetches that
-// branch's refspec, and returns the remote ref and its verified commit. It is
-// the shared base of Acquire (which detaches onto the ref) and FetchAndFreshen
-// (which resets onto the commit).
+// branch's refspec, and returns the remote ref and its verified commit,
+// so Acquire detaches a new worktree onto a base it has just proven exists.
 func (g RunnerGit) fetchDefault(ctx context.Context, dir string) (target, expected string, err error) {
 	if _, err := g.required(ctx, dir, "git", "fetch", "--quiet", "origin"); err != nil {
 		return "", "", fmt.Errorf("worktree: fetch origin: %w", err)
@@ -217,21 +188,20 @@ func repoName(project string) string {
 }
 
 // Return removes one worktree and prunes its administrative entry, leaving no
-// `git worktree list` residue. Shared links provisioned into the worktree are
-// unlinked first: Git for Windows does not treat a junction as a link during
-// recursive deletion, and removing a worktree that still holds one deletes the
-// primary checkout's files through it. The worktree's own `git status
-// --porcelain` must then be empty: ignored provisioned artifacts
-// (node_modules, .venv, shared config) never show, but any uncommitted goblin
-// work does, and Return refuses rather than destroy it. Only then does
-// `git worktree remove --force` run - force because the ignored artifacts keep
-// the directory non-empty, which plain remove refuses; it retries only the
-// narrow transient index-lock collision and never touches the lock or
-// worktree directory directly.
+// `git worktree list` residue. The worktree's own `git status --porcelain`
+// must be empty first: ignored provisioned artifacts (node_modules, .venv,
+// shared config) never show, but any uncommitted goblin work does, and Return
+// refuses rather than destroy it. A refusal changes nothing at all, so the
+// operator it tells to commit still has a worktree that builds and tests.
+// Only once the removal is certain to run are the shared links provisioned
+// into the worktree unlinked, still before any git removal: Git for Windows
+// does not treat a junction as a link during recursive deletion, and removing
+// a worktree that still holds one deletes the primary checkout's files
+// through it. `git worktree remove --force` then runs - force because the
+// ignored artifacts keep the directory non-empty, which plain remove refuses;
+// it retries only the narrow transient index-lock collision and never touches
+// the lock or worktree directory directly.
 func (g RunnerGit) Return(ctx context.Context, project, worktree string) error {
-	if err := removeSharedLinks(worktree, project); err != nil {
-		return fmt.Errorf("worktree: unlink shared directories in %q: %w", worktree, err)
-	}
 	status, err := g.command(ctx, worktree, "git", "status", "--porcelain")
 	if err != nil {
 		return fmt.Errorf("worktree: check %q for uncommitted work: %w", worktree, err)
@@ -241,6 +211,9 @@ func (g RunnerGit) Return(ctx context.Context, project, worktree string) error {
 	}
 	if dirty := strings.TrimSpace(string(status.Stdout)); dirty != "" {
 		return fmt.Errorf("worktree: %q has uncommitted work; refusing to remove it:\n%s", worktree, dirty)
+	}
+	if err := removeSharedLinks(worktree, project); err != nil {
+		return fmt.Errorf("worktree: unlink shared directories in %q: %w", worktree, err)
 	}
 	for attempt := 0; ; attempt++ {
 		result, err := g.command(ctx, project, "git", "worktree", "remove", "--force", worktree)

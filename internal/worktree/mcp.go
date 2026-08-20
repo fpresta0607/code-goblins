@@ -3,6 +3,7 @@ package worktree
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -24,7 +25,9 @@ type mcpServerShape struct {
 // Authorization header); anything else is an OAuth connector, which prints an
 // authentication prompt a goblin can never satisfy, so it is dropped and named
 // in dropped. The filtered config is returned re-marshaled with each kept
-// server intact; it is nil when nothing qualifies.
+// server intact; it is nil when nothing qualifies. kept and dropped are
+// sorted, because they are read out to the operator and a map's iteration
+// order is not.
 func FilterMCPServers(config []byte) (filtered []byte, kept, dropped []string, err error) {
 	var document struct {
 		Servers map[string]json.RawMessage `json:"mcpServers"`
@@ -49,6 +52,8 @@ func FilterMCPServers(config []byte) (filtered []byte, kept, dropped []string, e
 			dropped = append(dropped, name)
 		}
 	}
+	slices.Sort(kept)
+	slices.Sort(dropped)
 	if len(remaining) == 0 {
 		return nil, kept, dropped, nil
 	}

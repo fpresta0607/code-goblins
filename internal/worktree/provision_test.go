@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,19 +14,27 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
-// provisionFixture builds a project and worktree pair under one temp root and
-// returns them with the runner Provision should drive.
-func provisionFixture(t *testing.T) (project, worktreePath string, runner *scriptedRunner) {
+// provisionFixture builds a project, its worktree, and the task temporary
+// directory under one temp root, and returns them with the runner Provision
+// should drive.
+func provisionFixture(t *testing.T) (project, worktreePath, taskTmp string, runner *scriptedRunner) {
 	t.Helper()
 	root := t.TempDir()
 	project = filepath.Join(root, "demo")
 	worktreePath = filepath.Join(project, ".worktrees", "gb-task")
-	for _, dir := range []string{project, worktreePath} {
+	taskTmp = filepath.Join(root, "tasktmp", "gb-task")
+	for _, dir := range []string{project, worktreePath, taskTmp} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	return project, worktreePath, &scriptedRunner{}
+	return project, worktreePath, taskTmp, &scriptedRunner{}
+}
+
+// untrackedScript answers the `git ls-files --error-unmatch` probe with exit 1,
+// the answer for a path the project does not track.
+func untrackedScript() []scriptedResult {
+	return []scriptedResult{{result: execx.Result{ExitCode: 1}}}
 }
 
 // ignoredScript answers `git check-ignore` with already-ignored for every name
@@ -50,21 +59,21 @@ func unignoredScript(gitDir string, names ...string) []scriptedResult {
 }
 
 func TestProvisionNoOpsOnABareProject(t *testing.T) {
-	project, worktreePath, runner := provisionFixture(t)
-	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath)
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	if len(runner.calls) != 0 {
 		t.Fatalf("calls = %#v, want none for a project with nothing to share", runner.calls)
 	}
-	if result.HasMCP || len(result.Linked) != 0 || result.Installed != "" {
+	if result.MCPConfig != "" || len(result.Linked) != 0 || result.Installed != "" {
 		t.Errorf("result = %+v, want an empty provisioning", result)
 	}
 }
 
 func TestProvisionHardlinksConfigFiles(t *testing.T) {
-	project, worktreePath, runner := provisionFixture(t)
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
 	source := filepath.Join(project, ".env")
 	if err := os.WriteFile(source, []byte("DATABASE_URL=postgres://x\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -72,7 +81,7 @@ func TestProvisionHardlinksConfigFiles(t *testing.T) {
 	gitDir := filepath.Join(project, ".git")
 	runner.results = unignoredScript(gitDir, ".env")
 
-	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath)
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -101,7 +110,7 @@ func TestProvisionHardlinksConfigFiles(t *testing.T) {
 }
 
 func TestProvisionRespectsExistingIgnoreRules(t *testing.T) {
-	project, worktreePath, runner := provisionFixture(t)
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
 	if err := os.WriteFile(filepath.Join(project, ".env"), []byte("K=V\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +120,7 @@ func TestProvisionRespectsExistingIgnoreRules(t *testing.T) {
 	}
 	runner.results = ignoredScript(1)
 
-	if _, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath); err != nil {
+	if _, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	if len(runner.calls) != 1 {
@@ -127,14 +136,14 @@ func TestProvisionRespectsExistingIgnoreRules(t *testing.T) {
 }
 
 func TestProvisionInstallsFromTheLockfile(t *testing.T) {
-	project, worktreePath, runner := provisionFixture(t)
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
 	if err := os.WriteFile(filepath.Join(worktreePath, "pnpm-lock.yaml"), []byte("lockfileVersion: '9.0'\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	gitDir := filepath.Join(project, ".git")
 	runner.results = append(unignoredScript(gitDir, "node_modules"), scriptedResult{})
 
-	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath)
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -148,7 +157,7 @@ func TestProvisionInstallsFromTheLockfile(t *testing.T) {
 }
 
 func TestProvisionManifestOverridesTheInstallCommands(t *testing.T) {
-	project, worktreePath, runner := provisionFixture(t)
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
 	dataDir := t.TempDir()
 	writeManifest(t, dataDir, project, Manifest{
 		Project:      "demo",
@@ -157,7 +166,7 @@ func TestProvisionManifestOverridesTheInstallCommands(t *testing.T) {
 	gitDir := filepath.Join(project, ".git")
 	runner.results = append(unignoredScript(gitDir, ".venv"), scriptedResult{}, scriptedResult{})
 
-	result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath)
+	result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -179,7 +188,7 @@ func TestProvisionManifestOverridesTheInstallCommands(t *testing.T) {
 }
 
 func TestProvisionLinksDeclaredDependencyDirectories(t *testing.T) {
-	project, worktreePath, runner := provisionFixture(t)
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
 	dataDir := t.TempDir()
 	writeManifest(t, dataDir, project, Manifest{
 		Project:      "demo",
@@ -190,7 +199,7 @@ func TestProvisionLinksDeclaredDependencyDirectories(t *testing.T) {
 	}
 	runner.results = append(ignoredScript(1), scriptedResult{})
 
-	result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath)
+	result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -204,39 +213,39 @@ func TestProvisionLinksDeclaredDependencyDirectories(t *testing.T) {
 }
 
 func TestProvisionRefusesToLinkAMissingDependencyPath(t *testing.T) {
-	project, worktreePath, runner := provisionFixture(t)
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
 	dataDir := t.TempDir()
 	writeManifest(t, dataDir, project, Manifest{
 		Project:      "demo",
 		Dependencies: Dependencies{Strategy: StrategyLink, Paths: []string{"node_modules"}},
 	})
-	_, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath)
+	_, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp)
 	if err == nil || !strings.Contains(err.Error(), "does not exist") {
 		t.Fatalf("Provision error = %v, want a missing-path refusal", err)
 	}
 }
 
 func TestProvisionRefusesAnUnknownStrategy(t *testing.T) {
-	project, worktreePath, runner := provisionFixture(t)
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
 	dataDir := t.TempDir()
 	writeManifest(t, dataDir, project, Manifest{
 		Project:      "demo",
 		Dependencies: Dependencies{Strategy: "teleport"},
 	})
-	_, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath)
+	_, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp)
 	if err == nil || !strings.Contains(err.Error(), "unknown dependency strategy") {
 		t.Fatalf("Provision error = %v, want an unknown-strategy refusal", err)
 	}
 }
 
 func TestProvisionSurfacesEnvRedirects(t *testing.T) {
-	project, worktreePath, runner := provisionFixture(t)
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
 	dataDir := t.TempDir()
 	writeManifest(t, dataDir, project, Manifest{
 		Project: "demo",
 		Env:     map[string]string{"PLAYWRIGHT_BROWSERS_PATH": `C:\cache\ms-playwright`},
 	})
-	result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath)
+	result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -245,8 +254,31 @@ func TestProvisionSurfacesEnvRedirects(t *testing.T) {
 	}
 }
 
+// mcpServerNames parses one materialized MCP configuration and reports the
+// server names it declares. The file is the goblin's MCP contract with its
+// harness, so its meaning is what the tests assert.
+func mcpServerNames(t *testing.T, path string) []string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	var document struct {
+		Servers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	names := []string{}
+	for name := range document.Servers {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
+}
+
 func TestProvisionMaterializesTheTokenAuthenticatedMCPSubset(t *testing.T) {
-	project, worktreePath, runner := provisionFixture(t)
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
 	config := []byte(`{"mcpServers": {
 		"neon": {"url": "https://mcp.neon.tech/mcp", "bearerTokenEnvVar": "NEON_API_KEY"},
 		"supabase": {"url": "https://mcp.supabase.com/mcp"}
@@ -254,51 +286,97 @@ func TestProvisionMaterializesTheTokenAuthenticatedMCPSubset(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(project, ".mcp.json"), config, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	runner.results = ignoredScript(1)
+	runner.results = append(untrackedScript(), ignoredScript(1)...)
 
-	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath)
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
-	if !result.HasMCP {
-		t.Fatal("HasMCP = false, want the filtered config materialized")
+	// The reported path is the one the harness is handed, and it lives
+	// outside the checkout so it can never be the project's own file.
+	if result.MCPConfig != filepath.Join(taskTmp, "mcp.json") {
+		t.Fatalf("MCPConfig = %q, want the task temporary directory's mcp.json", result.MCPConfig)
+	}
+	if result.MCPProjectTracked {
+		t.Error("MCPProjectTracked = true for an untracked .mcp.json")
 	}
 	if !slices.Equal(result.MCPDropped, []string{"supabase"}) {
 		t.Errorf("MCPDropped = %v, want the OAuth-only server named", result.MCPDropped)
 	}
-	data, err := os.ReadFile(filepath.Join(worktreePath, ".mcp.json"))
+	if got := mcpServerNames(t, result.MCPConfig); !slices.Equal(got, []string{"neon"}) {
+		t.Errorf("materialized servers = %v, want only neon", got)
+	}
+	// kimi has no config flag and reads the project-scoped file from its
+	// working directory, so the same filtered set has to be there too.
+	if got := mcpServerNames(t, filepath.Join(worktreePath, ".mcp.json")); !slices.Equal(got, []string{"neon"}) {
+		t.Errorf("worktree servers = %v, want only neon", got)
+	}
+}
+
+func TestProvisionLeavesATrackedMCPConfigUntouched(t *testing.T) {
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
+	config := []byte(`{"mcpServers": {
+		"neon": {"url": "https://mcp.neon.tech/mcp", "bearerTokenEnvVar": "NEON_API_KEY"},
+		"supabase": {"url": "https://mcp.supabase.com/mcp"}
+	}}`)
+	if err := os.WriteFile(filepath.Join(project, ".mcp.json"), config, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A project that commits .mcp.json has it checked out in the worktree
+	// too, and `git ls-files --error-unmatch` answers exit 0 for it.
+	checkedOut := filepath.Join(worktreePath, ".mcp.json")
+	if err := os.WriteFile(checkedOut, config, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner.results = []scriptedResult{{}}
+
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp)
 	if err != nil {
-		t.Fatalf("read materialized .mcp.json: %v", err)
+		t.Fatalf("Provision: %v", err)
 	}
-	var document struct {
-		Servers map[string]json.RawMessage `json:"mcpServers"`
+	if !result.MCPProjectTracked {
+		t.Error("MCPProjectTracked = false, want the withheld worktree copy reported")
 	}
-	if err := json.Unmarshal(data, &document); err != nil {
-		t.Fatalf("parse materialized .mcp.json: %v", err)
+	if got := mcpServerNames(t, result.MCPConfig); !slices.Equal(got, []string{"neon"}) {
+		t.Errorf("materialized servers = %v, want only neon", got)
 	}
-	if len(document.Servers) != 1 || document.Servers["neon"] == nil {
-		t.Errorf("materialized servers = %v, want only neon", document.Servers)
+	// Overwriting the tracked file would leave the worktree permanently
+	// modified, which Return refuses to remove, and would carry the stripped
+	// config back into the project's own history.
+	after, err := os.ReadFile(checkedOut)
+	if err != nil || !bytes.Equal(after, config) {
+		t.Fatalf("tracked worktree .mcp.json = %s (%v), want the committed bytes untouched", after, err)
 	}
 }
 
 func TestProvisionWritesNoMCPConfigWhenNothingQualifies(t *testing.T) {
-	project, worktreePath, runner := provisionFixture(t)
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
 	config := []byte(`{"mcpServers": {"supabase": {"url": "https://mcp.supabase.com/mcp"}}}`)
 	if err := os.WriteFile(filepath.Join(project, ".mcp.json"), config, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath)
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
-	if result.HasMCP {
-		t.Error("HasMCP = true for an all-OAuth config, want false")
+	if result.MCPConfig != "" {
+		t.Errorf("MCPConfig = %q for an all-OAuth config, want none", result.MCPConfig)
 	}
 	if !slices.Equal(result.MCPDropped, []string{"supabase"}) {
 		t.Errorf("MCPDropped = %v, want supabase named", result.MCPDropped)
 	}
-	if _, err := os.Stat(filepath.Join(worktreePath, ".mcp.json")); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf(".mcp.json was materialized with zero qualifying servers: %v", err)
+	for _, path := range []string{filepath.Join(worktreePath, ".mcp.json"), filepath.Join(taskTmp, "mcp.json")} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s was materialized with zero qualifying servers: %v", path, err)
+		}
+	}
+}
+
+func TestProvisionRefusesWithoutATaskTemporaryDirectory(t *testing.T) {
+	project, worktreePath, _, runner := provisionFixture(t)
+	_, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, "")
+	if err == nil || !strings.Contains(err.Error(), "task temporary directory") {
+		t.Fatalf("Provision error = %v, want a missing task temporary directory refusal", err)
 	}
 }
 

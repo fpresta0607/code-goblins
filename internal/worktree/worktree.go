@@ -1,5 +1,5 @@
-// Package worktree acquires, provisions, freshens, and returns isolated
-// in-repo Git worktrees for goblin tasks. A worktree lives at
+// Package worktree acquires, provisions, and returns isolated in-repo Git
+// worktrees for goblin tasks. A worktree lives at
 // <project>/.worktrees/<holder>, inside the repository it belongs to, so the
 // project tooling, credentials, and dependency caches the operator already
 // set up are one directory away instead of stranded in the primary checkout.
@@ -26,7 +26,6 @@ type Git interface {
 	// project's own git status without touching .gitignore.
 	Acquire(ctx context.Context, project, holder string) (string, error)
 	WorktreeTop(ctx context.Context, dir string) (string, error)
-	FetchAndFreshen(ctx context.Context, dir string) error
 	// Return removes a worktree and prunes its administrative entry. Shared
 	// directory links provisioned into the worktree are unlinked first: Git
 	// for Windows follows a junction during recursive deletion and would
@@ -82,15 +81,6 @@ func (s Service) Acquire(ctx context.Context, project, holder string) (Worktree,
 		return Worktree{}, fmt.Errorf("worktree: acquired worktree %q is the primary project", path)
 	}
 	return Worktree{Path: path}, nil
-}
-
-// Freshen updates an acquired worktree to the current default-branch base.
-func (s Service) Freshen(ctx context.Context, worktree string) error {
-	git, err := s.git()
-	if err != nil {
-		return err
-	}
-	return git.FetchAndFreshen(ctx, worktree)
 }
 
 // Return releases an acquired worktree: its shared links are unlinked, the

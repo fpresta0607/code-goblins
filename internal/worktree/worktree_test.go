@@ -17,9 +17,7 @@ type gitStub struct {
 	acquired    [][2]string
 	tops        map[string]string
 	topErr      error
-	freshened   []string
 	returned    [][2]string
-	freshenErr  error
 	returnErr   error
 	seeded      []string
 	seedErr     error
@@ -36,11 +34,6 @@ func (g *gitStub) WorktreeTop(_ context.Context, dir string) (string, error) {
 		return "", g.topErr
 	}
 	return g.tops[dir], nil
-}
-
-func (g *gitStub) FetchAndFreshen(_ context.Context, dir string) error {
-	g.freshened = append(g.freshened, dir)
-	return g.freshenErr
 }
 
 func (g *gitStub) Return(_ context.Context, project, worktree string) error {
@@ -162,20 +155,14 @@ func TestValidateRequiresGit(t *testing.T) {
 	}
 }
 
-func TestServiceDelegatesFreshenAndReturnToGit(t *testing.T) {
+func TestServiceDelegatesReturnToGit(t *testing.T) {
 	git := &gitStub{}
 	service := Service{Git: git}
 	project := filepath.Join(t.TempDir(), "project")
 	worktreePath := filepath.Join(t.TempDir(), "worktree")
 
-	if err := service.Freshen(context.Background(), worktreePath); err != nil {
-		t.Fatalf("Freshen: %v", err)
-	}
 	if err := service.Return(context.Background(), project, worktreePath); err != nil {
 		t.Fatalf("Return: %v", err)
-	}
-	if len(git.freshened) != 1 || git.freshened[0] != worktreePath {
-		t.Errorf("Freshen calls = %q, want %q", git.freshened, []string{worktreePath})
 	}
 	if len(git.returned) != 1 || git.returned[0] != [2]string{project, worktreePath} {
 		t.Errorf("Return calls = %q, want project and worktree", git.returned)

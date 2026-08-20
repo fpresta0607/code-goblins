@@ -26,8 +26,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/worktree"
 	"github.com/fpresta0607/code-goblins/internal/wake"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 // TestFleetEndToEnd covers the public fleet command flow without reaching an
@@ -288,9 +288,6 @@ func (f *fleetE2EFixture) AssertTaskMetadataIsIsolated() {
 		if _, exists := f.runner.tabs["gb-"+id]; !exists {
 			f.t.Fatalf("fake workspace is missing visible gb-%s tab", id)
 		}
-	}
-	if len(f.git.freshened) != 3 {
-		f.t.Fatalf("worktree freshen calls=%v, want one per spawned task", f.git.freshened)
 	}
 
 	// The real cleanup command is not in this task's scope. This direct
@@ -743,9 +740,8 @@ func (r *fleetE2ERunner) tabLabels() []string {
 }
 
 type fleetE2EGit struct {
-	fixture   *fleetE2EFixture
-	freshened []string
-	returned  []fleetE2EReturn
+	fixture  *fleetE2EFixture
+	returned []fleetE2EReturn
 }
 
 type fleetE2EReturn struct {
@@ -772,14 +768,6 @@ func (g *fleetE2EGit) WorktreeTop(_ context.Context, dir string) (string, error)
 		return "", err
 	}
 	return dir, nil
-}
-
-func (g *fleetE2EGit) FetchAndFreshen(_ context.Context, dir string) error {
-	if samePath(dir, g.fixture.project) {
-		return fmt.Errorf("fixture git refuses to freshen primary checkout %q", dir)
-	}
-	g.freshened = append(g.freshened, dir)
-	return nil
 }
 
 func (g *fleetE2EGit) EnsureSeeded(context.Context, string) (bool, error) {

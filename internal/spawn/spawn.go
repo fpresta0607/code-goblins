@@ -219,9 +219,6 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := worktree.Validate(ctx, git, project, wt.Path); err != nil {
 		return fail(result, fmt.Errorf("spawn: validate task worktree: %w", err))
 	}
-	if err := s.Worktrees.Freshen(ctx, wt.Path); err != nil {
-		return fail(result, fmt.Errorf("spawn: freshen task worktree: %w", err))
-	}
 
 	if err := adapter.Validate(ctx, herdrClient.Commands); err != nil {
 		return fail(result, fmt.Errorf("spawn: validate harness %s: %w", req.Harness, err))
@@ -233,20 +230,16 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// runnable as if it were the project - shared config, dependencies
 	// installed against the shared package cache, and the token-authenticated
 	// subset of the project's MCP servers.
-	provision, err := s.Worktrees.Provision(ctx, project, wt.Path)
+	provision, err := s.Worktrees.Provision(ctx, project, wt.Path, taskTmp)
 	if err != nil {
 		return fail(result, fmt.Errorf("spawn: provision worktree environment: %w", err))
-	}
-	mcpConfig := ""
-	if provision.HasMCP {
-		mcpConfig = filepath.Join(wt.Path, ".mcp.json")
 	}
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath: req.BriefPath,
 		TaskTmp:   taskTmp,
 		Model:     req.Model,
 		Effort:    req.Effort,
-		MCPConfig: mcpConfig,
+		MCPConfig: provision.MCPConfig,
 	})
 	if err != nil {
 		return fail(result, fmt.Errorf("spawn: build harness launch: %w", err))
@@ -275,6 +268,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if len(provision.MCPDropped) > 0 {
 		result.Output += "\nmcp: withheld OAuth-only servers from the goblin: " + strings.Join(provision.MCPDropped, ", ") + " (declare a token-authenticated form in the project .mcp.json to reach goblins)"
 	}
+	if provision.MCPProjectTracked {
+		result.Output += "\nmcp: the project tracks .mcp.json, so the worktree keeps that file exactly as committed; a harness that reads its working directory sees every server declared there, including the ones the filtered config withholds"
+	}
 	if preflight.Warning != "" {
 		result.Output += "\n" + preflight.Warning
 	}
@@ -286,11 +282,14 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	return result, nil
 }
 
-// goblinMCPConfig returns the worktree's materialized goblin MCP
-// configuration when provisioning left one, so a switch relaunch hands the new
-// harness exactly what the original spawn did.
-func goblinMCPConfig(worktreePath string) string {
-	path := filepath.Join(worktreePath, ".mcp.json")
+// goblinMCPConfig returns the goblin MCP configuration provisioning
+// materialized under the task's temporary directory, so a switch relaunch
+// hands the new harness exactly what the original spawn did. It deliberately
+// never looks inside the worktree: what sits at <worktree>/.mcp.json can be
+// the project's own unfiltered file or one the goblin wrote, and neither may
+// be promoted into --mcp-config.
+func goblinMCPConfig(taskTmp string) string {
+	path := filepath.Join(taskTmp, "mcp.json")
 	info, err := os.Stat(path)
 	if err != nil || !info.Mode().IsRegular() {
 		return ""

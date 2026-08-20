@@ -152,96 +152,6 @@ func TestRunnerGitAcquireSurfacesAddFailure(t *testing.T) {
 	}
 }
 
-func TestRunnerGitFreshenUsesExpectedGitSequence(t *testing.T) {
-	worktreePath := t.TempDir()
-	runner := &scriptedRunner{results: []scriptedResult{
-		{},
-		{},
-		{result: execx.Result{Stdout: []byte("origin/main\r\n")}},
-		{},
-		{result: execx.Result{Stdout: []byte("abc123\n")}},
-		{},
-		{},
-		{result: execx.Result{Stdout: []byte("abc123\n")}},
-	}}
-
-	err := RunnerGit{Commands: runner}.FetchAndFreshen(context.Background(), worktreePath)
-	if err != nil {
-		t.Fatalf("FetchAndFreshen: %v", err)
-	}
-
-	want := []execx.Request{
-		{Dir: worktreePath, Name: "git", Args: []string{"fetch", "--quiet", "origin"}},
-		{Dir: worktreePath, Name: "git", Args: []string{"remote", "set-head", "origin", "--auto"}},
-		{Dir: worktreePath, Name: "git", Args: []string{"symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"}},
-		{Dir: worktreePath, Name: "git", Args: []string{"fetch", "--quiet", "origin", "+refs/heads/main:refs/remotes/origin/main"}},
-		{Dir: worktreePath, Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", "origin/main^{commit}"}},
-		{Dir: worktreePath, Name: "git", Args: []string{"status", "--porcelain"}},
-		{Dir: worktreePath, Name: "git", Args: []string{"reset", "--hard", "abc123"}},
-		{Dir: worktreePath, Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", "HEAD"}},
-	}
-	if !reflect.DeepEqual(runner.calls, want) {
-		t.Errorf("Git calls = %#v, want %#v", runner.calls, want)
-	}
-}
-
-func TestRunnerGitFreshenRefusesDirtyWorktreeBeforeReset(t *testing.T) {
-	worktreePath := t.TempDir()
-	runner := &scriptedRunner{results: []scriptedResult{
-		{},
-		{},
-		{result: execx.Result{Stdout: []byte("origin/main\n")}},
-		{},
-		{result: execx.Result{Stdout: []byte("abc123\n")}},
-		{result: execx.Result{Stdout: []byte(" M changed.txt\n")}},
-	}}
-
-	err := RunnerGit{Commands: runner}.FetchAndFreshen(context.Background(), worktreePath)
-	if err == nil {
-		t.Fatal("FetchAndFreshen returned nil for dirty worktree")
-	}
-	if len(runner.calls) != 6 {
-		t.Fatalf("Git calls = %d, want 6 before dirty refusal", len(runner.calls))
-	}
-	if got := runner.calls[len(runner.calls)-1].Args; !reflect.DeepEqual(got, []string{"status", "--porcelain"}) {
-		t.Errorf("last Git args = %q, want status --porcelain", got)
-	}
-}
-
-func TestRunnerGitFreshenRefusesInvalidOriginHead(t *testing.T) {
-	tests := []struct {
-		name       string
-		originHead execx.Result
-		wantError  string
-	}{
-		{name: "unavailable", originHead: execx.Result{ExitCode: 1}, wantError: "origin/HEAD is unavailable"},
-		{name: "wrong ref", originHead: execx.Result{Stdout: []byte("main\n")}, wantError: "origin/HEAD reference"},
-		{name: "empty branch", originHead: execx.Result{Stdout: []byte("origin/\n")}, wantError: "origin/HEAD reference"},
-		{name: "multiple refs", originHead: execx.Result{Stdout: []byte("origin/main\norigin/other\n")}, wantError: "origin/HEAD reference"},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			worktreePath := t.TempDir()
-			runner := &scriptedRunner{results: []scriptedResult{
-				{},
-				{},
-				{result: test.originHead},
-			}}
-
-			err := RunnerGit{Commands: runner}.FetchAndFreshen(context.Background(), worktreePath)
-			if err == nil {
-				t.Error("FetchAndFreshen returned nil for an invalid origin/HEAD")
-			} else if !strings.Contains(err.Error(), test.wantError) {
-				t.Errorf("FetchAndFreshen error = %q, want %q", err, test.wantError)
-			}
-			if len(runner.calls) != 3 {
-				t.Errorf("Git calls = %d, want 3 before origin/HEAD refusal", len(runner.calls))
-			}
-		})
-	}
-}
-
 func TestRunnerGitWorktreeTopRejectsFailedCommand(t *testing.T) {
 	runner := &scriptedRunner{results: []scriptedResult{{result: execx.Result{ExitCode: 128, Stderr: []byte("not a git repository")}}}}
 	_, err := (RunnerGit{Commands: runner}).WorktreeTop(context.Background(), t.TempDir())
@@ -402,6 +312,41 @@ func TestRunnerGitReturnUnlinksSharedDirectoriesFirst(t *testing.T) {
 	}
 }
 
+func TestRunnerGitReturnRefusedForUncommittedWorkLeavesJunctionsInPlace(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	worktreePath := filepath.Join(root, "worktree")
+	shared := filepath.Join(project, "node_modules")
+	for _, dir := range []string{shared, worktreePath} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(worktreePath, "node_modules")
+	makeJunction(t, link, shared)
+	if err := os.WriteFile(filepath.Join(shared, "package.txt"), []byte("payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := &scriptedRunner{results: []scriptedResult{
+		{result: execx.Result{Stdout: []byte(" M main.go\n")}},
+	}}
+
+	err := (RunnerGit{Commands: runner}).Return(context.Background(), project, worktreePath)
+	if err == nil || !strings.Contains(err.Error(), "uncommitted work") {
+		t.Fatalf("Return error = %v, want an uncommitted-work refusal", err)
+	}
+	// The refusal tells the operator to commit their work. That is only
+	// actionable in a worktree that still builds and tests, so the junction
+	// carrying its dependencies has to survive a Return that changed nothing.
+	if _, err := os.Lstat(link); err != nil {
+		t.Fatalf("refused Return destroyed the worktree's junction: %v", err)
+	}
+	entries, err := os.ReadDir(link)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("junction no longer resolves to the shared directory: %v %v", entries, err)
+	}
+}
+
 func TestRemoveSharedLinksToleratesAMissingWorktree(t *testing.T) {
 	if err := removeSharedLinks(filepath.Join(t.TempDir(), "gone"), t.TempDir()); err != nil {
 		t.Fatalf("removeSharedLinks on a missing worktree: %v", err)
@@ -432,13 +377,13 @@ func TestRunnerGitEnsureSeededLeavesACommitUntouched(t *testing.T) {
 func TestRunnerGitEnsureSeededSeedsAnEmptyRepo(t *testing.T) {
 	project := t.TempDir()
 	runner := &scriptedRunner{results: []scriptedResult{
-		{result: execx.Result{ExitCode: 1}},                  // unborn HEAD
-		{},                                                   // empty status
-		{result: execx.Result{Stdout: []byte("origin\n")}},   // origin remote
-		{result: execx.Result{Stdout: []byte("main\n")}},     // current branch
-		{},                                                   // git add
-		{},                                                   // git commit
-		{},                                                   // git push
+		{result: execx.Result{ExitCode: 1}}, // unborn HEAD
+		{},                                  // empty status
+		{result: execx.Result{Stdout: []byte("origin\n")}}, // origin remote
+		{result: execx.Result{Stdout: []byte("main\n")}},   // current branch
+		{}, // git add
+		{}, // git commit
+		{}, // git push
 	}}
 	seeded, err := (RunnerGit{Commands: runner}).EnsureSeeded(context.Background(), project)
 	if err != nil {

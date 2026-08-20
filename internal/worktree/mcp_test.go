@@ -3,7 +3,6 @@ package worktree
 import (
 	"encoding/json"
 	"reflect"
-	"sort"
 	"strings"
 	"testing"
 )
@@ -64,13 +63,14 @@ func TestFilterMCPServersQualifiesHTTPServersByToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FilterMCPServers: %v", err)
 	}
-	sort.Strings(kept)
-	sort.Strings(dropped)
+	// Unsorted here on purpose: the names are read back to the operator on
+	// the spawned line, so FilterMCPServers owes them a stable order that a
+	// map's iteration cannot give.
 	if !reflect.DeepEqual(kept, []string{"bearer", "header"}) {
-		t.Errorf("kept = %v, want bearer and header", kept)
+		t.Errorf("kept = %v, want bearer and header in sorted order", kept)
 	}
 	if !reflect.DeepEqual(dropped, []string{"oauth", "plain-header"}) {
-		t.Errorf("dropped = %v, want oauth and plain-header", dropped)
+		t.Errorf("dropped = %v, want oauth and plain-header in sorted order", dropped)
 	}
 	if !strings.Contains(string(filtered), `"bearer"`) || strings.Contains(string(filtered), `"oauth"`) {
 		t.Errorf("filtered = %s, want only the token-authenticated servers", filtered)
