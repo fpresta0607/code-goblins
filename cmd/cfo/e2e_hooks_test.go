@@ -32,8 +32,8 @@ import (
 //  1. Seven invocations against a genuine primary home (the brief's table).
 //  2. The inertness proof: the same seven invocations against a bare dev
 //     home must be silent no-ops, verified by a recursive directory diff.
-//  3. The exact six command strings registered in .claude/settings.json, run
-//     through the POSIX shell Step 3a identified, against both homes.
+//  3. The exact six command strings cfo install registers, run through the
+//     POSIX shell Step 3a identified, against both homes.
 //  4. A timing sweep of the four hooks Global Constraints budgets.
 func TestHookFamilyEndToEnd(t *testing.T) {
 	goBin := resolveGoBin(t)
@@ -734,7 +734,7 @@ func runHookBinary(t *testing.T, exe, hookName, stdin string, env []string) hook
 // C:\WINDOWS\system32\bash.exe, which is WSL2 bash (uname -s reports
 // "Linux", release "...microsoft-standard-WSL2"). WSL bash cannot resolve a
 // Windows path in any form the hooks use - it needs /mnt/c/... - so every
-// registered command's `[ -x "$CLAUDE_PROJECT_DIR"/cfo.exe ] || exit 0`
+// registered command's `[ -x "$CFO_ROOT"/cfo.exe ] || exit 0`
 // guard is false, the guard takes its exit-0 branch, and all six hooks
 // silently no-op. Every Phase 3 primary-home assertion then fails with
 // "exit = 0, want 2" and empty streams, and depending on PATH order the
