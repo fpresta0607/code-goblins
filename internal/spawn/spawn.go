@@ -320,13 +320,39 @@ func goblinMCPConfig(taskTmp string) string {
 	return path
 }
 
+// reservedLaunchEnv names the environment the launch contract owns. It is
+// explicit rather than read off the launch map at merge time because the
+// contract is written in stages: the adapter stamps GOTMPDIR and CFO_ROLE at
+// build, startHarness adds CFO_STATE_OVERRIDE just before the pane line is
+// rendered, and a manifest or credential merged in between must not be able
+// to claim a name the launch has not written yet.
+var reservedLaunchEnv = []string{"GOTMPDIR", "CFO_STATE_OVERRIDE", harness.RoleVariable}
+
+// reservedLaunchName reports whether name belongs to the launch contract:
+// one of the names the contract owns, or one the adapter already set on the
+// launch. The comparison is case-insensitive because the pane is PowerShell
+// on Windows, where $env:gotmpdir and $env:GOTMPDIR are the same variable,
+// so a differently cased name is a collision, not a sibling.
+func reservedLaunchName(env map[string]string, name string) bool {
+	for _, reserved := range reservedLaunchEnv {
+		if strings.EqualFold(name, reserved) {
+			return true
+		}
+	}
+	for existing := range env {
+		if strings.EqualFold(name, existing) {
+			return true
+		}
+	}
+	return false
+}
+
 // mergeProvisionEnv folds provisioning's environment redirects into the
 // launch. The harness environment is the launch contract, so a redirect that
-// collides with a reserved name (GOTMPDIR, CFO_ROLE) loses rather than
-// redirecting it.
+// collides with a reserved name loses rather than redirecting it.
 func mergeProvisionEnv(env map[string]string, redirects map[string]string) {
 	for name, value := range redirects {
-		if _, reserved := env[name]; reserved {
+		if reservedLaunchName(env, name) {
 			continue
 		}
 		env[name] = value
@@ -362,7 +388,7 @@ func (s Service) injectProjectCredentials(preflight auth.Result, taskTmp string,
 	}
 	env := make(map[string]string, len(preflight.Env))
 	for name, value := range preflight.Env {
-		if _, reserved := launch.Env[name]; reserved {
+		if reservedLaunchName(launch.Env, name) {
 			// The harness environment is the launch contract; a project
 			// manifest must not be able to redirect GOTMPDIR.
 			continue

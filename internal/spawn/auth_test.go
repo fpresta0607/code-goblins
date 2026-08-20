@@ -122,6 +122,37 @@ func TestSpawnKeepsTheHarnessEnvironmentAuthoritative(t *testing.T) {
 	}
 }
 
+func TestSpawnDropsCaseAliasedReservedCredentials(t *testing.T) {
+	fixture := newFixture(t)
+	// Credentials reach the pane through the same PowerShell the launch
+	// contract does, so a case-aliased reserved name would redirect it just
+	// as an exact one would; both are dropped, and names the launch writes
+	// only at harness start are reserved all the same.
+	fixture.service.Auth = &stubPreflight{result: auth.Result{Env: map[string]string{
+		"gotmpdir":           `C:\hijacked`,
+		"cfo_state_override": `C:\hijacked`,
+		"SAFE_KEY":           "value",
+	}}}
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	script, err := os.ReadFile(filepath.Join(result.Meta.TaskTmp, "auth.ps1"))
+	if err != nil {
+		t.Fatalf("read secrets script: %v", err)
+	}
+	if strings.Contains(string(script), "hijacked") {
+		t.Errorf("secrets script carries a case-aliased reserved name:\n%s", script)
+	}
+	if !strings.Contains(string(script), "$env:SAFE_KEY = 'value'") {
+		t.Errorf("secrets script dropped an unrelated credential:\n%s", script)
+	}
+	if !strings.Contains(fixture.runner.literals[0], "$env:CFO_STATE_OVERRIDE = '"+fixture.stateDir+"'") {
+		t.Errorf("literal = %q, want the harness CFO_STATE_OVERRIDE intact", fixture.runner.literals[0])
+	}
+}
+
 func TestSpawnFailsLoudlyWhenThePreflightItselfBreaks(t *testing.T) {
 	fixture := newFixture(t)
 	fixture.service.Auth = &stubPreflight{err: errTestPreflight}

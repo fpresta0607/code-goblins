@@ -328,6 +328,40 @@ func TestSpawnReportsADefaultLinkSkippedForACheckedOutFile(t *testing.T) {
 	}
 }
 
+func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
+	fixture := newFixture(t)
+	// The pane is PowerShell, where environment names are case-insensitive,
+	// so a redirect that differs from a reserved name only by case is the
+	// same variable. CFO_STATE_OVERRIDE is only written at harness start,
+	// after the manifest is merged, so it proves the reserved set does not
+	// depend on what the launch map happens to hold at merge time.
+	writeWorktreeManifest(t, fixture.dataDir, fixture.project, worktree.Manifest{
+		Project: "primary",
+		Env: map[string]string{
+			"gotmpdir":                 `C:\hijacked-gotmpdir`,
+			"cfo_state_override":       `C:\hijacked-state`,
+			"Cfo_Role":                 "overlord",
+			"PLAYWRIGHT_BROWSERS_PATH": `C:\cache\ms-playwright`,
+		},
+	})
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	line := fixture.runner.literals[0]
+	if strings.Contains(line, "hijacked") || strings.Contains(line, "overlord") {
+		t.Errorf("pane line = %q, want every case-aliased reserved redirect dropped", line)
+	}
+	if !strings.Contains(line, "$env:GOTMPDIR = '"+filepath.Join(result.Meta.TaskTmp, "gotmp")+"'") ||
+		!strings.Contains(line, "$env:CFO_STATE_OVERRIDE = '"+fixture.stateDir+"'") {
+		t.Errorf("pane line = %q, want the launch contract's own values intact", line)
+	}
+	if !strings.Contains(line, `$env:PLAYWRIGHT_BROWSERS_PATH = 'C:\cache\ms-playwright'`) {
+		t.Errorf("pane line = %q, want the unrelated redirect kept", line)
+	}
+}
+
 func TestSpawnDispatchesAndReportsWhenTheDependencyInstallFails(t *testing.T) {
 	fixture := newFixture(t)
 	// Strategy install is the default and its command is auto-detected from a

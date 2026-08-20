@@ -719,12 +719,15 @@ func TestSwitchReappliesTheProjectEnvironmentRedirects(t *testing.T) {
 	// The launch is rebuilt from scratch by the switch, so a redirect the
 	// spawn injected is only there afterwards if the switch re-applies it.
 	// GOTMPDIR is declared alongside it to prove the launch contract still
-	// wins over a manifest that tries to redirect a reserved name.
+	// wins over a manifest that tries to redirect a reserved name, in any
+	// case and including a name the relaunch only writes at harness start.
 	writeWorktreeManifest(t, fixture.dataDir, fixture.project, worktree.Manifest{
 		Project: "primary",
 		Env: map[string]string{
 			"PLAYWRIGHT_BROWSERS_PATH": `C:\cache\ms-playwright`,
 			"GOTMPDIR":                 `C:\hijacked`,
+			"gotmpdir":                 `C:\hijacked-lower`,
+			"cfo_state_override":       `C:\hijacked-state`,
 		},
 	})
 
