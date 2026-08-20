@@ -106,6 +106,14 @@ type Control struct {
 	ResumeMarkers []string
 }
 
+// RoleVariable names the pane role every launch stamps, and RoleGoblin is
+// the value a goblin's pane carries. The CFO's Claude Code hooks read it and
+// stay inert: a goblin is the work being supervised, never the supervisor.
+const (
+	RoleVariable = "CFO_ROLE"
+	RoleGoblin   = "goblin"
+)
+
 // Adapter builds and validates one supported harness launch.
 type Adapter interface {
 	Kind() Kind
@@ -148,7 +156,17 @@ func buildBase(spec LaunchSpec) (Launch, error) {
 		return Launch{}, errors.New("harness: TaskTmp must be absolute")
 	}
 	return Launch{
-		Env:        map[string]string{"GOTMPDIR": filepath.Join(spec.TaskTmp, "gotmp")},
+		Env: map[string]string{
+			"GOTMPDIR": filepath.Join(spec.TaskTmp, "gotmp"),
+			// Every goblin pane is stamped with its role, and the CFO's
+			// hooks read it to stay out of the way. It belongs in the launch
+			// contract rather than in the project credentials a preflight
+			// returns, because a project that declares no services returns
+			// no credentials at all and would leave its goblin unstamped -
+			// and an unstamped goblin is a goblin the CFO starts supervising
+			// as if it were the CFO.
+			RoleVariable: RoleGoblin,
+		},
 		PromptFile: spec.BriefPath,
 	}, nil
 }

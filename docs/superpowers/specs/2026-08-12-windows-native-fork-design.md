@@ -74,7 +74,8 @@ Windows file system rules apply everywhere:
 
 ## 4. Claude Code integration
 
-`.claude/settings.json` rewires the existing hook wiring, four events carrying six hook commands, to the binary:
+`cfo install` writes the hook wiring, four events carrying six hook commands, into the user settings (`~/.claude/settings.json`), so a session opened in any repository is supervised rather than only one opened inside this checkout.
+Each command resolves the binary as `${CFO_HOME:-$CLAUDE_PROJECT_DIR}/cfo.exe`:
 
 - SessionStart runs `cfo hook session-start`.
 - PreToolUse (Bash matcher) runs `cfo hook pretool-arm` and `cfo hook pretool-cd`.
@@ -83,6 +84,10 @@ Windows file system rules apply everywhere:
 
 `cfo` reads the hook JSON on stdin and honors Claude Code's exit-code contract, where exit 2 means block or rewake.
 The Stop-hook-owned watcher continuity model ports over unchanged in behavior.
+
+Because user-scope hooks reach every session on the machine, including a goblin's, every hook exits 0 immediately when the pane carries `CFO_ROLE=goblin`.
+`cfo spawn` stamps that variable into the launch environment of every harness.
+A goblin is the work being supervised, never the supervisor.
 
 ## 5. Herdr backend and treehouse worktrees
 
@@ -107,7 +112,7 @@ The instruction layer routes agent-performed GitHub operations through gh-axi, m
 Using code-goblins must not require a Go toolchain.
 
 - CI builds `cfo.exe` and `showcase-axi.exe` on tags and publishes both as GitHub Release assets.
-- `install.ps1` is the toolchain bootstrapper: it downloads (or builds) `cfo.exe` and `showcase-axi.exe`, then installs every missing tool `cfo doctor` checks that has a scriptable installer, wires `.claude/settings.json`, and junctions the bundled skills for claude and codex. Run it with `-Bootstrap`; it is idempotent and safe to rerun.
+- `install.ps1` is the toolchain bootstrapper: it downloads (or builds) `cfo.exe` and `showcase-axi.exe`, then installs every missing tool `cfo doctor` checks that has a scriptable installer and junctions the bundled skills for claude and codex. The hooks are wired separately, by `cfo install`, because they belong to the user's own configuration rather than to this repository. Run it with `-Bootstrap`; it is idempotent and safe to rerun.
 - `cfo doctor` re-checks the environment on demand and says exactly what is missing and how to install it.
 - Quick start: clone, run `install.ps1 -Bootstrap`, then follow README's "From clone to first goblin" (doctor green, spawn a trivial local-only task, cleanup).
 

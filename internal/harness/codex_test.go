@@ -21,7 +21,7 @@ func TestCodexBuildsStructuredLaunchWithoutBashNotify(t *testing.T) {
 	}
 	assertLaunch(t, defaults, Launch{
 		Args:       []string{"--dangerously-bypass-approvals-and-sandbox"},
-		Env:        map[string]string{"GOTMPDIR": `C:\tasks\task\gotmp`},
+		Env:        map[string]string{"CFO_ROLE": RoleGoblin, "GOTMPDIR": `C:\tasks\task\gotmp`},
 		PromptFile: `C:\briefs\task.md`,
 	})
 

@@ -101,6 +101,37 @@ func TestNotifyTargetsStateOverrideWithoutCFOHome(t *testing.T) {
 	}
 }
 
+// TestNotifyTargetsStateOverrideWithAGlobalCFOHome covers what changes once
+// CFO_HOME is set at user scope: a goblin pane inherits it, so a goblin that
+// used to resolve its home to its own worktree now resolves it to the fleet
+// root. The wake queue must still land in the state directory the spawn
+// pinned, which is what CFO_STATE_OVERRIDE - not CFO_HOME - has always
+// decided.
+func TestNotifyTargetsStateOverrideWithAGlobalCFOHome(t *testing.T) {
+	worktree := t.TempDir()
+	fleetRoot := t.TempDir()
+	stateDir := filepath.Join(fleetRoot, "state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_HOME", fleetRoot)
+	t.Setenv("CFO_STATE_OVERRIDE", stateDir)
+	t.Chdir(worktree)
+
+	var stdout, stderr bytes.Buffer
+	if exit := runNotify([]string{"g1", "--done", "--pr", "https://example.test/pr/1"}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
+	}
+
+	lines, err := state.TailStatus(stateDir, "g1", 1)
+	if err != nil || len(lines) != 1 || lines[0] != "done: PR https://example.test/pr/1" {
+		t.Fatalf("status = %v, %v; want one done line in the fleet state dir", lines, err)
+	}
+	if _, err := os.Stat(filepath.Join(worktree, "state")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("notify polluted the worktree with a state dir: %v", err)
+	}
+}
+
 func TestNotifyNormalizesControlCharactersInTheDetail(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "state"), 0o755); err != nil {

@@ -47,6 +47,7 @@ The full design and the explicit v1 scope live in [docs/superpowers/specs/2026-0
 ## Commands
 
 ```text
+cfo install [--uninstall]            wire this checkout into the machine so a session in any repo is supervised: CFO_HOME and PATH at user scope, and the CFO hooks merged into ~/.claude/settings.json
 cfo doctor                           check the tools cfo needs and how to install them; probe each harness's spawn health (ok/broken); print the measured speed table when telemetry exists; print the active switch rules from data/routing.json
 cfo auth <project> [--check|--fix] [--env]   preflight a project's services from data/projects/<name>/auth.json; --fix adopts credentials the machine already holds and asks once for the rest
 cfo auth store <NAME> [value]        store one credential (omit the value to read it from stdin)
@@ -79,7 +80,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Bootstrap
 
 `install.ps1 -Bootstrap` downloads (or builds) `cfo.exe` and `showcase-axi.exe`, then installs every missing tool `cfo doctor` checks that has a scriptable installer - git, gh, claude, herdr, treehouse, codex, pi, tasks-axi, quota-axi, no-mistakes, gh-axi, and chrome-devtools-axi.
 Kimi is the one `cfo doctor` check with no scriptable installer, so it is printed as a manual step instead of being installed.
-It also wires the Claude Code hooks in `.claude/settings.json` and creates the `.claude/skills` / `.codex/skills` junctions that point at the bundled `.agents/skills/`.
+It also creates the `.claude/skills` / `.codex/skills` junctions that point at the bundled `.agents/skills/`.
+The Claude Code hooks are wired separately by `cfo install`, described below, because they are written to your own user configuration rather than to this repository.
 The script is idempotent and safe to rerun.
 
 ```powershell
@@ -110,6 +112,38 @@ cfo cleanup smoke
 - **GitHub auth.** `gh auth login` (gh-axi reuses the same token).
 - **Kimi Code CLI.** It has no scriptable installer; get it from [kimi.com](https://www.kimi.com) and sign in.
 - **no-mistakes per project.** Each project you want gated needs `no-mistakes init` (plus a push target) before `no-mistakes` delivery mode works.
+
+### Run the CFO from any repo
+
+The CFO's supervision arrives through Claude Code hooks: the session-start digest, the wake queue, the turn-end guard, and the watcher that re-arms itself while goblins are in flight.
+Nothing in this repository registers them for you, so until you run `cfo install` a session opened outside this checkout has none of them, and it has them silently - nothing announces that supervision is off.
+
+```powershell
+cd c:/dev/code-goblins
+cfo install
+```
+
+That is the whole setup, and it is what lets you drive the fleet from a terminal inside the project you are actually working on, with that project's own editor, MCP servers, virtualenv, and `CLAUDE.md`.
+
+It changes exactly four things, and prints each one:
+
+- **`CFO_HOME`**, at user scope, pointing at this checkout. Every hook resolves `cfo.exe` through it.
+- **Your user PATH**, with this checkout appended so `cfo` runs from anywhere. The raw registry value is read and rewritten with its type preserved. `setx`, which truncates any value it writes at 1024 characters, is never used.
+- **`~/.claude/settings.json`**, which is your personal Claude Code configuration and not this project's. The CFO's hooks are merged into whatever hooks are already in it; every hook you already had, and every other key in the file, is left exactly as it was. The file is copied to `settings.json.cfo-install.bak` before it is written, and rewritten as standard two-space JSON, so expect a formatting change even though nothing but the hooks moved. (If you set `CLAUDE_CONFIG_DIR`, that directory is used instead.)
+- **This checkout's `.claude/settings.json`**, if it still carries a hooks block from an older version. With the user-scope hooks in place, both files would fire every hook twice inside code-goblins: two session digests, two wake handlers. Its `permissions` block is left alone.
+
+Running it a second time reports "already installed" and writes nothing.
+
+To back out:
+
+```powershell
+cfo install --uninstall
+```
+
+It removes the CFO's hooks from your settings and leaves yours untouched, unsets `CFO_HOME`, and takes this checkout back off your PATH.
+
+Goblins never receive these hooks, even though the hooks are now global: `cfo spawn` stamps every goblin pane with `CFO_ROLE=goblin`, and every hook exits immediately when it sees it.
+A goblin is the work being supervised, not the supervisor.
 
 ### Daily flow
 
