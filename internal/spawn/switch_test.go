@@ -811,3 +811,37 @@ func writeWorktreeManifest(t *testing.T, dataDir, project string, manifest workt
 		t.Fatal(err)
 	}
 }
+
+func TestSwitchRefusesAMalformedManifestBeforeStoppingTheHarness(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	// A hand-edited worktree.json with a typo is fully knowable before
+	// anything is touched. Discovering it after the stop would leave the
+	// goblin with no harness at all over a config error.
+	writeWorktreeManifest(t, fixture.dataDir, fixture.project, worktree.Manifest{
+		Project:      "primary",
+		Dependencies: worktree.Dependencies{Strategy: "instal"},
+	})
+	before := len(fixture.runner.literals)
+
+	_, err := fixture.service.Switch(context.Background(), SwitchRequest{
+		ID:      fixture.meta.ID,
+		Harness: harness.Kimi,
+		Session: "fleet",
+	})
+	if err == nil || !strings.Contains(err.Error(), "unknown dependency strategy") {
+		t.Fatalf("err = %v, want a refusal naming the malformed manifest", err)
+	}
+	// The running harness was never asked to exit, so the goblin still has one.
+	if contains(fixture.runner.keys, "escape") {
+		t.Errorf("keys = %v, want no stop sequence sent", fixture.runner.keys)
+	}
+	for _, literal := range fixture.runner.literals[before:] {
+		if strings.HasPrefix(literal, "/") {
+			t.Errorf("the harness stop command was sent before the manifest was validated: %q", literal)
+		}
+	}
+	after, _ := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
+	if after.Harness != fixture.meta.Harness || after.SpawnGen != fixture.meta.SpawnGen {
+		t.Errorf("a refused switch still mutated metadata: %+v", after)
+	}
+}

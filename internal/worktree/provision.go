@@ -30,6 +30,12 @@ type ProvisionResult struct {
 	// harness that reads its working directory still sees the project's own
 	// unfiltered file.
 	MCPProjectTracked bool
+	// MCPWorktreeOccupied reports that the worktree root already held an
+	// untracked .mcp.json that provisioning did not write, so the filtered
+	// copy was withheld and a harness reading its working directory sees that
+	// file instead. Never silent: an occupied path must not be mistaken for
+	// the goblin using the filtered configuration.
+	MCPWorktreeOccupied bool
 	// MCPDropped names the OAuth-only servers withheld from the goblin.
 	MCPDropped []string
 	// Linked names the config entries shared from the primary checkout.
@@ -104,6 +110,7 @@ func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp s
 	mcp, err := s.materializeMCP(ctx, git, project, worktreePath, taskTmp)
 	result.MCPConfig = mcp.config
 	result.MCPProjectTracked = mcp.projectTracked
+	result.MCPWorktreeOccupied = mcp.worktreeOccupied
 	result.MCPDropped = mcp.dropped
 	if err != nil {
 		return result, err
@@ -274,6 +281,9 @@ type mcpResult struct {
 	// projectTracked reports that the project commits .mcp.json, so the
 	// worktree copy was skipped.
 	projectTracked bool
+	// worktreeOccupied reports that the worktree root already held a
+	// .mcp.json provisioning did not write, so the copy was skipped.
+	worktreeOccupied bool
 	// dropped names the OAuth-only servers withheld from the goblin.
 	dropped []string
 }
@@ -335,7 +345,8 @@ func (s Service) materializeMCP(ctx context.Context, git RunnerGit, project, wor
 	if tracked {
 		return result, nil
 	}
-	if _, err := os.Lstat(filepath.Join(worktreePath, ".mcp.json")); err == nil {
+	if _, err := os.Lstat(filepath.Join(worktreePath, mcpFileName)); err == nil {
+		result.worktreeOccupied = true
 		return result, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return result, fmt.Errorf("worktree: inspect worktree .mcp.json: %w", err)

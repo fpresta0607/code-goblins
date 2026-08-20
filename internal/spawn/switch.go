@@ -164,6 +164,14 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err := adapter.Validate(ctx, herdrClient.Commands); err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: validate harness %s: %w", target.Harness, err)
 	}
+	// The relaunched harness needs the project's declared environment
+	// redirects, and a malformed manifest is knowable now. Reading it here
+	// rather than after the stop keeps a config typo from leaving the goblin
+	// with no harness at all. Nothing is provisioned or installed by a switch.
+	manifest, err := worktree.Resolve(s.Worktrees.DataDir, project)
+	if err != nil {
+		return SwitchResult{}, fmt.Errorf("switch: resolve worktree manifest: %w", err)
+	}
 
 	// Stop before anything else is written, so a harness that refuses to exit
 	// leaves the task exactly as it was.
@@ -180,7 +188,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		briefPath = req.BriefPath
 	}
 
-	handoff, resumed, err := s.relaunchHarness(ctx, &herdrClient, paneTarget, meta, target, adapter, project, worktreePath, briefPath, dirty, req.ID)
+	handoff, resumed, err := s.relaunchHarness(ctx, &herdrClient, paneTarget, meta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, manifest.Env)
 	if err != nil {
 		from := describe(meta.Harness, meta.Model, meta.Effort)
 		if writeErr := s.publishSwitch(&meta, target); writeErr != nil {
@@ -247,8 +255,9 @@ var errBuildLaunch = errors.New("switch: build harness launch")
 // relaunchHarness builds the target launch, injects credentials, writes the
 // resume instruction or handoff, and starts the new harness. Every step after
 // the old harness has stopped lives here, so any failure returns through the
-// same empty-pane recovery.
-func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id string) (handoff string, resumed bool, err error) {
+// same empty-pane recovery. Anything knowable before the stop is resolved by
+// Switch and handed in, redirects included.
+func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id string, redirects map[string]string) (handoff string, resumed bool, err error) {
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath: briefPath,
@@ -263,13 +272,8 @@ func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, pane
 	launch.Dir = worktreePath
 	// The launch is rebuilt from scratch, so the project's declared
 	// environment redirects have to be re-applied or the new harness runs
-	// without the caches the spawned one had. They are read from the manifest
-	// rather than by re-provisioning: a switch must never reinstall anything.
-	manifest, err := worktree.Resolve(s.Worktrees.DataDir, project)
-	if err != nil {
-		return "", false, fmt.Errorf("switch: resolve worktree manifest: %w", err)
-	}
-	mergeProvisionEnv(launch.Env, manifest.Env)
+	// without the caches the spawned one had.
+	mergeProvisionEnv(launch.Env, redirects)
 	// A switch re-injects the same credentials a spawn would, but never
 	// refuses on a red service: the goblin is already running, and stranding
 	// work in a stopped harness would cost more than the missing credential.

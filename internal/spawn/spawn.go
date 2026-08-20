@@ -273,6 +273,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if len(provision.MCPDropped) > 0 {
 		result.Output += "\nmcp: withheld OAuth-only servers from the goblin: " + strings.Join(provision.MCPDropped, ", ") + " (declare a token-authenticated form in the project .mcp.json to reach goblins)"
 	}
+	if provision.MCPWorktreeOccupied {
+		result.Output += "\nmcp: the worktree already held a .mcp.json this spawn did not write, so it was left alone; a harness that reads its working directory sees that file, not the filtered configuration"
+	}
 	if provision.MCPProjectTracked {
 		result.Output += "\nmcp: the project tracks .mcp.json, so the worktree keeps that file exactly as committed; a harness that reads its working directory sees every server declared there, including the ones the filtered config withholds"
 	}

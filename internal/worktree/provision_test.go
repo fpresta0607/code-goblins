@@ -238,6 +238,69 @@ func TestProvisionRefusesAnUnknownStrategy(t *testing.T) {
 	}
 }
 
+func TestProvisionRefusesToShareTheProjectMCPConfig(t *testing.T) {
+	// Sharing .mcp.json would defeat the filter outright: shareEntry
+	// hardlinks a file, so the goblin would read the operator's own
+	// unfiltered config - OAuth connectors and all - and any rewrite of it
+	// would edit the primary checkout in place.
+	for _, name := range []string{".mcp.json", ".MCP.json"} {
+		t.Run(name, func(t *testing.T) {
+			project, worktreePath, taskTmp, runner := provisionFixture(t)
+			dataDir := t.TempDir()
+			writeManifest(t, dataDir, project, Manifest{Project: "demo", Link: []string{".env", name}})
+			source := filepath.Join(project, ".mcp.json")
+			if err := os.WriteFile(source, []byte(`{"mcpServers":{"oauth":{"url":"https://example.com/mcp"}}}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp)
+			if err == nil || !strings.Contains(err.Error(), "token-authenticated subset") {
+				t.Fatalf("Provision error = %v, want a refusal naming the MCP filter", err)
+			}
+			if _, err := os.Lstat(filepath.Join(worktreePath, ".mcp.json")); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("the project's own .mcp.json reached the worktree: %v", err)
+			}
+		})
+	}
+}
+
+func TestProvisionReportsAnOccupiedWorktreeMCPPath(t *testing.T) {
+	project, worktreePath, taskTmp, runner := provisionFixture(t)
+	config := []byte(`{"mcpServers": {
+		"neon": {"url": "https://mcp.neon.tech/mcp", "bearerTokenEnvVar": "NEON_API_KEY"},
+		"supabase": {"url": "https://mcp.supabase.com/mcp"}
+	}}`)
+	if err := os.WriteFile(filepath.Join(project, ".mcp.json"), config, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Untracked, but something already put a .mcp.json at the worktree root.
+	// Leaving it alone is right; leaving it unreported is not, because a
+	// cwd-reading harness reads that file and not the filtered one.
+	occupied := filepath.Join(worktreePath, ".mcp.json")
+	if err := os.WriteFile(occupied, config, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner.results = untrackedScript()
+
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp)
+	if err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if !result.MCPWorktreeOccupied {
+		t.Error("MCPWorktreeOccupied = false, want the occupied path reported")
+	}
+	if result.MCPProjectTracked {
+		t.Error("MCPProjectTracked = true, want false for an untracked occupant")
+	}
+	if got := mcpServerNames(t, result.MCPConfig); !slices.Equal(got, []string{"neon"}) {
+		t.Errorf("materialized servers = %v, want the filtered config still handed to the harness", got)
+	}
+	after, err := os.ReadFile(occupied)
+	if err != nil || !bytes.Equal(after, config) {
+		t.Fatalf("worktree .mcp.json = %s (%v), want the occupant left untouched", after, err)
+	}
+}
+
 func TestProvisionSurfacesEnvRedirects(t *testing.T) {
 	project, worktreePath, taskTmp, runner := provisionFixture(t)
 	dataDir := t.TempDir()

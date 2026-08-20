@@ -68,6 +68,9 @@ type Manifest struct {
 // defaultLink is the config-file set an undeclared project shares.
 var defaultLink = []string{".env", ".env.local", ".env.docker.local"}
 
+// mcpFileName is the project-scoped MCP configuration a goblin never shares.
+const mcpFileName = ".mcp.json"
+
 // ManifestPath returns the worktree manifest location for a project directory
 // under a CFO home's data directory.
 func ManifestPath(dataDir, project string) string {
@@ -133,7 +136,13 @@ func (m Manifest) Validate() error {
 
 // validRelativePath refuses absolute paths, parent escapes, and nested paths:
 // provisioning links root-level entries only, because root level is where a
-// project's environment lives and where Return's junction scan looks.
+// project's environment lives and where Return's junction scan looks. It also
+// refuses .mcp.json outright, so the invariant Link documents is enforced
+// rather than merely asserted: a goblin receives only the token-authenticated
+// subset of that file, materialized fresh, and sharing the operator's own
+// unfiltered config would hand the goblin OAuth connectors it can never
+// authenticate. A hardlinked one is worse still, because it is the operator's
+// file, so a harness rewriting it edits the primary checkout in place.
 func validRelativePath(kind, path string) error {
 	cleaned := filepath.Clean(filepath.FromSlash(strings.TrimSpace(path)))
 	if cleaned == "." || cleaned == ".." || filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
@@ -141,6 +150,11 @@ func validRelativePath(kind, path string) error {
 	}
 	if filepath.Base(cleaned) != cleaned {
 		return fmt.Errorf("%s %q must be a root-level name inside the checkout", kind, path)
+	}
+	// Case-insensitive because the manifest is read on Windows, where
+	// .MCP.json names the same file.
+	if strings.EqualFold(cleaned, mcpFileName) {
+		return fmt.Errorf("%s %q cannot be shared: a goblin receives only the token-authenticated subset of %s, materialized fresh, so sharing the project's own file would hand it OAuth connectors it can never authenticate", kind, path, mcpFileName)
 	}
 	return nil
 }
