@@ -2,11 +2,14 @@ package doctor
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/install"
 )
 
 // fakeTool writes a .bat file that prints out and exits with code.
@@ -292,6 +295,46 @@ func TestHookPairingSpansBothScopes(t *testing.T) {
 	}
 	if c := checkHookPairing(); c.Err != "" {
 		t.Errorf("Err = %q, want empty when the pair is split across the two scopes", c.Err)
+	}
+}
+
+// stopHookSettings renders a settings.json registering commands as Stop
+// hooks, through json.Marshal so the commands carry the same escape
+// sequences a real settings file gives them.
+func stopHookSettings(t *testing.T, commands ...string) string {
+	t.Helper()
+	entries := []any{}
+	for _, command := range commands {
+		entries = append(entries, map[string]any{"type": "command", "command": command})
+	}
+	data, err := json.Marshal(map[string]any{"hooks": map[string]any{"Stop": []any{map[string]any{"hooks": entries}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+// TestHookPairingRecognizesInstalledCommands drives the check with the exact
+// command strings `cfo install` writes, whose quotes arrive JSON-escaped in
+// the raw file text: a check that only knew the hand-written `cfo hook
+// <name>` form, or that scanned raw text, stays silent on exactly the wiring
+// the installer produces.
+func TestHookPairingRecognizesInstalledCommands(t *testing.T) {
+	commands := map[string]string{}
+	for _, hook := range install.Hooks() {
+		commands[hook.Name] = hook.Command
+	}
+	dir := t.TempDir()
+	t.Setenv("CFO_HOME", dir)
+
+	writeSettings(t, dir, stopHookSettings(t, commands["turnend-guard"]))
+	if c := checkHookPairing(); c.Err == "" {
+		t.Error("Err = empty, want non-empty with the installed guard command registered alone")
+	}
+
+	writeSettings(t, dir, stopHookSettings(t, commands["turnend-guard"], commands["stop-autoarm"]))
+	if c := checkHookPairing(); c.Err != "" {
+		t.Errorf("Err = %q, want empty with both installed commands registered", c.Err)
 	}
 }
 

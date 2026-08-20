@@ -24,13 +24,19 @@ import (
 // [Environment]::GetEnvironmentVariable(name, 'User') returns, and writes
 // keep the value's existing registry kind so a REG_EXPAND_SZ PATH full of
 // `%USERPROFILE%` entries is not silently downgraded to a literal REG_SZ.
+//
+// Values cross the PowerShell boundary as base64 in both directions: Windows
+// PowerShell 5.1 encodes redirected stdout in the console's OEM code page,
+// so writing the value itself would mangle any non-ASCII character on the
+// way back, and a rewritten PATH must never lose a character.
 type registryEnvStore struct {
 	Commands execx.Runner
+	key      string
 }
 
 // NewEnvStore returns the machine's user-scope environment.
 func NewEnvStore(commands execx.Runner) EnvStore {
-	return registryEnvStore{Commands: commands}
+	return registryEnvStore{Commands: commands, key: envKey}
 }
 
 const envKey = `HKCU:\Environment`
@@ -39,7 +45,7 @@ func (s registryEnvStore) Get(name string) (string, bool, error) {
 	script := fmt.Sprintf(`$item = Get-Item -LiteralPath '%s'
 $value = $item.GetValue('%s', $null, 'DoNotExpandEnvironmentNames')
 if ($null -eq $value) { exit 3 }
-[Console]::Out.Write([string]$value)`, envKey, powerShellName(name))
+[Console]::Out.Write([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes([string]$value)))`, s.key, powerShellName(name))
 	result, err := s.run(script)
 	if err != nil {
 		return "", false, err
@@ -50,7 +56,11 @@ if ($null -eq $value) { exit 3 }
 	if result.ExitCode != 0 {
 		return "", false, fmt.Errorf("install: read user %s: %s", name, strings.TrimSpace(string(result.Stderr)))
 	}
-	return string(result.Stdout), true, nil
+	value, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(result.Stdout)))
+	if err != nil {
+		return "", false, fmt.Errorf("install: read user %s: %w", name, err)
+	}
+	return string(value), true, nil
 }
 
 func (s registryEnvStore) Set(name, value string) error {
@@ -65,7 +75,7 @@ if ($null -ne $item.GetValue($name, $null, 'DoNotExpandEnvironmentNames')) {
   $kind = 'String'
 }
 Set-ItemProperty -LiteralPath '%[1]s' -Name $name -Value $value -Type $kind`,
-		envKey, powerShellName(name), base64UTF8(value))
+		s.key, powerShellName(name), base64UTF8(value))
 	result, err := s.run(script)
 	if err != nil {
 		return err
@@ -78,7 +88,7 @@ Set-ItemProperty -LiteralPath '%[1]s' -Name $name -Value $value -Type $kind`,
 
 func (s registryEnvStore) Unset(name string) error {
 	script := fmt.Sprintf(`Remove-ItemProperty -LiteralPath '%s' -Name '%s' -ErrorAction SilentlyContinue`,
-		envKey, powerShellName(name))
+		s.key, powerShellName(name))
 	result, err := s.run(script)
 	if err != nil {
 		return err
