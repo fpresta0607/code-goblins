@@ -11,6 +11,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
 	"github.com/fpresta0607/code-goblins/internal/digest"
 	"github.com/fpresta0607/code-goblins/internal/guard"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
@@ -26,6 +27,16 @@ import (
 // break the tool call, so it exits 0 with a one-line stderr diagnostic
 // instead of denying or failing the request.
 func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
+	// A goblin is never supervised by the CFO's hooks: it is the work being
+	// supervised. Until the hooks moved to user scope this held by accident
+	// - a goblin's worktree has no cfo.exe, so the repo-scoped `[ -x ... ]`
+	// guard fired - and an accident that has to be remembered is exactly the
+	// bug this replaces. The check sits above the dispatch rather than
+	// inside each arm so it covers every hook that exists and every hook
+	// anyone adds later.
+	if os.Getenv(harness.RoleVariable) == harness.RoleGoblin {
+		return 0
+	}
 	switch name {
 	case "pretool-subagent":
 		return hookPretoolSubagent(stdin, stdout, stderr)
@@ -160,13 +171,13 @@ func hookPretoolCd(stdin io.Reader, stdout, stderr io.Writer) int {
 // auto-arm failure, or the budget bookkeeping itself cannot be written), so
 // the guard tells the operator once and lets the turn end rather than
 // blocking every Stop forever.
-const genuinelyDownMessage = "CFO SUPERVISION IS GENUINELY DOWN: the Stop-owned auto-arm could not restore the watcher and the block budget is exhausted. This turn may end, but supervision stays off. Run cfo doctor, verify the stop-autoarm hook registration in .claude/settings.json, and re-launch the session."
+const genuinelyDownMessage = "CFO SUPERVISION IS GENUINELY DOWN: the Stop-owned auto-arm could not restore the watcher and the block budget is exhausted. This turn may end, but supervision stays off. Run cfo doctor, repair the stop-autoarm hook registration with cfo install (it writes the user settings: ~/.claude/settings.json, or CLAUDE_CONFIG_DIR when set), and re-launch the session."
 
 // escalationCeilingMultiplier sets the hard ceiling (escalationCeilingMultiplier
 // * blockBudget) that fires regardless of NotifiedOnce or AlarmFired: the
 // guarantee that no configuration can wedge a session shut. NotifiedOnce has
 // exactly one writer, Task 11's stop-autoarm hook; if that hook is missing
-// from settings.json or dies before ever calling MarkNotified, nothing ever
+// from the user settings or dies before ever calling MarkNotified, nothing ever
 // satisfies the normal ladder arm below. stop_hook_active is also
 // deliberately ignored by hookTurnendGuard (see its doc comment below), so
 // Claude Code's own loop breaker cannot rescue the turn either. This arm is
@@ -177,7 +188,7 @@ const escalationCeilingMultiplier = 3
 // Distinct from genuinelyDownMessage because the likely cause is different -
 // nothing ever reported a failure at all, rather than a reported failure the
 // budget could not recover from.
-const ladderNeverEscalatedMessage = "CFO SUPERVISION IS DOWN AND THE ESCALATION LADDER NEVER ESCALATED: the turn-end guard blocked %d times without the Stop-owned auto-arm ever reporting a failure. The usual cause is that \"cfo hook stop-autoarm\" is not registered in .claude/settings.json, so nothing is trying to restore the watcher. This turn may end, but supervision stays off. Run cfo doctor and verify the Stop hook registration."
+const ladderNeverEscalatedMessage = "CFO SUPERVISION IS DOWN AND THE ESCALATION LADDER NEVER ESCALATED: the turn-end guard blocked %d times without the Stop-owned auto-arm ever reporting a failure. The usual cause is that \"cfo hook stop-autoarm\" is not registered in the user settings (~/.claude/settings.json, or CLAUDE_CONFIG_DIR when set), so nothing is trying to restore the watcher. This turn may end, but supervision stays off. Run cfo doctor to check the Stop hook registration and cfo install to repair it."
 
 // blindTurnBanner is step 6's block message: %s, %s fill inFlight (the
 // "<N> task(s) in flight" string from supervise.Needed) and the watcher
@@ -187,7 +198,7 @@ const blindTurnBanner = "" +
 	"●  TURN WOULD END BLIND - SUPERVISION IS OFF\n" +
 	"●  %s, but no live watcher holds this home (last beat: %s).\n" +
 	"●  The Stop-owned auto-arm did not claim recovery within the sync window.\n" +
-	"●  Repair: verify .claude/settings.json wires \"cfo hook stop-autoarm\" with asyncRewake, then end the turn again. Run cfo drain for pending wakes.\n" +
+	"●  Repair: run cfo doctor, then cfo install to wire \"cfo hook stop-autoarm\" with asyncRewake in the user settings, then end the turn again. Run cfo drain for pending wakes.\n" +
 	"●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 // hookTurnendGuard refuses to let a turn end blind: goblins in flight, no
@@ -369,7 +380,7 @@ var actionableReasonPattern = regexp.MustCompile(`^(signal:|stale:|check:|heartb
 // the final attempt's error text.
 const rewakeBannerFmt = "cfo watcher wake - one supervision event needs a handling turn now.\n%s\nRun cfo drain, handle what it presents, and acknowledge with the WAKE_ACK_REQUIRED command it prints. Do not run cfo watch manually after an ordinary wake."
 
-const failureBannerFmt = "cfo auto-arm FAILED after %d attempt(s): the watcher could not hold this home.\nLast error: %s\nSupervision is down and needs a repair turn: run cfo doctor, then verify the stop-autoarm hook registration in .claude/settings.json, and check state\\.watch.lock for a holder that is not yours."
+const failureBannerFmt = "cfo auto-arm FAILED after %d attempt(s): the watcher could not hold this home.\nLast error: %s\nSupervision is down and needs a repair turn: run cfo doctor, repair the stop-autoarm hook registration with cfo install (it writes the user settings: ~/.claude/settings.json, or CLAUDE_CONFIG_DIR when set), and check state\\.watch.lock for a holder that is not yours."
 
 // resolveAncestorPID is the stop-autoarm hook's identity gate: it returns
 // the harness ancestor's pid, or false if none is found. A manual shell

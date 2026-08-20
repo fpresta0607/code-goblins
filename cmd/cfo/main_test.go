@@ -84,3 +84,26 @@ func TestRunUsageListsFleetCommands(t *testing.T) {
 		}
 	}
 }
+
+// TestMain keeps this suite off the machine's own fleet. On a host where the
+// CFO is installed, CFO_HOME, CFO_STATE_OVERRIDE, and a real ~/.claude are
+// all in the environment, and a test that resolves any of them writes into
+// the live wake queue - which is not a hypothetical: it is how this guard
+// came to be written.
+func TestMain(m *testing.M) {
+	for _, name := range []string{"CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_ROLE"} {
+		if err := os.Unsetenv(name); err != nil {
+			panic(err)
+		}
+	}
+	configDir, err := os.MkdirTemp("", "cfo-test-claude-config-")
+	if err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("CLAUDE_CONFIG_DIR", configDir); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	os.RemoveAll(configDir)
+	os.Exit(code)
+}

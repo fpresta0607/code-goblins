@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -140,4 +141,43 @@ func assertRequests(t *testing.T, got, want []execx.Request) {
 
 func equalStrings(left, right []string) bool {
 	return reflect.DeepEqual(left, right)
+}
+
+// TestEveryAdapterStampsTheGoblinRole is the pane half of the guard that
+// keeps the CFO's hooks out of a goblin's session. It lives in the launch
+// contract rather than in the project credentials a preflight returns,
+// because a project that declares no services returns no credentials at all
+// and its goblin would start unstamped.
+func TestEveryAdapterStampsTheGoblinRole(t *testing.T) {
+	registry := DefaultRegistry()
+	for _, kind := range []Kind{Claude, Codex, Pi, Kimi} {
+		adapter, err := registry.Get(kind)
+		if err != nil {
+			t.Fatalf("Get(%s): %v", kind, err)
+		}
+		if kind == Pi {
+			// Pi is the one adapter that refuses to build before it has
+			// read its own --help.
+			runner := &fakeRunner{run: func(execx.Request) (execx.Result, error) {
+				return execx.Result{Stdout: []byte("  --tui-mode <mode>  TUI mode\n")}, nil
+			}}
+			if err := adapter.Validate(context.Background(), runner); err != nil {
+				t.Fatalf("Validate(pi): %v", err)
+			}
+		}
+		launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`})
+		if err != nil {
+			t.Fatalf("Build(%s): %v", kind, err)
+		}
+		if got := launch.Env[RoleVariable]; got != RoleGoblin {
+			t.Errorf("%s launch %s = %q, want %q", kind, RoleVariable, got, RoleGoblin)
+		}
+		prefix, err := launch.PowerShellPrefix()
+		if err != nil {
+			t.Fatalf("PowerShellPrefix(%s): %v", kind, err)
+		}
+		if want := `$env:CFO_ROLE = 'goblin'`; !strings.Contains(prefix, want) {
+			t.Errorf("%s pane prefix = %q, want it to contain %q", kind, prefix, want)
+		}
+	}
 }

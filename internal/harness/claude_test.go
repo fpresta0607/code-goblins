@@ -21,6 +21,7 @@ func TestClaudeBuildsStructuredLaunch(t *testing.T) {
 	assertLaunch(t, defaults, Launch{
 		Args: []string{"--dangerously-skip-permissions", "--strict-mcp-config"},
 		Env: map[string]string{
+			"CFO_ROLE":                             RoleGoblin,
 			"CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "false",
 			"GOTMPDIR":                             `C:\tasks\task\gotmp`,
 		},

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/install"
 )
 
 // Check is one tool's verdict. Err empty means usable.
@@ -75,34 +76,46 @@ func Run() []Check {
 // hookPairingHint is checkHookPairing's remedy for a guard registered alone.
 const hookPairingHint = `register "cfo hook stop-autoarm" as a Stop hook with asyncRewake, or the turn-end guard will block without anything restoring the watcher`
 
-// checkHookPairing reads the resolved home's .claude/settings.json and
-// reports unhealthy only when "cfo hook turnend-guard" is registered
-// somewhere in it without "cfo hook stop-autoarm" also present: a guard
-// with nothing to prove recovery is under way will eventually run its own
-// escalation ladder to the hard ceiling on every blocked turn instead of the
-// auto-arm ever recovering the watcher. Presence-only: it does not parse
-// which hook event either string is registered under, only that both
-// strings occur somewhere in the file. It passes silently (no Err) when the
-// home cannot be resolved, the file is absent or unreadable, the JSON is
-// malformed, or neither hook string appears - malformed JSON is deliberately
-// never a hard failure, since a broken settings.json is Claude Code's
-// problem to surface, not this check's.
+// checkHookPairing reads the settings files a session's hooks can come from
+// and reports unhealthy only when the turnend-guard hook is registered
+// without the stop-autoarm hook also present: a guard with nothing to
+// prove recovery is under way will eventually run its own escalation ladder
+// to the hard ceiling on every blocked turn instead of the auto-arm ever
+// recovering the watcher. Presence-only: it does not parse which hook event
+// either command is registered under, only that each appears in some string
+// value of the parsed settings. Each hook is recognized in both the exact
+// command `cfo install` writes (taken from install.Hooks, never a second
+// hand-kept copy) and the hand-written `cfo hook <name>` form.
+//
+// Both scopes are read, because `cfo install` moves the CFO hooks to the
+// user settings and a check that only ever looked in the checkout would go
+// quiet exactly when the hooks were working. It passes silently (no Err)
+// when the home cannot be resolved, neither file is present or readable,
+// the JSON is malformed, or neither hook command appears - malformed JSON is
+// deliberately never a hard failure, since a broken settings.json is Claude
+// Code's problem to surface, not this check's.
 func checkHookPairing() Check {
-	h, err := home.Resolve()
-	if err != nil {
-		return Check{Name: "hook-pairing"}
+	paths := []string{}
+	if h, err := home.Resolve(); err == nil {
+		paths = append(paths, filepath.Join(h.Root, ".claude", "settings.json"))
 	}
-	data, err := os.ReadFile(filepath.Join(h.Root, ".claude", "settings.json"))
-	if err != nil {
-		return Check{Name: "hook-pairing"}
+	if userSettings, err := install.UserSettingsPath(); err == nil {
+		paths = append(paths, userSettings)
 	}
-	var parsed any
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		return Check{Name: "hook-pairing"}
+	values := []string{}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var parsed any
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			continue
+		}
+		values = append(values, jsonStrings(parsed)...)
 	}
-	text := string(data)
-	hasGuard := strings.Contains(text, "cfo hook turnend-guard")
-	hasAutoarm := strings.Contains(text, "cfo hook stop-autoarm")
+	hasGuard := registersHook(values, "turnend-guard")
+	hasAutoarm := registersHook(values, "stop-autoarm")
 	if hasGuard && !hasAutoarm {
 		return Check{
 			Name: "hook-pairing",
@@ -111,6 +124,50 @@ func checkHookPairing() Check {
 		}
 	}
 	return Check{Name: "hook-pairing"}
+}
+
+// jsonStrings collects every string value in a decoded JSON document, so
+// hook commands are matched in their decoded form rather than against raw
+// file text, where the quotes inside an installed command appear as `\"`
+// escape sequences and never match.
+func jsonStrings(node any) []string {
+	switch value := node.(type) {
+	case string:
+		return []string{value}
+	case []any:
+		values := []string{}
+		for _, item := range value {
+			values = append(values, jsonStrings(item)...)
+		}
+		return values
+	case map[string]any:
+		values := []string{}
+		for _, item := range value {
+			values = append(values, jsonStrings(item)...)
+		}
+		return values
+	}
+	return nil
+}
+
+// registersHook reports whether any settings string invokes `cfo hook <name>`,
+// either as the exact command `cfo install` writes or in the hand-written
+// `cfo hook <name>` form.
+func registersHook(values []string, name string) bool {
+	needles := []string{"cfo hook " + name}
+	for _, hook := range install.Hooks() {
+		if hook.Name == name {
+			needles = append(needles, hook.Command)
+		}
+	}
+	for _, value := range values {
+		for _, needle := range needles {
+			if strings.Contains(value, needle) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ProbeTimeout bounds one harness --version spawn sanity probe: a harness

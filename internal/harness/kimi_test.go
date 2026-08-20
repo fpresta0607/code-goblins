@@ -21,6 +21,7 @@ func TestKimiBuildsNativeLaunchWithTrustConfirm(t *testing.T) {
 	}
 	assertLaunch(t, defaults, Launch{
 		Env: map[string]string{
+			"CFO_ROLE": RoleGoblin,
 			"GOTMPDIR": `C:\tasks\task\gotmp`,
 		},
 		PromptFile:     `C:\briefs\task.md`,

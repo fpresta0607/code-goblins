@@ -35,7 +35,7 @@ Options:
 	}
 	assertLaunch(t, defaults, Launch{
 		Args:           []string{"--tui-mode", "regular"},
-		Env:            map[string]string{"GOTMPDIR": `C:\tasks\task\gotmp`},
+		Env:            map[string]string{"CFO_ROLE": RoleGoblin, "GOTMPDIR": `C:\tasks\task\gotmp`},
 		PromptFile:     `C:\briefs\task.md`,
 		TypedLaunch:    true,
 		Executable:     "pi",

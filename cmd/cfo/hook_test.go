@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
@@ -1294,5 +1295,50 @@ func TestAutoarmPublishesEpisodeOnGenuineRunError(t *testing.T) {
 	}
 	if !episode.Pending || episode.Gen != 1 {
 		t.Errorf("episode = %+v, want pending at generation 1", episode)
+	}
+}
+
+// TestRunHookIsInertForAGoblin proves the guard by test rather than by
+// observation. Every hook runs from a genuine primary home with a payload
+// each one would otherwise act on - pretool-subagent would deny an Agent
+// call, session-start would print a digest - and every one of them must exit
+// 0 in silence because the pane is a goblin's.
+func TestRunHookIsInertForAGoblin(t *testing.T) {
+	newPrimaryHome(t)
+	t.Setenv(harness.RoleVariable, harness.RoleGoblin)
+
+	payloads := map[string]string{
+		"pretool-subagent": `{"session_id":"s","tool_name":"Agent"}`,
+		"pretool-arm":      `{"session_id":"s","tool_name":"Bash","tool_input":{"command":"cfo watch"}}`,
+		"pretool-cd":       `{"session_id":"s","tool_name":"Bash","tool_input":{"command":"cd C:\elsewhere"}}`,
+		"turnend-guard":    `{"session_id":"s"}`,
+		"stop-autoarm":     `{"session_id":"s"}`,
+		"session-start":    `{"session_id":"s","source":"startup"}`,
+		// A hook name this build does not know about must be silent too:
+		// the guard is above the dispatch precisely so a hook added later
+		// cannot forget it.
+		"a-hook-added-later": `{"session_id":"s"}`,
+	}
+	for name, payload := range payloads {
+		var stdout, stderr bytes.Buffer
+		if exit := runHook(name, strings.NewReader(payload), &stdout, &stderr); exit != 0 {
+			t.Errorf("runHook(%s) = %d, want 0", name, exit)
+		}
+		if stdout.Len() != 0 || stderr.Len() != 0 {
+			t.Errorf("runHook(%s) wrote stdout=%q stderr=%q, want silence", name, stdout.String(), stderr.String())
+		}
+	}
+}
+
+// TestRunHookStillActsForTheCFO is the other half: the guard keys on the
+// goblin role and nothing else, so a session that is not a goblin's - one in
+// any repository, with CFO_HOME set - is supervised exactly as before.
+func TestRunHookStillActsForTheCFO(t *testing.T) {
+	newPrimaryHome(t)
+	t.Setenv(harness.RoleVariable, "")
+
+	var stdout, stderr bytes.Buffer
+	if exit := runHook("pretool-subagent", strings.NewReader(`{"session_id":"s","tool_name":"Agent"}`), &stdout, &stderr); exit != 2 {
+		t.Fatalf("exit = %d, want 2 (the subagent guard still denies); stderr=%s", exit, stderr.String())
 	}
 }
