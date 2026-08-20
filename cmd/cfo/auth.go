@@ -19,7 +19,7 @@ import (
 const authUsage = `usage: cfo auth <project> [--check|--fix] [--env]
        cfo auth store [--project <p>] <NAME> [value]   (omit value to read it from stdin)
        cfo auth list [--project <p>]
-       cfo auth copy <NAME> --to <project>             (shared value into a project scope)
+       cfo auth copy <NAME> --to <project> [--from <project>]   (copy a stored value into a project scope; the source is left in place)
 
 Credentials are namespaced on (project, NAME). Omitting --project stores or
 lists the shared scope, which is where every credential stored before
