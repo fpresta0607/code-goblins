@@ -36,8 +36,9 @@ commands:
   watch     run one triage cycle by hand (manual diagnostics; the hooks are the production entry)
   session-start  print the full session-start digest by hand (manual diagnostics; the SessionStart hook is the production entry)
   cfo auth <project> [--check|--fix] [--env]   preflight a project's services; --fix repairs what needs no human
-  cfo auth store <NAME> [value]        store one credential (omit the value to read it from stdin)
-  cfo auth list                        list stored credential names
+  cfo auth store [--project <p>] <NAME> [value]   store one credential in a project's scope, or the shared scope without --project (omit the value to read it from stdin)
+  cfo auth list [--project <p>]        list stored credential keys, never values
+  cfo auth copy <NAME> --to <project> [--from <project>]   copy a stored value into a project's scope; the source is left in place
   cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--yolo]
   cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place
   cfo send <target> [--key <key>] [--no-auto-submit] <text...>

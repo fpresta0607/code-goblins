@@ -7,9 +7,10 @@ import (
 	"strings"
 )
 
-// WriteTable prints one honest line per service: its state, where each
-// credential came from, and the reason behind anything that is not green.
-// Values are never printed, only their provenance.
+// WriteTable prints one honest line per service: its state, the reason behind
+// it, and under it the resolution order for every variable the service
+// declares - every place that was looked, in order, and which one answered.
+// Values are never printed, only names, scopes, and provenance.
 func WriteTable(w io.Writer, report Report) error {
 	fmt.Fprintf(w, "project %s\n", report.Project)
 	if report.Manifest != "" {
@@ -18,6 +19,7 @@ func WriteTable(w io.Writer, report Report) error {
 	if report.Store != "" {
 		fmt.Fprintf(w, "store %s\n", report.Store)
 	}
+	fmt.Fprintf(w, "resolution order env -> store/%s -> store/shared (shared only where the manifest declares it)\n", report.Project)
 	if len(report.Statuses) == 0 {
 		fmt.Fprintln(w, "no services declared")
 		return nil
@@ -29,16 +31,24 @@ func WriteTable(w io.Writer, report Report) error {
 		width = max(width, len(status.Service))
 		methodWidth = max(methodWidth, len(status.Method))
 	}
-	fmt.Fprintf(w, "\n%-*s  %-*s  %-7s  %s\n", width, "SERVICE", methodWidth, "METHOD", "STATE", "DETAIL")
+	refused := RefusedNames(report)
+	fmt.Fprintf(w, "\n%-*s  %-*s  %-12s  %s\n", width, "SERVICE", methodWidth, "METHOD", "STATE", "DETAIL")
 	for _, status := range report.Statuses {
 		detail := status.Detail
 		if status.Fixed != "" {
 			detail = status.Fixed + " -> " + detail
 		}
-		if sources := describeSources(status); sources != "" {
-			detail = sources + "; " + detail
+		fmt.Fprintf(w, "%-*s  %-*s  %-12s  %s\n", width, status.Service, methodWidth, status.Method, status.State, detail)
+		for _, line := range resolutionLines(status) {
+			fmt.Fprintf(w, "%-*s  %s\n", width, "", line)
 		}
-		fmt.Fprintf(w, "%-*s  %-*s  %-7s  %s\n", width, status.Service, methodWidth, status.Method, status.State, detail)
+		// A green service whose variable silently never reaches the pane is
+		// the report that sends a reader after the wrong fault.
+		for _, name := range status.Declared {
+			if prover, isRefused := refused[name]; isRefused && prover != status.Service {
+				fmt.Fprintf(w, "%-*s    %s withheld: %s proved it names another instance\n", width, "", name, prover)
+			}
+		}
 	}
 
 	fmt.Fprintf(w, "\n%d of %d services green", countState(report, StateGreen), len(report.Statuses))
@@ -55,6 +65,44 @@ func WriteTable(w io.Writer, report Report) error {
 	return nil
 }
 
+// resolutionLines renders the ordered candidates behind each declared
+// variable. This is what makes "which DATABASE_URL did I get" answerable
+// without reading a secret or guessing.
+func resolutionLines(status Status) []string {
+	names := make([]string, 0, len(status.Resolution))
+	for name := range status.Resolution {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	nameWidth := 0
+	for _, name := range names {
+		nameWidth = max(nameWidth, len(name))
+	}
+	lines := make([]string, 0, len(names))
+	for _, name := range names {
+		parts := make([]string, 0, len(status.Resolution[name]))
+		for _, candidate := range status.Resolution[name] {
+			part := candidate.Source
+			if candidate.Name != name {
+				part += "(" + candidate.Name + ")"
+			}
+			switch {
+			case candidate.Hit:
+				part += " HIT"
+			case candidate.Note != "":
+				part += " [" + candidate.Note + "]"
+			}
+			parts = append(parts, part)
+		}
+		if len(parts) == 0 {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("  %-*s  %s", nameWidth, name, strings.Join(parts, " -> ")))
+	}
+	return lines
+}
+
 func countState(report Report, state State) int {
 	count := 0
 	for _, status := range report.Statuses {
@@ -65,22 +113,73 @@ func countState(report Report, state State) int {
 	return count
 }
 
-// describeSources names where each resolved credential came from, so a
-// surprising probe result can be traced without printing a secret.
-func describeSources(status Status) string {
-	if len(status.Sources) == 0 {
-		return ""
+// StoreCommand is the exact command that fixes one credential. It is printed
+// rather than described so the Overlord can paste it.
+func StoreCommand(project, name string) string {
+	if project == "" {
+		return "cfo auth store " + name
 	}
-	names := make([]string, 0, len(status.Sources))
-	for name := range status.Sources {
-		names = append(names, name)
+	return "cfo auth store --project " + quoteScope(project) + " " + name
+}
+
+// quoteScope keeps a printed command pasteable. A checkout directory may
+// legitimately contain a space, a parenthesis or an accent, and an unquoted
+// scope would reach the flag parser as something other than one argument - a
+// command that names the wrong credential, or none.
+func quoteScope(scope string) string {
+	for _, character := range scope {
+		switch {
+		case character == '-' || character == '_' || character == '.' || character == '/' || character == ':':
+		case character >= 'A' && character <= 'Z':
+		case character >= 'a' && character <= 'z':
+		case character >= '0' && character <= '9':
+		default:
+			return `"` + scope + `"`
+		}
 	}
-	sort.Strings(names)
-	parts := make([]string, 0, len(names))
+	return scope
+}
+
+// remedies are the exact commands that can change one blocking verdict, and
+// the single place every report surface asks what to print - a remedy that
+// only one of them knows about is how an operator is sent to a command that
+// cannot help. A wrong target is a fact about the value, so only re-storing
+// the credential changes it: --fix re-runs a login and a probe, and neither
+// can turn another project's instance into this one.
+func remedies(project string, status Status) []string {
+	names := status.Missing
+	if status.ProvedWrongTarget() {
+		names = status.Declared
+	}
+	if len(names) == 0 {
+		return []string{"cfo auth " + quoteScope(project) + " --fix"}
+	}
+	scope := ProjectName(project)
+	commands := make([]string, 0, len(names))
 	for _, name := range names {
-		parts = append(parts, name+" from "+status.Sources[name])
+		commands = append(commands, StoreCommand(scope, name))
 	}
-	return strings.Join(parts, ", ")
+	return commands
+}
+
+// RefusedNames maps every credential an identity check proved wrong to the
+// service that proved it. The verdict is about the value, so the name is
+// refused for every service that declares it - a sibling that only checked
+// liveness resolves the same credential, and an optional service whose state
+// was softened to skipped proved the same fact.
+func RefusedNames(report Report) map[string]string {
+	refused := map[string]string{}
+	for _, status := range report.Statuses {
+		if !status.ProvedWrongTarget() {
+			continue
+		}
+		for _, name := range status.Declared {
+			if _, seen := refused[name]; !seen {
+				refused[name] = status.Service
+			}
+		}
+	}
+	return refused
 }
 
 // WriteLoginRequest prints the single consolidated request a human answers:
@@ -111,11 +210,8 @@ func WriteLoginRequest(w io.Writer, reports ...Report) error {
 	for _, item := range asks {
 		fmt.Fprintf(w, "\n  %s / %s (%s)\n", item.project, item.status.Service, item.status.State)
 		fmt.Fprintf(w, "    why: %s\n", item.status.Detail)
-		if len(item.status.Missing) > 0 {
-			fmt.Fprintf(w, "    store with: cfo auth store %s <value>\n", item.status.Missing[0])
-			if len(item.status.Missing) > 1 {
-				fmt.Fprintf(w, "               (also %s)\n", strings.Join(item.status.Missing[1:], ", "))
-			}
+		for _, command := range remedies(item.project, item.status) {
+			fmt.Fprintf(w, "    fix with: %s\n", command)
 		}
 		if item.status.URL != "" {
 			fmt.Fprintf(w, "    where: %s\n", item.status.URL)
@@ -126,29 +222,34 @@ func WriteLoginRequest(w io.Writer, reports ...Report) error {
 }
 
 // InjectEnv returns the environment a goblin's pane needs: every variable of
-// every usable service, resolved. A service the probe rejected contributes
-// nothing, so a goblin never starts with a credential that looks present and
-// fails on first use.
-func InjectEnv(store Store, manifest Manifest, report Report) (map[string]string, error) {
+// every usable service, resolved in this project's scope. A service the probe
+// rejected, or whose identity check named a different instance, contributes
+// nothing - so a goblin never starts holding a credential for somebody else's
+// database.
+func InjectEnv(store Store, project string, manifest Manifest, report Report) (map[string]string, error) {
 	usable := map[string]bool{}
 	for _, status := range report.Statuses {
 		if status.Usable() {
 			usable[status.Service] = true
 		}
 	}
-	var names []string
+	refused := RefusedNames(report)
+	resolver := Resolver{Store: store, Project: project}
+	env := map[string]string{}
 	for _, service := range manifest.Services {
-		if usable[service.Name] {
-			names = append(names, service.Env...)
+		if !usable[service.Name] {
+			continue
 		}
-	}
-	resolved, _, err := Resolve(store, names)
-	if err != nil {
-		return nil, err
-	}
-	env := make(map[string]string, len(resolved))
-	for name, value := range resolved {
-		env[name] = value.Value
+		resolution, err := resolver.Resolve(service)
+		if err != nil {
+			return nil, err
+		}
+		for name, resolved := range resolution.Values {
+			if _, isRefused := refused[name]; isRefused {
+				continue
+			}
+			env[name] = resolved.Value
+		}
 	}
 	return env, nil
 }

@@ -6,28 +6,29 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/auth"
 )
 
 // stubPreflight stands in for the auth package so spawn's contribution -
 // where the credentials go and what the pane sees - is tested on its own.
 type stubPreflight struct {
-	env      map[string]string
-	warning  string
+	result   auth.Result
 	err      error
 	projects []string
 }
 
-func (p *stubPreflight) Preflight(_ context.Context, project string) (map[string]string, string, error) {
+func (p *stubPreflight) Preflight(_ context.Context, project string) (auth.Result, error) {
 	p.projects = append(p.projects, project)
-	return p.env, p.warning, p.err
+	return p.result, p.err
 }
 
 func TestSpawnInjectsProjectCredentialsThroughAFileTheShellSources(t *testing.T) {
 	fixture := newFixture(t)
-	preflight := &stubPreflight{
-		env:     map[string]string{"STRIPE_SECRET_KEY": "sk_live_do_not_print", "DATABASE_URL": "postgres://db"},
-		warning: "auth: 2/2 services green for primary",
-	}
+	preflight := &stubPreflight{result: auth.Result{
+		Env:     map[string]string{"STRIPE_SECRET_KEY": "sk_live_do_not_print", "DATABASE_URL": "postgres://db"},
+		Warning: "auth: 2/2 services green for primary",
+	}}
 	fixture.service.Auth = preflight
 
 	result, err := fixture.service.Spawn(context.Background(), fixture.request)
@@ -61,10 +62,10 @@ func TestSpawnInjectsProjectCredentialsThroughAFileTheShellSources(t *testing.T)
 
 func TestSpawnReportsABlockedPreflightInItsOutput(t *testing.T) {
 	fixture := newFixture(t)
-	fixture.service.Auth = &stubPreflight{
-		env:     map[string]string{"DATABASE_URL": "postgres://db"},
-		warning: "auth: 1/2 services green for primary; BLOCKING: stripe (expired)",
-	}
+	fixture.service.Auth = &stubPreflight{result: auth.Result{
+		Env:     map[string]string{"DATABASE_URL": "postgres://db"},
+		Warning: "auth: 1/2 services green for primary; BLOCKING: stripe (expired)",
+	}}
 
 	result, err := fixture.service.Spawn(context.Background(), fixture.request)
 	if err != nil {
@@ -100,7 +101,7 @@ func TestSpawnKeepsTheHarnessEnvironmentAuthoritative(t *testing.T) {
 	fixture := newFixture(t)
 	// A manifest must not be able to redirect the harness's own launch
 	// contract by declaring a variable the adapter already owns.
-	fixture.service.Auth = &stubPreflight{env: map[string]string{"GOTMPDIR": "C:\\hijacked", "SAFE_KEY": "value"}}
+	fixture.service.Auth = &stubPreflight{result: auth.Result{Env: map[string]string{"GOTMPDIR": "C:\\hijacked", "SAFE_KEY": "value"}}}
 
 	result, err := fixture.service.Spawn(context.Background(), fixture.request)
 	if err != nil {
@@ -136,3 +137,56 @@ var errTestPreflight = &preflightError{}
 type preflightError struct{}
 
 func (*preflightError) Error() string { return "credential store is unreachable" }
+
+func TestSpawnRefusesARedBlockingServiceAndPrintsTheFixCommand(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.request.Yolo = false
+	fixture.service.Auth = &stubPreflight{result: auth.Result{
+		Warning: "auth: 0/1 services green for primary; BLOCKING: postgres (missing)",
+		Refusal: "1 blocking service(s) for primary; fix these or pass --yolo to dispatch anyway\n  postgres (missing): did not resolve: DATABASE_URL\n    cfo auth store --project primary DATABASE_URL",
+	}}
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err == nil {
+		t.Fatal("Spawn = nil, want a red blocking service to stop the dispatch")
+	}
+	// The warning scrolled past every goblin spawned that night. A refusal
+	// the operator cannot ignore is the control; the fix has to be in it.
+	if !strings.Contains(err.Error(), "cfo auth store --project primary DATABASE_URL") {
+		t.Errorf("err = %v, want the exact fix command printed", err)
+	}
+}
+
+func TestSpawnDispatchesOverARedServiceUnderYolo(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.request.Yolo = true
+	fixture.service.Auth = &stubPreflight{result: auth.Result{
+		Env:     map[string]string{"SAFE_KEY": "value"},
+		Warning: "auth: 0/1 services green for primary; BLOCKING: postgres (missing)",
+		Refusal: "1 blocking service(s) for primary; fix these or pass --yolo to dispatch anyway\n  postgres (missing): did not resolve: DATABASE_URL",
+	}}
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	// The override is recorded rather than swallowing what it overrode.
+	if !strings.Contains(result.Output, "dispatched with --yolo over") {
+		t.Errorf("output = %q, want the override recorded", result.Output)
+	}
+}
+
+func TestSpawnRunsTheCredentialPreflightExactlyOnce(t *testing.T) {
+	fixture := newFixture(t)
+	preflight := &stubPreflight{result: auth.Result{Env: map[string]string{"SAFE_KEY": "value"}}}
+	fixture.service.Auth = preflight
+
+	if _, err := fixture.service.Spawn(context.Background(), fixture.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	// Probing twice doubles the preflight's wall clock and can report two
+	// different answers for one dispatch.
+	if len(preflight.projects) != 1 {
+		t.Errorf("preflight ran %d times, want exactly one probe run per spawn", len(preflight.projects))
+	}
+}

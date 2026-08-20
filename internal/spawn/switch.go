@@ -260,7 +260,14 @@ func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, pane
 		return "", false, fmt.Errorf("%w: %w", errBuildLaunch, err)
 	}
 	launch.Dir = worktree
-	if _, err := s.injectProjectCredentials(ctx, project, meta.TaskTmp, &launch); err != nil {
+	// A switch re-injects the same credentials a spawn would, but never
+	// refuses on a red service: the goblin is already running, and stranding
+	// work in a stopped harness would cost more than the missing credential.
+	preflight, err := s.preflightCredentials(ctx, project)
+	if err != nil {
+		return "", false, err
+	}
+	if err := s.injectProjectCredentials(preflight, meta.TaskTmp, &launch); err != nil {
 		return "", false, err
 	}
 
