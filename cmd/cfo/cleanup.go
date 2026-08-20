@@ -10,13 +10,13 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
-	"github.com/fpresta0607/code-goblins/internal/treehouse"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 const cleanupUsage = `usage: cfo cleanup <id>
 
-Close the task tab and return one clean, proven-inactive task worktree
-through treehouse.
+Close the task tab and return one clean, proven-inactive task worktree,
+removing the worktree and pruning its Git administrative entry.
 Refuses dirty worktrees, active agents, ambiguous identity, and the primary
 checkout. There is no force override.
 `
@@ -71,7 +71,7 @@ func defaultCleanup(ctx context.Context, h home.Home, id string) (string, error)
 		StateDir:  h.State,
 		Commands:  commands,
 		Herdr:     &herdr.Client{Commands: commands, Session: herdrSession()},
-		Treehouse: treehouse.Service{Commands: commands},
+		Worktrees: worktree.Service{Commands: commands},
 	}
 	result, err := service.Cleanup(ctx, id)
 	if err != nil {

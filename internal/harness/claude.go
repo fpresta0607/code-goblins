@@ -27,11 +27,19 @@ func (claudeAdapter) Build(spec LaunchSpec) (Launch, error) {
 	// Goblin panes must not inherit the operator's connected claude.ai MCP
 	// servers: those are interactive-auth (OAuth) servers that print "N MCP
 	// servers need authentication - run /mcp" on every launch and do the goblin
-	// no good. --strict-mcp-config with no --mcp-config starts Claude with no
-	// MCP servers at all; project credentials ride in through the injected
-	// environment instead.
+	// no good. --strict-mcp-config restricts Claude to the configs named with
+	// --mcp-config, and spawn hands it exactly one: the token-authenticated
+	// subset of the project's own .mcp.json, materialized under the task's
+	// temporary directory rather than inside the checkout. OAuth connectors
+	// are filtered out by construction, because a goblin can never complete
+	// their browser flow. Claude is the only adapter that reads
+	// LaunchSpec.MCPConfig, so this filter covers claude goblins alone.
+	// Project credentials ride in through the injected environment instead.
 	launch.Args = []string{"--dangerously-skip-permissions", "--strict-mcp-config"}
-	// Fresh treehouse worktrees are never in ~/.claude.json, so interactive
+	if hasValue(spec.MCPConfig) {
+		launch.Args = append(launch.Args, "--mcp-config", spec.MCPConfig)
+	}
+	// Fresh worktrees are never in ~/.claude.json, so interactive
 	// Claude launches open the workspace trust dialog. herdr agent start
 	// returns success while Claude sits at that dialog and the agent reports
 	// blocked; the dialog highlights "Yes, I trust this folder" by default,

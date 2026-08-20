@@ -30,7 +30,6 @@ var tools = []struct {
 	{name: "git", hint: "winget install Git.Git"},
 	{name: "gh", hint: "winget install GitHub.cli, then gh auth login"},
 	{name: "herdr", hint: "irm https://herdr.dev/install.ps1 | iex"},
-	{name: "treehouse", hint: "irm https://kunchenguid.github.io/treehouse/install.ps1 | iex"},
 	{name: "tasks-axi", hint: "npm install -g tasks-axi"},
 	{name: "quota-axi", hint: "npm install -g quota-axi"},
 	{name: "no-mistakes", hint: "irm https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1 | iex"},

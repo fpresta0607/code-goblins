@@ -1,10 +1,9 @@
-// Package cleanup returns one clean, proven-inactive task worktree through
-// treehouse and closes its task tab. It never invokes git worktree remove,
-// deletes a directory, stops an agent, or discards changes: the only
-// lifecycle calls it makes are the Herdr tab close of the exact recorded tab
-// (after the endpoint is proven agent-free) and treehouse.Service.Return,
-// and only after every guard has proven the exact recorded task safe to
-// release.
+// Package cleanup returns one clean, proven-inactive task worktree and closes
+// its task tab. It never deletes a directory itself, stops an agent, or
+// discards changes: the only lifecycle calls it makes are the Herdr tab close
+// of the exact recorded tab (after the endpoint is proven agent-free) and
+// worktree.Service.Return, and only after every guard has proven the exact
+// recorded task safe to release.
 package cleanup
 
 import (
@@ -21,7 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/treehouse"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 // Service owns the guarded cleanup of one local task.
@@ -29,7 +28,7 @@ type Service struct {
 	StateDir  string
 	Commands  execx.Runner
 	Herdr     *herdr.Client
-	Treehouse treehouse.Service
+	Worktrees worktree.Service
 }
 
 // Result reports the exact returned task identity.
@@ -40,7 +39,7 @@ type Result struct {
 
 // Cleanup validates one task's metadata and isolation, proves its worktree
 // clean and its Herdr endpoint inactive, then delegates the worktree release
-// to treehouse.Service.Return. Task metadata is preserved whenever any check
+// to worktree.Service.Return. Task metadata is preserved whenever any check
 // or the return itself fails, so the operator can diagnose and retry the
 // exact task.
 func (s Service) Cleanup(ctx context.Context, id string) (result Result, err error) {
@@ -79,22 +78,22 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if err != nil {
 		return Result{}, fmt.Errorf("cleanup: canonicalize project %q: %w", meta.Project, err)
 	}
-	worktree, err := fsx.Canonical(meta.Worktree)
+	worktreePath, err := fsx.Canonical(meta.Worktree)
 	if err != nil {
 		return Result{}, fmt.Errorf("cleanup: canonicalize worktree %q: %w", meta.Worktree, err)
 	}
-	if fsx.SamePath(worktree, project) {
-		return Result{}, fmt.Errorf("cleanup: worktree %q is the primary checkout", worktree)
+	if fsx.SamePath(worktreePath, project) {
+		return Result{}, fmt.Errorf("cleanup: worktree %q is the primary checkout", worktreePath)
 	}
 
-	git, err := s.treehouseGit()
+	git, err := s.worktreeGit()
 	if err != nil {
 		return Result{}, err
 	}
-	if err := treehouse.Validate(ctx, git, project, worktree); err != nil {
+	if err := worktree.Validate(ctx, git, project, worktreePath); err != nil {
 		return Result{}, fmt.Errorf("cleanup: validate worktree: %w", err)
 	}
-	if err := s.requireClean(ctx, worktree); err != nil {
+	if err := s.requireClean(ctx, worktreePath); err != nil {
 		return Result{}, err
 	}
 	if err := s.requireInactive(ctx, meta); err != nil {
@@ -107,11 +106,11 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 		return Result{}, fmt.Errorf("cleanup: close task tab: %w", err)
 	}
 
-	if err := s.Treehouse.Return(ctx, project, worktree); err != nil {
-		return Result{}, fmt.Errorf("cleanup: return worktree through treehouse: %w", err)
+	if err := s.Worktrees.Return(ctx, project, worktreePath); err != nil {
+		return Result{}, fmt.Errorf("cleanup: return worktree: %w", err)
 	}
 
-	if err := state.AppendStatus(s.StateDir, id, "done: returned worktree "+worktree+" via cfo cleanup"); err != nil {
+	if err := state.AppendStatus(s.StateDir, id, "done: returned worktree "+worktreePath+" via cfo cleanup"); err != nil {
 		return Result{}, fmt.Errorf("cleanup: record returned worktree: %w", err)
 	}
 	if err := os.Remove(filepath.Join(s.StateDir, id+".meta")); err != nil {
@@ -120,7 +119,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	archived, archiveErr := s.archive(id)
 
 	result.Meta = meta
-	result.Output = fmt.Sprintf("cleaned %s worktree=%s", id, worktree)
+	result.Output = fmt.Sprintf("cleaned %s worktree=%s", id, worktreePath)
 	if archived != "" {
 		result.Output += " archive=" + archived
 	}
@@ -257,12 +256,12 @@ func (s Service) requireInactive(ctx context.Context, meta state.TaskMeta) error
 	return nil
 }
 
-func (s Service) treehouseGit() (treehouse.Git, error) {
-	if s.Treehouse.Git != nil {
-		return s.Treehouse.Git, nil
+func (s Service) worktreeGit() (worktree.Git, error) {
+	if s.Worktrees.Git != nil {
+		return s.Worktrees.Git, nil
 	}
-	if s.Treehouse.Commands == nil {
-		return nil, errors.New("cleanup: treehouse Git dependency is required")
+	if s.Worktrees.Commands == nil {
+		return nil, errors.New("cleanup: worktree Git dependency is required")
 	}
-	return treehouse.RunnerGit{Commands: s.Treehouse.Commands, Sleep: s.Treehouse.Sleep}, nil
+	return worktree.RunnerGit{Commands: s.Worktrees.Commands, Sleep: s.Worktrees.Sleep}, nil
 }
