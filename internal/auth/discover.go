@@ -249,6 +249,15 @@ func flyAccessToken() (string, string) {
 
 // envFiles lists the local secret files under a project, bounded in depth and
 // skipping dependency and version-control directories.
+//
+// .worktrees is on that skip list for a different reason than the rest. The
+// others are noise: generated trees whose .env files would be duplicates. A
+// goblin's worktree is untrusted content a running agent writes inside the
+// project, and git ignores it, so without this it satisfies both the
+// gitignored test and the first-file-wins rule and becomes an authorized
+// origin - one a goblin bootstrapping a local database could use to overwrite
+// the Overlord's stored credential for the whole fleet. Only the Overlord's
+// own file may rotate a value, so a goblin's is never read.
 func envFiles(projectDir string) []string {
 	if projectDir == "" {
 		return nil
@@ -266,7 +275,7 @@ func envFiles(projectDir string) []string {
 		depth := len(strings.Split(filepath.ToSlash(relative), "/"))
 		if entry.IsDir() {
 			switch entry.Name() {
-			case "node_modules", ".git", "dist", "build", "vendor", ".venv":
+			case "node_modules", ".git", "dist", "build", "vendor", ".venv", ".worktrees":
 				return filepath.SkipDir
 			}
 			if relative != "." && depth > discoverDepth {
