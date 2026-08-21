@@ -14,6 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 const authUsage = `usage: cfo auth <project> [--check|--fix] [--env]
@@ -151,22 +152,31 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer) int {
 			// way to read credentials back out of the store.
 			fmt.Fprintf(stdout, "%s=%s\n", name, auth.Redact(env[name]))
 		}
-		audit := auth.CacheAudit(h.Root)
-		inherited := 0
-		for _, redirect := range audit {
-			if redirect.Inherited {
-				inherited++
-			}
+		// The audit is project-scoped like the rest of this command: a
+		// location this project declares overrides the shared root for both
+		// real consumers, so reporting the machine value here would name a
+		// directory nothing uses. A project with no worktree manifest simply
+		// declares nothing.
+		worktreeManifest, err := worktree.Resolve(h.Data, project)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
 		}
-		fmt.Fprintf(stdout, "\nshared caches (%d set, %d inherited)\n", len(audit)-inherited, inherited)
+		audit := auth.CacheAudit(h.Root, worktreeManifest.Env)
+		counts := map[string]int{}
+		for _, redirect := range audit {
+			counts[redirect.Source]++
+		}
+		fmt.Fprintf(stdout, "\nshared caches (%d set, %d declared by %s, %d inherited)\n",
+			counts[auth.CacheSourceCFO], counts[auth.CacheSourceProject], scope, counts[auth.CacheSourceInherited])
 		for _, redirect := range audit {
 			// Printed in full: a cache location is a path on this machine and
 			// not a credential, and an operator auditing where a goblin builds
-			// has to be able to read it. An inherited one is named too, or the
-			// audit would be silent about the variable the operator tuned.
+			// has to be able to read it. Every source is named, or the audit
+			// would be silent about exactly the variable somebody tuned.
 			marker := ""
-			if redirect.Inherited {
-				marker = " (inherited)"
+			if redirect.Source != auth.CacheSourceCFO {
+				marker = " (" + redirect.Source + ")"
 			}
 			fmt.Fprintf(stdout, "%s=%s%s\n", redirect.Name, redirect.Path, marker)
 		}

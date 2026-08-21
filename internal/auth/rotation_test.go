@@ -1033,7 +1033,7 @@ func TestCacheAuditNamesAnInheritedLocationRatherThanOmittingIt(t *testing.T) {
 	t.Setenv("PLAYWRIGHT_BROWSERS_PATH", tuned)
 	home := t.TempDir()
 
-	audit := CacheAudit(home)
+	audit := CacheAudit(home, nil)
 	if len(audit) != len(cacheVars) {
 		t.Fatalf("audit = %+v, want every cache variable listed", audit)
 	}
@@ -1042,10 +1042,10 @@ func TestCacheAuditNamesAnInheritedLocationRatherThanOmittingIt(t *testing.T) {
 		byName[redirect.Name] = redirect
 	}
 	playwright := byName["PLAYWRIGHT_BROWSERS_PATH"]
-	if !playwright.Inherited || playwright.Path != tuned {
+	if playwright.Source != CacheSourceInherited || playwright.Path != tuned {
 		t.Errorf("playwright = %+v, want it marked inherited and pointing where the operator set it", playwright)
 	}
-	if uv := byName["UV_CACHE_DIR"]; uv.Inherited || uv.Path != filepath.Join(home, CacheDirName, "uv") {
+	if uv := byName["UV_CACHE_DIR"]; uv.Source != CacheSourceCFO || uv.Path != filepath.Join(home, CacheDirName, "uv") {
 		t.Errorf("uv = %+v, want a redirect cfo set rather than an inherited one", uv)
 	}
 	// The launch path is unchanged: a pane still receives only what cfo sets,
@@ -1073,5 +1073,39 @@ func TestAdoptionLineNamesWhatChangedAndNeverAValue(t *testing.T) {
 	}
 	if AdoptionLine(nil) != "" {
 		t.Error("a preflight that changed nothing still printed an adoption line")
+	}
+}
+
+// TestCacheAuditReportsTheProjectsOwnDeclaredLocation covers the case that
+// makes this audit project-scoped rather than machine-wide. A project that
+// declares a cache location in its worktree manifest overrides the shared
+// root in both real consumers - the dependency install and the pane - so an
+// audit answering "where does this project's goblin build" with the machine
+// value would name a directory nothing uses, for exactly the variable
+// somebody bothered to tune.
+func TestCacheAuditReportsTheProjectsOwnDeclaredLocation(t *testing.T) {
+	clearEnv(t, "UV_CACHE_DIR", "npm_config_store_dir", "PLAYWRIGHT_BROWSERS_PATH", "GOMODCACHE")
+	home := t.TempDir()
+	declared := filepath.Join(t.TempDir(), "project-browsers")
+	// The operator's own environment names a third location, so this also
+	// pins the precedence: the project beats an inherited value, not just an
+	// unset one.
+	t.Setenv("PLAYWRIGHT_BROWSERS_PATH", filepath.Join(t.TempDir(), "operator-browsers"))
+
+	byName := map[string]CacheRedirect{}
+	for _, redirect := range CacheAudit(home, map[string]string{"PLAYWRIGHT_BROWSERS_PATH": declared}) {
+		byName[redirect.Name] = redirect
+	}
+	playwright := byName["PLAYWRIGHT_BROWSERS_PATH"]
+	if playwright.Source != CacheSourceProject || playwright.Path != declared {
+		t.Errorf("playwright = %+v, want the project's own declared location", playwright)
+	}
+	// A declaration for one ecosystem must not silence the rest.
+	if uv := byName["UV_CACHE_DIR"]; uv.Source != CacheSourceCFO || uv.Path != filepath.Join(home, CacheDirName, "uv") {
+		t.Errorf("uv = %+v, want the shared root still reported", uv)
+	}
+	// The launch path is untouched: a pane still receives only what cfo sets.
+	if _, redirected := CacheEnv(home)["PLAYWRIGHT_BROWSERS_PATH"]; redirected {
+		t.Error("the audit changed what a pane inherits")
 	}
 }
