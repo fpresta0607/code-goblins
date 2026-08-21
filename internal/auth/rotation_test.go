@@ -556,6 +556,50 @@ func TestASecondServicesAliasStillReachesTheLiveKey(t *testing.T) {
 	}
 }
 
+// TestTheDeclaredLineBeatsTheAliasLineInOneFile covers the .env shape a
+// managed Postgres hands out: a pooled DATABASE_URL and a direct alias, both
+// carried in one file with different values by design. They answer one
+// credential and target one store key, so without collapsing them the key is
+// written twice in a run and alphabetical order picks the winner - which is
+// not what the manifest says, and it repeats on every dispatch.
+func TestTheDeclaredLineBeatsTheAliasLineInOneFile(t *testing.T) {
+	clearEnv(t, "DATABASE_URL", "PG_URL")
+	postgres := Service{
+		Name: "postgres", Method: MethodEnv, Env: []string{"DATABASE_URL"},
+		Aliases: map[string][]string{"DATABASE_URL": {"PG_URL"}},
+	}
+	manifest := Manifest{Project: "precisiondocs", Services: []Service{postgres}}
+	project := filepath.Join(t.TempDir(), "precisiondocs")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// PG_URL sorts after DATABASE_URL, so a per-name loop would let it write
+	// the same key second and win.
+	if err := os.WriteFile(filepath.Join(project, ".env"),
+		[]byte("DATABASE_URL=postgres://pooled/appdb\nPG_URL=postgres://direct/appdb\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := newMemoryStore(map[string]string{"precisiondocs/DATABASE_URL": "postgres://pooled/before"})
+
+	adopted, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if store.values["precisiondocs/DATABASE_URL"] != "postgres://pooled/appdb" {
+		t.Errorf("DATABASE_URL = %q, want the declared line's value rather than the alias line's",
+			Redact(store.values["precisiondocs/DATABASE_URL"]))
+	}
+	if len(adopted) != 1 {
+		t.Fatalf("adopted = %+v, want one store key reported once", adopted)
+	}
+	if adopted[0].Name != "DATABASE_URL" || adopted[0].Key.String() != "precisiondocs/DATABASE_URL" {
+		t.Errorf("adopted = %+v, want the declared name reported as the rotation", adopted[0])
+	}
+	if _, second := store.values["precisiondocs/PG_URL"]; second {
+		t.Error("the alias line created a second key for one credential")
+	}
+}
+
 // TestAGoblinWorktreeEnvIsNeverAnOrigin is the boundary that keeps the
 // refresh rule honest. Only the Overlord's own file may rotate a stored
 // value, and a goblin writes .env files inside <project>/.worktrees/<id>

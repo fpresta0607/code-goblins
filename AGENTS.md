@@ -132,8 +132,13 @@ Migration only claims a name exactly one project's manifest declares: a bare `DA
 A project's own gitignored `.env` is the one origin allowed to overwrite.
 The Supreme Overlord editing that file is how a credential is rotated, so a value that differs from the store refreshes it and the dispatch line names what changed, by name and origin, never by value.
 When more than one env file carries a name, dotenv's own layering decides which one may rotate it: `.env.local` beats `.env.development` beats `.env`, and at equal filename the file nearer the project root beats a nested package's.
+When one env file carries both a declared name and a declared alias for the same credential, the manifest decides which line rotates it: the declared name first, then the alias targets in declared order, so one store key is written at most once per run.
 A goblin's own worktree under `.worktrees/` is never an origin at all, adoption or refresh: git ignores it, but a running agent writes there and only the Supreme Overlord rotates a credential.
 Tool-derived origins keep the never-overwrite rule: a token `gh` or `flyctl` happens to hold is not a decision about this project, and letting one rotate under a deliberately stored value is how a stored credential disappears without anyone choosing it.
+
+Known residual, not closed: worktree provisioning shares `.env` by hardlink, so a goblin's worktree `.env` is the same file as the project's own.
+A goblin that writes it in place has written the Supreme Overlord's file, and the next preflight refreshes the store from it - skipping the `.worktrees/` path cannot tell the two names apart.
+Every refresh is named on the dispatch line by name and origin, which is how this is caught; the durable fix is for provisioning to copy rather than hardlink a credential-carrying file.
 
 Credentials live in Windows Credential Manager, or in `~/.cfo/credentials/` with owner-only ACLs when the vault is unavailable (`CFO_CREDENTIAL_DIR` overrides the location).
 They are never written into a repository and never printed - reports show provenance and a redacted shape only.
