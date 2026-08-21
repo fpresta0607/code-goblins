@@ -3,6 +3,7 @@ package auth
 import (
 	"os"
 	"path/filepath"
+	"sort"
 )
 
 // CacheDirName is the shared package-cache root under the CFO home. One root
@@ -59,4 +60,39 @@ func CacheEnv(home string) map[string]string {
 		env[cache.name] = filepath.Join(root, cache.dir)
 	}
 	return env
+}
+
+// CacheRedirect is one ecosystem's cache location as an audit sees it.
+type CacheRedirect struct {
+	Name string
+	Path string
+	// Inherited marks a location the operator's own environment already set,
+	// which CacheEnv leaves alone rather than overriding.
+	Inherited bool
+}
+
+// CacheAudit lists every cache variable and where that ecosystem actually
+// builds, including the ones inherited rather than set. It exists because
+// CacheEnv returns only what the pane receives, and an audit that showed only
+// that would be silent about exactly the variable an operator tuned: absent
+// and inherited would read the same.
+//
+// It is deliberately not what the launch path uses. CacheEnv still decides
+// what a pane inherits from the CFO, so nothing here can hand a pane back a
+// location the CFO never set.
+func CacheAudit(home string) []CacheRedirect {
+	if home == "" {
+		return nil
+	}
+	set := CacheEnv(home)
+	audit := make([]CacheRedirect, 0, len(cacheVars))
+	for _, cache := range cacheVars {
+		if path, redirected := set[cache.name]; redirected {
+			audit = append(audit, CacheRedirect{Name: cache.name, Path: path})
+			continue
+		}
+		audit = append(audit, CacheRedirect{Name: cache.name, Path: os.Getenv(cache.name), Inherited: true})
+	}
+	sort.Slice(audit, func(i, j int) bool { return audit[i].Name < audit[j].Name })
+	return audit
 }

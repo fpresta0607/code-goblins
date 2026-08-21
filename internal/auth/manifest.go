@@ -304,9 +304,16 @@ func (m Manifest) EnvNames() []string {
 
 // CredentialChains maps every name this manifest may read from the store to
 // the ordered store names that can answer it: the declared name first, then
-// its declared aliases, which is the order Resolver.lookup consults. An alias
-// target also maps to itself, because a value may be stored under it and a
-// project's .env may carry it.
+// its declared aliases, which is the order Resolver.lookup consults. Every
+// name in one declaration's lookup order maps to that same chain, alias
+// targets included, because they all name one credential.
+//
+// That shared chain is what lets a rotation arrive under any of those names.
+// A .env line carrying an alias is the Overlord rotating the credential the
+// alias stands for, so it has to reach whichever key currently answers it -
+// which is usually the declared name, not the alias. Mapping an alias to
+// itself alone would look at a key that does not exist and leave the live one
+// stale.
 //
 // It is the manifest's consumption surface, where EnvNames is only what the
 // manifest declares. Attribution and refresh both need the wider one: a name
@@ -314,8 +321,8 @@ func (m Manifest) EnvNames() []string {
 // treating it as absent is how a bare value looks single-owner when it is not.
 func (m Manifest) CredentialChains() map[string][]string {
 	chains := map[string][]string{}
-	// Declared names first, so a name that is both declared here and an alias
-	// target elsewhere keeps its own aliases rather than the shorter chain.
+	// A declared name claims its own chain first, so a name that is also an
+	// alias target elsewhere keeps the order its own declaration implies.
 	for _, service := range m.Services {
 		for _, declared := range service.Env {
 			if _, seen := chains[declared]; !seen {
@@ -324,10 +331,10 @@ func (m Manifest) CredentialChains() map[string][]string {
 		}
 	}
 	for _, service := range m.Services {
-		for _, aliases := range service.Aliases {
-			for _, alias := range aliases {
+		for _, declared := range service.Env {
+			for _, alias := range service.Aliases[declared] {
 				if _, seen := chains[alias]; !seen {
-					chains[alias] = []string{alias}
+					chains[alias] = chains[declared]
 				}
 			}
 		}

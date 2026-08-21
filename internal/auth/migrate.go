@@ -96,31 +96,20 @@ func MigrationPausedLine(unreadable []string) string {
 		len(unreadable), strings.Join(unreadable, ", "))
 }
 
-// DeclaringProjects lists every project whose manifest consumes a credential
-// name, sorted, alongside the path of every manifest that could not be read. It
-// is what decides whether a bare stored value can be attributed to one
-// project: a name exactly one manifest consumes has one possible owner, and a
-// name two manifests consume has none that can be established without asking.
-//
-// Consumption is the manifest's whole read surface, not only its declared
-// names: Resolver.lookup consults a declared alias against the shared scope
-// too, so a project that reads a bare name through an alias is an owner.
-//
-// A manifest that no longer loads is reported by path rather than skipped.
-// It cannot be shown not to claim the name, and silently dropping it from the
-// count is how a shared name looks single-owner. Reporting is not erroring:
-// one broken sibling still must not stall a dispatch into an unrelated
-// project, so the caller declines to migrate, loudly, rather than failing.
-func DeclaringProjects(dataDir, name string) (projects []string, unreadable []string) {
-	index := loadManifestIndex(dataDir)
-	return index.owners[name], index.unreadable
-}
-
 // manifestIndex is one pass over the data directory: which projects consume
 // each credential name, and the path of every manifest that could not be
 // read. Both answers come from the same scan because both are properties of
 // the directory rather than of any one name, and Migrate holds the per-home
 // spawn lock while it asks.
+//
+// It is what decides whether a bare stored value can be attributed to one
+// project: a name exactly one manifest consumes has one possible owner, and a
+// name two manifests consume has none that can be established without asking.
+// Consumption is the manifest's whole read surface, not only its declared
+// names, because Resolver.lookup consults a declared alias against the shared
+// scope too. A manifest that will not load is recorded rather than skipped:
+// it cannot be shown not to claim a name, and dropping it from the count is
+// how a shared name looks single-owner.
 type manifestIndex struct {
 	owners     map[string][]string
 	unreadable []string
