@@ -137,10 +137,10 @@ func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Ma
 	}
 
 	for _, rotation := range credentialRotations(chains, envOwners(ctx, runner, projectDir)) {
-		if err := adopt(rotation.name, rotation.value, rotation.path); err != nil {
+		if err := adopt(rotation.credential, rotation.value, rotation.path); err != nil {
 			return adopted, err
 		}
-		if err := refresh(rotation.name, rotation.value, rotation.path); err != nil {
+		if err := refresh(rotation.credential, rotation.value, rotation.path); err != nil {
 			return adopted, err
 		}
 	}
@@ -235,10 +235,30 @@ func flyAccessToken() (string, string) {
 }
 
 // envRotation is the one .env line that speaks for a credential this run.
+//
+// It carries the credential rather than the name the line happened to use,
+// because the whole .env path keys on the credential:
+//
+//   - A credential is identified by the name the manifest declares, and its
+//     chain is that declared name followed by its alias targets.
+//   - Exactly one .env line wins per credential per run, chosen by file
+//     precedence first and chain position as the within-file tiebreak.
+//   - Adoption writes the winning value to the declared name's project key,
+//     whichever name in the chain the line carried. An alias is a name a
+//     stored value may be found under, not a second credential, so adopting
+//     one into a key of its own would be the second key the chain exists to
+//     avoid.
+//   - Refresh instead rewrites the project key in the chain that already
+//     holds a value, so a value deliberately stored under an alias is
+//     updated in place rather than shadowed by a new declared-name key.
+//
+// One rule decides which line wins and one decides which key it is written
+// to, and keying both on the credential is what keeps the two from
+// disagreeing.
 type envRotation struct {
-	name  string
-	value string
-	path  string
+	credential string
+	value      string
+	path       string
 }
 
 // credentialContender is one .env line offered as the rotation for a
@@ -308,7 +328,7 @@ func credentialRotations(chains map[string][]string, owned map[string]envClaim) 
 			order = append(order, credential)
 		}
 		best[credential] = contender
-		winner[credential] = envRotation{name: name, value: contender.claim.value, path: contender.claim.path}
+		winner[credential] = envRotation{credential: credential, value: contender.claim.value, path: contender.claim.path}
 	}
 
 	rotations := make([]envRotation, 0, len(order))
