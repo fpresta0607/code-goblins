@@ -97,8 +97,19 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer) int {
 		if err != nil {
 			fmt.Fprintf(stderr, "cfo auth: adopt existing credentials: %v\n", err)
 		}
-		for _, item := range adopted {
-			fmt.Fprintf(stdout, "adopted %s from %s\n", item.Key, item.Origin)
+		// A credential stored before namespacing lands in the scope that now
+		// looks for it, so --fix repairs the state of the migration as well
+		// as the state of the services.
+		migrated, err := auth.Migrate(store, h.Data, project, manifest)
+		if err != nil {
+			fmt.Fprintf(stderr, "cfo auth: migrate stored credentials: %v\n", err)
+		}
+		for _, item := range append(adopted, migrated...) {
+			verb := "adopted"
+			if item.Refreshed {
+				verb = "refreshed"
+			}
+			fmt.Fprintf(stdout, "%s %s from %s\n", verb, item.Key, item.Origin)
 		}
 		report, err = checker.Fix(ctx, manifest)
 		if err != nil {
@@ -133,6 +144,19 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer) int {
 			// Redacted: this is an audit of what a goblin receives, not a
 			// way to read credentials back out of the store.
 			fmt.Fprintf(stdout, "%s=%s\n", name, auth.Redact(env[name]))
+		}
+		caches := auth.CacheEnv(h.Root)
+		cacheNames := make([]string, 0, len(caches))
+		for name := range caches {
+			cacheNames = append(cacheNames, name)
+		}
+		sort.Strings(cacheNames)
+		fmt.Fprintf(stdout, "\nshared caches (%d redirects)\n", len(cacheNames))
+		for _, name := range cacheNames {
+			// Printed in full: a cache location is a path on this machine and
+			// not a credential, and an operator auditing where a goblin builds
+			// has to be able to read it.
+			fmt.Fprintf(stdout, "%s=%s\n", name, caches[name])
 		}
 	}
 	if err := auth.WriteLoginRequest(stdout, report); err != nil {

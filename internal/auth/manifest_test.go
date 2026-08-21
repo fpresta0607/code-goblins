@@ -226,7 +226,7 @@ func TestParseEnvFileReadsTheShapesRealFilesUse(t *testing.T) {
 	}
 }
 
-func TestDiscoverAdoptsProjectEnvFilesWithoutOverwritingTheStore(t *testing.T) {
+func TestDiscoverAdoptsProjectEnvFilesAndRefreshesWhatTheyRotated(t *testing.T) {
 	clearEnv(t, "DATABASE_URL", "STRIPE_SECRET_KEY", "SENTRY_DSN")
 	project := filepath.Join(t.TempDir(), "precisiondocs")
 	if err := os.MkdirAll(project, 0o755); err != nil {
@@ -274,17 +274,27 @@ func TestDiscoverAdoptsProjectEnvFilesWithoutOverwritingTheStore(t *testing.T) {
 	if store.values["precisiondocs/SENTRY_DSN"] != "https://nested" {
 		t.Errorf("SENTRY_DSN = %q, want the nested package file adopted", store.values["precisiondocs/SENTRY_DSN"])
 	}
-	// An existing credential is deliberate; adoption must never replace it.
-	if store.values["precisiondocs/STRIPE_SECRET_KEY"] != "sk_deliberate" {
-		t.Errorf("STRIPE_SECRET_KEY = %q, want the stored value kept", store.values["precisiondocs/STRIPE_SECRET_KEY"])
+	// The Overlord editing a project's own .env is how a credential is
+	// rotated, so the store follows it rather than pinning the dead value
+	// into every goblin dispatched afterwards.
+	if store.values["precisiondocs/STRIPE_SECRET_KEY"] != "sk_from_env" {
+		t.Errorf("STRIPE_SECRET_KEY = %q, want the rotated value from the project .env", store.values["precisiondocs/STRIPE_SECRET_KEY"])
 	}
 	if _, present := store.values["precisiondocs/UNDECLARED_KEY"]; present {
 		t.Error("adopted a name the manifest never declared")
 	}
+	reported := false
 	for _, item := range adopted {
-		if item.Name == "STRIPE_SECRET_KEY" {
-			t.Error("reported adopting a credential that was already stored")
+		if item.Name != "STRIPE_SECRET_KEY" {
+			continue
 		}
+		reported = true
+		if !item.Refreshed {
+			t.Error("a replaced value was reported as a first adoption, not as a refresh")
+		}
+	}
+	if !reported {
+		t.Error("a refreshed credential was not reported by name and origin")
 	}
 }
 

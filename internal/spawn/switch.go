@@ -281,6 +281,7 @@ func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, pane
 	if err != nil {
 		return "", false, err
 	}
+	mergeProvisionEnv(launch.Env, preflight.Caches)
 	if err := s.injectProjectCredentials(preflight, meta.TaskTmp, &launch); err != nil {
 		return "", false, err
 	}
