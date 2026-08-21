@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -315,27 +316,50 @@ func (m Manifest) EnvNames() []string {
 // itself alone would look at a key that does not exist and leave the live one
 // stale.
 //
+// A declared name's chain is the union across every service that declares it,
+// not the first service's alone. Refresh is given a name off a .env line and
+// cannot know which service wrote it, so a chain built from one declaration
+// would leave the other's aliases pointing at a chain they are absent from.
+// Resolver.lookup stays per-service and is unaffected: merging is only sound
+// for the question refresh asks, which is which project-scope key currently
+// holds this credential, and that key is the same whichever service's alias
+// named it.
+//
 // It is the manifest's consumption surface, where EnvNames is only what the
 // manifest declares. Attribution and refresh both need the wider one: a name
 // this manifest reads only through an alias is still a name it consumes, and
 // treating it as absent is how a bare value looks single-owner when it is not.
 func (m Manifest) CredentialChains() map[string][]string {
+	merged := map[string][]string{}
+	var declaredOrder []string
+	for _, service := range m.Services {
+		for _, declared := range service.Env {
+			chain, seen := merged[declared]
+			if !seen {
+				chain = []string{declared}
+				declaredOrder = append(declaredOrder, declared)
+			}
+			for _, alias := range service.Aliases[declared] {
+				if !slices.Contains(chain, alias) {
+					chain = append(chain, alias)
+				}
+			}
+			merged[declared] = chain
+		}
+	}
+
 	chains := map[string][]string{}
 	// A declared name claims its own chain first, so a name that is also an
 	// alias target elsewhere keeps the order its own declaration implies.
-	for _, service := range m.Services {
-		for _, declared := range service.Env {
-			if _, seen := chains[declared]; !seen {
-				chains[declared] = append([]string{declared}, service.Aliases[declared]...)
-			}
-		}
+	for _, declared := range declaredOrder {
+		chains[declared] = merged[declared]
 	}
-	for _, service := range m.Services {
-		for _, declared := range service.Env {
-			for _, alias := range service.Aliases[declared] {
-				if _, seen := chains[alias]; !seen {
-					chains[alias] = chains[declared]
-				}
+	// Manifest order decides an alias two declarations both name, so the map
+	// does not depend on map iteration order.
+	for _, declared := range declaredOrder {
+		for _, alias := range merged[declared] {
+			if _, seen := chains[alias]; !seen {
+				chains[alias] = merged[declared]
 			}
 		}
 	}
