@@ -131,6 +131,8 @@ Migration only claims a name exactly one project's manifest declares: a bare `DA
 
 A project's own gitignored `.env` is the one origin allowed to overwrite.
 The Supreme Overlord editing that file is how a credential is rotated, so a value that differs from the store refreshes it and the dispatch line names what changed, by name and origin, never by value.
+When more than one env file carries a name, dotenv's own layering decides which one may rotate it: `.env.local` beats `.env.development` beats `.env`, and at equal filename the file nearer the project root beats a nested package's.
+A goblin's own worktree under `.worktrees/` is never an origin at all, adoption or refresh: git ignores it, but a running agent writes there and only the Supreme Overlord rotates a credential.
 Tool-derived origins keep the never-overwrite rule: a token `gh` or `flyctl` happens to hold is not a decision about this project, and letting one rotate under a deliberately stored value is how a stored credential disappears without anyone choosing it.
 
 Credentials live in Windows Credential Manager, or in `~/.cfo/credentials/` with owner-only ACLs when the vault is unavailable (`CFO_CREDENTIAL_DIR` overrides the location).
@@ -192,7 +194,7 @@ Every goblin's pane inherits one shared package-cache root at `$CFO_HOME/caches/
 `CARGO_HOME` is deliberately excluded and must not be added: cargo has no cache-only variable, so redirecting it would also relocate `config.toml`, `credentials.toml` and `bin/`, and a goblin would lose the operator's registry and linker configuration.
 These locations are a property of the machine rather than of any project, so they live in the CFO home and no manifest repeats them.
 A variable the CFO's own environment already sets is inherited untouched, and a project's `worktree.json` `env` block still wins for that project.
-`cfo auth <project> --env` prints them in full.
+`cfo auth <project> --env` prints every one of them in full, marking an inherited one `(inherited)` and showing where it points, so a tuned location is visible rather than indistinguishable from one that was never set.
 
 A `.venv` or a `node_modules` is never shared or linked between worktrees.
 Both bake absolute paths and compiled native artifacts, and a shared one fails as flaky tests rather than as an honest error, so a worktree always re-materializes its own against the shared store.

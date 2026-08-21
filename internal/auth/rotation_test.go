@@ -233,17 +233,39 @@ func TestABareCredentialTwoProjectsDeclareIsLeftWhereItIs(t *testing.T) {
 	}
 }
 
-func TestDeclaringProjectsCountsEveryManifestThatClaimsAName(t *testing.T) {
+// TestMigrationClaimsOnlyWhatOneManifestConsumes drives attribution through
+// the entry point production uses. A name one project consumes is claimed, a
+// name two consume is not, and a manifest that will not load pauses the whole
+// migration by path.
+func TestMigrationClaimsOnlyWhatOneManifestConsumes(t *testing.T) {
+	clearEnv(t, "DATABASE_URL", "GITHUB_TOKEN")
 	dataDir := t.TempDir()
 	postgres := Service{Name: "postgres", Method: MethodEnv, Env: []string{"DATABASE_URL"}}
-	writeManifest(t, dataDir, "clock-in", Manifest{Project: "clock-in", Services: []Service{postgres}})
+	github := Service{Name: "github", Method: MethodCLI, Env: []string{"GITHUB_TOKEN"}}
+	clockIn := Manifest{Project: "clock-in", Services: []Service{postgres, github}}
+	writeManifest(t, dataDir, "clock-in", clockIn)
 	writeManifest(t, dataDir, "precisiondocs", Manifest{Project: "precisiondocs", Services: []Service{postgres}})
-	writeManifest(t, dataDir, "homescout", Manifest{
-		Project:  "homescout",
-		Services: []Service{{Name: "github", Method: MethodCLI, Env: []string{"GITHUB_TOKEN"}, Shared: true}},
+	store := newMemoryStore(map[string]string{
+		"DATABASE_URL": "postgres://somebody/appdb",
+		"GITHUB_TOKEN": "ghp_stored_before_scopes",
 	})
+
+	migrated, unreadable, err := Migrate(store, dataDir, "clock-in", clockIn)
+	if err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	if len(unreadable) != 0 {
+		t.Errorf("unreadable = %v, want every manifest readable", unreadable)
+	}
+	if len(migrated) != 1 || migrated[0].Key.String() != "clock-in/GITHUB_TOKEN" {
+		t.Fatalf("migrated = %+v, want only the name one manifest consumes", migrated)
+	}
+	if _, claimed := store.values["clock-in/DATABASE_URL"]; claimed {
+		t.Error("claimed a bare credential two manifests consume")
+	}
+
 	// A manifest that no longer loads cannot be shown not to claim a name, so
-	// it is reported rather than dropped from the count.
+	// the migration declines by path rather than dropping it from the count.
 	broken := ManifestPath(dataDir, "prometheus")
 	if err := os.MkdirAll(filepath.Dir(broken), 0o755); err != nil {
 		t.Fatal(err)
@@ -251,17 +273,15 @@ func TestDeclaringProjectsCountsEveryManifestThatClaimsAName(t *testing.T) {
 	if err := os.WriteFile(broken, []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
-	if got, _ := DeclaringProjects(dataDir, "DATABASE_URL"); len(got) != 2 || got[0] != "clock-in" || got[1] != "precisiondocs" {
-		t.Errorf("DeclaringProjects(DATABASE_URL) = %v, want both declaring projects sorted", got)
+	fresh := newMemoryStore(map[string]string{"GITHUB_TOKEN": "ghp_stored_before_scopes"})
+	migrated, unreadable, err = Migrate(fresh, dataDir, "clock-in", clockIn)
+	if err != nil {
+		t.Fatalf("a broken sibling manifest stalled the dispatch: %v", err)
 	}
-	if got, _ := DeclaringProjects(dataDir, "GITHUB_TOKEN"); len(got) != 1 || got[0] != "homescout" {
-		t.Errorf("DeclaringProjects(GITHUB_TOKEN) = %v, want the one project that declares it", got)
+	if len(migrated) != 0 {
+		t.Errorf("migrated %+v, want nothing claimed while a manifest cannot be read", migrated)
 	}
-	if got, _ := DeclaringProjects(dataDir, "NOBODY_DECLARES_THIS"); len(got) != 0 {
-		t.Errorf("DeclaringProjects = %v, want nothing", got)
-	}
-	if _, unreadable := DeclaringProjects(dataDir, "DATABASE_URL"); len(unreadable) != 1 || unreadable[0] != ManifestPath(dataDir, "prometheus") {
+	if len(unreadable) != 1 || unreadable[0] != broken {
 		t.Errorf("unreadable = %v, want the path of the manifest that could not be read", unreadable)
 	}
 }
@@ -289,9 +309,6 @@ func TestABareCredentialAnotherProjectReadsThroughAnAliasIsLeftWhereItIs(t *test
 	})
 	store := newMemoryStore(map[string]string{"DATABASE_URL": "postgres://somebody/appdb"})
 
-	if owners, _ := DeclaringProjects(dataDir, "DATABASE_URL"); len(owners) != 2 {
-		t.Errorf("DeclaringProjects(DATABASE_URL) = %v, want the alias reader counted as an owner", owners)
-	}
 	migrated, _, err := Migrate(store, dataDir, "clock-in", manifest)
 	if err != nil {
 		t.Fatalf("Migrate: %v", err)
@@ -382,6 +399,105 @@ func TestAPausedMigrationSaysWhichManifestStoppedIt(t *testing.T) {
 	// must not, because it is about a manifest and nothing else.
 	if strings.Contains(paused, "OPENAI_API_KEY") {
 		t.Errorf("paused line %q named a credential rather than only the manifest", paused)
+	}
+}
+
+// TestTheLocalEnvFileOwnsANameOverTheSharedOne pins dotenv's own layering.
+// A project keeps dev defaults in .env and the real value in .env.local - the
+// file its app loads last - so .env.local has to be the file that owns the
+// name. Lexical order put .env first, which made a dev default overwrite a
+// deliberately stored credential on every dispatch, with no way to pin an
+// override because the next dispatch clobbered it again.
+func TestTheLocalEnvFileOwnsANameOverTheSharedOne(t *testing.T) {
+	clearEnv(t, "DATABASE_URL")
+	manifest := Manifest{
+		Project:  "precisiondocs",
+		Services: []Service{{Name: "postgres", Method: MethodEnv, Env: []string{"DATABASE_URL"}}},
+	}
+	project := filepath.Join(t.TempDir(), "precisiondocs")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, value := range map[string]string{
+		".env":       "DATABASE_URL=postgres://localhost/dev\n",
+		".env.local": "DATABASE_URL=postgres://prod/appdb\n",
+	} {
+		if err := os.WriteFile(filepath.Join(project, name), []byte(value), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// As a first adoption: the empty slot is filled from the override file.
+	empty := newMemoryStore(nil)
+	adopted, err := Discover(context.Background(), empty, gitIgnoresEverything(), manifest, project)
+	if err != nil {
+		t.Fatalf("Discover into an empty store: %v", err)
+	}
+	if empty.values["precisiondocs/DATABASE_URL"] != "postgres://prod/appdb" {
+		t.Errorf("adopted %q, want the value from .env.local",
+			Redact(empty.values["precisiondocs/DATABASE_URL"]))
+	}
+	if len(adopted) != 1 || filepath.Base(adopted[0].Origin) != ".env.local" {
+		t.Errorf("adopted = %+v, want .env.local reported as the origin", adopted)
+	}
+
+	// As a refresh over a stored value: the dev default must not win, or the
+	// stored credential is destroyed on every dispatch.
+	stored := newMemoryStore(map[string]string{"precisiondocs/DATABASE_URL": "postgres://prod/was-rotated"})
+	if _, err := Discover(context.Background(), stored, gitIgnoresEverything(), manifest, project); err != nil {
+		t.Fatalf("Discover over a stored value: %v", err)
+	}
+	if stored.values["precisiondocs/DATABASE_URL"] != "postgres://prod/appdb" {
+		t.Errorf("refreshed to %q, want the .env.local value rather than the .env dev default",
+			Redact(stored.values["precisiondocs/DATABASE_URL"]))
+	}
+}
+
+// TestARotatedAliasLineReachesTheDeclaredKey is the direction the round-2 fix
+// left open. The store holds the credential under the declared name, the
+// project's .env carries the alias the app itself uses, and a chain of the
+// alias alone looks at a key that does not exist - so the rotation never
+// lands and every goblin keeps the dead value.
+func TestARotatedAliasLineReachesTheDeclaredKey(t *testing.T) {
+	clearEnv(t, "DATABASE_URL", "PG_URL")
+	postgres := Service{
+		Name: "postgres", Method: MethodEnv, Env: []string{"DATABASE_URL"},
+		Aliases: map[string][]string{"DATABASE_URL": {"PG_URL"}},
+	}
+	manifest := Manifest{Project: "precisiondocs", Services: []Service{postgres}}
+	project := filepath.Join(t.TempDir(), "precisiondocs")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, ".env"),
+		[]byte("PG_URL=postgres://host/after_rotation\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := newMemoryStore(map[string]string{"precisiondocs/DATABASE_URL": "postgres://host/before_rotation"})
+
+	adopted, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if store.values["precisiondocs/DATABASE_URL"] != "postgres://host/after_rotation" {
+		t.Errorf("DATABASE_URL = %q, want the rotated value on the key that answers the credential",
+			Redact(store.values["precisiondocs/DATABASE_URL"]))
+	}
+	// Still exactly one key: an alias line rotates the credential, it does not
+	// create a second copy that would then drift.
+	if _, second := store.values["precisiondocs/PG_URL"]; second {
+		t.Error("wrote a second key under the alias instead of refreshing the one that answers")
+	}
+	if len(adopted) != 1 || !adopted[0].Refreshed || adopted[0].Key.String() != "precisiondocs/DATABASE_URL" {
+		t.Fatalf("adopted = %+v, want the declared key reported as refreshed", adopted)
+	}
+
+	resolution, err := Resolver{Store: store, Project: "precisiondocs"}.Resolve(postgres)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if resolution.Values["DATABASE_URL"].Value != "postgres://host/after_rotation" {
+		t.Error("the resolved credential is still the value the .env replaced")
 	}
 }
 
@@ -559,6 +675,38 @@ func TestCacheEnvLeavesALocationTheOperatorAlreadyChose(t *testing.T) {
 	}
 	if env["UV_CACHE_DIR"] == "" {
 		t.Error("one inherited variable suppressed the rest")
+	}
+}
+
+// TestCacheAuditNamesAnInheritedLocationRatherThanOmittingIt covers what an
+// operator actually audits. CacheEnv returns only what the pane receives, so
+// an audit built from it alone is silent about exactly the variable the
+// operator tuned: absent and inherited read the same.
+func TestCacheAuditNamesAnInheritedLocationRatherThanOmittingIt(t *testing.T) {
+	clearEnv(t, "UV_CACHE_DIR", "npm_config_store_dir", "PLAYWRIGHT_BROWSERS_PATH", "GOMODCACHE")
+	tuned := filepath.Join(t.TempDir(), "ms-playwright")
+	t.Setenv("PLAYWRIGHT_BROWSERS_PATH", tuned)
+	home := t.TempDir()
+
+	audit := CacheAudit(home)
+	if len(audit) != len(cacheVars) {
+		t.Fatalf("audit = %+v, want every cache variable listed", audit)
+	}
+	byName := map[string]CacheRedirect{}
+	for _, redirect := range audit {
+		byName[redirect.Name] = redirect
+	}
+	playwright := byName["PLAYWRIGHT_BROWSERS_PATH"]
+	if !playwright.Inherited || playwright.Path != tuned {
+		t.Errorf("playwright = %+v, want it marked inherited and pointing where the operator set it", playwright)
+	}
+	if uv := byName["UV_CACHE_DIR"]; uv.Inherited || uv.Path != filepath.Join(home, CacheDirName, "uv") {
+		t.Errorf("uv = %+v, want a redirect cfo set rather than an inherited one", uv)
+	}
+	// The launch path is unchanged: a pane still receives only what cfo sets,
+	// so the audit can never hand back an inherited location as a redirect.
+	if _, redirected := CacheEnv(home)["PLAYWRIGHT_BROWSERS_PATH"]; redirected {
+		t.Error("the audit changed what a pane inherits")
 	}
 }
 

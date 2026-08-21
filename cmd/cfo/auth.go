@@ -148,18 +148,24 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer) int {
 			// way to read credentials back out of the store.
 			fmt.Fprintf(stdout, "%s=%s\n", name, auth.Redact(env[name]))
 		}
-		caches := auth.CacheEnv(h.Root)
-		cacheNames := make([]string, 0, len(caches))
-		for name := range caches {
-			cacheNames = append(cacheNames, name)
+		audit := auth.CacheAudit(h.Root)
+		inherited := 0
+		for _, redirect := range audit {
+			if redirect.Inherited {
+				inherited++
+			}
 		}
-		sort.Strings(cacheNames)
-		fmt.Fprintf(stdout, "\nshared caches (%d redirects)\n", len(cacheNames))
-		for _, name := range cacheNames {
+		fmt.Fprintf(stdout, "\nshared caches (%d set, %d inherited)\n", len(audit)-inherited, inherited)
+		for _, redirect := range audit {
 			// Printed in full: a cache location is a path on this machine and
 			// not a credential, and an operator auditing where a goblin builds
-			// has to be able to read it.
-			fmt.Fprintf(stdout, "%s=%s\n", name, caches[name])
+			// has to be able to read it. An inherited one is named too, or the
+			// audit would be silent about the variable the operator tuned.
+			marker := ""
+			if redirect.Inherited {
+				marker = " (inherited)"
+			}
+			fmt.Fprintf(stdout, "%s=%s%s\n", redirect.Name, redirect.Path, marker)
 		}
 	}
 	if err := auth.WriteLoginRequest(stdout, report); err != nil {

@@ -12,9 +12,17 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
-// envFileNames are the local secret files a project keeps outside git. They
-// are read to adopt what is already there, never written.
-var envFileNames = []string{".env", ".env.local", ".env.development"}
+// envFileNames are the local secret files a project keeps outside git, in
+// increasing precedence: this is dotenv's own layering, where .env carries
+// defaults a repository can share and .env.local is the local override the
+// app itself loads last. They are read to adopt what is already there, never
+// written.
+//
+// The order is load-bearing now that a .env may overwrite a stored value
+// rather than only fill an empty slot. Reading it the other way round would
+// let a project's dev default clobber the real credential on every dispatch,
+// with no way to pin an override.
+var envFileNames = []string{".env", ".env.development", ".env.local"}
 
 // discoverDepth bounds how far into a project the scan walks. Real .env files
 // live at the root or one level down in a workspace package; walking a whole
@@ -127,34 +135,19 @@ func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Ma
 		return nil
 	}
 
-	// The first file that carries a name owns it for this run, which is the
-	// order envFiles already established. Without it a refresh would let the
-	// last file scanned win and quietly invert a project's own precedence.
-	taken := map[string]bool{}
-	for _, path := range envFiles(projectDir) {
-		if !gitIgnores(ctx, runner, projectDir, path) {
-			continue
+	owned := envOwners(ctx, runner, projectDir)
+	names := make([]string, 0, len(owned))
+	for name := range owned {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		claim := owned[name]
+		if err := adopt(name, claim.value, claim.path); err != nil {
+			return adopted, err
 		}
-		values, err := ParseEnvFile(path)
-		if err != nil {
-			continue
-		}
-		names := make([]string, 0, len(values))
-		for name := range values {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		for _, name := range names {
-			if taken[name] || strings.TrimSpace(values[name]) == "" {
-				continue
-			}
-			taken[name] = true
-			if err := adopt(name, values[name], path); err != nil {
-				return adopted, err
-			}
-			if err := refresh(name, values[name], path); err != nil {
-				return adopted, err
-			}
+		if err := refresh(name, claim.value, claim.path); err != nil {
+			return adopted, err
 		}
 	}
 
@@ -245,6 +238,75 @@ func flyAccessToken() (string, string) {
 		}
 	}
 	return "", ""
+}
+
+// envClaim is one file's offer of a value for a name, with what it takes to
+// rank that offer against another file's.
+type envClaim struct {
+	value string
+	path  string
+	rank  int
+	depth int
+}
+
+// beats orders two files competing for the same name: dotenv precedence
+// first, then the file nearer the project root, so a workspace package can
+// never take a name from the project's own file. Path breaks the remaining
+// tie so the winner does not depend on directory read order.
+func (c envClaim) beats(other envClaim) bool {
+	if c.rank != other.rank {
+		return c.rank > other.rank
+	}
+	if c.depth != other.depth {
+		return c.depth < other.depth
+	}
+	return c.path < other.path
+}
+
+// envOwners picks the one file that owns each name for this run, before
+// anything is written. Choosing up front rather than letting the scan
+// overwrite as it goes keeps a name written at most once and guarantees
+// adoption and refresh read the same file: the loser here is a value that
+// would otherwise overwrite a deliberately stored credential, so which file
+// wins has to be decided once and by precedence rather than by scan order.
+func envOwners(ctx context.Context, runner execx.Runner, projectDir string) map[string]envClaim {
+	owned := map[string]envClaim{}
+	root := filepath.Clean(projectDir)
+	for _, path := range envFiles(projectDir) {
+		if !gitIgnores(ctx, runner, projectDir, path) {
+			continue
+		}
+		values, err := ParseEnvFile(path)
+		if err != nil {
+			continue
+		}
+		depth := 0
+		if relative, relErr := filepath.Rel(root, path); relErr == nil {
+			depth = strings.Count(filepath.ToSlash(relative), "/")
+		}
+		claim := envClaim{path: path, rank: envFileRank(filepath.Base(path)), depth: depth}
+		for name, value := range values {
+			if strings.TrimSpace(value) == "" {
+				continue
+			}
+			claim.value = value
+			if held, taken := owned[name]; taken && !claim.beats(held) {
+				continue
+			}
+			owned[name] = claim
+		}
+	}
+	return owned
+}
+
+// envFileRank is a file's place in dotenv's layering, higher winning.
+func envFileRank(base string) int {
+	for rank, name := range envFileNames {
+		if name == base {
+			return rank
+		}
+	}
+	return -1
 }
 
 // envFiles lists the local secret files under a project, bounded in depth and
