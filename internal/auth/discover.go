@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -135,18 +136,11 @@ func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Ma
 		return nil
 	}
 
-	owned := envOwners(ctx, runner, projectDir)
-	names := make([]string, 0, len(owned))
-	for name := range owned {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		claim := owned[name]
-		if err := adopt(name, claim.value, claim.path); err != nil {
+	for _, rotation := range credentialRotations(chains, envOwners(ctx, runner, projectDir)) {
+		if err := adopt(rotation.name, rotation.value, rotation.path); err != nil {
 			return adopted, err
 		}
-		if err := refresh(name, claim.value, claim.path); err != nil {
+		if err := refresh(rotation.name, rotation.value, rotation.path); err != nil {
 			return adopted, err
 		}
 	}
@@ -240,6 +234,60 @@ func flyAccessToken() (string, string) {
 	return "", ""
 }
 
+// envRotation is the one .env line that speaks for a credential this run.
+type envRotation struct {
+	name  string
+	value string
+	path  string
+}
+
+// credentialRotations collapses the .env lines that name one credential down
+// to the single line that speaks for it. envOwners already picks one owning
+// file per name, but several names can answer one credential, and after the
+// chains merge they all target the same store key - so without collapsing
+// them a file carrying both a declared name and its alias writes that key
+// twice in a run and the later name wins on alphabetical order.
+//
+// The manifest decides instead, in the order Resolver.lookup consults: the
+// declared name first, then its alias targets in declared order. A name the
+// manifest does not mention is its own credential and is left alone.
+func credentialRotations(chains map[string][]string, owned map[string]envClaim) []envRotation {
+	names := make([]string, 0, len(owned))
+	for name := range owned {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	rank := map[string]int{}
+	winner := map[string]envRotation{}
+	var order []string
+	for _, name := range names {
+		credential, place := name, 0
+		if chain := chains[name]; len(chain) > 0 {
+			credential = chain[0]
+			if place = slices.Index(chain, name); place < 0 {
+				place = len(chain)
+			}
+		}
+		held, contested := rank[credential]
+		if contested && held <= place {
+			continue
+		}
+		if !contested {
+			order = append(order, credential)
+		}
+		rank[credential] = place
+		claim := owned[name]
+		winner[credential] = envRotation{name: name, value: claim.value, path: claim.path}
+	}
+
+	rotations := make([]envRotation, 0, len(order))
+	for _, credential := range order {
+		rotations = append(rotations, winner[credential])
+	}
+	return rotations
+}
+
 // envClaim is one file's offer of a value for a name, with what it takes to
 // rank that offer against another file's.
 type envClaim struct {
@@ -316,10 +364,20 @@ func envFileRank(base string) int {
 // others are noise: generated trees whose .env files would be duplicates. A
 // goblin's worktree is untrusted content a running agent writes inside the
 // project, and git ignores it, so without this it satisfies both the
-// gitignored test and the first-file-wins rule and becomes an authorized
-// origin - one a goblin bootstrapping a local database could use to overwrite
-// the Overlord's stored credential for the whole fleet. Only the Overlord's
-// own file may rotate a value, so a goblin's is never read.
+// gitignored test and the ownership rule and becomes an authorized origin in
+// its own right.
+//
+// Known residual, not closed by this prune: worktree provisioning shares .env
+// by hardlink, so <project>/.worktrees/<id>/.env is the same inode as
+// <project>/.env. A goblin that writes its worktree .env in place - every
+// ordinary redirect, Set-Content, or writeFileSync does - has written the
+// Overlord's file, and the next preflight reads it from the primary path,
+// which is never pruned. Skipping the worktree path removes the second
+// reading of one file; it cannot tell the two names apart. The refresh origin
+// is therefore only as trustworthy as write access to the project's own .env,
+// and the dispatch line naming every refresh by name and origin is what
+// catches it. The durable fix is for provisioning to copy rather than
+// hardlink a credential-carrying file.
 func envFiles(projectDir string) []string {
 	if projectDir == "" {
 		return nil
