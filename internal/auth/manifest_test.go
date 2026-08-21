@@ -259,7 +259,7 @@ func TestDiscoverAdoptsProjectEnvFilesAndRefreshesWhatTheyRotated(t *testing.T) 
 	}}
 	store := newMemoryStore(map[string]string{"precisiondocs/STRIPE_SECRET_KEY": "sk_deliberate"})
 
-	adopted, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestDiscoverRefusesAnEnvFileGitTracks(t *testing.T) {
 	// check-ignore exits 1 for a path git does not ignore.
 	runner := &fakeRunner{results: map[string]execx.Result{"git": {ExitCode: 1}}}
 
-	adopted, err := Discover(context.Background(), store, runner, manifest, project)
+	adopted, _, err := Discover(context.Background(), store, runner, manifest, project)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -349,7 +349,7 @@ func TestDiscoverLeavesANameAnAliasAlreadyServesAlone(t *testing.T) {
 	}}}
 	store := newMemoryStore(map[string]string{"FLY_PROD_API_TOKEN": "FlyV1_stored"})
 
-	adopted, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestDiscoverAdoptsTheTokenGhAlreadyOwns(t *testing.T) {
 	if err := os.MkdirAll(project, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	adopted, err := Discover(context.Background(), store, runner, manifest, project)
+	adopted, _, err := Discover(context.Background(), store, runner, manifest, project)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -396,7 +396,7 @@ func TestDiscoverSurfacesAStoreThatCannotBeWritten(t *testing.T) {
 	store := newMemoryStore(nil)
 	store.setErr = errors.New("vault is locked")
 
-	if _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project); err == nil {
+	if _, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project); err == nil {
 		t.Fatal("Discover = nil, want the store failure surfaced rather than silently dropping a credential")
 	}
 }

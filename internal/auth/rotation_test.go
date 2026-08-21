@@ -78,7 +78,7 @@ func TestAToolTokenNeverReplacesADeliberatelyStoredCredential(t *testing.T) {
 	}}
 	manifest := Manifest{Services: []Service{{Name: "github", Method: MethodCLI, Env: []string{"GITHUB_TOKEN"}}}}
 
-	adopted, err := Discover(context.Background(), store, runner, manifest, filepath.Join(t.TempDir(), "code-goblins"))
+	adopted, _, err := Discover(context.Background(), store, runner, manifest, filepath.Join(t.TempDir(), "code-goblins"))
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -429,7 +429,7 @@ func TestTheLocalEnvFileOwnsANameOverTheSharedOne(t *testing.T) {
 
 	// As a first adoption: the empty slot is filled from the override file.
 	empty := newMemoryStore(nil)
-	adopted, err := Discover(context.Background(), empty, gitIgnoresEverything(), manifest, project)
+	adopted, _, err := Discover(context.Background(), empty, gitIgnoresEverything(), manifest, project)
 	if err != nil {
 		t.Fatalf("Discover into an empty store: %v", err)
 	}
@@ -444,7 +444,7 @@ func TestTheLocalEnvFileOwnsANameOverTheSharedOne(t *testing.T) {
 	// As a refresh over a stored value: the dev default must not win, or the
 	// stored credential is destroyed on every dispatch.
 	stored := newMemoryStore(map[string]string{"precisiondocs/DATABASE_URL": "postgres://prod/was-rotated"})
-	if _, err := Discover(context.Background(), stored, gitIgnoresEverything(), manifest, project); err != nil {
+	if _, _, err := Discover(context.Background(), stored, gitIgnoresEverything(), manifest, project); err != nil {
 		t.Fatalf("Discover over a stored value: %v", err)
 	}
 	if stored.values["precisiondocs/DATABASE_URL"] != "postgres://prod/appdb" {
@@ -475,7 +475,7 @@ func TestARotatedAliasLineReachesTheDeclaredKey(t *testing.T) {
 	}
 	store := newMemoryStore(map[string]string{"precisiondocs/DATABASE_URL": "postgres://host/before_rotation"})
 
-	adopted, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -530,7 +530,7 @@ func TestASecondServicesAliasStillReachesTheLiveKey(t *testing.T) {
 	// unset in this project's scope, so the alias is what answers.
 	store := newMemoryStore(map[string]string{"precisiondocs/PG_URL": "postgres://host/before_rotation"})
 
-	adopted, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -583,7 +583,7 @@ func TestTheLocalFilesAliasBeatsTheSharedFilesDeclaredName(t *testing.T) {
 	}
 	store := newMemoryStore(map[string]string{"precisiondocs/DATABASE_URL": "postgres://prod/before"})
 
-	adopted, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -634,7 +634,7 @@ func TestAWinningAliasLineAdoptsIntoTheDeclaredKey(t *testing.T) {
 	}
 	store := newMemoryStore(nil)
 
-	adopted, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -695,7 +695,7 @@ func TestTheDeclaredLineBeatsTheAliasLineInOneFile(t *testing.T) {
 	}
 	store := newMemoryStore(map[string]string{"precisiondocs/DATABASE_URL": "postgres://pooled/before"})
 
-	adopted, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -711,6 +711,138 @@ func TestTheDeclaredLineBeatsTheAliasLineInOneFile(t *testing.T) {
 	}
 	if _, second := store.values["precisiondocs/PG_URL"]; second {
 		t.Error("the alias line created a second key for one credential")
+	}
+}
+
+// TestOnlyTheEchoedFilesAreTreatedAsIgnored pins the security half of the
+// batched ignore check. check-ignore exits zero when ANY path matched, so a
+// run that classifies three files and echoes two is the ordinary answer for a
+// project that tracks one of them - and trusting the exit code alone would
+// adopt a credential out of a committed .env that everyone with the
+// repository already has.
+func TestOnlyTheEchoedFilesAreTreatedAsIgnored(t *testing.T) {
+	clearEnv(t, "DATABASE_URL", "STRIPE_SECRET_KEY")
+	project := filepath.Join(t.TempDir(), "precisiondocs")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// .env is tracked, .env.local is not. Only the latter may be read.
+	if err := os.WriteFile(filepath.Join(project, ".env"),
+		[]byte("DATABASE_URL=postgres://committed/appdb\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, ".env.local"),
+		[]byte("STRIPE_SECRET_KEY=sk_local\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{
+		results:      map[string]execx.Result{"git": {ExitCode: 0}},
+		ignoredPaths: []string{filepath.Join(project, ".env.local")},
+	}
+	manifest := Manifest{Project: "precisiondocs", Services: []Service{{
+		Name: "app", Method: MethodEnv, Env: []string{"DATABASE_URL", "STRIPE_SECRET_KEY"},
+	}}}
+	store := newMemoryStore(nil)
+
+	if _, unscanned, err := Discover(context.Background(), store, runner, manifest, project); err != nil {
+		t.Fatalf("Discover: %v", err)
+	} else if len(unscanned) != 0 {
+		t.Errorf("unscanned = %v, want git's answer taken as complete", unscanned)
+	}
+	if store.values["precisiondocs/STRIPE_SECRET_KEY"] != "sk_local" {
+		t.Errorf("STRIPE_SECRET_KEY = %q, want the gitignored file adopted",
+			Redact(store.values["precisiondocs/STRIPE_SECRET_KEY"]))
+	}
+	if _, adopted := store.values["precisiondocs/DATABASE_URL"]; adopted {
+		t.Error("adopted from a .env git tracks, which is not a local secret")
+	}
+}
+
+// TestAnUnanswerableBatchFallsBackPerFile is the liveness half. A batch can
+// fail for one path - one behind a symlinked package directory, a pathname
+// git parses as an option - and treating that as "nothing is ignored" stops
+// adoption and refresh for the whole project with no diagnostic, which is the
+// stale-credential defect reopened. One bad path must cost only itself.
+func TestAnUnanswerableBatchFallsBackPerFile(t *testing.T) {
+	clearEnv(t, "DATABASE_URL", "STRIPE_SECRET_KEY")
+	project := filepath.Join(t.TempDir(), "precisiondocs")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tracked := filepath.Join(project, ".env")
+	ignoredFile := filepath.Join(project, ".env.local")
+	if err := os.WriteFile(tracked, []byte("DATABASE_URL=postgres://committed/appdb\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ignoredFile, []byte("STRIPE_SECRET_KEY=sk_local\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The batch fails the way an unknown switch does; the per-file asks then
+	// answer honestly, ignored for one and tracked for the other.
+	runner := &fakeRunner{
+		results:      map[string]execx.Result{"git": {ExitCode: 129}},
+		ignoredPaths: []string{ignoredFile},
+		perFileExit:  map[string]int{tracked: 1, ignoredFile: 0},
+	}
+	manifest := Manifest{Project: "precisiondocs", Services: []Service{{
+		Name: "app", Method: MethodEnv, Env: []string{"DATABASE_URL", "STRIPE_SECRET_KEY"},
+	}}}
+	store := newMemoryStore(nil)
+
+	_, unscanned, err := Discover(context.Background(), store, runner, manifest, project)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if store.values["precisiondocs/STRIPE_SECRET_KEY"] != "sk_local" {
+		t.Errorf("STRIPE_SECRET_KEY = %q, want the fallback to still adopt the gitignored file",
+			Redact(store.values["precisiondocs/STRIPE_SECRET_KEY"]))
+	}
+	if _, adopted := store.values["precisiondocs/DATABASE_URL"]; adopted {
+		t.Error("the fallback adopted from a .env git tracks")
+	}
+	if len(unscanned) != 0 {
+		t.Errorf("unscanned = %v, want nothing left undetermined once the fallback answered", unscanned)
+	}
+}
+
+// TestAFileGitCannotClassifyIsSkippedAndReported holds the direction that
+// must never be guessed. A file whose status git will not answer, even per
+// file, could be one the repository tracks, so it is not read - and the
+// refusal is named on the dispatch line, because a scan that silently read
+// nothing is indistinguishable from a project with nothing to rotate.
+func TestAFileGitCannotClassifyIsSkippedAndReported(t *testing.T) {
+	clearEnv(t, "DATABASE_URL")
+	t.Setenv(StoreDirEnv, t.TempDir())
+	dataDir := t.TempDir()
+	writeManifest(t, dataDir, "precisiondocs", Manifest{
+		Project:  "precisiondocs",
+		Services: []Service{{Name: "postgres", Method: MethodEnv, Env: []string{"DATABASE_URL"}}},
+	})
+	project := filepath.Join(t.TempDir(), "precisiondocs")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	envFile := filepath.Join(project, ".env")
+	if err := os.WriteFile(envFile, []byte("DATABASE_URL=postgres://unknown/appdb\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Neither the batch nor the per-file ask can answer.
+	runner := &fakeRunner{results: map[string]execx.Result{"git": {ExitCode: 128}}}
+
+	result, err := SpawnPreflight{DataDir: dataDir, Runner: runner}.
+		Preflight(context.Background(), project)
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if !strings.Contains(result.Warning, "ignore check failed") || !strings.Contains(result.Warning, envFile) {
+		t.Errorf("warning %q does not name the file whose status could not be determined", result.Warning)
+	}
+	if strings.Contains(result.Warning, "postgres://unknown/appdb") {
+		t.Error("the warning printed a credential value")
+	}
+	if result.Env["DATABASE_URL"] != "" {
+		t.Errorf("injected %q, want an unclassifiable file left unread",
+			Redact(result.Env["DATABASE_URL"]))
 	}
 }
 
@@ -736,7 +868,7 @@ func TestAGoblinWorktreeEnvIsNeverAnOrigin(t *testing.T) {
 	}
 	store := newMemoryStore(map[string]string{"precisiondocs/DATABASE_URL": "postgres://prod/appdb"})
 
-	adopted, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -751,7 +883,7 @@ func TestAGoblinWorktreeEnvIsNeverAnOrigin(t *testing.T) {
 	// An empty slot is not a loophole either: a goblin's file must not fill
 	// one any more than it may replace a value.
 	empty := newMemoryStore(nil)
-	if _, err := Discover(context.Background(), empty, gitIgnoresEverything(), manifest, project); err != nil {
+	if _, _, err := Discover(context.Background(), empty, gitIgnoresEverything(), manifest, project); err != nil {
 		t.Fatalf("Discover into an empty store: %v", err)
 	}
 	if _, claimed := empty.values["precisiondocs/DATABASE_URL"]; claimed {
@@ -780,7 +912,7 @@ func TestARotatedEnvValueReachesACredentialStoredUnderAnAlias(t *testing.T) {
 	}
 	store := newMemoryStore(map[string]string{"precisiondocs/PG_URL": "postgres://host/before_rotation"})
 
-	adopted, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -828,7 +960,7 @@ func TestARotatedEnvValueReachesTheAliasKeyWhenTheFileCarriesTheDeclaredName(t *
 	}
 	store := newMemoryStore(map[string]string{"precisiondocs/PG_URL": "postgres://host/before_rotation"})
 
-	if _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project); err != nil {
+	if _, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project); err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
 	if store.values["precisiondocs/PG_URL"] != "postgres://host/after_rotation" {

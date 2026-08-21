@@ -260,9 +260,18 @@ func installEnv(caches, projectEnv map[string]string) []string {
 	}
 	merged := map[string]string{}
 	for _, entry := range os.Environ() {
-		if name, value, found := strings.Cut(entry, "="); found {
-			merged[name] = value
+		// A Windows per-drive pseudo-variable is named "=C:", so the
+		// separator is looked for past the first byte the way os/exec does.
+		// Splitting on the first '=' would give every one of them the empty
+		// name and let them overwrite each other.
+		if entry == "" {
+			continue
 		}
+		separator := strings.Index(entry[1:], "=")
+		if separator < 0 {
+			continue
+		}
+		merged[entry[:separator+1]] = entry[separator+2:]
 	}
 	for _, overrides := range []map[string]string{caches, projectEnv} {
 		for name, value := range overrides {
