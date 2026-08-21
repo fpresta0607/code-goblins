@@ -241,16 +241,46 @@ type envRotation struct {
 	path  string
 }
 
+// credentialContender is one .env line offered as the rotation for a
+// credential, with everything needed to rank it against another line.
+type credentialContender struct {
+	claim envClaim
+	// place is the line's position in the credential's lookup chain: the
+	// declared name is 0 and its alias targets follow in declared order.
+	place int
+}
+
+// beats orders two lines competing to rotate one credential, and the two
+// rules it composes are deliberately not peers.
+//
+// Which file the line came from dominates, decided by envClaim.beats: that is
+// the rule that says which file the Overlord meant, and .env.local is by
+// convention where a rotated value is written. Chain position only breaks a
+// tie inside one file, where the manifest's own order applies and a declared
+// name beats its aliases, matching Resolver.lookup.
+//
+// The other way round, a dev default sitting in .env under the declared name
+// would outrank a rotation written to .env.local under an alias, and would
+// silently clobber it on every dispatch.
+func (c credentialContender) beats(other credentialContender) bool {
+	if c.claim.rank != other.claim.rank || c.claim.depth != other.claim.depth {
+		return c.claim.beats(other.claim)
+	}
+	if c.place != other.place {
+		return c.place < other.place
+	}
+	return c.claim.path < other.claim.path
+}
+
 // credentialRotations collapses the .env lines that name one credential down
 // to the single line that speaks for it. envOwners already picks one owning
 // file per name, but several names can answer one credential, and after the
 // chains merge they all target the same store key - so without collapsing
-// them a file carrying both a declared name and its alias writes that key
-// twice in a run and the later name wins on alphabetical order.
+// them one credential is written twice in a run and the second write wins on
+// alphabetical order.
 //
-// The manifest decides instead, in the order Resolver.lookup consults: the
-// declared name first, then its alias targets in declared order. A name the
-// manifest does not mention is its own credential and is left alone.
+// A name the manifest does not mention is its own credential and is left
+// alone.
 func credentialRotations(chains map[string][]string, owned map[string]envClaim) []envRotation {
 	names := make([]string, 0, len(owned))
 	for name := range owned {
@@ -258,7 +288,7 @@ func credentialRotations(chains map[string][]string, owned map[string]envClaim) 
 	}
 	sort.Strings(names)
 
-	rank := map[string]int{}
+	best := map[string]credentialContender{}
 	winner := map[string]envRotation{}
 	var order []string
 	for _, name := range names {
@@ -269,16 +299,16 @@ func credentialRotations(chains map[string][]string, owned map[string]envClaim) 
 				place = len(chain)
 			}
 		}
-		held, contested := rank[credential]
-		if contested && held <= place {
+		contender := credentialContender{claim: owned[name], place: place}
+		held, contested := best[credential]
+		if contested && !contender.beats(held) {
 			continue
 		}
 		if !contested {
 			order = append(order, credential)
 		}
-		rank[credential] = place
-		claim := owned[name]
-		winner[credential] = envRotation{name: name, value: claim.value, path: claim.path}
+		best[credential] = contender
+		winner[credential] = envRotation{name: name, value: contender.claim.value, path: contender.claim.path}
 	}
 
 	rotations := make([]envRotation, 0, len(order))
