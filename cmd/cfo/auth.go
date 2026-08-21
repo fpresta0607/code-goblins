@@ -93,9 +93,12 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer) int {
 	ctx := context.Background()
 	report := auth.Report{}
 	if *fix {
-		adopted, err := auth.Discover(ctx, store, runner, manifest, project)
+		adopted, unscanned, err := auth.Discover(ctx, store, runner, manifest, project)
 		if err != nil {
 			fmt.Fprintf(stderr, "cfo auth: adopt existing credentials: %v\n", err)
+		}
+		if line := auth.IgnoreScanFailedLine(unscanned); line != "" {
+			fmt.Fprintf(stderr, "cfo auth: %s\n", line)
 		}
 		// A credential stored before namespacing lands in the scope that now
 		// looks for it, so --fix repairs the state of the migration as well

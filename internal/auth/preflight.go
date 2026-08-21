@@ -67,7 +67,7 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, 
 	// already on this machine, and writes only into this project's own scope.
 	// The one value it replaces is one this project's own gitignored .env has
 	// since changed, which is the Overlord rotating a credential.
-	adopted, err := Discover(ctx, store, p.Runner, manifest, project)
+	adopted, unscanned, err := Discover(ctx, store, p.Runner, manifest, project)
 	if err != nil {
 		return Result{}, err
 	}
@@ -95,6 +95,12 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, 
 	// reports on, or the operator sees a credential that will not resolve and
 	// no way from that symptom to the manifest that caused it.
 	if line := MigrationPausedLine(unreadable); line != "" {
+		warning += "; " + line
+	}
+	// A .env git could not classify is skipped rather than read, and that has
+	// to be said for the same reason: otherwise a credential that never
+	// rotates looks exactly like one that had nothing to rotate.
+	if line := IgnoreScanFailedLine(unscanned); line != "" {
 		warning += "; " + line
 	}
 	return Result{

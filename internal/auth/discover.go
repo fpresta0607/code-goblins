@@ -71,21 +71,21 @@ type Adopted struct {
 // happens to hold is not a decision about this project, and letting one
 // rotate under a deliberately stored value is how a stored credential
 // disappears without anyone choosing it.
-func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Manifest, projectDir string) ([]Adopted, error) {
+func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Manifest, projectDir string) ([]Adopted, []string, error) {
 	if store == nil {
-		return nil, fmt.Errorf("auth: no credential store configured")
+		return nil, nil, fmt.Errorf("auth: no credential store configured")
 	}
 	scope := ProjectName(projectDir)
 	if scope == "" {
 		scope = manifest.Project
 	}
 	if !ValidProjectName(scope) {
-		return nil, fmt.Errorf("auth: %q cannot be a credential scope", scope)
+		return nil, nil, fmt.Errorf("auth: %q cannot be a credential scope", scope)
 	}
 	wanted := wantedNames(store, scope, manifest)
 	chains := manifest.CredentialChains()
 	if len(wanted) == 0 && len(chains) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	var adopted []Adopted
@@ -137,12 +137,13 @@ func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Ma
 		return nil
 	}
 
-	for _, rotation := range credentialRotations(chains, envOwners(ctx, runner, projectDir)) {
+	owned, undetermined := envOwners(ctx, runner, projectDir)
+	for _, rotation := range credentialRotations(chains, owned) {
 		if err := adopt(rotation.credential, rotation.value, rotation.path); err != nil {
-			return adopted, err
+			return adopted, undetermined, err
 		}
 		if err := refresh(rotation.credential, rotation.value, rotation.path); err != nil {
-			return adopted, err
+			return adopted, undetermined, err
 		}
 	}
 
@@ -150,7 +151,7 @@ func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Ma
 		result, err := runner.Run(ctx, execx.Request{Name: "gh", Args: []string{"auth", "token"}})
 		if err == nil && result.ExitCode == 0 {
 			if err := adopt("GITHUB_TOKEN", strings.TrimSpace(string(result.Stdout)), "gh auth token"); err != nil {
-				return adopted, err
+				return adopted, undetermined, err
 			}
 		}
 	}
@@ -158,11 +159,11 @@ func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Ma
 	if wanted["FLY_API_TOKEN"] {
 		if token, path := flyAccessToken(); token != "" {
 			if err := adopt("FLY_API_TOKEN", token, path); err != nil {
-				return adopted, err
+				return adopted, undetermined, err
 			}
 		}
 	}
-	return adopted, nil
+	return adopted, undetermined, nil
 }
 
 // wantedNames is every declared name that does not already resolve for this
@@ -194,41 +195,63 @@ func wantedNames(store Store, scope string, manifest Manifest) map[string]bool {
 	return wanted
 }
 
-// gitIgnored reports which of these files git ignores. A .env that git tracks
-// is not a local secret, and adopting from it would take a value that anyone
-// with the repository already has.
+// gitIgnored reports which of these files git ignores, and which ones it
+// could not answer for. A .env that git tracks is not a local secret, and
+// adopting from it would take a value that anyone with the repository already
+// has.
 //
-// One invocation classifies the whole set. check-ignore takes many paths and
-// echoes back the ignored ones, and this runs on every dispatch while the
-// per-home spawn lock is held, so a process launch per candidate file is time
-// the operator waits through for an answer git gives in one.
-func gitIgnored(ctx context.Context, runner execx.Runner, projectDir string, paths []string) map[string]bool {
+// Two rules govern the answer, and they pull in opposite directions:
+//
+//   - A file that cannot be shown to be ignored is never read. "Undetermined"
+//     resolves to "do not adopt", never to "ignored", so a tracked .env can
+//     never be mistaken for a local secret.
+//   - One unanswerable path must cost only that path. Classifying the whole
+//     set in one invocation is the fast path, but a batch that fails takes
+//     every file with it, and adoption and refresh stopping project-wide is
+//     the stale-credential defect this package exists to close. So a batch
+//     that git could not answer falls back to asking per file, which is what
+//     the per-file form always did.
+//
+// What the fallback still cannot answer is returned rather than dropped: a
+// scan that read nothing has to be visible on the dispatch line, because a
+// silent one is indistinguishable from a project that simply had nothing to
+// rotate.
+func gitIgnored(ctx context.Context, runner execx.Runner, projectDir string, paths []string) (map[string]bool, []string) {
 	if runner == nil || len(paths) == 0 {
-		return nil
+		return nil, nil
 	}
-	args := make([]string, 0, len(paths)+3)
-	// quotePath off keeps a non-ASCII pathname raw instead of octal-escaped,
-	// which together with the relative slash-separated form below is what
-	// makes the answer come back as the exact strings that were asked about.
-	args = append(args, "-c", "core.quotePath=false", "check-ignore")
-	asked := map[string]bool{}
+	if ignored, answered := gitIgnoredBatch(ctx, runner, projectDir, paths); answered {
+		return ignored, nil
+	}
+	ignored := map[string]bool{}
+	var undetermined []string
 	for _, path := range paths {
-		name, err := ignorePathKey(projectDir, path)
-		if err != nil {
-			continue
+		matched, answered := gitIgnoresPath(ctx, runner, projectDir, path)
+		switch {
+		case !answered:
+			undetermined = append(undetermined, path)
+		case matched:
+			ignored[path] = true
 		}
-		asked[name] = true
-		args = append(args, name)
 	}
-	if len(asked) == 0 {
-		return nil
-	}
+	return ignored, undetermined
+}
+
+// gitIgnoredBatch classifies every path in one invocation, reporting whether
+// git answered at all. Exit 1 is "none of them are ignored" rather than a
+// failure; anything else is unanswered and the caller asks again per file.
+func gitIgnoredBatch(ctx context.Context, runner execx.Runner, projectDir string, paths []string) (map[string]bool, bool) {
+	// quotePath off keeps a non-ASCII pathname raw rather than octal-escaped,
+	// and -- ends the options so a pathname beginning with a dash is a path
+	// rather than an unknown switch that would fail the whole batch.
+	args := append([]string{"-c", "core.quotePath=false", "check-ignore", "--"}, paths...)
 	result, err := runner.Run(ctx, execx.Request{Dir: projectDir, Name: "git", Args: args})
-	// Exit 1 is "none of them are ignored" rather than a failure. Any other
-	// non-zero is a question git could not answer, and a file whose status is
-	// unknown is not a local secret this is allowed to read.
 	if err != nil || (result.ExitCode != 0 && result.ExitCode != 1) {
-		return nil
+		return nil, false
+	}
+	asked := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		asked[path] = true
 	}
 	ignored := map[string]bool{}
 	for _, line := range strings.Split(string(result.Stdout), "\n") {
@@ -236,13 +259,13 @@ func gitIgnored(ctx context.Context, runner execx.Runner, projectDir string, pat
 		if name == "" {
 			continue
 		}
-		// A pathname git still had to quote is C-quoted, which is the syntax
+		// A pathname git had to quote is C-quoted, which is the syntax
 		// strconv.Unquote reads. Only a name that was actually asked about is
 		// believed, so a line this failed to read back can never widen what
 		// is treated as a local secret.
 		if strings.HasPrefix(name, `"`) {
-			unquoted, err := strconv.Unquote(name)
-			if err != nil {
+			unquoted, unquoteErr := strconv.Unquote(name)
+			if unquoteErr != nil {
 				continue
 			}
 			name = unquoted
@@ -251,19 +274,45 @@ func gitIgnored(ctx context.Context, runner execx.Runner, projectDir string, pat
 			ignored[name] = true
 		}
 	}
-	return ignored
+	return ignored, true
 }
 
-// ignorePathKey is the form both sides of the check-ignore exchange are held
-// in: relative to the project and slash-separated. Git echoes a pathname back
-// as it was given, and a backslash is one of the characters that makes it
-// quote the answer, so asking in this form is what keeps the reply plain.
-func ignorePathKey(projectDir, path string) (string, error) {
-	relative, err := filepath.Rel(projectDir, path)
+// gitIgnoresPath asks about one file, reporting whether git answered. It is
+// the isolation the batch gives up: a path git refuses - one behind a
+// symlinked directory, say - costs itself and nothing else.
+func gitIgnoresPath(ctx context.Context, runner execx.Runner, projectDir, path string) (matched, answered bool) {
+	result, err := runner.Run(ctx, execx.Request{
+		Dir:  projectDir,
+		Name: "git",
+		Args: []string{"check-ignore", "--quiet", "--", path},
+	})
 	if err != nil {
-		return "", err
+		return false, false
 	}
-	return filepath.ToSlash(relative), nil
+	switch result.ExitCode {
+	case 0:
+		return true, true
+	case 1:
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+// IgnoreScanFailedLine names the local files whose gitignore status git could
+// not answer, so an operator can see that adoption skipped them. They are not
+// read - a file that cannot be shown to be gitignored may be one the
+// repository tracks - and this line is what makes that refusal visible rather
+// than a credential that silently never rotates.
+//
+// It names paths. No credential name and no value appears here, the same rule
+// the adoption line keeps.
+func IgnoreScanFailedLine(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("ignore check failed for %d local file(s) (%s); they were not read",
+		len(paths), strings.Join(paths, ", "))
 }
 
 // flyAccessToken reads the token flyctl already holds. The file is a small
@@ -423,14 +472,13 @@ func (c envClaim) beats(other envClaim) bool {
 // adoption and refresh read the same file: the loser here is a value that
 // would otherwise overwrite a deliberately stored credential, so which file
 // wins has to be decided once and by precedence rather than by scan order.
-func envOwners(ctx context.Context, runner execx.Runner, projectDir string) map[string]envClaim {
+func envOwners(ctx context.Context, runner execx.Runner, projectDir string) (map[string]envClaim, []string) {
 	owned := map[string]envClaim{}
 	root := filepath.Clean(projectDir)
 	candidates := envFiles(projectDir)
-	ignored := gitIgnored(ctx, runner, projectDir, candidates)
+	ignored, undetermined := gitIgnored(ctx, runner, projectDir, candidates)
 	for _, path := range candidates {
-		name, err := ignorePathKey(projectDir, path)
-		if err != nil || !ignored[name] {
+		if !ignored[path] {
 			continue
 		}
 		values, err := ParseEnvFile(path)
@@ -453,7 +501,7 @@ func envOwners(ctx context.Context, runner execx.Runner, projectDir string) map[
 			owned[name] = claim
 		}
 	}
-	return owned
+	return owned, undetermined
 }
 
 // envFileRank is a file's place in dotenv's layering, higher winning.
