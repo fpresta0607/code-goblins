@@ -188,7 +188,8 @@ A project can declare how that worktree becomes runnable in `data/projects/<name
 
 ### Share caches, never share materialized environments
 
-Every goblin's pane inherits one shared package-cache root at `$CFO_HOME/caches/`, with a subdirectory per ecosystem: `UV_CACHE_DIR`, `npm_config_store_dir` (pnpm's store), `PLAYWRIGHT_BROWSERS_PATH`, `GOMODCACHE`, and `CARGO_HOME`.
+Every goblin's pane inherits one shared package-cache root at `$CFO_HOME/caches/`, with a subdirectory per ecosystem: `UV_CACHE_DIR`, `npm_config_store_dir` (pnpm's store), `PLAYWRIGHT_BROWSERS_PATH`, and `GOMODCACHE`.
+`CARGO_HOME` is deliberately excluded and must not be added: cargo has no cache-only variable, so redirecting it would also relocate `config.toml`, `credentials.toml` and `bin/`, and a goblin would lose the operator's registry and linker configuration.
 These locations are a property of the machine rather than of any project, so they live in the CFO home and no manifest repeats them.
 A variable the CFO's own environment already sets is inherited untouched, and a project's `worktree.json` `env` block still wins for that project.
 `cfo auth <project> --env` prints them in full.

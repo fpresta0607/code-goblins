@@ -242,8 +242,8 @@ func TestDeclaringProjectsCountsEveryManifestThatClaimsAName(t *testing.T) {
 		Project:  "homescout",
 		Services: []Service{{Name: "github", Method: MethodCLI, Env: []string{"GITHUB_TOKEN"}, Shared: true}},
 	})
-	// A manifest that no longer loads must not stall a dispatch into an
-	// unrelated project, so it is skipped rather than reported.
+	// A manifest that no longer loads cannot be shown not to claim a name, so
+	// it is reported rather than dropped from the count.
 	broken := ManifestPath(dataDir, "prometheus")
 	if err := os.MkdirAll(filepath.Dir(broken), 0o755); err != nil {
 		t.Fatal(err)
@@ -252,14 +252,169 @@ func TestDeclaringProjectsCountsEveryManifestThatClaimsAName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := DeclaringProjects(dataDir, "DATABASE_URL"); len(got) != 2 || got[0] != "clock-in" || got[1] != "precisiondocs" {
+	if got, _ := DeclaringProjects(dataDir, "DATABASE_URL"); len(got) != 2 || got[0] != "clock-in" || got[1] != "precisiondocs" {
 		t.Errorf("DeclaringProjects(DATABASE_URL) = %v, want both declaring projects sorted", got)
 	}
-	if got := DeclaringProjects(dataDir, "GITHUB_TOKEN"); len(got) != 1 || got[0] != "homescout" {
+	if got, _ := DeclaringProjects(dataDir, "GITHUB_TOKEN"); len(got) != 1 || got[0] != "homescout" {
 		t.Errorf("DeclaringProjects(GITHUB_TOKEN) = %v, want the one project that declares it", got)
 	}
-	if got := DeclaringProjects(dataDir, "NOBODY_DECLARES_THIS"); len(got) != 0 {
+	if got, _ := DeclaringProjects(dataDir, "NOBODY_DECLARES_THIS"); len(got) != 0 {
 		t.Errorf("DeclaringProjects = %v, want nothing", got)
+	}
+	if _, unreadable := DeclaringProjects(dataDir, "DATABASE_URL"); len(unreadable) != 1 || unreadable[0] != "prometheus" {
+		t.Errorf("unreadable = %v, want the manifest that could not be read named", unreadable)
+	}
+}
+
+// TestABareCredentialAnotherProjectReadsThroughAnAliasIsLeftWhereItIs is the
+// half of attribution that counting declared names alone misses. A project
+// that declares PG_URL and aliases it to DATABASE_URL reads the bare
+// DATABASE_URL from the shared scope, so it is an owner, and claiming the
+// value for the other project bakes in exactly the cross-project database the
+// namespacing was built to end.
+func TestABareCredentialAnotherProjectReadsThroughAnAliasIsLeftWhereItIs(t *testing.T) {
+	clearEnv(t, "DATABASE_URL", "PG_URL")
+	dataDir := t.TempDir()
+	manifest := Manifest{
+		Project:  "clock-in",
+		Services: []Service{{Name: "postgres", Method: MethodEnv, Env: []string{"DATABASE_URL"}}},
+	}
+	writeManifest(t, dataDir, "clock-in", manifest)
+	writeManifest(t, dataDir, "precisiondocs", Manifest{
+		Project: "precisiondocs",
+		Services: []Service{{
+			Name: "postgres", Method: MethodEnv, Env: []string{"PG_URL"}, Shared: true,
+			Aliases: map[string][]string{"PG_URL": {"DATABASE_URL"}},
+		}},
+	})
+	store := newMemoryStore(map[string]string{"DATABASE_URL": "postgres://somebody/appdb"})
+
+	if owners, _ := DeclaringProjects(dataDir, "DATABASE_URL"); len(owners) != 2 {
+		t.Errorf("DeclaringProjects(DATABASE_URL) = %v, want the alias reader counted as an owner", owners)
+	}
+	migrated, err := Migrate(store, dataDir, "clock-in", manifest)
+	if err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	if len(migrated) != 0 {
+		t.Errorf("migrated %+v, want a value another project reads through an alias left alone", migrated)
+	}
+	if _, claimed := store.values["clock-in/DATABASE_URL"]; claimed {
+		t.Error("claimed a bare credential another project reads through a declared alias")
+	}
+}
+
+// TestASiblingManifestThatWillNotLoadBlocksMigration holds the other half:
+// DisallowUnknownFields makes an unreadable sibling far more likely, and
+// "attribution could not be established" is not "no other owner". The
+// dispatch still proceeds - only the claim declines.
+func TestASiblingManifestThatWillNotLoadBlocksMigration(t *testing.T) {
+	clearEnv(t, "OPENAI_API_KEY")
+	dataDir := t.TempDir()
+	manifest := Manifest{
+		Project:  "precisiondocs",
+		Services: []Service{{Name: "openai", Method: MethodEnv, Env: []string{"OPENAI_API_KEY"}}},
+	}
+	writeManifest(t, dataDir, "precisiondocs", manifest)
+	broken := ManifestPath(dataDir, "clock-in")
+	if err := os.MkdirAll(filepath.Dir(broken), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A single stray key is all it takes now, and this manifest may well
+	// declare OPENAI_API_KEY too - nothing here can tell.
+	body := `{"project":"clock-in","services":[{"name":"openai","method":"env","env":["OPENAI_API_KEY"],"sharedd":true}]}`
+	if err := os.WriteFile(broken, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := newMemoryStore(map[string]string{"OPENAI_API_KEY": "sk_stored_before_scopes"})
+
+	migrated, err := Migrate(store, dataDir, "precisiondocs", manifest)
+	if err != nil {
+		t.Fatalf("Migrate returned an error, which would stall a dispatch into an unrelated project: %v", err)
+	}
+	if len(migrated) != 0 {
+		t.Errorf("migrated %+v, want nothing claimed while a sibling manifest cannot be read", migrated)
+	}
+	if _, claimed := store.values["precisiondocs/OPENAI_API_KEY"]; claimed {
+		t.Error("claimed a bare credential while a sibling manifest could not be read")
+	}
+}
+
+// TestARotatedEnvValueReachesACredentialStoredUnderAnAlias covers the sibling
+// path of the rotation defect. A project whose credential lives under a
+// declared alias key must pick up a rotated .env value the same way a
+// declared one does, or the refresh silently does not fire for it.
+func TestARotatedEnvValueReachesACredentialStoredUnderAnAlias(t *testing.T) {
+	clearEnv(t, "DATABASE_URL", "PG_URL")
+	postgres := Service{
+		Name: "postgres", Method: MethodEnv, Env: []string{"DATABASE_URL"},
+		Aliases: map[string][]string{"DATABASE_URL": {"PG_URL"}},
+	}
+	manifest := Manifest{Project: "precisiondocs", Services: []Service{postgres}}
+	project := filepath.Join(t.TempDir(), "precisiondocs")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	envFile := filepath.Join(project, ".env")
+	if err := os.WriteFile(envFile, []byte("PG_URL=postgres://host/after_rotation\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := newMemoryStore(map[string]string{"precisiondocs/PG_URL": "postgres://host/before_rotation"})
+
+	adopted, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if store.values["precisiondocs/PG_URL"] != "postgres://host/after_rotation" {
+		t.Errorf("PG_URL = %q, want the rotated value on the key that answers the name",
+			Redact(store.values["precisiondocs/PG_URL"]))
+	}
+	// The declared name must not gain a second copy that would then drift
+	// from the alias key resolution actually reaches.
+	if _, shadowed := store.values["precisiondocs/DATABASE_URL"]; shadowed {
+		t.Error("wrote a second copy under the declared name instead of refreshing the key that holds the value")
+	}
+	if len(adopted) != 1 || !adopted[0].Refreshed || adopted[0].Key.String() != "precisiondocs/PG_URL" {
+		t.Fatalf("adopted = %+v, want the alias key reported as refreshed", adopted)
+	}
+	// The rotated value resolves through the ordinary path afterwards, which
+	// is the whole point.
+	resolution, err := Resolver{Store: store, Project: "precisiondocs"}.Resolve(postgres)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if resolution.Values["DATABASE_URL"].Value != "postgres://host/after_rotation" {
+		t.Error("the resolved credential is still the value the .env replaced")
+	}
+}
+
+// TestARotatedEnvValueReachesTheAliasKeyWhenTheFileCarriesTheDeclaredName is
+// the same defect from the other side: the .env carries the declared name
+// while the store holds the value under the alias, so the key resolution
+// actually reaches is the one that has to be rewritten.
+func TestARotatedEnvValueReachesTheAliasKeyWhenTheFileCarriesTheDeclaredName(t *testing.T) {
+	clearEnv(t, "DATABASE_URL", "PG_URL")
+	postgres := Service{
+		Name: "postgres", Method: MethodEnv, Env: []string{"DATABASE_URL"},
+		Aliases: map[string][]string{"DATABASE_URL": {"PG_URL"}},
+	}
+	manifest := Manifest{Project: "precisiondocs", Services: []Service{postgres}}
+	project := filepath.Join(t.TempDir(), "precisiondocs")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, ".env"),
+		[]byte("DATABASE_URL=postgres://host/after_rotation\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := newMemoryStore(map[string]string{"precisiondocs/PG_URL": "postgres://host/before_rotation"})
+
+	if _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if store.values["precisiondocs/PG_URL"] != "postgres://host/after_rotation" {
+		t.Errorf("PG_URL = %q, want the rotated value on the key that answers DATABASE_URL",
+			Redact(store.values["precisiondocs/PG_URL"]))
 	}
 }
 
@@ -275,7 +430,13 @@ func TestCacheEnvPinsOneSharedStorePerEcosystem(t *testing.T) {
 		"npm_config_store_dir":     filepath.Join(root, "pnpm"),
 		"PLAYWRIGHT_BROWSERS_PATH": filepath.Join(root, "playwright"),
 		"GOMODCACHE":               filepath.Join(root, "go-mod"),
-		"CARGO_HOME":               filepath.Join(root, "cargo"),
+	}
+	// CARGO_HOME is not a cache redirect: it relocates config.toml,
+	// credentials.toml and bin/ too, so a goblin would lose the operator's
+	// registry and linker configuration and fail a private fetch as an auth
+	// error far from its cause.
+	if _, redirected := env["CARGO_HOME"]; redirected {
+		t.Error("redirected CARGO_HOME, which relocates cargo's whole home rather than a cache")
 	}
 	for name, path := range want {
 		if env[name] != path {

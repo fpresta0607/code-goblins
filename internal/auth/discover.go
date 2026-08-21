@@ -54,6 +54,9 @@ type Adopted struct {
 // value this project's scope already holds when the two differ, because the
 // Overlord editing that file is the deliberate act of rotating a credential
 // and every goblin dispatched afterwards would otherwise carry the dead one.
+// The refreshed key is the one that actually answers the name, which may be a
+// declared alias, so a credential stored under an alias rotates like any
+// other instead of quietly outliving the file it came from.
 // Tool-derived origins keep the never-overwrite rule: a token gh or flyctl
 // happens to hold is not a decision about this project, and letting one
 // rotate under a deliberately stored value is how a stored credential
@@ -70,11 +73,8 @@ func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Ma
 		return nil, fmt.Errorf("auth: %q cannot be a credential scope", scope)
 	}
 	wanted := wantedNames(store, scope, manifest)
-	declared := map[string]bool{}
-	for _, name := range manifest.EnvNames() {
-		declared[name] = true
-	}
-	if len(wanted) == 0 && len(declared) == 0 {
+	chains := manifest.CredentialChains()
+	if len(wanted) == 0 && len(chains) == 0 {
 		return nil, nil
 	}
 
@@ -95,22 +95,35 @@ func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Ma
 	// refresh is bounded to this project's own scope, so a rotated secret
 	// reaches the next dispatch while a name currently answered from the
 	// shared scope never gains a project copy that would then drift from it.
+	//
+	// It rewrites the project-scope key that actually holds the value, which
+	// may be a declared alias rather than the declared name. The candidates
+	// are walked in the order Resolver.lookup consults them, so the key that
+	// answers this name is the one that gets the rotated value; a key further
+	// down the chain is one resolution never reaches, and writing it would
+	// leave the live one stale.
 	refresh := func(name, value, origin string) error {
-		if !declared[name] || strings.TrimSpace(value) == "" {
+		if strings.TrimSpace(value) == "" {
 			return nil
 		}
-		key := Scoped(scope, name)
-		existing, found, err := store.Get(key)
-		if err != nil {
-			return err
-		}
-		if !found || existing == value {
+		for _, candidate := range chains[name] {
+			key := Scoped(scope, candidate)
+			existing, found, err := store.Get(key)
+			if err != nil {
+				return err
+			}
+			if !found || existing == "" {
+				continue
+			}
+			if existing == value {
+				return nil
+			}
+			if err := store.Set(key, value); err != nil {
+				return err
+			}
+			adopted = append(adopted, Adopted{Name: name, Key: key, Origin: origin, Refreshed: true})
 			return nil
 		}
-		if err := store.Set(key, value); err != nil {
-			return err
-		}
-		adopted = append(adopted, Adopted{Name: name, Key: key, Origin: origin, Refreshed: true})
 		return nil
 	}
 

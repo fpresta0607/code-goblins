@@ -3,7 +3,6 @@ package auth
 import (
 	"os"
 	"path/filepath"
-	"sort"
 )
 
 // CacheDirName is the shared package-cache root under the CFO home. One root
@@ -20,6 +19,12 @@ const CacheDirName = "caches"
 // node_modules shared between worktrees bakes absolute paths and compiled
 // native artifacts, and fails as flaky tests rather than as an honest error,
 // so a worktree always re-materializes its own against the shared store.
+//
+// CARGO_HOME is deliberately not here and must not be added: cargo has no
+// cache-only variable, so redirecting it relocates config.toml and
+// credentials.toml and bin/ as well, and a goblin would lose the operator's
+// registry and linker configuration and fail a private fetch as an auth error
+// far from its cause.
 var cacheVars = []struct {
 	name string
 	dir  string
@@ -30,7 +35,6 @@ var cacheVars = []struct {
 	{name: "npm_config_store_dir", dir: "pnpm"},
 	{name: "PLAYWRIGHT_BROWSERS_PATH", dir: "playwright"},
 	{name: "GOMODCACHE", dir: "go-mod"},
-	{name: "CARGO_HOME", dir: "cargo"},
 }
 
 // CacheEnv returns the shared cache redirects for a CFO home. A variable the
@@ -55,27 +59,4 @@ func CacheEnv(home string) map[string]string {
 		env[cache.name] = filepath.Join(root, cache.dir)
 	}
 	return env
-}
-
-// CacheLine summarizes the redirects for the one-line spawn output. It names
-// the variables and the root, never a credential: nothing here is a secret,
-// which is why these values travel in the launch environment rather than in
-// the restricted file the credentials use.
-func CacheLine(env map[string]string) string {
-	if len(env) == 0 {
-		return ""
-	}
-	names := make([]string, 0, len(env))
-	for name := range env {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	line := "caches: "
-	for index, name := range names {
-		if index > 0 {
-			line += ", "
-		}
-		line += name
-	}
-	return line + " -> " + filepath.Dir(env[names[0]])
 }
