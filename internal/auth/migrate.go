@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // Migrate moves a credential stored before namespacing into the project scope
@@ -29,20 +30,20 @@ import (
 // directory fails to load: a sibling that cannot be read cannot be shown not
 // to declare the name, and counting it as absent is how a shared name looks
 // single-owner. The dispatch still proceeds; only the migration declines.
-func Migrate(store Store, dataDir, project string, manifest Manifest) ([]Adopted, error) {
+func Migrate(store Store, dataDir, project string, manifest Manifest) ([]Adopted, []string, error) {
 	if store == nil {
-		return nil, fmt.Errorf("auth: no credential store configured")
+		return nil, nil, fmt.Errorf("auth: no credential store configured")
 	}
 	scope := ProjectName(project)
 	if scope == "" {
 		scope = manifest.Project
 	}
 	if !ValidProjectName(scope) {
-		return nil, fmt.Errorf("auth: %q cannot be a credential scope", scope)
+		return nil, nil, fmt.Errorf("auth: %q cannot be a credential scope", scope)
 	}
 	wanted := wantedNames(store, scope, manifest)
 	if len(wanted) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	names := make([]string, 0, len(wanted))
 	for name := range wanted {
@@ -50,38 +51,53 @@ func Migrate(store Store, dataDir, project string, manifest Manifest) ([]Adopted
 	}
 	sort.Strings(names)
 
+	// One pass over the data directory answers every name, and whether
+	// attribution is available at all does not depend on the name: a manifest
+	// that does not load cannot be shown not to declare any of them.
+	index := loadManifestIndex(dataDir)
+	if len(index.unreadable) > 0 {
+		return nil, index.unreadable, nil
+	}
+
 	var migrated []Adopted
 	for _, name := range names {
 		value, found, err := store.Get(Shared(name))
 		if err != nil {
-			return migrated, err
+			return migrated, nil, err
 		}
 		if !found || value == "" {
 			continue
 		}
-		owners, unreadable := DeclaringProjects(dataDir, name)
-		// A manifest that does not load cannot be shown not to declare this
-		// name, and "attribution could not be established" is not "no other
-		// owner". Claim nothing at all until every sibling can be read, so a
-		// stray key in one manifest can never make a shared name look
-		// single-owner. The dispatch itself still proceeds.
-		if len(unreadable) > 0 {
-			return migrated, nil
-		}
-		if len(owners) != 1 || owners[0] != scope {
+		if owners := index.owners[name]; len(owners) != 1 || owners[0] != scope {
 			continue
 		}
 		key := Scoped(scope, name)
 		if err := store.Set(key, value); err != nil {
-			return migrated, err
+			return migrated, nil, err
 		}
 		migrated = append(migrated, Adopted{Name: name, Key: key, Origin: "store/shared (stored before namespacing)"})
 	}
-	return migrated, nil
+	return migrated, nil, nil
+}
+
+// MigrationPausedLine reports the manifests that could not be read and what
+// follows from it: attribution is unavailable, so nothing stored before
+// namespacing is claimed until they load. Without it the decline is invisible
+// and the operator sees only a service that will not resolve, with the
+// resolution chain offering a reason that is not the real one.
+//
+// It names manifest paths. No credential name and no value appears here, the
+// same rule the adoption line keeps.
+func MigrationPausedLine(unreadable []string) string {
+	if len(unreadable) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("migration paused: %d manifest(s) could not be read (%s); credentials stored before namespacing stay put until they load",
+		len(unreadable), strings.Join(unreadable, ", "))
 }
 
 // DeclaringProjects lists every project whose manifest consumes a credential
-// name, sorted, alongside every project whose manifest could not be read. It
+// name, sorted, alongside the path of every manifest that could not be read. It
 // is what decides whether a bare stored value can be attributed to one
 // project: a name exactly one manifest consumes has one possible owner, and a
 // name two manifests consume has none that can be established without asking.
@@ -90,18 +106,34 @@ func Migrate(store Store, dataDir, project string, manifest Manifest) ([]Adopted
 // names: Resolver.lookup consults a declared alias against the shared scope
 // too, so a project that reads a bare name through an alias is an owner.
 //
-// A manifest that no longer loads is reported rather than skipped. It cannot
-// be shown not to claim the name, and silently dropping it from the count is
-// how a shared name looks single-owner. Reporting is not erroring: one broken
-// sibling still must not stall a dispatch into an unrelated project, so the
-// caller declines to migrate rather than failing.
+// A manifest that no longer loads is reported by path rather than skipped.
+// It cannot be shown not to claim the name, and silently dropping it from the
+// count is how a shared name looks single-owner. Reporting is not erroring:
+// one broken sibling still must not stall a dispatch into an unrelated
+// project, so the caller declines to migrate, loudly, rather than failing.
 func DeclaringProjects(dataDir, name string) (projects []string, unreadable []string) {
+	index := loadManifestIndex(dataDir)
+	return index.owners[name], index.unreadable
+}
+
+// manifestIndex is one pass over the data directory: which projects consume
+// each credential name, and the path of every manifest that could not be
+// read. Both answers come from the same scan because both are properties of
+// the directory rather than of any one name, and Migrate holds the per-home
+// spawn lock while it asks.
+type manifestIndex struct {
+	owners     map[string][]string
+	unreadable []string
+}
+
+func loadManifestIndex(dataDir string) manifestIndex {
+	index := manifestIndex{owners: map[string][]string{}}
 	if dataDir == "" {
-		return nil, nil
+		return index
 	}
 	entries, err := os.ReadDir(filepath.Join(dataDir, ManifestDirName))
 	if err != nil {
-		return nil, nil
+		return index
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -114,14 +146,16 @@ func DeclaringProjects(dataDir, name string) (projects []string, unreadable []st
 			continue
 		}
 		if err != nil {
-			unreadable = append(unreadable, entry.Name())
+			index.unreadable = append(index.unreadable, ManifestPath(dataDir, entry.Name()))
 			continue
 		}
-		if _, consumed := manifest.CredentialChains()[name]; consumed {
-			projects = append(projects, entry.Name())
+		for name := range manifest.CredentialChains() {
+			index.owners[name] = append(index.owners[name], entry.Name())
 		}
 	}
-	sort.Strings(projects)
-	sort.Strings(unreadable)
-	return projects, unreadable
+	for name := range index.owners {
+		sort.Strings(index.owners[name])
+	}
+	sort.Strings(index.unreadable)
+	return index
 }

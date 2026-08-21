@@ -100,9 +100,12 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer) int {
 		// A credential stored before namespacing lands in the scope that now
 		// looks for it, so --fix repairs the state of the migration as well
 		// as the state of the services.
-		migrated, err := auth.Migrate(store, h.Data, project, manifest)
+		migrated, unreadable, err := auth.Migrate(store, h.Data, project, manifest)
 		if err != nil {
 			fmt.Fprintf(stderr, "cfo auth: migrate stored credentials: %v\n", err)
+		}
+		if line := auth.MigrationPausedLine(unreadable); line != "" {
+			fmt.Fprintf(stderr, "cfo auth: %s\n", line)
 		}
 		for _, item := range append(adopted, migrated...) {
 			verb := "adopted"

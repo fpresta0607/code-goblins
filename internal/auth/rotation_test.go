@@ -153,7 +153,7 @@ func TestABareCredentialMigratesIntoTheOnlyProjectThatDeclaresIt(t *testing.T) {
 	})
 	store := newMemoryStore(map[string]string{"OPENAI_API_KEY": "sk_stored_before_scopes"})
 
-	migrated, err := Migrate(store, dataDir, "precisiondocs", manifest)
+	migrated, _, err := Migrate(store, dataDir, "precisiondocs", manifest)
 	if err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestABareCredentialMigratesIntoTheOnlyProjectThatDeclaresIt(t *testing.T) {
 
 	// Running it again changes nothing: the name resolves, so there is
 	// nothing left to migrate.
-	again, err := Migrate(store, dataDir, "precisiondocs", manifest)
+	again, _, err := Migrate(store, dataDir, "precisiondocs", manifest)
 	if err != nil {
 		t.Fatalf("second Migrate: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestABareCredentialTwoProjectsDeclareIsLeftWhereItIs(t *testing.T) {
 	writeManifest(t, dataDir, "precisiondocs", Manifest{Project: "precisiondocs", Services: []Service{postgres}})
 	store := newMemoryStore(map[string]string{"DATABASE_URL": "postgres://somebody/appdb"})
 
-	migrated, err := Migrate(store, dataDir, "clock-in", manifest)
+	migrated, _, err := Migrate(store, dataDir, "clock-in", manifest)
 	if err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
@@ -261,8 +261,8 @@ func TestDeclaringProjectsCountsEveryManifestThatClaimsAName(t *testing.T) {
 	if got, _ := DeclaringProjects(dataDir, "NOBODY_DECLARES_THIS"); len(got) != 0 {
 		t.Errorf("DeclaringProjects = %v, want nothing", got)
 	}
-	if _, unreadable := DeclaringProjects(dataDir, "DATABASE_URL"); len(unreadable) != 1 || unreadable[0] != "prometheus" {
-		t.Errorf("unreadable = %v, want the manifest that could not be read named", unreadable)
+	if _, unreadable := DeclaringProjects(dataDir, "DATABASE_URL"); len(unreadable) != 1 || unreadable[0] != ManifestPath(dataDir, "prometheus") {
+		t.Errorf("unreadable = %v, want the path of the manifest that could not be read", unreadable)
 	}
 }
 
@@ -292,7 +292,7 @@ func TestABareCredentialAnotherProjectReadsThroughAnAliasIsLeftWhereItIs(t *test
 	if owners, _ := DeclaringProjects(dataDir, "DATABASE_URL"); len(owners) != 2 {
 		t.Errorf("DeclaringProjects(DATABASE_URL) = %v, want the alias reader counted as an owner", owners)
 	}
-	migrated, err := Migrate(store, dataDir, "clock-in", manifest)
+	migrated, _, err := Migrate(store, dataDir, "clock-in", manifest)
 	if err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
@@ -328,7 +328,7 @@ func TestASiblingManifestThatWillNotLoadBlocksMigration(t *testing.T) {
 	}
 	store := newMemoryStore(map[string]string{"OPENAI_API_KEY": "sk_stored_before_scopes"})
 
-	migrated, err := Migrate(store, dataDir, "precisiondocs", manifest)
+	migrated, _, err := Migrate(store, dataDir, "precisiondocs", manifest)
 	if err != nil {
 		t.Fatalf("Migrate returned an error, which would stall a dispatch into an unrelated project: %v", err)
 	}
@@ -337,6 +337,96 @@ func TestASiblingManifestThatWillNotLoadBlocksMigration(t *testing.T) {
 	}
 	if _, claimed := store.values["precisiondocs/OPENAI_API_KEY"]; claimed {
 		t.Error("claimed a bare credential while a sibling manifest could not be read")
+	}
+}
+
+// TestAPausedMigrationSaysWhichManifestStoppedIt is why the decline is
+// reported rather than only performed. Nothing else in the fleet ever reports
+// that a manifest fails to load, so a silent decline leaves the operator with
+// a credential that will not resolve and a resolution chain whose stated
+// reason is not the real one.
+func TestAPausedMigrationSaysWhichManifestStoppedIt(t *testing.T) {
+	clearEnv(t, "OPENAI_API_KEY")
+	t.Setenv(StoreDirEnv, t.TempDir())
+	dataDir := t.TempDir()
+	writeManifest(t, dataDir, "precisiondocs", Manifest{
+		Project:  "precisiondocs",
+		Services: []Service{{Name: "openai", Method: MethodEnv, Env: []string{"OPENAI_API_KEY"}}},
+	})
+	broken := ManifestPath(dataDir, "clock-in")
+	if err := os.MkdirAll(filepath.Dir(broken), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"project":"clock-in","services":[{"name":"openai","method":"env","env":["OPENAI_API_KEY"],"sharedd":true}]}`
+	if err := os.WriteFile(broken, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	project := filepath.Join(t.TempDir(), "precisiondocs")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := SpawnPreflight{DataDir: dataDir, Runner: gitIgnoresEverything()}.
+		Preflight(context.Background(), project)
+	if err != nil {
+		t.Fatalf("a broken sibling manifest stalled a dispatch into an unrelated project: %v", err)
+	}
+	_, paused, found := strings.Cut(result.Warning, "migration paused")
+	if !found {
+		t.Fatalf("warning %q does not report that migration declined", result.Warning)
+	}
+	if !strings.Contains(paused, broken) {
+		t.Errorf("paused line %q does not name the manifest that has to be fixed", paused)
+	}
+	// The blocking service's own remedy names the credential; the paused line
+	// must not, because it is about a manifest and nothing else.
+	if strings.Contains(paused, "OPENAI_API_KEY") {
+		t.Errorf("paused line %q named a credential rather than only the manifest", paused)
+	}
+}
+
+// TestAGoblinWorktreeEnvIsNeverAnOrigin is the boundary that keeps the
+// refresh rule honest. Only the Overlord's own file may rotate a stored
+// value, and a goblin writes .env files inside <project>/.worktrees/<id>
+// while git ignores that whole tree - so without pruning it, an agent
+// bootstrapping a local database would overwrite the fleet's credential.
+func TestAGoblinWorktreeEnvIsNeverAnOrigin(t *testing.T) {
+	clearEnv(t, "DATABASE_URL")
+	manifest := Manifest{
+		Project:  "precisiondocs",
+		Services: []Service{{Name: "postgres", Method: MethodEnv, Env: []string{"DATABASE_URL"}}},
+	}
+	project := filepath.Join(t.TempDir(), "precisiondocs")
+	goblin := filepath.Join(project, ".worktrees", "gb-1")
+	if err := os.MkdirAll(goblin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(goblin, ".env"),
+		[]byte("DATABASE_URL=postgres://localhost:5432/dev\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := newMemoryStore(map[string]string{"precisiondocs/DATABASE_URL": "postgres://prod/appdb"})
+
+	adopted, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if store.values["precisiondocs/DATABASE_URL"] != "postgres://prod/appdb" {
+		t.Errorf("DATABASE_URL = %q, want the Overlord's stored value untouched by a goblin's worktree",
+			Redact(store.values["precisiondocs/DATABASE_URL"]))
+	}
+	if len(adopted) != 0 {
+		t.Errorf("adopted %+v, want a goblin's worktree to be no origin at all", adopted)
+	}
+
+	// An empty slot is not a loophole either: a goblin's file must not fill
+	// one any more than it may replace a value.
+	empty := newMemoryStore(nil)
+	if _, err := Discover(context.Background(), empty, gitIgnoresEverything(), manifest, project); err != nil {
+		t.Fatalf("Discover into an empty store: %v", err)
+	}
+	if _, claimed := empty.values["precisiondocs/DATABASE_URL"]; claimed {
+		t.Error("adopted a credential from a goblin's own worktree")
 	}
 }
 

@@ -74,7 +74,7 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, 
 	// Migration runs after adoption, so a project's own .env is what answers
 	// a name both could: the file is the current truth, and a value stored
 	// before namespacing is only ever the older one.
-	migrated, err := Migrate(store, p.DataDir, project, manifest)
+	migrated, unreadable, err := Migrate(store, p.DataDir, project, manifest)
 	if err != nil {
 		return Result{}, err
 	}
@@ -89,6 +89,12 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, 
 	}
 	warning := WarningLine(project, report)
 	if line := AdoptionLine(adopted); line != "" {
+		warning += "; " + line
+	}
+	// A migration that declined has to say so on the same line an adoption
+	// reports on, or the operator sees a credential that will not resolve and
+	// no way from that symptom to the manifest that caused it.
+	if line := MigrationPausedLine(unreadable); line != "" {
 		warning += "; " + line
 	}
 	return Result{
