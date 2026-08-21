@@ -556,12 +556,6 @@ func TestASecondServicesAliasStillReachesTheLiveKey(t *testing.T) {
 	}
 }
 
-// TestTheDeclaredLineBeatsTheAliasLineInOneFile covers the .env shape a
-// managed Postgres hands out: a pooled DATABASE_URL and a direct alias, both
-// carried in one file with different values by design. They answer one
-// credential and target one store key, so without collapsing them the key is
-// written twice in a run and alphabetical order picks the winner - which is
-// not what the manifest says, and it repeats on every dispatch.
 // TestTheLocalFilesAliasBeatsTheSharedFilesDeclaredName pins the ordering
 // from the other side: the file decides first, and the manifest's chain order
 // only settles a tie inside one file. A dev default left in .env under the
@@ -611,6 +605,77 @@ func TestTheLocalFilesAliasBeatsTheSharedFilesDeclaredName(t *testing.T) {
 	}
 }
 
+// TestAWinningAliasLineAdoptsIntoTheDeclaredKey covers the empty-store half
+// of the same rule. Collapsing a credential to one line means the winner can
+// be an alias, and keying adoption off the line's own name would then adopt
+// nothing at all: the credential is reported missing and the dispatch blocked
+// while the value sits in the project's own .env.
+//
+// The value lands under the declared name, because an alias is a name a
+// stored value may be found under rather than a credential of its own.
+func TestAWinningAliasLineAdoptsIntoTheDeclaredKey(t *testing.T) {
+	clearEnv(t, "DATABASE_URL", "PG_URL")
+	postgres := Service{
+		Name: "postgres", Method: MethodEnv, Env: []string{"DATABASE_URL"},
+		Aliases: map[string][]string{"DATABASE_URL": {"PG_URL"}},
+	}
+	manifest := Manifest{Project: "precisiondocs", Services: []Service{postgres}}
+	project := filepath.Join(t.TempDir(), "precisiondocs")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		".env":       "DATABASE_URL=postgres://localhost/dev\n",
+		".env.local": "PG_URL=postgres://prod/appdb\n",
+	} {
+		if err := os.WriteFile(filepath.Join(project, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := newMemoryStore(nil)
+
+	adopted, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if store.values["precisiondocs/DATABASE_URL"] != "postgres://prod/appdb" {
+		t.Errorf("DATABASE_URL = %q, want the .env.local value adopted under the declared name",
+			Redact(store.values["precisiondocs/DATABASE_URL"]))
+	}
+	if _, second := store.values["precisiondocs/PG_URL"]; second {
+		t.Error("adopted the alias into a key of its own instead of the declared one")
+	}
+	if len(adopted) != 1 {
+		t.Fatalf("adopted = %+v, want the credential adopted exactly once", adopted)
+	}
+	if adopted[0].Refreshed {
+		t.Errorf("adopted = %+v, want an empty slot filled rather than a value replaced", adopted[0])
+	}
+	if adopted[0].Name != "DATABASE_URL" || adopted[0].Key.String() != "precisiondocs/DATABASE_URL" {
+		t.Errorf("adopted = %+v, want the credential reported by its declared name", adopted[0])
+	}
+	if filepath.Base(adopted[0].Origin) != ".env.local" {
+		t.Errorf("adopted = %+v, want .env.local reported as the origin", adopted[0])
+	}
+
+	// It resolves through the ordinary path afterwards, which is the point:
+	// the service is green rather than blocked on a name whose value was in
+	// the project's own .env all along.
+	resolution, err := Resolver{Store: store, Project: "precisiondocs"}.Resolve(postgres)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if resolution.Values["DATABASE_URL"].Value != "postgres://prod/appdb" {
+		t.Errorf("resolved %q, want the adopted credential", Redact(resolution.Values["DATABASE_URL"].Value))
+	}
+}
+
+// TestTheDeclaredLineBeatsTheAliasLineInOneFile covers the .env shape a
+// managed Postgres hands out: a pooled DATABASE_URL and a direct alias, both
+// carried in one file with different values by design. They answer one
+// credential and target one store key, so without collapsing them the key is
+// written twice in a run and alphabetical order picks the winner - which is
+// not what the manifest says, and it repeats on every dispatch.
 func TestTheDeclaredLineBeatsTheAliasLineInOneFile(t *testing.T) {
 	clearEnv(t, "DATABASE_URL", "PG_URL")
 	postgres := Service{
