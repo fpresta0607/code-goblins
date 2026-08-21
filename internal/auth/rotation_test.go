@@ -562,6 +562,55 @@ func TestASecondServicesAliasStillReachesTheLiveKey(t *testing.T) {
 // credential and target one store key, so without collapsing them the key is
 // written twice in a run and alphabetical order picks the winner - which is
 // not what the manifest says, and it repeats on every dispatch.
+// TestTheLocalFilesAliasBeatsTheSharedFilesDeclaredName pins the ordering
+// from the other side: the file decides first, and the manifest's chain order
+// only settles a tie inside one file. A dev default left in .env under the
+// declared name must not outrank a rotation written to .env.local under an
+// alias, or the stale value clobbers the real one on every dispatch and no
+// override can be pinned.
+func TestTheLocalFilesAliasBeatsTheSharedFilesDeclaredName(t *testing.T) {
+	clearEnv(t, "DATABASE_URL", "PG_URL")
+	postgres := Service{
+		Name: "postgres", Method: MethodEnv, Env: []string{"DATABASE_URL"},
+		Aliases: map[string][]string{"DATABASE_URL": {"PG_URL"}},
+	}
+	manifest := Manifest{Project: "precisiondocs", Services: []Service{postgres}}
+	project := filepath.Join(t.TempDir(), "precisiondocs")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		".env":       "DATABASE_URL=postgres://localhost/dev\n",
+		".env.local": "PG_URL=postgres://prod/appdb\n",
+	} {
+		if err := os.WriteFile(filepath.Join(project, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := newMemoryStore(map[string]string{"precisiondocs/DATABASE_URL": "postgres://prod/before"})
+
+	adopted, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if store.values["precisiondocs/DATABASE_URL"] != "postgres://prod/appdb" {
+		t.Errorf("DATABASE_URL = %q, want the .env.local value rather than the .env dev default",
+			Redact(store.values["precisiondocs/DATABASE_URL"]))
+	}
+	if len(adopted) != 1 {
+		t.Fatalf("adopted = %+v, want one store key written once", adopted)
+	}
+	if filepath.Base(adopted[0].Origin) != ".env.local" {
+		t.Errorf("adopted = %+v, want .env.local reported as the origin", adopted[0])
+	}
+	if adopted[0].Key.String() != "precisiondocs/DATABASE_URL" {
+		t.Errorf("adopted = %+v, want the key that answers the credential", adopted[0])
+	}
+	if _, second := store.values["precisiondocs/PG_URL"]; second {
+		t.Error("the alias line created a second key for one credential")
+	}
+}
+
 func TestTheDeclaredLineBeatsTheAliasLineInOneFile(t *testing.T) {
 	clearEnv(t, "DATABASE_URL", "PG_URL")
 	postgres := Service{
