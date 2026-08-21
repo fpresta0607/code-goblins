@@ -239,7 +239,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// runnable as if it were the project - shared config, dependencies
 	// installed against the shared package cache, and the token-authenticated
 	// subset of the project's MCP servers.
-	provision, err := s.Worktrees.Provision(ctx, project, wt.Path, taskTmp)
+	provision, err := s.Worktrees.Provision(ctx, project, wt.Path, taskTmp, preflight.Caches)
 	if err != nil {
 		return fail(result, fmt.Errorf("spawn: provision worktree environment: %w", err))
 	}

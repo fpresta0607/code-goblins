@@ -298,10 +298,14 @@ func TestDiscoverAdoptsProjectEnvFilesAndRefreshesWhatTheyRotated(t *testing.T) 
 	}
 }
 
-// gitIgnoresEverything answers `git check-ignore` with success, which is what
-// a real project's gitignored .env produces.
+// gitIgnoresEverything answers `git check-ignore` the way a project whose
+// .env files are all gitignored does: exit zero, with every path it was
+// handed echoed back as one it matched.
 func gitIgnoresEverything() *fakeRunner {
-	return &fakeRunner{results: map[string]execx.Result{"git": {ExitCode: 0}}}
+	return &fakeRunner{
+		results:          map[string]execx.Result{"git": {ExitCode: 0}},
+		ignoresEveryPath: true,
+	}
 }
 
 func TestDiscoverRefusesAnEnvFileGitTracks(t *testing.T) {

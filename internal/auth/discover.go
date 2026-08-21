@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -193,19 +194,76 @@ func wantedNames(store Store, scope string, manifest Manifest) map[string]bool {
 	return wanted
 }
 
-// gitIgnores reports whether git ignores this file. A .env that git tracks is
-// not a local secret, and adopting from it would take a value that anyone
+// gitIgnored reports which of these files git ignores. A .env that git tracks
+// is not a local secret, and adopting from it would take a value that anyone
 // with the repository already has.
-func gitIgnores(ctx context.Context, runner execx.Runner, projectDir, path string) bool {
-	if runner == nil {
-		return false
+//
+// One invocation classifies the whole set. check-ignore takes many paths and
+// echoes back the ignored ones, and this runs on every dispatch while the
+// per-home spawn lock is held, so a process launch per candidate file is time
+// the operator waits through for an answer git gives in one.
+func gitIgnored(ctx context.Context, runner execx.Runner, projectDir string, paths []string) map[string]bool {
+	if runner == nil || len(paths) == 0 {
+		return nil
 	}
-	result, err := runner.Run(ctx, execx.Request{
-		Dir:  projectDir,
-		Name: "git",
-		Args: []string{"check-ignore", "--quiet", path},
-	})
-	return err == nil && result.ExitCode == 0
+	args := make([]string, 0, len(paths)+3)
+	// quotePath off keeps a non-ASCII pathname raw instead of octal-escaped,
+	// which together with the relative slash-separated form below is what
+	// makes the answer come back as the exact strings that were asked about.
+	args = append(args, "-c", "core.quotePath=false", "check-ignore")
+	asked := map[string]bool{}
+	for _, path := range paths {
+		name, err := ignorePathKey(projectDir, path)
+		if err != nil {
+			continue
+		}
+		asked[name] = true
+		args = append(args, name)
+	}
+	if len(asked) == 0 {
+		return nil
+	}
+	result, err := runner.Run(ctx, execx.Request{Dir: projectDir, Name: "git", Args: args})
+	// Exit 1 is "none of them are ignored" rather than a failure. Any other
+	// non-zero is a question git could not answer, and a file whose status is
+	// unknown is not a local secret this is allowed to read.
+	if err != nil || (result.ExitCode != 0 && result.ExitCode != 1) {
+		return nil
+	}
+	ignored := map[string]bool{}
+	for _, line := range strings.Split(string(result.Stdout), "\n") {
+		name := strings.TrimRight(line, "\r")
+		if name == "" {
+			continue
+		}
+		// A pathname git still had to quote is C-quoted, which is the syntax
+		// strconv.Unquote reads. Only a name that was actually asked about is
+		// believed, so a line this failed to read back can never widen what
+		// is treated as a local secret.
+		if strings.HasPrefix(name, `"`) {
+			unquoted, err := strconv.Unquote(name)
+			if err != nil {
+				continue
+			}
+			name = unquoted
+		}
+		if asked[name] {
+			ignored[name] = true
+		}
+	}
+	return ignored
+}
+
+// ignorePathKey is the form both sides of the check-ignore exchange are held
+// in: relative to the project and slash-separated. Git echoes a pathname back
+// as it was given, and a backslash is one of the characters that makes it
+// quote the answer, so asking in this form is what keeps the reply plain.
+func ignorePathKey(projectDir, path string) (string, error) {
+	relative, err := filepath.Rel(projectDir, path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(relative), nil
 }
 
 // flyAccessToken reads the token flyctl already holds. The file is a small
@@ -315,9 +373,7 @@ func credentialRotations(chains map[string][]string, owned map[string]envClaim) 
 		credential, place := name, 0
 		if chain := chains[name]; len(chain) > 0 {
 			credential = chain[0]
-			if place = slices.Index(chain, name); place < 0 {
-				place = len(chain)
-			}
+			place = slices.Index(chain, name)
 		}
 		contender := credentialContender{claim: owned[name], place: place}
 		held, contested := best[credential]
@@ -370,8 +426,11 @@ func (c envClaim) beats(other envClaim) bool {
 func envOwners(ctx context.Context, runner execx.Runner, projectDir string) map[string]envClaim {
 	owned := map[string]envClaim{}
 	root := filepath.Clean(projectDir)
-	for _, path := range envFiles(projectDir) {
-		if !gitIgnores(ctx, runner, projectDir, path) {
+	candidates := envFiles(projectDir)
+	ignored := gitIgnored(ctx, runner, projectDir, candidates)
+	for _, path := range candidates {
+		name, err := ignorePathKey(projectDir, path)
+		if err != nil || !ignored[name] {
 			continue
 		}
 		values, err := ParseEnvFile(path)
@@ -399,12 +458,7 @@ func envOwners(ctx context.Context, runner execx.Runner, projectDir string) map[
 
 // envFileRank is a file's place in dotenv's layering, higher winning.
 func envFileRank(base string) int {
-	for rank, name := range envFileNames {
-		if name == base {
-			return rank
-		}
-	}
-	return -1
+	return slices.Index(envFileNames, base)
 }
 
 // envFiles lists the local secret files under a project, bounded in depth and
