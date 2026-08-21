@@ -32,6 +32,11 @@ type Adopted struct {
 	Name   string
 	Key    Key
 	Origin string
+	// Refreshed marks a value that replaced a different one already held in
+	// this project's scope, rather than one that filled an empty slot. The
+	// two read differently in a report: a refresh means a credential the
+	// Overlord rotated has just reached the store.
+	Refreshed bool
 }
 
 // Discover registers credentials the machine already holds into this
@@ -40,11 +45,19 @@ type Adopted struct {
 //
 // It is deliberately narrow, because adopting a credential from the wrong
 // place is how a goblin was handed an unrelated project's database. It only
-// adopts names this manifest declares; it never overwrites, and never fills a
-// name that already resolves for this project through any route the manifest
-// allows; and it reads a .env file only after git confirms that file is
-// ignored, so a value committed to a repository is never mistaken for a local
-// secret.
+// adopts names this manifest declares; it never fills a name that already
+// resolves for this project through any route the manifest allows; and it
+// reads a .env file only after git confirms that file is ignored, so a value
+// committed to a repository is never mistaken for a local secret.
+//
+// One origin may overwrite: a project's own gitignored .env file refreshes a
+// value this project's scope already holds when the two differ, because the
+// Overlord editing that file is the deliberate act of rotating a credential
+// and every goblin dispatched afterwards would otherwise carry the dead one.
+// Tool-derived origins keep the never-overwrite rule: a token gh or flyctl
+// happens to hold is not a decision about this project, and letting one
+// rotate under a deliberately stored value is how a stored credential
+// disappears without anyone choosing it.
 func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Manifest, projectDir string) ([]Adopted, error) {
 	if store == nil {
 		return nil, fmt.Errorf("auth: no credential store configured")
@@ -57,7 +70,11 @@ func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Ma
 		return nil, fmt.Errorf("auth: %q cannot be a credential scope", scope)
 	}
 	wanted := wantedNames(store, scope, manifest)
-	if len(wanted) == 0 {
+	declared := map[string]bool{}
+	for _, name := range manifest.EnvNames() {
+		declared[name] = true
+	}
+	if len(wanted) == 0 && len(declared) == 0 {
 		return nil, nil
 	}
 
@@ -75,6 +92,32 @@ func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Ma
 		return nil
 	}
 
+	// refresh is bounded to this project's own scope, so a rotated secret
+	// reaches the next dispatch while a name currently answered from the
+	// shared scope never gains a project copy that would then drift from it.
+	refresh := func(name, value, origin string) error {
+		if !declared[name] || strings.TrimSpace(value) == "" {
+			return nil
+		}
+		key := Scoped(scope, name)
+		existing, found, err := store.Get(key)
+		if err != nil {
+			return err
+		}
+		if !found || existing == value {
+			return nil
+		}
+		if err := store.Set(key, value); err != nil {
+			return err
+		}
+		adopted = append(adopted, Adopted{Name: name, Key: key, Origin: origin, Refreshed: true})
+		return nil
+	}
+
+	// The first file that carries a name owns it for this run, which is the
+	// order envFiles already established. Without it a refresh would let the
+	// last file scanned win and quietly invert a project's own precedence.
+	taken := map[string]bool{}
 	for _, path := range envFiles(projectDir) {
 		if !gitIgnores(ctx, runner, projectDir, path) {
 			continue
@@ -89,7 +132,14 @@ func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Ma
 		}
 		sort.Strings(names)
 		for _, name := range names {
+			if taken[name] || strings.TrimSpace(values[name]) == "" {
+				continue
+			}
+			taken[name] = true
 			if err := adopt(name, values[name], path); err != nil {
+				return adopted, err
+			}
+			if err := refresh(name, values[name], path); err != nil {
 				return adopted, err
 			}
 		}

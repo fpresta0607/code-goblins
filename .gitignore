@@ -1,6 +1,8 @@
 projects/
 /state/
 data/
+# The shared package-cache root every goblin builds against.
+/caches/
 .no-mistakes/
 .showcase/
 .DS_Store

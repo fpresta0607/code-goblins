@@ -19,7 +19,11 @@ import (
 // an OAuth window or re-authenticate a CLI as a side effect.
 type SpawnPreflight struct {
 	DataDir string
-	Runner  execx.Runner
+	// Home is the CFO home root, which owns the shared package-cache store
+	// every goblin builds against. It is separate from DataDir because the
+	// caches are a property of the machine, not of any project's manifest.
+	Home   string
+	Runner execx.Runner
 }
 
 // Result is what a spawn needs from the preflight: what to inject, what to
@@ -27,6 +31,11 @@ type SpawnPreflight struct {
 type Result struct {
 	// Env is the credentials the pane inherits.
 	Env map[string]string
+	// Caches is the shared package-cache redirects the pane inherits. They
+	// are kept apart from Env because they are not secrets: they travel in
+	// the launch environment rather than through the restricted file the
+	// credentials use, and they apply to a project that declares nothing.
+	Caches map[string]string
 	// Warning is the one-line summary printed after the spawn line.
 	Warning string
 	// Refusal is the multi-line reason a spawn must stop, with the exact
@@ -36,11 +45,15 @@ type Result struct {
 
 // Preflight satisfies spawn.AuthPreflight.
 func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, error) {
+	// The caches belong to the machine, so they are prepared before anything
+	// is read about the project: a project that declares no credentials still
+	// builds against the shared store rather than downloading its own copy.
+	caches := CacheEnv(p.Home)
 	manifest, err := LoadManifest(p.DataDir, project)
 	if errors.Is(err, fs.ErrNotExist) {
 		// Most projects declare nothing. That is not a fault, and a spawn
 		// must not be held up by it.
-		return Result{}, nil
+		return Result{Caches: caches}, nil
 	}
 	if err != nil {
 		return Result{}, err
@@ -50,12 +63,22 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, 
 		return Result{}, err
 	}
 	scope := ProjectName(project)
-	// Adopting is safe to do unattended: it only fills credentials that are
-	// absent, from files and tools already on this machine, into this
-	// project's own scope.
-	if _, err := Discover(ctx, store, p.Runner, manifest, project); err != nil {
+	// Adopting is safe to do unattended: it reads only files and tools
+	// already on this machine, and writes only into this project's own scope.
+	// The one value it replaces is one this project's own gitignored .env has
+	// since changed, which is the Overlord rotating a credential.
+	adopted, err := Discover(ctx, store, p.Runner, manifest, project)
+	if err != nil {
 		return Result{}, err
 	}
+	// Migration runs after adoption, so a project's own .env is what answers
+	// a name both could: the file is the current truth, and a value stored
+	// before namespacing is only ever the older one.
+	migrated, err := Migrate(store, p.DataDir, project, manifest)
+	if err != nil {
+		return Result{}, err
+	}
+	adopted = append(adopted, migrated...)
 	report, err := Checker{Store: store, Runner: p.Runner, Project: scope}.Check(ctx, manifest)
 	if err != nil {
 		return Result{}, err
@@ -64,11 +87,45 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, 
 	if err != nil {
 		return Result{}, err
 	}
+	warning := WarningLine(project, report)
+	if line := AdoptionLine(adopted); line != "" {
+		warning += "; " + line
+	}
 	return Result{
 		Env:     env,
-		Warning: WarningLine(project, report),
+		Caches:  caches,
+		Warning: warning,
 		Refusal: RefusalLines(project, report),
 	}, nil
+}
+
+// AdoptionLine reports what this preflight registered, by name and origin, so
+// a credential the Overlord rotated is visibly picked up at dispatch rather
+// than silently. A refresh is named separately from a first adoption because
+// they mean different things: one filled an empty slot, the other replaced a
+// value every goblin dispatched until now was carrying.
+//
+// Origins are file paths and tool names. No value appears here, and none ever
+// may: this line goes to the spawn output, which `cfo peek` reads back and
+// which lives in a pane's scrollback.
+func AdoptionLine(adopted []Adopted) string {
+	var refreshed, added []string
+	for _, item := range adopted {
+		entry := item.Name + " from " + item.Origin
+		if item.Refreshed {
+			refreshed = append(refreshed, entry)
+			continue
+		}
+		added = append(added, entry)
+	}
+	var parts []string
+	if len(refreshed) > 0 {
+		parts = append(parts, fmt.Sprintf("refreshed %d (%s)", len(refreshed), strings.Join(refreshed, ", ")))
+	}
+	if len(added) > 0 {
+		parts = append(parts, fmt.Sprintf("adopted %d (%s)", len(added), strings.Join(added, ", ")))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // WarningLine summarizes a preflight in one line for the spawn output, so a

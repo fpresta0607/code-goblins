@@ -34,9 +34,9 @@ This file is your entire job description.
 | --- | --- |
 | `cfo install [--uninstall]` | Wire this checkout into the machine so a Claude Code session opened in any repository is supervised: `CFO_HOME` and PATH at user scope, and the CFO hooks merged into the user's `~/.claude/settings.json` (their own hooks are kept, the file is backed up first). Idempotent; `--uninstall` reverses it. `cfo doctor` reports, this repairs |
 | `cfo doctor` | Check git, gh, claude, herdr, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi and print install hints; probe each installed harness (`--version` under a short timeout) and report ok/broken; print the measured per-harness per-step speed table from `~/.no-mistakes/state.sqlite` when present (skipped with a note when absent or locked); print the standing switch rules from `data/routing.json` |
-| `cfo auth <project> [--check\|--fix] [--env]` | Preflight a project's services against its manifest and print one honest line each, plus the resolution order behind every variable it declares. `--fix` adopts credentials the machine already holds, runs non-interactive CLI logins, and confirms an OAuth page whose browser session is live. `--env` shows the redacted environment a goblin's pane would inherit. Ends with one consolidated sign-in request covering everything still blocked |
+| `cfo auth <project> [--check\|--fix] [--env]` | Preflight a project's services against its manifest and print one honest line each, plus the resolution order behind every variable it declares. `--fix` adopts credentials the machine already holds, runs non-interactive CLI logins, and confirms an OAuth page whose browser session is live. `--env` shows the redacted credentials a goblin's pane would inherit, then the shared cache redirects in full - a cache location is a path on this machine, not a secret. Ends with one consolidated sign-in request covering everything still blocked |
 | `cfo auth store [--project <p>] <NAME> [value]` | Store one credential in a project's scope, or in the shared scope when `--project` is omitted. Omit the value to read it from stdin, which keeps the secret out of shell history |
-| `cfo auth list [--project <p>]` | List stored credential keys, never values. A scoped key prints as `project/NAME` |
+| `cfo auth list [--project <p>]` | List stored credential keys, never values. The scope is the key: a shared one prints as `NAME` and a project one as `project/NAME`, so how far the migration has got is readable without opening any code |
 | `cfo auth copy <NAME> --to <project> [--from <project>]` | Copy a stored value into a project's scope without re-entering it. The source is left in place |
 | `cfo spawn <id> --project <p> --brief <b> --harness <h> [--mode <m>] [--model <m>] [--effort <e>] [--yolo]` | Dispatch one goblin (ship task); runs the project's auth preflight before anything is built and **refuses to dispatch** while a blocking service is red, printing the exact `cfo auth store` command per fault (`--yolo` overrides and records the override). On a clean preflight it injects the usable credentials into the pane before the harness starts and appends a one-line summary right after the `spawned ...` line; also prints a one-line measured speed hint for the chosen harness when telemetry exists |
 | `cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]` | Change a running goblin's harness, model, or effort in place: same id, same worktree, same pane. Stops the old harness on its own terms, then relaunches. A model-or-effort-only change resumes the harness's own session where the harness has one; otherwise it writes a handoff note and points the new harness at it. Refuses a dirty worktree unless `--force-dirty` |
@@ -108,12 +108,13 @@ The manifest holds names, probes, and links - never a credential.
 - `identity` proves the target. Declare exactly one of `var` (a resolved variable whose value must contain `expect`, which needs no tool installed) or `command` (a command whose output must contain `expect`). A service with no `identity` stays liveness-only and the report says so.
 - `login` is a non-interactive command `--fix` may run; `url` and `confirm` are what the browser fallback and the sign-in request use.
 - `optional: true` keeps a service a project can run without out of the blocking column.
+- Unknown fields are refused. `"shared": true` sat in two manifests doing nothing for as long as there was no field to receive it, so a manifest that does not mean what it says now fails to load instead of failing at the incident it causes.
 
 ### The credential store
 
 Credentials are namespaced on `(project, NAME)`.
 `precisiondocs/DATABASE_URL` and `clock-in/DATABASE_URL` are different credentials that cannot alias.
-The shared scope is the fallback for a value that genuinely is one value everywhere, and it is where every credential stored before namespacing already lives - nothing had to move.
+The shared scope is the fallback for a value that genuinely is one value everywhere, and it is where every credential stored before namespacing already lives.
 
 Resolution order, printed under every service by `cfo auth <project> --check`:
 
@@ -123,6 +124,14 @@ Resolution order, printed under every service by `cfo auth <project> --check`:
 4. each declared alias, in order, through the same three steps
 
 A shared value the manifest does not claim is reported rather than used, with the `cfo auth copy` command that would claim it.
+
+A bare credential stored before namespacing migrates into the scope that now looks for it, on the ordinary read path rather than as a one-off command, so a goblin dispatched mid-migration still resolves.
+The bare value is left where it is until nothing references it.
+Migration only claims a name exactly one project's manifest declares: a bare `DATABASE_URL` that two projects declare cannot say whose database it names, so it stays put and the report prints the `cfo auth copy` that would claim it deliberately.
+
+A project's own gitignored `.env` is the one origin allowed to overwrite.
+The Supreme Overlord editing that file is how a credential is rotated, so a value that differs from the store refreshes it and the dispatch line names what changed, by name and origin, never by value.
+Tool-derived origins keep the never-overwrite rule: a token `gh` or `flyctl` happens to hold is not a decision about this project, and letting one rotate under a deliberately stored value is how a stored credential disappears without anyone choosing it.
 
 Credentials live in Windows Credential Manager, or in `~/.cfo/credentials/` with owner-only ACLs when the vault is unavailable (`CFO_CREDENTIAL_DIR` overrides the location).
 They are never written into a repository and never printed - reports show provenance and a redacted shape only.
@@ -167,7 +176,7 @@ A project can declare how that worktree becomes runnable in `data/projects/<name
 - `dependencies.install` overrides the detected install commands; each entry is one command line run in order in the worktree.
   Provisioning runs under the per-home spawn lock, which covers the whole dispatch (task id, Herdr start, tab, metadata, harness launch), so concurrent dispatches into install-strategy projects serialize behind each other's installer.
   That is a chosen property, not an oversight: the cost is a slower concurrent dispatch, never a wrong one.
-- `env` carries environment redirects into the goblin's pane for large read-only caches.
+- `env` carries environment redirects into the goblin's pane for large read-only caches, and overrides the machine-wide cache redirects below for this project.
 - Everything provisioning places inside the worktree is registered in the clone's `info/exclude` when the project does not already ignore it, so the goblin's `git status` reflects only its own work.
   That matters because `cfo cleanup` refuses a worktree whose status is not empty, so an unignored provisioned artifact would read as uncommitted goblin work and block removal.
   Git has no per-worktree exclude file: `info/exclude` lives in the clone's shared common directory, so those entries - `.worktrees/`, plus whatever config and dependency paths a project's manifest provisions, such as `.env`, `node_modules`, or `.venv` - also apply to the primary checkout, and cleanup does not remove them.
@@ -176,6 +185,17 @@ A project can declare how that worktree becomes runnable in `data/projects/<name
   That filtered configuration is materialized under the task's temporary directory, outside the checkout, and it is the only file a harness is handed through `--mcp-config`.
   A copy is also written to the worktree root for harnesses that read the project-scoped `.mcp.json` from their working directory, but only when that path is free and untracked.
   A project that commits `.mcp.json` keeps its file exactly as committed, and the `spawned` line says so: a working-directory-reading harness then still sees every server declared there, withheld ones included.
+
+### Share caches, never share materialized environments
+
+Every goblin's pane inherits one shared package-cache root at `$CFO_HOME/caches/`, with a subdirectory per ecosystem: `UV_CACHE_DIR`, `npm_config_store_dir` (pnpm's store), `PLAYWRIGHT_BROWSERS_PATH`, `GOMODCACHE`, and `CARGO_HOME`.
+These locations are a property of the machine rather than of any project, so they live in the CFO home and no manifest repeats them.
+A variable the CFO's own environment already sets is inherited untouched, and a project's `worktree.json` `env` block still wins for that project.
+`cfo auth <project> --env` prints them in full.
+
+A `.venv` or a `node_modules` is never shared or linked between worktrees.
+Both bake absolute paths and compiled native artifacts, and a shared one fails as flaky tests rather than as an honest error, so a worktree always re-materializes its own against the shared store.
+`PLAYWRIGHT_BROWSERS_PATH` is the shape to prefer wherever it applies: a pure environment redirect to a large read-only artifact with nothing path-baked into what it produces.
 
 ## Switching a running goblin
 

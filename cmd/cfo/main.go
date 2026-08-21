@@ -86,7 +86,7 @@ func defaultCommandRuntime() commandRuntime {
 				Herdr:     client,
 				Worktrees: worktree.Service{Commands: commands, DataDir: h.Data},
 				Harness:   harness.DefaultRegistry(),
-				Auth:      auth.SpawnPreflight{DataDir: h.Data, Runner: commands},
+				Auth:      auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
 				Commands:  commands,
 				StateDir:  h.State,
 			}
@@ -99,7 +99,7 @@ func defaultCommandRuntime() commandRuntime {
 				Herdr:     client,
 				Worktrees: worktree.Service{Commands: commands, DataDir: h.Data},
 				Harness:   harness.DefaultRegistry(),
-				Auth:      auth.SpawnPreflight{DataDir: h.Data, Runner: commands},
+				Auth:      auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
 				Commands:  commands,
 				StateDir:  h.State,
 			}

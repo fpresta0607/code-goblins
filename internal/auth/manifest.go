@@ -5,6 +5,7 @@
 package auth
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -144,8 +145,21 @@ func LoadManifest(dataDir, project string) (Manifest, error) {
 		return Manifest{}, err
 	}
 	var manifest Manifest
-	if err := json.Unmarshal(data, &manifest); err != nil {
+	// Unknown fields are refused rather than discarded. `"shared": true` sat
+	// in two manifests doing nothing for as long as there was no Shared field
+	// to receive it, and encoding/json's default is what hid that: a
+	// misspelled or invented key is a manifest that does not mean what it
+	// says, so it fails here instead of at the incident it causes.
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&manifest); err != nil {
 		return Manifest{}, fmt.Errorf("auth: %s: %w", path, err)
+	}
+	// A decoder reads one value and stops, where Unmarshal refuses trailing
+	// content. Keep the stricter rule: a second document after the manifest
+	// is a file whose second half is silently ignored.
+	if decoder.More() {
+		return Manifest{}, fmt.Errorf("auth: %s: unexpected content after the manifest", path)
 	}
 	manifest.Path = path
 	if err := manifest.Validate(); err != nil {
