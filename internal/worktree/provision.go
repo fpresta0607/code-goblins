@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -63,7 +64,7 @@ type ProvisionResult struct {
 // worktree is first registered in the clone's info/exclude when the project
 // does not already ignore it, so the goblin's git status stays clean and
 // cleanup's dirty-worktree refusal keeps meaning uncommitted goblin work.
-func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp string) (ProvisionResult, error) {
+func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp string, caches map[string]string) (ProvisionResult, error) {
 	if s.Commands == nil {
 		return ProvisionResult{}, errors.New("worktree: command runner is required for provisioning")
 	}
@@ -107,7 +108,7 @@ func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp s
 			}
 		}
 	case StrategyInstall:
-		install, err := s.installDependencies(ctx, git, manifest, worktreePath)
+		install, err := s.installDependencies(ctx, git, manifest, worktreePath, caches)
 		if err != nil {
 			return result, err
 		}
@@ -206,7 +207,7 @@ const installFailureLimit = 400
 // mode; it also matches the rest of provisioning, where a missing link source
 // is skipped rather than fatal. A command that cannot be started at all stays
 // an error, because that is the runner failing rather than the project.
-func (s Service) installDependencies(ctx context.Context, git RunnerGit, manifest Manifest, worktreePath string) (installResult, error) {
+func (s Service) installDependencies(ctx context.Context, git RunnerGit, manifest Manifest, worktreePath string, caches map[string]string) (installResult, error) {
 	commands := manifest.Dependencies.Install
 	if len(commands) == 0 {
 		if detected := detectInstallCommand(worktreePath); detected != "" {
@@ -221,12 +222,13 @@ func (s Service) installDependencies(ctx context.Context, git RunnerGit, manifes
 			return installResult{}, err
 		}
 	}
+	env := installEnv(caches, manifest.Env)
 	for _, command := range commands {
 		fields := strings.Fields(command)
 		if len(fields) == 0 {
 			continue
 		}
-		result, err := s.Commands.Run(ctx, execx.Request{Dir: worktreePath, Name: fields[0], Args: fields[1:]})
+		result, err := s.Commands.Run(ctx, execx.Request{Dir: worktreePath, Name: fields[0], Args: fields[1:], Env: env})
 		if err != nil {
 			return installResult{}, fmt.Errorf("worktree: install dependencies (%q): %w", command, err)
 		}
@@ -237,6 +239,50 @@ func (s Service) installDependencies(ctx context.Context, git RunnerGit, manifes
 		}
 	}
 	return installResult{ran: strings.Join(commands, " && ")}, nil
+}
+
+// installEnv is the environment a dependency install runs in: the CFO's own
+// environment, then the shared package caches, then the project's own env
+// block, which wins - the precedence the pane already uses.
+//
+// The install is both the largest consumer of the shared cache and the thing
+// that fills it, so running it against the operator's own caches would leave
+// the redirects doing nothing for the case they exist for. It also costs more
+// than a missed download: pnpm records the store it installed from, so a pane
+// pointed at a different one tears node_modules down and reinstalls on the
+// goblin's first command.
+//
+// A nil result leaves execx inheriting the CFO's environment unchanged, which
+// is what a project with neither caches nor an env block should get.
+func installEnv(caches, projectEnv map[string]string) []string {
+	if len(caches) == 0 && len(projectEnv) == 0 {
+		return nil
+	}
+	merged := map[string]string{}
+	for _, entry := range os.Environ() {
+		if name, value, found := strings.Cut(entry, "="); found {
+			merged[name] = value
+		}
+	}
+	for _, overrides := range []map[string]string{caches, projectEnv} {
+		for name, value := range overrides {
+			// Windows matches environment names without case, so an override
+			// has to displace the entry it means rather than sit beside it
+			// and leave the child a name defined twice.
+			for existing := range merged {
+				if existing != name && strings.EqualFold(existing, name) {
+					delete(merged, existing)
+				}
+			}
+			merged[name] = value
+		}
+	}
+	env := make([]string, 0, len(merged))
+	for name, value := range merged {
+		env = append(env, name+"="+value)
+	}
+	sort.Strings(env)
+	return env
 }
 
 // installFailureTail flattens a failed installer's output to one bounded line

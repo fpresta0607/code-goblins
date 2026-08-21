@@ -19,6 +19,10 @@ type fakeRunner struct {
 	results map[string]execx.Result
 	errs    map[string]error
 	calls   []execx.Request
+	// ignoresEveryPath makes `git check-ignore` answer the way it does for a
+	// project that ignores every path asked about: each one echoed back on
+	// stdout, which is how check-ignore reports the ones it matched.
+	ignoresEveryPath bool
 }
 
 func (r *fakeRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -27,9 +31,25 @@ func (r *fakeRunner) Run(_ context.Context, req execx.Request) (execx.Result, er
 		return execx.Result{}, err
 	}
 	if result, ok := r.results[req.Name]; ok {
+		if r.ignoresEveryPath && req.Name == "git" {
+			if paths := checkIgnorePaths(req.Args); len(paths) > 0 {
+				result.Stdout = []byte(strings.Join(paths, "\n") + "\n")
+			}
+		}
 		return result, nil
 	}
 	return execx.Result{ExitCode: 127, Stderr: []byte("command not found")}, nil
+}
+
+// checkIgnorePaths is the pathnames a `git check-ignore` invocation asks
+// about, past whatever global options precede the subcommand.
+func checkIgnorePaths(args []string) []string {
+	for index, arg := range args {
+		if arg == "check-ignore" {
+			return args[index+1:]
+		}
+	}
+	return nil
 }
 
 func (r *fakeRunner) call(name string) (execx.Request, bool) {
