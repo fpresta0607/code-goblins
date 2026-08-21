@@ -1,7 +1,9 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,7 +24,11 @@ import (
 // declared by more than one project, and a bare one cannot say whose database
 // it names, so it is left where it is and the resolution report already prints
 // the `cfo auth copy` command that would claim it deliberately. Guessing there
-// is exactly the failure this package's namespacing was built to end.
+// is exactly the failure this package's namespacing was built to end. For the
+// same reason it claims nothing at all while any manifest in the data
+// directory fails to load: a sibling that cannot be read cannot be shown not
+// to declare the name, and counting it as absent is how a shared name looks
+// single-owner. The dispatch still proceeds; only the migration declines.
 func Migrate(store Store, dataDir, project string, manifest Manifest) ([]Adopted, error) {
 	if store == nil {
 		return nil, fmt.Errorf("auth: no credential store configured")
@@ -53,7 +59,16 @@ func Migrate(store Store, dataDir, project string, manifest Manifest) ([]Adopted
 		if !found || value == "" {
 			continue
 		}
-		if owners := DeclaringProjects(dataDir, name); len(owners) != 1 || owners[0] != scope {
+		owners, unreadable := DeclaringProjects(dataDir, name)
+		// A manifest that does not load cannot be shown not to declare this
+		// name, and "attribution could not be established" is not "no other
+		// owner". Claim nothing at all until every sibling can be read, so a
+		// stray key in one manifest can never make a shared name look
+		// single-owner. The dispatch itself still proceeds.
+		if len(unreadable) > 0 {
+			return migrated, nil
+		}
+		if len(owners) != 1 || owners[0] != scope {
 			continue
 		}
 		key := Scoped(scope, name)
@@ -65,39 +80,48 @@ func Migrate(store Store, dataDir, project string, manifest Manifest) ([]Adopted
 	return migrated, nil
 }
 
-// DeclaringProjects lists every project whose manifest declares a credential
-// name, sorted. It is what decides whether a bare stored value can be
-// attributed to one project: a name exactly one manifest declares has one
-// possible owner, and a name two manifests declare has none that can be
-// established without asking.
+// DeclaringProjects lists every project whose manifest consumes a credential
+// name, sorted, alongside every project whose manifest could not be read. It
+// is what decides whether a bare stored value can be attributed to one
+// project: a name exactly one manifest consumes has one possible owner, and a
+// name two manifests consume has none that can be established without asking.
 //
-// A manifest that no longer loads is skipped rather than reported, because the
-// question here is only which projects can be shown to claim a name, and one
-// broken sibling must not stall a dispatch into an unrelated project.
-func DeclaringProjects(dataDir, name string) []string {
+// Consumption is the manifest's whole read surface, not only its declared
+// names: Resolver.lookup consults a declared alias against the shared scope
+// too, so a project that reads a bare name through an alias is an owner.
+//
+// A manifest that no longer loads is reported rather than skipped. It cannot
+// be shown not to claim the name, and silently dropping it from the count is
+// how a shared name looks single-owner. Reporting is not erroring: one broken
+// sibling still must not stall a dispatch into an unrelated project, so the
+// caller declines to migrate rather than failing.
+func DeclaringProjects(dataDir, name string) (projects []string, unreadable []string) {
 	if dataDir == "" {
-		return nil
+		return nil, nil
 	}
 	entries, err := os.ReadDir(filepath.Join(dataDir, ManifestDirName))
 	if err != nil {
-		return nil
+		return nil, nil
 	}
-	var projects []string
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 		manifest, err := LoadManifest(dataDir, entry.Name())
-		if err != nil {
+		// A project directory with no manifest declares nothing, which is an
+		// established fact rather than a failure to establish one.
+		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
-		for _, declared := range manifest.EnvNames() {
-			if declared == name {
-				projects = append(projects, entry.Name())
-				break
-			}
+		if err != nil {
+			unreadable = append(unreadable, entry.Name())
+			continue
+		}
+		if _, consumed := manifest.CredentialChains()[name]; consumed {
+			projects = append(projects, entry.Name())
 		}
 	}
 	sort.Strings(projects)
-	return projects
+	sort.Strings(unreadable)
+	return projects, unreadable
 }

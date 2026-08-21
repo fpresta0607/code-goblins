@@ -302,6 +302,39 @@ func (m Manifest) EnvNames() []string {
 	return names
 }
 
+// CredentialChains maps every name this manifest may read from the store to
+// the ordered store names that can answer it: the declared name first, then
+// its declared aliases, which is the order Resolver.lookup consults. An alias
+// target also maps to itself, because a value may be stored under it and a
+// project's .env may carry it.
+//
+// It is the manifest's consumption surface, where EnvNames is only what the
+// manifest declares. Attribution and refresh both need the wider one: a name
+// this manifest reads only through an alias is still a name it consumes, and
+// treating it as absent is how a bare value looks single-owner when it is not.
+func (m Manifest) CredentialChains() map[string][]string {
+	chains := map[string][]string{}
+	// Declared names first, so a name that is both declared here and an alias
+	// target elsewhere keeps its own aliases rather than the shorter chain.
+	for _, service := range m.Services {
+		for _, declared := range service.Env {
+			if _, seen := chains[declared]; !seen {
+				chains[declared] = append([]string{declared}, service.Aliases[declared]...)
+			}
+		}
+	}
+	for _, service := range m.Services {
+		for _, aliases := range service.Aliases {
+			for _, alias := range aliases {
+				if _, seen := chains[alias]; !seen {
+					chains[alias] = []string{alias}
+				}
+			}
+		}
+	}
+	return chains
+}
+
 // ValidEnvName reports whether a name is exportable as an environment
 // variable. It matches the harness package's pane-shell rule so a manifest
 // can never declare a name that would break the launch prefix.
