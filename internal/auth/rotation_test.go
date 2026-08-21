@@ -501,6 +501,61 @@ func TestARotatedAliasLineReachesTheDeclaredKey(t *testing.T) {
 	}
 }
 
+// TestASecondServicesAliasStillReachesTheLiveKey covers a name two services
+// declare with different alias lists. Refresh is handed a name off a .env
+// line and cannot know which service wrote it, so a chain built from only the
+// first declaration leaves the second service's alias pointing at a chain it
+// is absent from, and the rotation lands nowhere.
+func TestASecondServicesAliasStillReachesTheLiveKey(t *testing.T) {
+	clearEnv(t, "DATABASE_URL", "PG_URL")
+	manifest := Manifest{
+		Project: "precisiondocs",
+		Services: []Service{
+			{Name: "postgres", Method: MethodEnv, Env: []string{"DATABASE_URL"}},
+			{
+				Name: "analytics", Method: MethodEnv, Env: []string{"DATABASE_URL"},
+				Aliases: map[string][]string{"DATABASE_URL": {"PG_URL"}},
+			},
+		},
+	}
+	project := filepath.Join(t.TempDir(), "precisiondocs")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, ".env"),
+		[]byte("PG_URL=postgres://host/after_rotation\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The key the analytics service actually reaches: the declared name is
+	// unset in this project's scope, so the alias is what answers.
+	store := newMemoryStore(map[string]string{"precisiondocs/PG_URL": "postgres://host/before_rotation"})
+
+	adopted, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if store.values["precisiondocs/PG_URL"] != "postgres://host/after_rotation" {
+		t.Errorf("PG_URL = %q, want the rotated value on the key that answers the credential",
+			Redact(store.values["precisiondocs/PG_URL"]))
+	}
+	if len(adopted) != 1 || !adopted[0].Refreshed || adopted[0].Key.String() != "precisiondocs/PG_URL" {
+		t.Fatalf("adopted = %+v, want the live key reported as refreshed", adopted)
+	}
+	// The invariant every round has kept: refresh rewrites a key that already
+	// holds a value and never creates a second one, so a merged chain cannot
+	// write a name into a key nothing resolves from.
+	if _, second := store.values["precisiondocs/DATABASE_URL"]; second {
+		t.Error("a merged chain created a key nothing resolved from")
+	}
+	resolution, err := Resolver{Store: store, Project: "precisiondocs"}.Resolve(manifest.Services[1])
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if resolution.Values["DATABASE_URL"].Value != "postgres://host/after_rotation" {
+		t.Error("the resolved credential is still the value the .env replaced")
+	}
+}
+
 // TestAGoblinWorktreeEnvIsNeverAnOrigin is the boundary that keeps the
 // refresh rule honest. Only the Overlord's own file may rotate a stored
 // value, and a goblin writes .env files inside <project>/.worktrees/<id>
