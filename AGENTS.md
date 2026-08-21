@@ -185,7 +185,7 @@ A project can declare how that worktree becomes runnable in `data/projects/<name
 - `dependencies.install` overrides the detected install commands; each entry is one command line run in order in the worktree.
   Provisioning runs under the per-home spawn lock, which covers the whole dispatch (task id, Herdr start, tab, metadata, harness launch), so concurrent dispatches into install-strategy projects serialize behind each other's installer.
   That is a chosen property, not an oversight: the cost is a slower concurrent dispatch, never a wrong one.
-- `env` carries environment redirects into the goblin's pane for large read-only caches, and overrides the machine-wide cache redirects below for this project.
+- `env` carries environment redirects for large read-only caches into both the goblin's pane and the dependency install, and overrides the machine-wide cache redirects below for this project.
 - Everything provisioning places inside the worktree is registered in the clone's `info/exclude` when the project does not already ignore it, so the goblin's `git status` reflects only its own work.
   That matters because `cfo cleanup` refuses a worktree whose status is not empty, so an unignored provisioned artifact would read as uncommitted goblin work and block removal.
   Git has no per-worktree exclude file: `info/exclude` lives in the clone's shared common directory, so those entries - `.worktrees/`, plus whatever config and dependency paths a project's manifest provisions, such as `.env`, `node_modules`, or `.venv` - also apply to the primary checkout, and cleanup does not remove them.
@@ -198,10 +198,13 @@ A project can declare how that worktree becomes runnable in `data/projects/<name
 ### Share caches, never share materialized environments
 
 Every goblin's pane inherits one shared package-cache root at `$CFO_HOME/caches/`, with a subdirectory per ecosystem: `UV_CACHE_DIR`, `npm_config_store_dir` (pnpm's store), `PLAYWRIGHT_BROWSERS_PATH`, and `GOMODCACHE`.
+Dependency provisioning runs the project's install commands against those same redirects, which matters more than the pane does: the install is both the largest consumer of the store and the thing that fills it.
+Running it against the operator's own caches instead would leave the redirects doing nothing for the case they exist for, and would cost more than a missed download, because pnpm records the store it installed from and a pane pointed at a different one tears `node_modules` down and reinstalls on the goblin's first command.
 `CARGO_HOME` is deliberately excluded and must not be added: cargo has no cache-only variable, so redirecting it would also relocate `config.toml`, `credentials.toml` and `bin/`, and a goblin would lose the operator's registry and linker configuration.
 These locations are a property of the machine rather than of any project, so they live in the CFO home and no manifest repeats them.
-A variable the CFO's own environment already sets is inherited untouched, and a project's `worktree.json` `env` block still wins for that project.
-`cfo auth <project> --env` prints every one of them in full, marking an inherited one `(inherited)` and showing where it points, so a tuned location is visible rather than indistinguishable from one that was never set.
+A variable the CFO's own environment already sets is inherited untouched, and a project's `worktree.json` `env` block wins over both for that project, in the pane and in the install alike.
+`cfo auth <project> --env` prints every one of them in full and names where each came from, marking a project-declared one `(project)` and an inherited one `(inherited)`, so a tuned location is visible rather than indistinguishable from one that was never set.
+The audit is scoped to the project it is given, so it reports where that project's goblin actually builds rather than the machine default.
 
 A `.venv` or a `node_modules` is never shared or linked between worktrees.
 Both bake absolute paths and compiled native artifacts, and a shared one fails as flaky tests rather than as an honest error, so a worktree always re-materializes its own against the shared store.
