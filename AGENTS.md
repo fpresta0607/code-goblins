@@ -182,7 +182,7 @@ A project can declare how that worktree becomes runnable in `data/projects/<name
 
 - `link` names root-level config files or directories shared from the primary checkout: files by hardlink, directories by junction. The defaults above apply when the manifest is absent; a missing source is skipped.
   A default entry whose path the worktree already holds (a project that commits `.env`) is left as checked out and the `spawned` line says so; a declared entry in that state is refused, because the manifest asked for it to be shared.
-- `dependencies.strategy` is `install` (the default: run the installer the lockfile implies - pnpm, npm, yarn, or uv - against the shared per-user package cache), `link` (junction the declared `paths` from the primary checkout; instant and zero disk, but a package-manager run in one worktree mutates them all), or `none`.
+- `dependencies.strategy` is `install` (the default: run the installer the lockfile implies - pnpm, npm, yarn, or uv - against the shared cache root below), `link` (junction the declared `paths` from the primary checkout; instant and zero disk, but a package-manager run in one worktree mutates them all), or `none`.
 - `dependencies.install` overrides the detected install commands; each entry is one command line run in order in the worktree.
   Provisioning runs under the per-home spawn lock, which covers the whole dispatch (task id, Herdr start, tab, metadata, harness launch), so concurrent dispatches into install-strategy projects serialize behind each other's installer.
   That is a chosen property, not an oversight: the cost is a slower concurrent dispatch, never a wrong one.
