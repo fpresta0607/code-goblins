@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -19,6 +20,18 @@ type fakeRunner struct {
 	results map[string]execx.Result
 	errs    map[string]error
 	calls   []execx.Request
+	// ignoresEveryPath makes `git check-ignore` answer the way it does for a
+	// project that ignores every path asked about: each one echoed back on
+	// stdout, which is how check-ignore reports the ones it matched.
+	ignoresEveryPath bool
+	// ignoredPaths is the subset check-ignore matches when only some paths
+	// are ignored. Real check-ignore exits zero when ANY path matched and
+	// echoes only the matches, so this is the shape that distinguishes
+	// reading the echoed set from trusting the exit code.
+	ignoredPaths []string
+	// perFileExit answers a single-path `check-ignore --quiet` per path, so a
+	// batch that fails can be followed by honest per-file answers.
+	perFileExit map[string]int
 }
 
 func (r *fakeRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -26,10 +39,45 @@ func (r *fakeRunner) Run(_ context.Context, req execx.Request) (execx.Result, er
 	if err, ok := r.errs[req.Name]; ok {
 		return execx.Result{}, err
 	}
+	paths := checkIgnorePaths(req.Args)
+	if req.Name == "git" && len(paths) == 1 && r.perFileExit != nil {
+		if exit, known := r.perFileExit[paths[0]]; known {
+			return execx.Result{ExitCode: exit}, nil
+		}
+	}
 	if result, ok := r.results[req.Name]; ok {
+		if req.Name == "git" && len(paths) > 0 {
+			switch {
+			case r.ignoresEveryPath:
+				result.Stdout = []byte(strings.Join(paths, "\n") + "\n")
+			case len(r.ignoredPaths) > 0 && result.ExitCode == 0:
+				var matched []string
+				for _, path := range paths {
+					if slices.Contains(r.ignoredPaths, path) {
+						matched = append(matched, path)
+					}
+				}
+				result.Stdout = []byte(strings.Join(matched, "\n") + "\n")
+			}
+		}
 		return result, nil
 	}
 	return execx.Result{ExitCode: 127, Stderr: []byte("command not found")}, nil
+}
+
+// checkIgnorePaths is the pathnames a `git check-ignore` invocation asks
+// about, past whatever global options and the end-of-options separator.
+func checkIgnorePaths(args []string) []string {
+	for index, arg := range args {
+		if arg == "check-ignore" {
+			paths := args[index+1:]
+			for len(paths) > 0 && strings.HasPrefix(paths[0], "-") {
+				paths = paths[1:]
+			}
+			return paths
+		}
+	}
+	return nil
 }
 
 func (r *fakeRunner) call(name string) (execx.Request, bool) {

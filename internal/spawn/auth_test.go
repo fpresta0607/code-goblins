@@ -221,3 +221,35 @@ func TestSpawnRunsTheCredentialPreflightExactlyOnce(t *testing.T) {
 		t.Errorf("preflight ran %d times, want exactly one probe run per spawn", len(preflight.projects))
 	}
 }
+
+func TestSpawnCarriesTheSharedCachesInThePaneEnvironmentNotTheSecretsFile(t *testing.T) {
+	fixture := newFixture(t)
+	// Cache locations are paths on this machine, not credentials, so they
+	// ride the launch environment the pane shell writes. Routing them through
+	// the restricted secrets file would make an audit of what a goblin holds
+	// unreadable, and redacting a directory helps nobody.
+	fixture.service.Auth = &stubPreflight{result: auth.Result{
+		Env:    map[string]string{"SAFE_KEY": "value"},
+		Caches: map[string]string{"UV_CACHE_DIR": `C:\cfo\caches\uv`, "GOTMPDIR": `C:\hijacked`},
+	}}
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if !strings.Contains(fixture.runner.literals[0], `$env:UV_CACHE_DIR = 'C:\cfo\caches\uv'`) {
+		t.Errorf("literal = %q, want the shared uv cache redirected in the pane", fixture.runner.literals[0])
+	}
+	// The launch contract still wins: a cache redirect cannot take a name the
+	// adapter already owns.
+	if strings.Contains(fixture.runner.literals[0], "hijacked") {
+		t.Errorf("literal = %q, want the harness GOTMPDIR intact", fixture.runner.literals[0])
+	}
+	script, err := os.ReadFile(filepath.Join(result.Meta.TaskTmp, "auth.ps1"))
+	if err != nil {
+		t.Fatalf("read secrets script: %v", err)
+	}
+	if strings.Contains(string(script), "UV_CACHE_DIR") {
+		t.Errorf("a cache path was written into the restricted secrets file:\n%s", script)
+	}
+}

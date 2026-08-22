@@ -226,7 +226,7 @@ func TestParseEnvFileReadsTheShapesRealFilesUse(t *testing.T) {
 	}
 }
 
-func TestDiscoverAdoptsProjectEnvFilesWithoutOverwritingTheStore(t *testing.T) {
+func TestDiscoverAdoptsProjectEnvFilesAndRefreshesWhatTheyRotated(t *testing.T) {
 	clearEnv(t, "DATABASE_URL", "STRIPE_SECRET_KEY", "SENTRY_DSN")
 	project := filepath.Join(t.TempDir(), "precisiondocs")
 	if err := os.MkdirAll(project, 0o755); err != nil {
@@ -259,7 +259,7 @@ func TestDiscoverAdoptsProjectEnvFilesWithoutOverwritingTheStore(t *testing.T) {
 	}}
 	store := newMemoryStore(map[string]string{"precisiondocs/STRIPE_SECRET_KEY": "sk_deliberate"})
 
-	adopted, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -274,24 +274,38 @@ func TestDiscoverAdoptsProjectEnvFilesWithoutOverwritingTheStore(t *testing.T) {
 	if store.values["precisiondocs/SENTRY_DSN"] != "https://nested" {
 		t.Errorf("SENTRY_DSN = %q, want the nested package file adopted", store.values["precisiondocs/SENTRY_DSN"])
 	}
-	// An existing credential is deliberate; adoption must never replace it.
-	if store.values["precisiondocs/STRIPE_SECRET_KEY"] != "sk_deliberate" {
-		t.Errorf("STRIPE_SECRET_KEY = %q, want the stored value kept", store.values["precisiondocs/STRIPE_SECRET_KEY"])
+	// The Overlord editing a project's own .env is how a credential is
+	// rotated, so the store follows it rather than pinning the dead value
+	// into every goblin dispatched afterwards.
+	if store.values["precisiondocs/STRIPE_SECRET_KEY"] != "sk_from_env" {
+		t.Errorf("STRIPE_SECRET_KEY = %q, want the rotated value from the project .env", store.values["precisiondocs/STRIPE_SECRET_KEY"])
 	}
 	if _, present := store.values["precisiondocs/UNDECLARED_KEY"]; present {
 		t.Error("adopted a name the manifest never declared")
 	}
+	reported := false
 	for _, item := range adopted {
-		if item.Name == "STRIPE_SECRET_KEY" {
-			t.Error("reported adopting a credential that was already stored")
+		if item.Name != "STRIPE_SECRET_KEY" {
+			continue
 		}
+		reported = true
+		if !item.Refreshed {
+			t.Error("a replaced value was reported as a first adoption, not as a refresh")
+		}
+	}
+	if !reported {
+		t.Error("a refreshed credential was not reported by name and origin")
 	}
 }
 
-// gitIgnoresEverything answers `git check-ignore` with success, which is what
-// a real project's gitignored .env produces.
+// gitIgnoresEverything answers `git check-ignore` the way a project whose
+// .env files are all gitignored does: exit zero, with every path it was
+// handed echoed back as one it matched.
 func gitIgnoresEverything() *fakeRunner {
-	return &fakeRunner{results: map[string]execx.Result{"git": {ExitCode: 0}}}
+	return &fakeRunner{
+		results:          map[string]execx.Result{"git": {ExitCode: 0}},
+		ignoresEveryPath: true,
+	}
 }
 
 func TestDiscoverRefusesAnEnvFileGitTracks(t *testing.T) {
@@ -308,7 +322,7 @@ func TestDiscoverRefusesAnEnvFileGitTracks(t *testing.T) {
 	// check-ignore exits 1 for a path git does not ignore.
 	runner := &fakeRunner{results: map[string]execx.Result{"git": {ExitCode: 1}}}
 
-	adopted, err := Discover(context.Background(), store, runner, manifest, project)
+	adopted, _, err := Discover(context.Background(), store, runner, manifest, project)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -335,7 +349,7 @@ func TestDiscoverLeavesANameAnAliasAlreadyServesAlone(t *testing.T) {
 	}}}
 	store := newMemoryStore(map[string]string{"FLY_PROD_API_TOKEN": "FlyV1_stored"})
 
-	adopted, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -357,7 +371,7 @@ func TestDiscoverAdoptsTheTokenGhAlreadyOwns(t *testing.T) {
 	if err := os.MkdirAll(project, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	adopted, err := Discover(context.Background(), store, runner, manifest, project)
+	adopted, _, err := Discover(context.Background(), store, runner, manifest, project)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -382,7 +396,7 @@ func TestDiscoverSurfacesAStoreThatCannotBeWritten(t *testing.T) {
 	store := newMemoryStore(nil)
 	store.setErr = errors.New("vault is locked")
 
-	if _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project); err == nil {
+	if _, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project); err == nil {
 		t.Fatal("Discover = nil, want the store failure surfaced rather than silently dropping a credential")
 	}
 }
