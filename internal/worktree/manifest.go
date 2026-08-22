@@ -64,9 +64,10 @@ type Manifest struct {
 	// It is set by Resolve and not serialized.
 	LinkDefaulted bool         `json:"-"`
 	Dependencies  Dependencies `json:"dependencies,omitempty"`
-	// Env carries environment redirects into the goblin's pane, for large
-	// read-only caches with no baked absolute paths (PLAYWRIGHT_BROWSERS_PATH
-	// and friends).
+	// Env carries environment redirects for large read-only caches with no
+	// baked absolute paths (PLAYWRIGHT_BROWSERS_PATH and friends) into both
+	// the goblin's pane and the dependency install, and wins over the CFO's
+	// shared cache root for this project in both.
 	Env map[string]string `json:"env,omitempty"`
 	// Path is where the manifest was loaded from. It is not serialized.
 	Path string `json:"-"`
