@@ -302,10 +302,18 @@ type ScanSkipped struct {
 	// WorktreeShared are files a live goblin worktree shares by hardlink. A
 	// goblin can write them, so the store does not follow them.
 	WorktreeShared []string
+	// LinkCheckFailed are files whose hard link count could not be read.
+	// They are skipped exactly as a shared file is, because not knowing
+	// whether a goblin can write a file is not the same answer as knowing it
+	// cannot - but the cause is separate, since nothing an operator does to
+	// worktrees will change it.
+	LinkCheckFailed []string
 }
 
 // Any reports whether the scan skipped anything at all.
-func (s ScanSkipped) Any() bool { return len(s.IgnoreUnknown) > 0 || len(s.WorktreeShared) > 0 }
+func (s ScanSkipped) Any() bool {
+	return len(s.IgnoreUnknown) > 0 || len(s.WorktreeShared) > 0 || len(s.LinkCheckFailed) > 0
+}
 
 // WorktreeSharedLine names the local files a live goblin worktree shares, so
 // an operator can see why a rotated value has not been picked up yet and what
@@ -476,13 +484,19 @@ func (c envClaim) beats(other envClaim) bool {
 	return c.path < other.path
 }
 
+// linkCount is a variable so a test can force the unreadable case. Producing
+// a genuine stat failure here is a race - the file has to vanish between the
+// scan and the count - and the branch it guards is the one that decides
+// whether a credential may be adopted, so it is worth testing directly.
+var linkCount = hardLinkCount
+
 // sharedIntoAWorktree reports whether more than one directory entry points at
 // this file's data. An unreadable count is the caller's cue to skip the file
 // rather than to trust it: "I cannot tell whether a goblin shares this" and
 // "no goblin shares this" are different answers, and only one of them is safe
 // to adopt a credential from.
 func sharedIntoAWorktree(path string) (bool, error) {
-	links, err := hardLinkCount(path)
+	links, err := linkCount(path)
 	if err != nil {
 		return false, err
 	}
@@ -512,7 +526,16 @@ func envOwners(ctx context.Context, runner execx.Runner, projectDir string) (map
 		// .worktrees directory from the scan cannot tell them apart. The
 		// link count can: it drops back to one when cfo cleanup returns the
 		// worktree, and adoption resumes on its own.
-		if shared, err := sharedIntoAWorktree(path); err != nil || shared {
+		shared, err := sharedIntoAWorktree(path)
+		if err != nil {
+			// Skipped for the same reason, reported as a different fact: an
+			// unreadable count is not evidence that a worktree holds the
+			// file, and telling the operator to run cfo cleanup would send
+			// them to a remedy that cannot help.
+			skipped.LinkCheckFailed = append(skipped.LinkCheckFailed, path)
+			continue
+		}
+		if shared {
 			skipped.WorktreeShared = append(skipped.WorktreeShared, path)
 			continue
 		}
@@ -722,4 +745,21 @@ func resolveWrite(store Store, scope string, chains map[string][]string, wanted 
 		return envWrite{rotation: rotation, key: key, refresh: true}, true, nil
 	}
 	return envWrite{}, false, nil
+}
+
+// LinkCheckFailedLine names the local files whose hard link count could not be
+// read, so an operator can see that adoption skipped them. They are skipped
+// exactly as a worktree-shared file is - a file that cannot be shown to be
+// private may be one a goblin can write - but the cause is reported separately
+// because returning a worktree will not change it: the remedy is to find out
+// why the file could not be inspected.
+//
+// It names paths. No credential name and no value appears here, the same rule
+// the adoption line keeps.
+func LinkCheckFailedLine(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("link check failed for %d local file(s) (%s); they were not read",
+		len(paths), strings.Join(paths, ", "))
 }

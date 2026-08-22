@@ -108,6 +108,9 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, 
 	if line := WorktreeSharedLine(unscanned.WorktreeShared); line != "" {
 		warning += "; " + line
 	}
+	if line := LinkCheckFailedLine(unscanned.LinkCheckFailed); line != "" {
+		warning += "; " + line
+	}
 	return Result{
 		Env:     env,
 		Caches:  caches,
