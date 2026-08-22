@@ -736,7 +736,7 @@ func TestDiscoverAdoptsTheTokenFlyctlAlreadyHolds(t *testing.T) {
 	}}}
 	store := newMemoryStore(nil)
 
-	adopted, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}

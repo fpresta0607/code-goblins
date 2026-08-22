@@ -5,10 +5,12 @@
 package auth
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -144,8 +146,21 @@ func LoadManifest(dataDir, project string) (Manifest, error) {
 		return Manifest{}, err
 	}
 	var manifest Manifest
-	if err := json.Unmarshal(data, &manifest); err != nil {
+	// Unknown fields are refused rather than discarded. `"shared": true` sat
+	// in two manifests doing nothing for as long as there was no Shared field
+	// to receive it, and encoding/json's default is what hid that: a
+	// misspelled or invented key is a manifest that does not mean what it
+	// says, so it fails here instead of at the incident it causes.
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&manifest); err != nil {
 		return Manifest{}, fmt.Errorf("auth: %s: %w", path, err)
+	}
+	// A decoder reads one value and stops, where Unmarshal refuses trailing
+	// content. Keep the stricter rule: a second document after the manifest
+	// is a file whose second half is silently ignored.
+	if decoder.More() {
+		return Manifest{}, fmt.Errorf("auth: %s: unexpected content after the manifest", path)
 	}
 	manifest.Path = path
 	if err := manifest.Validate(); err != nil {
@@ -286,6 +301,69 @@ func (m Manifest) EnvNames() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// CredentialChains maps every name this manifest may read from the store to
+// the ordered store names that can answer it: the declared name first, then
+// its declared aliases, which is the order Resolver.lookup consults. Every
+// name in one declaration's lookup order maps to that same chain, alias
+// targets included, because they all name one credential.
+//
+// That shared chain is what lets a rotation arrive under any of those names.
+// A .env line carrying an alias is the Overlord rotating the credential the
+// alias stands for, so it has to reach whichever key currently answers it -
+// which is usually the declared name, not the alias. Mapping an alias to
+// itself alone would look at a key that does not exist and leave the live one
+// stale.
+//
+// A declared name's chain is the union across every service that declares it,
+// not the first service's alone. Refresh is given a name off a .env line and
+// cannot know which service wrote it, so a chain built from one declaration
+// would leave the other's aliases pointing at a chain they are absent from.
+// Resolver.lookup stays per-service and is unaffected: merging is only sound
+// for the question refresh asks, which is which project-scope key currently
+// holds this credential, and that key is the same whichever service's alias
+// named it.
+//
+// It is the manifest's consumption surface, where EnvNames is only what the
+// manifest declares. Attribution and refresh both need the wider one: a name
+// this manifest reads only through an alias is still a name it consumes, and
+// treating it as absent is how a bare value looks single-owner when it is not.
+func (m Manifest) CredentialChains() map[string][]string {
+	merged := map[string][]string{}
+	var declaredOrder []string
+	for _, service := range m.Services {
+		for _, declared := range service.Env {
+			chain, seen := merged[declared]
+			if !seen {
+				chain = []string{declared}
+				declaredOrder = append(declaredOrder, declared)
+			}
+			for _, alias := range service.Aliases[declared] {
+				if !slices.Contains(chain, alias) {
+					chain = append(chain, alias)
+				}
+			}
+			merged[declared] = chain
+		}
+	}
+
+	chains := map[string][]string{}
+	// A declared name claims its own chain first, so a name that is also an
+	// alias target elsewhere keeps the order its own declaration implies.
+	for _, declared := range declaredOrder {
+		chains[declared] = merged[declared]
+	}
+	// Manifest order decides an alias two declarations both name, so the map
+	// does not depend on map iteration order.
+	for _, declared := range declaredOrder {
+		for _, alias := range merged[declared] {
+			if _, seen := chains[alias]; !seen {
+				chains[alias] = merged[declared]
+			}
+		}
+	}
+	return chains
 }
 
 // ValidEnvName reports whether a name is exportable as an environment

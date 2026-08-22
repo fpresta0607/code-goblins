@@ -239,7 +239,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// runnable as if it were the project - shared config, dependencies
 	// installed against the shared package cache, and the token-authenticated
 	// subset of the project's MCP servers.
-	provision, err := s.Worktrees.Provision(ctx, project, wt.Path, taskTmp)
+	provision, err := s.Worktrees.Provision(ctx, project, wt.Path, taskTmp, preflight.Caches)
 	if err != nil {
 		return fail(result, fmt.Errorf("spawn: provision worktree environment: %w", err))
 	}
@@ -255,6 +255,11 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 	launch.Dir = wt.Path
 	mergeProvisionEnv(launch.Env, provision.Env)
+	// The shared package caches fill in behind the project's own redirects,
+	// so a project that names a cache location keeps it and every other one
+	// builds against the fleet's single store. They are not secrets, so they
+	// ride the launch environment rather than the restricted credentials file.
+	mergeProvisionEnv(launch.Env, preflight.Caches)
 	// Every goblin is told to report its outcome through cfo notify, so the
 	// CFO is woken with the actual PR URL, question, or failure reason instead
 	// of the watcher guessing from pane text.

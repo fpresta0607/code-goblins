@@ -14,6 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 const authUsage = `usage: cfo auth <project> [--check|--fix] [--env]
@@ -50,7 +51,7 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	check := flags.Bool("check", false, "probe every service and report without changing anything (default)")
 	fix := flags.Bool("fix", false, "probe, then repair what can be repaired without a human")
-	showEnv := flags.Bool("env", false, "print the environment a goblin's pane would inherit (values redacted)")
+	showEnv := flags.Bool("env", false, "print the environment a goblin's pane would inherit (credential values redacted, cache locations in full)")
 	positional, err := parseAuthArgs(flags, args)
 	if err != nil {
 		return 2
@@ -93,12 +94,32 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer) int {
 	ctx := context.Background()
 	report := auth.Report{}
 	if *fix {
-		adopted, err := auth.Discover(ctx, store, runner, manifest, project)
+		adopted, unscanned, err := auth.Discover(ctx, store, runner, manifest, project)
 		if err != nil {
 			fmt.Fprintf(stderr, "cfo auth: adopt existing credentials: %v\n", err)
 		}
-		for _, item := range adopted {
-			fmt.Fprintf(stdout, "adopted %s from %s\n", item.Key, item.Origin)
+		if line := auth.IgnoreScanFailedLine(unscanned.IgnoreUnknown); line != "" {
+			fmt.Fprintf(stderr, "cfo auth: %s\n", line)
+		}
+		if line := auth.WorktreeSharedLine(unscanned.WorktreeShared); line != "" {
+			fmt.Fprintf(stderr, "cfo auth: %s\n", line)
+		}
+		// A credential stored before namespacing lands in the scope that now
+		// looks for it, so --fix repairs the state of the migration as well
+		// as the state of the services.
+		migrated, unreadable, err := auth.Migrate(store, h.Data, project, manifest)
+		if err != nil {
+			fmt.Fprintf(stderr, "cfo auth: migrate stored credentials: %v\n", err)
+		}
+		if line := auth.MigrationPausedLine(unreadable); line != "" {
+			fmt.Fprintf(stderr, "cfo auth: %s\n", line)
+		}
+		for _, item := range append(adopted, migrated...) {
+			verb := "adopted"
+			if item.Refreshed {
+				verb = "refreshed"
+			}
+			fmt.Fprintf(stdout, "%s %s from %s\n", verb, item.Key, item.Origin)
 		}
 		report, err = checker.Fix(ctx, manifest)
 		if err != nil {
@@ -133,6 +154,34 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer) int {
 			// Redacted: this is an audit of what a goblin receives, not a
 			// way to read credentials back out of the store.
 			fmt.Fprintf(stdout, "%s=%s\n", name, auth.Redact(env[name]))
+		}
+		// The audit is project-scoped like the rest of this command: a
+		// location this project declares overrides the shared root for both
+		// real consumers, so reporting the machine value here would name a
+		// directory nothing uses. A project with no worktree manifest simply
+		// declares nothing.
+		worktreeManifest, err := worktree.Resolve(h.Data, project)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		audit := auth.CacheAudit(h.Root, worktreeManifest.Env)
+		counts := map[string]int{}
+		for _, redirect := range audit {
+			counts[redirect.Source]++
+		}
+		fmt.Fprintf(stdout, "\nshared caches (%d set, %d declared by %s, %d inherited)\n",
+			counts[auth.CacheSourceCFO], counts[auth.CacheSourceProject], scope, counts[auth.CacheSourceInherited])
+		for _, redirect := range audit {
+			// Printed in full: a cache location is a path on this machine and
+			// not a credential, and an operator auditing where a goblin builds
+			// has to be able to read it. Every source is named, or the audit
+			// would be silent about exactly the variable somebody tuned.
+			marker := ""
+			if redirect.Source != auth.CacheSourceCFO {
+				marker = " (" + redirect.Source + ")"
+			}
+			fmt.Fprintf(stdout, "%s=%s%s\n", redirect.Name, redirect.Path, marker)
 		}
 	}
 	if err := auth.WriteLoginRequest(stdout, report); err != nil {
