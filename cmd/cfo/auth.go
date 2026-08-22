@@ -104,6 +104,9 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer) int {
 		if line := auth.WorktreeSharedLine(unscanned.WorktreeShared); line != "" {
 			fmt.Fprintf(stderr, "cfo auth: %s\n", line)
 		}
+		if line := auth.LinkCheckFailedLine(unscanned.LinkCheckFailed); line != "" {
+			fmt.Fprintf(stderr, "cfo auth: %s\n", line)
+		}
 		// A credential stored before namespacing lands in the scope that now
 		// looks for it, so --fix repairs the state of the migration as well
 		// as the state of the services.

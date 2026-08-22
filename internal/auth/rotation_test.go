@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1233,5 +1234,68 @@ func TestAnEnvSharedWithALiveWorktreeIsNotAnAdoptionOrigin(t *testing.T) {
 	}
 	if store.values["clock-in/STRIPE_SECRET_KEY"] != "sk_written_by_a_goblin" {
 		t.Error("adoption did not resume once the worktree released the file")
+	}
+}
+
+// TestAnUnreadableLinkCountIsReportedAsItsOwnCause keeps two facts apart that
+// share one outcome. A file whose link count cannot be read is skipped
+// exactly as a worktree-shared one is, because not knowing whether a goblin
+// can write a file is not the same answer as knowing it cannot - but filing
+// it under WorktreeShared would tell the operator to run cfo cleanup, and
+// returning a worktree cannot fix a stat that failed.
+func TestAnUnreadableLinkCountIsReportedAsItsOwnCause(t *testing.T) {
+	clearEnv(t, "STRIPE_SECRET_KEY")
+	project := filepath.Join(t.TempDir(), "clock-in")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(project, ".env")
+	if err := os.WriteFile(envPath, []byte("STRIPE_SECRET_KEY=sk_never_read\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A genuine stat failure here is a race - the file has to vanish between
+	// the scan and the count - so the failure is injected at the seam.
+	original := linkCount
+	t.Cleanup(func() { linkCount = original })
+	linkCount = func(string) (uint32, error) { return 0, errors.New("cannot open file for metadata") }
+
+	manifest := Manifest{Services: []Service{{Name: "stripe", Method: MethodEnv, Env: []string{"STRIPE_SECRET_KEY"}}}}
+	store := newMemoryStore(map[string]string{"clock-in/STRIPE_SECRET_KEY": "sk_deliberately_stored"})
+
+	adopted, skipped, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	// The skip is unchanged: an unreadable count is never adopted from.
+	if store.values["clock-in/STRIPE_SECRET_KEY"] != "sk_deliberately_stored" {
+		t.Error("adopted from a file whose link count could not be read")
+	}
+	if len(adopted) != 0 {
+		t.Errorf("adopted %+v, want nothing taken from an uninspectable file", adopted)
+	}
+
+	// The cause is its own, and is not filed under the worktree remedy.
+	if !contains(skipped.LinkCheckFailed, envPath) {
+		t.Errorf("skipped = %+v, want the file reported under the link-check cause", skipped)
+	}
+	if len(skipped.WorktreeShared) != 0 {
+		t.Errorf("skipped.WorktreeShared = %v, want a stat failure kept out of the worktree cause", skipped.WorktreeShared)
+	}
+	if line := WorktreeSharedLine(skipped.WorktreeShared); line != "" {
+		t.Errorf("worktree line = %q, want silence when no worktree shares anything", line)
+	}
+
+	line := LinkCheckFailedLine(skipped.LinkCheckFailed)
+	if !strings.Contains(line, envPath) {
+		t.Errorf("line = %q, want the file named", line)
+	}
+	// The remedy that cannot help must not be offered.
+	if strings.Contains(line, "cfo cleanup") {
+		t.Errorf("line = %q, want no worktree remedy for a stat failure", line)
+	}
+	// Same rule the adoption line keeps: paths only.
+	if strings.Contains(line, "STRIPE_SECRET_KEY") || strings.Contains(line, "sk_never_read") {
+		t.Error("the link-check line disclosed a credential name or value")
 	}
 }
