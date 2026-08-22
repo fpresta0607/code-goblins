@@ -97,10 +97,15 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, 
 	if line := MigrationPausedLine(unreadable); line != "" {
 		warning += "; " + line
 	}
-	// A .env git could not classify is skipped rather than read, and that has
-	// to be said for the same reason: otherwise a credential that never
-	// rotates looks exactly like one that had nothing to rotate.
-	if line := IgnoreScanFailedLine(unscanned); line != "" {
+	// A .env the scan declined to read is reported for the same reason:
+	// otherwise a credential that never rotates looks exactly like one that
+	// had nothing to rotate. The two causes are named separately because one
+	// is a git problem to investigate and the other clears itself when a
+	// worktree is returned.
+	if line := IgnoreScanFailedLine(unscanned.IgnoreUnknown); line != "" {
+		warning += "; " + line
+	}
+	if line := WorktreeSharedLine(unscanned.WorktreeShared); line != "" {
 		warning += "; " + line
 	}
 	return Result{

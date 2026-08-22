@@ -746,8 +746,8 @@ func TestOnlyTheEchoedFilesAreTreatedAsIgnored(t *testing.T) {
 
 	if _, unscanned, err := Discover(context.Background(), store, runner, manifest, project); err != nil {
 		t.Fatalf("Discover: %v", err)
-	} else if len(unscanned) != 0 {
-		t.Errorf("unscanned = %v, want git's answer taken as complete", unscanned)
+	} else if unscanned.Any() {
+		t.Errorf("unscanned = %+v, want git's answer taken as complete", unscanned)
 	}
 	if store.values["precisiondocs/STRIPE_SECRET_KEY"] != "sk_local" {
 		t.Errorf("STRIPE_SECRET_KEY = %q, want the gitignored file adopted",
@@ -800,8 +800,8 @@ func TestAnUnanswerableBatchFallsBackPerFile(t *testing.T) {
 	if _, adopted := store.values["precisiondocs/DATABASE_URL"]; adopted {
 		t.Error("the fallback adopted from a .env git tracks")
 	}
-	if len(unscanned) != 0 {
-		t.Errorf("unscanned = %v, want nothing left undetermined once the fallback answered", unscanned)
+	if unscanned.Any() {
+		t.Errorf("unscanned = %+v, want nothing left undetermined once the fallback answered", unscanned)
 	}
 }
 
@@ -1107,5 +1107,131 @@ func TestCacheAuditReportsTheProjectsOwnDeclaredLocation(t *testing.T) {
 	// The launch path is untouched: a pane still receives only what cfo sets.
 	if _, redirected := CacheEnv(home)["PLAYWRIGHT_BROWSERS_PATH"]; redirected {
 		t.Error("the audit changed what a pane inherits")
+	}
+}
+
+// TestTwoCredentialsLandingOnOneKeyProduceOneWrite covers the case where the
+// run's own deduplication and the store's disagree. One service's alias
+// target being another service's declared name yields two credentials whose
+// chains resolve to a single project key, and writing both would leave the
+// key holding whichever ran last while the dispatch line reported the other.
+// An operator has to be able to trust that "refreshed X" means the store now
+// holds X.
+func TestTwoCredentialsLandingOnOneKeyProduceOneWrite(t *testing.T) {
+	clearEnv(t, "DATABASE_URL", "PG_URL")
+	project := filepath.Join(t.TempDir(), "proj")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Both names are carried by the same file, and both credentials resolve
+	// to proj/PG_URL because that is the only key holding a value.
+	body := "DATABASE_URL=postgres://named-indirectly/appdb\nPG_URL=postgres://named-directly/appdb\n"
+	if err := os.WriteFile(filepath.Join(project, ".env"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := Manifest{Services: []Service{
+		{
+			Name:    "postgres",
+			Method:  MethodEnv,
+			Env:     []string{"DATABASE_URL"},
+			Aliases: map[string][]string{"DATABASE_URL": {"PG_URL"}},
+		},
+		{Name: "reporting", Method: MethodEnv, Env: []string{"PG_URL"}},
+	}}
+	store := newMemoryStore(map[string]string{"proj/PG_URL": "postgres://before/appdb"})
+
+	adopted, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	writes := 0
+	for _, item := range adopted {
+		if item.Key.String() == "proj/PG_URL" {
+			writes++
+		}
+	}
+	if writes != 1 {
+		t.Errorf("reported %d writes to proj/PG_URL, want exactly one", writes)
+	}
+	// The credential whose own declared name IS the contested key wins: that
+	// .env line names the key being written, where the other only reaches it
+	// by falling down an alias chain.
+	if store.values["proj/PG_URL"] != "postgres://named-directly/appdb" {
+		t.Errorf("proj/PG_URL = %q, want the line naming the key directly to have won", Redact(store.values["proj/PG_URL"]))
+	}
+	// Every reported refresh has to match what the store actually ends up
+	// holding, or the dispatch line reports a write that was replaced.
+	for _, item := range adopted {
+		if item.Refreshed && store.values[item.Key.String()] != "postgres://named-directly/appdb" {
+			t.Errorf("reported refreshing %s, but the store holds something else", item.Key)
+		}
+	}
+	// No second key is invented for the alias-only credential.
+	if _, created := store.values["proj/DATABASE_URL"]; created {
+		t.Error("created a second key for a credential the store already answered through its alias")
+	}
+}
+
+// TestAnEnvSharedWithALiveWorktreeIsNotAnAdoptionOrigin closes the vector the
+// .worktrees prune could not. Provisioning hardlinks a project's .env into
+// every goblin worktree, and the worktree copy IS the project's file - same
+// inode - so a goblin writing .env writes the Overlord's file and, with
+// refresh enabled, would rotate the fleet's stored credential. The link count
+// is the only thing that distinguishes a shared file from a private one, and
+// it drops back to one when cfo cleanup returns the worktree.
+func TestAnEnvSharedWithALiveWorktreeIsNotAnAdoptionOrigin(t *testing.T) {
+	clearEnv(t, "STRIPE_SECRET_KEY")
+	project := filepath.Join(t.TempDir(), "clock-in")
+	worktree := filepath.Join(project, ".worktrees", "gb-1")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(project, ".env")
+	if err := os.WriteFile(envPath, []byte("STRIPE_SECRET_KEY=sk_written_by_a_goblin\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// This is exactly what provisioning does, and what makes the file
+	// goblin-writable: one inode, two directory entries.
+	if err := os.Link(envPath, filepath.Join(worktree, ".env")); err != nil {
+		t.Skipf("this filesystem does not support hard links: %v", err)
+	}
+
+	manifest := Manifest{Services: []Service{{Name: "stripe", Method: MethodEnv, Env: []string{"STRIPE_SECRET_KEY"}}}}
+	store := newMemoryStore(map[string]string{"clock-in/STRIPE_SECRET_KEY": "sk_deliberately_stored"})
+
+	adopted, skipped, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if store.values["clock-in/STRIPE_SECRET_KEY"] != "sk_deliberately_stored" {
+		t.Error("a goblin-writable file rotated the fleet's stored credential")
+	}
+	if len(adopted) != 0 {
+		t.Errorf("adopted %+v, want nothing taken from a shared file", adopted)
+	}
+	// Pausing has to be visible, or it is indistinguishable from a credential
+	// that simply had nothing to rotate.
+	if !contains(skipped.WorktreeShared, envPath) {
+		t.Errorf("skipped = %+v, want the shared file named", skipped)
+	}
+	line := WorktreeSharedLine(skipped.WorktreeShared)
+	if !strings.Contains(line, "cfo cleanup") {
+		t.Errorf("line = %q, want it to name what releases the file", line)
+	}
+	if strings.Contains(line, "sk_written_by_a_goblin") || strings.Contains(line, "STRIPE_SECRET_KEY") {
+		t.Error("the paused-adoption line disclosed a credential name or value")
+	}
+
+	// Returning the worktree releases the file and adoption resumes on its
+	// own, with no command and no state of its own to get stuck.
+	if err := os.Remove(filepath.Join(worktree, ".env")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Discover(context.Background(), store, gitIgnoresEverything(), manifest, project); err != nil {
+		t.Fatalf("Discover after cleanup: %v", err)
+	}
+	if store.values["clock-in/STRIPE_SECRET_KEY"] != "sk_written_by_a_goblin" {
+		t.Error("adoption did not resume once the worktree released the file")
 	}
 }

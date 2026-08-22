@@ -138,9 +138,10 @@ Either way one store key is written at most once per run.
 A goblin's own worktree under `.worktrees/` is never an origin at all, adoption or refresh: git ignores it, but a running agent writes there and only the Supreme Overlord rotates a credential.
 Tool-derived origins keep the never-overwrite rule: a token `gh` or `flyctl` happens to hold is not a decision about this project, and letting one rotate under a deliberately stored value is how a stored credential disappears without anyone choosing it.
 
-Known residual, not closed: worktree provisioning shares `.env` by hardlink, so a goblin's worktree `.env` is the same file as the project's own.
-A goblin that writes it in place has written the Supreme Overlord's file, and the next preflight refreshes the store from it - skipping the `.worktrees/` path cannot tell the two names apart.
-Every refresh is named on the dispatch line by name and origin, which is how this is caught; the durable fix is for provisioning to copy rather than hardlink a credential-carrying file.
+Worktree provisioning shares `.env` by hardlink, so a goblin's worktree `.env` is the same file as the project's own, and skipping the `.worktrees/` path cannot tell the two names apart.
+A file a live goblin can write is therefore not an origin the store follows at all: adoption and refresh skip any local file whose hard link count is above one, which is the only thing that distinguishes a shared file from a private one when the inode is the same.
+The count drops back to one when `cfo cleanup <id>` returns the worktree, so adoption resumes by itself with no command and no state of its own.
+While it is paused the dispatch line says so and names the files, because a credential that never rotates would otherwise look exactly like one that had nothing to rotate.
 
 Credentials live in Windows Credential Manager, or in `~/.cfo/credentials/` with owner-only ACLs when the vault is unavailable (`CFO_CREDENTIAL_DIR` overrides the location).
 They are never written into a repository and never printed - reports show provenance and a redacted shape only.
