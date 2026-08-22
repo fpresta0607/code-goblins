@@ -192,6 +192,8 @@ A project can declare how that worktree becomes runnable in `data/projects/<name
   That matters because `cfo cleanup` refuses a worktree whose status is not empty, so an unignored provisioned artifact would read as uncommitted goblin work and block removal.
   Git has no per-worktree exclude file: `info/exclude` lives in the clone's shared common directory, so those entries - `.worktrees/`, plus whatever config and dependency paths a project's manifest provisions, such as `.env`, `node_modules`, or `.venv` - also apply to the primary checkout, and cleanup does not remove them.
   Edit `.git/info/exclude` by hand if the primary checkout needs one of them back.
+- `cfo cleanup` also refuses while the harness is still attached to the pane - agent state `idle` and `done` both count as active, and there is deliberately no force override.
+  A goblin that has filed its terminal `cfo notify` is finished with the work but has not left the pane; release it with `cfo send <id> "/exit"` and confirm with `cfo peek` that the pane is back at a shell prompt before running cleanup.
 - The goblin receives the token-authenticated subset of the project's `.mcp.json`: stdio servers and HTTP servers with a bearer token qualify; OAuth-only connectors are withheld and named on the `spawned` line, because a goblin can never complete their browser flow.
   That filtered configuration is materialized under the task's temporary directory, outside the checkout, and it is the only file a harness is handed through `--mcp-config`.
   A copy is also written to the worktree root for harnesses that read the project-scoped `.mcp.json` from their working directory, but only when that path is free and untracked.
