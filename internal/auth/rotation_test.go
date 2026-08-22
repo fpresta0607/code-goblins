@@ -1299,3 +1299,48 @@ func TestAnUnreadableLinkCountIsReportedAsItsOwnCause(t *testing.T) {
 		t.Error("the link-check line disclosed a credential name or value")
 	}
 }
+
+// TestAnUnreadableLinkCountIsNamedOnTheDispatchLine covers the consumer every
+// goblin goes through. A credential that never rotates is indistinguishable
+// from one that had nothing to rotate unless the dispatch line says why, and
+// the cause it names has to be one the operator can act on: `cfo cleanup`
+// releases a worktree, and no worktree is holding this file.
+func TestAnUnreadableLinkCountIsNamedOnTheDispatchLine(t *testing.T) {
+	clearEnv(t, "STRIPE_SECRET_KEY")
+	t.Setenv(StoreDirEnv, t.TempDir())
+	dataDir := t.TempDir()
+	writeManifest(t, dataDir, "clock-in", Manifest{
+		Project:  "clock-in",
+		Services: []Service{{Name: "stripe", Method: MethodEnv, Env: []string{"STRIPE_SECRET_KEY"}}},
+	})
+	project := filepath.Join(t.TempDir(), "clock-in")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	envFile := filepath.Join(project, ".env")
+	if err := os.WriteFile(envFile, []byte("STRIPE_SECRET_KEY=sk_never_read\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	original := linkCount
+	t.Cleanup(func() { linkCount = original })
+	linkCount = func(string) (uint32, error) { return 0, errors.New("cannot open file for metadata") }
+
+	result, err := SpawnPreflight{DataDir: dataDir, Runner: gitIgnoresEverything()}.
+		Preflight(context.Background(), project)
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+
+	if !strings.Contains(result.Warning, "link check failed") || !strings.Contains(result.Warning, envFile) {
+		t.Errorf("warning %q does not name the file whose link count could not be read", result.Warning)
+	}
+	if strings.Contains(result.Warning, "cfo cleanup") {
+		t.Errorf("warning %q offers a worktree remedy for a stat failure", result.Warning)
+	}
+	if result.Env["STRIPE_SECRET_KEY"] != "" {
+		t.Error("injected a value taken from a file that could not be inspected")
+	}
+	if strings.Contains(result.Warning, "sk_never_read") {
+		t.Error("the warning printed a credential value")
+	}
+}

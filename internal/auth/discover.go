@@ -291,9 +291,9 @@ func IgnoreScanFailedLine(paths []string) string {
 }
 
 // ScanSkipped names the local files the scan declined to read, by cause. The
-// two are kept apart because they send an operator to different places: one
-// is a git problem to investigate, the other is an ordinary state that clears
-// itself when a worktree is returned.
+// causes are kept apart because they send an operator to different places: a
+// git problem to investigate, an ordinary state that clears itself when a
+// worktree is returned, and a file the CFO could not inspect at all.
 type ScanSkipped struct {
 	// IgnoreUnknown are files git could not classify. A file that cannot be
 	// shown to be gitignored may be one the repository tracks, so it is not

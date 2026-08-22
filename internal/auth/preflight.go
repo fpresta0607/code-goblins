@@ -99,9 +99,9 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, 
 	}
 	// A .env the scan declined to read is reported for the same reason:
 	// otherwise a credential that never rotates looks exactly like one that
-	// had nothing to rotate. The two causes are named separately because one
-	// is a git problem to investigate and the other clears itself when a
-	// worktree is returned.
+	// had nothing to rotate. Each cause is named separately because each
+	// sends the operator somewhere else: git to investigate, a worktree to
+	// return, or a file whose inspection failure is what needs explaining.
 	if line := IgnoreScanFailedLine(unscanned.IgnoreUnknown); line != "" {
 		warning += "; " + line
 	}
