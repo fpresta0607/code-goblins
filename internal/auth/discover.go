@@ -71,21 +71,21 @@ type Adopted struct {
 // happens to hold is not a decision about this project, and letting one
 // rotate under a deliberately stored value is how a stored credential
 // disappears without anyone choosing it.
-func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Manifest, projectDir string) ([]Adopted, []string, error) {
+func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Manifest, projectDir string) ([]Adopted, ScanSkipped, error) {
 	if store == nil {
-		return nil, nil, fmt.Errorf("auth: no credential store configured")
+		return nil, ScanSkipped{}, fmt.Errorf("auth: no credential store configured")
 	}
 	scope := ProjectName(projectDir)
 	if scope == "" {
 		scope = manifest.Project
 	}
 	if !ValidProjectName(scope) {
-		return nil, nil, fmt.Errorf("auth: %q cannot be a credential scope", scope)
+		return nil, ScanSkipped{}, fmt.Errorf("auth: %q cannot be a credential scope", scope)
 	}
 	wanted := wantedNames(store, scope, manifest)
 	chains := manifest.CredentialChains()
 	if len(wanted) == 0 && len(chains) == 0 {
-		return nil, nil, nil
+		return nil, ScanSkipped{}, nil
 	}
 
 	var adopted []Adopted
@@ -102,56 +102,31 @@ func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Ma
 		return nil
 	}
 
-	// refresh is bounded to this project's own scope, so a rotated secret
-	// reaches the next dispatch while a name currently answered from the
-	// shared scope never gains a project copy that would then drift from it.
-	//
-	// It rewrites the project-scope key that actually holds the value, which
-	// may be a declared alias rather than the declared name. The candidates
-	// are walked in the order Resolver.lookup consults them, so the key that
-	// answers this name is the one that gets the rotated value; a key further
-	// down the chain is one resolution never reaches, and writing it would
-	// leave the live one stale.
-	refresh := func(name, value, origin string) error {
-		if strings.TrimSpace(value) == "" {
-			return nil
-		}
-		for _, candidate := range chains[name] {
-			key := Scoped(scope, candidate)
-			existing, found, err := store.Get(key)
-			if err != nil {
-				return err
-			}
-			if !found || existing == "" {
-				continue
-			}
-			if existing == value {
-				return nil
-			}
-			if err := store.Set(key, value); err != nil {
-				return err
-			}
-			adopted = append(adopted, Adopted{Name: name, Key: key, Origin: origin, Refreshed: true})
-			return nil
-		}
-		return nil
+	owned, skipped := envOwners(ctx, runner, projectDir)
+	writes, err := planWrites(store, scope, chains, wanted, credentialRotations(chains, owned))
+	if err != nil {
+		return adopted, skipped, err
 	}
-
-	owned, undetermined := envOwners(ctx, runner, projectDir)
-	for _, rotation := range credentialRotations(chains, owned) {
-		if err := adopt(rotation.credential, rotation.value, rotation.path); err != nil {
-			return adopted, undetermined, err
+	for _, write := range writes {
+		if err := store.Set(write.key, write.rotation.value); err != nil {
+			return adopted, skipped, err
 		}
-		if err := refresh(rotation.credential, rotation.value, rotation.path); err != nil {
-			return adopted, undetermined, err
+		if !write.refresh {
+			delete(wanted, write.rotation.credential)
 		}
+		adopted = append(adopted, Adopted{
+			Name:      write.rotation.credential,
+			Key:       write.key,
+			Origin:    write.rotation.path,
+			Refreshed: write.refresh,
+		})
 	}
 
 	if wanted["GITHUB_TOKEN"] && runner != nil {
 		result, err := runner.Run(ctx, execx.Request{Name: "gh", Args: []string{"auth", "token"}})
 		if err == nil && result.ExitCode == 0 {
 			if err := adopt("GITHUB_TOKEN", strings.TrimSpace(string(result.Stdout)), "gh auth token"); err != nil {
-				return adopted, undetermined, err
+				return adopted, skipped, err
 			}
 		}
 	}
@@ -159,11 +134,11 @@ func Discover(ctx context.Context, store Store, runner execx.Runner, manifest Ma
 	if wanted["FLY_API_TOKEN"] {
 		if token, path := flyAccessToken(); token != "" {
 			if err := adopt("FLY_API_TOKEN", token, path); err != nil {
-				return adopted, undetermined, err
+				return adopted, skipped, err
 			}
 		}
 	}
-	return adopted, undetermined, nil
+	return adopted, skipped, nil
 }
 
 // wantedNames is every declared name that does not already resolve for this
@@ -312,6 +287,41 @@ func IgnoreScanFailedLine(paths []string) string {
 		return ""
 	}
 	return fmt.Sprintf("ignore check failed for %d local file(s) (%s); they were not read",
+		len(paths), strings.Join(paths, ", "))
+}
+
+// ScanSkipped names the local files the scan declined to read, by cause. The
+// two are kept apart because they send an operator to different places: one
+// is a git problem to investigate, the other is an ordinary state that clears
+// itself when a worktree is returned.
+type ScanSkipped struct {
+	// IgnoreUnknown are files git could not classify. A file that cannot be
+	// shown to be gitignored may be one the repository tracks, so it is not
+	// read.
+	IgnoreUnknown []string
+	// WorktreeShared are files a live goblin worktree shares by hardlink. A
+	// goblin can write them, so the store does not follow them.
+	WorktreeShared []string
+}
+
+// Any reports whether the scan skipped anything at all.
+func (s ScanSkipped) Any() bool { return len(s.IgnoreUnknown) > 0 || len(s.WorktreeShared) > 0 }
+
+// WorktreeSharedLine names the local files a live goblin worktree shares, so
+// an operator can see why a rotated value has not been picked up yet and what
+// clears it. Provisioning hardlinks a project's .env into every worktree, and
+// the worktree copy is the same inode, so a goblin that writes .env writes
+// this file: following it would let a goblin rotate the fleet's stored
+// credential. The count drops back to one when cfo cleanup returns the
+// worktree, and the next dispatch adopts normally.
+//
+// It names paths. No credential name and no value appears here, the same rule
+// the adoption line keeps.
+func WorktreeSharedLine(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("adoption paused for %d local file(s) shared with a live goblin worktree (%s); run `cfo cleanup <id>` to release them",
 		len(paths), strings.Join(paths, ", "))
 }
 
@@ -466,19 +476,44 @@ func (c envClaim) beats(other envClaim) bool {
 	return c.path < other.path
 }
 
+// sharedIntoAWorktree reports whether more than one directory entry points at
+// this file's data. An unreadable count is the caller's cue to skip the file
+// rather than to trust it: "I cannot tell whether a goblin shares this" and
+// "no goblin shares this" are different answers, and only one of them is safe
+// to adopt a credential from.
+func sharedIntoAWorktree(path string) (bool, error) {
+	links, err := hardLinkCount(path)
+	if err != nil {
+		return false, err
+	}
+	return links > 1, nil
+}
+
 // envOwners picks the one file that owns each name for this run, before
 // anything is written. Choosing up front rather than letting the scan
 // overwrite as it goes keeps a name written at most once and guarantees
 // adoption and refresh read the same file: the loser here is a value that
 // would otherwise overwrite a deliberately stored credential, so which file
 // wins has to be decided once and by precedence rather than by scan order.
-func envOwners(ctx context.Context, runner execx.Runner, projectDir string) (map[string]envClaim, []string) {
+func envOwners(ctx context.Context, runner execx.Runner, projectDir string) (map[string]envClaim, ScanSkipped) {
 	owned := map[string]envClaim{}
 	root := filepath.Clean(projectDir)
 	candidates := envFiles(projectDir)
-	ignored, undetermined := gitIgnored(ctx, runner, projectDir, candidates)
+	ignored, unknown := gitIgnored(ctx, runner, projectDir, candidates)
+	skipped := ScanSkipped{IgnoreUnknown: unknown}
 	for _, path := range candidates {
 		if !ignored[path] {
+			continue
+		}
+		// A file shared into a live goblin worktree is a file a running
+		// goblin can write, so it is not an origin the store may follow.
+		// Provisioning hardlinks a project's .env into every worktree, and
+		// the worktree copy IS this file - same inode - so pruning the
+		// .worktrees directory from the scan cannot tell them apart. The
+		// link count can: it drops back to one when cfo cleanup returns the
+		// worktree, and adoption resumes on its own.
+		if shared, err := sharedIntoAWorktree(path); err != nil || shared {
+			skipped.WorktreeShared = append(skipped.WorktreeShared, path)
 			continue
 		}
 		values, err := ParseEnvFile(path)
@@ -501,7 +536,7 @@ func envOwners(ctx context.Context, runner execx.Runner, projectDir string) (map
 			owned[name] = claim
 		}
 	}
-	return owned, undetermined
+	return owned, skipped
 }
 
 // envFileRank is a file's place in dotenv's layering, higher winning.
@@ -519,17 +554,18 @@ func envFileRank(base string) int {
 // gitignored test and the ownership rule and becomes an authorized origin in
 // its own right.
 //
-// Known residual, not closed by this prune: worktree provisioning shares .env
-// by hardlink, so <project>/.worktrees/<id>/.env is the same inode as
-// <project>/.env. A goblin that writes its worktree .env in place - every
-// ordinary redirect, Set-Content, or writeFileSync does - has written the
-// Overlord's file, and the next preflight reads it from the primary path,
-// which is never pruned. Skipping the worktree path removes the second
-// reading of one file; it cannot tell the two names apart. The refresh origin
-// is therefore only as trustworthy as write access to the project's own .env,
-// and the dispatch line naming every refresh by name and origin is what
-// catches it. The durable fix is for provisioning to copy rather than
-// hardlink a credential-carrying file.
+// This prune alone is not sufficient, and never was: worktree provisioning
+// shares .env by hardlink, so <project>/.worktrees/<id>/.env is the same
+// inode as <project>/.env. A goblin that writes its worktree .env in place -
+// every ordinary redirect, Set-Content, or writeFileSync does - has written
+// the Overlord's file, and the primary path is never pruned. Skipping the
+// worktree path removes the second reading of one file; it cannot tell the
+// two names apart.
+//
+// What closes it is the link count, checked in envOwners: a local file with
+// more than one directory entry is shared with a live worktree, so it is not
+// an origin the store follows. The count drops back to one when cfo cleanup
+// returns the worktree, so the pause clears itself.
 func envFiles(projectDir string) []string {
 	if projectDir == "" {
 		return nil
@@ -609,4 +645,81 @@ func unquote(value string) string {
 		}
 	}
 	return value
+}
+
+// envWrite is one store write a .env rotation resolved to: the key it lands
+// on, and whether that key already held a different value.
+type envWrite struct {
+	rotation envRotation
+	key      Key
+	refresh  bool
+}
+
+// planWrites resolves each rotation to the single store key it would write,
+// and keeps one write per key.
+//
+// The run deduplicates by credential and the store deduplicates by key, and
+// those are not the same set. A refresh targets whichever key in a
+// credential's chain already holds a value, so a manifest where one service's
+// alias target is another service's declared name yields two credentials that
+// land on one key. Writing both leaves the key holding whichever ran last and
+// makes the dispatch line report a refresh that no longer survives, which is
+// the one thing an operator has to be able to trust about this feature.
+//
+// Where two rotations contend for a key, the credential whose declared name
+// IS that key wins, matching the order Resolver.lookup consults; otherwise the
+// earlier rotation wins, which credentialRotations already made deterministic.
+func planWrites(store Store, scope string, chains map[string][]string, wanted map[string]bool, rotations []envRotation) ([]envWrite, error) {
+	var writes []envWrite
+	at := map[string]int{}
+	for _, rotation := range rotations {
+		write, ok, err := resolveWrite(store, scope, chains, wanted, rotation)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		index, contested := at[write.key.String()]
+		if !contested {
+			at[write.key.String()] = len(writes)
+			writes = append(writes, write)
+			continue
+		}
+		held := writes[index]
+		if write.key.Name == write.rotation.credential && held.key.Name != held.rotation.credential {
+			writes[index] = write
+		}
+	}
+	return writes, nil
+}
+
+// resolveWrite is the one key a rotation lands on: the declared name's key
+// when nothing answers this credential yet, otherwise the key in its chain
+// that already holds a value, walked in the order Resolver.lookup consults
+// them so the live key is the one that changes. A key further down the chain
+// is one resolution never reaches, and writing it would leave the live one
+// stale. A value the store already holds is not a write at all.
+func resolveWrite(store Store, scope string, chains map[string][]string, wanted map[string]bool, rotation envRotation) (envWrite, bool, error) {
+	if strings.TrimSpace(rotation.value) == "" {
+		return envWrite{}, false, nil
+	}
+	if wanted[rotation.credential] {
+		return envWrite{rotation: rotation, key: Scoped(scope, rotation.credential)}, true, nil
+	}
+	for _, candidate := range chains[rotation.credential] {
+		key := Scoped(scope, candidate)
+		existing, found, err := store.Get(key)
+		if err != nil {
+			return envWrite{}, false, err
+		}
+		if !found || existing == "" {
+			continue
+		}
+		if existing == rotation.value {
+			return envWrite{}, false, nil
+		}
+		return envWrite{rotation: rotation, key: key, refresh: true}, true, nil
+	}
+	return envWrite{}, false, nil
 }

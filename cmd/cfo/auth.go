@@ -98,7 +98,10 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer) int {
 		if err != nil {
 			fmt.Fprintf(stderr, "cfo auth: adopt existing credentials: %v\n", err)
 		}
-		if line := auth.IgnoreScanFailedLine(unscanned); line != "" {
+		if line := auth.IgnoreScanFailedLine(unscanned.IgnoreUnknown); line != "" {
+			fmt.Fprintf(stderr, "cfo auth: %s\n", line)
+		}
+		if line := auth.WorktreeSharedLine(unscanned.WorktreeShared); line != "" {
 			fmt.Fprintf(stderr, "cfo auth: %s\n", line)
 		}
 		// A credential stored before namespacing lands in the scope that now
