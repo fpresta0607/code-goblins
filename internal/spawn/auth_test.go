@@ -89,11 +89,23 @@ func TestSpawnProceedsWhenAProjectDeclaresNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
-	if _, statErr := os.Stat(filepath.Join(result.Meta.TaskTmp, "auth.ps1")); !os.IsNotExist(statErr) {
-		t.Errorf("a project with no credentials still got a secrets script: %v", statErr)
+	// A project with nothing to inject still gets the secrets script, because
+	// that script is also what strips every harness billing key from the pane
+	// before the harness starts. The strip must run whether or not the project
+	// declared credentials: a key inherited from the user environment is the
+	// case with nothing declared at all.
+	script, err := os.ReadFile(filepath.Join(result.Meta.TaskTmp, "auth.ps1"))
+	if err != nil {
+		t.Fatalf("a project with no credentials must still get the billing-key strip script: %v", err)
 	}
-	if strings.Contains(fixture.runner.literals[0], "auth.ps1") {
-		t.Errorf("literal = %q, want no dot-source with nothing to inject", fixture.runner.literals[0])
+	if !strings.Contains(string(script), "Remove-Item -Path Env:ANTHROPIC_API_KEY") {
+		t.Errorf("secrets script does not strip ANTHROPIC_API_KEY: %q", script)
+	}
+	if strings.Contains(string(script), "$env:") {
+		t.Errorf("secrets script assigned a value with nothing to inject: %q", script)
+	}
+	if !strings.Contains(fixture.runner.literals[0], "auth.ps1") {
+		t.Errorf("literal = %q, want the strip script dot-sourced even with nothing to inject", fixture.runner.literals[0])
 	}
 }
 
