@@ -740,3 +740,55 @@ func writeManifest(t *testing.T, dataDir, project string, manifest Manifest) str
 	}
 	return path
 }
+
+// A harness billing key is never injected, whatever a manifest declares. On
+// 2026-08-25 a manifest declared the app's production ANTHROPIC_API_KEY, the
+// spawn handed it to every goblin, the harness took it over the subscription,
+// and the gate ran the key to its spend limit. The manifest is the attack
+// surface, so the guard sits below it.
+func TestInjectEnvNeverCarriesAHarnessBillingKey(t *testing.T) {
+	clearEnv(t, "ANTHROPIC_API_KEY", "anthropic_api_key", "OPENAI_API_KEY", "DATABASE_URL")
+	manifest := Manifest{Services: []Service{
+		{Name: "anthropic", Method: MethodEnv, Env: []string{"ANTHROPIC_API_KEY"}},
+		{Name: "anthropic-lower", Method: MethodEnv, Env: []string{"anthropic_api_key"}},
+		{Name: "openai", Method: MethodEnv, Env: []string{"OPENAI_API_KEY"}},
+		{Name: "neon", Method: MethodEnv, Env: []string{"DATABASE_URL"}},
+	}}
+	store := newMemoryStore(map[string]string{
+		"precisiondocs/ANTHROPIC_API_KEY": "sk-ant-api03-production-key-value",
+		"precisiondocs/anthropic_api_key": "sk-ant-api03-lowercase-key-value",
+		"precisiondocs/OPENAI_API_KEY":    "sk-openai-production-key-value",
+		"precisiondocs/DATABASE_URL":      "postgres://ep-clockin-cool-morning/db",
+	})
+
+	report, err := Checker{Store: store, Runner: &fakeRunner{}, Project: "precisiondocs"}.Check(context.Background(), manifest)
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	env, err := InjectEnv(store, "precisiondocs", manifest, report)
+	if err != nil {
+		t.Fatalf("InjectEnv: %v", err)
+	}
+	for _, name := range []string{"ANTHROPIC_API_KEY", "anthropic_api_key", "OPENAI_API_KEY"} {
+		if _, present := env[name]; present {
+			t.Errorf("%s was injected; a harness billing key must never reach a goblin", name)
+		}
+	}
+	// The guard is precise: an ordinary project credential still flows.
+	if env["DATABASE_URL"] == "" {
+		t.Error("DATABASE_URL was withheld; the billing-key guard must not swallow ordinary credentials")
+	}
+}
+
+func TestIsHarnessBillingKeyIsCaseInsensitive(t *testing.T) {
+	for _, name := range []string{"ANTHROPIC_API_KEY", "anthropic_api_key", "Anthropic_Api_Key", "OPENAI_API_KEY", "GEMINI_API_KEY"} {
+		if !IsHarnessBillingKey(name) {
+			t.Errorf("IsHarnessBillingKey(%q) = false, want true", name)
+		}
+	}
+	for _, name := range []string{"DATABASE_URL", "FLY_API_TOKEN", "GITHUB_TOKEN", "STRIPE_SECRET_KEY", "ANTHROPIC_MODEL"} {
+		if IsHarnessBillingKey(name) {
+			t.Errorf("IsHarnessBillingKey(%q) = true, want false", name)
+		}
+	}
+}
