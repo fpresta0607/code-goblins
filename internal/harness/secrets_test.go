@@ -65,3 +65,32 @@ func TestPowerShellPrefixIsUnchangedWithoutASecretsFile(t *testing.T) {
 		t.Errorf("prefix = %q, want no dot-source when nothing was injected", prefix)
 	}
 }
+
+// The pane script strips every harness billing key before the harness
+// starts, whether or not the project has credentials to inject, so a key
+// inherited from the user environment or a dot-sourced project file can
+// never make the harness bill it instead of the subscription.
+func TestRenderEnvScriptStripsHarnessBillingKeysEvenWithNothingToInject(t *testing.T) {
+	script, err := RenderEnvScript(map[string]string{})
+	if err != nil {
+		t.Fatalf("RenderEnvScript: %v", err)
+	}
+	for _, key := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"} {
+		want := "Remove-Item -Path Env:" + key + " -ErrorAction SilentlyContinue\n"
+		if !strings.Contains(script, want) {
+			t.Errorf("script does not strip %s:\n%s", key, script)
+		}
+	}
+}
+
+func TestRenderEnvScriptStripsBeforeItAssigns(t *testing.T) {
+	script, err := RenderEnvScript(map[string]string{"DATABASE_URL": "postgres://x"})
+	if err != nil {
+		t.Fatalf("RenderEnvScript: %v", err)
+	}
+	strip := strings.Index(script, "Remove-Item -Path Env:ANTHROPIC_API_KEY")
+	assign := strings.Index(script, "$env:DATABASE_URL = ")
+	if strip < 0 || assign < 0 || strip > assign {
+		t.Errorf("strip must precede assignment; strip=%d assign=%d\n%s", strip, assign, script)
+	}
+}

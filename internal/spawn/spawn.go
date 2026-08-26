@@ -388,9 +388,9 @@ func oneLine(text string) string {
 // restricted file the shell dot-sources, never the typed line: a credential
 // typed into the pane would sit in its scrollback and in every `cfo peek`.
 func (s Service) injectProjectCredentials(preflight auth.Result, taskTmp string, launch *harness.Launch) error {
-	if len(preflight.Env) == 0 {
-		return nil
-	}
+	// No early return on an empty preflight: the rendered script also strips
+	// every harness billing key from the pane, and that must happen for a
+	// project with nothing to inject just as much as for one with plenty.
 	env := make(map[string]string, len(preflight.Env))
 	for name, value := range preflight.Env {
 		if reservedLaunchName(launch.Env, name) {
@@ -399,9 +399,6 @@ func (s Service) injectProjectCredentials(preflight auth.Result, taskTmp string,
 			continue
 		}
 		env[name] = value
-	}
-	if len(env) == 0 {
-		return nil
 	}
 	script, err := harness.RenderEnvScript(env)
 	if err != nil {

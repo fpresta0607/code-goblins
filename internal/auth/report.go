@@ -5,6 +5,8 @@ import (
 	"io"
 	"sort"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/harness"
 )
 
 // WriteTable prints one honest line per service: its state, the reason behind
@@ -257,35 +259,13 @@ func InjectEnv(store Store, project string, manifest Manifest, report Report) (m
 	return env, nil
 }
 
-// harnessBillingKeys are the variables a coding harness reads as its OWN
-// authentication. A harness that finds one authenticates with it instead of
-// the Supreme Overlord's subscription, and every token it spends bills that
-// key. On 2026-08-25 a project manifest declared ANTHROPIC_API_KEY (its app's
-// production key), the spawn injected it into every goblin pane, the harness
-// and the no-mistakes daemon under it took it over the subscription, and the
-// gate's review loop ran that key to its spend limit and locked the app out.
-// The list is matched case-insensitively because the pane is PowerShell on
-// Windows, where variable names are not case-sensitive.
-var harnessBillingKeys = []string{
-	"ANTHROPIC_API_KEY",
-	"ANTHROPIC_AUTH_TOKEN",
-	"CLAUDE_API_KEY",
-	"OPENAI_API_KEY",
-	"OPENAI_KEY",
-	"CODEX_API_KEY",
-	"MOONSHOT_API_KEY",
-	"KIMI_API_KEY",
-	"GEMINI_API_KEY",
-	"GOOGLE_API_KEY",
-}
-
 // IsHarnessBillingKey reports whether name is one a harness would take as
 // its own billing credential. Such a name is never injected into a goblin,
 // whatever a manifest declares: the harness must run on the subscription,
 // and a project that needs the key for its OWN code loads it from its own
 // environment file at runtime rather than from the pane.
 func IsHarnessBillingKey(name string) bool {
-	for _, key := range harnessBillingKeys {
+	for _, key := range harness.HarnessBillingKeys {
 		if strings.EqualFold(name, key) {
 			return true
 		}
