@@ -276,3 +276,75 @@ func TestRunDrainNonEmptyQueueNoPendingEpisode(t *testing.T) {
 		t.Errorf("pending = %+v, want empty", pending)
 	}
 }
+
+// A blocked notify is a goblin parked on a question only the CFO can answer.
+// Acking it destroys the only durable record of that question, which is how a
+// drain whose output was truncated (piped through tail, say) silently strands a
+// goblin. --ack-through must refuse it, and say which goblin is waiting.
+func TestRunDrainRefusesToAckBlockedNotify(t *testing.T) {
+	h := buildDrainFixture(t)
+	if _, err := wake.Append(h.State, "notify", "gb-x", "blocked: which remedy, (a) or (b)?"); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if exit := runDrain(h, []string{"--ack-through", "99"}, &stdout, &stderr); exit != 1 {
+		t.Fatalf("exit = %d, want 1; stderr=%s", exit, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "gb-x") {
+		t.Errorf("stderr does not name the waiting goblin: %s", stderr.String())
+	}
+	// The refusal must leave the queue intact, or the question is lost anyway.
+	pending, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, rec := range pending {
+		if rec.Key == "gb-x" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("blocked record was retired despite the refusal")
+	}
+}
+
+// --ack-blocking is the operator saying they have read the question and are
+// retiring it deliberately.
+func TestRunDrainAckBlockingRetiresBlockedNotify(t *testing.T) {
+	h := buildDrainFixture(t)
+	if _, err := wake.Append(h.State, "notify", "gb-x", "blocked: which remedy?"); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if exit := runDrain(h, []string{"--ack-through", "99", "--ack-blocking"}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+	}
+	pending, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 0 {
+		t.Errorf("pending = %+v, want empty", pending)
+	}
+}
+
+// An ordinary done notify must still ack without ceremony — the guard is for
+// questions, not for every notify.
+func TestRunDrainAcksDoneNotifyWithoutFlag(t *testing.T) {
+	h := buildDrainFixture(t)
+	if _, err := wake.Append(h.State, "notify", "gb-y", "done: PR https://example.test/1"); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if exit := runDrain(h, []string{"--ack-through", "99"}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+	}
+	pending, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 0 {
+		t.Errorf("pending = %+v, want empty", pending)
+	}
+}
