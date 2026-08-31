@@ -34,6 +34,9 @@ type CycleProber interface {
 type Service struct {
 	StateDir              string
 	Probe                 Prober
+	// Gate is consulted only once a goblin has read working for longer than
+	// BusyTurnMax; nil disables the gate probe but not the budget itself.
+	Gate                  GateProber
 	Now                   func() time.Time
 	StaleEscalateAfter    time.Duration
 	StallAfter            time.Duration
@@ -241,6 +244,12 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 
 	observation.Digest = digest
 
+	// Any status other than working ends the busy stretch: the next working
+	// reading starts a fresh clock rather than inheriting an old one.
+	if sample.Status != herdr.AgentWorking {
+		observation.BusySince = nil
+	}
+
 	// agent_status is the primary supervision signal (working | idle | done),
 	// read straight from `herdr agent list` for both claude and pi panes.
 	switch sample.Status {
@@ -250,6 +259,16 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		// done/idle reading the same stale verb is not held quiet again.
 		if observation.GatedVerbLine > observation.ConsumedVerbLine {
 			observation.ConsumedVerbLine = observation.GatedVerbLine
+		}
+		// Working is not definitive. A goblin blocked in a foreground shell -
+		// a gate step polling for CI checks a repo will never produce - reads
+		// working indefinitely, and it once did so for six hours. Past the
+		// busy-turn budget the pane's own word is no longer enough: consult
+		// the gate, and wake if nothing underneath is actually moving.
+		if observation.BusySince != nil && now.Sub(*observation.BusySince) >= s.busyTurnMax() {
+			if stalled, detail := s.busyOverAge(ctx, meta, now); stalled {
+				return s.busyOverAgeObservation(observation, detail, now)
+			}
 		}
 		return workingObservation(observation, sample, now)
 	case herdr.AgentDone, herdr.AgentBlocked:
@@ -311,9 +330,68 @@ func (s Service) staleObservation(observation Observation, reason Reason, now ti
 	return observation
 }
 
-// workingObservation records a goblin whose agent_status is working. It never
-// wakes and never walks toward a stall: a rising state_change_seq/revision is
-// the liveness evidence, and "working" is definitive.
+// busyOverAge decides whether a goblin that has read working past the budget
+// is genuinely wedged. With no gate prober the budget alone decides. With one,
+// a gate step that has itself been active past the budget is the wedge, and a
+// ci step on a repo with no workflows is named as such, because that shape
+// cannot complete without an abort.
+func (s Service) busyOverAge(ctx context.Context, meta state.TaskMeta, now time.Time) (bool, string) {
+	age := now.Sub(*s.busySinceOrNow(meta, now)).Round(time.Minute)
+	if s.Gate == nil {
+		return true, "working for " + age.String() + " with no gate probe available; inspect the shell"
+	}
+	gate, err := s.Gate.InspectGate(ctx, meta)
+	if err != nil {
+		return true, "working for " + age.String() + "; gate probe failed: " + err.Error()
+	}
+	if !gate.Active {
+		return true, "working for " + age.String() + " with no active gate run; inspect the shell"
+	}
+	if gate.ActiveFor < s.busyTurnMax() {
+		// The gate is moving between steps even though the pane is busy.
+		return false, ""
+	}
+	detail := "gate step " + gate.Step + " active for " + gate.ActiveFor.Round(time.Minute).String()
+	if gate.LastActivity != "" {
+		detail += " (last: " + gate.LastActivity + ")"
+	}
+	if gate.Step == "ci" && gate.NoCI {
+		detail += "; repo has no .github/workflows so this step can never complete - run: no-mistakes axi abort"
+	}
+	return true, detail
+}
+
+func (s Service) busySinceOrNow(meta state.TaskMeta, now time.Time) *time.Time {
+	if obs, err := ReadObservation(s.StateDir, meta.ID); err == nil && obs.BusySince != nil {
+		return obs.BusySince
+	}
+	return &now
+}
+
+// busyOverAgeObservation wakes once for a wedged working goblin and then
+// holds, exactly as staleObservation does for an idle one. A later cycle in
+// which the gate has moved on returns through workingObservation, which
+// clears StaleSince and lets a fresh wedge wake again.
+func (s Service) busyOverAgeObservation(observation Observation, detail string, now time.Time) Observation {
+	observation.LastSeen = now
+	observation.Health = HealthStale
+	observation.Reason = BusyTurnOverAge
+	observation.NextPauseResurface = nil
+	if observation.PendingEvent != nil || observation.StaleSince != nil {
+		return observation
+	}
+	observation.StaleSince = timePointer(now)
+	next := now.Add(s.staleEscalateAfter())
+	observation.NextEscalation = &next
+	observation.Escalation = 0
+	event := taskEvent(observation.TaskID, BusyTurnOverAge, detail)
+	observation.PendingEvent = &event
+	return observation
+}
+
+// workingObservation records a goblin whose agent_status is working. It does
+// not wake on its own, but it is no longer definitive: BusySince keeps the
+// clock that busyOverAge reads once the stretch outlives the budget.
 func workingObservation(observation Observation, sample EndpointSample, now time.Time) Observation {
 	if !sample.CountersUnavailable {
 		observation.StateChangeSeq = sample.StateChangeSeq
@@ -321,6 +399,9 @@ func workingObservation(observation Observation, sample EndpointSample, now time
 	}
 	observation.LastSeen = now
 	observation.LastProgress = now
+	if observation.BusySince == nil {
+		observation.BusySince = timePointer(now)
+	}
 	observation.IdleSince = nil
 	observation.StaleSince = nil
 	observation.NextEscalation = nil
