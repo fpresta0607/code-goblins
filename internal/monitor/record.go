@@ -132,6 +132,10 @@ type Observation struct {
 	LastObserved         time.Time    `json:"last_observed"`
 	LastSeen             time.Time    `json:"last_seen"`
 	LastProgress         time.Time    `json:"last_progress"`
+	// BusySince is when the agent last began an unbroken working stretch. A
+	// goblin blocked in a foreground shell reads working forever, so this is
+	// the only clock that can tell a long turn from a wedged one.
+	BusySince            *time.Time   `json:"busy_since,omitempty"`
 	IdleSince            *time.Time   `json:"idle_since,omitempty"`
 	StaleSince           *time.Time   `json:"stale_since,omitempty"`
 	NextEscalation       *time.Time   `json:"next_escalation,omitempty"`
