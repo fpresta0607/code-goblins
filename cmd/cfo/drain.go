@@ -108,7 +108,7 @@ func blockingAtOrBelow(stateDir string, seq int) ([]wake.Record, error) {
 		return nil, err
 	}
 	var blocking []wake.Record
-	for _, rec := range pending {
+	for _, rec := range wake.Deduped(pending) {
 		if rec.Seq > seq || rec.Kind != "notify" {
 			continue
 		}

@@ -348,3 +348,20 @@ func TestRunDrainAcksDoneNotifyWithoutFlag(t *testing.T) {
 		t.Errorf("pending = %+v, want empty", pending)
 	}
 }
+
+// A block that a later done for the same goblin has superseded is no longer
+// waiting on anyone; the guard must read the folded queue, not the raw log, or
+// every finished goblin that ever asked a question blocks its own ack.
+func TestRunDrainAcksSupersededBlockWithoutFlag(t *testing.T) {
+	h := buildDrainFixture(t)
+	if _, err := wake.Append(h.State, "notify", "gb-x", "blocked: which page?"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wake.Append(h.State, "notify", "gb-x", "done: PR https://example.test/2"); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if exit := runDrain(h, []string{"--ack-through", "99"}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+	}
+}
