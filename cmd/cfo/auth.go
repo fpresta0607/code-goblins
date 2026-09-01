@@ -426,16 +426,13 @@ func refreshProjectAuth(ctx context.Context, runtime commandRuntime, scope strin
 		fmt.Fprintf(stderr, "cfo auth: resolve home: %v\n", err)
 		return
 	}
-	refresher := runtime.authRefresher(h)
-	refresher.Warn = stderr
-	refreshed, err := refresher.RefreshProject(ctx, scope)
-	if err != nil {
-		fmt.Fprintf(stderr, "cfo auth: refresh live task credentials: %v\n", err)
-		return
-	}
+	refreshed, err := runtime.authRefresher(h).RefreshProject(ctx, scope)
 	for _, item := range refreshed {
 		fmt.Fprintf(stdout, "refreshed %s auth.ps1 (%d vars)\n", item.ID, item.Vars)
 		deliverRefreshNotice(ctx, runtime, h, item, stderr)
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo auth: refresh live task credentials: %v\n", err)
 	}
 }
 

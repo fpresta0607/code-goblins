@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -145,28 +146,16 @@ func TestAuthRefreshReportsTheTasksItRefreshedWhenAnotherWriteFails(t *testing.T
 	if err := os.Mkdir(filepath.Join(stuck.TaskTmp, "auth.ps1"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	var warn strings.Builder
-	refresher := AuthRefresher{StateDir: stateDir, Store: store, Panes: stubPanes{live: map[string]bool{"pane-good": true, "pane-stuck": true}}, Warn: &warn}
+	refresher := AuthRefresher{StateDir: stateDir, Store: store, Panes: stubPanes{live: map[string]bool{"pane-good": true, "pane-stuck": true}}}
 	refreshed, err := refresher.RefreshProject(context.Background(), project)
-	if err != nil {
-		t.Fatalf("RefreshProject hid a completed refresh behind another task's failure: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "stuck-1") {
+		t.Fatalf("err = %v, want the failed task named", err)
 	}
 	if len(refreshed) != 1 || refreshed[0].ID != "good-1" {
-		t.Fatalf("refreshed = %v, want exactly good-1", refreshed)
+		t.Fatalf("refreshed = %v, want good-1 reported alongside the failure", refreshed)
 	}
 	if _, err := os.Stat(filepath.Join(good.TaskTmp, "auth.ps1")); err != nil {
 		t.Fatalf("good task's script = %v, want it regenerated", err)
-	}
-	if !strings.Contains(warn.String(), "stuck-1") {
-		t.Errorf("warnings = %q, want the failed task named", warn.String())
-	}
-
-	// With nothing refreshed, the failure is the result rather than a warning.
-	if err := os.Remove(filepath.Join(stateDir, "good-1.meta")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := refresher.RefreshProject(context.Background(), project); err == nil {
-		t.Fatal("RefreshProject reported success when every write failed")
 	}
 }
 
@@ -192,7 +181,7 @@ func TestAuthRefreshIncludesStoreOnlyVariablesAbsentFromTheManifest(t *testing.T
 	}
 
 	live := writeTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
-	refresher := AuthRefresher{StateDir: stateDir, Store: store, Panes: stubPanes{live: map[string]bool{"pane-live": true}}}
+	refresher := AuthRefresher{StateDir: stateDir, DataDir: dataDir, Store: store, Panes: stubPanes{live: map[string]bool{"pane-live": true}}}
 	refreshed, err := refresher.RefreshProject(context.Background(), project)
 	if err != nil {
 		t.Fatalf("RefreshProject: %v", err)
@@ -344,5 +333,98 @@ func TestAuthRefreshTaskAcceptsAnIDRespawnedAfterCleanup(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(meta.TaskTmp, "auth.ps1")); err != nil {
 		t.Fatalf("respawned task's script = %v, want it regenerated", err)
+	}
+}
+
+func TestAuthRefreshKeepsSharedScopeValuesOfServicesDeclaredShared(t *testing.T) {
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	dataDir := filepath.Join(root, "data")
+	project := filepath.Join(root, "precisiondocs")
+	manifest := `{"project": "precisiondocs", "services": [
+		{"name": "db", "method": "env", "env": ["DATABASE_URL"], "shared": true},
+		{"name": "stripe", "method": "env", "env": ["STRIPE_SECRET_KEY"]}]}`
+	if err := os.MkdirAll(filepath.Join(dataDir, "projects", "precisiondocs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "projects", "precisiondocs", "auth.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := useCredentialStore(t)
+	// Both values live only in the shared scope. Spawn injected DATABASE_URL
+	// because its service is declared shared, and declined STRIPE_SECRET_KEY
+	// because its service is not; a refresh must draw the same line.
+	if err := store.Set(auth.Shared("DATABASE_URL"), "postgres://shared"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set(auth.Shared("STRIPE_SECRET_KEY"), "sk_shared_not_declared"); err != nil {
+		t.Fatal(err)
+	}
+
+	live := writeTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
+	refresher := AuthRefresher{StateDir: stateDir, DataDir: dataDir, Store: store, Panes: stubPanes{live: map[string]bool{"pane-live": true}}}
+	refreshed, err := refresher.RefreshProject(context.Background(), project)
+	if err != nil {
+		t.Fatalf("RefreshProject: %v", err)
+	}
+	if len(refreshed) != 1 || refreshed[0].Vars != 1 {
+		t.Fatalf("refreshed = %v, want live-1 with the one shared value its manifest may read", refreshed)
+	}
+	script, err := os.ReadFile(filepath.Join(live.TaskTmp, "auth.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(script), "$env:DATABASE_URL = 'postgres://shared'") {
+		t.Errorf("script lacks the shared value spawn injected:\n%s", script)
+	}
+	if strings.Contains(string(script), "sk_shared_not_declared") {
+		t.Errorf("script holds a shared value no service is declared to read:\n%s", script)
+	}
+}
+
+func TestAuthRefreshStaysOutOfATaskCleanupIsArchiving(t *testing.T) {
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	project := filepath.Join(root, "precisiondocs")
+	store := useCredentialStore(t)
+	if err := store.Set(auth.Scoped(project, "FLY_API_TOKEN"), "fly_new_token"); err != nil {
+		t.Fatal(err)
+	}
+	busy := writeTaskMeta(t, stateDir, "busy-1", project, "pane-busy", true)
+	free := writeTaskMeta(t, stateDir, "free-1", project, "pane-free", true)
+	// Cleanup holds this lock while it archives the task's scratch directory;
+	// the name is cleanup's own, so the two commands contend for one lock.
+	const cleanupLock = ".cleanup-busy-1.lock"
+	if _, err := lock.AcquireExclusiveNamed(stateDir, cleanupLock); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lock.ReleaseExclusiveNamed(stateDir, cleanupLock) })
+
+	refresher := AuthRefresher{StateDir: stateDir, Store: store, Panes: stubPanes{live: map[string]bool{"pane-busy": true, "pane-free": true}}}
+	refreshed, err := refresher.RefreshProject(context.Background(), project)
+	if err == nil || !strings.Contains(err.Error(), "busy-1") {
+		t.Fatalf("err = %v, want the task cleanup holds named", err)
+	}
+	if len(refreshed) != 1 || refreshed[0].ID != "free-1" {
+		t.Fatalf("refreshed = %v, want exactly free-1", refreshed)
+	}
+	if _, err := os.Stat(filepath.Join(busy.TaskTmp, "auth.ps1")); !os.IsNotExist(err) {
+		t.Errorf("busy task's script = %v, want it untouched while cleanup holds the task", err)
+	}
+	if _, err := os.Stat(filepath.Join(free.TaskTmp, "auth.ps1")); err != nil {
+		t.Errorf("free task's script = %v, want it regenerated", err)
+	}
+	if _, err := refresher.RefreshTask(context.Background(), "busy-1"); err == nil {
+		t.Fatal("RefreshTask wrote into a task cleanup is archiving")
+	}
+
+	if err := lock.ReleaseExclusiveNamed(stateDir, cleanupLock); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := refresher.RefreshTask(context.Background(), "busy-1"); err != nil {
+		t.Fatalf("RefreshTask after cleanup let go: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(busy.TaskTmp, "auth.ps1")); err != nil {
+		t.Errorf("busy task's script = %v, want it regenerated once the lock is free", err)
 	}
 }
