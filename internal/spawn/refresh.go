@@ -87,15 +87,23 @@ func (r AuthRefresher) RefreshProject(ctx context.Context, project string) ([]Re
 		return nil, err
 	}
 	var refreshed []Refreshed
+	var failed error
 	for _, meta := range metas {
 		if !r.taskLive(ctx, meta) {
 			continue
 		}
 		item, err := r.rewrite(meta, env, true)
 		if err != nil {
-			return nil, err
+			failed = err
+			if r.Warn != nil {
+				fmt.Fprintf(r.Warn, "warning: %v\n", err)
+			}
+			continue
 		}
 		refreshed = append(refreshed, item)
+	}
+	if len(refreshed) == 0 && failed != nil {
+		return nil, failed
 	}
 	return refreshed, nil
 }
