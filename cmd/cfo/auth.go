@@ -427,12 +427,19 @@ func refreshProjectAuth(ctx context.Context, runtime commandRuntime, scope strin
 		return
 	}
 	refreshed, err := runtime.authRefresher(h).RefreshProject(ctx, scope)
-	for _, item := range refreshed {
+	for _, item := range refreshed.Refreshed {
 		fmt.Fprintf(stdout, "refreshed %s auth.ps1 (%d vars)\n", item.ID, item.Vars)
 		deliverRefreshNotice(ctx, runtime, h, item, stderr)
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo auth: refresh live task credentials: %v\n", err)
+	}
+	// A Herdr outage looks exactly like a fleet that went home: records with
+	// live worktrees remain, but no pane answers. Say so, or the CFO reads
+	// silence as "nothing was live" while every goblin stays on its stale
+	// snapshot.
+	if len(refreshed.Refreshed) == 0 && refreshed.Unreachable > 0 {
+		fmt.Fprintf(stderr, "cfo auth: found %d live task record(s) for %s but no pane could be confirmed reachable; the stored credentials may not have reached any goblin\n", refreshed.Unreachable, scope)
 	}
 }
 

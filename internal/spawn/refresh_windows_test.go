@@ -44,12 +44,12 @@ func TestAuthRefreshSkipsAnUnreadableTaskRecordAndRefreshesTheRest(t *testing.T)
 	stuck := writeTaskMeta(t, stateDir, "stuck-1", project, "pane-stuck", true)
 	lockFileExclusively(t, filepath.Join(stateDir, "stuck-1.meta"))
 	refresher := AuthRefresher{StateDir: stateDir, Store: store, Panes: stubPanes{live: map[string]bool{"pane-live": true, "pane-stuck": true}}}
-	refreshed, err := refresher.RefreshProject(context.Background(), project)
+	result, err := refresher.RefreshProject(context.Background(), project)
 	if err == nil || !strings.Contains(err.Error(), "stuck-1") {
 		t.Fatalf("err = %v, want the unreadable record named", err)
 	}
-	if len(refreshed) != 1 || refreshed[0].ID != "live-1" {
-		t.Fatalf("refreshed = %v, want live-1 refreshed despite the unreadable record", refreshed)
+	if len(result.Refreshed) != 1 || result.Refreshed[0].ID != "live-1" {
+		t.Fatalf("refreshed = %v, want live-1 refreshed despite the unreadable record", result.Refreshed)
 	}
 	if _, err := os.Stat(filepath.Join(live.TaskTmp, "auth.ps1")); err != nil {
 		t.Fatalf("live task's script = %v, want it regenerated despite the unreadable record", err)
