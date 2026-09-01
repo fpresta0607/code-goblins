@@ -59,7 +59,7 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	check := flags.Bool("check", false, "probe every service and report without changing anything (default)")
 	fix := flags.Bool("fix", false, "probe, then repair what can be repaired without a human")
-	showEnv := flags.Bool("env", false, "print the environment a goblin's pane would inherit (credential values redacted, cache locations in full)")
+	showEnv := flags.Bool("env", false, "print the environment a goblin's pane would inherit from the manifest's declared services (credential values redacted, cache locations in full)")
 	positional, err := parseAuthArgs(flags, args)
 	if err != nil {
 		return 2
