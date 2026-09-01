@@ -6,12 +6,8 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
-
-// authScriptName is the restricted credential script every pane shell
-// dot-sources before the harness starts. It is regenerated, never edited:
-// a hand-appended line is exactly how a credential stops matching the store.
-const authScriptName = "auth.ps1"
 
 // writeAuthScript renders env with the generator the dispatch path uses and
 // writes it to the task's tasktmp credential script. The script is rendered
@@ -34,11 +30,11 @@ func writeAuthScript(taskTmp string, env map[string]string) (string, int, error)
 	if err != nil {
 		return "", 0, err
 	}
-	path := filepath.Join(taskTmp, authScriptName)
+	path := filepath.Join(taskTmp, state.AuthScriptName)
 	if err := os.MkdirAll(taskTmp, 0o700); err != nil {
 		return "", 0, err
 	}
-	tmp, err := os.CreateTemp(taskTmp, authScriptName+".tmp-*")
+	tmp, err := os.CreateTemp(taskTmp, state.AuthScriptName+".tmp-*")
 	if err != nil {
 		return "", 0, err
 	}

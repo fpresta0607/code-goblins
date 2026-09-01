@@ -200,7 +200,7 @@ func (s Service) archive(id string) (string, error) {
 	// project's secrets, and a finished task has no further use for them. If
 	// it cannot be dropped, refuse to archive rather than move a directory
 	// that still holds credentials.
-	if err := os.Remove(filepath.Join(taskTmp, "auth.ps1")); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(filepath.Join(taskTmp, state.AuthScriptName)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", fmt.Errorf("remove injected credentials: %w", err)
 	}
 	if err := os.Rename(taskTmp, dir); err != nil {
