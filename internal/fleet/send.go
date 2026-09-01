@@ -189,7 +189,7 @@ func piSeparator(line string) bool {
 }
 
 // submitKey is the harness-specific key that submits a parked composer: kimi
-// needs ctrl+s while pi and claude submit with Enter. Unknown harnesses keep
+// needs ctrl+s while pi, claude, and codex submit with Enter. Unknown harnesses keep
 // the conservative Enter default.
 func submitKey(harness string) string {
 	if harness == "kimi" {
@@ -362,19 +362,31 @@ func composerPrompt(harness string) string {
 	}
 }
 
-// currentComposerLine returns the text after the prompt on the last non-empty
-// line of the pane tail, or ok false when the tail has no such composer line.
+// composerWindow bounds how many non-empty lines up from the pane bottom the
+// composer is searched, so a prompt line in old scrollback can never read as
+// the current composer. Blank pane rows are not charged to the window, so a
+// tall pane with unfilled rows beneath the footer cannot push the composer
+// out of it.
+const composerWindow = 20
+
+// currentComposerLine returns the text after the prompt on the lowest prompt
+// line of the pane tail, or ok false when the bottom window holds no prompt
+// line. Harnesses like claude and codex render a footer below the composer
+// (a separator, a status line, subagent rows), so the last non-empty line is
+// not the composer itself; the scan skips those footer rows and lands on the
+// composer prompt instead.
 func currentComposerLine(captured, prompt string) (string, bool) {
 	lines := strings.Split(captured, "\n")
-	for index := len(lines) - 1; index >= 0; index-- {
+	remaining := composerWindow
+	for index := len(lines) - 1; index >= 0 && remaining > 0; index-- {
 		line := strings.TrimSpace(lines[index])
 		if line == "" {
 			continue
 		}
-		if !strings.HasPrefix(line, prompt) {
-			return "", false
+		remaining--
+		if strings.HasPrefix(line, prompt) {
+			return strings.TrimPrefix(line, prompt), true
 		}
-		return strings.TrimPrefix(line, prompt), true
 	}
 	return "", false
 }
