@@ -269,3 +269,30 @@ func TestAuthRefreshDropsReservedLaunchNamesFromTheStore(t *testing.T) {
 		t.Errorf("script dropped an unrelated credential:\n%s", script)
 	}
 }
+
+func TestAuthRefreshTaskAcceptsAnIDRespawnedAfterCleanup(t *testing.T) {
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	project := filepath.Join(root, "precisiondocs")
+	store := useCredentialStore(t)
+	if err := store.Set(auth.Scoped(project, "FLY_API_TOKEN"), "fly_new_token"); err != nil {
+		t.Fatal(err)
+	}
+	// Cleanup archived the first run under a stamped name and freed the id;
+	// the second run of the same id is live beside that archive.
+	if err := os.MkdirAll(filepath.Join(stateDir, "archive", "reused-1.20260102T150405Z"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	meta := writeTaskMeta(t, stateDir, "reused-1", project, "pane-live", true)
+	refresher := AuthRefresher{StateDir: stateDir, Store: store, Panes: stubPanes{live: map[string]bool{"pane-live": true}}}
+	refreshed, err := refresher.RefreshTask(context.Background(), "reused-1")
+	if err != nil {
+		t.Fatalf("RefreshTask refused a live respawned id: %v", err)
+	}
+	if refreshed.ID != "reused-1" || refreshed.Vars != 1 || !refreshed.Live {
+		t.Fatalf("refreshed = %+v, want reused-1, 1 var, live pane", refreshed)
+	}
+	if _, err := os.Stat(filepath.Join(meta.TaskTmp, "auth.ps1")); err != nil {
+		t.Fatalf("respawned task's script = %v, want it regenerated", err)
+	}
+}

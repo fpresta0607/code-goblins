@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -64,6 +65,10 @@ type AuthRefresher struct {
 	// which is what production and the env-redirected tests both want.
 	Store auth.Store
 	Panes PaneLiveness
+	// Warn receives one line per task record that could not be read and was
+	// skipped, so one corrupt record never silently blocks a fleet refresh.
+	// nil discards the warnings.
+	Warn io.Writer
 }
 
 // RefreshProject regenerates auth.ps1 for every task whose metadata names
@@ -86,7 +91,7 @@ func (r AuthRefresher) RefreshProject(ctx context.Context, project string) ([]Re
 		if !r.taskLive(ctx, meta) {
 			continue
 		}
-		item, err := r.rewrite(ctx, meta, env)
+		item, err := r.rewrite(meta, env, true)
 		if err != nil {
 			return nil, err
 		}
@@ -98,19 +103,21 @@ func (r AuthRefresher) RefreshProject(ctx context.Context, project string) ([]Re
 // RefreshTask regenerates one task's auth.ps1 by id. Unknown tasks and
 // archived ones are refused: an unknown id names nothing to refresh, and an
 // archived task's credential script was deliberately destroyed at cleanup.
+// The live record is consulted first because cleanup frees an id for reuse:
+// a respawned id has archived state beside a live record, and it is live.
 func (r AuthRefresher) RefreshTask(ctx context.Context, id string) (Refreshed, error) {
 	if err := state.ValidTaskID(id); err != nil {
 		return Refreshed{}, err
 	}
-	archived, err := r.archived(id)
-	if err != nil {
-		return Refreshed{}, err
-	}
-	if archived {
-		return Refreshed{}, fmt.Errorf("spawn: task %s is archived", id)
-	}
 	meta, err := state.ReadTaskMeta(r.StateDir, id)
 	if errors.Is(err, fs.ErrNotExist) {
+		archived, err := r.archived(id)
+		if err != nil {
+			return Refreshed{}, err
+		}
+		if archived {
+			return Refreshed{}, fmt.Errorf("spawn: task %s is archived", id)
+		}
 		return Refreshed{}, fmt.Errorf("spawn: unknown task %s", id)
 	}
 	if err != nil {
@@ -126,7 +133,7 @@ func (r AuthRefresher) RefreshTask(ctx context.Context, id string) (Refreshed, e
 	if err != nil {
 		return Refreshed{}, err
 	}
-	return r.rewrite(ctx, meta, env)
+	return r.rewrite(meta, env, r.Panes != nil && r.Panes.Live(ctx, meta))
 }
 
 // scriptEnv gathers everything stored under (project, *). A manifest is the
@@ -189,7 +196,10 @@ func (r AuthRefresher) projectMetas(scope string) ([]state.TaskMeta, error) {
 		}
 		meta, err := state.ReadTaskMeta(r.StateDir, id)
 		if err != nil {
-			return nil, fmt.Errorf("spawn: read task metadata %q: %w", id, err)
+			if r.Warn != nil {
+				fmt.Fprintf(r.Warn, "warning: skipped task %s: read task metadata: %v\n", id, err)
+			}
+			continue
 		}
 		if auth.ProjectName(meta.Project) == scope {
 			metas = append(metas, meta)
@@ -213,17 +223,12 @@ func (r AuthRefresher) taskLive(ctx context.Context, meta state.TaskMeta) bool {
 	return r.Panes != nil && r.Panes.Live(ctx, meta)
 }
 
-func (r AuthRefresher) rewrite(ctx context.Context, meta state.TaskMeta, env map[string]string) (Refreshed, error) {
+func (r AuthRefresher) rewrite(meta state.TaskMeta, env map[string]string, live bool) (Refreshed, error) {
 	path, vars, err := writeAuthScript(meta.TaskTmp, env)
 	if err != nil {
 		return Refreshed{}, fmt.Errorf("spawn: regenerate %s auth.ps1: %w", meta.ID, err)
 	}
-	return Refreshed{
-		ID:   meta.ID,
-		Path: path,
-		Vars: vars,
-		Live: r.Panes != nil && r.Panes.Live(ctx, meta),
-	}, nil
+	return Refreshed{ID: meta.ID, Path: path, Vars: vars, Live: live}, nil
 }
 
 // archived reports whether retained state for a cleaned-up task exists under
