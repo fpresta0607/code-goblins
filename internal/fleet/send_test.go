@@ -783,3 +783,56 @@ func TestSenderRequiresCollaborators(t *testing.T) {
 		t.Fatal("unreachable")
 	}
 }
+
+func TestSenderTextAutoSubmitResubmitsParkedClaudeAndCodexComposerUnderFooter(t *testing.T) {
+	claudeFooter := "──────────────────────────────\n  [PONYTAIL]                                                /rc\n  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents\n  ● main\n  ◯ general-purpose  Confirming layout  11m 2s\n"
+	codexFooter := "──────────────────────────────\n  28k tokens left\n  · 4 revisions\n"
+	for _, test := range []struct {
+		name    string
+		harness string
+		parked  string
+		cleared string
+	}{
+		{name: "claude", harness: "claude", parked: "\n  ❯ fix the thing\n" + claudeFooter, cleared: "\n  ❯\n" + claudeFooter},
+		{name: "codex", harness: "codex", parked: "\n  › fix the thing\n" + codexFooter, cleared: "\n  ›\n" + codexFooter},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &fakeRunner{replies: []runnerReply{
+				rawReply(""),
+				jsonReply(`{"result":{"agent":{"agent_status":"working"}}}`),
+				rawReply(""),
+				rawReply(test.parked),
+				rawReply(test.parked),
+				rawReply(""),
+				rawReply(test.cleared),
+			}}
+			var clientSleeps []time.Duration
+			sender := Sender{
+				Resolve:    &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}, meta: taskMeta("task-7", test.harness)},
+				Herdr:      newHerdrClient(runner, &clientSleeps),
+				Sleep:      noSleep,
+				AutoSubmit: true,
+			}
+
+			if err := sender.Text(context.Background(), "task-7", "fix the thing"); err != nil {
+				t.Fatalf("Text: %v", err)
+			}
+			var keys []string
+			reads := 0
+			for _, request := range runner.requests {
+				if len(request.Args) >= 4 && request.Args[0] == "pane" && request.Args[1] == "send-keys" {
+					keys = append(keys, request.Args[3])
+				}
+				if len(request.Args) >= 2 && request.Args[0] == "pane" && request.Args[1] == "read" {
+					reads++
+				}
+			}
+			if !reflect.DeepEqual(keys, []string{"enter", "enter"}) {
+				t.Errorf("submit keys = %v, want Enter resubmitted once for the parked composer under the footer", keys)
+			}
+			if reads != 3 {
+				t.Errorf("pane read calls = %d, want 3 (composer state, pending check, composer state)", reads)
+			}
+		})
+	}
+}
