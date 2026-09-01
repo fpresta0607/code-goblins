@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -61,14 +61,13 @@ type Refreshed struct {
 // through it.
 type AuthRefresher struct {
 	StateDir string
+	// DataDir holds the project manifests, which decide which shared-scope
+	// credentials a project's services may read.
+	DataDir string
 	// Store overrides the credential store. nil opens the machine's store,
 	// which is what production and the env-redirected tests both want.
 	Store auth.Store
 	Panes PaneLiveness
-	// Warn receives one line per task record that could not be read and was
-	// skipped, so one corrupt record never silently blocks a fleet refresh.
-	// nil discards the warnings.
-	Warn io.Writer
 }
 
 // RefreshProject regenerates auth.ps1 for every task whose metadata names
@@ -76,36 +75,32 @@ type AuthRefresher struct {
 // A task that is not provably live is skipped: rewriting its file would
 // report a refresh nothing can re-source, and hiding that is the same stale
 // snapshot this exists to close.
+//
+// One task's failure never stops the rest. The refreshed scripts are returned
+// alongside the joined failures, because a script that changed on disk must
+// be reported and its pane told, whatever happened to another task.
 func (r AuthRefresher) RefreshProject(ctx context.Context, project string) ([]Refreshed, error) {
 	scope := auth.ProjectName(project)
 	env, err := r.scriptEnv(scope)
 	if err != nil {
 		return nil, err
 	}
-	metas, err := r.projectMetas(scope)
+	metas, failures, err := r.projectMetas(scope)
 	if err != nil {
 		return nil, err
 	}
 	var refreshed []Refreshed
-	var failed error
 	for _, meta := range metas {
-		if !r.taskLive(ctx, meta) {
-			continue
-		}
-		item, err := r.rewrite(meta, env, true)
+		item, live, err := r.refreshLive(ctx, meta, env)
 		if err != nil {
-			failed = err
-			if r.Warn != nil {
-				fmt.Fprintf(r.Warn, "warning: %v\n", err)
-			}
+			failures = append(failures, err)
 			continue
 		}
-		refreshed = append(refreshed, item)
+		if live {
+			refreshed = append(refreshed, item)
+		}
 	}
-	if len(refreshed) == 0 && failed != nil {
-		return nil, failed
-	}
-	return refreshed, nil
+	return refreshed, errors.Join(failures...)
 }
 
 // RefreshTask regenerates one task's auth.ps1 by id. Unknown tasks and
@@ -134,21 +129,26 @@ func (r AuthRefresher) RefreshTask(ctx context.Context, id string) (Refreshed, e
 	if meta.TaskTmp == "" {
 		return Refreshed{}, fmt.Errorf("spawn: task %s has no tasktmp", id)
 	}
-	if info, err := os.Stat(meta.TaskTmp); err != nil || !info.IsDir() {
-		return Refreshed{}, fmt.Errorf("spawn: task %s tasktmp %q is gone; the task is finished", id, meta.TaskTmp)
-	}
 	env, err := r.scriptEnv(auth.ProjectName(meta.Project))
 	if err != nil {
 		return Refreshed{}, err
 	}
-	return r.rewrite(meta, env, r.Panes != nil && r.Panes.Live(ctx, meta))
+	var item Refreshed
+	err = r.locked(id, func() error {
+		if info, err := os.Stat(meta.TaskTmp); err != nil || !info.IsDir() {
+			return fmt.Errorf("spawn: task %s tasktmp %q is gone; the task is finished", id, meta.TaskTmp)
+		}
+		var err error
+		item, err = r.rewrite(meta, env, r.Panes != nil && r.Panes.Live(ctx, meta))
+		return err
+	})
+	return item, err
 }
 
-// scriptEnv gathers everything stored under (project, *). A manifest is the
-// probe contract, not a filter: a credential the operator stored mid-task is
-// not declared by any manifest, and leaving it out is the defect. Harness
-// billing keys are excluded here rather than in the rendered script, so a
-// stored billing key can never reach a pane.
+// scriptEnv is the refresh generator: everything the store says this project's
+// pane should hold, declared or not. The manifest is read the way the spawn
+// preflight reads it, with no manifest meaning nothing declared; see
+// auth.StoredEnv for what a refresh deliberately cannot reproduce.
 func (r AuthRefresher) scriptEnv(scope string) (map[string]string, error) {
 	store := r.Store
 	if store == nil {
@@ -158,26 +158,13 @@ func (r AuthRefresher) scriptEnv(scope string) (map[string]string, error) {
 		}
 		store = opened
 	}
-	keys, err := store.Keys()
-	if err != nil {
-		return nil, fmt.Errorf("spawn: list stored credentials: %w", err)
+	manifest, err := auth.LoadManifest(r.DataDir, scope)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("spawn: load project manifest: %w", err)
 	}
-	env := make(map[string]string)
-	for _, key := range keys {
-		if key.IsShared() || key.Project != scope {
-			continue
-		}
-		if auth.IsHarnessBillingKey(key.Name) {
-			continue
-		}
-		value, found, err := store.Get(key)
-		if err != nil {
-			return nil, fmt.Errorf("spawn: read stored credential %s: %w", key, err)
-		}
-		if !found || value == "" {
-			continue
-		}
-		env[key.Name] = value
+	env, err := auth.StoredEnv(store, scope, manifest)
+	if err != nil {
+		return nil, fmt.Errorf("spawn: gather stored credentials: %w", err)
 	}
 	return env, nil
 }
@@ -185,15 +172,18 @@ func (r AuthRefresher) scriptEnv(scope string) (map[string]string, error) {
 // projectMetas reads every live task record and keeps the ones whose project
 // reduces to this scope. A record that names another project is invisible to
 // this refresh, exactly as its pane is invisible to this project's dispatch.
-func (r AuthRefresher) projectMetas(scope string) ([]state.TaskMeta, error) {
+// A record that cannot be read is reported and skipped, so one corrupt record
+// never blocks the fleet's refresh.
+func (r AuthRefresher) projectMetas(scope string) ([]state.TaskMeta, []error, error) {
 	entries, err := os.ReadDir(r.StateDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, fmt.Errorf("spawn: list task state: %w", err)
+		return nil, nil, fmt.Errorf("spawn: list task state: %w", err)
 	}
 	var metas []state.TaskMeta
+	var failures []error
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".meta") {
 			continue
@@ -204,16 +194,34 @@ func (r AuthRefresher) projectMetas(scope string) ([]state.TaskMeta, error) {
 		}
 		meta, err := state.ReadTaskMeta(r.StateDir, id)
 		if err != nil {
-			if r.Warn != nil {
-				fmt.Fprintf(r.Warn, "warning: skipped task %s: read task metadata: %v\n", id, err)
-			}
+			failures = append(failures, fmt.Errorf("spawn: task %s: read task metadata: %w", id, err))
 			continue
 		}
 		if auth.ProjectName(meta.Project) == scope {
 			metas = append(metas, meta)
 		}
 	}
-	return metas, nil
+	return metas, failures, nil
+}
+
+// refreshLive rewrites one task's script under its cleanup lock, so the
+// liveness decision and the write see the same task: cleanup cannot archive
+// the tasktmp between them, and the write can neither resurrect an archived
+// directory nor ride into the archive. live is false for a task that was
+// skipped, which is not a failure.
+func (r AuthRefresher) refreshLive(ctx context.Context, meta state.TaskMeta, env map[string]string) (Refreshed, bool, error) {
+	var item Refreshed
+	live := false
+	err := r.locked(meta.ID, func() error {
+		if !r.taskLive(ctx, meta) {
+			return nil
+		}
+		live = true
+		var err error
+		item, err = r.rewrite(meta, env, true)
+		return err
+	})
+	return item, live, err
 }
 
 // taskLive requires the worktree, the tasktmp, and the pane. The worktree is
@@ -239,6 +247,22 @@ func (r AuthRefresher) rewrite(meta state.TaskMeta, env map[string]string, live 
 	return Refreshed{ID: meta.ID, Path: path, Vars: vars, Live: live}, nil
 }
 
+// locked runs fn while holding the task's cleanup lock. A held lock means
+// cleanup is archiving this task right now, and the refresh declines rather
+// than waits: the task is finishing, and its script is about to be destroyed.
+func (r AuthRefresher) locked(id string, fn func() error) (err error) {
+	name := cleanupLockName(id)
+	if _, err := lock.AcquireExclusiveNamed(r.StateDir, name); err != nil {
+		return fmt.Errorf("spawn: task %s is being cleaned up: %w", id, err)
+	}
+	defer func() {
+		if releaseErr := lock.ReleaseExclusiveNamed(r.StateDir, name); releaseErr != nil && err == nil {
+			err = fmt.Errorf("spawn: release task lock %s: %w", name, releaseErr)
+		}
+	}()
+	return fn()
+}
+
 // archived reports whether retained state for a cleaned-up task exists under
 // the state archive. Cleanup archives the scratch directory under a stamped
 // name, so the id prefix is the identity; the match is case-insensitive the
@@ -259,7 +283,12 @@ func (r AuthRefresher) archived(id string) (bool, error) {
 	return false, nil
 }
 
-// archiveDirName is cleanup's archive directory. Kept as a literal here
-// rather than imported: cleanup is a caller of task lifecycle, and spawn must
-// not depend on it to name a directory layout both sides own a half of.
+// archiveDirName is cleanup's archive directory, and cleanupLockName is the
+// per-task lock cleanup holds while it archives. Both are kept as literals
+// here rather than imported: cleanup is a caller of task lifecycle, and spawn
+// must not depend on it to name a layout both sides own a half of.
 const archiveDirName = "archive"
+
+func cleanupLockName(id string) string {
+	return ".cleanup-" + id + ".lock"
+}

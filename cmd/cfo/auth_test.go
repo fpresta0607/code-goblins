@@ -203,7 +203,7 @@ func refreshTestRuntime(t *testing.T, stateDir string, panes cmdPanes, sent *[]s
 			return home.Home{Root: t.TempDir(), State: stateDir, Data: filepath.Join(stateDir, "..", "data")}, nil
 		},
 		authRefresher: func(h home.Home) spawn.AuthRefresher {
-			return spawn.AuthRefresher{StateDir: h.State, Panes: panes}
+			return spawn.AuthRefresher{StateDir: h.State, DataDir: h.Data, Panes: panes}
 		},
 		sendText: func(_ context.Context, _ home.Home, target, text string, _ bool) error {
 			*sent = append(*sent, target+" "+text)
