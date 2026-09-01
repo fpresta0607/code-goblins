@@ -39,6 +39,7 @@ commands:
   cfo auth store [--project <p>] <NAME> [value]   store one credential in a project's scope, or the shared scope without --project (omit the value to read it from stdin)
   cfo auth list [--project <p>]        list stored credential keys, never values
   cfo auth copy <NAME> --to <project> [--from <project>]   copy a stored value into a project's scope; the source is left in place
+  cfo auth refresh <task-id>        regenerate a task's auth.ps1 from its project scope; storing or copying into a project scope does this for every live task of that project automatically
   cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--yolo]
   cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place
   cfo send <target> [--key <key>] [--no-auto-submit] <text...>
@@ -65,15 +66,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 // keeping process-wide mutable service state. Production constructs a fresh
 // value for each invocation and resolves its home from the environment.
 type commandRuntime struct {
-	resolveHome func() (home.Home, error)
-	spawn       func(context.Context, home.Home, spawn.Request) (spawn.Result, error)
-	switchTask  func(context.Context, home.Home, spawn.SwitchRequest) (spawn.SwitchResult, error)
-	sendText    func(context.Context, home.Home, string, string, bool) error
-	sendKey     func(context.Context, home.Home, string, string) error
-	peek        func(context.Context, home.Home, string, int) (string, error)
-	snapshot    func(context.Context, home.Home) (fleet.Snapshot, error)
-	cleanup     func(context.Context, home.Home, string, bool) (string, error)
-	speedHint   func(context.Context, string) string
+	resolveHome   func() (home.Home, error)
+	spawn         func(context.Context, home.Home, spawn.Request) (spawn.Result, error)
+	switchTask    func(context.Context, home.Home, spawn.SwitchRequest) (spawn.SwitchResult, error)
+	sendText      func(context.Context, home.Home, string, string, bool) error
+	sendKey       func(context.Context, home.Home, string, string) error
+	authRefresher func(home.Home) spawn.AuthRefresher
+	peek          func(context.Context, home.Home, string, int) (string, error)
+	snapshot      func(context.Context, home.Home) (fleet.Snapshot, error)
+	cleanup       func(context.Context, home.Home, string, bool) (string, error)
+	speedHint     func(context.Context, string) string
 }
 
 func defaultCommandRuntime() commandRuntime {
@@ -113,6 +115,12 @@ func defaultCommandRuntime() commandRuntime {
 			client := &herdr.Client{Commands: execx.OSRunner{}}
 			return fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Herdr: client}.Key(ctx, target, key)
 		},
+		authRefresher: func(h home.Home) spawn.AuthRefresher {
+			return spawn.AuthRefresher{
+				StateDir: h.State,
+				Panes:    spawn.HerdrLiveness{Client: &herdr.Client{Commands: execx.OSRunner{}}},
+			}
+		},
 		peek: func(ctx context.Context, h home.Home, target string, lines int) (string, error) {
 			client := &herdr.Client{Commands: execx.OSRunner{}}
 			return fleet.Peeker{Resolve: fleet.Resolver{StateDir: h.State}, Herdr: client}.Tail(ctx, target, lines)
@@ -148,7 +156,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		}
 		return runDrain(h, args[1:], stdout, stderr)
 	case "auth":
-		return runAuth(args[1:], stdout, stderr)
+		return runAuth(args[1:], stdout, stderr, runtime)
 	case "spawn":
 		return runSpawn(args[1:], stdout, stderr, runtime)
 	case "switch":

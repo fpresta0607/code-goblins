@@ -400,12 +400,8 @@ func (s Service) injectProjectCredentials(preflight auth.Result, taskTmp string,
 		}
 		env[name] = value
 	}
-	script, err := harness.RenderEnvScript(env)
+	path, _, err := writeAuthScript(taskTmp, env)
 	if err != nil {
-		return fmt.Errorf("spawn: render project credentials: %w", err)
-	}
-	path := filepath.Join(taskTmp, "auth.ps1")
-	if err := auth.WriteSecretFile(path, script); err != nil {
 		return fmt.Errorf("spawn: write project credentials: %w", err)
 	}
 	launch.SecretsFile = path
