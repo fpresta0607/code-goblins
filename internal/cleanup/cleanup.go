@@ -29,6 +29,12 @@ type Service struct {
 	Commands  execx.Runner
 	Herdr     *herdr.Client
 	Worktrees worktree.Service
+	// ForceArchive retires a task whose worktree can no longer be validated -
+	// a directory pinned by a dead process's handle, or already deleted out
+	// from under the record. It archives the task record and leaves the
+	// directory exactly as found: nothing on disk is deleted, so it can never
+	// discard work. It still refuses a pane that has a live agent.
+	ForceArchive bool
 }
 
 // Result reports the exact returned task identity.
@@ -85,6 +91,9 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if fsx.SamePath(worktreePath, project) {
 		return Result{}, fmt.Errorf("cleanup: worktree %q is the primary checkout", worktreePath)
 	}
+	if s.ForceArchive {
+		return s.forceArchive(ctx, meta, id, worktreePath)
+	}
 
 	git, err := s.worktreeGit()
 	if err != nil {
@@ -126,6 +135,43 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if archiveErr != nil {
 		// The task is genuinely cleaned; only the id is still taken. Say so
 		// plainly rather than failing a completed cleanup.
+		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)
+	}
+	return result, nil
+}
+
+// forceArchive retires a task record without touching its worktree. It is the
+// path for a worktree that will not validate - the Utah stub sat in the fleet
+// for days as "Under Way" because its empty directory was pinned by a handle
+// no process would give up, and the normal path refuses anything it cannot
+// prove. The one check that stays is the live-agent refusal: a task is
+// retired, never abandoned mid-run. The tab close is best-effort because the
+// pane is usually already gone, and no worktree return is attempted, so the
+// directory is left for the operator (or a reboot) and nothing is deleted.
+func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, worktreePath string) (Result, error) {
+	if err := s.requireInactive(ctx, meta); err != nil {
+		return Result{}, err
+	}
+	var notes []string
+	if err := s.Herdr.CloseTab(ctx, meta.HerdrSession, meta.HerdrTabID); err != nil {
+		notes = append(notes, "tab close skipped: "+err.Error())
+	}
+	if err := state.AppendStatus(s.StateDir, id, "done: force-archived via cfo cleanup --force-archive; worktree "+worktreePath+" left in place"); err != nil {
+		return Result{}, fmt.Errorf("cleanup: record force archive: %w", err)
+	}
+	if err := os.Remove(filepath.Join(s.StateDir, id+".meta")); err != nil {
+		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
+	}
+	archived, archiveErr := s.archive(id)
+
+	result := Result{Meta: meta, Output: fmt.Sprintf("force-archived %s; worktree %s left in place, remove it by hand when its handle clears", id, worktreePath)}
+	if archived != "" {
+		result.Output += " archive=" + archived
+	}
+	for _, note := range notes {
+		result.Output += "\nnote: " + note
+	}
+	if archiveErr != nil {
 		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)
 	}
 	return result, nil
