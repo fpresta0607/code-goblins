@@ -362,9 +362,11 @@ func composerPrompt(harness string) string {
 	}
 }
 
-// composerWindow bounds how far up from the pane bottom the composer is
-// searched, so a prompt line in old scrollback can never read as the current
-// composer.
+// composerWindow bounds how many non-empty lines up from the pane bottom the
+// composer is searched, so a prompt line in old scrollback can never read as
+// the current composer. Blank pane rows are not charged to the window, so a
+// tall pane with unfilled rows beneath the footer cannot push the composer
+// out of it.
 const composerWindow = 20
 
 // currentComposerLine returns the text after the prompt on the lowest prompt
@@ -375,16 +377,16 @@ const composerWindow = 20
 // composer prompt instead.
 func currentComposerLine(captured, prompt string) (string, bool) {
 	lines := strings.Split(captured, "\n")
-	floor := len(lines) - composerWindow
-	if floor < 0 {
-		floor = 0
-	}
-	for index := len(lines) - 1; index >= floor; index-- {
+	remaining := composerWindow
+	for index := len(lines) - 1; index >= 0 && remaining > 0; index-- {
 		line := strings.TrimSpace(lines[index])
-		if line == "" || !strings.HasPrefix(line, prompt) {
+		if line == "" {
 			continue
 		}
-		return strings.TrimPrefix(line, prompt), true
+		remaining--
+		if strings.HasPrefix(line, prompt) {
+			return strings.TrimPrefix(line, prompt), true
+		}
 	}
 	return "", false
 }
