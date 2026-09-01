@@ -72,7 +72,7 @@ type commandRuntime struct {
 	sendKey     func(context.Context, home.Home, string, string) error
 	peek        func(context.Context, home.Home, string, int) (string, error)
 	snapshot    func(context.Context, home.Home) (fleet.Snapshot, error)
-	cleanup     func(context.Context, home.Home, string) (string, error)
+	cleanup     func(context.Context, home.Home, string, bool) (string, error)
 	speedHint   func(context.Context, string) string
 }
 
