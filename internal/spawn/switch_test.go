@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -711,6 +712,56 @@ func TestSwitchClearsTheResumeDialogBeforeInstructingTheResumedHarness(t *testin
 	}
 	if !result.Resumed {
 		t.Fatal("Resumed = false, want the same-harness switch to resume in place")
+	}
+}
+
+func TestSwitchKeepsACredentialStoredAfterSpawn(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	for _, name := range []string{"DATABASE_URL", "FLY_API_TOKEN"} {
+		t.Setenv(name, "")
+		os.Unsetenv(name)
+	}
+	t.Setenv(auth.StoreDirEnv, filepath.Join(t.TempDir(), "credentials"))
+	// The manifest declares one name. The operator stored a second one after
+	// the spawn and the refresh wrote it into auth.ps1; a switch rebuilds
+	// that script from the preflight, so it only survives if the preflight
+	// reads the store the way the refresh does.
+	manifestPath := auth.ManifestPath(fixture.dataDir, fixture.project)
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"project": "primary", "services": [{"name": "db", "method": "env", "env": ["DATABASE_URL"]}]}`
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := auth.OpenStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set(auth.Scoped(fixture.project, "DATABASE_URL"), "postgres://declared"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set(auth.Scoped(fixture.project, "FLY_API_TOKEN"), "fly_stored_midtask"); err != nil {
+		t.Fatal(err)
+	}
+	fixture.service.Auth = auth.SpawnPreflight{DataDir: fixture.dataDir, Runner: fixture.runner}
+
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{
+		ID:      fixture.meta.ID,
+		Harness: harness.Kimi,
+		Session: "fleet",
+	}); err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+
+	script, err := os.ReadFile(filepath.Join(fixture.meta.TaskTmp, "auth.ps1"))
+	if err != nil {
+		t.Fatalf("read regenerated script: %v", err)
+	}
+	for _, want := range []string{"$env:DATABASE_URL = 'postgres://declared'", "$env:FLY_API_TOKEN = 'fly_stored_midtask'"} {
+		if !strings.Contains(string(script), want) {
+			t.Errorf("the switch regenerated a script without %q:\n%s", want, script)
+		}
 	}
 }
 

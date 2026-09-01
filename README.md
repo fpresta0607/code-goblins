@@ -53,6 +53,7 @@ cfo auth <project> [--check|--fix] [--env]   preflight a project's services from
 cfo auth store [--project <p>] <NAME> [value]   store one credential in a project's scope, or the shared scope without --project (omit the value to read it from stdin)
 cfo auth list [--project <p>]        list stored credential keys, never values
 cfo auth copy <NAME> --to <project> [--from <project>]   copy a stored value into a project's scope; the source is left in place
+cfo auth refresh <task-id>           regenerate a task's auth.ps1 from its project scope; storing or copying into a project scope does this for every live task of that project automatically
 cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--yolo]
 cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place, keeping its id, pane, and worktree
 cfo send <target> [--key <key>] [--no-auto-submit] <text...>

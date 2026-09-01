@@ -706,6 +706,7 @@ func TestExpandMatchesLongestNameAndNeverRescansAValue(t *testing.T) {
 }
 
 func TestSpawnPreflightIsSilentForAProjectWithNoManifest(t *testing.T) {
+	t.Setenv(StoreDirEnv, t.TempDir())
 	dataDir := t.TempDir()
 	result, err := SpawnPreflight{DataDir: dataDir, Runner: &fakeRunner{}}.Preflight(context.Background(), filepath.Join("projects", "nothing-declared"))
 	if err != nil {
@@ -713,6 +714,76 @@ func TestSpawnPreflightIsSilentForAProjectWithNoManifest(t *testing.T) {
 	}
 	if len(result.Env) != 0 || result.Warning != "" || result.Refusal != "" {
 		t.Errorf("preflight = %+v, want a project with no manifest to be silent", result)
+	}
+}
+
+func TestSpawnPreflightNamesTheStoredCredentialsItInjectsWithoutAManifest(t *testing.T) {
+	clearEnv(t, "FLY_API_TOKEN")
+	t.Setenv(StoreDirEnv, t.TempDir())
+	dataDir := t.TempDir()
+	store, err := OpenStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set(Scoped("solo", "FLY_API_TOKEN"), "fly_stored"); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := SpawnPreflight{DataDir: dataDir, Runner: &fakeRunner{}}.Preflight(context.Background(), filepath.Join("projects", "solo"))
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if len(result.Env) != 1 || result.Env["FLY_API_TOKEN"] != "fly_stored" {
+		t.Fatalf("preflight injected %v, want the one stored credential", result.Env)
+	}
+	if !strings.Contains(result.Warning, "injected 1 stored credential") || !strings.Contains(result.Warning, "solo") || !strings.Contains(result.Warning, "no manifest") {
+		t.Errorf("warning = %q, want the count, the scope, and the missing manifest named", result.Warning)
+	}
+	if strings.Contains(result.Warning, "fly_stored") {
+		t.Errorf("warning = %q, want no value on the line", result.Warning)
+	}
+}
+
+func TestSpawnPreflightInjectsStoredCredentialsNoManifestDeclares(t *testing.T) {
+	clearEnv(t, "DATABASE_URL", "FLY_API_TOKEN", "OPENROUTER_API_KEY")
+	t.Setenv(StoreDirEnv, t.TempDir())
+	dataDir := t.TempDir()
+	writeManifest(t, dataDir, "clock-in", Manifest{
+		Project:  "clock-in",
+		Services: []Service{{Name: "db", Method: MethodEnv, Env: []string{"DATABASE_URL"}}},
+	})
+	project := filepath.Join(t.TempDir(), "clock-in")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The manifest declares one name; the operator stored a second after it
+	// was written, a billing key the harness must never see, and a shared
+	// value no service of this project is declared to read.
+	for key, value := range map[Key]string{
+		Scoped("clock-in", "DATABASE_URL"):      "postgres://declared",
+		Scoped("clock-in", "FLY_API_TOKEN"):     "fly_stored_midtask",
+		Scoped("clock-in", "ANTHROPIC_API_KEY"): "sk-ant-billing",
+		Shared("OPENROUTER_API_KEY"):            "sk_or_shared",
+	} {
+		if err := store.Set(key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := SpawnPreflight{DataDir: dataDir, Runner: gitIgnoresEverything()}.Preflight(context.Background(), project)
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	var names []string
+	for name := range result.Env {
+		names = append(names, name)
+	}
+	if len(result.Env) != 2 || result.Env["DATABASE_URL"] != "postgres://declared" || result.Env["FLY_API_TOKEN"] != "fly_stored_midtask" {
+		t.Errorf("preflight injected %v, want exactly the declared name and the store-only name", names)
 	}
 }
 

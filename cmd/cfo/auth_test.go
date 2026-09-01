@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // useFileStore points the credential store at a temporary directory, so a
@@ -19,8 +24,13 @@ func useFileStore(t *testing.T) string {
 
 func runCLI(t *testing.T, args ...string) (int, string, string) {
 	t.Helper()
+	return runCLIWithRuntime(t, commandRuntime{}, args...)
+}
+
+func runCLIWithRuntime(t *testing.T, runtime commandRuntime, args ...string) (int, string, string) {
+	t.Helper()
 	var stdout, stderr strings.Builder
-	code := runAuth(args, &stdout, &stderr)
+	code := runAuth(args, &stdout, &stderr, runtime)
 	return code, stdout.String(), stderr.String()
 }
 
@@ -137,5 +147,197 @@ func TestAuthStoreRefusesAScopeThatCouldEscapeTheStore(t *testing.T) {
 		if !strings.Contains(stdout, scope+"/TOKEN_VALUE") {
 			t.Errorf("listing = %q, want the credential stored under scope %q", stdout, scope)
 		}
+	}
+}
+
+// cmdPanes answers pane liveness from a set of pane ids, so an auth command
+// test never needs a Herdr server.
+type cmdPanes struct {
+	live map[string]bool
+}
+
+func (p cmdPanes) Live(_ context.Context, meta state.TaskMeta) bool {
+	return p.live[meta.HerdrPaneID]
+}
+
+// writeCmdTaskMeta lays down one task record with the directories a live task
+// has. Pass wantWorktree false to model a task whose worktree is gone.
+func writeCmdTaskMeta(t *testing.T, stateDir, id, project, paneID string, wantWorktree bool) state.TaskMeta {
+	t.Helper()
+	worktreeDir := filepath.Join(stateDir, "worktrees", id)
+	if wantWorktree {
+		if err := os.MkdirAll(worktreeDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	taskTmp := filepath.Join(stateDir, "tasktmp", id)
+	if err := os.MkdirAll(taskTmp, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	meta := state.TaskMeta{
+		ID:               id,
+		Project:          project,
+		Worktree:         worktreeDir,
+		TaskTmp:          taskTmp,
+		Kind:             "ship",
+		Mode:             "direct-PR",
+		Backend:          "herdr",
+		HerdrSession:     "fleet",
+		HerdrWorkspaceID: "ws",
+		HerdrTabID:       "tab-" + id,
+		HerdrPaneID:      paneID,
+	}
+	if err := state.WriteTaskMeta(stateDir, meta); err != nil {
+		t.Fatal(err)
+	}
+	return meta
+}
+
+// refreshTestRuntime builds a command runtime whose home, refresher, and
+// sender are all test-local. The sent notices are returned through the
+// captured pointers so the assertion names exactly what was typed where.
+func refreshTestRuntime(t *testing.T, stateDir string, panes cmdPanes, sent *[]string) commandRuntime {
+	t.Helper()
+	return commandRuntime{
+		resolveHome: func() (home.Home, error) {
+			return home.Home{Root: t.TempDir(), State: stateDir, Data: filepath.Join(stateDir, "..", "data")}, nil
+		},
+		authRefresher: func(h home.Home) spawn.AuthRefresher {
+			return spawn.AuthRefresher{StateDir: h.State, DataDir: h.Data, Panes: panes}
+		},
+		sendText: func(_ context.Context, _ home.Home, target, text string, _ bool) error {
+			*sent = append(*sent, target+" "+text)
+			return nil
+		},
+	}
+}
+
+func TestAuthStoreRefreshesLiveTasksAndSendsTheReSourceNotice(t *testing.T) {
+	useFileStore(t)
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	project := filepath.Join(root, "precisiondocs")
+	live := writeCmdTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
+	// Same project, pane gone: its script must not be reported as refreshed.
+	writeCmdTaskMeta(t, stateDir, "parked-1", project, "pane-parked", true)
+
+	var sent []string
+	runtime := refreshTestRuntime(t, stateDir, cmdPanes{live: map[string]bool{"pane-live": true}}, &sent)
+	code, stdout, stderr := runCLIWithRuntime(t, runtime, "store", "--project", "precisiondocs", "FLY_API_TOKEN", "fly_new_token")
+	if code != 0 {
+		t.Fatalf("cfo auth store = %d: %s", code, stderr)
+	}
+	if !strings.Contains(stdout, "refreshed live-1 auth.ps1 (1 vars)") {
+		t.Errorf("stdout = %q, want the live task refreshed by name", stdout)
+	}
+	if strings.Contains(stdout, "parked-1") {
+		t.Errorf("stdout = %q, want the paneless task left alone", stdout)
+	}
+	if len(sent) != 1 || !strings.HasPrefix(sent[0], "gb-live-1 credentials refreshed: re-source ") {
+		t.Fatalf("notices = %v, want exactly one re-source notice to gb-live-1", sent)
+	}
+	if !strings.Contains(sent[0], filepath.Join(live.TaskTmp, "auth.ps1")) {
+		t.Errorf("notice = %q, want the script path named", sent[0])
+	}
+	script, err := os.ReadFile(filepath.Join(live.TaskTmp, "auth.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(script), "$env:FLY_API_TOKEN = 'fly_new_token'") {
+		t.Errorf("script lacks the credential stored after spawn:\n%s", script)
+	}
+}
+
+func TestAuthCopyIntoAProjectScopeRefreshesItsLiveTasks(t *testing.T) {
+	useFileStore(t)
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	project := filepath.Join(root, "precisiondocs")
+	writeCmdTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
+
+	var sent []string
+	runtime := refreshTestRuntime(t, stateDir, cmdPanes{live: map[string]bool{"pane-live": true}}, &sent)
+	if code, _, stderr := runCLIWithRuntime(t, runtime, "store", "DATABASE_URL", "postgres://shared-value"); code != 0 {
+		t.Fatalf("cfo auth store = %d: %s", code, stderr)
+	}
+	sent = nil
+	code, stdout, stderr := runCLIWithRuntime(t, runtime, "copy", "DATABASE_URL", "--to", "precisiondocs")
+	if code != 0 {
+		t.Fatalf("cfo auth copy = %d: %s", code, stderr)
+	}
+	if !strings.Contains(stdout, "refreshed live-1 auth.ps1 (1 vars)") {
+		t.Errorf("stdout = %q, want the live task refreshed", stdout)
+	}
+	if len(sent) != 1 || !strings.HasPrefix(sent[0], "gb-live-1 credentials refreshed") {
+		t.Fatalf("notices = %v, want one re-source notice", sent)
+	}
+}
+
+func TestAuthStoreWithNoReachablePaneSaysTheSnapshotMayBeStale(t *testing.T) {
+	useFileStore(t)
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	project := filepath.Join(root, "precisiondocs")
+	// A Herdr outage: the record and its directories remain, no pane answers.
+	writeCmdTaskMeta(t, stateDir, "out-1", project, "pane-out", true)
+
+	var sent []string
+	runtime := refreshTestRuntime(t, stateDir, cmdPanes{live: map[string]bool{}}, &sent)
+	code, stdout, stderr := runCLIWithRuntime(t, runtime, "store", "--project", "precisiondocs", "FLY_API_TOKEN", "fly_new_token")
+	if code != 0 {
+		t.Fatalf("cfo auth store = %d: %s", code, stderr)
+	}
+	if strings.Contains(stdout, "refreshed") {
+		t.Errorf("stdout = %q, want nothing reported as refreshed", stdout)
+	}
+	if !strings.Contains(stderr, "no pane could be confirmed reachable") || !strings.Contains(stderr, "precisiondocs") {
+		t.Errorf("stderr = %q, want the outage note naming the scope", stderr)
+	}
+	if len(sent) != 0 {
+		t.Errorf("notices = %v, want none delivered to an unreachable fleet", sent)
+	}
+}
+
+func TestAuthRefreshCommandRegeneratesOneTaskAndRefusesTheRest(t *testing.T) {
+	useFileStore(t)
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	project := filepath.Join(root, "precisiondocs")
+	live := writeCmdTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
+	// A cleaned-up task: metadata retired, scratch state archived.
+	if err := os.MkdirAll(filepath.Join(stateDir, "archive", "old-1.20260102T150405Z"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var sent []string
+	runtime := refreshTestRuntime(t, stateDir, cmdPanes{live: map[string]bool{"pane-live": true}}, &sent)
+	// Unknown and archived ids are refused with exit 1.
+	if code, _, stderr := runCLIWithRuntime(t, runtime, "refresh", "ghost-1"); code != 1 || !strings.Contains(stderr, "unknown task") {
+		t.Fatalf("refresh ghost-1 = (%d, %q), want exit 1 naming the unknown task", code, stderr)
+	}
+	if code, _, stderr := runCLIWithRuntime(t, runtime, "refresh", "old-1"); code != 1 || !strings.Contains(stderr, "archived") {
+		t.Fatalf("refresh old-1 = (%d, %q), want exit 1 naming the archive", code, stderr)
+	}
+	// A live id regenerates from the store and delivers the notice.
+	if code, _, stderr := runCLIWithRuntime(t, runtime, "store", "--project", "precisiondocs", "FLY_API_TOKEN", "fly_new_token"); code != 0 {
+		t.Fatalf("cfo auth store = %d: %s", code, stderr)
+	}
+	sent = nil
+	code, stdout, _ := runCLIWithRuntime(t, runtime, "refresh", "live-1")
+	if code != 0 {
+		t.Fatalf("cfo auth refresh = %d", code)
+	}
+	if !strings.Contains(stdout, "refreshed live-1 auth.ps1 (1 vars)") {
+		t.Errorf("stdout = %q, want the refresh line", stdout)
+	}
+	if len(sent) != 1 || !strings.HasPrefix(sent[0], "gb-live-1 credentials refreshed: re-source ") {
+		t.Fatalf("notices = %v, want exactly one notice naming the script", sent)
+	}
+	script, err := os.ReadFile(filepath.Join(live.TaskTmp, "auth.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(script), "$env:FLY_API_TOKEN = 'fly_new_token'") {
+		t.Errorf("script lacks the stored credential:\n%s", script)
 	}
 }

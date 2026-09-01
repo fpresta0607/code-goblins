@@ -66,11 +66,11 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 		return Result{}, err
 	}
 
-	if _, err := lock.AcquireExclusiveNamed(s.StateDir, cleanupLockName(id)); err != nil {
+	if _, err := lock.AcquireExclusiveNamed(s.StateDir, state.CleanupLockName(id)); err != nil {
 		return Result{}, fmt.Errorf("cleanup: acquire task lock: %w", err)
 	}
 	defer func() {
-		if releaseErr := lock.ReleaseExclusiveNamed(s.StateDir, cleanupLockName(id)); releaseErr != nil {
+		if releaseErr := lock.ReleaseExclusiveNamed(s.StateDir, state.CleanupLockName(id)); releaseErr != nil {
 			releaseErr = fmt.Errorf("cleanup: release task lock: %w", releaseErr)
 			if err == nil {
 				err = releaseErr
@@ -200,7 +200,7 @@ func (s Service) archive(id string) (string, error) {
 	// project's secrets, and a finished task has no further use for them. If
 	// it cannot be dropped, refuse to archive rather than move a directory
 	// that still holds credentials.
-	if err := os.Remove(filepath.Join(taskTmp, "auth.ps1")); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(filepath.Join(taskTmp, state.AuthScriptName)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", fmt.Errorf("remove injected credentials: %w", err)
 	}
 	if err := os.Rename(taskTmp, dir); err != nil {
@@ -209,17 +209,12 @@ func (s Service) archive(id string) (string, error) {
 	return dir, nil
 }
 
-// ArchiveDirName holds the scratch directories of finished tasks, one per
-// cleanup. It is a directory under the state tree so the spawn-time id
-// collision scan, which considers files and the tasktmp tree, never sees it.
-const ArchiveDirName = "archive"
+// ArchiveDirName is where a finished task's scratch directory goes; see
+// state.ArchiveDirName for why the name is shared.
+const ArchiveDirName = state.ArchiveDirName
 
 func archiveStamp() string {
 	return time.Now().UTC().Format("20060102T150405Z")
-}
-
-func cleanupLockName(id string) string {
-	return ".cleanup-" + id + ".lock"
 }
 
 func validateMeta(meta state.TaskMeta) error {

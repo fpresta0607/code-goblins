@@ -31,6 +31,28 @@ type TaskMeta struct {
 	HerdrPaneID      string
 }
 
+// ArchiveDirName holds the scratch directories of finished tasks, one per
+// cleanup. It is a directory under the state tree so the spawn-time id
+// collision scan, which considers files and the tasktmp tree, never sees it.
+// It lives here because cleanup writes the layout and spawn reads it, and a
+// name both sides own a half of belongs to neither.
+const ArchiveDirName = "archive"
+
+// AuthScriptName is the restricted credential script every pane shell
+// dot-sources before the harness starts. It is regenerated, never edited: a
+// hand-appended line is exactly how a credential stops matching the store.
+// It lives here because spawn writes the script and cleanup removes it before
+// archiving a tasktmp, and a name both sides own a half of belongs to neither.
+const AuthScriptName = "auth.ps1"
+
+// CleanupLockName is the per-task lock cleanup holds while it retires a
+// task's record and archives its scratch directory. Any command that writes
+// into a live task's tasktmp takes the same lock, so it can neither resurrect
+// an archived directory nor write into one mid-archive.
+func CleanupLockName(id string) string {
+	return ".cleanup-" + id + ".lock"
+}
+
 // ValidTaskID rejects IDs that would escape or ambiguously name a task's
 // state files. IDs are deliberately ASCII-only because they also become Herdr
 // tab labels and wake keys.
