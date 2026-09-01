@@ -189,7 +189,7 @@ func piSeparator(line string) bool {
 }
 
 // submitKey is the harness-specific key that submits a parked composer: kimi
-// needs ctrl+s while pi and claude submit with Enter. Unknown harnesses keep
+// needs ctrl+s while pi, claude, and codex submit with Enter. Unknown harnesses keep
 // the conservative Enter default.
 func submitKey(harness string) string {
 	if harness == "kimi" {
