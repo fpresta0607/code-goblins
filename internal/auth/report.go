@@ -259,6 +259,88 @@ func InjectEnv(store Store, project string, manifest Manifest, report Report) (m
 	return env, nil
 }
 
+// StoredExtras returns every credential stored in this project's scope under
+// a name no manifest service declares or aliases, minus harness billing keys.
+// A manifest is the probe contract, not a filter: a credential the operator
+// stored after dispatch is declared nowhere, and a script that leaves it out
+// is the stale snapshot a goblin then reports as an unauthorized service.
+func StoredExtras(store Store, project string, manifest Manifest) (map[string]string, error) {
+	declared := map[string]bool{}
+	for _, chain := range manifest.CredentialChains() {
+		for _, name := range chain {
+			declared[name] = true
+		}
+	}
+	keys, err := store.Keys()
+	if err != nil {
+		return nil, err
+	}
+	env := map[string]string{}
+	for _, key := range keys {
+		if key.Project != project || declared[key.Name] || IsHarnessBillingKey(key.Name) {
+			continue
+		}
+		value, found, err := store.Get(key)
+		if err != nil {
+			return nil, err
+		}
+		if found && value != "" {
+			env[key.Name] = value
+		}
+	}
+	return env, nil
+}
+
+// StoredEnv is what the store alone says a project's pane should hold: every
+// declared name resolved through the scopes and aliases dispatch resolves it
+// through, plus StoredExtras. It is the generator a refresh after dispatch
+// uses, so a regenerated script never holds fewer credentials than the
+// dispatch injected. It differs from the dispatch in two deliberate ways. A
+// value only the CFO's own process environment supplied is left out: that is
+// one command's override, not the store. A name the preflight's identity
+// check refused is included: no probe runs here, so the refusal cannot be
+// reproduced, and a refresh writes what the store holds for the scope.
+func StoredEnv(store Store, project string, manifest Manifest) (map[string]string, error) {
+	env, err := StoredExtras(store, project, manifest)
+	if err != nil {
+		return nil, err
+	}
+	resolver := Resolver{Store: store, Project: project}
+	for _, service := range manifest.Services {
+		for _, declared := range service.Env {
+			if IsHarnessBillingKey(declared) {
+				continue
+			}
+			value, err := resolver.stored(service, declared)
+			if err != nil {
+				return nil, err
+			}
+			if value != "" {
+				env[declared] = value
+			}
+		}
+	}
+	return env, nil
+}
+
+// stored is lookup without the process environment: the first store value,
+// in this service's scope order, under the declared name or one of its
+// aliases.
+func (r Resolver) stored(service Service, declared string) (string, error) {
+	for _, name := range append([]string{declared}, service.Aliases[declared]...) {
+		for _, key := range r.scopes(service, name) {
+			value, ok, err := r.Store.Get(key)
+			if err != nil {
+				return "", err
+			}
+			if ok && value != "" {
+				return value, nil
+			}
+		}
+	}
+	return "", nil
+}
+
 // IsHarnessBillingKey reports whether name is one a harness would take as
 // its own billing credential. Such a name is never injected into a goblin,
 // whatever a manifest declares: the harness must run on the subscription,

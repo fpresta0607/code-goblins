@@ -14,6 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -21,24 +22,31 @@ const authUsage = `usage: cfo auth <project> [--check|--fix] [--env]
        cfo auth store [--project <p>] <NAME> [value]   (omit value to read it from stdin)
        cfo auth list [--project <p>]
        cfo auth copy <NAME> --to <project> [--from <project>]   (copy a stored value into a project scope; the source is left in place)
+       cfo auth refresh <task-id>   regenerate a task's auth.ps1 from its project scope
 
 Credentials are namespaced on (project, NAME). Omitting --project stores or
 lists the shared scope, which is where every credential stored before
 namespacing already lives.
+
+Storing or copying into a project scope also regenerates auth.ps1 for every
+live task of that project and sends it a re-source notice, so a credential
+stored after spawn reaches a goblin that is already working.
 `
 
-func runAuth(args []string, stdout, stderr io.Writer) int {
+func runAuth(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, authUsage)
 		return 2
 	}
 	switch args[0] {
 	case "store":
-		return runAuthStore(args[1:], stdout, stderr)
+		return runAuthStore(args[1:], stdout, stderr, runtime)
 	case "list":
 		return runAuthList(args[1:], stdout, stderr)
 	case "copy":
-		return runAuthCopy(args[1:], stdout, stderr)
+		return runAuthCopy(args[1:], stdout, stderr, runtime)
+	case "refresh":
+		return runAuthRefresh(args[1:], stdout, stderr, runtime)
 	case "-h", "--help", "help":
 		fmt.Fprint(stdout, authUsage)
 		return 0
@@ -51,7 +59,7 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	check := flags.Bool("check", false, "probe every service and report without changing anything (default)")
 	fix := flags.Bool("fix", false, "probe, then repair what can be repaired without a human")
-	showEnv := flags.Bool("env", false, "print the environment a goblin's pane would inherit (credential values redacted, cache locations in full)")
+	showEnv := flags.Bool("env", false, "print the environment a goblin's pane would inherit from the manifest's declared services (credential values redacted, cache locations in full)")
 	positional, err := parseAuthArgs(flags, args)
 	if err != nil {
 		return 2
@@ -214,7 +222,7 @@ func parseAuthArgs(flags *flag.FlagSet, args []string) ([]string, error) {
 	return positional, nil
 }
 
-func runAuthStore(args []string, stdout, stderr io.Writer) int {
+func runAuthStore(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	flags := flag.NewFlagSet("auth store", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	project := flags.String("project", "", "store in this project's scope instead of the shared scope")
@@ -259,7 +267,13 @@ func runAuthStore(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "stored %s (%s) in %s\n", key, auth.Redact(value), store.Describe())
 	if key.IsShared() {
 		fmt.Fprintln(stdout, "shared scope: only services a manifest declares shared will read this")
+		return 0
 	}
+	// The store changed under a live fleet: regenerate the credential script
+	// of every task of this project that can still re-source it. This is the
+	// root-cause fix for a goblin reporting services unauthorized after the
+	// CFO stored credentials mid-task: its auth.ps1 followed the store.
+	refreshProjectAuth(context.Background(), runtime, key.Project, stdout, stderr)
 	return 0
 }
 
@@ -345,7 +359,7 @@ func runAuthList(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runAuthCopy(args []string, stdout, stderr io.Writer) int {
+func runAuthCopy(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	flags := flag.NewFlagSet("auth copy", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	to := flags.String("to", "", "project scope to copy the shared value into")
@@ -392,5 +406,78 @@ func runAuthCopy(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintf(stdout, "copied %s to %s (%s); %s is unchanged\n", source, target, auth.Redact(value), source)
+	if !target.IsShared() {
+		refreshProjectAuth(context.Background(), runtime, target.Project, stdout, stderr)
+	}
 	return 0
+}
+
+// refreshProjectAuth regenerates the credential script of every live task of
+// the project and delivers a re-source notice to each one whose pane is live.
+// It is best effort by design: the store write already succeeded, so a fleet
+// that cannot be reached must not fail the store. A runtime without the fleet
+// seams (tests, offline use) skips the refresh entirely rather than pretending.
+func refreshProjectAuth(ctx context.Context, runtime commandRuntime, scope string, stdout, stderr io.Writer) {
+	if runtime.resolveHome == nil || runtime.authRefresher == nil || runtime.sendText == nil {
+		return
+	}
+	h, err := runtime.resolveHome()
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo auth: resolve home: %v\n", err)
+		return
+	}
+	refreshed, err := runtime.authRefresher(h).RefreshProject(ctx, scope)
+	for _, item := range refreshed.Refreshed {
+		fmt.Fprintf(stdout, "refreshed %s auth.ps1 (%d vars)\n", item.ID, item.Vars)
+		deliverRefreshNotice(ctx, runtime, h, item, stderr)
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo auth: refresh live task credentials: %v\n", err)
+	}
+	// A Herdr outage looks exactly like a fleet that went home: records with
+	// live worktrees remain, but no pane answers. Say so, or the CFO reads
+	// silence as "nothing was live" while every goblin stays on its stale
+	// snapshot.
+	if len(refreshed.Refreshed) == 0 && refreshed.Unreachable > 0 {
+		fmt.Fprintf(stderr, "cfo auth: found %d live task record(s) for %s but no pane could be confirmed reachable; the stored credentials may not have reached any goblin\n", refreshed.Unreachable, scope)
+	}
+}
+
+func runAuthRefresh(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprint(stderr, authUsage)
+		return 2
+	}
+	if runtime.resolveHome == nil || runtime.authRefresher == nil {
+		fmt.Fprintln(stderr, "cfo auth refresh: command runtime is incomplete")
+		return 1
+	}
+	h, err := runtime.resolveHome()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	item, err := runtime.authRefresher(h).RefreshTask(context.Background(), args[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo auth refresh: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "refreshed %s auth.ps1 (%d vars)\n", item.ID, item.Vars)
+	if item.Live {
+		deliverRefreshNotice(context.Background(), runtime, h, item, stderr)
+	}
+	return 0
+}
+
+// deliverRefreshNotice types the one-line re-source notice into the task's
+// pane through the existing fleet sender. A failed notice is reported but
+// never fails the refresh: the script on disk is already current.
+func deliverRefreshNotice(ctx context.Context, runtime commandRuntime, h home.Home, item spawn.Refreshed, stderr io.Writer) {
+	if runtime.sendText == nil {
+		return
+	}
+	notice := fmt.Sprintf("credentials refreshed: re-source %s", item.Path)
+	if err := runtime.sendText(ctx, h, "gb-"+item.ID, notice, true); err != nil {
+		fmt.Fprintf(stderr, "cfo auth: deliver re-source notice to %s: %v\n", item.ID, err)
+	}
 }

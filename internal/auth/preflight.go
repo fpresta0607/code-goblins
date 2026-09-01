@@ -50,12 +50,8 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, 
 	// builds against the shared store rather than downloading its own copy.
 	caches := CacheEnv(p.Home)
 	manifest, err := LoadManifest(p.DataDir, project)
-	if errors.Is(err, fs.ErrNotExist) {
-		// Most projects declare nothing. That is not a fault, and a spawn
-		// must not be held up by it.
-		return Result{Caches: caches}, nil
-	}
-	if err != nil {
+	declared := err == nil
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return Result{}, err
 	}
 	store, err := OpenStore()
@@ -63,6 +59,25 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, 
 		return Result{}, err
 	}
 	scope := ProjectName(project)
+	if !declared {
+		// Most projects declare nothing. That is not a fault, and a spawn
+		// must not be held up by it. What the operator stored in the
+		// project's scope still reaches the pane: the manifest is the probe
+		// contract, not a filter.
+		env, err := StoredExtras(store, scope, Manifest{})
+		if err != nil {
+			return Result{}, err
+		}
+		// A stored credential was written into auth.ps1, so say it: silence
+		// would read as "nothing was injected" and send the CFO hunting for
+		// a manifest that never existed. A store with nothing in it keeps the
+		// old silence, because there is nothing to report.
+		warning := ""
+		if len(env) > 0 {
+			warning = fmt.Sprintf("auth: injected %d stored credential(s) for %s (no manifest)", len(env), scope)
+		}
+		return Result{Env: env, Caches: caches, Warning: warning}, nil
+	}
 	// Adopting is safe to do unattended: it reads only files and tools
 	// already on this machine, and writes only into this project's own scope.
 	// The one value it replaces is one this project's own gitignored .env has
@@ -86,6 +101,16 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, 
 	env, err := InjectEnv(store, scope, manifest, report)
 	if err != nil {
 		return Result{}, err
+	}
+	// A name stored after the manifest was written has no service to be
+	// usable or refused under; it rides along so a switch, which rebuilds the
+	// script from this preflight, keeps what a refresh added mid-task.
+	extras, err := StoredExtras(store, scope, manifest)
+	if err != nil {
+		return Result{}, err
+	}
+	for name, value := range extras {
+		env[name] = value
 	}
 	warning := WarningLine(project, report)
 	if line := AdoptionLine(adopted); line != "" {

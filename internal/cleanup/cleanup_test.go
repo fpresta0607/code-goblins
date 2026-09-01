@@ -217,10 +217,10 @@ func TestCleanupReturnsCleanInactiveWorktree(t *testing.T) {
 		t.Fatalf("status = %v, %v; want one done line recording the returned worktree", status, err)
 	}
 	fixture.assertOnlyTabCloseLifecycle(t)
-	if _, err := lock.AcquireExclusiveNamed(fixture.stateDir, cleanupLockName("g1")); err != nil {
+	if _, err := lock.AcquireExclusiveNamed(fixture.stateDir, state.CleanupLockName("g1")); err != nil {
 		t.Fatalf("task lock still held after cleanup: %v", err)
 	}
-	if err := lock.ReleaseExclusiveNamed(fixture.stateDir, cleanupLockName("g1")); err != nil {
+	if err := lock.ReleaseExclusiveNamed(fixture.stateDir, state.CleanupLockName("g1")); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -395,11 +395,11 @@ func TestCleanupPreservesMetadataWhenReturnFails(t *testing.T) {
 
 func TestCleanupRefusesContendedTaskLock(t *testing.T) {
 	fixture := newCleanupFixture(t)
-	if _, err := lock.AcquireExclusiveNamed(fixture.stateDir, cleanupLockName("g1")); err != nil {
+	if _, err := lock.AcquireExclusiveNamed(fixture.stateDir, state.CleanupLockName("g1")); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if err := lock.ReleaseExclusiveNamed(fixture.stateDir, cleanupLockName("g1")); err != nil {
+		if err := lock.ReleaseExclusiveNamed(fixture.stateDir, state.CleanupLockName("g1")); err != nil {
 			t.Fatal(err)
 		}
 	}()
