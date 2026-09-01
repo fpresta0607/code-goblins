@@ -86,11 +86,18 @@ func TestAuthRefreshRewritesOnlyLiveTasksOfTheProject(t *testing.T) {
 	}
 	// Another project's live task must never see this project's scope.
 	foreign := writeTaskMeta(t, stateDir, "foreign-1", other, "pane-foreign", true)
+	// A cleaned-up task of this project: metadata retired, scratch state
+	// archived under a stamped name. Its pane may even still answer.
+	archived := filepath.Join(stateDir, "archive", "old-1.20260102T150405Z")
+	if err := os.MkdirAll(archived, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	refresher := AuthRefresher{StateDir: stateDir, Store: store, Panes: stubPanes{live: map[string]bool{
 		"pane-live":    true,
 		"pane-dead":    true,
 		"pane-foreign": true,
+		"pane-old":     true,
 	}}}
 	refreshed, err := refresher.RefreshProject(context.Background(), project)
 	if err != nil {
@@ -117,6 +124,49 @@ func TestAuthRefreshRewritesOnlyLiveTasksOfTheProject(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(foreign.TaskTmp, "auth.ps1")); !os.IsNotExist(err) {
 		t.Errorf("foreign task's script = %v, want it untouched", err)
+	}
+	if _, err := os.Stat(filepath.Join(archived, "auth.ps1")); !os.IsNotExist(err) {
+		t.Errorf("archived task's state = %v, want no credential script written into the archive", err)
+	}
+}
+
+func TestAuthRefreshReportsTheTasksItRefreshedWhenAnotherWriteFails(t *testing.T) {
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	project := filepath.Join(root, "precisiondocs")
+	store := useCredentialStore(t)
+	if err := store.Set(auth.Scoped(project, "FLY_API_TOKEN"), "fly_new_token"); err != nil {
+		t.Fatal(err)
+	}
+	good := writeTaskMeta(t, stateDir, "good-1", project, "pane-good", true)
+	// A directory sitting where the script goes: this task's write fails,
+	// and the fleet must still learn about every script that did change.
+	stuck := writeTaskMeta(t, stateDir, "stuck-1", project, "pane-stuck", true)
+	if err := os.Mkdir(filepath.Join(stuck.TaskTmp, "auth.ps1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var warn strings.Builder
+	refresher := AuthRefresher{StateDir: stateDir, Store: store, Panes: stubPanes{live: map[string]bool{"pane-good": true, "pane-stuck": true}}, Warn: &warn}
+	refreshed, err := refresher.RefreshProject(context.Background(), project)
+	if err != nil {
+		t.Fatalf("RefreshProject hid a completed refresh behind another task's failure: %v", err)
+	}
+	if len(refreshed) != 1 || refreshed[0].ID != "good-1" {
+		t.Fatalf("refreshed = %v, want exactly good-1", refreshed)
+	}
+	if _, err := os.Stat(filepath.Join(good.TaskTmp, "auth.ps1")); err != nil {
+		t.Fatalf("good task's script = %v, want it regenerated", err)
+	}
+	if !strings.Contains(warn.String(), "stuck-1") {
+		t.Errorf("warnings = %q, want the failed task named", warn.String())
+	}
+
+	// With nothing refreshed, the failure is the result rather than a warning.
+	if err := os.Remove(filepath.Join(stateDir, "good-1.meta")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := refresher.RefreshProject(context.Background(), project); err == nil {
+		t.Fatal("RefreshProject reported success when every write failed")
 	}
 }
 
