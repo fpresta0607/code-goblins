@@ -296,8 +296,10 @@ func TestSenderTextConfirmsOnlyCurrentClaudeAndCodexComposer(t *testing.T) {
 	}{
 		{name: "current Claude prompt confirms", harness: "claude", capture: "\n  \u276f\n"},
 		{name: "current Codex prompt confirms", harness: "codex", capture: "\n  \u203a\n"},
-		{name: "stale Claude prompt above terminal output refuses", harness: "claude", capture: "\n  \u276f\nnew terminal output\n", wantError: "unknown"},
-		{name: "stale Codex prompt above terminal output refuses", harness: "codex", capture: "\n  \u203a\nnew terminal output\n", wantError: "unknown"},
+		{name: "Claude idle composer above footer confirms", harness: "claude", capture: "\n  \u276f\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  [PONYTAIL]                                                /rc\n  \u2802\u2802 bypass permissions on (shift+tab to cycle) \u00b7 \u2190 for agents\n  \u25cf main\n  \u25ef general-purpose  Confirming layout\n"},
+		{name: "Codex idle composer above footer confirms", harness: "codex", capture: "\n  \u203a\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  28k tokens left\n"},
+		{name: "Claude idle composer above footer and trailing blank rows confirms", harness: "claude", capture: "\n  \u276f\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2802\u2802 bypass permissions on (shift+tab to cycle)\n" + strings.Repeat("\n", 30)},
+		{name: "Claude prompt in scrollback beyond the window refuses", harness: "claude", capture: "\n  \u276f old parked draft\n" + strings.Repeat("filled scrollback line\n", 40) + "new terminal output\n", wantError: "unknown"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			runner := &fakeRunner{replies: []runnerReply{
@@ -703,6 +705,13 @@ func TestComposerPending(t *testing.T) {
 		{name: "claude empty prompt", harness: "claude", message: "fix the thing", captured: "\n  ❯\n", want: false},
 		{name: "codex parked message", harness: "codex", message: "fix the thing", captured: "\n  › fix the thing\n", want: true},
 		{name: "unknown harness never pending", harness: "", message: "fix the thing", captured: "\nfix the thing\n", want: false},
+		{name: "claude parked message under footer", harness: "claude", message: "fix the thing", captured: "\n  ❯ fix the thing\n──────────────────────────────\n  [PONYTAIL]                                                /rc\n  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents\n  ● main\n  ◯ general-purpose  Confirming layout  11m 2s\n", want: true},
+		{name: "codex parked message under footer", harness: "codex", message: "fix the thing", captured: "\n  › fix the thing\n──────────────────────────────\n  28k tokens left\n  · 4 revisions\n", want: true},
+		{name: "claude queued message is not pending", harness: "claude", message: "fix the thing", captured: "\n  ❯ fix the thing\n❯ Press up to edit queued messages\n──────────────────────────────\n  [PONYTAIL]                                                /rc\n", want: false},
+		{name: "claude parked message under footer and trailing blank rows", harness: "claude", message: "fix the thing", captured: "\n  ❯ fix the thing\n──────────────────────────────\n  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents\n" + strings.Repeat("\n", 30), want: true},
+		{name: "claude message only in scrollback beyond the window", harness: "claude", message: "fix the thing", captured: "\n  ❯ fix the thing\n" + strings.Repeat("filled scrollback line\n", 40) + "new terminal output\n", want: false},
+		{name: "claude message just inside the non-empty window", harness: "claude", message: "fix the thing", captured: "\n  ❯ fix the thing\n" + strings.Repeat("\nfooter row\n", 19), want: true},
+		{name: "claude message just outside the non-empty window", harness: "claude", message: "fix the thing", captured: "\n  ❯ fix the thing\n" + strings.Repeat("\nfooter row\n", 20), want: false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if got := composerPending(test.captured, test.harness, test.message); got != test.want {
@@ -772,5 +781,58 @@ func TestSenderRequiresCollaborators(t *testing.T) {
 	assertErrorContains(t, (Sender{Resolve: &fakeResolver{}}).Text(context.Background(), "task-7", "message"), "Herdr")
 	if strings.Contains("", "not used") {
 		t.Fatal("unreachable")
+	}
+}
+
+func TestSenderTextAutoSubmitResubmitsParkedClaudeAndCodexComposerUnderFooter(t *testing.T) {
+	claudeFooter := "──────────────────────────────\n  [PONYTAIL]                                                /rc\n  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents\n  ● main\n  ◯ general-purpose  Confirming layout  11m 2s\n"
+	codexFooter := "──────────────────────────────\n  28k tokens left\n  · 4 revisions\n"
+	for _, test := range []struct {
+		name    string
+		harness string
+		parked  string
+		cleared string
+	}{
+		{name: "claude", harness: "claude", parked: "\n  ❯ fix the thing\n" + claudeFooter, cleared: "\n  ❯\n" + claudeFooter},
+		{name: "codex", harness: "codex", parked: "\n  › fix the thing\n" + codexFooter, cleared: "\n  ›\n" + codexFooter},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &fakeRunner{replies: []runnerReply{
+				rawReply(""),
+				jsonReply(`{"result":{"agent":{"agent_status":"working"}}}`),
+				rawReply(""),
+				rawReply(test.parked),
+				rawReply(test.parked),
+				rawReply(""),
+				rawReply(test.cleared),
+			}}
+			var clientSleeps []time.Duration
+			sender := Sender{
+				Resolve:    &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}, meta: taskMeta("task-7", test.harness)},
+				Herdr:      newHerdrClient(runner, &clientSleeps),
+				Sleep:      noSleep,
+				AutoSubmit: true,
+			}
+
+			if err := sender.Text(context.Background(), "task-7", "fix the thing"); err != nil {
+				t.Fatalf("Text: %v", err)
+			}
+			var keys []string
+			reads := 0
+			for _, request := range runner.requests {
+				if len(request.Args) >= 4 && request.Args[0] == "pane" && request.Args[1] == "send-keys" {
+					keys = append(keys, request.Args[3])
+				}
+				if len(request.Args) >= 2 && request.Args[0] == "pane" && request.Args[1] == "read" {
+					reads++
+				}
+			}
+			if !reflect.DeepEqual(keys, []string{"enter", "enter"}) {
+				t.Errorf("submit keys = %v, want Enter resubmitted once for the parked composer under the footer", keys)
+			}
+			if reads != 3 {
+				t.Errorf("pane read calls = %d, want 3 (composer state, pending check, composer state)", reads)
+			}
+		})
 	}
 }
