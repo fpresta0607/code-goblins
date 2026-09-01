@@ -13,7 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
-func cleanupTestRuntime(h home.Home, cleanup func(context.Context, home.Home, string) (string, error)) commandRuntime {
+func cleanupTestRuntime(h home.Home, cleanup func(context.Context, home.Home, string, bool) (string, error)) commandRuntime {
 	return commandRuntime{
 		resolveHome: func() (home.Home, error) { return h, nil },
 		cleanup:     cleanup,
@@ -74,7 +74,7 @@ func TestCleanupArgumentValidation(t *testing.T) {
 func TestCleanupRefusesNonPrimaryHome(t *testing.T) {
 	h := home.Home{Root: t.TempDir(), State: t.TempDir(), Data: t.TempDir()}
 	called := false
-	runtime := cleanupTestRuntime(h, func(context.Context, home.Home, string) (string, error) {
+	runtime := cleanupTestRuntime(h, func(context.Context, home.Home, string, bool) (string, error) {
 		called = true
 		return "", nil
 	})
@@ -92,7 +92,7 @@ func TestCleanupRefusesNonPrimaryHome(t *testing.T) {
 func TestCleanupDelegatesToService(t *testing.T) {
 	h := primaryHomeFixture(t)
 	var gotID string
-	runtime := cleanupTestRuntime(h, func(_ context.Context, home home.Home, id string) (string, error) {
+	runtime := cleanupTestRuntime(h, func(_ context.Context, home home.Home, id string, _ bool) (string, error) {
 		gotID = id
 		if home.State != h.State {
 			t.Errorf("home = %+v, want the resolved home", home)
@@ -115,7 +115,7 @@ func TestCleanupDelegatesToService(t *testing.T) {
 
 func TestCleanupSurfacesServiceFailure(t *testing.T) {
 	h := primaryHomeFixture(t)
-	runtime := cleanupTestRuntime(h, func(context.Context, home.Home, string) (string, error) {
+	runtime := cleanupTestRuntime(h, func(context.Context, home.Home, string, bool) (string, error) {
 		return "", errors.New("cleanup: worktree is dirty")
 	})
 

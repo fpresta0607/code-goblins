@@ -13,12 +13,17 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
-const cleanupUsage = `usage: cfo cleanup <id>
+const cleanupUsage = `usage: cfo cleanup <id> [--force-archive]
 
 Close the task tab and return one clean, proven-inactive task worktree,
 removing the worktree and pruning its Git administrative entry.
 Refuses dirty worktrees, active agents, ambiguous identity, and the primary
-checkout. There is no force override.
+checkout.
+
+--force-archive retires a task whose worktree can no longer be validated (a
+directory pinned by a dead handle, or already gone). It archives the task
+record and leaves the directory untouched - nothing on disk is deleted - and
+still refuses a pane with a live agent.
 `
 
 // runCleanup returns one validated task's worktree through the guarded
@@ -34,12 +39,24 @@ func runCleanup(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 		fmt.Fprint(stdout, cleanupUsage)
 		return 0
 	}
-	if strings.HasPrefix(args[0], "-") {
-		fmt.Fprintf(stderr, "cfo cleanup: unknown flag %q\n", args[0])
-		return 2
+	var id string
+	force := false
+	for _, arg := range args {
+		switch {
+		case arg == "--force-archive":
+			force = true
+		case strings.HasPrefix(arg, "-"):
+			fmt.Fprintf(stderr, "cfo cleanup: unknown flag %q\n", arg)
+			return 2
+		case id == "":
+			id = arg
+		default:
+			fmt.Fprintln(stderr, "cfo cleanup: unexpected arguments")
+			return 2
+		}
 	}
-	if len(args) != 1 {
-		fmt.Fprintln(stderr, "cfo cleanup: unexpected arguments")
+	if id == "" {
+		fmt.Fprintln(stderr, "cfo cleanup: task ID is required")
 		return 2
 	}
 	if runtime.resolveHome == nil || runtime.cleanup == nil {
@@ -55,7 +72,7 @@ func runCleanup(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 		fmt.Fprintln(stderr, "cfo cleanup: not a primary home")
 		return 1
 	}
-	output, err := runtime.cleanup(context.Background(), h, args[0])
+	output, err := runtime.cleanup(context.Background(), h, id, force)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -65,13 +82,14 @@ func runCleanup(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 }
 
 // defaultCleanup builds the production cleanup service for one invocation.
-func defaultCleanup(ctx context.Context, h home.Home, id string) (string, error) {
+func defaultCleanup(ctx context.Context, h home.Home, id string, forceArchive bool) (string, error) {
 	commands := execx.OSRunner{}
 	service := cleanup.Service{
 		StateDir:  h.State,
 		Commands:  commands,
 		Herdr:     &herdr.Client{Commands: commands, Session: herdrSession()},
 		Worktrees: worktree.Service{Commands: commands},
+		ForceArchive: forceArchive,
 	}
 	result, err := service.Cleanup(ctx, id)
 	if err != nil {
