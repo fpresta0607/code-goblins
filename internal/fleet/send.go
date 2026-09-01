@@ -362,17 +362,27 @@ func composerPrompt(harness string) string {
 	}
 }
 
-// currentComposerLine returns the text after the prompt on the last non-empty
-// line of the pane tail, or ok false when the tail has no such composer line.
+// composerWindow bounds how far up from the pane bottom the composer is
+// searched, so a prompt line in old scrollback can never read as the current
+// composer.
+const composerWindow = 20
+
+// currentComposerLine returns the text after the prompt on the lowest prompt
+// line of the pane tail, or ok false when the bottom window holds no prompt
+// line. Harnesses like claude and codex render a footer below the composer
+// (a separator, a status line, subagent rows), so the last non-empty line is
+// not the composer itself; the scan skips those footer rows and lands on the
+// composer prompt instead.
 func currentComposerLine(captured, prompt string) (string, bool) {
 	lines := strings.Split(captured, "\n")
-	for index := len(lines) - 1; index >= 0; index-- {
+	floor := len(lines) - composerWindow
+	if floor < 0 {
+		floor = 0
+	}
+	for index := len(lines) - 1; index >= floor; index-- {
 		line := strings.TrimSpace(lines[index])
-		if line == "" {
+		if line == "" || !strings.HasPrefix(line, prompt) {
 			continue
-		}
-		if !strings.HasPrefix(line, prompt) {
-			return "", false
 		}
 		return strings.TrimPrefix(line, prompt), true
 	}

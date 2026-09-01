@@ -296,8 +296,9 @@ func TestSenderTextConfirmsOnlyCurrentClaudeAndCodexComposer(t *testing.T) {
 	}{
 		{name: "current Claude prompt confirms", harness: "claude", capture: "\n  \u276f\n"},
 		{name: "current Codex prompt confirms", harness: "codex", capture: "\n  \u203a\n"},
-		{name: "stale Claude prompt above terminal output refuses", harness: "claude", capture: "\n  \u276f\nnew terminal output\n", wantError: "unknown"},
-		{name: "stale Codex prompt above terminal output refuses", harness: "codex", capture: "\n  \u203a\nnew terminal output\n", wantError: "unknown"},
+		{name: "Claude idle composer above footer confirms", harness: "claude", capture: "\n  \u276f\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  [PONYTAIL]                                                /rc\n  \u2802\u2802 bypass permissions on (shift+tab to cycle) \u00b7 \u2190 for agents\n  \u25cf main\n  \u25ef general-purpose  Confirming layout\n"},
+		{name: "Codex idle composer above footer confirms", harness: "codex", capture: "\n  \u203a\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  28k tokens left\n"},
+		{name: "Claude prompt in scrollback beyond the window refuses", harness: "claude", capture: "\n  \u276f old parked draft\n" + strings.Repeat("\nfilled scrollback line\n", 40) + "\nnew terminal output\n", wantError: "unknown"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			runner := &fakeRunner{replies: []runnerReply{
@@ -703,6 +704,10 @@ func TestComposerPending(t *testing.T) {
 		{name: "claude empty prompt", harness: "claude", message: "fix the thing", captured: "\n  ❯\n", want: false},
 		{name: "codex parked message", harness: "codex", message: "fix the thing", captured: "\n  › fix the thing\n", want: true},
 		{name: "unknown harness never pending", harness: "", message: "fix the thing", captured: "\nfix the thing\n", want: false},
+		{name: "claude parked message under footer", harness: "claude", message: "fix the thing", captured: "\n  ❯ fix the thing\n──────────────────────────────\n  [PONYTAIL]                                                /rc\n  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents\n  ● main\n  ◯ general-purpose  Confirming layout  11m 2s\n", want: true},
+		{name: "codex parked message under footer", harness: "codex", message: "fix the thing", captured: "\n  › fix the thing\n──────────────────────────────\n  28k tokens left\n  · 4 revisions\n", want: true},
+		{name: "claude queued message is not pending", harness: "claude", message: "fix the thing", captured: "\n  ❯ fix the thing\n❯ Press up to edit queued messages\n──────────────────────────────\n  [PONYTAIL]                                                /rc\n", want: false},
+		{name: "claude message only in scrollback beyond the window", harness: "claude", message: "fix the thing", captured: "\n  ❯ fix the thing\n" + strings.Repeat("\nfilled scrollback line\n", 40) + "\nnew terminal output\n", want: false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if got := composerPending(test.captured, test.harness, test.message); got != test.want {
