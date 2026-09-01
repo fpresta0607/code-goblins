@@ -38,6 +38,13 @@ type TaskMeta struct {
 // name both sides own a half of belongs to neither.
 const ArchiveDirName = "archive"
 
+// AuthScriptName is the restricted credential script every pane shell
+// dot-sources before the harness starts. It is regenerated, never edited: a
+// hand-appended line is exactly how a credential stops matching the store.
+// It lives here because spawn writes the script and cleanup removes it before
+// archiving a tasktmp, and a name both sides own a half of belongs to neither.
+const AuthScriptName = "auth.ps1"
+
 // CleanupLockName is the per-task lock cleanup holds while it retires a
 // task's record and archives its scratch directory. Any command that writes
 // into a live task's tasktmp takes the same lock, so it can neither resurrect
