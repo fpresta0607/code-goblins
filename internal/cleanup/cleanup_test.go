@@ -499,3 +499,52 @@ func TestCleanupRefusesToArchiveWhenCredentialsCannotBeDropped(t *testing.T) {
 		t.Errorf("archive entries = %v, want none when credentials cannot be dropped", entries)
 	}
 }
+
+// A worktree pinned by a dead handle or deleted out from under the record can
+// never validate, so the normal path refuses forever and the task sits in the
+// fleet as "Under Way". --force-archive retires the record without touching
+// the directory: no Return, no delete, the tab closed best-effort.
+func TestForceArchiveRetiresUnvalidatableWorktreeWithoutTouchingIt(t *testing.T) {
+	fixture := newCleanupFixture(t)
+	fixture.git.top = fixture.project // WorktreeTop resolves to the primary: validation fails
+
+	if _, err := fixture.service.Cleanup(context.Background(), "g1"); err == nil {
+		t.Fatal("normal cleanup accepted an unvalidatable worktree")
+	}
+	fixture.assertMetadataPreserved(t)
+
+	fixture.service.ForceArchive = true
+	result, err := fixture.service.Cleanup(context.Background(), "g1")
+	if err != nil {
+		t.Fatalf("force archive: %v", err)
+	}
+	if !strings.Contains(result.Output, "force-archived g1") || !strings.Contains(result.Output, "left in place") {
+		t.Errorf("output = %q", result.Output)
+	}
+	if len(fixture.git.returned) != 0 {
+		t.Errorf("force archive returned a worktree: %v", fixture.git.returned)
+	}
+	if _, err := os.Stat(fixture.worktree); err != nil {
+		t.Errorf("worktree directory was touched: %v", err)
+	}
+	if _, err := state.ReadTaskMeta(fixture.stateDir, "g1"); err == nil {
+		t.Error("task metadata still present after force archive")
+	}
+	if len(fixture.runner.tabClosed) != 1 {
+		t.Errorf("tab closes = %v, want the recorded tab closed once", fixture.runner.tabClosed)
+	}
+}
+
+// Force is not a bypass for a running goblin: a pane with a live agent still
+// refuses, exactly as the normal path does.
+func TestForceArchiveStillRefusesLiveAgent(t *testing.T) {
+	fixture := newCleanupFixture(t)
+	fixture.git.top = fixture.project
+	fixture.runner.snapshotBody = cleanupSnapshot(`{"pane_id":"pane-g1","tab_id":"tab-g1","workspace_id":"ws"}`,
+		`{"pane_id":"pane-g1","agent":"claude","status":"working"}`)
+	fixture.service.ForceArchive = true
+	if _, err := fixture.service.Cleanup(context.Background(), "g1"); err == nil || !strings.Contains(err.Error(), "active endpoint") {
+		t.Fatalf("err = %v, want live-agent refusal", err)
+	}
+	fixture.assertMetadataPreserved(t)
+}
