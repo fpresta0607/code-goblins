@@ -100,14 +100,14 @@ func TestAuthRefreshRewritesOnlyLiveTasksOfTheProject(t *testing.T) {
 		"pane-foreign": true,
 		"pane-old":     true,
 	}}}
-	refreshed, err := refresher.RefreshProject(context.Background(), project)
+	result, err := refresher.RefreshProject(context.Background(), project)
 	if err != nil {
 		t.Fatalf("RefreshProject: %v", err)
 	}
-	if len(refreshed) != 1 || refreshed[0].ID != "live-1" {
-		t.Fatalf("refreshed = %v, want exactly live-1", refreshed)
+	if len(result.Refreshed) != 1 || result.Refreshed[0].ID != "live-1" {
+		t.Fatalf("refreshed = %v, want exactly live-1", result.Refreshed)
 	}
-	if !refreshed[0].Live {
+	if !result.Refreshed[0].Live {
 		t.Errorf("live-1 = Live false, want the pane reported live")
 	}
 	script, err := os.ReadFile(filepath.Join(live.TaskTmp, "auth.ps1"))
@@ -147,12 +147,12 @@ func TestAuthRefreshReportsTheTasksItRefreshedWhenAnotherWriteFails(t *testing.T
 		t.Fatal(err)
 	}
 	refresher := AuthRefresher{StateDir: stateDir, Store: store, Panes: stubPanes{live: map[string]bool{"pane-good": true, "pane-stuck": true}}}
-	refreshed, err := refresher.RefreshProject(context.Background(), project)
+	result, err := refresher.RefreshProject(context.Background(), project)
 	if err == nil || !strings.Contains(err.Error(), "stuck-1") {
 		t.Fatalf("err = %v, want the failed task named", err)
 	}
-	if len(refreshed) != 1 || refreshed[0].ID != "good-1" {
-		t.Fatalf("refreshed = %v, want good-1 reported alongside the failure", refreshed)
+	if len(result.Refreshed) != 1 || result.Refreshed[0].ID != "good-1" {
+		t.Fatalf("refreshed = %v, want good-1 reported alongside the failure", result.Refreshed)
 	}
 	if _, err := os.Stat(filepath.Join(good.TaskTmp, "auth.ps1")); err != nil {
 		t.Fatalf("good task's script = %v, want it regenerated", err)
@@ -182,12 +182,12 @@ func TestAuthRefreshIncludesStoreOnlyVariablesAbsentFromTheManifest(t *testing.T
 
 	live := writeTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
 	refresher := AuthRefresher{StateDir: stateDir, DataDir: dataDir, Store: store, Panes: stubPanes{live: map[string]bool{"pane-live": true}}}
-	refreshed, err := refresher.RefreshProject(context.Background(), project)
+	result, err := refresher.RefreshProject(context.Background(), project)
 	if err != nil {
 		t.Fatalf("RefreshProject: %v", err)
 	}
-	if len(refreshed) != 1 || refreshed[0].Vars != 2 {
-		t.Fatalf("refreshed = %v, want live-1 with both variables", refreshed)
+	if len(result.Refreshed) != 1 || result.Refreshed[0].Vars != 2 {
+		t.Fatalf("refreshed = %v, want live-1 with both variables", result.Refreshed)
 	}
 	script, err := os.ReadFile(filepath.Join(live.TaskTmp, "auth.ps1"))
 	if err != nil {
@@ -214,12 +214,12 @@ func TestAuthRefreshWithNoLiveTasksTouchesNothing(t *testing.T) {
 	writeTaskMeta(t, stateDir, "parked-1", project, "pane-parked", true)
 
 	refresher := AuthRefresher{StateDir: stateDir, Store: store, Panes: stubPanes{live: map[string]bool{}}}
-	refreshed, err := refresher.RefreshProject(context.Background(), project)
+	result, err := refresher.RefreshProject(context.Background(), project)
 	if err != nil {
 		t.Fatalf("RefreshProject: %v", err)
 	}
-	if len(refreshed) != 0 {
-		t.Fatalf("refreshed = %v, want nothing", refreshed)
+	if len(result.Refreshed) != 0 {
+		t.Fatalf("refreshed = %v, want nothing", result.Refreshed)
 	}
 	entries, err := os.ReadDir(filepath.Join(stateDir, "tasktmp"))
 	if err != nil {
@@ -228,6 +228,46 @@ func TestAuthRefreshWithNoLiveTasksTouchesNothing(t *testing.T) {
 	for _, entry := range entries {
 		if _, err := os.Stat(filepath.Join(stateDir, "tasktmp", entry.Name(), "auth.ps1")); !os.IsNotExist(err) {
 			t.Errorf("tasktmp %s gained an auth.ps1 with no live task", entry.Name())
+		}
+	}
+	if result.Unreachable != 1 {
+		t.Errorf("unreachable = %d, want the one record whose directories remain counted", result.Unreachable)
+	}
+}
+
+func TestAuthRefreshCountsLiveRecordsNoPaneCanReach(t *testing.T) {
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	project := filepath.Join(root, "precisiondocs")
+	// A task whose worktree and tasktmp both remain while Herdr answers
+	// nothing for its pane: the record is found, the pane is not. This is
+	// how a Herdr outage looks, and it must not read as "nothing was live".
+	writeTaskMeta(t, stateDir, "out-1", project, "pane-out", true)
+	// A task whose worktree is already gone is state nobody could reach and
+	// must not inflate the count.
+	finished := writeTaskMeta(t, stateDir, "finished-1", project, "pane-finished", true)
+	if err := os.Remove(finished.Worktree); err != nil {
+		t.Fatal(err)
+	}
+
+	refresher := AuthRefresher{StateDir: stateDir, Store: useCredentialStore(t), Panes: stubPanes{live: map[string]bool{}}}
+	result, err := refresher.RefreshProject(context.Background(), project)
+	if err != nil {
+		t.Fatalf("RefreshProject: %v", err)
+	}
+	if len(result.Refreshed) != 0 {
+		t.Fatalf("refreshed = %v, want nothing rewritten", result.Refreshed)
+	}
+	if result.Unreachable != 1 {
+		t.Fatalf("unreachable = %d, want exactly the record with intact directories", result.Unreachable)
+	}
+	entries, err := os.ReadDir(filepath.Join(stateDir, "tasktmp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if _, err := os.Stat(filepath.Join(stateDir, "tasktmp", entry.Name(), "auth.ps1")); !os.IsNotExist(err) {
+			t.Errorf("tasktmp %s gained an auth.ps1 with no reachable pane", entry.Name())
 		}
 	}
 }
@@ -386,12 +426,12 @@ func TestAuthRefreshKeepsSharedScopeValuesOfServicesDeclaredShared(t *testing.T)
 
 	live := writeTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
 	refresher := AuthRefresher{StateDir: stateDir, DataDir: dataDir, Store: store, Panes: stubPanes{live: map[string]bool{"pane-live": true}}}
-	refreshed, err := refresher.RefreshProject(context.Background(), project)
+	result, err := refresher.RefreshProject(context.Background(), project)
 	if err != nil {
 		t.Fatalf("RefreshProject: %v", err)
 	}
-	if len(refreshed) != 1 || refreshed[0].Vars != 1 {
-		t.Fatalf("refreshed = %v, want live-1 with the one shared value its manifest may read", refreshed)
+	if len(result.Refreshed) != 1 || result.Refreshed[0].Vars != 1 {
+		t.Fatalf("refreshed = %v, want live-1 with the one shared value its manifest may read", result.Refreshed)
 	}
 	script, err := os.ReadFile(filepath.Join(live.TaskTmp, "auth.ps1"))
 	if err != nil {
@@ -424,12 +464,12 @@ func TestAuthRefreshStaysOutOfATaskCleanupIsArchiving(t *testing.T) {
 	t.Cleanup(func() { _ = lock.ReleaseExclusiveNamed(stateDir, cleanupLock) })
 
 	refresher := AuthRefresher{StateDir: stateDir, Store: store, Panes: stubPanes{live: map[string]bool{"pane-busy": true, "pane-free": true}}}
-	refreshed, err := refresher.RefreshProject(context.Background(), project)
+	result, err := refresher.RefreshProject(context.Background(), project)
 	if err == nil || !strings.Contains(err.Error(), "busy-1") {
 		t.Fatalf("err = %v, want the task cleanup holds named", err)
 	}
-	if len(refreshed) != 1 || refreshed[0].ID != "free-1" {
-		t.Fatalf("refreshed = %v, want exactly free-1", refreshed)
+	if len(result.Refreshed) != 1 || result.Refreshed[0].ID != "free-1" {
+		t.Fatalf("refreshed = %v, want exactly free-1", result.Refreshed)
 	}
 	if _, err := os.Stat(filepath.Join(busy.TaskTmp, "auth.ps1")); !os.IsNotExist(err) {
 		t.Errorf("busy task's script = %v, want it untouched while cleanup holds the task", err)

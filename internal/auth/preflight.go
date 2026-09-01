@@ -68,7 +68,15 @@ func (p SpawnPreflight) Preflight(ctx context.Context, project string) (Result, 
 		if err != nil {
 			return Result{}, err
 		}
-		return Result{Env: env, Caches: caches}, nil
+		// A stored credential was written into auth.ps1, so say it: silence
+		// would read as "nothing was injected" and send the CFO hunting for
+		// a manifest that never existed. A store with nothing in it keeps the
+		// old silence, because there is nothing to report.
+		warning := ""
+		if len(env) > 0 {
+			warning = fmt.Sprintf("auth: injected %d stored credential(s) for %s (no manifest)", len(env), scope)
+		}
+		return Result{Env: env, Caches: caches, Warning: warning}, nil
 	}
 	// Adopting is safe to do unattended: it reads only files and tools
 	// already on this machine, and writes only into this project's own scope.

@@ -273,6 +273,31 @@ func TestAuthCopyIntoAProjectScopeRefreshesItsLiveTasks(t *testing.T) {
 	}
 }
 
+func TestAuthStoreWithNoReachablePaneSaysTheSnapshotMayBeStale(t *testing.T) {
+	useFileStore(t)
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	project := filepath.Join(root, "precisiondocs")
+	// A Herdr outage: the record and its directories remain, no pane answers.
+	writeCmdTaskMeta(t, stateDir, "out-1", project, "pane-out", true)
+
+	var sent []string
+	runtime := refreshTestRuntime(t, stateDir, cmdPanes{live: map[string]bool{}}, &sent)
+	code, stdout, stderr := runCLIWithRuntime(t, runtime, "store", "--project", "precisiondocs", "FLY_API_TOKEN", "fly_new_token")
+	if code != 0 {
+		t.Fatalf("cfo auth store = %d: %s", code, stderr)
+	}
+	if strings.Contains(stdout, "refreshed") {
+		t.Errorf("stdout = %q, want nothing reported as refreshed", stdout)
+	}
+	if !strings.Contains(stderr, "no pane could be confirmed reachable") || !strings.Contains(stderr, "precisiondocs") {
+		t.Errorf("stderr = %q, want the outage note naming the scope", stderr)
+	}
+	if len(sent) != 0 {
+		t.Errorf("notices = %v, want none delivered to an unreachable fleet", sent)
+	}
+}
+
 func TestAuthRefreshCommandRegeneratesOneTaskAndRefusesTheRest(t *testing.T) {
 	useFileStore(t)
 	root := t.TempDir()

@@ -49,6 +49,18 @@ type Refreshed struct {
 	Live bool
 }
 
+// ProjectRefresh summarizes one fleet-wide refresh pass. Unreachable is how
+// a Herdr outage hides from the refreshed count: task records whose worktree
+// and tasktmp are still present, but whose pane answered no liveness check,
+// so the caller can say the snapshot may still be stale instead of nothing.
+type ProjectRefresh struct {
+	// Refreshed holds every task whose auth.ps1 was regenerated.
+	Refreshed []Refreshed
+	// Unreachable counts task records whose worktree and tasktmp are still
+	// present but whose pane could not be confirmed live.
+	Unreachable int
+}
+
 // AuthRefresher rewrites the credential script spawn rendered at dispatch, so
 // a credential stored after spawn reaches a goblin that is already working
 // without anybody hand-appending lines to the file. The script is always
@@ -78,32 +90,37 @@ type AuthRefresher struct {
 //
 // One task's failure never stops the rest. The refreshed scripts are returned
 // alongside the joined failures, because a script that changed on disk must
-// be reported and its pane told, whatever happened to another task.
-func (r AuthRefresher) RefreshProject(ctx context.Context, project string) ([]Refreshed, error) {
+// be reported and its pane told, whatever happened to another task. The
+// summary also counts the records that were found with their worktree and
+// tasktmp intact but whose pane answered no liveness check, so a caller can
+// distinguish "nothing live" from "live records nobody could reach".
+func (r AuthRefresher) RefreshProject(ctx context.Context, project string) (ProjectRefresh, error) {
+	var result ProjectRefresh
 	scope := auth.ProjectName(project)
 	if scope == "" {
-		return nil, errors.New("spawn: a credential refresh needs a project scope")
+		return result, errors.New("spawn: a credential refresh needs a project scope")
 	}
 	env, err := r.scriptEnv(scope)
 	if err != nil {
-		return nil, err
+		return result, err
 	}
 	metas, failures, err := r.projectMetas(scope)
 	if err != nil {
-		return nil, err
+		return result, err
 	}
-	var refreshed []Refreshed
 	for _, meta := range metas {
-		item, live, err := r.refreshLive(ctx, meta, env)
+		item, refreshed, dirsLive, err := r.refreshLive(ctx, meta, env)
 		if err != nil {
 			failures = append(failures, err)
 			continue
 		}
-		if live {
-			refreshed = append(refreshed, item)
+		if refreshed {
+			result.Refreshed = append(result.Refreshed, item)
+		} else if dirsLive {
+			result.Unreachable++
 		}
 	}
-	return refreshed, errors.Join(failures...)
+	return result, errors.Join(failures...)
 }
 
 // RefreshTask regenerates one task's auth.ps1 by id. Unknown tasks and
@@ -214,27 +231,31 @@ func (r AuthRefresher) projectMetas(scope string) ([]state.TaskMeta, []error, er
 // refreshLive rewrites one task's script under its cleanup lock, so the
 // liveness decision and the write see the same task: cleanup cannot archive
 // the tasktmp between them, and the write can neither resurrect an archived
-// directory nor ride into the archive. live is false for a task that was
-// skipped, which is not a failure.
-func (r AuthRefresher) refreshLive(ctx context.Context, meta state.TaskMeta, env map[string]string) (Refreshed, bool, error) {
-	var item Refreshed
-	live := false
-	err := r.locked(meta.ID, func() error {
-		if !r.taskLive(ctx, meta) {
+// directory nor ride into the archive. refreshed is false for a task that
+// was skipped, which is not a failure; dirsLive distinguishes a task whose
+// worktree and tasktmp are still there (its pane is what failed) from one
+// whose state is already gone.
+func (r AuthRefresher) refreshLive(ctx context.Context, meta state.TaskMeta, env map[string]string) (item Refreshed, refreshed, dirsLive bool, err error) {
+	err = r.locked(meta.ID, func() error {
+		if !r.taskDirsLive(meta) {
 			return nil
 		}
-		live = true
-		var err error
+		dirsLive = true
+		if r.Panes == nil || !r.Panes.Live(ctx, meta) {
+			return nil
+		}
+		refreshed = true
 		item, err = r.rewrite(meta, env, true)
 		return err
 	})
-	return item, live, err
+	return item, refreshed, dirsLive, err
 }
 
-// taskLive requires the worktree, the tasktmp, and the pane. The worktree is
-// what makes the task real; the tasktmp is where the script lives; the pane
-// is what can still re-source it.
-func (r AuthRefresher) taskLive(ctx context.Context, meta state.TaskMeta) bool {
+// taskDirsLive requires the worktree and the tasktmp. The worktree is what
+// makes the task real; the tasktmp is where the script lives. The pane is
+// checked separately, because a task whose directories remain but whose pane
+// answers nothing is the case a caller must still be told about.
+func (r AuthRefresher) taskDirsLive(meta state.TaskMeta) bool {
 	if meta.Worktree == "" || meta.TaskTmp == "" {
 		return false
 	}
@@ -243,7 +264,7 @@ func (r AuthRefresher) taskLive(ctx context.Context, meta state.TaskMeta) bool {
 			return false
 		}
 	}
-	return r.Panes != nil && r.Panes.Live(ctx, meta)
+	return true
 }
 
 func (r AuthRefresher) rewrite(meta state.TaskMeta, env map[string]string, live bool) (Refreshed, error) {
