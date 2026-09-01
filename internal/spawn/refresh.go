@@ -159,12 +159,22 @@ func (r AuthRefresher) RefreshTask(ctx context.Context, id string) (Refreshed, e
 	}
 	var item Refreshed
 	err = r.locked(id, func() error {
-		if info, err := os.Stat(meta.TaskTmp); err != nil || !info.IsDir() {
-			return fmt.Errorf("spawn: task %s tasktmp %q is gone; the task is finished", id, meta.TaskTmp)
+		current, readErr := state.ReadTaskMeta(r.StateDir, id)
+		if errors.Is(readErr, fs.ErrNotExist) {
+			return fmt.Errorf("spawn: task %s is gone; the task is finished", id)
 		}
-		var err error
-		item, err = r.rewrite(meta, env, r.Panes != nil && r.Panes.Live(ctx, meta))
-		return err
+		if readErr != nil {
+			return fmt.Errorf("spawn: read task metadata: %w", readErr)
+		}
+		if auth.ProjectName(current.Project) != scope {
+			return fmt.Errorf("spawn: task %s now records project %s; refusing to write %s credentials into it", id, auth.ProjectName(current.Project), scope)
+		}
+		if info, statErr := os.Stat(current.TaskTmp); statErr != nil || !info.IsDir() {
+			return fmt.Errorf("spawn: task %s tasktmp %q is gone; the task is finished", id, current.TaskTmp)
+		}
+		var writeErr error
+		item, writeErr = r.rewrite(current, env, r.Panes != nil && r.Panes.Live(ctx, current))
+		return writeErr
 	})
 	return item, err
 }

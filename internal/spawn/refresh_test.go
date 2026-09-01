@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
@@ -442,6 +443,46 @@ func TestAuthRefreshKeepsSharedScopeValuesOfServicesDeclaredShared(t *testing.T)
 	}
 	if strings.Contains(string(script), "sk_shared_not_declared") {
 		t.Errorf("script holds a shared value no service is declared to read:\n%s", script)
+	}
+}
+
+// firingStore runs its callback the first time the refresh gathers the
+// store's keys, which happens after RefreshTask has read the task record and
+// before it takes the task's cleanup lock: the seam where cleanup can free
+// the id and a respawn can occupy it.
+type firingStore struct {
+	auth.Store
+	onKeys func()
+	once   sync.Once
+}
+
+func (s *firingStore) Keys() ([]auth.Key, error) {
+	s.once.Do(s.onKeys)
+	return s.Store.Keys()
+}
+
+func TestAuthRefreshTaskRefusesAnIDRespawnedUnderAnotherProjectMidFlight(t *testing.T) {
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	project := filepath.Join(root, "precisiondocs")
+	other := filepath.Join(root, "clock-in")
+	store := useCredentialStore(t)
+	if err := store.Set(auth.Scoped(project, "FLY_API_TOKEN"), "fly_new_token"); err != nil {
+		t.Fatal(err)
+	}
+	live := writeTaskMeta(t, stateDir, "raced-1", project, "pane-live", true)
+	// While the refresh is between reading the record and taking the task's
+	// lock, cleanup frees the id and a respawn under another project occupies
+	// the same id-derived tasktmp.
+	refresher := AuthRefresher{StateDir: stateDir, Store: &firingStore{Store: store, onKeys: func() {
+		writeTaskMeta(t, stateDir, "raced-1", other, "pane-live", true)
+	}}, Panes: stubPanes{live: map[string]bool{"pane-live": true}}}
+	if _, err := refresher.RefreshTask(context.Background(), "raced-1"); err == nil {
+		t.Fatal("RefreshTask rewrote a tasktmp that changed project mid-flight")
+	}
+	script, err := os.ReadFile(filepath.Join(live.TaskTmp, "auth.ps1"))
+	if !os.IsNotExist(err) {
+		t.Fatalf("respawned task's script = %v (%s), want no cross-project credentials written", err, script)
 	}
 }
 
