@@ -295,10 +295,11 @@ func StoredExtras(store Store, project string, manifest Manifest) (map[string]st
 // declared name resolved through the scopes and aliases dispatch resolves it
 // through, plus StoredExtras. It is the generator a refresh after dispatch
 // uses, so a regenerated script never holds fewer credentials than the
-// dispatch injected. Two things the dispatch knew are deliberately absent,
-// because no probe runs here and the process environment is one command's
-// override rather than the store: a value only the CFO's own environment
-// supplied, and a name the preflight's identity check refused.
+// dispatch injected. It differs from the dispatch in two deliberate ways. A
+// value only the CFO's own process environment supplied is left out: that is
+// one command's override, not the store. A name the preflight's identity
+// check refused is included: no probe runs here, so the refusal cannot be
+// reproduced, and a refresh writes what the store holds for the scope.
 func StoredEnv(store Store, project string, manifest Manifest) (map[string]string, error) {
 	env, err := StoredExtras(store, project, manifest)
 	if err != nil {

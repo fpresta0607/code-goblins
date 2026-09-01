@@ -336,6 +336,29 @@ func TestAuthRefreshTaskAcceptsAnIDRespawnedAfterCleanup(t *testing.T) {
 	}
 }
 
+func TestAuthRefreshRefusesATaskThatNamesNoProject(t *testing.T) {
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	store := useCredentialStore(t)
+	// A record with no project has no scope of its own; the only scope an
+	// empty name could reduce to is the shared one, and every project's
+	// shared secrets must never land in one task's file.
+	if err := store.Set(auth.Shared("DATABASE_URL"), "postgres://everyones"); err != nil {
+		t.Fatal(err)
+	}
+	meta := writeTaskMeta(t, stateDir, "orphan-1", "", "pane-orphan", true)
+	refresher := AuthRefresher{StateDir: stateDir, Store: store, Panes: stubPanes{live: map[string]bool{"pane-orphan": true}}}
+	if _, err := refresher.RefreshTask(context.Background(), "orphan-1"); err == nil {
+		t.Fatal("RefreshTask regenerated a script for a task with no project")
+	}
+	if _, err := refresher.RefreshProject(context.Background(), ""); err == nil {
+		t.Fatal("RefreshProject accepted an empty project scope")
+	}
+	if _, err := os.Stat(filepath.Join(meta.TaskTmp, "auth.ps1")); !os.IsNotExist(err) {
+		t.Errorf("orphan task's script = %v, want no script written from the shared scope", err)
+	}
+}
+
 func TestAuthRefreshKeepsSharedScopeValuesOfServicesDeclaredShared(t *testing.T) {
 	root := t.TempDir()
 	stateDir := filepath.Join(root, "state")
@@ -392,9 +415,9 @@ func TestAuthRefreshStaysOutOfATaskCleanupIsArchiving(t *testing.T) {
 	}
 	busy := writeTaskMeta(t, stateDir, "busy-1", project, "pane-busy", true)
 	free := writeTaskMeta(t, stateDir, "free-1", project, "pane-free", true)
-	// Cleanup holds this lock while it archives the task's scratch directory;
-	// the name is cleanup's own, so the two commands contend for one lock.
-	const cleanupLock = ".cleanup-busy-1.lock"
+	// Cleanup holds this lock while it archives the task's scratch directory,
+	// so the two commands contend for one lock.
+	cleanupLock := state.CleanupLockName("busy-1")
 	if _, err := lock.AcquireExclusiveNamed(stateDir, cleanupLock); err != nil {
 		t.Fatal(err)
 	}
