@@ -81,6 +81,9 @@ type AuthRefresher struct {
 // be reported and its pane told, whatever happened to another task.
 func (r AuthRefresher) RefreshProject(ctx context.Context, project string) ([]Refreshed, error) {
 	scope := auth.ProjectName(project)
+	if scope == "" {
+		return nil, errors.New("spawn: a credential refresh needs a project scope")
+	}
 	env, err := r.scriptEnv(scope)
 	if err != nil {
 		return nil, err
@@ -129,7 +132,11 @@ func (r AuthRefresher) RefreshTask(ctx context.Context, id string) (Refreshed, e
 	if meta.TaskTmp == "" {
 		return Refreshed{}, fmt.Errorf("spawn: task %s has no tasktmp", id)
 	}
-	env, err := r.scriptEnv(auth.ProjectName(meta.Project))
+	scope := auth.ProjectName(meta.Project)
+	if scope == "" {
+		return Refreshed{}, fmt.Errorf("spawn: task %s names no project, so it has no credential scope", id)
+	}
+	env, err := r.scriptEnv(scope)
 	if err != nil {
 		return Refreshed{}, err
 	}
@@ -251,7 +258,7 @@ func (r AuthRefresher) rewrite(meta state.TaskMeta, env map[string]string, live 
 // cleanup is archiving this task right now, and the refresh declines rather
 // than waits: the task is finishing, and its script is about to be destroyed.
 func (r AuthRefresher) locked(id string, fn func() error) (err error) {
-	name := cleanupLockName(id)
+	name := state.CleanupLockName(id)
 	if _, err := lock.AcquireExclusiveNamed(r.StateDir, name); err != nil {
 		return fmt.Errorf("spawn: task %s is being cleaned up: %w", id, err)
 	}
@@ -268,7 +275,7 @@ func (r AuthRefresher) locked(id string, fn func() error) (err error) {
 // name, so the id prefix is the identity; the match is case-insensitive the
 // way task id aliases are.
 func (r AuthRefresher) archived(id string) (bool, error) {
-	entries, err := os.ReadDir(filepath.Join(r.StateDir, archiveDirName))
+	entries, err := os.ReadDir(filepath.Join(r.StateDir, state.ArchiveDirName))
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
@@ -281,14 +288,4 @@ func (r AuthRefresher) archived(id string) (bool, error) {
 		}
 	}
 	return false, nil
-}
-
-// archiveDirName is cleanup's archive directory, and cleanupLockName is the
-// per-task lock cleanup holds while it archives. Both are kept as literals
-// here rather than imported: cleanup is a caller of task lifecycle, and spawn
-// must not depend on it to name a layout both sides own a half of.
-const archiveDirName = "archive"
-
-func cleanupLockName(id string) string {
-	return ".cleanup-" + id + ".lock"
 }
