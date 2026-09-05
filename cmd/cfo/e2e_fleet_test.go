@@ -623,7 +623,7 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 	}
 	switch {
 	case matches(args, "status", "--json"):
-		return result(`{"client":{"protocol":19},"server":{"running":true,"protocol":19,"compatible":true}}`), nil
+		return result(`{"client":{"protocol":21},"server":{"running":true,"protocol":21,"compatible":true}}`), nil
 	case matches(args, "api", "schema"):
 		if !hasArgument(args, "--json") {
 			return execx.Result{}, fmt.Errorf("api schema is missing --json: %v", args)
@@ -896,7 +896,7 @@ func resultEnvelope(value any) execx.Result {
 	return execx.Result{Stdout: data}
 }
 
-// fleetE2ESchemaJSON is the minimal protocol-19 schema-1 document satisfying
+// fleetE2ESchemaJSON is the minimal protocol-21 schema-1 document satisfying
 // the spawn compatibility preflight: both response envelopes plus every
 // method CFO uses.
 func fleetE2ESchemaJSON() string {
@@ -921,7 +921,7 @@ func fleetE2ESchemaJSON() string {
 		"pane.send_text",
 	}
 	var b strings.Builder
-	b.WriteString(`{"protocol":19,"schema_version":1,"schemas":{"success_response":{},"error_response":{},"request":{"oneOf":[`)
+	b.WriteString(`{"protocol":21,"schema_version":1,"schemas":{"success_response":{},"error_response":{},"request":{"oneOf":[`)
 	for i, method := range methods {
 		if i > 0 {
 			b.WriteString(",")
