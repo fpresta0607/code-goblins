@@ -99,7 +99,7 @@ func (r *proberRunner) Run(_ context.Context, req execx.Request) (execx.Result, 
 
 func proberSchemaJSON() string {
 	var b strings.Builder
-	b.WriteString(`{"protocol":19,"schema_version":1,"schemas":{"success_response":{},"error_response":{},"request":{"oneOf":[`)
+	b.WriteString(`{"protocol":21,"schema_version":1,"schemas":{"success_response":{},"error_response":{},"request":{"oneOf":[`)
 	methods := []string{
 		"server.agent_manifests",
 		"session.snapshot",
@@ -134,7 +134,7 @@ func proberSchemaJSON() string {
 // given per-task activity states.
 func proberSnapshotEnvelope(metas []state.TaskMeta, statuses map[string]string) string {
 	var b strings.Builder
-	b.WriteString(`{"id":"cli:api:snapshot","result":{"type":"session_snapshot","snapshot":{"version":"0.8.0-test","protocol":19,`)
+	b.WriteString(`{"id":"cli:api:snapshot","result":{"type":"session_snapshot","snapshot":{"version":"0.8.0-test","protocol":21,`)
 	b.WriteString(`"workspaces":[{"workspace_id":"ws","label":"cfo"}],"tabs":[`)
 	for i, meta := range metas {
 		if i > 0 {
@@ -278,7 +278,7 @@ func TestHerdrProberStructuralVerdicts(t *testing.T) {
 		return fmt.Sprintf(`{"pane_id":%q,"tab_id":%q,"workspace_id":"ws","agent":"claude","agent_status":%q}`, meta.HerdrPaneID, meta.HerdrTabID, status)
 	}
 	envelope := func(tabs, panes, agents string) string {
-		return `{"result":{"type":"session_snapshot","snapshot":{"protocol":19,"workspaces":[{"workspace_id":"ws","label":"cfo"}],"tabs":[` + tabs + `],"panes":[` + panes + `],"agents":[` + agents + `]}}}`
+		return `{"result":{"type":"session_snapshot","snapshot":{"protocol":21,"workspaces":[{"workspace_id":"ws","label":"cfo"}],"tabs":[` + tabs + `],"panes":[` + panes + `],"agents":[` + agents + `]}}}`
 	}
 	tabEntry := fmt.Sprintf(`{"tab_id":%q,"workspace_id":"ws","label":"gb-g1"}`, meta.HerdrTabID)
 

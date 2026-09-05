@@ -1233,7 +1233,7 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 	switch {
 	case reflect.DeepEqual(args, []string{"status", "--json"}):
 		*r.events = append(*r.events, "status")
-		return execx.Result{Stdout: []byte(`{"client":{"protocol":19},"server":{"running":true,"protocol":19,"compatible":true}}`)}, nil
+		return execx.Result{Stdout: []byte(`{"client":{"protocol":21},"server":{"running":true,"protocol":21,"compatible":true}}`)}, nil
 	case reflect.DeepEqual(args, []string{"api", "schema", "--json"}):
 		*r.events = append(*r.events, "schema")
 		return execx.Result{Stdout: []byte(fixtureSchemaJSON())}, nil
@@ -1381,7 +1381,7 @@ func jsonResult(result string) execx.Result {
 	return execx.Result{Stdout: []byte(`{"result":` + result + `}`)}
 }
 
-// fixtureSchemaJSON is the minimal protocol-19 schema-1 document satisfying
+// fixtureSchemaJSON is the minimal protocol-21 schema-1 document satisfying
 // the spawn compatibility preflight: both response envelopes plus every
 // method CFO uses.
 func fixtureSchemaJSON() string {
@@ -1406,7 +1406,7 @@ func fixtureSchemaJSON() string {
 		"pane.send_text",
 	}
 	var b strings.Builder
-	b.WriteString(`{"protocol":19,"schema_version":1,"schemas":{"success_response":{},"error_response":{},"request":{"oneOf":[`)
+	b.WriteString(`{"protocol":21,"schema_version":1,"schemas":{"success_response":{},"error_response":{},"request":{"oneOf":[`)
 	for i, method := range methods {
 		if i > 0 {
 			b.WriteString(",")
