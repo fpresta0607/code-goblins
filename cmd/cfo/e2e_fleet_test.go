@@ -900,26 +900,7 @@ func resultEnvelope(value any) execx.Result {
 // the spawn compatibility preflight: both response envelopes plus every
 // method CFO uses.
 func fleetE2ESchemaJSON() string {
-	methods := []string{
-		"server.agent_manifests",
-		"session.snapshot",
-		"workspace.create",
-		"workspace.list",
-		"workspace.rename",
-		"tab.close",
-		"tab.create",
-		"tab.list",
-		"tab.rename",
-		"agent.get",
-		"agent.prompt",
-		"agent.start",
-		"pane.close",
-		"pane.get",
-		"pane.list",
-		"pane.read",
-		"pane.send_keys",
-		"pane.send_text",
-	}
+	methods := herdr.RequiredMethods()
 	var b strings.Builder
 	b.WriteString(`{"protocol":21,"schema_version":1,"schemas":{"success_response":{},"error_response":{},"request":{"oneOf":[`)
 	for i, method := range methods {

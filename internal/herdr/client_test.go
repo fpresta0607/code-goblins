@@ -541,6 +541,96 @@ func TestAgentStartAndPromptUseNativeCommands(t *testing.T) {
 	})
 }
 
+func TestReportAgentCarriesHarnessSessionAndState(t *testing.T) {
+	runner := &fakeRunner{replies: []runnerReply{jsonReply(`{"result":{}}`), jsonReply(`{"result":{}}`)}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+	target := Target{Session: "fleet", Pane: "w1:p2"}
+
+	if err := client.ReportAgent(context.Background(), target, "pi", "working", "gb-task-7", `C:\dev\wt\gb-task-7`); err != nil {
+		t.Fatalf("ReportAgent: %v", err)
+	}
+	// A switch that only changes state has no new session identity to stamp,
+	// and Herdr rejects an empty session id rather than treating it as absent.
+	if err := client.ReportAgent(context.Background(), target, "opencode", "blocked", "", ""); err != nil {
+		t.Fatalf("ReportAgent without session identity: %v", err)
+	}
+	assertRequests(t, runner.Requests(), []execx.Request{
+		command("herdr", "pane", "report-agent", "w1:p2", "--source", "cfo", "--agent", "pi", "--state", "working",
+			"--agent-session-id", "gb-task-7", "--agent-session-path", `C:\dev\wt\gb-task-7`, "--session", "fleet"),
+		command("herdr", "pane", "report-agent", "w1:p2", "--source", "cfo", "--agent", "opencode", "--state", "blocked", "--session", "fleet"),
+	})
+}
+
+func TestReportAgentRefusesIncompleteReports(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		target Target
+		agent  string
+		state  string
+	}{
+		{"no pane", Target{Session: "fleet"}, "pi", "working"},
+		{"no harness", Target{Session: "fleet", Pane: "w1:p2"}, "", "working"},
+		{"state herdr does not accept", Target{Session: "fleet", Pane: "w1:p2"}, "pi", "busy"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &fakeRunner{}
+			var sleeps []time.Duration
+			client := newTestClient(runner, &sleeps)
+
+			if err := client.ReportAgent(context.Background(), test.target, test.agent, test.state, "", ""); err == nil {
+				t.Fatal("ReportAgent returned nil error")
+			}
+			if len(runner.Requests()) != 0 {
+				t.Errorf("requests = %#v, want the report refused before reaching herdr", runner.Requests())
+			}
+		})
+	}
+}
+
+// The pane's foreground process group is the one liveness signal that does not
+// go through a detection manifest: the operating system knows a harness is
+// running whether or not Herdr recognizes it.
+func TestHarnessRunningComparesForegroundGroupToShell(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		reply string
+		want  bool
+	}{
+		{"harness in the foreground", `{"result":{"process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":200}}}`, true},
+		{"pane still at its shell", `{"result":{"process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100}}}`, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &fakeRunner{replies: []runnerReply{jsonReply(test.reply)}}
+			var sleeps []time.Duration
+			client := newTestClient(runner, &sleeps)
+
+			got, err := client.HarnessRunning(context.Background(), Target{Session: "fleet", Pane: "w1:p2"})
+			if err != nil {
+				t.Fatalf("HarnessRunning: %v", err)
+			}
+			if got != test.want {
+				t.Errorf("HarnessRunning = %t, want %t", got, test.want)
+			}
+			assertRequests(t, runner.Requests(), []execx.Request{
+				command("herdr", "pane", "process-info", "--pane", "w1:p2", "--session", "fleet"),
+			})
+		})
+	}
+}
+
+// A pane Herdr answers for without a foreground process group is Herdr saying
+// it does not know, which must not read as "the harness is not running".
+func TestHarnessRunningRefusesAnAnswerlessResponse(t *testing.T) {
+	runner := &fakeRunner{replies: []runnerReply{jsonReply(`{"result":{"process_info":{"pane_id":"w1:p2"}}}`)}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+
+	if _, err := client.HarnessRunning(context.Background(), Target{Session: "fleet", Pane: "w1:p2"}); err == nil {
+		t.Fatal("HarnessRunning returned nil error for a response with no foreground process group")
+	}
+}
+
 func TestAgentKindsParsesManifestsAndRequiresAtLeastOne(t *testing.T) {
 	t.Run("parses advertised kinds", func(t *testing.T) {
 		runner := &fakeRunner{replies: []runnerReply{
