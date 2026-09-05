@@ -11,7 +11,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
-// preflightSchemaJSON builds a protocol-19 schema-1 document; omit drops one
+// preflightSchemaJSON builds a protocol-21 schema-1 document; omit drops one
 // advertised method and envelopes drops one response envelope.
 func preflightSchemaJSON(protocol, schemaVersion int, omit string, envelopes ...string) string {
 	var b strings.Builder
@@ -36,7 +36,7 @@ func preflightSchemaJSON(protocol, schemaVersion int, omit string, envelopes ...
 }
 
 func fullSchemaJSON() string {
-	return preflightSchemaJSON(19, 1, "", "success_response", "error_response")
+	return preflightSchemaJSON(21, 1, "", "success_response", "error_response")
 }
 
 func statusJSON(clientProtocol, serverProtocol int, running, compatible bool) string {
@@ -54,7 +54,7 @@ func sessionListJSON(names ...string) string {
 func TestPreflightPinsDiscoveryArgumentSplits(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{
 		rawReply(fullSchemaJSON()),
-		rawReply(statusJSON(19, 19, true, true)),
+		rawReply(statusJSON(21, 21, true, true)),
 		rawReply(sessionListJSON("fleet", "other")),
 	}}
 	var sleeps []time.Duration
@@ -102,14 +102,14 @@ func TestCheckSchemaRefusesUnsupportedContracts(t *testing.T) {
 		want string
 	}{
 		{"malformed document", `{`, "decode api schema"},
-		{"unsupported schema version", preflightSchemaJSON(19, 2, "", "success_response", "error_response"), "schema version 2"},
+		{"unsupported schema version", preflightSchemaJSON(21, 2, "", "success_response", "error_response"), "schema version 2"},
 		{"unsupported protocol", preflightSchemaJSON(20, 1, "", "success_response", "error_response"), "protocol 20"},
-		{"missing success envelope", preflightSchemaJSON(19, 1, "", "error_response"), "success_response"},
-		{"missing error envelope", preflightSchemaJSON(19, 1, "", "success_response"), "error_response"},
-		{"missing request contract", `{"protocol":19,"schema_version":1,"schemas":{"success_response":{},"error_response":{}}}`, "request contract"},
-		{"missing snapshot method", preflightSchemaJSON(19, 1, "session.snapshot", "success_response", "error_response"), "session.snapshot"},
-		{"missing pane read method", preflightSchemaJSON(19, 1, "pane.read", "success_response", "error_response"), "pane.read"},
-		{"missing agent get method", preflightSchemaJSON(19, 1, "agent.get", "success_response", "error_response"), "agent.get"},
+		{"missing success envelope", preflightSchemaJSON(21, 1, "", "error_response"), "success_response"},
+		{"missing error envelope", preflightSchemaJSON(21, 1, "", "success_response"), "error_response"},
+		{"missing request contract", `{"protocol":21,"schema_version":1,"schemas":{"success_response":{},"error_response":{}}}`, "request contract"},
+		{"missing snapshot method", preflightSchemaJSON(21, 1, "session.snapshot", "success_response", "error_response"), "session.snapshot"},
+		{"missing pane read method", preflightSchemaJSON(21, 1, "pane.read", "success_response", "error_response"), "pane.read"},
+		{"missing agent get method", preflightSchemaJSON(21, 1, "agent.get", "success_response", "error_response"), "agent.get"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -148,14 +148,14 @@ func TestCheckRuntimeRefusesIncompatibleOrAmbiguousFacts(t *testing.T) {
 		want    string
 		wantReq int
 	}{
-		{"protocol mismatch", statusJSON(19, 18, true, true), sessionListJSON("fleet"), "protocol mismatch", 1},
-		{"client protocol mismatch", statusJSON(18, 19, true, true), sessionListJSON("fleet"), "protocol mismatch", 1},
-		{"server not running", statusJSON(19, 19, false, true), sessionListJSON("fleet"), "not running", 1},
-		{"incompatible server", statusJSON(19, 19, true, false), sessionListJSON("fleet"), "compatibility", 1},
+		{"protocol mismatch", statusJSON(21, 18, true, true), sessionListJSON("fleet"), "protocol mismatch", 1},
+		{"client protocol mismatch", statusJSON(18, 21, true, true), sessionListJSON("fleet"), "protocol mismatch", 1},
+		{"server not running", statusJSON(21, 21, false, true), sessionListJSON("fleet"), "not running", 1},
+		{"incompatible server", statusJSON(21, 21, true, false), sessionListJSON("fleet"), "compatibility", 1},
 		{"malformed status", `{`, sessionListJSON("fleet"), "decode status", 1},
-		{"session not addressable", statusJSON(19, 19, true, true), sessionListJSON("other"), "not addressable", 2},
-		{"ambiguous session", statusJSON(19, 19, true, true), sessionListJSON("fleet", "fleet"), "ambiguous", 2},
-		{"malformed session list", statusJSON(19, 19, true, true), `{`, "decode session list", 2},
+		{"session not addressable", statusJSON(21, 21, true, true), sessionListJSON("other"), "not addressable", 2},
+		{"ambiguous session", statusJSON(21, 21, true, true), sessionListJSON("fleet", "fleet"), "ambiguous", 2},
+		{"malformed session list", statusJSON(21, 21, true, true), `{`, "decode session list", 2},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
