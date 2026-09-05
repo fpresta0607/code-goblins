@@ -478,6 +478,76 @@ func TestSpawnLaunchTimeoutAdoptsAPaneItCannotProveIsEmpty(t *testing.T) {
 	}
 }
 
+// Herdr recognizes a harness by matching pane output against a per-harness
+// detection manifest. A manifest that has fallen behind its harness matches
+// nothing, and the healthy goblin then holds no agent at all: nothing names it
+// in the fleet view, cleanup is free to reclaim its worktree as dead, and the
+// launch burns its whole readiness budget before being adopted. CFO started
+// the harness and the operating system can prove it is running, so CFO
+// registers it - as unknown, which is the honest state for a harness whose
+// screen Herdr cannot read.
+func TestSpawnRegistersAHarnessHerdrCannotDetect(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.request.Harness = harness.Pi
+	fixture.request.Model = ""
+	fixture.request.Effort = ""
+	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
+		harness.Pi: typedFixtureAdapter{events: &fixture.events, kind: harness.Pi},
+	}
+	fixture.runner.agentNotFound = true
+	fixture.runner.harnessRunning = true
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if !strings.Contains(result.Output, "spawned task-7") {
+		t.Fatalf("Output = %q, want the undetected harness launched", result.Output)
+	}
+	want := []string{
+		"pane", "report-agent", "pane-1",
+		"--source", "cfo",
+		"--agent", "pi",
+		"--state", "unknown",
+		"--agent-session-id", "gb-task-7",
+		"--agent-session-path", fixture.worktree,
+	}
+	if got := fixture.runner.reportedAgent; !reflect.DeepEqual(got, want) {
+		t.Errorf("reported agent = %v\nwant %v", got, want)
+	}
+}
+
+// Reporting over a harness Herdr already recognizes would replace its live
+// working, idle, and blocked transitions with one state CFO stamped at launch
+// and never updates, so detection always wins where it works.
+func TestSpawnLeavesADetectedHarnessToHerdr(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.runner.harnessRunning = true
+
+	if _, err := fixture.service.Spawn(context.Background(), fixture.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if fixture.runner.reportedAgent != nil {
+		t.Errorf("reported agent = %v, want herdr's own detection left alone", fixture.runner.reportedAgent)
+	}
+}
+
+// No agent and nothing but the shell running is a launch that failed, not a
+// harness Herdr cannot see. Registering on the first half alone would turn the
+// readiness gate into a launch that always succeeds.
+func TestSpawnDoesNotRegisterAPaneStillAtItsShell(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.runner.agentNotFound = true
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err == nil || !strings.Contains(err.Error(), "did not report working") {
+		t.Fatalf("Spawn error = %v, want the launch refused", err)
+	}
+	if fixture.runner.reportedAgent != nil {
+		t.Errorf("reported agent = %v, want no registration for a pane at its shell", fixture.runner.reportedAgent)
+	}
+}
+
 func TestSpawnLaunchFailureTearsDownPaneAndWorktree(t *testing.T) {
 	fixture := newFixture(t)
 	fixture.runner.agentNotFound = true
@@ -1183,6 +1253,8 @@ type herdrRunner struct {
 	failCaptureAt    int
 	failCaptures     int
 	paneUnreadable   bool
+	harnessRunning   bool
+	reportedAgent    []string
 	sendTextCount    int
 	failSendTextAt   int
 	failSendTexts    int
@@ -1360,6 +1432,18 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 			return execx.Result{Stdout: []byte(r.literal + "\n")}, nil
 		}
 		return execx.Result{Stdout: []byte("claude is running\n")}, nil
+	case reflect.DeepEqual(args, []string{"pane", "process-info", "--pane", "pane-1"}):
+		*r.events = append(*r.events, "process-info")
+		// A pane still sitting at the shell CFO prepared has that shell in the
+		// foreground; a pane running any harness does not.
+		if r.harnessRunning {
+			return jsonResult(`{"process_info":{"pane_id":"pane-1","shell_pid":100,"foreground_process_group_id":200}}`), nil
+		}
+		return jsonResult(`{"process_info":{"pane_id":"pane-1","shell_pid":100,"foreground_process_group_id":100}}`), nil
+	case len(args) >= 8 && args[0] == "pane" && args[1] == "report-agent":
+		*r.events = append(*r.events, "report-agent")
+		r.reportedAgent = append([]string{}, args...)
+		return jsonResult(`{}`), nil
 	case reflect.DeepEqual(args, []string{"agent", "get", "pane-1"}):
 		r.agentCalls++
 		if r.agentNotFound {
@@ -1385,26 +1469,7 @@ func jsonResult(result string) execx.Result {
 // the spawn compatibility preflight: both response envelopes plus every
 // method CFO uses.
 func fixtureSchemaJSON() string {
-	methods := []string{
-		"server.agent_manifests",
-		"session.snapshot",
-		"workspace.create",
-		"workspace.list",
-		"workspace.rename",
-		"tab.close",
-		"tab.create",
-		"tab.list",
-		"tab.rename",
-		"agent.get",
-		"agent.prompt",
-		"agent.start",
-		"pane.close",
-		"pane.get",
-		"pane.list",
-		"pane.read",
-		"pane.send_keys",
-		"pane.send_text",
-	}
+	methods := herdr.RequiredMethods()
 	var b strings.Builder
 	b.WriteString(`{"protocol":21,"schema_version":1,"schemas":{"success_response":{},"error_response":{},"request":{"oneOf":[`)
 	for i, method := range methods {

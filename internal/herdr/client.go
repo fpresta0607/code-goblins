@@ -285,6 +285,88 @@ func (c *Client) AgentPrompt(ctx context.Context, target Target, text string) er
 	return err
 }
 
+// ReportSource identifies CFO as the authority behind a reported agent, so a
+// pane CFO registered is distinguishable from one Herdr detected itself.
+const ReportSource = "cfo"
+
+// ReportAgent tells Herdr which harness a pane is running, what that harness
+// is doing, and which goblin session it belongs to.
+//
+// Herdr otherwise infers all three by matching pane output against a
+// per-harness detection manifest. A manifest that has not kept up with a
+// harness release matches nothing, and the pane then holds no agent at all:
+// no row in the agent list, no harness or status in the fleet view, and
+// nothing for the monitor to read. CFO started the harness, so it knows the
+// kind, the session, and the state it just drove the pane into without
+// reading the screen, and reports them rather than hoping a manifest agrees.
+func (c *Client) ReportAgent(ctx context.Context, target Target, agent, state, sessionID, sessionPath string) error {
+	if err := validateTarget(target); err != nil {
+		return err
+	}
+	if agent == "" {
+		return &requestError{message: "herdr: reported agent kind is required"}
+	}
+	if !reportableAgentState(state) {
+		return &requestError{message: fmt.Sprintf("herdr: reported agent state %q is not one of blocked, idle, unknown, working", state)}
+	}
+	argv := []string{"pane", "report-agent", target.Pane, "--source", ReportSource, "--agent", agent, "--state", state}
+	if sessionID != "" {
+		argv = append(argv, "--agent-session-id", sessionID)
+	}
+	if sessionPath != "" {
+		argv = append(argv, "--agent-session-path", sessionPath)
+	}
+	_, err := c.required(ctx, target.Session, target, "pane report-agent", argv...)
+	return err
+}
+
+// reportableAgentState is the lifecycle vocabulary Herdr accepts from a
+// reporting source. Herdr rejects anything else, so the check keeps a typo in
+// a caller from reaching the socket as a failed spawn.
+func reportableAgentState(state string) bool {
+	switch state {
+	case "blocked", "idle", "unknown", "working":
+		return true
+	default:
+		return false
+	}
+}
+
+// HarnessRunning reports whether the pane is running something other than the
+// shell CFO prepared it with.
+//
+// This is the liveness evidence that does not depend on Herdr recognizing the
+// harness: Herdr reads the pane's foreground process group from the operating
+// system, so a pane still sitting at its own shell has the shell itself in the
+// foreground, and a pane running any harness does not. It deliberately does
+// not match executable names. A harness installed as an npm shim runs as the
+// interpreter rather than under its own name, and every such table needs
+// another entry for every harness, which is the coupling that left pi
+// invisible in the first place.
+func (c *Client) HarnessRunning(ctx context.Context, target Target) (bool, error) {
+	if err := validateTarget(target); err != nil {
+		return false, err
+	}
+	result, err := c.required(ctx, target.Session, target, "pane process-info", "pane", "process-info", "--pane", target.Pane)
+	if err != nil {
+		return false, err
+	}
+	var response struct {
+		ProcessInfo struct {
+			ForegroundProcessGroupID int `json:"foreground_process_group_id"`
+			ShellPID                 int `json:"shell_pid"`
+		} `json:"process_info"`
+	}
+	if err := decodeResult(result.Stdout, &response); err != nil {
+		return false, fmt.Errorf("herdr: decode pane process info for %s: %w", target, err)
+	}
+	info := response.ProcessInfo
+	if info.ShellPID == 0 || info.ForegroundProcessGroupID == 0 {
+		return false, fmt.Errorf("herdr: pane process info for %s reported no foreground process group", target)
+	}
+	return info.ForegroundProcessGroupID != info.ShellPID, nil
+}
+
 // AgentKinds reports the agent kinds the running Herdr server can natively
 // start, read from its active detection manifests.
 func (c *Client) AgentKinds(ctx context.Context) (map[string]bool, error) {
