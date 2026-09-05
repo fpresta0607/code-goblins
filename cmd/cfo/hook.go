@@ -369,10 +369,18 @@ const (
 
 // actionableReasonPattern matches the watch.Run reasons that mean a real
 // supervision event needs a handling turn: a status/turn-ended signal, a
-// monitor stale or heartbeat event, or a check.sh sweep (NOT PORTED IN V1,
-// reserved for Plan 4). A typed heartbeat record alone proves liveness; a
-// monitor heartbeat event is separately actionable.
-var actionableReasonPattern = regexp.MustCompile(`^(signal:|stale:|check:|heartbeat($|:))`)
+// monitor stale or heartbeat event, an orphan sweep finding, or a check.sh
+// sweep (NOT PORTED IN V1, reserved for Plan 4). A typed heartbeat record
+// alone proves liveness; a monitor heartbeat event is separately actionable.
+//
+// orphan: belongs here for the same reason the sweep exists at all. It is
+// only ever returned once per newly-appeared finding set, and by the time it
+// is returned the sweep has already appended a wake record and published an
+// episode. Leaving it unmatched would read a successful sweep as an arming
+// attempt that accomplished nothing: the hook would strike it, and on the
+// last attempt publish a watcher-down failure episode for a watcher that was
+// working exactly as designed.
+var actionableReasonPattern = regexp.MustCompile(`^(signal:|stale:|check:|orphan:|heartbeat($|:))`)
 
 // rewakeBannerFmt and failureBannerFmt are cfo hook stop-autoarm's two
 // stderr banners, verbatim per the plan brief. rewakeBannerFmt's %s is the
