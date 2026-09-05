@@ -446,7 +446,7 @@ func (s Service) startHarness(ctx context.Context, client *herdr.Client, target 
 		if err := s.confirmHarnessDialogs(ctx, client, target, launch); err != nil {
 			return true, err
 		}
-		if err := s.confirmLaunch(ctx, client, target); err != nil {
+		if err := s.confirmLaunch(ctx, client, target, plan); err != nil {
 			return true, err
 		}
 		return true, nil
@@ -487,7 +487,7 @@ func (s Service) startHarness(ctx context.Context, client *herdr.Client, target 
 	if err := s.deliverVerifiedInstruction(ctx, client, target, plan.Harness, launch.PromptInstruction()); err != nil {
 		return true, err
 	}
-	if err := s.confirmLaunch(ctx, client, target); err != nil {
+	if err := s.confirmLaunch(ctx, client, target, plan); err != nil {
 		return true, err
 	}
 	return true, nil
@@ -716,7 +716,18 @@ func (s Service) confirmHarnessDialogs(ctx context.Context, client *herdr.Client
 // not report as empty - alive, or simply unreadable - is adopted rather than
 // declared failed, so a false timeout cannot orphan a live goblin. An idle or
 // blocked agent is a healthy Claude waiting at its prompt.
-func (s Service) confirmLaunch(ctx context.Context, client *herdr.Client, target herdr.Target) error {
+//
+// Herdr recognizes a harness by matching pane output against a per-harness
+// detection manifest, so a harness whose manifest has fallen behind its
+// releases is never seen working no matter how healthy it is: the pane holds
+// no agent, this loop burns its whole budget, and the goblin is adopted with
+// no harness, session, or status anywhere in the fleet view. Every poll
+// therefore also asks the question the manifest cannot answer - is the pane
+// running anything other than the shell CFO left it at - and when it is,
+// registers the harness with Herdr itself. Detection is never overridden:
+// CFO reports only a pane Herdr holds no agent for, so a harness with a
+// current manifest keeps its own live working, idle, and blocked transitions.
+func (s Service) confirmLaunch(ctx context.Context, client *herdr.Client, target herdr.Target, plan launchPlan) error {
 	for attempt := 0; attempt < launchConfirmTries; attempt++ {
 		if attempt > 0 {
 			if err := s.sleep(ctx, launchConfirmPoll); err != nil {
@@ -730,6 +741,13 @@ func (s Service) confirmLaunch(ctx context.Context, client *herdr.Client, target
 		if state == herdr.SubmitWorking {
 			return nil
 		}
+		reported, err := s.reportUndetectedHarness(ctx, client, target, plan)
+		if err != nil {
+			return err
+		}
+		if reported {
+			return nil
+		}
 	}
 	// The full working budget elapsed without a working report. Re-probe once:
 	// only a pane herdr can prove is empty is declared failed, so the spawn
@@ -738,6 +756,43 @@ func (s Service) confirmLaunch(ctx context.Context, client *herdr.Client, target
 		return fmt.Errorf("spawn: harness launch did not report working within %ds", int(launchConfirmPoll.Seconds()*launchConfirmTries))
 	}
 	return nil
+}
+
+// reportUndetectedHarness registers the launched harness with Herdr when
+// Herdr holds no agent for the pane but the operating system shows the pane
+// running something other than its shell. That pairing is the whole test: no
+// agent means the detection manifest matched nothing, and a foreground
+// process group that is not the shell means the harness is nonetheless up.
+//
+// The report carries what CFO knows from having started the harness - which
+// one it is, and which goblin session it belongs to - and reports the state
+// as unknown, because that is the honest answer. Herdr stops screen-detecting
+// a pane a source has claimed, so a reported state is a stamp rather than a
+// signal: reporting "working" here would leave every goblin of a harness
+// Herdr cannot read permanently busy in the fleet view and in the monitor,
+// which reads its busy verdict straight from this status. Live state for such
+// a harness needs a Herdr detection manifest that matches its current build.
+//
+// Registering it as unknown still fixes the damaging half. A pane with no
+// agent reads as a dead one, and a dead agent is what lets cleanup return the
+// worktree of a goblin that is running perfectly well.
+//
+// A pane Herdr cannot answer for is left alone. Reporting on a maybe would
+// turn this into a launch that always succeeds, which is the one thing the
+// readiness gate exists to prevent.
+func (s Service) reportUndetectedHarness(ctx context.Context, client *herdr.Client, target herdr.Target, plan launchPlan) (bool, error) {
+	status, err := client.AgentStatus(ctx, target)
+	if err != nil || status != herdr.AgentDead {
+		return false, nil
+	}
+	running, err := client.HarnessRunning(ctx, target)
+	if err != nil || !running {
+		return false, nil
+	}
+	if err := client.ReportAgent(ctx, target, string(plan.Harness), "unknown", plan.AgentName, plan.Launch.Dir); err != nil {
+		return false, fmt.Errorf("spawn: register undetected harness with herdr: %w", err)
+	}
+	return true, nil
 }
 
 // paneProvablyDead reports whether herdr gave a trustworthy answer that the
