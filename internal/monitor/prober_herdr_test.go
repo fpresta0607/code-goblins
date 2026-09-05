@@ -100,26 +100,7 @@ func (r *proberRunner) Run(_ context.Context, req execx.Request) (execx.Result, 
 func proberSchemaJSON() string {
 	var b strings.Builder
 	b.WriteString(`{"protocol":21,"schema_version":1,"schemas":{"success_response":{},"error_response":{},"request":{"oneOf":[`)
-	methods := []string{
-		"server.agent_manifests",
-		"session.snapshot",
-		"workspace.create",
-		"workspace.list",
-		"workspace.rename",
-		"tab.close",
-		"tab.create",
-		"tab.list",
-		"tab.rename",
-		"agent.get",
-		"agent.prompt",
-		"agent.start",
-		"pane.close",
-		"pane.get",
-		"pane.list",
-		"pane.read",
-		"pane.send_keys",
-		"pane.send_text",
-	}
+	methods := herdr.RequiredMethods()
 	for i, method := range methods {
 		if i > 0 {
 			b.WriteString(",")

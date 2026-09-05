@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 )
 
 // SupportedProtocol and SupportedSchemaVersion pin the one Herdr machine
@@ -39,9 +40,19 @@ var requiredMethods = []string{
 	"pane.close",
 	"pane.get",
 	"pane.list",
+	"pane.process_info",
 	"pane.read",
+	"pane.report_agent",
 	"pane.send_keys",
 	"pane.send_text",
+}
+
+// RequiredMethods returns the contract in a form a fake Herdr can advertise.
+// The list exists in exactly one place on purpose: a test fixture that
+// hand-copies it stops proving anything the moment the contract grows, and
+// starts failing every spawn test instead.
+func RequiredMethods() []string {
+	return slices.Clone(requiredMethods)
 }
 
 // Preflight proves the installed Herdr speaks the contract CFO is coded
