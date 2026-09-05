@@ -9,9 +9,11 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -72,6 +74,7 @@ var sectionHeaders = []string{
 	"== SUPERVISION OPERATING INSTRUCTIONS ==",
 	"== READ-ONCE CONTRACT ==",
 	"== FLEET STATE ==",
+	"== ORPHANS ==",
 	"== CONTEXT ==",
 	"== NEXT STEP ==",
 }
@@ -411,5 +414,59 @@ func TestComposeRendersUnreadableFilesInline(t *testing.T) {
 	}
 	if strings.Contains(out, "SESSION START DEGRADED") {
 		t.Errorf("output unexpectedly contains SESSION START DEGRADED for a single bad file:\n%s", out)
+	}
+}
+
+// TestComposeOrphansSection proves the digest reports the reaper's last sweep
+// without taking one: composition never shells out, so a never-swept home says
+// so rather than implying the fleet is clean.
+func TestComposeOrphansSection(t *testing.T) {
+	h := newDigestHome(t)
+
+	var before bytes.Buffer
+	if err := Compose(h, os.Getpid(), "s1", &before); err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	if !strings.Contains(before.String(), "ORPHANS: no sweep recorded yet") {
+		t.Fatalf("a home with no sweep did not say so:\n%s", before.String())
+	}
+
+	record := reap.Record{
+		Time: time.Now().UTC(),
+		Findings: []reap.Finding{{
+			Class:  reap.OrphanProcess,
+			PID:    31032,
+			Detail: "claude.exe has no pane",
+			Action: "kill the process tree",
+		}},
+	}
+	if err := reap.WriteRecord(h.State, record); err != nil {
+		t.Fatal(err)
+	}
+
+	var after bytes.Buffer
+	if err := Compose(h, os.Getpid(), "s1", &after); err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	out := after.String()
+	if !strings.Contains(out, "ORPHANS: 1 orphan_process") || !strings.Contains(out, "pid=31032") {
+		t.Fatalf("the recorded orphan was not reported:\n%s", out)
+	}
+}
+
+// TestComposeOrphansSectionReportsAFailedSweep: an unreadable fleet and a clean
+// fleet must never render the same.
+func TestComposeOrphansSectionReportsAFailedSweep(t *testing.T) {
+	h := newDigestHome(t)
+	if err := reap.WriteRecord(h.State, reap.Record{Time: time.Now().UTC(), Error: "herdr is down"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := Compose(h, os.Getpid(), "s1", &buf); err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	if !strings.Contains(buf.String(), "last sweep failed (herdr is down)") {
+		t.Fatalf("a failed sweep was not reported:\n%s", buf.String())
 	}
 }
