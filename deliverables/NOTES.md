@@ -78,3 +78,85 @@ Where a fact was missing, the report says "not established" and carries it as an
 - No tax figure. The parcel is exempt at $0 assessed value and no rate is established (OI-12).
 - The R-2 FAR garage exclusion was not resolved in the applicant's favour. Scenario C's arithmetic does not depend on it (OI-08).
 - No attempt was made to reach the PrecisionDocs project.
+
+---
+
+# Notes: plain-English summary, 118 S First Street
+
+Task `fp-118-rewrite`.
+Deliverable: `C:\Users\fpres\OneDrive - SIQstack\Clients\Franklin-Properties\118-S-1st-St-Site-Yield-Summary.pdf`.
+Source: `118-s-1st-st-site-yield-summary.html` in this folder, a single self-contained file.
+The 37 page engineering version and its PDF are unchanged and stay where they are.
+
+## Why it exists
+
+The client read the detailed report and could not use it: "I can't understand the site yield, make it laymen's terms",
+"make it simple, easy to read, way less dense and more high level", "that a property manager not engineer can understand",
+"I also can't understand site plans".
+
+Same facts, 14 pages instead of 37, written for a property manager or developer principal rather than an engineer.
+
+## How to rebuild
+
+```
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --headless --disable-gpu --no-pdf-header-footer \
+  --print-to-pdf="<output.pdf>" "file:///<absolute path>/118-s-1st-st-site-yield-summary.html"
+```
+
+Output at time of writing: 14 pages, 1.93 MB, US Letter portrait.
+
+## Sources of fact
+
+`data/fp-118-rewrite/facts.md`, the same fact base as the detailed report, remained the only permitted source.
+No number, standard, citation, date, cost, rent or duration appears that is not traceable to it.
+Every figure in the body was audited against the fact base after the last edit.
+Two figures are stated in rounded plain-English form and are flagged here so they are not mistaken for new facts:
+FAR 0.459 and 0.418 appear as "about 46 percent" and "about 42 percent"; 1,201 sq ft appears as "about 1,200 sq ft"
+on the cover and answer page, alongside the precise figure everywhere else.
+
+## Structure
+
+Cover, the answer, how the limit works, how big the homes can be, option 1 over two pages, option 2 over two pages,
+side by side plus the site in plain words, the deciding question, what to do in order, what could still change the
+answer, then the two dimensioned engineering sheets as Appendix A and Appendix B.
+
+The land-per-home framing carries the yield explanation: the town caps how little land sits under each home, not how
+many homes you build. The divisions are shown as a table a reader can follow with a calculator, and the two ways a
+developer expects to beat the rule, stacking and closing the gaps between units, are disposed of explicitly.
+
+## The drawings
+
+- **Depth strip diagram**, one per option: a horizontal bar from the street to the back of the lot, segments sized in
+  proportion and labelled in plain words. This is the diagram a reader who cannot read a site plan can still read.
+- **Real-imagery aerial exhibits**, `assets/aerial-townhomes.svg` and `assets/aerial-apartments.svg`, dropped in at full
+  width, inlined verbatim. Not redrawn, not re-annotated, not scaled off. The Esri attribution is repeated in the caption
+  as well as in the SVG footer.
+- **Marketing renders**, `assets/render-townhomes.jpg` and `assets/render-apartments.jpg`, at the top of each option, each
+  carrying a disclaimer that states plainly that they are illustrative, not architecture, not approved, not a depiction of
+  any real building, and generated from a written description with no site imagery used.
+- The dimensioned engineering plans moved to the appendix, each with a note saying they are for the architect and civil
+  engineer rather than the reader.
+
+## The detention correction
+
+The client was right. In the detailed report the underground tank was drawn as a solid hatched block filling the rear
+yard, which read as land the owner could not use. Underground detention is a buried tank: the ground above it stays yard
+and it displaces no surface area.
+
+Both appendix exhibits now draw it as a ghosted dashed outline at reduced weight sitting behind the surface information,
+relabelled "underground stormwater tank, below grade. Yard above remains open space", with a plan note stating that it
+occupies no surface area, does not reduce open space or usable yard, and sits within the area already required to remain
+open. The legend entry was rewritten to match. The caution that hydrologic soil group C soils and a 2.5 ft water table
+are adverse for a buried structure, and that a geotechnical investigation is required, was correct and is kept.
+
+## Production
+
+- The appendix sheets are the two exhibits from the detailed report, carried over rather than redrawn, with the detention
+  fix, the "for your engineer" note, and cross references rewritten from open item codes to plain pointers.
+- **Overflow was measured, not eyeballed.** Fixed-height sheets with `overflow: hidden` clip silently. A probe copy of the
+  built file reports, per sheet, the gap between the bottom of its last child and the bottom of its content box. Every
+  sheet clears with room to spare. Re-run that check after any edit; the page count stays at 14 whether or not content is
+  being clipped.
+- Body type is set larger and looser than the detailed report, line length is held to about 5.7 inches, and no page is
+  filled edge to edge.
+- One accent colour, `#1a4a5e`. No em dash characters anywhere; the build asserts on them.
