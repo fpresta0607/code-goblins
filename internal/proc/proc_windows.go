@@ -128,6 +128,30 @@ func baseNoExe(name string) string {
 	return strings.TrimSuffix(lower, ".exe")
 }
 
+// CPUTime returns the total processor time pid has consumed since it started,
+// kernel plus user, and whether the process could be opened and measured.
+//
+// It exists for the one question log age cannot answer: whether a process
+// that looks quiet is actually doing nothing. A goblin waiting on an API
+// response writes no logs and moves no pane text for minutes, yet a goblin
+// mid-turn burns CPU continuously. Two of these readings a few seconds apart
+// separate the two, which is why nothing may be killed on log age alone.
+func CPUTime(pid int) (time.Duration, bool) {
+	h, err := syscall.OpenProcess(processQueryLimitedInformation, false, uint32(pid))
+	if err != nil {
+		return 0, false
+	}
+	defer syscall.CloseHandle(h)
+
+	var creation, exit, kernel, user syscall.Filetime
+	if err := syscall.GetProcessTimes(h, &creation, &exit, &kernel, &user); err != nil {
+		return 0, false
+	}
+	// A FILETIME duration counts 100-nanosecond intervals, so Nanoseconds()
+	// on these two is already the elapsed processor time, not a wall clock.
+	return time.Duration(kernel.Nanoseconds() + user.Nanoseconds()), true
+}
+
 // processStart returns pid's creation time, and whether the process was
 // found and its times could be resolved. Mirrors internal/lock's
 // OpenProcess + GetProcessTimes technique.

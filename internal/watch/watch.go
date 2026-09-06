@@ -25,6 +25,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
+	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -52,6 +53,16 @@ type Config struct {
 	// empty policy simply means every fault wakes the CFO undecided.
 	Routing routing.Policy
 	Sleep   func(time.Duration)
+
+	// Reap is the orphan sweep. The watcher is the fleet's only existing
+	// timer, so the sweep rides it rather than becoming a second daemon: an
+	// orphaned harness must reach the CFO without a human asking, and a
+	// process nobody is watching is exactly what nobody asks about.
+	Reap *reap.Service
+	// ReapEvery bounds how often the sweep actually runs. It costs a Herdr
+	// snapshot and one process-table query, which is far too much for every
+	// Poll, and an orphan that has already leaked can wait minutes.
+	ReapEvery time.Duration
 
 	// WaitEvent is Task 9's filesystem-notification seam, replacing the
 	// plain Sleep(Poll) wait between checks. Its bool return has two
@@ -114,6 +125,20 @@ func ConfigFromEnv(h home.Home) Config {
 		Gate:         monitor.ExecGateProber{},
 		Heartbeat:    heartbeat,
 		HeartbeatMax: heartbeatMax,
+	}
+	// The sweep shares the monitor's Herdr client construction and its
+	// session, so orphan detection can never look at a different session than
+	// supervision does.
+	cfg.ReapEvery = clampMin1s(claudehook.Seconds("CFO_REAP_EVERY", 600))
+	cfg.Reap = &reap.Service{
+		Home: h,
+		Inventory: reap.Collector{
+			Home:      h,
+			Session:   session,
+			Panes:     &herdr.Client{Commands: execx.OSRunner{}, Session: session},
+			Processes: reap.CIMProcesses{Commands: execx.OSRunner{}},
+		},
+		Commands: execx.OSRunner{},
 	}
 	// A directory-change waiter is strictly an optimization: on failure
 	// (most commonly a dev checkout with no state/ dir yet) cfg is left in
@@ -359,8 +384,12 @@ func Run(cfg Config) (string, error) {
 		} else if err := monitor.TouchHeartbeat(cfg.Home.State, time.Now()); err != nil {
 			return "", err
 		}
+		orphanDetail := sweepOrphans(cfg)
 		if signalDetail != "" {
 			return signalDetail, nil
+		}
+		if orphanDetail != "" {
+			return orphanDetail, nil
 		}
 
 		if cfg.WaitEvent != nil {
@@ -389,6 +418,54 @@ func Run(cfg Config) (string, error) {
 			return "", nil
 		}
 	}
+}
+
+// sweepOrphans runs the orphan audit when it is due, persists the result for
+// the session-start digest, and wakes the CFO the first time a given set of
+// orphans appears.
+//
+// The wake fires on a change in the finding set, never on its mere existence:
+// a leak that has already been reported and consciously left alone must not
+// re-wake the CFO on every cycle, while one new unsupervised harness must wake
+// it immediately. A sweep that fails is recorded as a failure rather than
+// swallowed, because "cannot see the fleet" and "the fleet is clean" must
+// never render the same. Nothing here is fatal to the watcher: supervision of
+// the goblins that DO have panes matters more than the sweep.
+func sweepOrphans(cfg Config) string {
+	if cfg.Reap == nil || cfg.ReapEvery <= 0 {
+		return ""
+	}
+	previous, err := reap.ReadRecord(cfg.Home.State)
+	if err == nil && time.Since(previous.Time) < cfg.ReapEvery {
+		return ""
+	}
+
+	record := reap.Record{Time: time.Now().UTC()}
+	result, auditErr := cfg.Reap.Audit(context.Background(), reap.Options{})
+	record.Findings = result.Findings
+	record.Notes = result.Notes
+	if auditErr != nil {
+		record.Error = auditErr.Error()
+	}
+	if writeErr := reap.WriteRecord(cfg.Home.State, record); writeErr != nil {
+		return ""
+	}
+	if auditErr != nil {
+		return ""
+	}
+
+	actionable := reap.Actionable(record.Findings)
+	if len(actionable) == 0 || reap.FindingsDigest(record.Findings) == previous.Digest {
+		return ""
+	}
+	detail := reap.Summary(record.Findings) + "; still running: " + reap.Summary(actionable) + "; run cfo reap to see them, cfo reap --apply to retire them"
+	if _, err := wake.Append(cfg.Home.State, "orphan", "orphans", detail); err != nil {
+		return ""
+	}
+	if _, err := wake.PublishEpisode(cfg.Home.State); err != nil {
+		return ""
+	}
+	return "orphan:" + detail
 }
 
 // routeHarnessError answers a provider failure with the fleet's standing

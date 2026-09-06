@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidTaskID(t *testing.T) {
@@ -213,5 +214,46 @@ func TestWriteTaskMetaRejectsControlCharactersInEveryValue(t *testing.T) {
 	}
 	if _, exists := values["other"]; exists {
 		t.Fatalf("ordinary metadata readback includes forged key: %v", values)
+	}
+}
+
+func TestRemoveTaskMetaOutlastsAConcurrentReader(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteTaskMeta(dir, TaskMeta{ID: "g1", Harness: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "g1.meta")
+
+	// The supervision loop reads every meta on every cycle, and Windows
+	// refuses to unlink a file while any handle is open. Hold one open across
+	// the removal to prove the retry outlasts it rather than reporting a
+	// sharing violation to a caller that would fail the whole cleanup.
+	reader, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := make(chan struct{})
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		reader.Close()
+		close(closed)
+	}()
+
+	if err := RemoveTaskMeta(dir, "g1"); err != nil {
+		t.Fatalf("RemoveTaskMeta = %v, want nil despite the open reader", err)
+	}
+	<-closed
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stat after RemoveTaskMeta error = %v, want not-exist", err)
+	}
+}
+
+func TestRemoveTaskMetaIsIdempotentAndValidatesID(t *testing.T) {
+	dir := t.TempDir()
+	if err := RemoveTaskMeta(dir, "never-existed"); err != nil {
+		t.Fatalf("RemoveTaskMeta on an absent meta = %v, want nil", err)
+	}
+	if err := RemoveTaskMeta(dir, "../escape"); err == nil {
+		t.Fatal("RemoveTaskMeta accepted a traversing task ID, want refusal")
 	}
 }

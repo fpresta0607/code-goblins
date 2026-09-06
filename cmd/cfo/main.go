@@ -15,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
 	"github.com/fpresta0607/code-goblins/internal/watch"
@@ -50,6 +51,7 @@ commands:
   cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
   cfo merge-local <id>
   cfo cleanup <id>
+  cfo reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]   find and, with --apply, retire orphaned harness processes, stale dev servers, worktrees, task records and status logs
   cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>"   a goblin reports its outcome straight into the wake queue
   hook <name>  claude code hook entry points (session-start, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm)
 `
@@ -75,6 +77,7 @@ type commandRuntime struct {
 	peek          func(context.Context, home.Home, string, int) (string, error)
 	snapshot      func(context.Context, home.Home) (fleet.Snapshot, error)
 	cleanup       func(context.Context, home.Home, string, bool) (string, error)
+	reap          func(context.Context, home.Home, reap.Options) (reap.Result, error)
 	speedHint     func(context.Context, string) string
 }
 
@@ -130,6 +133,7 @@ func defaultCommandRuntime() commandRuntime {
 			return fleet.BuildSnapshot(ctx, h, fleet.NewHerdrEndpoint(&herdr.Client{Commands: execx.OSRunner{}}))
 		},
 		cleanup: defaultCleanup,
+		reap:    defaultReap,
 		speedHint: func(ctx context.Context, name string) string {
 			return telemetry.SpeedHint(ctx, execx.OSRunner{}, name)
 		},
@@ -180,6 +184,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runMergeLocal(args[1:], stdout, stderr)
 	case "cleanup":
 		return runCleanup(args[1:], stdout, stderr, runtime)
+	case "reap":
+		return runReap(args[1:], stdout, stderr, runtime)
 	case "notify":
 		return runNotify(args[1:], stdout, stderr)
 	case "session-start":

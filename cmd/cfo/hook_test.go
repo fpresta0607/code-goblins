@@ -15,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
+	taskstate "github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -837,7 +838,14 @@ func TestAutoarmCleanWhenNeedVanishes(t *testing.T) {
 			time.Sleep(time.Millisecond)
 		}
 		_ = os.WriteFile(filepath.Join(state, "g1.status"), []byte("needs-decision: done\n"), 0o644)
-		_ = os.Remove(filepath.Join(state, "g1.meta"))
+		// RemoveTaskMeta, not os.Remove: the watcher reads every meta on every
+		// cycle, and Windows refuses to unlink a file a reader still holds
+		// open. A plain os.Remove loses that race often enough to fail this
+		// test in CI, leaving the need in place so the hook correctly rewakes
+		// on the signal the loop found.
+		if err := taskstate.RemoveTaskMeta(state, "g1"); err != nil {
+			t.Errorf("remove g1.meta: %v", err)
+		}
 	}()
 	defer func() { <-done }()
 
@@ -1340,5 +1348,30 @@ func TestRunHookStillActsForTheCFO(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if exit := runHook("pretool-subagent", strings.NewReader(`{"session_id":"s","tool_name":"Agent"}`), &stdout, &stderr); exit != 2 {
 		t.Fatalf("exit = %d, want 2 (the subagent guard still denies); stderr=%s", exit, stderr.String())
+	}
+}
+
+func TestActionableReasonPatternCoversEveryWatchRunReason(t *testing.T) {
+	// Every reason watch.Run can return, and whether it means a handling
+	// turn is owed. A reason that reaches the auto-arm unmatched is read as
+	// an attempt that accomplished nothing, so an unclassified one costs a
+	// strike and, on the last attempt, publishes a watcher-down episode.
+	for _, tc := range []struct {
+		reason string
+		want   bool
+	}{
+		{"signal:g1.status", true},
+		{"stale:g1 has not moved in 40m", true},
+		{"check:sweep", true},
+		{"heartbeat", true},
+		{"heartbeat:2 goblins under way", true},
+		{"orphan:1 orphan process; still running: 1 orphan process", true},
+		{"", false},
+		{"orphaned", false},
+		{"note:orphan:1", false},
+	} {
+		if got := actionableReasonPattern.MatchString(tc.reason); got != tc.want {
+			t.Errorf("actionable(%q) = %v, want %v", tc.reason, got, tc.want)
+		}
 	}
 }

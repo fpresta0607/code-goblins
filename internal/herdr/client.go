@@ -344,12 +344,32 @@ func reportableAgentState(state string) bool {
 // another entry for every harness, which is the coupling that left pi
 // invisible in the first place.
 func (c *Client) HarnessRunning(ctx context.Context, target Target) (bool, error) {
-	if err := validateTarget(target); err != nil {
+	info, err := c.PaneProcessInfo(ctx, target)
+	if err != nil {
 		return false, err
+	}
+	return info.ForegroundProcessGroupID != info.ShellPID, nil
+}
+
+// PaneProcessInfo is a pane's operating-system process identity: the shell
+// Herdr started the pane with, and the process group currently in its
+// foreground. Equal values mean the pane is sitting at its own shell.
+type PaneProcessInfo struct {
+	ShellPID                 int
+	ForegroundProcessGroupID int
+}
+
+// PaneProcessInfo reads one pane's process identity. It is the raw evidence
+// behind HarnessRunning, exported separately because an orphan sweep needs
+// the pids themselves: a process whose ancestry reaches no live pane's shell
+// is running unsupervised, and that comparison cannot be made from a bool.
+func (c *Client) PaneProcessInfo(ctx context.Context, target Target) (PaneProcessInfo, error) {
+	if err := validateTarget(target); err != nil {
+		return PaneProcessInfo{}, err
 	}
 	result, err := c.required(ctx, target.Session, target, "pane process-info", "pane", "process-info", "--pane", target.Pane)
 	if err != nil {
-		return false, err
+		return PaneProcessInfo{}, err
 	}
 	var response struct {
 		ProcessInfo struct {
@@ -358,13 +378,16 @@ func (c *Client) HarnessRunning(ctx context.Context, target Target) (bool, error
 		} `json:"process_info"`
 	}
 	if err := decodeResult(result.Stdout, &response); err != nil {
-		return false, fmt.Errorf("herdr: decode pane process info for %s: %w", target, err)
+		return PaneProcessInfo{}, fmt.Errorf("herdr: decode pane process info for %s: %w", target, err)
 	}
-	info := response.ProcessInfo
+	info := PaneProcessInfo{
+		ShellPID:                 response.ProcessInfo.ShellPID,
+		ForegroundProcessGroupID: response.ProcessInfo.ForegroundProcessGroupID,
+	}
 	if info.ShellPID == 0 || info.ForegroundProcessGroupID == 0 {
-		return false, fmt.Errorf("herdr: pane process info for %s reported no foreground process group", target)
+		return PaneProcessInfo{}, fmt.Errorf("herdr: pane process info for %s reported no foreground process group", target)
 	}
-	return info.ForegroundProcessGroupID != info.ShellPID, nil
+	return info, nil
 }
 
 // AgentKinds reports the agent kinds the running Herdr server can natively
