@@ -1,4 +1,4 @@
-// Package digest composes the session-start digest: the seven fixed
+// Package digest composes the session-start digest: the eight fixed
 // sections a CFO session sees at the top of context when Claude Code fires
 // the SessionStart hook (or an operator runs the manual `cfo session-start`
 // alias). Composition never shells out and never touches the network, so
@@ -15,11 +15,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -79,7 +81,7 @@ func (e *werr) printf(format string, a ...any) {
 
 // Compose writes the full session-start digest to w, in this exact section
 // order: SESSION LOCK, WAKE QUEUE, SUPERVISION OPERATING INSTRUCTIONS,
-// READ-ONCE CONTRACT, FLEET STATE, CONTEXT, NEXT STEP.
+// READ-ONCE CONTRACT, FLEET STATE, ORPHANS, CONTEXT, NEXT STEP.
 //
 // A read failure anywhere below SESSION LOCK - a per-file read inside FLEET
 // STATE or CONTEXT (a path that exists but cannot be read as text, e.g. a
@@ -116,6 +118,7 @@ func Compose(h home.Home, ownerPID int, session string, w io.Writer) error {
 	queuedLimit := claudehook.Int("CFO_SESSION_START_QUEUED_LIMIT", 20, 0, 1000000)
 	writeReadOnceContract(statusTail, queuedLimit, ew)
 	writeFleetState(h, statusTail, queuedLimit, ew)
+	writeOrphans(h.State, ew)
 
 	writeContext(h.Data, ew)
 	writeNextStep(ew)
@@ -210,6 +213,7 @@ func writeSupervisionInstructions(ew *werr) {
 	ew.println("Wakes arrive as rewake turns: a Stop hook exit 2 reopens the turn with an operational reason (a signal, a stale sweep, or a heartbeat), not a fresh session.")
 	ew.println("Every drain presentation ends with a WAKE_ACK_REQUIRED command. Run it after handling what cfo drain printed, or the same records resurface on the next drain.")
 	ew.println("Supervision is needed whenever tasks are in flight: any state\\*.meta file with no terminal status keeps the turn-end guard watching for a live watcher.")
+	ew.println("The ORPHANS section below is the fleet nothing else reports: a harness process with no pane is unsupervised and may still be spending tokens. Run \"cfo reap\" to re-sweep and \"cfo reap --apply\" to retire what it found; a HELD line says why that one was left alone.")
 }
 
 // writeReadOnceContract names every source this digest already printed, so
@@ -222,6 +226,7 @@ func writeSupervisionInstructions(ew *werr) {
 func writeReadOnceContract(statusTail, queuedLimit int, ew *werr) {
 	ew.println("== READ-ONCE CONTRACT ==")
 	ew.printf("This digest already printed data\\backlog.md's first %d queued rows (not the full backlog), every state\\*.meta in full, each goblin's last %d status lines (not the full log), and data\\projects.md, data\\overlord.md, and data\\learnings.md in full.\n", queuedLimit, statusTail)
+	ew.println("It also printed the last recorded orphan sweep, with its status-log listing capped; the full finding set is in state\\.reap-audit.json and in \"cfo reap --json\".")
 	ew.println("Do not re-read anything shown above in full this turn. A backlog or status section that hit its cap only needs a fresh read for what is past the cap, not for what is already shown.")
 }
 
@@ -243,42 +248,37 @@ func writeFleetState(h home.Home, statusTail, queuedLimit int, ew *werr) {
 	ew.println("== FLEET STATE ==")
 	writeBacklog(h.Data, queuedLimit, ew)
 
-	entries, err := os.ReadDir(h.State)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	scan, err := state.ScanIDs(h.State)
+	if err != nil {
 		ew.printf("state\\: UNREADABLE (%s)\n", err)
-		entries = nil
 	}
 
-	var metaIDs []string
-	metaSet := make(map[string]bool)
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if id, ok := strings.CutSuffix(e.Name(), ".meta"); ok {
-			metaIDs = append(metaIDs, id)
-			metaSet[id] = true
-		}
-	}
-
-	var orphanIDs []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if id, ok := strings.CutSuffix(e.Name(), ".status"); ok && !metaSet[id] {
-			orphanIDs = append(orphanIDs, id)
-		}
-	}
-
-	for _, id := range metaIDs {
+	for _, id := range scan.MetaIDs {
 		writeMetaEntry(h.State, id, statusTail, ew)
 	}
-	for _, id := range orphanIDs {
+	for _, id := range scan.OrphanStatusIDs {
 		ew.printf("%s.status: orphan status log, no matching meta\n", id)
 	}
-	if len(metaIDs) == 0 {
+	if len(scan.MetaIDs) == 0 {
 		ew.println("(no goblins in flight)")
+	}
+}
+
+// writeOrphans prints the last recorded orphan sweep: harness processes with
+// no pane, dev servers left running in finished worktrees, and the worktree,
+// metadata and status records nothing retired. It reads the persisted record
+// rather than sweeping, because this package never shells out and a sweep
+// needs Herdr and the process table; the watcher takes the sweep on its timer
+// and leaves the record here. A home that has never been swept says so, and a
+// sweep that failed says that too, so an unreadable fleet never reads as a
+// clean one.
+func writeOrphans(stateDir string, ew *werr) {
+	ew.println("== ORPHANS ==")
+	if ew.err != nil {
+		return
+	}
+	if err := reap.RenderRecord(ew.w, stateDir, time.Now()); err != nil {
+		ew.err = err
 	}
 }
 

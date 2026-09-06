@@ -16,6 +16,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
+	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -782,4 +783,138 @@ func TestSignalIsDecisionScansBackPastATrailingNoiseLine(t *testing.T) {
 	if !signalIsDecision(dir, "g1.status") {
 		t.Fatal("signalIsDecision ignored a decision line followed by a trailing noise line")
 	}
+}
+
+// stubInventory hands the sweep a fixed fleet so the watcher test never
+// touches Herdr or the real process table.
+type stubInventory struct{ inv reap.Inventory }
+
+func (s stubInventory) Collect(context.Context) (reap.Inventory, []string, error) {
+	return s.inv, nil, nil
+}
+
+func reapConfig(dir string, inv reap.Inventory) Config {
+	cfg := baseConfig(dir)
+	cfg.ReapEvery = time.Hour
+	cfg.Reap = &reap.Service{
+		Home:      home.Home{State: dir},
+		Inventory: stubInventory{inv: inv},
+	}
+	return cfg
+}
+
+func orphanFleet() reap.Inventory {
+	start := time.Date(2026, 9, 5, 7, 0, 0, 0, time.UTC)
+	return reap.Inventory{
+		FleetRootPIDs: []int{100},
+		Processes: []reap.Process{
+			{PID: 100, ParentPID: 1, Name: "herdr.exe", CommandLine: "herdr server", Start: start},
+			{PID: 400, ParentPID: 100, Name: "powershell.exe", CommandLine: "powershell", Start: start.Add(time.Minute)},
+			{PID: 31032, ParentPID: 400, Name: "claude.exe", CommandLine: "claude --dangerously-skip-permissions", Start: start.Add(2 * time.Minute)},
+		},
+	}
+}
+
+// TestRunWakesOnANewOrphan is the actual ask: an unsupervised harness reaches
+// the CFO on the fleet's existing timer, without a human asking.
+func TestRunWakesOnANewOrphan(t *testing.T) {
+	dir := t.TempDir()
+	reason, err := Run(reapConfig(dir, orphanFleet()))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.HasPrefix(reason, "orphan:") {
+		t.Fatalf("reason = %q, want prefix orphan:", reason)
+	}
+	if !strings.Contains(reason, "1 orphan_process") {
+		t.Errorf("reason = %q, want the orphan count", reason)
+	}
+
+	records, err := wake.Pending(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Kind != "orphan" {
+		t.Fatalf("records = %+v, want one orphan wake", records)
+	}
+	record, err := reap.ReadRecord(dir)
+	if err != nil {
+		t.Fatalf("the sweep was not persisted for the digest: %v", err)
+	}
+	if len(record.Findings) != 1 {
+		t.Fatalf("persisted findings = %+v, want the one orphan", record.Findings)
+	}
+}
+
+// TestSweepOrphansDoesNotRewakeOnTheSameOrphan: a leak the CFO already saw and
+// left alone must not re-wake it every cycle, or supervision becomes noise.
+func TestSweepOrphansDoesNotRewakeOnTheSameOrphan(t *testing.T) {
+	dir := t.TempDir()
+	cfg := reapConfig(dir, orphanFleet())
+	if reason := sweepOrphans(cfg); !strings.HasPrefix(reason, "orphan:") {
+		t.Fatalf("first sweep = %q, want an orphan wake", reason)
+	}
+
+	// Age the record past ReapEvery so the sweep genuinely runs again rather
+	// than simply being skipped as not yet due.
+	record, err := reap.ReadRecord(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.Time = time.Now().UTC().Add(-2 * time.Hour)
+	if err := reap.WriteRecord(dir, record); err != nil {
+		t.Fatal(err)
+	}
+
+	if reason := sweepOrphans(cfg); reason != "" {
+		t.Fatalf("second sweep = %q, want no rewake for an unchanged orphan set", reason)
+	}
+	records, err := wake.Pending(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("records = %+v, want the single original orphan wake", records)
+	}
+
+	// A new orphan appearing beside the old one wakes immediately.
+	grown := orphanFleet()
+	grown.Processes = append(grown.Processes, reap.Process{PID: 31033, ParentPID: 400, Name: "claude.exe", CommandLine: "claude --dangerously-skip-permissions", Start: time.Date(2026, 9, 5, 7, 3, 0, 0, time.UTC)})
+	aged, err := reap.ReadRecord(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aged.Time = time.Now().UTC().Add(-2 * time.Hour)
+	if err := reap.WriteRecord(dir, aged); err != nil {
+		t.Fatal(err)
+	}
+	if reason := sweepOrphans(reapConfig(dir, grown)); !strings.Contains(reason, "2 orphan_process") {
+		t.Fatalf("third sweep = %q, want a wake naming both orphans", reason)
+	}
+}
+
+// TestSweepOrphansRecordsAFailedSweep: an audit that could not read the fleet
+// must be recorded as a failure, never as a clean fleet.
+func TestSweepOrphansRecordsAFailedSweep(t *testing.T) {
+	dir := t.TempDir()
+	cfg := baseConfig(dir)
+	cfg.ReapEvery = time.Hour
+	cfg.Reap = &reap.Service{Home: home.Home{State: dir}, Inventory: failingInventory{}}
+
+	if reason := sweepOrphans(cfg); reason != "" {
+		t.Fatalf("a failed sweep returned %q, want no wake", reason)
+	}
+	record, err := reap.ReadRecord(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Error == "" {
+		t.Fatal("the failure was not recorded, so the digest would read the fleet as clean")
+	}
+}
+
+type failingInventory struct{}
+
+func (failingInventory) Collect(context.Context) (reap.Inventory, []string, error) {
+	return reap.Inventory{}, nil, errors.New("herdr is down")
 }
