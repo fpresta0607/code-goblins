@@ -1,0 +1,2458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Site Yield Analysis - 118 S First Street, Bloomingdale, Illinois</title>
+<style>
+  :root{
+    --ink:#15181b;
+    --ink2:#3d454c;
+    --ink3:#6b757e;
+    --acc:#1a4a5e;
+    --acc-soft:#eef3f5;
+    --rule:#c9d0d5;
+    --rule-lt:#e3e8eb;
+    --paper:#ffffff;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:#8b9096;}
+  body{
+    font-family:Georgia,"Times New Roman",serif;
+    color:var(--ink);
+    font-size:9.4pt;
+    line-height:1.38;
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+  }
+  .sheet{
+    width:8.5in;
+    height:11in;
+    padding:0.62in 0.74in 0.52in 0.74in;
+    background:var(--paper);
+    position:relative;
+    overflow:hidden;
+    page-break-after:always;
+    break-after:page;
+    margin:0 auto 0.25in;
+  }
+  .sheet:last-child{page-break-after:auto;break-after:auto;}
+
+  .rh{
+    display:flex;justify-content:space-between;align-items:baseline;
+    font-family:Arial,Helvetica,sans-serif;font-size:7.2pt;letter-spacing:.07em;
+    text-transform:uppercase;color:var(--ink3);
+    border-bottom:0.7pt solid var(--rule);padding-bottom:4pt;margin-bottom:13pt;
+  }
+  .rh .rh-r{color:var(--acc);font-weight:700;}
+  .ft{
+    position:absolute;left:0.74in;right:0.74in;bottom:0.26in;
+    display:flex;justify-content:space-between;align-items:baseline;
+    font-family:Arial,Helvetica,sans-serif;font-size:7pt;color:var(--ink3);
+    border-top:0.7pt solid var(--rule);padding-top:4pt;letter-spacing:.03em;
+  }
+
+  h1,h2,h3,h4{font-family:Arial,Helvetica,sans-serif;color:var(--ink);margin:0;}
+  h2{
+    font-size:13pt;line-height:1.2;letter-spacing:-0.01em;
+    padding-bottom:5pt;border-bottom:1.6pt solid var(--acc);margin-bottom:11pt;
+  }
+  h2 .num{color:var(--acc);font-weight:700;margin-right:9pt;}
+  h3{font-size:9.9pt;margin:11pt 0 4pt;letter-spacing:.01em;}
+  h3:first-child{margin-top:0;}
+  h4{font-size:8.3pt;text-transform:uppercase;letter-spacing:.09em;color:var(--acc);margin:9pt 0 3pt;}
+  p{margin:0 0 6pt;}
+  ul,ol{margin:0 0 8pt;padding-left:15pt;}
+  li{margin-bottom:2.6pt;}
+  li::marker{color:var(--acc);}
+  .sm{font-size:8.3pt;line-height:1.36;}
+  .xs{font-size:7.8pt;line-height:1.38;color:var(--ink2);}
+  .muted{color:var(--ink3);}
+
+  blockquote{
+    margin:6pt 0 7pt;padding:6pt 10pt;border-left:2.5pt solid var(--acc);
+    background:var(--acc-soft);font-size:8.7pt;line-height:1.36;color:var(--ink2);
+  }
+  blockquote .src{
+    display:block;margin-top:5pt;font-family:Arial,Helvetica,sans-serif;
+    font-size:7.4pt;letter-spacing:.06em;text-transform:uppercase;color:var(--acc);
+  }
+
+  table{width:100%;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;
+        font-size:8.1pt;margin:5pt 0 8pt;font-variant-numeric:tabular-nums;}
+  th{
+    text-align:left;font-size:7.2pt;text-transform:uppercase;letter-spacing:.07em;
+    color:#fff;background:var(--acc);padding:3.6pt 5.5pt;font-weight:700;
+  }
+  td{padding:3.2pt 5.5pt;border-bottom:0.6pt solid var(--rule-lt);vertical-align:top;}
+  tbody tr:nth-child(even) td{background:#f7f9fa;}
+  td.n,th.n{text-align:right;}
+  tr.hl td{background:var(--acc-soft) !important;font-weight:700;color:var(--acc);}
+  table.tight td,table.tight th{padding:2.4pt 5pt;font-size:7.7pt;}
+
+  .callout{
+    border:0.8pt solid var(--rule);border-left:3pt solid var(--acc);
+    padding:7pt 10pt;margin:7pt 0 8pt;background:#fbfcfc;
+  }
+  .callout h4{margin-top:0;}
+  .sheet > .callout:last-of-type,.sheet > table:last-of-type,.sheet > .calc:last-of-type{margin-bottom:0;}
+  .callout p:last-child{margin-bottom:0;}
+
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:2.5pt 12pt;
+      font-family:Arial,Helvetica,sans-serif;font-size:8.6pt;}
+  .kv dt{color:var(--ink3);text-transform:uppercase;font-size:7.3pt;letter-spacing:.07em;padding-top:1.5pt;}
+  .kv dd{margin:0;font-weight:700;}
+
+  .calc{
+    font-family:"Consolas","Courier New",monospace;font-size:7.9pt;line-height:1.5;
+    background:#f7f9fa;border:0.7pt solid var(--rule-lt);padding:7pt 10pt;margin:6pt 0 7pt;
+    font-variant-numeric:tabular-nums;
+  }
+  .calc .r{color:var(--acc);font-weight:700;}
+
+  .rule{border:0;border-top:0.7pt solid var(--rule);margin:12pt 0;}
+
+  .cover{padding:0;display:flex;flex-direction:column;}
+  .cover .cbar{height:0.34in;background:var(--acc);}
+  .cover .cbody{padding:1.0in 0.9in 0.6in;flex:1;display:flex;flex-direction:column;}
+  .cover .eyebrow{font-family:Arial,Helvetica,sans-serif;font-size:8.5pt;letter-spacing:.22em;
+                  text-transform:uppercase;color:var(--acc);font-weight:700;}
+  .cover h1{font-size:31pt;line-height:1.1;letter-spacing:-0.02em;margin:14pt 0 0;}
+  .cover .sub{font-size:12.5pt;color:var(--ink2);margin-top:11pt;line-height:1.45;max-width:5.2in;}
+  .cover .addr{font-family:Arial,Helvetica,sans-serif;font-size:15pt;font-weight:700;
+               color:var(--acc);margin-top:24pt;letter-spacing:-0.01em;line-height:1.3;}
+  .cover .meta{margin-top:18pt;border-top:1.6pt solid var(--acc);padding-top:11pt;max-width:4.8in;}
+  .cover .findings{margin-top:auto;border-top:0.8pt solid var(--rule);padding-top:11pt;}
+  .cover .cfoot{font-family:Arial,Helvetica,sans-serif;font-size:7.4pt;color:var(--ink3);
+                margin-top:13pt;line-height:1.5;}
+
+  .ans{border:1.2pt solid var(--acc);padding:9pt 11pt;margin:0 0 9pt;background:var(--acc-soft);}
+  .ans p{margin:0;font-size:10pt;line-height:1.42;}
+
+  .scenario{border-top:1.6pt solid var(--acc);padding-top:7pt;margin-top:11pt;}
+  .scenario.first{margin-top:0;}
+  .scenario .stag{font-family:Arial,Helvetica,sans-serif;font-size:7.6pt;letter-spacing:.13em;
+                  text-transform:uppercase;color:var(--acc);font-weight:700;}
+  .scenario h3{margin:2pt 0 5pt;font-size:11.2pt;}
+
+  .steps{counter-reset:st;list-style:none;padding-left:0;}
+  .steps li{counter-increment:st;position:relative;padding-left:22pt;margin-bottom:5.5pt;}
+  .steps li::before{
+    content:counter(st);position:absolute;left:0;top:1pt;
+    width:15pt;height:15pt;border-radius:50%;background:var(--acc);color:#fff;
+    font-family:Arial,Helvetica,sans-serif;font-size:8pt;font-weight:700;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .oi{counter-reset:oi;list-style:none;padding-left:0;}
+  .oi li{counter-increment:oi;position:relative;padding-left:28pt;margin-bottom:5pt;
+         border-bottom:0.6pt solid var(--rule-lt);padding-bottom:4.5pt;font-size:8.7pt;line-height:1.34;}
+  .oi li:last-child{border-bottom:0;}
+  .oi li::before{
+    content:"OI-" counter(oi,decimal-leading-zero);position:absolute;left:0;top:1.5pt;
+    font-family:Arial,Helvetica,sans-serif;font-size:7.2pt;font-weight:700;color:var(--acc);
+    letter-spacing:.03em;
+  }
+  .oi b{font-family:Arial,Helvetica,sans-serif;font-size:8.8pt;}
+
+  table,blockquote,.callout,.calc,figure,.scenario,.ans{page-break-inside:avoid;break-inside:avoid;}
+  h2,h3,h4{page-break-after:avoid;break-after:avoid;}
+
+  .plan-sheet{padding:0.5in 0.5in 0.55in;}
+  svg.plan{width:84%;height:auto;display:block;margin:0 auto;}
+  .legend{display:grid;grid-template-columns:repeat(4,1fr);gap:2pt 10pt;
+          font-family:Arial,Helvetica,sans-serif;font-size:6.6pt;margin-top:2pt;}
+  .legend div{display:flex;align-items:center;gap:5pt;}
+  .legend svg{flex:none;}
+  .planfoot{display:grid;grid-template-columns:1fr 1.05fr;gap:13pt;margin-top:6pt;}
+  .planfoot table{margin:0;}
+  .planfoot table td,.planfoot table th{padding:1.15pt 4pt;font-size:6.2pt;}
+  .planfoot th{font-size:6.2pt;}
+  .notes{font-family:Arial,Helvetica,sans-serif;font-size:6.2pt;line-height:1.3;color:var(--ink2);}
+  .notes b{color:var(--acc);}
+  .notes ol{padding-left:11pt;margin:2pt 0 0;}
+  .notes li{margin-bottom:1.8pt;}
+  .disclaimer{
+    font-family:Arial,Helvetica,sans-serif;font-size:7pt;font-weight:700;color:var(--acc);
+    border:0.8pt solid var(--acc);padding:4pt 7pt;margin-top:6pt;
+  }
+  .titleblock{
+    display:flex;justify-content:space-between;align-items:flex-end;
+    border-bottom:1.6pt solid var(--acc);padding-bottom:5pt;margin-bottom:6pt;
+  }
+  .titleblock .tb-l{font-family:Arial,Helvetica,sans-serif;}
+  .titleblock .tb-l .t1{font-size:13pt;font-weight:700;letter-spacing:-0.01em;}
+  .titleblock .tb-l .t2{font-size:8pt;color:var(--ink3);margin-top:2pt;}
+  .titleblock .tb-r{font-family:Arial,Helvetica,sans-serif;font-size:7.4pt;text-align:right;color:var(--ink3);line-height:1.4;}
+  .titleblock .tb-r b{color:var(--acc);}
+
+  @page{size:letter portrait;margin:0;}
+  @media print{
+    body{background:#fff;}
+    .sheet{margin:0;box-shadow:none;}
+  }
+</style>
+</head>
+<body>
+
+<!-- ===================== 1. COVER ===================== -->
+<section class="sheet cover">
+  <div class="cbar"></div>
+  <div class="cbody">
+    <div class="eyebrow">Zoning and Development Capacity Study</div>
+    <h1>Site Yield<br>Analysis</h1>
+    <div class="sub">What can actually be built on this parcel, and how many units, under the Village of Bloomingdale Zoning Code.</div>
+    <div class="addr">118 S First Street<br>Bloomingdale, Illinois 60108</div>
+
+    <div class="meta">
+      <dl class="kv">
+        <dt>Client</dt><dd>Franklin Properties</dd>
+        <dt>PIN / APN</dt><dd>0215204026</dd>
+        <dt>County</dt><dd>DuPage</dd>
+        <dt>Municipality</dt><dd>Village of Bloomingdale</dd>
+        <dt>Parcel area</dt><dd>12,320 sq ft / 0.2828 acres</dd>
+        <dt>Base zoning</dt><dd>R-2 Single-Family Residence, with Old Town Preservation overlay</dd>
+        <dt>Report date</dt><dd>September 6, 2026</dd>
+      </dl>
+    </div>
+
+    <div class="findings">
+      <h4 style="margin-top:0">Headline findings</h4>
+      <table class="tight" style="margin-bottom:0">
+        <thead><tr><th>Scenario</th><th>Yield</th><th>Path</th><th>Relief required</th></tr></thead>
+        <tbody>
+          <tr><td>A</td><td>1 single-family home</td><td>By right, 11-11-4B2</td><td>None. No hearing</td></tr>
+          <tr><td>B</td><td>3 attached townhomes</td><td>Special use, 11-11-4D5</td><td>None numeric</td></tr>
+          <tr class="hl"><td>C &#183; Exhibit 1</td><td>4 attached townhomes</td><td>Planned development special use, chapter 18</td><td>FAR, density, lot width</td></tr>
+          <tr><td>D</td><td>5 attached townhomes</td><td>Planned development at maximum relief</td><td>All of the above, at their limits</td></tr>
+          <tr><td>E</td><td>10 units</td><td>Not achievable</td><td>Not attainable</td></tr>
+          <tr class="hl"><td>F &#183; Exhibit 2</td><td>5 apartments, one building</td><td>Planned development, R-4 permitted use under 11-7H-2</td><td>As C, R-4 determination better supported</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="font-family:Arial,Helvetica,sans-serif;font-size:8pt;color:#3d454c;margin:7pt 0 0;line-height:1.45">
+      <strong>Two concepts are drawn at full dimension and carried at equal weight, Exhibit 1 and Exhibit 2.</strong>
+      This report sets out the trade off between them and does not recommend one over the other.</p>
+
+    <div class="cfoot">
+      Prepared for Franklin Properties. This report is a zoning and yield analysis based on published ordinance text,
+      the Village of Bloomingdale 2026 Official Zoning Map for the Old Town District, and public GIS cadastral data.
+      It is not a survey, a title opinion, or a legal opinion. All dimensions are subject to confirmation by boundary survey.
+    </div>
+  </div>
+</section>
+
+<!-- ===================== 2. EXECUTIVE SUMMARY ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Executive Summary</span></div>
+  <h2><span class="num">1</span>Executive summary</h2>
+
+  <div class="ans">
+    <p><strong>Two concepts, carried at equal weight, and no recommendation between them.</strong>
+    <strong>Exhibit 1</strong> is four attached townhomes of about 1,201 sq ft, each with its own private driveway
+    and attached garage. <strong>Exhibit 2</strong> is one building of five one-bedroom apartments of about 680 sq
+    ft over a shared parking court. Both are planned developments under Title 11 Chapter 18 at the 0.39 floor area
+    ratio ceiling. <strong>Five dwelling units is the legal maximum on this parcel under any built form.</strong>
+    One single-family home is achievable by right, with no hearing, under 11-11-4B2. The 10-unit target cannot be
+    delivered.</p>
+  </div>
+
+  <p><strong>Built form does not raise the unit ceiling. This is the first thing to be clear about.</strong> A
+  developer will assume that connecting units, sharing walls or stacking flats buys more of them. It does not. The
+  binding standard is <strong>lot area per dwelling unit</strong> (11-7H-1A), a <strong>land</strong> requirement
+  indifferent to how units are arranged. The townhome scheme already shares party walls with no gaps at all, since
+  four units at 19.04 ft is 76.16 ft exactly. <strong>The only route past five units is more land.</strong> Section
+  5.1 sets this out in full.</p>
+
+  <p>The parcel is 12,320 sq ft, 96.16 ft by 128.1 ft. The record carried its zoning as "OT", which is not a base
+  district but the <strong>Old Town Preservation overlay</strong>. The Village's 2026 Old Town Zoning Map shows this
+  block as <strong>R-2 OT SP 79-53</strong>, so the base district is <strong>R-2</strong> and, per 11-11-4A, the
+  R-2 bulk and height standards govern.</p>
+
+  <p><strong>Floor area is the binding constraint, and Chapter 18 caps the relief.</strong> The R-2 yards leave a
+  buildable envelope of about 3,663 sq ft while the R-2 FAR of 0.30 caps floor area at 3,696 sq ft, so a single
+  storey filling the envelope already spends the whole allowance. A planned development can raise that, but
+  11-18-3C1 says <em>in no event</em> more than 30 percent over the district figure, fixing the maximum at
+  <strong>0.39</strong>, or 4,805 sq ft. 11-18-3B caps coverage at 25 percent, 3,080 sq ft. 11-18-3C2 cuts the
+  minimum area per unit by 10 percent, and 10 percent again where parking is in the building proper, taking the R-4
+  two-bedroom standard of 2,800 sq ft per unit to <strong>2,268 sq ft</strong>. 12,320 / 2,268 = 5.43, the
+  five-unit ceiling.</p>
+
+  <p><strong>Where the two concepts genuinely differ.</strong> Four townhomes fit the width comfortably at 19.04 ft
+  per unit and support two-bedroom homes; five townhomes would be 15.23 ft wide, which is below a workable width.
+  The apartment form is not width constrained and therefore reaches five units. It pays for them in unit size:
+  after five mandatory indoor parking spaces and circulation, the 4,805 sq ft allowance leaves about 680 sq ft per
+  unit. <strong>That is a hard finding, not a caution: five two-bedroom apartments cannot be delivered.</strong>
+  Five at the 850 sq ft two-bedroom minimum plus garage and circulation needs about 5,650 sq ft gross, FAR 0.459,
+  or 0.418 even crediting the full 500 sq ft garage exclusion. Both exceed the 0.39 ceiling. Five one-bedroom units
+  at about 680 sq ft clear the 650 sq ft minimum and do work.</p>
+
+  <p><strong>The two concepts also carry different regulatory risk, and this is the sharpest difference between
+  them.</strong> Under 11-18-3C the density standard follows the district the Village Board deems most similar in
+  nature and function. The whole calculation assumes that district is <strong>R-4</strong>; if the Board names R-3
+  instead, at 8,000 sq ft per attached unit, the yield collapses to one unit. That is <strong>OI-14</strong>, the
+  largest open risk in this report. <strong>11-7H-2 defines the R-4 permitted use as a multiple-family dwelling of
+  five or more units</strong>, so Exhibit 2 is literally an R-4 permitted use on its face, while a townhome row
+  invites the R-3 "group, row and town houses" characterisation instead.</p>
+
+  <p><strong>The 10-unit target did not come from the site</strong>; it is the planning tool's schema minimum,
+  entered as a probe. At the most permissive density the code allows, ten units need 22,680 sq ft against 12,320
+  available: <strong>the site is 1.84 times too small even at maximum relief</strong>. Sixteen open items are
+  carried in Section 10 and both concepts are subject to all of them. <strong>The only durations in this report are
+  the two eighteen month periods at 11-18-4C1 and 11-18-6, and both are post-approval validity periods, not
+  processing times.</strong></p>
+
+  <div class="callout" style="margin-bottom:0">
+    <h4>Immediate next steps, common to both concepts</h4>
+    <p>Put the "most similar district" question to the Village at the tentative approval stage under 11-18-4A,
+    before design expense is incurred, alongside written zoning confirmation and a boundary survey. Those three
+    items settle the largest uncertainties at the lowest cost, and the answer to the first will itself inform which
+    concept to carry forward.</p>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+<!-- ===================== 3. ZONING FINDING, PART 1 ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">The Zoning Finding</span></div>
+  <h2><span class="num">2</span>The zoning finding</h2>
+
+  <p>Everything in this report rests on one determination: which zoning district actually governs this parcel. The
+  record did not answer that question correctly, and a county GIS lookup cannot answer it at all. This section walks
+  the chain end to end, because a developer should be able to check it rather than take it on trust.</p>
+
+  <h3>2.1 What the record said</h3>
+  <p>The parcel record carried the zoning as <strong>"OT", user confirmed</strong>. Read as a base district, "OT"
+  produces nothing: <strong>Bloomingdale's zoning code contains no district coded "OT" standing alone.</strong> A
+  search of the code by that letter pair returns no bulk table, no permitted use list and no yard requirements, which
+  is exactly the pattern you see when a code has been recorded as a base district but is in fact something else.</p>
+
+  <h3>2.2 What "OT" actually is</h3>
+  <p>Title 11 Chapter 11 of the Village Code is <strong>"OTP Old Town Preservation District"</strong>. OT is that
+  chapter's map notation. It is an <strong>overlay</strong>: a layer of additional review and design control laid
+  over whatever base district is already in place, not a replacement for it. The Village's zoning map makes this
+  explicit in its labelling convention, where each parcel is written as a base district followed by suffixes.</p>
+
+  <h3>2.3 The Village's own map, which is the authority</h3>
+  <p>Source: <strong>Village of Bloomingdale 2026 Official Zoning Map, Old Town District</strong>, published by the
+  Village. The legend defines the base districts R-1, R-2, R-3, R-4/R-5, B-1, B-2, B-3 and B-4, plus a separate
+  entry "OT Old Town District Special Use Only", and the suffixes <strong>PD</strong> Planned Developments,
+  <strong>SP</strong> Special Use, <strong>S</strong> Sign Ordinance and <strong>Z</strong> Zoning Variance
+  Ordinance. Parcels appear as, for example, "R-2 OT SP", "R-3 OT SP PD" and "B-2 OT SP".</p>
+
+  <p>The subject block, the <strong>east side of First Street between Franklin Street and Washington
+  Street</strong>, is mapped <strong>"R-2 OT SP 79-53"</strong>.</p>
+
+  <div class="callout">
+    <h4>The block was located numerically, not by eye</h4>
+    <table class="tight" style="margin:4pt 0 0">
+      <tbody>
+        <tr><td>Subject parcel latitude range</td><td class="n">41.95614 to 41.95642</td></tr>
+        <tr><td>Franklin Street centreline, north of the site</td><td class="n">about 41.95665</td></tr>
+        <tr><td>Washington Street centreline, south of the site</td><td class="n">about 41.95563</td></tr>
+        <tr><td>Subject longitude range</td><td class="n">-88.07978 to -88.07930</td></tr>
+        <tr><td>First Street centreline, west of the site</td><td class="n">about -88.07988</td></tr>
+      </tbody>
+    </table>
+    <p class="xs" style="margin:5pt 0 0">The parcel falls between the two cross street centrelines and east of the
+    First Street centreline, which places it inside the block labelled R-2 OT SP 79-53 and not in an adjoining
+    block. North of the block, fronting Lake Street, the map turns to B-2 SP 80-07 and B-2 OT SP. South of the block
+    it becomes B-2 OT SP and R-3 OT SP PD. The subject block is the residential one.</p>
+  </div>
+
+  <h4>Parcels in the block, east side, north to south</h4>
+  <table class="tight">
+    <thead><tr><th>PIN</th><th>Area</th><th>Position</th></tr></thead>
+    <tbody>
+      <tr><td>0215204003</td><td class="n">0.35 ac</td><td>North of subject</td></tr>
+      <tr class="hl"><td>0215204026</td><td class="n">0.28 ac</td><td>Subject parcel</td></tr>
+      <tr><td>0215204027</td><td class="n">0.25 ac</td><td>South of subject</td></tr>
+      <tr><td>0215204020</td><td class="n">0.33 ac</td><td>South end of block</td></tr>
+      <tr><td>0215204032</td><td class="n">1.23 ac</td><td>Immediately east and behind, 110 Ridge Avenue</td></tr>
+    </tbody>
+  </table>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<!-- ===================== 4. ZONING FINDING, PART 2 ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">The Zoning Finding</span></div>
+  <h3 style="margin-top:0">2.4 Why a DuPage County GIS zoning lookup returns nothing</h3>
+  <p>DuPage County's ArcGIS zoning service is <strong>Zoning/UnincorporatedZoningData</strong>. As the name states,
+  it covers <strong>unincorporated</strong> DuPage County only. 118 S First Street sits inside the incorporated
+  Village of Bloomingdale, so the county layer simply does not carry zoning for it. A query against that service
+  returns an empty result, and an empty result is easy to misread as "no zoning on record" when it actually means
+  "not this map's jurisdiction". Within a municipality the <strong>Village's own adopted zoning map is the
+  authority</strong>, and that is the source relied on above.</p>
+
+  <p class="sm muted">The parcel record on the source project has since been corrected from OT to R-2, with the
+  original recorded value preserved.</p>
+
+  <h3>2.5 The hinge: which bulk standards apply</h3>
+
+  <p>Having established that the base district is R-2 and the overlay is OTP, the next question is which set of bulk
+  and height numbers governs. Section 11-11-4A answers it directly.</p>
+
+  <blockquote>
+    With the exception of uses described in subsection B of this section, all uses in the old town preservation
+    district shall be special uses, and shall be allowed in the manner for special uses and in keeping with the terms
+    and conditions of this title. Unless otherwise specified under the terms of a special use permit, the building
+    height and bulk regulations of the underlying zoning classification shall remain in effect. Said uses shall be
+    consistent with the land use recommendations contained in the old town plan attached as exhibit A to ordinance
+    2006-03.
+    <span class="src">Bloomingdale Village Code, 11-11-4A</span>
+  </blockquote>
+
+  <p>Two consequences follow, and both matter to the yield:</p>
+
+  <ol>
+    <li><strong>OTP is an overlay, so bulk and height come from the underlying district.</strong> Here that is R-2,
+    and the governing bulk table is <strong>11-7D-1</strong>. This is why Section 4 of this report is an R-2 table
+    and not an Old Town table: Chapter 11 does not publish its own bulk numbers.</li>
+    <li><strong>A special use permit can lawfully set different bulk.</strong> The clause "unless otherwise specified
+    under the terms of a special use permit" is written into the ordinance. It is the route to anything above the
+    R-2 baseline, and it is a mechanism the code provides rather than an exception the applicant invents. This is the
+    legal foundation for the floor area relief sought in Scenarios C and F, subject to the Chapter 18 ceiling in Section 4.6.</li>
+  </ol>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">The Zoning Finding</span></div>
+  <h3 style="margin-top:0">2.6 What the overlay changes in practice</h3>
+  <table>
+    <thead><tr><th style="width:20%">Section</th><th>Effect on this site</th></tr></thead>
+    <tbody>
+      <tr><td>11-11-4A</td><td>All uses in the Old Town Preservation District are special uses, except those in subsection B. Underlying R-2 bulk and height apply unless a special use permit specifies otherwise.</td></tr>
+      <tr><td>11-11-4B2</td><td><strong>New single-family residential structures do not require a special use permit</strong>, provided the property is properly zoned. Plans are reviewed by the Building and Zoning Official for compatibility with the Old Town environment and plan. If found not compatible, the owner may request a special use permit, which requires Planning and Zoning Commission review and Village Board approval.</td></tr>
+      <tr><td>11-11-4D5</td><td>All of the permitted uses in R-1, R-2, R-2B, R-2C, R-3 and R-4 districts are allowed as special uses, in addition to art galleries and museums, churches, libraries, parks and playgrounds, <strong>planned developments</strong>, and utility and public service uses.</td></tr>
+      <tr><td>11-11-5A</td><td>A special use plan must be consistent with the land use, design and signage recommendations of the Old Town Plan (exhibit A to Ord. 2006-03); with Title 11 including chapter 4, Site Development and Plan Review; with the land use limitations in 11-11-4C; and with the special use criteria in 11-3-4.</td></tr>
+      <tr><td>11-11-5B</td><td>Submittals are the chapter 4 documentation, a written statement describing the plan and giving the basis for any requested exceptions, and a written statement on the 11-3-4 criteria.</td></tr>
+      <tr><td>11-11-5C</td><td>Reviewed in the manner of a special use permit as described in 11-3-4.</td></tr>
+      <tr><td>11-11-7</td><td>Exterior painting requires a permit. Approved colours are the Benjamin Moore historical color selection or approved equivalent, or another colour approved by the Building and Zoning Official with PZC recommendation and Village Board approval.</td></tr>
+      <tr><td>11-11-8A</td><td>Fencing adjacent to Third, Day, Franklin, Washington and <strong>First Street</strong> is limited to picket style, constructed of wood, or equivalent material approved by the Building Commissioner. <strong>This binds the First Street frontage of this site</strong> and is shown on the site plan.</td></tr>
+      <tr><td>11-4-3A</td><td>Applicants for a rezoning, planned development or special use permit in the listed districts, which include the OTP Old Town Preservation District, must comply with the chapter 4 development standards.</td></tr>
+      <tr><td>11-13-3</td><td>Requires a scaled, fully dimensioned site plan showing all off street parking and loading, use, dwelling unit count and gross floor area, addressing existing and planned streets, circulation, stormwater topography and public safety. <strong>No permit issues until the Village Planner and the Village Engineer approve the site plan.</strong></td></tr>
+    </tbody>
+  </table>
+
+  <blockquote style="margin-bottom:4pt">
+    Standards of development which are specific to the Old Town District are presented in chapter 11 of this title.
+    In all instances, the provisions of chapter 11 of this title shall supersede those of this chapter.
+    <span class="src">Bloomingdale Village Code, 11-4-3C</span>
+  </blockquote>
+
+  <div class="callout">
+    <h4>The finding, stated plainly</h4>
+    <p>The base district is <strong>R-2 Single-Family Residence</strong>, carrying the <strong>OTP Old Town
+    Preservation overlay</strong> and a <strong>Special Use</strong> notation, with map ordinance reference
+    <strong>79-53</strong>. Per 11-11-4A the R-2 bulk and height standards at 11-7D-1 govern this site unless a
+    special use permit specifies otherwise. What ordinance 79-53 attaches to this particular parcel is not
+    established from the map alone and is carried as an open item.</p>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+<!-- ===================== 5. THE SITE ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">The Site</span></div>
+  <h2><span class="num">3</span>The site</h2>
+
+  <h3 style="margin-top:0">3.1 Parcel geometry, measured rather than estimated</h3>
+  <p>Geometry was taken from the DuPage County ArcGIS cadastral layer, returned in WGS84 and measured by shoelace
+  area and great-circle edge computation rather than read off a display.</p>
+
+  <table>
+    <thead><tr><th>Measure</th><th class="n">Value</th><th style="width:34%">Note</th></tr></thead>
+    <tbody>
+      <tr class="hl"><td>Area, GIS cadastral, clipped to right of way</td><td class="n">12,320 sq ft / 0.2828 ac</td><td>Used for all calculations</td></tr>
+      <tr><td>Assessor ACREAGE field</td><td class="n">0.28 ac</td><td>Agrees</td></tr>
+      <tr><td>Independent parcel polygon computation</td><td class="n">12,334 sq ft</td><td>Second source, agrees within 0.1 percent</td></tr>
+      <tr><td>Project parcel record</td><td class="n">12,415 sq ft / 0.285 ac</td><td>Reconciled below</td></tr>
+      <tr class="hl"><td>Frontage on First Street, GIS measured</td><td class="n">96.16 ft</td><td>Used for all calculations</td></tr>
+      <tr><td>Frontage, independent polygon</td><td class="n">96.34 ft</td><td>Second source</td></tr>
+      <tr><td>Frontage per recorded legal description</td><td class="n">96.62 ft</td><td>"N 96.62 FT"</td></tr>
+      <tr><td>Depth, north edge</td><td class="n">127.94 ft</td><td>128.1 ft used as the working depth</td></tr>
+      <tr><td>Depth, south edge</td><td class="n">128.30 ft</td><td></td></tr>
+      <tr><td>Depth range, independent polygon</td><td class="n">127.99 to 128.26 ft</td><td>Second source</td></tr>
+      <tr><td>Shape</td><td class="n">Near rectangle</td><td>Effectively cardinally aligned, west boundary bearing 358.2 degrees</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <h4>Reconciliation, stated rather than quietly resolved</h4>
+    <p>Three sources describe this parcel. The DuPage cadastral polygon gives 12,320 sq ft with 96.16 ft of
+    frontage. An independent parcel polygon computation gives 12,334 sq ft with 96.34 ft of frontage and a depth of
+    127.99 to 128.26 ft, agreeing with the cadastral figure to within 0.1 percent. The project parcel record carries
+    12,415 sq ft, which differs from the cadastral figure by 95 sq ft, under 1 percent, a normal difference between
+    a cadastral polygon and a parcel record. <strong>Two independent sources corroborate the geometry.</strong> This
+    report uses <strong>12,320 sq ft and 96.16 ft by 128.1 ft</strong> throughout, which is the most conservative of
+    the three, and does not silently prefer one source over another.</p>
+  </div>
+
+  <h4>Recorded legal description, quoted</h4>
+  <blockquote style="font-family:'Consolas','Courier New',monospace;font-size:8.4pt">
+    N 96.62 FT S 404 FT TH PRT NE 1/4 LYG E OF C/L 1ST ST &amp; N OF N LN OF FRAHMS SUB &amp; W OF WALTER GERSENS RESUB
+    <span class="src">DuPage County Assessor</span>
+  </blockquote>
+
+  <p><strong>The deed and the polygon do not measure the same thing.</strong> The legal description is written to the
+  <strong>centreline of First Street</strong>, while the GIS cadastral polygon is clipped at the right of way line.
+  The 12,320 sq ft figure is therefore net of the street. A boundary survey should confirm this before design
+  proceeds, and it is carried as an open item.</p>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">The Site</span></div>
+  <h3 style="margin-top:0">3.2 Ownership and tax status</h3>
+  <p>The assessor owner of record is <strong>ST PAUL CHURCH OF CHRIST</strong>. The property is class
+  <strong>E</strong> with FCVLAND $0, FCVIMP $0 and FCVTOTAL $0. <strong>The client has confirmed they own the
+  parcel</strong>; the transfer is not yet reflected on the DuPage County assessment roll.</p>
+  <p>The consequence is worth stating plainly. The parcel is presently carried as <strong>tax exempt with zero
+  assessed value</strong>. Under taxable ownership it will be reassessed and placed on the tax rolls. <strong>No tax
+  figure can be quoted in this report</strong>, because no assessed value exists to quote and no rate has been
+  established for it. This is carried as an open item rather than filled with an estimate.</p>
+
+  <div class="callout">
+    <h4>Adjacent holding, noted once</h4>
+    <p>Seven contiguous parcels on the <strong>west</strong> side of First Street, PINs 0215202012 through
+    0215202018, totalling approximately 1.75 acres, are owned by ST PAUL UNITED CHURCH, all class E and all $0
+    assessed. This is not part of the client's site, is not included in any yield figure in this report, and no
+    yield is computed for it. It is recorded here only as an assemblage option the client may wish to explore.</p>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<!-- ===================== 6. FRONTAGE AND ACCESS ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">The Site</span></div>
+  <h3 style="margin-top:0">3.3 Streets, frontage and access</h3>
+
+  <table>
+    <thead><tr><th>Street</th><th>Class</th><th>Owner</th><th>Relationship to site</th></tr></thead>
+    <tbody>
+      <tr class="hl"><td>First Street</td><td>Local</td><td>Municipality, Village of Bloomingdale</td><td>The only frontage, 96.16 ft</td></tr>
+      <tr><td>East Lake Street, US Route 20</td><td>Principal arterial</td><td>State, IDOT</td><td>136.4 m, about 448 ft away. Not a frontage road</td></tr>
+      <tr><td>West Lake Street</td><td>Principal arterial corridor</td><td>State</td><td>178 m away. Not frontage</td></tr>
+      <tr><td>Franklin Street</td><td>Local</td><td>Village</td><td>Cross street to the north, centreline about 41.95665</td></tr>
+      <tr><td>Washington Street</td><td>Local</td><td>Village</td><td>Cross street to the south, centreline about 41.95563</td></tr>
+      <tr><td>Ridge Avenue</td><td>Local</td><td>Village</td><td>East of the block</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <h4>The access finding, and why it is favourable</h4>
+    <p>The site fronts <strong>First Street only</strong>, a <strong>Village-owned local street</strong>. It does not
+    front the arterial. US Route 20 is reached indirectly, about 448 ft north via First Street. Because the frontage
+    street is Village-owned rather than State-owned, <strong>site access does not require an IDOT permit</strong>.
+    That removes a State agency from the approval path entirely and leaves the curb cut as a Village matter, to be
+    resolved with the Village Engineer under 11-13-3.</p>
+  </div>
+
+  <p><strong>Right of way width.</strong> The First Street right of way was measured as the gap between opposing
+  cadastral parcel edges at <strong>approximately 57.5 ft</strong>. This is a derived measurement, not a platted
+  dimension, and it is labelled approximate wherever it appears, including on the site plan. Confirmation by survey
+  or plat is carried as an open item.</p>
+
+  <p><strong>Frontage corroboration.</strong> The project record measured frontage as 97 ft with the caveat
+  "Estimated from buffered road centerline; verify against survey or ROW geometry." The 96.16 ft cadastral figure,
+  the 96.34 ft independent polygon figure and the 96.62 ft recorded legal figure all corroborate it. The spread
+  across every available source is under half a foot.</p>
+
+  <h3>3.4 What this means for the layout</h3>
+  <ul>
+    <li>All access is taken from the west boundary. There is no second frontage and no alley, which is why the
+    concept uses a single shared drive aisle rather than four separate curb cuts.</li>
+    <li>The 96.16 ft frontage comfortably exceeds the R-2 minimum lot width of 80 ft (11-7D-1), by 16.16 ft.</li>
+    <li>Because the site does not front Lake Street, Bloomingdale Road, Army Trail Road, Schmale Road, Gary Avenue
+    or Schick Road, the special 75 ft and 60 ft yard requirements at <strong>11-7D-1F4 do not apply here</strong>.
+    This is worth stating because a reader familiar with the corridor may expect the Lake Street rule to bite. It
+    does not.</li>
+    <li>A single point of vehicular access has been flagged as a risk against fire apparatus access requirements.
+    See Section 9 and open item OI-10.</li>
+  </ul>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+<!-- ===================== 7. GOVERNING STANDARDS: R-2 ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Governing Standards</span></div>
+  <h2><span class="num">4</span>Governing standards</h2>
+
+  <p>Because the base district is R-2 and 11-11-4A directs that the underlying district's height and bulk
+  regulations remain in effect, the governing bulk table is <strong>section 11-7D-1, R-2 Single-Family
+  Residence</strong>. Every yield number in Section 5 derives from this table.</p>
+
+  <h3>4.1 R-2 bulk and yard standards, 11-7D-1</h3>
+  <table>
+    <thead><tr><th style="width:38%">Standard</th><th>Requirement</th></tr></thead>
+    <tbody>
+      <tr><td>Minimum lot area</td><td><strong>12,000 sq ft</strong></td></tr>
+      <tr><td>Minimum lot width</td><td><strong>80 ft</strong></td></tr>
+      <tr><td>Minimum floor area per dwelling, one storey</td><td>1,100 sq ft on the ground floor</td></tr>
+      <tr><td>Minimum floor area per dwelling, more than one storey</td><td>850 sq ft ground floor and 1,100 sq ft all floors</td></tr>
+      <tr><td>Minimum floor area, split level</td><td>1,100 sq ft on the first two floors of living area</td></tr>
+      <tr class="hl"><td>Floor area ratio</td><td>not to exceed <strong>0.3</strong></td></tr>
+      <tr><td>Building height</td><td>not to exceed <strong>2.5 storeys or 30 ft</strong>, whichever is lower</td></tr>
+      <tr><td>Front yard</td><td>not less than <strong>40 ft</strong> in depth</td></tr>
+      <tr><td>Side yards</td><td>two side yards having a <strong>combined width of 20 ft</strong> and <strong>neither side yard less than 8 ft</strong> in width; a side yard abutting a street not less than 40 ft wide</td></tr>
+      <tr><td>Rear yard</td><td>not less than <strong>40 ft</strong> in depth</td></tr>
+    </tbody>
+  </table>
+
+  <h4>The FAR exclusion for enclosed parking, quoted carefully</h4>
+  <blockquote>
+    [The floor area calculation] shall not include the floor space devoted to enclosed off street parking and off
+    street loading areas to the extent that such areas total five hundred (500) square feet or less. Any floor space
+    devoted to enclosed off-street parking and off street loading area in excess of five hundred (500) square feet
+    shall be included in Floor Area Ratio calculation.
+    <span class="src">Bloomingdale Village Code, R-2 district, 11-7D-1</span>
+  </blockquote>
+
+  <div class="callout">
+    <h4>An ambiguity this report does not resolve</h4>
+    <p>That exclusion is written for a single-family lot, where there is one dwelling and one garage. <strong>Its
+    application to a multi-unit attached building is ambiguous.</strong> Whether the 500 sq ft allowance applies once
+    to the building or once per dwelling unit changes the floor area arithmetic materially for Scenarios B and C.
+    <strong>This report does not pick an interpretation.</strong> The question is put to the Village and carried as
+    open item OI-08. The Scenario C arithmetic in Section 5 does not depend on the more favourable reading.</p>
+  </div>
+
+  <h4>The Lake Street yard rule does not apply here</h4>
+  <p>The special 75 ft and 60 ft yard requirements at <strong>11-7D-1F4</strong> apply to lots fronting Lake Street,
+  Bloomingdale Road, Army Trail Road, Schmale Road, Gary Avenue and Schick Road. <strong>They do not apply to this
+  lot</strong>, which fronts First Street. This is stated explicitly because a reader who knows the corridor may
+  expect a 75 ft front yard to apply and conclude, wrongly, that the site is undevelopable. The governing front
+  yard here is the standard 40 ft.</p>
+
+  <div class="callout">
+    <h4>The site clears both R-2 lot minimums, but the area margin is thin</h4>
+    <p>Lot area 12,320 sq ft against a 12,000 sq ft minimum, a margin of <strong>320 sq ft, 2.7 percent</strong>.
+    Lot width 96.16 ft against an 80 ft minimum, a margin of 16.16 ft. The width margin is comfortable. The area
+    margin is not, and it is the single most survey-sensitive number in this report. See Scenario A and open item
+    OI-01.</p>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<!-- ===================== 8. ENVELOPE AND FAR ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Governing Standards</span></div>
+  <h3 style="margin-top:0">4.2 The buildable envelope, with the working shown</h3>
+
+  <p>The R-2 yards carve the buildable footprint out of the parcel. The depth of the parcel runs east from First
+  Street; the frontage runs north to south.</p>
+
+  <div class="calc">
+Buildable depth<br>
+&nbsp;&nbsp;128.1 ft parcel depth<br>
+&nbsp;&nbsp;-&nbsp;40.0 ft front yard&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(11-7D-1)<br>
+&nbsp;&nbsp;-&nbsp;40.0 ft rear yard&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(11-7D-1)<br>
+&nbsp;&nbsp;= <span class="r">48.1 ft</span><br><br>
+Buildable width<br>
+&nbsp;&nbsp;&nbsp;96.16 ft frontage<br>
+&nbsp;&nbsp;-&nbsp;20.00 ft combined side yards (11-7D-1)<br>
+&nbsp;&nbsp;= <span class="r">76.16 ft</span><br><br>
+Envelope footprint&nbsp;&nbsp;76.16 x 48.1 = <span class="r">about 3,663 sq ft</span>
+  </div>
+
+  <h3>4.3 The floor area cap, with the working shown</h3>
+  <div class="calc">
+FAR cap under R-2, 0.3 (11-7D-1)<br>
+&nbsp;&nbsp;0.3 x 12,320 sq ft = <span class="r">3,696 sq ft of floor area, all storeys</span><br>
+&nbsp;&nbsp;plus up to 500 sq ft of enclosed parking excluded, subject to OI-08
+  </div>
+
+  <div class="ans" style="margin-top:11pt">
+    <p><strong>FAR, not the setback envelope, is the binding constraint on this site.</strong> The floor area cap of
+    3,696 sq ft and the envelope footprint of 3,663 sq ft are within 1 percent of each other. A single-storey
+    building that fills the envelope has already consumed the entire floor area allowance. A second storey adds no
+    permitted floor area at 0.30; it only redistributes it. Every additional unit above three therefore has to be
+    unlocked by floor area relief, not by site planning.</p>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Governing Standards</span></div>
+  <h3 style="margin-top:0">4.4 Comparison districts, not currently applicable</h3>
+  <p>The two districts below govern nowhere on this parcel today. They are set out because 11-11-4D5 imports their
+  permitted uses into the Old Town Preservation District as special uses, and because their standards are the
+  reference points used in Scenarios B, C and D. <strong>Neither applies unless a special use permit adopts
+  it.</strong></p>
+
+  <table class="tight">
+    <thead><tr><th style="width:26%">Standard</th><th>R-3 General Residence, 11-7G-1 <span style="font-weight:400;text-transform:none;letter-spacing:0">(not applicable)</span></th><th>R-4 Multiple-Family, 11-7H-1 <span style="font-weight:400;text-transform:none;letter-spacing:0">(not applicable)</span></th></tr></thead>
+    <tbody>
+      <tr><td>Lot area</td><td><strong>8,000 sq ft per dwelling unit</strong> for attached dwellings (group, row and town houses); 12,000 sq ft single-family detached; 8,000 sq ft per unit two-family detached and semidetached</td><td><strong>2,800 sq ft per two-bedroom unit</strong>; 2,600 sq ft per one-bedroom unit</td></tr>
+      <tr><td>Lot width</td><td>80 ft single-family and two-family detached; <strong>90 ft</strong> semidetached, attached and multiple-family</td><td>not less than <strong>100 ft</strong></td></tr>
+      <tr><td>Minimum floor area</td><td>Two-family semidetached, more than one storey: 600 sq ft ground floor and <strong>1,200 sq ft all floors per unit</strong></td><td>Efficiency (special use) 500 sq ft; one bedroom 650 sq ft; two bedroom 850 sq ft; three bedroom (special use) 1,050 sq ft</td></tr>
+      <tr><td>Floor area ratio</td><td><strong>not to exceed 0.4</strong></td><td><strong>not to exceed 0.4</strong></td></tr>
+      <tr><td>Height</td><td>2.5 storeys or 30 ft, whichever is lower; special uses 3 storeys or 35 ft</td><td>2.5 storeys or 30 ft; special uses 6.5 storeys or 65 ft</td></tr>
+      <tr><td>Yards</td><td>Same as the R-2 district</td><td>Same as the R-2 district</td></tr>
+      <tr><td>Other</td><td>Efficiency dwelling units not permitted</td><td>Building spacing 50 ft front wall opposite front or rear wall, 40 ft rear to rear, 20 ft side to side, 30 ft side opposite front or rear. Bedrooms per unit shall not exceed two, except under special uses</td></tr>
+      <tr><td>Use definition</td><td></td><td><strong>11-7H-2:</strong> "Multiple-family dwellings, provided such dwellings contain five (5) or more dwelling units."</td></tr>
+    </tbody>
+  </table>
+
+  <p class="sm"><strong>Two figures in this table do the heavy lifting later.</strong> The <strong>R-4 lot area of
+  2,800 sq ft per two-bedroom unit</strong> is the density standard that Chapter 18 then permits to be reduced, and
+  it is the basis of the yield ceiling in Section 5. The <strong>1,200 sq ft per-unit floor area minimum</strong> in
+  R-3 is what sizes the units in Scenario B. Neither district's FAR of 0.4 is available on this site: as Section 4.6
+  shows, the planned development route caps floor area ratio at 0.39, below both.</p>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<!-- ===================== 8B. CHAPTER 18 PLANNED DEVELOPMENTS ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Governing Standards</span></div>
+  <h3 style="margin-top:0">4.6 Planned developments, Title 11 Chapter 18: the relief, and where it stops</h3>
+
+  <p>Planned developments are a permitted special use in the Old Town Preservation District under
+  <strong>11-11-4D5</strong>, and Chapter 18 governs them. The chapter matters twice over: it makes any yield above
+  three units possible, and it puts an absolute ceiling on it.</p>
+
+  <p><strong>11-18-3</strong> provides that the Planning and Zoning Commission may recommend, and the Village Board
+  may authorize, exceptions to the applicable regulations of Title 11 within the boundaries of such a development,
+  on the evidence set out in the subsections that follow. <strong>11-18-3A</strong> requires the exception to be
+  solely for the purpose of encouraging a desirable living environment no less beneficial to the residents or
+  occupants of the development, and of neighbouring properties, than would be obtained under the bulk regulations
+  of Title 11 for buildings developed on separate zoning lots.</p>
+
+  <blockquote>
+    That maximum parcel coverage in a residential planned development shall not exceed twenty five percent (25%) in
+    the residential zoning districts.
+    <span class="src">Bloomingdale Village Code, 11-18-3B</span>
+  </blockquote>
+
+  <blockquote>
+    In no event shall the floor area ratio exceed more than thirty percent (30%) over that prescribed in this title
+    for the district in which it is located.
+    <span class="src">Bloomingdale Village Code, 11-18-3C1</span>
+  </blockquote>
+
+  <blockquote>
+    In no event shall the minimum square footage per dwelling unit requirements applicable to such districts be
+    decreased by more than ten percent (10%). A further decrease of not more than ten percent (10%) on the already
+    reduced square footage per dwelling unit may be permitted in the event that parking facilities are provided
+    either underground or in the building proper, i.e., for each underground or on building parking space, an
+    equivalent reduction may be permitted to the allowable limit of ten percent (10%).
+    <span class="src">Bloomingdale Village Code, 11-18-3C2</span>
+  </blockquote>
+
+  <p><strong>11-18-3C</strong> further provides that other standards for density, yard regulations, parking, loading
+  and screening for a planned development "shall be governed by the standards of the residential, business or
+  manufacturing zoning district(s) most similar in nature and function to the proposed planned development as
+  determined by the village board." That sentence is the hinge of the whole yield calculation, and Section 5 returns
+  to it.</p>
+
+  <h4>What the three caps produce on this parcel</h4>
+  <div class="calc">
+Maximum floor area ratio&nbsp;&nbsp;0.30 x 1.30 = <span class="r">0.39</span>&nbsp;&nbsp;(11-18-3C1)<br>
+&nbsp;&nbsp;0.39 x 12,320 = <span class="r">4,805 sq ft of floor area</span><br><br>
+Maximum parcel coverage&nbsp;&nbsp;25% x 12,320 = <span class="r">3,080 sq ft of building footprint</span>&nbsp;&nbsp;(11-18-3B)<br><br>
+Maximum density reduction, 20% compounded&nbsp;&nbsp;(11-18-3C2)<br>
+&nbsp;&nbsp;R-4 two-bedroom&nbsp;&nbsp;2,800 x 0.9 = 2,520, x 0.9 = <span class="r">2,268 sq ft per unit</span><br>
+&nbsp;&nbsp;R-4 one-bedroom&nbsp;&nbsp;2,600 x 0.9 = 2,340, x 0.9 = <span class="r">2,106 sq ft per unit</span><br>
+&nbsp;&nbsp;the second 10% is claimed on the basis of parking in the building proper,<br>
+&nbsp;&nbsp;which here means the four attached garages. See OI-15.
+  </div>
+
+  <div class="callout">
+    <h4>Two things a reader will assume, and should not</h4>
+    <p><strong>There is no minimum site area for a planned development in Chapter 18.</strong> A 0.28 acre planned
+    development is therefore not excluded by size, and the usual assumption that a planned development needs acreage
+    does not hold here.</p>
+    <p style="margin-bottom:0"><strong>The relief is capped, not negotiable.</strong> 11-18-3C1 and 11-18-3C2 both
+    use the words "in no event". A floor area ratio of 0.40, the figure R-3 and R-4 apply in their own districts,
+    is <strong>not available through a planned development on an R-2 base</strong>, because 0.39 is the arithmetic
+    limit. Any concept needing more than 0.39 has no route through this chapter.</p>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<!-- ===================== 9. PARKING ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Governing Standards</span></div>
+  <h3 style="margin-top:0">4.5 Parking standards, 11-13-4-2 and related</h3>
+
+  <p>Two rows of the residential parking table could be read as applying to an attached townhome. They do not give
+  the same answer, and the difference is not trivial, so both are set out here with the choice explained.</p>
+
+  <h4>Row 1: dwelling single-family attached; dwelling 2 units; dwelling 3 units; mobile home parks; quadraplexes</h4>
+  <blockquote>2, to be located on the lot, plus 2.5 per each dwelling unit for guest parking<span class="src">Bloomingdale Village Code, 11-13-4-2</span></blockquote>
+
+  <h4>Row 2: multiple-family dwellings, 2 or more stories</h4>
+  <blockquote>
+    2 per dwelling unit for all units with less than 3 bedrooms, with 1 to be located indoors; 2.5 per dwelling unit
+    for all units with 3 or more bedrooms, with 1 to be located indoors. Additionally, guest parking spaces shall be
+    provided for all multiple-family dwellings at a ratio of not less than 1 space for every 4 units. The location of
+    said guest parking spaces shall be convenient to major ingress and egress points of the building(s)... Said guest
+    spaces shall be available for guest use at all times and shall not be sold or leased to individual unit owners or
+    occupants
+    <span class="src">Bloomingdale Village Code, 11-13-4-2</span>
+  </blockquote>
+
+  <div class="callout">
+    <h4>Which row this report uses, and why</h4>
+    <p>Row 1 as printed reads "2 ... plus 2.5 per each dwelling unit for guest parking", which would total
+    <strong>4.5 spaces per unit</strong>, of which 2.5 per unit would be guest parking. That is anomalous on its
+    face: a guest ratio higher than the resident ratio is not a normal parking standard, and it is flagged here
+    rather than applied silently. <strong>This report uses Row 2, the multiple-family row, for the townhome
+    calculation</strong>, because it produces the conventional and more defensible result of 2 spaces per unit with
+    one indoors plus 1 guest space per 4 units, and because it is internally consistent. <strong>The reading of Row
+    1 must be confirmed with the Village</strong> and is carried as open item OI-07. If the Village applies Row 1 as
+    printed, the parking demand for a four-unit scheme rises to 18 spaces, which the site cannot accommodate, and
+    that would itself become a relief item.</p>
+  </div>
+
+  <h4>Other parking provisions retrieved</h4>
+  <ul class="sm">
+    <li><strong>Fractional spaces.</strong> A fraction of one-half or less may be disregarded; a fraction over
+    one-half counts as one space.</li>
+    <li><strong>Driveway width.</strong> "No driveway across public property in a residential use area shall have a
+    width exceeding thirty six feet (36'), exclusive of curb returns." This governs the curb cut decision in
+    Section 6.</li>
+    <li><strong>Access surface.</strong> A parking area containing four or more spaces must have access over a
+    street, alley or driveway with all weather hard surfaced pavement, and the location and route of access must be
+    identified.</li>
+    <li><strong>Landscaping.</strong> In a residential use area, the perimeters of all open parking lots containing
+    more than four spaces shall be effectively landscaped.</li>
+    <li><strong>Pavement section.</strong> Open off street parking areas other than those accessory to
+    single-family dwellings must be a compacted macadam base not less than 4 inches thick, surfaced with asphaltic
+    concrete or approved equal.</li>
+  </ul>
+
+  <h4>Dimensional criteria used on the site plan</h4>
+  <table class="tight">
+    <thead><tr><th>Element</th><th class="n">Dimension</th><th>Basis</th></tr></thead>
+    <tbody>
+      <tr><td>Parking stall</td><td class="n">9 ft x 18 ft</td><td>Project design criteria</td></tr>
+      <tr><td>Drive aisle</td><td class="n">24 ft</td><td>Project design criteria</td></tr>
+    </tbody>
+  </table>
+
+  <p class="sm"><strong>Not established, and not invented.</strong> Whether a garage space and a driveway apron each
+  count toward the requirement, and any minimum garage or driveway dimensions, were not found in the retrieved code.
+  The site plan therefore shows garages and aprons without asserting a dimensional standard for them, and the
+  question is carried as open item OI-07.</p>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+<!-- ===================== 10. SCENARIOS A AND B ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Yield Scenarios</span></div>
+  <h2><span class="num">5</span>Yield scenarios</h2>
+
+  <p>Six scenarios are tested against the standards in Section 4 and the geometry in Section 3. The arithmetic is
+  shown for each so a reviewer can check it rather than accept it. Scenarios C, D and F all run through Chapter 18
+  and are bounded by the caps in Section 4.6. Scenario C is drawn as <strong>Exhibit 1</strong> and Scenario F as
+  <strong>Exhibit 2</strong>.</p>
+
+  <h3>5.1 Built form does not change the unit ceiling</h3>
+
+  <div class="ans">
+    <p><strong>Connecting units, sharing walls or stacking flats does not produce more of them.</strong> This is the
+    single most likely misconception to bring to this page, so it is disposed of before the scenarios begin.</p>
+  </div>
+
+  <ul>
+    <li><strong>The binding standard is a land standard.</strong> <strong>11-7H-1A</strong> expresses R-4 density as
+    <strong>lot area per dwelling unit</strong>. It is a requirement about ground, not about geometry, and it is
+    indifferent to whether units sit side by side, stack vertically, or share party walls.</li>
+    <li><strong>The townhome scheme already shares party walls, with no gaps.</strong> Four units at 19.04 ft across
+    a 76.16 ft buildable width is <strong>76.16 ft exactly</strong>. There are no side yards between attached
+    units; the 20 ft combined side yard requirement applies only at the two ends of the row, against the
+    neighbouring properties north and south.</li>
+    <li><strong>So there is no space between units to remove</strong>, and removing it would gain nothing.</li>
+    <li><strong>Five units is the ceiling under every built form.</strong> The only route past it is more land.</li>
+  </ul>
+
+  <p class="sm">What built form does change is whether the ceiling can actually be reached, and at what unit size.
+  That is the real subject of Scenarios D and F, and of the comparison in Section 7.</p>
+
+  <div class="scenario first">
+    <div class="stag">Scenario A</div>
+    <h3>One single-family home, by right</h3>
+
+    <p>The lot passes both R-2 minimums: <strong>12,320 sq ft against a 12,000 sq ft minimum</strong>, and
+    <strong>96.16 ft width against an 80 ft minimum</strong> (11-7D-1). Under <strong>11-11-4B2</strong> new
+    single-family residential construction does not require a special use permit, provided the property is properly
+    zoned. Review is an administrative Old Town compatibility review by the Building and Zoning Official.
+    <strong>There is no public hearing on this path.</strong></p>
+
+    <div class="calc">
+Permitted floor area&nbsp;&nbsp;0.3 x 12,320 = <span class="r">3,696 sq ft</span>, all storeys<br>
+Height&nbsp;&nbsp;2.5 storeys or 30 ft, whichever is lower<br>
+Enclosed garage&nbsp;&nbsp;up to 500 sq ft excluded from FAR (11-7D-1)
+    </div>
+
+    <div class="callout">
+      <h4>The risk that sits under this scenario</h4>
+      <p>The lot exceeds the 12,000 sq ft minimum by only <strong>320 sq ft, 2.7 percent</strong>. A boundary survey
+      that measures marginally less than the cadastral polygon, or any right of way dedication required at
+      permitting, could drop the lot below the R-2 minimum and destroy the by-right position entirely. The by-right
+      status is therefore <strong>provisional until confirmed by survey</strong>. This is not a theoretical concern
+      on a lot whose deed runs to the street centreline while the polygon is clipped at the right of way line.</p>
+    </div>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Yield Scenarios</span></div>
+  <div class="scenario first">
+    <div class="stag">Scenario B</div>
+    <h3>Three attached townhomes, special use, R-2 bulk retained</h3>
+
+    <p>This scenario requires a special use permit. <strong>11-11-4D5</strong> makes the permitted uses of R-3 and
+    R-4 available as special uses within the Old Town Preservation District, so attached housing is reachable
+    without changing the base district. The R-2 bulk standards are retained in full: <strong>no numeric relief is
+    requested.</strong></p>
+
+    <div class="calc">
+Floor area cap&nbsp;&nbsp;0.3 x 12,320 = <span class="r">3,696 sq ft</span><br>
+Minimum floor area per attached unit, R-3 reference&nbsp;&nbsp;1,200 sq ft (11-7G-1)<br>
+Unit count&nbsp;&nbsp;3,696 / 1,200 = 3.08&nbsp;&nbsp;-&gt;&nbsp;&nbsp;<span class="r">3 units</span><br><br>
+Check against the cap&nbsp;&nbsp;3 x 1,200 = 3,600 sq ft, within 3,696 sq ft&nbsp;&nbsp;<span class="r">OK</span><br>
+Footprint at two storeys&nbsp;&nbsp;3,600 / 2 = 1,800 sq ft, within the 3,663 sq ft envelope&nbsp;&nbsp;<span class="r">OK</span><br>
+Unit width&nbsp;&nbsp;76.16 / 3 = <span class="r">about 25.4 ft per unit</span><br><br>
+Parking (11-13-4-2, multiple-family row)<br>
+&nbsp;&nbsp;3 units x 2 spaces = 6, one per unit indoors<br>
+&nbsp;&nbsp;guest at 1 per 4 units&nbsp;&nbsp;=&nbsp;1&nbsp;&nbsp;(0.75 rounds up, fraction over one-half)<br>
+&nbsp;&nbsp;total = <span class="r">7 spaces</span>
+    </div>
+
+    <p><strong>This is the highest yield reachable without asking the Village to vary a standard.</strong> If the
+    client's priority is certainty of approval over unit count, Scenario B is the position to take, because the only
+    discretionary question at the hearing is the use, not the numbers.</p>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<!-- ===================== 11. SCENARIO C ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Yield Scenarios</span></div>
+
+  <div class="scenario first">
+    <div class="stag">Scenario C &nbsp;&#183;&nbsp; Exhibit 1</div>
+    <h3>Four attached townhomes, planned development special use</h3>
+
+    <p><strong>The mechanism.</strong> A <strong>planned development</strong> is an expressly permitted special use
+    in the Old Town Preservation District under <strong>11-11-4D5</strong>, and Chapter 18 governs it. That is the
+    vehicle: it carries the bulk exceptions inside the approval rather than alongside it, and 11-18-3 provides for
+    the Planning and Zoning Commission to recommend and the Village Board to authorize exceptions to the applicable
+    regulations of Title 11 within the boundaries of the development. The concept is designed to sit
+    <strong>inside every cap that chapter imposes</strong>, not against them.</p>
+
+    <div class="calc">
+Floor area at the chapter maximum FAR 0.39&nbsp;&nbsp;(11-18-3C1)<br>
+&nbsp;&nbsp;0.39 x 12,320 = <span class="r">4,805 sq ft</span><br>
+Floor area per unit&nbsp;&nbsp;4,805 / 4 = <span class="r">about 1,201 sq ft per unit</span><br><br>
+Unit width&nbsp;&nbsp;76.16 buildable width / 4 = <span class="r">19.04 ft per unit</span><br>
+Unit depth&nbsp;&nbsp;<span class="r">31.5 ft</span><br>
+Footprint per unit&nbsp;&nbsp;19.04 x 31.5 = <span class="r">600 sq ft</span><br>
+Total footprint&nbsp;&nbsp;4 x 600 = <span class="r">2,402 sq ft</span><br><br>
+CHECK, parcel coverage (11-18-3B, max 25%)<br>
+&nbsp;&nbsp;2,402 / 12,320 = <span class="r">19.5 percent</span>, against the 3,080 sq ft cap&nbsp;&nbsp;<span class="r">OK</span><br>
+CHECK, buildable envelope&nbsp;&nbsp;2,402 within 3,663 sq ft&nbsp;&nbsp;<span class="r">OK</span><br>
+CHECK, density (11-18-3C2 reduced R-4 two-bedroom, 2,268 sq ft per unit)<br>
+&nbsp;&nbsp;4 x 2,268 = 9,072 sq ft required, against 12,320 available&nbsp;&nbsp;<span class="r">OK</span><br>
+CHECK, height&nbsp;&nbsp;2 storeys, within 2.5 storeys and 30 ft (11-7D-1)&nbsp;&nbsp;<span class="r">OK</span><br><br>
+Yards&nbsp;&nbsp;front 42 ft, rear 54.6 ft, sides 10 ft and 10 ft<br>
+Depth closure&nbsp;&nbsp;42 + 31.5 + 54.6 = <span class="r">128.1 ft</span>&nbsp;&nbsp;OK<br>
+Width closure&nbsp;&nbsp;10 + 76.16 + 10 = <span class="r">96.16 ft</span>&nbsp;&nbsp;OK<br><br>
+Parking (11-13-4-2, multiple-family row)<br>
+&nbsp;&nbsp;4 units x 2 spaces = 8, one per unit indoors in an attached garage<br>
+&nbsp;&nbsp;guest at 1 per 4 units&nbsp;&nbsp;=&nbsp;1<br>
+&nbsp;&nbsp;total = <span class="r">9 spaces</span>
+    </div>
+
+    <div class="ans">
+      <p><strong>The risk that governs this scenario: which district the Village Board deems "most similar in nature
+      and function".</strong> Under <strong>11-18-3C</strong> the density standard for a planned development is
+      taken from the zoning district the Village Board determines is most similar in nature and function to the
+      proposed development. This analysis assumes that district is <strong>R-4</strong>, whose two-bedroom standard
+      of 2,800 sq ft per unit reduces to 2,268 sq ft per unit under 11-18-3C2. <strong>If the Board names R-3
+      instead</strong>, whose attached dwelling standard is 8,000 sq ft per unit, then even with the full 20 percent
+      reduction the figure is <strong>6,400 sq ft per unit and the yield falls to one unit.</strong> That is not a
+      marginal difference; it is the difference between a four-unit scheme and a single house. <strong>This is the
+      single largest open risk in the analysis</strong> (OI-14), and it should be settled at the tentative approval
+      stage under 11-18-4A, before any design expense is incurred.</p>
+    </div>
+
+  </div>
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Yield Scenarios</span></div>
+  <div class="scenario first">
+    <div class="stag">Scenario C &nbsp;&#183;&nbsp; Exhibit 1, continued</div>
+    <h4 style="margin-top:4pt">Items requiring relief or confirmation, listed honestly</h4>
+    <ol>
+      <li><strong>Floor area ratio, 0.30 to 0.39.</strong> Sought under 11-18-3C1. Note that 0.39 is the chapter's
+      absolute ceiling, so the scheme has no headroom above it. 0.40, the figure R-3 and R-4 apply in their own
+      districts, is not reachable through Chapter 18 on an R-2 base.</li>
+      <li><strong>Density.</strong> Depends on the R-4 determination above and on the reduced figure of 2,268 sq ft
+      per unit (OI-14).</li>
+      <li><strong>The second 10 percent density reduction.</strong> It is claimed on the basis of parking provided
+      in the building proper, which here means the four attached garages. Whether attached garages qualify for that
+      purpose under 11-18-3C2 is not established and is carried as OI-15. Without it the figure is 2,520 sq ft per
+      unit rather than 2,268.</li>
+      <li><strong>Lot width.</strong> If R-4 standards are applied, the <strong>100 ft minimum lot width</strong>
+      (11-7H-1) exceeds the site's 96.16 ft by <strong>3.84 ft</strong> and would itself need relief. R-3's
+      attached-dwelling width standard of 90 ft would not.</li>
+      <li><strong>R-4's own use definition does not fit four units.</strong> <strong>11-7H-2</strong> requires a
+      multiple-family dwelling to contain <strong>five or more dwelling units</strong>, so a four-unit building does
+      not qualify as an R-4 multiple-family dwelling even where R-4 supplies the density standard. It should be
+      pursued as an attached or townhome form, within the planned development. At five units, Scenario D, that
+      requirement is met on its own terms.</li>
+      <li><strong>Per-unit floor area.</strong> At 1,201 sq ft the units clear the R-3 attached-dwelling minimum of
+      1,200 sq ft by 1 sq ft. That margin has no depth in it, and which per-unit floor area minimum applies follows
+      from the same determination as OI-14.</li>
+      <li><strong>The R-2 FAR garage exclusion.</strong> Whether the 500 sq ft enclosed parking exclusion applies
+      once to the building or once per unit is unresolved (OI-08). The arithmetic above does not rely on it.</li>
+    </ol>
+
+    <p class="sm">Scenario C is drawn at full dimension in <strong>Exhibit 1</strong>. Scenario F, the five-unit apartment building, is drawn at the same standard in <strong>Exhibit 2</strong>, and Section 7 sets the two side by side.</p>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<!-- ===================== 12. SCENARIO D AND SUMMARY ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Yield Scenarios</span></div>
+
+  <div class="scenario first">
+    <div class="stag">Scenario D</div>
+    <h3>Five attached townhomes: the legal ceiling, tested in townhome form</h3>
+
+    <p>Five is the largest number of dwelling units obtainable on this parcel under Bloomingdale's code. It is
+    reached by taking every reduction Chapter 18 allows, at its limit, and it cannot be exceeded, because both
+    governing subsections use the words <strong>"in no event"</strong>.</p>
+
+    <div class="calc">
+Reduced density, R-4 two-bedroom (11-18-3C2)&nbsp;&nbsp;2,268 sq ft per unit<br>
+&nbsp;&nbsp;12,320 / 2,268 = 5.43&nbsp;&nbsp;-&gt;&nbsp;&nbsp;<span class="r">5 units</span><br>
+Reduced density, R-4 one-bedroom&nbsp;&nbsp;2,106 sq ft per unit<br>
+&nbsp;&nbsp;12,320 / 2,106 = 5.85&nbsp;&nbsp;-&gt;&nbsp;&nbsp;<span class="r">5 units</span><br><br>
+Why 6 is unreachable either way<br>
+&nbsp;&nbsp;two-bedroom&nbsp;&nbsp;6 x 2,268 = 13,608 sq ft, <span class="r">1,288 sq ft more land than exists</span><br>
+&nbsp;&nbsp;one-bedroom&nbsp;&nbsp;6 x 2,106 = 12,636 sq ft, <span class="r">316 sq ft more land than exists</span><br>
+&nbsp;&nbsp;the one-bedroom shortfall is only 2.5 percent, which is one more reason<br>
+&nbsp;&nbsp;the boundary survey matters (OI-01)<br><br>
+Floor area at the FAR ceiling&nbsp;&nbsp;4,805 / 5 = <span class="r">961 sq ft per unit</span><br>
+&nbsp;&nbsp;below the 1,200 sq ft R-3 attached-dwelling minimum, so which per-unit<br>
+&nbsp;&nbsp;floor area minimum applies becomes decisive at five units (OI-14)
+    </div>
+
+    <h4>Two routes that look like they might open a sixth unit, and do not</h4>
+    <ul>
+      <li><strong>Efficiency units.</strong> <strong>11-7H-3</strong> allows one efficiency unit for each ten units.
+      At this scale the allowance is zero, so efficiencies open no path.</li>
+      <li><strong>R-5.</strong> <strong>11-11-4D5</strong> imports the permitted uses of R-1, R-2, R-2B, R-2C, R-3
+      and R-4 only. R-5 is not on that list and is not available in the Old Town Preservation District.</li>
+    </ul>
+
+    <div class="ans">
+      <p><strong>Five dwelling units is the maximum obtainable on this parcel under Bloomingdale's code, and it is a
+      hard ceiling</strong>, because 11-18-3C1 and 11-18-3C2 both say "in no event". One useful consequence at
+      exactly five units: R-4's own use definition at 11-7H-2 requires a multiple-family dwelling to contain five or
+      more dwelling units, so at five that requirement is satisfied on its own terms and the contradiction noted for
+      a four-unit scheme in Scenario C disappears.</p>
+    </div>
+
+    <h4>Why the townhome form stops at four</h4>
+    <div class="calc">
+Buildable width after the R-2 side yards&nbsp;&nbsp;76.16 ft<br>
+&nbsp;&nbsp;at 4 units&nbsp;&nbsp;76.16 / 4 = <span class="r">19.04 ft per unit</span><br>
+&nbsp;&nbsp;at 5 units&nbsp;&nbsp;76.16 / 5 = <span class="r">15.23 ft per unit</span><br>
+&nbsp;&nbsp;at 5 units with side yards excepted to the 8 ft minimum under 11-18-3C<br>
+&nbsp;&nbsp;&nbsp;&nbsp;96.16 - 16 = 80.16 ft&nbsp;&nbsp;/ 5 = <span class="r">16.03 ft per unit</span>
+    </div>
+    <p>A 15 to 16 ft wide townhome is below a workable width once a garage door, structure and a stair are
+    accommodated, and it must pass Old Town design review for compatibility under 11-11-5A1, which is the review
+    least likely to accept it. <strong>Five units is the legal ceiling. In townhome form the practical maximum is
+    four.</strong> The ceiling is reachable in a different built form, which is Scenario F, and that is the trade
+    off Section 7 sets out.</p>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<!-- ===================== 12B. SCENARIO E AND SUMMARY ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Yield Scenarios</span></div>
+
+  <div class="scenario first">
+    <div class="stag">Scenario E</div>
+    <h3>The 10-unit target. Not achievable, and here is by how much</h3>
+
+    <p>The unit target of 10 recorded in the planning ledger is <strong>the minimum value the planning tool's schema
+    accepts, not a site-derived target</strong>. It was entered as a probe, and it is answered here without hedging.
+    The fairest test is the Chapter 18 reduced density, because that is the best case available to the site rather
+    than a strawman.</p>
+
+    <div class="calc">
+Against the most permissive reduced density the code allows<br>
+&nbsp;&nbsp;2,268 sq ft per unit (11-18-3C2, R-4 two-bedroom, 20% reduction)<br>
+&nbsp;&nbsp;10 x 2,268 = <span class="r">22,680 sq ft required</span> against 12,320 sq ft available<br>
+&nbsp;&nbsp;22,680 / 12,320 = <span class="r">the site is 1.84 times too small, at maximum relief</span><br><br>
+Against R-3 attached dwellings, unreduced<br>
+&nbsp;&nbsp;8,000 sq ft per unit (11-7G-1)<br>
+&nbsp;&nbsp;10 x 8,000 = 80,000 sq ft required = <span class="r">6.5 times the parcel</span><br><br>
+Against the R-2 floor area allowance<br>
+&nbsp;&nbsp;3,696 sq ft / 10 units = <span class="r">370 sq ft average per unit</span><br>
+&nbsp;&nbsp;below every minimum floor area standard in the code, including the<br>
+&nbsp;&nbsp;500 sq ft efficiency minimum, which is itself only available by special use<br><br>
+Implied density&nbsp;&nbsp;10 units on 12,320 sq ft = <span class="r">35.4 dwelling units per acre</span>
+    </div>
+
+    <div class="ans">
+      <p><strong>Ten units cannot be delivered on this parcel under any combination of Bloomingdale standards.</strong>
+      Even after every reduction Chapter 18 permits, applied at its limit, the site is <strong>1.84 times too
+      small</strong>. Setting density aside entirely, the floor area allowance produces units below the smallest
+      dwelling the code recognises. The target came from the planning tool's schema minimum, not from the site, and
+      it should be retired rather than designed against.</p>
+    </div>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+<!-- ===================== 13. RECOMMENDED CONCEPT ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Recommended Concept</span></div>
+  <h2><span class="num">6</span>The two concepts</h2>
+
+  <p>Two concepts are carried forward and drawn at the same standard. <strong>Concept 1</strong> is Scenario C,
+  a single row of four attached townhomes set parallel to First Street, with a private driveway and attached garage
+  for every unit; it is drawn as <strong>Exhibit 1</strong>. <strong>Concept 2</strong> is Scenario F, one building
+  of five one-bedroom apartments over a shared parking court; it is drawn as <strong>Exhibit 2</strong>. Both keep
+  all vehicular movement in front of the building and the entire rear of the site clear. This section explains why
+  each plan takes the form it does; Section 7 compares them.</p>
+
+  <h3>6.1 Concept 1, four attached townhomes: the layout, west to east</h3>
+  <table class="tight">
+    <thead><tr><th style="width:26%">Zone</th><th class="n" style="width:16%">Dimension</th><th>Note</th></tr></thead>
+    <tbody>
+      <tr><td>First Street right of way</td><td class="n">about 57.5 ft</td><td>Outside the parcel. Derived, not platted. Centreline shown on the plan</td></tr>
+      <tr><td>Front yard</td><td class="n">42 ft</td><td>Exceeds the 40 ft R-2 minimum (11-7D-1). Contains the drive aisle and the four driveway aprons</td></tr>
+      <tr><td class="muted" style="padding-left:16pt">of which drive aisle</td><td class="n">24 ft</td><td>Running north to south inside the front yard. Matches the project design criterion</td></tr>
+      <tr><td class="muted" style="padding-left:16pt">of which driveway aprons</td><td class="n">18 ft deep</td><td>One per unit, between the aisle and each garage door. Matches the 18 ft stall length criterion</td></tr>
+      <tr class="hl"><td>Building</td><td class="n">31.5 ft deep</td><td>4 attached units, each 19.04 ft wide, 2 storeys, within the 30 ft height limit</td></tr>
+      <tr><td>Rear yard</td><td class="n">54.6 ft</td><td>Far exceeds the 40 ft minimum. Underground detention reserve and open space</td></tr>
+      <tr><td>North side yard</td><td class="n">10 ft</td><td rowspan="2">Combined 20 ft, neither below 8 ft (11-7D-1)</td></tr>
+      <tr><td>South side yard</td><td class="n">10 ft</td></tr>
+    </tbody>
+  </table>
+
+  <div class="calc" style="margin-top:2pt">
+Closure check, depth&nbsp;&nbsp;&nbsp;42 + 31.5 + 54.6&nbsp;&nbsp;= <span class="r">128.1 ft</span>&nbsp;&nbsp;OK<br>
+Closure check, width&nbsp;&nbsp;&nbsp;10 + 76.16 + 10&nbsp;&nbsp;&nbsp;= <span class="r">96.16 ft</span>&nbsp;&nbsp;OK<br>
+Parcel coverage&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2,402 / 12,320&nbsp;&nbsp;&nbsp;= <span class="r">19.5 percent</span>, within the 25 percent cap (11-18-3B)
+  </div>
+
+  <h3>6.2 Concept 1 access: one curb cut, four private driveways</h3>
+  <p>Each of the four townhomes has <strong>its own private driveway apron leading to its own attached
+  garage</strong>. Those four aprons are fed by a <strong>single 24 ft curb cut</strong> from First Street into a
+  <strong>24 ft shared drive aisle</strong> running north to south inside the front yard.</p>
+
+  <div class="callout">
+    <h4>Why one curb cut rather than four</h4>
+    <p>Section 11-13-4-2 provides that "No driveway across public property in a residential use area shall have a
+    width exceeding thirty six feet (36'), exclusive of curb returns." A single 24 ft curb cut sits clearly inside
+    that limit. Four separate driveways cut directly to the street at 12 ft each would total <strong>48 ft</strong>
+    of driveway across public property and put the plan at risk under that rule. The shared aisle also keeps the
+    number of conflict points on First Street to one, and leaves the frontage available for the picket fence
+    required by 11-11-8A.</p>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<!-- ===================== SCENARIO F ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Yield Scenarios</span></div>
+
+  <div class="scenario first">
+    <div class="stag">Scenario F &nbsp;&#183;&nbsp; Exhibit 2</div>
+    <h3>Five one-bedroom apartments in a single building</h3>
+
+    <p>Scenarios B, C and D all assume a row of attached townhomes. Scenario F builds the same site as
+    <strong>one connected structure</strong>. As Section 5.1 establishes, that does not raise the ceiling: five
+    units remains the maximum under every built form. What it changes is whether the ceiling can be reached, and
+    what it costs in unit size.</p>
+
+    <h4>What the single-building form buys</h4>
+    <ol>
+      <li><strong>It largely settles OI-14, the largest risk in this report.</strong> <strong>11-18-3C</strong>
+      makes density follow the district "most similar in nature and function ... as determined by the village
+      board". <strong>11-7H-2</strong> defines the R-4 permitted use as "Multiple-family dwellings, provided such
+      dwellings contain five (5) or more dwelling units." A single five-unit building is therefore
+      <strong>literally an R-4 permitted use</strong>, and <strong>11-11-4D5</strong> imports the R-4 permitted uses
+      into the Old Town Preservation District as special uses. A townhome row instead invites the R-3
+      characterisation of "attached dwellings (group, row and town houses)" at <strong>8,000 sq ft per unit</strong>,
+      which would collapse the yield to one unit.</li>
+
+      <li><strong>It makes five units physically buildable.</strong> Five townhomes would be
+      <strong>15.23 ft wide</strong>, or 16.03 ft even with the side yards cut to the 8 ft minimum. In an apartment
+      building unit width is not set by the buildable width at all, because units stack and share circulation.</li>
+
+      <li><strong>Building spacing never engages.</strong> <strong>11-7H-1H</strong> sets minimum spacing between
+      buildings, 50 ft front wall opposite front or rear wall, 40 ft rear to rear, 20 ft side to side and 30 ft side
+      opposite front or rear. With a single structure there is no second building to space from.</li>
+    </ol>
+
+    <div class="callout" style="margin-bottom:0">
+      <h4>Read this directly against OI-14</h4>
+      <p>OI-14 asks which district the Village Board deems most similar in nature and function under 11-18-3C, and
+      records that an R-3 answer reduces the yield to one unit. <strong>The apartment form materially lowers that
+      risk</strong>, because the building satisfies the R-4 use definition at 11-7H-2 on its face rather than by
+      argument. It does not eliminate it: the determination still belongs to the Village Board, and OI-14 stays
+      open until it is made.</p>
+    </div>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Yield Scenarios</span></div>
+
+  <div class="scenario first">
+    <div class="stag">Scenario F &nbsp;&#183;&nbsp; Exhibit 2, continued</div>
+    <h4 style="margin-top:4pt">The unit size squeeze, and a hard finding</h4>
+
+    <p>Five indoor parking spaces are not optional. <strong>11-13-4-2</strong> requires 2 spaces per unit for units
+    of fewer than three bedrooms, <strong>with 1 to be located indoors</strong>. Those bays, and the circulation a
+    stacked building needs, come out of the same fixed floor area allowance as the dwellings.</p>
+
+    <div class="calc">
+Floor area at the FAR 0.39 ceiling&nbsp;&nbsp;<span class="r">4,805 sq ft</span><br>
+&nbsp;&nbsp;less 5 garage bays at roughly 11 ft x 20 ft&nbsp;&nbsp;<span class="r">about 1,100 sq ft</span><br>
+&nbsp;&nbsp;less lobby, stair and circulation&nbsp;&nbsp;<span class="r">about 300 sq ft</span><br>
+Net living area&nbsp;&nbsp;4,805 - 1,100 - 300 = <span class="r">about 3,405 sq ft</span><br>
+Per unit&nbsp;&nbsp;3,405 / 5 = <span class="r">about 680 sq ft per unit</span><br><br>
+R-4 minimum floor areas (11-7H-1C)<br>
+&nbsp;&nbsp;one bedroom&nbsp;&nbsp;<span class="r">650 sq ft</span>&nbsp;&nbsp;-&gt;&nbsp;&nbsp;680 clears<br>
+&nbsp;&nbsp;two bedroom&nbsp;&nbsp;<span class="r">850 sq ft</span>&nbsp;&nbsp;-&gt;&nbsp;&nbsp;680 does not
+    </div>
+
+    <div class="ans">
+      <p><strong>Finding: five two-bedroom apartments cannot be delivered on this parcel.</strong> Five units at the
+      850 sq ft two-bedroom minimum, plus the five garage bays and circulation, needs about <strong>5,650 sq ft
+      gross, which is FAR 0.459</strong>. Even crediting the <strong>full 500 sq ft garage exclusion</strong> it is
+      <strong>FAR 0.418</strong>. Both exceed the <strong>0.39</strong> planned development ceiling at 11-18-3C1,
+      which says <em>in no event</em>. <strong>Five one-bedroom units of about 680 sq ft do clear the code</strong>,
+      against the 650 sq ft one-bedroom minimum. Exhibit 2 is drawn as five one-bedroom units for that reason.</p>
+    </div>
+
+    <h4>The variant that works, and what it forfeits</h4>
+    <p><strong>Four two-bedroom apartments do fit.</strong> Four units at 850 sq ft plus four garage bays and
+    circulation is about <strong>4,580 sq ft, FAR 0.372</strong>, inside the cap. But four units
+    <strong>forfeits the "five (5) or more dwelling units" qualification at 11-7H-2</strong>, which is the entire
+    strategic point of the apartment form and the reason it lowers the risk on OI-14. The tension is real and it is
+    the developer's to resolve: a four-unit apartment building gives larger units and loses the R-4 argument, while
+    a five-unit building keeps the argument and holds every unit to one bedroom.</p>
+
+    <ul>
+      <li><strong>Bedroom count is capped anyway.</strong> <strong>11-7H-1I</strong> provides that the number of
+      bedrooms per dwelling unit shall not exceed two, except under special uses.</li>
+      <li><strong>Underground parking would relieve the squeeze, and should not be assumed.</strong>
+      <strong>11-18-3C2</strong> expressly contemplates parking provided underground. Here the
+      <strong>2.5 ft water table</strong> in hydrologic soil group C soils makes it <strong>the same bad bet as the
+      underground detention</strong>, for the buoyancy, dewatering and infiltration reasons in Section 9. It should
+      not be relied upon before the geotechnical investigation (OI-09).</li>
+    </ul>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Yield Scenarios</span></div>
+
+  <div class="scenario first">
+    <div class="stag">Scenario F &nbsp;&#183;&nbsp; Exhibit 2, parking</div>
+    <h4 style="margin-top:4pt">Parking for the apartment scheme</h4>
+
+    <div class="calc">
+Required (11-13-4-2, multiple-family row)<br>
+&nbsp;&nbsp;5 units x 2 spaces = <span class="r">10 spaces</span>, of which <span class="r">5 must be located indoors</span><br>
+Guest parking, not less than 1 space per 4 units<br>
+&nbsp;&nbsp;5 / 4 = 1.25&nbsp;&nbsp;-&gt;&nbsp;&nbsp;<span class="r">1 guest space</span><br>
+&nbsp;&nbsp;(11-13-4 fractional rule: a fraction of one-half or less is disregarded)<br><br>
+Provided&nbsp;&nbsp;<span class="r">11 spaces</span> = 5 indoor garage bays + 6 surface stalls
+    </div>
+
+    <div class="callout">
+      <h4>One reading to confirm with the Village</h4>
+      <p>The guest requirement is worded as "not less than 1 space for every 4 units". Applying the fractional rule
+      gives one space at five units. <strong>The "not less than" wording could instead be read as rounding up to
+      two</strong>, which would make the total 12 spaces. This is flagged rather than resolved, and it belongs with
+      the parking questions already carried at OI-07.</p>
+    </div>
+
+    <h4>Two surface parking standards that engage here and do not engage in Exhibit 1</h4>
+    <ul>
+      <li><strong>Perimeter landscaping.</strong> <strong>11-13-4 F11</strong> requires the perimeter of an open
+      parking lot containing more than four spaces in a residential use area to be effectively landscaped. Six
+      surface stalls triggers it, and Exhibit 2 shows perimeter landscaping accordingly. Exhibit 1, whose surface
+      parking is four private aprons and one guest space, is arranged differently.</li>
+      <li><strong>Pavement section.</strong> <strong>11-13-4 F2</strong> requires open off street parking areas
+      other than those accessory to single-family dwellings to be a compacted macadam base not less than 4 inches
+      thick, surfaced with asphaltic concrete or approved equal.</li>
+    </ul>
+
+    <p class="sm">Scenario F is drawn at full dimension in <strong>Exhibit 2</strong>. Section 7 sets Exhibit 1 and
+    Exhibit 2 side by side.</p>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Yield Scenarios</span></div>
+  <h3>5.6 Yield summary</h3>
+  <table>
+    <thead><tr><th>Scenario</th><th>Units</th><th>Path</th><th>Governing limit</th><th>Relief needed</th></tr></thead>
+    <tbody>
+      <tr><td><strong>A</strong></td><td>1 single-family home</td><td>By right, 11-11-4B2</td><td>R-2 permits single-family only</td><td>None. No hearing</td></tr>
+      <tr><td><strong>B</strong></td><td>3 attached townhomes</td><td>Special use, 11-11-4D5</td><td>R-2 FAR 0.30 caps floor area at 3,696 sq ft</td><td>None numeric</td></tr>
+      <tr class="hl"><td><strong>C &#183; Exhibit 1</strong></td><td><strong>4 attached townhomes</strong></td><td><strong>Planned development special use, chapter 18</strong></td><td><strong>FAR 0.39, coverage 25 percent, density 2,268 sq ft per unit</strong></td><td><strong>FAR, density, lot width</strong></td></tr>
+      <tr><td><strong>D</strong></td><td>5 attached townhomes</td><td>Planned development at maximum relief</td><td>The 5-unit ceiling, but 15.23 ft unit width</td><td>All of the above, at their limits</td></tr>
+      <tr><td><strong>E</strong></td><td>10 units</td><td><strong>Not achievable</strong></td><td>Would need 22,680 sq ft at the most permissive reduced density</td><td>Not attainable</td></tr>
+      <tr class="hl"><td><strong>F &#183; Exhibit 2</strong></td><td><strong>5 one-bedroom apartments, one building</strong></td><td><strong>Planned development; an R-4 permitted use under 11-7H-2</strong></td><td><strong>FAR 0.39 holds units to about 680 sq ft; two bedroom not deliverable</strong></td><td><strong>As C, with the R-4 determination far better supported</strong></td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <h4>Reading the table as a developer</h4>
+    <p>The step from A to B costs a public hearing and buys two units, with no number put to the Village. The step
+    from B to C moves to a planned development and buys a fourth unit plus about 1,109 sq ft of additional permitted
+    floor area, at the price of three relief items and the OI-14 determination. D shows that the fifth unit is legal
+    but not workable as a townhome. F reaches the same fifth unit in a different built form, at one bedroom per
+    unit. <strong>C and F are the two concepts carried forward, drawn as Exhibit 1 and Exhibit 2 and compared in
+    Section 7.</strong> If certainty matters more than the additional units, B remains a defensible fallback that
+    asks the Village to approve only the use.</p>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Recommended Concept</span></div>
+  <h3 style="margin-top:0">6.3 Concept 1 parking tally</h3>
+  <table class="tight">
+    <thead><tr><th>Provision</th><th class="n">Spaces</th><th>Requirement satisfied</th></tr></thead>
+    <tbody>
+      <tr><td>Attached garages, one per unit</td><td class="n">4</td><td>The indoor space required per unit, 11-13-4-2</td></tr>
+      <tr><td>Private driveway aprons, one per unit</td><td class="n">4</td><td>Second space per unit, 11-13-4-2</td></tr>
+      <tr><td>Guest space at the end of the drive aisle</td><td class="n">1</td><td>1 per 4 units, 11-13-4-2</td></tr>
+      <tr class="hl"><td><strong>Total provided</strong></td><td class="n"><strong>9</strong></td><td><strong>2 per unit plus 1 guest per 4 units</strong></td></tr>
+    </tbody>
+  </table>
+  <p class="sm">Subject to open item OI-07: whether a garage space and a driveway apron each count toward the
+  requirement was not established from the retrieved code, and the printed single-family-attached row of the table
+  would produce a different and much larger number. Both questions go to the Village.</p>
+
+  <h3>6.4 Old Town design requirements carried on both plans</h3>
+  <ul>
+    <li><strong>Wood picket fence along the First Street frontage</strong>, per <strong>11-11-8A</strong>. Fencing
+    adjacent to First Street is limited to picket style constructed of wood, or equivalent material approved by the
+    Building Commissioner. It is drawn on the plan, interrupted only at the curb cut.</li>
+    <li><strong>Exterior colours</strong> must come from the <strong>Benjamin Moore historical color
+    selection</strong> or an approved equivalent, or another colour approved by the Building and Zoning Official
+    with PZC recommendation and Village Board approval, per <strong>11-11-7</strong>. Exterior painting requires a
+    permit.</li>
+    <li><strong>Old Town Plan consistency.</strong> Under 11-11-5A1 the special use plan must be consistent with the
+    land use, design and signage recommendations of the Old Town Plan, exhibit A to Ordinance 2006-03. That document
+    has not been reviewed and is open item OI-06. It may impose design direction that this concept has not
+    anticipated.</li>
+  </ul>
+
+  <h3>6.5 What both concepts deliberately leave clear</h3>
+  <p>The rear yard is reserved in both concepts and holds the underground detention system: 54.6 ft in Concept 1,
+  46.1 ft in Concept 2. Nothing else is proposed in it, which keeps a single engineering variable, the detention
+  design, from being entangled with the building layout. If the geotechnical investigation rules out underground
+  detention (Section 9), the rear yard is the only part of the site with room to absorb an alternative approach in
+  either concept, and neither building layout would have to change.</p>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+<!-- ===================== 6.6 CONCEPT 2 LAYOUT ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">The Two Concepts</span></div>
+  <h3 style="margin-top:0">6.6 Concept 2, five one-bedroom apartments: the layout</h3>
+
+  <p>Concept 2 places a single 60 ft by 40 ft building on the same front-loaded arrangement, with the parking court
+  in the front yard and the rear yard reserved. The orientation is identical to Concept 1: First Street runs north
+  to south along the west boundary, north is up.</p>
+
+  <table class="tight">
+    <thead><tr><th style="width:30%">Zone, west to east</th><th class="n" style="width:16%">Dimension</th><th>Note</th></tr></thead>
+    <tbody>
+      <tr><td>First Street right of way</td><td class="n">about 57.5 ft</td><td>Outside the parcel. Derived, not platted</td></tr>
+      <tr><td>Front yard</td><td class="n">42 ft</td><td>Exceeds the 40 ft R-2 minimum (11-7D-1)</td></tr>
+      <tr><td class="muted" style="padding-left:16pt">of which surface stalls</td><td class="n">18 ft deep</td><td>Six stalls at 9 ft x 18 ft, west of the aisle</td></tr>
+      <tr><td class="muted" style="padding-left:16pt">of which drive aisle</td><td class="n">24 ft</td><td>Running north to south in front of the building</td></tr>
+      <tr class="hl"><td>Building</td><td class="n">40 ft deep</td><td>2 storeys, within the 2.5 storey and 30 ft limit</td></tr>
+      <tr><td>Rear yard</td><td class="n">46.1 ft</td><td>Exceeds the 40 ft minimum. Underground detention reserve</td></tr>
+    </tbody>
+  </table>
+
+  <table class="tight">
+    <thead><tr><th style="width:30%">Zone, north to south</th><th class="n" style="width:16%">Dimension</th><th>Note</th></tr></thead>
+    <tbody>
+      <tr><td>North side yard</td><td class="n">18.08 ft</td><td rowspan="3">Combined 36.16 ft, against a 20 ft combined minimum and 8 ft each (11-7D-1)</td></tr>
+      <tr class="hl"><td>Building</td><td class="n">60 ft wide</td></tr>
+      <tr><td>South side yard</td><td class="n">18.08 ft</td></tr>
+    </tbody>
+  </table>
+
+  <div class="calc">
+Closure check, depth&nbsp;&nbsp;&nbsp;42 + 40 + 46.1&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= <span class="r">128.1 ft</span>&nbsp;&nbsp;OK<br>
+Closure check, width&nbsp;&nbsp;&nbsp;18.08 + 60 + 18.08 = <span class="r">96.16 ft</span>&nbsp;&nbsp;OK<br>
+Footprint&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;60 x 40&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= <span class="r">2,400 sq ft</span><br>
+Parcel coverage&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2,400 / 12,320&nbsp;&nbsp;= <span class="r">19.5 percent</span>, within the 25 percent cap (11-18-3B)<br>
+Gross floor area&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2 storeys&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= <span class="r">about 4,800 sq ft</span>, at the 4,805 sq ft FAR 0.39 ceiling
+  </div>
+
+  <h4>Access and parking</h4>
+  <ul>
+    <li><strong>A single 24 ft curb cut</strong> from First Street, on the same rationale as Concept 1 and
+    comfortably inside the 36 ft limit at 11-13-4-2, feeding a <strong>24 ft drive aisle</strong> running north to
+    south in front of the building.</li>
+    <li><strong>Five garage bays at grade in the west face of the building</strong>, doors opening directly onto
+    the aisle. These are the five indoor spaces 11-13-4-2 requires, one per unit.</li>
+    <li><strong>Six surface stalls at 9 ft by 18 ft</strong> west of the aisle, five resident and one guest, split
+    either side of the driveway so that the curb cut runs between them.</li>
+    <li><strong>Perimeter landscaping</strong> to the surface parking, required by <strong>11-13-4 F11</strong>
+    because the lot contains more than four spaces in a residential use area.</li>
+    <li><strong>Pavement</strong> per <strong>11-13-4 F2</strong>: compacted macadam base not less than 4 inches
+    thick, surfaced with asphaltic concrete or approved equal.</li>
+  </ul>
+
+  <p class="sm"><strong>What Concept 2 gives up.</strong> There is no private driveway or attached garage per
+  dwelling, which is the feature the client asked to see in Concept 1. Residents share a parking court, and the
+  product is flats rather than fee simple townhomes. Section 7 sets the trade off out in full.</p>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<!-- ===================== 14. SITE PLAN EXHIBIT ===================== -->
+<section class="sheet plan-sheet">
+  <div class="titleblock">
+    <div class="tb-l">
+      <div class="t1">Exhibit 1 &nbsp;&#183;&nbsp; Concept Site Plan</div>
+      <div class="t2">Concept 1, Scenario C, four attached townhomes &nbsp;&#183;&nbsp; 118 S First Street, Bloomingdale, Illinois &nbsp;&#183;&nbsp; PIN 0215204026</div>
+    </div>
+    <div class="tb-r">
+      Base district <b>R-2</b>, OTP overlay<br>
+      Parcel <b>12,320 sq ft</b> / 0.2828 ac<br>
+      Prepared for <b>Franklin Properties</b>
+    </div>
+  </div>
+
+  <svg class="plan" viewBox="-44 -22 196 152" xmlns="http://www.w3.org/2000/svg"
+       font-family="Arial, Helvetica, sans-serif" fill="none">
+    <defs>
+      <marker id="dt" markerUnits="userSpaceOnUse" markerWidth="5" markerHeight="5" refX="2.5" refY="2.5" orient="auto">
+        <line x1="0.8" y1="4.2" x2="4.2" y2="0.8" stroke="#1a4a5e" stroke-width="0.32"/>
+      </marker>
+      <marker id="ar" markerUnits="userSpaceOnUse" markerWidth="4" markerHeight="3" refX="3.6" refY="1.5" orient="auto">
+        <path d="M0,0 L3.8,1.5 L0,3 Z" fill="#1a4a5e"/>
+      </marker>
+      <marker id="nr" markerUnits="userSpaceOnUse" markerWidth="4" markerHeight="4" refX="3.6" refY="2" orient="auto">
+        <path d="M0,0 L4,2 L0,4 Z" fill="#15181b"/>
+      </marker>
+    </defs>
+
+    <!-- ---------- street right of way ---------- -->
+    <line x1="-28.75" y1="-10" x2="-28.75" y2="106" stroke="#6b757e" stroke-width="0.22" stroke-dasharray="9 2.2 1.1 2.2"/>
+    <text x="-40" y="48" font-size="4.6" font-weight="700" fill="#15181b" letter-spacing="0.6"
+          text-anchor="middle" transform="rotate(-90 -40 48)">1ST STREET</text>
+    <text x="-35.2" y="48" font-size="2.5" fill="#6b757e" text-anchor="middle"
+          transform="rotate(-90 -35.2 48)">VILLAGE LOCAL STREET &#183; MUNICIPALLY OWNED</text>
+    <text x="-25.4" y="48" font-size="2.3" fill="#6b757e" text-anchor="middle"
+          transform="rotate(-90 -25.4 48)">CENTRELINE &#183; ROW APPROX. 57.5' (DERIVED, NOT PLATTED)</text>
+
+    <!-- ---------- curb cut across frontage ---------- -->
+    <rect x="-11" y="36.08" width="11" height="24" fill="#f0f0ee" stroke="#a8b0b5" stroke-width="0.2" stroke-dasharray="2 1.4"/>
+    <text x="-5.5" y="48" font-size="2.2" fill="#3d454c" text-anchor="middle" transform="rotate(-90 -5.5 48)">24' CURB CUT</text>
+
+    <!-- ---------- pavement: shared drive aisle ---------- -->
+    <rect x="0" y="6" width="24" height="89.6" fill="#f0f0ee" stroke="#a8b0b5" stroke-width="0.22"/>
+    <text x="12" y="20" font-size="2.7" fill="#3d454c" text-anchor="middle" transform="rotate(-90 12 20)">24' SHARED DRIVE AISLE</text>
+
+    <!-- ---------- pavement: four private driveway aprons ---------- -->
+    <rect x="24" y="10" width="18" height="76.16" fill="#e8ebe8" stroke="#a8b0b5" stroke-width="0.22"/>
+    <line x1="24" y1="29.04" x2="42" y2="29.04" stroke="#a8b0b5" stroke-width="0.22"/>
+    <line x1="24" y1="48.08" x2="42" y2="48.08" stroke="#a8b0b5" stroke-width="0.22"/>
+    <line x1="24" y1="67.12" x2="42" y2="67.12" stroke="#a8b0b5" stroke-width="0.22"/>
+
+    <!-- ---------- guest space ---------- -->
+    <rect x="3" y="86.4" width="18" height="9" fill="#dde3e5" stroke="#3d454c" stroke-width="0.22"/>
+    <text x="12" y="89.9" font-size="2.4" font-weight="700" fill="#15181b" text-anchor="middle">GUEST</text>
+    <text x="12" y="93.2" font-size="2.2" fill="#3d454c" text-anchor="middle">9' x 18'</text>
+
+    <!-- ---------- building: four attached townhomes ---------- -->
+    <rect x="42" y="10" width="31.5" height="76.16" fill="#dde3e5" stroke="#15181b" stroke-width="0.34"/>
+    <line x1="42" y1="29.04" x2="73.5" y2="29.04" stroke="#15181b" stroke-width="0.28"/>
+    <line x1="42" y1="48.08" x2="73.5" y2="48.08" stroke="#15181b" stroke-width="0.28"/>
+    <line x1="42" y1="67.12" x2="73.5" y2="67.12" stroke="#15181b" stroke-width="0.28"/>
+
+    <!-- unit 1 -->
+    <rect x="42.9" y="11.5" width="12" height="16" fill="none" stroke="#3d454c" stroke-width="0.2" stroke-dasharray="1.8 1.2"/>
+    <text x="48.9" y="19.5" font-size="2.5" font-weight="700" fill="#1a4a5e" text-anchor="middle">G1</text>
+    <line x1="42" y1="15" x2="42" y2="24" stroke="#1a4a5e" stroke-width="0.85"/>
+    <line x1="33.5" y1="19.5" x2="40.6" y2="19.5" stroke="#1a4a5e" stroke-width="0.22" marker-end="url(#ar)"/>
+    <text x="64.2" y="17.7" font-size="3.1" font-weight="700" fill="#15181b" text-anchor="middle">UNIT 1</text>
+    <text x="64.2" y="22" font-size="2.3" fill="#3d454c" text-anchor="middle">19.04' x 31.5'</text>
+    <text x="33" y="25.5" font-size="2.3" font-weight="700" fill="#3d454c" text-anchor="middle">APRON 1</text>
+
+    <!-- unit 2 -->
+    <rect x="42.9" y="30.5" width="12" height="16" fill="none" stroke="#3d454c" stroke-width="0.2" stroke-dasharray="1.8 1.2"/>
+    <text x="48.9" y="38.5" font-size="2.5" font-weight="700" fill="#1a4a5e" text-anchor="middle">G2</text>
+    <line x1="42" y1="34" x2="42" y2="43" stroke="#1a4a5e" stroke-width="0.85"/>
+    <line x1="33.5" y1="38.5" x2="40.6" y2="38.5" stroke="#1a4a5e" stroke-width="0.22" marker-end="url(#ar)"/>
+    <text x="64.2" y="36.8" font-size="3.1" font-weight="700" fill="#15181b" text-anchor="middle">UNIT 2</text>
+    <text x="64.2" y="41.1" font-size="2.3" fill="#3d454c" text-anchor="middle">19.04' x 31.5'</text>
+    <text x="33" y="44.6" font-size="2.3" font-weight="700" fill="#3d454c" text-anchor="middle">APRON 2</text>
+
+    <!-- unit 3 -->
+    <rect x="42.9" y="49.5" width="12" height="16" fill="none" stroke="#3d454c" stroke-width="0.2" stroke-dasharray="1.8 1.2"/>
+    <text x="48.9" y="57.5" font-size="2.5" font-weight="700" fill="#1a4a5e" text-anchor="middle">G3</text>
+    <line x1="42" y1="53" x2="42" y2="62" stroke="#1a4a5e" stroke-width="0.85"/>
+    <line x1="33.5" y1="57.5" x2="40.6" y2="57.5" stroke="#1a4a5e" stroke-width="0.22" marker-end="url(#ar)"/>
+    <text x="64.2" y="55.8" font-size="3.1" font-weight="700" fill="#15181b" text-anchor="middle">UNIT 3</text>
+    <text x="64.2" y="60.1" font-size="2.3" fill="#3d454c" text-anchor="middle">19.04' x 31.5'</text>
+    <text x="33" y="63.7" font-size="2.3" font-weight="700" fill="#3d454c" text-anchor="middle">APRON 3</text>
+
+    <!-- unit 4 -->
+    <rect x="42.9" y="68.6" width="12" height="16" fill="none" stroke="#3d454c" stroke-width="0.2" stroke-dasharray="1.8 1.2"/>
+    <text x="48.9" y="76.6" font-size="2.5" font-weight="700" fill="#1a4a5e" text-anchor="middle">G4</text>
+    <line x1="42" y1="72.1" x2="42" y2="81.1" stroke="#1a4a5e" stroke-width="0.85"/>
+    <line x1="33.5" y1="76.6" x2="40.6" y2="76.6" stroke="#1a4a5e" stroke-width="0.22" marker-end="url(#ar)"/>
+    <text x="64.2" y="74.9" font-size="3.1" font-weight="700" fill="#15181b" text-anchor="middle">UNIT 4</text>
+    <text x="64.2" y="79.2" font-size="2.3" fill="#3d454c" text-anchor="middle">19.04' x 31.5'</text>
+    <text x="33" y="82.8" font-size="2.3" font-weight="700" fill="#3d454c" text-anchor="middle">APRON 4</text>
+
+    <text x="33" y="8.2" font-size="2.2" fill="#3d454c" text-anchor="middle">APRONS 18' DEEP, ONE PER UNIT</text>
+
+    <!-- ---------- rear yard detention reserve ---------- -->
+    <rect x="78" y="12" width="46" height="72" fill="#f2f6f7" stroke="#1a4a5e" stroke-width="0.26" stroke-dasharray="3 1.8"/>
+    <text x="101" y="45" font-size="2.9" font-weight="700" fill="#1a4a5e" text-anchor="middle">UNDERGROUND DETENTION</text>
+    <text x="101" y="49.4" font-size="2.9" font-weight="700" fill="#1a4a5e" text-anchor="middle">RESERVE</text>
+    <text x="101" y="54" font-size="2.3" fill="#3d454c" text-anchor="middle">WITHIN 54.6' REAR YARD &#183; SUBJECT TO</text>
+    <text x="101" y="57.4" font-size="2.3" fill="#3d454c" text-anchor="middle">GEOTECHNICAL INVESTIGATION (OI-09)</text>
+
+    <!-- ---------- setback lines ---------- -->
+    <line x1="40" y1="0" x2="40" y2="96.16" stroke="#1a4a5e" stroke-width="0.24" stroke-dasharray="3.2 1.8 0.7 1.8"/>
+    <line x1="88.1" y1="0" x2="88.1" y2="96.16" stroke="#1a4a5e" stroke-width="0.24" stroke-dasharray="3.2 1.8 0.7 1.8"/>
+    <line x1="0" y1="10" x2="128.1" y2="10" stroke="#1a4a5e" stroke-width="0.24" stroke-dasharray="3.2 1.8 0.7 1.8"/>
+    <line x1="0" y1="86.16" x2="128.1" y2="86.16" stroke="#1a4a5e" stroke-width="0.24" stroke-dasharray="3.2 1.8 0.7 1.8"/>
+    <text x="40" y="99.4" font-size="2.2" fill="#1a4a5e" text-anchor="middle">40' FRONT YARD SETBACK, 11-7D-1</text>
+    <text x="88.1" y="99.4" font-size="2.2" fill="#1a4a5e" text-anchor="middle">40' REAR YARD SETBACK, 11-7D-1</text>
+    <text x="100" y="7.6" font-size="2.2" fill="#1a4a5e" text-anchor="middle">10' SIDE YARD (MIN 8', 20' COMBINED, 11-7D-1)</text>
+    <text x="100" y="92.6" font-size="2.2" fill="#1a4a5e" text-anchor="middle">10' SIDE YARD (MIN 8', 20' COMBINED, 11-7D-1)</text>
+
+    <!-- ---------- parcel boundary ---------- -->
+    <rect x="0" y="0" width="128.1" height="96.16" stroke="#15181b" stroke-width="0.55"/>
+
+    <!-- ---------- wood picket fence on frontage ---------- -->
+    <line x1="-0.9" y1="0" x2="-0.9" y2="36.08" stroke="#15181b" stroke-width="0.2"/>
+    <line x1="-0.9" y1="0" x2="-0.9" y2="36.08" stroke="#15181b" stroke-width="1.7" stroke-dasharray="0.6 1.7"/>
+    <line x1="-0.9" y1="60.08" x2="-0.9" y2="96.16" stroke="#15181b" stroke-width="0.2"/>
+    <line x1="-0.9" y1="60.08" x2="-0.9" y2="96.16" stroke="#15181b" stroke-width="1.7" stroke-dasharray="0.6 1.7"/>
+    <text x="-3.6" y="76" font-size="2.2" fill="#15181b" text-anchor="middle" transform="rotate(-90 -3.6 76)">WOOD PICKET FENCE, 11-11-8A</text>
+
+    <!-- ---------- dimensions: overall depth ---------- -->
+    <line x1="0" y1="-18" x2="0" y2="-2" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="128.1" y1="-18" x2="128.1" y2="-2" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="0" y1="-15" x2="128.1" y2="-15" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt)" marker-end="url(#dt)"/>
+    <text x="64" y="-16.8" font-size="2.9" font-weight="700" fill="#1a4a5e" text-anchor="middle">128.1' PARCEL DEPTH</text>
+
+    <!-- ---------- dimensions: frontage ---------- -->
+    <line x1="-16" y1="0" x2="-1.6" y2="0" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="-16" y1="96.16" x2="-1.6" y2="96.16" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="-13.5" y1="0" x2="-13.5" y2="96.16" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt)" marker-end="url(#dt)"/>
+    <text x="-15.3" y="48" font-size="2.9" font-weight="700" fill="#1a4a5e" text-anchor="middle" transform="rotate(-90 -15.3 48)">96.16' FRONTAGE</text>
+
+    <!-- ---------- dimensions: zone breakdown across depth ---------- -->
+    <line x1="0" y1="97" x2="0" y2="106" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="42" y1="87" x2="42" y2="106" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="73.5" y1="87" x2="73.5" y2="106" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="128.1" y1="97" x2="128.1" y2="106" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="0" y1="103.5" x2="42" y2="103.5" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt)" marker-end="url(#dt)"/>
+    <line x1="42" y1="103.5" x2="73.5" y2="103.5" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt)" marker-end="url(#dt)"/>
+    <line x1="73.5" y1="103.5" x2="128.1" y2="103.5" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt)" marker-end="url(#dt)"/>
+    <text x="21" y="107.6" font-size="2.6" font-weight="700" fill="#1a4a5e" text-anchor="middle">42.0' FRONT YARD</text>
+    <text x="57.75" y="107.6" font-size="2.6" font-weight="700" fill="#1a4a5e" text-anchor="middle">31.5' BUILDING</text>
+    <text x="100.8" y="107.6" font-size="2.6" font-weight="700" fill="#1a4a5e" text-anchor="middle">54.6' REAR YARD</text>
+
+    <!-- ---------- dimensions: aisle and apron ---------- -->
+    <line x1="24" y1="96" x2="24" y2="115" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="0" y1="112.5" x2="24" y2="112.5" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt)" marker-end="url(#dt)"/>
+    <line x1="24" y1="112.5" x2="42" y2="112.5" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt)" marker-end="url(#dt)"/>
+    <text x="12" y="116.6" font-size="2.5" fill="#1a4a5e" text-anchor="middle">24' DRIVE AISLE</text>
+    <text x="33" y="116.6" font-size="2.5" fill="#1a4a5e" text-anchor="middle">18' APRON</text>
+    <text x="97" y="124.6" font-size="2.5" fill="#3d454c" text-anchor="middle">CLOSURE CHECK: 42.0 + 31.5 + 54.6 = 128.1 FT &#183; 10 + 76.16 + 10 = 96.16 FT</text>
+
+    <!-- ---------- dimensions: unit widths ---------- -->
+    <line x1="129" y1="10" x2="134" y2="10" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="129" y1="29.04" x2="134" y2="29.04" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="129" y1="48.08" x2="134" y2="48.08" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="129" y1="67.12" x2="134" y2="67.12" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="129" y1="86.16" x2="134" y2="86.16" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="132" y1="10" x2="132" y2="29.04" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt)" marker-end="url(#dt)"/>
+    <line x1="132" y1="29.04" x2="132" y2="48.08" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt)" marker-end="url(#dt)"/>
+    <line x1="132" y1="48.08" x2="132" y2="67.12" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt)" marker-end="url(#dt)"/>
+    <line x1="132" y1="67.12" x2="132" y2="86.16" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt)" marker-end="url(#dt)"/>
+    <text x="130.4" y="19.5" font-size="2.3" fill="#1a4a5e" text-anchor="middle" transform="rotate(-90 130.4 19.5)">19.04'</text>
+    <text x="130.4" y="38.5" font-size="2.3" fill="#1a4a5e" text-anchor="middle" transform="rotate(-90 130.4 38.5)">19.04'</text>
+    <text x="130.4" y="57.6" font-size="2.3" fill="#1a4a5e" text-anchor="middle" transform="rotate(-90 130.4 57.6)">19.04'</text>
+    <text x="130.4" y="76.6" font-size="2.3" fill="#1a4a5e" text-anchor="middle" transform="rotate(-90 130.4 76.6)">19.04'</text>
+
+    <!-- ---------- dimensions: side yards and buildable width ---------- -->
+    <line x1="136" y1="0" x2="146" y2="0" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="136" y1="10" x2="146" y2="10" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="136" y1="86.16" x2="146" y2="86.16" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="136" y1="96.16" x2="146" y2="96.16" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="143" y1="0" x2="143" y2="10" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt)" marker-end="url(#dt)"/>
+    <line x1="143" y1="10" x2="143" y2="86.16" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt)" marker-end="url(#dt)"/>
+    <line x1="143" y1="86.16" x2="143" y2="96.16" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt)" marker-end="url(#dt)"/>
+    <text x="141.4" y="5" font-size="2.3" fill="#1a4a5e" text-anchor="middle" transform="rotate(-90 141.4 5)">10'</text>
+    <text x="141.4" y="48" font-size="2.7" font-weight="700" fill="#1a4a5e" text-anchor="middle" transform="rotate(-90 141.4 48)">76.16' BUILDABLE WIDTH</text>
+    <text x="141.4" y="91.2" font-size="2.3" fill="#1a4a5e" text-anchor="middle" transform="rotate(-90 141.4 91.2)">10'</text>
+
+    <!-- ---------- north arrow ---------- -->
+    <line x1="145" y1="-4" x2="145" y2="-17" stroke="#15181b" stroke-width="0.4" marker-end="url(#nr)"/>
+    <text x="145" y="-1" font-size="3.4" font-weight="700" fill="#15181b" text-anchor="middle">N</text>
+
+    <!-- ---------- graphic scale ---------- -->
+    <g>
+      <rect x="-40" y="121" width="10" height="2.6" fill="#15181b"/>
+      <rect x="-30" y="121" width="10" height="2.6" fill="#ffffff" stroke="#15181b" stroke-width="0.16"/>
+      <rect x="-20" y="121" width="20" height="2.6" fill="#15181b"/>
+      <rect x="0" y="121" width="20" height="2.6" fill="#ffffff" stroke="#15181b" stroke-width="0.16"/>
+      <text x="-40" y="127.6" font-size="2.4" fill="#15181b" text-anchor="middle">0</text>
+      <text x="-20" y="127.6" font-size="2.4" fill="#15181b" text-anchor="middle">20</text>
+      <text x="0" y="127.6" font-size="2.4" fill="#15181b" text-anchor="middle">40</text>
+      <text x="20" y="127.6" font-size="2.4" fill="#15181b" text-anchor="middle">60</text>
+      <text x="28" y="123.6" font-size="2.6" font-weight="700" fill="#15181b">FEET</text>
+      <text x="-40" y="118.4" font-size="2.4" font-weight="700" fill="#1a4a5e">GRAPHIC SCALE</text>
+    </g>
+  </svg>
+
+  <div class="legend">
+    <div><svg width="22" height="7"><line x1="1" y1="3.5" x2="21" y2="3.5" stroke="#15181b" stroke-width="2"/></svg><span>Parcel boundary</span></div>
+    <div><svg width="22" height="7"><line x1="1" y1="3.5" x2="21" y2="3.5" stroke="#1a4a5e" stroke-width="1" stroke-dasharray="5 2.5 1 2.5"/></svg><span>Required yard setback line</span></div>
+    <div><svg width="22" height="7"><rect x="1" y="0.6" width="20" height="5.8" fill="#dde3e5" stroke="#15181b" stroke-width="1"/></svg><span>Townhome building footprint</span></div>
+    <div><svg width="22" height="7"><rect x="1" y="0.6" width="20" height="5.8" fill="none" stroke="#3d454c" stroke-width="0.8" stroke-dasharray="3 2"/></svg><span>Attached garage, one per unit</span></div>
+    <div><svg width="22" height="7"><rect x="1" y="0.6" width="20" height="5.8" fill="#e8ebe8" stroke="#a8b0b5" stroke-width="0.8"/></svg><span>Private driveway apron</span></div>
+    <div><svg width="22" height="7"><rect x="1" y="0.6" width="20" height="5.8" fill="#f0f0ee" stroke="#a8b0b5" stroke-width="0.8"/></svg><span>Shared drive aisle and curb cut</span></div>
+    <div><svg width="22" height="7"><rect x="1" y="0.6" width="20" height="5.8" fill="#dde3e5" stroke="#3d454c" stroke-width="0.8"/></svg><span>Guest parking space</span></div>
+    <div><svg width="22" height="7"><rect x="1" y="0.6" width="20" height="5.8" fill="#f2f6f7" stroke="#1a4a5e" stroke-width="0.8" stroke-dasharray="3 2"/></svg><span>Underground detention reserve</span></div>
+    <div><svg width="22" height="7"><line x1="1" y1="3.5" x2="21" y2="3.5" stroke="#15181b" stroke-width="4.5" stroke-dasharray="1.4 3.4"/></svg><span>Wood picket fence, 11-11-8A</span></div>
+    <div><svg width="22" height="7"><line x1="1" y1="3.5" x2="21" y2="3.5" stroke="#1a4a5e" stroke-width="2.4"/></svg><span>Garage door</span></div>
+    <div><svg width="22" height="7"><line x1="1" y1="3.5" x2="21" y2="3.5" stroke="#6b757e" stroke-width="1" stroke-dasharray="7 2 1 2"/></svg><span>Street centreline</span></div>
+    <div><svg width="22" height="7"><line x1="2" y1="3.5" x2="20" y2="3.5" stroke="#1a4a5e" stroke-width="0.8"/><line x1="1" y1="6" x2="4" y2="1" stroke="#1a4a5e" stroke-width="0.8"/><line x1="18" y1="6" x2="21" y2="1" stroke="#1a4a5e" stroke-width="0.8"/></svg><span>Dimension</span></div>
+  </div>
+
+  <div class="planfoot">
+    <table class="tight">
+      <thead><tr><th>Dimension table</th><th class="n">Value</th><th>Reference</th></tr></thead>
+      <tbody>
+        <tr><td>Frontage on First Street</td><td class="n">96.16 ft</td><td>GIS cadastral</td></tr>
+        <tr><td>Parcel depth, working figure</td><td class="n">128.1 ft</td><td>GIS cadastral</td></tr>
+        <tr><td>Parcel area</td><td class="n">12,320 sq ft</td><td>0.2828 ac</td></tr>
+        <tr><td>Front yard provided</td><td class="n">42.0 ft</td><td>min 40 ft, 11-7D-1</td></tr>
+        <tr><td>Drive aisle</td><td class="n">24 ft</td><td>Design criterion</td></tr>
+        <tr><td>Driveway apron depth, 4 off</td><td class="n">18 ft</td><td>18 ft stall length</td></tr>
+        <tr><td>Curb cut, single</td><td class="n">24 ft</td><td>max 36 ft, 11-13-4-2</td></tr>
+        <tr><td>Building depth</td><td class="n">31.5 ft</td><td>Scenario C</td></tr>
+        <tr><td>Unit width, 4 off</td><td class="n">19.04 ft</td><td>76.16 / 4</td></tr>
+        <tr><td>Unit footprint</td><td class="n">600 sq ft</td><td>19.04 x 31.5</td></tr>
+        <tr><td>Total building footprint</td><td class="n">2,402 sq ft</td><td>coverage 19.5%, max 25%, 11-18-3B</td></tr>
+        <tr><td>Floor area at FAR 0.39</td><td class="n">4,805 sq ft</td><td>about 1,201 sq ft per unit</td></tr>
+        <tr><td>Building height</td><td class="n">2 storeys</td><td>max 2.5 storeys / 30 ft, 11-7D-1</td></tr>
+        <tr><td>Rear yard provided</td><td class="n">54.6 ft</td><td>min 40 ft, 11-7D-1</td></tr>
+        <tr><td>Side yards provided</td><td class="n">10 ft + 10 ft</td><td>min 8 ft each, 20 ft combined</td></tr>
+        <tr><td>Buildable width</td><td class="n">76.16 ft</td><td>96.16 less 20 ft</td></tr>
+        <tr><td>Guest parking space</td><td class="n">9 ft x 18 ft</td><td>1 per 4 units, 11-13-4-2</td></tr>
+        <tr class="hl"><td>Parking provided</td><td class="n">9 spaces</td><td>4 garage, 4 apron, 1 guest</td></tr>
+        <tr><td>First Street right of way</td><td class="n">approx. 57.5 ft</td><td>Derived, not platted</td></tr>
+      </tbody>
+    </table>
+
+    <div class="notes">
+      <b>PLAN NOTES</b>
+      <ol>
+        <li>Base district <b>R-2 Single-Family Residence</b> with the <b>OTP Old Town Preservation overlay</b>. Bulk and height are taken from the underlying district as directed by <b>11-11-4A</b>; the bulk table is <b>11-7D-1</b>.</li>
+        <li>Scenario C is a <b>planned development special use</b> under Title 11 Chapter 18, an expressly permitted special use in the Old Town district per <b>11-11-4D5</b>. Relief sought: floor area ratio raised from 0.30 to <b>0.39</b>, the chapter ceiling under <b>11-18-3C1</b>; density under <b>11-18-3C2</b>; and lot width. Parcel coverage 19.5 percent, within the 25 percent cap at <b>11-18-3B</b>.</li>
+        <li><b>One 24 ft curb cut, four private driveways.</b> 11-13-4-2 limits a driveway across public property in a residential use area to 36 ft in width, exclusive of curb returns. A single 24 ft cut is clearly within that limit; four separate 12 ft aprons cut directly to the street would total 48 ft.</li>
+        <li>Fencing on the First Street frontage is <b>picket style, constructed of wood</b>, or equivalent material approved by the Building Commissioner, per <b>11-11-8A</b>.</li>
+        <li>Exterior colours per <b>11-11-7</b>: Benjamin Moore historical color selection or approved equivalent. Exterior painting requires a permit.</li>
+        <li>The underground detention reserve is shown as a reserved area only. Hydrologic soil group C soils with a water table at 2.5 ft are adverse for underground detention; a geotechnical investigation is required before it is relied upon. See <b>OI-09</b>.</li>
+        <li>Guest space is located at the south terminus of the drive aisle. Whether a garage space and an apron each count toward the parking requirement is not established, and the location of the guest space relative to the side yard is to be confirmed with the Village. See <b>OI-07</b>.</li>
+        <li>Right of way width shown is <b>approximate</b>, derived from the gap between opposing cadastral parcel edges. It is not a platted dimension. See <b>OI-02</b>.</li>
+        <li>Single point of vehicular access shown. Confirm fire apparatus access requirements with the Bloomingdale Fire Protection District. See <b>OI-10</b>.</li>
+        <li>No permit issues until the Village Planner and the Village Engineer approve the site plan, per <b>11-13-3</b>.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="disclaimer">
+    Concept site plan. Not a survey. Dimensions derived from DuPage County GIS cadastral data and subject to confirmation by boundary survey.
+  </div>
+
+  <footer class="ft" style="left:0.5in;right:0.5in;bottom:0.26in"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026 &nbsp;&#124;&nbsp; Exhibit 1, Concept Site Plan</span><span class="pg"></span></footer>
+</section>
+<!-- ===================== EXHIBIT 2 ===================== -->
+<section class="sheet plan-sheet">
+  <div class="titleblock">
+    <div class="tb-l">
+      <div class="t1">Exhibit 2 &nbsp;&#183;&nbsp; Concept Site Plan</div>
+      <div class="t2">Concept 2, Scenario F, five one-bedroom apartments &nbsp;&#183;&nbsp; 118 S First Street, Bloomingdale, Illinois &nbsp;&#183;&nbsp; PIN 0215204026</div>
+    </div>
+    <div class="tb-r">
+      Base district <b>R-2</b>, OTP overlay<br>
+      Parcel <b>12,320 sq ft</b> / 0.2828 ac<br>
+      Prepared for <b>Franklin Properties</b>
+    </div>
+  </div>
+
+  <svg class="plan" viewBox="-44 -22 196 152" xmlns="http://www.w3.org/2000/svg"
+       font-family="Arial, Helvetica, sans-serif" fill="none">
+    <defs>
+      <marker id="dt2" markerUnits="userSpaceOnUse" markerWidth="5" markerHeight="5" refX="2.5" refY="2.5" orient="auto">
+        <line x1="0.8" y1="4.2" x2="4.2" y2="0.8" stroke="#1a4a5e" stroke-width="0.32"/>
+      </marker>
+      <marker id="ar2" markerUnits="userSpaceOnUse" markerWidth="4" markerHeight="3" refX="3.6" refY="1.5" orient="auto">
+        <path d="M0,0 L3.8,1.5 L0,3 Z" fill="#1a4a5e"/>
+      </marker>
+      <marker id="nr2" markerUnits="userSpaceOnUse" markerWidth="4" markerHeight="4" refX="3.6" refY="2" orient="auto">
+        <path d="M0,0 L4,2 L0,4 Z" fill="#15181b"/>
+      </marker>
+    </defs>
+
+    <!-- street -->
+    <line x1="-28.75" y1="-10" x2="-28.75" y2="106" stroke="#6b757e" stroke-width="0.22" stroke-dasharray="9 2.2 1.1 2.2"/>
+    <text x="-40" y="48" font-size="4.6" font-weight="700" fill="#15181b" letter-spacing="0.6"
+          text-anchor="middle" transform="rotate(-90 -40 48)">1ST STREET</text>
+    <text x="-35.2" y="48" font-size="2.5" fill="#6b757e" text-anchor="middle"
+          transform="rotate(-90 -35.2 48)">VILLAGE LOCAL STREET &#183; MUNICIPALLY OWNED</text>
+    <text x="-25.4" y="48" font-size="2.3" fill="#6b757e" text-anchor="middle"
+          transform="rotate(-90 -25.4 48)">CENTRELINE &#183; ROW APPROX. 57.5' (DERIVED, NOT PLATTED)</text>
+
+    <!-- curb cut -->
+    <rect x="-11" y="36.08" width="11" height="24" fill="#f0f0ee" stroke="#a8b0b5" stroke-width="0.2" stroke-dasharray="2 1.4"/>
+    <text x="-5.5" y="48" font-size="2.2" fill="#3d454c" text-anchor="middle" transform="rotate(-90 -5.5 48)">24' CURB CUT</text>
+
+    <!-- drive aisle -->
+    <rect x="0" y="36.08" width="18" height="24" fill="#f0f0ee" stroke="#a8b0b5" stroke-width="0.22"/>
+    <rect x="18" y="4" width="24" height="88.16" fill="#f0f0ee" stroke="#a8b0b5" stroke-width="0.22"/>
+    <text x="30" y="15" font-size="2.7" fill="#3d454c" text-anchor="middle" transform="rotate(-90 30 15)">24' DRIVE AISLE</text>
+
+    <!-- perimeter landscaping to the surface stalls -->
+    <rect x="0" y="4" width="18" height="5.08" fill="#eef2ec" stroke="#7d8a80" stroke-width="0.18" stroke-dasharray="1.6 1.2"/>
+    <rect x="0" y="87.08" width="18" height="5.08" fill="#eef2ec" stroke="#7d8a80" stroke-width="0.18" stroke-dasharray="1.6 1.2"/>
+    <text x="10.5" y="7.6" font-size="2.0" fill="#3d454c" text-anchor="middle">LANDSCAPING, 11-13-4 F11</text>
+    <text x="10.5" y="90.7" font-size="2.0" fill="#3d454c" text-anchor="middle">LANDSCAPING, 11-13-4 F11</text>
+
+    <!-- surface stalls, north group -->
+    <rect x="0" y="9.08" width="18" height="27" fill="#e8ebe8" stroke="#a8b0b5" stroke-width="0.22"/>
+    <line x1="0" y1="18.08" x2="18" y2="18.08" stroke="#a8b0b5" stroke-width="0.22"/>
+    <line x1="0" y1="27.08" x2="18" y2="27.08" stroke="#a8b0b5" stroke-width="0.22"/>
+    <text x="9" y="13.8" font-size="2.2" fill="#3d454c" text-anchor="middle">STALL 1</text>
+    <text x="9" y="22.8" font-size="2.2" fill="#3d454c" text-anchor="middle">STALL 2</text>
+    <text x="9" y="31.8" font-size="2.2" fill="#3d454c" text-anchor="middle">STALL 3</text>
+
+    <!-- surface stalls, south group -->
+    <rect x="0" y="60.08" width="18" height="27" fill="#e8ebe8" stroke="#a8b0b5" stroke-width="0.22"/>
+    <line x1="0" y1="69.08" x2="18" y2="69.08" stroke="#a8b0b5" stroke-width="0.22"/>
+    <line x1="0" y1="78.08" x2="18" y2="78.08" stroke="#a8b0b5" stroke-width="0.22"/>
+    <text x="9" y="64.8" font-size="2.2" fill="#3d454c" text-anchor="middle">STALL 4</text>
+    <text x="9" y="73.8" font-size="2.2" fill="#3d454c" text-anchor="middle">STALL 5</text>
+    <rect x="0" y="78.08" width="18" height="9" fill="#dde3e5" stroke="#3d454c" stroke-width="0.24"/>
+    <text x="9" y="81.9" font-size="2.3" font-weight="700" fill="#15181b" text-anchor="middle">GUEST</text>
+    <text x="9" y="85.2" font-size="2.1" fill="#3d454c" text-anchor="middle">9' x 18'</text>
+    <text x="9" y="49.5" font-size="2.3" fill="#3d454c" text-anchor="middle">ACCESS DRIVE</text>
+
+    <!-- building -->
+    <rect x="42" y="18.08" width="40" height="60" fill="#dde3e5" stroke="#15181b" stroke-width="0.34"/>
+    <rect x="42" y="18.08" width="20" height="55" fill="none" stroke="#3d454c" stroke-width="0.2" stroke-dasharray="1.8 1.2"/>
+    <line x1="42" y1="29.08" x2="62" y2="29.08" stroke="#3d454c" stroke-width="0.2" stroke-dasharray="1.8 1.2"/>
+    <line x1="42" y1="40.08" x2="62" y2="40.08" stroke="#3d454c" stroke-width="0.2" stroke-dasharray="1.8 1.2"/>
+    <line x1="42" y1="51.08" x2="62" y2="51.08" stroke="#3d454c" stroke-width="0.2" stroke-dasharray="1.8 1.2"/>
+    <line x1="42" y1="62.08" x2="62" y2="62.08" stroke="#3d454c" stroke-width="0.2" stroke-dasharray="1.8 1.2"/>
+    <line x1="42" y1="73.08" x2="62" y2="73.08" stroke="#3d454c" stroke-width="0.24"/>
+    <text x="52" y="24.4" font-size="2.5" font-weight="700" fill="#1a4a5e" text-anchor="middle">G1</text>
+    <text x="52" y="35.4" font-size="2.5" font-weight="700" fill="#1a4a5e" text-anchor="middle">G2</text>
+    <text x="52" y="46.4" font-size="2.5" font-weight="700" fill="#1a4a5e" text-anchor="middle">G3</text>
+    <text x="52" y="57.4" font-size="2.5" font-weight="700" fill="#1a4a5e" text-anchor="middle">G4</text>
+    <text x="52" y="68.4" font-size="2.5" font-weight="700" fill="#1a4a5e" text-anchor="middle">G5</text>
+    <text x="52" y="76.4" font-size="2.2" font-weight="700" fill="#3d454c" text-anchor="middle">LOBBY / STAIR</text>
+    <line x1="42" y1="19.6" x2="42" y2="27.6" stroke="#1a4a5e" stroke-width="0.85"/>
+    <line x1="42" y1="30.6" x2="42" y2="38.6" stroke="#1a4a5e" stroke-width="0.85"/>
+    <line x1="42" y1="41.6" x2="42" y2="49.6" stroke="#1a4a5e" stroke-width="0.85"/>
+    <line x1="42" y1="52.6" x2="42" y2="60.6" stroke="#1a4a5e" stroke-width="0.85"/>
+    <line x1="42" y1="63.6" x2="42" y2="71.6" stroke="#1a4a5e" stroke-width="0.85"/>
+    <line x1="34" y1="23.6" x2="40.6" y2="23.6" stroke="#1a4a5e" stroke-width="0.22" marker-end="url(#ar2)"/>
+    <line x1="34" y1="34.6" x2="40.6" y2="34.6" stroke="#1a4a5e" stroke-width="0.22" marker-end="url(#ar2)"/>
+    <line x1="34" y1="45.6" x2="40.6" y2="45.6" stroke="#1a4a5e" stroke-width="0.22" marker-end="url(#ar2)"/>
+    <line x1="34" y1="56.6" x2="40.6" y2="56.6" stroke="#1a4a5e" stroke-width="0.22" marker-end="url(#ar2)"/>
+    <line x1="34" y1="67.6" x2="40.6" y2="67.6" stroke="#1a4a5e" stroke-width="0.22" marker-end="url(#ar2)"/>
+    <text x="72" y="42" font-size="3.0" font-weight="700" fill="#15181b" text-anchor="middle">APARTMENT</text>
+    <text x="72" y="46.2" font-size="3.0" font-weight="700" fill="#15181b" text-anchor="middle">BUILDING</text>
+    <text x="72" y="51.2" font-size="2.2" fill="#3d454c" text-anchor="middle">60' x 40'</text>
+    <text x="72" y="54.6" font-size="2.2" fill="#3d454c" text-anchor="middle">2 STOREYS</text>
+    <text x="72" y="58" font-size="2.2" fill="#3d454c" text-anchor="middle">5 ONE-BEDROOM</text>
+    <text x="72" y="61.4" font-size="2.2" fill="#3d454c" text-anchor="middle">UNITS</text>
+    <text x="52" y="15.6" font-size="2.2" fill="#3d454c" text-anchor="middle">5 GARAGE BAYS AT GRADE</text>
+
+    <!-- detention -->
+    <rect x="86" y="22" width="38" height="52" fill="#f2f6f7" stroke="#1a4a5e" stroke-width="0.26" stroke-dasharray="3 1.8"/>
+    <text x="105" y="43" font-size="2.7" font-weight="700" fill="#1a4a5e" text-anchor="middle">UNDERGROUND</text>
+    <text x="105" y="47" font-size="2.7" font-weight="700" fill="#1a4a5e" text-anchor="middle">DETENTION RESERVE</text>
+    <text x="105" y="51.4" font-size="2.2" fill="#3d454c" text-anchor="middle">WITHIN 46.1' REAR YARD</text>
+    <text x="105" y="54.8" font-size="2.2" fill="#3d454c" text-anchor="middle">SUBJECT TO GEOTECHNICAL</text>
+    <text x="105" y="58.2" font-size="2.2" fill="#3d454c" text-anchor="middle">INVESTIGATION (OI-09)</text>
+
+    <!-- setback lines -->
+    <line x1="40" y1="0" x2="40" y2="96.16" stroke="#1a4a5e" stroke-width="0.24" stroke-dasharray="3.2 1.8 0.7 1.8"/>
+    <line x1="88.1" y1="0" x2="88.1" y2="96.16" stroke="#1a4a5e" stroke-width="0.24" stroke-dasharray="3.2 1.8 0.7 1.8"/>
+    <line x1="0" y1="18.08" x2="128.1" y2="18.08" stroke="#1a4a5e" stroke-width="0.24" stroke-dasharray="3.2 1.8 0.7 1.8"/>
+    <line x1="0" y1="78.08" x2="128.1" y2="78.08" stroke="#1a4a5e" stroke-width="0.24" stroke-dasharray="3.2 1.8 0.7 1.8"/>
+    <text x="40" y="99.4" font-size="2.2" fill="#1a4a5e" text-anchor="middle">40' FRONT YARD SETBACK, 11-7D-1</text>
+    <text x="88.1" y="99.4" font-size="2.2" fill="#1a4a5e" text-anchor="middle">40' REAR YARD SETBACK, 11-7D-1</text>
+    <text x="103" y="14.6" font-size="2.2" fill="#1a4a5e" text-anchor="middle">18.08' SIDE YARD (MIN 8', 20' COMBINED, 11-7D-1)</text>
+    <text x="103" y="84.6" font-size="2.2" fill="#1a4a5e" text-anchor="middle">18.08' SIDE YARD (MIN 8', 20' COMBINED, 11-7D-1)</text>
+
+    <!-- parcel boundary -->
+    <rect x="0" y="0" width="128.1" height="96.16" stroke="#15181b" stroke-width="0.55"/>
+
+    <!-- picket fence -->
+    <line x1="-0.9" y1="0" x2="-0.9" y2="36.08" stroke="#15181b" stroke-width="0.2"/>
+    <line x1="-0.9" y1="0" x2="-0.9" y2="36.08" stroke="#15181b" stroke-width="1.7" stroke-dasharray="0.6 1.7"/>
+    <line x1="-0.9" y1="60.08" x2="-0.9" y2="96.16" stroke="#15181b" stroke-width="0.2"/>
+    <line x1="-0.9" y1="60.08" x2="-0.9" y2="96.16" stroke="#15181b" stroke-width="1.7" stroke-dasharray="0.6 1.7"/>
+    <text x="-3.4" y="76" font-size="2.2" fill="#15181b" text-anchor="middle" transform="rotate(-90 -3.4 76)">WOOD PICKET FENCE, 11-11-8A</text>
+
+    <!-- overall depth -->
+    <line x1="0" y1="-18" x2="0" y2="-2" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="128.1" y1="-18" x2="128.1" y2="-2" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="0" y1="-15" x2="128.1" y2="-15" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt2)" marker-end="url(#dt2)"/>
+    <text x="64" y="-16.8" font-size="2.9" font-weight="700" fill="#1a4a5e" text-anchor="middle">128.1' PARCEL DEPTH</text>
+
+    <!-- frontage -->
+    <line x1="-16" y1="0" x2="-1.6" y2="0" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="-16" y1="96.16" x2="-1.6" y2="96.16" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="-13.5" y1="0" x2="-13.5" y2="96.16" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt2)" marker-end="url(#dt2)"/>
+    <text x="-15.3" y="48" font-size="2.9" font-weight="700" fill="#1a4a5e" text-anchor="middle" transform="rotate(-90 -15.3 48)">96.16' FRONTAGE</text>
+
+    <!-- zone dims -->
+    <line x1="0" y1="97" x2="0" y2="106" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="42" y1="93" x2="42" y2="106" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="82" y1="79" x2="82" y2="106" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="128.1" y1="97" x2="128.1" y2="106" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="0" y1="103.5" x2="42" y2="103.5" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt2)" marker-end="url(#dt2)"/>
+    <line x1="42" y1="103.5" x2="82" y2="103.5" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt2)" marker-end="url(#dt2)"/>
+    <line x1="82" y1="103.5" x2="128.1" y2="103.5" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt2)" marker-end="url(#dt2)"/>
+    <text x="21" y="107.6" font-size="2.6" font-weight="700" fill="#1a4a5e" text-anchor="middle">42.0' FRONT YARD</text>
+    <text x="62" y="107.6" font-size="2.6" font-weight="700" fill="#1a4a5e" text-anchor="middle">40.0' BUILDING</text>
+    <text x="105" y="107.6" font-size="2.6" font-weight="700" fill="#1a4a5e" text-anchor="middle">46.1' REAR YARD</text>
+
+    <!-- stall / aisle sub dims -->
+    <line x1="18" y1="96" x2="18" y2="115" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="0" y1="112.5" x2="18" y2="112.5" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt2)" marker-end="url(#dt2)"/>
+    <line x1="18" y1="112.5" x2="42" y2="112.5" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt2)" marker-end="url(#dt2)"/>
+    <text x="9" y="116.6" font-size="2.4" fill="#1a4a5e" text-anchor="middle">18' STALLS</text>
+    <text x="30" y="116.6" font-size="2.4" fill="#1a4a5e" text-anchor="middle">24' DRIVE AISLE</text>
+    <text x="97" y="124.6" font-size="2.5" fill="#3d454c" text-anchor="middle">CLOSURE CHECK: 42.0 + 40.0 + 46.1 = 128.1 FT &#183; 18.08 + 60 + 18.08 = 96.16 FT</text>
+
+    <!-- side yards and building width -->
+    <line x1="130" y1="0" x2="140" y2="0" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="130" y1="18.08" x2="140" y2="18.08" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="130" y1="78.08" x2="140" y2="78.08" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="130" y1="96.16" x2="140" y2="96.16" stroke="#1a4a5e" stroke-width="0.13"/>
+    <line x1="137" y1="0" x2="137" y2="18.08" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt2)" marker-end="url(#dt2)"/>
+    <line x1="137" y1="18.08" x2="137" y2="78.08" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt2)" marker-end="url(#dt2)"/>
+    <line x1="137" y1="78.08" x2="137" y2="96.16" stroke="#1a4a5e" stroke-width="0.16" marker-start="url(#dt2)" marker-end="url(#dt2)"/>
+    <text x="135.4" y="9" font-size="2.4" fill="#1a4a5e" text-anchor="middle" transform="rotate(-90 135.4 9)">18.08'</text>
+    <text x="135.4" y="48" font-size="2.7" font-weight="700" fill="#1a4a5e" text-anchor="middle" transform="rotate(-90 135.4 48)">60.0' BUILDING WIDTH</text>
+    <text x="135.4" y="87.1" font-size="2.4" fill="#1a4a5e" text-anchor="middle" transform="rotate(-90 135.4 87.1)">18.08'</text>
+
+    <!-- north arrow -->
+    <line x1="145" y1="-4" x2="145" y2="-17" stroke="#15181b" stroke-width="0.4" marker-end="url(#nr2)"/>
+    <text x="145" y="-1" font-size="3.4" font-weight="700" fill="#15181b" text-anchor="middle">N</text>
+
+    <!-- graphic scale -->
+    <g>
+      <rect x="-40" y="121" width="10" height="2.6" fill="#15181b"/>
+      <rect x="-30" y="121" width="10" height="2.6" fill="#ffffff" stroke="#15181b" stroke-width="0.16"/>
+      <rect x="-20" y="121" width="20" height="2.6" fill="#15181b"/>
+      <rect x="0" y="121" width="20" height="2.6" fill="#ffffff" stroke="#15181b" stroke-width="0.16"/>
+      <text x="-40" y="127.6" font-size="2.4" fill="#15181b" text-anchor="middle">0</text>
+      <text x="-20" y="127.6" font-size="2.4" fill="#15181b" text-anchor="middle">20</text>
+      <text x="0" y="127.6" font-size="2.4" fill="#15181b" text-anchor="middle">40</text>
+      <text x="20" y="127.6" font-size="2.4" fill="#15181b" text-anchor="middle">60</text>
+      <text x="28" y="123.6" font-size="2.6" font-weight="700" fill="#15181b">FEET</text>
+      <text x="-40" y="118.4" font-size="2.4" font-weight="700" fill="#1a4a5e">GRAPHIC SCALE</text>
+    </g>
+  </svg>
+
+  <div class="legend">
+    <div><svg width="22" height="7"><line x1="1" y1="3.5" x2="21" y2="3.5" stroke="#15181b" stroke-width="2"/></svg><span>Parcel boundary</span></div>
+    <div><svg width="22" height="7"><line x1="1" y1="3.5" x2="21" y2="3.5" stroke="#1a4a5e" stroke-width="1" stroke-dasharray="5 2.5 1 2.5"/></svg><span>Required yard setback line</span></div>
+    <div><svg width="22" height="7"><rect x="1" y="0.6" width="20" height="5.8" fill="#dde3e5" stroke="#15181b" stroke-width="1"/></svg><span>Apartment building footprint</span></div>
+    <div><svg width="22" height="7"><rect x="1" y="0.6" width="20" height="5.8" fill="none" stroke="#3d454c" stroke-width="0.8" stroke-dasharray="3 2"/></svg><span>Garage bay at grade, 5 off</span></div>
+    <div><svg width="22" height="7"><rect x="1" y="0.6" width="20" height="5.8" fill="#e8ebe8" stroke="#a8b0b5" stroke-width="0.8"/></svg><span>Surface parking stall</span></div>
+    <div><svg width="22" height="7"><rect x="1" y="0.6" width="20" height="5.8" fill="#f0f0ee" stroke="#a8b0b5" stroke-width="0.8"/></svg><span>Shared drive aisle and curb cut</span></div>
+    <div><svg width="22" height="7"><rect x="1" y="0.6" width="20" height="5.8" fill="#dde3e5" stroke="#3d454c" stroke-width="0.8"/></svg><span>Guest parking space</span></div>
+    <div><svg width="22" height="7"><rect x="1" y="0.6" width="20" height="5.8" fill="#eef2ec" stroke="#7d8a80" stroke-width="0.8" stroke-dasharray="3 2"/></svg><span>Perimeter landscaping, 11-13-4 F11</span></div>
+    <div><svg width="22" height="7"><rect x="1" y="0.6" width="20" height="5.8" fill="#f2f6f7" stroke="#1a4a5e" stroke-width="0.8" stroke-dasharray="3 2"/></svg><span>Underground detention reserve</span></div>
+    <div><svg width="22" height="7"><line x1="1" y1="3.5" x2="21" y2="3.5" stroke="#15181b" stroke-width="4.5" stroke-dasharray="1.4 3.4"/></svg><span>Wood picket fence, 11-11-8A</span></div>
+    <div><svg width="22" height="7"><line x1="1" y1="3.5" x2="21" y2="3.5" stroke="#1a4a5e" stroke-width="2.4"/></svg><span>Garage door</span></div>
+    <div><svg width="22" height="7"><line x1="1" y1="3.5" x2="21" y2="3.5" stroke="#6b757e" stroke-width="1" stroke-dasharray="7 2 1 2"/></svg><span>Street centreline</span></div>
+  </div>
+
+  <div class="planfoot">
+    <table class="tight">
+      <thead><tr><th>Dimension table</th><th class="n">Value</th><th>Reference</th></tr></thead>
+      <tbody>
+        <tr><td>Frontage on First Street</td><td class="n">96.16 ft</td><td>GIS cadastral</td></tr>
+        <tr><td>Parcel depth, working figure</td><td class="n">128.1 ft</td><td>GIS cadastral</td></tr>
+        <tr><td>Parcel area</td><td class="n">12,320 sq ft</td><td>0.2828 ac</td></tr>
+        <tr><td>Front yard provided</td><td class="n">42.0 ft</td><td>min 40 ft, 11-7D-1</td></tr>
+        <tr><td>Surface stall depth</td><td class="n">18 ft</td><td>6 stalls at 9 ft x 18 ft</td></tr>
+        <tr><td>Drive aisle</td><td class="n">24 ft</td><td>Design criterion</td></tr>
+        <tr><td>Curb cut, single</td><td class="n">24 ft</td><td>max 36 ft, 11-13-4-2</td></tr>
+        <tr><td>Building depth</td><td class="n">40.0 ft</td><td>Scenario F</td></tr>
+        <tr><td>Building width</td><td class="n">60.0 ft</td><td>Scenario F</td></tr>
+        <tr><td>Building footprint</td><td class="n">2,400 sq ft</td><td>coverage 19.5%, max 25%, 11-18-3B</td></tr>
+        <tr><td>Building height</td><td class="n">2 storeys</td><td>max 2.5 storeys / 30 ft, 11-7D-1</td></tr>
+        <tr><td>Gross floor area</td><td class="n">about 4,800 sq ft</td><td>FAR 0.39 ceiling is 4,805 sq ft</td></tr>
+        <tr><td>Dwelling units</td><td class="n">5 one bedroom</td><td>about 680 sq ft each; min 650 sq ft, 11-7H-1C</td></tr>
+        <tr><td>Garage bays at grade</td><td class="n">5</td><td>about 11 ft x 20 ft, 1,100 sq ft total</td></tr>
+        <tr><td>Rear yard provided</td><td class="n">46.1 ft</td><td>min 40 ft, 11-7D-1</td></tr>
+        <tr><td>Side yards provided</td><td class="n">18.08 + 18.08 ft</td><td>min 8 ft each, 20 ft combined</td></tr>
+        <tr class="hl"><td>Parking provided</td><td class="n">11 spaces</td><td>5 indoor bays, 6 surface stalls</td></tr>
+        <tr><td>First Street right of way</td><td class="n">approx. 57.5 ft</td><td>Derived, not platted</td></tr>
+      </tbody>
+    </table>
+
+    <div class="notes">
+      <b>PLAN NOTES</b>
+      <ol>
+        <li>Base district <b>R-2 Single-Family Residence</b> with the <b>OTP Old Town Preservation overlay</b>. Bulk and height are taken from the underlying district as directed by <b>11-11-4A</b>; the bulk table is <b>11-7D-1</b>.</li>
+        <li>Concept 2 is a <b>planned development special use</b> under Title 11 Chapter 18, an expressly permitted special use in the Old Town district per <b>11-11-4D5</b>. Floor area ratio 0.39, the chapter ceiling under <b>11-18-3C1</b>. Parcel coverage 19.5 percent, within the 25 percent cap at <b>11-18-3B</b>. Density under <b>11-18-3C2</b>.</li>
+        <li>A five-unit multiple-family dwelling is <b>literally an R-4 permitted use</b> under <b>11-7H-2</b>, which is the basis for the R-4 characterisation the density calculation depends on. See <b>OI-14</b>.</li>
+        <li>Units are <b>one bedroom</b>. Five two-bedroom units are not deliverable within FAR 0.39: they need FAR 0.459, or 0.418 crediting the full garage exclusion. See Section 5, Scenario F.</li>
+        <li><b>One 24 ft curb cut.</b> 11-13-4-2 limits a driveway across public property in a residential use area to 36 ft in width, exclusive of curb returns.</li>
+        <li><b>Parking, 11 spaces:</b> 5 indoor garage bays, one per unit as 11-13-4-2 requires, plus 6 surface stalls of which 5 are resident and 1 is guest. The guest ratio is 1 per 4 units; the "not less than" wording could be read as rounding up to 2, to be confirmed with the Village. See <b>OI-07</b>.</li>
+        <li><b>Perimeter landscaping</b> to the surface parking per <b>11-13-4 F11</b>, which applies to an open parking lot of more than four spaces in a residential use area. Pavement per <b>11-13-4 F2</b>: compacted macadam base not less than 4 inches thick, surfaced with asphaltic concrete or approved equal.</li>
+        <li>Fencing on the First Street frontage is <b>picket style, constructed of wood</b>, or equivalent material approved by the Building Commissioner, per <b>11-11-8A</b>. Exterior colours per <b>11-11-7</b>.</li>
+        <li>The underground detention reserve is a reserved area only. Hydrologic soil group C soils with a water table at 2.5 ft are adverse for underground detention, and for underground parking, which <b>11-18-3C2</b> otherwise contemplates. A geotechnical investigation is required. See <b>OI-09</b>.</li>
+        <li>Right of way width shown is <b>approximate</b>, derived, not platted (<b>OI-02</b>). Single point of vehicular access; confirm fire apparatus requirements (<b>OI-10</b>). No permit issues until the Village Planner and the Village Engineer approve the site plan, per <b>11-13-3</b>.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="disclaimer">
+    Concept site plan. Not a survey. Dimensions derived from DuPage County GIS cadastral data and subject to confirmation by boundary survey.
+  </div>
+
+  <footer class="ft" style="left:0.5in;right:0.5in;bottom:0.26in"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026 &nbsp;&#124;&nbsp; Exhibit 2, Concept Site Plan</span><span class="pg"></span></footer>
+</section>
+
+<!-- ===================== 7. SIDE BY SIDE ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Side by Side</span></div>
+  <h2><span class="num">7</span>The two concepts, side by side</h2>
+
+  <p>Both concepts are lawful routes to a planned development on this parcel, both sit inside every Chapter 18 cap,
+  and both remain subject to every open item in Section 10. They differ in product, in unit count, in unit size and,
+  most sharply, in how exposed they are to the determination that governs the whole density calculation.</p>
+
+  <table>
+    <thead><tr><th style="width:22%"></th><th style="width:39%">Exhibit 1: 4 townhomes</th><th style="width:39%">Exhibit 2: 5 apartments</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Units</strong></td><td>4</td><td>5, the legal ceiling</td></tr>
+      <tr><td><strong>Unit size</strong></td><td>about 1,201 sq ft</td><td>about 680 sq ft</td></tr>
+      <tr><td><strong>Bedrooms achievable</strong></td><td>2 bedroom feasible</td><td>1 bedroom only; 2 bedroom exceeds FAR 0.39</td></tr>
+      <tr><td><strong>Unit width</strong></td><td>19.04 ft</td><td>Not width constrained</td></tr>
+      <tr><td><strong>Storeys</strong></td><td>2</td><td>2</td></tr>
+      <tr><td><strong>Footprint</strong></td><td>2,402 sq ft, 19.5 percent coverage</td><td>2,400 sq ft, 19.5 percent coverage</td></tr>
+      <tr><td><strong>Parking required</strong></td><td>9 spaces, 4 indoors</td><td>11 spaces, 5 indoors</td></tr>
+      <tr><td><strong>Private driveway per unit</strong></td><td><strong>Yes</strong></td><td>No, shared parking court</td></tr>
+      <tr><td><strong>Product</strong></td><td>Fee simple townhomes</td><td>Flats</td></tr>
+      <tr><td><strong>R-4 qualification under 11-7H-2</strong></td><td><strong>No</strong>, fewer than five units</td><td><strong>Yes</strong>, five or more units</td></tr>
+      <tr class="hl"><td><strong>Risk on open item 14</strong></td><td><strong>Higher.</strong> The townhome form invites the R-3 characterisation at 8,000 sq ft per unit, which would collapse yield to 1 unit</td><td><strong>Lower.</strong> A five-unit multiple-family dwelling is literally an R-4 permitted use</td></tr>
+    </tbody>
+  </table>
+
+  <div class="ans">
+    <p><strong>The honest summary.</strong> The townhome scheme delivers a better product and the private driveways
+    the client asked for. The apartment scheme delivers one more unit and materially better odds on the
+    determination that governs whether this site yields five units or one. <strong>Both remain subject to every open
+    item in Section 10.</strong> This report does not choose between them; the choice turns on what Franklin
+    Properties values more, product quality or regulatory certainty, and that is the client's decision to make.</p>
+  </div>
+
+  <div class="callout" style="margin-bottom:0">
+    <h4>One sequencing point worth noting</h4>
+    <p>The choice does not have to be made first. The "most similar district" determination under 11-18-3C is
+    settled at the tentative approval stage under <strong>11-18-4A</strong>, which the ordinance provides precisely
+    so a developer can obtain the Commission's advice <strong>before incurring the expense of a plan</strong>. If
+    the Village signals comfort with an R-4 characterisation for an attached form, Exhibit 1 carries far less risk
+    than the table above implies. If it does not, Exhibit 2 is the answer to that specific objection.</p>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<!-- ===================== 15. ENTITLEMENT PATH ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Entitlement and Permitting</span></div>
+  <h2><span class="num">8</span>Entitlement path and permitting</h2>
+
+  <p>The sequence below is established by ordinance text. <strong>The time it takes is not</strong>, and this report
+  states no processing duration for any step. Section 8.4 explains why, and identifies the only two durations in the
+  code that are established, both of which are post-approval validity periods rather than processing times.</p>
+
+  <h3>8.1 The sequence</h3>
+  <ol class="steps">
+    <li><strong>Confirm the base zoning of R-2 in writing with the Village</strong>, and confirm the parcel's Old
+    Town status. Also confirm whether the map's "SP" notation and ordinance reference <strong>79-53</strong> attach
+    any existing conditions to this parcel.</li>
+    <li><strong>Pre-application discussion with Village staff</strong>, including the Village Planner and the
+    Village Engineer, who must approve the site plan before any permit issues, per <strong>11-13-3</strong>.</li>
+    <li><strong>Tentative planned development approval by the Planning and Zoning Commission</strong>, per
+    <strong>11-18-4A</strong>. This is a distinct first stage and it comes before the special use application. See
+    Section 8.2.</li>
+    <li><strong>Special use permit application</strong> under <strong>11-11-5</strong>, in the form of a planned
+    development application under <strong>11-18-4B</strong>. New attached or multi-unit construction is not among
+    the 11-11-4B exemptions, so it cannot proceed administratively. Submittals under 11-11-5B are the chapter 4
+    documentation, a written statement describing the plan and giving the basis for each requested exception, and a
+    written statement addressing the 11-3-4 criteria.</li>
+    <li><strong>Consistency review against the Old Town Plan</strong>, exhibit A to Ordinance 2006-03, per
+    <strong>11-11-5A1</strong>.</li>
+    <li><strong>Public hearing before the Planning and Zoning Commission</strong>, which under
+    <strong>11-18-4C1</strong> shall hold a hearing on the application, then <strong>Village Board</strong>
+    approval, per <strong>11-4-5B</strong>.</li>
+    <li><strong>Building permit</strong>, issued by the Building and Zoning Official once the Village Board approves
+    the final plan (<strong>11-18-5</strong>), and after Village Planner and Village Engineer site plan approval per
+    11-13-3.</li>
+    <li><strong>DuPage County stormwater compliance</strong>, administered county-wide.</li>
+  </ol>
+
+  <blockquote>
+    Review by the planning and zoning commission and village board shall be required for building permits associated
+    with new construction, building additions, rezoning, planned developments and special use permits in the old
+    town district.
+    <span class="src">Bloomingdale Village Code, 11-4-5B</span>
+  </blockquote>
+
+  <h3>8.2 On rezoning, since the client asked</h3>
+  <div class="callout">
+    <h4>Rezoning is not the default path here</h4>
+    <p><strong>11-11-4D5</strong> already makes the permitted uses of R-1 through R-4 available in the Old Town
+    Preservation District <strong>as special uses</strong>, so attached housing is reachable through the special use
+    mechanism <strong>without changing the base district</strong>. A map amendment or rezoning would only be needed
+    if the Village declined to treat the proposed form as falling within those imported uses.</p>
+    <p style="margin-bottom:0"><strong>Planned development is expressly listed as an available special use in
+    11-11-4D5</strong>, and it is the cleanest vehicle for a four-unit scheme that needs modified bulk, because
+    Chapter 18 lets the approval carry the bulk exceptions inside it. <strong>Present rezoning as a fallback, not
+    the plan.</strong> It is worth noting that rezoning would not lift the Chapter 18 caps either, since those bind
+    the planned development route itself.</p>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Entitlement and Permitting</span></div>
+  <h3 style="margin-top:0">8.3 What the Village decides, and in what order</h3>
+  <table class="tight">
+    <thead><tr><th>Decision</th><th>Body</th><th>Section</th></tr></thead>
+    <tbody>
+      <tr><td>Approval in principle of the tentative planned development</td><td>Planning and Zoning Commission</td><td>11-18-4A</td></tr>
+      <tr><td>Which district is "most similar in nature and function", which sets density</td><td>Village Board</td><td>11-18-3C</td></tr>
+      <tr><td>Public hearing, report and recommendation on the application</td><td>Planning and Zoning Commission</td><td>11-18-4C1</td></tr>
+      <tr><td>Authorisation of the bulk exceptions</td><td>Village Board, on PZC recommendation</td><td>11-18-3</td></tr>
+      <tr><td>Approval of the final plan</td><td>Village Board</td><td>11-18-5</td></tr>
+      <tr><td>Site plan approval before any permit issues</td><td>Village Planner and Village Engineer</td><td>11-13-3</td></tr>
+      <tr><td>Old Town compatibility of a single-family structure (Scenario A only)</td><td>Building and Zoning Official</td><td>11-11-4B2</td></tr>
+    </tbody>
+  </table>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<!-- ===================== 16. PLANNED DEVELOPMENT PROCEDURE ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Entitlement and Permitting</span></div>
+  <h3 style="margin-top:0">8.4 The planned development procedure in detail, 11-18-4</h3>
+
+  <p>Chapter 18 runs a <strong>two stage process</strong>, and the first stage is easy to miss. It is also the
+  cheapest place to resolve the largest risk in this report.</p>
+
+  <h4>Stage one: tentative approval, 11-18-4A</h4>
+  <p>The developer submits a tentative planned development to the Planning and Zoning Commission for approval in
+  principle, <strong>which the Commission must approve before an application for a planned development special use
+  permit is submitted</strong>. Written consent of all property owners within the development must be on file with
+  the Village before study of a tentative plan is even commenced. Approval in principle covers the general
+  acceptability of the land uses proposed and their interrelationships; it does not endorse the precise location of
+  uses, the configuration of parcels, or engineering feasibility. The stated purpose of the stage is to let the
+  developer obtain the Commission's advice and assistance <strong>before incurring the expense of a plan</strong>.</p>
+
+  <p class="sm"><strong>Tentative plan contents:</strong> proposed land uses, population densities and building
+  intensities; the proposed circulation pattern indicating public and private streets and off street parking ratios;
+  proposed parks, playgrounds, school sites and other open spaces; a market analysis of proposed commercial uses if
+  the property is not zoned commercial at submittal; delineation of the units to be constructed in progression, if
+  any; and the relation to future land use in the surrounding area and the Village comprehensive plan.</p>
+
+  <h4>Stage two: the planned development special use application, 11-18-4B</h4>
+  <p class="sm">Requires at minimum sixteen items: a topographic and boundary line map of the project locating its
+  relationship to surrounding properties; the pattern of public and private roads, driveways, parking facilities and
+  intended design standards; size, area and location of lots or proposed building groups; location, type and size of
+  landscaping; use, type, size and location of structures; location of sewer and water facilities; architectural
+  drawings and sketches illustrating design and character; location of recreational and open space area; existing
+  and proposed storm drainage pattern; statistical data pertinent to a comprehensive evaluation; organizational
+  details of any property owners association; aspects of the maintenance of common open space areas; a schedule for
+  development of units to be constructed in progression; <strong>a list of use and bulk exceptions requested</strong>;
+  engineering feasibility studies as necessary; and relation to future land use in the surrounding area and the
+  Village comprehensive plan.</p>
+
+  <p><strong>Public hearing, 11-18-4C1.</strong> The Planning and Zoning Commission shall hold a public hearing on
+  the application. It may approve, disapprove, or recommend changes or revisions it deems desirable, and forwards
+  its report and recommendation to the Village Board.</p>
+
+  <p><strong>Written agreement of restrictions, 11-18-4C2.</strong> A written agreement of restrictions signed by
+  the owners must be submitted with the final plan, assuring the Village that the development will be carried out in
+  full compliance with the final plan and within the submitted construction time schedule. <strong>Once the plan is
+  authorised by the Village Board, no modification may be made without Village Board authorisation.</strong></p>
+
+  <p><strong>Permits, 11-18-5.</strong> Whenever the Village Board approves the final plan, the Building and Zoning
+  Official issues the necessary permits for all of the project, or for such units as are to be constructed.</p>
+
+  <p><strong>Performance security, 11-18-7.</strong> At the time the permit is granted, the Village Board makes
+  arrangements with the applicant to ensure the public improvements and grants of easement shown on the approved
+  final plan are accomplished at the scheduled times.</p>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Entitlement and Permitting</span></div>
+  <h3 style="margin-top:0">8.5 The two established deadlines</h3>
+  <div class="ans">
+    <p><strong>The only two durations in this report, and what they are not.</strong> Under
+    <strong>11-18-4C1</strong>, Village Board approval for each unit of the development is valid for
+    <strong>eighteen (18) months from the date of approval of the final plan</strong>. Under
+    <strong>11-18-6</strong>, if no construction has commenced within <strong>eighteen (18) months</strong> from
+    the date of approval of the final plan, the permits are declared null and void and the project must be
+    resubmitted and reapproved in the same manner as in the first instance; the Village Board may extend the period
+    upon a showing of good and sufficient cause. <strong>Both are post-approval validity periods, not processing
+    times.</strong> They tell the client how long an approval keeps its value, not how long it takes to obtain.</p>
+  </div>
+
+  <div class="callout">
+    <h4>Everything else about timing is not established</h4>
+    <p>The ordinance text for <strong>section 11-3-4</strong>, which carries the special use procedure, the public
+    notice requirement and any statutory lead time, <strong>could not be retrieved</strong>. It was searched for
+    twice by section number and returned only cross-references. <strong>The procedural sequence and the deciding
+    bodies are established; the statutory notice period and the hearing schedule are not, and must be obtained from
+    the Village.</strong> Note also that the Planning and Zoning Commission and the Village Board each meet on their
+    own published cycle, and that cycle sets the real calendar. The applicant should ask the Village for the current
+    meeting calendar and filing deadlines. No number of weeks or months is stated in this report for any step, and
+    none should be inferred from it.</p>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<!-- ===================== 17. ENVIRONMENTAL AND ENGINEERING ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Environmental and Engineering</span></div>
+  <h2><span class="num">9</span>Environmental and engineering conditions</h2>
+
+  <table>
+    <thead><tr><th style="width:26%">Item</th><th>Finding</th><th style="width:22%">Source</th></tr></thead>
+    <tbody>
+      <tr><td>Flood zone</td><td><strong>Zone X. None on parcel.</strong></td><td>FEMA, classification by polygon intersection</td></tr>
+      <tr><td>FIRM panel</td><td><strong>17043C0054J</strong>, effective <strong>08/01/2019</strong></td><td>FEMA</td></tr>
+      <tr><td>Wetlands</td><td><strong>147 features in the surrounding area, 0 on the parcel</strong> (clipped feature count 0)</td><td>USFWS National Wetlands Inventory</td></tr>
+      <tr><td>Soil</td><td><strong>Markham silt loam, map unit 531B</strong></td><td>USDA NRCS</td></tr>
+      <tr><td>Hydrologic soil group</td><td><strong>C</strong></td><td>USDA NRCS</td></tr>
+      <tr><td>Shrink-swell potential</td><td><strong>Moderate</strong></td><td>USDA NRCS</td></tr>
+      <tr><td>Depth to water table</td><td><strong>2.5 ft (76 cm)</strong></td><td>USDA NRCS</td></tr>
+      <tr><td>Hydric</td><td><strong>No</strong></td><td>USDA NRCS</td></tr>
+      <tr><td>Ground elevation at centroid</td><td>756.6 ft</td><td>Parcel record</td></tr>
+    </tbody>
+  </table>
+
+  <h3>9.1 Stormwater, and an honest tension</h3>
+  <p>DuPage County administers stormwater regulation county-wide. The detention strategy selected for this concept is
+  <strong>underground</strong>, recorded as a program decision, and the rear yard is reserved for it.</p>
+
+  <div class="ans">
+    <p><strong>Hydrologic soil group C with a water table at 2.5 ft is adverse for an underground detention
+    system.</strong> Three specific problems follow, and none of them is speculative: <strong>buoyancy</strong> on
+    an empty chamber sitting in a shallow water table; <strong>dewatering</strong> during construction; and
+    <strong>poor infiltration</strong>, since group C soils drain slowly. <strong>A geotechnical investigation is
+    required before this approach is relied upon.</strong> Underground detention is not presented here as settled,
+    and the yield analysis does not depend on it: the 54.6 ft rear yard is large enough to absorb an alternative
+    approach without changing the building layout.</p>
+  </div>
+
+  <h3>9.2 Emergency access</h3>
+  <p>A single point of access was flagged as risk R-02. Quoted:</p>
+  <blockquote>
+    Site appears to have a single point of access for emergency vehicles. Fire departments/AHJs commonly require two
+    separate fire apparatus access roads or an approved alternative.
+    <span class="src">Recorded site risk R-02</span>
+  </blockquote>
+  <p>The concept as drawn has one curb cut, for the driveway width reasons set out in Section 6.2. <strong>The
+  required number of fire apparatus access roads must be verified with the Bloomingdale Fire Protection District
+  before design advances</strong> (OI-10). If two are required, the single-curb-cut logic and the 36 ft driveway
+  width limit at 11-13-4-2 must be reconciled, which is a question for the District and the Village Engineer
+  together at the pre-application stage.</p>
+
+  <h3>9.3 Utilities</h3>
+  <p>Water, sanitary and storm service were <strong>not established</strong>, and the assessor record lists
+  <strong>no sanitary district</strong> for the parcel. Carried as OI-11; no assumption about utilities is made
+  anywhere in this analysis.</p>
+
+  <h3>9.4 Existing structures</h3>
+  <p>Whether anything currently stands on the parcel, and any demolition scope, was <strong>not
+  established</strong>, and is carried as OI-13. The site plan is drawn on the assumption of a clear site because
+  no structure is recorded, not because the site has been confirmed clear.</p>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+<!-- ===================== 18. OPEN ITEMS 1 ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Open Items</span></div>
+  <h2><span class="num">10</span>Open items</h2>
+
+  <p>Sixteen items are unresolved. <strong>None of them is cosmetic and none has been trimmed to make the report
+  look tidier.</strong> Each one is either a fact that could not be established from an authoritative source, or a
+  determination that belongs to the Village rather than to this analysis. Where an item can change the yield, that
+  is said plainly.</p>
+
+  <ol class="oi">
+    <li><b>Boundary survey.</b> All dimensions in this report come from GIS cadastral data. The by-right
+    single-family position in Scenario A depends on the lot exceeding 12,000 sq ft, and the margin is only
+    <strong>320 sq ft</strong>. A survey that measures marginally less, or a right of way dedication at permitting,
+    removes that position. The same survey also governs whether a six-unit scheme is 316 sq ft short or not short at
+    all. <span class="muted">Can change the answer.</span></li>
+
+    <li><b>First Street right of way width.</b> Derived as approximately 57.5 ft from opposing cadastral parcel
+    edges. Not a platted figure. The deed runs to the street centreline while the GIS polygon is clipped at the
+    right of way line, so the two describe different areas.</li>
+
+    <li><b>Written zoning confirmation from the Village</b>, covering the base district, the Old Town overlay, and
+    what ordinance <strong>79-53</strong> attaches to this parcel. The map notation is established; the conditions
+    behind the ordinance reference are not.</li>
+
+    <li><b>Section 11-3-4 procedure</b>, notice period and hearing lead time. The section text could not be
+    retrieved. It must be obtained from the Village. This is why no processing duration appears anywhere in this
+    report.</li>
+
+    <li><b>Section 11-4-6 required submittals.</b> The section exists and is cross-referenced, but its content was
+    not retrieved.</li>
+
+    <li><b>Old Town Plan</b>, exhibit A to Ordinance 2006-03. This is the governing design document under
+    11-11-5A1 and it has not been reviewed. It may impose design direction that this concept has not anticipated.</li>
+
+    <li><b>Parking table ambiguity.</b> The single-family-attached row reads "2 ... plus 2.5 per each dwelling unit
+    for guest parking", which would total 4.5 spaces per unit. This report uses the multiple-family row instead and
+    says so. Also unresolved: whether a garage space and a driveway apron each count toward the requirement, and any
+    minimum garage or driveway dimensions. <span class="muted">Can change the site plan.</span></li>
+
+    <li><b>R-2 FAR garage exclusion</b> applied to a multi-unit attached building. The 500 sq ft enclosed parking
+    exclusion at 11-7D-1 is written for a single-family lot. Whether it applies once to the building or once per
+    unit is not resolved here, and the Scenario C arithmetic does not rely on the more favourable reading.</li>
+  </ol>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<!-- ===================== 19. OPEN ITEMS 2 ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Open Items</span></div>
+
+  <ol class="oi" start="9" style="counter-reset:oi 8">
+    <li><b>Geotechnical investigation.</b> Hydrologic soil group C soils and a water table at 2.5 ft against a
+    proposed underground detention system. Buoyancy, construction dewatering and poor infiltration all follow.
+    Required before underground detention is relied upon. <span class="muted">Can change the engineering
+    approach.</span></li>
+
+    <li><b>Fire apparatus access.</b> A single point of access has been flagged. Confirm the required number of fire
+    apparatus access roads with the Bloomingdale Fire Protection District. <span class="muted">Can change the site
+    plan.</span></li>
+
+    <li><b>Utility capacity and locations.</b> Water, sanitary and storm service to the site were not established.
+    The assessor record lists no sanitary district for the parcel.</li>
+
+    <li><b>Tax reassessment.</b> The parcel is currently exempt at $0 assessed value and will move onto the tax
+    rolls under taxable ownership. No tax figure can be quoted, because no assessed value exists and no rate has
+    been established for it.</li>
+
+    <li><b>Existing structures.</b> Whether anything currently stands on the parcel, and any demolition scope, was
+    not established.</li>
+
+    <li><b>Which district the Village Board deems "most similar in nature and function"</b> under 11-18-3C.
+    <strong>See the callout below.</strong> <span class="muted">The largest open risk in this analysis.</span></li>
+
+    <li><b>Whether attached garages qualify as parking provided in the building proper</b> for the purposes of the
+    second 10 percent density reduction under 11-18-3C2. Both concepts depend on it: without that second
+    reduction the density figure is 2,520 sq ft per unit rather than 2,268. <span class="muted">Can change the
+    answer.</span></li>
+
+    <li><b>Written consent of all property owners within the development</b>, required by <strong>11-18-4A1</strong>
+    before the tentative plan is studied by the Planning and Zoning Commission.</li>
+  </ol>
+
+  <div class="ans" style="margin-top:14pt">
+    <p style="font-size:9.6pt"><strong>OI-14, and why it sits above every other open item.</strong> Under
+    <strong>11-18-3C</strong> the density standard for a planned development is taken from the zoning district the
+    <strong>Village Board</strong> determines is most similar in nature and function to the proposed development.
+    <strong>The entire density calculation in this report depends on that district being R-4</strong>, whose
+    two-bedroom lot area standard of 2,800 sq ft per unit reduces to 2,268 sq ft per unit under 11-18-3C2. If the
+    Board names <strong>R-3</strong> instead, whose attached dwelling standard is 8,000 sq ft per unit, then even
+    with the full 20 percent reduction the figure is <strong>6,400 sq ft per unit and the yield falls to one
+    unit</strong>. That is the difference between either drawn concept and a single house on the lot. It is a
+    determination, not a calculation, and no amount of design work changes it. <strong>Settle it at the tentative
+    approval stage under 11-18-4A, before any design expense is incurred</strong>, which is precisely the stage the
+    ordinance provides for that purpose. <strong>Scenario F bears directly on this item:</strong> a five-unit
+    building satisfies the R-4 use definition at 11-7H-2 on its face, which is the strongest available support for
+    the R-4 reading, while a townhome row invites the R-3 group, row and town house language instead.</p>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<!-- ===================== 20. SOURCES ===================== -->
+<section class="sheet">
+  <div class="rh"><span>Site Yield Analysis</span><span class="rh-r">Sources</span></div>
+  <h2><span class="num">11</span>Sources</h2>
+
+  <p>Every fact in this report is traceable to one of the sources below. Where a fact could not be established from
+  an authoritative source, the report says "not established" and carries the item in Section 10 rather than filling
+  the gap.</p>
+
+  <table>
+    <thead><tr><th style="width:30%">Source</th><th>What it established</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Village of Bloomingdale 2026 Official Zoning Map, Old Town District</strong><br>
+        <span class="xs">Published by the Village</span></td>
+        <td>The base zoning finding. Map legend and labelling convention (base district plus PD, SP, S and Z
+        suffixes); the subject block mapped <strong>R-2 OT SP 79-53</strong>; the surrounding blocks mapped B-2 SP
+        80-07, B-2 OT SP and R-3 OT SP PD.</td>
+      </tr>
+      <tr>
+        <td><strong>Bloomingdale Village Code, Title 11</strong><br>
+        <span class="xs">American Legal Publishing, codelibrary.amlegal.com, corpus as of 2026-07-19, with direct
+        retrieval of the Old Town and Planned Development chapters</span></td>
+        <td>All ordinance text and every standard cited: <strong>11-3-4</strong> (referenced, text not retrieved),
+        <strong>11-4-3A</strong>, <strong>11-4-3C</strong>, <strong>11-4-5B</strong>, <strong>11-7D-1</strong> R-2
+        bulk table, <strong>11-7G-1</strong> R-3, <strong>11-7H-1</strong>, <strong>11-7H-2</strong> and
+        <strong>11-7H-3</strong> R-4, <strong>11-11-4A</strong>, <strong>11-11-4B2</strong>,
+        <strong>11-11-4D5</strong>, <strong>11-11-5A</strong>, <strong>11-11-5B</strong>,
+        <strong>11-11-5C</strong>, <strong>11-11-7</strong>, <strong>11-11-8A</strong>,
+        <strong>11-13-3</strong>, <strong>11-13-4-2</strong>, and Chapter 18 Planned Developments including
+        <strong>11-18-3</strong>, <strong>11-18-3A</strong>, <strong>11-18-3B</strong>,
+        <strong>11-18-3C</strong>, <strong>11-18-3C1</strong>, <strong>11-18-3C2</strong>,
+        <strong>11-18-4</strong>, <strong>11-18-5</strong>, <strong>11-18-6</strong> and
+        <strong>11-18-7</strong>.</td>
+      </tr>
+      <tr>
+        <td><strong>DuPage County Assessor</strong><br>
+        <span class="xs">Cadastral record, PROPSTNAME and ACREAGE fields</span></td>
+        <td>Address, PIN 0215204026, owner of record, property class E, FCVLAND / FCVIMP / FCVTOTAL all $0, acreage
+        0.28, school, park, fire protection and sanitary district entries, the recorded legal description, and the
+        adjacent ST PAUL UNITED CHURCH parcels 0215202012 through 0215202018.</td>
+      </tr>
+      <tr>
+        <td><strong>DuPage County GIS</strong><br>
+        <span class="xs">ArcGIS cadastral layer ParcelSearch/DuPageAssessmentParcelViewer/MapServer/4; Road
+        Centerlines service; Zoning/UnincorporatedZoningData</span></td>
+        <td>Parcel geometry in WGS84, measured by shoelace area and great-circle edge computation: 12,320 sq ft,
+        96.16 ft frontage, 127.94 and 128.30 ft depths, corner coordinates, west boundary bearing. Cross street
+        centreline positions. Municipality. The unincorporated-only zoning service that explains why a county zoning
+        lookup returns nothing for this parcel.</td>
+      </tr>
+      <tr>
+        <td><strong>Independent parcel polygon computation</strong></td>
+        <td>Corroborating geometry: 12,334 sq ft, 96.34 ft frontage, 127.99 to 128.26 ft depth, agreeing with the
+        cadastral figure to within 0.1 percent.</td>
+      </tr>
+      <tr>
+        <td><strong>FEMA</strong><br><span class="xs">Flood hazard layer, classification by polygon intersection</span></td>
+        <td>Flood Zone X, none on parcel. FIRM panel 17043C0054J, effective 08/01/2019.</td>
+      </tr>
+      <tr>
+        <td><strong>USFWS National Wetlands Inventory</strong></td>
+        <td>147 wetland features in the surrounding area, 0 on the parcel.</td>
+      </tr>
+      <tr>
+        <td><strong>USDA NRCS</strong></td>
+        <td>Markham silt loam, map unit 531B. Hydrologic soil group C. Moderate shrink-swell potential. Depth to
+        water table 2.5 ft. Not hydric.</td>
+      </tr>
+      <tr>
+        <td><strong>FHWA HPMS roadway inventory</strong></td>
+        <td>Street functional class and ownership: First Street local and municipally owned; East Lake Street, US
+        Route 20, principal arterial and State owned; distances to the arterial corridors.</td>
+      </tr>
+      <tr>
+        <td><strong>Project planning ledger and design criteria</strong><br>
+        <span class="xs">Planning session 111c47a1-d8b6-4e8a-a94b-7fc3fc1a002b, workflow "multifamily",
+        completeness score 1.0</span></td>
+        <td>Program decisions of record: development type multifamily, format townhome, unit target 10, parking
+        placement front, amenity pad none, open space priority yield, detention underground. Dimensional criteria: 9
+        ft x 18 ft parking stall, 24 ft drive aisle. Site risk R-02, single point of emergency access. The unit
+        target of 10 is recorded there as the schema minimum, not as a site-derived figure.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <h4>Limits of this report</h4>
+    <p>This is a zoning and yield analysis. It is <strong>not a survey, a title opinion, a legal opinion, or an
+    engineering design</strong>. No cost, rent, absorption, market or schedule figure appears in it, because none is
+    established from a source. Exhibits 1 and 2 are concept drawings of vector geometry derived from cadastral
+    dimensions; they do not trace or incorporate aerial imagery, and neither is to be used as a survey.</p>
+  </div>
+
+  <footer class="ft"><span>118 S First Street, Bloomingdale, IL 60108 &nbsp;&#124;&nbsp; PIN 0215204026</span><span class="pg"></span></footer>
+</section>
+
+<script>
+  (function () {
+    var sheets = document.querySelectorAll('.sheet');
+    for (var i = 0; i < sheets.length; i++) {
+      var tag = sheets[i].querySelector('.pg');
+      if (tag) { tag.textContent = 'Page ' + (i + 1) + ' of ' + sheets.length; }
+    }
+  })();
+</script>
+</body>
+</html>
