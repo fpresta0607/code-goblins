@@ -194,14 +194,15 @@ func mapVerb(verb string) State {
 }
 
 func decisionEvent(line string) (verb, key, detail string, ok bool) {
-	verb, detail, ok = ParseStatusLine(line)
+	_, event := state.SplitStatus(line)
+	verb, detail, ok = ParseStatusLine(event)
 	if !ok {
 		return "", "", "", false
 	}
 	if verb != "needs-decision" && verb != "blocked" && verb != "resolved" && verb != "captain-held" {
 		return "", "", "", false
 	}
-	before, after, _ := strings.Cut(strings.TrimSpace(line), ":")
+	before, after, _ := strings.Cut(strings.TrimSpace(event), ":")
 	fields := strings.Fields(before)
 	key = "default"
 	if len(fields) > 1 {
