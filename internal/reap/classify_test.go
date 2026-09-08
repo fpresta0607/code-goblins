@@ -1,6 +1,8 @@
 package reap
 
 import (
+	"bytes"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -335,6 +337,60 @@ func TestDecodeProcesses(t *testing.T) {
 			t.Fatal("empty output decoded without error")
 		}
 	})
+}
+
+// The failure this guards: Go spawns powershell with a pipe, PowerShell encodes
+// stdout with the OEM code page, and a command line holding a character outside
+// it comes back mangled. U+00A7 SECTION SIGN becomes byte 0x15 under IBM437,
+// which encoding/json rejects, failing the whole listing and the orphan sweep.
+// The prelude is the fix; escaping the byte instead would decode but would
+// report a command line the process does not have, and reap decides what may be
+// killed by reading command lines.
+func TestProcessListingSurvivesANonASCIICommandLine(t *testing.T) {
+	if _, err := exec.LookPath("powershell"); err != nil {
+		t.Skip("powershell is required to exercise the child output encoding")
+	}
+	const row = `[pscustomobject]@{ pid = 4; ppid = 1; name = "a.exe"; cmd = "serve " + [char]0x00A7 + " end"; start = "" } | ConvertTo-Json -Compress`
+
+	t.Run("without the prelude the listing is undecodable", func(t *testing.T) {
+		out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", row).Output()
+		if err != nil {
+			t.Fatalf("powershell: %v", err)
+		}
+		if !bytes.Contains(out, []byte{0x15}) {
+			t.Skipf("this host does not mangle U+00A7 into 0x15 (output %q); the prelude is still correct", out)
+		}
+		if _, err := decodeProcesses(out); err == nil {
+			t.Fatal("a mangled listing decoded without error; a wrong command line must not be reported as the real one")
+		}
+	})
+
+	t.Run("with the prelude the character survives", func(t *testing.T) {
+		out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", utf8OutputPrelude+row).Output()
+		if err != nil {
+			t.Fatalf("powershell: %v", err)
+		}
+		processes, err := decodeProcesses(out)
+		if err != nil {
+			t.Fatalf("decodeProcesses: %v", err)
+		}
+		if len(processes) != 1 || processes[0].CommandLine != "serve § end" {
+			t.Fatalf("decoded %+v, want the section sign preserved", processes)
+		}
+	})
+}
+
+// A raw control byte still means the child output encoding regressed, so the
+// decoder must fail loudly rather than guess at what the byte used to be:
+// 0x15 could be a mangled U+00A7 or a genuine NAK, and reap cannot tell.
+func TestDecodeProcessesRefusesARawControlByte(t *testing.T) {
+	raw := []byte(`[{"pid":4,"ppid":1,"name":"a.exe","cmd":"serve X end","start":""}]`)
+	raw[bytes.IndexByte(raw, 'X')] = 0x15
+	if _, err := decodeProcesses(raw); err == nil {
+		t.Fatal("a raw 0x15 decoded without error; want the listing refused so the encoding regression is visible")
+	} else if !strings.Contains(err.Error(), `\x15`) {
+		t.Errorf("error = %v, want it to name the offending byte", err)
+	}
 }
 
 func TestFindingsDigestIsOrderIndependent(t *testing.T) {
