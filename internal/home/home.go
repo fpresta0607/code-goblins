@@ -20,9 +20,65 @@ type Home struct {
 	Data  string
 }
 
+// inheritedRoot and inheritedState capture the fleet home the process was
+// launched with, before any test can change it. Every goblin pane exports
+// CFO_HOME and CFO_STATE_OVERRIDE so `cfo` works from a worktree, and `go
+// test` inherits both.
+var inheritedRoot, inheritedState = os.Getenv("CFO_HOME"), os.Getenv("CFO_STATE_OVERRIDE")
+
 // Resolve returns the home from CFO_HOME or the working directory.
 // It never creates directories.
+//
+// A test binary is refused the fleet home it inherited. A test that resolves
+// it writes its status lines and wake records into the running fleet, which
+// is not hypothetical: it has happened twice, and the second time a test's PR
+// notification arrived in the CFO's queue as a real goblin report. Per-package
+// TestMain guards only protect packages that remember to add one, so the
+// refusal lives here, where every caller passes. A test that points CFO_HOME
+// at its own directory is unaffected, including one that builds a home which
+// looks primary.
 func Resolve() (Home, error) {
+	h, err := resolve()
+	if err != nil {
+		return Home{}, err
+	}
+	if isTestBinary() && usesTheInheritedFleet(h) {
+		return Home{}, fmt.Errorf("home: a test resolved the inherited fleet home %s (state %s); point CFO_HOME and CFO_STATE_OVERRIDE at the test's own directory rather than inheriting the pane's", h.Root, h.State)
+	}
+	return h, nil
+}
+
+// Inherited returns the fleet home this process was launched with, captured
+// before any test could change the environment. A test that hands a child
+// process its own environment uses this to prove it is not about to give that
+// child the running fleet; Resolve's refusal cannot help there, because the
+// real cfo binary is not a test binary.
+func Inherited() (root, state string) {
+	return inheritedRoot, inheritedState
+}
+
+// usesTheInheritedFleet reports whether h is the home this process inherited
+// rather than one the test chose. Comparing against the inherited value is
+// exact where a path heuristic is not: GOTMPDIR can place a test's own
+// directories inside the live checkout, so "under the checkout" would condemn
+// correct fixtures, and a fixture there inherits the checkout's .git and so
+// looks primary too.
+func usesTheInheritedFleet(h Home) bool {
+	if inheritedRoot != "" && fsx.SamePath(h.Root, inheritedRoot) {
+		return true
+	}
+	return inheritedState != "" && fsx.SamePath(h.State, inheritedState)
+}
+
+// isTestBinary reports whether this process was built by `go test`, which
+// names the binary <package>.test. The name is checked rather than a -test.*
+// flag because a test binary can be run with no flags at all.
+func isTestBinary() bool {
+	name := strings.ToLower(filepath.Base(os.Args[0]))
+	return strings.HasSuffix(name, ".test") || strings.HasSuffix(name, ".test.exe")
+}
+
+func resolve() (Home, error) {
 	root := os.Getenv("CFO_HOME")
 	if root == "" {
 		wd, err := os.Getwd()

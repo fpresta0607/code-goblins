@@ -144,3 +144,62 @@ func TestIsPrimaryNeverCreates(t *testing.T) {
 		t.Errorf("IsPrimary created entries: %v", entries)
 	}
 }
+
+// The guard that keeps a test suite off the machine's own fleet. A goblin
+// pane exports CFO_HOME and CFO_STATE_OVERRIDE, go test inherits both, and a
+// test that resolves either writes into the running fleet. This has happened
+// twice; the second time a test's PR notification reached the CFO as a real
+// goblin report.
+func TestResolveRefusesTheInheritedFleetHome(t *testing.T) {
+	fleet := t.TempDir()
+	fleetState := filepath.Join(fleet, "state")
+	if err := os.Mkdir(fleetState, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Stand in for the pane's exported values, which are captured at process
+	// start and so cannot be set by this test through the environment.
+	defer restoreInherited(inheritedRoot, inheritedState)
+	inheritedRoot, inheritedState = fleet, fleetState
+
+	t.Run("a test that inherits CFO_HOME", func(t *testing.T) {
+		t.Setenv("CFO_HOME", fleet)
+		t.Setenv("CFO_STATE_OVERRIDE", "")
+		if h, err := Resolve(); err == nil {
+			t.Fatalf("Resolve = %+v, want a refusal rather than the inherited fleet home", h)
+		}
+	})
+
+	// The dangerous one: CFO_STATE_OVERRIDE wins over CFO_HOME, so a test that
+	// carefully points CFO_HOME at its own directory still writes its status
+	// and wake records into the fleet unless the override is cleared too.
+	t.Run("a test that sets CFO_HOME but inherits the state override", func(t *testing.T) {
+		t.Setenv("CFO_HOME", t.TempDir())
+		t.Setenv("CFO_STATE_OVERRIDE", fleetState)
+		if h, err := Resolve(); err == nil {
+			t.Fatalf("Resolve = %+v, want a refusal rather than the inherited fleet state", h)
+		}
+	})
+
+	// A test may legitimately build a home that looks primary - the hook
+	// guards are tested against exactly that - and GOTMPDIR can place it
+	// inside the checkout, so neither primaryness nor location may condemn it.
+	t.Run("a test's own primary-looking home still resolves", func(t *testing.T) {
+		own := t.TempDir()
+		gitInit(t, own)
+		if err := os.WriteFile(filepath.Join(own, "AGENTS.md"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(filepath.Join(own, "state"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("CFO_HOME", own)
+		t.Setenv("CFO_STATE_OVERRIDE", "")
+		if _, err := Resolve(); err != nil {
+			t.Fatalf("Resolve on the test's own home: %v, want it to work", err)
+		}
+	})
+}
+
+func restoreInherited(root, state string) {
+	inheritedRoot, inheritedState = root, state
+}
