@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -44,6 +45,7 @@ type Request struct {
 	Model     string
 	Effort    string
 	Session   string
+	Class     string
 }
 
 // Result contains the exact published task identity and user-facing outcome.
@@ -76,6 +78,7 @@ type Service struct {
 	Project     string
 	Sleep       func(context.Context, time.Duration) error
 	ReleaseLock func(string, string) error
+	PolicyPath  string
 }
 
 // Spawn creates and launches exactly one local ship or scout task.
@@ -98,6 +101,24 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 	if err := validateDeliveryContract(req); err != nil {
 		return Result{}, err
+	}
+	var selection *pipeline.Selection
+	if req.Class == "" {
+		req.Class = "ordinary"
+	}
+	if !pipeline.ValidClass(req.Class) {
+		return Result{}, errors.New("spawn: class must be ordinary, high-risk, or mechanical")
+	}
+	if req.Mode == "no-mistakes" && s.PolicyPath != "" {
+		policy, err := pipeline.Load(s.PolicyPath)
+		if err != nil {
+			return Result{}, err
+		}
+		chosen, err := policy.Select(req.Class)
+		if err != nil {
+			return Result{}, err
+		}
+		selection = &chosen
 	}
 	adapter, err := s.Harness.Get(req.Harness)
 	if err != nil {
@@ -198,6 +219,10 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// and cleanable through `cfo peek`/`cfo cleanup` instead of an unnameable
 	// orphan whose pane the CFO has to hunt down by hand.
 	result.Meta.SpawnGen = fmt.Sprintf("s%d", time.Now().UTC().UnixNano())
+	if selection != nil {
+		result.Meta.PipelineClass = selection.Class
+		result.Meta.PipelineHash = selection.Hash
+	}
 	if err := state.WriteTaskMeta(s.StateDir, result.Meta); err != nil {
 		return Result{}, errors.Join(
 			fmt.Errorf("spawn: publish task metadata: %w", err),
@@ -235,6 +260,11 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := os.MkdirAll(filepath.Join(taskTmp, "gotmp"), 0o755); err != nil {
 		return fail(result, fmt.Errorf("spawn: create task temporary directory: %w", err))
 	}
+	if selection != nil {
+		if err := selection.Save(filepath.Join(taskTmp, "pipeline.json")); err != nil {
+			return fail(result, err)
+		}
+	}
 	// The worktree starts as tracked files only; provisioning is what makes it
 	// runnable as if it were the project - shared config, dependencies
 	// installed against the shared package cache, and the token-authenticated
@@ -264,6 +294,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// CFO is woken with the actual PR URL, question, or failure reason instead
 	// of the watcher guessing from pane text.
 	launch.Instruction = spawnInstruction(req.BriefPath, req.ID)
+	if selection != nil {
+		launch.Instruction += selection.Instruction(req.ID, filepath.Join(taskTmp, "pipeline.json"))
+	}
 	if err := s.injectProjectCredentials(preflight, taskTmp, &launch); err != nil {
 		return fail(result, err)
 	}
