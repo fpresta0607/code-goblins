@@ -126,6 +126,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
 	archived, archiveErr := s.archive(id)
+	goTmpErr := s.removeGoTmp(id)
 
 	result.Meta = meta
 	result.Output = fmt.Sprintf("cleaned %s worktree=%s", id, worktreePath)
@@ -136,6 +137,9 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 		// The task is genuinely cleaned; only the id is still taken. Say so
 		// plainly rather than failing a completed cleanup.
 		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)
+	}
+	if goTmpErr != nil {
+		result.Output += fmt.Sprintf("\nwarning: %v; remove it by hand once the handle clears", goTmpErr)
 	}
 	return result, nil
 }
@@ -163,6 +167,7 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
 	archived, archiveErr := s.archive(id)
+	goTmpErr := s.removeGoTmp(id)
 
 	result := Result{Meta: meta, Output: fmt.Sprintf("force-archived %s; worktree %s left in place, remove it by hand when its handle clears", id, worktreePath)}
 	if archived != "" {
@@ -173,6 +178,9 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 	}
 	if archiveErr != nil {
 		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)
+	}
+	if goTmpErr != nil {
+		result.Output += fmt.Sprintf("\nwarning: %v; remove it by hand once the handle clears", goTmpErr)
 	}
 	return result, nil
 }
@@ -187,18 +195,6 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 // readable; spawn instead treats a status log with no live metadata beside it
 // as history rather than a live claim on the id.
 func (s Service) archive(id string) (string, error) {
-	// The Go temporary directory is removed rather than archived: it holds
-	// build and test scratch the task no longer needs, and being outside the
-	// state tree the archive rename does not carry it away. It goes before
-	// the scratch directory so a task whose scratch is already gone still has
-	// it removed.
-	goTmp, err := state.GoTmpDir(id)
-	if err != nil {
-		return "", err
-	}
-	if err := os.RemoveAll(goTmp); err != nil {
-		return "", fmt.Errorf("remove go temporary directory: %w", err)
-	}
 	taskTmp := filepath.Join(s.StateDir, "tasktmp", id)
 	if _, err := os.Stat(taskTmp); err != nil {
 		return "", nil
@@ -219,6 +215,27 @@ func (s Service) archive(id string) (string, error) {
 		return "", fmt.Errorf("task temporary directory: %w", err)
 	}
 	return dir, nil
+}
+
+// removeGoTmp removes the task's Go temporary directory, which holds build and
+// test scratch a finished task no longer needs and which, living outside the
+// state tree, the archive rename does not carry away.
+//
+// It is deliberately not part of archive(). On Windows a handle still open
+// under GOTMPDIR - a killed go test binary, a background process the goblin
+// started, antivirus - makes RemoveAll fail, and forceArchive exists for
+// exactly that pinned-by-a-dead-handle case. Inside archive() such a failure
+// would skip the credential scrub and the rename, so a locked build directory
+// would leave the project's secrets on disk and the id still claimed.
+func (s Service) removeGoTmp(id string) error {
+	goTmp, err := state.GoTmpDir(id)
+	if err != nil {
+		return err
+	}
+	if err := os.RemoveAll(goTmp); err != nil {
+		return fmt.Errorf("go temporary directory %s could not be removed: %w", goTmp, err)
+	}
+	return nil
 }
 
 // ArchiveDirName is where a finished task's scratch directory goes; see

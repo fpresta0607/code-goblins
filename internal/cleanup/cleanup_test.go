@@ -477,6 +477,59 @@ func TestCleanupRemovesTheGoTemporaryDirectoryWithoutScratch(t *testing.T) {
 	}
 }
 
+// A Go temporary directory can be pinned by a handle nothing will give up -
+// a killed go test binary, a background process the goblin started,
+// antivirus - and that is exactly the case cleanup has to survive: the
+// credential scrub and the archive rename must still happen, so the project's
+// secrets do not stay on disk and the id does not stay claimed over a locked
+// build directory.
+func TestCleanupArchivesEvenWhenTheGoTemporaryDirectoryIsPinned(t *testing.T) {
+	fixture := newCleanupFixture(t)
+	taskTmp := filepath.Join(fixture.stateDir, "tasktmp", "g1")
+	if err := os.MkdirAll(taskTmp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taskTmp, "auth.ps1"), []byte("$env:STRIPE_SECRET_KEY = 'sk_live_secret'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	goTmp, err := state.GoTmpDir("g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(goTmp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pinned, err := os.Create(filepath.Join(goTmp, "go-build1234.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { pinned.Close() })
+	// Prove the pin before relying on it, so this can never pass vacuously on
+	// a platform where an open handle does not block unlink.
+	if err := os.RemoveAll(goTmp); err == nil {
+		t.Skip("an open file handle does not block removal on this platform, so the pinned path cannot be exercised")
+	}
+
+	result, err := fixture.service.Cleanup(context.Background(), "g1")
+	if err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if _, err := os.Stat(taskTmp); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a pinned go temporary directory blocked the archive: %v", err)
+	}
+	archived := filepath.Join(fixture.stateDir, ArchiveDirName)
+	entries, err := os.ReadDir(archived)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("archive entries = %v, %v; want exactly one", entries, err)
+	}
+	if _, err := os.Stat(filepath.Join(archived, entries[0].Name(), "auth.ps1")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a pinned go temporary directory skipped the credential scrub: %v", err)
+	}
+	if !strings.Contains(result.Output, "go temporary directory") {
+		t.Errorf("Output = %q, want the go temporary directory warning", result.Output)
+	}
+}
+
 // The id-reuse wall: a cleaned-up task used to leave a scratch directory
 // behind that made its id unusable, so a task had to be respawned under an
 // invented suffix. Archiving it frees the id while keeping the history.
