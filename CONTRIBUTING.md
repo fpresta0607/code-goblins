@@ -49,7 +49,7 @@ It creates a disposable project under a unique temporary root and refuses to run
 - Table-driven tests for parsers, classifiers, flag mapping, and state transitions.
 - Typed errors that preserve the failed operation, target, and external stderr.
 - One sentence per line in Markdown.
-- No agent names as commit co-authors.
+- Never name an AI product, company, model, agent, or assistant identity as a commit co-author - not in a `Co-Authored-By` trailer, not anywhere else in a commit message, and not in a pull request body.
 
 ## Questions
 

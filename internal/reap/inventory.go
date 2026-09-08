@@ -264,7 +264,7 @@ type CIMProcesses struct {
 // encodes stdout with the OEM code page - IBM437 on this machine. A command
 // line holding any character outside that page comes back mangled, and some
 // mangle into raw control bytes: U+00A7 SECTION SIGN encodes to byte 0x15,
-// which encoding/json rejects with "invalid character '' in string
+// which encoding/json rejects with "invalid character '\x15' in string
 // literal", failing the entire process listing and with it the whole orphan
 // sweep. Escaping the byte instead would decode, but would report a command
 // line that is not the process's real one, and reap classifies processes by
