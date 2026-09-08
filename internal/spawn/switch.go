@@ -304,6 +304,9 @@ func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, pane
 		}
 		launch.Instruction = handoffInstruction(handoff, briefPath, id)
 	}
+	if meta.PipelineHash != "" {
+		launch.Instruction += " Continue with the frozen pipeline policy at " + filepath.Join(meta.TaskTmp, "pipeline.json") + "; use cfo pipeline run/respond for this task. Do not reset review budgets or bypass them with native AXI."
+	}
 
 	if _, err := s.startHarness(ctx, client, paneTarget, launchPlan{
 		AgentName: "gb-" + id,

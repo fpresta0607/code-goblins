@@ -42,12 +42,13 @@ func runDoctor(stdout io.Writer) int {
 	if note != "" {
 		fmt.Fprintf(stdout, "telemetry: skipped (%s)\n", note)
 	} else {
-		fmt.Fprintln(stdout, "telemetry: measured invocation minutes per agent and step")
-		fmt.Fprintln(stdout, "  agent     step                        count   avg min   max min")
+		fmt.Fprintln(stdout, "telemetry: validation invocation minutes; error/cancelled rows are failure latency, not successful speed")
+		fmt.Fprintln(stdout, "  agent     model                    role           step            outcome    count   avg min   max min")
 		for _, r := range rows {
-			fmt.Fprintf(stdout, "  %-9s %-25s %5d %9.1f %9.1f\n", r.Agent, r.Step, r.Count, r.AvgMin, r.MaxMin)
+			fmt.Fprintf(stdout, "  %-9s %-24s %-14s %-15s %-10s %5d %9.1f %9.1f\n", r.Agent, r.Model, r.Role, r.Step, r.Outcome, r.Count, r.AvgMin, r.MaxMin)
 		}
 	}
+	fmt.Fprintln(stdout, "telemetry: implementation unmeasured (the gate database records validation agents only)")
 
 	reportRouting(stdout)
 

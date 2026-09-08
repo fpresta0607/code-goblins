@@ -12,12 +12,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/claudehook"
 	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	taskstate "github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
 	"github.com/fpresta0607/code-goblins/internal/wake"
+	"github.com/fpresta0607/code-goblins/internal/watch"
 )
 
 // newPrimaryHome creates AGENTS.md, state/, and a plain git checkout in a
@@ -882,7 +885,14 @@ func TestAutoarmRewakeOnSignal(t *testing.T) {
 	defer func() { <-done }()
 
 	var stdout, stderr bytes.Buffer
-	exit := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
+	exit := hookStopAutoarmWithConfig(home.Home{Root: dir, State: state}, claudehook.Payload{SessionID: "s1"}, &stdout, &stderr, func(h home.Home) watch.Config {
+		cfg := watch.ConfigFromEnv(h)
+		// This scenario supplies a status-file signal. Real panes/processes are
+		// separate event sources and must not race the fixture's signal.
+		cfg.Monitor = nil
+		cfg.Reap = nil
+		return cfg
+	})
 	if exit != 2 {
 		t.Fatalf("exit = %d, want 2; stderr=%s", exit, stderr.String())
 	}
