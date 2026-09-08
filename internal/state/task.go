@@ -59,6 +59,14 @@ func CleanupLockName(id string) string {
 	return ".cleanup-" + id + ".lock"
 }
 
+// PipelineLockName is the per-task lock the pipeline commands hold to
+// serialise round acceptance. It is deliberately not the cleanup lock: a gate
+// runs for hours, and a cleanup lock held that long would make an auth refresh
+// report a live task as being cleaned up and never deliver its credentials.
+func PipelineLockName(id string) string {
+	return ".pipeline-" + id + ".lock"
+}
+
 // ValidTaskID rejects IDs that would escape or ambiguously name a task's
 // state files. IDs are deliberately ASCII-only because they also become Herdr
 // tab labels and wake keys.

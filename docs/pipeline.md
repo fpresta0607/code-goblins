@@ -39,7 +39,8 @@ The command currently supports Windows, with the v1.48/v1.64 singleton lock cont
 Use `NM_HOME` to select the same native home as no-mistakes, otherwise both use `~/.no-mistakes`.
 
 Before replacement, the original YAML is backed up beside the configuration with a unique timestamped name.
-The backup and staged replacement receive the credential store's owner-only file protection because unrelated settings may contain credentials.
+The backup receives the credential store's owner-only file protection because unrelated settings may contain credentials.
+The live configuration is rewritten in place rather than renamed over, so a shared file keeps its own existing permissions and every principal that could read it before still can.
 The command prints the backup path, preserves unrelated YAML settings and comments, and refuses duplicate keys, aliases, anchors and merges rather than making an ambiguous edit.
 It refuses a missing or unreadable database or configuration file.
 An operator can restore the printed backup in another idle window; restoration is never automatic over an operator's intervening edit.
