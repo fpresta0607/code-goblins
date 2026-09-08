@@ -23,6 +23,15 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	if err != nil {
 		return Launch{}, err
 	}
+	// Herdr's Windows agent start uses Start-Process -FilePath, which cannot
+	// execute the npm .cmd shim codex installs as; codex launches typed instead,
+	// the same way pi does.
+	launch.TypedLaunch = true
+	launch.Executable = "codex"
+	// Codex asks to trust a directory it has not seen; the trusting option is
+	// highlighted by default, so a bare Enter confirms it.
+	launch.ConfirmMarkers = []string{"Do you trust the contents of this directory?"}
+	launch.ConfirmKeys = []string{"enter"}
 	launch.Args = []string{"--dangerously-bypass-approvals-and-sandbox"}
 	if hasValue(spec.Model) {
 		launch.Args = append(launch.Args, "--model", spec.Model)
