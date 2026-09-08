@@ -336,6 +336,7 @@ $cleanupCompleted = $false
 $primaryFailure = $null
 $cleanupFailure = $null
 $previousCfoHome = $env:CFO_HOME
+$previousStateOverride = $env:CFO_STATE_OVERRIDE
 $previousHerdrSession = $env:HERDR_SESSION
 $previousSignalGrace = $env:CFO_SIGNAL_GRACE
 
@@ -407,6 +408,9 @@ if ($SelfTest -ne '') {
     throw "Unknown Plan 3 acceptance self-test $SelfTest."
 }
 
+$env:CFO_HOME = $cfoHome
+$env:CFO_STATE_OVERRIDE = Join-Path $cfoHome 'state'
+
 try {
     New-Item -ItemType Directory -Path $fixtureRoot -ErrorAction Stop | Out-Null
     Assert-ContainedPath -Root $fixtureRoot -Path $cfoHome -Description 'CFO home'
@@ -436,7 +440,6 @@ try {
     Invoke-Checked -FilePath 'git' -Arguments @('-C', $project, 'commit', '-m', 'fixture seed') -Description 'commit disposable project seed' | Out-Host
     Invoke-Checked -FilePath 'git' -Arguments @('-C', $project, 'push', '-u', 'origin', 'main') -Description 'push disposable project seed' | Out-Host
 
-    $env:CFO_HOME = $cfoHome
     $env:HERDR_SESSION = $session
     $env:CFO_SIGNAL_GRACE = '1'
 
@@ -623,6 +626,7 @@ finally {
         [Console]::Error.WriteLine("Disposable fixture preserved for manual recovery: $fixtureRoot")
     }
     $env:CFO_HOME = $previousCfoHome
+    $env:CFO_STATE_OVERRIDE = $previousStateOverride
     $env:HERDR_SESSION = $previousHerdrSession
     $env:CFO_SIGNAL_GRACE = $previousSignalGrace
 }

@@ -130,9 +130,13 @@ func LatestVerb(lines []string) (string, bool) {
 
 // ParseStatusLine parses one colon-delimited status event, accepting the
 // documented before-colon and note-head key forms while returning only the
-// status verb and human detail.
+// status verb and human detail. A leading RFC3339 stamp written by
+// AppendStatus is dropped first: it contains colons of its own, so leaving it
+// in would make the cut below return the hour as the verb. Lines recorded
+// before stamping stay parseable.
 func ParseStatusLine(line string) (verb, detail string, ok bool) {
-	before, after, found := strings.Cut(strings.TrimSpace(line), ":")
+	_, event := state.SplitStatus(line)
+	before, after, found := strings.Cut(strings.TrimSpace(event), ":")
 	if !found {
 		return "", "", false
 	}
@@ -190,14 +194,15 @@ func mapVerb(verb string) State {
 }
 
 func decisionEvent(line string) (verb, key, detail string, ok bool) {
-	verb, detail, ok = ParseStatusLine(line)
+	_, event := state.SplitStatus(line)
+	verb, detail, ok = ParseStatusLine(event)
 	if !ok {
 		return "", "", "", false
 	}
 	if verb != "needs-decision" && verb != "blocked" && verb != "resolved" && verb != "captain-held" {
 		return "", "", "", false
 	}
-	before, after, _ := strings.Cut(strings.TrimSpace(line), ":")
+	before, after, _ := strings.Cut(strings.TrimSpace(event), ":")
 	fields := strings.Fields(before)
 	key = "default"
 	if len(fields) > 1 {

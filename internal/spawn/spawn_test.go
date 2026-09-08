@@ -579,8 +579,12 @@ func TestSpawnLaunchFailureTearsDownPaneAndWorktree(t *testing.T) {
 	if readErr != nil {
 		t.Fatalf("TailStatus: %v", readErr)
 	}
-	if got, want := status, []string{"failed: " + err.Error()}; !reflect.DeepEqual(got, want) {
-		t.Errorf("status = %v, want %v", got, want)
+	events := make([]string, len(status))
+	for i, line := range status {
+		_, events[i] = state.SplitStatus(line)
+	}
+	if want := []string{"failed: " + err.Error()}; !reflect.DeepEqual(events, want) {
+		t.Errorf("status = %v, want %v", status, want)
 	}
 	if fixture.git.returned != 1 {
 		t.Fatalf("launch failure returned the lease %d times, want 1 for a proven-dead agent", fixture.git.returned)
@@ -745,11 +749,12 @@ func TestSpawnNormalizesLaunchFailureStatusToOneFailedEvent(t *testing.T) {
 	if len(status) != 1 {
 		t.Fatalf("raw status = %q; status events = %q, want exactly one", string(raw), status)
 	}
-	verb, _, found := strings.Cut(status[0], ":")
+	_, event := state.SplitStatus(status[0])
+	verb, _, found := strings.Cut(event, ":")
 	if !found || verb != "failed" {
 		t.Fatalf("status event = %q, want one failed event", status[0])
 	}
-	if strings.ContainsAny(status[0], "\r\n") || strings.HasPrefix(status[0], "done:") {
+	if strings.ContainsAny(event, "\r\n") || strings.HasPrefix(event, "done:") {
 		t.Fatalf("status event permits forged status line: %q", status[0])
 	}
 }
@@ -847,7 +852,10 @@ func TestSpawnPostAcquisitionFailuresReturnPartialResultAndStatus(t *testing.T) 
 				t.Fatalf("partial result = %+v endpoint=%+v, want worktree, project, and target", result.Meta, result.Endpoint)
 			}
 			status, statusErr := state.TailStatus(fixture.stateDir, fixture.request.ID, 2)
-			if statusErr != nil || len(status) != 1 || !strings.HasPrefix(status[0], "failed: ") || !strings.Contains(status[0], test.want) {
+			if statusErr != nil || len(status) != 1 {
+				t.Fatalf("status = %v, %v; want one failed event containing %q", status, statusErr, test.want)
+			}
+			if _, event := state.SplitStatus(status[0]); !strings.HasPrefix(event, "failed: ") || !strings.Contains(event, test.want) {
 				t.Fatalf("status = %v, %v; want one failed event containing %q", status, statusErr, test.want)
 			}
 			if _, metaErr := state.ReadTaskMeta(fixture.stateDir, fixture.request.ID); !errors.Is(metaErr, os.ErrNotExist) {
