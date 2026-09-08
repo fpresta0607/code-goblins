@@ -74,11 +74,23 @@ func PipelineLockName(id string) string {
 // scratch survives into the cleanup archive. It lives here because spawn
 // creates it and cleanup removes it, and a name both sides own a half of
 // belongs to neither.
+//
+// It sits under the user cache directory rather than the machine temporary
+// directory because a goblin task is live for days and %TEMP% is the one
+// directory Windows itself prunes (Storage Sense, Disk Cleanup): pruned under
+// a running pane, the goblin's next go build fails on a GOTMPDIR that no
+// longer exists. The user cache directory is where Go already keeps go-build,
+// so a Go temporary directory beside it is the idiomatic neighbour rather
+// than a directory the OS treats as disposable.
 func GoTmpDir(id string) (string, error) {
 	if err := ValidTaskID(id); err != nil {
 		return "", err
 	}
-	return filepath.Join(os.TempDir(), "cfo-gotmp", id), nil
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("state: resolve user cache directory: %w", err)
+	}
+	return filepath.Join(cache, "cfo", "gotmp", id), nil
 }
 
 // ValidTaskID rejects IDs that would escape or ambiguously name a task's

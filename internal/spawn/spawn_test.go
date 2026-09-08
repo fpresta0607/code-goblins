@@ -1093,11 +1093,8 @@ type fixture struct {
 	git      *worktreeGit
 }
 
-// goTmpDir isolates the machine temporary directory for the test and
-// returns the per-task Go temporary directory a spawn under it creates.
-// Without the isolation a spawn test writes into the operator's own %TEMP%
-// and leaves the directory behind, which is the same class of leak as a
-// test resolving the live fleet home.
+// goTmpDir returns the per-task Go temporary directory a spawn under the
+// isolated user cache directory creates.
 func goTmpDir(t *testing.T, id string) string {
 	t.Helper()
 	dir, err := state.GoTmpDir(id)
@@ -1107,16 +1104,21 @@ func goTmpDir(t *testing.T, id string) string {
 	return dir
 }
 
-func isolateMachineTemp(t *testing.T) {
+// isolateUserCacheDir points os.UserCacheDir at a directory of the test's own,
+// by setting the variables it reads. Without the isolation a spawn test writes
+// into the operator's own cache directory and leaves the per-task Go temporary
+// directory behind, which is the same class of leak as a test resolving the
+// live fleet home.
+func isolateUserCacheDir(t *testing.T) {
 	t.Helper()
-	temp := t.TempDir()
-	for _, name := range []string{"TMP", "TEMP", "TMPDIR"} {
-		t.Setenv(name, temp)
+	cache := t.TempDir()
+	for _, name := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME"} {
+		t.Setenv(name, cache)
 	}
 }
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	isolateMachineTemp(t)
+	isolateUserCacheDir(t)
 	root := t.TempDir()
 	stateDir := makeDir(t, filepath.Join(root, "state"))
 	dataDir := makeDir(t, filepath.Join(root, "data"))
