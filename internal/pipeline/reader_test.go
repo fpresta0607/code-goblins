@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -140,5 +141,19 @@ INSERT INTO step_rounds VALUES('disabledstep',1,NULL),('automaticstep',1,NULL);`
 	}
 	if _, err := ResponseArgs(selection, automatic, Response{Action: "fix", Findings: "bug"}); err == nil {
 		t.Fatal("automatic review budget accepted")
+	}
+}
+
+// This repository's own committed .no-mistakes.yaml is what bounds the initial
+// rollout gate, and CheckStart reads it through checkRepoConfig. Editing either
+// checked-in artifact out of agreement would only surface as a refused gate
+// run, so assert the real consumer accepts the real pair.
+func TestCommittedRepoConfigSatisfiesTheCheckedInPolicy(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", ".no-mistakes.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckRepoConfig(data, testPolicy(t)); err != nil {
+		t.Fatalf("committed gate config conflicts with config/pipeline.json: %v", err)
 	}
 }

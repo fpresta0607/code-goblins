@@ -20,16 +20,19 @@ import (
 )
 
 // speedTableSQL measures count plus average and maximum invocation minutes
-// per harness and pipeline step. Prefixed agent identities (kimi invocations
-// are recorded as acp:kimi) are normalized to the bare harness name so one
-// harness's rows group together.
+// per harness, recorded model, role, step, and outcome. Outcome is part of the
+// grouping so a failed or cancelled call's latency can never be averaged into
+// a successful one. Prefixed agent identities (kimi invocations are recorded
+// as acp:kimi) are normalized to the bare harness name so one harness's rows
+// group together.
 const speedTableSQL = `WITH normalized AS (SELECT CASE WHEN instr(agent, ':') > 0 THEN substr(agent, instr(agent, ':') + 1) ELSE agent END AS agent, COALESCE(NULLIF(model, ''), 'unrecorded') AS model, purpose, exit_status, step_name, duration_ms FROM agent_invocations) SELECT agent, model, purpose, exit_status, step_name, COUNT(*) AS n, AVG(duration_ms)/60000.0 AS avg_min, MAX(duration_ms)/60000.0 AS max_min FROM normalized GROUP BY agent, model, purpose, exit_status, step_name ORDER BY agent, model, purpose, step_name, exit_status`
 
 // queryTimeout bounds one sqlite3 read so a wedged CLI cannot stall spawn or
 // doctor after the work is already done.
 const queryTimeout = 5 * time.Second
 
-// SpeedRow is one agent's measured timing for one pipeline step.
+// SpeedRow is one agent, model, and role's measured timing for one pipeline
+// step and one outcome.
 type SpeedRow struct {
 	Agent   string
 	Model   string
@@ -59,8 +62,9 @@ func DefaultDBPath() string {
 	return filepath.Join(home, ".no-mistakes", "state.sqlite")
 }
 
-// SpeedTable returns the measured per-agent per-step timing. A non-empty note
-// means the table was skipped and explains why.
+// SpeedTable returns the measured validation timing, one row per agent, model,
+// role, step, and outcome. A non-empty note means the table was skipped and
+// explains why.
 func (q Querier) SpeedTable(ctx context.Context) ([]SpeedRow, string) {
 	out, note := q.query(ctx, speedTableSQL)
 	if note != "" {
