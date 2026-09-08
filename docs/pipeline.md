@@ -19,7 +19,8 @@ Direct-PR and local-only tasks retain their existing delivery paths.
 Existing tasks without a snapshot are not silently migrated.
 
 A cycle means one repair followed by another review, after the initial review.
-The driver counts completed rounds from the native database, so restarting the CLI does not reset the budget.
+The driver counts completed rounds from the native database, so the budget is durable within a native run and restarting the CLI mid-run does not reset it.
+A new run started on the same branch after a terminal failed or cancelled run begins a fresh budget, because it is validating new code.
 After two or three repair cycles, actionable review findings remain unresolved.
 A clean last review can still pass.
 The driver never turns budget exhaustion into approval, skips a step, or uses `--yes`.
@@ -39,8 +40,8 @@ The command currently supports Windows, with the v1.48/v1.64 singleton lock cont
 Use `NM_HOME` to select the same native home as no-mistakes, otherwise both use `~/.no-mistakes`.
 
 Before replacement, the original YAML is backed up beside the configuration with a unique timestamped name.
-The backup receives the credential store's owner-only file protection because unrelated settings may contain credentials.
-The live configuration is rewritten in place rather than renamed over, so a shared file keeps its own existing permissions and every principal that could read it before still can.
+The backup and staged replacement receive the credential store's owner-only file protection because unrelated settings may contain credentials.
+Replacement itself is atomic and preserves the live configuration's existing permissions, so an interrupted apply cannot leave a truncated shared file and every principal that could read it before still can.
 The command prints the backup path, preserves unrelated YAML settings and comments, and refuses duplicate keys, aliases, anchors and merges rather than making an ambiguous edit.
 It refuses a missing or unreadable database or configuration file.
 An operator can restore the printed backup in another idle window; restoration is never automatic over an operator's intervening edit.
