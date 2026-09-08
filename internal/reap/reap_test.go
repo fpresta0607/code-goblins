@@ -157,6 +157,16 @@ func TestApplyKillsAnIdleOrphanAndRecordsIt(t *testing.T) {
 	if len(log) != 1 || !strings.Contains(log[0], "orphan_process pid=31032") {
 		t.Fatalf("reap log = %q, want one line naming the reaped process", log)
 	}
+	// AppendStatus stamps every event now, so the reaper must not stamp the
+	// fleet log a second time: the event that follows the stamp has to be the
+	// finding itself, not another stamp.
+	recorded, event := state.SplitStatus(log[0])
+	if recorded.IsZero() {
+		t.Fatalf("reap log line %q carries no stamp", log[0])
+	}
+	if _, err := time.Parse(time.RFC3339, strings.SplitN(event, " ", 2)[0]); err == nil {
+		t.Fatalf("reap log line %q is stamped twice", log[0])
+	}
 }
 
 // TestForceNamesOneProcess proves --force is never a blanket override: the
