@@ -26,8 +26,11 @@ const (
 // launch. TurnEndedPath is retained for the orchestration contract but is not
 // used by a Plan 3 Windows adapter.
 type LaunchSpec struct {
-	BriefPath       string
-	TaskTmp         string
+	BriefPath string
+	TaskTmp   string
+	// GoTmp is the directory GOTMPDIR points at, created by the caller and
+	// deliberately outside the fleet checkout; see state.GoTmpDir.
+	GoTmp           string
 	TurnEndedPath   string
 	Model           string
 	Effort          string
@@ -170,9 +173,12 @@ func buildBase(spec LaunchSpec) (Launch, error) {
 	if strings.TrimSpace(spec.TaskTmp) == "" || !filepath.IsAbs(spec.TaskTmp) {
 		return Launch{}, errors.New("harness: TaskTmp must be absolute")
 	}
+	if strings.TrimSpace(spec.GoTmp) == "" || !filepath.IsAbs(spec.GoTmp) {
+		return Launch{}, errors.New("harness: GoTmp must be absolute")
+	}
 	return Launch{
 		Env: map[string]string{
-			"GOTMPDIR": filepath.Join(spec.TaskTmp, "gotmp"),
+			"GOTMPDIR": spec.GoTmp,
 			// Every goblin pane is stamped with its role, and the CFO's
 			// hooks read it to stay out of the way. It belongs in the launch
 			// contract rather than in the project credentials a preflight

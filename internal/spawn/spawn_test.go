@@ -186,8 +186,16 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 	if meta.TaskTmp == "" || meta.SpawnGen == "" {
 		t.Errorf("metadata = %+v, want tasktmp and spawn generation", meta)
 	}
-	if info, statErr := os.Stat(filepath.Join(meta.TaskTmp, "gotmp")); statErr != nil || !info.IsDir() {
-		t.Fatalf("GOTMPDIR = %q, stat = %v, want existing directory", filepath.Join(meta.TaskTmp, "gotmp"), statErr)
+	if info, statErr := os.Stat(goTmpDir(t, meta.ID)); statErr != nil || !info.IsDir() {
+		t.Fatalf("GOTMPDIR = %q, stat = %v, want existing directory", goTmpDir(t, meta.ID), statErr)
+	}
+	// Go writes build and test temporaries under GOTMPDIR, t.TempDir()
+	// included. Pointed inside the checkout it made every test a goblin ran
+	// create files in the tree the goblin was editing.
+	for _, inside := range []string{fixture.stateDir, fixture.worktree, fixture.project} {
+		if rel, relErr := filepath.Rel(inside, goTmpDir(t, meta.ID)); relErr == nil && !strings.HasPrefix(rel, "..") {
+			t.Errorf("GOTMPDIR = %q, want it outside %q", goTmpDir(t, meta.ID), inside)
+		}
 	}
 	if got, want := sortedKeys(t, fixture.stateDir, fixture.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "harness", "herdr_pane_id", "herdr_session", "herdr_tab_id", "herdr_workspace_id", "kind", "mode", "model", "project", "spawn_gen", "tasktmp", "window", "worktree", "yolo"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("metadata keys = %v, want %v", got, want)
@@ -225,7 +233,7 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 	}
 	// The prefix dot-sources the secrets script right after the location, so
 	// the billing-key strip lands before the launch contract and the harness.
-	if got, want := fixture.runner.literals[0], "Set-Location -LiteralPath '"+fixture.worktree+"'; . '"+filepath.Join(meta.TaskTmp, "auth.ps1")+"'; $env:CFO_STATE_OVERRIDE = '"+fixture.stateDir+"'; $env:GOTMPDIR = '"+filepath.Join(meta.TaskTmp, "gotmp")+"'"; got != want {
+	if got, want := fixture.runner.literals[0], "Set-Location -LiteralPath '"+fixture.worktree+"'; . '"+filepath.Join(meta.TaskTmp, "auth.ps1")+"'; $env:CFO_STATE_OVERRIDE = '"+fixture.stateDir+"'; $env:GOTMPDIR = '"+goTmpDir(t, meta.ID)+"'"; got != want {
 		t.Errorf("launch prefix = %q\nwant %q", got, want)
 	}
 	if got, want := fixture.runner.startName, "gb-task-7"; got != want {
@@ -374,7 +382,7 @@ func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
 	if strings.Contains(line, "hijacked") || strings.Contains(line, "overlord") {
 		t.Errorf("pane line = %q, want every case-aliased reserved redirect dropped", line)
 	}
-	if !strings.Contains(line, "$env:GOTMPDIR = '"+filepath.Join(result.Meta.TaskTmp, "gotmp")+"'") ||
+	if !strings.Contains(line, "$env:GOTMPDIR = '"+goTmpDir(t, result.Meta.ID)+"'") ||
 		!strings.Contains(line, "$env:CFO_STATE_OVERRIDE = '"+fixture.stateDir+"'") {
 		t.Errorf("pane line = %q, want the launch contract's own values intact", line)
 	}
@@ -691,7 +699,7 @@ func TestSpawnPiTypedLaunchTypesFullCommandAndSkipsNativeStart(t *testing.T) {
 	if got := len(fixture.runner.literals); got != 1 {
 		t.Fatalf("literals = %q, want exactly one typed launch line", fixture.runner.literals)
 	}
-	wantLine := "Set-Location -LiteralPath '" + fixture.worktree + "'; . '" + filepath.Join(result.Meta.TaskTmp, "auth.ps1") + "'; $env:CFO_STATE_OVERRIDE = '" + fixture.stateDir + "'; $env:GOTMPDIR = '" + filepath.Join(result.Meta.TaskTmp, "gotmp") + "'; & 'pi' '--tui-mode' 'regular' 'Read the brief at " + fixture.brief + " and follow it exactly."
+	wantLine := "Set-Location -LiteralPath '" + fixture.worktree + "'; . '" + filepath.Join(result.Meta.TaskTmp, "auth.ps1") + "'; $env:CFO_STATE_OVERRIDE = '" + fixture.stateDir + "'; $env:GOTMPDIR = '" + goTmpDir(t, result.Meta.ID) + "'; & 'pi' '--tui-mode' 'regular' 'Read the brief at " + fixture.brief + " and follow it exactly."
 	if got := fixture.runner.literal; !strings.HasPrefix(got, wantLine) {
 		t.Errorf("typed launch line = %q\nwant prefix %q", got, wantLine)
 	}
@@ -1085,8 +1093,30 @@ type fixture struct {
 	git      *worktreeGit
 }
 
+// goTmpDir isolates the machine temporary directory for the test and
+// returns the per-task Go temporary directory a spawn under it creates.
+// Without the isolation a spawn test writes into the operator's own %TEMP%
+// and leaves the directory behind, which is the same class of leak as a
+// test resolving the live fleet home.
+func goTmpDir(t *testing.T, id string) string {
+	t.Helper()
+	dir, err := state.GoTmpDir(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func isolateMachineTemp(t *testing.T) {
+	t.Helper()
+	temp := t.TempDir()
+	for _, name := range []string{"TMP", "TEMP", "TMPDIR"} {
+		t.Setenv(name, temp)
+	}
+}
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
+	isolateMachineTemp(t)
 	root := t.TempDir()
 	stateDir := makeDir(t, filepath.Join(root, "state"))
 	dataDir := makeDir(t, filepath.Join(root, "data"))
@@ -1170,7 +1200,7 @@ func (a typedFixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, err
 	*a.events = append(*a.events, "build-harness")
 	return harness.Launch{
 		Args:        []string{"--tui-mode", "regular"},
-		Env:         map[string]string{"GOTMPDIR": filepath.Join(spec.TaskTmp, "gotmp")},
+		Env:         map[string]string{"GOTMPDIR": spec.GoTmp},
 		PromptFile:  spec.BriefPath,
 		TypedLaunch: true,
 		Executable:  "pi",
@@ -1209,7 +1239,7 @@ func (a fixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
 	}
 	return harness.Launch{
 		Args:           []string{"--dangerously-skip-permissions"},
-		Env:            map[string]string{"GOTMPDIR": filepath.Join(spec.TaskTmp, "gotmp")},
+		Env:            map[string]string{"GOTMPDIR": spec.GoTmp},
 		PromptFile:     spec.BriefPath,
 		ConfirmMarkers: []string{"Is this a project you created or one you trust?"},
 		ConfirmKeys:    confirmKeys,

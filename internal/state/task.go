@@ -67,6 +67,20 @@ func PipelineLockName(id string) string {
 	return ".pipeline-" + id + ".lock"
 }
 
+// GoTmpDir is the per-task directory a goblin's GOTMPDIR points at. Go puts
+// build and test temporaries there, t.TempDir() included, so it is
+// deliberately outside the fleet checkout: pointed inside it, every test a
+// goblin runs creates files in the tree the goblin is editing, and the
+// scratch survives into the cleanup archive. It lives here because spawn
+// creates it and cleanup removes it, and a name both sides own a half of
+// belongs to neither.
+func GoTmpDir(id string) (string, error) {
+	if err := ValidTaskID(id); err != nil {
+		return "", err
+	}
+	return filepath.Join(os.TempDir(), "cfo-gotmp", id), nil
+}
+
 // ValidTaskID rejects IDs that would escape or ambiguously name a task's
 // state files. IDs are deliberately ASCII-only because they also become Herdr
 // tab labels and wake keys.

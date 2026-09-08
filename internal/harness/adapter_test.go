@@ -165,7 +165,7 @@ func TestEveryAdapterStampsTheGoblinRole(t *testing.T) {
 				t.Fatalf("Validate(pi): %v", err)
 			}
 		}
-		launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`})
+		launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, GoTmp: `C:\gotmp\task`})
 		if err != nil {
 			t.Fatalf("Build(%s): %v", kind, err)
 		}
@@ -178,6 +178,17 @@ func TestEveryAdapterStampsTheGoblinRole(t *testing.T) {
 		}
 		if want := `$env:CFO_ROLE = 'goblin'`; !strings.Contains(prefix, want) {
 			t.Errorf("%s pane prefix = %q, want it to contain %q", kind, prefix, want)
+		}
+	}
+}
+
+// A launch with no Go temporary directory would leave the pane inheriting
+// the operator's own %TEMP%, which is what the per-task directory exists to
+// prevent, so the build refuses it rather than falling back.
+func TestBuildRequiresAnAbsoluteGoTmp(t *testing.T) {
+	for _, goTmp := range []string{"", "   ", `gotmp\task`} {
+		if _, err := DefaultRegistry().Adapters[Claude].Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, GoTmp: goTmp}); err == nil {
+			t.Errorf("Build(GoTmp=%q) = nil, want refusal", goTmp)
 		}
 	}
 }

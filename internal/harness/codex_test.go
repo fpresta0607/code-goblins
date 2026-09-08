@@ -15,13 +15,13 @@ func TestCodexBuildsStructuredLaunchWithoutBashNotify(t *testing.T) {
 		t.Fatalf("Get(Codex): %v", err)
 	}
 
-	defaults, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`})
+	defaults, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, GoTmp: `C:\gotmp\task`})
 	if err != nil {
 		t.Fatalf("Build defaults: %v", err)
 	}
 	assertLaunch(t, defaults, Launch{
 		Args:           []string{"--dangerously-bypass-approvals-and-sandbox"},
-		Env:            map[string]string{"CFO_ROLE": RoleGoblin, "GOTMPDIR": `C:\tasks\task\gotmp`},
+		Env:            map[string]string{"CFO_ROLE": RoleGoblin, "GOTMPDIR": `C:\gotmp\task`},
 		PromptFile:     `C:\briefs\task.md`,
 		TypedLaunch:    true,
 		Executable:     "codex",
@@ -32,6 +32,7 @@ func TestCodexBuildsStructuredLaunchWithoutBashNotify(t *testing.T) {
 	explicit, err := adapter.Build(LaunchSpec{
 		BriefPath:       `C:\briefs\task.md`,
 		TaskTmp:         `C:\tasks\task`,
+		GoTmp:           `C:\gotmp\task`,
 		TurnEndedPath:   `C:\tasks\task\turn-ended`,
 		Model:           "gpt-5.2-codex",
 		Effort:          "high",
@@ -50,7 +51,7 @@ func TestCodexBuildsStructuredLaunchWithoutBashNotify(t *testing.T) {
 		}
 	}
 
-	if _, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Effort: "max"}); err == nil {
+	if _, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, GoTmp: `C:\gotmp\task`, Effort: "max"}); err == nil {
 		t.Fatal("Build returned nil error for unsupported max effort")
 	}
 }
