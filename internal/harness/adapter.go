@@ -50,13 +50,14 @@ type LaunchSpec struct {
 // embedded in a shell line: PromptFile is referenced by path in the
 // instruction submitted through `herdr agent prompt` once the agent is ready.
 // ConfirmMarkers mark a blocking harness startup dialog (the workspace trust
-// prompt claude, kimi, and pi show in every fresh worktree): while a marker is on
+// prompt every harness shows in a fresh worktree): while a marker is on
 // screen, spawn sends ConfirmKeys to confirm the dialog. The keys differ per
 // harness because the default-highlighted option differs.
 // TypedLaunch is the fallback for harnesses Herdr cannot start natively
 // (Herdr's Windows agent start uses Start-Process -FilePath, which cannot
-// execute npm .cmd shims like pi): the full command plus the brief instruction
-// is typed into the prepared pane shell instead, and Herdr detects the agent.
+// execute the npm .cmd shims codex and pi install as): the full command plus
+// the brief instruction is typed into the prepared pane shell instead, and
+// Herdr detects the agent.
 // SecretsFile, when set, is dot-sourced by the prefix instead of the values
 // being typed into the pane. A credential typed inline would sit in the
 // pane's scrollback and in every `cfo peek`, so the pane only ever sees the
