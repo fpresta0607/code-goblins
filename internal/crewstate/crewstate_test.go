@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -157,7 +158,7 @@ func TestParseStatusLineAndFoldOpenDecisionsUseKeyedForms(t *testing.T) {
 		t.Error("ParseStatusLine accepted an invalid status line")
 	}
 
-	got := FoldOpenDecisions([]string{
+	events := []string{
 		"needs-decision [key=api.shape]: choose API",
 		"blocked: [key=db] migration is blocked",
 		"done: unrelated terminal event",
@@ -165,13 +166,48 @@ func TestParseStatusLineAndFoldOpenDecisionsUseKeyedForms(t *testing.T) {
 		"needs-decision: [key=bad/key] invalid key is inert",
 		"captain-held [key=db]: durable captain record",
 		"needs-decision: [key=still-open] select region",
-	})
+	}
+	stamped := make([]string, len(events))
+	for i, event := range events {
+		stamped[i] = time.Date(2026, 9, 8, 19, 26, 15+i, 0, time.UTC).Format(time.RFC3339) + " " + event
+	}
 	want := []Decision{{Key: "still-open", Verb: "needs-decision", Detail: "select region"}}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("FoldOpenDecisions = %#v, want %#v", got, want)
+	for _, c := range []struct {
+		name  string
+		lines []string
+	}{
+		{"legacy unstamped lines", events},
+		{"stamped as AppendStatus writes them", stamped},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := FoldOpenDecisions(c.lines); !reflect.DeepEqual(got, want) {
+				t.Errorf("FoldOpenDecisions = %#v, want %#v", got, want)
+			}
+		})
 	}
 
 	if _, err := Resolve(context.Background(), t.TempDir(), "g1", fakeEndpoint{existsErr: errors.New("unreadable")}); err != nil {
 		t.Errorf("Resolve must classify unavailable metadata without surfacing endpoint fake error: %v", err)
+	}
+}
+
+// A stamp carries colons of its own, so a parser that cuts on the first colon
+// reads the hour as the verb and every reader of the status log - the watcher,
+// the monitor, the reaper - stops seeing decisions.
+func TestParseStatusLineReadsStampedAndUnstampedEvents(t *testing.T) {
+	for _, c := range []struct{ name, line, verb, detail string }{
+		{"stamped", "2026-09-08T19:26:15Z blocked: which option", "blocked", "which option"},
+		{"unstamped legacy line", "blocked: which option", "blocked", "which option"},
+		{"stamped done", "2026-09-08T19:26:15Z done: PR https://example.test/pull/4", "done", "PR https://example.test/pull/4"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			verb, detail, ok := ParseStatusLine(c.line)
+			if !ok {
+				t.Fatalf("ParseStatusLine(%q) did not parse", c.line)
+			}
+			if verb != c.verb || detail != c.detail {
+				t.Errorf("ParseStatusLine(%q) = (%q, %q), want (%q, %q)", c.line, verb, detail, c.verb, c.detail)
+			}
+		})
 	}
 }

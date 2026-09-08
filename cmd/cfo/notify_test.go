@@ -26,7 +26,10 @@ func TestNotifyBlockedWritesStatusAndWakesTheCFO(t *testing.T) {
 
 	stateDir := filepath.Join(dir, "state")
 	lines, err := state.TailStatus(stateDir, "g1", 1)
-	if err != nil || len(lines) != 1 || lines[0] != "blocked: Should I merge this?" {
+	if err != nil || len(lines) != 1 {
+		t.Fatalf("status = %v, %v; want one blocked line", lines, err)
+	}
+	if _, event := state.SplitStatus(lines[0]); event != "blocked: Should I merge this?" {
 		t.Fatalf("status = %v, %v; want one blocked line", lines, err)
 	}
 
@@ -86,7 +89,10 @@ func TestNotifyTargetsStateOverrideWithoutCFOHome(t *testing.T) {
 	}
 
 	lines, err := state.TailStatus(stateDir, "g1", 1)
-	if err != nil || len(lines) != 1 || lines[0] != "blocked: Should I merge this?" {
+	if err != nil || len(lines) != 1 {
+		t.Fatalf("status = %v, %v; want one blocked line in the override dir", lines, err)
+	}
+	if _, event := state.SplitStatus(lines[0]); event != "blocked: Should I merge this?" {
 		t.Fatalf("status = %v, %v; want one blocked line in the override dir", lines, err)
 	}
 	if _, err := os.Stat(filepath.Join(worktree, "state")); !errors.Is(err, os.ErrNotExist) {
@@ -124,7 +130,10 @@ func TestNotifyTargetsStateOverrideWithAGlobalCFOHome(t *testing.T) {
 	}
 
 	lines, err := state.TailStatus(stateDir, "g1", 1)
-	if err != nil || len(lines) != 1 || lines[0] != "done: PR https://example.test/pr/1" {
+	if err != nil || len(lines) != 1 {
+		t.Fatalf("status = %v, %v; want one done line in the fleet state dir", lines, err)
+	}
+	if _, event := state.SplitStatus(lines[0]); event != "done: PR https://example.test/pr/1" {
 		t.Fatalf("status = %v, %v; want one done line in the fleet state dir", lines, err)
 	}
 	if _, err := os.Stat(filepath.Join(worktree, "state")); !errors.Is(err, os.ErrNotExist) {
@@ -146,7 +155,10 @@ func TestNotifyNormalizesControlCharactersInTheDetail(t *testing.T) {
 
 	stateDir := filepath.Join(dir, "state")
 	lines, err := state.TailStatus(stateDir, "g1", 5)
-	if err != nil || len(lines) != 1 || lines[0] != "blocked: Should I merge this?" {
+	if err != nil || len(lines) != 1 {
+		t.Fatalf("status = %v, %v; want one normalized blocked line", lines, err)
+	}
+	if _, event := state.SplitStatus(lines[0]); event != "blocked: Should I merge this?" {
 		t.Fatalf("status = %v, %v; want one normalized blocked line", lines, err)
 	}
 	records, err := wake.Pending(stateDir)
