@@ -1073,8 +1073,11 @@ func fleetIsolationError(env []string, fleetRoot, fleetState string) error {
 // The guard itself. A test that execs the real cfo binary without the shared
 // helper must fail rather than write into the running fleet.
 func TestFleetIsolationGuardRejectsTheInheritedFleet(t *testing.T) {
-	fleet := `C:\dev\code-goblins`
+	fleet := t.TempDir()
 	fleetState := filepath.Join(fleet, "state")
+	if err := os.Mkdir(fleetState, 0o755); err != nil {
+		t.Fatalf("create the stand-in fleet state directory: %v", err)
+	}
 
 	for _, c := range []struct {
 		name string

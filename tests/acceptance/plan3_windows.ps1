@@ -336,6 +336,7 @@ $cleanupCompleted = $false
 $primaryFailure = $null
 $cleanupFailure = $null
 $previousCfoHome = $env:CFO_HOME
+$previousStateOverride = $env:CFO_STATE_OVERRIDE
 $previousHerdrSession = $env:HERDR_SESSION
 $previousSignalGrace = $env:CFO_SIGNAL_GRACE
 
@@ -437,6 +438,7 @@ try {
     Invoke-Checked -FilePath 'git' -Arguments @('-C', $project, 'push', '-u', 'origin', 'main') -Description 'push disposable project seed' | Out-Host
 
     $env:CFO_HOME = $cfoHome
+    $env:CFO_STATE_OVERRIDE = Join-Path $cfoHome 'state'
     $env:HERDR_SESSION = $session
     $env:CFO_SIGNAL_GRACE = '1'
 
@@ -623,6 +625,7 @@ finally {
         [Console]::Error.WriteLine("Disposable fixture preserved for manual recovery: $fixtureRoot")
     }
     $env:CFO_HOME = $previousCfoHome
+    $env:CFO_STATE_OVERRIDE = $previousStateOverride
     $env:HERDR_SESSION = $previousHerdrSession
     $env:CFO_SIGNAL_GRACE = $previousSignalGrace
 }
