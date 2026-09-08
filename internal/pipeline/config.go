@@ -189,10 +189,7 @@ func (c Config) Apply(ctx context.Context) (result ApplyResult, err error) {
 	if len(drift) == 0 {
 		return result, nil
 	}
-	// The backup may contain unrelated credentials, so restrict it before it
-	// holds any. The live file is rewritten in place instead of renamed over,
-	// so a shared config keeps its own inherited permissions and the principals
-	// running other pipelines do not lose access to it.
+	// Both copies may contain unrelated credentials. Restrict them before replacement.
 	backup, err := os.CreateTemp(filepath.Dir(c.Path), "config-backup-"+time.Now().UTC().Format("20060102T150405Z")+"-*.yaml")
 	if err != nil {
 		return result, err
@@ -208,6 +205,21 @@ func (c Config) Apply(ctx context.Context) (result ApplyResult, err error) {
 		return result, err
 	}
 	result.Backup = backupPath
+	staged, err := os.CreateTemp(filepath.Dir(c.Path), ".pipeline-config-*.yaml")
+	if err != nil {
+		return result, err
+	}
+	name := staged.Name()
+	if err := staged.Close(); err != nil {
+		return result, err
+	}
+	defer os.Remove(name)
+	if err := auth.WriteSecretFile(name, ""); err != nil {
+		return result, err
+	}
+	if err := os.WriteFile(name, after, 0600); err != nil {
+		return result, err
+	}
 	// Detect an operator edit that raced the backup; never overwrite that edit.
 	latest, err := os.ReadFile(c.Path)
 	if err != nil {
@@ -216,7 +228,7 @@ func (c Config) Apply(ctx context.Context) (result ApplyResult, err error) {
 	if !bytes.Equal(latest, before) {
 		return result, errors.New("pipeline: config changed during apply; original backed up, current file preserved")
 	}
-	if err := os.WriteFile(c.Path, after, 0600); err != nil {
+	if err := replaceFile(c.Path, name); err != nil {
 		return result, err
 	}
 	return result, nil
