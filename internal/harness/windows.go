@@ -105,6 +105,12 @@ var HarnessBillingKeys = []string{
 // with the brief instruction as its final positional argument. The instruction
 // is a single-quoted literal with no embedded quotes, safe for the Windows
 // PowerShell 5.1 native-argument path.
+//
+// A resumed launch omits the instruction. `codex resume [OPTIONS]
+// [SESSION_ID] [PROMPT]` binds its first positional to SESSION_ID, so an
+// instruction appended there is read as a session name and the resumed goblin
+// starts with no instruction at all. Caller delivers it to the composer
+// instead, which is what the native path has always done.
 func (launch Launch) PowerShellTypedLine() (string, error) {
 	if !launch.TypedLaunch {
 		return "", errors.New("harness: typed line requires a typed-launch harness")
@@ -120,7 +126,9 @@ func (launch Launch) PowerShellTypedLine() (string, error) {
 	for _, arg := range launch.Args {
 		command += " " + powerShellLiteral(arg)
 	}
-	command += " " + powerShellLiteral(launch.PromptInstruction())
+	if !launch.Resumed {
+		command += " " + powerShellLiteral(launch.PromptInstruction())
+	}
 	return prefix + "; " + command, nil
 }
 
