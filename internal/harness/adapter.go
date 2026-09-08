@@ -57,7 +57,8 @@ type LaunchSpec struct {
 // (Herdr's Windows agent start uses Start-Process -FilePath, which cannot
 // execute the npm .cmd shims codex and pi install as): the full command plus
 // the brief instruction is typed into the prepared pane shell instead, and
-// Herdr detects the agent.
+// Herdr detects the agent. Resumed is the one exception to the typed
+// instruction.
 // SecretsFile, when set, is dot-sourced by the prefix instead of the values
 // being typed into the pane. A credential typed inline would sit in the
 // pane's scrollback and in every `cfo peek`, so the pane only ever sees the
