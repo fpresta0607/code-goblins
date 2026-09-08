@@ -291,6 +291,7 @@ func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, pane
 		// ResumeArgs lead because codex takes its resume as a subcommand.
 		launch.Args = append(append([]string{}, control.ResumeArgs...), launch.Args...)
 		launch.Instruction = resumeInstruction(meta, target)
+		launch.Resumed = true
 		// A resume can open the harness's interactive resume dialog before
 		// the composer accepts input (claude asks how to resume a large idle
 		// session; summary is its default). Registering the dialog's markers
