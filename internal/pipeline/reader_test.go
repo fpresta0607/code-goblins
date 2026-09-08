@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -91,5 +92,53 @@ INSERT INTO runs VALUES('previous','repo','feat',1,'` + c.status + `');`
 				t.Fatalf("status %q: %v", c.status, err)
 			}
 		})
+	}
+}
+
+// The native engine persists a disabled auto-fix budget as SQL NULL, never 0,
+// so the decode-and-respond path has to accept a null limit or no real review
+// gate can ever be answered.
+func TestResponseAcceptsTheNullReviewLimitTheEngineActuallyWrites(t *testing.T) {
+	sqlite, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 CLI not available")
+	}
+	dir := t.TempDir()
+	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT);
+CREATE TABLE step_results(id TEXT,run_id TEXT,step_name TEXT,status TEXT,auto_fix_limit INTEGER,findings_json TEXT,step_order INTEGER);
+CREATE TABLE step_rounds(step_result_id TEXT,round INTEGER,selection_source TEXT);
+INSERT INTO repos VALUES('repo','C:\project','main');
+INSERT INTO runs VALUES('disabled','repo','feat/disabled',1,'running'),('automatic','repo','feat/automatic',2,'running');
+INSERT INTO step_results VALUES('disabledstep','disabled','review','awaiting_approval',NULL,'{"findings":[{"id":"bug","action":"auto-fix"}]}',1),('automaticstep','automatic','review','awaiting_approval',10,'{"findings":[{"id":"bug","action":"auto-fix"}]}',1);
+INSERT INTO step_rounds VALUES('disabledstep',1,NULL),('automaticstep',1,NULL);`
+	if out, err := exec.Command(sqlite, filepath.Join(dir, "state.sqlite"), sql).CombinedOutput(); err != nil {
+		t.Fatalf("fixture: %s %v", out, err)
+	}
+	selection, err := testPolicy(t).Select("ordinary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := Reader{Root: dir, Commands: execx.OSRunner{}}
+	gate, err := reader.Gate(context.Background(), "C:/project", "feat/disabled")
+	if err != nil || gate.AutoFixLimit != nil {
+		t.Fatalf("null limit did not decode as nil: %+v %v", gate, err)
+	}
+	args, err := ResponseArgs(selection, gate, Response{Action: "fix", Findings: "bug"})
+	if err != nil {
+		t.Fatalf("null review limit refused: %v", err)
+	}
+	want := "axi respond --step review --action fix --findings bug"
+	if strings.Join(args, " ") != want {
+		t.Fatalf("args: %q", strings.Join(args, " "))
+	}
+	// A live automatic budget still means the step is repairing itself, which
+	// is the case the guard exists to refuse.
+	automatic, err := reader.Gate(context.Background(), "C:/project", "feat/automatic")
+	if err != nil || automatic.AutoFixLimit == nil || *automatic.AutoFixLimit != 10 {
+		t.Fatalf("automatic gate: %+v %v", automatic, err)
+	}
+	if _, err := ResponseArgs(selection, automatic, Response{Action: "fix", Findings: "bug"}); err == nil {
+		t.Fatal("automatic review budget accepted")
 	}
 }

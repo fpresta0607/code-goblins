@@ -209,7 +209,10 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 	if gate.RunID == "" || gate.StepID == "" || gate.Step == "" || gate.Status != "awaiting_approval" && gate.Status != "fix_review" || gate.Round < 1 || gate.Selected != "" {
 		return nil, errors.New("pipeline: gate is active, already answered, or lacks durable round evidence")
 	}
-	if gate.Step == "review" && (gate.AutoFixLimit == nil || *gate.AutoFixLimit != 0) {
+	// The native engine persists a disabled budget as SQL NULL rather than 0,
+	// and Gate only returns a step the engine has already started, so a null
+	// limit on a parked review gate means the step is not auto-fixing.
+	if gate.Step == "review" && gate.AutoFixLimit != nil && *gate.AutoFixLimit != 0 {
 		return nil, errors.New("pipeline: active review limit differs from policy; leave this gate unresolved for the CFO")
 	}
 	var report struct {
