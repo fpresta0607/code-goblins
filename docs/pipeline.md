@@ -61,6 +61,8 @@ cfo pipeline respond <id> --action approve
 ```
 
 Commands operate in the recorded task worktree and use its frozen policy.
+The pane exports `CFO_HOME` and `CFO_STATE_OVERRIDE` and every gate step inherits both, so the `--intent` text must require any step that runs `cfo`, or a shell that resolves it, to clear them or point them at a temporary directory.
+`internal/home` refuses the inherited fleet home from a test binary, which covers `go test`, but the real `cfo` binary is not a test binary and no-mistakes v1.48 has no per-repo step command or environment setting, so the intent is the only place left to state it.
 Commit work on a named feature branch before `run`.
 The project must be initialized for no-mistakes, with readable committed task and origin default-branch `.no-mistakes.yaml` files.
 Refresh origin before starting; reviewer fallbacks and repository automatic-fix overrides that conflict with policy are refused.
