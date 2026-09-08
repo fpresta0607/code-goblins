@@ -43,7 +43,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests/acceptance/plan3_windo
 ```
 
 It creates a disposable project under a unique temporary root and refuses to run against a production checkout.
-It points both `CFO_HOME` and `CFO_STATE_OVERRIDE` at that root for the duration of the run, so a shell that already exports a fleet home cannot hand the real `cfo` binary the running fleet, and restores both afterwards.
+Before it builds or runs anything it points `CFO_HOME` at the disposable home under that root and `CFO_STATE_OVERRIDE` at that home's `state` directory, so a shell that already exports a fleet home cannot hand the nested `go test` run or the real `cfo` binary the running fleet, and it restores both afterwards.
 
 ## Conventions
 
