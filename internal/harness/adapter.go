@@ -73,6 +73,11 @@ type Launch struct {
 	ConfirmKeys    []string
 	TypedLaunch    bool
 	Executable     string
+	// Resumed marks a launch that continues an existing session. It changes
+	// how the instruction is delivered on the typed path: a resume subcommand
+	// binds its first positional to a session identifier, not to a prompt, so
+	// the instruction has to reach the composer instead of the command line.
+	Resumed bool
 }
 
 // PromptInstruction is the single instruction the harness receives once it is

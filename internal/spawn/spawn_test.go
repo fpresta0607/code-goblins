@@ -1138,12 +1138,15 @@ type fixtureAdapter struct {
 type typedFixtureAdapter struct {
 	events *[]string
 	kind   harness.Kind
+	// resumeArgs mirrors codex, the one typed harness that resumes through a
+	// subcommand whose first positional is a session identifier.
+	resumeArgs []string
 }
 
 // Control gives the fixture a resume so switch tests can exercise the
 // same-harness path; the stop sequence mirrors a real adapter's shape.
 func (a typedFixtureAdapter) Control() harness.Control {
-	return harness.Control{StopKeys: []string{"escape"}, StopCommand: "/quit"}
+	return harness.Control{StopKeys: []string{"escape"}, StopCommand: "/quit", ResumeArgs: a.resumeArgs}
 }
 
 func (a typedFixtureAdapter) Kind() harness.Kind {
@@ -1700,5 +1703,58 @@ func TestSpawnKeepsRetryingInstructionDeliveryWhileTheHarnessIsStillBooting(t *t
 	}
 	if len(fixture.runner.literals) != 22 {
 		t.Errorf("literals = %d, want the prefix plus twenty-one instruction deliveries", len(fixture.runner.literals))
+	}
+}
+
+// A typed harness that resumes through a subcommand cannot take its
+// instruction as a positional: `codex resume [OPTIONS] [SESSION_ID] [PROMPT]`
+// binds the first positional to SESSION_ID, so the instruction would be read
+// as a session name and the resumed goblin would start with nothing to do.
+// Omitting it from the line is only half correct - it has to reach the
+// composer instead, the way the native path already delivers it.
+func TestResumedTypedLaunchDeliversTheInstructionToTheComposer(t *testing.T) {
+	fixture := newFixture(t)
+	target := herdr.Target{Session: "fleet", Pane: "pane-1"}
+	const instruction = "Resume task-7 and continue from the handoff."
+
+	plan := launchPlan{
+		AgentName: "gb-task-7",
+		Harness:   harness.Pi,
+		Launch: harness.Launch{
+			TypedLaunch: true,
+			Resumed:     true,
+			Executable:  "pi",
+			Args:        []string{"resume", "--last"},
+			Instruction: instruction,
+			Dir:         fixture.worktree,
+			Env:         map[string]string{"GOTMPDIR": t.TempDir()},
+		},
+	}
+
+	if _, err := fixture.service.startHarness(context.Background(), fixture.service.Herdr, target, plan); err != nil {
+		t.Fatalf("startHarness: %v", err)
+	}
+
+	var launchLine string
+	var delivered bool
+	for _, literal := range fixture.runner.literals {
+		if strings.Contains(literal, "& "+"'pi'") {
+			launchLine = literal
+		}
+		if strings.Contains(literal, instruction) && !strings.Contains(literal, "& "+"'pi'") {
+			delivered = true
+		}
+	}
+	if launchLine == "" {
+		t.Fatalf("no typed launch line was sent: %q", fixture.runner.literals)
+	}
+	if !strings.Contains(launchLine, "'resume'") {
+		t.Errorf("typed launch lost the resume subcommand:\n%s", launchLine)
+	}
+	if strings.Contains(launchLine, instruction) {
+		t.Errorf("the instruction was passed positionally to a resume, which binds it to SESSION_ID:\n%s", launchLine)
+	}
+	if !delivered {
+		t.Errorf("the instruction never reached the composer, so the resumed goblin has nothing to do: %q", fixture.runner.literals)
 	}
 }

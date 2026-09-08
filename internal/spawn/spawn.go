@@ -479,6 +479,18 @@ func (s Service) startHarness(ctx context.Context, client *herdr.Client, target 
 		if err := s.confirmHarnessDialogs(ctx, client, target, launch); err != nil {
 			return true, err
 		}
+		// A resumed typed launch carries no positional instruction, because a
+		// resume subcommand binds its first positional to a session
+		// identifier. Deliver it to the composer the way the native path
+		// below does, or the resumed goblin starts with nothing to do.
+		if launch.Resumed {
+			if err := s.sleep(ctx, launchSettle); err != nil {
+				return true, fmt.Errorf("spawn: wait before resumed brief prompt: %w", err)
+			}
+			if err := s.deliverVerifiedInstruction(ctx, client, target, plan.Harness, launch.PromptInstruction()); err != nil {
+				return true, err
+			}
+		}
 		if err := s.confirmLaunch(ctx, client, target, plan); err != nil {
 			return true, err
 		}
