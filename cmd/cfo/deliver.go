@@ -89,11 +89,19 @@ func runBrief(args []string, stdout, stderr io.Writer) int {
 Services this task needs are declared in %s.
 Run %s before dispatch; add any service the task needs that the manifest does not list yet.
 
+## Commits
+
+Never name an AI product, company, model, agent, or assistant identity as a
+commit co-author: not in a %s trailer, not anywhere else in a
+commit message, and not in a pull request body. This is the Overlord's
+standing rule, and the fleet's history must not credit an author that did not
+exist.
+
 ## Delivery
 
 kind: %s
 mode: %s
-`, id, *project, auth.ManifestPath("data", *project), "`cfo auth "+*project+" --fix`", *kind, *mode)
+`, id, *project, auth.ManifestPath("data", *project), "`cfo auth "+*project+" --fix`", "`Co-Authored-By`", *kind, *mode)
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
