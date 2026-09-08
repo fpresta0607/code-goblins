@@ -259,7 +259,19 @@ type CIMProcesses struct {
 	Commands execx.Runner
 }
 
-const cimProcessScript = `Get-CimInstance Win32_Process | ForEach-Object { [pscustomobject]@{ pid = [int]$_.ProcessId; ppid = [int]$_.ParentProcessId; name = $_.Name; cmd = $_.CommandLine; start = $(if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('o') } else { '' }) } } | ConvertTo-Json -Compress -Depth 3`
+// utf8OutputPrelude forces the child's console output encoding to UTF-8.
+// Go spawns powershell with a pipe rather than a console, and PowerShell then
+// encodes stdout with the OEM code page - IBM437 on this machine. A command
+// line holding any character outside that page comes back mangled, and some
+// mangle into raw control bytes: U+00A7 SECTION SIGN encodes to byte 0x15,
+// which encoding/json rejects with "invalid character '\x15' in string
+// literal", failing the entire process listing and with it the whole orphan
+// sweep. Escaping the byte instead would decode, but would report a command
+// line that is not the process's real one, and reap classifies processes by
+// their command line to decide what may be killed.
+const utf8OutputPrelude = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; `
+
+const cimProcessScript = utf8OutputPrelude + `Get-CimInstance Win32_Process | ForEach-Object { [pscustomobject]@{ pid = [int]$_.ProcessId; ppid = [int]$_.ParentProcessId; name = $_.Name; cmd = $_.CommandLine; start = $(if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('o') } else { '' }) } } | ConvertTo-Json -Compress -Depth 3`
 
 // List runs the CIM query and decodes it. ConvertTo-Json emits a bare object
 // rather than an array when the pipeline yields exactly one item, so a single
