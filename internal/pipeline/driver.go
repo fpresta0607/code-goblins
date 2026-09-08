@@ -16,6 +16,10 @@ import (
 
 var ErrUnresolved = errors.New("pipeline: unresolved; a CFO decision is required")
 
+// terminalRunStatus is the set of native run statuses that are finished. Idle
+// asks the database for the same set; CheckStart asks it about one run.
+var terminalRunStatus = map[string]bool{"completed": true, "failed": true, "cancelled": true}
+
 type Reader struct {
 	Commands execx.Runner
 	Root     string
@@ -107,7 +111,9 @@ func (r Reader) CheckStart(ctx context.Context, project, worktree, branch string
 	if err := r.query(ctx, `SELECT runs.status FROM runs JOIN repos ON repos.id=runs.repo_id WHERE lower(replace(repos.working_path,char(92),'/'))=lower(`+sqlString(filepath.ToSlash(project))+`) AND runs.branch=`+sqlString(branch)+` ORDER BY runs.created_at DESC,runs.id DESC LIMIT 1`, &previous); err != nil {
 		return err
 	}
-	if len(previous) > 0 && previous[0].Status != "completed" {
+	// A terminal run has no budget left to reset, so only a still-live one
+	// blocks a restart. The set matches Idle's.
+	if len(previous) > 0 && !terminalRunStatus[previous[0].Status] {
 		return fmt.Errorf("%w; an earlier run must be resolved, not restarted", ErrUnresolved)
 	}
 	status, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Name: "git", Args: []string{"status", "--porcelain", "--untracked-files=all"}})

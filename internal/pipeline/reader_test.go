@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -57,5 +58,38 @@ func TestRepoPolicyCannotRaiseCapsOrChangeReviewer(t *testing.T) {
 	}
 	if err := CheckRepoConfig([]byte("auto_fix: {babysit: 10}"), p); err == nil {
 		t.Error("legacy CI alias bypassed automatic budget")
+	}
+}
+
+func TestCheckStartRefusesOnlyANonTerminalPreviousRun(t *testing.T) {
+	sqlite, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 CLI not available")
+	}
+	for _, c := range []struct {
+		status     string
+		unresolved bool
+	}{
+		{"completed", false},
+		{"failed", false},
+		{"cancelled", false},
+		{"running", true},
+		{"awaiting_approval", true},
+	} {
+		t.Run(c.status, func(t *testing.T) {
+			dir := t.TempDir()
+			sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT);
+INSERT INTO repos VALUES('repo','C:\project','main');
+INSERT INTO runs VALUES('previous','repo','feat',1,'` + c.status + `');`
+			if out, err := exec.Command(sqlite, filepath.Join(dir, "state.sqlite"), sql).CombinedOutput(); err != nil {
+				t.Fatalf("fixture: %s %v", out, err)
+			}
+			reader := Reader{Root: dir, Commands: execx.OSRunner{}}
+			err := reader.CheckStart(context.Background(), "C:/project", t.TempDir(), "feat", testPolicy(t))
+			if errors.Is(err, ErrUnresolved) != c.unresolved {
+				t.Fatalf("status %q: %v", c.status, err)
+			}
+		})
 	}
 }

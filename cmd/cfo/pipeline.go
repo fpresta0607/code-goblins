@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -108,9 +109,12 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if args[0] == "run" && strings.TrimSpace(intent) == "" {
 		return errors.New("pipeline: --intent is required")
 	}
-	// This is a short-lived operation lock, not the event/decision ownership
-	// ledger. It prevents two CFO commands accepting the same round concurrently.
-	lockName := state.CleanupLockName(id)
+	// This is a pipeline-specific operation lock, not the event/decision
+	// ownership ledger. It prevents two CFO commands accepting the same round
+	// concurrently, and is deliberately not the cleanup lock: a gate runs for
+	// hours, and holding the cleanup lock that long would make an auth refresh
+	// report a live task as being cleaned up.
+	lockName := state.PipelineLockName(id)
 	if _, err := lock.AcquireExclusiveNamed(h.State, lockName); err != nil {
 		return err
 	}
@@ -167,7 +171,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			return err
 		}
 	}
-	result, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Env: []string{"NM_HOME=" + root}, Name: "no-mistakes", Args: nativeArgs})
+	result, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Env: nativeEnv(root), Name: "no-mistakes", Args: nativeArgs})
 	if len(result.Stdout) > 0 {
 		fmt.Fprint(out, string(result.Stdout))
 	}
@@ -181,4 +185,22 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
 	}
 	return nil
+}
+
+// nativeEnv points the native engine at the resolved root while leaving it the
+// CFO's own environment. execx replaces rather than merges a non-nil Env, so a
+// bare NM_HOME entry would strip PATH, USERPROFILE and TEMP and the engine
+// could resolve neither its tools nor a home directory.
+func nativeEnv(root string) []string {
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, entry := range os.Environ() {
+		// Windows matches environment names without case, so an existing
+		// NM_HOME has to be dropped rather than left beside the override.
+		name, _, ok := strings.Cut(entry, "=")
+		if ok && strings.EqualFold(name, "NM_HOME") {
+			continue
+		}
+		env = append(env, entry)
+	}
+	return append(env, "NM_HOME="+root)
 }

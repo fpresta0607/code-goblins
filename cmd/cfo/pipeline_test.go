@@ -12,6 +12,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -82,6 +83,12 @@ func TestPipelineRespondInvokesNativeOnlyForBudgetedExplicitDecision(t *testing.
 			}
 			zero := 0
 			runner := &pipelineRunner{worktree: wt, gate: pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: round, AutoFixLimit: &zero, Findings: `{"findings":[{"id":"bug","action":"auto-fix"}]}`}}
+			// A gate runs for hours, so the pipeline must not take the cleanup
+			// lock: holding it that long makes an auth refresh report a live
+			// task as being cleaned up and never deliver its credentials.
+			if _, err := lock.AcquireExclusiveNamed(h.State, state.CleanupLockName("task")); err != nil {
+				t.Fatal(err)
+			}
 			var out bytes.Buffer
 			err = pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "fix", "--findings", "bug", "--instructions", "literal $() and ` text"}, &out)
 			if round == 3 {
@@ -93,8 +100,23 @@ func TestPipelineRespondInvokesNativeOnlyForBudgetedExplicitDecision(t *testing.
 					t.Fatalf("respond: %v %+v", err, runner.native)
 				}
 				request := runner.native[0]
-				if request.Dir != wt || request.Env[0] != "NM_HOME="+nm || request.Args[len(request.Args)-1] != "literal $() and ` text" {
+				if request.Dir != wt || request.Args[len(request.Args)-1] != "literal $() and ` text" {
 					t.Fatalf("unsafe argv transport: %+v", request)
+				}
+				// execx replaces rather than merges a non-nil Env, so the
+				// native engine must still receive the inherited environment
+				// it resolves its tools and home directory from.
+				var hasHome, hasPath bool
+				for _, entry := range request.Env {
+					if entry == "NM_HOME="+nm {
+						hasHome = true
+					}
+					if name, _, ok := strings.Cut(entry, "="); ok && strings.EqualFold(name, "PATH") {
+						hasPath = true
+					}
+				}
+				if !hasHome || !hasPath {
+					t.Fatalf("native environment: home=%v path=%v", hasHome, hasPath)
 				}
 				if out.String() != "native decision output\n" {
 					t.Fatal(out.String())
