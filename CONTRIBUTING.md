@@ -24,16 +24,12 @@ A pull request must keep all of them green.
 
 ## Repo layout
 
-- `cmd/cfo/` - the `cfo.exe` entry point and command handlers.
-- `cmd/showcase-axi/` - the `showcase-axi.exe` entry point for the review surface.
-- `internal/` - one package per subsystem: `herdr`, `worktree`, `spawn`, `fleet`, `monitor`, `wake`, `lock`, `state`, `home`, `watch`, `harness`, `auth`, `routing`, `axi`, `execx`, `fsx`, `claudehook`, `digest`, `doctor`, `guard`, `crewstate`, `supervise`, `proc`, `showcase`.
-- `docs/superpowers/` - the design spec and implementation plans.
-- `tests/acceptance/` - the opt-in real-session Windows acceptance script.
-- `AGENTS.md` - the CFO's operating contract; `CLAUDE.md` points to it.
+See [Repo layout](README.md#repo-layout) in the README.
 
 ## Tests
 
 Unit tests are deterministic: they inject fake subprocess runners and scripted clocks instead of requiring installed tools.
+The telemetry and pipeline database regressions are the exception - they build real SQLite fixtures through the `sqlite3` CLI and skip themselves when it is not on PATH, so install it locally to run them (CI installs it before the suite).
 
 ```sh
 go test ./...

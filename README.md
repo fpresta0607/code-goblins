@@ -48,13 +48,14 @@ The full design and the explicit v1 scope live in [docs/superpowers/specs/2026-0
 
 ```text
 cfo install [--uninstall]            wire this checkout into the machine so a session in any repo is supervised: CFO_HOME and PATH at user scope, and the CFO hooks merged into ~/.claude/settings.json
-cfo doctor                           check the tools cfo needs and how to install them; probe each harness's spawn health (ok/broken); print the measured speed table when telemetry exists; print the active switch rules from data/routing.json
+cfo doctor                           check the tools cfo needs and how to install them; probe each harness's spawn health (ok/broken); print the validation-timing table when telemetry exists, with successful, failed, and cancelled invocations kept apart; print the active switch rules from data/routing.json
+cfo pipeline config-drift | config-apply | run <id> --intent <text> | respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>]   drive a gated task under the checked-in policy in config/pipeline.json (see docs/pipeline.md)
 cfo auth <project> [--check|--fix] [--env]   preflight a project's services from data/projects/<name>/auth.json; --fix adopts credentials the machine already holds and asks once for the rest
 cfo auth store [--project <p>] <NAME> [value]   store one credential in a project's scope, or the shared scope without --project (omit the value to read it from stdin)
 cfo auth list [--project <p>]        list stored credential keys, never values
 cfo auth copy <NAME> --to <project> [--from <project>]   copy a stored value into a project's scope; the source is left in place
 cfo auth refresh <task-id>           regenerate a task's auth.ps1 from its project scope; storing or copying into a project scope does this for every live task of that project automatically
-cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--yolo]
+cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--yolo]
 cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place, keeping its id, pane, and worktree
 cfo send <target> [--key <key>] [--no-auto-submit] <text...>
 cfo peek <target> [lines]
@@ -177,7 +178,8 @@ These upstream features are not yet ported to the Go binary:
 
 - `cmd/cfo/` - the `cfo.exe` entry point and command handlers.
 - `cmd/showcase-axi/` - the `showcase-axi.exe` entry point for the review surface.
-- `internal/` - one package per subsystem (herdr, worktree, spawn, fleet, monitor, wake, lock, state, home, watch, harness, auth, routing, axi, execx, fsx, claudehook, digest, doctor, guard, crewstate, supervise, telemetry, proc, showcase).
+- `internal/` - one package per subsystem (herdr, worktree, spawn, fleet, monitor, wake, lock, state, home, watch, harness, auth, routing, axi, execx, fsx, claudehook, digest, doctor, guard, crewstate, supervise, telemetry, pipeline, proc, showcase).
+- `config/pipeline.json` - the checked-in gate policy (task classes, review repair budgets, reviewer); the rest of `config/` is ignored. See [docs/pipeline.md](docs/pipeline.md).
 - `docs/superpowers/` - the design spec and implementation plans.
 - `tests/acceptance/` - the opt-in real-session Windows acceptance script.
 - `.agents/skills/` - the fleet's skills, synced from user scope except `showcase`, which this repo owns; kimi and pi read it directly, and `install.ps1` junctions it for claude and codex.

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/digest"
@@ -33,6 +34,7 @@ commands:
   version   print the cfo version
   install   wire this checkout into the machine (CFO_HOME, PATH, and the Claude Code hooks in your user settings) so a session in any repo is supervised; --uninstall reverses it
   doctor    check the tools cfo needs (git, gh, claude, herdr, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi)
+  pipeline  config-drift | config-apply | run <id> --intent <text> | respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>]
   drain     print or acknowledge the wake queue and recovery episode
   watch     run one triage cycle by hand (manual diagnostics; the hooks are the production entry)
   session-start  print the full session-start digest by hand (manual diagnostics; the SessionStart hook is the production entry)
@@ -41,7 +43,7 @@ commands:
   cfo auth list [--project <p>]        list stored credential keys, never values
   cfo auth copy <NAME> --to <project> [--from <project>]   copy a stored value into a project's scope; the source is left in place
   cfo auth refresh <task-id>        regenerate a task's auth.ps1 from its project scope; storing or copying into a project scope does this for every live task of that project automatically
-  cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--yolo]
+  cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--yolo]
   cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place
   cfo send <target> [--key <key>] [--no-auto-submit] <text...>
   cfo peek <target> [lines]
@@ -88,12 +90,13 @@ func defaultCommandRuntime() commandRuntime {
 			commands := execx.OSRunner{}
 			client := &herdr.Client{Commands: commands, Session: request.Session}
 			service := spawn.Service{
-				Herdr:     client,
-				Worktrees: worktree.Service{Commands: commands, DataDir: h.Data},
-				Harness:   harness.DefaultRegistry(),
-				Auth:      auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
-				Commands:  commands,
-				StateDir:  h.State,
+				Herdr:      client,
+				Worktrees:  worktree.Service{Commands: commands, DataDir: h.Data},
+				Harness:    harness.DefaultRegistry(),
+				Auth:       auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
+				Commands:   commands,
+				StateDir:   h.State,
+				PolicyPath: filepath.Join(h.Root, "config", "pipeline.json"),
 			}
 			return service.Spawn(ctx, request)
 		},
@@ -153,6 +156,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runInstall(args[1:], stdout, stderr)
 	case "doctor":
 		return runDoctor(stdout)
+	case "pipeline":
+		return runPipeline(args[1:], stdout, stderr, runtime)
 	case "drain":
 		h, err := home.Resolve()
 		if err != nil {

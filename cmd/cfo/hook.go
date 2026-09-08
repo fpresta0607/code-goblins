@@ -432,6 +432,10 @@ func resolveAncestorPID() (int, bool) {
 // bin/fm-claude-stop-autoarm.sh). The stdin/home/IsPrimary prologue lives in
 // runHook's dispatch switch, shared with every other hook in this file.
 func hookStopAutoarm(h home.Home, payload claudehook.Payload, stdout, stderr io.Writer) int {
+	return hookStopAutoarmWithConfig(h, payload, stdout, stderr, watch.ConfigFromEnv)
+}
+
+func hookStopAutoarmWithConfig(h home.Home, payload claudehook.Payload, stdout, stderr io.Writer, newConfig func(home.Home) watch.Config) int {
 	state := h.State
 
 	// Step 2: identity gate.
@@ -504,7 +508,7 @@ func hookStopAutoarm(h home.Home, payload claudehook.Payload, stdout, stderr io.
 	// after the outcome is settled, not inside this loop.
 	for i := 0; i < attempts; i++ {
 		attemptsRun = i + 1
-		reason, lastErr = watch.Run(watch.ConfigFromEnv(h))
+		reason, lastErr = watch.Run(newConfig(h))
 		if lastErr == nil && actionableReasonPattern.MatchString(reason) {
 			actionable = true
 			break

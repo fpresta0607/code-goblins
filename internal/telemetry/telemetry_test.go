@@ -107,8 +107,8 @@ func TestSpeedTableNormalizesPrefixedAgentIdentities(t *testing.T) {
 		t.Skip("sqlite3 CLI not available")
 	}
 	path := filepath.Join(t.TempDir(), "state.sqlite")
-	setup := `CREATE TABLE agent_invocations(agent TEXT, step_name TEXT, duration_ms INTEGER);` +
-		`INSERT INTO agent_invocations VALUES('acp:kimi','review',60000),('kimi','review',120000);`
+	setup := `CREATE TABLE agent_invocations(agent TEXT, step_name TEXT, duration_ms INTEGER, model TEXT, purpose TEXT, exit_status TEXT);` +
+		`INSERT INTO agent_invocations VALUES('acp:kimi','review',60000,'k2','review','ok'),('kimi','review',120000,'k2','review','ok');`
 	if out, err := exec.Command(sqlite3, path, setup).CombinedOutput(); err != nil {
 		t.Fatalf("create fixture database: %v\n%s", err, out)
 	}
@@ -128,6 +128,45 @@ func TestSpeedTableNormalizesPrefixedAgentIdentities(t *testing.T) {
 	}
 }
 
+func TestFailureLatencyIsNotSuccessfulSpeed(t *testing.T) {
+	sqlite, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 CLI not available")
+	}
+	path := filepath.Join(t.TempDir(), "state.sqlite")
+	sql := `CREATE TABLE agent_invocations(agent TEXT, step_name TEXT, duration_ms INTEGER, model TEXT, purpose TEXT, exit_status TEXT);
+INSERT INTO agent_invocations VALUES
+('claude','review',600000,'opus','review','ok'),
+('claude','review',100,'opus','review','error'),
+('claude','review',200,'opus','review','cancelled'),
+('claude','review',60000,'opus','review-fix','ok'),
+('claude','review',120000,'other','review','ok'),
+('codex','review',10,NULL,'review','error');`
+	if out, err := exec.Command(sqlite, path, sql).CombinedOutput(); err != nil {
+		t.Fatalf("fixture: %v %s", err, out)
+	}
+	q := Querier{Commands: execx.OSRunner{}, DBPath: path}
+	rows, note := q.SpeedTable(context.Background())
+	if note != "" || len(rows) != 6 {
+		t.Fatalf("model/role/outcome groups = %+v, %s", rows, note)
+	}
+	for _, row := range rows {
+		if row.Agent == "claude" && row.Model == "opus" && row.Role == "review" && row.Outcome == "ok" {
+			if row.Count != 1 || row.AvgMin != 10 {
+				t.Fatalf("failure latency contaminated successful timing: %+v", row)
+			}
+		}
+	}
+	hint := FormatHint("codex", rows)
+	if !strings.Contains(hint, "0 successful, 1 failed, 0 cancelled") || !strings.Contains(hint, "implementation unmeasured") {
+		t.Fatalf("failed-only hint: %s", hint)
+	}
+	hint = FormatHint("claude", rows)
+	if !strings.Contains(hint, "3 successful, 1 failed, 1 cancelled") {
+		t.Fatalf("mixed outcome hint: %s", hint)
+	}
+}
+
 type blockingRunner struct{}
 
 func (blockingRunner) Run(ctx context.Context, _ execx.Request) (execx.Result, error) {
@@ -143,47 +182,5 @@ func TestSpeedTableTimesOutWhenSQLite3Hangs(t *testing.T) {
 	rows, note := querier.SpeedTable(ctx)
 	if rows != nil || !strings.Contains(note, "timed out") {
 		t.Fatalf("rows = %v note = %q, want a timeout skip note", rows, note)
-	}
-}
-
-func TestHarnessAverage(t *testing.T) {
-	runner := &fakeRunner{result: execx.Result{Stdout: []byte(`[{"n":37,"avg_min":12.34}]`)}}
-	querier := Querier{Commands: runner, DBPath: fakeDB(t)}
-
-	avgMin, count, ok := querier.HarnessAverage(context.Background(), "kimi")
-	if !ok || avgMin != 12.34 || count != 37 {
-		t.Errorf("HarnessAverage = %v, %d, %v; want 12.34, 37, true", avgMin, count, ok)
-	}
-	if !strings.Contains(runner.requests[0].Args[3], "agent = 'kimi'") || !strings.Contains(runner.requests[0].Args[3], "LIKE '%:kimi'") {
-		t.Errorf("query = %q, want exact and prefixed agent filters", runner.requests[0].Args[3])
-	}
-}
-
-func TestHarnessAverageUnavailableWithoutSamples(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		stdout string
-	}{
-		{name: "no invocations", stdout: `[{"n":0,"avg_min":null}]`},
-		{name: "undecodable", stdout: `{`},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			runner := &fakeRunner{result: execx.Result{Stdout: []byte(test.stdout)}}
-			querier := Querier{Commands: runner, DBPath: fakeDB(t)}
-			if _, _, ok := querier.HarnessAverage(context.Background(), "codex"); ok {
-				t.Error("HarnessAverage ok = true, want false")
-			}
-		})
-	}
-}
-
-func TestHarnessAverageSkipsWhenTelemetryIsGone(t *testing.T) {
-	runner := &fakeRunner{err: errors.New("executable file not found")}
-	querier := Querier{Commands: runner, DBPath: fakeDB(t)}
-	if _, _, ok := querier.HarnessAverage(context.Background(), "kimi"); ok {
-		t.Error("HarnessAverage ok = true without sqlite3, want false")
-	}
-	if _, _, ok := (Querier{Commands: runner}).HarnessAverage(context.Background(), "kimi"); ok {
-		t.Error("HarnessAverage ok = true without a database path, want false")
 	}
 }

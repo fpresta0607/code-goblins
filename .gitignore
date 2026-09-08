@@ -10,6 +10,9 @@ __pycache__/
 *.pyc
 .env
 config/
+!/config/
+/config/*
+!/config/pipeline.json
 /cfo.exe
 /showcase-axi.exe
 

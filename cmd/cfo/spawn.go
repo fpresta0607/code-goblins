@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 )
 
@@ -30,6 +31,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	mode := fs.String("mode", "no-mistakes", "no-mistakes, direct-PR, or local-only")
 	model := fs.String("model", "", "harness model")
 	effort := fs.String("effort", "", "harness effort")
+	class := fs.String("class", "ordinary", "ordinary, high-risk, or mechanical pipeline policy")
 	yolo := fs.Bool("yolo", false, "allow the selected delivery posture")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
@@ -48,6 +50,10 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	if !validSpawnMode(*mode) {
 		fmt.Fprintln(stderr, "cfo spawn: --mode must be no-mistakes, direct-PR, or local-only")
+		return 2
+	}
+	if !pipeline.ValidClass(*class) {
+		fmt.Fprintln(stderr, "cfo spawn: --class must be ordinary, high-risk, or mechanical")
 		return 2
 	}
 	if runtime.resolveHome == nil || runtime.spawn == nil {
@@ -70,6 +76,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Model:     *model,
 		Effort:    *effort,
 		Session:   herdrSession(),
+		Class:     *class,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)

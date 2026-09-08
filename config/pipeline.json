@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "reviewer": {"harness": "claude", "model": "opus", "effort": "high"},
+  "auto_fix": {"review": 0, "test": 1, "lint": 1, "rebase": 1, "ci": 1},
+  "classes": {
+    "ordinary": {"review_cycles": 2},
+    "high-risk": {"review_cycles": 3},
+    "mechanical": {"review_cycles": 2}
+  }
+}

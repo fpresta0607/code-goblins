@@ -18,9 +18,28 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
+
+func TestSpawnSnapshotsTaskClassPolicy(t *testing.T) {
+	f := newFixture(t)
+	f.service.PolicyPath = filepath.Join("..", "..", "config", "pipeline.json")
+	f.request.Class = "high-risk"
+	result, err := f.service.Spawn(context.Background(), f.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := pipeline.LoadSelection(filepath.Join(result.Meta.TaskTmp, "pipeline.json"))
+	if err != nil || snapshot.ReviewCycles != 3 {
+		t.Fatalf("snapshot: %+v %v", snapshot, err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, f.request.ID)
+	if err != nil || meta.PipelineClass != "high-risk" || meta.PipelineHash != snapshot.Hash {
+		t.Fatalf("metadata: %+v %v", meta, err)
+	}
+}
 
 func TestSpawnRejectsInvalidIDBeforeFilesystemMutation(t *testing.T) {
 	root := t.TempDir()
