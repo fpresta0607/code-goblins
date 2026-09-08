@@ -5,6 +5,16 @@
 # agent never adopts that identity or drives the fleet.
 disable_project_settings: true
 
+# Gate steps run inside a goblin pane, which exports CFO_HOME and
+# CFO_STATE_OVERRIDE so `cfo` reaches the fleet from a worktree. A step that
+# runs `cfo` or `go test` without clearing both writes into the RUNNING fleet:
+# on 2026-09-08 a test step's end-to-end `cfo notify` put a synthetic status
+# file and two wake records into the live queue. internal/home refuses the
+# inherited home from a test binary, which covers `go test`; the real `cfo`
+# binary is not a test binary, so a step that invokes it must clear both
+# variables itself. no-mistakes v1.48 has no per-repo step command or env
+# setting to enforce this, so it is stated in every intent instead.
+
 # The approved reviewer stays Claude Opus high; shared model/effort settings
 # come from config/pipeline.json through the explicit idle config-apply command.
 agent: [claude]

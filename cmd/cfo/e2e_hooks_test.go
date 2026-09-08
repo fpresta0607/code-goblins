@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -17,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
 )
 
@@ -59,34 +62,31 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 
 	t.Run("case1 session-start full compose", func(t *testing.T) {
 		home := newPrimaryHome(t)
-		res := runHookBinary(t, exe, "session-start", sessionStartPayload, buildEnv(map[string]string{"CFO_HOME": home}))
+		res := runHookBinary(t, exe, "session-start", sessionStartPayload, cfoTestEnv(t, home, nil))
 		assertExit(t, res, 0, "session-start")
 		assertEmptyStderr(t, res, "session-start")
 		assertHasHeaders(t, res.stdout, "session-start")
 	})
 
 	t.Run("case2 pretool-subagent deny", func(t *testing.T) {
-		res := runHookBinary(t, exe, "pretool-subagent", subagentPayload, buildEnv(map[string]string{"CFO_HOME": sharedHome}))
+		res := runHookBinary(t, exe, "pretool-subagent", subagentPayload, cfoTestEnv(t, sharedHome, nil))
 		assertDeny(t, res, "", "pretool-subagent")
 	})
 
 	t.Run("case3 pretool-arm deny watcher-background", func(t *testing.T) {
-		res := runHookBinary(t, exe, "pretool-arm", armDenyPayload, buildEnv(map[string]string{"CFO_HOME": sharedHome}))
+		res := runHookBinary(t, exe, "pretool-arm", armDenyPayload, cfoTestEnv(t, sharedHome, nil))
 		assertDeny(t, res, "watcher-background", "pretool-arm")
 	})
 
 	t.Run("case4 pretool-cd deny cwd-relocation", func(t *testing.T) {
-		res := runHookBinary(t, exe, "pretool-cd", cdDenyPayload, buildEnv(map[string]string{"CFO_HOME": sharedHome}))
+		res := runHookBinary(t, exe, "pretool-cd", cdDenyPayload, cfoTestEnv(t, sharedHome, nil))
 		assertDeny(t, res, "cwd-relocation", "pretool-cd")
 	})
 
 	t.Run("case5 turnend-guard blind block", func(t *testing.T) {
 		home := newPrimaryHome(t)
 		writeMetaFixture(t, filepath.Join(home, "state"), "g1.meta")
-		res := runHookBinary(t, exe, "turnend-guard", turnendPayload, buildEnv(map[string]string{
-			"CFO_HOME":                        home,
-			"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1",
-		}))
+		res := runHookBinary(t, exe, "turnend-guard", turnendPayload, cfoTestEnv(t, home, map[string]string{"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1"}))
 		assertBlock(t, res, "TURN WOULD END BLIND", "turnend-guard")
 	})
 
@@ -95,9 +95,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 		state := filepath.Join(home, "state")
 		writeMetaFixture(t, state, "g1.meta")
 		done := statusApendAfter(state, "g1.status", 300*time.Millisecond)
-		res := runHookBinary(t, exe, "stop-autoarm", stopAutoarmPayload, buildEnv(map[string]string{
-			"CFO_HOME":                    home,
-			"CFO_TEST_ANCESTOR_PID":       strconv.Itoa(os.Getpid()),
+		res := runHookBinary(t, exe, "stop-autoarm", stopAutoarmPayload, cfoTestEnv(t, home, map[string]string{"CFO_TEST_ANCESTOR_PID": strconv.Itoa(os.Getpid()),
 			"CFO_POLL":                    "1",
 			"CFO_SIGNAL_GRACE":            "1",
 			"CFO_HEARTBEAT":               "1",
@@ -108,7 +106,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 	})
 
 	t.Run("case7 pretool-arm allow", func(t *testing.T) {
-		res := runHookBinary(t, exe, "pretool-arm", armAllowPayload, buildEnv(map[string]string{"CFO_HOME": sharedHome}))
+		res := runHookBinary(t, exe, "pretool-arm", armAllowPayload, cfoTestEnv(t, sharedHome, nil))
 		assertSilentZero(t, res, "pretool-arm allow")
 	})
 
@@ -154,7 +152,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 			t.Fatalf("inertness table has %d rows, want exactly 7", len(cases))
 		}
 		for _, c := range cases {
-			env := buildEnv(mergeEnv(map[string]string{"CFO_HOME": devHome}, c.env))
+			env := cfoTestEnv(t, devHome, c.env)
 			res := runHookBinary(t, exe, c.hookName, c.stdin, env)
 			assertSilentZero(t, res, c.name+" against dev home")
 		}
@@ -197,7 +195,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 		}
 
 		baseEnv := func(home string, extra map[string]string) []string {
-			return buildEnv(mergeEnv(map[string]string{"CFO_HOME": home, "CLAUDE_PROJECT_DIR": buildDir}, extra))
+			return cfoTestEnv(t, home, mergeEnv(map[string]string{"CLAUDE_PROJECT_DIR": buildDir}, extra))
 		}
 
 		t.Run("session-start", func(t *testing.T) {
@@ -289,7 +287,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 			state := filepath.Join(home, "state")
 			writeMetaFixture(t, state, "g1.meta")
 			env := func(extra map[string]string) []string {
-				return buildEnv(mergeEnv(map[string]string{"CFO_HOME": home, "CLAUDE_PROJECT_DIR": emptyDir}, extra))
+				return cfoTestEnv(t, home, mergeEnv(map[string]string{"CLAUDE_PROJECT_DIR": emptyDir}, extra))
 			}
 
 			absentCases := []struct {
@@ -332,7 +330,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 			// several of these hooks write supervision state, and reusing a
 			// home would let one firing decide the next one's outcome.
 			env := func(home string, extra map[string]string) []string {
-				return buildEnv(mergeEnv(map[string]string{"CFO_HOME": home, "CLAUDE_PROJECT_DIR": otherRepo}, extra))
+				return cfoTestEnv(t, home, mergeEnv(map[string]string{"CLAUDE_PROJECT_DIR": otherRepo}, extra))
 			}
 
 			home := homeWithBinary(t, exe)
@@ -382,8 +380,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 			home := homeWithBinary(t, exe)
 			writeMetaFixture(t, filepath.Join(home, "state"), "g1.meta")
 			goblinEnv := func(extra map[string]string) []string {
-				return buildEnv(mergeEnv(map[string]string{
-					"CFO_HOME":           home,
+				return cfoTestEnv(t, home, mergeEnv(map[string]string{
 					"CLAUDE_PROJECT_DIR": home,
 					"CFO_ROLE":           "goblin",
 				}, extra))
@@ -421,7 +418,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 
 	t.Run("timing budgets", func(t *testing.T) {
 		timingHome := newPrimaryHome(t)
-		env := buildEnv(map[string]string{"CFO_HOME": timingHome})
+		env := cfoTestEnv(t, timingHome, nil)
 
 		preToolCases := []struct {
 			hookName string
@@ -719,6 +716,7 @@ func runCmd(t *testing.T, cmd *exec.Cmd) hookResult {
 // This is the artifact's binary contract, exercised without any shell layer.
 func runHookBinary(t *testing.T, exe, hookName, stdin string, env []string) hookResult {
 	t.Helper()
+	assertFleetIsolatedEnv(t, env)
 	cmd := exec.Command(exe, "hook", hookName)
 	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Env = env
@@ -792,6 +790,7 @@ func resolveMingwBash(t *testing.T) string {
 // documented elsewhere in this plan does not apply here.
 func runViaShell(t *testing.T, bashPath, script, stdin string, env []string) hookResult {
 	t.Helper()
+	assertFleetIsolatedEnv(t, env)
 	cmd := exec.Command(bashPath, "-c", script)
 	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Env = env
@@ -1000,4 +999,102 @@ func minDuration(durs []time.Duration) time.Duration {
 		}
 	}
 	return min
+}
+
+// cfoTestEnv builds the environment for a child that will run the real cfo
+// binary. It is the one supported way to do that: it points CFO_HOME at a
+// test-owned directory and derives CFO_STATE_OVERRIDE from it, so the child
+// cannot inherit the pane's fleet.
+//
+// home.Resolve refuses the inherited fleet home from a test binary, but the
+// real cfo binary is not a test binary, so nothing inside the child stops it.
+// On 2026-09-08 a gate test step ran `cfo notify` with the inherited values
+// and put a synthetic status file and two wake records into the running
+// fleet; this helper and the check below are what close that path.
+func cfoTestEnv(t *testing.T, cfoHome string, overrides map[string]string) []string {
+	t.Helper()
+	if cfoHome == "" {
+		cfoHome = t.TempDir()
+	}
+	values := map[string]string{
+		"CFO_HOME":           cfoHome,
+		"CFO_STATE_OVERRIDE": filepath.Join(cfoHome, "state"),
+	}
+	for k, v := range overrides {
+		values[k] = v
+	}
+	return buildEnv(values)
+}
+
+// assertFleetIsolatedEnv fails a test that is about to hand a child process
+// the fleet this process inherited. Every exec of the real binary, and every
+// exec of a shell that resolves it, passes through here, so a test that
+// builds its environment by hand and forgets the isolation fails rather than
+// writing into the running fleet.
+func assertFleetIsolatedEnv(t *testing.T, env []string) {
+	t.Helper()
+	fleetRoot, fleetState := home.Inherited()
+	if err := fleetIsolationError(env, fleetRoot, fleetState); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// fleetIsolationError carries the rule as a value so it can be tested
+// directly. The fleet paths are parameters rather than read from
+// home.Inherited() inside: a hosted CI runner has no fleet in its
+// environment, and a guard that silently passes there because there was
+// nothing to compare against would be no guard at all.
+func fleetIsolationError(env []string, fleetRoot, fleetState string) error {
+	var childHome, childState string
+	for _, kv := range env {
+		key, value, found := strings.Cut(kv, "=")
+		if !found {
+			continue
+		}
+		switch strings.ToUpper(key) {
+		case "CFO_HOME":
+			childHome = value
+		case "CFO_STATE_OVERRIDE":
+			childState = value
+		}
+	}
+	if childHome == "" && childState == "" {
+		return errors.New("a test executing the real cfo binary must build its environment with cfoTestEnv, which points CFO_HOME and CFO_STATE_OVERRIDE at a test-owned directory")
+	}
+	if fleetRoot != "" && childHome != "" && fsx.SamePath(childHome, fleetRoot) {
+		return fmt.Errorf("CFO_HOME = %s is the fleet this process inherited; use cfoTestEnv so the child cannot write into the running fleet", childHome)
+	}
+	if fleetState != "" && childState != "" && fsx.SamePath(childState, fleetState) {
+		return fmt.Errorf("CFO_STATE_OVERRIDE = %s is the fleet state this process inherited; use cfoTestEnv so the child cannot write into the running fleet", childState)
+	}
+	return nil
+}
+
+// The guard itself. A test that execs the real cfo binary without the shared
+// helper must fail rather than write into the running fleet.
+func TestFleetIsolationGuardRejectsTheInheritedFleet(t *testing.T) {
+	fleet := `C:\dev\code-goblins`
+	fleetState := filepath.Join(fleet, "state")
+
+	for _, c := range []struct {
+		name string
+		env  []string
+	}{
+		{"no fleet variables at all", []string{"PATH=x"}},
+		{"CFO_HOME inherited from the pane", []string{"CFO_HOME=" + fleet}},
+		{"CFO_STATE_OVERRIDE inherited from the pane", []string{"CFO_HOME=" + t.TempDir(), "CFO_STATE_OVERRIDE=" + fleetState}},
+		{"the same path in a different spelling", []string{"CFO_HOME=" + strings.ToLower(fleet)}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if err := fleetIsolationError(c.env, fleet, fleetState); err == nil {
+				t.Fatalf("env %v accepted; want a refusal so the child cannot reach the running fleet", c.env)
+			}
+		})
+	}
+
+	t.Run("cfoTestEnv is accepted", func(t *testing.T) {
+		if err := fleetIsolationError(cfoTestEnv(t, "", nil), fleet, fleetState); err != nil {
+			t.Fatalf("cfoTestEnv rejected: %v", err)
+		}
+	})
 }
