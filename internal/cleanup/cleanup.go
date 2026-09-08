@@ -187,6 +187,18 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 // readable; spawn instead treats a status log with no live metadata beside it
 // as history rather than a live claim on the id.
 func (s Service) archive(id string) (string, error) {
+	// The Go temporary directory is removed rather than archived: it holds
+	// build and test scratch the task no longer needs, and being outside the
+	// state tree the archive rename does not carry it away. It goes before
+	// the scratch directory so a task whose scratch is already gone still has
+	// it removed.
+	goTmp, err := state.GoTmpDir(id)
+	if err != nil {
+		return "", err
+	}
+	if err := os.RemoveAll(goTmp); err != nil {
+		return "", fmt.Errorf("remove go temporary directory: %w", err)
+	}
 	taskTmp := filepath.Join(s.StateDir, "tasktmp", id)
 	if _, err := os.Stat(taskTmp); err != nil {
 		return "", nil

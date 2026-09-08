@@ -97,6 +97,12 @@ func cleanupSnapshot(panes, agents string) string {
 
 func newCleanupFixture(t *testing.T) *cleanupFixture {
 	t.Helper()
+	// The Go temporary directory a cleanup removes lives under the machine
+	// temporary directory, so the test points that at its own directory
+	// rather than removing anything from the operator's %TEMP%.
+	for _, name := range []string{"TMP", "TEMP", "TMPDIR"} {
+		t.Setenv(name, t.TempDir())
+	}
 	root := t.TempDir()
 	makeCanonicalDir := func(name string) string {
 		path := filepath.Join(root, name)
@@ -421,6 +427,53 @@ func TestCleanupRejectsInvalidIDBeforeAnyMutation(t *testing.T) {
 	}
 	if len(fixture.runner.requests) != 0 || len(fixture.git.returned) != 0 {
 		t.Fatalf("invalid ID reached external tools: requests=%v returned=%v", fixture.runner.requests, fixture.git.returned)
+	}
+}
+
+// Go writes build and test temporaries under a goblin's GOTMPDIR, and that
+// directory lives outside the state tree so a goblin's own tests do not
+// create files in the tree it is editing. Being outside, the archive rename
+// does not carry it away: cleanup is the only thing that removes it.
+func TestCleanupRemovesTheGoTemporaryDirectory(t *testing.T) {
+	fixture := newCleanupFixture(t)
+	if err := os.MkdirAll(filepath.Join(fixture.stateDir, "tasktmp", "g1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	goTmp, err := state.GoTmpDir("g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(goTmp, "go-build1234"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := fixture.service.Cleanup(context.Background(), "g1"); err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if _, err := os.Stat(goTmp); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the go temporary directory survived cleanup: %v", err)
+	}
+}
+
+// A task whose scratch directory is already gone still owns a Go temporary
+// directory, because that one lives outside the state tree. Removing it
+// before the archive rename is what makes cleanup the only thing that has to
+// run for a retired task to leave nothing behind.
+func TestCleanupRemovesTheGoTemporaryDirectoryWithoutScratch(t *testing.T) {
+	fixture := newCleanupFixture(t)
+	goTmp, err := state.GoTmpDir("g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(goTmp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := fixture.service.Cleanup(context.Background(), "g1"); err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if _, err := os.Stat(goTmp); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the go temporary directory survived a cleanup with no scratch: %v", err)
 	}
 }
 

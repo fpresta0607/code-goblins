@@ -257,8 +257,15 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := adapter.Validate(ctx, herdrClient.Commands); err != nil {
 		return fail(result, fmt.Errorf("spawn: validate harness %s: %w", req.Harness, err))
 	}
-	if err := os.MkdirAll(filepath.Join(taskTmp, "gotmp"), 0o755); err != nil {
+	goTmp, err := state.GoTmpDir(result.Meta.ID)
+	if err != nil {
+		return fail(result, err)
+	}
+	if err := os.MkdirAll(taskTmp, 0o755); err != nil {
 		return fail(result, fmt.Errorf("spawn: create task temporary directory: %w", err))
+	}
+	if err := os.MkdirAll(goTmp, 0o755); err != nil {
+		return fail(result, fmt.Errorf("spawn: create go temporary directory: %w", err))
 	}
 	if selection != nil {
 		if err := selection.Save(filepath.Join(taskTmp, "pipeline.json")); err != nil {
@@ -276,6 +283,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath: req.BriefPath,
 		TaskTmp:   taskTmp,
+		GoTmp:     goTmp,
 		Model:     req.Model,
 		Effort:    req.Effort,
 		MCPConfig: provision.MCPConfig,
