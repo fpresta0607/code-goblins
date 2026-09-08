@@ -155,7 +155,7 @@ func (s Service) record(finding Finding, line string) {
 		// Best effort: a failed status write must not undo a completed kill.
 		_ = state.AppendStatus(s.Home.State, finding.TaskID, state.NormalizeStatusDetail(line))
 	}
-	_ = state.AppendStatus(s.Home.State, StatusID, state.NormalizeStatusDetail(s.now().UTC().Format(time.RFC3339)+" "+line))
+	_ = state.AppendStatus(s.Home.State, StatusID, state.NormalizeStatusDetail(line))
 }
 
 // gate is where the correctness lives. Every class gets the checks that make

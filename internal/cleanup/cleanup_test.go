@@ -213,8 +213,11 @@ func TestCleanupReturnsCleanInactiveWorktree(t *testing.T) {
 		t.Fatalf("metadata survives successful cleanup: %v", err)
 	}
 	status, err := state.TailStatus(fixture.stateDir, "g1", 5)
-	if err != nil || len(status) != 1 || status[0] != "done: returned worktree "+fixture.worktree+" via cfo cleanup" {
+	if err != nil || len(status) != 1 {
 		t.Fatalf("status = %v, %v; want one done line recording the returned worktree", status, err)
+	}
+	if _, event := state.SplitStatus(status[0]); event != "done: returned worktree "+fixture.worktree+" via cfo cleanup" {
+		t.Fatalf("status = %v; want one done line recording the returned worktree", status)
 	}
 	fixture.assertOnlyTabCloseLifecycle(t)
 	if _, err := lock.AcquireExclusiveNamed(fixture.stateDir, state.CleanupLockName("g1")); err != nil {

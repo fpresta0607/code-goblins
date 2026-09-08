@@ -985,15 +985,25 @@ func decodeArray(raw json.RawMessage, destination any, field string) error {
 	return json.Unmarshal(raw, destination)
 }
 
+// normalizeKey folds the modifier spellings the fleet actually types into the
+// names Herdr accepts. It canonicalises separator and case rather than listing
+// variants, because the hand-maintained list silently missed `Ctrl-C` - the one
+// spelling `cfo switch` sends to interrupt a harness that ignores its stop
+// command, so Herdr rejected it as an unsupported key and the switch aborted.
+// An unrecognised key is still passed through untouched for Herdr to judge.
 func normalizeKey(key string) string {
-	switch key {
-	case "Enter", "enter":
+	canonical := strings.ToLower(strings.ReplaceAll(key, "-", "+"))
+	if rest, found := strings.CutPrefix(canonical, "c+"); found {
+		canonical = "ctrl+" + rest
+	}
+	switch canonical {
+	case "enter":
 		return "enter"
-	case "Escape", "escape", "Esc", "esc":
+	case "escape", "esc":
 		return "escape"
-	case "C-c", "c-c", "ctrl+c", "Ctrl+C":
+	case "ctrl+c":
 		return "ctrl+c"
-	case "C-u", "c-u", "ctrl+u", "Ctrl+U":
+	case "ctrl+u":
 		return "ctrl+u"
 	default:
 		return key

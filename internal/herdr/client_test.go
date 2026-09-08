@@ -938,3 +938,41 @@ func TestCommandFailuresPreserveOperationTargetAndStderr(t *testing.T) {
 		t.Errorf("CommandError = %#v, want operation, target, and stderr", commandErr)
 	}
 }
+
+// The interrupt `cfo switch` sends when a harness ignores its stop command is
+// spelled `Ctrl-C`. Herdr rejects an unsupported key name, so a spelling the
+// normaliser misses aborts the switch instead of interrupting the harness.
+func TestSendKeyNormalisesEveryModifierSpellingTheFleetSends(t *testing.T) {
+	runner := &fakeRunner{replies: []runnerReply{rawReply(""), rawReply("")}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+	target := Target{Session: "fleet", Pane: "w1:p2"}
+
+	for _, key := range []string{"Ctrl-C", "Ctrl-U"} {
+		if err := client.SendKey(context.Background(), target, key); err != nil {
+			t.Fatalf("SendKey(%q): %v", key, err)
+		}
+	}
+	assertRequests(t, runner.Requests(), []execx.Request{
+		command("herdr", "pane", "send-keys", "w1:p2", "ctrl+c", "--session", "fleet"),
+		command("herdr", "pane", "send-keys", "w1:p2", "ctrl+u", "--session", "fleet"),
+	})
+
+	for _, c := range []struct{ key, want string }{
+		{"Ctrl-C", "ctrl+c"},
+		{"ctrl-c", "ctrl+c"},
+		{"Ctrl+C", "ctrl+c"},
+		{"C-c", "ctrl+c"},
+		{"Ctrl-U", "ctrl+u"},
+		{"ctrl-u", "ctrl+u"},
+		{"Ctrl+U", "ctrl+u"},
+		{"C-u", "ctrl+u"},
+		{"Enter", "enter"},
+		{"Esc", "escape"},
+		{"F5", "F5"},
+	} {
+		if got := normalizeKey(c.key); got != c.want {
+			t.Errorf("normalizeKey(%q) = %q, want %q", c.key, got, c.want)
+		}
+	}
+}
