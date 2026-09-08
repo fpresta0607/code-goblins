@@ -97,10 +97,10 @@ func cleanupSnapshot(panes, agents string) string {
 
 func newCleanupFixture(t *testing.T) *cleanupFixture {
 	t.Helper()
-	// The Go temporary directory a cleanup removes lives under the machine
-	// temporary directory, so the test points that at its own directory
-	// rather than removing anything from the operator's %TEMP%.
-	for _, name := range []string{"TMP", "TEMP", "TMPDIR"} {
+	// The Go temporary directory a cleanup removes lives under the user cache
+	// directory, so the test points os.UserCacheDir at a directory of its own
+	// rather than removing anything from the operator's cache.
+	for _, name := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME"} {
 		t.Setenv(name, t.TempDir())
 	}
 	root := t.TempDir()

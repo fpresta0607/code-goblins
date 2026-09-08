@@ -176,6 +176,13 @@ type fleetE2EFixture struct {
 
 func newFleetE2EFixture(t *testing.T) *fleetE2EFixture {
 	t.Helper()
+	// This fixture spawns through the real spawn.Service, which creates each
+	// task's Go temporary directory under the user cache directory. Point
+	// os.UserCacheDir at a directory of the test's own so the run leaves
+	// nothing in the operator's cache, the same isolation CFO_HOME gets.
+	for _, name := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME"} {
+		t.Setenv(name, t.TempDir())
+	}
 	root := t.TempDir()
 	h := home.Home{
 		Root:  filepath.Join(root, "home"),

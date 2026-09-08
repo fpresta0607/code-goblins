@@ -260,15 +260,24 @@ func TestRemoveTaskMetaIsIdempotentAndValidatesID(t *testing.T) {
 
 // A goblin's GOTMPDIR is the one task path deliberately outside the state
 // tree, and cleanup removes it whole - so an id that traverses out of the
-// machine temporary directory has to be refused here rather than at the two
-// call sites.
+// user cache directory has to be refused here rather than at the two call
+// sites.
 func TestGoTmpDirIsOutsideTheStateTreeAndValidatesID(t *testing.T) {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatalf("UserCacheDir = %v, want the base GoTmpDir derives from", err)
+	}
 	dir, err := GoTmpDir("g1")
 	if err != nil {
 		t.Fatalf("GoTmpDir = %v, want a path", err)
 	}
-	if rel, relErr := filepath.Rel(os.TempDir(), dir); relErr != nil || strings.HasPrefix(rel, "..") {
-		t.Errorf("GoTmpDir = %q, want it under the machine temporary directory %q", dir, os.TempDir())
+	if rel, relErr := filepath.Rel(cache, dir); relErr != nil || strings.HasPrefix(rel, "..") {
+		t.Errorf("GoTmpDir = %q, want it under the user cache directory %q", dir, cache)
+	}
+	// The machine temporary directory is the one place it must not be: a
+	// goblin task is live for days and Windows prunes %TEMP% on its own.
+	if rel, relErr := filepath.Rel(os.TempDir(), dir); relErr == nil && !strings.HasPrefix(rel, "..") {
+		t.Errorf("GoTmpDir = %q, want it outside the machine temporary directory %q", dir, os.TempDir())
 	}
 	if other, otherErr := GoTmpDir("g2"); otherErr != nil || other == dir {
 		t.Errorf("GoTmpDir(g2) = %q, %v, want a directory of its own", other, otherErr)
