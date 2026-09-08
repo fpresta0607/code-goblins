@@ -81,8 +81,7 @@ func TestPipelineRespondInvokesNativeOnlyForBudgetedExplicitDecision(t *testing.
 			if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0600); err != nil {
 				t.Fatal(err)
 			}
-			zero := 0
-			runner := &pipelineRunner{worktree: wt, gate: pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: round, AutoFixLimit: &zero, Findings: `{"findings":[{"id":"bug","action":"auto-fix"}]}`}}
+			runner := &pipelineRunner{worktree: wt, gate: pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: round, Findings: `{"findings":[{"id":"bug","action":"auto-fix"}]}`}}
 			// A gate runs for hours, so the pipeline must not take the cleanup
 			// lock: holding it that long makes an auth refresh report a live
 			// task as being cleaned up and never deliver its credentials.

@@ -12,8 +12,7 @@ func TestReviewDecisionBudgetAndUnresolvedFindings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	zero := 0
-	gate := Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 1, AutoFixLimit: &zero, Findings: `{"findings":[{"id":"bug","action":"auto-fix"}]}`}
+	gate := Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 1, Findings: `{"findings":[{"id":"bug","action":"auto-fix"}]}`}
 	args, err := ResponseArgs(selection, gate, Response{Action: "fix", Findings: "bug"})
 	if err != nil || !strings.Contains(strings.Join(args, " "), "--step review") {
 		t.Fatalf("first repair: %v %v", args, err)
@@ -48,10 +47,10 @@ func TestResponseRefusesUnsafeAndStaleDecisions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	zero, ten := 0, 10
-	valid := Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 1, AutoFixLimit: &zero, Findings: `{"findings":[{"id":"bug","action":"auto-fix"}]}`}
+	ten := 10
+	valid := Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 1, Findings: `{"findings":[{"id":"bug","action":"auto-fix"}]}`}
 	for _, mutate := range []func(*Gate){
-		func(g *Gate) { g.AutoFixLimit = &ten }, func(g *Gate) { g.AutoFixLimit = nil },
+		func(g *Gate) { g.AutoFixLimit = &ten },
 		func(g *Gate) { g.Status = "fixing" }, func(g *Gate) { g.Selected = "user" },
 		func(g *Gate) { g.Round = 0 }, func(g *Gate) { g.Findings = `{}` },
 		func(g *Gate) { g.Findings = `{"findings":[{"id":"bug","action":"new-unknown-action"}]}` },
