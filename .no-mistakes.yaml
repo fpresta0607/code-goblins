@@ -5,11 +5,15 @@
 # agent never adopts that identity or drives the fleet.
 disable_project_settings: true
 
-# Gate agents here must neutralize AGENTS.md (the CFO identity above). Only
-# codex, claude, and pi have a verified suppression knob, so the ACP kimi
-# fallback from the global config is deliberately excluded for this repo; it
-# still serves as a fallback in repos without agent-instruction files.
-# 2026-08-18: claude first, mirroring the global config - pi's API balance is
-# exhausted (402 Insufficient Balance, fails after spawn so the fallback chain
-# never engages). pi kept next so topping it up restores the old order.
-agent: [claude, pi, codex]
+# The approved reviewer stays Claude Opus high; shared model/effort settings
+# come from config/pipeline.json through the explicit idle config-apply command.
+agent: [claude]
+
+# These committed overrides also bound a new gate during the initial rollout.
+# Shared machine settings are rendered only in an explicit idle window.
+auto_fix:
+  review: 0
+  test: 1
+  lint: 1
+  rebase: 1
+  ci: 1

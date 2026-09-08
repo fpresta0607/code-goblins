@@ -28,6 +28,8 @@ type TaskMeta struct {
 	Model            string
 	Effort           string
 	SpawnGen         string
+	PipelineClass    string
+	PipelineHash     string
 	Backend          string
 	HerdrSession     string
 	HerdrWorkspaceID string
@@ -55,6 +57,14 @@ const AuthScriptName = "auth.ps1"
 // an archived directory nor write into one mid-archive.
 func CleanupLockName(id string) string {
 	return ".cleanup-" + id + ".lock"
+}
+
+// PipelineLockName is the per-task lock the pipeline commands hold to
+// serialise round acceptance. It is deliberately not the cleanup lock: a gate
+// runs for hours, and a cleanup lock held that long would make an auth refresh
+// report a live task as being cleaned up and never deliver its credentials.
+func PipelineLockName(id string) string {
+	return ".pipeline-" + id + ".lock"
 }
 
 // ValidTaskID rejects IDs that would escape or ambiguously name a task's
@@ -107,6 +117,8 @@ func ReadTaskMeta(stateDir, id string) (TaskMeta, error) {
 		Model:            kv["model"],
 		Effort:           kv["effort"],
 		SpawnGen:         kv["spawn_gen"],
+		PipelineClass:    kv["pipeline_class"],
+		PipelineHash:     kv["pipeline_hash"],
 		Backend:          kv["backend"],
 		HerdrSession:     kv["herdr_session"],
 		HerdrWorkspaceID: kv["herdr_workspace_id"],
@@ -183,6 +195,8 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 		"model":              meta.Model,
 		"effort":             meta.Effort,
 		"spawn_gen":          meta.SpawnGen,
+		"pipeline_class":     meta.PipelineClass,
+		"pipeline_hash":      meta.PipelineHash,
 		"backend":            meta.Backend,
 		"herdr_session":      meta.HerdrSession,
 		"herdr_workspace_id": meta.HerdrWorkspaceID,
@@ -219,6 +233,8 @@ func validateTaskMetaValues(meta TaskMeta) error {
 		{"model", meta.Model},
 		{"effort", meta.Effort},
 		{"spawn_gen", meta.SpawnGen},
+		{"pipeline_class", meta.PipelineClass},
+		{"pipeline_hash", meta.PipelineHash},
 		{"backend", meta.Backend},
 		{"herdr_session", meta.HerdrSession},
 		{"herdr_workspace_id", meta.HerdrWorkspaceID},

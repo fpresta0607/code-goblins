@@ -20,27 +20,28 @@ import (
 )
 
 // speedTableSQL measures count plus average and maximum invocation minutes
-// per harness and pipeline step. Prefixed agent identities (kimi invocations
-// are recorded as acp:kimi) are normalized to the bare harness name so one
-// harness's rows group together.
-const speedTableSQL = `WITH normalized AS (SELECT CASE WHEN instr(agent, ':') > 0 THEN substr(agent, instr(agent, ':') + 1) ELSE agent END AS agent, step_name, duration_ms FROM agent_invocations) SELECT agent, step_name, COUNT(*) AS n, AVG(duration_ms)/60000.0 AS avg_min, MAX(duration_ms)/60000.0 AS max_min FROM normalized GROUP BY agent, step_name ORDER BY agent, step_name`
+// per harness, recorded model, role, step, and outcome. Outcome is part of the
+// grouping so a failed or cancelled call's latency can never be averaged into
+// a successful one. Prefixed agent identities (kimi invocations are recorded
+// as acp:kimi) are normalized to the bare harness name so one harness's rows
+// group together.
+const speedTableSQL = `WITH normalized AS (SELECT CASE WHEN instr(agent, ':') > 0 THEN substr(agent, instr(agent, ':') + 1) ELSE agent END AS agent, COALESCE(NULLIF(model, ''), 'unrecorded') AS model, purpose, exit_status, step_name, duration_ms FROM agent_invocations) SELECT agent, model, purpose, exit_status, step_name, COUNT(*) AS n, AVG(duration_ms)/60000.0 AS avg_min, MAX(duration_ms)/60000.0 AS max_min FROM normalized GROUP BY agent, model, purpose, exit_status, step_name ORDER BY agent, model, purpose, step_name, exit_status`
 
 // queryTimeout bounds one sqlite3 read so a wedged CLI cannot stall spawn or
 // doctor after the work is already done.
 const queryTimeout = 5 * time.Second
 
-// harnessAvgSQL measures the average invocation minutes for one agent. The
-// agent value is single-quote escaped by the caller. Prefixed identities
-// (kimi invocations are recorded as acp:kimi) count toward the same harness.
-const harnessAvgSQL = `SELECT COUNT(*) AS n, AVG(duration_ms)/60000.0 AS avg_min FROM agent_invocations WHERE agent = '%[1]s' OR agent LIKE '%%:%[1]s'`
-
-// SpeedRow is one agent's measured timing for one pipeline step.
+// SpeedRow is one agent, model, and role's measured timing for one pipeline
+// step and one outcome.
 type SpeedRow struct {
-	Agent  string
-	Step   string
-	Count  int
-	AvgMin float64
-	MaxMin float64
+	Agent   string
+	Model   string
+	Role    string
+	Outcome string
+	Step    string
+	Count   int
+	AvgMin  float64
+	MaxMin  float64
 }
 
 // Querier runs read-only speed queries against one state database.
@@ -51,6 +52,9 @@ type Querier struct {
 
 // DefaultDBPath is the no-mistakes state database under the user's home.
 func DefaultDBPath() string {
+	if root := os.Getenv("NM_HOME"); root != "" {
+		return filepath.Join(root, "state.sqlite")
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
@@ -58,8 +62,9 @@ func DefaultDBPath() string {
 	return filepath.Join(home, ".no-mistakes", "state.sqlite")
 }
 
-// SpeedTable returns the measured per-agent per-step timing. A non-empty note
-// means the table was skipped and explains why.
+// SpeedTable returns the measured validation timing, one row per agent, model,
+// role, step, and outcome. A non-empty note means the table was skipped and
+// explains why.
 func (q Querier) SpeedTable(ctx context.Context) ([]SpeedRow, string) {
 	out, note := q.query(ctx, speedTableSQL)
 	if note != "" {
@@ -69,18 +74,21 @@ func (q Querier) SpeedTable(ctx context.Context) ([]SpeedRow, string) {
 		return nil, "telemetry database has no recorded invocations"
 	}
 	var rows []struct {
-		Agent  string  `json:"agent"`
-		Step   string  `json:"step_name"`
-		Count  int     `json:"n"`
-		AvgMin float64 `json:"avg_min"`
-		MaxMin float64 `json:"max_min"`
+		Agent   string  `json:"agent"`
+		Model   string  `json:"model"`
+		Role    string  `json:"purpose"`
+		Outcome string  `json:"exit_status"`
+		Step    string  `json:"step_name"`
+		Count   int     `json:"n"`
+		AvgMin  float64 `json:"avg_min"`
+		MaxMin  float64 `json:"max_min"`
 	}
 	if err := json.Unmarshal(out, &rows); err != nil {
 		return nil, "telemetry response is undecodable"
 	}
 	table := make([]SpeedRow, 0, len(rows))
 	for _, row := range rows {
-		table = append(table, SpeedRow{Agent: row.Agent, Step: row.Step, Count: row.Count, AvgMin: row.AvgMin, MaxMin: row.MaxMin})
+		table = append(table, SpeedRow{Agent: row.Agent, Model: row.Model, Role: row.Role, Outcome: row.Outcome, Step: row.Step, Count: row.Count, AvgMin: row.AvgMin, MaxMin: row.MaxMin})
 	}
 	if len(table) == 0 {
 		return nil, "telemetry database has no recorded invocations"
@@ -88,36 +96,33 @@ func (q Querier) SpeedTable(ctx context.Context) ([]SpeedRow, string) {
 	return table, ""
 }
 
-// HarnessAverage returns the measured average invocation minutes and sample
-// count for one agent. ok is false when telemetry is unavailable or the agent
-// has no recorded invocations.
-func (q Querier) HarnessAverage(ctx context.Context, agent string) (avgMin float64, count int, ok bool) {
-	if agent == "" {
-		return 0, 0, false
-	}
-	sql := fmt.Sprintf(harnessAvgSQL, strings.ReplaceAll(agent, "'", "''"))
-	out, note := q.query(ctx, sql)
+// SpeedHint renders validation outcome counts, explicitly separating them from
+// unmeasured implementation speed, including when telemetry is unavailable.
+func SpeedHint(ctx context.Context, commands execx.Runner, agent string) string {
+	rows, note := (Querier{Commands: commands, DBPath: DefaultDBPath()}).SpeedTable(ctx)
 	if note != "" {
-		return 0, 0, false
+		return "speed hint: implementation unmeasured; validation telemetry unavailable"
 	}
-	var rows []struct {
-		Count  int      `json:"n"`
-		AvgMin *float64 `json:"avg_min"`
-	}
-	if err := json.Unmarshal(out, &rows); err != nil || len(rows) != 1 || rows[0].AvgMin == nil || rows[0].Count == 0 {
-		return 0, 0, false
-	}
-	return *rows[0].AvgMin, rows[0].Count, true
+	return FormatHint(agent, rows)
 }
 
-// SpeedHint renders the one-line measured speed hint for a freshly spawned
-// harness, or "" when no measurement is available.
-func SpeedHint(ctx context.Context, commands execx.Runner, agent string) string {
-	avgMin, count, ok := Querier{Commands: commands, DBPath: DefaultDBPath()}.HarnessAverage(ctx, agent)
-	if !ok {
-		return ""
+// FormatHint never presents validation or provider failure latency as authoring speed.
+func FormatHint(agent string, rows []SpeedRow) string {
+	success, failed, cancelled := 0, 0, 0
+	for _, row := range rows {
+		if row.Agent != agent {
+			continue
+		}
+		switch row.Outcome {
+		case "ok":
+			success += row.Count
+		case "cancelled":
+			cancelled += row.Count
+		default:
+			failed += row.Count
+		}
 	}
-	return fmt.Sprintf("speed hint: %s avg %.1f min/invocation across %d measured invocations", agent, avgMin, count)
+	return fmt.Sprintf("speed hint: %s validation calls: %d successful, %d failed, %d cancelled; implementation unmeasured; doctor splits timing by model and role", agent, success, failed, cancelled)
 }
 
 // query runs one read-only statement through the sqlite3 CLI. A non-empty
