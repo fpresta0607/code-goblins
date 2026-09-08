@@ -175,3 +175,24 @@ func TestParseStatusLineAndFoldOpenDecisionsUseKeyedForms(t *testing.T) {
 		t.Errorf("Resolve must classify unavailable metadata without surfacing endpoint fake error: %v", err)
 	}
 }
+
+// A stamp carries colons of its own, so a parser that cuts on the first colon
+// reads the hour as the verb and every reader of the status log - the watcher,
+// the monitor, the reaper - stops seeing decisions.
+func TestParseStatusLineReadsStampedAndUnstampedEvents(t *testing.T) {
+	for _, c := range []struct{ name, line, verb, detail string }{
+		{"stamped", "2026-09-08T19:26:15Z blocked: which option", "blocked", "which option"},
+		{"unstamped legacy line", "blocked: which option", "blocked", "which option"},
+		{"stamped done", "2026-09-08T19:26:15Z done: PR https://example.test/pull/4", "done", "PR https://example.test/pull/4"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			verb, detail, ok := ParseStatusLine(c.line)
+			if !ok {
+				t.Fatalf("ParseStatusLine(%q) did not parse", c.line)
+			}
+			if verb != c.verb || detail != c.detail {
+				t.Errorf("ParseStatusLine(%q) = (%q, %q), want (%q, %q)", c.line, verb, detail, c.verb, c.detail)
+			}
+		})
+	}
+}

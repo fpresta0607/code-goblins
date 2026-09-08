@@ -17,11 +17,16 @@ func NormalizeStatusDetail(value string) string {
 	return strings.NewReplacer("\r", " ", "\n", " ").Replace(value)
 }
 
-// AppendStatus appends one raw line to state/<id>.status, creating the log on
-// first use. Lines carry their own grammar; this layer adds nothing. The open
-// retries briefly because antivirus and indexer scans on Windows hold transient
-// sharing locks.
+// AppendStatus appends one event to state/<id>.status, creating the log on
+// first use, and stamps it with the UTC time it was recorded. Without the
+// stamp the status log is the only durable per-task record of what happened -
+// the wake queue is acknowledged away - and no elapsed time between two events
+// can be recovered from it, so "decision requested" to "response applied" is
+// unanswerable after the fact. Lines otherwise carry their own grammar; this
+// layer adds nothing else. The open retries briefly because antivirus and
+// indexer scans on Windows hold transient sharing locks.
 func AppendStatus(dir, id, line string) error {
+	line = time.Now().UTC().Format(time.RFC3339) + " " + line
 	path := filepath.Join(dir, id+".status")
 	var f *os.File
 	var openErr error
@@ -54,4 +59,20 @@ func TailStatus(dir, id string, n int) ([]string, error) {
 		lines = lines[len(lines)-n:]
 	}
 	return lines, nil
+}
+
+// SplitStatus separates the stamp AppendStatus wrote from the event text, so
+// a caller can measure the elapsed time between two events and a reader can
+// match on the event alone. A line recorded before stamping returns the zero
+// time and the line unchanged.
+func SplitStatus(line string) (time.Time, string) {
+	stamp, event, found := strings.Cut(strings.TrimSpace(line), " ")
+	if !found {
+		return time.Time{}, line
+	}
+	recorded, err := time.Parse(time.RFC3339, stamp)
+	if err != nil {
+		return time.Time{}, line
+	}
+	return recorded, event
 }

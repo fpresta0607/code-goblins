@@ -333,7 +333,10 @@ func TestSwitchRefusesWhenTheHarnessWillNotStop(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "still running") {
 		t.Fatalf("err = %v, want a refusal rather than a second harness in the same pane", err)
 	}
-	if !contains(fixture.runner.keys, "Ctrl-C") {
+	// The wire name, not the spelling switch.go types: herdr rejects an
+	// unsupported key, so asserting "Ctrl-C" here would pin the value that
+	// made this interrupt fail.
+	if !contains(fixture.runner.keys, "ctrl+c") {
 		t.Errorf("keys = %v, want an interrupt attempted before giving up", fixture.runner.keys)
 	}
 }
@@ -428,7 +431,7 @@ func TestSwitchRecordsAnEmptyPaneWhenTheTargetRefusesToBuild(t *testing.T) {
 	}
 	found := false
 	for _, line := range status {
-		if strings.HasPrefix(line, "failed:") && strings.Contains(line, "no harness") {
+		if _, event := state.SplitStatus(line); strings.HasPrefix(event, "failed:") && strings.Contains(event, "no harness") {
 			found = true
 		}
 	}
@@ -615,7 +618,7 @@ func TestSwitchRecordsAnEmptyPaneWhenTheNewHarnessWillNotStart(t *testing.T) {
 	}
 	found := false
 	for _, line := range status {
-		if strings.HasPrefix(line, "failed:") && strings.Contains(line, "no harness") {
+		if _, event := state.SplitStatus(line); strings.HasPrefix(event, "failed:") && strings.Contains(event, "no harness") {
 			found = true
 		}
 	}
