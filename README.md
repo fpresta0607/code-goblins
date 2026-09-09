@@ -57,7 +57,7 @@ cfo auth copy <NAME> --to <project> [--from <project>]   copy a stored value int
 cfo auth refresh <task-id>           regenerate a task's auth.ps1 from its project scope; storing or copying into a project scope does this for every live task of that project automatically
 cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--yolo]
 cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place, keeping its id, pane, and worktree
-cfo send <target> [--key <key>] [--no-auto-submit] <text...>
+cfo send <target> [--key <key>] <text...>
 cfo peek <target> [lines]
 cfo fleet-view [--json]
 cfo brief <id> --project <path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>]
