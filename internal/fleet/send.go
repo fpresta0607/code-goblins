@@ -28,8 +28,13 @@ const (
 	confirmBudget = 5 * time.Second
 	confirmPolls  = 10
 
-	// typeSettle lets a pane take typed text before Enter submits it.
-	typeSettle = 300 * time.Millisecond
+	// typeSettle lets a pane take typed text before Enter submits it, and
+	// completionSettle is the longer wait a message that opens a harness
+	// completion popup needs. Both are the pre-Enter wait only - nothing reads
+	// the pane afterwards, so neither is a remnant of the composer inspection
+	// this file removed and neither should be tidied away as one.
+	typeSettle       = 300 * time.Millisecond
+	completionSettle = 1200 * time.Millisecond
 )
 
 // Sender submits text to one resolved Herdr pane's registered agent, or sends
@@ -126,7 +131,7 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 			// accepting anything, so spending the rest of the budget on it
 			// only delays a certain answer and buries its real cause behind
 			// the decode-shaped refusal an unregistered agent read produces.
-			if s.paneProvablyDead(ctx, target) {
+			if s.Herdr.PaneProvablyDead(ctx, target) {
 				return fmt.Errorf("fleet: %s no longer holds a registered agent, so the text submitted to it cannot be confirmed: %w", target, err)
 			}
 			lastReadErr = err
@@ -169,12 +174,20 @@ func preSubmitRead[T any](ctx context.Context, sleep func(context.Context, time.
 	return zero, lastErr
 }
 
-// paneProvablyDead reports whether Herdr gave a trustworthy answer that the
-// pane holds no agent. An unreadable probe counts as not-dead, so a Herdr that
-// merely cannot answer never turns a slow confirmation into a hard failure.
-func (s Sender) paneProvablyDead(ctx context.Context, target herdr.Target) bool {
-	status, err := s.Herdr.AgentStatus(ctx, target)
-	return err == nil && (status == herdr.AgentDead || status == herdr.AgentMissing)
+// typeSettleFor is how long to wait after typing message before Enter submits
+// it. A message starting with `/` or `$` opens a harness completion popup, and
+// an Enter that arrives while the popup is still open selects the highlighted
+// completion instead of submitting what was typed - so `cfo send <pane>
+// "/exit"` can run an entirely different command. A pane with no registered
+// agent is not necessarily at a shell prompt, so the popup is reachable here.
+// Both prefixes get the long wait unconditionally: this path has no harness
+// metadata by design, and waiting longer than a shell prompt needs costs a
+// fraction of a second against running the wrong command.
+func typeSettleFor(message string) time.Duration {
+	if strings.HasPrefix(message, "/") || strings.HasPrefix(message, "$") {
+		return completionSettle
+	}
+	return typeSettle
 }
 
 // typeIntoPane types the message into an explicitly addressed pane Herdr
@@ -188,7 +201,7 @@ func (s Sender) typeIntoPane(ctx context.Context, target herdr.Target, message s
 	if err := s.Herdr.SendLiteral(ctx, target, message); err != nil {
 		return fmt.Errorf("fleet: type text for %s: %w", target, err)
 	}
-	if err := s.sleep(ctx, typeSettle); err != nil {
+	if err := s.sleep(ctx, typeSettleFor(message)); err != nil {
 		return fmt.Errorf("fleet: wait before submit for %s: %w", target, err)
 	}
 	if err := s.Herdr.SendKey(ctx, target, "Enter"); err != nil {
