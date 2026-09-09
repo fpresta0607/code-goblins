@@ -81,6 +81,33 @@ type AgentDetail struct {
 	Revision       int64
 }
 
+// PromptAccepted reports whether agent state moved between two reads: either
+// monotonic counter advanced, or the agent left an input-waiting state to
+// work.
+//
+// How much that proves depends on where the agent started. For one that was
+// waiting on input, the movement is the accepted prompt, because nothing else
+// moves an idle agent. For one that was already working it is weaker: a
+// working agent advances state_change_seq and revision from its own turn
+// output whether or not the prompt landed, and the status arm cannot help
+// because it was already working. Against such an agent this is a liveness
+// check, and the delivery guarantee rests on `herdr agent prompt` having
+// returned success. Herdr publishes no per-prompt acceptance signal to make a
+// stronger claim from.
+//
+// Both counters are checked because harnesses move different ones. A kimi
+// agent given a prompt advanced revision while state_change_seq did not move
+// and the status never reached working, so a check pinned on state_change_seq
+// alone reads a delivered prompt as undelivered. Status alone is not enough
+// either: an agent already working when the prompt arrived would read as
+// accepting it.
+func PromptAccepted(before, after AgentDetail) bool {
+	if after.StateChangeSeq > before.StateChangeSeq || after.Revision > before.Revision {
+		return true
+	}
+	return after.Status == AgentWorking && before.Status != AgentWorking
+}
+
 // Native agent_status values reported by `herdr agent list`. AgentWorking means
 // the agent is actively processing a turn; AgentDone means the turn ended and
 // the agent is waiting on input (finished or blocked); AgentIdle means the
