@@ -19,21 +19,33 @@ import (
 // tests loudly instead of passing them.
 const fakeStartCounters = 42
 
+var fakeTarget = herdr.Target{Session: "fleet", Pane: "pane-7"}
+
 // agentFake is a stateful herdr whose agent counters advance ONLY for a prompt
 // it actually accepted. That is the load-bearing property of every test below:
 // a fake that advanced them on any read would report an undelivered message as
 // delivered, and each of these tests would pass while proving nothing.
+//
+// It tells the three kinds of `agent get` apart the way herdr's own calls do:
+// a registration probe always follows a `pane get`, a read before the prompt
+// is the baseline, and a read after it is a confirmation. Each kind can be
+// refused independently, so no refusal shape is routed around a call by
+// accident.
 type agentFake struct {
 	requests [][]string
 
-	// unregistered answers `agent get` with herdr's own agent_not_found, the
-	// shape of a pane sitting at a shell prompt rather than running a harness.
+	// unregistered answers every `agent get` with herdr's own agent_not_found,
+	// the shape of a pane holding no registered agent.
 	unregistered bool
+	// deregisterAfterPrompt keeps the agent registered until the prompt is
+	// accepted and then loses it, the shape of a harness that exited on the
+	// message it was just given.
+	deregisterAfterPrompt bool
 	// promptRefusals refuses that many `agent prompt` calls before accepting.
 	promptRefusals int
-	// baselineRefusals refuses that many pre-submit baseline reads. The very
-	// first `agent get` answers the registration probe and is never refused,
-	// so these land on the baseline itself.
+	// probeRefusals refuses that many registration probes.
+	probeRefusals int
+	// baselineRefusals refuses that many pre-submit baseline reads.
 	baselineRefusals int
 	// baselineUnreadable refuses every baseline read, so the baseline can
 	// never be established at all.
@@ -51,14 +63,16 @@ type agentFake struct {
 	// leaving idle. This is the observed kimi shape, not a hypothetical.
 	revisionOnly bool
 
-	accepted     bool
-	promptCalls  int
-	getCalls     int
-	baselineGets int
-	confirmGets  int
-	seq          int64
-	revision     int64
-	status       string
+	probing         bool
+	accepted        bool
+	promptCalls     int
+	probeGets       int
+	baselineGets    int
+	confirmGets     int
+	notFoundReplies int
+	seq             int64
+	revision        int64
+	status          string
 }
 
 func newAgentFake(shape agentFake) *agentFake {
@@ -71,6 +85,7 @@ func (f *agentFake) Run(_ context.Context, request execx.Request) (execx.Result,
 	args := request.Args
 	switch {
 	case len(args) >= 3 && args[0] == "pane" && args[1] == "get":
+		f.probing = true
 		return execx.Result{Stdout: []byte(`{"result":{"pane":{"pane_id":"` + args[2] + `"}}}`)}, nil
 	case len(args) >= 4 && args[0] == "pane" && (args[1] == "send-text" || args[1] == "send-keys"):
 		return execx.Result{Stdout: []byte(`{"result":{}}`)}, nil
@@ -83,13 +98,27 @@ func (f *agentFake) Run(_ context.Context, request execx.Request) (execx.Result,
 		f.accepted = true
 		return execx.Result{Stdout: []byte(`{"result":{"agent":{"agent":"claude","agent_status":"idle"}}}`)}, nil
 	case len(args) >= 3 && args[0] == "agent" && args[1] == "get":
-		f.getCalls++
-		if f.unregistered {
+		probing := f.probing
+		f.probing = false
+		switch {
+		case probing:
+			f.probeGets++
+		case f.accepted:
+			f.confirmGets++
+		default:
+			f.baselineGets++
+		}
+		if f.unregistered || (f.deregisterAfterPrompt && f.accepted) {
+			f.notFoundReplies++
 			return execx.Result{ExitCode: 1, Stdout: []byte(`{"error":{"code":"agent_not_found"}}`)}, nil
 		}
 		switch {
+		case probing:
+			if f.probeRefusals > 0 {
+				f.probeRefusals--
+				return busyRead(), nil
+			}
 		case f.accepted:
-			f.confirmGets++
 			if f.confirmRefusals > 0 {
 				f.confirmRefusals--
 				return busyRead(), nil
@@ -103,8 +132,7 @@ func (f *agentFake) Run(_ context.Context, request execx.Request) (execx.Result,
 					f.status = "working"
 				}
 			}
-		case f.getCalls > 1:
-			f.baselineGets++
+		default:
 			if f.baselineUnreadable {
 				return busyRead(), nil
 			}
@@ -129,12 +157,36 @@ func busyRead() execx.Result {
 	return execx.Result{ExitCode: 1, Stderr: []byte("agent get: pane busy")}
 }
 
-func newAgentSender(f *agentFake) Sender {
+func (f *agentFake) typedRequests() (typed bool, submitted bool) {
+	for _, args := range f.requests {
+		if len(args) >= 4 && args[0] == "pane" && args[1] == "send-text" {
+			typed = true
+		}
+		if len(args) >= 4 && args[0] == "pane" && args[1] == "send-keys" {
+			submitted = true
+		}
+	}
+	return typed, submitted
+}
+
+func senderFor(f *agentFake, resolve TargetResolver) Sender {
 	return Sender{
-		Resolve: &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}, meta: taskMeta("task-7", "claude")},
-		Herdr:   &herdr.Client{Commands: f, Sleep: func(context.Context, time.Duration) error { return nil }},
+		Resolve: resolve,
+		Herdr:   &herdr.Client{Commands: f, Sleep: noSleep},
 		Sleep:   noSleep,
 	}
+}
+
+// newAgentSender addresses the pane through a task selector, which is how the
+// CFO steers a goblin.
+func newAgentSender(f *agentFake) Sender {
+	return senderFor(f, &fakeResolver{target: fakeTarget, meta: taskMeta("task-7", "claude")})
+}
+
+// newExplicitPaneSender addresses the pane directly as <session>:<pane-id>,
+// which carries no task metadata.
+func newExplicitPaneSender(f *agentFake) Sender {
+	return senderFor(f, &fakeResolver{target: fakeTarget})
 }
 
 // The message goes through the native agent channel and nothing is typed into
@@ -258,6 +310,23 @@ func TestSenderTextSurvivesATransientConfirmationRead(t *testing.T) {
 	}
 }
 
+// The registration probe is the first thing a send does and it faces the same
+// momentarily busy herdr as every later read, so it gets the same retries. A
+// probe refused once must not cost the whole send.
+func TestSenderTextSurvivesATransientRegistrationProbe(t *testing.T) {
+	fake := newAgentFake(agentFake{probeRefusals: 2})
+
+	if err := newAgentSender(fake).Text(context.Background(), "task-7", "do the work"); err != nil {
+		t.Fatalf("Text: %v", err)
+	}
+	if fake.probeGets < 3 {
+		t.Errorf("registration probes = %d, want the refusals to have been retried through", fake.probeGets)
+	}
+	if fake.promptCalls != 1 {
+		t.Errorf("prompt submissions = %d, want one", fake.promptCalls)
+	}
+}
+
 // A momentarily busy herdr costs the baseline read a retry, not its baseline.
 func TestSenderTextRetriesABusyBaselineRead(t *testing.T) {
 	fake := newAgentFake(agentFake{baselineRefusals: 2})
@@ -295,15 +364,49 @@ func TestSenderTextRefusesAnUnreadableBaselineWithoutSubmitting(t *testing.T) {
 	}
 }
 
-// A pane herdr reports no agent for is an explicit <session>:<pane-id> target
-// at a shell prompt - the shape left behind by `cfo send <id> "/exit"`. There
-// is nothing to prompt, so the text is typed and Enter submits it, and the
-// pane is never read back to decide anything.
-func TestSenderTextTypesIntoAPaneThatHoldsNoAgent(t *testing.T) {
+// A goblin addressed by its task selector is addressed through its agent or
+// not at all. When herdr holds no agent for the pane the steer is refused,
+// because typing it into whatever the pane now holds - a bash prompt, or a
+// live harness whose detection manifest went stale - would report a delivery
+// nothing can back up.
+func TestSenderTextRefusesATaskSelectorWhoseAgentIsGone(t *testing.T) {
 	fake := newAgentFake(agentFake{unregistered: true})
 
-	if err := newAgentSender(fake).Text(context.Background(), "fleet:pane-7", "/exit"); err != nil {
-		t.Fatalf("Text: %v", err)
+	err := newAgentSender(fake).Text(context.Background(), "task-7", "do the work")
+	if err == nil {
+		t.Fatal("Text = nil, want the send refused")
+	}
+	if !strings.Contains(err.Error(), "no registered agent") {
+		t.Errorf("err = %v, want it to name the missing agent", err)
+	}
+	if fake.promptCalls != 0 {
+		t.Errorf("prompt submissions = %d, want none", fake.promptCalls)
+	}
+	typed, submitted := fake.typedRequests()
+	if typed || submitted {
+		t.Errorf("the task pane was typed into: requests=%v", fake.requests)
+	}
+	// Premise: the fake really did report the agent gone, so this exercised
+	// the unregistered branch rather than falling through to the native one.
+	if fake.notFoundReplies == 0 {
+		t.Error("the fake never reported the agent missing, so this proves nothing")
+	}
+}
+
+// A pane the caller addressed directly as <session>:<pane-id> has no goblin
+// behind it, so the text is typed and Enter submits it - the shape left behind
+// by `cfo send <id> "/exit"`. It is reported unconfirmed rather than sent: an
+// unregistered pane has nothing to prove acceptance with, and the pane is
+// never read back to invent a proof.
+func TestSenderTextTypesIntoAnExplicitPaneAndReportsUnconfirmed(t *testing.T) {
+	fake := newAgentFake(agentFake{unregistered: true})
+
+	err := newExplicitPaneSender(fake).Text(context.Background(), "fleet:pane-7", "/exit")
+	if err == nil {
+		t.Fatal("Text = nil, want the typed delivery reported unconfirmed")
+	}
+	if !strings.Contains(err.Error(), "unconfirmed") || !strings.Contains(err.Error(), "no registered agent") {
+		t.Errorf("err = %v, want an unconfirmed delivery naming the missing agent", err)
 	}
 	if fake.promptCalls != 0 {
 		t.Errorf("prompt submissions = %d, want none - the pane holds no agent to prompt", fake.promptCalls)
@@ -331,6 +434,34 @@ func TestSenderTextTypesIntoAPaneThatHoldsNoAgent(t *testing.T) {
 	}
 	if !submitted {
 		t.Error("the typed text was never submitted")
+	}
+	// Premise: the fake really did report the agent gone, so this exercised
+	// the unregistered branch rather than falling through to the native one.
+	if fake.notFoundReplies == 0 {
+		t.Error("the fake never reported the agent missing, so this proves nothing")
+	}
+}
+
+// An agent that is gone will never report accepting anything, so the
+// confirmation says so instead of spending its whole budget on a certain
+// answer and then blaming a refused read.
+func TestSenderTextReportsAGoneAgentInsteadOfBurningTheConfirmBudget(t *testing.T) {
+	fake := newAgentFake(agentFake{deregisterAfterPrompt: true})
+
+	err := newAgentSender(fake).Text(context.Background(), "task-7", "do the work")
+	if err == nil {
+		t.Fatal("Text = nil, want the lost agent reported")
+	}
+	if !strings.Contains(err.Error(), "no longer holds a registered agent") {
+		t.Errorf("err = %v, want the lost agent named as the reason", err)
+	}
+	// Premise: the prompt was submitted against a live agent, and the
+	// confirmation bailed out rather than polling the budget away.
+	if fake.promptCalls != 1 {
+		t.Errorf("prompt submissions = %d, want one", fake.promptCalls)
+	}
+	if fake.confirmGets != 1 {
+		t.Errorf("confirmation reads = %d, want the loop to stop on the first proof the agent is gone", fake.confirmGets)
 	}
 }
 
@@ -366,7 +497,7 @@ func TestSenderKeyNormalizesOnlySupportedKeys(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			runner := &fakeRunner{replies: []runnerReply{rawReply("")}}
 			var clientSleeps []time.Duration
-			sender := Sender{Resolve: &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}}, Herdr: newHerdrClient(runner, &clientSleeps)}
+			sender := Sender{Resolve: &fakeResolver{target: fakeTarget}, Herdr: newHerdrClient(runner, &clientSleeps)}
 
 			if err := sender.Key(context.Background(), "task-7", test.key); err != nil {
 				t.Fatalf("Key: %v", err)
@@ -377,7 +508,7 @@ func TestSenderKeyNormalizesOnlySupportedKeys(t *testing.T) {
 
 	runner := &fakeRunner{}
 	var clientSleeps []time.Duration
-	sender := Sender{Resolve: &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}}, Herdr: newHerdrClient(runner, &clientSleeps)}
+	sender := Sender{Resolve: &fakeResolver{target: fakeTarget}, Herdr: newHerdrClient(runner, &clientSleeps)}
 	assertErrorContains(t, sender.Key(context.Background(), "task-7", "F1"), "unsupported key")
 	if len(runner.requests) != 0 {
 		t.Errorf("unsupported key made Herdr requests: %#v", runner.requests)
