@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -309,6 +311,93 @@ func TestRunDrainRefusesToAckBlockedNotify(t *testing.T) {
 	}
 }
 
+// The blindness that lost seq 502: the guard used to iterate the same folded
+// view the listing did, so a later notify from the same task hid the blocked
+// record from the guard as well. --ack-blocking was never needed to lose an
+// escalation - the safety net simply could not see it.
+func TestRunDrainRefusesBlockedNotifyFollowedByALaterNotify(t *testing.T) {
+	h := buildDrainFixture(t)
+	blocked, err := wake.Append(h.State, "notify", "gb-pd-pr-review", "blocked: rule on PR #1140")
+	if err != nil {
+		t.Fatal(err)
+	}
+	later, err := wake.Append(h.State, "notify", "gb-pd-pr-review", "done: PR https://example.test/pull/1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert the premise. Without a LATER record from the SAME task there is no
+	// fold to be blind to, and this test would pass while proving nothing.
+	pending, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawBlocked, sawLater bool
+	for _, rec := range pending {
+		if rec.Seq == blocked.Seq && rec.Key == "gb-pd-pr-review" {
+			sawBlocked = true
+		}
+		if rec.Seq == later.Seq && rec.Key == "gb-pd-pr-review" {
+			sawLater = true
+		}
+	}
+	if !sawBlocked || !sawLater || blocked.Seq >= later.Seq {
+		t.Fatalf("premise broken: blocked=%d(%v) later=%d(%v); the test needs both records from one task, blocked first", blocked.Seq, sawBlocked, later.Seq, sawLater)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if exit := runDrain(h, []string{"--ack-through", strconv.Itoa(later.Seq)}, &stdout, &stderr); exit != 1 {
+		t.Fatalf("exit = %d, want 1: the guard must see a blocked record hidden behind a later notify; stderr=%s", exit, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "rule on PR #1140") {
+		t.Errorf("stderr = %q, want it to name the escalation it refused to ack", stderr.String())
+	}
+
+	after, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(pending) {
+		t.Errorf("pending = %d records, want the refusal to retire nothing (was %d)", len(after), len(pending))
+	}
+}
+
+// Both records must also be listed and counted, so the operator can read the
+// escalation the fold used to hide.
+func TestRunDrainListsBothNotifiesFromOneTask(t *testing.T) {
+	h := buildDrainFixture(t)
+	if _, err := wake.Append(h.State, "notify", "gb-pd-pr-review", "blocked: rule on PR #1140"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wake.Append(h.State, "notify", "gb-pd-pr-review", "done: PR https://example.test/pull/1"); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if exit := runDrain(h, nil, &stdout, &stderr); exit != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+	}
+	got := stdout.String()
+
+	// The count is every unacknowledged record, not a folded subset. Comparing
+	// against the queue rather than a literal keeps this honest if the fixture
+	// grows.
+	if want := fmt.Sprintf("WAKE QUEUE: %d pending", len(pending)); !strings.Contains(got, want) {
+		t.Errorf("drain output = %q, want %q", got, want)
+	}
+	for _, rec := range pending {
+		if !strings.Contains(got, rec.Detail) {
+			t.Errorf("drain output = %q, want it to list seq %d (%s)", got, rec.Seq, rec.Detail)
+		}
+	}
+	if !strings.Contains(got, "blocked: rule on PR #1140") {
+		t.Errorf("drain output = %q, want the escalation the fold used to hide", got)
+	}
+}
+
 // --ack-blocking is the operator saying they have read the question and are
 // retiring it deliberately.
 func TestRunDrainAckBlockingRetiresBlockedNotify(t *testing.T) {
@@ -349,19 +438,44 @@ func TestRunDrainAcksDoneNotifyWithoutFlag(t *testing.T) {
 	}
 }
 
-// A block that a later done for the same goblin has superseded is no longer
-// waiting on anyone; the guard must read the folded queue, not the raw log, or
-// every finished goblin that ever asked a question blocks its own ack.
-func TestRunDrainAcksSupersededBlockWithoutFlag(t *testing.T) {
+// A later done from the same goblin does NOT retire an unanswered question.
+// This reverses 4dc3d30, which judged the guard on the folded queue so that a
+// finished goblin would not block its own ack. That removed the friction and
+// took the protection with it: the fold hid the blocked record from the guard
+// as well as from the listing, so an escalation could be acked unread, which
+// is how seq 502 was lost.
+//
+// The friction is now the intended cost, and it is no longer blind: the
+// listing shows the blocked record, so an operator reaching for --ack-blocking
+// has read the question first, which is exactly what that flag is documented
+// to mean. A goblin reporting done is not evidence that its question was
+// answered - only the answer is, and the queue does not record one.
+func TestRunDrainRefusesASupersededBlockWithoutFlag(t *testing.T) {
 	h := buildDrainFixture(t)
-	if _, err := wake.Append(h.State, "notify", "gb-x", "blocked: which page?"); err != nil {
+	blocked, err := wake.Append(h.State, "notify", "gb-x", "blocked: which page?")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := wake.Append(h.State, "notify", "gb-x", "done: PR https://example.test/2"); err != nil {
+	done, err := wake.Append(h.State, "notify", "gb-x", "done: PR https://example.test/2")
+	if err != nil {
 		t.Fatal(err)
 	}
+	if blocked.Seq >= done.Seq {
+		t.Fatalf("premise broken: blocked %d must precede done %d", blocked.Seq, done.Seq)
+	}
+
 	var stdout, stderr bytes.Buffer
-	if exit := runDrain(h, []string{"--ack-through", "99"}, &stdout, &stderr); exit != 0 {
-		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+	if exit := runDrain(h, []string{"--ack-through", "99"}, &stdout, &stderr); exit != 1 {
+		t.Fatalf("exit = %d, want 1: an unanswered question is not retired by a later done; stderr=%s", exit, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "which page?") {
+		t.Errorf("stderr = %q, want the refused question named", stderr.String())
+	}
+
+	// And --ack-blocking still retires it, so the operator is never stuck.
+	stdout.Reset()
+	stderr.Reset()
+	if exit := runDrain(h, []string{"--ack-through", "99", "--ack-blocking"}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("exit = %d, want 0 with --ack-blocking; stderr=%s", exit, stderr.String())
 	}
 }

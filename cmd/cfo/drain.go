@@ -108,7 +108,12 @@ func blockingAtOrBelow(stateDir string, seq int) ([]wake.Record, error) {
 		return nil, err
 	}
 	var blocking []wake.Record
-	for _, rec := range wake.Deduped(pending) {
+	// RAW pending, never a folded view. This guard exists to stop a blocked
+	// notify being acked unread, and it used to iterate the same fold the
+	// listing used - so a later notify from the same task hid the blocked
+	// record from the guard too, and the safety net could not fire for exactly
+	// the records it protects.
+	for _, rec := range pending {
 		if rec.Seq > seq || rec.Kind != "notify" {
 			continue
 		}
