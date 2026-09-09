@@ -200,10 +200,10 @@ func Sanitize(name string) string {
 // the OTHER permanently stale against its own persisted signature, so every
 // following ScanSignals reports that file changed again, and every watcher
 // cycle closes on signal immediately - an unbounded rewake and
-// recovery-generation storm under Task 11's eight-hour arm loop, not
-// something wake.Deduped's last-write-wins fold has any power over (Deduped
-// dedupes wake records by (kind,key); it does nothing to a scan that
-// re-detects the same file as changed every cycle). The hash makes that
+// recovery-generation storm under Task 11's eight-hour arm loop. No display
+// treatment of the wake queue can absorb that: the storm is a scan
+// re-detecting the same file as changed every cycle, not a rendering
+// problem. The hash makes that
 // collision unreachable rather than merely unlikely, while the sanitized
 // prefix keeps the filename readable for a human inspecting state/.
 func SeenName(name string) string {
@@ -260,8 +260,9 @@ func ScanSignals(stateDir string) ([]Change, error) {
 // SignalGrace window, or any error return before the wake.Append that must
 // precede a commit, re-reports the same signal on the next start instead of
 // swallowing it permanently: a crash between Append and CommitSignatures
-// costs a duplicate wake, which wake.Deduped folds away, rather than a lost
-// one.
+// costs a duplicate wake rather than a lost one. The duplicate is now shown
+// as its own row - the queue no longer folds records away, because a fold
+// that hides a duplicate hides an escalation just as easily.
 func CommitSignatures(stateDir string, changes []Change) error {
 	for _, c := range changes {
 		path := filepath.Join(stateDir, SeenName(c.Name))

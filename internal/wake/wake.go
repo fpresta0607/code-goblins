@@ -47,9 +47,11 @@ var kinds = map[string]bool{
 
 // Record is one durable wake. Seq starts at 1 and is never reused; the ack
 // floor only ever moves forward, matching upstream's --ack-through contract.
-// Key identifies the thing the wake is about (a goblin id, a window id, a
-// heartbeat) for drain-time dedup; old lines without a key unmarshal with it
-// empty.
+// Key identifies the subject of the wake (a goblin id, a window id, a
+// heartbeat). It is NOT a dedup key and records are never folded: Render
+// prints every unacknowledged record, omitting the `key: ` segment only when
+// Key equals Kind, and Key is the identifying column in drain's blocked-notify
+// refusal listing. Old lines without a key unmarshal with it empty.
 type Record struct {
 	Seq    int       `json:"seq"`
 	Time   time.Time `json:"time"`
@@ -165,26 +167,32 @@ func Pending(dir string) ([]Record, error) {
 	return readAll(dir)
 }
 
-// Deduped folds records for presentation: last-write-wins per (kind, key),
-// preserving first-seen order of surviving buckets. All heartbeat records
-// collapse into one bucket regardless of key, since a heartbeat only ever
-// tells the operator the watcher is alive, not which cycle emitted it.
-func Deduped(records []Record) []Record {
-	index := make(map[string]int, len(records))
-	out := make([]Record, 0, len(records))
-	for _, rec := range records {
-		bucket := rec.Kind + "\x00" + rec.Key
-		if rec.Kind == "heartbeat" {
-			bucket = "heartbeat"
+// ackSequence returns the sequence a reader may safely acknowledge after
+// being shown displayed, and reports false when displayed does not account
+// for every record in records.
+//
+// The two arguments are the whole point: the ack sequence must come from what
+// the reader was actually shown, never from the full set. Taking it from the
+// full set while printing a narrowed one is exactly how this queue retired
+// escalations nobody had read. Render passes the rows it wrote, so today the
+// sets always match; the check is kept because the failure it prevents is
+// silent, and a later change that narrows the listing again must break loudly
+// here rather than quietly widen the ack.
+func ackSequence(records, displayed []Record) (int, bool) {
+	shown := make(map[int]struct{}, len(displayed))
+	maxSeq := 0
+	for _, rec := range displayed {
+		shown[rec.Seq] = struct{}{}
+		if rec.Seq > maxSeq {
+			maxSeq = rec.Seq
 		}
-		if i, ok := index[bucket]; ok {
-			out[i] = rec
-			continue
-		}
-		index[bucket] = len(out)
-		out = append(out, rec)
 	}
-	return out
+	for _, rec := range records {
+		if _, ok := shown[rec.Seq]; !ok {
+			return 0, false
+		}
+	}
+	return maxSeq, true
 }
 
 // AckThrough retires every record with Seq <= seq and advances the durable
@@ -220,11 +228,27 @@ func AckThrough(dir string, seq int) error {
 // Render writes the wake queue's presentation for records (RAW, unfolded)
 // and ep to w: this is the shared renderer behind both `cfo drain` and the
 // session-start digest's WAKE QUEUE section, so the two call sites can never
-// drift in format. It folds records with Deduped internally for the printed
-// rows and takes the ack-through sequence from the raw maximum, so neither
-// caller has to decide what to pass; both simply hand it whatever
-// Pending/ReadEpisode returned.
+// drift in format. Both callers simply hand it whatever Pending/ReadEpisode
+// returned.
 //
+// Every unacknowledged record is printed. Records are NOT folded: this
+// renderer used to collapse them last-write-wins per (kind, key), which made
+// a later notify from a task silently replace an earlier one - and because
+// the ack sequence was taken from the raw maximum, the ack line it printed
+// covered records it had just declined to show. Two escalations were retired
+// unread that way, one of them a correction whose loss left the CFO ruling on
+// superseded facts with nothing anywhere to flag it. The queue is an
+// append-only log and this is its only display, so a record that is not
+// printed is a record nobody will ever read.
+//
+// The printed rows and the ack sequence are therefore derived from ONE set:
+// ackSequence takes the rows actually written out and refuses if they do not
+// account for every record it was given. That asymmetry - printing one set
+// and acking the maximum of another - is what let an ack line overreach what
+// it displayed. If a future change filters the listing again, the tool
+// withholds the ack line instead of printing one that overreaches.
+//
+// Apart from that withheld-ack line, which the loop below keeps unreachable,
 // Render prints one of four output shapes: an empty queue with no pending
 // episode (nothing further); an empty queue with a pending episode; a
 // non-empty queue with a pending episode (the full listing plus a
@@ -243,11 +267,11 @@ func Render(w io.Writer, records []Record, ep Episode) error {
 		return err
 	}
 
-	deduped := Deduped(records)
-	if _, err := fmt.Fprintf(w, "WAKE QUEUE: %d pending\n", len(deduped)); err != nil {
+	if _, err := fmt.Fprintf(w, "WAKE QUEUE: %d pending\n", len(records)); err != nil {
 		return err
 	}
-	for _, rec := range deduped {
+	displayed := make([]Record, 0, len(records))
+	for _, rec := range records {
 		line := fmt.Sprintf("  %d  %-6s  ", rec.Seq, rec.Kind)
 		if rec.Key != rec.Kind {
 			line += terminalText(rec.Key) + ": "
@@ -256,13 +280,18 @@ func Render(w io.Writer, records []Record, ep Episode) error {
 		if _, err := fmt.Fprintln(w, line); err != nil {
 			return err
 		}
+		displayed = append(displayed, rec)
 	}
 
-	maxSeq := 0
-	for _, rec := range records {
-		if rec.Seq > maxSeq {
-			maxSeq = rec.Seq
-		}
+	maxSeq, complete := ackSequence(records, displayed)
+	// Unreachable today by construction: the loop above appends every row it
+	// prints, so displayed always accounts for records. It is kept because the
+	// failure it guards is silent - a filtered listing would print an ack line
+	// covering records nobody read. TestAckSequenceRefusesToOutrunTheListing
+	// asserts the premise by driving ackSequence with a narrowed listing.
+	if !complete {
+		_, err := fmt.Fprintln(w, "WAKE_ACK_WITHHELD: the listing above does not account for every unacknowledged record; acking now would retire records nobody has read")
+		return err
 	}
 
 	if !ep.Pending {

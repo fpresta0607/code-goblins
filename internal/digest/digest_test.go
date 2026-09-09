@@ -301,8 +301,24 @@ func TestComposeSectionBodies(t *testing.T) {
 		`Never run "cfo watch" from the agent shell`,
 		"Wakes arrive as rewake turns",
 		"Every drain presentation ends with a WAKE_ACK_REQUIRED command",
+		"The refusal is the protection working",
+		"it retires EVERY question at or below the sequence",
 		"Supervision is needed whenever tasks are in flight",
 	}
+	// The commands quoted in this section are what the agent types verbatim.
+	// An over-escaped Go literal renders them with literal backslashes, which
+	// a substring pin on the surrounding prose cannot see - so assert the
+	// rendered form. Premise: nothing in this section legitimately emits a
+	// backslash before a quote, so any occurrence is an escaping bug.
+	supervision := out[strings.Index(out, "== SUPERVISION OPERATING INSTRUCTIONS =="):]
+	supervision = supervision[:strings.Index(supervision, "\n== ")]
+	if !strings.Contains(supervision, `"cfo send <id> "...""`) {
+		t.Errorf("SUPERVISION section does not render the cfo send command cleanly:\n%s", supervision)
+	}
+	if strings.Contains(supervision, "\\\"") {
+		t.Errorf("SUPERVISION section emits a backslash before a quote (over-escaped Go literal):\n%s", supervision)
+	}
+
 	for _, fact := range supervisionFacts {
 		if !strings.Contains(out, fact) {
 			t.Errorf("SUPERVISION section missing fact %q:\n%s", fact, out)
