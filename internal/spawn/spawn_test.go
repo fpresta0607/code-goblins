@@ -364,10 +364,11 @@ func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
 	// same variable. CFO_STATE_OVERRIDE is only written at harness start,
 	// after the manifest is merged, so it proves the reserved set does not
 	// depend on what the launch map happens to hold at merge time.
-	// LOCALAPPDATA and XDG_CACHE_HOME are reserved for a different reason: the
-	// launch never writes them, but os.UserCacheDir reads them to derive the
-	// task's Go temporary directory, so a redirect would leave any cfo command
-	// run from the pane computing a different directory than spawn created.
+	// LOCALAPPDATA, XDG_CACHE_HOME and HOME are reserved for a different
+	// reason: the launch never writes them, but os.UserCacheDir reads them to
+	// derive the task's Go temporary directory, so a redirect would leave any
+	// cfo command run from the pane computing a different directory than
+	// spawn created.
 	writeWorktreeManifest(t, fixture.dataDir, fixture.project, worktree.Manifest{
 		Project: "primary",
 		Env: map[string]string{
@@ -376,6 +377,7 @@ func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
 			"Cfo_Role":                 "overlord",
 			"localappdata":             `C:\hijacked-cache`,
 			"XDG_Cache_Home":           "/hijacked-cache",
+			"Home":                     "/hijacked-cache-home",
 			"PLAYWRIGHT_BROWSERS_PATH": `C:\cache\ms-playwright`,
 		},
 	})
@@ -394,7 +396,7 @@ func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
 	}
 	// The launch never sets the cache root itself, so a dropped redirect leaves
 	// it absent entirely and the pane inherits the operator's own.
-	for _, reserved := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME"} {
+	for _, reserved := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME", "HOME"} {
 		if strings.Contains(strings.ToUpper(line), "$ENV:"+reserved+" =") {
 			t.Errorf("pane line = %q, want no %s assignment: a manifest must not redirect the cache root", line, reserved)
 		}
@@ -1144,11 +1146,23 @@ func goTmpDir(t *testing.T, stateDir, id string) string {
 // into the operator's own cache directory and leaves the per-task Go temporary
 // directory behind, which is the same class of leak as a test resolving the
 // live fleet home.
+// HOME is in the set because os.UserCacheDir reads it on darwin and on Linux
+// whenever XDG_CACHE_HOME is unset; without it the isolation is vacuous there.
+// The resolve afterwards is the premise assertion: an isolation helper that
+// silently stops isolating on a platform nobody runs it on is how a test comes
+// to write into the operator's own cache.
 func isolateUserCacheDir(t *testing.T) {
 	t.Helper()
 	cache := t.TempDir()
-	for _, name := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME"} {
+	for _, name := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME", "HOME"} {
 		t.Setenv(name, cache)
+	}
+	resolved, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatalf("UserCacheDir = %v, want the isolated cache directory", err)
+	}
+	if rel, relErr := filepath.Rel(cache, resolved); relErr != nil || strings.HasPrefix(rel, "..") {
+		t.Fatalf("UserCacheDir = %q, want it under the test's own directory %q", resolved, cache)
 	}
 }
 func newFixture(t *testing.T) *fixture {

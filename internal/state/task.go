@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 	"unicode"
@@ -100,16 +101,16 @@ func PipelineLockName(id string) string {
 // fleet's cleanup deleting another fleet's live GOTMPDIR. Splitting is the
 // safe direction, which is the whole reason the fleet segment exists.
 //
-// The fleet segment hashes the state directory as written, lowercased because
-// Windows paths are case-insensitive, and is deliberately NOT resolved through
-// the filesystem: two spellings of one directory hashing differently yields a
-// separate unshared directory, which is harmless, while a resolve that
-// succeeded in one process and failed in another could yield a shared one,
-// which is the defect this scoping exists to prevent.
+// The fleet segment hashes the cleaned state directory and is deliberately
+// NOT resolved through the filesystem: two spellings of one directory hashing
+// differently yields a separate unshared directory, which is harmless, while
+// a resolve that succeeded in one process and failed in another could yield a
+// shared one, which is the defect this scoping exists to prevent.
 //
-// The lowercasing is a property of Windows paths, not of paths in general: on
-// a case-sensitive filesystem two spellings differing only in case name two
-// directories, so the folding is only an invariant to rely on where cfo runs.
+// Case folding is a property of the host's paths, not of paths in general, so
+// it is applied only on Windows. Where the filesystem is case-sensitive two
+// spellings differing only in case name two real directories, and folding
+// them together would manufacture sharing rather than a harmless split.
 //
 // A relative state directory is refused rather than made absolute. CFO_STATE_
 // OVERRIDE is taken verbatim, so two fleets launched from different working
@@ -125,10 +126,14 @@ func GoTmpDir(stateDir, id string) (string, error) {
 	if !filepath.IsAbs(stateDir) {
 		return "", fmt.Errorf("state: go temporary directory needs an absolute fleet state directory, got %q", stateDir)
 	}
-	// filepath.Clean does not strip an extended-length prefix, so \\?\C:\x
-	// and C:\x hash apart and split one fleet in two. It is cheap to detect
-	// and exotic enough that refusing beats splitting silently.
-	if strings.HasPrefix(stateDir, `\\?\`) {
+	// The directory is cleaned once and every later step reads that one value,
+	// so no spelling can pass a check and then become something else before it
+	// is hashed. filepath.Clean does not strip an extended-length prefix - and
+	// it turns the forward-slash spelling //?/C:\x into one - so \\?\C:\x and
+	// C:\x hash apart and split one fleet in two. It is cheap to detect and
+	// exotic enough that refusing beats splitting silently.
+	cleaned := filepath.Clean(stateDir)
+	if strings.HasPrefix(cleaned, `\\?\`) {
 		return "", fmt.Errorf("state: go temporary directory needs a plain fleet state directory, got extended-length path %q", stateDir)
 	}
 	if err := ValidTaskID(id); err != nil {
@@ -138,7 +143,11 @@ func GoTmpDir(stateDir, id string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("state: resolve user cache directory: %w", err)
 	}
-	sum := sha256.Sum256([]byte(strings.ToLower(filepath.Clean(stateDir))))
+	fleetKey := cleaned
+	if runtime.GOOS == "windows" {
+		fleetKey = strings.ToLower(fleetKey)
+	}
+	sum := sha256.Sum256([]byte(fleetKey))
 	fleet := hex.EncodeToString(sum[:])[:8]
 	return filepath.Join(cache, "cfo", "gotmp", fleet, id), nil
 }
