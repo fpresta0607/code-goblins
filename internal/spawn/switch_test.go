@@ -229,9 +229,9 @@ func TestSwitchWritesAHandoffAcrossHarnessesAndInstructsTheNewOne(t *testing.T) 
 		}
 	}
 	// The new harness has to be told to read it before doing anything else.
-	last := fixture.runner.literals[len(fixture.runner.literals)-1]
-	if !strings.Contains(last, result.Handoff) {
-		t.Errorf("delivered instruction = %q, want it to point at the handoff", last)
+	// It arrives through the native agent prompt, not as typed composer text.
+	if !strings.Contains(fixture.runner.prompt, result.Handoff) {
+		t.Errorf("delivered instruction = %q, want it to point at the handoff", fixture.runner.prompt)
 	}
 }
 
@@ -793,7 +793,7 @@ func TestSwitchReappliesTheProjectEnvironmentRedirects(t *testing.T) {
 		t.Fatalf("Switch: %v", err)
 	}
 
-	launched := fixture.runner.literals[len(fixture.runner.literals)-2]
+	launched := launchLiteral(t, fixture.runner.literals)
 	if !strings.Contains(launched, `$env:PLAYWRIGHT_BROWSERS_PATH = 'C:\cache\ms-playwright'`) {
 		t.Errorf("launch line = %q, want the project's declared redirect re-applied", launched)
 	}
@@ -821,7 +821,7 @@ func TestSwitchRelaunchesIntoTheTasksOwnGoTmpDir(t *testing.T) {
 		t.Fatalf("Switch: %v", err)
 	}
 
-	launched := fixture.runner.literals[len(fixture.runner.literals)-2]
+	launched := launchLiteral(t, fixture.runner.literals)
 	if !strings.Contains(launched, "$env:GOTMPDIR = '"+goTmp+"'") {
 		t.Errorf("launch line = %q, want GOTMPDIR set to the task's own directory %q", launched, goTmp)
 	}
@@ -958,4 +958,25 @@ func TestSwitchRefusesAMalformedManifestBeforeStoppingTheHarness(t *testing.T) {
 	if after.Harness != fixture.meta.Harness || after.SpawnGen != fixture.meta.SpawnGen {
 		t.Errorf("a refused switch still mutated metadata: %+v", after)
 	}
+}
+
+// launchLiteral returns the most recent typed literal that carries a harness
+// launch, identified by the environment prefix every launch line renders. A
+// switch sends two - the original launch and the relaunch - and these
+// assertions are about the relaunch. Selecting by content rather than by
+// position keeps them honest: the number of literals changes whenever delivery
+// does, and an index quietly starts pointing at a different line than the one
+// the test names instead of failing.
+func launchLiteral(t *testing.T, literals []string) string {
+	t.Helper()
+	last := -1
+	for i, literal := range literals {
+		if strings.Contains(literal, "$env:GOTMPDIR = ") {
+			last = i
+		}
+	}
+	if last < 0 {
+		t.Fatalf("literals = %q, want at least one harness launch line", literals)
+	}
+	return literals[last]
 }

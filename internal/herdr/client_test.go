@@ -976,3 +976,66 @@ func TestSendKeyNormalisesEveryModifierSpellingTheFleetSends(t *testing.T) {
 		}
 	}
 }
+
+// The monotonic counters are what spawn uses to prove a submitted instruction
+// was accepted, so they have to survive the decode. A record that parsed but
+// dropped them would read as an agent that never moved, and every launch would
+// be reported as an undelivered brief.
+func TestAgentDetailCarriesTheMonotonicCounters(t *testing.T) {
+	runner := &fakeRunner{replies: []runnerReply{jsonReply(`{"result":{"agent":{"agent":"claude","agent_status":"working","state_change_seq":412,"revision":7}}}`)}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+
+	got, err := client.AgentDetail(context.Background(), Target{Session: "fleet", Pane: "w1:p2"})
+	if err != nil {
+		t.Fatalf("AgentDetail: %v", err)
+	}
+	want := AgentDetail{Agent: "claude", Status: "working", StateChangeSeq: 412, Revision: 7}
+	if got != want {
+		t.Errorf("AgentDetail = %#v, want %#v", got, want)
+	}
+}
+
+// An older Herdr that reports no counters must decode as zero rather than
+// fail: the caller treats any advance as acceptance, so absent counters
+// degrade to the status check instead of refusing every launch.
+func TestAgentDetailAcceptsARecordWithoutCounters(t *testing.T) {
+	runner := &fakeRunner{replies: []runnerReply{jsonReply(`{"result":{"agent":{"agent":"pi","agent_status":"idle"}}}`)}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+
+	got, err := client.AgentDetail(context.Background(), Target{Session: "fleet", Pane: "w1:p2"})
+	if err != nil {
+		t.Fatalf("AgentDetail: %v", err)
+	}
+	if got.StateChangeSeq != 0 || got.Revision != 0 {
+		t.Errorf("AgentDetail = %#v, want zero counters", got)
+	}
+}
+
+// A refused read exits non-zero with the explanation on stderr and nothing on
+// stdout. Decoding that empty stdout would report "unexpected end of JSON
+// input" and bury the real reason - and this is the read that decides whether
+// a launch is failed, so the operator would be handed a parser error instead
+// of the refusal that caused it.
+func TestAgentDetailSurfacesHerdrStderrOnANonZeroExit(t *testing.T) {
+	runner := &fakeRunner{replies: []runnerReply{{result: execx.Result{ExitCode: 1, Stderr: []byte("agent get: pane busy")}}}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+
+	_, err := client.AgentDetail(context.Background(), Target{Session: "fleet", Pane: "w1:p2"})
+	if err == nil {
+		t.Fatal("AgentDetail = nil error, want the refusal surfaced")
+	}
+	if !strings.Contains(err.Error(), "pane busy") {
+		t.Errorf("err = %v, want herdr's own stderr", err)
+	}
+	if strings.Contains(err.Error(), "JSON") {
+		t.Errorf("err = %v, want the refusal rather than a decode failure", err)
+	}
+	// The refusal must stay retryable: a busy pane while a harness boots is
+	// transient, and classifying it terminal would tear down a live launch.
+	if WaitError(context.Background(), err) {
+		t.Errorf("err = %v, want a transient classification", err)
+	}
+}
