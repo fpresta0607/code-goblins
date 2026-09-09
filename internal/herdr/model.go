@@ -73,6 +73,12 @@ const (
 type AgentDetail struct {
 	Agent  string
 	Status string
+	// StateChangeSeq and Revision are Herdr's own monotonic counters for the
+	// agent. They are what proves a submitted prompt was accepted: pane text
+	// shows only what a harness chose to render, and a harness that collapses
+	// a paste into a placeholder renders nothing to match against.
+	StateChangeSeq int64
+	Revision       int64
 }
 
 // Native agent_status values reported by `herdr agent list`. AgentWorking means
