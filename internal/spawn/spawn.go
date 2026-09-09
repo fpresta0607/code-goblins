@@ -882,7 +882,7 @@ func (s Service) reportUndetectedHarness(ctx context.Context, client *herdr.Clie
 // revision 1 before its prompt - and report a swallowed instruction delivered.
 func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.Client, target herdr.Target, instruction string) error {
 	var before herdr.AgentDetail
-	var lastSubmitErr, lastReadErr error
+	var lastBaselineErr, lastSubmitErr, lastReadErr error
 	baselined := false
 	submitted := false
 	for attempt := 0; attempt < instructionTries; attempt++ {
@@ -900,7 +900,7 @@ func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.C
 				if client.PaneProvablyDead(ctx, target) {
 					return fmt.Errorf("spawn: the pane holds no agent to deliver the instruction to: %w", err)
 				}
-				lastReadErr = err
+				lastBaselineErr = err
 				continue
 			}
 			before, baselined = detail, true
@@ -936,7 +936,7 @@ func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.C
 
 	budget := int(launchConfirmPoll.Seconds() * instructionTries)
 	if !baselined {
-		return fmt.Errorf("spawn: could not read the agent state within %ds, so acceptance could not be proven and the instruction was not submitted: %w", budget, lastReadErr)
+		return fmt.Errorf("spawn: could not read the agent state within %ds, so acceptance could not be proven and the instruction was not submitted: %w", budget, lastBaselineErr)
 	}
 	if !submitted {
 		if lastSubmitErr != nil {
