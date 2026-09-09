@@ -496,13 +496,13 @@ func (s Service) startHarness(ctx context.Context, client *herdr.Client, target 
 		}
 		// A resumed typed launch carries no positional instruction, because a
 		// resume subcommand binds its first positional to a session
-		// identifier. Deliver it to the composer the way the native path
-		// below does, or the resumed goblin starts with nothing to do.
+		// identifier. Submit it as a prompt the way the native path below
+		// does, or the resumed goblin starts with nothing to do.
 		if launch.Resumed {
 			if err := s.sleep(ctx, launchSettle); err != nil {
 				return true, fmt.Errorf("spawn: wait before resumed brief prompt: %w", err)
 			}
-			if err := s.deliverVerifiedInstruction(ctx, client, target, plan.Harness, launch.PromptInstruction()); err != nil {
+			if err := s.deliverVerifiedInstruction(ctx, client, target, launch.PromptInstruction()); err != nil {
 				return true, err
 			}
 		}
@@ -540,11 +540,10 @@ func (s Service) startHarness(ctx context.Context, client *herdr.Client, target 
 	if err := s.sleep(ctx, launchSettle); err != nil {
 		return true, fmt.Errorf("spawn: wait before brief prompt: %w", err)
 	}
-	// The first instruction after launch is the least protected moment: a
-	// too-early or too-fast first keystroke can eat leading characters and
-	// turn the brief instruction into a bogus slash command. Type it, read it
-	// back, and submit only once the composer shows it intact.
-	if err := s.deliverVerifiedInstruction(ctx, client, target, plan.Harness, launch.PromptInstruction()); err != nil {
+	// The first instruction after launch is the least protected moment: the
+	// harness can still be booting long after launchSettle, so delivery is
+	// confirmed against Herdr's own agent state rather than assumed.
+	if err := s.deliverVerifiedInstruction(ctx, client, target, launch.PromptInstruction()); err != nil {
 		return true, err
 	}
 	if err := s.confirmLaunch(ctx, client, target, plan); err != nil {
@@ -865,109 +864,105 @@ func (s Service) paneProvablyDead(ctx context.Context, client *herdr.Client, tar
 	return err == nil && (status == herdr.AgentDead || status == herdr.AgentMissing)
 }
 
-// deliverVerifiedInstruction types one instruction into the pane composer,
-// reads it back, and submits it only once the read-back shows it intact. A
-// mismatch (leading characters eaten by a too-early first keystroke) clears
-// the composer and retries on the launch poll interval. This protects the
-// first instruction after launch, which is the moment most exposed to a
-// harness that is not yet focused, and the retry budget is sized for harness
-// boot rather than for a focus glitch: a harness that needs a minute to come
-// up must not read as a delivery failure.
-func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.Client, target herdr.Target, kind harness.Kind, instruction string) error {
-	var lastCaptureErr, lastWriteErr error
-	readBack := false
+// deliverVerifiedInstruction submits one instruction to the registered agent
+// and returns only once Herdr's own agent state proves the agent accepted it.
+//
+// It does NOT type into the pane composer and read the text back. That is what
+// this function used to do, and it cannot work: a harness is free to render a
+// submitted prompt however it likes, and Claude Code renders anything it
+// treats as a paste as a collapsed "[Pasted text #N]" placeholder. The pane
+// then never contains the instruction, the comparison never matches, and the
+// retry budget drains against a condition that can never become true - which
+// is exactly why widening the timeout was never a fix.
+//
+// Delivery is still proven, and proven harder than before. A composer
+// read-back only showed that text appeared to be typed; state_change_seq or
+// revision advancing shows the agent accepted the prompt and started a turn.
+// A goblin that never received its brief still cannot be reported as spawned.
+//
+// The prompt is submitted once. A retry re-submits only when the submit
+// itself failed, because `agent prompt` submits on success: re-sending after
+// an accepted prompt would hand the goblin its brief twice.
+func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.Client, target herdr.Target, instruction string) error {
+	before, err := client.AgentDetail(ctx, target)
+	if err != nil {
+		if herdr.WaitError(ctx, err) {
+			return fmt.Errorf("spawn: read agent state before the instruction: %w", err)
+		}
+		if s.paneProvablyDead(ctx, client, target) {
+			return fmt.Errorf("spawn: the pane holds no agent to deliver the instruction to: %w", err)
+		}
+		// An unreadable agent right after launch is part of booting. Treat the
+		// pre-state as zero: any later counter is then an advance, which is
+		// the conservative direction - it can delay success, never fake it.
+		before = herdr.AgentDetail{}
+	}
+
+	var lastSubmitErr, lastReadErr error
+	submitted := false
 	for attempt := 0; attempt < instructionTries; attempt++ {
 		if attempt > 0 {
-			// A mismatch almost always means the harness composer was not
-			// accepting keystrokes yet: a harness takes seconds to boot,
-			// far longer than launchSettle. Waiting a full poll interval
-			// before retyping turns this loop into the readiness gate the
-			// first instruction never had.
 			if err := s.sleep(ctx, launchConfirmPoll); err != nil {
-				return fmt.Errorf("spawn: wait before retyping instruction: %w", err)
+				return fmt.Errorf("spawn: wait before confirming instruction delivery: %w", err)
 			}
-			if err := client.SendKey(ctx, target, "Ctrl+U"); err != nil {
+		}
+		if !submitted {
+			if err := client.AgentPrompt(ctx, target, instruction); err != nil {
 				if herdr.WaitError(ctx, err) {
-					return fmt.Errorf("spawn: clear composer before retyping instruction: %w", err)
+					return fmt.Errorf("spawn: submit harness instruction: %w", err)
 				}
-				lastWriteErr = err
+				lastSubmitErr = err
 				continue
 			}
-			if err := s.sleep(ctx, launchSettle); err != nil {
-				return fmt.Errorf("spawn: wait after clearing composer: %w", err)
-			}
+			submitted = true
 		}
-		if err := client.SendLiteral(ctx, target, instruction); err != nil {
-			if herdr.WaitError(ctx, err) {
-				return fmt.Errorf("spawn: type harness instruction: %w", err)
-			}
-			lastWriteErr = err
-			continue
-		}
-		if err := s.sleep(ctx, launchSettle); err != nil {
-			return fmt.Errorf("spawn: wait before instruction read-back: %w", err)
-		}
-		captured, err := client.Capture(ctx, target, 0, false)
+		after, err := client.AgentDetail(ctx, target)
 		if err != nil {
-			// A pane that is momentarily unreadable is part of booting, not
-			// a delivery failure: spending an attempt keeps the boot budget
-			// intact where returning would tear down a live launch.
 			if herdr.WaitError(ctx, err) {
-				return fmt.Errorf("spawn: read back harness instruction: %w", err)
+				return fmt.Errorf("spawn: confirm instruction delivery: %w", err)
 			}
-			lastCaptureErr = err
+			// A pane herdr can prove holds no agent will never report
+			// accepting anything, so spending the rest of the budget on it
+			// only delays a certain failure and buries its real cause.
+			if s.paneProvablyDead(ctx, client, target) {
+				return fmt.Errorf("spawn: the pane holds no agent to deliver the instruction to: %w", err)
+			}
+			lastReadErr = err
 			continue
 		}
-		readBack = true
-		if instructionIntact(captured, instruction) {
-			if err := client.SendKey(ctx, target, submitKey(kind)); err != nil {
-				return fmt.Errorf("spawn: submit harness instruction: %w", err)
-			}
+		if instructionAccepted(before, after) {
 			return nil
 		}
 	}
-	// Claiming a bare mismatch when herdr refused attempts buries the real
-	// cause - the herdr stderr - in a durable `failed:` status, so the
-	// retained transient error is reported whenever one exists.
+
 	budget := int(launchConfirmPoll.Seconds() * instructionTries)
-	if !readBack {
-		if lastCaptureErr != nil {
-			return fmt.Errorf("spawn: could not read the pane to verify the instruction within %ds: %w", budget, lastCaptureErr)
+	if !submitted {
+		if lastSubmitErr != nil {
+			return fmt.Errorf("spawn: could not submit the instruction to the agent within %ds: %w", budget, lastSubmitErr)
 		}
-		if lastWriteErr != nil {
-			return fmt.Errorf("spawn: could not type the instruction into the pane within %ds: %w", budget, lastWriteErr)
-		}
-		return fmt.Errorf("spawn: instruction read-back did not match within %ds", budget)
+		return fmt.Errorf("spawn: could not submit the instruction to the agent within %ds", budget)
 	}
-	if lastCaptureErr != nil {
-		return fmt.Errorf("spawn: instruction read-back did not match within %ds; later pane reads were refused: %w", budget, lastCaptureErr)
+	if lastReadErr != nil {
+		return fmt.Errorf("spawn: the agent never reported accepting the instruction within %ds; later agent reads were refused: %w", budget, lastReadErr)
 	}
-	if lastWriteErr != nil {
-		return fmt.Errorf("spawn: instruction read-back did not match within %ds; later pane writes were refused: %w", budget, lastWriteErr)
-	}
-	return fmt.Errorf("spawn: instruction read-back did not match within %ds", budget)
+	return fmt.Errorf("spawn: the agent never reported accepting the instruction within %ds", budget)
 }
 
-// instructionIntact reports whether instruction survived typing intact in the
-// captured pane tail. Whitespace is stripped from both sides so composer line
-// wrapping never reads as corruption.
-func instructionIntact(captured, instruction string) bool {
-	return strings.Contains(stripWhitespace(captured), stripWhitespace(instruction))
-}
-
-// submitKey is the harness-specific key that submits a parked composer: kimi
-// needs ctrl+s while every other harness submits with Enter.
-func submitKey(kind harness.Kind) string {
-	if kind == harness.Kimi {
-		return "ctrl+s"
+// instructionAccepted reports whether Herdr's agent state moved in a way only
+// an accepted prompt explains: either monotonic counter advanced, or the agent
+// left an input-waiting state to work. Status alone is not enough - an agent
+// already working when the prompt arrived would read as accepted without it.
+func instructionAccepted(before, after herdr.AgentDetail) bool {
+	if after.StateChangeSeq > before.StateChangeSeq || after.Revision > before.Revision {
+		return true
 	}
-	return "Enter"
+	return after.Status == herdr.AgentWorking && before.Status != herdr.AgentWorking
 }
 
 // teardownLaunch closes the task tab, returns the worktree, removes the Go
-// temporary directory, and retires the task metadata. It is the clean-failure
-// path: every step is attempted and their failures joined, so one stuck
-// teardown step never leaves the rest undone.
+// temporary directory and the task temporary directory, and retires the task
+// metadata. It is the clean-failure path: every step is attempted and their
+// failures joined, so one stuck teardown step never leaves the rest undone.
 func (s Service) teardownLaunch(ctx context.Context, client *herdr.Client, endpoint herdr.Endpoint, project, worktree, id string) error {
 	var errs error
 	if err := client.CloseTab(ctx, endpoint.Target.Session, endpoint.TabID); err != nil {
@@ -985,6 +980,16 @@ func (s Service) teardownLaunch(ctx context.Context, client *herdr.Client, endpo
 		errs = errors.Join(errs, err)
 	} else if err := os.RemoveAll(goTmp); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("spawn: remove go temporary directory: %w", err))
+	}
+	// The task temporary directory goes for the same reason as the Go one, and
+	// with the same urgency: cleanup finds a task through <id>.meta, so once
+	// the metadata is retired nothing can remove this directory again. Left
+	// behind, it refuses the retry of the very spawn that just failed with
+	// "conflicts case-insensitively with retained task temporary directory".
+	// It also holds the rendered credential script, so removing it here is the
+	// credential scrub for a launch that never became a task.
+	if err := os.RemoveAll(filepath.Join(s.StateDir, "tasktmp", id)); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("spawn: remove task temporary directory: %w", err))
 	}
 	if err := os.Remove(filepath.Join(s.StateDir, id+".meta")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		errs = errors.Join(errs, fmt.Errorf("spawn: retire task metadata: %w", err))

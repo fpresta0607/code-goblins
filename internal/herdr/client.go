@@ -795,6 +795,14 @@ func (c *Client) AgentDetail(ctx context.Context, target Target) (AgentDetail, e
 	if err != nil {
 		return AgentDetail{}, err
 	}
+	// A non-zero exit carries herdr's own explanation on stderr and no
+	// document on stdout. Falling through to the envelope decode would report
+	// "unexpected end of JSON input" and bury the real reason - and this is
+	// the read that decides whether a launch is failed, so the operator would
+	// be handed a parser error instead of the refusal that caused it.
+	if result.ExitCode != 0 {
+		return AgentDetail{}, &CommandError{Operation: "agent get", Target: target, Stderr: strings.TrimSpace(string(result.Stderr)), ExitCode: result.ExitCode}
+	}
 	raw, code, err := envelope(result.Stdout)
 	if err != nil {
 		return AgentDetail{}, err
@@ -823,8 +831,10 @@ func agentStatus(raw json.RawMessage) (string, error) {
 func agentDetail(raw json.RawMessage) (AgentDetail, error) {
 	var response struct {
 		Agent struct {
-			Agent  string `json:"agent"`
-			Status string `json:"agent_status"`
+			Agent          string `json:"agent"`
+			Status         string `json:"agent_status"`
+			StateChangeSeq int64  `json:"state_change_seq"`
+			Revision       int64  `json:"revision"`
 		} `json:"agent"`
 	}
 	if err := decodeRaw(raw, &response); err != nil {
@@ -836,7 +846,12 @@ func agentDetail(raw json.RawMessage) (AgentDetail, error) {
 	if response.Agent.Status == "" {
 		return AgentDetail{}, errors.New("missing result.agent.agent_status")
 	}
-	return AgentDetail{Agent: response.Agent.Agent, Status: response.Agent.Status}, nil
+	return AgentDetail{
+		Agent:          response.Agent.Agent,
+		Status:         response.Agent.Status,
+		StateChangeSeq: response.Agent.StateChangeSeq,
+		Revision:       response.Agent.Revision,
+	}, nil
 }
 
 func knownAgentStatus(status string) bool {

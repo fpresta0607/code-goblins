@@ -223,10 +223,15 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 		"settle",
 		"capture",
 		"settle",
-		"send-literal",
-		"settle",
-		"capture",
-		"send-enter",
+		// The instruction is submitted through the native agent channel and
+		// confirmed from herdr's agent state: read the counters, prompt, read
+		// them again. There is deliberately no send-literal/capture/send-enter
+		// here any more - typing into the composer and reading the text back
+		// is the defect this change removes, because a harness may render a
+		// submitted prompt as a collapsed placeholder and never show the text.
+		"agent-working",
+		"agent-prompt",
+		"agent-working",
 		"agent-working",
 	}; !reflect.DeepEqual(got, want) {
 		t.Errorf("operation order = %v\nwant %v", got, want)
@@ -245,11 +250,19 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 	if got, want := fixture.runner.startArgs, []string{"--dangerously-skip-permissions"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("agent start args = %q, want %q", got, want)
 	}
-	if got, want := fixture.runner.literals[1], "Read the brief at "+fixture.brief+" and follow it exactly."; !strings.HasPrefix(got, want) {
-		t.Errorf("delivered instruction = %q\nwant prefix %q", got, want)
+	// Content is pinned on the prompt now. Proving a prompt was sent says
+	// nothing if it carried the wrong brief.
+	if got, want := fixture.runner.prompt, "Read the brief "+fixture.brief; !strings.HasPrefix(got, "Read the brief ") || !strings.Contains(got, fixture.brief) {
+		t.Errorf("delivered instruction = %q"+"\n"+"want the brief instruction naming %q", got, want)
 	}
-	if got := fixture.runner.enterKeys; got != 2 {
-		t.Errorf("Enter sends = %d, want prefix submit plus instruction submit", got)
+	// Counts pinned directly: one typed literal (the launch prefix) and one
+	// Enter to submit it. Re-adding a composer write fails here even if the
+	// operation-order list above were updated to match it.
+	if got := len(fixture.runner.literals); got != 1 {
+		t.Errorf("pane literals = %d (%q), want only the launch prefix", got, fixture.runner.literals)
+	}
+	if got := fixture.runner.enterKeys; got != 1 {
+		t.Errorf("Enter sends = %d, want only the launch prefix submit", got)
 	}
 	if _, statErr := os.Stat(filepath.Join(fixture.stateDir, ".spawn.lock")); !errors.Is(statErr, os.ErrNotExist) {
 		t.Errorf("spawn lock persists after success: stat error = %v", statErr)
@@ -582,7 +595,10 @@ func TestSpawnDoesNotRegisterAPaneStillAtItsShell(t *testing.T) {
 	fixture.runner.agentNotFound = true
 
 	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err == nil || !strings.Contains(err.Error(), "did not report working") {
+	// The refusal now lands at delivery rather than at launch confirmation: a
+	// pane herdr proves holds no agent cannot accept a prompt, so spawn fails
+	// there instead of spending the whole delivery budget first.
+	if err == nil || !strings.Contains(err.Error(), "holds no agent") {
 		t.Fatalf("Spawn error = %v, want the launch refused", err)
 	}
 	if fixture.runner.reportedAgent != nil {
@@ -595,8 +611,8 @@ func TestSpawnLaunchFailureTearsDownPaneAndWorktree(t *testing.T) {
 	fixture.runner.agentNotFound = true
 
 	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err == nil || !strings.Contains(err.Error(), "did not report working") {
-		t.Fatalf("Spawn launch verification error = %v, want working refusal", err)
+	if err == nil || !strings.Contains(err.Error(), "holds no agent") {
+		t.Fatalf("Spawn launch verification error = %v, want the launch refused", err)
 	}
 	status, readErr := state.TailStatus(fixture.stateDir, fixture.request.ID, 2)
 	if readErr != nil {
@@ -635,8 +651,10 @@ func TestSpawnConfirmsBlockingTrustDialogThenLaunches(t *testing.T) {
 	if !strings.Contains(result.Output, "spawned task-7") {
 		t.Errorf("Output = %q, want successful spawn", result.Output)
 	}
-	if got, want := fixture.runner.keys, []string{"enter", "enter", "enter"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("keys = %v, want prefix submit, trust confirmation, then instruction submit", got)
+	// Prefix submit then trust confirmation, and nothing else: the instruction
+	// is submitted natively, so there is no third Enter for a composer.
+	if got, want := fixture.runner.keys, []string{"enter", "enter"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("keys = %v, want prefix submit then trust confirmation", got)
 	}
 	if !slices.Contains(fixture.events, "capture") {
 		t.Errorf("events = %v, want a pane capture before trust confirmation", fixture.events)
@@ -656,8 +674,8 @@ func TestSpawnConfirmsDialogWithAdapterKeys(t *testing.T) {
 	if !strings.Contains(result.Output, "spawned task-7") {
 		t.Errorf("Output = %q, want successful spawn", result.Output)
 	}
-	if got, want := fixture.runner.keys, []string{"enter", "up", "enter", "enter"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("keys = %v, want prefix submit then adapter confirm keys then instruction submit", got)
+	if got, want := fixture.runner.keys, []string{"enter", "up", "enter"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("keys = %v, want prefix submit then the adapter confirm keys", got)
 	}
 }
 
@@ -687,8 +705,14 @@ func TestSpawnStartsNamedAgentThenPromptsNatively(t *testing.T) {
 	if !strings.Contains(result.Output, "spawned task-7") {
 		t.Errorf("Output = %q, want successful spawn", result.Output)
 	}
-	if len(fixture.runner.literals) != 2 || !strings.Contains(fixture.runner.literals[0], "Set-Location") || !strings.Contains(fixture.runner.literals[1], "Read the brief") {
-		t.Fatalf("literals = %q, want the launch prefix then the delivered instruction", fixture.runner.literals)
+	// One literal only: the launch prefix. The instruction is not typed at
+	// all now - it is submitted natively, which is what this test's name has
+	// always claimed and what the composer read-back never actually did.
+	if len(fixture.runner.literals) != 1 || !strings.Contains(fixture.runner.literals[0], "Set-Location") {
+		t.Fatalf("literals = %q, want only the launch prefix", fixture.runner.literals)
+	}
+	if !strings.Contains(fixture.runner.prompt, "Read the brief") {
+		t.Fatalf("prompt = %q, want the brief instruction delivered natively", fixture.runner.prompt)
 	}
 	start := slices.Index(fixture.events, "agent-start")
 	working := slices.Index(fixture.events, "agent-working")
@@ -935,7 +959,7 @@ func TestSpawnSurfacesTaskLockReleaseFailure(t *testing.T) {
 		}
 
 		result, err := fixture.service.Spawn(context.Background(), fixture.request)
-		if err == nil || !strings.Contains(err.Error(), "did not report working") || !strings.Contains(err.Error(), "release spawn lock") {
+		if err == nil || !strings.Contains(err.Error(), "holds no agent") || !strings.Contains(err.Error(), "release spawn lock") {
 			t.Fatalf("Spawn release error = %v, want joined primary and cleanup failures", err)
 		}
 		if result.Meta.Worktree != fixture.worktree || result.Endpoint.Target.Pane != "pane-1" {
@@ -1048,29 +1072,54 @@ func TestSpawnFailureLeavesNoGoTemporaryDirectory(t *testing.T) {
 		t.Fatalf("failed spawn kept metadata: %v", err)
 	}
 }
-func TestSpawnRejectsCaseAliasOfRetainedFailedTaskBeforeHerdrOrWorktreeMutation(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.request.ID = "Foo"
-	fixture.service.Harness.Adapters[harness.Claude] = fixtureAdapter{events: &fixture.events, buildErr: errors.New("harness build refused")}
 
-	if _, err := fixture.service.Spawn(context.Background(), fixture.request); err == nil || !strings.Contains(err.Error(), "harness build refused") {
-		t.Fatalf("failed Foo Spawn error = %v, want post-acquisition build failure", err)
+// A task temporary directory left behind by something other than a clean
+// teardown - a killed process, a crashed host - still claims its id. On a
+// case-insensitive filesystem "Foo" and "foo" are the same directory, so
+// letting a new task take the alias would hand it a live task's credential
+// script directory. The guard has to fire before any Herdr or worktree
+// mutation, or the collision is discovered after the damage.
+//
+// A failed spawn no longer feeds this guard: it removes its own tasktmp, and
+// a .status without live metadata is deliberately not a claim on the id (that
+// is what forced a cleaned-up task to be respawned under an invented suffix).
+// The leftover directory below is therefore created directly, which is the
+// only way this state still arises.
+func TestSpawnRejectsCaseAliasOfARetainedTaskTemporaryDirectory(t *testing.T) {
+	fixture := newFixture(t)
+	leftover := filepath.Join(fixture.stateDir, "tasktmp", "Foo")
+	if err := os.MkdirAll(leftover, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(fixture.stateDir, "Foo.status")); err != nil {
-		t.Fatalf("failed Foo status: %v", err)
-	}
-	if info, err := os.Stat(filepath.Join(fixture.stateDir, "tasktmp", "Foo")); err != nil || !info.IsDir() {
-		t.Fatalf("failed Foo tasktmp: info=%v err=%v, want retained directory", info, err)
-	}
-	if _, err := os.Stat(filepath.Join(fixture.stateDir, "Foo.meta")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("failed Foo unexpectedly wrote metadata: %v", err)
+	// Premise: the leftover really is present and really does alias the
+	// requested id, so a refusal means the guard fired rather than the spawn
+	// failing for some unrelated reason.
+	if info, err := os.Stat(leftover); err != nil || !info.IsDir() {
+		t.Fatalf("leftover tasktmp: info=%v err=%v, want a directory to collide with", info, err)
 	}
 	calls := fixture.runner.calls
 
 	request := fixture.request
 	request.ID = "foo"
 	if _, err := fixture.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
-		t.Fatalf("failed-task alias Spawn error = %v, want collision refusal", err)
+		t.Fatalf("alias Spawn error = %v, want collision refusal", err)
+	}
+	if fixture.runner.calls != calls {
+		t.Errorf("Herdr calls = %d after alias rejection, want %d before a second task mutation", fixture.runner.calls, calls)
+	}
+}
+
+// A live task still claims its id through its metadata, which is the durable
+// claim a failed spawn's removed tasktmp no longer has to stand in for.
+func TestSpawnRejectsCaseAliasOfALiveTask(t *testing.T) {
+	fixture := newFixture(t)
+	writeFile(t, filepath.Join(fixture.stateDir, "Foo.meta"), "id: Foo\n")
+	calls := fixture.runner.calls
+
+	request := fixture.request
+	request.ID = "foo"
+	if _, err := fixture.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
+		t.Fatalf("alias Spawn error = %v, want collision refusal", err)
 	}
 	if fixture.runner.calls != calls {
 		t.Errorf("Herdr calls = %d after alias rejection, want %d before a second task mutation", fixture.runner.calls, calls)
@@ -1179,6 +1228,7 @@ func newFixture(t *testing.T) *fixture {
 
 	fixture := &fixture{stateDir: stateDir, dataDir: dataDir, project: project, worktree: worktreeDir, brief: brief}
 	fixture.runner = &herdrRunner{events: &fixture.events, worktree: worktreeDir, agentStatus: "working", manifests: []string{"claude", "codex", "pi", "kimi"}}
+	fixture.runner.taskTmpPath = filepath.Join(stateDir, "tasktmp", "task-7")
 	fixture.git = &worktreeGit{events: &fixture.events, top: worktreeDir}
 	fixture.service = Service{
 		Herdr: &herdr.Client{
@@ -1334,12 +1384,39 @@ func (g *worktreeGit) EnsureSeeded(context.Context, string) (bool, error) {
 }
 
 type herdrRunner struct {
-	events           *[]string
-	worktree         string
-	session          string
-	workspaceID      string
-	paneID           string
-	agentStatus      string
+	events      *[]string
+	worktree    string
+	session     string
+	workspaceID string
+	paneID      string
+	agentStatus string
+	// agentKind, stateChangeSeq and revision model what herdr 0.9.0 reports
+	// for a registered agent. The counters advance ONLY when a prompt is
+	// accepted, which is what makes delivery provable: a fake that advanced
+	// them unconditionally would report every launch as delivered, including
+	// one where the instruction was never submitted.
+	agentKind string
+	// failPrompts refuses the first N `agent prompt` calls; failAgentGets
+	// refuses the first N `agent get` calls. Both model a herdr that is
+	// transiently busy while a harness boots, which must not tear down a
+	// launch that is coming up fine.
+	failPrompts   int
+	failAgentGets int
+	promptCalls   int
+	// inertCounters models a herdr that accepts the prompt call but whose
+	// agent never advances - the shape a harness that swallowed the text
+	// would produce. Delivery must be refused, not assumed from the ok.
+	inertCounters  bool
+	promptAccepted bool
+	// acceptAfterGets delays the advance until N agent reads have happened,
+	// modelling a harness that takes a while to pick the prompt up.
+	acceptAfterGets int
+	// taskTmpPath and taskTmpExisted let a teardown test assert the premise
+	// that the directory was actually created before checking it is gone.
+	taskTmpPath      string
+	taskTmpExisted   bool
+	stateChangeSeq   int64
+	revision         int64
 	agentErr         error
 	startErr         error
 	captureErr       error
@@ -1494,6 +1571,11 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		*r.events = append(*r.events, "tab-close")
 		return jsonResult(`{}`), nil
 	case len(args) >= 6 && args[0] == "agent" && args[1] == "start":
+		if r.taskTmpPath != "" {
+			if info, err := os.Stat(r.taskTmpPath); err == nil && info.IsDir() {
+				r.taskTmpExisted = true
+			}
+		}
 		*r.events = append(*r.events, "agent-start")
 		if r.startErr != nil {
 			return execx.Result{}, r.startErr
@@ -1514,7 +1596,15 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		return jsonResult(`{"agent":{"name":` + quoteJSON(r.startName) + `,"agent_status":"idle"}}`), nil
 	case len(args) == 4 && args[0] == "agent" && args[1] == "prompt" && args[2] == "pane-1":
 		*r.events = append(*r.events, "agent-prompt")
+		r.promptCalls++
+		// A non-zero exit with no runner failure is the transient class:
+		// herdr refused this one submit, and nothing was delivered.
+		if r.failPrompts > 0 {
+			r.failPrompts--
+			return execx.Result{ExitCode: 1, Stderr: []byte("agent prompt: pane busy")}, nil
+		}
 		r.prompt = args[3]
+		r.promptAccepted = true
 		return jsonResult(`{"agent":{"agent_status":"working"}}`), nil
 	case len(args) >= 3 && args[0] == "pane" && args[1] == "read" && args[2] == "pane-1":
 		*r.events = append(*r.events, "capture")
@@ -1557,6 +1647,22 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		return jsonResult(`{}`), nil
 	case reflect.DeepEqual(args, []string{"agent", "get", "pane-1"}):
 		r.agentCalls++
+		// Transient class again: the agent was momentarily unreadable, which
+		// is part of a harness booting and must not fail a live launch.
+		if r.failAgentGets > 0 {
+			r.failAgentGets--
+			return execx.Result{ExitCode: 1, Stderr: []byte("agent get: pane busy")}, nil
+		}
+		// The counters move only for a prompt that was accepted, and only once
+		// any configured delay has elapsed. A fake that advanced them for any
+		// other reason would report an undelivered brief as delivered.
+		if r.promptAccepted && !r.inertCounters && r.agentCalls > r.acceptAfterGets {
+			r.stateChangeSeq++
+			r.revision++
+			if r.agentStatus == "idle" {
+				r.agentStatus = "working"
+			}
+		}
 		if r.agentNotFound {
 			return execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`)}, nil
 		}
@@ -1566,7 +1672,14 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		if r.agentStatus == "working" {
 			*r.events = append(*r.events, "agent-working")
 		}
-		return jsonResult(`{"agent":{"agent_status":"` + r.agentStatus + `"}}`), nil
+		kind := r.agentKind
+		if kind == "" {
+			kind = "claude"
+		}
+		return jsonResult(`{"agent":{"agent":` + quoteJSON(kind) +
+			`,"agent_status":"` + r.agentStatus +
+			`","state_change_seq":` + strconv.FormatInt(r.stateChangeSeq, 10) +
+			`,"revision":` + strconv.FormatInt(r.revision, 10) + `}}`), nil
 	default:
 		return execx.Result{}, fmt.Errorf("unexpected Herdr args: %q", args)
 	}
@@ -1630,65 +1743,60 @@ func sortedKeys(t *testing.T, stateDir, id string) []string {
 	return keys
 }
 
-func TestSpawnRetriesInstructionDeliveryWhenReadbackCorrupts(t *testing.T) {
+// Delivery is proven, not assumed: the prompt is submitted and spawn returns
+// only once herdr's own agent counters move. A fake whose counters never move
+// must fail the launch, or every later test here would pass against a goblin
+// that received nothing.
+func TestSpawnRefusesDeliveryTheAgentNeverReportsAccepting(t *testing.T) {
 	fixture := newFixture(t)
-	// The first capture after the instruction is typed (capture 3: two dialog
-	// probes, then the instruction read-back) comes back with leading
-	// characters eaten, so the verification must clear and retype.
-	fixture.runner.corruptCaptureAt = 3
+	fixture.runner.inertCounters = true
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err == nil {
+		t.Fatal("Spawn = nil, want a launch refused when the agent never reported accepting")
+	}
+	if !strings.Contains(err.Error(), "never reported accepting") {
+		t.Errorf("err = %v, want the unproven delivery named", err)
+	}
+	// The premise: the prompt really was submitted. Without this the test would
+	// also pass if delivery had failed for some unrelated reason.
+	if fixture.runner.promptCalls == 0 {
+		t.Error("no prompt was submitted, so the refusal proves nothing about delivery")
+	}
+	if !slices.Contains(fixture.events, "tab-close") {
+		t.Errorf("events = %v, want the launch torn down", fixture.events)
+	}
+}
+
+// A native agent prompt submits on success, so a re-send hands the goblin its
+// brief a second time. The retry exists for a refused submit, not a slow agent.
+func TestSpawnSubmitsTheInstructionOnlyOnceWhileWaitingForAcceptance(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.runner.acceptAfterGets = 4
 
 	result, err := fixture.service.Spawn(context.Background(), fixture.request)
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
 	if !strings.Contains(result.Output, "spawned task-7") {
-		t.Errorf("Output = %q, want successful spawn after the retry", result.Output)
+		t.Errorf("Output = %q, want a successful spawn", result.Output)
 	}
-	if !slices.Contains(fixture.runner.keys, "ctrl+u") {
-		t.Errorf("keys = %v, want a composer clear (ctrl+u) after the corrupted read-back", fixture.runner.keys)
+	if got := fixture.runner.promptCalls; got != 1 {
+		t.Errorf("prompt submissions = %d, want exactly one - a re-send briefs the goblin twice", got)
 	}
-	if len(fixture.runner.literals) != 3 {
-		t.Errorf("literals = %q, want prefix plus two instruction deliveries", fixture.runner.literals)
-	}
-}
-
-// A pane that is momentarily unreadable while the harness redraws is part of
-// booting, not a delivery failure. A non-zero `herdr pane read` exit used to
-// abandon the whole read-back budget, so one unlucky poll tore down a launch
-// that was still coming up - the exact false failure the boot-aware budget
-// exists to prevent.
-func TestSpawnSurvivesATransientPaneReadFailureDuringInstructionDelivery(t *testing.T) {
-	fixture := newFixture(t)
-	// Two consecutive instruction read-backs (captures 3 and 4, after the two
-	// dialog probes) exit non-zero before the pane is readable again.
-	fixture.runner.failCaptureAt = 3
-	fixture.runner.failCaptures = 2
-
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	if !strings.Contains(result.Output, "spawned task-7") {
-		t.Errorf("Output = %q, want the spawn to survive an unreadable pane", result.Output)
-	}
-	if len(fixture.runner.literals) != 4 {
-		t.Errorf("literals = %d, want the prefix plus three instruction deliveries", len(fixture.runner.literals))
+	// Premise: acceptance really was delayed, so "once" is a property of the
+	// loop rather than an artifact of the agent accepting immediately.
+	if fixture.runner.agentCalls < 3 {
+		t.Errorf("agent reads = %d, want the confirmation to have polled", fixture.runner.agentCalls)
 	}
 }
 
-// A herdr write refused mid-boot is the same transient class as an unreadable
-// pane: the harness is coming up fine. Aborting the budget on one of them runs
-// teardownLaunch, which closes the tab and returns the worktree of a live
-// goblin - the false `failed: spawn` the boot-aware budget exists to remove.
-func TestSpawnRetriesTransientHerdrWritesWhileTheHarnessIsStillBooting(t *testing.T) {
+// A herdr write refused mid-boot is transient: the harness is coming up fine.
+// Aborting the budget on one runs teardownLaunch, which closes the tab and
+// returns the worktree of a live goblin - a false spawn failure.
+func TestSpawnRetriesATransientlyRefusedPromptWhileTheHarnessIsBooting(t *testing.T) {
 	fixture := newFixture(t)
-	// send-text 1 is the launch prefix, so send-text 2 is the first
-	// instruction delivery. herdr refuses that write, then refuses the ctrl+u
-	// that clears the composer for the retry: both writes in the loop body
-	// have to survive.
-	fixture.runner.failSendTextAt = 2
-	fixture.runner.failSendTexts = 1
-	fixture.runner.failCtrlUs = 1
+	fixture.runner.failPrompts = 3
 
 	result, err := fixture.service.Spawn(context.Background(), fixture.request)
 	if err != nil {
@@ -1696,6 +1804,9 @@ func TestSpawnRetriesTransientHerdrWritesWhileTheHarnessIsStillBooting(t *testin
 	}
 	if !strings.Contains(result.Output, "spawned task-7") {
 		t.Errorf("Output = %q, want the spawn to survive transient herdr writes", result.Output)
+	}
+	if got := fixture.runner.promptCalls; got != 4 {
+		t.Errorf("prompt submissions = %d, want three refusals then one that landed", got)
 	}
 	if _, statErr := os.Stat(fixture.worktree); statErr != nil {
 		t.Fatalf("transient write removed worktree: %v", statErr)
@@ -1705,83 +1816,67 @@ func TestSpawnRetriesTransientHerdrWritesWhileTheHarnessIsStillBooting(t *testin
 	}
 }
 
-// When every write is refused the instruction was never typed, so a read-back
-// mismatch is a false cause and the herdr stderr is the operator's only lead.
-func TestSpawnReportsTheRefusedWriteWhenTheInstructionNeverLands(t *testing.T) {
+// An agent read momentarily refused while the harness redraws is part of
+// booting, not a delivery failure, and it is not a failed submit either.
+func TestSpawnSurvivesATransientAgentReadDuringInstructionDelivery(t *testing.T) {
 	fixture := newFixture(t)
-	fixture.runner.failSendTextAt = 2
-	fixture.runner.failSendTexts = 1000
+	fixture.runner.failAgentGets = 4
+
+	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if !strings.Contains(result.Output, "spawned task-7") {
+		t.Errorf("Output = %q, want the spawn to survive an unreadable agent", result.Output)
+	}
+	if got := fixture.runner.promptCalls; got != 1 {
+		t.Errorf("prompt submissions = %d, want one - an unreadable agent is not a failed submit", got)
+	}
+}
+
+// When every submit is refused the instruction was never delivered, so
+// claiming the agent did not accept it is a false cause: the herdr stderr is
+// the operator's only real lead once it lands in the durable failed status.
+func TestSpawnReportsTheRefusedSubmitWhenTheInstructionNeverLands(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.runner.failPrompts = 100000
 
 	_, err := fixture.service.Spawn(context.Background(), fixture.request)
 	if err == nil {
-		t.Fatal("Spawn = nil, want the refused write surfaced")
+		t.Fatal("Spawn = nil, want the refused submit surfaced")
 	}
-	for _, want := range []string{"could not type the instruction", "pane send-text: pane busy"} {
+	for _, want := range []string{"could not submit the instruction", "agent prompt: pane busy"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v, want it to mention %q", err, want)
 		}
 	}
-	if strings.Contains(err.Error(), "did not match") {
-		t.Errorf("err = %v, want no read-back mismatch claim when nothing was ever typed", err)
+	if strings.Contains(err.Error(), "never reported accepting") {
+		t.Errorf("err = %v, want no acceptance claim when nothing was ever submitted", err)
 	}
 }
 
-// When the pane is never readable, the read-back never ran - so reporting a
-// mismatch is a false cause, and the herdr stderr that explains the real one
-// is the operator's only lead once it lands in the durable `failed:` status.
-func TestSpawnReportsTheUnreadablePaneWhenNoReadBackEverSucceeds(t *testing.T) {
+// A submitted instruction whose confirmation reads were all refused must not
+// be reported as a bare non-acceptance: the retained herdr stderr explains it.
+func TestSpawnReportsTheRefusedAgentReadsAfterTheInstructionWasSubmitted(t *testing.T) {
 	fixture := newFixture(t)
-	// Every instruction read-back exits non-zero, so the budget drains
-	// without the loop ever seeing pane text to compare.
-	fixture.runner.failCaptureAt = 3
-	fixture.runner.failCaptures = 1000
+	fixture.runner.failAgentGets = 100000
 
 	_, err := fixture.service.Spawn(context.Background(), fixture.request)
 	if err == nil {
-		t.Fatal("Spawn = nil, want the unreadable pane surfaced")
+		t.Fatal("Spawn = nil, want the refused agent reads surfaced")
 	}
-	for _, want := range []string{"could not read the pane", "pane read: pane busy"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("err = %v, want it to mention %q", err, want)
-		}
-	}
-	if strings.Contains(err.Error(), "did not match") {
-		t.Errorf("err = %v, want no read-back mismatch claim when nothing was ever read", err)
-	}
-}
-
-// One early successful read-back must not launder later refused attempts into
-// a bare mismatch: when the budget drains on transiently refused reads, the
-// retained herdr stderr is still the operator's real lead.
-func TestSpawnReportsTheRefusedReadsEvenAfterAnEarlyReadBackSucceeded(t *testing.T) {
-	fixture := newFixture(t)
-	// Capture 3 (the first instruction read-back) succeeds but comes back
-	// corrupted, then every later capture is refused until the budget drains.
-	fixture.runner.corruptCaptureAt = 3
-	fixture.runner.failCaptureAt = 4
-	fixture.runner.failCaptures = 1000
-
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err == nil {
-		t.Fatal("Spawn = nil, want the refused reads surfaced")
-	}
-	for _, want := range []string{"did not match", "pane read: pane busy"} {
+	for _, want := range []string{"never reported accepting", "agent get: pane busy"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v, want it to mention %q", err, want)
 		}
 	}
 }
 
-// A harness takes seconds to boot; the first instruction used to be typed
-// 300ms after the agent started and abandoned after three tries inside two
-// seconds. Every goblin resumed on a loaded machine then failed delivery
-// while its harness was still coming up.
-func TestSpawnKeepsRetryingInstructionDeliveryWhileTheHarnessIsStillBooting(t *testing.T) {
+// A harness takes seconds to boot. The budget has to outlast that: a slow
+// agent that eventually accepts is a healthy launch, not a delivery failure.
+func TestSpawnKeepsWaitingForAcceptanceWhileTheHarnessIsStillBooting(t *testing.T) {
 	fixture := newFixture(t)
-	// Twenty consecutive read-backs come back corrupted - far past the three
-	// attempts the old budget allowed - before the composer finally accepts.
-	fixture.runner.corruptCaptureAt = 3
-	fixture.runner.corruptCaptures = 20
+	fixture.runner.acceptAfterGets = 20
 
 	result, err := fixture.service.Spawn(context.Background(), fixture.request)
 	if err != nil {
@@ -1790,8 +1885,33 @@ func TestSpawnKeepsRetryingInstructionDeliveryWhileTheHarnessIsStillBooting(t *t
 	if !strings.Contains(result.Output, "spawned task-7") {
 		t.Errorf("Output = %q, want the spawn to survive a slow harness boot", result.Output)
 	}
-	if len(fixture.runner.literals) != 22 {
-		t.Errorf("literals = %d, want the prefix plus twenty-one instruction deliveries", len(fixture.runner.literals))
+	if got := fixture.runner.promptCalls; got != 1 {
+		t.Errorf("prompt submissions = %d, want one across a slow boot", got)
+	}
+}
+
+// A failed launch must leave no task temporary directory. cleanup finds a task
+// through the task metadata, so once that is retired nothing can remove this
+// directory again - and while it survives it refuses the retry of the very
+// spawn that just failed. It also holds the rendered credential script.
+func TestSpawnFailureLeavesNoTaskTemporaryDirectory(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.runner.inertCounters = true
+	taskTmp := filepath.Join(fixture.stateDir, "tasktmp", fixture.request.ID)
+
+	if _, err := fixture.service.Spawn(context.Background(), fixture.request); err == nil {
+		t.Fatal("Spawn succeeded, want the delivery failure")
+	}
+	// Premise: the directory really was created, so its absence is a removal
+	// rather than a launch that never got far enough to make one.
+	if !fixture.runner.taskTmpExisted {
+		t.Fatal("tasktmp was never created, so its absence proves nothing")
+	}
+	if _, err := os.Stat(taskTmp); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("task temporary directory %q survived a failed spawn: %v", taskTmp, err)
+	}
+	if _, err := os.Stat(filepath.Join(fixture.stateDir, fixture.request.ID+".meta")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed spawn kept metadata: %v", err)
 	}
 }
 
@@ -1825,15 +1945,14 @@ func TestResumedTypedLaunchDeliversTheInstructionToTheComposer(t *testing.T) {
 	}
 
 	var launchLine string
-	var delivered bool
 	for _, literal := range fixture.runner.literals {
 		if strings.Contains(literal, "& "+"'pi'") {
 			launchLine = literal
 		}
-		if strings.Contains(literal, instruction) && !strings.Contains(literal, "& "+"'pi'") {
-			delivered = true
-		}
 	}
+	// The instruction reaches the resumed harness through the native agent
+	// prompt now, not as typed composer text - but it still has to reach it.
+	delivered := strings.Contains(fixture.runner.prompt, instruction)
 	if launchLine == "" {
 		t.Fatalf("no typed launch line was sent: %q", fixture.runner.literals)
 	}
@@ -1844,6 +1963,6 @@ func TestResumedTypedLaunchDeliversTheInstructionToTheComposer(t *testing.T) {
 		t.Errorf("the instruction was passed positionally to a resume, which binds it to SESSION_ID:\n%s", launchLine)
 	}
 	if !delivered {
-		t.Errorf("the instruction never reached the composer, so the resumed goblin has nothing to do: %q", fixture.runner.literals)
+		t.Errorf("the instruction never reached the resumed harness, so the goblin has nothing to do: prompt=%q", fixture.runner.prompt)
 	}
 }
