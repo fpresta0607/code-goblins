@@ -9,15 +9,23 @@ import (
 )
 
 // SupportedProtocol and SupportedSchemaVersion pin the one Herdr machine
-// contract this build is coded against: protocol 21 with schema version 1, as
-// reported by the installed 0.8.2-preview client.
+// contract this build is coded against: protocol 22 with schema version 1, as
+// reported by the installed 0.9.0-preview client.
 //
-// Protocol 19 to 21 kept schema version 1, both response envelopes, and every
+// Protocol 19 to 22 kept schema version 1, both response envelopes, and every
 // method in requiredMethods below, so the pin moved rather than the contract.
 // The pin stays a single value on purpose: it is what forces this check to be
 // re-run against a new Herdr instead of a range silently absorbing a break.
+//
+// 2026-09-09, 21 to 22: re-verified against herdr
+// 0.9.0-preview.2026-09-08-62431dbd033b before moving the pin. `herdr api
+// schema --json` reports protocol 22, schema_version 1, all five envelopes
+// (error_response, event, request, subscription_event, success_response), and
+// all 20 requiredMethods entries present; `herdr status --json` reports client
+// and server both at protocol 22, which CheckRuntime pins separately from the
+// schema. Contract unchanged; only the number moved.
 const (
-	SupportedProtocol      = 21
+	SupportedProtocol      = 22
 	SupportedSchemaVersion = 1
 )
 
