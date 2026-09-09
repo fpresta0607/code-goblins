@@ -477,7 +477,7 @@ func deliverRefreshNotice(ctx context.Context, runtime commandRuntime, h home.Ho
 		return
 	}
 	notice := fmt.Sprintf("credentials refreshed: re-source %s", item.Path)
-	if err := runtime.sendText(ctx, h, "gb-"+item.ID, notice, true); err != nil {
+	if err := runtime.sendText(ctx, h, "gb-"+item.ID, notice); err != nil {
 		fmt.Fprintf(stderr, "cfo auth: deliver re-source notice to %s: %v\n", item.ID, err)
 	}
 }

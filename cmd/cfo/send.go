@@ -21,7 +21,6 @@ func runSend(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 	fs := flag.NewFlagSet("send", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	key := fs.String("key", "", "named terminal key")
-	noAutoSubmit := fs.Bool("no-auto-submit", false, "do not verify or resubmit a parked composer")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -59,7 +58,7 @@ func runSend(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 		fmt.Fprintln(stderr, "cfo send: command runtime is incomplete")
 		return 1
 	}
-	if err := runtime.sendText(context.Background(), h, target, text, !*noAutoSubmit); err != nil {
+	if err := runtime.sendText(context.Background(), h, target, text); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
