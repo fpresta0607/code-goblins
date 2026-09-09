@@ -186,8 +186,16 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 	if meta.TaskTmp == "" || meta.SpawnGen == "" {
 		t.Errorf("metadata = %+v, want tasktmp and spawn generation", meta)
 	}
-	if info, statErr := os.Stat(filepath.Join(meta.TaskTmp, "gotmp")); statErr != nil || !info.IsDir() {
-		t.Fatalf("GOTMPDIR = %q, stat = %v, want existing directory", filepath.Join(meta.TaskTmp, "gotmp"), statErr)
+	if info, statErr := os.Stat(goTmpDir(t, fixture.stateDir, meta.ID)); statErr != nil || !info.IsDir() {
+		t.Fatalf("GOTMPDIR = %q, stat = %v, want existing directory", goTmpDir(t, fixture.stateDir, meta.ID), statErr)
+	}
+	// Go writes build and test temporaries under GOTMPDIR, t.TempDir()
+	// included. Pointed inside the checkout it made every test a goblin ran
+	// create files in the tree the goblin was editing.
+	for _, inside := range []string{fixture.stateDir, fixture.worktree, fixture.project} {
+		if rel, relErr := filepath.Rel(inside, goTmpDir(t, fixture.stateDir, meta.ID)); relErr == nil && !strings.HasPrefix(rel, "..") {
+			t.Errorf("GOTMPDIR = %q, want it outside %q", goTmpDir(t, fixture.stateDir, meta.ID), inside)
+		}
 	}
 	if got, want := sortedKeys(t, fixture.stateDir, fixture.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "harness", "herdr_pane_id", "herdr_session", "herdr_tab_id", "herdr_workspace_id", "kind", "mode", "model", "project", "spawn_gen", "tasktmp", "window", "worktree", "yolo"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("metadata keys = %v, want %v", got, want)
@@ -225,7 +233,7 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 	}
 	// The prefix dot-sources the secrets script right after the location, so
 	// the billing-key strip lands before the launch contract and the harness.
-	if got, want := fixture.runner.literals[0], "Set-Location -LiteralPath '"+fixture.worktree+"'; . '"+filepath.Join(meta.TaskTmp, "auth.ps1")+"'; $env:CFO_STATE_OVERRIDE = '"+fixture.stateDir+"'; $env:GOTMPDIR = '"+filepath.Join(meta.TaskTmp, "gotmp")+"'"; got != want {
+	if got, want := fixture.runner.literals[0], "Set-Location -LiteralPath '"+fixture.worktree+"'; . '"+filepath.Join(meta.TaskTmp, "auth.ps1")+"'; $env:CFO_STATE_OVERRIDE = '"+fixture.stateDir+"'; $env:GOTMPDIR = '"+goTmpDir(t, fixture.stateDir, meta.ID)+"'"; got != want {
 		t.Errorf("launch prefix = %q\nwant %q", got, want)
 	}
 	if got, want := fixture.runner.startName, "gb-task-7"; got != want {
@@ -356,12 +364,20 @@ func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
 	// same variable. CFO_STATE_OVERRIDE is only written at harness start,
 	// after the manifest is merged, so it proves the reserved set does not
 	// depend on what the launch map happens to hold at merge time.
+	// LOCALAPPDATA, XDG_CACHE_HOME and HOME are reserved for a different
+	// reason: the launch never writes them, but os.UserCacheDir reads them to
+	// derive the task's Go temporary directory, so a redirect would leave any
+	// cfo command run from the pane computing a different directory than
+	// spawn created.
 	writeWorktreeManifest(t, fixture.dataDir, fixture.project, worktree.Manifest{
 		Project: "primary",
 		Env: map[string]string{
 			"gotmpdir":                 `C:\hijacked-gotmpdir`,
 			"cfo_state_override":       `C:\hijacked-state`,
 			"Cfo_Role":                 "overlord",
+			"localappdata":             `C:\hijacked-cache`,
+			"XDG_Cache_Home":           "/hijacked-cache",
+			"Home":                     "/hijacked-cache-home",
 			"PLAYWRIGHT_BROWSERS_PATH": `C:\cache\ms-playwright`,
 		},
 	})
@@ -374,9 +390,16 @@ func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
 	if strings.Contains(line, "hijacked") || strings.Contains(line, "overlord") {
 		t.Errorf("pane line = %q, want every case-aliased reserved redirect dropped", line)
 	}
-	if !strings.Contains(line, "$env:GOTMPDIR = '"+filepath.Join(result.Meta.TaskTmp, "gotmp")+"'") ||
+	if !strings.Contains(line, "$env:GOTMPDIR = '"+goTmpDir(t, fixture.stateDir, result.Meta.ID)+"'") ||
 		!strings.Contains(line, "$env:CFO_STATE_OVERRIDE = '"+fixture.stateDir+"'") {
 		t.Errorf("pane line = %q, want the launch contract's own values intact", line)
+	}
+	// The launch never sets the cache root itself, so a dropped redirect leaves
+	// it absent entirely and the pane inherits the operator's own.
+	for _, reserved := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME", "HOME"} {
+		if strings.Contains(strings.ToUpper(line), "$ENV:"+reserved+" =") {
+			t.Errorf("pane line = %q, want no %s assignment: a manifest must not redirect the cache root", line, reserved)
+		}
 	}
 	if !strings.Contains(line, `$env:PLAYWRIGHT_BROWSERS_PATH = 'C:\cache\ms-playwright'`) {
 		t.Errorf("pane line = %q, want the unrelated redirect kept", line)
@@ -691,7 +714,7 @@ func TestSpawnPiTypedLaunchTypesFullCommandAndSkipsNativeStart(t *testing.T) {
 	if got := len(fixture.runner.literals); got != 1 {
 		t.Fatalf("literals = %q, want exactly one typed launch line", fixture.runner.literals)
 	}
-	wantLine := "Set-Location -LiteralPath '" + fixture.worktree + "'; . '" + filepath.Join(result.Meta.TaskTmp, "auth.ps1") + "'; $env:CFO_STATE_OVERRIDE = '" + fixture.stateDir + "'; $env:GOTMPDIR = '" + filepath.Join(result.Meta.TaskTmp, "gotmp") + "'; & 'pi' '--tui-mode' 'regular' 'Read the brief at " + fixture.brief + " and follow it exactly."
+	wantLine := "Set-Location -LiteralPath '" + fixture.worktree + "'; . '" + filepath.Join(result.Meta.TaskTmp, "auth.ps1") + "'; $env:CFO_STATE_OVERRIDE = '" + fixture.stateDir + "'; $env:GOTMPDIR = '" + goTmpDir(t, fixture.stateDir, result.Meta.ID) + "'; & 'pi' '--tui-mode' 'regular' 'Read the brief at " + fixture.brief + " and follow it exactly."
 	if got := fixture.runner.literal; !strings.HasPrefix(got, wantLine) {
 		t.Errorf("typed launch line = %q\nwant prefix %q", got, wantLine)
 	}
@@ -1003,6 +1026,28 @@ func TestSpawnRejectsCaseInsensitiveMetadataExtensionBeforeHerdrOrWorktreeMutati
 	}
 }
 
+// A spawn that fails after the Go temporary directory exists must not orphan
+// it. teardownLaunch removes <id>.meta, and cleanup reads that file to find a
+// task at all, so a directory left behind here can never be removed by
+// anything afterwards - and it sits under the user cache directory, out of
+// sight of the state tree that would otherwise show it.
+func TestSpawnFailureLeavesNoGoTemporaryDirectory(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.service.Harness.Adapters[harness.Claude] = fixtureAdapter{events: &fixture.events, buildErr: errors.New("harness build refused")}
+
+	if _, err := fixture.service.Spawn(context.Background(), fixture.request); err == nil {
+		t.Fatal("Spawn succeeded, want the injected build failure")
+	}
+	goTmp := goTmpDir(t, fixture.stateDir, fixture.request.ID)
+	if _, err := os.Stat(goTmp); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("go temporary directory %q survived a failed spawn: %v", goTmp, err)
+	}
+	// The metadata is gone, which is what makes the leak permanent: prove the
+	// removal happened before it rather than depending on a later cleanup.
+	if _, err := os.Stat(filepath.Join(fixture.stateDir, fixture.request.ID+".meta")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed spawn kept metadata: %v", err)
+	}
+}
 func TestSpawnRejectsCaseAliasOfRetainedFailedTaskBeforeHerdrOrWorktreeMutation(t *testing.T) {
 	fixture := newFixture(t)
 	fixture.request.ID = "Foo"
@@ -1085,8 +1130,44 @@ type fixture struct {
 	git      *worktreeGit
 }
 
+// goTmpDir returns the per-task Go temporary directory a spawn under the
+// isolated user cache directory creates.
+func goTmpDir(t *testing.T, stateDir, id string) string {
+	t.Helper()
+	dir, err := state.GoTmpDir(stateDir, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// isolateUserCacheDir points os.UserCacheDir at a directory of the test's own,
+// by setting the variables it reads. Without the isolation a spawn test writes
+// into the operator's own cache directory and leaves the per-task Go temporary
+// directory behind, which is the same class of leak as a test resolving the
+// live fleet home.
+// HOME is in the set because os.UserCacheDir reads it on darwin and on Linux
+// whenever XDG_CACHE_HOME is unset; without it the isolation is vacuous there.
+// The resolve afterwards is the premise assertion: an isolation helper that
+// silently stops isolating on a platform nobody runs it on is how a test comes
+// to write into the operator's own cache.
+func isolateUserCacheDir(t *testing.T) {
+	t.Helper()
+	cache := t.TempDir()
+	for _, name := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME", "HOME"} {
+		t.Setenv(name, cache)
+	}
+	resolved, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatalf("UserCacheDir = %v, want the isolated cache directory", err)
+	}
+	if rel, relErr := filepath.Rel(cache, resolved); relErr != nil || strings.HasPrefix(rel, "..") {
+		t.Fatalf("UserCacheDir = %q, want it under the test's own directory %q", resolved, cache)
+	}
+}
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
+	isolateUserCacheDir(t)
 	root := t.TempDir()
 	stateDir := makeDir(t, filepath.Join(root, "state"))
 	dataDir := makeDir(t, filepath.Join(root, "data"))
@@ -1170,7 +1251,7 @@ func (a typedFixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, err
 	*a.events = append(*a.events, "build-harness")
 	return harness.Launch{
 		Args:        []string{"--tui-mode", "regular"},
-		Env:         map[string]string{"GOTMPDIR": filepath.Join(spec.TaskTmp, "gotmp")},
+		Env:         map[string]string{"GOTMPDIR": spec.GoTmp},
 		PromptFile:  spec.BriefPath,
 		TypedLaunch: true,
 		Executable:  "pi",
@@ -1209,7 +1290,7 @@ func (a fixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
 	}
 	return harness.Launch{
 		Args:           []string{"--dangerously-skip-permissions"},
-		Env:            map[string]string{"GOTMPDIR": filepath.Join(spec.TaskTmp, "gotmp")},
+		Env:            map[string]string{"GOTMPDIR": spec.GoTmp},
 		PromptFile:     spec.BriefPath,
 		ConfirmMarkers: []string{"Is this a project you created or one you trust?"},
 		ConfirmKeys:    confirmKeys,

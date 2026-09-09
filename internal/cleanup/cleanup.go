@@ -1,9 +1,12 @@
 // Package cleanup returns one clean, proven-inactive task worktree and closes
-// its task tab. It never deletes a directory itself, stops an agent, or
+// its task tab. It never deletes a worktree itself, stops an agent, or
 // discards changes: the only lifecycle calls it makes are the Herdr tab close
 // of the exact recorded tab (after the endpoint is proven agent-free) and
 // worktree.Service.Return, and only after every guard has proven the exact
-// recorded task safe to release.
+// recorded task safe to release. The one directory it removes outright holds
+// no work - the task's Go temporary directory, retired with the record
+// because it lives outside the state tree the archive rename carries away;
+// see Service.removeGoTmp.
 package cleanup
 
 import (
@@ -32,8 +35,9 @@ type Service struct {
 	// ForceArchive retires a task whose worktree can no longer be validated -
 	// a directory pinned by a dead process's handle, or already deleted out
 	// from under the record. It archives the task record and leaves the
-	// directory exactly as found: nothing on disk is deleted, so it can never
-	// discard work. It still refuses a pane that has a live agent.
+	// worktree exactly as found, so it can never discard work, though the
+	// task's Go temporary directory is retired with the record. It still
+	// refuses a pane that has a live agent.
 	ForceArchive bool
 }
 
@@ -126,6 +130,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
 	archived, archiveErr := s.archive(id)
+	goTmpErr := s.removeGoTmp(id)
 
 	result.Meta = meta
 	result.Output = fmt.Sprintf("cleaned %s worktree=%s", id, worktreePath)
@@ -137,6 +142,9 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 		// plainly rather than failing a completed cleanup.
 		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)
 	}
+	if goTmpErr != nil {
+		result.Output += fmt.Sprintf("\nwarning: %v; remove it by hand once the handle clears", goTmpErr)
+	}
 	return result, nil
 }
 
@@ -147,7 +155,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 // prove. The one check that stays is the live-agent refusal: a task is
 // retired, never abandoned mid-run. The tab close is best-effort because the
 // pane is usually already gone, and no worktree return is attempted, so the
-// directory is left for the operator (or a reboot) and nothing is deleted.
+// worktree is left for the operator (or a reboot).
 func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, worktreePath string) (Result, error) {
 	if err := s.requireInactive(ctx, meta); err != nil {
 		return Result{}, err
@@ -163,6 +171,7 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
 	archived, archiveErr := s.archive(id)
+	goTmpErr := s.removeGoTmp(id)
 
 	result := Result{Meta: meta, Output: fmt.Sprintf("force-archived %s; worktree %s left in place, remove it by hand when its handle clears", id, worktreePath)}
 	if archived != "" {
@@ -173,6 +182,9 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 	}
 	if archiveErr != nil {
 		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)
+	}
+	if goTmpErr != nil {
+		result.Output += fmt.Sprintf("\nwarning: %v; remove it by hand once the handle clears", goTmpErr)
 	}
 	return result, nil
 }
@@ -207,6 +219,27 @@ func (s Service) archive(id string) (string, error) {
 		return "", fmt.Errorf("task temporary directory: %w", err)
 	}
 	return dir, nil
+}
+
+// removeGoTmp removes the task's Go temporary directory, which holds build and
+// test scratch a finished task no longer needs and which, living outside the
+// state tree, the archive rename does not carry away.
+//
+// It is deliberately not part of archive(). On Windows a handle still open
+// under GOTMPDIR - a killed go test binary, a background process the goblin
+// started, antivirus - makes RemoveAll fail, and forceArchive exists for
+// exactly that pinned-by-a-dead-handle case. Inside archive() such a failure
+// would skip the credential scrub and the rename, so a locked build directory
+// would leave the project's secrets on disk and the id still claimed.
+func (s Service) removeGoTmp(id string) error {
+	goTmp, err := state.GoTmpDir(s.StateDir, id)
+	if err != nil {
+		return err
+	}
+	if err := os.RemoveAll(goTmp); err != nil {
+		return fmt.Errorf("go temporary directory %s could not be removed: %w", goTmp, err)
+	}
+	return nil
 }
 
 // ArchiveDirName is where a finished task's scratch directory goes; see

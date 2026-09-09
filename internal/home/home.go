@@ -59,10 +59,10 @@ func Inherited() (root, state string) {
 
 // usesTheInheritedFleet reports whether h is the home this process inherited
 // rather than one the test chose. Comparing against the inherited value is
-// exact where a path heuristic is not: GOTMPDIR can place a test's own
-// directories inside the live checkout, so "under the checkout" would condemn
-// correct fixtures, and a fixture there inherits the checkout's .git and so
-// looks primary too.
+// exact where a path heuristic is not: an operator's temporary or cache
+// directory can sit anywhere, a checkout included, so "under the checkout"
+// would condemn correct fixtures, and a fixture there inherits the checkout's
+// .git and so looks primary too.
 func usesTheInheritedFleet(h Home) bool {
 	if inheritedRoot != "" && fsx.SamePath(h.Root, inheritedRoot) {
 		return true

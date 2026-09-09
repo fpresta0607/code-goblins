@@ -211,6 +211,8 @@ Running it against the operator's own caches instead would leave the redirects d
 `CARGO_HOME` is deliberately excluded and must not be added: cargo has no cache-only variable, so redirecting it would also relocate `config.toml`, `credentials.toml` and `bin/`, and a goblin would lose the operator's registry and linker configuration.
 These locations are a property of the machine rather than of any project, so they live in the CFO home and no manifest repeats them.
 A variable the CFO's own environment already sets is inherited untouched, and a project's `worktree.json` `env` block wins over both for that project, in the pane and in the install alike.
+The one exception is the names the launch contract owns - `GOTMPDIR`, `CFO_STATE_OVERRIDE`, `CFO_ROLE`, and the cache roots `GOTMPDIR` is derived from (`LOCALAPPDATA` on Windows, `XDG_CACHE_HOME` and `HOME` elsewhere) - which a manifest cannot redirect in the pane, though it still redirects them for the install.
+A pane whose cache root moved would leave every `cfo` command run there computing a different Go temporary directory than the spawn that created it.
 `cfo auth <project> --env` prints every one of them in full and names where each came from, marking a project-declared one `(project)` and an inherited one `(inherited)`, so a tuned location is visible rather than indistinguishable from one that was never set.
 The audit is scoped to the project it is given, so it reports where that project's goblin actually builds rather than the machine default.
 

@@ -172,6 +172,18 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: resolve worktree manifest: %w", err)
 	}
+	// A relaunch reuses the task's own Go temporary directory and recreates it
+	// if it is missing; cleanup.removeGoTmp documents when it is retired. Both
+	// the path and the directory are knowable now - an unresolvable user cache
+	// directory or an unwritable one is a fleet-wide misconfiguration, and
+	// discovering it after the stop would leave the goblin with no harness.
+	goTmp, err := state.GoTmpDir(s.StateDir, req.ID)
+	if err != nil {
+		return SwitchResult{}, err
+	}
+	if err := os.MkdirAll(goTmp, 0o755); err != nil {
+		return SwitchResult{}, fmt.Errorf("switch: create go temporary directory: %w", err)
+	}
 
 	// Stop before anything else is written, so a harness that refuses to exit
 	// leaves the task exactly as it was.
@@ -188,7 +200,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		briefPath = req.BriefPath
 	}
 
-	handoff, resumed, err := s.relaunchHarness(ctx, &herdrClient, paneTarget, meta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, manifest.Env)
+	handoff, resumed, err := s.relaunchHarness(ctx, &herdrClient, paneTarget, meta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, goTmp, manifest.Env)
 	if err != nil {
 		from := describe(meta.Harness, meta.Model, meta.Effort)
 		if writeErr := s.publishSwitch(&meta, target); writeErr != nil {
@@ -257,11 +269,12 @@ var errBuildLaunch = errors.New("switch: build harness launch")
 // the old harness has stopped lives here, so any failure returns through the
 // same empty-pane recovery. Anything knowable before the stop is resolved by
 // Switch and handed in, redirects included.
-func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id string, redirects map[string]string) (handoff string, resumed bool, err error) {
+func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id, goTmp string, redirects map[string]string) (handoff string, resumed bool, err error) {
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath: briefPath,
 		TaskTmp:   meta.TaskTmp,
+		GoTmp:     goTmp,
 		Model:     target.Model,
 		Effort:    target.Effort,
 		MCPConfig: goblinMCPConfig(meta.TaskTmp),

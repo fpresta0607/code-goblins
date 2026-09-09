@@ -14,7 +14,7 @@ func TestClaudeBuildsStructuredLaunch(t *testing.T) {
 		t.Fatalf("Get(Claude): %v", err)
 	}
 
-	defaults, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`})
+	defaults, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, GoTmp: `C:\gotmp\task`})
 	if err != nil {
 		t.Fatalf("Build defaults: %v", err)
 	}
@@ -23,7 +23,7 @@ func TestClaudeBuildsStructuredLaunch(t *testing.T) {
 		Env: map[string]string{
 			"CFO_ROLE":                             RoleGoblin,
 			"CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "false",
-			"GOTMPDIR":                             `C:\tasks\task\gotmp`,
+			"GOTMPDIR":                             `C:\gotmp\task`,
 		},
 		PromptFile: `C:\briefs\task.md`,
 		ConfirmMarkers: []string{
@@ -36,6 +36,7 @@ func TestClaudeBuildsStructuredLaunch(t *testing.T) {
 	explicit, err := adapter.Build(LaunchSpec{
 		BriefPath: `C:\briefs\task.md`,
 		TaskTmp:   `C:\tasks\task`,
+		GoTmp:     `C:\gotmp\task`,
 		Model:     "sonnet",
 		Effort:    "xhigh",
 	})
@@ -46,7 +47,7 @@ func TestClaudeBuildsStructuredLaunch(t *testing.T) {
 		t.Errorf("Args = %#v, want %#v", got, want)
 	}
 
-	if _, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Effort: "turbo"}); err == nil {
+	if _, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, GoTmp: `C:\gotmp\task`, Effort: "turbo"}); err == nil {
 		t.Fatal("Build returned nil error for unsupported effort")
 	}
 }

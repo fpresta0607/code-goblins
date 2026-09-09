@@ -115,8 +115,8 @@ func TestGitPathsUseTheSameCanonicalIdentityAsPrimaryCheck(t *testing.T) {
 }
 
 func TestIsPrimaryFalseOutsideGit(t *testing.T) {
-	// GOTMPDIR can put the test's temp directory inside a git checkout (a
-	// goblin pane points it at state/tasktmp/<id>/gotmp), so "outside git"
+	// GOTMPDIR can put the test's temp directory inside a git checkout (an
+	// operator's own TMP is wherever they put it), so "outside git"
 	// has to be established rather than assumed: git stops its upward search
 	// below a ceiling directory, which makes the root genuinely repo-less.
 	ceiling := t.TempDir()

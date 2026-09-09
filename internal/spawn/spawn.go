@@ -257,8 +257,15 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := adapter.Validate(ctx, herdrClient.Commands); err != nil {
 		return fail(result, fmt.Errorf("spawn: validate harness %s: %w", req.Harness, err))
 	}
-	if err := os.MkdirAll(filepath.Join(taskTmp, "gotmp"), 0o755); err != nil {
+	goTmp, err := state.GoTmpDir(s.StateDir, result.Meta.ID)
+	if err != nil {
+		return fail(result, err)
+	}
+	if err := os.MkdirAll(taskTmp, 0o755); err != nil {
 		return fail(result, fmt.Errorf("spawn: create task temporary directory: %w", err))
+	}
+	if err := os.MkdirAll(goTmp, 0o755); err != nil {
+		return fail(result, fmt.Errorf("spawn: create go temporary directory: %w", err))
 	}
 	if selection != nil {
 		if err := selection.Save(filepath.Join(taskTmp, "pipeline.json")); err != nil {
@@ -276,6 +283,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath: req.BriefPath,
 		TaskTmp:   taskTmp,
+		GoTmp:     goTmp,
 		Model:     req.Model,
 		Effort:    req.Effort,
 		MCPConfig: provision.MCPConfig,
@@ -364,7 +372,14 @@ func goblinMCPConfig(taskTmp string) string {
 // build, startHarness adds CFO_STATE_OVERRIDE just before the pane line is
 // rendered, and a manifest or credential merged in between must not be able
 // to claim a name the launch has not written yet.
-var reservedLaunchEnv = []string{"GOTMPDIR", "CFO_STATE_OVERRIDE", harness.RoleVariable}
+//
+// The cache root belongs to the contract for the same reason: the task's Go
+// temporary directory is derived from os.UserCacheDir, which reads
+// LOCALAPPDATA on Windows, XDG_CACHE_HOME on Linux and HOME whenever that is
+// unset, and HOME alone on darwin. All three are reserved because a manifest
+// that redirected any of them would leave any cfo command run from that pane
+// computing a different directory than the process that created it.
+var reservedLaunchEnv = []string{"GOTMPDIR", "CFO_STATE_OVERRIDE", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", harness.RoleVariable}
 
 // reservedLaunchName reports whether name belongs to the launch contract:
 // one of the names the contract owns, or one the adapter already set on the
@@ -949,10 +964,10 @@ func submitKey(kind harness.Kind) string {
 	return "Enter"
 }
 
-// teardownLaunch closes the task tab, returns the worktree, and retires the
-// task metadata. It is the clean-failure path: every step is attempted and
-// their failures joined, so one stuck teardown step never leaves the rest
-// undone.
+// teardownLaunch closes the task tab, returns the worktree, removes the Go
+// temporary directory, and retires the task metadata. It is the clean-failure
+// path: every step is attempted and their failures joined, so one stuck
+// teardown step never leaves the rest undone.
 func (s Service) teardownLaunch(ctx context.Context, client *herdr.Client, endpoint herdr.Endpoint, project, worktree, id string) error {
 	var errs error
 	if err := client.CloseTab(ctx, endpoint.Target.Session, endpoint.TabID); err != nil {
@@ -960,6 +975,16 @@ func (s Service) teardownLaunch(ctx context.Context, client *herdr.Client, endpo
 	}
 	if err := s.Worktrees.Return(ctx, project, worktree); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("spawn: return task worktree: %w", err))
+	}
+	// Removing the Go temporary directory belongs to this teardown rather than
+	// to a later cleanup: cleanup reads <id>.meta to find a task at all, so
+	// once the metadata is retired nothing can ever remove this directory and
+	// a failed spawn would orphan it under the user cache directory, out of
+	// sight of the state tree.
+	if goTmp, err := state.GoTmpDir(s.StateDir, id); err != nil {
+		errs = errors.Join(errs, err)
+	} else if err := os.RemoveAll(goTmp); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("spawn: remove go temporary directory: %w", err))
 	}
 	if err := os.Remove(filepath.Join(s.StateDir, id+".meta")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		errs = errors.Join(errs, fmt.Errorf("spawn: retire task metadata: %w", err))

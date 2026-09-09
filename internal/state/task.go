@@ -1,11 +1,15 @@
 package state
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 	"unicode"
 )
@@ -65,6 +69,87 @@ func CleanupLockName(id string) string {
 // report a live task as being cleaned up and never deliver its credentials.
 func PipelineLockName(id string) string {
 	return ".pipeline-" + id + ".lock"
+}
+
+// GoTmpDir is the per-task directory a goblin's GOTMPDIR points at. Go puts
+// build and test temporaries there, t.TempDir() included, so it is
+// deliberately outside the fleet checkout: pointed inside it, every test a
+// goblin runs creates files in the tree the goblin is editing. It lives here
+// because spawn creates it and cleanup removes it, and a name both sides own
+// a half of belongs to neither. cleanup.removeGoTmp is the one place that
+// documents who removes it and when.
+//
+// It sits under the user cache directory rather than the machine temporary
+// directory because a goblin task is live for days and %TEMP% is the one
+// directory Windows itself prunes (Storage Sense, Disk Cleanup): pruned under
+// a running pane, the goblin's next go build fails on a GOTMPDIR that no
+// longer exists. The user cache directory is where Go already keeps go-build,
+// so a Go temporary directory beside it is the idiomatic neighbour rather
+// than a directory the OS treats as disposable.
+//
+// The path is keyed on the fleet as well as the task. The directory it
+// replaced was inside a fleet's own state tree and so could never be shared;
+// under a machine-global base, two fleet homes on one machine that each hold
+// a task named g1 would share one directory, and cleaning up g1 in one would
+// recursively delete the live GOTMPDIR of g1 in the other.
+//
+// Two residuals remain and are accepted: an 8.3 short name (C:\PROGRA~1\state)
+// and a symlinked or junctioned state directory each hash apart from the plain
+// spelling, and neither is detectable without touching the filesystem. They
+// SPLIT rather than share, and that asymmetry is what makes them acceptable: a
+// split costs one wasted directory, while sharing is data destruction - one
+// fleet's cleanup deleting another fleet's live GOTMPDIR. Splitting is the
+// safe direction, which is the whole reason the fleet segment exists.
+//
+// The fleet segment hashes the cleaned state directory and is deliberately
+// NOT resolved through the filesystem: two spellings of one directory hashing
+// differently yields a separate unshared directory, which is harmless, while
+// a resolve that succeeded in one process and failed in another could yield a
+// shared one, which is the defect this scoping exists to prevent.
+//
+// Case folding is a property of the host's paths, not of paths in general, so
+// it is applied only on Windows. Where the filesystem is case-sensitive two
+// spellings differing only in case name two real directories, and folding
+// them together would manufacture sharing rather than a harmless split.
+//
+// A relative state directory is refused rather than made absolute. CFO_STATE_
+// OVERRIDE is taken verbatim, so two fleets launched from different working
+// directories with the same relative override would hash one string and share
+// one directory - the sharing this scoping exists to prevent. filepath.Abs
+// would not fix it: the processes that must agree on this path do not share a
+// working directory - a goblin runs in its worktree, cleanup runs elsewhere -
+// so Abs would give one fleet two directories, which is the worse failure.
+func GoTmpDir(stateDir, id string) (string, error) {
+	if strings.TrimSpace(stateDir) == "" {
+		return "", fmt.Errorf("state: go temporary directory needs the fleet state directory")
+	}
+	if !filepath.IsAbs(stateDir) {
+		return "", fmt.Errorf("state: go temporary directory needs an absolute fleet state directory, got %q", stateDir)
+	}
+	// The directory is cleaned once and every later step reads that one value,
+	// so no spelling can pass a check and then become something else before it
+	// is hashed. filepath.Clean does not strip an extended-length prefix - and
+	// it turns the forward-slash spelling //?/C:\x into one - so \\?\C:\x and
+	// C:\x hash apart and split one fleet in two. It is cheap to detect and
+	// exotic enough that refusing beats splitting silently.
+	cleaned := filepath.Clean(stateDir)
+	if strings.HasPrefix(cleaned, `\\?\`) {
+		return "", fmt.Errorf("state: go temporary directory needs a plain fleet state directory, got extended-length path %q", stateDir)
+	}
+	if err := ValidTaskID(id); err != nil {
+		return "", err
+	}
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("state: resolve user cache directory: %w", err)
+	}
+	fleetKey := cleaned
+	if runtime.GOOS == "windows" {
+		fleetKey = strings.ToLower(fleetKey)
+	}
+	sum := sha256.Sum256([]byte(fleetKey))
+	fleet := hex.EncodeToString(sum[:])[:8]
+	return filepath.Join(cache, "cfo", "gotmp", fleet, id), nil
 }
 
 // ValidTaskID rejects IDs that would escape or ambiguously name a task's

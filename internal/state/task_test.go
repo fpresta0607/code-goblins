@@ -2,8 +2,10 @@ package state
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -255,5 +257,138 @@ func TestRemoveTaskMetaIsIdempotentAndValidatesID(t *testing.T) {
 	}
 	if err := RemoveTaskMeta(dir, "../escape"); err == nil {
 		t.Fatal("RemoveTaskMeta accepted a traversing task ID, want refusal")
+	}
+}
+
+// A goblin's GOTMPDIR is the one task path deliberately outside the state
+// tree, and cleanup removes it whole - so an id that traverses out of the
+// user cache directory has to be refused here rather than at the two call
+// sites.
+func TestGoTmpDirIsOutsideTheStateTreeAndValidatesID(t *testing.T) {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatalf("UserCacheDir = %v, want the base GoTmpDir derives from", err)
+	}
+	stateDir := filepath.Join(t.TempDir(), "state")
+	dir, err := GoTmpDir(stateDir, "g1")
+	if err != nil {
+		t.Fatalf("GoTmpDir = %v, want a path", err)
+	}
+	if rel, relErr := filepath.Rel(cache, dir); relErr != nil || strings.HasPrefix(rel, "..") {
+		t.Errorf("GoTmpDir = %q, want it under the user cache directory %q", dir, cache)
+	}
+	if rel, relErr := filepath.Rel(stateDir, dir); relErr == nil && !strings.HasPrefix(rel, "..") {
+		t.Errorf("GoTmpDir = %q, want it outside the state tree %q", dir, stateDir)
+	}
+	// The machine temporary directory is the one place it must not be: a
+	// goblin task is live for days and Windows prunes %TEMP% on its own.
+	if rel, relErr := filepath.Rel(os.TempDir(), dir); relErr == nil && !strings.HasPrefix(rel, "..") {
+		t.Errorf("GoTmpDir = %q, want it outside the machine temporary directory %q", dir, os.TempDir())
+	}
+	if other, otherErr := GoTmpDir(stateDir, "g2"); otherErr != nil || other == dir {
+		t.Errorf("GoTmpDir(g2) = %q, %v, want a directory of its own", other, otherErr)
+	}
+	if _, err := GoTmpDir(stateDir, "../escape"); err == nil {
+		t.Fatal("GoTmpDir accepted a traversing task ID, want refusal")
+	}
+	if _, err := GoTmpDir("  ", "g1"); err == nil {
+		t.Fatal("GoTmpDir accepted an empty state directory, want refusal rather than a machine-global path")
+	}
+	// CFO_STATE_OVERRIDE is taken verbatim, so two fleets launched from
+	// different working directories with the same relative override would
+	// hash one string and share one Go temporary directory.
+	relative := filepath.Join("state", "fleet")
+	if _, err := GoTmpDir(relative, "g1"); err == nil {
+		t.Fatal("GoTmpDir accepted a relative state directory, want refusal rather than a directory two fleets could share")
+	} else if !strings.Contains(err.Error(), fmt.Sprintf("%q", relative)) {
+		t.Errorf("error = %v, want it to name the rejected state directory %q", err, relative)
+	}
+}
+
+// Two fleet homes on one machine must never share a Go temporary directory:
+// the path the fleet segment replaced lived inside a fleet's own state tree,
+// so cleaning up a task named g1 in one fleet would otherwise recursively
+// delete the live GOTMPDIR of g1 in the other.
+func TestGoTmpDirIsScopedToTheFleet(t *testing.T) {
+	root := t.TempDir()
+	one, err := GoTmpDir(filepath.Join(root, "fleet-a", "state"), "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := GoTmpDir(filepath.Join(root, "fleet-b", "state"), "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if one == two {
+		t.Fatalf("two fleets share the Go temporary directory %q for the same task id", one)
+	}
+
+	// The same fleet must resolve to the same directory whatever the spelling,
+	// or a switch would relaunch into a directory the spawn never created.
+	// Each spelling is concatenated rather than joined: filepath.Join cleans its
+	// own arguments, so a joined path would reach GoTmpDir already cleaned and
+	// the assertion would compare a hash to itself.
+	//
+	// Every row the correctness argument leans on is pinned here. An untested
+	// premise is how the first version of this assertion shipped vacuous.
+	clean := filepath.Join(root, "fleet-a", "state")
+	sep := string(filepath.Separator)
+	base := filepath.Join(root, "fleet-a")
+	for _, spelling := range []struct {
+		name        string
+		raw         string
+		windowsOnly bool
+	}{
+		{name: "trailing separator", raw: clean + sep},
+		{name: "dot segment", raw: base + sep + "." + sep + "state"},
+		{name: "dot-dot segment", raw: base + sep + "sub" + sep + ".." + sep + "state"},
+		{name: "doubled separator", raw: base + sep + sep + "state"},
+		// Forward separators and case folding are Windows path properties. On a
+		// case-sensitive filesystem an upper-cased spelling names a different
+		// directory, and a backslash is an ordinary filename character, so
+		// folding either together there would be the sharing this prevents.
+		{name: "forward separators", raw: strings.ReplaceAll(clean, sep, "/"), windowsOnly: true},
+		{name: "upper case", raw: strings.ToUpper(clean), windowsOnly: true},
+	} {
+		t.Run(spelling.name, func(t *testing.T) {
+			if spelling.windowsOnly && runtime.GOOS != "windows" {
+				t.Skip("this spelling names a different directory on a case-sensitive filesystem")
+			}
+			if spelling.raw == clean {
+				t.Fatalf("spelling %q is identical to the baseline, so it asserts nothing", spelling.raw)
+			}
+			got, err := GoTmpDir(spelling.raw, "g1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != one {
+				t.Errorf("GoTmpDir(%q) = %q, want the same directory as %q", spelling.raw, got, one)
+			}
+		})
+	}
+}
+
+// An extended-length prefix survives filepath.Clean, so it would hash apart
+// from the plain spelling and split one fleet in two. Both spellings of the
+// prefix have to be refused: //?/C:/x is absolute and cleans to \\?\C:\x, so
+// a check against the raw string would accept it and hash the extended-length
+// form anyway.
+func TestGoTmpDirRefusesAnExtendedLengthStateDir(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("an extended-length prefix is a Windows path spelling; elsewhere it is an ordinary filename")
+	}
+	root := filepath.Join(t.TempDir(), "state")
+	for _, spelling := range []string{`\\?\` + root, "//?/" + filepath.ToSlash(root)} {
+		// Without this premise the refusal could come from the absoluteness
+		// guard instead, which would prove nothing about the prefix.
+		if !filepath.IsAbs(spelling) {
+			t.Fatalf("spelling %q is not absolute, so its refusal would not exercise the extended-length guard", spelling)
+		}
+		if _, err := GoTmpDir(spelling, "g1"); err == nil {
+			t.Errorf("GoTmpDir(%q) accepted an extended-length state directory, want refusal", spelling)
+		}
+	}
+	if _, err := GoTmpDir(root, "g1"); err != nil {
+		t.Fatalf("GoTmpDir refused the plain spelling %q: %v", root, err)
 	}
 }

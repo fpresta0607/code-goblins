@@ -281,7 +281,7 @@ func TestDescendantsRejectsPIDReuse(t *testing.T) {
 // internal/harness without a matching change here would silently blind the
 // sweep to every goblin of that harness.
 func TestHarnessSignaturesMatchAdapters(t *testing.T) {
-	spec := harness.LaunchSpec{BriefPath: `C:\brief.md`, TaskTmp: `C:\tmp`}
+	spec := harness.LaunchSpec{BriefPath: `C:\brief.md`, TaskTmp: `C:\tmp`, GoTmp: `C:\gotmp\task`}
 	registry := harness.DefaultRegistry()
 	for kind, signature := range map[harness.Kind]string{
 		harness.Claude: "--dangerously-skip-permissions",
