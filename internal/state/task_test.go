@@ -2,6 +2,7 @@ package state
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -292,6 +293,15 @@ func TestGoTmpDirIsOutsideTheStateTreeAndValidatesID(t *testing.T) {
 	}
 	if _, err := GoTmpDir("  ", "g1"); err == nil {
 		t.Fatal("GoTmpDir accepted an empty state directory, want refusal rather than a machine-global path")
+	}
+	// CFO_STATE_OVERRIDE is taken verbatim, so two fleets launched from
+	// different working directories with the same relative override would
+	// hash one string and share one Go temporary directory.
+	relative := filepath.Join("state", "fleet")
+	if _, err := GoTmpDir(relative, "g1"); err == nil {
+		t.Fatal("GoTmpDir accepted a relative state directory, want refusal rather than a directory two fleets could share")
+	} else if !strings.Contains(err.Error(), fmt.Sprintf("%q", relative)) {
+		t.Errorf("error = %v, want it to name the rejected state directory %q", err, relative)
 	}
 }
 

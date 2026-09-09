@@ -102,9 +102,20 @@ func PipelineLockName(id string) string {
 // The lowercasing is a property of Windows paths, not of paths in general: on
 // a case-sensitive filesystem two spellings differing only in case name two
 // directories, so the folding is only an invariant to rely on where cfo runs.
+//
+// A relative state directory is refused rather than made absolute. CFO_STATE_
+// OVERRIDE is taken verbatim, so two fleets launched from different working
+// directories with the same relative override would hash one string and share
+// one directory - the sharing this scoping exists to prevent. filepath.Abs
+// would not fix it: the processes that must agree on this path do not share a
+// working directory - a goblin runs in its worktree, cleanup runs elsewhere -
+// so Abs would give one fleet two directories, which is the worse failure.
 func GoTmpDir(stateDir, id string) (string, error) {
 	if strings.TrimSpace(stateDir) == "" {
 		return "", fmt.Errorf("state: go temporary directory needs the fleet state directory")
+	}
+	if !filepath.IsAbs(stateDir) {
+		return "", fmt.Errorf("state: go temporary directory needs an absolute fleet state directory, got %q", stateDir)
 	}
 	if err := ValidTaskID(id); err != nil {
 		return "", err
