@@ -188,12 +188,3 @@ func TestAckSequenceRefusesToOutrunTheListing(t *testing.T) {
 		t.Errorf("ackSequence(record hidden) = %d, true, want a refusal: acking 503 here retires the unread 502", seq)
 	}
 }
-
-// A withheld ack must say so rather than print a line that overreaches.
-func TestRenderWithholdsTheAckLineWhenTheListingIsIncomplete(t *testing.T) {
-	hidden := Record{Seq: 502, Kind: "notify", Key: "gb-pd-pr-review", Detail: "blocked: rule on PR #1140"}
-	shown := Record{Seq: 503, Kind: "notify", Key: "gb-pd-pr-review", Detail: "done: shipped"}
-	if seq, ok := ackSequence([]Record{hidden, shown}, []Record{shown}); ok {
-		t.Fatalf("premise broken: ackSequence accepted a hidden record and returned %d", seq)
-	}
-}

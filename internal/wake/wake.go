@@ -281,6 +281,11 @@ func Render(w io.Writer, records []Record, ep Episode) error {
 	}
 
 	maxSeq, complete := ackSequence(records, displayed)
+	// Unreachable today by construction: the loop above appends every row it
+	// prints, so displayed always accounts for records. It is kept because the
+	// failure it guards is silent - a filtered listing would print an ack line
+	// covering records nobody read. TestAckSequenceRefusesToOutrunTheListing
+	// asserts the premise by driving ackSequence with a narrowed listing.
 	if !complete {
 		_, err := fmt.Fprintln(w, "WAKE_ACK_WITHHELD: the listing above does not account for every unacknowledged record; acking now would retire records nobody has read")
 		return err

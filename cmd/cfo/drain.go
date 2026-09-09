@@ -11,7 +11,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// runDrain prints the deduped pending wake queue and any pending recovery
+// runDrain prints every unacknowledged wake record and any pending recovery
 // episode, then the ack command line an operator runs to retire them; with
 // --ack-through and/or --recovery-generation it performs those acks first.
 // Drain never creates a home's state/ directory itself: with no flags given
@@ -59,7 +59,7 @@ func runDrain(h home.Home, args []string, stdout, stderr io.Writer) int {
 			for _, rec := range blocking {
 				fmt.Fprintf(stderr, "  %d  %s  %s\n", rec.Seq, rec.Key, rec.Detail)
 			}
-			fmt.Fprintln(stderr, "answer it with `cfo send <id> \"...\"`, or re-run with --ack-blocking to retire it unanswered")
+			fmt.Fprintln(stderr, "answer it with `cfo send <id> \"...\"`, then re-run with --ack-blocking to retire the question you have now read")
 			return 1
 		}
 	}
@@ -99,9 +99,13 @@ func runDrain(h home.Home, args []string, stdout, stderr io.Writer) int {
 
 // blockingAtOrBelow returns the pending notifies at or below seq that report a
 // goblin blocked or failed — the ones that carry a question only the CFO can
-// answer. It reads the deduped queue on purpose: a later notify for the same
-// goblin (a `done`, say) supersedes an earlier block, and a block that has
-// already been superseded is no longer waiting on anyone.
+// answer. It reads RAW pending records on purpose: a later notify from the
+// same goblin (a `done`, say) is not evidence the question was answered, so
+// it does NOT retire the block. Reading a folded view is exactly what made
+// this guard blind to the records it protects, because the fold hid the
+// blocked record from the guard as well as from the listing. Only
+// --ack-blocking retires one, so the operator retires it deliberately after
+// seeing it in the listing.
 func blockingAtOrBelow(stateDir string, seq int) ([]wake.Record, error) {
 	pending, err := wake.Pending(stateDir)
 	if err != nil {
