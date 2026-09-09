@@ -257,7 +257,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := adapter.Validate(ctx, herdrClient.Commands); err != nil {
 		return fail(result, fmt.Errorf("spawn: validate harness %s: %w", req.Harness, err))
 	}
-	goTmp, err := state.GoTmpDir(result.Meta.ID)
+	goTmp, err := state.GoTmpDir(s.StateDir, result.Meta.ID)
 	if err != nil {
 		return fail(result, err)
 	}
@@ -957,8 +957,9 @@ func submitKey(kind harness.Kind) string {
 	return "Enter"
 }
 
-// teardownLaunch closes the task tab, returns the worktree, and retires the
-// task metadata. It is the clean-failure path: every step is attempted and
+// teardownLaunch closes the task tab, returns the worktree, removes the Go
+// temporary directory, and retires the task metadata. It is the clean-failure
+// path: every step is attempted and
 // their failures joined, so one stuck teardown step never leaves the rest
 // undone.
 func (s Service) teardownLaunch(ctx context.Context, client *herdr.Client, endpoint herdr.Endpoint, project, worktree, id string) error {
@@ -968,6 +969,15 @@ func (s Service) teardownLaunch(ctx context.Context, client *herdr.Client, endpo
 	}
 	if err := s.Worktrees.Return(ctx, project, worktree); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("spawn: return task worktree: %w", err))
+	}
+	// The Go temporary directory goes before the metadata, not after: cleanup
+	// reads <id>.meta to find a task at all, so once that file is gone nothing
+	// can ever remove this directory and a failed spawn would orphan it under
+	// the user cache directory, out of sight of the state tree.
+	if goTmp, err := state.GoTmpDir(s.StateDir, id); err != nil {
+		errs = errors.Join(errs, err)
+	} else if err := os.RemoveAll(goTmp); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("spawn: remove go temporary directory: %w", err))
 	}
 	if err := os.Remove(filepath.Join(s.StateDir, id+".meta")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		errs = errors.Join(errs, fmt.Errorf("spawn: retire task metadata: %w", err))

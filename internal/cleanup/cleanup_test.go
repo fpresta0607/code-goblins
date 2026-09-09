@@ -439,7 +439,7 @@ func TestCleanupRemovesTheGoTemporaryDirectory(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(fixture.stateDir, "tasktmp", "g1"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	goTmp, err := state.GoTmpDir("g1")
+	goTmp, err := state.GoTmpDir(fixture.stateDir, "g1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -456,12 +456,13 @@ func TestCleanupRemovesTheGoTemporaryDirectory(t *testing.T) {
 }
 
 // A task whose scratch directory is already gone still owns a Go temporary
-// directory, because that one lives outside the state tree. Removing it
-// before the archive rename is what makes cleanup the only thing that has to
-// run for a retired task to leave nothing behind.
+// directory, because that one lives outside the state tree. The removal is
+// unconditional - it runs whether or not there was scratch to archive - which
+// is what makes cleanup the only thing that has to run for a retired task to
+// leave nothing behind. See cleanup.removeGoTmp.
 func TestCleanupRemovesTheGoTemporaryDirectoryWithoutScratch(t *testing.T) {
 	fixture := newCleanupFixture(t)
-	goTmp, err := state.GoTmpDir("g1")
+	goTmp, err := state.GoTmpDir(fixture.stateDir, "g1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +493,7 @@ func TestCleanupArchivesEvenWhenTheGoTemporaryDirectoryIsPinned(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(taskTmp, "auth.ps1"), []byte("$env:STRIPE_SECRET_KEY = 'sk_live_secret'\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	goTmp, err := state.GoTmpDir("g1")
+	goTmp, err := state.GoTmpDir(fixture.stateDir, "g1")
 	if err != nil {
 		t.Fatal(err)
 	}

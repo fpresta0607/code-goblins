@@ -267,22 +267,59 @@ func TestGoTmpDirIsOutsideTheStateTreeAndValidatesID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UserCacheDir = %v, want the base GoTmpDir derives from", err)
 	}
-	dir, err := GoTmpDir("g1")
+	stateDir := filepath.Join(t.TempDir(), "state")
+	dir, err := GoTmpDir(stateDir, "g1")
 	if err != nil {
 		t.Fatalf("GoTmpDir = %v, want a path", err)
 	}
 	if rel, relErr := filepath.Rel(cache, dir); relErr != nil || strings.HasPrefix(rel, "..") {
 		t.Errorf("GoTmpDir = %q, want it under the user cache directory %q", dir, cache)
 	}
+	if rel, relErr := filepath.Rel(stateDir, dir); relErr == nil && !strings.HasPrefix(rel, "..") {
+		t.Errorf("GoTmpDir = %q, want it outside the state tree %q", dir, stateDir)
+	}
 	// The machine temporary directory is the one place it must not be: a
 	// goblin task is live for days and Windows prunes %TEMP% on its own.
 	if rel, relErr := filepath.Rel(os.TempDir(), dir); relErr == nil && !strings.HasPrefix(rel, "..") {
 		t.Errorf("GoTmpDir = %q, want it outside the machine temporary directory %q", dir, os.TempDir())
 	}
-	if other, otherErr := GoTmpDir("g2"); otherErr != nil || other == dir {
+	if other, otherErr := GoTmpDir(stateDir, "g2"); otherErr != nil || other == dir {
 		t.Errorf("GoTmpDir(g2) = %q, %v, want a directory of its own", other, otherErr)
 	}
-	if _, err := GoTmpDir("../escape"); err == nil {
+	if _, err := GoTmpDir(stateDir, "../escape"); err == nil {
 		t.Fatal("GoTmpDir accepted a traversing task ID, want refusal")
+	}
+	if _, err := GoTmpDir("  ", "g1"); err == nil {
+		t.Fatal("GoTmpDir accepted an empty state directory, want refusal rather than a machine-global path")
+	}
+}
+
+// Two fleet homes on one machine must never share a Go temporary directory:
+// the path the fleet segment replaced lived inside a fleet's own state tree,
+// so cleaning up a task named g1 in one fleet would otherwise recursively
+// delete the live GOTMPDIR of g1 in the other.
+func TestGoTmpDirIsScopedToTheFleet(t *testing.T) {
+	root := t.TempDir()
+	one, err := GoTmpDir(filepath.Join(root, "fleet-a", "state"), "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := GoTmpDir(filepath.Join(root, "fleet-b", "state"), "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if one == two {
+		t.Fatalf("two fleets share the Go temporary directory %q for the same task id", one)
+	}
+
+	// The same fleet must resolve to the same directory whatever the spelling,
+	// or a switch would relaunch into a directory the spawn never created.
+	spelled := filepath.Join(root, "fleet-a", "sub", "..", "state")
+	same, err := GoTmpDir(spelled, "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if same != one {
+		t.Errorf("GoTmpDir(%q) = %q, want the same directory as %q", spelled, same, one)
 	}
 }
