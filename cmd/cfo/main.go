@@ -45,7 +45,7 @@ commands:
   cfo auth refresh <task-id>        regenerate a task's auth.ps1 from its project scope; storing or copying into a project scope does this for every live task of that project automatically
   cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--yolo]
   cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place
-  cfo send <target> [--key <key>] [--no-auto-submit] <text...>
+  cfo send <target> [--key <key>] <text...>
   cfo peek <target> [lines]
   cfo fleet-view [--json]
   cfo brief <id> --project <path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>]
@@ -73,7 +73,7 @@ type commandRuntime struct {
 	resolveHome   func() (home.Home, error)
 	spawn         func(context.Context, home.Home, spawn.Request) (spawn.Result, error)
 	switchTask    func(context.Context, home.Home, spawn.SwitchRequest) (spawn.SwitchResult, error)
-	sendText      func(context.Context, home.Home, string, string, bool) error
+	sendText      func(context.Context, home.Home, string, string) error
 	sendKey       func(context.Context, home.Home, string, string) error
 	authRefresher func(home.Home) spawn.AuthRefresher
 	peek          func(context.Context, home.Home, string, int) (string, error)
@@ -113,9 +113,9 @@ func defaultCommandRuntime() commandRuntime {
 			}
 			return service.Switch(ctx, request)
 		},
-		sendText: func(ctx context.Context, h home.Home, target, text string, autoSubmit bool) error {
+		sendText: func(ctx context.Context, h home.Home, target, text string) error {
 			client := &herdr.Client{Commands: execx.OSRunner{}}
-			return fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Herdr: client, AutoSubmit: autoSubmit}.Text(ctx, target, text)
+			return fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Herdr: client}.Text(ctx, target, text)
 		},
 		sendKey: func(ctx context.Context, h home.Home, target, key string) error {
 			client := &herdr.Client{Commands: execx.OSRunner{}}

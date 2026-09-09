@@ -930,7 +930,7 @@ func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.C
 			lastReadErr = err
 			continue
 		}
-		if instructionAccepted(before, after) {
+		if herdr.PromptAccepted(before, after) {
 			return nil
 		}
 	}
@@ -946,17 +946,6 @@ func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.C
 		return fmt.Errorf("spawn: the agent never reported accepting the instruction within %ds; later agent reads were refused: %w", budget, lastReadErr)
 	}
 	return fmt.Errorf("spawn: the agent never reported accepting the instruction within %ds", budget)
-}
-
-// instructionAccepted reports whether Herdr's agent state moved in a way only
-// an accepted prompt explains: either monotonic counter advanced, or the agent
-// left an input-waiting state to work. Status alone is not enough - an agent
-// already working when the prompt arrived would read as accepted without it.
-func instructionAccepted(before, after herdr.AgentDetail) bool {
-	if after.StateChangeSeq > before.StateChangeSeq || after.Revision > before.Revision {
-		return true
-	}
-	return after.Status == herdr.AgentWorking && before.Status != herdr.AgentWorking
 }
 
 // teardownLaunch closes the task tab, returns the worktree, removes the Go

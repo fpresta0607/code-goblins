@@ -205,7 +205,7 @@ func refreshTestRuntime(t *testing.T, stateDir string, panes cmdPanes, sent *[]s
 		authRefresher: func(h home.Home) spawn.AuthRefresher {
 			return spawn.AuthRefresher{StateDir: h.State, DataDir: h.Data, Panes: panes}
 		},
-		sendText: func(_ context.Context, _ home.Home, target, text string, _ bool) error {
+		sendText: func(_ context.Context, _ home.Home, target, text string) error {
 			*sent = append(*sent, target+" "+text)
 			return nil
 		},

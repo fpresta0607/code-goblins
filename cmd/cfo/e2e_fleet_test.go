@@ -397,8 +397,21 @@ func (f *fleetE2EFixture) SendAndPeek(id string) {
 	if stdout != "sent gb-"+id+"\n" || stderr != "" {
 		f.t.Fatalf("send stdout=%q stderr=%q", stdout, stderr)
 	}
-	if got := f.runner.lastText; got != "print the acceptance marker" {
-		f.t.Fatalf("sent text=%q", got)
+	// The message travels the native agent channel, so it is pinned on the
+	// prompt rather than on typed pane text. Nothing is typed into the
+	// composer any more, which is the point: a harness that collapses a paste
+	// renders nothing to read back, and a message the CFO believed was
+	// delivered would be silently lost.
+	var delivered int
+	for _, prompts := range f.runner.prompts {
+		for _, prompt := range prompts {
+			if prompt == "print the acceptance marker" {
+				delivered++
+			}
+		}
+	}
+	if delivered != 1 {
+		f.t.Fatalf("message submitted %d times, want exactly one native prompt; prompts=%v", delivered, f.runner.prompts)
 	}
 
 	stdout, stderr = runFleetCommand(f.t, f.runtime, "peek", "gb-"+id, "5")
@@ -628,12 +641,11 @@ func (f *fleetE2EFixture) spawn(ctx context.Context, h home.Home, request spawn.
 	return service.Spawn(ctx, request)
 }
 
-func (f *fleetE2EFixture) sendText(ctx context.Context, h home.Home, target, text string, autoSubmit bool) error {
+func (f *fleetE2EFixture) sendText(ctx context.Context, h home.Home, target, text string) error {
 	return fleet.Sender{
-		Resolve:    fleet.Resolver{StateDir: h.State},
-		Herdr:      f.client,
-		Sleep:      noWait,
-		AutoSubmit: autoSubmit,
+		Resolve: fleet.Resolver{StateDir: h.State},
+		Herdr:   f.client,
+		Sleep:   noWait,
 	}.Text(ctx, target, text)
 }
 
@@ -797,6 +809,14 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 			// What a real claude pane holds after a paste: the text is gone,
 			// replaced by a placeholder that names nothing it contained.
 			return result("> [Pasted text #1]\n  paste again to expand\n"), nil
+		}
+		// A prompt the agent accepted shows up in the pane transcript, which
+		// is what a later peek reads. Verified against live herdr 0.9.0: the
+		// submitted text appears in full, with no placeholder.
+		if len(args) >= 3 {
+			if prompts := r.prompts[args[2]]; len(prompts) > 0 {
+				return result(prompts[len(prompts)-1] + "\n"), nil
+			}
 		}
 		if r.lastText != "" {
 			return result(r.lastText + "\n"), nil
