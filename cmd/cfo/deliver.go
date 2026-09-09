@@ -227,7 +227,7 @@ func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner) 
 // merge.
 func deleteMergedBranch(ctx context.Context, url string, stdout, stderr io.Writer, commands execx.Runner) {
 	view, err := commands.Run(ctx, execx.Request{Name: "gh", Args: []string{
-		"pr", "view", url, "--json", "headRefName,headRepository,headRepositoryOwner",
+		"pr", "view", url, "--json", "headRefName,headRefOid,headRepository,headRepositoryOwner",
 	}})
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo pr merge: merged, but the branch was left in place: %v\n", err)
@@ -239,6 +239,7 @@ func deleteMergedBranch(ctx context.Context, url string, stdout, stderr io.Write
 	}
 	var head struct {
 		HeadRefName    string `json:"headRefName"`
+		HeadRefOid     string `json:"headRefOid"`
 		HeadRepository struct {
 			Name string `json:"name"`
 		} `json:"headRepository"`
@@ -265,17 +266,27 @@ func deleteMergedBranch(ctx context.Context, url string, stdout, stderr io.Write
 	switch {
 	case err != nil:
 		fmt.Fprintf(stderr, "cfo pr merge: merged, but the remote branch %s was left in place: %v\n", branch, err)
+	// A repository with "Automatically delete head branches" enabled has
+	// already removed the ref during the merge, and the DELETE says so. The
+	// end state the flag asks for was reached, so warning that the branch was
+	// left in place would be a warning about a branch that is not there.
+	case del.ExitCode != 0 && refAlreadyGone(del.Stderr):
+		fmt.Fprintf(stdout, "remote branch %s was already gone\n", branch)
 	case del.ExitCode != 0:
 		fmt.Fprintf(stderr, "cfo pr merge: merged, but the remote branch %s was left in place: gh exited %d: %s\n", branch, del.ExitCode, strings.TrimSpace(string(del.Stderr)))
 	default:
 		fmt.Fprintf(stdout, "deleted remote branch %s\n", branch)
 	}
 
-	// A local branch is only worth reporting on if there is one. cfo is run
-	// from checkouts that never held the goblin's branch as often as from the
-	// one that did, and warning about a branch that was never there would
-	// train the reader to ignore the warning that matters.
-	if exists, err := commands.Run(ctx, execx.Request{Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", "refs/heads/" + branch}}); err != nil || exists.ExitCode != 0 {
+	// The local branch is identified by the commit GitHub merged, never by its
+	// name alone. cfo is run from checkouts that never held the goblin's
+	// branch as often as from the one that did, goblin branch names collide
+	// across projects, and -D would force-delete an unrelated branch's unpushed
+	// commits. The same test skips a local branch that is ahead of what was
+	// pushed. Either way the branch here is not the merged one, so there is
+	// nothing to clean up and nothing to report.
+	localRef, err := commands.Run(ctx, execx.Request{Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", "refs/heads/" + branch}})
+	if err != nil || localRef.ExitCode != 0 || strings.TrimSpace(string(localRef.Stdout)) != head.HeadRefOid {
 		return
 	}
 	// -D rather than -d: git's "is it merged" test asks whether the commits
@@ -291,6 +302,13 @@ func deleteMergedBranch(ctx context.Context, url string, stdout, stderr io.Write
 	default:
 		fmt.Fprintf(stdout, "deleted local branch %s\n", branch)
 	}
+}
+
+// refAlreadyGone reports whether a ref deletion failed because the ref was not
+// there: GitHub answers a DELETE of a missing ref with HTTP 422 "Reference does
+// not exist".
+func refAlreadyGone(stderr []byte) bool {
+	return strings.Contains(strings.ToLower(string(stderr)), "reference does not exist")
 }
 
 // runMergeLocal fast-forwards a project's main branch to a goblin's landed worktree
