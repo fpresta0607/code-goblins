@@ -1,6 +1,8 @@
 package wake
 
 import (
+	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -121,80 +123,68 @@ func TestAppendRejectsUnknownKind(t *testing.T) {
 	}
 }
 
-func TestDedupedLastWriteWinsPerKindKey(t *testing.T) {
+// The seq 502 loss, reproduced. A blocked escalation from a task was followed
+// 71 seconds later by another notify from the SAME task; the listing showed
+// only the second, while the ack line it printed covered both, so the
+// escalation was retired unread and the goblin sat blocked believing it had
+// asked. Two records from one task must both be listed, both counted, and the
+// ack must reach no further than what was listed.
+func TestRenderListsEveryRecordFromOneTask(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := Append(dir, "signal", "a", "first a"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Append(dir, "signal", "b", "only b"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Append(dir, "signal", "a", "second a"); err != nil {
-		t.Fatal(err)
-	}
-	records, err := Pending(dir)
+	first, err := Append(dir, "notify", "gb-pd-pr-review", "blocked: rule on PR #1140")
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := Deduped(records)
-	if len(got) != 2 {
-		t.Fatalf("len = %d, want 2", len(got))
+	second, err := Append(dir, "notify", "gb-pd-pr-review", "done: PR https://example.test/pull/1")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got[0].Key != "a" || got[0].Detail != "second a" || got[0].Seq != 3 {
-		t.Errorf("a bucket = %+v, want the later detail and seq", got[0])
+	if first.Seq == second.Seq {
+		t.Fatalf("both notifies took seq %d, so this cannot test a fold", first.Seq)
 	}
-	if got[1].Key != "b" || got[1].Detail != "only b" {
-		t.Errorf("b bucket = %+v, want untouched", got[1])
+
+	pending, err := Pending(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := Render(&out, pending, Episode{}); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+
+	if !strings.Contains(got, "WAKE QUEUE: 2 pending") {
+		t.Errorf("render = %q, want both records counted", got)
+	}
+	if !strings.Contains(got, "blocked: rule on PR #1140") {
+		t.Errorf("render = %q, want the blocked escalation listed, not folded behind the later notify", got)
+	}
+	if !strings.Contains(got, "done: PR https://example.test/pull/1") {
+		t.Errorf("render = %q, want the later notify listed too", got)
+	}
+	if want := fmt.Sprintf("--ack-through %d", second.Seq); !strings.Contains(got, want) {
+		t.Errorf("render = %q, want the ack line to name %s", got, want)
 	}
 }
 
-func TestDedupedCollapsesHeartbeats(t *testing.T) {
-	dir := t.TempDir()
-	if _, err := Append(dir, "heartbeat", "h1", "heartbeat"); err != nil {
-		t.Fatal(err)
+// The ack sequence must come from what was shown. This drives the derivation
+// directly with a narrowed listing, because Render passing its own rows makes
+// the sets match by construction - and a guard that can only be observed when
+// it is impossible to violate is not a guard.
+func TestAckSequenceRefusesToOutrunTheListing(t *testing.T) {
+	records := []Record{
+		{Seq: 502, Kind: "notify", Key: "gb-pd-pr-review", Detail: "blocked: rule on PR #1140"},
+		{Seq: 503, Kind: "notify", Key: "gb-pd-pr-review", Detail: "done: shipped"},
 	}
-	if _, err := Append(dir, "heartbeat", "h2", "heartbeat"); err != nil {
-		t.Fatal(err)
+	if seq, ok := ackSequence(records, records); !ok || seq != 503 {
+		t.Errorf("ackSequence(all shown) = %d, %v, want 503, true", seq, ok)
 	}
-	if _, err := Append(dir, "heartbeat", "h3", "heartbeat"); err != nil {
-		t.Fatal(err)
-	}
-	records, err := Pending(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := Deduped(records)
-	if len(got) != 1 {
-		t.Fatalf("len = %d, want 1", len(got))
-	}
-	if got[0].Key != "h3" {
-		t.Errorf("surviving heartbeat = %+v, want the latest (h3)", got[0])
-	}
-}
 
-func TestDedupedKeepsBothBucketsAcrossCycles(t *testing.T) {
-	dir := t.TempDir()
-	if _, err := Append(dir, "signal", "a.status", "cycle one"); err != nil {
-		t.Fatal(err)
+	narrowed := records[1:]
+	if len(narrowed) == len(records) {
+		t.Fatal("the narrowed listing is not narrower, so this asserts nothing")
 	}
-	if _, err := Append(dir, "signal", "b.status", "cycle one"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Append(dir, "signal", "a.status", "cycle two"); err != nil {
-		t.Fatal(err)
-	}
-	records, err := Pending(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := Deduped(records)
-	if len(got) != 2 {
-		t.Fatalf("len = %d, want 2", len(got))
-	}
-	if got[0].Key != "a.status" || got[0].Detail != "cycle two" {
-		t.Errorf("a.status bucket = %+v, want the later detail", got[0])
-	}
-	if got[1].Key != "b.status" || got[1].Detail != "cycle one" {
-		t.Errorf("b.status bucket = %+v, want untouched", got[1])
+	if seq, ok := ackSequence(records, narrowed); ok {
+		t.Errorf("ackSequence(record hidden) = %d, true, want a refusal: acking 503 here retires the unread 502", seq)
 	}
 }

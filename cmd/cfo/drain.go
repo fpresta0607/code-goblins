@@ -11,7 +11,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// runDrain prints the deduped pending wake queue and any pending recovery
+// runDrain prints every unacknowledged wake record and any pending recovery
 // episode, then the ack command line an operator runs to retire them; with
 // --ack-through and/or --recovery-generation it performs those acks first.
 // Drain never creates a home's state/ directory itself: with no flags given
@@ -22,7 +22,7 @@ func runDrain(h home.Home, args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	ackThrough := fs.Int("ack-through", 0, "acknowledge wake records through this sequence")
 	recoveryGen := fs.Int("recovery-generation", 0, "acknowledge the recovery episode at this generation")
-	ackBlocking := fs.Bool("ack-blocking", false, "also retire blocked/failed notifies, which --ack-through refuses on its own")
+	ackBlocking := fs.Bool("ack-blocking", false, "also retire EVERY blocked/failed notify at or below --ack-through, which it refuses on its own")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -55,11 +55,12 @@ func runDrain(h home.Home, args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		if len(blocking) > 0 {
-			fmt.Fprintln(stderr, "cfo drain: refusing to ack a goblin that is waiting on you:")
+			fmt.Fprintln(stderr, "cfo drain: refusing to ack goblins that are waiting on you:")
 			for _, rec := range blocking {
 				fmt.Fprintf(stderr, "  %d  %s  %s\n", rec.Seq, rec.Key, rec.Detail)
 			}
-			fmt.Fprintln(stderr, "answer it with `cfo send <id> \"...\"`, or re-run with --ack-blocking to retire it unanswered")
+			fmt.Fprintln(stderr, "answer each with `cfo send <id> \"...\"`, then re-run with --ack-blocking to retire EVERY question listed above.")
+			fmt.Fprintln(stderr, "--ack-blocking is range-scoped, not per-record: it retires all of them, and the list above is the whole set. The ack floor only moves forward, so there is no way to retire a later question while keeping an earlier one - to hold one open, handle it first or re-run --ack-through below its sequence.")
 			return 1
 		}
 	}
@@ -99,16 +100,22 @@ func runDrain(h home.Home, args []string, stdout, stderr io.Writer) int {
 
 // blockingAtOrBelow returns the pending notifies at or below seq that report a
 // goblin blocked or failed — the ones that carry a question only the CFO can
-// answer. It reads the deduped queue on purpose: a later notify for the same
-// goblin (a `done`, say) supersedes an earlier block, and a block that has
-// already been superseded is no longer waiting on anyone.
+// answer. It reads RAW pending records on purpose: a later notify from the
+// same goblin (a `done`, say) is not evidence the question was answered, so
+// it does NOT retire the block. Reading a folded view is exactly what made
+// this guard blind to the records it protects, because the fold hid the
+// blocked record from the guard as well as from the listing. Only
+// --ack-blocking retires these, and it is range-scoped: it retires every one
+// at or below the sequence, so the operator retires them deliberately after
+// seeing the full listing.
 func blockingAtOrBelow(stateDir string, seq int) ([]wake.Record, error) {
 	pending, err := wake.Pending(stateDir)
 	if err != nil {
 		return nil, err
 	}
 	var blocking []wake.Record
-	for _, rec := range wake.Deduped(pending) {
+	// RAW pending, never a folded view.
+	for _, rec := range pending {
 		if rec.Seq > seq || rec.Kind != "notify" {
 			continue
 		}
