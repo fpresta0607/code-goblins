@@ -47,9 +47,11 @@ var kinds = map[string]bool{
 
 // Record is one durable wake. Seq starts at 1 and is never reused; the ack
 // floor only ever moves forward, matching upstream's --ack-through contract.
-// Key identifies the thing the wake is about (a goblin id, a window id, a
-// heartbeat) for drain-time dedup; old lines without a key unmarshal with it
-// empty.
+// Key identifies the subject of the wake (a goblin id, a window id, a
+// heartbeat). It is NOT a dedup key and records are never folded: Render
+// prints every unacknowledged record, omitting the `key: ` segment only when
+// Key equals Kind, and Key is the identifying column in drain's blocked-notify
+// refusal listing. Old lines without a key unmarshal with it empty.
 type Record struct {
 	Seq    int       `json:"seq"`
 	Time   time.Time `json:"time"`

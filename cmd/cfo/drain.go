@@ -105,8 +105,9 @@ func runDrain(h home.Home, args []string, stdout, stderr io.Writer) int {
 // it does NOT retire the block. Reading a folded view is exactly what made
 // this guard blind to the records it protects, because the fold hid the
 // blocked record from the guard as well as from the listing. Only
-// --ack-blocking retires one, so the operator retires it deliberately after
-// seeing it in the listing.
+// --ack-blocking retires these, and it is range-scoped: it retires every one
+// at or below the sequence, so the operator retires them deliberately after
+// seeing the full listing.
 func blockingAtOrBelow(stateDir string, seq int) ([]wake.Record, error) {
 	pending, err := wake.Pending(stateDir)
 	if err != nil {
