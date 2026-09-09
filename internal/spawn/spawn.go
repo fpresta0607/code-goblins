@@ -976,10 +976,11 @@ func (s Service) teardownLaunch(ctx context.Context, client *herdr.Client, endpo
 	if err := s.Worktrees.Return(ctx, project, worktree); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("spawn: return task worktree: %w", err))
 	}
-	// The Go temporary directory goes before the metadata, not after: cleanup
-	// reads <id>.meta to find a task at all, so once that file is gone nothing
-	// can ever remove this directory and a failed spawn would orphan it under
-	// the user cache directory, out of sight of the state tree.
+	// Removing the Go temporary directory belongs to this teardown rather than
+	// to a later cleanup: cleanup reads <id>.meta to find a task at all, so
+	// once the metadata is retired nothing can ever remove this directory and
+	// a failed spawn would orphan it under the user cache directory, out of
+	// sight of the state tree.
 	if goTmp, err := state.GoTmpDir(s.StateDir, id); err != nil {
 		errs = errors.Join(errs, err)
 	} else if err := os.RemoveAll(goTmp); err != nil {
