@@ -42,8 +42,19 @@ func TestBriefScaffoldCarriesTheCommitAuthorshipRule(t *testing.T) {
 	}
 }
 
+// The commit gh reports as the PR's head, and the one an unrelated local
+// branch of the same name in some other checkout happens to sit on.
+const (
+	prMergeHeadOID  = "3f1a9c0d5e8b47216a0d9c3f1b2e4a67d8c05f93"
+	prMergeOtherOID = "aa11bb22cc33dd44ee55ff66aa77bb88cc99dd00"
+)
+
 // The gh pr view payload this code parses, in the shape gh 2.86 emits.
-const prMergeHeadJSON = `{"headRefName":"fix/x","headRepository":{"name":"code-goblins"},"headRepositoryOwner":{"login":"fpresta0607"}}`
+const prMergeHeadJSON = `{"headRefName":"fix/x","headRefOid":"` + prMergeHeadOID + `","headRepository":{"name":"code-goblins"},"headRepositoryOwner":{"login":"fpresta0607"}}`
+
+// gh's message for a DELETE of a ref that is not there, which is what a
+// repository with "Automatically delete head branches" enabled produces.
+const prMergeRefGone = "gh: Reference does not exist (HTTP 422)"
 
 // git's actual refusal, copied from a reproduction: a branch checked out
 // in a worktree cannot be deleted, and -D does not override it either.
@@ -55,13 +66,15 @@ const prMergeWorktreeRefusal = "error: cannot delete branch 'fix/x' used by work
 type prMergeRunner struct {
 	requests []execx.Request
 
-	mergeExit  int
-	viewStdout string
-	viewExit   int
-	deleteExit int
-	// localExists is the `git rev-parse` answer; localStderr with a non-zero
+	mergeExit    int
+	viewStdout   string
+	viewExit     int
+	deleteExit   int
+	deleteStderr string
+	// localOid is the commit `git rev-parse` resolves the local branch to; an
+	// empty one is a branch that is not there. localStderr with a non-zero
 	// localExit is the shape git produces for a branch held by a worktree.
-	localExists bool
+	localOid    string
 	localExit   int
 	localStderr string
 }
@@ -82,14 +95,18 @@ func (r *prMergeRunner) Run(_ context.Context, request execx.Request) (execx.Res
 		return execx.Result{ExitCode: r.viewExit, Stdout: []byte(body)}, nil
 	case request.Name == "gh" && request.Args[0] == "api":
 		if r.deleteExit != 0 {
-			return execx.Result{ExitCode: r.deleteExit, Stderr: []byte("HTTP 403: Resource not accessible")}, nil
+			reason := r.deleteStderr
+			if reason == "" {
+				reason = "HTTP 403: Resource not accessible"
+			}
+			return execx.Result{ExitCode: r.deleteExit, Stderr: []byte(reason)}, nil
 		}
 		return execx.Result{}, nil
 	case request.Name == "git" && request.Args[0] == "rev-parse":
-		if !r.localExists {
+		if r.localOid == "" {
 			return execx.Result{ExitCode: 1}, nil
 		}
-		return execx.Result{}, nil
+		return execx.Result{Stdout: []byte(r.localOid + "\n")}, nil
 	case request.Name == "git" && request.Args[0] == "branch":
 		return execx.Result{ExitCode: r.localExit, Stderr: []byte(r.localStderr)}, nil
 	}
@@ -122,7 +139,7 @@ func (r *prMergeRunner) ran(name string, args ...string) bool {
 // merged work.
 func TestPRMergeDeletesTheRemoteRefEvenWhenTheLocalBranchIsHeldByAWorktree(t *testing.T) {
 	runner := &prMergeRunner{
-		localExists: true,
+		localOid:    prMergeHeadOID,
 		localExit:   1,
 		localStderr: prMergeWorktreeRefusal,
 	}
@@ -156,7 +173,7 @@ func TestPRMergeDeletesTheRemoteRefEvenWhenTheLocalBranchIsHeldByAWorktree(t *te
 // gh's flag is what couples the two deletions, so not passing it is the fix.
 // Asserting its absence is asserting the defect is gone.
 func TestPRMergeNeverForwardsDeleteBranchToGH(t *testing.T) {
-	runner := &prMergeRunner{localExists: true}
+	runner := &prMergeRunner{localOid: prMergeHeadOID}
 
 	var stdout, stderr bytes.Buffer
 	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner); exit != 0 {
@@ -175,7 +192,7 @@ func TestPRMergeNeverForwardsDeleteBranchToGH(t *testing.T) {
 }
 
 func TestPRMergeDeletesBothWhenNoWorktreeHoldsTheBranch(t *testing.T) {
-	runner := &prMergeRunner{localExists: true}
+	runner := &prMergeRunner{localOid: prMergeHeadOID}
 
 	var stdout, stderr bytes.Buffer
 	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner); exit != 0 {
@@ -189,10 +206,33 @@ func TestPRMergeDeletesBothWhenNoWorktreeHoldsTheBranch(t *testing.T) {
 	}
 }
 
+// With "Automatically delete head branches" enabled the ref is already gone by
+// the time the DELETE runs, and gh exits non-zero saying so. The end state the
+// flag asks for was reached, so warning that the branch was left in place is
+// both false and the kind of noise that trains the reader to ignore the
+// warning that matters.
+func TestPRMergeStaysSilentWhenTheRemoteRefIsAlreadyGone(t *testing.T) {
+	runner := &prMergeRunner{deleteExit: 1, deleteStderr: prMergeRefGone, localOid: prMergeHeadOID}
+
+	var stdout, stderr bytes.Buffer
+	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner); exit != 0 {
+		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want silence - the ref is gone, which is what was asked for", stderr.String())
+	}
+	if strings.Contains(stdout.String(), "deleted remote branch") {
+		t.Errorf("stdout = %q, want no claim that cfo deleted a ref it did not", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "remote branch fix/x was already gone") {
+		t.Errorf("stdout = %q, want the branch reported as gone", stdout.String())
+	}
+}
+
 // A failed remote deletion must not be reported as a success, and must not
 // stop the local cleanup either - the two are independent in both directions.
 func TestPRMergeReportsAFailedRemoteDeletionWithoutClaimingIt(t *testing.T) {
-	runner := &prMergeRunner{deleteExit: 1, localExists: true}
+	runner := &prMergeRunner{deleteExit: 1, localOid: prMergeHeadOID}
 
 	var stdout, stderr bytes.Buffer
 	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner); exit != 0 {
@@ -211,7 +251,7 @@ func TestPRMergeReportsAFailedRemoteDeletionWithoutClaimingIt(t *testing.T) {
 
 // Nothing is deleted for a merge that did not happen.
 func TestPRMergeDeletesNothingWhenTheMergeFails(t *testing.T) {
-	runner := &prMergeRunner{mergeExit: 1, localExists: true}
+	runner := &prMergeRunner{mergeExit: 1, localOid: prMergeHeadOID}
 
 	var stdout, stderr bytes.Buffer
 	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner); exit != 1 {
@@ -224,7 +264,7 @@ func TestPRMergeDeletesNothingWhenTheMergeFails(t *testing.T) {
 
 // Without the flag the command must stay exactly what it was: one merge.
 func TestPRMergeWithoutDeleteBranchRunsOnlyTheMerge(t *testing.T) {
-	runner := &prMergeRunner{localExists: true}
+	runner := &prMergeRunner{localOid: prMergeHeadOID}
 
 	var stdout, stderr bytes.Buffer
 	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13"}, &stdout, &stderr, runner); exit != 0 {
@@ -235,11 +275,30 @@ func TestPRMergeWithoutDeleteBranchRunsOnlyTheMerge(t *testing.T) {
 	}
 }
 
+// A branch name is not an identity. cfo is run from whatever checkout the
+// operator's shell is in, goblin names like fix/x collide across projects, and
+// -D force-deletes: a same-named local branch on a different commit is
+// somebody else's unmerged, unpushed work.
+func TestPRMergeLeavesALocalBranchOnADifferentCommitAlone(t *testing.T) {
+	runner := &prMergeRunner{localOid: prMergeOtherOID}
+
+	var stdout, stderr bytes.Buffer
+	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner); exit != 0 {
+		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
+	}
+	if runner.ran("git", "branch", "-D", "fix/x") {
+		t.Error("force-deleted a local branch that is not the merged commit, destroying whatever it carried")
+	}
+	if strings.Contains(stdout.String(), "local branch") || stderr.Len() != 0 {
+		t.Errorf("stdout = %q stderr = %q, want nothing said - this checkout's branch is not the merged one", stdout.String(), stderr.String())
+	}
+}
+
 // A local branch that was never there is not a warning. cfo runs from
 // checkouts that never held the goblin's branch, and a warning about a branch
 // that does not exist trains the reader to ignore the one that matters.
 func TestPRMergeStaysSilentWhenThereIsNoLocalBranch(t *testing.T) {
-	runner := &prMergeRunner{localExists: false}
+	runner := &prMergeRunner{localOid: ""}
 
 	var stdout, stderr bytes.Buffer
 	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner); exit != 0 {
