@@ -98,6 +98,10 @@ func PipelineLockName(id string) string {
 // separate unshared directory, which is harmless, while a resolve that
 // succeeded in one process and failed in another could yield a shared one,
 // which is the defect this scoping exists to prevent.
+//
+// The lowercasing is a property of Windows paths, not of paths in general: on
+// a case-sensitive filesystem two spellings differing only in case name two
+// directories, so the folding is only an invariant to rely on where cfo runs.
 func GoTmpDir(stateDir, id string) (string, error) {
 	if strings.TrimSpace(stateDir) == "" {
 		return "", fmt.Errorf("state: go temporary directory needs the fleet state directory")

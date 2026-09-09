@@ -802,6 +802,34 @@ func TestSwitchReappliesTheProjectEnvironmentRedirects(t *testing.T) {
 	}
 }
 
+// A relaunch has to land in the task's own Go temporary directory - not
+// merely in something that is not the manifest's - and has to recreate it: a
+// long-lived task can outlive its scratch, and a harness launched at a
+// GOTMPDIR that does not exist fails its first go build.
+func TestSwitchRelaunchesIntoTheTasksOwnGoTmpDir(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	goTmp := goTmpDir(t, fixture.stateDir, fixture.meta.ID)
+	if err := os.RemoveAll(goTmp); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{
+		ID:      fixture.meta.ID,
+		Harness: harness.Kimi,
+		Session: "fleet",
+	}); err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+
+	launched := fixture.runner.literals[len(fixture.runner.literals)-2]
+	if !strings.Contains(launched, "$env:GOTMPDIR = '"+goTmp+"'") {
+		t.Errorf("launch line = %q, want GOTMPDIR set to the task's own directory %q", launched, goTmp)
+	}
+	if info, err := os.Stat(goTmp); err != nil || !info.IsDir() {
+		t.Errorf("stat %q = %v, %v, want the relaunch to have recreated the directory", goTmp, info, err)
+	}
+}
+
 func TestSwitchHandsTheNewHarnessTheProvisionedMCPConfig(t *testing.T) {
 	fixture := newSwitchFixture(t)
 	// Provisioning materializes the filtered configuration under the task's

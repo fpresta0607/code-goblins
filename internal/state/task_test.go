@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -314,12 +315,36 @@ func TestGoTmpDirIsScopedToTheFleet(t *testing.T) {
 
 	// The same fleet must resolve to the same directory whatever the spelling,
 	// or a switch would relaunch into a directory the spawn never created.
-	spelled := filepath.Join(root, "fleet-a", "sub", "..", "state")
+	// The uncleaned spelling is concatenated rather than joined: filepath.Join
+	// cleans its own arguments, so a joined path would reach GoTmpDir already
+	// cleaned and the assertion would compare a hash to itself.
+	clean := filepath.Join(root, "fleet-a", "state")
+	sep := string(filepath.Separator)
+	spelled := filepath.Join(root, "fleet-a") + sep + "sub" + sep + ".." + sep + "state"
+	if spelled == filepath.Clean(spelled) {
+		t.Fatalf("spelling %q is already clean, so this asserts nothing", spelled)
+	}
 	same, err := GoTmpDir(spelled, "g1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if same != one {
 		t.Errorf("GoTmpDir(%q) = %q, want the same directory as %q", spelled, same, one)
+	}
+
+	// Case folding holds only where the filesystem does: on Windows the two
+	// spellings name one directory, so they must share one Go temporary
+	// directory. Elsewhere they are two directories and folding them together
+	// would be the sharing this scoping exists to prevent.
+	if runtime.GOOS != "windows" {
+		t.Skip("paths are case-sensitive here, so an upper-cased spelling names a different directory")
+	}
+	upper := strings.ToUpper(clean)
+	folded, err := GoTmpDir(upper, "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if folded != one {
+		t.Errorf("GoTmpDir(%q) = %q, want the same directory as %q", upper, folded, one)
 	}
 }
