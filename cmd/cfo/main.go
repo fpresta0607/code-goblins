@@ -184,7 +184,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 			fmt.Fprintln(stderr, "cfo pr: check or merge subcommand is required")
 			return 2
 		}
-		return runPR(args[1], args[2:], stdout, stderr)
+		return runPR(args[1], args[2:], stdout, stderr, execx.OSRunner{})
 	case "merge-local":
 		return runMergeLocal(args[1:], stdout, stderr)
 	case "cleanup":
