@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -111,12 +112,12 @@ mode: %s
 }
 
 // runPR handles "cfo pr check <id> <url>" and "cfo pr merge <url>".
-func runPR(sub string, args []string, stdout, stderr io.Writer) int {
+func runPR(sub string, args []string, stdout, stderr io.Writer, commands execx.Runner) int {
 	switch sub {
 	case "check":
 		return runPRCheck(args, stdout, stderr)
 	case "merge":
-		return runPRMerge(args, stdout, stderr)
+		return runPRMerge(args, stdout, stderr, commands)
 	default:
 		fmt.Fprintf(stderr, "cfo pr: unknown subcommand %q (want check or merge)\n", sub)
 		return 2
@@ -167,7 +168,18 @@ func runPRCheck(args []string, stdout, stderr io.Writer) int {
 
 // runPRMerge merges an open PR through the gh CLI. It never merges red work:
 // the caller is responsible for confirming CI is green first.
-func runPRMerge(args []string, stdout, stderr io.Writer) int {
+//
+// --delete-branch is deliberately NOT forwarded to gh. gh's flag deletes the
+// local and the remote branch as one step, and git refuses to delete a branch
+// that is checked out in a worktree - which is every goblin branch, because
+// every goblin works in one. Forwarding it therefore lets a local deletion
+// that cannot succeed decide whether the remote ref survives. The cleanup is
+// done here as two independent steps instead, remote first.
+//
+// Neither cleanup step can fail the command. The merge is the irreversible
+// half and has already succeeded by the time they run, so exiting non-zero
+// over a leftover ref would report a successful merge as a failure.
+func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner) int {
 	if len(args) < 1 {
 		fmt.Fprintln(stderr, "cfo pr merge: <url> is required")
 		return 2
@@ -190,11 +202,8 @@ func runPRMerge(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cfo pr merge: --method must be merge, squash, or rebase")
 		return 2
 	}
-	cmdArgs := []string{"pr", "merge", url, "--" + *method}
-	if *deleteBranch {
-		cmdArgs = append(cmdArgs, "--delete-branch")
-	}
-	res, err := execx.OSRunner{}.Run(context.Background(), execx.Request{Name: "gh", Args: cmdArgs})
+	ctx := context.Background()
+	res, err := commands.Run(ctx, execx.Request{Name: "gh", Args: []string{"pr", "merge", url, "--" + *method}})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -204,7 +213,102 @@ func runPRMerge(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintln(stdout, strings.TrimSpace(string(res.Stdout)))
+	if *deleteBranch {
+		deleteMergedBranch(ctx, url, stdout, stderr, commands)
+	}
 	return 0
+}
+
+// deleteMergedBranch removes the head branch of a merged PR, remote ref first.
+//
+// It reports every failure as a warning rather than an error. The merge it
+// follows has already landed, and a branch that outlives it is untidy rather
+// than wrong - the operator can delete it later, which is not true of the
+// merge.
+func deleteMergedBranch(ctx context.Context, url string, stdout, stderr io.Writer, commands execx.Runner) {
+	view, err := commands.Run(ctx, execx.Request{Name: "gh", Args: []string{
+		"pr", "view", url, "--json", "headRefName,headRefOid,headRepository,headRepositoryOwner",
+	}})
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo pr merge: merged, but the branch was left in place: %v\n", err)
+		return
+	}
+	if view.ExitCode != 0 {
+		fmt.Fprintf(stderr, "cfo pr merge: merged, but the branch was left in place: gh exited %d: %s\n", view.ExitCode, strings.TrimSpace(string(view.Stderr)))
+		return
+	}
+	var head struct {
+		HeadRefName    string `json:"headRefName"`
+		HeadRefOid     string `json:"headRefOid"`
+		HeadRepository struct {
+			Name string `json:"name"`
+		} `json:"headRepository"`
+		HeadRepositoryOwner struct {
+			Login string `json:"login"`
+		} `json:"headRepositoryOwner"`
+	}
+	if err := json.Unmarshal(view.Stdout, &head); err != nil {
+		fmt.Fprintf(stderr, "cfo pr merge: merged, but the branch was left in place: decode pr head: %v\n", err)
+		return
+	}
+	owner, repo, branch := head.HeadRepositoryOwner.Login, head.HeadRepository.Name, head.HeadRefName
+	if owner == "" || repo == "" || branch == "" {
+		fmt.Fprintln(stderr, "cfo pr merge: merged, but the branch was left in place: pr head is missing an owner, repository, or branch name")
+		return
+	}
+
+	// The remote ref is deleted first and on its own. It is the half that
+	// matters - a stale remote branch is what clutters the fork and what the
+	// next goblin sees - and doing it first means a local deletion that cannot
+	// succeed never prevents it.
+	ref := fmt.Sprintf("repos/%s/%s/git/refs/heads/%s", owner, repo, branch)
+	del, err := commands.Run(ctx, execx.Request{Name: "gh", Args: []string{"api", "--method", "DELETE", ref}})
+	switch {
+	case err != nil:
+		fmt.Fprintf(stderr, "cfo pr merge: merged, but the remote branch %s was left in place: %v\n", branch, err)
+	// A repository with "Automatically delete head branches" enabled has
+	// already removed the ref during the merge, and the DELETE says so. The
+	// end state the flag asks for was reached, so warning that the branch was
+	// left in place would be a warning about a branch that is not there.
+	case del.ExitCode != 0 && refAlreadyGone(del.Stderr):
+		fmt.Fprintf(stdout, "remote branch %s was already gone\n", branch)
+	case del.ExitCode != 0:
+		fmt.Fprintf(stderr, "cfo pr merge: merged, but the remote branch %s was left in place: gh exited %d: %s\n", branch, del.ExitCode, strings.TrimSpace(string(del.Stderr)))
+	default:
+		fmt.Fprintf(stdout, "deleted remote branch %s\n", branch)
+	}
+
+	// The local branch is identified by the commit GitHub merged, never by its
+	// name alone. cfo is run from checkouts that never held the goblin's
+	// branch as often as from the one that did, goblin branch names collide
+	// across projects, and -D would force-delete an unrelated branch's unpushed
+	// commits. The same test skips a local branch that is ahead of what was
+	// pushed. Either way the branch here is not the merged one, so there is
+	// nothing to clean up and nothing to report.
+	localRef, err := commands.Run(ctx, execx.Request{Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", "refs/heads/" + branch}})
+	if err != nil || localRef.ExitCode != 0 || strings.TrimSpace(string(localRef.Stdout)) != head.HeadRefOid {
+		return
+	}
+	// -D rather than -d: git's "is it merged" test asks whether the commits
+	// are reachable from the current branch, which is false after a squash or
+	// rebase merge even though GitHub merged the PR. GitHub has already
+	// answered the question -d is trying to ask.
+	local, err := commands.Run(ctx, execx.Request{Name: "git", Args: []string{"branch", "-D", branch}})
+	switch {
+	case err != nil:
+		fmt.Fprintf(stderr, "cfo pr merge: the local branch %s was left in place: %v\n", branch, err)
+	case local.ExitCode != 0:
+		fmt.Fprintf(stderr, "cfo pr merge: the local branch %s was left in place: %s\n", branch, strings.TrimSpace(string(local.Stderr)))
+	default:
+		fmt.Fprintf(stdout, "deleted local branch %s\n", branch)
+	}
+}
+
+// refAlreadyGone reports whether a ref deletion failed because the ref was not
+// there: GitHub answers a DELETE of a missing ref with HTTP 422 "Reference does
+// not exist".
+func refAlreadyGone(stderr []byte) bool {
+	return strings.Contains(strings.ToLower(string(stderr)), "reference does not exist")
 }
 
 // runMergeLocal fast-forwards a project's main branch to a goblin's landed worktree
