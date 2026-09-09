@@ -488,6 +488,19 @@ func (c *Client) AgentStatus(ctx context.Context, target Target) (AgentStatus, e
 	return AgentUnreadable, fmt.Errorf("herdr: agent status for %s is unreadable: %q", target, status)
 }
 
+// PaneProvablyDead reports whether Herdr gave a trustworthy answer that the
+// target pane holds no agent. It interprets AgentStatus's own result contract,
+// so what AgentDead, AgentMissing and unreadable mean to a caller is decided
+// here rather than separately in each one.
+//
+// An unreadable probe counts as not-dead. Herdr admitting it cannot answer is
+// no reason to abandon a delivery that may be landing, and it is no reason to
+// close the tab and return the worktree of a goblin that may be running.
+func (c *Client) PaneProvablyDead(ctx context.Context, target Target) bool {
+	status, err := c.AgentStatus(ctx, target)
+	return err == nil && (status == AgentDead || status == AgentMissing)
+}
+
 // BusyState returns the native watcher-facing activity signal. A blocked agent
 // is deliberately idle because it needs human attention rather than CPU time.
 func (c *Client) BusyState(ctx context.Context, target Target) (BusyState, error) {

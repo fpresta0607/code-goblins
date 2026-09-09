@@ -1214,6 +1214,8 @@ func isolateUserCacheDir(t *testing.T) {
 		t.Fatalf("UserCacheDir = %q, want it under the test's own directory %q", resolved, cache)
 	}
 }
+const fixtureStartCounters = 42
+
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	isolateUserCacheDir(t)
@@ -1227,7 +1229,11 @@ func newFixture(t *testing.T) *fixture {
 	writeFile(t, filepath.Join(project, "primary-marker.txt"), "unchanged")
 
 	fixture := &fixture{stateDir: stateDir, dataDir: dataDir, project: project, worktree: worktreeDir, brief: brief}
-	fixture.runner = &herdrRunner{events: &fixture.events, worktree: worktreeDir, agentStatus: "working", manifests: []string{"claude", "codex", "pi", "kimi"}}
+	// The counters start well above zero, like the live kimi that sat at
+	// revision 1 before its prompt. A confirmation measured against a guessed
+	// zero baseline would read the first post-submit number as an advance, so
+	// that regression fails here instead of passing.
+	fixture.runner = &herdrRunner{events: &fixture.events, worktree: worktreeDir, agentStatus: "working", manifests: []string{"claude", "codex", "pi", "kimi"}, stateChangeSeq: fixtureStartCounters, revision: fixtureStartCounters}
 	fixture.runner.taskTmpPath = filepath.Join(stateDir, "tasktmp", "task-7")
 	fixture.git = &worktreeGit{events: &fixture.events, top: worktreeDir}
 	fixture.service = Service{
@@ -1399,10 +1405,14 @@ type herdrRunner struct {
 	// failPrompts refuses the first N `agent prompt` calls; failAgentGets
 	// refuses the first N `agent get` calls. Both model a herdr that is
 	// transiently busy while a harness boots, which must not tear down a
-	// launch that is coming up fine.
-	failPrompts   int
-	failAgentGets int
-	promptCalls   int
+	// launch that is coming up fine. failAgentGetsAfterPrompt refuses only the
+	// reads that follow an accepted prompt, so the baseline read before it
+	// still lands and a confirmation test measures a real advance rather than
+	// a baseline that was never established.
+	failPrompts              int
+	failAgentGets            int
+	failAgentGetsAfterPrompt int
+	promptCalls              int
 	// inertCounters models a herdr that accepts the prompt call but whose
 	// agent never advances - the shape a harness that swallowed the text
 	// would produce. Delivery must be refused, not assumed from the ok.
@@ -1653,6 +1663,10 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 			r.failAgentGets--
 			return execx.Result{ExitCode: 1, Stderr: []byte("agent get: pane busy")}, nil
 		}
+		if r.promptAccepted && r.failAgentGetsAfterPrompt > 0 {
+			r.failAgentGetsAfterPrompt--
+			return execx.Result{ExitCode: 1, Stderr: []byte("agent get: pane busy")}, nil
+		}
 		// The counters move only for a prompt that was accepted, and only once
 		// any configured delay has elapsed. A fake that advanced them for any
 		// other reason would report an undelivered brief as delivered.
@@ -1859,7 +1873,7 @@ func TestSpawnReportsTheRefusedSubmitWhenTheInstructionNeverLands(t *testing.T) 
 // be reported as a bare non-acceptance: the retained herdr stderr explains it.
 func TestSpawnReportsTheRefusedAgentReadsAfterTheInstructionWasSubmitted(t *testing.T) {
 	fixture := newFixture(t)
-	fixture.runner.failAgentGets = 100000
+	fixture.runner.failAgentGetsAfterPrompt = 100000
 
 	_, err := fixture.service.Spawn(context.Background(), fixture.request)
 	if err == nil {
@@ -1869,6 +1883,33 @@ func TestSpawnReportsTheRefusedAgentReadsAfterTheInstructionWasSubmitted(t *test
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v, want it to mention %q", err, want)
 		}
+	}
+	// Premise: the refusals landed on the confirmation, so the baseline really
+	// was established and the instruction really was submitted against it.
+	if got := fixture.runner.promptCalls; got != 1 {
+		t.Errorf("prompt submissions = %d, want one submitted against a real baseline", got)
+	}
+}
+
+// A baseline that can never be read leaves nothing to measure acceptance
+// against, and a guessed zero would confirm whatever a booted agent reports.
+// The instruction is not submitted at all: a launch the caller can retry beats
+// a goblin reported briefed on a brief nothing proves it took.
+func TestSpawnRefusesAnUnreadableBaselineWithoutSubmittingTheInstruction(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.runner.failAgentGets = 100000
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	if err == nil {
+		t.Fatal("Spawn = nil, want the unprovable delivery refused")
+	}
+	for _, want := range []string{"was not submitted", "agent get: pane busy"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to mention %q", err, want)
+		}
+	}
+	if got := fixture.runner.promptCalls; got != 0 {
+		t.Errorf("prompt submissions = %d, want none - acceptance could not be proven", got)
 	}
 }
 

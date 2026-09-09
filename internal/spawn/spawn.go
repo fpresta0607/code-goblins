@@ -811,7 +811,7 @@ func (s Service) confirmLaunch(ctx context.Context, client *herdr.Client, target
 	// The full working budget elapsed without a working report. Re-probe once:
 	// only a pane herdr can prove is empty is declared failed, so the spawn
 	// reports success instead of writing a failed status beside a healthy pane.
-	if s.paneProvablyDead(ctx, client, target) {
+	if client.PaneProvablyDead(ctx, target) {
 		return fmt.Errorf("spawn: harness launch did not report working within %ds", int(launchConfirmPoll.Seconds()*launchConfirmTries))
 	}
 	return nil
@@ -854,16 +854,6 @@ func (s Service) reportUndetectedHarness(ctx context.Context, client *herdr.Clie
 	return true, nil
 }
 
-// paneProvablyDead reports whether herdr gave a trustworthy answer that the
-// target pane holds no agent. It gates the destructive half of a readiness
-// timeout - failing the launch runs teardownLaunch - so an unreadable probe
-// counts as not-dead: herdr admitting it cannot answer is no reason to close
-// the tab and return the worktree of a goblin that may be running.
-func (s Service) paneProvablyDead(ctx context.Context, client *herdr.Client, target herdr.Target) bool {
-	status, err := client.AgentStatus(ctx, target)
-	return err == nil && (status == herdr.AgentDead || status == herdr.AgentMissing)
-}
-
 // deliverVerifiedInstruction submits one instruction to the registered agent
 // and returns only once Herdr's own agent state proves the agent accepted it.
 //
@@ -883,28 +873,37 @@ func (s Service) paneProvablyDead(ctx context.Context, client *herdr.Client, tar
 // The prompt is submitted once. A retry re-submits only when the submit
 // itself failed, because `agent prompt` submits on success: re-sending after
 // an accepted prompt would hand the goblin its brief twice.
+//
+// Acceptance is measured against the counters as they stood before the submit,
+// so nothing is submitted until that baseline is a real read. An unreadable
+// one is retried across the same budget and never guessed at as zero: zero is
+// the lowest value the counters can hold, so a guessed baseline would read the
+// first number a booted agent reports as an advance - a live kimi sat at
+// revision 1 before its prompt - and report a swallowed instruction delivered.
 func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.Client, target herdr.Target, instruction string) error {
-	before, err := client.AgentDetail(ctx, target)
-	if err != nil {
-		if herdr.WaitError(ctx, err) {
-			return fmt.Errorf("spawn: read agent state before the instruction: %w", err)
-		}
-		if s.paneProvablyDead(ctx, client, target) {
-			return fmt.Errorf("spawn: the pane holds no agent to deliver the instruction to: %w", err)
-		}
-		// An unreadable agent right after launch is part of booting. Treat the
-		// pre-state as zero: any later counter is then an advance, which is
-		// the conservative direction - it can delay success, never fake it.
-		before = herdr.AgentDetail{}
-	}
-
+	var before herdr.AgentDetail
 	var lastSubmitErr, lastReadErr error
+	baselined := false
 	submitted := false
 	for attempt := 0; attempt < instructionTries; attempt++ {
 		if attempt > 0 {
 			if err := s.sleep(ctx, launchConfirmPoll); err != nil {
 				return fmt.Errorf("spawn: wait before confirming instruction delivery: %w", err)
 			}
+		}
+		if !baselined {
+			detail, err := client.AgentDetail(ctx, target)
+			if err != nil {
+				if herdr.WaitError(ctx, err) {
+					return fmt.Errorf("spawn: read agent state before the instruction: %w", err)
+				}
+				if client.PaneProvablyDead(ctx, target) {
+					return fmt.Errorf("spawn: the pane holds no agent to deliver the instruction to: %w", err)
+				}
+				lastReadErr = err
+				continue
+			}
+			before, baselined = detail, true
 		}
 		if !submitted {
 			if err := client.AgentPrompt(ctx, target, instruction); err != nil {
@@ -924,7 +923,7 @@ func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.C
 			// A pane herdr can prove holds no agent will never report
 			// accepting anything, so spending the rest of the budget on it
 			// only delays a certain failure and buries its real cause.
-			if s.paneProvablyDead(ctx, client, target) {
+			if client.PaneProvablyDead(ctx, target) {
 				return fmt.Errorf("spawn: the pane holds no agent to deliver the instruction to: %w", err)
 			}
 			lastReadErr = err
@@ -936,6 +935,9 @@ func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.C
 	}
 
 	budget := int(launchConfirmPoll.Seconds() * instructionTries)
+	if !baselined {
+		return fmt.Errorf("spawn: could not read the agent state within %ds, so acceptance could not be proven and the instruction was not submitted: %w", budget, lastReadErr)
+	}
 	if !submitted {
 		if lastSubmitErr != nil {
 			return fmt.Errorf("spawn: could not submit the instruction to the agent within %ds: %w", budget, lastSubmitErr)

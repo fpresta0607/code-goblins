@@ -442,6 +442,49 @@ func TestSenderTextTypesIntoAnExplicitPaneAndReportsUnconfirmed(t *testing.T) {
 	}
 }
 
+// A message that opens a harness completion popup gets a longer wait before
+// Enter. A pane with no registered agent is not necessarily at a shell prompt,
+// and an Enter that lands while the popup is open selects the highlighted
+// completion - so `/exit` would run a different command, with nothing in the
+// unconfirmed result to distinguish that from an ordinary typed delivery.
+func TestSenderTextWaitsForACompletionPopupBeforeSubmitting(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		message string
+		want    time.Duration
+	}{
+		{name: "slash command", message: "/exit", want: completionSettle},
+		{name: "dollar prefix", message: "$env:FOO", want: completionSettle},
+		{name: "plain text", message: "status please", want: typeSettle},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := newAgentFake(agentFake{unregistered: true})
+			var sleeps []time.Duration
+			sender := newExplicitPaneSender(fake)
+			sender.Sleep = func(_ context.Context, waited time.Duration) error {
+				sleeps = append(sleeps, waited)
+				return nil
+			}
+
+			if err := sender.Text(context.Background(), "fleet:pane-7", test.message); err == nil {
+				t.Fatal("Text = nil, want the typed delivery reported unconfirmed")
+			}
+			// Premise: the typed path ran, so the single wait recorded is the
+			// one between typing and Enter rather than a read retry.
+			typed, submitted := fake.typedRequests()
+			if !typed || !submitted {
+				t.Fatalf("the message was not typed and submitted: requests=%v", fake.requests)
+			}
+			if len(sleeps) != 1 {
+				t.Fatalf("waits = %v, want exactly the one before Enter", sleeps)
+			}
+			if sleeps[0] != test.want {
+				t.Errorf("wait before Enter = %v, want %v", sleeps[0], test.want)
+			}
+		})
+	}
+}
+
 // An agent that is gone will never report accepting anything, so the
 // confirmation says so instead of spending its whole budget on a certain
 // answer and then blaming a refused read.
