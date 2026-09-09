@@ -184,7 +184,7 @@ func TestSpawnKeepsTheHarnessEnvironmentAuthoritative(t *testing.T) {
 	if !strings.Contains(string(script), "$env:SAFE_KEY = 'value'") {
 		t.Errorf("secrets script dropped an unrelated credential:\n%s", script)
 	}
-	if !strings.Contains(fixture.runner.literals[0], "$env:GOTMPDIR = '"+goTmpDir(t, result.Meta.ID)+"'") {
+	if !strings.Contains(fixture.runner.literals[0], "$env:GOTMPDIR = '"+goTmpDir(t, fixture.stateDir, result.Meta.ID)+"'") {
 		t.Errorf("literal = %q, want the harness GOTMPDIR intact", fixture.runner.literals[0])
 	}
 }

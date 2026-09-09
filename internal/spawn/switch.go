@@ -259,13 +259,12 @@ var errBuildLaunch = errors.New("switch: build harness launch")
 // Switch and handed in, redirects included.
 func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id string, redirects map[string]string) (handoff string, resumed bool, err error) {
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0
-	goTmp, err := state.GoTmpDir(id)
+	goTmp, err := state.GoTmpDir(s.StateDir, id)
 	if err != nil {
 		return "", false, err
 	}
-	// A switch relaunches into the same per-task Go temporary directory the
-	// spawn created; a task retired between the two would have had it
-	// removed with the rest of its scratch.
+	// A relaunch reuses the task's own Go temporary directory and recreates it
+	// if it is missing. cleanup.removeGoTmp documents when it is retired.
 	if err := os.MkdirAll(goTmp, 0o755); err != nil {
 		return "", false, fmt.Errorf("switch: create go temporary directory: %w", err)
 	}

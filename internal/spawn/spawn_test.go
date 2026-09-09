@@ -186,15 +186,15 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 	if meta.TaskTmp == "" || meta.SpawnGen == "" {
 		t.Errorf("metadata = %+v, want tasktmp and spawn generation", meta)
 	}
-	if info, statErr := os.Stat(goTmpDir(t, meta.ID)); statErr != nil || !info.IsDir() {
-		t.Fatalf("GOTMPDIR = %q, stat = %v, want existing directory", goTmpDir(t, meta.ID), statErr)
+	if info, statErr := os.Stat(goTmpDir(t, fixture.stateDir, meta.ID)); statErr != nil || !info.IsDir() {
+		t.Fatalf("GOTMPDIR = %q, stat = %v, want existing directory", goTmpDir(t, fixture.stateDir, meta.ID), statErr)
 	}
 	// Go writes build and test temporaries under GOTMPDIR, t.TempDir()
 	// included. Pointed inside the checkout it made every test a goblin ran
 	// create files in the tree the goblin was editing.
 	for _, inside := range []string{fixture.stateDir, fixture.worktree, fixture.project} {
-		if rel, relErr := filepath.Rel(inside, goTmpDir(t, meta.ID)); relErr == nil && !strings.HasPrefix(rel, "..") {
-			t.Errorf("GOTMPDIR = %q, want it outside %q", goTmpDir(t, meta.ID), inside)
+		if rel, relErr := filepath.Rel(inside, goTmpDir(t, fixture.stateDir, meta.ID)); relErr == nil && !strings.HasPrefix(rel, "..") {
+			t.Errorf("GOTMPDIR = %q, want it outside %q", goTmpDir(t, fixture.stateDir, meta.ID), inside)
 		}
 	}
 	if got, want := sortedKeys(t, fixture.stateDir, fixture.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "harness", "herdr_pane_id", "herdr_session", "herdr_tab_id", "herdr_workspace_id", "kind", "mode", "model", "project", "spawn_gen", "tasktmp", "window", "worktree", "yolo"}; !reflect.DeepEqual(got, want) {
@@ -233,7 +233,7 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 	}
 	// The prefix dot-sources the secrets script right after the location, so
 	// the billing-key strip lands before the launch contract and the harness.
-	if got, want := fixture.runner.literals[0], "Set-Location -LiteralPath '"+fixture.worktree+"'; . '"+filepath.Join(meta.TaskTmp, "auth.ps1")+"'; $env:CFO_STATE_OVERRIDE = '"+fixture.stateDir+"'; $env:GOTMPDIR = '"+goTmpDir(t, meta.ID)+"'"; got != want {
+	if got, want := fixture.runner.literals[0], "Set-Location -LiteralPath '"+fixture.worktree+"'; . '"+filepath.Join(meta.TaskTmp, "auth.ps1")+"'; $env:CFO_STATE_OVERRIDE = '"+fixture.stateDir+"'; $env:GOTMPDIR = '"+goTmpDir(t, fixture.stateDir, meta.ID)+"'"; got != want {
 		t.Errorf("launch prefix = %q\nwant %q", got, want)
 	}
 	if got, want := fixture.runner.startName, "gb-task-7"; got != want {
@@ -382,7 +382,7 @@ func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
 	if strings.Contains(line, "hijacked") || strings.Contains(line, "overlord") {
 		t.Errorf("pane line = %q, want every case-aliased reserved redirect dropped", line)
 	}
-	if !strings.Contains(line, "$env:GOTMPDIR = '"+goTmpDir(t, result.Meta.ID)+"'") ||
+	if !strings.Contains(line, "$env:GOTMPDIR = '"+goTmpDir(t, fixture.stateDir, result.Meta.ID)+"'") ||
 		!strings.Contains(line, "$env:CFO_STATE_OVERRIDE = '"+fixture.stateDir+"'") {
 		t.Errorf("pane line = %q, want the launch contract's own values intact", line)
 	}
@@ -699,7 +699,7 @@ func TestSpawnPiTypedLaunchTypesFullCommandAndSkipsNativeStart(t *testing.T) {
 	if got := len(fixture.runner.literals); got != 1 {
 		t.Fatalf("literals = %q, want exactly one typed launch line", fixture.runner.literals)
 	}
-	wantLine := "Set-Location -LiteralPath '" + fixture.worktree + "'; . '" + filepath.Join(result.Meta.TaskTmp, "auth.ps1") + "'; $env:CFO_STATE_OVERRIDE = '" + fixture.stateDir + "'; $env:GOTMPDIR = '" + goTmpDir(t, result.Meta.ID) + "'; & 'pi' '--tui-mode' 'regular' 'Read the brief at " + fixture.brief + " and follow it exactly."
+	wantLine := "Set-Location -LiteralPath '" + fixture.worktree + "'; . '" + filepath.Join(result.Meta.TaskTmp, "auth.ps1") + "'; $env:CFO_STATE_OVERRIDE = '" + fixture.stateDir + "'; $env:GOTMPDIR = '" + goTmpDir(t, fixture.stateDir, result.Meta.ID) + "'; & 'pi' '--tui-mode' 'regular' 'Read the brief at " + fixture.brief + " and follow it exactly."
 	if got := fixture.runner.literal; !strings.HasPrefix(got, wantLine) {
 		t.Errorf("typed launch line = %q\nwant prefix %q", got, wantLine)
 	}
@@ -1011,6 +1011,28 @@ func TestSpawnRejectsCaseInsensitiveMetadataExtensionBeforeHerdrOrWorktreeMutati
 	}
 }
 
+// A spawn that fails after the Go temporary directory exists must not orphan
+// it. teardownLaunch removes <id>.meta, and cleanup reads that file to find a
+// task at all, so a directory left behind here can never be removed by
+// anything afterwards - and it sits under the user cache directory, out of
+// sight of the state tree that would otherwise show it.
+func TestSpawnFailureLeavesNoGoTemporaryDirectory(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.service.Harness.Adapters[harness.Claude] = fixtureAdapter{events: &fixture.events, buildErr: errors.New("harness build refused")}
+
+	if _, err := fixture.service.Spawn(context.Background(), fixture.request); err == nil {
+		t.Fatal("Spawn succeeded, want the injected build failure")
+	}
+	goTmp := goTmpDir(t, fixture.stateDir, fixture.request.ID)
+	if _, err := os.Stat(goTmp); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("go temporary directory %q survived a failed spawn: %v", goTmp, err)
+	}
+	// The metadata is gone, which is what makes the leak permanent: prove the
+	// removal happened before it rather than depending on a later cleanup.
+	if _, err := os.Stat(filepath.Join(fixture.stateDir, fixture.request.ID+".meta")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed spawn kept metadata: %v", err)
+	}
+}
 func TestSpawnRejectsCaseAliasOfRetainedFailedTaskBeforeHerdrOrWorktreeMutation(t *testing.T) {
 	fixture := newFixture(t)
 	fixture.request.ID = "Foo"
@@ -1095,9 +1117,9 @@ type fixture struct {
 
 // goTmpDir returns the per-task Go temporary directory a spawn under the
 // isolated user cache directory creates.
-func goTmpDir(t *testing.T, id string) string {
+func goTmpDir(t *testing.T, stateDir, id string) string {
 	t.Helper()
-	dir, err := state.GoTmpDir(id)
+	dir, err := state.GoTmpDir(stateDir, id)
 	if err != nil {
 		t.Fatal(err)
 	}

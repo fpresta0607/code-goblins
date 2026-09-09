@@ -228,7 +228,7 @@ func (s Service) archive(id string) (string, error) {
 // would skip the credential scrub and the rename, so a locked build directory
 // would leave the project's secrets on disk and the id still claimed.
 func (s Service) removeGoTmp(id string) error {
-	goTmp, err := state.GoTmpDir(id)
+	goTmp, err := state.GoTmpDir(s.StateDir, id)
 	if err != nil {
 		return err
 	}

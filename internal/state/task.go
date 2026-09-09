@@ -1,11 +1,14 @@
 package state
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 	"unicode"
 )
@@ -70,10 +73,10 @@ func PipelineLockName(id string) string {
 // GoTmpDir is the per-task directory a goblin's GOTMPDIR points at. Go puts
 // build and test temporaries there, t.TempDir() included, so it is
 // deliberately outside the fleet checkout: pointed inside it, every test a
-// goblin runs creates files in the tree the goblin is editing, and the
-// scratch survives into the cleanup archive. It lives here because spawn
-// creates it and cleanup removes it, and a name both sides own a half of
-// belongs to neither.
+// goblin runs creates files in the tree the goblin is editing. It lives here
+// because spawn creates it and cleanup removes it, and a name both sides own
+// a half of belongs to neither. cleanup.removeGoTmp is the one place that
+// documents who removes it and when.
 //
 // It sits under the user cache directory rather than the machine temporary
 // directory because a goblin task is live for days and %TEMP% is the one
@@ -82,7 +85,23 @@ func PipelineLockName(id string) string {
 // longer exists. The user cache directory is where Go already keeps go-build,
 // so a Go temporary directory beside it is the idiomatic neighbour rather
 // than a directory the OS treats as disposable.
-func GoTmpDir(id string) (string, error) {
+//
+// The path is keyed on the fleet as well as the task. The directory it
+// replaced was inside a fleet's own state tree and so could never be shared;
+// under a machine-global base, two fleet homes on one machine that each hold
+// a task named g1 would share one directory, and cleaning up g1 in one would
+// recursively delete the live GOTMPDIR of g1 in the other.
+//
+// The fleet segment hashes the state directory as written, lowercased because
+// Windows paths are case-insensitive, and is deliberately NOT resolved through
+// the filesystem: two spellings of one directory hashing differently yields a
+// separate unshared directory, which is harmless, while a resolve that
+// succeeded in one process and failed in another could yield a shared one,
+// which is the defect this scoping exists to prevent.
+func GoTmpDir(stateDir, id string) (string, error) {
+	if strings.TrimSpace(stateDir) == "" {
+		return "", fmt.Errorf("state: go temporary directory needs the fleet state directory")
+	}
 	if err := ValidTaskID(id); err != nil {
 		return "", err
 	}
@@ -90,7 +109,9 @@ func GoTmpDir(id string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("state: resolve user cache directory: %w", err)
 	}
-	return filepath.Join(cache, "cfo", "gotmp", id), nil
+	sum := sha256.Sum256([]byte(strings.ToLower(filepath.Clean(stateDir))))
+	fleet := hex.EncodeToString(sum[:])[:8]
+	return filepath.Join(cache, "cfo", "gotmp", fleet, id), nil
 }
 
 // ValidTaskID rejects IDs that would escape or ambiguously name a task's
