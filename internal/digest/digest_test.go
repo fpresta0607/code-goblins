@@ -301,6 +301,8 @@ func TestComposeSectionBodies(t *testing.T) {
 		`Never run "cfo watch" from the agent shell`,
 		"Wakes arrive as rewake turns",
 		"Every drain presentation ends with a WAKE_ACK_REQUIRED command",
+		"The refusal is the protection working",
+		"it retires EVERY question at or below the sequence",
 		"Supervision is needed whenever tasks are in flight",
 	}
 	for _, fact := range supervisionFacts {

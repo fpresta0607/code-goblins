@@ -1311,7 +1311,7 @@ Rewake banner (verbatim, reason line inserted):
 ```
 cfo watcher wake - one supervision event needs a handling turn now.
 <reason>
-Run cfo drain, handle what it presents, and acknowledge with the WAKE_ACK_REQUIRED command it prints. Do not run cfo watch manually after an ordinary wake.
+Run cfo drain, handle what it presents, and acknowledge with the WAKE_ACK_REQUIRED command it prints. That command is refused while unanswered blocked/failed notifies sit at or below its sequence: drain lists every waiting goblin and retires nothing. Answer each with `cfo send <id> "..."`, then re-run with --ack-blocking, which retires EVERY question at or below that sequence. Do not run cfo watch manually after an ordinary wake.
 ```
 
 Failure banner (attempts filled in):
