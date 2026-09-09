@@ -92,6 +92,14 @@ func PipelineLockName(id string) string {
 // a task named g1 would share one directory, and cleaning up g1 in one would
 // recursively delete the live GOTMPDIR of g1 in the other.
 //
+// Two residuals remain and are accepted: an 8.3 short name (C:\PROGRA~1\state)
+// and a symlinked or junctioned state directory each hash apart from the plain
+// spelling, and neither is detectable without touching the filesystem. They
+// SPLIT rather than share, and that asymmetry is what makes them acceptable: a
+// split costs one wasted directory, while sharing is data destruction - one
+// fleet's cleanup deleting another fleet's live GOTMPDIR. Splitting is the
+// safe direction, which is the whole reason the fleet segment exists.
+//
 // The fleet segment hashes the state directory as written, lowercased because
 // Windows paths are case-insensitive, and is deliberately NOT resolved through
 // the filesystem: two spellings of one directory hashing differently yields a
@@ -116,6 +124,12 @@ func GoTmpDir(stateDir, id string) (string, error) {
 	}
 	if !filepath.IsAbs(stateDir) {
 		return "", fmt.Errorf("state: go temporary directory needs an absolute fleet state directory, got %q", stateDir)
+	}
+	// filepath.Clean does not strip an extended-length prefix, so \\?\C:\x
+	// and C:\x hash apart and split one fleet in two. It is cheap to detect
+	// and exotic enough that refusing beats splitting silently.
+	if strings.HasPrefix(stateDir, `\\?\`) {
+		return "", fmt.Errorf("state: go temporary directory needs a plain fleet state directory, got extended-length path %q", stateDir)
 	}
 	if err := ValidTaskID(id); err != nil {
 		return "", err

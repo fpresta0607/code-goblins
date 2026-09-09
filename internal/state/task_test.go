@@ -325,36 +325,57 @@ func TestGoTmpDirIsScopedToTheFleet(t *testing.T) {
 
 	// The same fleet must resolve to the same directory whatever the spelling,
 	// or a switch would relaunch into a directory the spawn never created.
-	// The uncleaned spelling is concatenated rather than joined: filepath.Join
-	// cleans its own arguments, so a joined path would reach GoTmpDir already
-	// cleaned and the assertion would compare a hash to itself.
+	// Each spelling is concatenated rather than joined: filepath.Join cleans its
+	// own arguments, so a joined path would reach GoTmpDir already cleaned and
+	// the assertion would compare a hash to itself.
+	//
+	// Every row the correctness argument leans on is pinned here. An untested
+	// premise is how the first version of this assertion shipped vacuous.
 	clean := filepath.Join(root, "fleet-a", "state")
 	sep := string(filepath.Separator)
-	spelled := filepath.Join(root, "fleet-a") + sep + "sub" + sep + ".." + sep + "state"
-	if spelled == filepath.Clean(spelled) {
-		t.Fatalf("spelling %q is already clean, so this asserts nothing", spelled)
+	base := filepath.Join(root, "fleet-a")
+	for _, spelling := range []struct {
+		name        string
+		raw         string
+		windowsOnly bool
+	}{
+		{name: "trailing separator", raw: clean + sep},
+		{name: "dot segment", raw: base + sep + "." + sep + "state"},
+		{name: "dot-dot segment", raw: base + sep + "sub" + sep + ".." + sep + "state"},
+		{name: "doubled separator", raw: base + sep + sep + "state"},
+		// Forward separators and case folding are Windows path properties. On a
+		// case-sensitive filesystem an upper-cased spelling names a different
+		// directory, and a backslash is an ordinary filename character, so
+		// folding either together there would be the sharing this prevents.
+		{name: "forward separators", raw: strings.ReplaceAll(clean, sep, "/"), windowsOnly: true},
+		{name: "upper case", raw: strings.ToUpper(clean), windowsOnly: true},
+	} {
+		t.Run(spelling.name, func(t *testing.T) {
+			if spelling.windowsOnly && runtime.GOOS != "windows" {
+				t.Skip("this spelling names a different directory on a case-sensitive filesystem")
+			}
+			if spelling.raw == clean {
+				t.Fatalf("spelling %q is identical to the baseline, so it asserts nothing", spelling.raw)
+			}
+			got, err := GoTmpDir(spelling.raw, "g1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != one {
+				t.Errorf("GoTmpDir(%q) = %q, want the same directory as %q", spelling.raw, got, one)
+			}
+		})
 	}
-	same, err := GoTmpDir(spelled, "g1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if same != one {
-		t.Errorf("GoTmpDir(%q) = %q, want the same directory as %q", spelled, same, one)
-	}
+}
 
-	// Case folding holds only where the filesystem does: on Windows the two
-	// spellings name one directory, so they must share one Go temporary
-	// directory. Elsewhere they are two directories and folding them together
-	// would be the sharing this scoping exists to prevent.
-	if runtime.GOOS != "windows" {
-		t.Skip("paths are case-sensitive here, so an upper-cased spelling names a different directory")
+// An extended-length prefix survives filepath.Clean, so it would hash apart
+// from the plain spelling and split one fleet in two.
+func TestGoTmpDirRefusesAnExtendedLengthStateDir(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	if _, err := GoTmpDir(`\\?\`+root, "g1"); err == nil {
+		t.Fatal("GoTmpDir accepted an extended-length state directory, want refusal")
 	}
-	upper := strings.ToUpper(clean)
-	folded, err := GoTmpDir(upper, "g1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if folded != one {
-		t.Errorf("GoTmpDir(%q) = %q, want the same directory as %q", upper, folded, one)
+	if _, err := GoTmpDir(root, "g1"); err != nil {
+		t.Fatalf("GoTmpDir refused the plain spelling %q: %v", root, err)
 	}
 }
