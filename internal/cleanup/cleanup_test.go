@@ -99,9 +99,19 @@ func newCleanupFixture(t *testing.T) *cleanupFixture {
 	t.Helper()
 	// The Go temporary directory a cleanup removes lives under the user cache
 	// directory, so the test points os.UserCacheDir at a directory of its own
-	// rather than removing anything from the operator's cache.
-	for _, name := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME"} {
-		t.Setenv(name, t.TempDir())
+	// rather than removing anything from the operator's cache. HOME is in the
+	// set because os.UserCacheDir reads it on darwin and on Linux whenever
+	// XDG_CACHE_HOME is unset, and the resolve pins that the redirect took:
+	// this fixture drives a recursive delete, so isolation that quietly stops
+	// working is a hazard rather than a leak.
+	cache := t.TempDir()
+	for _, name := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME", "HOME"} {
+		t.Setenv(name, cache)
+	}
+	if resolved, err := os.UserCacheDir(); err != nil {
+		t.Fatalf("UserCacheDir = %v, want the isolated cache directory", err)
+	} else if rel, relErr := filepath.Rel(cache, resolved); relErr != nil || strings.HasPrefix(rel, "..") {
+		t.Fatalf("UserCacheDir = %q, want it under the test's own directory %q", resolved, cache)
 	}
 	root := t.TempDir()
 	makeCanonicalDir := func(name string) string {

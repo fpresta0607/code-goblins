@@ -369,11 +369,24 @@ func TestGoTmpDirIsScopedToTheFleet(t *testing.T) {
 }
 
 // An extended-length prefix survives filepath.Clean, so it would hash apart
-// from the plain spelling and split one fleet in two.
+// from the plain spelling and split one fleet in two. Both spellings of the
+// prefix have to be refused: //?/C:/x is absolute and cleans to \\?\C:\x, so
+// a check against the raw string would accept it and hash the extended-length
+// form anyway.
 func TestGoTmpDirRefusesAnExtendedLengthStateDir(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("an extended-length prefix is a Windows path spelling; elsewhere it is an ordinary filename")
+	}
 	root := filepath.Join(t.TempDir(), "state")
-	if _, err := GoTmpDir(`\\?\`+root, "g1"); err == nil {
-		t.Fatal("GoTmpDir accepted an extended-length state directory, want refusal")
+	for _, spelling := range []string{`\\?\` + root, "//?/" + filepath.ToSlash(root)} {
+		// Without this premise the refusal could come from the absoluteness
+		// guard instead, which would prove nothing about the prefix.
+		if !filepath.IsAbs(spelling) {
+			t.Fatalf("spelling %q is not absolute, so its refusal would not exercise the extended-length guard", spelling)
+		}
+		if _, err := GoTmpDir(spelling, "g1"); err == nil {
+			t.Errorf("GoTmpDir(%q) accepted an extended-length state directory, want refusal", spelling)
+		}
 	}
 	if _, err := GoTmpDir(root, "g1"); err != nil {
 		t.Fatalf("GoTmpDir refused the plain spelling %q: %v", root, err)
