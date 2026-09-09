@@ -736,7 +736,7 @@ WAKE_ACK_REQUIRED: cfo drain --ack-through 7 --recovery-generation 4
 
 Each record row is `  %d  %-6s  %s: %s` over seq, kind, key and detail, with the `%s: ` key segment omitted when key equals kind, which is why the heartbeat row shows one bare word.
 The header count is the number of unacknowledged records, every one of which is printed as its own row; the ack-through sequence is the highest sequence among the rows actually written, and `ackSequence` withholds the ack line entirely if those rows do not account for every record it was given. An earlier revision folded the rows last-write-wins per `(kind,key)` while still acking the raw maximum, so the ack line retired escalations the listing had declined to show. That fold is deleted, not narrowed: any partial keep-rule leaves a class of record that can still vanish. Do not restore it as an optimisation.
-There are exactly four output shapes.
+Apart from that withheld-ack case, which is unreachable while the renderer prints every record it is given, there are exactly four output shapes.
 Queue empty and no episode pending prints exactly `WAKE QUEUE: empty` and nothing else.
 Queue empty with an episode pending prints `WAKE QUEUE: 0 pending`, the RECOVERY EPISODE line, and `WAKE_ACK_REQUIRED: cfo drain --ack-through 0 --recovery-generation <gen>`. It is reachable whenever an episode outlives its records: a drain that acked the queue but not the episode, or a Task 11 arm-side watcher-down publish after `Run` returned an error without appending anything.
 A non-empty queue with an episode pending prints the full listing above: the header, the rendered rows, the RECOVERY EPISODE line, and a WAKE_ACK_REQUIRED line carrying both flags.

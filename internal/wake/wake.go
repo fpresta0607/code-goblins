@@ -248,6 +248,7 @@ func AckThrough(dir string, seq int) error {
 // it displayed. If a future change filters the listing again, the tool
 // withholds the ack line instead of printing one that overreaches.
 //
+// Apart from that withheld-ack line, which the loop below keeps unreachable,
 // Render prints one of four output shapes: an empty queue with no pending
 // episode (nothing further); an empty queue with a pending episode; a
 // non-empty queue with a pending episode (the full listing plus a
