@@ -372,7 +372,13 @@ func goblinMCPConfig(taskTmp string) string {
 // build, startHarness adds CFO_STATE_OVERRIDE just before the pane line is
 // rendered, and a manifest or credential merged in between must not be able
 // to claim a name the launch has not written yet.
-var reservedLaunchEnv = []string{"GOTMPDIR", "CFO_STATE_OVERRIDE", harness.RoleVariable}
+//
+// The cache root belongs to the contract for the same reason: the task's Go
+// temporary directory is derived from os.UserCacheDir, which reads
+// LOCALAPPDATA on Windows and XDG_CACHE_HOME elsewhere. A manifest that
+// redirected either would leave any cfo command run from that pane computing
+// a different directory than the process that created it.
+var reservedLaunchEnv = []string{"GOTMPDIR", "CFO_STATE_OVERRIDE", "LOCALAPPDATA", "XDG_CACHE_HOME", harness.RoleVariable}
 
 // reservedLaunchName reports whether name belongs to the launch contract:
 // one of the names the contract owns, or one the adapter already set on the

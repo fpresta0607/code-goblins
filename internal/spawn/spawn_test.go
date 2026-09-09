@@ -364,12 +364,18 @@ func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
 	// same variable. CFO_STATE_OVERRIDE is only written at harness start,
 	// after the manifest is merged, so it proves the reserved set does not
 	// depend on what the launch map happens to hold at merge time.
+	// LOCALAPPDATA and XDG_CACHE_HOME are reserved for a different reason: the
+	// launch never writes them, but os.UserCacheDir reads them to derive the
+	// task's Go temporary directory, so a redirect would leave any cfo command
+	// run from the pane computing a different directory than spawn created.
 	writeWorktreeManifest(t, fixture.dataDir, fixture.project, worktree.Manifest{
 		Project: "primary",
 		Env: map[string]string{
 			"gotmpdir":                 `C:\hijacked-gotmpdir`,
 			"cfo_state_override":       `C:\hijacked-state`,
 			"Cfo_Role":                 "overlord",
+			"localappdata":             `C:\hijacked-cache`,
+			"XDG_Cache_Home":           "/hijacked-cache",
 			"PLAYWRIGHT_BROWSERS_PATH": `C:\cache\ms-playwright`,
 		},
 	})
@@ -385,6 +391,13 @@ func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
 	if !strings.Contains(line, "$env:GOTMPDIR = '"+goTmpDir(t, fixture.stateDir, result.Meta.ID)+"'") ||
 		!strings.Contains(line, "$env:CFO_STATE_OVERRIDE = '"+fixture.stateDir+"'") {
 		t.Errorf("pane line = %q, want the launch contract's own values intact", line)
+	}
+	// The launch never sets the cache root itself, so a dropped redirect leaves
+	// it absent entirely and the pane inherits the operator's own.
+	for _, reserved := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME"} {
+		if strings.Contains(strings.ToUpper(line), "$ENV:"+reserved+" =") {
+			t.Errorf("pane line = %q, want no %s assignment: a manifest must not redirect the cache root", line, reserved)
+		}
 	}
 	if !strings.Contains(line, `$env:PLAYWRIGHT_BROWSERS_PATH = 'C:\cache\ms-playwright'`) {
 		t.Errorf("pane line = %q, want the unrelated redirect kept", line)
