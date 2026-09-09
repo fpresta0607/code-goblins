@@ -22,7 +22,7 @@ func runDrain(h home.Home, args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	ackThrough := fs.Int("ack-through", 0, "acknowledge wake records through this sequence")
 	recoveryGen := fs.Int("recovery-generation", 0, "acknowledge the recovery episode at this generation")
-	ackBlocking := fs.Bool("ack-blocking", false, "also retire blocked/failed notifies, which --ack-through refuses on its own")
+	ackBlocking := fs.Bool("ack-blocking", false, "also retire EVERY blocked/failed notify at or below --ack-through, which it refuses on its own")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -55,11 +55,12 @@ func runDrain(h home.Home, args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		if len(blocking) > 0 {
-			fmt.Fprintln(stderr, "cfo drain: refusing to ack a goblin that is waiting on you:")
+			fmt.Fprintln(stderr, "cfo drain: refusing to ack goblins that are waiting on you:")
 			for _, rec := range blocking {
 				fmt.Fprintf(stderr, "  %d  %s  %s\n", rec.Seq, rec.Key, rec.Detail)
 			}
-			fmt.Fprintln(stderr, "answer it with `cfo send <id> \"...\"`, then re-run with --ack-blocking to retire the question you have now read")
+			fmt.Fprintln(stderr, "answer each with `cfo send <id> \"...\"`, then re-run with --ack-blocking to retire EVERY question listed above.")
+			fmt.Fprintln(stderr, "--ack-blocking is range-scoped, not per-record: it retires all of them, and the list above is the whole set. The ack floor only moves forward, so there is no way to retire a later question while keeping an earlier one - to hold one open, handle it first or re-run --ack-through below its sequence.")
 			return 1
 		}
 	}
