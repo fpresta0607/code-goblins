@@ -176,6 +176,22 @@ type fleetE2EFixture struct {
 
 func newFleetE2EFixture(t *testing.T) *fleetE2EFixture {
 	t.Helper()
+	// This fixture spawns through the real spawn.Service, which creates each
+	// task's Go temporary directory under the user cache directory. Point
+	// os.UserCacheDir at a directory of the test's own so the run leaves
+	// nothing in the operator's cache, the same isolation CFO_HOME gets. HOME
+	// is in the set because os.UserCacheDir reads it on darwin and on Linux
+	// whenever XDG_CACHE_HOME is unset, and the resolve pins that the redirect
+	// actually took rather than isolating nothing.
+	cache := t.TempDir()
+	for _, name := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME", "HOME"} {
+		t.Setenv(name, cache)
+	}
+	if resolved, err := os.UserCacheDir(); err != nil {
+		t.Fatalf("UserCacheDir = %v, want the isolated cache directory", err)
+	} else if rel, relErr := filepath.Rel(cache, resolved); relErr != nil || strings.HasPrefix(rel, "..") {
+		t.Fatalf("UserCacheDir = %q, want it under the test's own directory %q", resolved, cache)
+	}
 	root := t.TempDir()
 	h := home.Home{
 		Root:  filepath.Join(root, "home"),

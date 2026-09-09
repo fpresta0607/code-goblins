@@ -97,6 +97,22 @@ func cleanupSnapshot(panes, agents string) string {
 
 func newCleanupFixture(t *testing.T) *cleanupFixture {
 	t.Helper()
+	// The Go temporary directory a cleanup removes lives under the user cache
+	// directory, so the test points os.UserCacheDir at a directory of its own
+	// rather than removing anything from the operator's cache. HOME is in the
+	// set because os.UserCacheDir reads it on darwin and on Linux whenever
+	// XDG_CACHE_HOME is unset, and the resolve pins that the redirect took:
+	// this fixture drives a recursive delete, so isolation that quietly stops
+	// working is a hazard rather than a leak.
+	cache := t.TempDir()
+	for _, name := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME", "HOME"} {
+		t.Setenv(name, cache)
+	}
+	if resolved, err := os.UserCacheDir(); err != nil {
+		t.Fatalf("UserCacheDir = %v, want the isolated cache directory", err)
+	} else if rel, relErr := filepath.Rel(cache, resolved); relErr != nil || strings.HasPrefix(rel, "..") {
+		t.Fatalf("UserCacheDir = %q, want it under the test's own directory %q", resolved, cache)
+	}
 	root := t.TempDir()
 	makeCanonicalDir := func(name string) string {
 		path := filepath.Join(root, name)
@@ -421,6 +437,107 @@ func TestCleanupRejectsInvalidIDBeforeAnyMutation(t *testing.T) {
 	}
 	if len(fixture.runner.requests) != 0 || len(fixture.git.returned) != 0 {
 		t.Fatalf("invalid ID reached external tools: requests=%v returned=%v", fixture.runner.requests, fixture.git.returned)
+	}
+}
+
+// Go writes build and test temporaries under a goblin's GOTMPDIR, and that
+// directory lives outside the state tree so a goblin's own tests do not
+// create files in the tree it is editing. Being outside, the archive rename
+// does not carry it away: cleanup is the only thing that removes it.
+func TestCleanupRemovesTheGoTemporaryDirectory(t *testing.T) {
+	fixture := newCleanupFixture(t)
+	if err := os.MkdirAll(filepath.Join(fixture.stateDir, "tasktmp", "g1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	goTmp, err := state.GoTmpDir(fixture.stateDir, "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(goTmp, "go-build1234"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := fixture.service.Cleanup(context.Background(), "g1"); err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if _, err := os.Stat(goTmp); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the go temporary directory survived cleanup: %v", err)
+	}
+}
+
+// A task whose scratch directory is already gone still owns a Go temporary
+// directory, because that one lives outside the state tree. The removal is
+// unconditional - it runs whether or not there was scratch to archive - which
+// is what makes cleanup the only thing that has to run for a retired task to
+// leave nothing behind. See cleanup.removeGoTmp.
+func TestCleanupRemovesTheGoTemporaryDirectoryWithoutScratch(t *testing.T) {
+	fixture := newCleanupFixture(t)
+	goTmp, err := state.GoTmpDir(fixture.stateDir, "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(goTmp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := fixture.service.Cleanup(context.Background(), "g1"); err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if _, err := os.Stat(goTmp); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the go temporary directory survived a cleanup with no scratch: %v", err)
+	}
+}
+
+// A Go temporary directory can be pinned by a handle nothing will give up -
+// a killed go test binary, a background process the goblin started,
+// antivirus - and that is exactly the case cleanup has to survive: the
+// credential scrub and the archive rename must still happen, so the project's
+// secrets do not stay on disk and the id does not stay claimed over a locked
+// build directory.
+func TestCleanupArchivesEvenWhenTheGoTemporaryDirectoryIsPinned(t *testing.T) {
+	fixture := newCleanupFixture(t)
+	taskTmp := filepath.Join(fixture.stateDir, "tasktmp", "g1")
+	if err := os.MkdirAll(taskTmp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taskTmp, "auth.ps1"), []byte("$env:STRIPE_SECRET_KEY = 'sk_live_secret'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	goTmp, err := state.GoTmpDir(fixture.stateDir, "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(goTmp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pinned, err := os.Create(filepath.Join(goTmp, "go-build1234.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { pinned.Close() })
+	// Prove the pin before relying on it, so this can never pass vacuously on
+	// a platform where an open handle does not block unlink.
+	if err := os.RemoveAll(goTmp); err == nil {
+		t.Skip("an open file handle does not block removal on this platform, so the pinned path cannot be exercised")
+	}
+
+	result, err := fixture.service.Cleanup(context.Background(), "g1")
+	if err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if _, err := os.Stat(taskTmp); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a pinned go temporary directory blocked the archive: %v", err)
+	}
+	archived := filepath.Join(fixture.stateDir, ArchiveDirName)
+	entries, err := os.ReadDir(archived)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("archive entries = %v, %v; want exactly one", entries, err)
+	}
+	if _, err := os.Stat(filepath.Join(archived, entries[0].Name(), "auth.ps1")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a pinned go temporary directory skipped the credential scrub: %v", err)
+	}
+	if !strings.Contains(result.Output, "go temporary directory") {
+		t.Errorf("Output = %q, want the go temporary directory warning", result.Output)
 	}
 }
 
