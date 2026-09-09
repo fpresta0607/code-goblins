@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -55,6 +56,76 @@ func TestFleetEndToEnd(t *testing.T) {
 	fixture.ScanUnknownEndpoint("codex")
 	fixture.AssertFleetJSONAndMarkdownParity()
 	fixture.AssertVisibleTabsAndNoLifecycleDeletes()
+}
+
+// The reported failure, reproduced through the same `cfo spawn` command an
+// operator runs: every claude spawn ended in "spawn: instruction read-back did
+// not match within 90s" while Herdr reported the agent interactive-ready,
+// because Claude Code renders text it treats as a paste as a collapsed
+// "[Pasted text #1]" placeholder. The pane therefore never contains the
+// instruction and a composer read-back can never match, no matter how long it
+// waits. Delivery is now submitted through the native agent channel and proven
+// from Herdr's own agent state, so a pane that shows nothing still spawns - and
+// the goblin still receives its whole brief.
+func TestSpawnDeliversTheBriefWhenTheHarnessCollapsesThePasteIntoAPlaceholder(t *testing.T) {
+	fixture := newFleetE2EFixture(t)
+	fixture.runner.collapsePastes = true
+
+	brief := filepath.Join(fixture.home.Root, "claude.brief.md")
+	if err := os.WriteFile(brief, []byte("Delivery contract: mode=local-only\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr := runFleetCommand(t, fixture.runtime, "spawn", "claude",
+		"--project", fixture.project,
+		"--brief", brief,
+		"--harness", "claude",
+		"--mode", "local-only")
+	if !strings.Contains(stdout, "spawned claude ") || stderr != "" {
+		t.Fatalf("cfo spawn stdout=%q stderr=%q, want the goblin spawned", stdout, stderr)
+	}
+
+	pane := fixture.runner.tabs["gb-claude"].pane
+	// Premise: the pane really never held the instruction, so the spawn
+	// succeeded despite the read-back being impossible rather than because the
+	// harness happened to render the text after all.
+	paneTail, err := fixture.client.Capture(context.Background(), herdr.Target{Session: "fleet-e2e", Pane: pane}, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(paneTail, brief) {
+		t.Fatalf("pane tail = %q, want the collapsed placeholder this defect is about", paneTail)
+	}
+
+	// The instruction reached the agent, exactly once, carrying the whole
+	// brief instruction rather than a truncated or placeholder-shaped one.
+	prompts := fixture.runner.prompts[pane]
+	if len(prompts) != 1 {
+		t.Fatalf("agent prompts = %q, want exactly one - a re-send briefs the goblin twice", prompts)
+	}
+	if want := harness.BriefInstruction(brief); !strings.HasPrefix(prompts[0], want) {
+		t.Fatalf("delivered instruction = %q, want it to open with %q", prompts[0], want)
+	}
+	// And it was never typed into the composer, which is the delivery that
+	// could not survive a harness that collapses pastes.
+	for _, request := range fixture.runner.requests {
+		if request.Name == "herdr" && matches(request.Args, "pane", "send-text") && strings.Contains(request.Args[3], brief) {
+			t.Fatalf("the instruction was typed into the composer: %q", request.Args[3])
+		}
+	}
+
+	// What the operator is left with: a live, addressable task. A failed
+	// delivery tears the launch down and retires this metadata.
+	meta, err := state.ReadTaskMeta(fixture.home.State, "claude")
+	if err != nil {
+		t.Fatalf("read task metadata after the spawn: %v", err)
+	}
+	if meta.HerdrPaneID != pane {
+		t.Fatalf("task metadata pane = %q, want the spawned pane %q", meta.HerdrPaneID, pane)
+	}
+	t.Logf("cfo spawn stdout: %s", strings.TrimSpace(stdout))
+	t.Logf("pane %s tail while the instruction was delivered: %q", pane, paneTail)
+	t.Logf("herdr agent prompt %s %q", pane, prompts[0])
+	t.Logf("task metadata: id=%s harness=%s pane=%s worktree=%s", meta.ID, meta.Harness, meta.HerdrPaneID, meta.Worktree)
 }
 
 func TestPlan3AcceptanceScriptSelfTests(t *testing.T) {
@@ -231,10 +302,12 @@ func newFleetE2EFixture(t *testing.T) *fleetE2EFixture {
 		now:     time.Now().UTC().Truncate(time.Second),
 	}
 	fixture.runner = &fleetE2ERunner{
-		fixture: fixture,
-		tabs:    make(map[string]fleetE2ETab),
-		busy:    make(map[string]herdr.BusyState),
-		missing: make(map[string]bool),
+		fixture:        fixture,
+		tabs:           make(map[string]fleetE2ETab),
+		busy:           make(map[string]herdr.BusyState),
+		missing:        make(map[string]bool),
+		prompts:        make(map[string][]string),
+		stateChangeSeq: make(map[string]int64),
 	}
 	fixture.git = &fleetE2EGit{fixture: fixture}
 	fixture.client = &herdr.Client{
@@ -614,6 +687,22 @@ type fleetE2ERunner struct {
 	missing   map[string]bool
 	lastText  string
 	requests  []execx.Request
+	// prompts and stateChangeSeq model what Herdr 0.9.0 reports for a
+	// registered agent: the monotonic counters advance ONLY for a pane whose
+	// agent actually accepted a prompt. A fake that advanced them
+	// unconditionally would report every launch as delivered, including one
+	// where the instruction was never submitted.
+	prompts        map[string][]string
+	stateChangeSeq map[string]int64
+	// collapsePastes models Claude Code rendering text it treats as a paste
+	// as a collapsed placeholder, so the pane never shows the instruction.
+	collapsePastes bool
+	// inertCounters models an agent that never reports accepting the prompt,
+	// which is the shape of a launch whose instruction never landed.
+	inertCounters bool
+	// taskTmpAtStart records that the task temporary directory existed when
+	// the harness started, so a teardown assertion has its premise.
+	taskTmpAtStart bool
 }
 
 type fleetE2ETab struct {
@@ -704,15 +793,47 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 		if hasArgument(args, "--format") {
 			return result(strings.Repeat("terminal line\n", 199) + "❯\n"), nil
 		}
+		if r.collapsePastes {
+			// What a real claude pane holds after a paste: the text is gone,
+			// replaced by a placeholder that names nothing it contained.
+			return result("> [Pasted text #1]\n  paste again to expand\n"), nil
+		}
 		if r.lastText != "" {
 			return result(r.lastText + "\n"), nil
 		}
 		return result(strings.Repeat("terminal line\n", 199) + "acceptance marker\n"), nil
 	case matches(args, "tab", "close"):
+		// A closed tab is gone, so a later task can take its label back.
+		if len(args) >= 3 {
+			for label, tab := range r.tabs {
+				if tab.id == args[2] {
+					delete(r.tabs, label)
+				}
+			}
+		}
 		return resultEnvelope(map[string]any{}), nil
 	case matches(args, "agent", "get"):
-		return resultEnvelope(map[string]any{"agent": map[string]string{"agent": "claude", "agent_status": "working"}}), nil
+		if len(args) < 3 {
+			return execx.Result{}, fmt.Errorf("agent get is missing pane: %v", args)
+		}
+		pane := args[2]
+		// The counters move only for a pane whose agent accepted a prompt.
+		if len(r.prompts[pane]) > 0 && !r.inertCounters {
+			r.stateChangeSeq[pane]++
+		}
+		return resultEnvelope(map[string]any{"agent": map[string]any{
+			"agent":            "claude",
+			"agent_status":     "working",
+			"state_change_seq": r.stateChangeSeq[pane],
+			"revision":         r.stateChangeSeq[pane],
+		}}), nil
 	case matches(args, "agent", "start"):
+		// The task temporary directory exists by the time a harness starts;
+		// recording that lets a teardown test assert its later absence is a
+		// removal rather than a launch that never created it.
+		if _, err := os.Stat(filepath.Join(r.fixture.home.State, "tasktmp", "claude")); err == nil {
+			r.taskTmpAtStart = true
+		}
 		if _, ok := flagValue(args, "--kind"); !ok {
 			return execx.Result{}, fmt.Errorf("agent start is missing --kind: %v", args)
 		}
@@ -727,6 +848,7 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 		if len(args) < 4 {
 			return execx.Result{}, fmt.Errorf("agent prompt is incomplete: %v", args)
 		}
+		r.prompts[args[2]] = append(r.prompts[args[2]], args[3])
 		return resultEnvelope(map[string]any{"agent": map[string]string{"agent_status": "working"}}), nil
 	default:
 		return execx.Result{}, fmt.Errorf("unexpected fake Herdr command: %v", args)
@@ -960,3 +1082,56 @@ var _ worktree.Git = (*fleetE2EGit)(nil)
 var _ monitor.Prober = (*fleetE2EProber)(nil)
 var _ fleet.EndpointReader = fleetE2EEndpoint{}
 var _ crewstate.StructuralValidator = fleetE2EEndpoint{}
+
+// A spawn whose instruction never landed must leave the operator able to run
+// the same command again. The failed launch removes state/tasktmp/<id>, which
+// is the only thing left claiming that id once the metadata is retired: while
+// it survived, the retry of the very spawn that had just failed was refused
+// with "conflicts case-insensitively with retained task temporary directory".
+// That directory also holds the rendered credential script, so removing it is
+// the credential scrub for a launch that never became a task.
+func TestSpawnFailureLeavesTheIDRespawnableThroughTheCommand(t *testing.T) {
+	fixture := newFleetE2EFixture(t)
+	fixture.runner.inertCounters = true
+
+	brief := filepath.Join(fixture.home.Root, "claude.brief.md")
+	if err := os.WriteFile(brief, []byte("Delivery contract: mode=local-only\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spawnArgs := []string{"spawn", "claude",
+		"--project", fixture.project,
+		"--brief", brief,
+		"--harness", "claude",
+		"--mode", "local-only"}
+
+	var stdout, stderr bytes.Buffer
+	if exit := runWithRuntime(spawnArgs, &stdout, &stderr, fixture.runtime); exit == 0 {
+		t.Fatalf("cfo spawn exit=0 stdout=%q, want the undelivered instruction to fail the launch", stdout.String())
+	}
+	failure := stderr.String()
+	if !strings.Contains(failure, "never reported accepting the instruction") {
+		t.Fatalf("cfo spawn stderr = %q, want the unproven delivery named", failure)
+	}
+	// Premise: the launch really did get far enough to create the directory
+	// whose removal this test is about.
+	taskTmp := filepath.Join(fixture.home.State, "tasktmp", "claude")
+	if !fixture.runner.taskTmpAtStart {
+		t.Fatal("tasktmp was never created, so its absence proves nothing")
+	}
+	if _, err := os.Stat(taskTmp); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("task temporary directory %q survived the failed spawn: %v", taskTmp, err)
+	}
+
+	// The operator's actual next move: run the same command again.
+	fixture.runner.inertCounters = false
+	stdout.Reset()
+	stderr.Reset()
+	if exit := runWithRuntime(spawnArgs, &stdout, &stderr, fixture.runtime); exit != 0 {
+		t.Fatalf("retry exit=%d stdout=%q stderr=%q, want the same id respawnable", exit, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "spawned claude ") {
+		t.Fatalf("retry stdout = %q, want the goblin spawned", stdout.String())
+	}
+	t.Logf("first cfo spawn stderr: %s", strings.TrimSpace(failure))
+	t.Logf("retry cfo spawn stdout: %s", strings.TrimSpace(stdout.String()))
+}
