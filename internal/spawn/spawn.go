@@ -496,8 +496,8 @@ func (s Service) startHarness(ctx context.Context, client *herdr.Client, target 
 		}
 		// A resumed typed launch carries no positional instruction, because a
 		// resume subcommand binds its first positional to a session
-		// identifier. Deliver it to the composer the way the native path
-		// below does, or the resumed goblin starts with nothing to do.
+		// identifier. Submit it as a prompt the way the native path below
+		// does, or the resumed goblin starts with nothing to do.
 		if launch.Resumed {
 			if err := s.sleep(ctx, launchSettle); err != nil {
 				return true, fmt.Errorf("spawn: wait before resumed brief prompt: %w", err)
@@ -540,10 +540,9 @@ func (s Service) startHarness(ctx context.Context, client *herdr.Client, target 
 	if err := s.sleep(ctx, launchSettle); err != nil {
 		return true, fmt.Errorf("spawn: wait before brief prompt: %w", err)
 	}
-	// The first instruction after launch is the least protected moment: a
-	// too-early or too-fast first keystroke can eat leading characters and
-	// turn the brief instruction into a bogus slash command. Type it, read it
-	// back, and submit only once the composer shows it intact.
+	// The first instruction after launch is the least protected moment: the
+	// harness can still be booting long after launchSettle, so delivery is
+	// confirmed against Herdr's own agent state rather than assumed.
 	if err := s.deliverVerifiedInstruction(ctx, client, target, launch.PromptInstruction()); err != nil {
 		return true, err
 	}
@@ -962,9 +961,8 @@ func instructionAccepted(before, after herdr.AgentDetail) bool {
 
 // teardownLaunch closes the task tab, returns the worktree, removes the Go
 // temporary directory and the task temporary directory, and retires the task
-// metadata. It is the clean-failure
-// path: every step is attempted and their failures joined, so one stuck
-// teardown step never leaves the rest undone.
+// metadata. It is the clean-failure path: every step is attempted and their
+// failures joined, so one stuck teardown step never leaves the rest undone.
 func (s Service) teardownLaunch(ctx context.Context, client *herdr.Client, endpoint herdr.Endpoint, project, worktree, id string) error {
 	var errs error
 	if err := client.CloseTab(ctx, endpoint.Target.Session, endpoint.TabID); err != nil {
