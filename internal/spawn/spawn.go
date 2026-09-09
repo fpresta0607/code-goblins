@@ -959,9 +959,8 @@ func submitKey(kind harness.Kind) string {
 
 // teardownLaunch closes the task tab, returns the worktree, removes the Go
 // temporary directory, and retires the task metadata. It is the clean-failure
-// path: every step is attempted and
-// their failures joined, so one stuck teardown step never leaves the rest
-// undone.
+// path: every step is attempted and their failures joined, so one stuck
+// teardown step never leaves the rest undone.
 func (s Service) teardownLaunch(ctx context.Context, client *herdr.Client, endpoint herdr.Endpoint, project, worktree, id string) error {
 	var errs error
 	if err := client.CloseTab(ctx, endpoint.Target.Session, endpoint.TabID); err != nil {

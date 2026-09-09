@@ -1,9 +1,12 @@
 // Package cleanup returns one clean, proven-inactive task worktree and closes
-// its task tab. It never deletes a directory itself, stops an agent, or
+// its task tab. It never deletes a worktree itself, stops an agent, or
 // discards changes: the only lifecycle calls it makes are the Herdr tab close
 // of the exact recorded tab (after the endpoint is proven agent-free) and
 // worktree.Service.Return, and only after every guard has proven the exact
-// recorded task safe to release.
+// recorded task safe to release. The one directory it removes outright holds
+// no work - the task's Go temporary directory, retired with the record
+// because it lives outside the state tree the archive rename carries away;
+// see Service.removeGoTmp.
 package cleanup
 
 import (
