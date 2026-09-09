@@ -830,6 +830,35 @@ func TestSwitchRelaunchesIntoTheTasksOwnGoTmpDir(t *testing.T) {
 	}
 }
 
+// An unresolvable user cache directory is a fleet-wide misconfiguration, so a
+// switch has to refuse before it stops the running harness. Discovered after
+// the stop it would leave the goblin with no harness at all, which is the
+// outcome the pre-stop resolves exist to prevent.
+func TestSwitchRefusesAnUnresolvableGoTmpDirBeforeStoppingTheHarness(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	// os.UserCacheDir reads these and errors when the one it needs is empty.
+	for _, name := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME", "HOME"} {
+		t.Setenv(name, "")
+	}
+
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{
+		ID:      fixture.meta.ID,
+		Harness: harness.Kimi,
+		Session: "fleet",
+	}); err == nil {
+		t.Fatal("Switch succeeded without a resolvable Go temporary directory, want refusal")
+	}
+
+	// The stop sequence reads the agent first, then sends the stop keys and
+	// types the stop command; none of that may have happened.
+	if fixture.runner.agentGets != 0 {
+		t.Errorf("agent reads = %d, want the switch to abort before the stop sequence", fixture.runner.agentGets)
+	}
+	if slices.Contains(fixture.runner.keys, "escape") || slices.Contains(fixture.runner.literals, "/exit") {
+		t.Errorf("keys = %v, literals = %v, want the running harness left alone", fixture.runner.keys, fixture.runner.literals)
+	}
+}
+
 func TestSwitchHandsTheNewHarnessTheProvisionedMCPConfig(t *testing.T) {
 	fixture := newSwitchFixture(t)
 	// Provisioning materializes the filtered configuration under the task's

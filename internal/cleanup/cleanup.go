@@ -32,8 +32,9 @@ type Service struct {
 	// ForceArchive retires a task whose worktree can no longer be validated -
 	// a directory pinned by a dead process's handle, or already deleted out
 	// from under the record. It archives the task record and leaves the
-	// directory exactly as found: nothing on disk is deleted, so it can never
-	// discard work. It still refuses a pane that has a live agent.
+	// worktree exactly as found, so it can never discard work, though the
+	// task's Go temporary directory is retired with the record. It still
+	// refuses a pane that has a live agent.
 	ForceArchive bool
 }
 
@@ -151,7 +152,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 // prove. The one check that stays is the live-agent refusal: a task is
 // retired, never abandoned mid-run. The tab close is best-effort because the
 // pane is usually already gone, and no worktree return is attempted, so the
-// directory is left for the operator (or a reboot) and nothing is deleted.
+// worktree is left for the operator (or a reboot).
 func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, worktreePath string) (Result, error) {
 	if err := s.requireInactive(ctx, meta); err != nil {
 		return Result{}, err
