@@ -20,10 +20,18 @@ jobs:
         run: |
           $path = 'internal/lock/lock_test.go'
           $text = [IO.File]::ReadAllText($path).Replace("`r`n", "`n")
-          $old = "`tif second.Acquired.Equal(first.Acquired) {`n`t`t.Fatalf(`"reclaimed lease retained first acquisition time: first=%s second=%s`", first.Acquired, second.Acquired)`n`t}`n"
-          $new = "`tcurrent, err := ReadNamed(dir, name)`n`tif err != nil {`n`t`t.Fatalf(`"ReadNamed reclaimed lock: %v`", err)`n`t}`n`tif current.PID != second.PID || current.OwnerPID != second.OwnerPID || current.Session != second.Session || !current.Start.Equal(second.Start) || current.Hostname != second.Hostname || !current.Acquired.Equal(second.Acquired) {`n`t`t.Fatalf(`"reclaimed holder = %+v, want second lease %+v`", current, second)`n`t}`n"
-          if (-not $text.Contains($old)) { throw 'expected clock-sensitive assertion not found' }
-          $updated = $text.Replace($old, $new)
+          $pattern = '(?ms)^\s*if second\.Acquired\.Equal\(first\.Acquired\) \{\s*t\.Fatalf\("reclaimed lease retained first acquisition time: first=%s second=%s", first\.Acquired, second\.Acquired\)\s*\}'
+          $replacement = @'
+	current, err := ReadNamed(dir, name)
+	if err != nil {
+		t.Fatalf("ReadNamed reclaimed lock: %v", err)
+	}
+	if current.PID != second.PID || current.OwnerPID != second.OwnerPID || current.Session != second.Session || !current.Start.Equal(second.Start) || current.Hostname != second.Hostname || !current.Acquired.Equal(second.Acquired) {
+		t.Fatalf("reclaimed holder = %+v, want second lease %+v", current, second)
+	}
+'@
+          $updated = [regex]::Replace($text, $pattern, $replacement, 1)
+          if ($updated -eq $text) { throw 'clock-sensitive assertion not found' }
           [IO.File]::WriteAllText($path, $updated, [Text.UTF8Encoding]::new($false))
           gofmt -w $path
           go test ./internal/lock -run TestAcquireExclusiveNamedReclaimsAbandonedLeaseAfterReleaseFailure -count=100
