@@ -497,8 +497,12 @@ func TestAcquireExclusiveNamedReclaimsAbandonedLeaseAfterReleaseFailure(t *testi
 	if err != nil {
 		t.Fatalf("second AcquireExclusiveNamed did not reclaim abandoned lease: %v", err)
 	}
-	if second.Acquired.Equal(first.Acquired) {
-		t.Fatalf("reclaimed lease retained first acquisition time: first=%s second=%s", first.Acquired, second.Acquired)
+	current, err := ReadNamed(dir, name)
+	if err != nil {
+		t.Fatalf("ReadNamed reclaimed lock: %v", err)
+	}
+	if current.PID != second.PID || current.OwnerPID != second.OwnerPID || current.Session != second.Session || !current.Start.Equal(second.Start) || current.Hostname != second.Hostname || !current.Acquired.Equal(second.Acquired) {
+		t.Fatalf("reclaimed holder = %+v, want second lease %+v", current, second)
 	}
 	if _, err := AcquireExclusiveNamed(dir, name); !errors.Is(err, ErrHeld) {
 		t.Fatalf("concurrent same-process acquire after recovery error = %v, want ErrHeld", err)
