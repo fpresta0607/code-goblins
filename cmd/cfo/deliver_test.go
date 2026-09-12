@@ -50,7 +50,7 @@ const (
 )
 
 // The gh pr view payload this code parses, in the shape gh 2.86 emits.
-const prMergeHeadJSON = `{"headRefName":"fix/x","headRefOid":"` + prMergeHeadOID + `","headRepository":{"name":"code-goblins"},"headRepositoryOwner":{"login":"fpresta0607"}}`
+const prMergeHeadJSON = `{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"APPROVED","headRefName":"fix/x","headRefOid":"` + prMergeHeadOID + `","headRepository":{"name":"code-goblins"},"headRepositoryOwner":{"login":"fpresta0607"},"statusCheckRollup":[{"name":"go","status":"COMPLETED","conclusion":"SUCCESS"}]}`
 
 // gh's message for a DELETE of a ref that is not there, which is what a
 // repository with "Automatically delete head branches" enabled produces.
@@ -270,8 +270,11 @@ func TestPRMergeWithoutDeleteBranchRunsOnlyTheMerge(t *testing.T) {
 	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13"}, &stdout, &stderr, runner); exit != 0 {
 		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 	}
-	if len(runner.requests) != 1 {
-		t.Errorf("ran %d commands, want only the merge: %v", len(runner.requests), runner.requests)
+	if len(runner.requests) != 2 {
+		t.Errorf("ran %d commands, want proof + merge: %v", len(runner.requests), runner.requests)
+	}
+	if !runner.ran("gh", "pr", "merge", "https://github.com/o/r/pull/13", "--merge", "--match-head-commit", prMergeHeadOID) {
+		t.Errorf("merge was not SHA-pinned: %v", runner.requests)
 	}
 }
 
