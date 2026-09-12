@@ -1,0 +1,56 @@
+name: runtime-v1-audit
+
+on:
+  push:
+    branches: [feat/project-runtime-delivery-v1]
+    paths: [.github/workflows/runtime-v1-audit.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  baseline-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ed7084fb3ddf632ee0fe272c530d0428b20dd1ae
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Ensure SQLite
+        shell: pwsh
+        run: |
+          if (-not (Get-Command sqlite3 -ErrorAction SilentlyContinue)) {
+            choco install sqlite --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          sqlite3 --version
+      - run: go vet ./...
+      - run: go test ./... -count=1
+      - run: go build ./cmd/cfo
+      - run: go build ./cmd/showcase-axi
+  offline-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ed7084fb3ddf632ee0fe272c530d0428b20dd1ae
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Package tracked source and dependencies for local audit
+        run: |
+          mkdir -p audit-bundle
+          git archive --format=tar.gz HEAD > audit-bundle/source.tar.gz
+          git rev-parse HEAD > audit-bundle/base-sha.txt
+          go mod vendor
+          tar -czf audit-bundle/vendor.tar.gz vendor
+          tar -czf audit-bundle/toolchain.tar.gz -C "$(go env GOROOT)" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-v1-offline-audit
+          path: audit-bundle/
+          retention-days: 2
