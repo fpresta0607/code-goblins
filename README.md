@@ -1,209 +1,205 @@
-<h1 align="center">code-goblins</h1>
+<h1 align="center">Code Goblins</h1>
+
+<p align="center"><strong>Talk to one agent. Ship with a crew.</strong></p>
 
 <p align="center">
-  <a href="https://img.shields.io/badge/platform-Windows-blue?style=flat-square"
-    ><img
-      alt="Platform"
-      src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square"
-  /></a>
-  <a href="https://img.shields.io/badge/go-1.26-blue?style=flat-square"
-    ><img
-      alt="Go"
-      src="https://img.shields.io/badge/go-1.26-blue?style=flat-square"
-  /></a>
+  A Windows-native control plane for autonomous coding agents.<br/>
+  One CFO coordinates Claude Code, Codex, Pi, and Kimi workers in isolated git worktrees, supervises them to completion, validates the result, and hands you finished work.
 </p>
 
-<h3 align="center">Talk to one agent. Ship with a crew of goblins.</h3>
+<p align="center">
+  <img alt="Windows" src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" />
+  <img alt="Go" src="https://img.shields.io/badge/core-Go-00ADD8?style=flat-square" />
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-green?style=flat-square" />
+</p>
 
-## What it is
+## Why Code Goblins
 
-code-goblins turns one coding agent into a fleet.
-You talk to a single agent - the **CFO** (Chief Fuckaround Officer) - and it runs a crew of worker agents - **code goblins** - in parallel, each in its own isolated git worktree, supervised to completion.
-The CFO hands you finished PRs, approved local merges, or standalone investigation reports.
+Most coding-agent tools make you manage more agents. Code Goblins is built to do the opposite.
 
-code-goblins is a Windows-native rewrite of [firstmate](https://github.com/kunchenguid/firstmate): one compiled Go binary, `cfo.exe`, replaces upstream's bash script layer.
+You talk to one supervisor: the **CFO**. The CFO decomposes the objective, dispatches specialized **goblins** in parallel, gives each worker an isolated git worktree, watches for failures and blocked work, switches harnesses when necessary, runs the delivery pipeline, and brings decisions back to you only when human judgment is actually required.
 
-Upstream works, but it is slow on Windows: Git Bash emulates `fork()`, so every subprocess spawn and command substitution costs 20-50x what it does on Linux, and the scripts shell out to `jq`, `grep`, and `git` hundreds of times per operation.
-code-goblins collapses that layer into a single binary that does JSON, string, and file work in-process.
-
-## Status
-
-Windows-native v1 is the active target.
-The core fleet loop is implemented and green: spawn, steer, inspect, deliver, the durable wake queue, and restart-proof state.
-The full design and the explicit v1 scope live in [docs/superpowers/specs/2026-08-12-windows-native-fork-design.md](docs/superpowers/specs/2026-08-12-windows-native-fork-design.md).
-
-## What works today
-
-- **One fleet binary** - `cfo.exe`, downloaded by `install.ps1` (or built from source with `go build ./cmd/cfo`). `install.ps1 -Bootstrap` also installs `showcase-axi.exe` (the repo-owned review surface) and the rest of the toolchain.
-- **Real Windows sessions** - goblins run in [Herdr](https://herdr.dev), one tab per goblin.
-- **Isolated worktrees** - every goblin gets a clean in-repo git worktree at `<project>/.worktrees/gb-<id>`, provisioned with the project's config files, dependencies, and token-authenticated MCP servers so it is runnable without re-installing by hand.
-- **Four harnesses** - Claude Code, Codex, Pi, and Kimi, each with typed, validated launch mapping; claude and kimi start as named native Herdr agents (`gb-<id>`) and receive their brief through `herdr agent prompt`, while codex and pi are typed into the prepared pane shell (Herdr's Windows agent start cannot run their npm `.cmd` shims).
-- **Supervision without babysitting** - Claude Code hooks plus `cfo watch` wake the CFO only when something needs attention; a turn-end guard refuses to let a turn end blind while work is in flight.
-- **Restart-proof state** - tasks, metadata, and the wake queue live on disk under `$CFO_HOME`.
-- **In-place harness switching** - `cfo switch <id> --harness claude --model opus` stops a goblin's harness on its own terms and relaunches it in the same pane and worktree, resuming its session when the harness can and handing it a written handoff when it cannot. A harness being refused by its provider shows as `harness-erroring` in `cfo fleet-view`, and `data/routing.json` holds the standing answer.
-- **Per-project authentication** - each project declares its services in `data/projects/<name>/auth.json`; `cfo auth` probes them, checks that each credential points at this project's instance where the manifest says how, and adopts credentials the machine already holds; `cfo spawn` refuses to dispatch while a blocking service is red and otherwise injects the usable credentials into the goblin's pane before the harness starts. Credentials are namespaced per project in Windows Credential Manager (or `~/.cfo/credentials/` with owner-only ACLs), never in a repository and never in the output.
-- **AXI integrations** - `tasks-axi` (backlog) and `quota-axi` (dispatch) stay thin subprocess integrations in `cfo`; `gh-axi` (GitHub) and `chrome-devtools-axi` (browser) ship as skills in `.agents/skills/`; `showcase-axi` (review surface) is repo-owned and built alongside `cfo.exe`.
-
-## Commands
+The goal is not maximum agent count. The goal is **minimum human intervention per production-ready change**.
 
 ```text
-cfo install [--uninstall]            wire this checkout into the machine so a session in any repo is supervised: CFO_HOME and PATH at user scope, and the CFO hooks merged into ~/.claude/settings.json
-cfo doctor                           check the tools cfo needs and how to install them; probe each harness's spawn health (ok/broken); print the validation-timing table when telemetry exists, with successful, failed, and cancelled invocations kept apart; print the active switch rules from data/routing.json
-cfo pipeline config-drift | config-apply | run <id> --intent <text> | respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>]   drive a gated task under the checked-in policy in config/pipeline.json (see docs/pipeline.md)
-cfo auth <project> [--check|--fix] [--env]   preflight a project's services from data/projects/<name>/auth.json; --fix adopts credentials the machine already holds and asks once for the rest
-cfo auth store [--project <p>] <NAME> [value]   store one credential in a project's scope, or the shared scope without --project (omit the value to read it from stdin)
-cfo auth list [--project <p>]        list stored credential keys, never values
-cfo auth copy <NAME> --to <project> [--from <project>]   copy a stored value into a project's scope; the source is left in place
-cfo auth refresh <task-id>           regenerate a task's auth.ps1 from its project scope; storing or copying into a project scope does this for every live task of that project automatically
-cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--yolo]
-cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place, keeping its id, pane, and worktree
-cfo send <target> [--key <key>] <text...>
-cfo peek <target> [lines]
-cfo fleet-view [--json]
-cfo brief <id> --project <path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>]
-cfo pr check <id> <url>
-cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
-cfo merge-local <id>
-cfo cleanup <id>                       close the task tab and return its clean, proven-inactive worktree (removed in-repo, git entry pruned)
-cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>"   a goblin reports its outcome (PR URL, question, or failure) straight into the wake queue
-cfo drain                            print or acknowledge the wake queue
-cfo session-start                    print the session-start digest
-cfo watch                            run one triage cycle by hand
-cfo hook <name>                      Claude Code hook entry points (session-start, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm)
-cfo version
+                              YOU
+                               │
+                        one conversation
+                               │
+                               ▼
+                     ┌──────────────────┐
+                     │       CFO        │
+                     │ plan · dispatch  │
+                     │ supervise · ship │
+                     └────────┬─────────┘
+                              │
+              ┌───────────────┼───────────────┐
+              ▼               ▼               ▼
+        ┌───────────┐   ┌───────────┐   ┌───────────┐
+        │ Goblin A  │   │ Goblin B  │   │ Goblin C  │
+        │ worktree  │   │ worktree  │   │ worktree  │
+        │ Claude    │   │ Codex     │   │ Pi / Kimi │
+        └─────┬─────┘   └─────┬─────┘   └─────┬─────┘
+              └───────────────┼───────────────┘
+                              ▼
+                  review → test → lint → CI
+                              │
+                              ▼
+                     PR / local delivery
 ```
 
-## From clone to first goblin
+## What makes it different
+
+### One supervisor, not a wall of terminals
+
+The CFO is the only human-facing control plane. Goblins report outcomes, questions, and failures into a durable wake queue; the CFO supervises and steers them without requiring you to poll every terminal.
+
+### Native Windows orchestration
+
+The fleet core is a compiled Go binary (`cfo.exe`). Goblins run as real Windows sessions in [Herdr](https://herdr.dev), avoiding a shell-script orchestration layer on the hot path.
+
+### Isolated work by default
+
+Every goblin receives its own in-repository git worktree at `<project>/.worktrees/gb-<id>`. Parallel workers do not edit the same checkout, and cleanup refuses to destroy unlanded work.
+
+### Harness-agnostic workers
+
+A task can run through Claude Code, Codex, Pi, or Kimi. `cfo switch` can change the harness, model, or effort level in-place while retaining the task identity, pane, worktree, and a handoff when native session resumption is unavailable.
+
+### Restart-proof supervision
+
+Task metadata, fleet state, and wake events live on disk. Closing the supervisor does not erase what the fleet was doing.
+
+### Production-oriented gates
+
+The `no-mistakes` path owns review, bounded repair cycles, tests, lint, documentation, push, PR creation, and CI. Review budgets are frozen per task so changing global policy cannot silently weaken an in-flight job.
+
+The production-proof layer is intentionally fail-closed: delivery evidence must come from machine-readable PR state and terminal checks rather than a worker merely claiming that the task is finished.
+
+### Project-scoped credentials
+
+Projects declare the services they need. `cfo auth` probes them before dispatch, validates project identity where configured, and keeps credentials namespaced outside repositories. A blocking authentication failure prevents normal dispatch rather than stranding a worker halfway through a task.
+
+### Recovery instead of babysitting
+
+`cfo watch`, hooks, `cfo reap`, durable wake events, harness health, and explicit task states are designed around unattended operation. The system detects work that needs intervention and wakes the CFO instead of making the user stare at terminals.
+
+## Quick start
+
+Code Goblins is a standalone repository. Clone this repository directly; no upstream checkout or synchronization step is required.
 
 ```powershell
-git clone https://github.com/fpresta0607/code-goblins
+git clone https://github.com/fpresta0607/code-goblins.git
 cd code-goblins
 powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Bootstrap
-```
-
-`install.ps1 -Bootstrap` downloads (or builds) `cfo.exe` and `showcase-axi.exe`, then installs every missing tool `cfo doctor` checks that has a scriptable installer - git, gh, claude, herdr, codex, pi, tasks-axi, quota-axi, no-mistakes, gh-axi, and chrome-devtools-axi.
-Kimi is the one `cfo doctor` check with no scriptable installer, so it is printed as a manual step instead of being installed.
-It also creates the `.claude/skills` / `.codex/skills` junctions that point at the bundled `.agents/skills/`.
-The Claude Code hooks are wired separately by `cfo install`, described below, because they are written to your own user configuration rather than to this repository.
-The script is idempotent and safe to rerun.
-
-```powershell
+cfo install
 cfo doctor
 ```
 
-Green means the toolchain is ready.
-Anything still missing is printed with its exact install command.
+`install.ps1 -Bootstrap` installs or builds the Code Goblins binaries and scriptable dependencies. `cfo install` wires the CFO into your user environment so a supervisor opened from another project can still manage the fleet.
 
-Prove the loop end to end with a trivial local-only task:
-
-```powershell
-cfo brief smoke --project . --mode local-only
-# put a one-line task in data/smoke/brief.md, e.g. "add a line to README.md"
-cfo spawn smoke --project . --brief data/smoke/brief.md --harness pi --mode local-only
-# once the goblin has landed its branch:
-cfo cleanup smoke
-```
-
-### What still needs manual steps
-
-`install.ps1` installs binaries, not accounts, and it assumes Node.js (npm) and winget are already installed, so do these once by hand:
-
-- **Node.js (npm).** Seven tools install via `npm install -g`; if `npm` is missing, install Node.js first: `winget install OpenJS.NodeJS.LTS`.
-- **winget.** It installs git and gh; winget ships with Windows App Installer, which is preinstalled on Windows 10 and 11.
-- **Go.** Only needed for the source-build fallback when no release binary exists: `winget install GoLang.Go`.
-- **Harness sign-ins.** claude, codex, pi, and kimi each need their own login before they can run goblins.
-- **GitHub auth.** `gh auth login` (gh-axi reuses the same token).
-- **Kimi Code CLI.** It has no scriptable installer; get it from [kimi.com](https://www.kimi.com) and sign in.
-- **no-mistakes per project.** Each project you want gated needs `no-mistakes init` (plus a push target) before `no-mistakes` delivery mode works.
-
-### Run the CFO from any repo
-
-The CFO's supervision arrives through Claude Code hooks: the session-start digest, the wake queue, the turn-end guard, and the watcher that re-arms itself while goblins are in flight.
-Nothing in this repository registers them for you, so until you run `cfo install` a session opened outside this checkout has none of them, and it has them silently - nothing announces that supervision is off.
+Then open the project you actually want to build:
 
 ```powershell
-cd c:/dev/code-goblins
-cfo install
-```
-
-That is the whole setup, and it is what lets you drive the fleet from a terminal inside the project you are actually working on, with that project's own editor, MCP servers, virtualenv, and `CLAUDE.md`.
-
-It changes exactly four things, and prints each one:
-
-- **`CFO_HOME`**, at user scope, pointing at this checkout. Every hook resolves `cfo.exe` through it.
-- **Your user PATH**, with this checkout appended so `cfo` runs from anywhere. The raw registry value is read and rewritten with its type preserved. `setx`, which truncates any value it writes at 1024 characters, is never used.
-- **`~/.claude/settings.json`**, which is your personal Claude Code configuration and not this project's. The CFO's hooks are merged into whatever hooks are already in it; every hook you already had, and every other key in the file, is left exactly as it was. The file is copied to `settings.json.cfo-install.bak` before it is written, and rewritten as standard two-space JSON, so expect a formatting change even though nothing but the hooks moved. (If you set `CLAUDE_CONFIG_DIR`, that directory is used instead.)
-- **This checkout's `.claude/settings.json`**, if it still carries a hooks block from an older version. With the user-scope hooks in place, both files would fire every hook twice inside code-goblins: two session digests, two wake handlers. Its `permissions` block is left alone.
-
-Running it a second time reports "already installed" and writes nothing.
-
-To back out:
-
-```powershell
-cfo install --uninstall
-```
-
-It removes the CFO's hooks from your settings and leaves yours untouched, unsets `CFO_HOME`, and takes this checkout back off your PATH.
-
-Goblins never receive these hooks, even though the hooks are now global: `cfo spawn` stamps every goblin pane with `CFO_ROLE=goblin`, and every hook exits immediately when it sees it.
-A goblin is the work being supervised, not the supervisor.
-
-### Daily flow
-
-```sh
-cd c:/dev/code-goblins
+cd C:\dev\my-project
 herdr
+claude   # or codex / pi / kimi for the CFO session
 ```
 
-Herdr is your cockpit. Launch the CFO in a pane, then ask away:
+Tell the CFO what outcome you want. It handles the fleet mechanics.
 
-```sh
-claude    # or: codex, pi, kimi
+## Typical autonomous delivery loop
+
+```text
+1. User gives the CFO an objective and constraints.
+2. CFO resolves the project and writes explicit acceptance criteria.
+3. cfo auth preflights required project services.
+4. CFO spawns one or more goblins into isolated worktrees.
+5. Goblins implement, investigate, test, and report through the wake queue.
+6. CFO steers blocked work or switches harnesses when useful.
+7. no-mistakes performs bounded independent review and repair.
+8. Tests, lint, documentation and CI produce machine evidence.
+9. CFO presents the finished outcome or the smallest unresolved decision.
+10. Approved work is merged; unlanded work is never silently destroyed.
 ```
 
-The CFO reads its contract and does the rest - goblins appear as Herdr tabs (`gb-<id>`), each in a clean in-repo worktree at `<project>/.worktrees/gb-<id>`.
-`cfo spawn` targets the Herdr session named `default` (or `$HERDR_SESSION`), so keep the CFO and its goblins in the same session.
+## Core commands
 
-## Cut from v1
+```text
+cfo doctor
+cfo auth <project> [--check|--fix] [--env]
+cfo brief <id> --project <path> [--kind <ship|scout>] [--mode <mode>]
+cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <mode>] [--model <model>] [--effort <level>] [--class <class>] [--yolo]
+cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>]
+cfo send <target> <text...>
+cfo peek <target> [lines]
+cfo fleet-view [--json]
+cfo pipeline run <id> --intent <text>
+cfo pipeline respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>]
+cfo pr check <id> <url>
+cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
+cfo cleanup <id>
+cfo reap [--dry-run|--apply]
+cfo drain
+```
 
-These upstream features are not yet ported to the Go binary:
+Run `cfo doctor` after installation for the current dependency and harness health report.
 
-- Grok and OpenCode harness adapters (Kimi is supported)
-- tmux, zellij, Orca, and cmux session backends
-- Secondmates (persistent and remote)
-- Relay (public X / Discord mentions)
-- AFK mode
+## Safety model
 
-## Repo layout
+Code Goblins is designed for high autonomy without pretending that an LLM saying “done” is proof.
 
-- `cmd/cfo/` - the `cfo.exe` entry point and command handlers.
-- `cmd/showcase-axi/` - the `showcase-axi.exe` entry point for the review surface.
-- `internal/` - one package per subsystem (herdr, worktree, spawn, fleet, monitor, wake, lock, state, home, watch, harness, auth, routing, axi, execx, fsx, claudehook, digest, doctor, guard, crewstate, supervise, telemetry, pipeline, proc, showcase).
-- `config/pipeline.json` - the checked-in gate policy (task classes, review repair budgets, reviewer); the rest of `config/` is ignored. See [docs/pipeline.md](docs/pipeline.md).
-- `docs/superpowers/` - the design spec and implementation plans.
-- `tests/acceptance/` - the opt-in real-session Windows acceptance script.
-- `.agents/skills/` - the fleet's skills, synced from user scope except `showcase`, which this repo owns; kimi and pi read it directly, and `install.ps1` junctions it for claude and codex.
-- `AGENTS.md.example` / `CLAUDE.md.example` - templates for your global user config.
-- `AGENTS.md` - the CFO's operating contract; `CLAUDE.md` points to it.
+- Work happens in isolated worktrees.
+- Authentication is checked before normal dispatch.
+- Review/repair budgets are explicit and bounded.
+- Pipeline approval fails closed when actionable findings remain.
+- Dirty or unlanded work is not silently deleted.
+- Local delivery is fast-forward only.
+- PR delivery is expected to be backed by machine-readable CI evidence.
+- Human approval remains the default for merges; `yolo` is an explicit posture, not an implicit permission.
+
+For high-risk production systems, use repository branch protection and keep production deployment credentials outside worker reach. Code Goblins coordinates software delivery; it is not an operating-system sandbox.
+
+## Architecture
+
+The core is intentionally local-first:
+
+- `cmd/cfo/` — the Windows-native fleet CLI and control plane.
+- `internal/spawn/` — task dispatch and worktree preparation.
+- `internal/herdr/` — terminal/session integration.
+- `internal/fleet/` — fleet truth, targeting, steering and inspection.
+- `internal/supervise/` / `internal/watch/` — unattended supervision and recovery.
+- `internal/pipeline/` — durable validation policy and decision gates.
+- `internal/auth/` — project-scoped credential preflight and injection.
+- `internal/state/` / `internal/wake/` — restart-proof task and event state.
+- `cmd/showcase-axi/` — repository-owned review surface.
+- `.agents/skills/` — reusable capabilities exposed to the supported harnesses.
+
+The control plane is local. Your coding harnesses may still call their model providers according to their own configuration.
 
 ## Development
 
-```sh
+```powershell
 go vet ./...
-go test ./...
+go test ./... -count=1
 go build ./cmd/cfo
 go build ./cmd/showcase-axi
 ```
 
-CI runs on `windows-latest` and gates `go vet`, `go test ./... -count=1`, and `go build` of both binaries.
-Unit tests use fakes for subprocess and Herdr behavior.
-The real-session acceptance suite (`tests/acceptance/plan3_windows.ps1`) needs real Herdr and harness binaries and refuses to run without `CFO_PLAN3_REAL=1`.
+CI runs on `windows-latest`. The real-session acceptance suite is opt-in because it requires actual Herdr and harness installations.
+
+## Project lineage
+
+Code Goblins began from ideas and code in [First Mate](https://github.com/kunchenguid/firstmate), which is MIT licensed. That lineage is retained and credited under the license.
+
+Code Goblins is now maintained as an **independent standalone project** with its own Windows-native Go control plane, supervision model, credential system, harness switching, durable state, delivery pipeline, review surface, and roadmap. You clone and update Code Goblins from this repository directly; First Mate is not an upstream dependency that users need to track or sync.
 
 ## Contributing
 
-Contributions are welcome - see [CONTRIBUTING.md](CONTRIBUTING.md).
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+If you are working on orchestration, the standard is simple: features should reduce human intervention **without weakening evidence that the delivered change is correct**.
 
 ## License
 
-MIT - see [LICENSE](LICENSE).
-Derived from [firstmate](https://github.com/kunchenguid/firstmate), also MIT-licensed.
+MIT. See [LICENSE](LICENSE). First Mate lineage remains acknowledged as required by its MIT license.
