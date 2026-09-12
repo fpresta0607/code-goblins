@@ -13,6 +13,10 @@
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green?style=flat-square" />
 </p>
 
+<p align="center">
+  <img src="docs/assets/code-goblins-crew.jpg" alt="Code Goblins — local multi-agent development crew" width="900" />
+</p>
+
 ## Why Code Goblins
 
 Most coding-agent tools make you manage more agents. Code Goblins is built to do the opposite.
