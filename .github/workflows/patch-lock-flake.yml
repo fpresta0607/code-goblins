@@ -19,7 +19,7 @@ jobs:
         shell: pwsh
         run: |
           $path = 'internal/lock/lock_test.go'
-          $text = [IO.File]::ReadAllText($path)
+          $text = [IO.File]::ReadAllText($path).Replace("`r`n", "`n")
           $old = "`tif second.Acquired.Equal(first.Acquired) {`n`t`t.Fatalf(`"reclaimed lease retained first acquisition time: first=%s second=%s`", first.Acquired, second.Acquired)`n`t}`n"
           $new = "`tcurrent, err := ReadNamed(dir, name)`n`tif err != nil {`n`t`t.Fatalf(`"ReadNamed reclaimed lock: %v`", err)`n`t}`n`tif current.PID != second.PID || current.OwnerPID != second.OwnerPID || current.Session != second.Session || !current.Start.Equal(second.Start) || current.Hostname != second.Hostname || !current.Acquired.Equal(second.Acquired) {`n`t`t.Fatalf(`"reclaimed holder = %+v, want second lease %+v`", current, second)`n`t}`n"
           if (-not $text.Contains($old)) { throw 'expected clock-sensitive assertion not found' }
