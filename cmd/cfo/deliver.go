@@ -203,7 +203,12 @@ func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner) 
 		return 2
 	}
 	ctx := context.Background()
-	res, err := commands.Run(ctx, execx.Request{Name: "gh", Args: []string{"pr", "merge", url, "--" + *method}})
+	proof, err := verifyPRReady(ctx, url, commands)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	res, err := commands.Run(ctx, execx.Request{Name: "gh", Args: []string{"pr", "merge", url, "--" + *method, "--match-head-commit", proof.HeadRefOID}})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

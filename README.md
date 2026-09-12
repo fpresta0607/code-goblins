@@ -13,6 +13,10 @@
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green?style=flat-square" />
 </p>
 
+<p align="center">
+  <img src="docs/assets/code-goblins-crew.jpg" alt="Code Goblins — local multi-agent development crew" width="900" />
+</p>
+
 ## Why Code Goblins
 
 Most coding-agent tools make you manage more agents. Code Goblins is built to do the opposite.
@@ -203,3 +207,13 @@ If you are working on orchestration, the standard is simple: features should red
 ## License
 
 MIT. See [LICENSE](LICENSE). First Mate lineage remains acknowledged as required by its MIT license.
+
+## Project-aware autonomous delivery
+
+Code Goblins can now describe each project's real runtime in `data/projects/<project>/project.json`: databases, caches, vector stores, object storage, frontends, backends, workers, queues, local/remote services, providers, health checks, deploy commands, verification policy, security policy, routing lanes, and budgets. Credential **names** may appear there; credential values stay in the existing auth store.
+
+At spawn, CFO produces a compact durable **task capsule** and **runtime capsule** instead of replaying the CFO transcript. With `--auto`, deterministic rules select an economical execution lane; explicit harness/model/effort flags still win. A redirected task can be marked with `cfo supersede`, which makes rejected unshipped work disposable and requires cleanup evidence.
+
+Delivery is evidence-driven: tiered verification and security commands write structured results, project deployment contracts prevent “CI green” from being mistaken for “production deployed,” and `cfo pr merge` verifies the exact PR head and merges with `--match-head-commit` so a newer unverified SHA cannot slip through.
+
+See [Project runtime contracts](docs/project-runtime.md), [Production autonomy roadmap](docs/production-roadmap.md), and [Orchestrator patterns](docs/orchestrator-patterns.md).
