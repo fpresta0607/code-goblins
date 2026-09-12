@@ -28,10 +28,10 @@ jobs:
           $replacement = [string[]]@(
             "`tcurrent, err := ReadNamed(dir, name)",
             "`tif err != nil {",
-            "`t`tFatalf(`"ReadNamed reclaimed lock: %v`", err)",
+            "`t`tt.Fatalf(`"ReadNamed reclaimed lock: %v`", err)",
             "`t}",
             "`tif current.PID != second.PID || current.OwnerPID != second.OwnerPID || current.Session != second.Session || !current.Start.Equal(second.Start) || current.Hostname != second.Hostname || !current.Acquired.Equal(second.Acquired) {",
-            "`t`tFatalf(`"reclaimed holder = %+v, want second lease %+v`", current, second)",
+            "`t`tt.Fatalf(`"reclaimed holder = %+v, want second lease %+v`", current, second)",
             "`t}"
           )
           for ($i = $replacement.Length - 1; $i -ge 0; $i--) { $lines.Insert($start, $replacement[$i]) }
