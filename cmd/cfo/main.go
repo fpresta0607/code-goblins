@@ -43,6 +43,14 @@ commands:
   cfo auth list [--project <p>]        list stored credential keys, never values
   cfo auth copy <NAME> --to <project> [--from <project>]   copy a stored value into a project's scope; the source is left in place
   cfo auth refresh <task-id>        regenerate a task's auth.ps1 from its project scope; storing or copying into a project scope does this for every live task of that project automatically
+  cfo project show|check|init <project>
+  cfo route [--project <project>] <brief>
+  cfo verify <task-id> [--tier fast|full|deep]
+  cfo security <task-id> [--deep]
+  cfo hygiene <task-id>
+  cfo deploy <task-id> [--target <name>]
+  cfo evidence <task-id>
+  cfo supersede <task-id> --reason <text>
   cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--yolo]
   cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place
   cfo send <target> [--key <key>] <text...>
@@ -167,6 +175,22 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runDrain(h, args[1:], stdout, stderr)
 	case "auth":
 		return runAuth(args[1:], stdout, stderr, runtime)
+	case "project":
+		return runProject(args[1:], stdout, stderr, runtime)
+	case "route":
+		return runRoute(args[1:], stdout, stderr, runtime)
+	case "verify":
+		return runVerify(args[1:], stdout, stderr, runtime)
+	case "security":
+		return runSecurity(args[1:], stdout, stderr, runtime)
+	case "hygiene":
+		return runHygiene(args[1:], stdout, stderr, runtime)
+	case "deploy":
+		return runDeploy(args[1:], stdout, stderr, runtime)
+	case "evidence":
+		return runEvidence(args[1:], stdout, stderr, runtime)
+	case "supersede":
+		return runSupersede(args[1:], stdout, stderr, runtime)
 	case "spawn":
 		return runSpawn(args[1:], stdout, stderr, runtime)
 	case "switch":
