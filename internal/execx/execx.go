@@ -10,10 +10,11 @@ import (
 
 // Request describes one child process invocation.
 type Request struct {
-	Dir  string
-	Env  []string
-	Name string
-	Args []string
+	Dir   string
+	Env   []string
+	Stdin []byte
+	Name  string
+	Args  []string
 }
 
 // Result contains the complete, separately captured child output.
@@ -110,5 +111,8 @@ func configure(cmd *exec.Cmd, req Request) {
 	}
 	if req.Env != nil {
 		cmd.Env = req.Env
+	}
+	if req.Stdin != nil {
+		cmd.Stdin = bytes.NewReader(req.Stdin)
 	}
 }

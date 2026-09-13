@@ -58,13 +58,7 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 		return RecoveryResult{}, errors.New("pipeline: latest run is not an unpublished failed or cancelled custody recovery")
 	}
 	if status, output, err := r.readRecoverySync(ctx, worktree, env); err == nil && status.userOwned(run, false) {
-		if err := r.requireCleanHead(ctx, worktree, status.Local.Head); err != nil {
-			return RecoveryResult{}, err
-		}
-		if err := r.requireRef(ctx, filepath.Join(r.Root, "repos", run.RepoID+".git"), "refs/heads/"+branch, run.SubmittedHead); err != nil {
-			return RecoveryResult{}, fmt.Errorf("pipeline: recovered gate branch is unsafe: %w", err)
-		}
-		return RecoveryResult{RunID: run.RunID, Head: status.Local.Head, NativeOutput: output}, nil
+		return r.alignUserOwned(ctx, worktree, branch, env, run, status, output)
 	}
 	if run.CustodyReturnedAt != 0 {
 		return RecoveryResult{}, errors.New("pipeline: recorded custody return does not match native branch state")
@@ -89,7 +83,7 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 			return RecoveryResult{}, err
 		}
 		if !safe {
-			return RecoveryResult{}, errors.New("pipeline: recorded and submitted heads are neither ancestral nor exact patch equivalents")
+			return RecoveryResult{}, errors.New("pipeline: recorded and submitted heads are neither ancestral nor stable patch equivalents")
 		}
 		anchor := "refs/no-mistakes/recovery/" + run.RunID + "/recorded"
 		if err := r.preserveRecoveryHead(ctx, bare, anchor, run.RecordedHead); err != nil {
@@ -124,6 +118,65 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 		return RecoveryResult{}, err
 	}
 	return RecoveryResult{RunID: run.RunID, Head: run.SubmittedHead, NativeOutput: output}, nil
+}
+
+func (r Reader) alignUserOwned(ctx context.Context, worktree, branch string, env []string, run recoveryRecord, status recoverySync, output []byte) (RecoveryResult, error) {
+	if err := r.requireCleanHead(ctx, worktree, status.Local.Head); err != nil {
+		return RecoveryResult{}, err
+	}
+	if run.RecordedHead != run.SubmittedHead {
+		return RecoveryResult{}, errors.New("pipeline: user-owned recovery has inconsistent recorded and submitted heads")
+	}
+	bare := filepath.Join(r.Root, "repos", run.RepoID+".git")
+	gateRef := "refs/heads/" + branch
+	if err := r.requireRef(ctx, bare, gateRef, run.SubmittedHead); err != nil {
+		return RecoveryResult{}, fmt.Errorf("pipeline: recovered gate branch is unsafe: %w", err)
+	}
+	if status.Local.Head == run.SubmittedHead {
+		return RecoveryResult{RunID: run.RunID, Head: status.Local.Head, NativeOutput: output}, nil
+	}
+	for _, head := range []string{run.SubmittedHead, status.Local.Head} {
+		if err := r.requireCommit(ctx, worktree, head); err != nil {
+			return RecoveryResult{}, fmt.Errorf("pipeline: local recovery commit is unavailable: %w", err)
+		}
+	}
+	anchor := "refs/no-mistakes/recovery/" + run.RunID + "/gate"
+	if err := r.preserveRecoveryHead(ctx, bare, anchor, run.SubmittedHead); err != nil {
+		return RecoveryResult{}, err
+	}
+	if err := r.fetchRecoveryHead(ctx, bare, worktree, status.Local.Head); err != nil {
+		return RecoveryResult{}, err
+	}
+	if err := r.requireCleanHead(ctx, worktree, status.Local.Head); err != nil {
+		return RecoveryResult{}, err
+	}
+	if err := r.requireRef(ctx, bare, gateRef, run.SubmittedHead); err != nil {
+		return RecoveryResult{}, fmt.Errorf("pipeline: gate branch changed during recovery: %w", err)
+	}
+	if err := r.moveRef(ctx, bare, gateRef, status.Local.Head, run.SubmittedHead); err != nil {
+		return RecoveryResult{}, err
+	}
+	if err := r.swapRunHeads(ctx, run, run.RecordedHead, run.SubmittedHead, status.Local.Head, status.Local.Head, false); err != nil {
+		rollbackErr := r.moveRef(ctx, bare, gateRef, run.SubmittedHead, status.Local.Head)
+		return RecoveryResult{}, errors.Join(err, rollbackErr)
+	}
+	aligned := run
+	aligned.RecordedHead = status.Local.Head
+	aligned.SubmittedHead = status.Local.Head
+	if err := r.requireCleanHead(ctx, worktree, status.Local.Head); err != nil {
+		return RecoveryResult{}, errors.Join(err, r.rollbackUserOwned(ctx, bare, gateRef, run, status.Local.Head))
+	}
+	if err := r.requireRef(ctx, bare, gateRef, status.Local.Head); err != nil {
+		return RecoveryResult{}, errors.Join(err, r.rollbackUserOwned(ctx, bare, gateRef, run, status.Local.Head))
+	}
+	post, postOutput, err := r.readRecoverySync(ctx, worktree, env)
+	if err != nil || !post.userOwned(aligned, true) {
+		if err == nil {
+			err = errors.New("pipeline: native engine did not recognize the aligned recovery state")
+		}
+		return RecoveryResult{}, errors.Join(err, r.rollbackUserOwned(ctx, bare, gateRef, run, status.Local.Head))
+	}
+	return RecoveryResult{RunID: run.RunID, Head: status.Local.Head, NativeOutput: postOutput}, nil
 }
 
 func (r Reader) requireUserOwned(ctx context.Context, worktree string, env []string, run recoveryRecord) error {
@@ -205,15 +258,15 @@ func (r Reader) safeRecoveryRelation(ctx context.Context, repo, recorded, submit
 	if err != nil {
 		return false, err
 	}
-	recordedPatch, err := r.commitPatch(ctx, repo, recordedParent, recorded)
+	recordedPatch, err := r.commitPatchID(ctx, repo, recordedParent, recorded)
 	if err != nil {
 		return false, err
 	}
-	submittedPatch, err := r.commitPatch(ctx, repo, submittedParent, submitted)
+	submittedPatch, err := r.commitPatchID(ctx, repo, submittedParent, submitted)
 	if err != nil {
 		return false, err
 	}
-	return bytes.Equal(recordedPatch, submittedPatch), nil
+	return recordedPatch == submittedPatch, nil
 }
 
 func (r Reader) singleParent(ctx context.Context, repo, head string) (string, error) {
@@ -225,12 +278,39 @@ func (r Reader) singleParent(ctx context.Context, repo, head string) (string, er
 	return fields[1], nil
 }
 
-func (r Reader) commitPatch(ctx context.Context, repo, parent, head string) ([]byte, error) {
+func (r Reader) commitPatchID(ctx context.Context, repo, parent, head string) (string, error) {
 	result, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"diff", "--binary", "--full-index", "--no-ext-diff", "--no-renames", parent, head}})
 	if err != nil || result.ExitCode != 0 {
-		return nil, errors.New("pipeline: could not compare recovery commit content")
+		return "", errors.New("pipeline: could not compare recovery commit content")
 	}
-	return result.Stdout, nil
+	patchID, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Stdin: result.Stdout, Name: "git", Args: []string{"patch-id", "--stable"}})
+	fields := strings.Fields(string(patchID.Stdout))
+	if err != nil || patchID.ExitCode != 0 || len(fields) != 2 {
+		return "", errors.New("pipeline: could not identify recovery commit content")
+	}
+	return fields[0], nil
+}
+
+func (r Reader) fetchRecoveryHead(ctx context.Context, bare, worktree, head string) error {
+	result, err := r.Commands.Run(ctx, execx.Request{Dir: bare, Name: "git", Args: []string{"fetch", "--no-tags", "--no-write-fetch-head", worktree, head}})
+	if err != nil || result.ExitCode != 0 {
+		return errors.New("pipeline: could not import the preserved local commit into the gate repository")
+	}
+	return r.requireCommit(ctx, bare, head)
+}
+
+func (r Reader) moveRef(ctx context.Context, repo, ref, next, previous string) error {
+	result, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"update-ref", ref, next, previous}})
+	if err != nil || result.ExitCode != 0 {
+		return fmt.Errorf("pipeline: compare-and-swap failed for %s", ref)
+	}
+	return nil
+}
+
+func (r Reader) rollbackUserOwned(ctx context.Context, bare, gateRef string, run recoveryRecord, alignedHead string) error {
+	databaseErr := r.swapRunHeads(ctx, run, alignedHead, alignedHead, run.RecordedHead, run.SubmittedHead, false)
+	gateErr := r.moveRef(ctx, bare, gateRef, run.SubmittedHead, alignedHead)
+	return errors.Join(databaseErr, gateErr)
 }
 
 func (r Reader) preserveRecoveryHead(ctx context.Context, repo, ref, head string) error {
@@ -255,8 +335,16 @@ func (r Reader) preserveRecoveryHead(ctx context.Context, repo, ref, head string
 }
 
 func (r Reader) replaceRecordedHead(ctx context.Context, run recoveryRecord) error {
+	return r.swapRunHeads(ctx, run, run.RecordedHead, run.SubmittedHead, run.SubmittedHead, run.SubmittedHead, true)
+}
+
+func (r Reader) swapRunHeads(ctx context.Context, run recoveryRecord, oldHead, oldSubmitted, newHead, newSubmitted string, requireUnreturned bool) error {
 	path := filepath.Join(r.Root, "state.sqlite")
-	sql := `BEGIN IMMEDIATE; UPDATE runs SET head_sha=` + sqlString(run.SubmittedHead) + `, updated_at=strftime('%s','now') WHERE id=` + sqlString(run.RunID) + ` AND repo_id=` + sqlString(run.RepoID) + ` AND branch=` + sqlString(run.Branch) + ` AND head_sha=` + sqlString(run.RecordedHead) + ` AND submitted_head_sha=` + sqlString(run.SubmittedHead) + ` AND status IN ('failed','cancelled') AND custody_returned_at IS NULL AND COALESCE(last_pushed_sha,'')=''; SELECT changes() AS n; COMMIT;`
+	custody := ""
+	if requireUnreturned {
+		custody = " AND custody_returned_at IS NULL"
+	}
+	sql := `BEGIN IMMEDIATE; UPDATE runs SET head_sha=` + sqlString(newHead) + `, submitted_head_sha=` + sqlString(newSubmitted) + `, updated_at=strftime('%s','now') WHERE id=` + sqlString(run.RunID) + ` AND repo_id=` + sqlString(run.RepoID) + ` AND branch=` + sqlString(run.Branch) + ` AND head_sha=` + sqlString(oldHead) + ` AND submitted_head_sha=` + sqlString(oldSubmitted) + ` AND status IN ('failed','cancelled')` + custody + ` AND COALESCE(last_pushed_sha,'')=''; SELECT changes() AS n; COMMIT;`
 	result, err := r.Commands.Run(ctx, execx.Request{Name: "sqlite3", Args: []string{"-cmd", ".timeout 5000", "-json", path, sql}})
 	if err != nil || result.ExitCode != 0 {
 		return errors.New("pipeline: recovery metadata compare-and-swap failed")

@@ -81,11 +81,16 @@ This is a cooperative driver guard, not an operating-system sandbox around direc
 Agents must use the driver for managed tasks and must not invoke native mutation commands to bypass its budgets.
 
 `recover` returns custody after a failed or cancelled unpublished run when native recovery is blocked by a stale recorded head.
-It requires a clean worktree whose head exactly matches both the submitted head and native gate branch.
-The stale recorded commit must be an ancestor of that preserved head or an exact single-commit patch equivalent.
+For pipeline-owned recovery, it requires a clean worktree whose head exactly matches both the submitted head and native gate branch.
+The stale recorded commit must be an ancestor of that preserved head or a stable single-commit patch equivalent.
 Before a compare-and-swap repairs the stale database field, the old commit is anchored under `refs/no-mistakes/recovery/<run>/recorded`.
-The driver then invokes native `sync --recover --keep-local` and verifies that local and gate heads did not move and custody was durably returned.
-It never resets a branch, accepts changed content, or recovers a pushed run.
+The driver then invokes native `sync --recover --keep-local` and verifies that custody was durably returned without moving the local or gate head.
+When native already reports clean user-owned custody, the registered task worktree and branch may contain rebases and follow-up fixes made after custody returned.
+The driver anchors the old gate head, imports the local commit into the internal repository without writing a fetch ref, and compare-and-swaps the internal gate ref and both database heads to the local head.
+The database and gate updates roll back if either compare-and-swap fails, and native status must confirm all three heads before success is reported.
+The local branch and origin refs are never moved.
+The command never resets a branch or recovers a pushed run.
+Content equivalence remains mandatory when repairing pipeline-owned recorded and submitted heads, but not after native has already returned user-owned custody because the next run reviews the preserved local head as new work.
 
 The initial policy PR also commits this repository's automatic-fix overrides, which native no-mistakes honors from a new submitted branch.
 That permits this PR's own legacy task to use the approved limits without rewriting the shared configuration or migrating a running task.
