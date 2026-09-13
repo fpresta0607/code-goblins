@@ -21,10 +21,10 @@ import (
 
 func runPipeline(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "cfo pipeline: config-drift, config-apply, run or respond required")
+		fmt.Fprintln(stderr, "cfo pipeline: config-drift, config-apply, run, respond or recover required")
 		return 2
 	}
-	if args[0] != "config-drift" && args[0] != "config-apply" && args[0] != "run" && args[0] != "respond" {
+	if args[0] != "config-drift" && args[0] != "config-apply" && args[0] != "run" && args[0] != "respond" && args[0] != "recover" {
 		fmt.Fprintln(stderr, "cfo pipeline: unknown command")
 		return 2
 	}
@@ -95,7 +95,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	var response pipeline.Response
 	if args[0] == "run" {
 		flags.StringVar(&intent, "intent", "", "task intent")
-	} else {
+	} else if args[0] == "respond" {
 		flags.StringVar(&response.Action, "action", "", "fix or approve")
 		flags.StringVar(&response.Findings, "findings", "", "comma-separated finding IDs")
 		flags.StringVar(&response.Instructions, "instructions", "", "guidance for selected findings")
@@ -140,13 +140,15 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if err := worktree.Validate(ctx, worktree.RunnerGit{Commands: commands}, meta.Project, meta.Worktree); err != nil {
 		return err
 	}
-	config := pipeline.Config{Path: filepath.Join(root, "config.yaml"), Policy: selection.Policy}
-	drift, err := config.Drift()
-	if err != nil {
-		return err
-	}
-	if len(drift) != 0 {
-		return fmt.Errorf("pipeline: shared config drift (%s); request idle config-apply, never change a running daemon", strings.Join(drift, ", "))
+	if args[0] != "recover" {
+		config := pipeline.Config{Path: filepath.Join(root, "config.yaml"), Policy: selection.Policy}
+		drift, err := config.Drift()
+		if err != nil {
+			return err
+		}
+		if len(drift) != 0 {
+			return fmt.Errorf("pipeline: shared config drift (%s); request idle config-apply, never change a running daemon", strings.Join(drift, ", "))
+		}
 	}
 	branchResult, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Name: "git", Args: []string{"symbolic-ref", "--quiet", "--short", "HEAD"}})
 	if err != nil || branchResult.ExitCode != 0 {
@@ -155,6 +157,17 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	branch := strings.TrimSpace(string(branchResult.Stdout))
 	if branch == "" || branch == "main" || branch == "master" {
 		return errors.New("pipeline: isolated feature branch required")
+	}
+	if args[0] == "recover" {
+		result, err := reader.RecoverKeepLocal(ctx, meta.Project, meta.Worktree, branch, nativeEnv(root))
+		if len(result.NativeOutput) > 0 {
+			fmt.Fprint(out, string(result.NativeOutput))
+		}
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "pipeline custody: recovered run %s; local and gate head preserved at %s\n", result.RunID, result.Head)
+		return nil
 	}
 	nativeArgs := []string{"axi", "run", "--intent", intent}
 	if args[0] == "respond" {

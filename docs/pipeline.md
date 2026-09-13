@@ -58,6 +58,7 @@ The YAML parser dependency is needed to preserve unrelated configuration structu
 cfo pipeline run <id> --intent "The user's complete objective and constraints"
 cfo pipeline respond <id> --action fix --findings finding-id --instructions "Concrete guidance"
 cfo pipeline respond <id> --action approve
+cfo pipeline recover <id>
 ```
 
 Commands operate in the recorded task worktree and use its frozen policy.
@@ -78,6 +79,13 @@ The command returns exit 3 for unresolved work requiring a CFO decision, without
 Other refusals return exit 1.
 This is a cooperative driver guard, not an operating-system sandbox around direct native commands.
 Agents must use the driver for managed tasks and must not invoke native mutation commands to bypass its budgets.
+
+`recover` returns custody after a failed or cancelled unpublished run when native recovery is blocked by a stale recorded head.
+It requires a clean worktree whose head exactly matches both the submitted head and native gate branch.
+The stale recorded commit must be an ancestor of that preserved head or an exact single-commit patch equivalent.
+Before a compare-and-swap repairs the stale database field, the old commit is anchored under `refs/no-mistakes/recovery/<run>/recorded`.
+The driver then invokes native `sync --recover --keep-local` and verifies that local and gate heads did not move and custody was durably returned.
+It never resets a branch, accepts changed content, or recovers a pushed run.
 
 The initial policy PR also commits this repository's automatic-fix overrides, which native no-mistakes honors from a new submitted branch.
 That permits this PR's own legacy task to use the approved limits without rewriting the shared configuration or migrating a running task.
