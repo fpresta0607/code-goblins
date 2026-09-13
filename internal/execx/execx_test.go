@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,6 +25,14 @@ func TestOSRunnerHelper(t *testing.T) {
 		time.Sleep(10 * time.Second)
 	case "short-sleep":
 		time.Sleep(200 * time.Millisecond)
+	case "stdin":
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(9)
+		}
+		fmt.Fprint(os.Stdout, string(data))
+		return
 	case "survive-cancel", "survive-cancel-empty-marker":
 		marker := os.Getenv("EXECX_MARKER")
 		if os.Getenv("EXECX_MODE") == "survive-cancel-empty-marker" {
@@ -109,6 +118,15 @@ func TestOSRunnerPreservesCallerEnvironmentWhenEnvIsNil(t *testing.T) {
 	}
 	if !strings.Contains(string(result.Stdout), "\ncaller\n") {
 		t.Errorf("stdout = %q, want caller environment", result.Stdout)
+	}
+}
+
+func TestOSRunnerPassesRequestStdin(t *testing.T) {
+	request := helperRequest(t.TempDir(), []string{"EXECX_HELPER=1", "EXECX_MODE=stdin"})
+	request.Stdin = []byte("stable patch input")
+	result, err := (OSRunner{}).Run(context.Background(), request)
+	if err != nil || result.ExitCode != 0 || !strings.HasPrefix(string(result.Stdout), "stable patch input") {
+		t.Fatalf("stdin result=%+v err=%v", result, err)
 	}
 }
 
