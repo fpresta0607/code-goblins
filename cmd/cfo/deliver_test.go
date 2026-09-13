@@ -50,7 +50,7 @@ const (
 )
 
 // The gh pr view payload this code parses, in the shape gh 2.86 emits.
-const prMergeHeadJSON = `{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"APPROVED","headRefName":"fix/x","headRefOid":"` + prMergeHeadOID + `","headRepository":{"name":"code-goblins"},"headRepositoryOwner":{"login":"fpresta0607"},"statusCheckRollup":[{"name":"go","status":"COMPLETED","conclusion":"SUCCESS"}]}`
+const prMergeHeadJSON = `{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"APPROVED","headRefName":"fix/x","headRefOid":"` + prMergeHeadOID + `","headRepository":{"name":"code-goblins"},"headRepositoryOwner":{"login":"fpresta0607"},"statusCheckRollup":[{"__typename":"CheckRun","name":"go","status":"COMPLETED","conclusion":"SUCCESS"}]}`
 
 // gh's message for a DELETE of a ref that is not there, which is what a
 // repository with "Automatically delete head branches" enabled produces.

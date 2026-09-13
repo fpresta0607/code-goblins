@@ -42,6 +42,32 @@ func TestReviewDecisionBudgetAndUnresolvedFindings(t *testing.T) {
 	}
 }
 
+func TestResponseAllowsSelectedEmptyActionRebaseFindings(t *testing.T) {
+	selection, err := testPolicy(t).Select("ordinary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const findings = `{"findings":[{"id":"rebase-1","severity":"warning","file":"apps/api/src/drizzle-repositories.ts","action":"","description":"merge conflict rebasing onto origin/main"},{"id":"rebase-2","severity":"warning","file":"apps/api/src/repositories.ts","action":"","description":"merge conflict rebasing onto origin/main"},{"id":"rebase-3","severity":"warning","file":"apps/api/src/routes/me-stats.test.ts","action":"","description":"merge conflict rebasing onto origin/main"},{"id":"rebase-4","severity":"warning","file":"apps/api/src/routes/reports.test.ts","action":"","description":"merge conflict rebasing onto origin/main"},{"id":"rebase-5","severity":"warning","file":"apps/api/src/services/reports.test.ts","action":"","description":"merge conflict rebasing onto origin/main"}]}`
+	gate := Gate{RunID: "01M2DCND6SBH95TVRP0YX2P3Z4", StepID: "step", Step: "rebase", Status: "awaiting_approval", Round: 1, Findings: findings}
+	selected := "rebase-1,rebase-2,rebase-3,rebase-4,rebase-5"
+	args, err := ResponseArgs(selection, gate, Response{Action: "fix", Findings: selected})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "axi respond --step rebase --action fix --findings " + selected
+	if strings.Join(args, " ") != want {
+		t.Fatalf("args=%q, want %q", strings.Join(args, " "), want)
+	}
+	if _, err := ResponseArgs(selection, gate, Response{Action: "approve"}); !errors.Is(err, ErrUnresolved) {
+		t.Fatalf("approve bypass: %v", err)
+	}
+
+	gate.Step = "review"
+	if _, err := ResponseArgs(selection, gate, Response{Action: "fix", Findings: selected}); !errors.Is(err, ErrUnresolved) {
+		t.Fatalf("review accepted empty actions: %v", err)
+	}
+}
+
 func TestResponseRefusesUnsafeAndStaleDecisions(t *testing.T) {
 	selection, err := testPolicy(t).Select("ordinary")
 	if err != nil {

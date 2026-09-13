@@ -221,15 +221,31 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 	if err := json.Unmarshal([]byte(gate.Findings), &report); err != nil || report.Findings == nil {
 		return nil, errors.New("pipeline: missing or invalid findings evidence")
 	}
+	emptyActionFixable := false
+	switch gate.Step {
+	case "test":
+		emptyActionFixable = s.Policy.AutoFix.Test > 0
+	case "lint":
+		emptyActionFixable = s.Policy.AutoFix.Lint > 0
+	case "rebase":
+		emptyActionFixable = s.Policy.AutoFix.Rebase > 0
+	case "ci":
+		emptyActionFixable = s.Policy.AutoFix.CI > 0
+	}
 	actions := map[string]string{}
 	unresolved := false
 	for _, f := range *report.Findings {
-		if f.ID == "" || actions[f.ID] != "" {
+		if _, exists := actions[f.ID]; f.ID == "" || exists {
 			return nil, errors.New("pipeline: invalid or duplicate finding ID")
 		}
 		switch f.Action {
 		case "no-op":
 		case "auto-fix", "ask-user":
+			unresolved = true
+		case "":
+			if !emptyActionFixable {
+				return nil, ErrUnresolved
+			}
 			unresolved = true
 		default:
 			return nil, ErrUnresolved
@@ -254,8 +270,8 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 		}
 		seen := map[string]bool{}
 		for _, id := range strings.Split(response.Findings, ",") {
-			action := actions[id]
-			if id == "" || seen[id] || action != "auto-fix" && action != "ask-user" {
+			action, exists := actions[id]
+			if id == "" || seen[id] || !exists || action != "auto-fix" && action != "ask-user" && !(emptyActionFixable && action == "") {
 				return nil, errors.New("pipeline: selected finding is absent, duplicated or not actionable")
 			}
 			seen[id] = true

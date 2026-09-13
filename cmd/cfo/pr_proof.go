@@ -15,17 +15,28 @@ type prProof struct {
 	Checks     int
 }
 
+type prProofCheckView struct {
+	TypeName   string `json:"__typename"`
+	Name       string `json:"name"`
+	Context    string `json:"context"`
+	Status     string `json:"status"`
+	State      string `json:"state"`
+	Conclusion string `json:"conclusion"`
+}
+
+type prProofCheck struct {
+	Name       string
+	Status     string
+	Conclusion string
+}
+
 type prProofView struct {
-	State          string `json:"state"`
-	IsDraft        bool   `json:"isDraft"`
-	Mergeable      string `json:"mergeable"`
-	ReviewDecision string `json:"reviewDecision"`
-	HeadRefOID     string `json:"headRefOid"`
-	Checks         []struct {
-		Name       string `json:"name"`
-		Status     string `json:"status"`
-		Conclusion string `json:"conclusion"`
-	} `json:"statusCheckRollup"`
+	State          string             `json:"state"`
+	IsDraft        bool               `json:"isDraft"`
+	Mergeable      string             `json:"mergeable"`
+	ReviewDecision string             `json:"reviewDecision"`
+	HeadRefOID     string             `json:"headRefOid"`
+	Checks         []prProofCheckView `json:"statusCheckRollup"`
 }
 
 // verifyPRReady turns a human convention ("make sure CI is green") into a
@@ -73,12 +84,16 @@ func verifyPRReady(ctx context.Context, url string, commands execx.Runner) (prPr
 	}
 
 	for _, check := range view.Checks {
-		name := check.Name
+		normalized, err := normalizePRCheck(check)
+		if err != nil {
+			return prProof{}, err
+		}
+		name := normalized.Name
 		if name == "" {
 			name = "unnamed check"
 		}
-		status := strings.ToUpper(check.Status)
-		conclusion := strings.ToUpper(check.Conclusion)
+		status := strings.ToUpper(normalized.Status)
+		conclusion := strings.ToUpper(normalized.Conclusion)
 		if status != "COMPLETED" {
 			return prProof{}, fmt.Errorf("production gate: %s is %s, not completed", name, emptyAs(status, "pending"))
 		}
@@ -91,6 +106,34 @@ func verifyPRReady(ctx context.Context, url string, commands execx.Runner) (prPr
 	}
 
 	return prProof{HeadRefOID: view.HeadRefOID, Checks: len(view.Checks)}, nil
+}
+
+func normalizePRCheck(check prProofCheckView) (prProofCheck, error) {
+	switch check.TypeName {
+	case "CheckRun":
+		return prProofCheck{Name: check.Name, Status: check.Status, Conclusion: check.Conclusion}, nil
+	case "StatusContext":
+		state := strings.ToUpper(check.State)
+		normalized := prProofCheck{Name: emptyAs(check.Context, "unnamed status context")}
+		switch state {
+		case "SUCCESS", "FAILURE", "ERROR":
+			normalized.Status = "COMPLETED"
+			normalized.Conclusion = state
+		case "PENDING", "EXPECTED":
+			normalized.Status = state
+		default:
+			normalized.Status = emptyAs(state, "UNKNOWN")
+		}
+		return normalized, nil
+	case "":
+		return prProofCheck{}, fmt.Errorf("production gate: status check rollup entry is missing __typename (%s)", rollupEvidence(check))
+	default:
+		return prProofCheck{}, fmt.Errorf("production gate: unsupported status check type %q (%s)", check.TypeName, rollupEvidence(check))
+	}
+}
+
+func rollupEvidence(check prProofCheckView) string {
+	return fmt.Sprintf("name=%q context=%q status=%q state=%q conclusion=%q", check.Name, check.Context, check.Status, check.State, check.Conclusion)
 }
 
 func emptyAs(value, fallback string) string {
