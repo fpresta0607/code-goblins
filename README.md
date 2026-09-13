@@ -140,6 +140,7 @@ cfo peek <target> [lines]
 cfo fleet-view [--json]
 cfo pipeline run <id> --intent <text>
 cfo pipeline respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>]
+cfo pipeline recover <id>
 cfo pr check <id> <url>
 cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
 cfo cleanup <id>
