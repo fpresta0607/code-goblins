@@ -33,10 +33,11 @@ type pipelineRunner struct {
 }
 
 type pipelineStartRunner struct {
-	worktree   string
-	advance    bool
-	remoteRead int
-	native     []execx.Request
+	worktree    string
+	advance     bool
+	remoteRead  int
+	roleStarted bool
+	native      []execx.Request
 }
 
 func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Result, error) {
@@ -62,7 +63,7 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 			return execx.Result{Stdout: []byte("auto_fix: {review: 0, test: 1, lint: 1, rebase: 1, ci: 1}\n")}, nil
 		case "ls-remote --symref origin HEAD":
 			head := trusted
-			if r.advance && r.remoteRead > 0 {
+			if r.advance && r.remoteRead > 1 {
 				head = "89abcdef0123456789abcdef0123456789abcdef"
 			}
 			r.remoteRead++
@@ -74,6 +75,7 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 		}
 	case "no-mistakes":
 		r.native = append(r.native, q)
+		r.roleStarted = r.advance && r.remoteRead >= 2
 		return execx.Result{}, nil
 	}
 	return execx.Result{}, fmt.Errorf("unexpected start command: %#v", q)
@@ -1031,7 +1033,7 @@ func TestPipelineRespondInvokesNativeOnlyForBudgetedExplicitDecision(t *testing.
 	}
 }
 
-func TestPipelineRunRefusesTrustedPrimaryAdvanceBeforeNativeLaunch(t *testing.T) {
+func TestPipelineRunRefusesUnattestedNativeTrustedPrimaryLaunch(t *testing.T) {
 	p, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -1070,25 +1072,11 @@ func TestPipelineRunRefusesTrustedPrimaryAdvanceBeforeNativeLaunch(t *testing.T)
 	}
 	runner := &pipelineStartRunner{worktree: wt, advance: true}
 	err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "changed before native start") {
-		t.Fatalf("pipelineCommand error=%v, want trusted primary advance refusal", err)
+	if err == nil || !strings.Contains(err.Error(), "cannot prove the exact fetched trusted SHA and primary") {
+		t.Fatalf("pipelineCommand error=%v, want native attestation refusal", err)
 	}
-	if len(runner.native) != 0 {
-		t.Fatalf("native role launched after trusted primary advance: %+v", runner.native)
-	}
-
-	stable := &pipelineStartRunner{worktree: wt}
-	if err := pipelineCommand(context.Background(), h, nm, stable, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{}); err != nil {
-		t.Fatalf("stable launch: %v", err)
-	}
-	if len(stable.native) != 1 {
-		t.Fatalf("stable native launches=%d, want 1", len(stable.native))
-	}
-	args := stable.native[0].Args
-	joined := strings.Join(args, " ")
-	wantGeneration := "--validation-generation trusted-0123456789abcdef0123456789abcdef01234567-policy-" + selection.Hash
-	if !strings.Contains(joined, "--launch-nonce cfo-") || !strings.Contains(joined, wantGeneration) {
-		t.Fatalf("native launch lacks trusted proof binding: %v", args)
+	if runner.remoteRead != 1 || len(runner.native) != 0 || runner.roleStarted {
+		t.Fatalf("unattested launch crossed native boundary: remote_reads=%d native=%+v role_started=%v", runner.remoteRead, runner.native, runner.roleStarted)
 	}
 }
 

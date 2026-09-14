@@ -476,7 +476,7 @@ func (r Reader) preserveRecoveryHead(ctx context.Context, repo, ref, head string
 		}
 		return nil
 	}
-	created, err := r.runGit(ctx, repo, true, "update-ref", "--no-deref", ref, head, strings.Repeat("0", 40))
+	created, err := r.runGit(ctx, repo, true, "update-ref", "--no-deref", ref, head, strings.Repeat("0", len(head)))
 	if err != nil || created.ExitCode != 0 {
 		return errors.New("pipeline: could not anchor the stale recorded commit")
 	}

@@ -94,10 +94,8 @@ func TestRepoAgentCannotAlterRenderedGlobalReviewAgents(t *testing.T) {
 }
 
 type primaryRoutingRunner struct {
-	task        []byte
-	trusted     []byte
-	remoteHeads []string
-	remoteReads int
+	task    []byte
+	trusted []byte
 }
 
 const primaryRoutingSHA = "0123456789abcdef0123456789abcdef01234567"
@@ -118,12 +116,7 @@ func (r *primaryRoutingRunner) Run(ctx context.Context, request execx.Request) (
 		}
 		return execx.Result{Stdout: []byte("agent: claude\nauto_fix: {review: 0, test: 1, lint: 1, rebase: 1, ci: 1}\n")}, nil
 	case "ls-remote --symref origin HEAD":
-		head := primaryRoutingSHA
-		if r.remoteReads < len(r.remoteHeads) {
-			head = r.remoteHeads[r.remoteReads]
-			r.remoteReads++
-		}
-		return execx.Result{Stdout: []byte("ref: refs/heads/main\tHEAD\n" + head + "\tHEAD\n")}, nil
+		return execx.Result{Stdout: []byte("ref: refs/heads/main\tHEAD\n" + primaryRoutingSHA + "\tHEAD\n")}, nil
 	case "rev-parse --verify refs/remotes/origin/main":
 		return execx.Result{Stdout: []byte(primaryRoutingSHA + "\n")}, nil
 	case "show refs/remotes/origin/main:.no-mistakes.yaml":
@@ -191,7 +184,7 @@ INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'ma
 		t.Fatalf("fixture: %s %v", out, err)
 	}
 	reader := Reader{Root: state, Commands: execx.OSRunner{}}
-	_, err := reader.CheckStart(context.Background(), project, project, "feature", testPolicy(t))
+	err := reader.CheckStart(context.Background(), project, project, "feature", testPolicy(t))
 	if err == nil || !strings.Contains(err.Error(), "stale") {
 		t.Fatalf("CheckStart error=%v, want stale trusted primary refusal", err)
 	}
@@ -234,7 +227,7 @@ INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'ma
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			reader := Reader{Root: dir, Commands: &primaryRoutingRunner{task: []byte(test.task), trusted: []byte(test.trusted)}}
-			_, err := reader.CheckStart(context.Background(), project, filepath.Join(project, "worktree"), "feature", testPolicy(t))
+			err := reader.CheckStart(context.Background(), project, filepath.Join(project, "worktree"), "feature", testPolicy(t))
 			if test.wantErr {
 				if err == nil || !strings.Contains(err.Error(), "agent overrides") {
 					t.Fatalf("CheckStart error=%v, want trusted primary refusal", err)
@@ -245,34 +238,6 @@ INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'ma
 				t.Fatalf("CheckStart: %v", err)
 			}
 		})
-	}
-}
-
-func TestStartEvidenceRefusesARemoteAdvanceAtTheLaunchBoundary(t *testing.T) {
-	sqlite, err := exec.LookPath("sqlite3")
-	if err != nil {
-		t.Skip("sqlite3 CLI not available")
-	}
-	project := filepath.Join(t.TempDir(), "project")
-	state := t.TempDir()
-	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
-CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT);
-INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'main');`
-	if out, err := exec.Command(sqlite, filepath.Join(state, "state.sqlite"), sql).CombinedOutput(); err != nil {
-		t.Fatalf("fixture: %s %v", out, err)
-	}
-	advanced := "89abcdef0123456789abcdef0123456789abcdef"
-	runner := &primaryRoutingRunner{
-		trusted:     []byte("auto_fix: {review: 0}\n"),
-		remoteHeads: []string{primaryRoutingSHA, advanced},
-	}
-	reader := Reader{Root: state, Commands: runner}
-	evidence, err := reader.CheckStart(context.Background(), project, filepath.Join(project, "worktree"), "feature", testPolicy(t))
-	if err != nil {
-		t.Fatalf("CheckStart: %v", err)
-	}
-	if err := reader.CheckStartEvidence(context.Background(), project, evidence); err == nil || !strings.Contains(err.Error(), "changed before native start") {
-		t.Fatalf("CheckStartEvidence error=%v, want remote advance refusal", err)
 	}
 }
 
@@ -301,7 +266,7 @@ INSERT INTO runs VALUES('previous','repo','feat',1,'` + c.status + `');`
 				t.Fatalf("fixture: %s %v", out, err)
 			}
 			reader := Reader{Root: dir, Commands: execx.OSRunner{}}
-			_, err := reader.CheckStart(context.Background(), "C:/project", t.TempDir(), "feat", testPolicy(t))
+			err := reader.CheckStart(context.Background(), "C:/project", t.TempDir(), "feat", testPolicy(t))
 			if errors.Is(err, ErrUnresolved) != c.unresolved {
 				t.Fatalf("status %q: %v", c.status, err)
 			}

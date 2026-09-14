@@ -70,8 +70,8 @@ func TestRenderPreservesUnownedConfigAndIsIdempotent(t *testing.T) {
 			t.Fatalf("%s profile=%+v", role, profile)
 		}
 	}
-	if args, ok := rendered.AgentArgs["codex"]; !ok || len(args) != 0 {
-		t.Fatalf("codex raw args=%v, want an owned empty list", args)
+	if args := rendered.AgentArgs["codex"]; !reflect.DeepEqual(args, []string{"-c", `service_tier="default"`}) {
+		t.Fatalf("codex raw args=%v, want the standard service tier", args)
 	}
 	if _, ok := rendered.AgentArgs["claude"]; ok {
 		t.Fatal("legacy CFO-owned Claude arguments remain")
@@ -79,6 +79,26 @@ func TestRenderPreservesUnownedConfigAndIsIdempotent(t *testing.T) {
 	again, drift, err := Render(after, p)
 	if err != nil || len(drift) != 0 || string(again) != string(after) {
 		t.Fatalf("not idempotent: %v %v", drift, err)
+	}
+}
+
+func TestRenderOverridesCodexFastServiceTier(t *testing.T) {
+	before := []byte("agent_args_override:\n  codex: [-c, 'service_tier=\"fast\"']\n")
+	after, drift, err := Render(before, testPolicy(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(drift, "agent_args_override.codex") {
+		t.Fatalf("drift=%v, want Codex argument ownership", drift)
+	}
+	var config struct {
+		AgentArgs map[string][]string `yaml:"agent_args_override"`
+	}
+	if err := yaml.Unmarshal(after, &config); err != nil {
+		t.Fatal(err)
+	}
+	if args := config.AgentArgs["codex"]; !reflect.DeepEqual(args, []string{"-c", `service_tier="default"`}) {
+		t.Fatalf("effective Codex args=%v, want the standard service tier", args)
 	}
 }
 

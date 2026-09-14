@@ -120,7 +120,7 @@ func Render(before []byte, p Policy) ([]byte, []string, error) {
 		if err := removeOwned(args, "claude", "agent_args_override.claude", []string{"--model", "opus", "--effort", "high"}); err != nil {
 			return nil, nil, err
 		}
-		if err := set(args, "codex", "agent_args_override.codex", []string{}); err != nil {
+		if err := set(args, "codex", "agent_args_override.codex", []string{"-c", `service_tier="default"`}); err != nil {
 			return nil, nil, err
 		}
 		for i := 0; i < len(root.Content); i += 2 {
