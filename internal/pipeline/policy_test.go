@@ -49,6 +49,35 @@ func TestMigrateSelectionPreservesClassAndReviewCycleCap(t *testing.T) {
 	}
 }
 
+func TestLoadSelectionAcceptsFrozenVersionOneHash(t *testing.T) {
+	const snapshot = `{
+  "policy": {
+    "version": 1,
+    "reviewer": {"harness": "claude", "model": "opus", "effort": "high"},
+    "auto_fix": {"review": 0, "test": 1, "lint": 1, "rebase": 1, "ci": 1},
+    "classes": {
+      "ordinary": {"review_cycles": 2},
+      "high-risk": {"review_cycles": 3},
+      "mechanical": {"review_cycles": 2}
+    }
+  },
+  "class": "ordinary",
+  "review_cycles": 2,
+  "policy_sha256": "aa8eb7346aef93bd82a88cf6fad446a46c9f6abaebc2c40b700ee7c607d313e5"
+}`
+	path := filepath.Join(t.TempDir(), "pipeline.json")
+	if err := os.WriteFile(path, []byte(snapshot), 0600); err != nil {
+		t.Fatal(err)
+	}
+	selection, err := LoadSelection(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.Policy.Version != 1 || selection.Class != "ordinary" || selection.ReviewCycles != 2 {
+		t.Fatalf("selection=%+v", selection)
+	}
+}
+
 func TestCheckedInPolicyAndSnapshot(t *testing.T) {
 	p, err := Load(filepath.Join("..", "..", "config", "pipeline.json"))
 	if err != nil {
