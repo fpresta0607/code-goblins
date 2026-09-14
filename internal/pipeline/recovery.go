@@ -57,8 +57,13 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 	if run.Branch != branch || run.RecordedHead == "" || run.SubmittedHead == "" || run.PushedHead != "" || run.Status != "failed" && run.Status != "cancelled" {
 		return RecoveryResult{}, errors.New("pipeline: latest run is not an unpublished failed or cancelled custody recovery")
 	}
-	if status, output, err := r.readRecoverySync(ctx, worktree, env); err == nil && status.recoverableUserOwned(run) {
-		return r.alignUserOwned(ctx, worktree, branch, env, run, status, output)
+	if status, output, err := r.readRecoverySync(ctx, worktree, env); err == nil {
+		switch {
+		case status.recoverableUserOwned(run):
+			return r.alignReturned(ctx, worktree, branch, env, run, status, output, false)
+		case status.recoverableCustodyReturned(run):
+			return r.alignReturned(ctx, worktree, branch, env, run, status, output, true)
+		}
 	}
 	if run.CustodyReturnedAt != 0 {
 		return RecoveryResult{}, errors.New("pipeline: recorded custody return does not match native branch state")
@@ -120,20 +125,25 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 	return RecoveryResult{RunID: run.RunID, Head: run.SubmittedHead, NativeOutput: output}, nil
 }
 
-func (r Reader) alignUserOwned(ctx context.Context, worktree, branch string, env []string, run recoveryRecord, status recoverySync, output []byte) (RecoveryResult, error) {
+func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env []string, run recoveryRecord, status recoverySync, output []byte, custodyReturned bool) (RecoveryResult, error) {
 	if err := r.requireCleanHead(ctx, worktree, status.Local.Head); err != nil {
 		return RecoveryResult{}, err
 	}
-	if run.RecordedHead != run.SubmittedHead {
+	if !custodyReturned && run.RecordedHead != run.SubmittedHead {
 		return RecoveryResult{}, errors.New("pipeline: user-owned recovery has inconsistent recorded and submitted heads")
 	}
 	bare := filepath.Join(r.Root, "repos", run.RepoID+".git")
 	gateRef := "refs/heads/" + branch
-	if status.Local.Head == run.SubmittedHead {
-		if err := r.requireRef(ctx, bare, gateRef, run.SubmittedHead); err != nil {
+	if status.Local.Head == run.RecordedHead && status.Local.Head == run.SubmittedHead {
+		if err := r.requireRef(ctx, bare, gateRef, status.Local.Head); err != nil {
 			return RecoveryResult{}, fmt.Errorf("pipeline: recovered gate branch is unsafe: %w", err)
 		}
 		return RecoveryResult{RunID: run.RunID, Head: status.Local.Head, NativeOutput: output}, nil
+	}
+	if custodyReturned {
+		if err := r.requireRef(ctx, bare, "refs/no-mistakes/recover/"+run.RunID, run.RecordedHead); err != nil {
+			return RecoveryResult{}, fmt.Errorf("pipeline: returned pipeline head is not anchored: %w", err)
+		}
 	}
 	for _, head := range []string{run.SubmittedHead, status.Local.Head} {
 		if err := r.requireCommit(ctx, worktree, head); err != nil {
@@ -194,7 +204,11 @@ func (r Reader) alignUserOwned(ctx context.Context, worktree, branch string, env
 		return RecoveryResult{}, errors.Join(err, r.rollbackUserOwned(ctx, bare, gateRef, run, status.Local.Head))
 	}
 	post, postOutput, err := r.readRecoverySync(ctx, worktree, env)
-	if err != nil || !post.userOwned(aligned, true) {
+	recovered := post.userOwned(aligned, true)
+	if custodyReturned {
+		recovered = post.custodyReturned(aligned, true)
+	}
+	if err != nil || !recovered {
 		if err == nil {
 			err = errors.New("pipeline: native engine did not recognize the aligned recovery state")
 		}
@@ -237,6 +251,17 @@ func (s recoverySync) userOwned(run recoveryRecord, exactLocal bool) bool {
 
 func (s recoverySync) recoverableUserOwned(run recoveryRecord) bool {
 	return s.State == "user_owned" && s.Safety == "user_owned" && s.Local.Clean && s.Local.Head != "" && s.Pipeline.Run == run.RunID && s.Pipeline.SubmittedHead == run.SubmittedHead && (s.Pipeline.CurrentHead == run.SubmittedHead || s.Pipeline.CurrentHead == s.Local.Head)
+}
+
+func (s recoverySync) custodyReturned(run recoveryRecord, exactLocal bool) bool {
+	if s.State != "custody_returned" || s.Safety != "custody_returned" || !s.Local.Clean || s.Local.Head == "" || s.Pipeline.Run != run.RunID || s.Pipeline.SubmittedHead != run.SubmittedHead || s.Pipeline.CurrentHead != run.RecordedHead || run.CustodyReturnedAt == 0 {
+		return false
+	}
+	return !exactLocal || s.Local.Head == run.SubmittedHead && s.Local.Head == run.RecordedHead
+}
+
+func (s recoverySync) recoverableCustodyReturned(run recoveryRecord) bool {
+	return s.custodyReturned(run, false)
 }
 
 func (r Reader) requireCleanHead(ctx context.Context, worktree, want string) error {
