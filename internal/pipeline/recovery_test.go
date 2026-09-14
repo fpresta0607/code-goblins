@@ -476,3 +476,29 @@ func TestRecoverKeepLocalRefusesV175CustodyReturnedWithoutNativeAnchor(t *testin
 		}
 	}
 }
+
+func TestRecoverKeepLocalRefusesAlignedV175CustodyReturnedWithoutNativeAnchor(t *testing.T) {
+	const head = "e78eae6f6569b7bc37835ae36b4ef79e4e434fd4"
+	runner := &recoveryRunner{
+		scenario: recoveryScenario{
+			run:       "01M2G34VN0E2764T0AY3NABZH0",
+			repo:      recoveryRepo,
+			branch:    "fix/cfo-pr-status-context",
+			recorded:  head,
+			submitted: head,
+		},
+		alreadyOwned:    true,
+		localHead:       head,
+		custodyReturned: true,
+	}
+	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", runner.scenario.branch, nil); err == nil || !strings.Contains(err.Error(), "not anchored") {
+		t.Fatalf("aligned unanchored custody return accepted: %v", err)
+	}
+	for _, request := range runner.requests {
+		joined := request.Name + " " + strings.Join(request.Args, " ")
+		if strings.Contains(joined, "update-ref") || request.Name == "sqlite3" && strings.Contains(joined, "UPDATE runs") {
+			t.Fatalf("unsafe recovery mutated state: %s", joined)
+		}
+	}
+}

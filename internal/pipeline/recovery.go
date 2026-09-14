@@ -134,16 +134,16 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 	}
 	bare := filepath.Join(r.Root, "repos", run.RepoID+".git")
 	gateRef := "refs/heads/" + branch
+	if custodyReturned {
+		if err := r.requireRef(ctx, bare, "refs/no-mistakes/recover/"+run.RunID, run.RecordedHead); err != nil {
+			return RecoveryResult{}, fmt.Errorf("pipeline: returned pipeline head is not anchored: %w", err)
+		}
+	}
 	if status.Local.Head == run.RecordedHead && status.Local.Head == run.SubmittedHead {
 		if err := r.requireRef(ctx, bare, gateRef, status.Local.Head); err != nil {
 			return RecoveryResult{}, fmt.Errorf("pipeline: recovered gate branch is unsafe: %w", err)
 		}
 		return RecoveryResult{RunID: run.RunID, Head: status.Local.Head, NativeOutput: output}, nil
-	}
-	if custodyReturned {
-		if err := r.requireRef(ctx, bare, "refs/no-mistakes/recover/"+run.RunID, run.RecordedHead); err != nil {
-			return RecoveryResult{}, fmt.Errorf("pipeline: returned pipeline head is not anchored: %w", err)
-		}
 	}
 	for _, head := range []string{run.SubmittedHead, status.Local.Head} {
 		if err := r.requireCommit(ctx, worktree, head); err != nil {

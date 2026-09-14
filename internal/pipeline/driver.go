@@ -120,20 +120,37 @@ func (r Reader) CheckStart(ctx context.Context, project, worktree, branch string
 	if err != nil || status.ExitCode != 0 || len(strings.TrimSpace(string(status.Stdout))) != 0 {
 		return errors.New("pipeline: commit task work before starting the gate")
 	}
-	for _, source := range []struct{ dir, ref string }{{worktree, "HEAD"}, {project, "refs/remotes/origin/" + repos[0].DefaultBranch}} {
-		result, err := r.Commands.Run(ctx, execx.Request{Dir: source.dir, Name: "git", Args: []string{"show", source.ref + ":.no-mistakes.yaml"}})
-		if err != nil || result.ExitCode != 0 {
-			return errors.New("pipeline: readable committed task and origin default-branch .no-mistakes.yaml required")
-		}
-		checkAutomatic := source.ref == "HEAD"
-		if err := checkRepoConfig(result.Stdout, policy, checkAutomatic); err != nil {
-			return err
-		}
-		if !checkAutomatic {
-			if err := checkTrustedPrimaryAgent(result.Stdout, policy); err != nil {
-				return err
-			}
-		}
+	task, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Name: "git", Args: []string{"show", "HEAD:.no-mistakes.yaml"}})
+	if err != nil || task.ExitCode != 0 {
+		return errors.New("pipeline: readable committed task and origin default-branch .no-mistakes.yaml required")
+	}
+	if err := checkRepoConfig(task.Stdout, policy, true); err != nil {
+		return err
+	}
+	defaultBranch := repos[0].DefaultBranch
+	remote, err := r.Commands.Run(ctx, execx.Request{Dir: project, Name: "git", Args: []string{"ls-remote", "--symref", "origin", "HEAD"}})
+	remoteFields := strings.Fields(string(remote.Stdout))
+	if err != nil || remote.ExitCode != 0 || len(remoteFields) != 5 || remoteFields[0] != "ref:" || remoteFields[1] != "refs/heads/"+defaultBranch || remoteFields[2] != "HEAD" || remoteFields[4] != "HEAD" {
+		return errors.New("pipeline: current origin default-branch evidence is required")
+	}
+	trustedRef := "refs/remotes/origin/" + defaultBranch
+	local, err := r.Commands.Run(ctx, execx.Request{Dir: project, Name: "git", Args: []string{"rev-parse", "--verify", trustedRef}})
+	localFields := strings.Fields(string(local.Stdout))
+	if err != nil || local.ExitCode != 0 || len(localFields) != 1 {
+		return errors.New("pipeline: readable origin default-branch tracking evidence is required")
+	}
+	if localFields[0] != remoteFields[3] {
+		return errors.New("pipeline: origin default-branch tracking evidence is stale")
+	}
+	trusted, err := r.Commands.Run(ctx, execx.Request{Dir: project, Name: "git", Args: []string{"show", trustedRef + ":.no-mistakes.yaml"}})
+	if err != nil || trusted.ExitCode != 0 {
+		return errors.New("pipeline: readable committed task and origin default-branch .no-mistakes.yaml required")
+	}
+	if err := checkRepoConfig(trusted.Stdout, policy, false); err != nil {
+		return err
+	}
+	if err := checkTrustedPrimaryAgent(trusted.Stdout, policy); err != nil {
+		return err
 	}
 	return nil
 }
