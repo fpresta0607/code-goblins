@@ -12,12 +12,12 @@ disable_project_settings: true
 # file and two wake records into the live queue. internal/home refuses the
 # inherited home from a test binary, which covers `go test`; the real `cfo`
 # binary is not a test binary, so a step that invokes it must clear both
-# variables itself. no-mistakes v1.48 has no per-repo step command or env
+# variables itself. no-mistakes v1.75.1 has no per-repo step command or env
 # setting to enforce this, so it is stated in every intent instead.
 
-# The approved reviewer stays Claude Opus high; shared model/effort settings
-# come from config/pipeline.json through the explicit idle config-apply command.
-agent: [claude]
+# This repository does not override the primary pipeline agent.
+# The owned global Codex profile routes test, document, and lint, while global
+# review_agents independently pin review and review-fix to that same profile.
 
 # These committed overrides also bound a new gate during the initial rollout.
 # Shared machine settings are rendered only in an explicit idle window.
