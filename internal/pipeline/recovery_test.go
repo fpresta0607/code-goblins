@@ -32,8 +32,14 @@ type recoveryRunner struct {
 	failPostCheck        bool
 	anchorExists         bool
 	anchorHead           string
+	anchorSymbolic       bool
+	anchorSymbolicRace   bool
+	anchorTargetMoved    bool
 	nativeAnchor         bool
 	nativeAnchorHead     string
+	nativeAnchorWorktree bool
+	nativeWorktreeHead   string
+	nonCommitHead        string
 	nativeReturnsCustody bool
 	missingNativeAnchor  bool
 	custodyReturned      bool
@@ -49,6 +55,38 @@ func (r *recoveryRunner) values() recoveryScenario {
 		return r.scenario
 	}
 	return recoveryScenario{run: recoveryRun, repo: recoveryRepo, branch: recoveryBranch, recorded: recoveryRecorded, submitted: recoveryPreserved}
+}
+
+func (r *recoveryRunner) recoveryAnchorHead(ref string) string {
+	if r.anchorHead != "" {
+		return r.anchorHead
+	}
+	if strings.HasSuffix(ref, "/recorded") {
+		return r.values().recorded
+	}
+	return r.values().submitted
+}
+
+func (r *recoveryRunner) nativeAnchorAt(request execx.Request) (string, bool) {
+	if strings.HasSuffix(strings.ToLower(request.Dir), strings.ToLower(r.values().repo+".git")) {
+		if !r.nativeAnchor {
+			return "", false
+		}
+		if r.nativeAnchorHead != "" {
+			return r.nativeAnchorHead, true
+		}
+		return r.values().recorded, true
+	}
+	if !r.nativeAnchorWorktree {
+		return "", false
+	}
+	if r.nativeWorktreeHead != "" {
+		return r.nativeWorktreeHead, true
+	}
+	if r.nativeAnchorHead != "" {
+		return r.nativeAnchorHead, true
+	}
+	return r.values().recorded, true
 }
 
 func (r *recoveryRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
@@ -115,35 +153,31 @@ func (r *recoveryRunner) Run(_ context.Context, request execx.Request) (execx.Re
 			return execx.Result{Stdout: []byte(r.localHead + "\n")}, nil
 		case joined == "rev-parse refs/heads/"+scenario.branch:
 			return execx.Result{Stdout: []byte(scenario.submitted + "\n")}, nil
-		case strings.HasPrefix(joined, "rev-parse refs/no-mistakes/recovery/") && r.anchorExists:
-			head := r.anchorHead
-			if head == "" {
-				head = scenario.submitted
-			}
-			return execx.Result{Stdout: []byte(head + "\n")}, nil
-		case strings.HasPrefix(joined, "rev-parse refs/no-mistakes/recovery/"):
-			return execx.Result{ExitCode: 1}, nil
-		case strings.HasPrefix(joined, "rev-parse refs/no-mistakes/recover/") && r.nativeAnchor:
-			head := r.nativeAnchorHead
-			if head == "" {
-				head = scenario.recorded
-			}
-			return execx.Result{Stdout: []byte(head + "\n")}, nil
-		case strings.HasPrefix(joined, "rev-parse refs/no-mistakes/recover/"):
-			return execx.Result{ExitCode: 1}, nil
 		case strings.HasPrefix(joined, "cat-file -e "):
 			return execx.Result{}, nil
+		case strings.HasPrefix(joined, "cat-file -t "):
+			head := strings.TrimPrefix(joined, "cat-file -t ")
+			if head == r.nonCommitHead {
+				return execx.Result{Stdout: []byte("blob\n")}, nil
+			}
+			return execx.Result{Stdout: []byte("commit\n")}, nil
 		case strings.HasPrefix(joined, "merge-base --is-ancestor ") && r.ancestral:
 			return execx.Result{}, nil
 		case strings.HasPrefix(joined, "merge-base --is-ancestor "):
 			return execx.Result{ExitCode: 1}, nil
-		case strings.HasPrefix(joined, "rev-parse --verify --quiet refs/no-mistakes/recovery/") && r.anchorExists:
-			head := r.anchorHead
-			if head == "" {
-				head = scenario.submitted
+		case strings.HasPrefix(joined, "symbolic-ref --quiet refs/no-mistakes/recovery/") && r.anchorSymbolic:
+			return execx.Result{Stdout: []byte("refs/heads/" + scenario.branch + "\n")}, nil
+		case strings.HasPrefix(joined, "symbolic-ref --quiet refs/no-mistakes/"):
+			return execx.Result{ExitCode: 1}, nil
+		case strings.HasPrefix(joined, "show-ref --verify --hash refs/no-mistakes/recovery/") && r.anchorExists:
+			ref := strings.TrimPrefix(joined, "show-ref --verify --hash ")
+			return execx.Result{Stdout: []byte(r.recoveryAnchorHead(ref) + "\n")}, nil
+		case strings.HasPrefix(joined, "show-ref --verify --hash refs/no-mistakes/recovery/"):
+			return execx.Result{ExitCode: 1}, nil
+		case strings.HasPrefix(joined, "show-ref --verify --hash refs/no-mistakes/recover/"):
+			if head, found := r.nativeAnchorAt(request); found {
+				return execx.Result{Stdout: []byte(head + "\n")}, nil
 			}
-			return execx.Result{Stdout: []byte(head + "\n")}, nil
-		case strings.HasPrefix(joined, "rev-parse --verify --quiet refs/no-mistakes/recovery/"):
 			return execx.Result{ExitCode: 1}, nil
 		case strings.HasPrefix(joined, "fetch --no-tags --no-write-fetch-head "):
 			return execx.Result{}, nil
@@ -153,7 +187,19 @@ func (r *recoveryRunner) Run(_ context.Context, request execx.Request) (execx.Re
 		case strings.HasPrefix(joined, "update-ref refs/heads/"+scenario.branch+" "+scenario.submitted+" "+r.localHead):
 			r.gateAligned = false
 			return execx.Result{}, nil
+		case strings.HasPrefix(joined, "update-ref --no-deref refs/no-mistakes/recovery/"):
+			if r.anchorSymbolicRace {
+				return execx.Result{ExitCode: 1}, nil
+			}
+			parts := strings.Fields(joined)
+			r.anchorExists = true
+			r.anchorHead = parts[3]
+			return execx.Result{}, nil
 		case strings.HasPrefix(joined, "update-ref refs/no-mistakes/recovery/"):
+			if r.anchorSymbolicRace {
+				r.anchorTargetMoved = true
+				return execx.Result{}, nil
+			}
 			r.anchorExists = true
 			return execx.Result{}, nil
 		}
@@ -191,7 +237,7 @@ func (r *recoveryRunner) Run(_ context.Context, request execx.Request) (execx.Re
 		if r.nativeReturnsCustody {
 			r.custodyReturned = true
 			if !r.missingNativeAnchor {
-				r.nativeAnchor = true
+				r.nativeAnchorWorktree = true
 			}
 		}
 		return execx.Result{Stdout: []byte("custody returned\n")}, nil
@@ -216,7 +262,7 @@ func TestRecoverKeepLocalRepairsAncestralRebaseGateShapeWithoutReset(t *testing.
 		if strings.Contains(joined, " reset ") || strings.HasSuffix(joined, " reset") {
 			t.Fatalf("destructive reset invoked: %s", joined)
 		}
-		if strings.HasPrefix(joined, "git update-ref refs/no-mistakes/recovery/"+recoveryRun+"/recorded "+recoveryRecorded) {
+		if strings.HasPrefix(joined, "git update-ref --no-deref refs/no-mistakes/recovery/"+recoveryRun+"/recorded "+recoveryRecorded) {
 			anchored = true
 		}
 		if request.Name == "sqlite3" && strings.Contains(joined, "UPDATE runs SET head_sha=") {
@@ -451,10 +497,10 @@ func TestRecoverKeepLocalAlignsV175CustodyReturnedGateBeforeFreshRun(t *testing.
 		if strings.Contains(joined, " reset ") || joined == "no-mistakes axi sync --recover --keep-local" {
 			t.Fatalf("unsafe recovery command: %s", joined)
 		}
-		if strings.HasPrefix(joined, "git update-ref refs/no-mistakes/recovery/"+run+"/gate "+staleGate) {
+		if strings.HasPrefix(joined, "git update-ref --no-deref refs/no-mistakes/recovery/"+run+"/gate "+staleGate) {
 			preservedGate = true
 		}
-		if joined == "git rev-parse refs/no-mistakes/recovery/"+run+"/gate" && preservedGate {
+		if joined == "git show-ref --verify --hash refs/no-mistakes/recovery/"+run+"/gate" && preservedGate {
 			verifiedGate = true
 		}
 		if strings.HasPrefix(joined, "git update-ref refs/heads/"+branch+" ") || request.Name == "sqlite3" && strings.Contains(joined, "UPDATE runs") {
@@ -521,11 +567,122 @@ func TestRecoverKeepLocalAcceptsNativeAlignedCustodyReturnedWithoutGateAnchor(t 
 			t.Fatalf("attempt %d result=%+v", attempt, result)
 		}
 	}
+	if !runner.nativeAnchorWorktree || runner.nativeAnchor {
+		t.Fatalf("native anchor locations: worktree=%v bare=%v", runner.nativeAnchorWorktree, runner.nativeAnchor)
+	}
 	for _, request := range runner.requests {
 		joined := request.Name + " " + strings.Join(request.Args, " ")
-		if strings.HasPrefix(joined, "git update-ref refs/no-mistakes/recovery/"+runner.scenario.run+"/gate ") {
+		if strings.HasPrefix(joined, "git update-ref --no-deref refs/no-mistakes/recovery/"+runner.scenario.run+"/gate ") {
 			t.Fatalf("native-aligned recovery created CFO swap evidence: %s", joined)
 		}
+	}
+}
+
+func TestRecoverKeepLocalRefusesConflictingNativeAnchorsAcrossRepositories(t *testing.T) {
+	const head = "e78eae6f6569b7bc37835ae36b4ef79e4e434fd4"
+	runner := &recoveryRunner{
+		scenario: recoveryScenario{
+			run:       "01M2G34VN0E2764T0AY3NABZH0",
+			repo:      recoveryRepo,
+			branch:    "fix/cfo-pr-status-context",
+			recorded:  head,
+			submitted: head,
+		},
+		alreadyOwned:         true,
+		localHead:            head,
+		nativeAnchor:         true,
+		nativeAnchorWorktree: true,
+		nativeWorktreeHead:   "c5fcb965b84750629f8a87f35ee571a128ec7e4e",
+		custodyReturned:      true,
+	}
+	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", runner.scenario.branch, nil); err == nil || !strings.Contains(err.Error(), "conflict across repositories") {
+		t.Fatalf("conflicting native anchors accepted: %v", err)
+	}
+	if runner.gateAligned || runner.databaseAligned {
+		t.Fatalf("conflicting native anchors mutated state: gate=%v database=%v", runner.gateAligned, runner.databaseAligned)
+	}
+}
+
+func TestRecoverKeepLocalRejectsSymbolicRecoveryAnchorBeforeMovement(t *testing.T) {
+	const (
+		stale = "0c61c8d1bb5145fb3dad57fde7f0e139a0c98a83"
+		local = "e78eae6f6569b7bc37835ae36b4ef79e4e434fd4"
+	)
+	runner := &recoveryRunner{
+		scenario: recoveryScenario{
+			run:       "01M2G34VN0E2764T0AY3NABZH0",
+			repo:      recoveryRepo,
+			branch:    "fix/cfo-pr-status-context",
+			recorded:  "c5fcb965b84750629f8a87f35ee571a128ec7e4e",
+			submitted: stale,
+		},
+		alreadyOwned:    true,
+		localHead:       local,
+		anchorExists:    true,
+		anchorSymbolic:  true,
+		nativeAnchor:    true,
+		custodyReturned: true,
+	}
+	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", runner.scenario.branch, nil); err == nil || !strings.Contains(err.Error(), "must not be symbolic") {
+		t.Fatalf("symbolic recovery anchor accepted: %v", err)
+	}
+	if runner.gateAligned || runner.databaseAligned {
+		t.Fatalf("symbolic recovery anchor mutated state: gate=%v database=%v", runner.gateAligned, runner.databaseAligned)
+	}
+}
+
+func TestRecoverKeepLocalRejectsNonCommitRecoveryAnchor(t *testing.T) {
+	const (
+		head = "e78eae6f6569b7bc37835ae36b4ef79e4e434fd4"
+		blob = "7172ecca6dd4b05782f0440f6a565badae04a1aa"
+	)
+	runner := &recoveryRunner{
+		scenario: recoveryScenario{
+			run:       "01M2G34VN0E2764T0AY3NABZH0",
+			repo:      recoveryRepo,
+			branch:    "fix/cfo-pr-status-context",
+			recorded:  head,
+			submitted: head,
+		},
+		alreadyOwned:    true,
+		localHead:       head,
+		anchorExists:    true,
+		anchorHead:      blob,
+		nonCommitHead:   blob,
+		nativeAnchor:    true,
+		custodyReturned: true,
+	}
+	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", runner.scenario.branch, nil); err == nil || !strings.Contains(err.Error(), "must name a commit directly") {
+		t.Fatalf("non-commit recovery anchor accepted: %v", err)
+	}
+}
+
+func TestRecoverKeepLocalNoDerefCreationCannotMoveSymbolicTarget(t *testing.T) {
+	const (
+		stale = "0c61c8d1bb5145fb3dad57fde7f0e139a0c98a83"
+		local = "e78eae6f6569b7bc37835ae36b4ef79e4e434fd4"
+	)
+	runner := &recoveryRunner{
+		scenario: recoveryScenario{
+			run:       "01M2G34VN0E2764T0AY3NABZH0",
+			repo:      recoveryRepo,
+			branch:    "fix/cfo-pr-status-context",
+			recorded:  stale,
+			submitted: stale,
+		},
+		alreadyOwned:       true,
+		localHead:          local,
+		anchorSymbolicRace: true,
+	}
+	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", runner.scenario.branch, nil); err == nil {
+		t.Fatal("recovery unexpectedly succeeded through anchor creation race")
+	}
+	if runner.anchorTargetMoved || runner.gateAligned || runner.databaseAligned {
+		t.Fatalf("anchor creation race moved state: target=%v gate=%v database=%v", runner.anchorTargetMoved, runner.gateAligned, runner.databaseAligned)
 	}
 }
 
