@@ -229,13 +229,8 @@ func migratePipelinePolicy(ctx context.Context, h home.Home, root string, idle f
 		return err
 	}
 	defer func() { err = errors.Join(err, releaseIdle()) }()
-	config := pipeline.Config{Path: filepath.Join(root, "config.yaml"), Policy: current}
-	drift, err := config.Drift()
-	if err != nil {
+	if err := requireAppliedPipelinePolicy(root, current); err != nil {
 		return err
-	}
-	if len(drift) != 0 {
-		return fmt.Errorf("pipeline: apply current shared config before migrating tasks (%s)", strings.Join(drift, ", "))
 	}
 	if next == old {
 		fmt.Fprintf(out, "pipeline policy: task %s already uses %s\n", meta.ID, next.Hash)
@@ -350,6 +345,9 @@ func resumePipelinePolicyMigration(ctx context.Context, h home.Home, reader pipe
 		return err
 	}
 	defer func() { err = errors.Join(err, releaseIdle()) }()
+	if err := requireAppliedPipelinePolicy(reader.Root, journal.New.Policy); err != nil {
+		return err
+	}
 	if _, err := lock.AcquireExclusiveNamed(h.State, state.CleanupLockName(meta.ID)); err != nil {
 		return err
 	}
@@ -359,6 +357,18 @@ func resumePipelinePolicyMigration(ctx context.Context, h home.Home, reader pipe
 	}
 	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(h.State, state.MetadataLockName(meta.ID))) }()
 	return applyPolicyMigration(h, meta, journalPath, journal, true)
+}
+
+func requireAppliedPipelinePolicy(root string, policy pipeline.Policy) error {
+	config := pipeline.Config{Path: filepath.Join(root, "config.yaml"), Policy: policy}
+	drift, err := config.Drift()
+	if err != nil {
+		return err
+	}
+	if len(drift) != 0 {
+		return fmt.Errorf("pipeline: apply current shared config before migrating tasks (%s)", strings.Join(drift, ", "))
+	}
+	return nil
 }
 
 var errPolicyMigrationAuditUncertain = errors.New("pipeline: policy migration audit state is uncertain")

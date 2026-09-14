@@ -26,6 +26,7 @@ type recoveryRunner struct {
 	gateAligned     bool
 	databaseAligned bool
 	failDatabase    bool
+	failAfterCommit bool
 	failRollback    bool
 	failPostCheck   bool
 	anchorExists    bool
@@ -55,6 +56,10 @@ func (r *recoveryRunner) Run(_ context.Context, request execx.Request) (execx.Re
 					return execx.Result{Stdout: []byte(`[{"n":0}]`)}, nil
 				}
 				r.databaseAligned = true
+				if r.failAfterCommit {
+					r.failAfterCommit = false
+					return execx.Result{}, errors.New("sqlite process ended after commit")
+				}
 			} else if r.localHead != "" && strings.Contains(sql, "UPDATE runs SET head_sha='"+scenario.submitted+"'") && strings.Contains(sql, "AND head_sha='"+r.localHead+"'") {
 				if r.failRollback {
 					return execx.Result{Stdout: []byte(`[{"n":0}]`)}, nil
@@ -279,6 +284,35 @@ func TestRecoverKeepLocalRollsBackGateWhenDatabaseCASFails(t *testing.T) {
 	}
 	if runner.gateAligned {
 		t.Fatal("gate ref remained advanced after database compare-and-swap failed")
+	}
+}
+
+func TestRecoverKeepLocalVerifiesCommittedDatabaseCASBeforeRollback(t *testing.T) {
+	const (
+		branch   = "copy/hero-request-a-service"
+		oldGate  = "37c93f2081cead9d12bab41d21d4a09d652ffabd"
+		advanced = "18704b1fc56bf84c1183ee004d6f371447bc93a6"
+	)
+	runner := &recoveryRunner{
+		scenario:        recoveryScenario{run: "01M2C018A26RY2Y5GFRKC5NXCS", repo: recoveryRepo, branch: branch, recorded: oldGate, submitted: oldGate},
+		patchesEqual:    true,
+		alreadyOwned:    true,
+		localHead:       advanced,
+		failAfterCommit: true,
+	}
+	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	result, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", branch, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Head != advanced || !runner.gateAligned || !runner.databaseAligned {
+		t.Fatalf("result=%+v gate=%v database=%v", result, runner.gateAligned, runner.databaseAligned)
+	}
+	for _, request := range runner.requests {
+		joined := request.Name + " " + strings.Join(request.Args, " ")
+		if strings.HasPrefix(joined, "git update-ref refs/heads/"+branch+" "+oldGate+" "+advanced) {
+			t.Fatalf("verified committed database CAS rolled gate back: %s", joined)
+		}
 	}
 }
 

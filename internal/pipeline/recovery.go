@@ -172,11 +172,17 @@ func (r Reader) alignUserOwned(ctx context.Context, worktree, branch string, env
 			return RecoveryResult{}, err
 		}
 	}
-	if err := r.swapRunHeads(ctx, run, run.RecordedHead, run.SubmittedHead, status.Local.Head, status.Local.Head, false); err != nil {
-		if movedGate {
-			return RecoveryResult{}, errors.Join(err, r.moveRef(ctx, bare, gateRef, run.SubmittedHead, status.Local.Head))
+	if swapErr := r.swapRunHeads(ctx, run, run.RecordedHead, run.SubmittedHead, status.Local.Head, status.Local.Head, false); swapErr != nil {
+		committed, verifyErr := r.runHeadSwapCommitted(ctx, run, status.Local.Head)
+		if verifyErr != nil {
+			return RecoveryResult{}, errors.Join(swapErr, verifyErr)
 		}
-		return RecoveryResult{}, err
+		if !committed {
+			if movedGate {
+				return RecoveryResult{}, errors.Join(swapErr, r.moveRef(ctx, bare, gateRef, run.SubmittedHead, status.Local.Head))
+			}
+			return RecoveryResult{}, swapErr
+		}
 	}
 	aligned := run
 	aligned.RecordedHead = status.Local.Head
@@ -387,4 +393,23 @@ func (r Reader) swapRunHeads(ctx context.Context, run recoveryRecord, oldHead, o
 		return errors.New("pipeline: recovery metadata changed concurrently")
 	}
 	return nil
+}
+
+func (r Reader) runHeadSwapCommitted(ctx context.Context, run recoveryRecord, newHead string) (bool, error) {
+	var rows []recoveryRecord
+	query := `SELECT id AS run_id, repo_id, branch, status, head_sha AS recorded_head, COALESCE(submitted_head_sha,'') AS submitted_head, COALESCE(last_pushed_sha,'') AS pushed_head, COALESCE(custody_returned_at,0) AS custody_returned_at FROM runs WHERE id=` + sqlString(run.RunID) + ` AND repo_id=` + sqlString(run.RepoID) + ` AND branch=` + sqlString(run.Branch)
+	if err := r.query(ctx, query, &rows); err != nil || len(rows) != 1 {
+		return false, errors.Join(errors.New("pipeline: recovery metadata state is uncertain; advanced gate preserved for retry"), err)
+	}
+	current := rows[0]
+	if current.Status != run.Status || current.PushedHead != "" {
+		return false, errors.New("pipeline: recovery metadata changed concurrently; advanced gate preserved for retry")
+	}
+	if current.RecordedHead == newHead && current.SubmittedHead == newHead {
+		return true, nil
+	}
+	if current.RecordedHead == run.RecordedHead && current.SubmittedHead == run.SubmittedHead {
+		return false, nil
+	}
+	return false, errors.New("pipeline: recovery metadata changed concurrently; advanced gate preserved for retry")
 }
