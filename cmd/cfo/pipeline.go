@@ -197,10 +197,11 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		if err != nil {
 			return err
 		}
-		generation, err := randomLaunchValue()
+		generationValue, err := randomLaunchValue()
 		if err != nil {
 			return err
 		}
+		generation := cfoValidationGenerationPrefix + generationValue
 		contract := pipelineLaunchContract{Version: 1, TaskID: id, PolicyHash: selection.Hash, Project: meta.Project, Checked: checked.Start, ConfigSHA256: checked.ConfigSHA256, LaunchNonce: nonce, ValidationGeneration: generation}
 		contractPath := filepath.Join(expectedTmp, pipelineLaunchContractName)
 		if err := savePipelineLaunchContract(contractPath, contract); err != nil {
@@ -248,7 +249,8 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			RunID: receipt.RunID, Project: meta.Project, RepoID: checked.Start.RepoID,
 			Branch: branch, SubmittedHeadSHA: checked.Start.HeadSHA, LaunchNonce: nonce,
 			ValidationGeneration: generation, TrustedSHA: checked.Start.TrustedSHA,
-			Primary: checked.Start.EffectivePrimary,
+			Primary: checked.Start.EffectivePrimary, PrimaryModel: selection.Policy.Primary.Model,
+			GlobalConfigSHA256: checked.ConfigSHA256,
 		}); err != nil {
 			return err
 		}

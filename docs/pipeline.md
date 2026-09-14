@@ -57,8 +57,9 @@ An operator can restore the printed backup in another idle window; restoration i
 
 Owned machine fields are `agent: [codex]`, `agent_config.codex: {model: gpt-5.6-sol, effort: high}`, both global `review_agents` roles with the same Codex profile, `agent_args_override.codex: [--cfo-native-gate, -c, 'service_tier="default"']`, `agent_path_override.codex: cfo`, `auto_fix.review: 0`, and one automatic follow-up each for test, lint, rebase and CI.
 The raw Codex argument override forces standard service for every managed role, so a user-level fast or priority preference cannot leak into a gate, while `agent_config` owns model and reasoning effort.
-The Codex executable override sends native invocations through the CFO pre-agent guard, which removes its private marker and delegates to the real `codex` command from `PATH` only after a managed run's durable bindings still match.
-Native runs without a CFO launch nonce and validation generation, and native Codex operations outside a run, pass through unchanged, while incomplete or mismatched managed identities fail closed.
+The Codex executable override sends native invocations through the CFO pre-agent guard, which recognizes its private marker only immediately after `exec` or `exec resume` and delegates to the real `codex` command from `PATH` only after a managed run's durable bindings still match.
+CFO validation generations use the versioned `cfo-v1-` prefix accepted by no-mistakes v1.75.1.
+Strict native runs whose validation generation lacks that prefix, and native Codex operations outside a run, pass through unchanged, while a prefixed run without an exact CFO contract fails closed.
 Executable overrides for other harnesses remain operator-owned.
 The exact legacy CFO-owned Claude model and effort vector is removed during apply; a differing operator-owned Claude vector is preserved.
 Document follow-ups and other native settings retain their existing values.
@@ -96,9 +97,10 @@ Refresh origin before starting; global reviewer/fixer drift and repository autom
 Immediately before invoking native start, `run` captures the complete mutable launch evidence twice and requires the snapshots to match.
 The evidence binds task metadata, frozen policy, worktree identity, named branch, clean submitted head, current origin default branch, local tracking ref, submitted and trusted repository configuration digests, shared configuration digest, and effective Codex primary.
 It then uses the native strict launch nonce and validation generation and requires the returned receipt to bind the exact branch, submitted head, generation, and intent digest.
-The shared configuration routes native Codex through `cfo --cfo-native-gate`.
-At the actual agent boundary, that guard finds the active run by its native worktree, loads the matching task-local launch contract, and rechecks the durable run identity, current native worktree head, shared configuration, origin default branch, tracking ref, both repository configuration blobs, and Codex primary before delegating.
-After native returns, the driver also requires the durable run, trusted configuration SHA, and recorded agent invocation to match before reporting a verified launch.
+The shared configuration routes native Codex through the guarded `cfo exec --cfo-native-gate` and `cfo exec resume --cfo-native-gate` invocation shapes.
+At the actual agent boundary, that guard finds the active run by its native worktree, loads the matching task-local launch contract, and requires both the durable run head and current native worktree head to equal the submitted head while rechecking the shared configuration, origin default branch, tracking ref, both repository configuration blobs, and Codex primary.
+After those checks, it re-reads the complete active run identity immediately before delegating and refuses a cancellation or identity change.
+After native returns, the driver also requires the durable run, trusted configuration SHA, recorded Codex gpt-5.6-sol model, and SHA-256 of the review round's persisted global configuration to match before reporting a verified launch.
 Receipt-only validation and after-the-fact cancellation are not treated as proof that the pre-agent boundary was safe.
 A repository's `agent` field continues to select only its native primary path and cannot replace the global reviewer or fixer profiles.
 An earlier unresolved run cannot be restarted to reset its budget.
