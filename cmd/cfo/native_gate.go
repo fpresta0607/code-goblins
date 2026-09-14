@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -19,22 +20,24 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-const nativeGateMarker = "--cfo-native-gate"
+const (
+	nativeGateMarker              = "--cfo-native-gate"
+	cfoValidationGenerationPrefix = "cfo-v1-"
+)
 
-func stripNativeGateMarker(args []string) ([]string, bool, error) {
-	clean := make([]string, 0, len(args))
-	marked := false
-	for _, arg := range args {
-		if arg != nativeGateMarker {
-			clean = append(clean, arg)
-			continue
-		}
-		if marked {
-			return nil, false, errors.New("cfo: duplicate native gate marker")
-		}
-		marked = true
+func stripNativeGateMarker(args []string) ([]string, bool) {
+	marker := -1
+	if len(args) >= 2 && args[0] == "exec" && args[1] == nativeGateMarker {
+		marker = 1
+	} else if len(args) >= 3 && args[0] == "exec" && args[1] == "resume" && args[2] == nativeGateMarker {
+		marker = 2
 	}
-	return clean, marked, nil
+	if marker < 0 {
+		return args, false
+	}
+	clean := append([]string(nil), args[:marker]...)
+	clean = append(clean, args[marker+1:]...)
+	return clean, true
 }
 
 func runNativeGateAgent(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -81,10 +84,10 @@ func authorizeNativeGateAgent(ctx context.Context, h home.Home, reader pipeline.
 	if err != nil {
 		return err
 	}
-	if run.LaunchNonce == "" && run.ValidationGeneration == "" {
+	if !strings.HasPrefix(run.ValidationGeneration, cfoValidationGenerationPrefix) {
 		return nil
 	}
-	if run.LaunchNonce == "" || run.ValidationGeneration == "" {
+	if run.LaunchNonce == "" {
 		return errors.New("pipeline: native run has an incomplete managed launch identity")
 	}
 	contract, err := findPipelineLaunchContract(h.State, run.LaunchNonce, run.ValidationGeneration)
@@ -170,10 +173,8 @@ func validatePipelineLaunchContract(contract pipelineLaunchContract) error {
 			return errors.New("pipeline: invalid managed launch evidence digest")
 		}
 	}
-	for _, value := range []string{contract.LaunchNonce, contract.ValidationGeneration} {
-		if !validHexBytes(value, 16) {
-			return errors.New("pipeline: invalid managed launch identity")
-		}
+	if !validHexBytes(contract.LaunchNonce, 16) || !strings.HasPrefix(contract.ValidationGeneration, cfoValidationGenerationPrefix) || !validHexBytes(strings.TrimPrefix(contract.ValidationGeneration, cfoValidationGenerationPrefix), 16) {
+		return errors.New("pipeline: invalid managed launch identity")
 	}
 	absProject, err := filepath.Abs(contract.Project)
 	if err != nil || !fsx.SamePath(absProject, contract.Project) {

@@ -67,7 +67,11 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 			return execx.Result{Stdout: []byte(`[]`)}, nil
 		}
 		if strings.Contains(sql, "launch_validation_generation") {
-			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"run_id":"run-bound","repo_id":"repo","working_path":%q,"branch":"feat/policy","submitted_head_sha":%q,"launch_nonce":%q,"validation_generation":%q,"trusted_sha":%q,"agent":"codex"}]`, filepath.ToSlash(filepath.Dir(filepath.Dir(r.worktree))), trusted, r.nonce, r.generation, trusted))}, nil
+			config, err := os.ReadFile(filepath.Join(filepath.Dir(q.Args[len(q.Args)-2]), "config.yaml"))
+			if err != nil {
+				return execx.Result{}, err
+			}
+			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"run_id":"run-bound","repo_id":"repo","working_path":%q,"branch":"feat/policy","submitted_head_sha":%q,"launch_nonce":%q,"validation_generation":%q,"trusted_sha":%q,"agent":"codex","model":"gpt-5.6-sol","global_config_hex":%q}]`, filepath.ToSlash(filepath.Dir(filepath.Dir(r.worktree))), trusted, r.nonce, r.generation, trusted, fmt.Sprintf("%x", config)))}, nil
 		}
 	case "git":
 		switch strings.Join(q.Args, " ") {
@@ -1136,7 +1140,7 @@ func TestPipelineRunBindsAndVerifiesNativeLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pipelineCommand: %v", err)
 	}
-	if runner.remoteRead != 2 || len(runner.native) != 1 || !runner.roleStarted || runner.nonce == "" || runner.generation == "" {
+	if runner.remoteRead != 2 || len(runner.native) != 1 || !runner.roleStarted || runner.nonce == "" || !strings.HasPrefix(runner.generation, cfoValidationGenerationPrefix) {
 		t.Fatalf("bound launch: remote_reads=%d native=%+v role_started=%v nonce=%q generation=%q", runner.remoteRead, runner.native, runner.roleStarted, runner.nonce, runner.generation)
 	}
 	if !strings.Contains(out.String(), "launch_receipt:") || !strings.Contains(out.String(), "pipeline launch: verified run run-bound") {

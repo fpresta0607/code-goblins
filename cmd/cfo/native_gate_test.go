@@ -13,13 +13,24 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 )
 
-func TestStripNativeGateMarkerRemovesExactlyOneMarker(t *testing.T) {
-	args, marked, err := stripNativeGateMarker([]string{"exec", nativeGateMarker, "-c", "model=x"})
-	if err != nil || !marked || strings.Join(args, " ") != "exec -c model=x" {
-		t.Fatalf("args=%q marked=%t err=%v", args, marked, err)
-	}
-	if _, _, err := stripNativeGateMarker([]string{nativeGateMarker, nativeGateMarker}); err == nil {
-		t.Fatal("duplicate marker accepted")
+func TestStripNativeGateMarkerRecognizesOnlyNativeCodexPositions(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		args   []string
+		want   string
+		marked bool
+	}{
+		{name: "exec", args: []string{"exec", nativeGateMarker, "-c", "model=x"}, want: "exec -c model=x", marked: true},
+		{name: "resume", args: []string{"exec", "resume", nativeGateMarker, "session", "-"}, want: "exec resume session -", marked: true},
+		{name: "ordinary argument", args: []string{"pipeline", "run", "task", "--intent", nativeGateMarker}, want: "pipeline run task --intent --cfo-native-gate"},
+		{name: "wrong exec position", args: []string{"exec", "-c", nativeGateMarker}, want: "exec -c --cfo-native-gate"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			args, marked := stripNativeGateMarker(test.args)
+			if marked != test.marked || strings.Join(args, " ") != test.want {
+				t.Fatalf("args=%q marked=%t", args, marked)
+			}
+		})
 	}
 }
 
@@ -65,8 +76,14 @@ INSERT INTO runs VALUES('run','repo','feature','head','head','running',1,NULL,NU
 	if err := authorizeNativeGateAgent(context.Background(), home.Home{State: stateDir}, reader, worktree); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `UPDATE runs SET launch_nonce='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',launch_validation_generation='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'`).CombinedOutput(); err != nil {
+	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `UPDATE runs SET launch_nonce='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',launch_validation_generation='native-generation'`).CombinedOutput(); err != nil {
 		t.Fatalf("update fixture: %s %v", out, err)
+	}
+	if err := authorizeNativeGateAgent(context.Background(), home.Home{State: stateDir}, reader, worktree); err != nil {
+		t.Fatalf("strict native run was not preserved: %v", err)
+	}
+	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `UPDATE runs SET launch_validation_generation='cfo-v1-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'`).CombinedOutput(); err != nil {
+		t.Fatalf("update managed fixture: %s %v", out, err)
 	}
 	if err := authorizeNativeGateAgent(context.Background(), home.Home{State: stateDir}, reader, worktree); err == nil || !strings.Contains(err.Error(), "no matching CFO launch contract") {
 		t.Fatalf("managed run without contract error=%v", err)
@@ -88,7 +105,7 @@ func testPipelineLaunchContract(project string) pipelineLaunchContract {
 			TrustedConfigSHA256: strings.Repeat("4", 64), EffectivePrimary: "codex",
 		},
 		ConfigSHA256: strings.Repeat("5", 64), LaunchNonce: strings.Repeat("a", 32),
-		ValidationGeneration: strings.Repeat("b", 32),
+		ValidationGeneration: cfoValidationGenerationPrefix + strings.Repeat("b", 32),
 	}
 }
 

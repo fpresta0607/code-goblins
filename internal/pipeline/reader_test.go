@@ -15,6 +15,23 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type nativeAgentRaceRunner struct {
+	inner      execx.OSRunner
+	database   string
+	trustedSHA string
+	mutated    bool
+}
+
+func (r *nativeAgentRaceRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	if !r.mutated && request.Name == "git" && strings.Join(request.Args, " ") == "show "+r.trustedSHA+":.no-mistakes.yaml" {
+		r.mutated = true
+		if out, err := exec.Command("sqlite3", r.database, `UPDATE runs SET status='cancelled' WHERE id='run'`).CombinedOutput(); err != nil {
+			return execx.Result{}, fmt.Errorf("race fixture: %s: %w", out, err)
+		}
+	}
+	return r.inner.Run(ctx, request)
+}
+
 func TestVerifyNativeAgentBindsDurableRunAndImmutableGitEvidence(t *testing.T) {
 	if _, err := exec.LookPath("sqlite3"); err != nil {
 		t.Skip("sqlite3 CLI not available")
@@ -81,6 +98,17 @@ INSERT INTO runs VALUES('run','repo','feature','` + submitted + `','` + submitte
 	if err := reader.VerifyNativeAgent(context.Background(), nativeWorktree, want); err != nil {
 		t.Fatal(err)
 	}
+	runPipelineGit(t, nativeWorktree, "checkout", "--detach", trusted)
+	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `UPDATE runs SET head_sha=`+sqlString(trusted)).CombinedOutput(); err != nil {
+		t.Fatalf("move durable head fixture: %s %v", out, err)
+	}
+	if err := reader.VerifyNativeAgent(context.Background(), nativeWorktree, want); err == nil || !strings.Contains(err.Error(), "submitted head") {
+		t.Fatalf("unbound durable and worktree head error=%v", err)
+	}
+	runPipelineGit(t, nativeWorktree, "checkout", "feature")
+	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `UPDATE runs SET head_sha=`+sqlString(submitted)).CombinedOutput(); err != nil {
+		t.Fatalf("restore durable head fixture: %s %v", out, err)
+	}
 	if err := os.WriteFile(filepath.Join(nativeRoot, "config.yaml"), []byte("agent: [claude]\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -93,6 +121,56 @@ INSERT INTO runs VALUES('run','repo','feature','` + submitted + `','` + submitte
 	runPipelineGit(t, nativeWorktree, "update-ref", "refs/remotes/origin/main", submitted)
 	if err := reader.VerifyNativeAgent(context.Background(), nativeWorktree, want); err == nil || !strings.Contains(err.Error(), "tracking evidence changed") {
 		t.Fatalf("mutated native tracking ref error=%v", err)
+	}
+	runPipelineGit(t, nativeWorktree, "update-ref", "refs/remotes/origin/main", trusted)
+	race := &nativeAgentRaceRunner{database: filepath.Join(nativeRoot, "state.sqlite"), trustedSHA: trusted}
+	reader.Commands = race
+	if err := reader.VerifyNativeAgent(context.Background(), nativeWorktree, want); err == nil || !race.mutated {
+		t.Fatalf("database race error=%v mutated=%t", err, race.mutated)
+	}
+}
+
+func TestVerifyNativeLaunchRequiresDurableModelAndGlobalConfig(t *testing.T) {
+	if _, err := exec.LookPath("sqlite3"); err != nil {
+		t.Skip("sqlite3 CLI not available")
+	}
+	root := t.TempDir()
+	project := t.TempDir()
+	globalConfig := []byte("agent: [codex]\nagent_config:\n  codex: {model: gpt-5.6-sol, effort: high}\n")
+	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,submitted_head_sha TEXT,launch_nonce TEXT,launch_validation_generation TEXT);
+CREATE TABLE step_results(id TEXT,run_id TEXT,step_name TEXT);
+CREATE TABLE step_rounds(id TEXT,step_result_id TEXT,round INTEGER,trusted_config_sha TEXT,global_config_yaml BLOB,created_at INTEGER);
+CREATE TABLE agent_invocations(id TEXT,run_id TEXT,agent TEXT,model TEXT,started_at INTEGER);
+INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'main');
+INSERT INTO runs VALUES('run','repo','feature','submitted','nonce','generation');
+INSERT INTO step_results VALUES('review-step','run','review');
+INSERT INTO step_rounds VALUES('round','review-step',1,'trusted',X'` + fmt.Sprintf("%x", globalConfig) + `',1);
+INSERT INTO agent_invocations VALUES('invocation','run','codex','gpt-5.6-sol',1);`
+	database := filepath.Join(root, "state.sqlite")
+	if out, err := exec.Command("sqlite3", database, sql).CombinedOutput(); err != nil {
+		t.Fatalf("fixture: %s %v", out, err)
+	}
+	want := NativeLaunchExpectation{
+		RunID: "run", Project: project, RepoID: "repo", Branch: "feature", SubmittedHeadSHA: "submitted",
+		LaunchNonce: "nonce", ValidationGeneration: "generation", TrustedSHA: "trusted", Primary: "codex",
+		PrimaryModel: "gpt-5.6-sol", GlobalConfigSHA256: fmt.Sprintf("%x", sha256.Sum256(globalConfig)),
+	}
+	reader := Reader{Root: root, Commands: execx.OSRunner{}}
+	if err := reader.VerifyNativeLaunch(context.Background(), want); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("sqlite3", database, `UPDATE agent_invocations SET model='other'`).CombinedOutput(); err != nil {
+		t.Fatalf("model fixture: %s %v", out, err)
+	}
+	if err := reader.VerifyNativeLaunch(context.Background(), want); err == nil || !strings.Contains(err.Error(), "primary") {
+		t.Fatalf("durable model mismatch error=%v", err)
+	}
+	if out, err := exec.Command("sqlite3", database, `UPDATE agent_invocations SET model='gpt-5.6-sol'; UPDATE step_rounds SET global_config_yaml='changed'`).CombinedOutput(); err != nil {
+		t.Fatalf("config fixture: %s %v", out, err)
+	}
+	if err := reader.VerifyNativeLaunch(context.Background(), want); err == nil || !strings.Contains(err.Error(), "global config") {
+		t.Fatalf("durable global config mismatch error=%v", err)
 	}
 }
 

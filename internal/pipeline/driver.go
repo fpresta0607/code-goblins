@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -114,6 +115,8 @@ type NativeLaunchExpectation struct {
 	ValidationGeneration string
 	TrustedSHA           string
 	Primary              string
+	PrimaryModel         string
+	GlobalConfigSHA256   string
 }
 
 type NativeRunContext struct {
@@ -183,6 +186,9 @@ func (r Reader) VerifyNativeAgent(ctx context.Context, worktree string, want Nat
 	if run.RunID != want.RunID || run.RepoID != want.RepoID || !samePath(run.Project, want.Project) || run.DefaultBranch != want.DefaultBranch || run.Branch != want.Branch || run.SubmittedHeadSHA != want.SubmittedHeadSHA || run.LaunchNonce != want.LaunchNonce || run.ValidationGeneration != want.ValidationGeneration || !samePath(run.Worktree, worktree) {
 		return errors.New("pipeline: active native run does not match the managed launch contract")
 	}
+	if run.HeadSHA != want.SubmittedHeadSHA {
+		return errors.New("pipeline: durable native run head differs from the managed submitted head")
+	}
 	config, err := os.ReadFile(filepath.Join(r.Root, "config.yaml"))
 	if err != nil || fmt.Sprintf("%x", sha256.Sum256(config)) != want.GlobalConfigSHA256 {
 		return errors.New("pipeline: shared native config changed before managed agent launch")
@@ -196,8 +202,8 @@ func (r Reader) VerifyNativeAgent(ctx context.Context, worktree string, want Nat
 		return fields[0], nil
 	}
 	head, err := gitOne(worktree, "rev-parse", "--verify", "HEAD^{commit}")
-	if err != nil || head != run.HeadSHA {
-		return errors.New("pipeline: native agent worktree head differs from its durable run")
+	if err != nil || head != want.SubmittedHeadSHA {
+		return errors.New("pipeline: native agent worktree head differs from the managed submitted head")
 	}
 	for _, dir := range []string{run.Project, worktree} {
 		tracked, err := gitOne(dir, "rev-parse", "--verify", "refs/remotes/origin/"+want.DefaultBranch)
@@ -222,10 +228,17 @@ func (r Reader) VerifyNativeAgent(ctx context.Context, worktree string, want Nat
 			return fmt.Errorf("pipeline: %s repository config changed before managed agent launch", check.name)
 		}
 	}
+	latest, err := r.NativeRunAtWorktree(ctx, worktree)
+	if err != nil || latest != run {
+		return errors.New("pipeline: active native run changed during managed agent authorization")
+	}
 	return nil
 }
 
 func (r Reader) VerifyNativeLaunch(ctx context.Context, expected NativeLaunchExpectation) error {
+	if expected.Primary != "codex" || expected.PrimaryModel != "gpt-5.6-sol" {
+		return errors.New("pipeline: managed native primary must be Codex gpt-5.6-sol")
+	}
 	var rows []struct {
 		RunID                string `json:"run_id"`
 		RepoID               string `json:"repo_id"`
@@ -236,10 +249,14 @@ func (r Reader) VerifyNativeLaunch(ctx context.Context, expected NativeLaunchExp
 		ValidationGeneration string `json:"validation_generation"`
 		TrustedSHA           string `json:"trusted_sha"`
 		Agent                string `json:"agent"`
+		Model                string `json:"model"`
+		GlobalConfigHex      string `json:"global_config_hex"`
 	}
 	sql := `SELECT runs.id AS run_id,runs.repo_id,repos.working_path,runs.branch,COALESCE(runs.submitted_head_sha,'') AS submitted_head_sha,COALESCE(runs.launch_nonce,'') AS launch_nonce,COALESCE(runs.launch_validation_generation,'') AS validation_generation,
 COALESCE((SELECT step_rounds.trusted_config_sha FROM step_rounds JOIN step_results ON step_results.id=step_rounds.step_result_id WHERE step_results.run_id=runs.id AND step_rounds.trusted_config_sha IS NOT NULL ORDER BY step_rounds.created_at,step_rounds.id LIMIT 1),'') AS trusted_sha,
-COALESCE((SELECT agent_invocations.agent FROM agent_invocations WHERE agent_invocations.run_id=runs.id ORDER BY agent_invocations.started_at,agent_invocations.id LIMIT 1),'') AS agent
+COALESCE((SELECT agent_invocations.agent FROM agent_invocations WHERE agent_invocations.run_id=runs.id ORDER BY agent_invocations.started_at,agent_invocations.id LIMIT 1),'') AS agent,
+COALESCE((SELECT agent_invocations.model FROM agent_invocations WHERE agent_invocations.run_id=runs.id ORDER BY agent_invocations.started_at,agent_invocations.id LIMIT 1),'') AS model,
+COALESCE((SELECT hex(step_rounds.global_config_yaml) FROM step_rounds JOIN step_results ON step_results.id=step_rounds.step_result_id WHERE step_results.run_id=runs.id AND step_results.step_name='review' AND step_rounds.global_config_yaml IS NOT NULL ORDER BY step_rounds.round,step_rounds.created_at,step_rounds.id LIMIT 1),'') AS global_config_hex
 FROM runs JOIN repos ON repos.id=runs.repo_id WHERE runs.id=` + sqlString(expected.RunID)
 	if err := r.query(ctx, sql, &rows); err != nil {
 		return err
@@ -248,8 +265,12 @@ FROM runs JOIN repos ON repos.id=runs.repo_id WHERE runs.id=` + sqlString(expect
 		return errors.New("pipeline: native launch record is missing or ambiguous")
 	}
 	row := rows[0]
-	if row.RunID != expected.RunID || row.RepoID != expected.RepoID || !samePath(row.WorkingPath, expected.Project) || row.Branch != expected.Branch || row.SubmittedHeadSHA != expected.SubmittedHeadSHA || row.LaunchNonce != expected.LaunchNonce || row.ValidationGeneration != expected.ValidationGeneration || row.TrustedSHA != expected.TrustedSHA || row.Agent != expected.Primary {
+	if row.RunID != expected.RunID || row.RepoID != expected.RepoID || !samePath(row.WorkingPath, expected.Project) || row.Branch != expected.Branch || row.SubmittedHeadSHA != expected.SubmittedHeadSHA || row.LaunchNonce != expected.LaunchNonce || row.ValidationGeneration != expected.ValidationGeneration || row.TrustedSHA != expected.TrustedSHA || row.Agent != expected.Primary || row.Model != expected.PrimaryModel {
 		return errors.New("pipeline: native launch record does not match the checked repository, branch, head, trusted SHA, and primary")
+	}
+	globalConfig, err := hex.DecodeString(row.GlobalConfigHex)
+	if err != nil || fmt.Sprintf("%x", sha256.Sum256(globalConfig)) != expected.GlobalConfigSHA256 {
+		return errors.New("pipeline: native launch record does not match the checked global config")
 	}
 	return nil
 }
