@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"gopkg.in/yaml.v3"
 )
 
 var ErrUnresolved = errors.New("pipeline: unresolved; a CFO decision is required")
@@ -124,8 +125,14 @@ func (r Reader) CheckStart(ctx context.Context, project, worktree, branch string
 		if err != nil || result.ExitCode != 0 {
 			return errors.New("pipeline: readable committed task and origin default-branch .no-mistakes.yaml required")
 		}
-		if err := checkRepoConfig(result.Stdout, policy, source.ref == "HEAD"); err != nil {
+		checkAutomatic := source.ref == "HEAD"
+		if err := checkRepoConfig(result.Stdout, policy, checkAutomatic); err != nil {
 			return err
+		}
+		if !checkAutomatic {
+			if err := checkTrustedPrimaryAgent(result.Stdout, policy); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -163,6 +170,34 @@ func checkRepoConfig(data []byte, p Policy, checkAutomatic bool) error {
 		if got, ok := config.AutoFix[key]; ok && got != want {
 			return fmt.Errorf("pipeline: repository auto_fix.%s differs from the task policy", key)
 		}
+	}
+	return nil
+}
+
+func checkTrustedPrimaryAgent(data []byte, p Policy) error {
+	doc, err := parseYAML(data)
+	if err != nil {
+		return err
+	}
+	var config struct {
+		Agent yaml.Node `yaml:"agent"`
+	}
+	if err := doc.Decode(&config); err != nil {
+		return errors.New("pipeline: invalid repository policy override")
+	}
+	if config.Agent.Kind == 0 {
+		return nil
+	}
+	agent := &config.Agent
+	if agent.Kind == yaml.SequenceNode && len(agent.Content) == 1 {
+		agent = agent.Content[0]
+	}
+	want := p.Reviewer.Harness
+	if p.Version == 2 {
+		want = p.Primary.Harness
+	}
+	if agent.Kind != yaml.ScalarNode || agent.Value != want {
+		return fmt.Errorf("pipeline: trusted default-branch agent overrides the owned %s primary in no-mistakes v1.75.1; remove the repository agent field or set it to %s", want, want)
 	}
 	return nil
 }

@@ -197,7 +197,7 @@ func LoadSelection(path string) (Selection, error) {
 func (s Selection) Instruction(id, path string) string {
 	roles := "Reviewer is Claude Opus high."
 	if s.Policy.Version == 2 {
-		roles = "Global primary, reviewer and review-fixer profiles are Codex gpt-5.6-sol high; repository primary-agent overrides remain native no-mistakes policy."
+		roles = "Global primary, reviewer and review-fixer profiles are Codex gpt-5.6-sol high; a CFO gate requires the trusted repository primary to inherit that profile or select Codex explicitly."
 	}
 	return fmt.Sprintf(" Pipeline policy: read %s. Class %s permits %d review repair cycles, then unresolved. Use cfo pipeline run %s --intent <intent> and cfo pipeline respond %s for gate decisions. Never use --yes, skip a gate, or bypass an exhausted budget with native AXI. %s Shared config changes require an explicit idle config-apply; spawn never changes it.", path, s.Class, s.ReviewCycles, id, id, roles)
 }
