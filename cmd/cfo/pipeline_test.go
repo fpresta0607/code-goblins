@@ -591,6 +591,66 @@ func TestPipelineMigrateResumesInterruptedTransaction(t *testing.T) {
 	}
 }
 
+func TestPipelineMigrationRecoveryRetainsJournalWhenNewPolicyDrifts(t *testing.T) {
+	root := t.TempDir()
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	nm := filepath.Join(root, "nm")
+	tmp := filepath.Join(h.State, "tasktmp", "task")
+	for _, path := range []string{nm, tmp} {
+		if err := os.MkdirAll(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	current, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := legacyPipelineSelection(t, "ordinary")
+	next, err := pipeline.MigrateSelection(old, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := old.Save(filepath.Join(tmp, "pipeline.json")); err != nil {
+		t.Fatal(err)
+	}
+	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", TaskTmp: tmp, PipelineClass: old.Class, PipelineHash: old.Hash}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	journal := policyMigrationJournal{Version: 1, TaskID: meta.ID, Direction: "forward", Old: old, New: next, Audit: pipelineMigrationAudit(old, next)}
+	journalPath := filepath.Join(tmp, policyMigrationJournalName)
+	if err := writePolicyMigrationJournal(journalPath, journal); err != nil {
+		t.Fatal(err)
+	}
+	legacyConfig, _, err := pipeline.Render([]byte("{}"), old.Policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "config.yaml"), legacyConfig, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &pipelineRunner{}
+	err = resumePipelinePolicyMigration(context.Background(), h, pipeline.Reader{Commands: runner, Root: nm}, meta)
+	if err == nil || !strings.Contains(err.Error(), "apply current shared config before migrating tasks") {
+		t.Fatalf("recovery error=%v, want new-policy drift refusal", err)
+	}
+	selection, err := pipeline.LoadSelection(filepath.Join(tmp, "pipeline.json"))
+	if err != nil || selection != old {
+		t.Fatalf("refused recovery changed snapshot: %+v %v", selection, err)
+	}
+	updated, err := state.ReadTaskMeta(h.State, meta.ID)
+	if err != nil || updated.PipelineHash != old.Hash {
+		t.Fatalf("refused recovery changed metadata: %+v %v", updated, err)
+	}
+	if _, err := loadPolicyMigrationJournal(journalPath); err != nil {
+		t.Fatalf("refused recovery removed journal: %v", err)
+	}
+}
+
 func TestPipelineMigrationRacingPRCheckPreservesBothUpdates(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("uses a blocking Windows gh shim")
