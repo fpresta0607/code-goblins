@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -21,10 +23,10 @@ import (
 
 func runPipeline(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "cfo pipeline: config-drift, config-apply, run or respond required")
+		fmt.Fprintln(stderr, "cfo pipeline: config-drift, config-apply, migrate, run, respond or recover required")
 		return 2
 	}
-	if args[0] != "config-drift" && args[0] != "config-apply" && args[0] != "run" && args[0] != "respond" {
+	if args[0] != "config-drift" && args[0] != "config-apply" && args[0] != "migrate" && args[0] != "run" && args[0] != "respond" && args[0] != "recover" {
 		fmt.Fprintln(stderr, "cfo pipeline: unknown command")
 		return 2
 	}
@@ -95,7 +97,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	var response pipeline.Response
 	if args[0] == "run" {
 		flags.StringVar(&intent, "intent", "", "task intent")
-	} else {
+	} else if args[0] == "respond" {
 		flags.StringVar(&response.Action, "action", "", "fix or approve")
 		flags.StringVar(&response.Findings, "findings", "", "comma-separated finding IDs")
 		flags.StringVar(&response.Instructions, "instructions", "", "guidance for selected findings")
@@ -130,6 +132,16 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if !fsx.SamePath(meta.TaskTmp, expectedTmp) {
 		return errors.New("pipeline: task temporary path does not match metadata identity")
 	}
+	if err := resumePipelinePolicyMigration(ctx, h, reader, meta); err != nil {
+		return err
+	}
+	meta, err = state.ReadTaskMeta(h.State, id)
+	if err != nil {
+		return err
+	}
+	if meta.Mode != "no-mistakes" || meta.PipelineHash == "" || !fsx.SamePath(meta.TaskTmp, expectedTmp) {
+		return errors.New("pipeline: task metadata changed during policy migration recovery")
+	}
 	selection, err := pipeline.LoadSelection(filepath.Join(expectedTmp, "pipeline.json"))
 	if err != nil {
 		return err
@@ -140,13 +152,15 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if err := worktree.Validate(ctx, worktree.RunnerGit{Commands: commands}, meta.Project, meta.Worktree); err != nil {
 		return err
 	}
-	config := pipeline.Config{Path: filepath.Join(root, "config.yaml"), Policy: selection.Policy}
-	drift, err := config.Drift()
-	if err != nil {
-		return err
-	}
-	if len(drift) != 0 {
-		return fmt.Errorf("pipeline: shared config drift (%s); request idle config-apply, never change a running daemon", strings.Join(drift, ", "))
+	if args[0] != "recover" && args[0] != "migrate" {
+		config := pipeline.Config{Path: filepath.Join(root, "config.yaml"), Policy: selection.Policy}
+		drift, err := config.Drift()
+		if err != nil {
+			return err
+		}
+		if len(drift) != 0 {
+			return fmt.Errorf("pipeline: shared config drift (%s); request idle config-apply, never change a running daemon", strings.Join(drift, ", "))
+		}
 	}
 	branchResult, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Name: "git", Args: []string{"symbolic-ref", "--quiet", "--short", "HEAD"}})
 	if err != nil || branchResult.ExitCode != 0 {
@@ -156,20 +170,33 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if branch == "" || branch == "main" || branch == "master" {
 		return errors.New("pipeline: isolated feature branch required")
 	}
-	nativeArgs := []string{"axi", "run", "--intent", intent}
-	if args[0] == "respond" {
-		gate, err := reader.Gate(ctx, meta.Project, branch)
+	if args[0] == "migrate" {
+		return migratePipelinePolicy(ctx, h, root, reader.Idle, meta, selection, out)
+	}
+	if args[0] == "recover" {
+		result, err := reader.RecoverKeepLocal(ctx, meta.Project, meta.Worktree, branch, nativeEnv(root))
+		if len(result.NativeOutput) > 0 {
+			fmt.Fprint(out, string(result.NativeOutput))
+		}
 		if err != nil {
 			return err
 		}
-		nativeArgs, err = pipeline.ResponseArgs(selection, gate, response)
-		if err != nil {
-			return err
-		}
-	} else {
+		fmt.Fprintf(out, "pipeline custody: recovered run %s; local and gate head preserved at %s\n", result.RunID, result.Head)
+		return nil
+	}
+	if args[0] != "respond" {
 		if err := reader.CheckStart(ctx, meta.Project, meta.Worktree, branch, selection.Policy); err != nil {
 			return err
 		}
+		return errors.New("pipeline: no-mistakes v1.75.1 cannot prove the exact fetched trusted SHA and primary before launch")
+	}
+	gate, err := reader.Gate(ctx, meta.Project, branch)
+	if err != nil {
+		return err
+	}
+	nativeArgs, err := pipeline.ResponseArgs(selection, gate, response)
+	if err != nil {
+		return err
 	}
 	result, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Env: nativeEnv(root), Name: "no-mistakes", Args: nativeArgs})
 	if len(result.Stdout) > 0 {
@@ -185,6 +212,258 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
 	}
 	return nil
+}
+
+func migratePipelinePolicy(ctx context.Context, h home.Home, root string, idle func(context.Context) (func() error, error), meta state.TaskMeta, old pipeline.Selection, out io.Writer) (err error) {
+	current, err := pipeline.Load(filepath.Join(h.Root, "config", "pipeline.json"))
+	if err != nil {
+		return err
+	}
+	next, err := pipeline.MigrateSelection(old, current)
+	if err != nil {
+		return err
+	}
+	releaseIdle, err := idle(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, releaseIdle()) }()
+	if err := requireAppliedPipelinePolicy(root, current); err != nil {
+		return err
+	}
+	if next == old {
+		fmt.Fprintf(out, "pipeline policy: task %s already uses %s\n", meta.ID, next.Hash)
+		return nil
+	}
+	if _, err := lock.AcquireExclusiveNamed(h.State, state.CleanupLockName(meta.ID)); err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(h.State, state.CleanupLockName(meta.ID))) }()
+	if _, err := lock.AcquireExclusiveNamed(h.State, state.MetadataLockName(meta.ID)); err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(h.State, state.MetadataLockName(meta.ID))) }()
+
+	metaPath := filepath.Join(h.State, meta.ID+".meta")
+	values, err := state.ReadMeta(metaPath)
+	if err != nil {
+		return err
+	}
+	if values["pipeline_hash"] != old.Hash || values["pipeline_class"] != old.Class {
+		return errors.New("pipeline: task metadata changed during policy migration")
+	}
+	journal := policyMigrationJournal{Version: 1, TaskID: meta.ID, Direction: "forward", Old: old, New: next, Audit: pipelineMigrationAudit(old, next)}
+	journalPath := filepath.Join(meta.TaskTmp, policyMigrationJournalName)
+	if err := writePolicyMigrationJournal(journalPath, journal); err != nil {
+		return err
+	}
+	if err := applyPolicyMigration(h, meta, journalPath, journal, false); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "pipeline policy: migrated task %s class %s with %d review cycles; %s -> %s\n", meta.ID, old.Class, old.ReviewCycles, old.Hash, next.Hash)
+	return nil
+}
+
+const policyMigrationJournalName = "pipeline-migration.json"
+
+type policyMigrationJournal struct {
+	Version   int                `json:"version"`
+	TaskID    string             `json:"task_id"`
+	Direction string             `json:"direction"`
+	Old       pipeline.Selection `json:"old"`
+	New       pipeline.Selection `json:"new"`
+	Audit     string             `json:"audit"`
+}
+
+func pipelineMigrationAudit(old, next pipeline.Selection) string {
+	return fmt.Sprintf("pipeline-policy-migrated: class=%s review_cycles=%d old=%s new=%s", old.Class, old.ReviewCycles, old.Hash, next.Hash)
+}
+
+func (j policyMigrationJournal) validate() error {
+	if j.Version != 1 || state.ValidTaskID(j.TaskID) != nil || j.Direction != "forward" && j.Direction != "rollback" {
+		return errors.New("pipeline: invalid policy migration journal")
+	}
+	if err := j.Old.Validate(); err != nil {
+		return errors.New("pipeline: invalid old policy in migration journal")
+	}
+	if err := j.New.Validate(); err != nil {
+		return errors.New("pipeline: invalid new policy in migration journal")
+	}
+	want, err := pipeline.MigrateSelection(j.Old, j.New.Policy)
+	if err != nil || j.Old.Policy.Version != 1 || j.New.Policy.Version != 2 || want != j.New || j.Old.Class != j.New.Class || j.Old.ReviewCycles != j.New.ReviewCycles || j.Audit != pipelineMigrationAudit(j.Old, j.New) {
+		return errors.New("pipeline: inconsistent policy migration journal")
+	}
+	return nil
+}
+
+func writePolicyMigrationJournal(path string, journal policyMigrationJournal) error {
+	if err := journal.validate(); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(journal, "", "  ")
+	if err != nil {
+		return err
+	}
+	return fsx.AtomicWriteFile(path, append(data, '\n'))
+}
+
+func loadPolicyMigrationJournal(path string) (policyMigrationJournal, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return policyMigrationJournal{}, err
+	}
+	if len(data) > 1<<20 {
+		return policyMigrationJournal{}, errors.New("pipeline: policy migration journal is too large")
+	}
+	var journal policyMigrationJournal
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&journal); err != nil {
+		return policyMigrationJournal{}, errors.New("pipeline: invalid policy migration journal")
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return policyMigrationJournal{}, errors.New("pipeline: trailing policy migration journal data")
+	}
+	return journal, journal.validate()
+}
+
+func resumePipelinePolicyMigration(ctx context.Context, h home.Home, reader pipeline.Reader, meta state.TaskMeta) (err error) {
+	journalPath := filepath.Join(meta.TaskTmp, policyMigrationJournalName)
+	journal, err := loadPolicyMigrationJournal(journalPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if journal.TaskID != meta.ID {
+		return errors.New("pipeline: policy migration journal belongs to another task")
+	}
+	releaseIdle, err := reader.Idle(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, releaseIdle()) }()
+	if err := requireAppliedPipelinePolicy(reader.Root, journal.New.Policy); err != nil {
+		return err
+	}
+	if _, err := lock.AcquireExclusiveNamed(h.State, state.CleanupLockName(meta.ID)); err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(h.State, state.CleanupLockName(meta.ID))) }()
+	if _, err := lock.AcquireExclusiveNamed(h.State, state.MetadataLockName(meta.ID)); err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(h.State, state.MetadataLockName(meta.ID))) }()
+	return applyPolicyMigration(h, meta, journalPath, journal, true)
+}
+
+func requireAppliedPipelinePolicy(root string, policy pipeline.Policy) error {
+	config := pipeline.Config{Path: filepath.Join(root, "config.yaml"), Policy: policy}
+	drift, err := config.Drift()
+	if err != nil {
+		return err
+	}
+	if len(drift) != 0 {
+		return fmt.Errorf("pipeline: apply current shared config before migrating tasks (%s)", strings.Join(drift, ", "))
+	}
+	return nil
+}
+
+var errPolicyMigrationAuditUncertain = errors.New("pipeline: policy migration audit state is uncertain")
+
+func applyPolicyMigration(h home.Home, meta state.TaskMeta, journalPath string, journal policyMigrationJournal, resuming bool) error {
+	if journal.Direction == "rollback" {
+		return rollbackPolicyMigration(h, meta, journalPath, journal, nil)
+	}
+	if err := journal.New.Save(filepath.Join(meta.TaskTmp, "pipeline.json")); err != nil {
+		return rollbackPolicyMigration(h, meta, journalPath, journal, err)
+	}
+	if err := setPolicyMigrationMeta(filepath.Join(h.State, meta.ID+".meta"), journal, true); err != nil {
+		return rollbackPolicyMigration(h, meta, journalPath, journal, err)
+	}
+	if err := ensurePolicyMigrationAudit(h.State, meta.ID, journal.Audit, resuming); err != nil {
+		if errors.Is(err, errPolicyMigrationAuditUncertain) {
+			return err
+		}
+		return rollbackPolicyMigration(h, meta, journalPath, journal, err)
+	}
+	return os.Remove(journalPath)
+}
+
+func rollbackPolicyMigration(h home.Home, meta state.TaskMeta, journalPath string, journal policyMigrationJournal, cause error) error {
+	journal.Direction = "rollback"
+	journalErr := writePolicyMigrationJournal(journalPath, journal)
+	snapshotErr := journal.Old.Save(filepath.Join(meta.TaskTmp, "pipeline.json"))
+	metaErr := setPolicyMigrationMeta(filepath.Join(h.State, meta.ID+".meta"), journal, false)
+	var removeErr error
+	if snapshotErr == nil && metaErr == nil {
+		removeErr = os.Remove(journalPath)
+	}
+	return errors.Join(cause, journalErr, snapshotErr, metaErr, removeErr)
+}
+
+func setPolicyMigrationMeta(path string, journal policyMigrationJournal, forward bool) error {
+	values, err := state.ReadMeta(path)
+	if err != nil {
+		return err
+	}
+	if values["pipeline_class"] != journal.Old.Class || values["pipeline_hash"] != journal.Old.Hash && values["pipeline_hash"] != journal.New.Hash {
+		return errors.New("pipeline: task metadata changed during policy migration")
+	}
+	if forward {
+		values["pipeline_hash"] = journal.New.Hash
+	} else {
+		values["pipeline_hash"] = journal.Old.Hash
+	}
+	return state.WriteMeta(path, values)
+}
+
+func ensurePolicyMigrationAudit(stateDir, id, audit string, resuming bool) error {
+	return ensurePolicyMigrationAuditWith(resuming, func() (bool, error) {
+		return hasPolicyMigrationAudit(stateDir, id, audit)
+	}, func() error {
+		return state.AppendStatus(stateDir, id, audit)
+	})
+}
+
+func ensurePolicyMigrationAuditWith(resuming bool, contains func() (bool, error), appendAudit func() error) error {
+	found, err := contains()
+	if err != nil {
+		if resuming {
+			return errors.Join(errPolicyMigrationAuditUncertain, err)
+		}
+		return err
+	}
+	if found {
+		return nil
+	}
+	appendErr := appendAudit()
+	if appendErr == nil {
+		return nil
+	}
+	found, readErr := contains()
+	if found {
+		return nil
+	}
+	if readErr != nil {
+		return errors.Join(errPolicyMigrationAuditUncertain, appendErr, readErr)
+	}
+	return appendErr
+}
+
+func hasPolicyMigrationAudit(stateDir, id, audit string) (bool, error) {
+	lines, err := state.TailStatus(stateDir, id, int(^uint(0)>>1))
+	if err != nil {
+		return false, err
+	}
+	for _, line := range lines {
+		_, event := state.SplitStatus(line)
+		if event == audit {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // nativeEnv points the native engine at the resolved root while leaving it the

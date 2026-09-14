@@ -32,6 +32,9 @@ type switchRunner struct {
 	gitCalls     []execx.Request
 	resumeDialog string // pane text shown after the relaunch until an Enter lands
 	resumeReplay string // replayed conversation prepended to every post-relaunch read
+	statusReady  chan struct{}
+	statusResume chan struct{}
+	statusPaused bool
 	// agentUnreadable makes herdr answer agent get untrustworthily once the
 	// relaunch has run, so the failure path cannot tell alive from gone.
 	agentUnreadable bool
@@ -45,6 +48,11 @@ func (r *switchRunner) Run(ctx context.Context, req execx.Request) (execx.Result
 		r.gitCalls = append(r.gitCalls, req)
 		switch {
 		case len(req.Args) > 0 && req.Args[0] == "status":
+			if r.statusReady != nil && !r.statusPaused {
+				r.statusPaused = true
+				close(r.statusReady)
+				<-r.statusResume
+			}
 			return execx.Result{Stdout: []byte(r.gitStatus)}, nil
 		case len(req.Args) > 1 && req.Args[0] == "rev-parse" && req.Args[1] == "--abbrev-ref":
 			return execx.Result{Stdout: []byte(r.gitBranch + "\n")}, nil

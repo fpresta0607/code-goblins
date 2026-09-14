@@ -4,10 +4,13 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"gopkg.in/yaml.v3"
 )
 
 type runnerFunc func(context.Context, execx.Request) (execx.Result, error)
@@ -25,7 +28,7 @@ func testPolicy(t *testing.T) Policy {
 
 func TestRenderPreservesUnownedConfigAndIsIdempotent(t *testing.T) {
 	p := testPolicy(t)
-	before := []byte("# machine config\nagent: [pi]\nauto_fix:\n  review: 10\n  document: 4\nci_timeout: 168h\nprivate_token: sentinel-secret\n")
+	before := []byte("# machine config\nagent: [claude]\nagent_args_override:\n  claude: [--model, opus, --effort, high]\nauto_fix:\n  review: 10\n  document: 4\nci_timeout: 168h\nprivate_token: sentinel-secret\n")
 	after, drift, err := Render(before, p)
 	if err != nil || len(drift) == 0 {
 		t.Fatalf("render: %v %v", drift, err)
@@ -38,9 +41,64 @@ func TestRenderPreservesUnownedConfigAndIsIdempotent(t *testing.T) {
 	if strings.Contains(strings.Join(drift, " "), "sentinel-secret") {
 		t.Fatal("drift leaked secret")
 	}
+	var rendered struct {
+		Agent       []string `yaml:"agent"`
+		AgentConfig map[string]struct {
+			Model  string `yaml:"model"`
+			Effort string `yaml:"effort"`
+		} `yaml:"agent_config"`
+		ReviewAgents map[string]struct {
+			Agent  string `yaml:"agent"`
+			Model  string `yaml:"model"`
+			Effort string `yaml:"effort"`
+		} `yaml:"review_agents"`
+		AgentArgs map[string][]string `yaml:"agent_args_override"`
+	}
+	if err := yaml.Unmarshal(after, &rendered); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(rendered.Agent, []string{"codex"}) {
+		t.Fatalf("primary agent=%v", rendered.Agent)
+	}
+	profile := rendered.AgentConfig["codex"]
+	if profile.Model != "gpt-5.6-sol" || profile.Effort != "high" {
+		t.Fatalf("primary profile=%+v", profile)
+	}
+	for _, role := range []string{"reviewer", "fixer"} {
+		profile := rendered.ReviewAgents[role]
+		if profile.Agent != "codex" || profile.Model != "gpt-5.6-sol" || profile.Effort != "high" {
+			t.Fatalf("%s profile=%+v", role, profile)
+		}
+	}
+	if args := rendered.AgentArgs["codex"]; !reflect.DeepEqual(args, []string{"-c", `service_tier="default"`}) {
+		t.Fatalf("codex raw args=%v, want the standard service tier", args)
+	}
+	if _, ok := rendered.AgentArgs["claude"]; ok {
+		t.Fatal("legacy CFO-owned Claude arguments remain")
+	}
 	again, drift, err := Render(after, p)
 	if err != nil || len(drift) != 0 || string(again) != string(after) {
 		t.Fatalf("not idempotent: %v %v", drift, err)
+	}
+}
+
+func TestRenderOverridesCodexFastServiceTier(t *testing.T) {
+	before := []byte("agent_args_override:\n  codex: [-c, 'service_tier=\"fast\"']\n")
+	after, drift, err := Render(before, testPolicy(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(drift, "agent_args_override.codex") {
+		t.Fatalf("drift=%v, want Codex argument ownership", drift)
+	}
+	var config struct {
+		AgentArgs map[string][]string `yaml:"agent_args_override"`
+	}
+	if err := yaml.Unmarshal(after, &config); err != nil {
+		t.Fatal(err)
+	}
+	if args := config.AgentArgs["codex"]; !reflect.DeepEqual(args, []string{"-c", `service_tier="default"`}) {
+		t.Fatalf("effective Codex args=%v, want the standard service tier", args)
 	}
 }
 
@@ -49,6 +107,53 @@ func TestRenderRejectsAmbiguousYAML(t *testing.T) {
 		if _, _, err := Render([]byte(source), testPolicy(t)); err == nil {
 			t.Errorf("accepted ambiguous YAML %q", source)
 		}
+	}
+}
+
+func TestRenderPreservesOperatorOwnedClaudeArguments(t *testing.T) {
+	before := []byte("agent_args_override:\n  claude: [--model, sonnet]\n")
+	after, _, err := Render(before, testPolicy(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		AgentArgs map[string][]string `yaml:"agent_args_override"`
+	}
+	if err := yaml.Unmarshal(after, &config); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(config.AgentArgs["claude"], []string{"--model", "sonnet"}) {
+		t.Fatalf("operator Claude arguments changed: %v", config.AgentArgs["claude"])
+	}
+}
+
+func TestRenderRemovesCodexExecutableOverrideOnly(t *testing.T) {
+	before := []byte("agent_path_override:\n  codex: C:/tools/openrouter-codex.exe\n  claude: C:/tools/claude.exe\n")
+	after, drift, err := Render(before, testPolicy(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		AgentPaths map[string]string `yaml:"agent_path_override"`
+	}
+	if err := yaml.Unmarshal(after, &config); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := config.AgentPaths["codex"]; ok {
+		t.Fatalf("Codex executable override remains: %v", config.AgentPaths)
+	}
+	if config.AgentPaths["claude"] != "C:/tools/claude.exe" {
+		t.Fatalf("unrelated executable override changed: %v", config.AgentPaths)
+	}
+	if !slices.Contains(drift, "agent_path_override.codex") {
+		t.Fatalf("drift=%v, want agent_path_override.codex", drift)
+	}
+	if strings.Contains(strings.Join(drift, " "), "openrouter") {
+		t.Fatalf("drift leaked executable value: %v", drift)
+	}
+	again, drift, err := Render(after, testPolicy(t))
+	if err != nil || len(drift) != 0 || string(again) != string(after) {
+		t.Fatalf("not idempotent: %v %v", drift, err)
 	}
 }
 
