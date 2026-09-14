@@ -136,6 +136,23 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 	gateRef := "refs/heads/" + branch
 	anchor := "refs/no-mistakes/recovery/" + run.RunID + "/gate"
 	headsAligned := status.Local.Head == run.RecordedHead && status.Local.Head == run.SubmittedHead
+	var cfoGateHead string
+	var cfoSwap bool
+	if headsAligned {
+		var err error
+		cfoGateHead, cfoSwap, err = r.recoveryHead(ctx, bare, anchor)
+		if err != nil {
+			return RecoveryResult{}, err
+		}
+		if cfoSwap {
+			if cfoGateHead == status.Local.Head {
+				return RecoveryResult{}, errors.New("pipeline: CFO recovery gate anchor does not preserve a stale head")
+			}
+			if err := r.requireCommit(ctx, bare, cfoGateHead); err != nil {
+				return RecoveryResult{}, errors.New("pipeline: CFO recovery gate anchor commit is unavailable")
+			}
+		}
+	}
 	if custodyReturned {
 		nativeAnchor := "refs/no-mistakes/recover/" + run.RunID
 		if headsAligned {
@@ -146,14 +163,8 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 			if err := r.requireCommit(ctx, bare, nativeHead); err != nil {
 				return RecoveryResult{}, errors.New("pipeline: returned custody anchor commit is unavailable")
 			}
-			if nativeHead != run.RecordedHead {
-				gateHead, err := r.readRef(ctx, bare, anchor)
-				if err != nil {
-					return RecoveryResult{}, errors.New("pipeline: aligned returned custody lacks its stale-head anchor")
-				}
-				if err := r.requireCommit(ctx, bare, gateHead); err != nil {
-					return RecoveryResult{}, errors.New("pipeline: returned custody anchor commit is unavailable")
-				}
+			if !cfoSwap && nativeHead != run.RecordedHead {
+				return RecoveryResult{}, errors.New("pipeline: native-aligned returned custody has conflicting recovery evidence")
 			}
 		} else if err := r.requireRef(ctx, bare, nativeAnchor, run.RecordedHead); err != nil {
 			return RecoveryResult{}, fmt.Errorf("pipeline: returned pipeline head is not anchored: %w", err)
@@ -194,6 +205,9 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 	}
 	if err := r.requireRef(ctx, bare, gateRef, gateHead); err != nil {
 		return RecoveryResult{}, fmt.Errorf("pipeline: gate branch changed during recovery: %w", err)
+	}
+	if err := r.requireRef(ctx, bare, anchor, run.SubmittedHead); err != nil {
+		return RecoveryResult{}, errors.New("pipeline: CFO recovery gate anchor changed before head alignment")
 	}
 	movedGate := gateHead == run.SubmittedHead
 	if movedGate {
@@ -254,6 +268,11 @@ func (r Reader) requireReturnedCustody(ctx context.Context, worktree, bare strin
 	current := rows[0]
 	if current.Status != run.Status || current.RecordedHead != expected.RecordedHead || current.SubmittedHead != expected.SubmittedHead || current.PushedHead != "" || !status.custodyReturned(current, true) {
 		return errors.New("pipeline: native engine did not prove returned custody")
+	}
+	if _, exists, err := r.recoveryHead(ctx, bare, "refs/no-mistakes/recovery/"+run.RunID+"/gate"); err != nil {
+		return err
+	} else if exists {
+		return errors.New("pipeline: native custody return conflicts with CFO swap evidence")
 	}
 	if err := r.requireRef(ctx, bare, "refs/no-mistakes/recover/"+run.RunID, current.RecordedHead); err != nil {
 		return fmt.Errorf("pipeline: returned pipeline head is not anchored: %w", err)
@@ -370,19 +389,31 @@ func (r Reader) rollbackUserOwned(ctx context.Context, bare, gateRef string, run
 	return r.moveRef(ctx, bare, gateRef, run.SubmittedHead, alignedHead)
 }
 
+func (r Reader) recoveryHead(ctx context.Context, repo, ref string) (string, bool, error) {
+	result, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", ref}})
+	if err != nil {
+		return "", false, err
+	}
+	if result.ExitCode == 1 {
+		return "", false, nil
+	}
+	head := strings.TrimSpace(string(result.Stdout))
+	if result.ExitCode != 0 || head == "" {
+		return "", false, errors.New("pipeline: could not inspect recovery anchor")
+	}
+	return head, true, nil
+}
+
 func (r Reader) preserveRecoveryHead(ctx context.Context, repo, ref, head string) error {
-	existing, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", ref}})
+	existing, found, err := r.recoveryHead(ctx, repo, ref)
 	if err != nil {
 		return err
 	}
-	if existing.ExitCode == 0 {
-		if strings.TrimSpace(string(existing.Stdout)) != head {
+	if found {
+		if existing != head {
 			return errors.New("pipeline: recovery anchor already names another commit")
 		}
 		return nil
-	}
-	if existing.ExitCode != 1 {
-		return errors.New("pipeline: could not inspect recovery anchor")
 	}
 	created, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"update-ref", ref, head, strings.Repeat("0", 40)}})
 	if err != nil || created.ExitCode != 0 {

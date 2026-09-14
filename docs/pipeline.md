@@ -106,17 +106,20 @@ Agents must use the driver for managed tasks and must not invoke native mutation
 
 `recover` returns custody after a failed or cancelled unpublished run when native recovery is blocked by a stale recorded head.
 For pipeline-owned recovery, it requires a clean worktree whose head exactly matches both the submitted head and native gate branch.
-The stale recorded commit must be an ancestor of that preserved head or a stable single-commit patch equivalent.
+The stale recorded commit must be an ancestor of that preserved head.
 Before a compare-and-swap repairs the stale database field, the old commit is anchored under `refs/no-mistakes/recovery/<run>/recorded`.
 The driver then invokes native `sync --recover --keep-local` and verifies that custody was durably returned without moving the local or gate head.
 When native already reports clean user-owned custody, the registered task worktree and branch may contain rebases and follow-up fixes made after custody returned.
-The driver anchors the old gate head, imports the local commit into the internal repository without writing a fetch ref, and compare-and-swaps the internal gate ref and both database heads to the local head.
-If the process exits after the gate compare-and-swap, the anchor lets the next recovery recognize that exact half-state and finish the database compare-and-swap.
+Before a CFO-managed alignment, the driver stores the stale gate head under the immutable `refs/no-mistakes/recovery/<run>/gate` ref and verifies it again before moving the gate or database heads.
+That ref is durable CFO-swap evidence, so every `custody_returned` retry that finds it requires the stale commit and the native recovery anchor before accepting an aligned state.
+With no CFO-swap evidence, a native `custody_returned` state is accepted only when its native anchor equals the fully aligned local, gate, recorded, and submitted head.
+The driver imports the local commit into the internal repository without writing a fetch ref, and compare-and-swaps the internal gate ref and both database heads to the local head.
+If the process exits after the gate compare-and-swap, the stale gate anchor lets the next recovery recognize that exact half-state and finish the database compare-and-swap.
 The database and gate updates roll back if an in-process compare-and-swap fails, and native status must confirm all three heads before success is reported.
 If a later status check triggers rollback, the gate moves back only after the database rollback succeeds, so a transient database failure preserves the forward-aligned retry state.
 The local branch and origin refs are never moved.
 The command never resets a branch or recovers a pushed run.
-Content equivalence remains mandatory when repairing pipeline-owned recorded and submitted heads.
+Pipeline-owned recorded-head repair requires strict ancestry.
 After native has already returned clean user-owned custody, the registered identity, unpublished-run state, stale-head anchor, and compare-and-swap guards are the authorized boundary, so the driver does not reject legitimate rebases or follow-up commits by comparing them with the stale head.
 
 This repository's committed automatic-fix overrides remain authoritative for a new submitted branch.
