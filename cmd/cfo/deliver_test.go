@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // Every goblin reads its brief before it writes a commit, so the brief is
@@ -39,6 +41,41 @@ func TestBriefScaffoldCarriesTheCommitAuthorshipRule(t *testing.T) {
 		if !strings.Contains(brief, want) {
 			t.Errorf("brief scaffold is missing %q:\n%s", want, brief)
 		}
+	}
+}
+
+func TestRecordPRDoesNotReplaceTemporarilyUnavailableMetadata(t *testing.T) {
+	stateDir := t.TempDir()
+	metaPath := filepath.Join(stateDir, "task.meta")
+	unavailablePath := metaPath + ".unavailable"
+	original := map[string]string{
+		"project":        "demo",
+		"pipeline_class": "ordinary",
+		"pipeline_hash":  "frozen-policy-hash",
+	}
+	if err := state.WriteMeta(metaPath, original); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(metaPath, unavailablePath); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Remove(metaPath)
+		_ = os.Rename(unavailablePath, metaPath)
+	}()
+
+	if err := recordPR(stateDir, "task", "https://example.test/pull/1", "abc123"); err == nil {
+		t.Fatal("recordPR succeeded while task metadata was unavailable")
+	}
+	if _, err := os.Stat(metaPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("recordPR created replacement metadata: %v", err)
+	}
+	preserved, err := state.ReadMeta(unavailablePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preserved["project"] != original["project"] || preserved["pipeline_class"] != original["pipeline_class"] || preserved["pipeline_hash"] != original["pipeline_hash"] {
+		t.Fatalf("task identity or policy changed: %v", preserved)
 	}
 }
 

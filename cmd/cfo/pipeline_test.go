@@ -22,6 +22,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
+	"gopkg.in/yaml.v3"
 )
 
 type pipelineRunner struct {
@@ -622,11 +623,27 @@ func TestPipelineMigrationRecoveryRetainsJournalWhenNewPolicyDrifts(t *testing.T
 	if err := writePolicyMigrationJournal(journalPath, journal); err != nil {
 		t.Fatal(err)
 	}
-	legacyConfig, _, err := pipeline.Render([]byte("{}"), old.Policy)
+	unsafeConfig, _, err := pipeline.Render([]byte("{}"), current)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(nm, "config.yaml"), legacyConfig, 0600); err != nil {
+	var configDocument yaml.Node
+	if err := yaml.Unmarshal(unsafeConfig, &configDocument); err != nil {
+		t.Fatal(err)
+	}
+	var agentPaths yaml.Node
+	if err := agentPaths.Encode(map[string]string{"codex": "C:/tools/openrouter-codex.exe"}); err != nil {
+		t.Fatal(err)
+	}
+	configDocument.Content[0].Content = append(configDocument.Content[0].Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "agent_path_override"},
+		&agentPaths,
+	)
+	unsafeConfig, err = yaml.Marshal(&configDocument)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "config.yaml"), unsafeConfig, 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0600); err != nil {
@@ -635,8 +652,8 @@ func TestPipelineMigrationRecoveryRetainsJournalWhenNewPolicyDrifts(t *testing.T
 
 	runner := &pipelineRunner{}
 	err = resumePipelinePolicyMigration(context.Background(), h, pipeline.Reader{Commands: runner, Root: nm}, meta)
-	if err == nil || !strings.Contains(err.Error(), "apply current shared config before migrating tasks") {
-		t.Fatalf("recovery error=%v, want new-policy drift refusal", err)
+	if err == nil || !strings.Contains(err.Error(), "apply current shared config before migrating tasks") || !strings.Contains(err.Error(), "agent_path_override.codex") {
+		t.Fatalf("recovery error=%v, want Codex executable drift refusal", err)
 	}
 	selection, err := pipeline.LoadSelection(filepath.Join(tmp, "pipeline.json"))
 	if err != nil || selection != old {
