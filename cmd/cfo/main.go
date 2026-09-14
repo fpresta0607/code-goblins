@@ -67,7 +67,15 @@ commands:
 `
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	args, marked, err := stripNativeGateMarker(os.Args[1:])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	if marked {
+		os.Exit(runNativeGateAgent(args, os.Stdin, os.Stdout, os.Stderr))
+	}
+	os.Exit(run(args, os.Stdout, os.Stderr))
 }
 
 func run(args []string, stdout, stderr io.Writer) int {

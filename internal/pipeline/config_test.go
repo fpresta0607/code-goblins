@@ -52,7 +52,8 @@ func TestRenderPreservesUnownedConfigAndIsIdempotent(t *testing.T) {
 			Model  string `yaml:"model"`
 			Effort string `yaml:"effort"`
 		} `yaml:"review_agents"`
-		AgentArgs map[string][]string `yaml:"agent_args_override"`
+		AgentArgs  map[string][]string `yaml:"agent_args_override"`
+		AgentPaths map[string]string   `yaml:"agent_path_override"`
 	}
 	if err := yaml.Unmarshal(after, &rendered); err != nil {
 		t.Fatal(err)
@@ -70,8 +71,11 @@ func TestRenderPreservesUnownedConfigAndIsIdempotent(t *testing.T) {
 			t.Fatalf("%s profile=%+v", role, profile)
 		}
 	}
-	if args := rendered.AgentArgs["codex"]; !reflect.DeepEqual(args, []string{"-c", `service_tier="default"`}) {
+	if args := rendered.AgentArgs["codex"]; !reflect.DeepEqual(args, []string{"--cfo-native-gate", "-c", `service_tier="default"`}) {
 		t.Fatalf("codex raw args=%v, want the standard service tier", args)
+	}
+	if rendered.AgentPaths["codex"] != "cfo" {
+		t.Fatalf("codex executable=%q, want CFO launch guard", rendered.AgentPaths["codex"])
 	}
 	if _, ok := rendered.AgentArgs["claude"]; ok {
 		t.Fatal("legacy CFO-owned Claude arguments remain")
@@ -97,7 +101,7 @@ func TestRenderOverridesCodexFastServiceTier(t *testing.T) {
 	if err := yaml.Unmarshal(after, &config); err != nil {
 		t.Fatal(err)
 	}
-	if args := config.AgentArgs["codex"]; !reflect.DeepEqual(args, []string{"-c", `service_tier="default"`}) {
+	if args := config.AgentArgs["codex"]; !reflect.DeepEqual(args, []string{"--cfo-native-gate", "-c", `service_tier="default"`}) {
 		t.Fatalf("effective Codex args=%v, want the standard service tier", args)
 	}
 }
@@ -127,7 +131,7 @@ func TestRenderPreservesOperatorOwnedClaudeArguments(t *testing.T) {
 	}
 }
 
-func TestRenderRemovesCodexExecutableOverrideOnly(t *testing.T) {
+func TestRenderReplacesCodexExecutableOverrideWithGuardOnly(t *testing.T) {
 	before := []byte("agent_path_override:\n  codex: C:/tools/openrouter-codex.exe\n  claude: C:/tools/claude.exe\n")
 	after, drift, err := Render(before, testPolicy(t))
 	if err != nil {
@@ -139,8 +143,8 @@ func TestRenderRemovesCodexExecutableOverrideOnly(t *testing.T) {
 	if err := yaml.Unmarshal(after, &config); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := config.AgentPaths["codex"]; ok {
-		t.Fatalf("Codex executable override remains: %v", config.AgentPaths)
+	if config.AgentPaths["codex"] != "cfo" {
+		t.Fatalf("Codex executable guard missing: %v", config.AgentPaths)
 	}
 	if config.AgentPaths["claude"] != "C:/tools/claude.exe" {
 		t.Fatalf("unrelated executable override changed: %v", config.AgentPaths)

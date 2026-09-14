@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -10,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -185,10 +189,71 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		return nil
 	}
 	if args[0] != "respond" {
-		if err := reader.CheckStart(ctx, meta.Project, meta.Worktree, branch, selection.Policy); err != nil {
+		checked, err := capturePipelineLaunch(ctx, h, root, reader, meta, branch, selection)
+		if err != nil {
 			return err
 		}
-		return errors.New("pipeline: no-mistakes v1.75.1 cannot prove the exact fetched trusted SHA and primary before launch")
+		nonce, err := randomLaunchValue()
+		if err != nil {
+			return err
+		}
+		generation, err := randomLaunchValue()
+		if err != nil {
+			return err
+		}
+		contract := pipelineLaunchContract{Version: 1, TaskID: id, PolicyHash: selection.Hash, Project: meta.Project, Checked: checked.Start, ConfigSHA256: checked.ConfigSHA256, LaunchNonce: nonce, ValidationGeneration: generation}
+		contractPath := filepath.Join(expectedTmp, pipelineLaunchContractName)
+		if err := savePipelineLaunchContract(contractPath, contract); err != nil {
+			return err
+		}
+		keepContract := false
+		defer func() {
+			if !keepContract {
+				_ = os.Remove(contractPath)
+			}
+		}()
+		latest, err := capturePipelineLaunch(ctx, h, root, reader, meta, branch, selection)
+		if err != nil {
+			return err
+		}
+		if latest != checked {
+			return errors.New("pipeline: launch evidence changed before native invocation")
+		}
+		nativeArgs := []string{"axi", "run", "--intent", intent, "--launch-nonce", nonce, "--validation-generation", generation}
+		result, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Env: nativeEnv(root), Name: "no-mistakes", Args: nativeArgs})
+		if len(result.Stdout) > 0 {
+			fmt.Fprint(out, string(result.Stdout))
+		}
+		if len(result.Stderr) > 0 {
+			fmt.Fprint(out, string(result.Stderr))
+		}
+		if err != nil {
+			return fmt.Errorf("pipeline: native command failed: %w", err)
+		}
+		if result.ExitCode != 0 {
+			return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
+		}
+		receipt, err := parseLaunchReceipt(result.Stdout)
+		if err != nil {
+			return err
+		}
+		if err := receipt.verify(checked.Start, nonce, generation, intent); err != nil {
+			return err
+		}
+		// Once the native engine has acknowledged this exact managed run, its
+		// later agent launches still need the contract even if the post-return
+		// database proof detects a native incompatibility.
+		keepContract = true
+		if err := reader.VerifyNativeLaunch(ctx, pipeline.NativeLaunchExpectation{
+			RunID: receipt.RunID, Project: meta.Project, RepoID: checked.Start.RepoID,
+			Branch: branch, SubmittedHeadSHA: checked.Start.HeadSHA, LaunchNonce: nonce,
+			ValidationGeneration: generation, TrustedSHA: checked.Start.TrustedSHA,
+			Primary: checked.Start.EffectivePrimary,
+		}); err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "pipeline launch: verified run %s at %s with trusted %s and primary %s\n", receipt.RunID, checked.Start.HeadSHA, checked.Start.TrustedSHA, checked.Start.EffectivePrimary)
+		return nil
 	}
 	gate, err := reader.Gate(ctx, meta.Project, branch)
 	if err != nil {
@@ -210,6 +275,140 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	}
 	if result.ExitCode != 0 {
 		return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
+	}
+	return nil
+}
+
+const pipelineLaunchContractName = "pipeline-launch.json"
+
+type pipelineLaunchEvidence struct {
+	Start        pipeline.StartEvidence
+	ConfigSHA256 string
+}
+
+type pipelineLaunchContract struct {
+	Version              int                    `json:"version"`
+	TaskID               string                 `json:"task_id"`
+	PolicyHash           string                 `json:"policy_hash"`
+	Project              string                 `json:"project"`
+	Checked              pipeline.StartEvidence `json:"checked"`
+	ConfigSHA256         string                 `json:"config_sha256"`
+	LaunchNonce          string                 `json:"launch_nonce"`
+	ValidationGeneration string                 `json:"validation_generation"`
+}
+
+func capturePipelineLaunch(ctx context.Context, h home.Home, root string, reader pipeline.Reader, expected state.TaskMeta, branch string, selection pipeline.Selection) (pipelineLaunchEvidence, error) {
+	meta, err := state.ReadTaskMeta(h.State, expected.ID)
+	if err != nil {
+		return pipelineLaunchEvidence{}, err
+	}
+	if meta.Mode != "no-mistakes" || meta.Project != expected.Project || meta.Worktree != expected.Worktree || meta.TaskTmp != expected.TaskTmp || meta.PipelineHash != selection.Hash || meta.PipelineClass != selection.Class {
+		return pipelineLaunchEvidence{}, errors.New("pipeline: task metadata changed before native invocation")
+	}
+	latest, err := pipeline.LoadSelection(filepath.Join(meta.TaskTmp, "pipeline.json"))
+	if err != nil {
+		return pipelineLaunchEvidence{}, err
+	}
+	if latest != selection {
+		return pipelineLaunchEvidence{}, errors.New("pipeline: frozen task policy changed before native invocation")
+	}
+	if err := worktree.Validate(ctx, worktree.RunnerGit{Commands: reader.Commands}, meta.Project, meta.Worktree); err != nil {
+		return pipelineLaunchEvidence{}, err
+	}
+	configPath := filepath.Join(root, "config.yaml")
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		return pipelineLaunchEvidence{}, err
+	}
+	drift, err := (pipeline.Config{Path: configPath, Policy: selection.Policy}).Drift()
+	if err != nil {
+		return pipelineLaunchEvidence{}, err
+	}
+	if len(drift) != 0 {
+		return pipelineLaunchEvidence{}, fmt.Errorf("pipeline: shared config drift (%s); request idle config-apply, never change a running daemon", strings.Join(drift, ", "))
+	}
+	start, err := reader.CheckStartEvidence(ctx, meta.Project, meta.Worktree, branch, selection.Policy)
+	if err != nil {
+		return pipelineLaunchEvidence{}, err
+	}
+	return pipelineLaunchEvidence{Start: start, ConfigSHA256: fmt.Sprintf("%x", sha256.Sum256(configData))}, nil
+}
+
+func randomLaunchValue() (string, error) {
+	value := make([]byte, 16)
+	if _, err := rand.Read(value); err != nil {
+		return "", fmt.Errorf("pipeline: create launch identity: %w", err)
+	}
+	return hex.EncodeToString(value), nil
+}
+
+func savePipelineLaunchContract(path string, contract pipelineLaunchContract) error {
+	if err := validatePipelineLaunchContract(contract); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(contract, "", "  ")
+	if err != nil {
+		return err
+	}
+	return fsx.AtomicWriteFile(path, append(data, '\n'))
+}
+
+type nativeLaunchReceipt struct {
+	RunID                string
+	Disposition          string
+	LaunchNonce          string
+	ValidationGeneration string
+	Branch               string
+	HeadSHA              string
+	SubmittedHeadSHA     string
+	IntentDigest         string
+}
+
+func parseLaunchReceipt(output []byte) (nativeLaunchReceipt, error) {
+	values := map[string]string{}
+	inReceipt := false
+	for _, line := range strings.Split(strings.ReplaceAll(string(output), "\r\n", "\n"), "\n") {
+		if line == "launch_receipt:" {
+			if inReceipt {
+				return nativeLaunchReceipt{}, errors.New("pipeline: duplicate native launch receipt")
+			}
+			inReceipt = true
+			continue
+		}
+		if !inReceipt {
+			continue
+		}
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "  ") {
+			break
+		}
+		key, value, ok := strings.Cut(strings.TrimSpace(line), ":")
+		if !ok || key == "" || values[key] != "" {
+			return nativeLaunchReceipt{}, errors.New("pipeline: malformed native launch receipt")
+		}
+		value = strings.TrimSpace(value)
+		if unquoted, err := strconv.Unquote(value); err == nil {
+			value = unquoted
+		}
+		values[key] = value
+	}
+	receipt := nativeLaunchReceipt{
+		RunID: values["run_id"], Disposition: values["disposition"], LaunchNonce: values["launch_nonce"],
+		ValidationGeneration: values["validation_generation"], Branch: values["branch"], HeadSHA: values["head_sha"],
+		SubmittedHeadSHA: values["submitted_head_sha"], IntentDigest: values["intent_digest"],
+	}
+	if !inReceipt || len(values) != 8 || receipt.RunID == "" || receipt.Disposition == "" || receipt.LaunchNonce == "" || receipt.ValidationGeneration == "" || receipt.Branch == "" || receipt.HeadSHA == "" || receipt.SubmittedHeadSHA == "" || receipt.IntentDigest == "" {
+		return nativeLaunchReceipt{}, errors.New("pipeline: complete native launch receipt required")
+	}
+	return receipt, nil
+}
+
+func (r nativeLaunchReceipt) verify(checked pipeline.StartEvidence, nonce, generation, intent string) error {
+	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(intent)))
+	if r.Disposition != "created" && r.Disposition != "reused" || r.LaunchNonce != nonce || r.ValidationGeneration != generation || r.Branch != checked.Branch || r.HeadSHA != checked.HeadSHA || r.SubmittedHeadSHA != checked.HeadSHA || r.IntentDigest != digest {
+		return errors.New("pipeline: native launch receipt does not match the checked branch, head, generation, and intent")
 	}
 	return nil
 }
