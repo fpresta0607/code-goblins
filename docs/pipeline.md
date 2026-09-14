@@ -54,8 +54,8 @@ The command prints the backup path, preserves unrelated YAML settings and commen
 It refuses a missing or unreadable database or configuration file.
 An operator can restore the printed backup in another idle window; restoration is never automatic over an operator's intervening edit.
 
-Owned machine fields are `agent: [codex]`, `agent_config.codex: {model: gpt-5.6-sol, effort: high}`, both global `review_agents` roles with the same Codex profile, an empty `agent_args_override.codex`, the absence of `agent_path_override.codex`, `auto_fix.review: 0`, and one automatic follow-up each for test, lint, rebase and CI.
-The empty raw Codex argument list ensures CFO does not enable a priority or fast service tier and lets `agent_config` own model and reasoning effort.
+Owned machine fields are `agent: [codex]`, `agent_config.codex: {model: gpt-5.6-sol, effort: high}`, both global `review_agents` roles with the same Codex profile, `agent_args_override.codex: [-c, 'service_tier="default"']`, the absence of `agent_path_override.codex`, `auto_fix.review: 0`, and one automatic follow-up each for test, lint, rebase and CI.
+The raw Codex argument override forces standard service for every managed role, so a user-level fast or priority preference cannot leak into a gate, while `agent_config` owns model and reasoning effort.
 Removing the Codex executable override makes no-mistakes resolve the native `codex` command from `PATH`; executable overrides for other harnesses remain operator-owned.
 The exact legacy CFO-owned Claude model and effort vector is removed during apply; a differing operator-owned Claude vector is preserved.
 Document follow-ups and other native settings retain their existing values.
@@ -90,7 +90,7 @@ The pane exports `CFO_HOME` and `CFO_STATE_OVERRIDE` and every gate step inherit
 Commit work on a named feature branch before `run`.
 The project must be initialized for no-mistakes, with readable committed task and origin default-branch `.no-mistakes.yaml` files.
 Refresh origin before starting; global reviewer/fixer drift and repository automatic-fix overrides that conflict with policy are refused.
-Immediately before native launch, `run` rechecks the remote default head and binds the accepted commit plus frozen profile hash to the strict native launch receipt as its validation generation.
+No-mistakes v1.75.1 does not expose an assertion that binds an expected trusted SHA and effective primary after its fresh fetch but before agent creation, so `run` refuses before invoking native start instead of relying on an opaque launch receipt.
 A repository's `agent` field continues to select only its native primary path and cannot replace the global reviewer or fixer profiles.
 An earlier unresolved run cannot be restarted to reset its budget.
 Use native read-only `axi status` and `axi logs` to inspect progress; the engine's guarded `axi sync` remains the branch synchronization interface after validation.

@@ -18,33 +18,34 @@ const (
 )
 
 type recoveryRunner struct {
-	scenario             recoveryScenario
-	ancestral            bool
-	alreadyOwned         bool
-	localHead            string
-	syncChecks           int
-	gateAligned          bool
-	databaseAligned      bool
-	recordedReplaced     bool
-	failDatabase         bool
-	failAfterCommit      bool
-	failRollback         bool
-	failPostCheck        bool
-	anchorExists         bool
-	anchorHead           string
-	anchorSymbolic       bool
-	anchorSymbolicRace   bool
-	anchorTargetMoved    bool
-	nativeAnchor         bool
-	nativeAnchorHead     string
-	nativeAnchorWorktree bool
-	nativeWorktreeHead   string
-	nonCommitHead        string
-	nativeReturnsCustody bool
-	missingNativeAnchor  bool
-	custodyReturned      bool
-	requireExplicitBare  bool
-	requests             []execx.Request
+	scenario               recoveryScenario
+	ancestral              bool
+	alreadyOwned           bool
+	localHead              string
+	syncChecks             int
+	gateAligned            bool
+	databaseAligned        bool
+	recordedReplaced       bool
+	failDatabase           bool
+	failAfterCommit        bool
+	failRollback           bool
+	failPostCheck          bool
+	anchorExists           bool
+	anchorHead             string
+	anchorSymbolic         bool
+	anchorSymbolicRace     bool
+	anchorTargetMoved      bool
+	nativeAnchor           bool
+	nativeAnchorHead       string
+	nativeAnchorWorktree   bool
+	nativeWorktreeHead     string
+	nonCommitHead          string
+	nativeReturnsCustody   bool
+	missingNativeAnchor    bool
+	custodyReturned        bool
+	requireExplicitBare    bool
+	requireMatchingNullOID bool
+	requests               []execx.Request
 }
 
 type recoveryScenario struct {
@@ -210,6 +211,9 @@ func (r *recoveryRunner) Run(_ context.Context, request execx.Request) (execx.Re
 				return execx.Result{ExitCode: 1}, nil
 			}
 			parts := strings.Fields(joined)
+			if r.requireMatchingNullOID && (len(parts) != 5 || parts[4] != strings.Repeat("0", len(parts[3]))) {
+				return execx.Result{ExitCode: 1}, nil
+			}
 			r.anchorExists = true
 			r.anchorHead = parts[3]
 			return execx.Result{}, nil
@@ -303,6 +307,24 @@ func TestRecoverKeepLocalRepairsAncestralRebaseGateShapeWithoutReset(t *testing.
 
 func TestRecoverKeepLocalUsesAnExplicitBareRepositoryBoundary(t *testing.T) {
 	runner := &recoveryRunner{ancestral: true, requireExplicitBare: true}
+	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", recoveryBranch, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRecoverKeepLocalCreatesSHA256RecoveryAnchor(t *testing.T) {
+	runner := &recoveryRunner{
+		scenario: recoveryScenario{
+			run:       recoveryRun,
+			repo:      recoveryRepo,
+			branch:    recoveryBranch,
+			recorded:  strings.Repeat("a", 64),
+			submitted: strings.Repeat("b", 64),
+		},
+		ancestral:              true,
+		requireMatchingNullOID: true,
+	}
 	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
 	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", recoveryBranch, nil); err != nil {
 		t.Fatal(err)
