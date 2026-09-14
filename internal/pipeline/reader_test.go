@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"gopkg.in/yaml.v3"
 )
 
 func TestGateReadsLatestBranchRoundFromSQLite(t *testing.T) {
@@ -46,20 +47,49 @@ INSERT INTO step_rounds VALUES('step',1,'user'),('step',2,'user'),('step',3,NULL
 	}
 }
 
-func TestRepoPolicyCannotRaiseCapsOrChangeReviewer(t *testing.T) {
+func TestRepoPolicyCannotRaiseCapsAndDoesNotOwnReviewAgents(t *testing.T) {
 	p := testPolicy(t)
-	for _, source := range []string{"auto_fix: {review: 10}", "auto_fix: {test: 2}", "agent: [claude, pi]", "agent: codex", "auto_fix: {review: 0, review: 10}", "agent: [claude]\n---\nagent: [pi]"} {
+	for _, source := range []string{"auto_fix: {review: 10}", "auto_fix: {test: 2}", "auto_fix: {review: 0, review: 10}", "agent: [claude]\n---\nagent: [pi]"} {
 		if err := CheckRepoConfig([]byte(source), p); err == nil {
 			t.Errorf("unsafe override accepted: %s", source)
 		}
 	}
-	for _, source := range []string{"agent: [claude]\nauto_fix: {review: 0, test: 1}", "disable_project_settings: true"} {
+	for _, source := range []string{"agent: [claude]\nauto_fix: {review: 0, test: 1}", "agent: codex", "agent: [claude, codex]", "disable_project_settings: true"} {
 		if err := CheckRepoConfig([]byte(source), p); err != nil {
 			t.Errorf("valid override refused: %s: %v", source, err)
 		}
 	}
 	if err := CheckRepoConfig([]byte("auto_fix: {babysit: 10}"), p); err == nil {
 		t.Error("legacy CI alias bypassed automatic budget")
+	}
+}
+
+func TestRepoAgentCannotAlterRenderedGlobalReviewAgents(t *testing.T) {
+	p := testPolicy(t)
+	for _, source := range []string{"agent: claude", "agent: codex", "agent: [claude, codex]"} {
+		if err := CheckRepoConfig([]byte(source), p); err != nil {
+			t.Fatalf("repository agent refused: %s: %v", source, err)
+		}
+		rendered, _, err := Render([]byte(source+"\nreview_agents:\n  reviewer: {agent: claude}\n  fixer: {agent: claude}\n"), p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var config struct {
+			ReviewAgents map[string]struct {
+				Agent  string `yaml:"agent"`
+				Model  string `yaml:"model"`
+				Effort string `yaml:"effort"`
+			} `yaml:"review_agents"`
+		}
+		if err := yaml.Unmarshal(rendered, &config); err != nil {
+			t.Fatal(err)
+		}
+		for _, role := range []string{"reviewer", "fixer"} {
+			profile := config.ReviewAgents[role]
+			if profile.Agent != "codex" || profile.Model != "gpt-5.6-sol" || profile.Effort != "high" {
+				t.Fatalf("repository %q changed global %s profile: %+v", source, role, profile)
+			}
+		}
 	}
 }
 

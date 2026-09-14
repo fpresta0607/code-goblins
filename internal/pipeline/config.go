@@ -15,7 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var ErrBusy = errors.New("pipeline: config-apply requires an idle window with the daemon stopped and no active runs")
+var ErrBusy = errors.New("pipeline: idle operation requires the daemon stopped and no active runs")
 
 // Render owns only the listed paths. Drift contains field names, never values.
 func Render(before []byte, p Policy) ([]byte, []string, error) {
@@ -56,7 +56,35 @@ func Render(before []byte, p Policy) ([]byte, []string, error) {
 		drift = append(drift, label)
 		return nil
 	}
-	if err := set(root, "agent", "agent", []string{p.Reviewer.Harness}); err != nil {
+	removeOwned := func(parent *yaml.Node, key, label string, owned interface{}) error {
+		for i := 0; i < len(parent.Content); i += 2 {
+			if parent.Content[i].Value != key {
+				continue
+			}
+			var actual, want interface{}
+			if err := parent.Content[i+1].Decode(&actual); err != nil {
+				return errors.New("pipeline: invalid owned YAML value")
+			}
+			var desired yaml.Node
+			if err := desired.Encode(owned); err != nil {
+				return err
+			}
+			if err := desired.Decode(&want); err != nil {
+				return err
+			}
+			if reflect.DeepEqual(actual, want) {
+				parent.Content = append(parent.Content[:i], parent.Content[i+2:]...)
+				drift = append(drift, label)
+			}
+			return nil
+		}
+		return nil
+	}
+	primary := p.Reviewer
+	if p.Version == 2 {
+		primary = p.Primary
+	}
+	if err := set(root, "agent", "agent", []string{primary.Harness}); err != nil {
 		return nil, nil, err
 	}
 	auto, err := mapping(root, "auto_fix")
@@ -75,8 +103,37 @@ func Render(before []byte, p Policy) ([]byte, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := set(args, "claude", "agent_args_override.claude", []string{"--model", p.Reviewer.Model, "--effort", p.Reviewer.Effort}); err != nil {
-		return nil, nil, err
+	if p.Version == 1 {
+		if err := set(args, "claude", "agent_args_override.claude", []string{"--model", p.Reviewer.Model, "--effort", p.Reviewer.Effort}); err != nil {
+			return nil, nil, err
+		}
+	} else {
+		if err := removeOwned(args, "claude", "agent_args_override.claude", []string{"--model", "opus", "--effort", "high"}); err != nil {
+			return nil, nil, err
+		}
+		if err := set(args, "codex", "agent_args_override.codex", []string{}); err != nil {
+			return nil, nil, err
+		}
+		agentConfig, err := mapping(root, "agent_config")
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := set(agentConfig, "codex", "agent_config.codex", map[string]string{"model": p.Primary.Model, "effort": p.Primary.Effort}); err != nil {
+			return nil, nil, err
+		}
+		reviewAgents, err := mapping(root, "review_agents")
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, role := range []struct {
+			name    string
+			profile Reviewer
+		}{{"reviewer", p.Reviewer}, {"fixer", p.Fixer}} {
+			value := map[string]string{"agent": role.profile.Harness, "model": role.profile.Model, "effort": role.profile.Effort}
+			if err := set(reviewAgents, role.name, "review_agents."+role.name, value); err != nil {
+				return nil, nil, err
+			}
+		}
 	}
 	if len(drift) == 0 {
 		return before, nil, nil

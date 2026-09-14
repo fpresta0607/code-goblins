@@ -1,11 +1,53 @@
 package pipeline
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestCheckedInPolicyUsesCodexForEveryGateRole(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var policy struct {
+		Version  int      `json:"version"`
+		Primary  Reviewer `json:"primary"`
+		Reviewer Reviewer `json:"reviewer"`
+		Fixer    Reviewer `json:"fixer"`
+	}
+	if err := json.Unmarshal(data, &policy); err != nil {
+		t.Fatal(err)
+	}
+	want := Reviewer{Harness: "codex", Model: "gpt-5.6-sol", Effort: "high"}
+	if policy.Version != 2 || policy.Primary != want || policy.Reviewer != want || policy.Fixer != want {
+		t.Fatalf("policy=%+v, want v2 Codex profile for every role", policy)
+	}
+}
+
+func TestMigrateSelectionPreservesClassAndReviewCycleCap(t *testing.T) {
+	legacy := Policy{
+		Version:  1,
+		Reviewer: Reviewer{Harness: "claude", Model: "opus", Effort: "high"},
+		AutoFix:  AutoFix{Review: 0, Test: 1, Lint: 1, Rebase: 1, CI: 1},
+		Classes:  Classes{Ordinary: Class{ReviewCycles: 2}, HighRisk: Class{ReviewCycles: 3}, Mechanical: Class{ReviewCycles: 2}},
+	}
+	old, err := legacy.Select("high-risk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := testPolicy(t)
+	migrated, err := MigrateSelection(old, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migrated.Policy != current || migrated.Class != old.Class || migrated.ReviewCycles != old.ReviewCycles || migrated.Hash == old.Hash {
+		t.Fatalf("migrated=%+v old=%+v", migrated, old)
+	}
+}
 
 func TestCheckedInPolicyAndSnapshot(t *testing.T) {
 	p, err := Load(filepath.Join("..", "..", "config", "pipeline.json"))
@@ -37,11 +79,12 @@ func TestPolicyRejectsInvalidInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, input := range []string{
-		string(data) + `{}`, strings.Replace(string(data), `"version": 1`, `"version": 2`, 1),
-		strings.Replace(string(data), `"version": 1`, `"typo": 1`, 1),
+		string(data) + `{}`, strings.Replace(string(data), `"version": 2`, `"version": 3`, 1),
+		strings.Replace(string(data), `"version": 2`, `"typo": 2`, 1),
 		strings.Replace(string(data), `"review_cycles": 2`, `"review_cycles": 10`, 1),
 		strings.Replace(string(data), `"review": 0`, `"review": 10`, 1),
 		strings.Replace(string(data), `"effort": "high"`, `"effort": "low"`, 1),
+		strings.Replace(string(data), `"harness": "codex"`, `"harness": "claude"`, 1),
 	} {
 		path := filepath.Join(t.TempDir(), "policy.json")
 		if err := os.WriteFile(path, []byte(input), 0600); err != nil {

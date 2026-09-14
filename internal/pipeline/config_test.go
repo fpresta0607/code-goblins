@@ -4,10 +4,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"gopkg.in/yaml.v3"
 )
 
 type runnerFunc func(context.Context, execx.Request) (execx.Result, error)
@@ -25,7 +27,7 @@ func testPolicy(t *testing.T) Policy {
 
 func TestRenderPreservesUnownedConfigAndIsIdempotent(t *testing.T) {
 	p := testPolicy(t)
-	before := []byte("# machine config\nagent: [pi]\nauto_fix:\n  review: 10\n  document: 4\nci_timeout: 168h\nprivate_token: sentinel-secret\n")
+	before := []byte("# machine config\nagent: [claude]\nagent_args_override:\n  claude: [--model, opus, --effort, high]\nauto_fix:\n  review: 10\n  document: 4\nci_timeout: 168h\nprivate_token: sentinel-secret\n")
 	after, drift, err := Render(before, p)
 	if err != nil || len(drift) == 0 {
 		t.Fatalf("render: %v %v", drift, err)
@@ -38,6 +40,41 @@ func TestRenderPreservesUnownedConfigAndIsIdempotent(t *testing.T) {
 	if strings.Contains(strings.Join(drift, " "), "sentinel-secret") {
 		t.Fatal("drift leaked secret")
 	}
+	var rendered struct {
+		Agent       []string `yaml:"agent"`
+		AgentConfig map[string]struct {
+			Model  string `yaml:"model"`
+			Effort string `yaml:"effort"`
+		} `yaml:"agent_config"`
+		ReviewAgents map[string]struct {
+			Agent  string `yaml:"agent"`
+			Model  string `yaml:"model"`
+			Effort string `yaml:"effort"`
+		} `yaml:"review_agents"`
+		AgentArgs map[string][]string `yaml:"agent_args_override"`
+	}
+	if err := yaml.Unmarshal(after, &rendered); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(rendered.Agent, []string{"codex"}) {
+		t.Fatalf("primary agent=%v", rendered.Agent)
+	}
+	profile := rendered.AgentConfig["codex"]
+	if profile.Model != "gpt-5.6-sol" || profile.Effort != "high" {
+		t.Fatalf("primary profile=%+v", profile)
+	}
+	for _, role := range []string{"reviewer", "fixer"} {
+		profile := rendered.ReviewAgents[role]
+		if profile.Agent != "codex" || profile.Model != "gpt-5.6-sol" || profile.Effort != "high" {
+			t.Fatalf("%s profile=%+v", role, profile)
+		}
+	}
+	if args, ok := rendered.AgentArgs["codex"]; !ok || len(args) != 0 {
+		t.Fatalf("codex raw args=%v, want an owned empty list", args)
+	}
+	if _, ok := rendered.AgentArgs["claude"]; ok {
+		t.Fatal("legacy CFO-owned Claude arguments remain")
+	}
 	again, drift, err := Render(after, p)
 	if err != nil || len(drift) != 0 || string(again) != string(after) {
 		t.Fatalf("not idempotent: %v %v", drift, err)
@@ -49,6 +86,23 @@ func TestRenderRejectsAmbiguousYAML(t *testing.T) {
 		if _, _, err := Render([]byte(source), testPolicy(t)); err == nil {
 			t.Errorf("accepted ambiguous YAML %q", source)
 		}
+	}
+}
+
+func TestRenderPreservesOperatorOwnedClaudeArguments(t *testing.T) {
+	before := []byte("agent_args_override:\n  claude: [--model, sonnet]\n")
+	after, _, err := Render(before, testPolicy(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		AgentArgs map[string][]string `yaml:"agent_args_override"`
+	}
+	if err := yaml.Unmarshal(after, &config); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(config.AgentArgs["claude"], []string{"--model", "sonnet"}) {
+		t.Fatalf("operator Claude arguments changed: %v", config.AgentArgs["claude"])
 	}
 }
 
