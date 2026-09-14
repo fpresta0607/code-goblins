@@ -90,6 +90,7 @@ The pane exports `CFO_HOME` and `CFO_STATE_OVERRIDE` and every gate step inherit
 Commit work on a named feature branch before `run`.
 The project must be initialized for no-mistakes, with readable committed task and origin default-branch `.no-mistakes.yaml` files.
 Refresh origin before starting; global reviewer/fixer drift and repository automatic-fix overrides that conflict with policy are refused.
+Immediately before native launch, `run` rechecks the remote default head and binds the accepted commit plus frozen profile hash to the strict native launch receipt as its validation generation.
 A repository's `agent` field continues to select only its native primary path and cannot replace the global reviewer or fixer profiles.
 An earlier unresolved run cannot be restarted to reset its budget.
 Use native read-only `axi status` and `axi logs` to inspect progress; the engine's guarded `axi sync` remains the branch synchronization interface after validation.

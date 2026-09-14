@@ -43,6 +43,7 @@ type recoveryRunner struct {
 	nativeReturnsCustody bool
 	missingNativeAnchor  bool
 	custodyReturned      bool
+	requireExplicitBare  bool
 	requests             []execx.Request
 }
 
@@ -87,6 +88,14 @@ func (r *recoveryRunner) nativeAnchorAt(request execx.Request) (string, bool) {
 		return r.nativeAnchorHead, true
 	}
 	return r.values().recorded, true
+}
+
+func recoveryRequestCommand(request execx.Request) string {
+	args := request.Args
+	if request.Name == "git" && len(args) > 0 && strings.HasPrefix(args[0], "--git-dir=") {
+		args = args[1:]
+	}
+	return request.Name + " " + strings.Join(args, " ")
 }
 
 func (r *recoveryRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
@@ -139,7 +148,16 @@ func (r *recoveryRunner) Run(_ context.Context, request execx.Request) (execx.Re
 			"custody_returned_at":` + custodyReturnedAt + `
 		}]`)}, nil
 	case "git":
-		joined := strings.Join(request.Args, " ")
+		args := request.Args
+		if strings.HasSuffix(strings.ToLower(request.Dir), strings.ToLower(scenario.repo+".git")) {
+			explicit := "--git-dir=" + request.Dir
+			if len(args) > 0 && args[0] == explicit {
+				args = args[1:]
+			} else if r.requireExplicitBare {
+				return execx.Result{}, errors.New("bare repository was not explicit")
+			}
+		}
+		joined := strings.Join(args, " ")
 		switch {
 		case joined == "status --porcelain --untracked-files=all":
 			return execx.Result{}, nil
@@ -242,7 +260,7 @@ func (r *recoveryRunner) Run(_ context.Context, request execx.Request) (execx.Re
 		}
 		return execx.Result{Stdout: []byte("custody returned\n")}, nil
 	}
-	return execx.Result{}, errors.New("unexpected command: " + request.Name + " " + strings.Join(request.Args, " "))
+	return execx.Result{}, errors.New("unexpected command: " + recoveryRequestCommand(request))
 }
 
 func TestRecoverKeepLocalRepairsAncestralRebaseGateShapeWithoutReset(t *testing.T) {
@@ -258,7 +276,7 @@ func TestRecoverKeepLocalRepairsAncestralRebaseGateShapeWithoutReset(t *testing.
 
 	var anchored, repaired, recovered bool
 	for _, request := range runner.requests {
-		joined := request.Name + " " + strings.Join(request.Args, " ")
+		joined := recoveryRequestCommand(request)
 		if strings.Contains(joined, " reset ") || strings.HasSuffix(joined, " reset") {
 			t.Fatalf("destructive reset invoked: %s", joined)
 		}
@@ -283,6 +301,14 @@ func TestRecoverKeepLocalRepairsAncestralRebaseGateShapeWithoutReset(t *testing.
 	}
 }
 
+func TestRecoverKeepLocalUsesAnExplicitBareRepositoryBoundary(t *testing.T) {
+	runner := &recoveryRunner{ancestral: true, requireExplicitBare: true}
+	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", recoveryBranch, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRecoverKeepLocalRefusesNonAncestralCommitsBeforeMutation(t *testing.T) {
 	runner := &recoveryRunner{}
 	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
@@ -290,7 +316,7 @@ func TestRecoverKeepLocalRefusesNonAncestralCommitsBeforeMutation(t *testing.T) 
 		t.Fatal("non-equivalent divergence accepted")
 	}
 	for _, request := range runner.requests {
-		joined := request.Name + " " + strings.Join(request.Args, " ")
+		joined := recoveryRequestCommand(request)
 		if joined == "no-mistakes axi sync --recover --keep-local" || strings.Contains(joined, "update-ref") || strings.Contains(joined, "UPDATE runs") {
 			t.Fatalf("unsafe recovery mutated state: %s", joined)
 		}
@@ -319,7 +345,7 @@ func TestRecoverKeepLocalAlignsV172UserOwnedGateBeforeSuccess(t *testing.T) {
 	}
 	var fetched, gateAligned, databaseAligned bool
 	for _, request := range runner.requests {
-		joined := request.Name + " " + strings.Join(request.Args, " ")
+		joined := recoveryRequestCommand(request)
 		if joined == "no-mistakes axi sync --recover --keep-local" || strings.Contains(joined, " reset ") {
 			t.Fatalf("unsafe recovery command: %s", joined)
 		}
@@ -380,7 +406,7 @@ func TestRecoverKeepLocalVerifiesCommittedDatabaseCASBeforeRollback(t *testing.T
 		t.Fatalf("result=%+v gate=%v database=%v", result, runner.gateAligned, runner.databaseAligned)
 	}
 	for _, request := range runner.requests {
-		joined := request.Name + " " + strings.Join(request.Args, " ")
+		joined := recoveryRequestCommand(request)
 		if strings.HasPrefix(joined, "git update-ref refs/heads/"+branch+" "+oldGate+" "+advanced) {
 			t.Fatalf("verified committed database CAS rolled gate back: %s", joined)
 		}
@@ -440,7 +466,7 @@ func TestRecoverKeepLocalFinishesInterruptedUserOwnedAlignment(t *testing.T) {
 		t.Fatalf("result=%+v gate=%v database=%v", result, runner.gateAligned, runner.databaseAligned)
 	}
 	for _, request := range runner.requests {
-		joined := request.Name + " " + strings.Join(request.Args, " ")
+		joined := recoveryRequestCommand(request)
 		if strings.HasPrefix(joined, "git update-ref refs/heads/"+branch+" ") {
 			t.Fatalf("already advanced gate moved again: %s", joined)
 		}
@@ -493,7 +519,7 @@ func TestRecoverKeepLocalAlignsV175CustodyReturnedGateBeforeFreshRun(t *testing.
 	}
 	var preservedGate, verifiedGate bool
 	for _, request := range runner.requests {
-		joined := request.Name + " " + strings.Join(request.Args, " ")
+		joined := recoveryRequestCommand(request)
 		if strings.Contains(joined, " reset ") || joined == "no-mistakes axi sync --recover --keep-local" {
 			t.Fatalf("unsafe recovery command: %s", joined)
 		}
@@ -571,7 +597,7 @@ func TestRecoverKeepLocalAcceptsNativeAlignedCustodyReturnedWithoutGateAnchor(t 
 		t.Fatalf("native anchor locations: worktree=%v bare=%v", runner.nativeAnchorWorktree, runner.nativeAnchor)
 	}
 	for _, request := range runner.requests {
-		joined := request.Name + " " + strings.Join(request.Args, " ")
+		joined := recoveryRequestCommand(request)
 		if strings.HasPrefix(joined, "git update-ref --no-deref refs/no-mistakes/recovery/"+runner.scenario.run+"/gate ") {
 			t.Fatalf("native-aligned recovery created CFO swap evidence: %s", joined)
 		}
@@ -736,7 +762,7 @@ func TestRecoverKeepLocalRefusesV175CustodyReturnedWithoutNativeAnchor(t *testin
 		t.Fatal("unanchored returned pipeline head was accepted")
 	}
 	for _, request := range runner.requests {
-		joined := request.Name + " " + strings.Join(request.Args, " ")
+		joined := recoveryRequestCommand(request)
 		if strings.Contains(joined, "update-ref") || request.Name == "sqlite3" && strings.Contains(joined, "UPDATE runs") {
 			t.Fatalf("unsafe recovery mutated state: %s", joined)
 		}
@@ -764,7 +790,7 @@ func TestRecoverKeepLocalRefusesAlignedV175CustodyReturnedWithoutNativeAnchor(t 
 		t.Fatalf("aligned unanchored custody return accepted: %v", err)
 	}
 	for _, request := range runner.requests {
-		joined := request.Name + " " + strings.Join(request.Args, " ")
+		joined := recoveryRequestCommand(request)
 		if strings.Contains(joined, "update-ref") || request.Name == "sqlite3" && strings.Contains(joined, "UPDATE runs") {
 			t.Fatalf("unsafe recovery mutated state: %s", joined)
 		}
@@ -798,7 +824,7 @@ func TestRecoverKeepLocalFinishesCommittedCustodyReturnedAlignment(t *testing.T)
 		t.Fatalf("result=%+v", result)
 	}
 	for _, request := range runner.requests {
-		joined := request.Name + " " + strings.Join(request.Args, " ")
+		joined := recoveryRequestCommand(request)
 		if strings.Contains(joined, "update-ref") || request.Name == "sqlite3" && strings.Contains(joined, "UPDATE runs") {
 			t.Fatalf("aligned retry mutated state: %s", joined)
 		}

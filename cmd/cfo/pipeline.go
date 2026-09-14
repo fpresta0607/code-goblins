@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -185,6 +187,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		return nil
 	}
 	nativeArgs := []string{"axi", "run", "--intent", intent}
+	var startEvidence pipeline.StartEvidence
 	if args[0] == "respond" {
 		gate, err := reader.Gate(ctx, meta.Project, branch)
 		if err != nil {
@@ -195,9 +198,19 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			return err
 		}
 	} else {
-		if err := reader.CheckStart(ctx, meta.Project, meta.Worktree, branch, selection.Policy); err != nil {
+		startEvidence, err = reader.CheckStart(ctx, meta.Project, meta.Worktree, branch, selection.Policy)
+		if err != nil {
 			return err
 		}
+		if err := reader.CheckStartEvidence(ctx, meta.Project, startEvidence); err != nil {
+			return err
+		}
+		nonce, err := pipelineLaunchNonce()
+		if err != nil {
+			return err
+		}
+		generation := "trusted-" + startEvidence.TrustedSHA + "-policy-" + selection.Hash
+		nativeArgs = append(nativeArgs, "--launch-nonce", nonce, "--validation-generation", generation)
 	}
 	result, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Env: nativeEnv(root), Name: "no-mistakes", Args: nativeArgs})
 	if len(result.Stdout) > 0 {
@@ -213,6 +226,14 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
 	}
 	return nil
+}
+
+func pipelineLaunchNonce() (string, error) {
+	value := make([]byte, 16)
+	if _, err := rand.Read(value); err != nil {
+		return "", fmt.Errorf("pipeline: create launch nonce: %w", err)
+	}
+	return "cfo-" + hex.EncodeToString(value), nil
 }
 
 func migratePipelinePolicy(ctx context.Context, h home.Home, root string, idle func(context.Context) (func() error, error), meta state.TaskMeta, old pipeline.Selection, out io.Writer) (err error) {

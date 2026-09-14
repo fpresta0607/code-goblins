@@ -91,66 +91,90 @@ type Gate struct {
 	Findings     string `json:"findings"`
 }
 
+type StartEvidence struct {
+	DefaultBranch string
+	TrustedSHA    string
+}
+
 func sqlString(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
 
 // CheckStart refuses a restart over unresolved work and checks repository
 // overrides before the native engine could spend an automatic repair cycle.
-func (r Reader) CheckStart(ctx context.Context, project, worktree, branch string, policy Policy) error {
+func (r Reader) CheckStart(ctx context.Context, project, worktree, branch string, policy Policy) (StartEvidence, error) {
 	var repos []struct {
 		DefaultBranch string `json:"default_branch"`
 	}
 	if err := r.query(ctx, `SELECT default_branch FROM repos WHERE lower(replace(working_path,char(92),'/'))=lower(`+sqlString(filepath.ToSlash(project))+`)`, &repos); err != nil {
-		return err
+		return StartEvidence{}, err
 	}
 	if len(repos) != 1 || repos[0].DefaultBranch == "" || branch == repos[0].DefaultBranch {
-		return errors.New("pipeline: registered repository and non-default branch required")
+		return StartEvidence{}, errors.New("pipeline: registered repository and non-default branch required")
 	}
 	var previous []struct {
 		Status string `json:"status"`
 	}
 	if err := r.query(ctx, `SELECT runs.status FROM runs JOIN repos ON repos.id=runs.repo_id WHERE lower(replace(repos.working_path,char(92),'/'))=lower(`+sqlString(filepath.ToSlash(project))+`) AND runs.branch=`+sqlString(branch)+` ORDER BY runs.created_at DESC,runs.id DESC LIMIT 1`, &previous); err != nil {
-		return err
+		return StartEvidence{}, err
 	}
 	// A terminal run has no budget left to reset, so only a still-live one
 	// blocks a restart. The set matches Idle's.
 	if len(previous) > 0 && !terminalRunStatus[previous[0].Status] {
-		return fmt.Errorf("%w; an earlier run must be resolved, not restarted", ErrUnresolved)
+		return StartEvidence{}, fmt.Errorf("%w; an earlier run must be resolved, not restarted", ErrUnresolved)
 	}
 	status, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Name: "git", Args: []string{"status", "--porcelain", "--untracked-files=all"}})
 	if err != nil || status.ExitCode != 0 || len(strings.TrimSpace(string(status.Stdout))) != 0 {
-		return errors.New("pipeline: commit task work before starting the gate")
+		return StartEvidence{}, errors.New("pipeline: commit task work before starting the gate")
 	}
 	task, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Name: "git", Args: []string{"show", "HEAD:.no-mistakes.yaml"}})
 	if err != nil || task.ExitCode != 0 {
-		return errors.New("pipeline: readable committed task and origin default-branch .no-mistakes.yaml required")
+		return StartEvidence{}, errors.New("pipeline: readable committed task and origin default-branch .no-mistakes.yaml required")
 	}
 	if err := checkRepoConfig(task.Stdout, policy, true); err != nil {
-		return err
+		return StartEvidence{}, err
 	}
 	defaultBranch := repos[0].DefaultBranch
-	remote, err := r.Commands.Run(ctx, execx.Request{Dir: project, Name: "git", Args: []string{"ls-remote", "--symref", "origin", "HEAD"}})
-	remoteFields := strings.Fields(string(remote.Stdout))
-	if err != nil || remote.ExitCode != 0 || len(remoteFields) != 5 || remoteFields[0] != "ref:" || remoteFields[1] != "refs/heads/"+defaultBranch || remoteFields[2] != "HEAD" || remoteFields[4] != "HEAD" {
-		return errors.New("pipeline: current origin default-branch evidence is required")
+	remoteHead, err := r.originDefaultHead(ctx, project, defaultBranch)
+	if err != nil {
+		return StartEvidence{}, err
 	}
 	trustedRef := "refs/remotes/origin/" + defaultBranch
 	local, err := r.Commands.Run(ctx, execx.Request{Dir: project, Name: "git", Args: []string{"rev-parse", "--verify", trustedRef}})
 	localFields := strings.Fields(string(local.Stdout))
 	if err != nil || local.ExitCode != 0 || len(localFields) != 1 {
-		return errors.New("pipeline: readable origin default-branch tracking evidence is required")
+		return StartEvidence{}, errors.New("pipeline: readable origin default-branch tracking evidence is required")
 	}
-	if localFields[0] != remoteFields[3] {
-		return errors.New("pipeline: origin default-branch tracking evidence is stale")
+	if localFields[0] != remoteHead {
+		return StartEvidence{}, errors.New("pipeline: origin default-branch tracking evidence is stale")
 	}
 	trusted, err := r.Commands.Run(ctx, execx.Request{Dir: project, Name: "git", Args: []string{"show", trustedRef + ":.no-mistakes.yaml"}})
 	if err != nil || trusted.ExitCode != 0 {
-		return errors.New("pipeline: readable committed task and origin default-branch .no-mistakes.yaml required")
+		return StartEvidence{}, errors.New("pipeline: readable committed task and origin default-branch .no-mistakes.yaml required")
 	}
 	if err := checkRepoConfig(trusted.Stdout, policy, false); err != nil {
-		return err
+		return StartEvidence{}, err
 	}
 	if err := checkEffectivePrimaryAgent(task.Stdout, trusted.Stdout, policy); err != nil {
+		return StartEvidence{}, err
+	}
+	return StartEvidence{DefaultBranch: defaultBranch, TrustedSHA: remoteHead}, nil
+}
+
+func (r Reader) originDefaultHead(ctx context.Context, project, defaultBranch string) (string, error) {
+	remote, err := r.Commands.Run(ctx, execx.Request{Dir: project, Name: "git", Args: []string{"ls-remote", "--symref", "origin", "HEAD"}})
+	fields := strings.Fields(string(remote.Stdout))
+	if err != nil || remote.ExitCode != 0 || len(fields) != 5 || fields[0] != "ref:" || fields[1] != "refs/heads/"+defaultBranch || fields[2] != "HEAD" || fields[4] != "HEAD" {
+		return "", errors.New("pipeline: current origin default-branch evidence is required")
+	}
+	return fields[3], nil
+}
+
+func (r Reader) CheckStartEvidence(ctx context.Context, project string, evidence StartEvidence) error {
+	current, err := r.originDefaultHead(ctx, project, evidence.DefaultBranch)
+	if err != nil {
 		return err
+	}
+	if current != evidence.TrustedSHA {
+		return errors.New("pipeline: origin default branch changed before native start")
 	}
 	return nil
 }
@@ -280,17 +304,7 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 	if err := json.Unmarshal([]byte(gate.Findings), &report); err != nil || report.Findings == nil {
 		return nil, errors.New("pipeline: missing or invalid findings evidence")
 	}
-	emptyActionFixable := false
-	switch gate.Step {
-	case "test":
-		emptyActionFixable = s.Policy.AutoFix.Test > 0
-	case "lint":
-		emptyActionFixable = s.Policy.AutoFix.Lint > 0
-	case "rebase":
-		emptyActionFixable = s.Policy.AutoFix.Rebase > 0
-	case "ci":
-		emptyActionFixable = s.Policy.AutoFix.CI > 0
-	}
+	emptyActionFixable := gate.Step != "review" && gate.AutoFixLimit != nil && *gate.AutoFixLimit > 0
 	actions := map[string]string{}
 	unresolved := false
 	for _, f := range *report.Findings {
