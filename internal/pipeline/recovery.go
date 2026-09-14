@@ -88,7 +88,7 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 			return RecoveryResult{}, err
 		}
 		if !safe {
-			return RecoveryResult{}, errors.New("pipeline: recorded and submitted heads are neither ancestral nor stable patch equivalents")
+			return RecoveryResult{}, errors.New("pipeline: recorded head is not an ancestor of the submitted head")
 		}
 		anchor := "refs/no-mistakes/recovery/" + run.RunID + "/recorded"
 		if err := r.preserveRecoveryHead(ctx, bare, anchor, run.RecordedHead); err != nil {
@@ -119,7 +119,7 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 	if err := r.requireRef(ctx, bare, "refs/heads/"+branch, run.SubmittedHead); err != nil {
 		return RecoveryResult{}, fmt.Errorf("pipeline: keep-local recovery changed the gate branch: %w", err)
 	}
-	if err := r.requireUserOwned(ctx, worktree, env, run); err != nil {
+	if err := r.requireReturnedCustody(ctx, worktree, bare, env, run); err != nil {
 		return RecoveryResult{}, err
 	}
 	return RecoveryResult{RunID: run.RunID, Head: run.SubmittedHead, NativeOutput: output}, nil
@@ -143,12 +143,15 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 			if err != nil {
 				return RecoveryResult{}, fmt.Errorf("pipeline: returned pipeline head is not anchored: %w", err)
 			}
-			gateHead, err := r.readRef(ctx, bare, anchor)
-			if err != nil {
-				return RecoveryResult{}, errors.New("pipeline: aligned returned custody lacks its stale-head anchor")
+			if err := r.requireCommit(ctx, bare, nativeHead); err != nil {
+				return RecoveryResult{}, errors.New("pipeline: returned custody anchor commit is unavailable")
 			}
-			for _, head := range []string{nativeHead, gateHead} {
-				if err := r.requireCommit(ctx, bare, head); err != nil {
+			if nativeHead != run.RecordedHead {
+				gateHead, err := r.readRef(ctx, bare, anchor)
+				if err != nil {
+					return RecoveryResult{}, errors.New("pipeline: aligned returned custody lacks its stale-head anchor")
+				}
+				if err := r.requireCommit(ctx, bare, gateHead); err != nil {
 					return RecoveryResult{}, errors.New("pipeline: returned custody anchor commit is unavailable")
 				}
 			}
@@ -233,13 +236,27 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 	return RecoveryResult{RunID: run.RunID, Head: status.Local.Head, NativeOutput: postOutput}, nil
 }
 
-func (r Reader) requireUserOwned(ctx context.Context, worktree string, env []string, run recoveryRecord) error {
+func (r Reader) requireReturnedCustody(ctx context.Context, worktree, bare string, env []string, run recoveryRecord) error {
 	status, _, err := r.readRecoverySync(ctx, worktree, env)
 	if err != nil {
 		return errors.New("pipeline: native custody status check failed")
 	}
-	if !status.userOwned(run, true) {
-		return errors.New("pipeline: native engine did not prove clean user-owned custody")
+	expected := run
+	expected.RecordedHead = run.SubmittedHead
+	if status.userOwned(expected, true) {
+		return nil
+	}
+	var rows []recoveryRecord
+	query := `SELECT id AS run_id, repo_id, branch, status, head_sha AS recorded_head, COALESCE(submitted_head_sha,'') AS submitted_head, COALESCE(last_pushed_sha,'') AS pushed_head, COALESCE(custody_returned_at,0) AS custody_returned_at FROM runs WHERE id=` + sqlString(run.RunID) + ` AND repo_id=` + sqlString(run.RepoID) + ` AND branch=` + sqlString(run.Branch)
+	if err := r.query(ctx, query, &rows); err != nil || len(rows) != 1 {
+		return errors.New("pipeline: native engine did not prove returned custody")
+	}
+	current := rows[0]
+	if current.Status != run.Status || current.RecordedHead != expected.RecordedHead || current.SubmittedHead != expected.SubmittedHead || current.PushedHead != "" || !status.custodyReturned(current, true) {
+		return errors.New("pipeline: native engine did not prove returned custody")
+	}
+	if err := r.requireRef(ctx, bare, "refs/no-mistakes/recover/"+run.RunID, current.RecordedHead); err != nil {
+		return fmt.Errorf("pipeline: returned pipeline head is not anchored: %w", err)
 	}
 	return nil
 }
@@ -327,45 +344,7 @@ func (r Reader) safeRecoveryRelation(ctx context.Context, repo, recorded, submit
 	if ancestry.ExitCode != 1 {
 		return false, errors.New("pipeline: could not establish recovery ancestry")
 	}
-	recordedParent, err := r.singleParent(ctx, repo, recorded)
-	if err != nil {
-		return false, err
-	}
-	submittedParent, err := r.singleParent(ctx, repo, submitted)
-	if err != nil {
-		return false, err
-	}
-	recordedPatch, err := r.commitPatchID(ctx, repo, recordedParent, recorded)
-	if err != nil {
-		return false, err
-	}
-	submittedPatch, err := r.commitPatchID(ctx, repo, submittedParent, submitted)
-	if err != nil {
-		return false, err
-	}
-	return recordedPatch == submittedPatch, nil
-}
-
-func (r Reader) singleParent(ctx context.Context, repo, head string) (string, error) {
-	result, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"rev-list", "--parents", "-n", "1", head}})
-	fields := strings.Fields(string(result.Stdout))
-	if err != nil || result.ExitCode != 0 || len(fields) != 2 || fields[0] != head {
-		return "", errors.New("pipeline: content-equivalent recovery requires single-parent commits")
-	}
-	return fields[1], nil
-}
-
-func (r Reader) commitPatchID(ctx context.Context, repo, parent, head string) (string, error) {
-	result, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"diff", "--binary", "--full-index", "--no-ext-diff", "--no-renames", parent, head}})
-	if err != nil || result.ExitCode != 0 {
-		return "", errors.New("pipeline: could not compare recovery commit content")
-	}
-	patchID, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Stdin: result.Stdout, Name: "git", Args: []string{"patch-id", "--stable"}})
-	fields := strings.Fields(string(patchID.Stdout))
-	if err != nil || patchID.ExitCode != 0 || len(fields) != 2 {
-		return "", errors.New("pipeline: could not identify recovery commit content")
-	}
-	return fields[0], nil
+	return false, nil
 }
 
 func (r Reader) fetchRecoveryHead(ctx context.Context, bare, worktree, head string) error {
