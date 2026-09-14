@@ -186,4 +186,13 @@ func TestCommittedRepoConfigSatisfiesTheCheckedInPolicy(t *testing.T) {
 	if err := CheckRepoConfig(data, testPolicy(t)); err != nil {
 		t.Fatalf("committed gate config conflicts with config/pipeline.json: %v", err)
 	}
+	var config struct {
+		Agent []string `yaml:"agent"`
+	}
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		t.Fatal(err)
+	}
+	if len(config.Agent) != 1 || config.Agent[0] != "codex" {
+		t.Fatalf("committed primary gate agent=%v, want [codex]", config.Agent)
+	}
 }
