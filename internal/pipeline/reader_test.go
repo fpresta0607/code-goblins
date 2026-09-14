@@ -97,6 +97,8 @@ type primaryRoutingRunner struct {
 	trusted []byte
 }
 
+const primaryRoutingSHA = "0123456789abcdef0123456789abcdef01234567"
+
 func (r primaryRoutingRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name == "sqlite3" {
 		return (execx.OSRunner{}).Run(ctx, request)
@@ -109,10 +111,82 @@ func (r primaryRoutingRunner) Run(ctx context.Context, request execx.Request) (e
 		return execx.Result{}, nil
 	case "show HEAD:.no-mistakes.yaml":
 		return execx.Result{Stdout: []byte("agent: claude\nauto_fix: {review: 0, test: 1, lint: 1, rebase: 1, ci: 1}\n")}, nil
+	case "ls-remote --symref origin HEAD":
+		return execx.Result{Stdout: []byte("ref: refs/heads/main\tHEAD\n" + primaryRoutingSHA + "\tHEAD\n")}, nil
+	case "rev-parse --verify refs/remotes/origin/main":
+		return execx.Result{Stdout: []byte(primaryRoutingSHA + "\n")}, nil
 	case "show refs/remotes/origin/main:.no-mistakes.yaml":
 		return execx.Result{Stdout: r.trusted}, nil
 	default:
 		return execx.Result{}, errors.New("unexpected git command")
+	}
+}
+
+func runPipelineGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	command := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %s: %v", strings.Join(args, " "), output, err)
+	}
+	return strings.TrimSpace(string(output))
+}
+
+func TestCheckStartRefusesStaleTrustedPrimaryWithoutUpdatingTrackingRef(t *testing.T) {
+	if _, err := exec.LookPath("sqlite3"); err != nil {
+		t.Skip("sqlite3 CLI not available")
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git CLI not available")
+	}
+	root := t.TempDir()
+	remote := filepath.Join(root, "remote.git")
+	seed := filepath.Join(root, "seed")
+	project := filepath.Join(root, "project")
+	state := filepath.Join(root, "state")
+	for _, dir := range []string{remote, seed, state} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runPipelineGit(t, remote, "init", "--bare", "--initial-branch=main")
+	runPipelineGit(t, seed, "init", "--initial-branch=main")
+	runPipelineGit(t, seed, "config", "user.name", "Pipeline Test")
+	runPipelineGit(t, seed, "config", "user.email", "pipeline@example.com")
+	safeConfig := []byte("auto_fix: {review: 0, test: 1, lint: 1, rebase: 1, ci: 1}\n")
+	if err := os.WriteFile(filepath.Join(seed, ".no-mistakes.yaml"), safeConfig, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runPipelineGit(t, seed, "add", ".no-mistakes.yaml")
+	runPipelineGit(t, seed, "commit", "-m", "safe primary")
+	runPipelineGit(t, seed, "remote", "add", "origin", remote)
+	runPipelineGit(t, seed, "push", "-u", "origin", "main")
+	runPipelineGit(t, root, "clone", remote, project)
+	before := runPipelineGit(t, project, "rev-parse", "refs/remotes/origin/main")
+	if err := os.WriteFile(filepath.Join(seed, ".no-mistakes.yaml"), []byte("agent: claude\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runPipelineGit(t, seed, "add", ".no-mistakes.yaml")
+	runPipelineGit(t, seed, "commit", "-m", "unsafe primary")
+	runPipelineGit(t, seed, "push", "origin", "main")
+	remoteHead := runPipelineGit(t, seed, "rev-parse", "HEAD")
+	if before == remoteHead {
+		t.Fatal("remote fixture did not advance")
+	}
+	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT);
+INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'main');`
+	if out, err := exec.Command("sqlite3", filepath.Join(state, "state.sqlite"), sql).CombinedOutput(); err != nil {
+		t.Fatalf("fixture: %s %v", out, err)
+	}
+	reader := Reader{Root: state, Commands: execx.OSRunner{}}
+	err := reader.CheckStart(context.Background(), project, project, "feature", testPolicy(t))
+	if err == nil || !strings.Contains(err.Error(), "stale") {
+		t.Fatalf("CheckStart error=%v, want stale trusted primary refusal", err)
+	}
+	after := runPipelineGit(t, project, "rev-parse", "refs/remotes/origin/main")
+	if after != before {
+		t.Fatalf("origin tracking ref changed from %s to %s", before, after)
 	}
 }
 
