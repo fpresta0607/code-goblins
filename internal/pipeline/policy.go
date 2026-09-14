@@ -120,7 +120,16 @@ func (p Policy) Select(class string) (Selection, error) {
 	default:
 		return Selection{}, errors.New("pipeline: class must be ordinary, high-risk, or mechanical")
 	}
-	data, err := json.Marshal(p)
+	var hashPolicy interface{} = p
+	if p.Version == 1 {
+		hashPolicy = struct {
+			Version  int      `json:"version"`
+			Reviewer Reviewer `json:"reviewer"`
+			AutoFix  AutoFix  `json:"auto_fix"`
+			Classes  Classes  `json:"classes"`
+		}{p.Version, p.Reviewer, p.AutoFix, p.Classes}
+	}
+	data, err := json.Marshal(hashPolicy)
 	if err != nil {
 		return Selection{}, err
 	}
