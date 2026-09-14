@@ -134,12 +134,29 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 	}
 	bare := filepath.Join(r.Root, "repos", run.RepoID+".git")
 	gateRef := "refs/heads/" + branch
+	anchor := "refs/no-mistakes/recovery/" + run.RunID + "/gate"
+	headsAligned := status.Local.Head == run.RecordedHead && status.Local.Head == run.SubmittedHead
 	if custodyReturned {
-		if err := r.requireRef(ctx, bare, "refs/no-mistakes/recover/"+run.RunID, run.RecordedHead); err != nil {
+		nativeAnchor := "refs/no-mistakes/recover/" + run.RunID
+		if headsAligned {
+			nativeHead, err := r.readRef(ctx, bare, nativeAnchor)
+			if err != nil {
+				return RecoveryResult{}, fmt.Errorf("pipeline: returned pipeline head is not anchored: %w", err)
+			}
+			gateHead, err := r.readRef(ctx, bare, anchor)
+			if err != nil {
+				return RecoveryResult{}, errors.New("pipeline: aligned returned custody lacks its stale-head anchor")
+			}
+			for _, head := range []string{nativeHead, gateHead} {
+				if err := r.requireCommit(ctx, bare, head); err != nil {
+					return RecoveryResult{}, errors.New("pipeline: returned custody anchor commit is unavailable")
+				}
+			}
+		} else if err := r.requireRef(ctx, bare, nativeAnchor, run.RecordedHead); err != nil {
 			return RecoveryResult{}, fmt.Errorf("pipeline: returned pipeline head is not anchored: %w", err)
 		}
 	}
-	if status.Local.Head == run.RecordedHead && status.Local.Head == run.SubmittedHead {
+	if headsAligned {
 		if err := r.requireRef(ctx, bare, gateRef, status.Local.Head); err != nil {
 			return RecoveryResult{}, fmt.Errorf("pipeline: recovered gate branch is unsafe: %w", err)
 		}
@@ -150,7 +167,6 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 			return RecoveryResult{}, fmt.Errorf("pipeline: local recovery commit is unavailable: %w", err)
 		}
 	}
-	anchor := "refs/no-mistakes/recovery/" + run.RunID + "/gate"
 	gateHead, err := r.readRef(ctx, bare, gateRef)
 	if err != nil {
 		return RecoveryResult{}, err

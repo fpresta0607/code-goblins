@@ -149,7 +149,7 @@ func (r Reader) CheckStart(ctx context.Context, project, worktree, branch string
 	if err := checkRepoConfig(trusted.Stdout, policy, false); err != nil {
 		return err
 	}
-	if err := checkTrustedPrimaryAgent(trusted.Stdout, policy); err != nil {
+	if err := checkEffectivePrimaryAgent(task.Stdout, trusted.Stdout, policy); err != nil {
 		return err
 	}
 	return nil
@@ -191,21 +191,39 @@ func checkRepoConfig(data []byte, p Policy, checkAutomatic bool) error {
 	return nil
 }
 
-func checkTrustedPrimaryAgent(data []byte, p Policy) error {
-	doc, err := parseYAML(data)
+func checkEffectivePrimaryAgent(taskData, trustedData []byte, p Policy) error {
+	type repoRouting struct {
+		Agent             yaml.Node `yaml:"agent"`
+		AllowRepoCommands bool      `yaml:"allow_repo_commands"`
+	}
+	decode := func(data []byte) (repoRouting, error) {
+		doc, err := parseYAML(data)
+		if err != nil {
+			return repoRouting{}, err
+		}
+		var config repoRouting
+		if err := doc.Decode(&config); err != nil {
+			return repoRouting{}, errors.New("pipeline: invalid repository policy override")
+		}
+		return config, nil
+	}
+	task, err := decode(taskData)
 	if err != nil {
 		return err
 	}
-	var config struct {
-		Agent yaml.Node `yaml:"agent"`
+	trusted, err := decode(trustedData)
+	if err != nil {
+		return err
 	}
-	if err := doc.Decode(&config); err != nil {
-		return errors.New("pipeline: invalid repository policy override")
+	agent := &trusted.Agent
+	source := "trusted default-branch"
+	if trusted.AllowRepoCommands {
+		agent = &task.Agent
+		source = "submitted branch"
 	}
-	if config.Agent.Kind == 0 {
+	if agent.Kind == 0 {
 		return nil
 	}
-	agent := &config.Agent
 	if agent.Kind == yaml.SequenceNode && len(agent.Content) == 1 {
 		agent = agent.Content[0]
 	}
@@ -214,7 +232,7 @@ func checkTrustedPrimaryAgent(data []byte, p Policy) error {
 		want = p.Primary.Harness
 	}
 	if agent.Kind != yaml.ScalarNode || agent.Value != want {
-		return fmt.Errorf("pipeline: trusted default-branch agent overrides the owned %s primary in no-mistakes v1.75.1; remove the repository agent field or set it to %s", want, want)
+		return fmt.Errorf("pipeline: effective %s agent overrides the owned %s primary in no-mistakes v1.75.1; remove the effective repository agent field or set it to %s", source, want, want)
 	}
 	return nil
 }

@@ -502,3 +502,59 @@ func TestRecoverKeepLocalRefusesAlignedV175CustodyReturnedWithoutNativeAnchor(t 
 		}
 	}
 }
+
+func TestRecoverKeepLocalFinishesCommittedCustodyReturnedAlignment(t *testing.T) {
+	const (
+		run       = "01M2G34VN0E2764T0AY3NABZH0"
+		branch    = "fix/cfo-pr-status-context"
+		staleGate = "0c61c8d1bb5145fb3dad57fde7f0e139a0c98a83"
+		recorded  = "c5fcb965b84750629f8a87f35ee571a128ec7e4e"
+		local     = "e78eae6f6569b7bc37835ae36b4ef79e4e434fd4"
+	)
+	runner := &recoveryRunner{
+		scenario:        recoveryScenario{run: run, repo: recoveryRepo, branch: branch, recorded: recorded, submitted: staleGate},
+		alreadyOwned:    true,
+		localHead:       local,
+		gateAligned:     true,
+		databaseAligned: true,
+		anchorExists:    true,
+		nativeAnchor:    true,
+		custodyReturned: true,
+	}
+	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	result, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", branch, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RunID != run || result.Head != local {
+		t.Fatalf("result=%+v", result)
+	}
+	for _, request := range runner.requests {
+		joined := request.Name + " " + strings.Join(request.Args, " ")
+		if strings.Contains(joined, "update-ref") || request.Name == "sqlite3" && strings.Contains(joined, "UPDATE runs") {
+			t.Fatalf("aligned retry mutated state: %s", joined)
+		}
+	}
+}
+
+func TestRecoverKeepLocalRefusesCommittedCustodyAlignmentWithoutStaleGateAnchor(t *testing.T) {
+	runner := &recoveryRunner{
+		scenario: recoveryScenario{
+			run:       "01M2G34VN0E2764T0AY3NABZH0",
+			repo:      recoveryRepo,
+			branch:    "fix/cfo-pr-status-context",
+			recorded:  "c5fcb965b84750629f8a87f35ee571a128ec7e4e",
+			submitted: "0c61c8d1bb5145fb3dad57fde7f0e139a0c98a83",
+		},
+		alreadyOwned:    true,
+		localHead:       "e78eae6f6569b7bc37835ae36b4ef79e4e434fd4",
+		gateAligned:     true,
+		databaseAligned: true,
+		nativeAnchor:    true,
+		custodyReturned: true,
+	}
+	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", runner.scenario.branch, nil); err == nil {
+		t.Fatal("aligned custody retry accepted without stale gate anchor")
+	}
+}
