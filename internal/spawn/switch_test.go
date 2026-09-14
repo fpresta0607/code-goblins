@@ -9,10 +9,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -32,6 +34,9 @@ type switchRunner struct {
 	gitCalls     []execx.Request
 	resumeDialog string // pane text shown after the relaunch until an Enter lands
 	resumeReplay string // replayed conversation prepended to every post-relaunch read
+	statusReady  chan struct{}
+	statusResume chan struct{}
+	statusPaused bool
 	// agentUnreadable makes herdr answer agent get untrustworthily once the
 	// relaunch has run, so the failure path cannot tell alive from gone.
 	agentUnreadable bool
@@ -45,6 +50,11 @@ func (r *switchRunner) Run(ctx context.Context, req execx.Request) (execx.Result
 		r.gitCalls = append(r.gitCalls, req)
 		switch {
 		case len(req.Args) > 0 && req.Args[0] == "status":
+			if r.statusReady != nil && !r.statusPaused {
+				r.statusPaused = true
+				close(r.statusReady)
+				<-r.statusResume
+			}
 			return execx.Result{Stdout: []byte(r.gitStatus)}, nil
 		case len(req.Args) > 1 && req.Args[0] == "rev-parse" && req.Args[1] == "--abbrev-ref":
 			return execx.Result{Stdout: []byte(r.gitBranch + "\n")}, nil
@@ -188,6 +198,72 @@ func TestSwitchKeepsTheTaskIDPaneAndWorktree(t *testing.T) {
 	}
 	if !strings.Contains(result.Output, "switched "+fixture.meta.ID) {
 		t.Errorf("output = %q, want it to name the switched task", result.Output)
+	}
+}
+
+func TestSwitchSerializesPolicyMigrationMetadataUpdate(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	fixture.meta.PipelineClass = "ordinary"
+	fixture.meta.PipelineHash = "v1-hash"
+	if err := state.WriteTaskMeta(fixture.stateDir, fixture.meta); err != nil {
+		t.Fatal(err)
+	}
+	fixture.runner.statusReady = make(chan struct{})
+	fixture.runner.statusResume = make(chan struct{})
+	switchDone := make(chan error, 1)
+	go func() {
+		_, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"})
+		switchDone <- err
+	}()
+	<-fixture.runner.statusReady
+	migrationBlocked := make(chan struct{}, 1)
+	migrationDone := make(chan error, 1)
+	go func() {
+		for {
+			name := state.MetadataLockName(fixture.meta.ID)
+			if _, err := lock.AcquireExclusiveNamed(fixture.stateDir, name); err == nil {
+				current, readErr := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
+				if readErr == nil {
+					current.PipelineHash = "v2-hash"
+					readErr = state.WriteTaskMeta(fixture.stateDir, current)
+				}
+				migrationDone <- errors.Join(readErr, lock.ReleaseExclusiveNamed(fixture.stateDir, name))
+				return
+			} else if !errors.Is(err, lock.ErrHeld) {
+				migrationDone <- err
+				return
+			}
+			select {
+			case migrationBlocked <- struct{}{}:
+			default:
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+	migrationFinished := false
+	select {
+	case <-migrationBlocked:
+	case err := <-migrationDone:
+		migrationFinished = true
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	close(fixture.runner.statusResume)
+	if err := <-switchDone; err != nil {
+		t.Fatal(err)
+	}
+	if !migrationFinished {
+		if err := <-migrationDone; err != nil {
+			t.Fatal(err)
+		}
+	}
+	updated, err := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.PipelineHash != "v2-hash" || updated.Harness != string(harness.Kimi) {
+		t.Fatalf("metadata lost migration or switch update: %+v", updated)
 	}
 }
 

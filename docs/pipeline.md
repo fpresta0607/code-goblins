@@ -63,7 +63,9 @@ Run `config-apply` before migrating any live task snapshot.
 `migrate` requires the applied v2 global configuration, the daemon stopped, every durable native run terminal, and the task's pipeline lock.
 It accepts only the reviewed v1-to-v2 transition and preserves the task class and `review_cycles` cap exactly.
 Before replacing either owned field, it writes a task-local transaction journal containing the validated old and new snapshots and the expected audit event.
-An interrupted command resumes that journal under the same pipeline, cleanup, and native idle locks before any pipeline command trusts the snapshot hash.
+An interrupted command resumes that journal under the same pipeline, cleanup, metadata, and native idle locks before any pipeline command trusts the snapshot hash.
+The task-scoped metadata lock also serializes `cfo pr check` and `cfo switch`, so neither command can publish a stale whole-record update over the migrated hash.
+Migration removes its journal only after the snapshot replacement, metadata hash update, and audit append have all completed while that lock remains held.
 Recovery finishes the migration once or rolls both owned fields back when audit persistence fails, without overwriting unrelated task metadata.
 An append reported as successful commits the audit without a second read, while an errored append whose persisted state cannot be reread leaves the forward journal intact for retry.
 The task status receives one line containing the class, cap, old hash and new hash.
