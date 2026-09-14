@@ -171,7 +171,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		return errors.New("pipeline: isolated feature branch required")
 	}
 	if args[0] == "migrate" {
-		return migratePipelinePolicy(ctx, h, root, reader, meta, selection, out)
+		return migratePipelinePolicy(ctx, h, root, reader.Idle, meta, selection, out)
 	}
 	if args[0] == "recover" {
 		result, err := reader.RecoverKeepLocal(ctx, meta.Project, meta.Worktree, branch, nativeEnv(root))
@@ -215,11 +215,20 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	return nil
 }
 
-func migratePipelinePolicy(ctx context.Context, h home.Home, root string, reader pipeline.Reader, meta state.TaskMeta, old pipeline.Selection, out io.Writer) (err error) {
+func migratePipelinePolicy(ctx context.Context, h home.Home, root string, idle func(context.Context) (func() error, error), meta state.TaskMeta, old pipeline.Selection, out io.Writer) (err error) {
 	current, err := pipeline.Load(filepath.Join(h.Root, "config", "pipeline.json"))
 	if err != nil {
 		return err
 	}
+	next, err := pipeline.MigrateSelection(old, current)
+	if err != nil {
+		return err
+	}
+	releaseIdle, err := idle(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, releaseIdle()) }()
 	config := pipeline.Config{Path: filepath.Join(root, "config.yaml"), Policy: current}
 	drift, err := config.Drift()
 	if err != nil {
@@ -228,15 +237,6 @@ func migratePipelinePolicy(ctx context.Context, h home.Home, root string, reader
 	if len(drift) != 0 {
 		return fmt.Errorf("pipeline: apply current shared config before migrating tasks (%s)", strings.Join(drift, ", "))
 	}
-	next, err := pipeline.MigrateSelection(old, current)
-	if err != nil {
-		return err
-	}
-	releaseIdle, err := reader.Idle(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, releaseIdle()) }()
 	if next == old {
 		fmt.Fprintf(out, "pipeline policy: task %s already uses %s\n", meta.ID, next.Hash)
 		return nil
