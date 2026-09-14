@@ -94,6 +94,7 @@ func TestRepoAgentCannotAlterRenderedGlobalReviewAgents(t *testing.T) {
 }
 
 type primaryRoutingRunner struct {
+	task    []byte
 	trusted []byte
 }
 
@@ -110,6 +111,9 @@ func (r primaryRoutingRunner) Run(ctx context.Context, request execx.Request) (e
 	case "status --porcelain --untracked-files=all":
 		return execx.Result{}, nil
 	case "show HEAD:.no-mistakes.yaml":
+		if len(r.task) != 0 {
+			return execx.Result{Stdout: r.task}, nil
+		}
 		return execx.Result{Stdout: []byte("agent: claude\nauto_fix: {review: 0, test: 1, lint: 1, rebase: 1, ci: 1}\n")}, nil
 	case "ls-remote --symref origin HEAD":
 		return execx.Result{Stdout: []byte("ref: refs/heads/main\tHEAD\n" + primaryRoutingSHA + "\tHEAD\n")}, nil
@@ -206,6 +210,7 @@ INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'ma
 
 	for _, test := range []struct {
 		name    string
+		task    string
 		trusted string
 		wantErr bool
 	}{
@@ -215,12 +220,16 @@ INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'ma
 		{name: "claude override", trusted: "agent: claude\n", wantErr: true},
 		{name: "fallback list", trusted: "agent: [codex, claude]\n", wantErr: true},
 		{name: "automatic selection", trusted: "agent: auto\n", wantErr: true},
+		{name: "trusted command opt-in inherits global", task: "auto_fix: {review: 0, test: 1, lint: 1, rebase: 1, ci: 1}\n", trusted: "agent: claude\nallow_repo_commands: true\n"},
+		{name: "trusted command opt-in uses submitted codex", task: "agent: codex\nauto_fix: {review: 0, test: 1, lint: 1, rebase: 1, ci: 1}\n", trusted: "agent: claude\nallow_repo_commands: true\n"},
+		{name: "trusted command opt-in rejects submitted claude", task: "agent: claude\nauto_fix: {review: 0, test: 1, lint: 1, rebase: 1, ci: 1}\n", trusted: "allow_repo_commands: true\n", wantErr: true},
+		{name: "trusted command opt-in rejects submitted fallback", task: "agent: [codex, claude]\nauto_fix: {review: 0, test: 1, lint: 1, rebase: 1, ci: 1}\n", trusted: "allow_repo_commands: true\n", wantErr: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			reader := Reader{Root: dir, Commands: primaryRoutingRunner{trusted: []byte(test.trusted)}}
+			reader := Reader{Root: dir, Commands: primaryRoutingRunner{task: []byte(test.task), trusted: []byte(test.trusted)}}
 			err := reader.CheckStart(context.Background(), project, filepath.Join(project, "worktree"), "feature", testPolicy(t))
 			if test.wantErr {
-				if err == nil || !strings.Contains(err.Error(), "trusted default-branch agent") {
+				if err == nil || !strings.Contains(err.Error(), "agent overrides") {
 					t.Fatalf("CheckStart error=%v, want trusted primary refusal", err)
 				}
 				return
