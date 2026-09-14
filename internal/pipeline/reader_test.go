@@ -2,7 +2,9 @@ package pipeline
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +14,110 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"gopkg.in/yaml.v3"
 )
+
+func TestVerifyNativeAgentBindsDurableRunAndImmutableGitEvidence(t *testing.T) {
+	if _, err := exec.LookPath("sqlite3"); err != nil {
+		t.Skip("sqlite3 CLI not available")
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git CLI not available")
+	}
+	root := t.TempDir()
+	remote := filepath.Join(root, "remote.git")
+	seed := filepath.Join(root, "seed")
+	project := filepath.Join(root, "project")
+	nativeWorktree := filepath.Join(root, "native")
+	nativeRoot := filepath.Join(root, "native-state")
+	for _, dir := range []string{remote, seed, nativeRoot} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runPipelineGit(t, remote, "init", "--bare", "--initial-branch=main")
+	runPipelineGit(t, seed, "init", "--initial-branch=main")
+	runPipelineGit(t, seed, "config", "user.name", "Pipeline Test")
+	runPipelineGit(t, seed, "config", "user.email", "pipeline@example.com")
+	trustedConfig := []byte("auto_fix: {review: 0, test: 1, lint: 1, rebase: 1, ci: 1}\n")
+	if err := os.WriteFile(filepath.Join(seed, ".no-mistakes.yaml"), trustedConfig, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runPipelineGit(t, seed, "add", ".no-mistakes.yaml")
+	runPipelineGit(t, seed, "commit", "-m", "trusted")
+	runPipelineGit(t, seed, "remote", "add", "origin", remote)
+	runPipelineGit(t, seed, "push", "-u", "origin", "main")
+	runPipelineGit(t, root, "clone", remote, project)
+	runPipelineGit(t, project, "config", "user.name", "Pipeline Test")
+	runPipelineGit(t, project, "config", "user.email", "pipeline@example.com")
+	runPipelineGit(t, project, "switch", "-c", "feature")
+	if err := os.WriteFile(filepath.Join(project, "feature.txt"), []byte("feature\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runPipelineGit(t, project, "add", "feature.txt")
+	runPipelineGit(t, project, "commit", "-m", "feature")
+	submitted := runPipelineGit(t, project, "rev-parse", "HEAD")
+	runPipelineGit(t, project, "push", "-u", "origin", "feature")
+	trusted := runPipelineGit(t, project, "rev-parse", "refs/remotes/origin/main")
+	runPipelineGit(t, project, "switch", "main")
+	runPipelineGit(t, root, "clone", remote, nativeWorktree)
+	runPipelineGit(t, nativeWorktree, "switch", "feature")
+	globalConfig := []byte("agent: [codex]\n")
+	if err := os.WriteFile(filepath.Join(nativeRoot, "config.yaml"), globalConfig, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,head_sha TEXT,submitted_head_sha TEXT,status TEXT,created_at INTEGER,launch_nonce TEXT,launch_validation_generation TEXT,worktree_dir TEXT);
+INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'main');
+INSERT INTO runs VALUES('run','repo','feature','` + submitted + `','` + submitted + `','running',1,'nonce','generation',` + sqlString(filepath.ToSlash(nativeWorktree)) + `);`
+	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), sql).CombinedOutput(); err != nil {
+		t.Fatalf("fixture: %s %v", out, err)
+	}
+	want := NativeAgentExpectation{
+		RunID: "run", Project: project, RepoID: "repo", Branch: "feature", SubmittedHeadSHA: submitted,
+		LaunchNonce: "nonce", ValidationGeneration: "generation", DefaultBranch: "main", TrustedSHA: trusted,
+		TaskConfigSHA256: fmt.Sprintf("%x", sha256.Sum256(trustedConfig)), TrustedConfigSHA256: fmt.Sprintf("%x", sha256.Sum256(trustedConfig)),
+		GlobalConfigSHA256: fmt.Sprintf("%x", sha256.Sum256(globalConfig)), EffectivePrimary: "codex",
+	}
+	reader := Reader{Root: nativeRoot, Commands: execx.OSRunner{}}
+	if err := reader.VerifyNativeAgent(context.Background(), nativeWorktree, want); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nativeRoot, "config.yaml"), []byte("agent: [claude]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.VerifyNativeAgent(context.Background(), nativeWorktree, want); err == nil || !strings.Contains(err.Error(), "shared native config changed") {
+		t.Fatalf("mutated shared config error=%v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nativeRoot, "config.yaml"), globalConfig, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runPipelineGit(t, nativeWorktree, "update-ref", "refs/remotes/origin/main", submitted)
+	if err := reader.VerifyNativeAgent(context.Background(), nativeWorktree, want); err == nil || !strings.Contains(err.Error(), "tracking evidence changed") {
+		t.Fatalf("mutated native tracking ref error=%v", err)
+	}
+}
+
+func TestNativeRunAtWorktreeDoesNotTreatAnEmptyRecordedPathAsTheCurrentDirectory(t *testing.T) {
+	if _, err := exec.LookPath("sqlite3"); err != nil {
+		t.Skip("sqlite3 CLI not available")
+	}
+	root := t.TempDir()
+	project := t.TempDir()
+	current, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,head_sha TEXT,submitted_head_sha TEXT,status TEXT,created_at INTEGER,launch_nonce TEXT,launch_validation_generation TEXT,worktree_dir TEXT);
+INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'main');
+INSERT INTO runs VALUES('run','repo','feature','head','head','running',1,'nonce','generation','');`
+	if out, err := exec.Command("sqlite3", filepath.Join(root, "state.sqlite"), sql).CombinedOutput(); err != nil {
+		t.Fatalf("fixture: %s %v", out, err)
+	}
+	reader := Reader{Root: root, Commands: execx.OSRunner{}}
+	if _, err := reader.NativeRunAtWorktree(context.Background(), current); !errors.Is(err, ErrNoNativeRunAtWorktree) {
+		t.Fatalf("empty worktree path matched current directory: %v", err)
+	}
+}
 
 func TestGateReadsLatestBranchRoundFromSQLite(t *testing.T) {
 	sqlite, err := exec.LookPath("sqlite3")
@@ -98,6 +204,23 @@ type primaryRoutingRunner struct {
 	trusted []byte
 }
 
+type originHeadRunner struct {
+	output string
+}
+
+func (r originHeadRunner) Run(context.Context, execx.Request) (execx.Result, error) {
+	return execx.Result{Stdout: []byte(r.output)}, nil
+}
+
+func TestOriginDefaultHeadIgnoresOtherAdvertisedRefs(t *testing.T) {
+	const head = "0057c023d4440def35ea209cecf849335ee8c9df"
+	reader := Reader{Commands: originHeadRunner{output: "ref: refs/heads/main\tHEAD\n" + head + "\tHEAD\nb7d55dd29a0d315a338091da0b14a3597a80a36d\trefs/heads/HEAD\n"}}
+	got, err := reader.originDefaultHead(context.Background(), t.TempDir(), "main")
+	if err != nil || got != head {
+		t.Fatalf("originDefaultHead=%q, %v", got, err)
+	}
+}
+
 const primaryRoutingSHA = "0123456789abcdef0123456789abcdef01234567"
 
 func (r *primaryRoutingRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
@@ -108,8 +231,12 @@ func (r *primaryRoutingRunner) Run(ctx context.Context, request execx.Request) (
 		return execx.Result{}, errors.New("unexpected command")
 	}
 	switch strings.Join(request.Args, " ") {
+	case "symbolic-ref --quiet --short HEAD":
+		return execx.Result{Stdout: []byte("feature\n")}, nil
 	case "status --porcelain --untracked-files=all":
 		return execx.Result{}, nil
+	case "rev-parse --verify HEAD^{commit}":
+		return execx.Result{Stdout: []byte("89abcdef0123456789abcdef0123456789abcdef\n")}, nil
 	case "show HEAD:.no-mistakes.yaml":
 		if len(r.task) != 0 {
 			return execx.Result{Stdout: r.task}, nil
@@ -119,10 +246,38 @@ func (r *primaryRoutingRunner) Run(ctx context.Context, request execx.Request) (
 		return execx.Result{Stdout: []byte("ref: refs/heads/main\tHEAD\n" + primaryRoutingSHA + "\tHEAD\n")}, nil
 	case "rev-parse --verify refs/remotes/origin/main":
 		return execx.Result{Stdout: []byte(primaryRoutingSHA + "\n")}, nil
-	case "show refs/remotes/origin/main:.no-mistakes.yaml":
+	case "show " + primaryRoutingSHA + ":.no-mistakes.yaml":
 		return execx.Result{Stdout: r.trusted}, nil
 	default:
 		return execx.Result{}, errors.New("unexpected git command")
+	}
+}
+
+func TestCheckStartEvidenceBindsExactHeadTrustedSHAAndEffectivePrimary(t *testing.T) {
+	sqlite, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 CLI not available")
+	}
+	project := filepath.Join(t.TempDir(), "project")
+	dir := t.TempDir()
+	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT);
+INSERT INTO repos VALUES('repo-bound',` + sqlString(filepath.ToSlash(project)) + `,'main');`
+	if out, err := exec.Command(sqlite, filepath.Join(dir, "state.sqlite"), sql).CombinedOutput(); err != nil {
+		t.Fatalf("fixture: %s %v", out, err)
+	}
+	task := []byte("agent: codex\nauto_fix: {review: 0, test: 1, lint: 1, rebase: 1, ci: 1}\n")
+	trusted := []byte("allow_repo_commands: true\n")
+	reader := Reader{Root: dir, Commands: &primaryRoutingRunner{task: task, trusted: trusted}}
+	evidence, err := reader.CheckStartEvidence(context.Background(), project, filepath.Join(project, "worktree"), "feature", testPolicy(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evidence.RepoID != "repo-bound" || evidence.Branch != "feature" || evidence.HeadSHA != "89abcdef0123456789abcdef0123456789abcdef" || evidence.DefaultBranch != "main" || evidence.TrustedSHA != primaryRoutingSHA || evidence.EffectivePrimary != "codex" {
+		t.Fatalf("evidence=%+v", evidence)
+	}
+	if evidence.TaskConfigSHA256 == "" || evidence.TrustedConfigSHA256 == "" || evidence.TaskConfigSHA256 == evidence.TrustedConfigSHA256 {
+		t.Fatalf("configuration digests=%+v", evidence)
 	}
 }
 
@@ -166,6 +321,7 @@ func TestCheckStartRefusesStaleTrustedPrimaryWithoutUpdatingTrackingRef(t *testi
 	runPipelineGit(t, seed, "remote", "add", "origin", remote)
 	runPipelineGit(t, seed, "push", "-u", "origin", "main")
 	runPipelineGit(t, root, "clone", remote, project)
+	runPipelineGit(t, project, "switch", "-c", "feature")
 	before := runPipelineGit(t, project, "rev-parse", "refs/remotes/origin/main")
 	if err := os.WriteFile(filepath.Join(seed, ".no-mistakes.yaml"), []byte("agent: claude\n"), 0o600); err != nil {
 		t.Fatal(err)

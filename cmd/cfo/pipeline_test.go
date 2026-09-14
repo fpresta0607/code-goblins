@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,11 +34,22 @@ type pipelineRunner struct {
 }
 
 type pipelineStartRunner struct {
-	worktree    string
-	advance     bool
-	remoteRead  int
-	roleStarted bool
-	native      []execx.Request
+	worktree          string
+	advance           bool
+	race              string
+	mutateConfig      func()
+	remoteRead        int
+	branchRead        int
+	statusRead        int
+	headRead          int
+	trackingRead      int
+	taskConfigRead    int
+	trustedConfigRead int
+	worktreeRead      int
+	roleStarted       bool
+	native            []execx.Request
+	nonce             string
+	generation        string
 }
 
 func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Result, error) {
@@ -48,35 +60,79 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 		if strings.Contains(sql, "SELECT default_branch FROM repos") {
 			return execx.Result{Stdout: []byte(`[{"default_branch":"main"}]`)}, nil
 		}
+		if strings.Contains(sql, "SELECT id,default_branch FROM repos") {
+			return execx.Result{Stdout: []byte(`[{"id":"repo","default_branch":"main"}]`)}, nil
+		}
 		if strings.Contains(sql, "SELECT runs.status") {
 			return execx.Result{Stdout: []byte(`[]`)}, nil
+		}
+		if strings.Contains(sql, "launch_validation_generation") {
+			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"run_id":"run-bound","repo_id":"repo","working_path":%q,"branch":"feat/policy","submitted_head_sha":%q,"launch_nonce":%q,"validation_generation":%q,"trusted_sha":%q,"agent":"codex"}]`, filepath.ToSlash(filepath.Dir(filepath.Dir(r.worktree))), trusted, r.nonce, r.generation, trusted))}, nil
 		}
 	case "git":
 		switch strings.Join(q.Args, " ") {
 		case "rev-parse --show-toplevel":
+			r.worktreeRead++
+			if r.race == "global config" && r.worktreeRead == 3 && r.mutateConfig != nil {
+				r.mutateConfig()
+			}
 			return execx.Result{Stdout: []byte(r.worktree + "\n")}, nil
 		case "symbolic-ref --quiet --short HEAD":
+			r.branchRead++
+			if r.race == "branch" && r.branchRead >= 3 {
+				return execx.Result{Stdout: []byte("feat/mutated\n")}, nil
+			}
 			return execx.Result{Stdout: []byte("feat/policy\n")}, nil
 		case "status --porcelain --untracked-files=all":
+			r.statusRead++
+			if r.race == "dirty" && r.statusRead >= 2 {
+				return execx.Result{Stdout: []byte(" M changed.go\n")}, nil
+			}
 			return execx.Result{}, nil
+		case "rev-parse --verify HEAD^{commit}":
+			r.headRead++
+			if r.race == "head" && r.headRead >= 2 {
+				return execx.Result{Stdout: []byte("89abcdef0123456789abcdef0123456789abcdef\n")}, nil
+			}
+			return execx.Result{Stdout: []byte(trusted + "\n")}, nil
 		case "show HEAD:.no-mistakes.yaml":
+			r.taskConfigRead++
+			if r.race == "effective primary" && r.taskConfigRead >= 2 {
+				return execx.Result{Stdout: []byte("agent: claude\nauto_fix: {review: 0, test: 1, lint: 1, rebase: 1, ci: 1}\n")}, nil
+			}
 			return execx.Result{Stdout: []byte("auto_fix: {review: 0, test: 1, lint: 1, rebase: 1, ci: 1}\n")}, nil
 		case "ls-remote --symref origin HEAD":
 			head := trusted
-			if r.advance && r.remoteRead > 1 {
+			if r.advance && r.remoteRead > 0 {
 				head = "89abcdef0123456789abcdef0123456789abcdef"
 			}
 			r.remoteRead++
 			return execx.Result{Stdout: []byte("ref: refs/heads/main\tHEAD\n" + head + "\tHEAD\n")}, nil
 		case "rev-parse --verify refs/remotes/origin/main":
+			r.trackingRead++
+			if r.race == "trusted ref" && r.trackingRead >= 2 {
+				return execx.Result{Stdout: []byte("89abcdef0123456789abcdef0123456789abcdef\n")}, nil
+			}
 			return execx.Result{Stdout: []byte(trusted + "\n")}, nil
-		case "show refs/remotes/origin/main:.no-mistakes.yaml":
+		case "show " + trusted + ":.no-mistakes.yaml":
+			r.trustedConfigRead++
+			if r.race == "trusted config" && r.trustedConfigRead >= 2 {
+				return execx.Result{Stdout: []byte("agent: claude\nauto_fix: {review: 0}\n")}, nil
+			}
 			return execx.Result{Stdout: []byte("auto_fix: {review: 0}\n")}, nil
 		}
 	case "no-mistakes":
 		r.native = append(r.native, q)
-		r.roleStarted = r.advance && r.remoteRead >= 2
-		return execx.Result{}, nil
+		for i, arg := range q.Args {
+			if arg == "--launch-nonce" && i+1 < len(q.Args) {
+				r.nonce = q.Args[i+1]
+			}
+			if arg == "--validation-generation" && i+1 < len(q.Args) {
+				r.generation = q.Args[i+1]
+			}
+		}
+		r.roleStarted = true
+		return execx.Result{Stdout: []byte(fmt.Sprintf("launch_receipt:\n  run_id: run-bound\n  disposition: created\n  launch_nonce: %s\n  validation_generation: %s\n  branch: feat/policy\n  head_sha: %s\n  submitted_head_sha: %s\n  intent_digest: %x\ngate: review\n", r.nonce, r.generation, trusted, trusted, sha256.Sum256([]byte("ship safely"))))}, nil
 	}
 	return execx.Result{}, fmt.Errorf("unexpected start command: %#v", q)
 }
@@ -680,14 +736,18 @@ func TestPipelineMigrationRecoveryRetainsJournalWhenNewPolicyDrifts(t *testing.T
 	if err := yaml.Unmarshal(unsafeConfig, &configDocument); err != nil {
 		t.Fatal(err)
 	}
-	var agentPaths yaml.Node
-	if err := agentPaths.Encode(map[string]string{"codex": "C:/tools/openrouter-codex.exe"}); err != nil {
-		t.Fatal(err)
+	rootMapping := configDocument.Content[0]
+	for i := 0; i < len(rootMapping.Content); i += 2 {
+		if rootMapping.Content[i].Value != "agent_path_override" {
+			continue
+		}
+		agentPaths := rootMapping.Content[i+1]
+		for j := 0; j < len(agentPaths.Content); j += 2 {
+			if agentPaths.Content[j].Value == "codex" {
+				agentPaths.Content[j+1].Value = "C:/tools/openrouter-codex.exe"
+			}
+		}
 	}
-	configDocument.Content[0].Content = append(configDocument.Content[0].Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "agent_path_override"},
-		&agentPaths,
-	)
 	unsafeConfig, err = yaml.Marshal(&configDocument)
 	if err != nil {
 		t.Fatal(err)
@@ -1033,7 +1093,58 @@ func TestPipelineRespondInvokesNativeOnlyForBudgetedExplicitDecision(t *testing.
 	}
 }
 
-func TestPipelineRunRefusesUnattestedNativeTrustedPrimaryLaunch(t *testing.T) {
+func TestPipelineRunBindsAndVerifiesNativeLaunch(t *testing.T) {
+	p, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := p.Select("ordinary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	nm := filepath.Join(root, "nm")
+	tmp := filepath.Join(h.State, "tasktmp", "task")
+	project := filepath.Join(root, "project")
+	wt := filepath.Join(project, ".worktrees", "gb-task")
+	for _, path := range []string{nm, tmp, project, wt} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := selection.Save(filepath.Join(tmp, "pipeline.json")); err != nil {
+		t.Fatal(err)
+	}
+	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: wt, Project: project, TaskTmp: tmp, PipelineClass: selection.Class, PipelineHash: selection.Hash}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	config, _, err := pipeline.Render([]byte("{}"), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "config.yaml"), config, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &pipelineStartRunner{worktree: wt}
+	var out bytes.Buffer
+	err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &out)
+	if err != nil {
+		t.Fatalf("pipelineCommand: %v", err)
+	}
+	if runner.remoteRead != 2 || len(runner.native) != 1 || !runner.roleStarted || runner.nonce == "" || runner.generation == "" {
+		t.Fatalf("bound launch: remote_reads=%d native=%+v role_started=%v nonce=%q generation=%q", runner.remoteRead, runner.native, runner.roleStarted, runner.nonce, runner.generation)
+	}
+	if !strings.Contains(out.String(), "launch_receipt:") || !strings.Contains(out.String(), "pipeline launch: verified run run-bound") {
+		t.Fatalf("output=%q", out.String())
+	}
+}
+
+func TestPipelineRunRefusesRemoteRaceBeforeNativeInvocation(t *testing.T) {
 	p, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -1072,11 +1183,69 @@ func TestPipelineRunRefusesUnattestedNativeTrustedPrimaryLaunch(t *testing.T) {
 	}
 	runner := &pipelineStartRunner{worktree: wt, advance: true}
 	err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "cannot prove the exact fetched trusted SHA and primary") {
-		t.Fatalf("pipelineCommand error=%v, want native attestation refusal", err)
+	if err == nil || !strings.Contains(err.Error(), "stale") {
+		t.Fatalf("pipelineCommand error=%v, want remote race refusal", err)
 	}
-	if runner.remoteRead != 1 || len(runner.native) != 0 || runner.roleStarted {
-		t.Fatalf("unattested launch crossed native boundary: remote_reads=%d native=%+v role_started=%v", runner.remoteRead, runner.native, runner.roleStarted)
+	if runner.remoteRead != 2 || len(runner.native) != 0 || runner.roleStarted {
+		t.Fatalf("race crossed native boundary: remote_reads=%d native=%+v role_started=%v", runner.remoteRead, runner.native, runner.roleStarted)
+	}
+}
+
+func TestPipelineRunRefusesEveryMutableRaceBeforeNativeInvocation(t *testing.T) {
+	for _, race := range []string{"branch", "dirty", "head", "trusted ref", "trusted config", "effective primary", "global config"} {
+		t.Run(race, func(t *testing.T) {
+			p, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			selection, err := p.Select("ordinary")
+			if err != nil {
+				t.Fatal(err)
+			}
+			root := t.TempDir()
+			h := home.Home{Root: root, State: filepath.Join(root, "state")}
+			nm := filepath.Join(root, "nm")
+			tmp := filepath.Join(h.State, "tasktmp", "task")
+			project := filepath.Join(root, "project")
+			wt := filepath.Join(project, ".worktrees", "gb-task")
+			for _, path := range []string{nm, tmp, project, wt} {
+				if err := os.MkdirAll(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := selection.Save(filepath.Join(tmp, "pipeline.json")); err != nil {
+				t.Fatal(err)
+			}
+			meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: wt, Project: project, TaskTmp: tmp, PipelineClass: selection.Class, PipelineHash: selection.Hash}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			config, _, err := pipeline.Render([]byte("unowned: before\n"), p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			configPath := filepath.Join(nm, "config.yaml")
+			if err := os.WriteFile(configPath, config, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			runner := &pipelineStartRunner{worktree: wt, race: race}
+			runner.mutateConfig = func() {
+				changed := bytes.Replace(config, []byte("unowned: before"), []byte("unowned: after"), 1)
+				if err := os.WriteFile(configPath, changed, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
+			if err == nil {
+				t.Fatal("race was accepted")
+			}
+			if len(runner.native) != 0 || runner.roleStarted {
+				t.Fatalf("race crossed native boundary: native=%+v role_started=%v error=%v", runner.native, runner.roleStarted, err)
+			}
+		})
 	}
 }
 

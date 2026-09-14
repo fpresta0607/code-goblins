@@ -55,9 +55,11 @@ The command prints the backup path, preserves unrelated YAML settings and commen
 It refuses a missing or unreadable database or configuration file.
 An operator can restore the printed backup in another idle window; restoration is never automatic over an operator's intervening edit.
 
-Owned machine fields are `agent: [codex]`, `agent_config.codex: {model: gpt-5.6-sol, effort: high}`, both global `review_agents` roles with the same Codex profile, `agent_args_override.codex: [-c, 'service_tier="default"']`, the absence of `agent_path_override.codex`, `auto_fix.review: 0`, and one automatic follow-up each for test, lint, rebase and CI.
+Owned machine fields are `agent: [codex]`, `agent_config.codex: {model: gpt-5.6-sol, effort: high}`, both global `review_agents` roles with the same Codex profile, `agent_args_override.codex: [--cfo-native-gate, -c, 'service_tier="default"']`, `agent_path_override.codex: cfo`, `auto_fix.review: 0`, and one automatic follow-up each for test, lint, rebase and CI.
 The raw Codex argument override forces standard service for every managed role, so a user-level fast or priority preference cannot leak into a gate, while `agent_config` owns model and reasoning effort.
-Removing the Codex executable override makes no-mistakes resolve the native `codex` command from `PATH`; executable overrides for other harnesses remain operator-owned.
+The Codex executable override sends native invocations through the CFO pre-agent guard, which removes its private marker and delegates to the real `codex` command from `PATH` only after a managed run's durable bindings still match.
+Native runs without a CFO launch nonce and validation generation, and native Codex operations outside a run, pass through unchanged, while incomplete or mismatched managed identities fail closed.
+Executable overrides for other harnesses remain operator-owned.
 The exact legacy CFO-owned Claude model and effort vector is removed during apply; a differing operator-owned Claude vector is preserved.
 Document follow-ups and other native settings retain their existing values.
 Spawn never rewrites shared YAML.
@@ -91,7 +93,13 @@ The pane exports `CFO_HOME` and `CFO_STATE_OVERRIDE` and every gate step inherit
 Commit work on a named feature branch before `run`.
 The project must be initialized for no-mistakes, with readable committed task and origin default-branch `.no-mistakes.yaml` files.
 Refresh origin before starting; global reviewer/fixer drift and repository automatic-fix overrides that conflict with policy are refused.
-No-mistakes v1.75.1 does not expose an assertion that binds an expected trusted SHA and effective primary after its fresh fetch but before agent creation, so `run` refuses before invoking native start instead of relying on an opaque launch receipt.
+Immediately before invoking native start, `run` captures the complete mutable launch evidence twice and requires the snapshots to match.
+The evidence binds task metadata, frozen policy, worktree identity, named branch, clean submitted head, current origin default branch, local tracking ref, submitted and trusted repository configuration digests, shared configuration digest, and effective Codex primary.
+It then uses the native strict launch nonce and validation generation and requires the returned receipt to bind the exact branch, submitted head, generation, and intent digest.
+The shared configuration routes native Codex through `cfo --cfo-native-gate`.
+At the actual agent boundary, that guard finds the active run by its native worktree, loads the matching task-local launch contract, and rechecks the durable run identity, current native worktree head, shared configuration, origin default branch, tracking ref, both repository configuration blobs, and Codex primary before delegating.
+After native returns, the driver also requires the durable run, trusted configuration SHA, and recorded agent invocation to match before reporting a verified launch.
+Receipt-only validation and after-the-fact cancellation are not treated as proof that the pre-agent boundary was safe.
 A repository's `agent` field continues to select only its native primary path and cannot replace the global reviewer or fixer profiles.
 An earlier unresolved run cannot be restarted to reset its budget.
 Use native read-only `axi status` and `axi logs` to inspect progress; the engine's guarded `axi sync` remains the branch synchronization interface after validation.

@@ -80,15 +80,6 @@ func Render(before []byte, p Policy) ([]byte, []string, error) {
 		}
 		return nil
 	}
-	remove := func(parent *yaml.Node, key, label string) {
-		for i := 0; i < len(parent.Content); i += 2 {
-			if parent.Content[i].Value == key {
-				parent.Content = append(parent.Content[:i], parent.Content[i+2:]...)
-				drift = append(drift, label)
-				return
-			}
-		}
-	}
 	primary := p.Reviewer
 	if p.Version == 2 {
 		primary = p.Primary
@@ -120,19 +111,15 @@ func Render(before []byte, p Policy) ([]byte, []string, error) {
 		if err := removeOwned(args, "claude", "agent_args_override.claude", []string{"--model", "opus", "--effort", "high"}); err != nil {
 			return nil, nil, err
 		}
-		if err := set(args, "codex", "agent_args_override.codex", []string{"-c", `service_tier="default"`}); err != nil {
+		if err := set(args, "codex", "agent_args_override.codex", []string{"--cfo-native-gate", "-c", `service_tier="default"`}); err != nil {
 			return nil, nil, err
 		}
-		for i := 0; i < len(root.Content); i += 2 {
-			if root.Content[i].Value != "agent_path_override" {
-				continue
-			}
-			paths := root.Content[i+1]
-			if paths.Kind != yaml.MappingNode {
-				return nil, nil, errors.New("pipeline: agent_path_override must be a mapping")
-			}
-			remove(paths, "codex", "agent_path_override.codex")
-			break
+		paths, err := mapping(root, "agent_path_override")
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := set(paths, "codex", "agent_path_override.codex", "cfo"); err != nil {
+			return nil, nil, err
 		}
 		agentConfig, err := mapping(root, "agent_config")
 		if err != nil {
