@@ -159,6 +159,87 @@ func legacyPipelineSelection(t *testing.T, class string) pipeline.Selection {
 	return selection
 }
 
+func TestPipelineMigrateRejectsConfigApplyBeforeIdleLock(t *testing.T) {
+	root := t.TempDir()
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	nm := filepath.Join(root, "nm")
+	tmp := filepath.Join(h.State, "tasktmp", "task")
+	for _, path := range []string{filepath.Join(root, "config"), nm, tmp} {
+		if err := os.MkdirAll(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	current, err := os.ReadFile(filepath.Join("..", "..", "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "config", "pipeline.json"), current, 0600); err != nil {
+		t.Fatal(err)
+	}
+	policy, err := pipeline.Load(filepath.Join(root, "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(nm, "config.yaml")
+	config, _, err := pipeline.Render([]byte("{}"), policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, config, 0600); err != nil {
+		t.Fatal(err)
+	}
+	old := legacyPipelineSelection(t, "ordinary")
+	snapshot := filepath.Join(tmp, "pipeline.json")
+	if err := old.Save(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", TaskTmp: tmp, PipelineClass: old.Class, PipelineHash: old.Hash}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	otherPolicy := old.Policy
+	idleCalls := 0
+	idle := func(ctx context.Context) (func() error, error) {
+		idleCalls++
+		applied, err := (pipeline.Config{
+			Path:   configPath,
+			Policy: otherPolicy,
+			Idle: func(context.Context) (func() error, error) {
+				return func() error { return nil }, nil
+			},
+		}).Apply(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if len(applied.Drift) == 0 {
+			return nil, errors.New("config apply did not change the shared policy")
+		}
+		return func() error { return nil }, nil
+	}
+
+	err = migratePipelinePolicy(context.Background(), h, nm, idle, meta, old, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "apply current shared config before migrating tasks") {
+		t.Fatalf("migration error=%v, want locked config drift refusal", err)
+	}
+	if idleCalls != 1 {
+		t.Fatalf("idle acquisitions=%d, want 1", idleCalls)
+	}
+	unchanged, err := pipeline.LoadSelection(snapshot)
+	if err != nil || unchanged != old {
+		t.Fatalf("refused migration changed snapshot: %+v %v", unchanged, err)
+	}
+	updated, err := state.ReadTaskMeta(h.State, meta.ID)
+	if err != nil || updated.PipelineHash != old.Hash || updated.PipelineClass != old.Class {
+		t.Fatalf("refused migration changed metadata: %+v %v", updated, err)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, policyMigrationJournalName)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("refused migration left journal: %v", err)
+	}
+	if status, err := state.TailStatus(h.State, meta.ID, 1); err != nil || len(status) != 0 {
+		t.Fatalf("refused migration wrote audit: %v %v", status, err)
+	}
+}
+
 func TestPipelineMigrateReplacesOnlyFrozenPolicyAndAudits(t *testing.T) {
 	for _, test := range []struct {
 		name       string
