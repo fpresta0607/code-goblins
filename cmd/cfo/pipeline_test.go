@@ -14,10 +14,14 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 type pipelineRunner struct {
@@ -25,6 +29,93 @@ type pipelineRunner struct {
 	native     []execx.Request
 	worktree   string
 	activeRuns int
+}
+
+type pipelineSwitchRunner struct {
+	statusReady   chan struct{}
+	statusRelease chan struct{}
+	alive         bool
+}
+
+func (r *pipelineSwitchRunner) Run(ctx context.Context, q execx.Request) (execx.Result, error) {
+	switch q.Name {
+	case "git":
+		if len(q.Args) > 0 && q.Args[0] == "status" {
+			close(r.statusReady)
+			select {
+			case <-r.statusRelease:
+				return execx.Result{}, nil
+			case <-ctx.Done():
+				return execx.Result{}, ctx.Err()
+			}
+		}
+	case "herdr":
+		if len(q.Args) >= 3 && q.Args[0] == "pane" && q.Args[1] == "get" {
+			return execx.Result{Stdout: []byte(`{"result":{"pane":{"pane_id":"pane-1"}}}`)}, nil
+		}
+		if len(q.Args) >= 3 && q.Args[0] == "agent" && q.Args[1] == "get" {
+			if r.alive {
+				return execx.Result{Stdout: []byte(`{"result":{"agent":{"agent_status":"working"}}}`)}, nil
+			}
+			return execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`)}, nil
+		}
+		if len(q.Args) >= 4 && q.Args[0] == "pane" && q.Args[1] == "send-text" {
+			return execx.Result{Stdout: []byte(`{"result":{}}`)}, nil
+		}
+		if len(q.Args) >= 4 && q.Args[0] == "pane" && q.Args[1] == "send-keys" {
+			if q.Args[3] == "enter" {
+				r.alive = true
+			}
+			return execx.Result{Stdout: []byte(`{"result":{}}`)}, nil
+		}
+	}
+	return execx.Result{}, fmt.Errorf("unexpected switch command: %#v", q)
+}
+
+type pipelineSwitchGit struct {
+	worktree string
+}
+
+func (g pipelineSwitchGit) Acquire(context.Context, string, string) (string, error) {
+	return "", errors.New("unexpected worktree acquisition")
+}
+
+func (g pipelineSwitchGit) WorktreeTop(context.Context, string) (string, error) {
+	return g.worktree, nil
+}
+
+func (pipelineSwitchGit) Return(context.Context, string, string) error {
+	return errors.New("unexpected worktree return")
+}
+
+func (pipelineSwitchGit) EnsureSeeded(context.Context, string) (bool, error) {
+	return false, errors.New("unexpected repository seeding")
+}
+
+type pipelineSwitchAdapter struct {
+	kind harness.Kind
+}
+
+func (a pipelineSwitchAdapter) Kind() harness.Kind {
+	return a.kind
+}
+
+func (pipelineSwitchAdapter) Validate(context.Context, execx.Runner) error {
+	return nil
+}
+
+func (a pipelineSwitchAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
+	return harness.Launch{
+		Args:        []string{"--test"},
+		Env:         map[string]string{"GOTMPDIR": spec.GoTmp},
+		PromptFile:  spec.BriefPath,
+		TypedLaunch: true,
+		Executable:  string(a.kind),
+	}, nil
+}
+
+func (pipelineSwitchAdapter) Control() harness.Control {
+	return harness.Control{}
 }
 
 func (r *pipelineRunner) Run(_ context.Context, q execx.Request) (execx.Result, error) {
@@ -510,6 +601,145 @@ func TestPipelineMigrationRacingPRCheckPreservesBothUpdates(t *testing.T) {
 	}
 	if updated["pipeline_hash"] != want.Hash || updated["pipeline_class"] != want.Class || updated["pr"] != "https://example.test/pull/1" || updated["pr_head"] != "abc123" {
 		t.Fatalf("metadata lost migration or PR update: %+v", updated)
+	}
+}
+
+func TestPipelineMigrationRacingSwitchPreservesBothUpdates(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME", "HOME"} {
+		t.Setenv(name, filepath.Join(root, "cache"))
+	}
+	h := home.Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data")}
+	nm := filepath.Join(root, "nm")
+	tmp := filepath.Join(h.State, "tasktmp", "task")
+	project := filepath.Join(root, "project")
+	wt := filepath.Join(project, ".worktrees", "gb-task")
+	brief := filepath.Join(tmp, "brief.md")
+	for _, path := range []string{filepath.Join(root, "config"), h.Data, nm, tmp, wt} {
+		if err := os.MkdirAll(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	current, err := os.ReadFile(filepath.Join("..", "..", "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "config", "pipeline.json"), current, 0600); err != nil {
+		t.Fatal(err)
+	}
+	policy, err := pipeline.Load(filepath.Join(root, "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, _, err := pipeline.Render([]byte("{}"), policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "config.yaml"), config, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(brief, []byte("continue the task\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	old := legacyPipelineSelection(t, "ordinary")
+	snapshot := filepath.Join(tmp, "pipeline.json")
+	if err := old.Save(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	meta := state.TaskMeta{
+		ID:               "task",
+		Mode:             "no-mistakes",
+		Worktree:         wt,
+		Project:          project,
+		TaskTmp:          tmp,
+		Brief:            brief,
+		PipelineClass:    old.Class,
+		PipelineHash:     old.Hash,
+		Backend:          "herdr",
+		Harness:          string(harness.Claude),
+		HerdrSession:     "fleet",
+		HerdrWorkspaceID: "workspace-1",
+		HerdrTabID:       "tab-1",
+		HerdrPaneID:      "pane-1",
+	}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+
+	switchRunner := &pipelineSwitchRunner{statusReady: make(chan struct{}), statusRelease: make(chan struct{})}
+	switchService := spawn.Service{
+		Herdr:     &herdr.Client{Commands: switchRunner, Session: "fleet"},
+		Worktrees: worktree.Service{Commands: switchRunner, Git: pipelineSwitchGit{worktree: wt}, DataDir: h.Data},
+		Harness: harness.Registry{Adapters: map[harness.Kind]harness.Adapter{
+			harness.Claude: pipelineSwitchAdapter{kind: harness.Claude},
+			harness.Kimi:   pipelineSwitchAdapter{kind: harness.Kimi},
+		}},
+		Commands: switchRunner,
+		StateDir: h.State,
+	}
+	switchDone := make(chan error, 1)
+	go func() {
+		_, err := switchService.Switch(context.Background(), spawn.SwitchRequest{ID: meta.ID, Harness: harness.Kimi, Session: "fleet"})
+		switchDone <- err
+	}()
+	<-switchRunner.statusReady
+
+	runner := &pipelineRunner{worktree: wt}
+	err = pipelineCommand(context.Background(), h, nm, runner, []string{"migrate", meta.ID}, &bytes.Buffer{})
+	if !errors.Is(err, lock.ErrHeld) {
+		t.Fatalf("migration racing switch error=%v, want metadata lock refusal", err)
+	}
+	unchanged, err := pipeline.LoadSelection(snapshot)
+	if err != nil || unchanged != old {
+		t.Fatalf("refused migration changed snapshot: %+v %v", unchanged, err)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, policyMigrationJournalName)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("refused migration left journal: %v", err)
+	}
+
+	close(switchRunner.statusRelease)
+	if err := <-switchDone; err != nil {
+		t.Fatalf("switch: %v", err)
+	}
+	if err := pipelineCommand(context.Background(), h, nm, runner, []string{"migrate", meta.ID}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("retry migration: %v", err)
+	}
+
+	want, err := policy.Select(old.Class)
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrated, err := pipeline.LoadSelection(snapshot)
+	if err != nil || migrated != want {
+		t.Fatalf("snapshot=%+v err=%v", migrated, err)
+	}
+	updated, err := state.ReadTaskMeta(h.State, meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.PipelineHash != want.Hash || updated.PipelineClass != want.Class || updated.Harness != string(harness.Kimi) {
+		t.Fatalf("metadata lost migration or switch update: %+v", updated)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, policyMigrationJournalName)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("completed migration left journal: %v", err)
+	}
+	status, err := state.TailStatus(h.State, meta.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	audit := pipelineMigrationAudit(old, want)
+	count := 0
+	for _, line := range status {
+		_, event := state.SplitStatus(line)
+		if event == audit {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("migration audit count=%d, want 1: %v", count, status)
 	}
 }
 
