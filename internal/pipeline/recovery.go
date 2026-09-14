@@ -57,7 +57,7 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 	if run.Branch != branch || run.RecordedHead == "" || run.SubmittedHead == "" || run.PushedHead != "" || run.Status != "failed" && run.Status != "cancelled" {
 		return RecoveryResult{}, errors.New("pipeline: latest run is not an unpublished failed or cancelled custody recovery")
 	}
-	if status, output, err := r.readRecoverySync(ctx, worktree, env); err == nil && status.userOwned(run, false) {
+	if status, output, err := r.readRecoverySync(ctx, worktree, env); err == nil && status.recoverableUserOwned(run) {
 		return r.alignUserOwned(ctx, worktree, branch, env, run, status, output)
 	}
 	if run.CustodyReturnedAt != 0 {
@@ -129,10 +129,10 @@ func (r Reader) alignUserOwned(ctx context.Context, worktree, branch string, env
 	}
 	bare := filepath.Join(r.Root, "repos", run.RepoID+".git")
 	gateRef := "refs/heads/" + branch
-	if err := r.requireRef(ctx, bare, gateRef, run.SubmittedHead); err != nil {
-		return RecoveryResult{}, fmt.Errorf("pipeline: recovered gate branch is unsafe: %w", err)
-	}
 	if status.Local.Head == run.SubmittedHead {
+		if err := r.requireRef(ctx, bare, gateRef, run.SubmittedHead); err != nil {
+			return RecoveryResult{}, fmt.Errorf("pipeline: recovered gate branch is unsafe: %w", err)
+		}
 		return RecoveryResult{RunID: run.RunID, Head: status.Local.Head, NativeOutput: output}, nil
 	}
 	for _, head := range []string{run.SubmittedHead, status.Local.Head} {
@@ -141,8 +141,21 @@ func (r Reader) alignUserOwned(ctx context.Context, worktree, branch string, env
 		}
 	}
 	anchor := "refs/no-mistakes/recovery/" + run.RunID + "/gate"
-	if err := r.preserveRecoveryHead(ctx, bare, anchor, run.SubmittedHead); err != nil {
+	gateHead, err := r.readRef(ctx, bare, gateRef)
+	if err != nil {
 		return RecoveryResult{}, err
+	}
+	switch gateHead {
+	case run.SubmittedHead:
+		if err := r.preserveRecoveryHead(ctx, bare, anchor, run.SubmittedHead); err != nil {
+			return RecoveryResult{}, err
+		}
+	case status.Local.Head:
+		if err := r.requireRef(ctx, bare, anchor, run.SubmittedHead); err != nil {
+			return RecoveryResult{}, errors.New("pipeline: advanced recovery gate lacks its stale-head anchor")
+		}
+	default:
+		return RecoveryResult{}, errors.New("pipeline: recovered gate branch is unsafe")
 	}
 	if err := r.fetchRecoveryHead(ctx, bare, worktree, status.Local.Head); err != nil {
 		return RecoveryResult{}, err
@@ -150,15 +163,20 @@ func (r Reader) alignUserOwned(ctx context.Context, worktree, branch string, env
 	if err := r.requireCleanHead(ctx, worktree, status.Local.Head); err != nil {
 		return RecoveryResult{}, err
 	}
-	if err := r.requireRef(ctx, bare, gateRef, run.SubmittedHead); err != nil {
+	if err := r.requireRef(ctx, bare, gateRef, gateHead); err != nil {
 		return RecoveryResult{}, fmt.Errorf("pipeline: gate branch changed during recovery: %w", err)
 	}
-	if err := r.moveRef(ctx, bare, gateRef, status.Local.Head, run.SubmittedHead); err != nil {
-		return RecoveryResult{}, err
+	movedGate := gateHead == run.SubmittedHead
+	if movedGate {
+		if err := r.moveRef(ctx, bare, gateRef, status.Local.Head, run.SubmittedHead); err != nil {
+			return RecoveryResult{}, err
+		}
 	}
 	if err := r.swapRunHeads(ctx, run, run.RecordedHead, run.SubmittedHead, status.Local.Head, status.Local.Head, false); err != nil {
-		rollbackErr := r.moveRef(ctx, bare, gateRef, run.SubmittedHead, status.Local.Head)
-		return RecoveryResult{}, errors.Join(err, rollbackErr)
+		if movedGate {
+			return RecoveryResult{}, errors.Join(err, r.moveRef(ctx, bare, gateRef, run.SubmittedHead, status.Local.Head))
+		}
+		return RecoveryResult{}, err
 	}
 	aligned := run
 	aligned.RecordedHead = status.Local.Head
@@ -211,6 +229,10 @@ func (s recoverySync) userOwned(run recoveryRecord, exactLocal bool) bool {
 	return !exactLocal || s.Local.Head == run.SubmittedHead
 }
 
+func (s recoverySync) recoverableUserOwned(run recoveryRecord) bool {
+	return s.State == "user_owned" && s.Safety == "user_owned" && s.Local.Clean && s.Local.Head != "" && s.Pipeline.Run == run.RunID && s.Pipeline.SubmittedHead == run.SubmittedHead && (s.Pipeline.CurrentHead == run.SubmittedHead || s.Pipeline.CurrentHead == s.Local.Head)
+}
+
 func (r Reader) requireCleanHead(ctx context.Context, worktree, want string) error {
 	status, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Name: "git", Args: []string{"status", "--porcelain", "--untracked-files=all"}})
 	if err != nil || status.ExitCode != 0 || len(bytes.TrimSpace(status.Stdout)) != 0 {
@@ -224,11 +246,19 @@ func (r Reader) requireCleanHead(ctx context.Context, worktree, want string) err
 }
 
 func (r Reader) requireRef(ctx context.Context, repo, ref, want string) error {
-	result, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"rev-parse", ref}})
-	if err != nil || result.ExitCode != 0 || strings.TrimSpace(string(result.Stdout)) != want {
+	got, err := r.readRef(ctx, repo, ref)
+	if err != nil || got != want {
 		return fmt.Errorf("%s does not equal %s", ref, want)
 	}
 	return nil
+}
+
+func (r Reader) readRef(ctx context.Context, repo, ref string) (string, error) {
+	result, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"rev-parse", ref}})
+	if err != nil || result.ExitCode != 0 {
+		return "", fmt.Errorf("pipeline: cannot read %s", ref)
+	}
+	return strings.TrimSpace(string(result.Stdout)), nil
 }
 
 func (r Reader) requireCommit(ctx context.Context, repo, head string) error {
