@@ -166,9 +166,9 @@ func recordPR(stateDir, id, url, head string) (err error) {
 	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(stateDir, lockName)) }()
 
 	metaPath := filepath.Join(stateDir, id+".meta")
-	kv, _ := state.ReadMeta(metaPath)
-	if kv == nil {
-		kv = make(map[string]string)
+	kv, err := state.ReadMeta(metaPath)
+	if err != nil {
+		return err
 	}
 	kv["pr"] = url
 	// Best-effort head resolution; a missing gh or a not-yet-created PR leaves pr_head unset.

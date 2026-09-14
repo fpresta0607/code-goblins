@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -103,6 +104,36 @@ func TestRenderPreservesOperatorOwnedClaudeArguments(t *testing.T) {
 	}
 	if !reflect.DeepEqual(config.AgentArgs["claude"], []string{"--model", "sonnet"}) {
 		t.Fatalf("operator Claude arguments changed: %v", config.AgentArgs["claude"])
+	}
+}
+
+func TestRenderRemovesCodexExecutableOverrideOnly(t *testing.T) {
+	before := []byte("agent_path_override:\n  codex: C:/tools/openrouter-codex.exe\n  claude: C:/tools/claude.exe\n")
+	after, drift, err := Render(before, testPolicy(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		AgentPaths map[string]string `yaml:"agent_path_override"`
+	}
+	if err := yaml.Unmarshal(after, &config); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := config.AgentPaths["codex"]; ok {
+		t.Fatalf("Codex executable override remains: %v", config.AgentPaths)
+	}
+	if config.AgentPaths["claude"] != "C:/tools/claude.exe" {
+		t.Fatalf("unrelated executable override changed: %v", config.AgentPaths)
+	}
+	if !slices.Contains(drift, "agent_path_override.codex") {
+		t.Fatalf("drift=%v, want agent_path_override.codex", drift)
+	}
+	if strings.Contains(strings.Join(drift, " "), "openrouter") {
+		t.Fatalf("drift leaked executable value: %v", drift)
+	}
+	again, drift, err := Render(after, testPolicy(t))
+	if err != nil || len(drift) != 0 || string(again) != string(after) {
+		t.Fatalf("not idempotent: %v %v", drift, err)
 	}
 }
 
