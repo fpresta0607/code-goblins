@@ -21,8 +21,9 @@ Existing tasks without a snapshot are not silently migrated.
 Policy v2 uses the native Codex CLI through the machine's existing ChatGPT OAuth login.
 The global primary profile defaults to Codex gpt-5.6-sol at high effort.
 Global-only `review_agents.reviewer` and `review_agents.fixer` pin every review and review-fix invocation to that same profile without fallbacks.
-No-mistakes v1.75.1 resolves test, document, and lint from the primary agent, and a trusted default-branch repository `agent` overrides the global primary.
-Before a CFO-managed run starts, the driver therefore requires that trusted field to be absent, which inherits global Codex, or to select only Codex explicitly.
+No-mistakes v1.75.1 resolves test, document, and lint from the primary agent.
+Its effective repository `agent` normally comes from the trusted default branch, but a trusted `allow_repo_commands` setting delegates that field to the submitted branch.
+Before a CFO-managed run starts, the driver therefore requires the effective field to be absent, which inherits global Codex, or to select only Codex explicitly.
 The driver does not rewrite repository configuration, and non-CFO no-mistakes use retains its native repository policy.
 
 A cycle means one repair followed by another review, after the initial review.
@@ -96,7 +97,9 @@ An earlier unresolved run cannot be restarted to reset its budget.
 Use native read-only `axi status` and `axi logs` to inspect progress; the engine's guarded `axi sync` remains the branch synchronization interface after validation.
 
 `respond` requires durable evidence of one parked gate in this project's current branch.
-It refuses a gate already answered or still running and checks the active review's actual automatic limit is zero.
+It refuses a gate already answered or still running and checks that the active review's persisted automatic limit is disabled or zero.
+An explicitly selected finding with an empty action is actionable only when the active gate is not review and its persisted automatic-fix limit is positive.
+Review remains fail-closed for empty or unknown actions.
 Fix responses name concrete actionable finding IDs; selecting an `ask-user` finding is an explicit decision, never automatic consent.
 Approval is accepted only when every finding is explicitly `no-op`, or the findings list is empty.
 Unsupported or malformed evidence fails closed.
@@ -116,7 +119,9 @@ That ref is durable CFO-swap evidence, so every `custody_returned` retry that fi
 With no CFO-swap evidence, a native `custody_returned` state is accepted only when its native anchor equals the fully aligned local, gate, recorded, and submitted head.
 The driver imports the local commit into the internal repository without writing a fetch ref, and compare-and-swaps the internal gate ref and both database heads to the local head.
 If the process exits after the gate compare-and-swap, the stale gate anchor lets the next recovery recognize that exact half-state and finish the database compare-and-swap.
-The database and gate updates roll back if an in-process compare-and-swap fails, and native status must confirm all three heads before success is reported.
+After a reported database compare-and-swap failure, the driver reads the exact run row before deciding whether the advanced gate can roll back.
+A confirmed unchanged row permits rollback, a committed row continues forward, and an uncertain or conflicting row preserves the advanced gate for a safe retry.
+Native status must confirm all three heads before success is reported.
 If a later status check triggers rollback, the gate moves back only after the database rollback succeeds, so a transient database failure preserves the forward-aligned retry state.
 The local branch and origin refs are never moved.
 The command never resets a branch or recovers a pushed run.

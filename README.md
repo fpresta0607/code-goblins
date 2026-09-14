@@ -138,6 +138,7 @@ cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>]
 cfo send <target> <text...>
 cfo peek <target> [lines]
 cfo fleet-view [--json]
+cfo pipeline migrate <id>
 cfo pipeline run <id> --intent <text>
 cfo pipeline respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>]
 cfo pipeline recover <id>

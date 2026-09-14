@@ -178,8 +178,8 @@ func recordPR(stateDir, id, url, head string) (err error) {
 	return state.WriteMeta(metaPath, kv)
 }
 
-// runPRMerge merges an open PR through the gh CLI. It never merges red work:
-// the caller is responsible for confirming CI is green first.
+// runPRMerge verifies the PR's exact head and fail-closed check rollup before
+// asking gh to merge that same commit.
 //
 // --delete-branch is deliberately NOT forwarded to gh. gh's flag deletes the
 // local and the remote branch as one step, and git refuses to delete a branch

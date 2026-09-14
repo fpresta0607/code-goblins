@@ -10,13 +10,13 @@ This roadmap deliberately borrows patterns, not product dependencies. Code Gobli
 
 **Implementation:**
 
-1. Read PR state, draft state, mergeability, review decision, exact `headRefOid`, and `statusCheckRollup` through `gh pr view --json`.
-2. Fail closed when mergeability is unknown, reviews request changes, checks are absent/pending/failing, or the PR is not open.
+1. Read PR state, draft state, mergeability, review decision, exact `headRefOid`, and `statusCheckRollup` through `gh pr view --json`, then normalize `CheckRun` and legacy `StatusContext` entries by `__typename`.
+2. Accept completed `CheckRun` conclusions `SUCCESS`, `NEUTRAL`, and `SKIPPED`, plus legacy `StatusContext` state `SUCCESS`; fail closed on absent, pending, failing, error, or unknown check shapes and states.
 3. Preserve the verified head SHA as the delivery proof.
 4. Merge with `gh pr merge --match-head-commit <sha>` so a push between proof and merge invalidates the operation.
 5. Record the proof in task metadata: head SHA, check count, timestamp, and merge result.
 
-The verifier and tests are introduced with the standalone-product PR. Wiring it into `cfo pr merge` is the next code change.
+`cfo pr merge` now uses the verifier and exact-head merge guard; persisting the proof metadata remains planned.
 
 ## P0 — Acceptance evidence as a first-class artifact
 
@@ -145,7 +145,7 @@ Routing policy should be updated from these outcomes. Validation-agent latency i
 
 ## Recommended adoption order
 
-1. Wire proof-before-merge into `cfo pr merge` and pin the verified SHA.
+1. Persist the verified PR head and check evidence in task metadata.
 2. Add acceptance-evidence manifests and require them for `no-mistakes` ship tasks.
 3. Add the integration worktree + dependency-aware merge train.
 4. Turn wake handling into the bounded recovery state machine.
