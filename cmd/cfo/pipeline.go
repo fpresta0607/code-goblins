@@ -21,10 +21,10 @@ import (
 
 func runPipeline(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "cfo pipeline: config-drift, config-apply, run, respond or recover required")
+		fmt.Fprintln(stderr, "cfo pipeline: config-drift, config-apply, migrate, run, respond or recover required")
 		return 2
 	}
-	if args[0] != "config-drift" && args[0] != "config-apply" && args[0] != "run" && args[0] != "respond" && args[0] != "recover" {
+	if args[0] != "config-drift" && args[0] != "config-apply" && args[0] != "migrate" && args[0] != "run" && args[0] != "respond" && args[0] != "recover" {
 		fmt.Fprintln(stderr, "cfo pipeline: unknown command")
 		return 2
 	}
@@ -140,7 +140,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if err := worktree.Validate(ctx, worktree.RunnerGit{Commands: commands}, meta.Project, meta.Worktree); err != nil {
 		return err
 	}
-	if args[0] != "recover" {
+	if args[0] != "recover" && args[0] != "migrate" {
 		config := pipeline.Config{Path: filepath.Join(root, "config.yaml"), Policy: selection.Policy}
 		drift, err := config.Drift()
 		if err != nil {
@@ -157,6 +157,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	branch := strings.TrimSpace(string(branchResult.Stdout))
 	if branch == "" || branch == "main" || branch == "master" {
 		return errors.New("pipeline: isolated feature branch required")
+	}
+	if args[0] == "migrate" {
+		return migratePipelinePolicy(ctx, h, root, reader, meta, selection, out)
 	}
 	if args[0] == "recover" {
 		result, err := reader.RecoverKeepLocal(ctx, meta.Project, meta.Worktree, branch, nativeEnv(root))
@@ -197,6 +200,72 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if result.ExitCode != 0 {
 		return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
 	}
+	return nil
+}
+
+func migratePipelinePolicy(ctx context.Context, h home.Home, root string, reader pipeline.Reader, meta state.TaskMeta, old pipeline.Selection, out io.Writer) (err error) {
+	current, err := pipeline.Load(filepath.Join(h.Root, "config", "pipeline.json"))
+	if err != nil {
+		return err
+	}
+	config := pipeline.Config{Path: filepath.Join(root, "config.yaml"), Policy: current}
+	drift, err := config.Drift()
+	if err != nil {
+		return err
+	}
+	if len(drift) != 0 {
+		return fmt.Errorf("pipeline: apply current shared config before migrating tasks (%s)", strings.Join(drift, ", "))
+	}
+	next, err := pipeline.MigrateSelection(old, current)
+	if err != nil {
+		return err
+	}
+	releaseIdle, err := reader.Idle(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, releaseIdle()) }()
+	if next == old {
+		fmt.Fprintf(out, "pipeline policy: task %s already uses %s\n", meta.ID, next.Hash)
+		return nil
+	}
+	if _, err := lock.AcquireExclusiveNamed(h.State, state.CleanupLockName(meta.ID)); err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(h.State, state.CleanupLockName(meta.ID))) }()
+
+	snapshotPath := filepath.Join(meta.TaskTmp, "pipeline.json")
+	metaPath := filepath.Join(h.State, meta.ID+".meta")
+	oldSnapshot, err := os.ReadFile(snapshotPath)
+	if err != nil {
+		return err
+	}
+	oldMeta, err := os.ReadFile(metaPath)
+	if err != nil {
+		return err
+	}
+	values, err := state.ReadMeta(metaPath)
+	if err != nil {
+		return err
+	}
+	if values["pipeline_hash"] != old.Hash || values["pipeline_class"] != old.Class {
+		return errors.New("pipeline: task metadata changed during policy migration")
+	}
+	rollback := func(cause error) error {
+		return errors.Join(cause, fsx.AtomicWriteFile(snapshotPath, oldSnapshot), fsx.AtomicWriteFile(metaPath, oldMeta))
+	}
+	if err := next.Save(snapshotPath); err != nil {
+		return err
+	}
+	values["pipeline_hash"] = next.Hash
+	if err := state.WriteMeta(metaPath, values); err != nil {
+		return rollback(err)
+	}
+	audit := fmt.Sprintf("pipeline-policy-migrated: class=%s review_cycles=%d old=%s new=%s", old.Class, old.ReviewCycles, old.Hash, next.Hash)
+	if err := state.AppendStatus(h.State, meta.ID, audit); err != nil {
+		return rollback(err)
+	}
+	fmt.Fprintf(out, "pipeline policy: migrated task %s class %s with %d review cycles; %s -> %s\n", meta.ID, old.Class, old.ReviewCycles, old.Hash, next.Hash)
 	return nil
 }
 

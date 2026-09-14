@@ -7,7 +7,7 @@ import (
 	"unsafe"
 )
 
-// no-mistakes v1.48 and v1.64 lock byte 0xffffffff of daemon.lock.
+// no-mistakes v1.75.1 locks byte 0xffffffff of daemon.lock.
 // Holding the same OS lock prevents a daemon starting between the idle check
 // and config replacement. Closing the handle releases it, including on crash.
 func lockDaemon(path string) (func() error, error) {

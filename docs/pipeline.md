@@ -1,6 +1,6 @@
 # Pipeline policy
 
-`config/pipeline.json` is the checked-in CFO policy for the existing no-mistakes binary.
+`config/pipeline.json` is the checked-in CFO policy for no-mistakes v1.75.1.
 The CFO remains the driver; no pipeline steps are reimplemented here.
 The binary still owns review, fixes, tests, lint, documentation, push, PR creation and CI.
 
@@ -8,15 +8,20 @@ The binary still owns review, fixes, tests, lint, documentation, push, PR creati
 
 | Spawn class | Review repair cycles | Reviewer |
 | --- | --- | --- |
-| `ordinary` (default) | 2 | Claude Opus high |
-| `high-risk` | 3 | Claude Opus high |
-| `mechanical` | 2 | Claude Opus high |
+| `ordinary` (default) | 2 | Codex gpt-5.6-sol high |
+| `high-risk` | 3 | Codex gpt-5.6-sol high |
+| `mechanical` | 2 | Codex gpt-5.6-sol high |
 
 Use `cfo spawn <id> ... --class high-risk` for a high-risk task.
 No-mistakes tasks receive a policy snapshot at `state/tasktmp/<id>/pipeline.json`, with its class and SHA-256 recorded in task metadata.
 Editing the source policy does not change a running task's snapshot, and `cfo switch` retains it.
 Direct-PR and local-only tasks retain their existing delivery paths.
 Existing tasks without a snapshot are not silently migrated.
+
+Policy v2 uses the native Codex CLI through the machine's existing ChatGPT OAuth login.
+The global primary profile defaults to Codex gpt-5.6-sol at high effort.
+Global-only `review_agents.reviewer` and `review_agents.fixer` pin every review and review-fix invocation to that same profile without fallbacks.
+A repository may retain its own `agent` setting for ordinary non-review pipeline work; CFO does not inspect or rewrite that field.
 
 A cycle means one repair followed by another review, after the initial review.
 The driver counts completed rounds from the native database, so the budget is durable within a native run and restarting the CLI mid-run does not reset it.
@@ -30,13 +35,14 @@ The driver never turns budget exhaustion into approval, skips a step, or uses `-
 ```powershell
 cfo pipeline config-drift
 cfo pipeline config-apply
+cfo pipeline migrate <id>
 ```
 
 `config-drift` is read-only and prints owned field names, never their values or unrelated configuration.
 `config-apply` requires a scheduled idle window: the daemon must already be stopped and every durable run must be terminal.
 It takes the native daemon singleton lock throughout the database check, backup and replacement, preventing a concurrent daemon startup.
 It does not stop or restart anything, cancel a run, or repair stale state.
-The command currently supports Windows, with the v1.48/v1.64 singleton lock contract.
+The command currently supports Windows, using the native singleton lock contract retained by v1.75.1.
 Use `NM_HOME` to select the same native home as no-mistakes, otherwise both use `~/.no-mistakes`.
 
 Before replacement, the original YAML is backed up beside the configuration with a unique timestamped name.
@@ -46,11 +52,18 @@ The command prints the backup path, preserves unrelated YAML settings and commen
 It refuses a missing or unreadable database or configuration file.
 An operator can restore the printed backup in another idle window; restoration is never automatic over an operator's intervening edit.
 
-Owned machine fields are `agent: [claude]`, `agent_args_override.claude: [--model, opus, --effort, high]`, `auto_fix.review: 0`, and one automatic follow-up each for test, lint, rebase and CI.
-The complete Claude argument override is owned; inspect local custom Claude arguments before scheduling apply.
+Owned machine fields are `agent: [codex]`, `agent_config.codex: {model: gpt-5.6-sol, effort: high}`, both global `review_agents` roles with the same Codex profile, an empty `agent_args_override.codex`, `auto_fix.review: 0`, and one automatic follow-up each for test, lint, rebase and CI.
+The empty raw Codex argument list ensures CFO does not enable a priority or fast service tier and lets `agent_config` own model and reasoning effort.
+The exact legacy CFO-owned Claude model and effort vector is removed during apply; a differing operator-owned Claude vector is preserved.
 Document follow-ups and other native settings retain their existing values.
-No-mistakes v1.48 has no per-run config/model flags, so spawn never rewrites shared YAML.
+Spawn never rewrites shared YAML.
 The YAML parser dependency is needed to preserve unrelated configuration structurally; v3.0.1 avoids the old parser's [known panic vulnerability](https://pkg.go.dev/vuln/GO-2022-0603).
+
+Run `config-apply` before migrating any live task snapshot.
+`migrate` requires the applied v2 global configuration, the daemon stopped, every durable native run terminal, and the task's pipeline lock.
+It accepts only the reviewed v1-to-v2 transition, preserves the task class and `review_cycles` cap exactly, atomically replaces the task snapshot and metadata hash, and rolls both files back if either replacement or the audit append fails.
+The task status receives one line containing the class, cap, old hash and new hash.
+Migration never changes a worktree, native run row, gate ref, origin ref, or review result.
 
 ## Driving a task
 
@@ -59,14 +72,16 @@ cfo pipeline run <id> --intent "The user's complete objective and constraints"
 cfo pipeline respond <id> --action fix --findings finding-id --instructions "Concrete guidance"
 cfo pipeline respond <id> --action approve
 cfo pipeline recover <id>
+cfo pipeline migrate <id>
 ```
 
 Commands operate in the recorded task worktree and use its frozen policy.
 The pane exports `CFO_HOME` and `CFO_STATE_OVERRIDE` and every gate step inherits both, so the `--intent` text must require any step that runs `cfo`, or a shell that resolves it, to clear them or point them at a temporary directory.
-`internal/home` refuses the inherited fleet home from a test binary, which covers `go test`, but the real `cfo` binary is not a test binary and no-mistakes v1.48 has no per-repo step command or environment setting, so the intent is the only place left to state it.
+`internal/home` refuses the inherited fleet home from a test binary, which covers `go test`, but the real `cfo` binary is not a test binary and no-mistakes has no per-repo step environment setting, so the intent is the only place left to state it.
 Commit work on a named feature branch before `run`.
 The project must be initialized for no-mistakes, with readable committed task and origin default-branch `.no-mistakes.yaml` files.
-Refresh origin before starting; reviewer fallbacks and repository automatic-fix overrides that conflict with policy are refused.
+Refresh origin before starting; global reviewer/fixer drift and repository automatic-fix overrides that conflict with policy are refused.
+A repository's `agent` field continues to select only its native primary path and cannot replace the global reviewer or fixer profiles.
 An earlier unresolved run cannot be restarted to reset its budget.
 Use native read-only `axi status` and `axi logs` to inspect progress; the engine's guarded `axi sync` remains the branch synchronization interface after validation.
 
@@ -92,9 +107,9 @@ The local branch and origin refs are never moved.
 The command never resets a branch or recovers a pushed run.
 Content equivalence remains mandatory when repairing pipeline-owned recorded and submitted heads, but not after native has already returned user-owned custody because the next run reviews the preserved local head as new work.
 
-The initial policy PR also commits this repository's automatic-fix overrides, which native no-mistakes honors from a new submitted branch.
-That permits this PR's own legacy task to use the approved limits without rewriting the shared configuration or migrating a running task.
-The driver becomes the normal entry point for newly spawned tasks after the shared idle apply.
+This repository's committed automatic-fix overrides remain authoritative for a new submitted branch.
+After the shared idle apply, migrate each idle legacy task explicitly before starting its next run.
+Newly spawned tasks freeze policy v2 directly.
 
 ## Reading speed evidence
 

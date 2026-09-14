@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
-	"gopkg.in/yaml.v3"
 )
 
 var ErrUnresolved = errors.New("pipeline: unresolved; a CFO decision is required")
@@ -145,20 +144,10 @@ func checkRepoConfig(data []byte, p Policy, checkAutomatic bool) error {
 		return err
 	}
 	var config struct {
-		Agent   yaml.Node      `yaml:"agent"`
 		AutoFix map[string]int `yaml:"auto_fix"`
 	}
 	if err := doc.Decode(&config); err != nil {
 		return errors.New("pipeline: invalid repository policy override")
-	}
-	if config.Agent.Kind != 0 {
-		agent := &config.Agent
-		if agent.Kind == yaml.SequenceNode && len(agent.Content) == 1 {
-			agent = agent.Content[0]
-		}
-		if agent.Kind != yaml.ScalarNode || agent.Value != "claude" {
-			return errors.New("pipeline: repository must use Claude without reviewer fallbacks")
-		}
 	}
 	// Native automatic-fix settings come from the submitted branch, not the
 	// trusted default copy. Checking the latter would prevent a safe reduction.

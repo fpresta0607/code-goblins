@@ -37,7 +37,9 @@ type Classes struct {
 }
 type Policy struct {
 	Version  int      `json:"version"`
+	Primary  Reviewer `json:"primary,omitempty"`
 	Reviewer Reviewer `json:"reviewer"`
+	Fixer    Reviewer `json:"fixer,omitempty"`
 	AutoFix  AutoFix  `json:"auto_fix"`
 	Classes  Classes  `json:"classes"`
 }
@@ -77,11 +79,18 @@ func Load(path string) (Policy, error) {
 }
 
 func (p Policy) Validate() error {
-	if p.Version != 1 {
-		return errors.New("pipeline: policy version must be 1")
-	}
-	if p.Reviewer != (Reviewer{"claude", "opus", "high"}) {
-		return errors.New("pipeline: approved reviewer is Claude Opus high")
+	switch p.Version {
+	case 1:
+		if p.Primary != (Reviewer{}) || p.Reviewer != (Reviewer{"claude", "opus", "high"}) || p.Fixer != (Reviewer{}) {
+			return errors.New("pipeline: legacy reviewer must be Claude Opus high")
+		}
+	case 2:
+		want := Reviewer{"codex", "gpt-5.6-sol", "high"}
+		if p.Primary != want || p.Reviewer != want || p.Fixer != want {
+			return errors.New("pipeline: primary, reviewer and fixer must be Codex gpt-5.6-sol high")
+		}
+	default:
+		return errors.New("pipeline: policy version must be 1 or 2")
 	}
 	if p.AutoFix != (AutoFix{Review: 0, Test: 1, Lint: 1, Rebase: 1, CI: 1}) {
 		return errors.New("pipeline: automatic review must be 0 and test/lint/rebase/ci follow-ups must be 1")
@@ -116,7 +125,34 @@ func (p Policy) Select(class string) (Selection, error) {
 		return Selection{}, err
 	}
 	sum := sha256.Sum256(data)
-	return Selection{p, class, budget, hex.EncodeToString(sum[:])}, nil
+	return Selection{Policy: p, Class: class, ReviewCycles: budget, Hash: hex.EncodeToString(sum[:])}, nil
+}
+
+func MigrateSelection(old Selection, current Policy) (Selection, error) {
+	if err := old.Validate(); err != nil {
+		return Selection{}, err
+	}
+	if err := current.Validate(); err != nil {
+		return Selection{}, err
+	}
+	if old.Policy.Version == current.Version {
+		if old.Policy != current {
+			return Selection{}, errors.New("pipeline: policy migration requires a newer approved version")
+		}
+		return old, nil
+	}
+	if old.Policy.Version != 1 || current.Version != 2 {
+		return Selection{}, errors.New("pipeline: unsupported task policy migration")
+	}
+	next, err := current.Select(old.Class)
+	if err != nil {
+		return Selection{}, err
+	}
+	next.ReviewCycles = old.ReviewCycles
+	if err := next.Validate(); err != nil {
+		return Selection{}, err
+	}
+	return next, nil
 }
 
 func (s Selection) Validate() error {
@@ -150,5 +186,9 @@ func LoadSelection(path string) (Selection, error) {
 }
 
 func (s Selection) Instruction(id, path string) string {
-	return fmt.Sprintf(" Pipeline policy: read %s. Class %s permits %d review repair cycles, then unresolved. Use cfo pipeline run %s --intent <intent> and cfo pipeline respond %s for gate decisions. Never use --yes, skip a gate, or bypass an exhausted budget with native AXI. Reviewer is Claude Opus high. Shared config changes require an explicit idle config-apply; spawn never changes it.", path, s.Class, s.ReviewCycles, id, id)
+	roles := "Reviewer is Claude Opus high."
+	if s.Policy.Version == 2 {
+		roles = "Global primary, reviewer and review-fixer profiles are Codex gpt-5.6-sol high; repository primary-agent overrides remain native no-mistakes policy."
+	}
+	return fmt.Sprintf(" Pipeline policy: read %s. Class %s permits %d review repair cycles, then unresolved. Use cfo pipeline run %s --intent <intent> and cfo pipeline respond %s for gate decisions. Never use --yes, skip a gate, or bypass an exhausted budget with native AXI. %s Shared config changes require an explicit idle config-apply; spawn never changes it.", path, s.Class, s.ReviewCycles, id, id, roles)
 }
