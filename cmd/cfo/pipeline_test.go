@@ -229,6 +229,89 @@ func TestPipelineMigrateRollsBackWhenAuditCannotBeWritten(t *testing.T) {
 	}
 }
 
+func TestEnsurePolicyMigrationAuditTrustsSuccessfulAppend(t *testing.T) {
+	checks := 0
+	err := ensurePolicyMigrationAuditWith(false, func() (bool, error) {
+		checks++
+		if checks == 1 {
+			return false, nil
+		}
+		return false, errors.New("transient audit read failure")
+	}, func() error {
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checks != 1 {
+		t.Fatalf("audit reads=%d, want 1", checks)
+	}
+}
+
+func TestEnsurePolicyMigrationAuditMarksFailedAppendWithUnreadableStateUncertain(t *testing.T) {
+	checks := 0
+	err := ensurePolicyMigrationAuditWith(false, func() (bool, error) {
+		checks++
+		if checks == 1 {
+			return false, nil
+		}
+		return false, errors.New("transient audit read failure")
+	}, func() error {
+		return errors.New("ambiguous append failure")
+	})
+	if !errors.Is(err, errPolicyMigrationAuditUncertain) {
+		t.Fatalf("error=%v, want uncertain audit state", err)
+	}
+}
+
+func TestPolicyMigrationRetainsForwardStateWhenExistingAuditCannotBeRead(t *testing.T) {
+	root := t.TempDir()
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	tmp := filepath.Join(h.State, "tasktmp", "task")
+	if err := os.MkdirAll(tmp, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(h.State, "task.status"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	current, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := legacyPipelineSelection(t, "ordinary")
+	next, err := pipeline.MigrateSelection(old, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", TaskTmp: tmp, PipelineClass: next.Class, PipelineHash: next.Hash}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	if err := next.Save(filepath.Join(tmp, "pipeline.json")); err != nil {
+		t.Fatal(err)
+	}
+	journal := policyMigrationJournal{Version: 1, TaskID: meta.ID, Direction: "forward", Old: old, New: next, Audit: pipelineMigrationAudit(old, next)}
+	journalPath := filepath.Join(tmp, policyMigrationJournalName)
+	if err := writePolicyMigrationJournal(journalPath, journal); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyPolicyMigration(h, meta, journalPath, journal, true); !errors.Is(err, errPolicyMigrationAuditUncertain) {
+		t.Fatalf("error=%v, want uncertain audit state", err)
+	}
+	selection, err := pipeline.LoadSelection(filepath.Join(tmp, "pipeline.json"))
+	if err != nil || selection != next {
+		t.Fatalf("snapshot=%+v err=%v", selection, err)
+	}
+	updated, err := state.ReadTaskMeta(h.State, meta.ID)
+	if err != nil || updated.PipelineHash != next.Hash {
+		t.Fatalf("metadata=%+v err=%v", updated, err)
+	}
+	loaded, err := loadPolicyMigrationJournal(journalPath)
+	if err != nil || loaded.Direction != "forward" {
+		t.Fatalf("journal=%+v err=%v", loaded, err)
+	}
+}
+
 func TestPipelineMigrateResumesInterruptedTransaction(t *testing.T) {
 	for _, stage := range []string{"snapshot", "metadata", "audit"} {
 		t.Run(stage, func(t *testing.T) {

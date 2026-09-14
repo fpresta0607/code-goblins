@@ -26,6 +26,8 @@ type recoveryRunner struct {
 	gateAligned     bool
 	databaseAligned bool
 	failDatabase    bool
+	failRollback    bool
+	failPostCheck   bool
 	anchorExists    bool
 	requests        []execx.Request
 }
@@ -48,21 +50,32 @@ func (r *recoveryRunner) Run(_ context.Context, request execx.Request) (execx.Re
 	case "sqlite3":
 		sql := request.Args[len(request.Args)-1]
 		if strings.Contains(sql, "SELECT changes()") {
-			if r.localHead != "" && strings.Contains(sql, "head_sha='"+r.localHead+"'") && strings.Contains(sql, "submitted_head_sha='"+r.localHead+"'") {
+			if r.localHead != "" && strings.Contains(sql, "UPDATE runs SET head_sha='"+r.localHead+"'") {
 				if r.failDatabase {
 					return execx.Result{Stdout: []byte(`[{"n":0}]`)}, nil
 				}
 				r.databaseAligned = true
+			} else if r.localHead != "" && strings.Contains(sql, "UPDATE runs SET head_sha='"+scenario.submitted+"'") && strings.Contains(sql, "AND head_sha='"+r.localHead+"'") {
+				if r.failRollback {
+					return execx.Result{Stdout: []byte(`[{"n":0}]`)}, nil
+				}
+				r.databaseAligned = false
 			}
 			return execx.Result{Stdout: []byte(`[{"n":1}]`)}, nil
+		}
+		recorded := scenario.recorded
+		submitted := scenario.submitted
+		if r.databaseAligned {
+			recorded = r.localHead
+			submitted = r.localHead
 		}
 		return execx.Result{Stdout: []byte(`[{
 			"run_id":"` + scenario.run + `",
 			"repo_id":"` + scenario.repo + `",
 			"branch":"` + scenario.branch + `",
 			"status":"failed",
-			"recorded_head":"` + scenario.recorded + `",
-			"submitted_head":"` + scenario.submitted + `",
+			"recorded_head":"` + recorded + `",
+			"submitted_head":"` + submitted + `",
 			"pushed_head":"",
 			"custody_returned_at":0
 		}]`)}, nil
@@ -128,6 +141,9 @@ func (r *recoveryRunner) Run(_ context.Context, request execx.Request) (execx.Re
 		if strings.Join(request.Args, " ") == "axi sync --check" {
 			r.syncChecks++
 			if !r.alreadyOwned && r.syncChecks == 1 {
+				return execx.Result{ExitCode: 1}, nil
+			}
+			if r.failPostCheck && r.databaseAligned {
 				return execx.Result{ExitCode: 1}, nil
 			}
 			head := r.localHead
@@ -263,6 +279,37 @@ func TestRecoverKeepLocalRollsBackGateWhenDatabaseCASFails(t *testing.T) {
 	}
 	if runner.gateAligned {
 		t.Fatal("gate ref remained advanced after database compare-and-swap failed")
+	}
+}
+
+func TestRecoverKeepLocalPreservesAlignedGateWhenDatabaseRollbackFails(t *testing.T) {
+	const (
+		branch   = "copy/hero-request-a-service"
+		oldGate  = "37c93f2081cead9d12bab41d21d4a09d652ffabd"
+		advanced = "18704b1fc56bf84c1183ee004d6f371447bc93a6"
+	)
+	runner := &recoveryRunner{
+		scenario:      recoveryScenario{run: "01M2C018A26RY2Y5GFRKC5NXCS", repo: recoveryRepo, branch: branch, recorded: oldGate, submitted: oldGate},
+		alreadyOwned:  true,
+		localHead:     advanced,
+		failRollback:  true,
+		failPostCheck: true,
+	}
+	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", branch, nil); err == nil {
+		t.Fatal("failed post-alignment check reported recovery success")
+	}
+	if !runner.gateAligned || !runner.databaseAligned {
+		t.Fatalf("failed rollback split aligned state: gate=%v database=%v", runner.gateAligned, runner.databaseAligned)
+	}
+	runner.failRollback = false
+	runner.failPostCheck = false
+	result, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", branch, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Head != advanced || !runner.gateAligned || !runner.databaseAligned {
+		t.Fatalf("retry result=%+v gate=%v database=%v", result, runner.gateAligned, runner.databaseAligned)
 	}
 }
 

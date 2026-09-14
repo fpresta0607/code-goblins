@@ -338,9 +338,10 @@ func (r Reader) moveRef(ctx context.Context, repo, ref, next, previous string) e
 }
 
 func (r Reader) rollbackUserOwned(ctx context.Context, bare, gateRef string, run recoveryRecord, alignedHead string) error {
-	databaseErr := r.swapRunHeads(ctx, run, alignedHead, alignedHead, run.RecordedHead, run.SubmittedHead, false)
-	gateErr := r.moveRef(ctx, bare, gateRef, run.SubmittedHead, alignedHead)
-	return errors.Join(databaseErr, gateErr)
+	if err := r.swapRunHeads(ctx, run, alignedHead, alignedHead, run.RecordedHead, run.SubmittedHead, false); err != nil {
+		return err
+	}
+	return r.moveRef(ctx, bare, gateRef, run.SubmittedHead, alignedHead)
 }
 
 func (r Reader) preserveRecoveryHead(ctx context.Context, repo, ref, head string) error {
