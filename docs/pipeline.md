@@ -65,6 +65,7 @@ It accepts only the reviewed v1-to-v2 transition and preserves the task class an
 Before replacing either owned field, it writes a task-local transaction journal containing the validated old and new snapshots and the expected audit event.
 An interrupted command resumes that journal under the same pipeline, cleanup, and native idle locks before any pipeline command trusts the snapshot hash.
 Recovery finishes the migration once or rolls both owned fields back when audit persistence fails, without overwriting unrelated task metadata.
+An append reported as successful commits the audit without a second read, while an errored append whose persisted state cannot be reread leaves the forward journal intact for retry.
 The task status receives one line containing the class, cap, old hash and new hash.
 Migration never changes a worktree, native run row, gate ref, origin ref, or review result.
 
@@ -107,6 +108,7 @@ When native already reports clean user-owned custody, the registered task worktr
 The driver anchors the old gate head, imports the local commit into the internal repository without writing a fetch ref, and compare-and-swaps the internal gate ref and both database heads to the local head.
 If the process exits after the gate compare-and-swap, the anchor lets the next recovery recognize that exact half-state and finish the database compare-and-swap.
 The database and gate updates roll back if an in-process compare-and-swap fails, and native status must confirm all three heads before success is reported.
+If a later status check triggers rollback, the gate moves back only after the database rollback succeeds, so a transient database failure preserves the forward-aligned retry state.
 The local branch and origin refs are never moved.
 The command never resets a branch or recovers a pushed run.
 Content equivalence remains mandatory when repairing pipeline-owned recorded and submitted heads.

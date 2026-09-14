@@ -259,7 +259,7 @@ func migratePipelinePolicy(ctx context.Context, h home.Home, root string, reader
 	if err := writePolicyMigrationJournal(journalPath, journal); err != nil {
 		return err
 	}
-	if err := applyPolicyMigration(h, meta, journalPath, journal); err != nil {
+	if err := applyPolicyMigration(h, meta, journalPath, journal, false); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "pipeline policy: migrated task %s class %s with %d review cycles; %s -> %s\n", meta.ID, old.Class, old.ReviewCycles, old.Hash, next.Hash)
@@ -350,10 +350,12 @@ func resumePipelinePolicyMigration(ctx context.Context, h home.Home, reader pipe
 		return err
 	}
 	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(h.State, state.CleanupLockName(meta.ID))) }()
-	return applyPolicyMigration(h, meta, journalPath, journal)
+	return applyPolicyMigration(h, meta, journalPath, journal, true)
 }
 
-func applyPolicyMigration(h home.Home, meta state.TaskMeta, journalPath string, journal policyMigrationJournal) error {
+var errPolicyMigrationAuditUncertain = errors.New("pipeline: policy migration audit state is uncertain")
+
+func applyPolicyMigration(h home.Home, meta state.TaskMeta, journalPath string, journal policyMigrationJournal, resuming bool) error {
 	if journal.Direction == "rollback" {
 		return rollbackPolicyMigration(h, meta, journalPath, journal, nil)
 	}
@@ -363,7 +365,10 @@ func applyPolicyMigration(h home.Home, meta state.TaskMeta, journalPath string, 
 	if err := setPolicyMigrationMeta(filepath.Join(h.State, meta.ID+".meta"), journal, true); err != nil {
 		return rollbackPolicyMigration(h, meta, journalPath, journal, err)
 	}
-	if err := ensurePolicyMigrationAudit(h.State, meta.ID, journal.Audit); err != nil {
+	if err := ensurePolicyMigrationAudit(h.State, meta.ID, journal.Audit, resuming); err != nil {
+		if errors.Is(err, errPolicyMigrationAuditUncertain) {
+			return err
+		}
 		return rollbackPolicyMigration(h, meta, journalPath, journal, err)
 	}
 	return os.Remove(journalPath)
@@ -397,17 +402,37 @@ func setPolicyMigrationMeta(path string, journal policyMigrationJournal, forward
 	return state.WriteMeta(path, values)
 }
 
-func ensurePolicyMigrationAudit(stateDir, id, audit string) error {
-	found, err := hasPolicyMigrationAudit(stateDir, id, audit)
-	if err != nil || found {
+func ensurePolicyMigrationAudit(stateDir, id, audit string, resuming bool) error {
+	return ensurePolicyMigrationAuditWith(resuming, func() (bool, error) {
+		return hasPolicyMigrationAudit(stateDir, id, audit)
+	}, func() error {
+		return state.AppendStatus(stateDir, id, audit)
+	})
+}
+
+func ensurePolicyMigrationAuditWith(resuming bool, contains func() (bool, error), appendAudit func() error) error {
+	found, err := contains()
+	if err != nil {
+		if resuming {
+			return errors.Join(errPolicyMigrationAuditUncertain, err)
+		}
 		return err
 	}
-	appendErr := state.AppendStatus(stateDir, id, audit)
-	found, readErr := hasPolicyMigrationAudit(stateDir, id, audit)
 	if found {
 		return nil
 	}
-	return errors.Join(appendErr, readErr)
+	appendErr := appendAudit()
+	if appendErr == nil {
+		return nil
+	}
+	found, readErr := contains()
+	if found {
+		return nil
+	}
+	if readErr != nil {
+		return errors.Join(errPolicyMigrationAuditUncertain, appendErr, readErr)
+	}
+	return appendErr
 }
 
 func hasPolicyMigrationAudit(stateDir, id, audit string) (bool, error) {
