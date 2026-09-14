@@ -32,6 +32,53 @@ type pipelineRunner struct {
 	activeRuns int
 }
 
+type pipelineStartRunner struct {
+	worktree   string
+	advance    bool
+	remoteRead int
+	native     []execx.Request
+}
+
+func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Result, error) {
+	const trusted = "0123456789abcdef0123456789abcdef01234567"
+	switch q.Name {
+	case "sqlite3":
+		sql := q.Args[len(q.Args)-1]
+		if strings.Contains(sql, "SELECT default_branch FROM repos") {
+			return execx.Result{Stdout: []byte(`[{"default_branch":"main"}]`)}, nil
+		}
+		if strings.Contains(sql, "SELECT runs.status") {
+			return execx.Result{Stdout: []byte(`[]`)}, nil
+		}
+	case "git":
+		switch strings.Join(q.Args, " ") {
+		case "rev-parse --show-toplevel":
+			return execx.Result{Stdout: []byte(r.worktree + "\n")}, nil
+		case "symbolic-ref --quiet --short HEAD":
+			return execx.Result{Stdout: []byte("feat/policy\n")}, nil
+		case "status --porcelain --untracked-files=all":
+			return execx.Result{}, nil
+		case "show HEAD:.no-mistakes.yaml":
+			return execx.Result{Stdout: []byte("auto_fix: {review: 0, test: 1, lint: 1, rebase: 1, ci: 1}\n")}, nil
+		case "ls-remote --symref origin HEAD":
+			head := trusted
+			if r.advance && r.remoteRead > 0 {
+				head = "89abcdef0123456789abcdef0123456789abcdef"
+			}
+			r.remoteRead++
+			return execx.Result{Stdout: []byte("ref: refs/heads/main\tHEAD\n" + head + "\tHEAD\n")}, nil
+		case "rev-parse --verify refs/remotes/origin/main":
+			return execx.Result{Stdout: []byte(trusted + "\n")}, nil
+		case "show refs/remotes/origin/main:.no-mistakes.yaml":
+			return execx.Result{Stdout: []byte("auto_fix: {review: 0}\n")}, nil
+		}
+	case "no-mistakes":
+		r.native = append(r.native, q)
+		return execx.Result{}, nil
+	}
+	return execx.Result{}, fmt.Errorf("unexpected start command: %#v", q)
+}
+
 type pipelineSwitchRunner struct {
 	statusReady   chan struct{}
 	statusRelease chan struct{}
@@ -981,6 +1028,67 @@ func TestPipelineRespondInvokesNativeOnlyForBudgetedExplicitDecision(t *testing.
 				}
 			}
 		})
+	}
+}
+
+func TestPipelineRunRefusesTrustedPrimaryAdvanceBeforeNativeLaunch(t *testing.T) {
+	p, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := p.Select("ordinary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	nm := filepath.Join(root, "nm")
+	tmp := filepath.Join(h.State, "tasktmp", "task")
+	project := filepath.Join(root, "project")
+	wt := filepath.Join(project, ".worktrees", "gb-task")
+	for _, path := range []string{nm, tmp, project, wt} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := selection.Save(filepath.Join(tmp, "pipeline.json")); err != nil {
+		t.Fatal(err)
+	}
+	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: wt, Project: project, TaskTmp: tmp, PipelineClass: selection.Class, PipelineHash: selection.Hash}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	config, _, err := pipeline.Render([]byte("{}"), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "config.yaml"), config, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &pipelineStartRunner{worktree: wt, advance: true}
+	err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "changed before native start") {
+		t.Fatalf("pipelineCommand error=%v, want trusted primary advance refusal", err)
+	}
+	if len(runner.native) != 0 {
+		t.Fatalf("native role launched after trusted primary advance: %+v", runner.native)
+	}
+
+	stable := &pipelineStartRunner{worktree: wt}
+	if err := pipelineCommand(context.Background(), h, nm, stable, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("stable launch: %v", err)
+	}
+	if len(stable.native) != 1 {
+		t.Fatalf("stable native launches=%d, want 1", len(stable.native))
+	}
+	args := stable.native[0].Args
+	joined := strings.Join(args, " ")
+	wantGeneration := "--validation-generation trusted-0123456789abcdef0123456789abcdef01234567-policy-" + selection.Hash
+	if !strings.Contains(joined, "--launch-nonce cfo-") || !strings.Contains(joined, wantGeneration) {
+		t.Fatalf("native launch lacks trusted proof binding: %v", args)
 	}
 }
 

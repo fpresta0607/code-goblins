@@ -77,7 +77,7 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 		return RecoveryResult{}, fmt.Errorf("pipeline: preserved gate branch is unsafe: %w", err)
 	}
 	for _, head := range []string{run.RecordedHead, run.SubmittedHead} {
-		if err := r.requireCommit(ctx, bare, head); err != nil {
+		if err := r.requireCommit(ctx, bare, head, true); err != nil {
 			return RecoveryResult{}, fmt.Errorf("pipeline: recovery commit is unavailable: %w", err)
 		}
 	}
@@ -140,7 +140,7 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 	var cfoSwap bool
 	if headsAligned {
 		var err error
-		cfoGateHead, cfoSwap, err = r.recoveryHead(ctx, bare, anchor)
+		cfoGateHead, cfoSwap, err = r.recoveryHead(ctx, bare, anchor, true)
 		if err != nil {
 			return RecoveryResult{}, err
 		}
@@ -148,7 +148,7 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 			if cfoGateHead == status.Local.Head {
 				return RecoveryResult{}, errors.New("pipeline: CFO recovery gate anchor does not preserve a stale head")
 			}
-			if err := r.requireCommit(ctx, bare, cfoGateHead); err != nil {
+			if err := r.requireCommit(ctx, bare, cfoGateHead, true); err != nil {
 				return RecoveryResult{}, errors.New("pipeline: CFO recovery gate anchor commit is unavailable")
 			}
 		}
@@ -174,7 +174,7 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 		return RecoveryResult{RunID: run.RunID, Head: status.Local.Head, NativeOutput: output}, nil
 	}
 	for _, head := range []string{run.SubmittedHead, status.Local.Head} {
-		if err := r.requireCommit(ctx, worktree, head); err != nil {
+		if err := r.requireCommit(ctx, worktree, head, false); err != nil {
 			return RecoveryResult{}, fmt.Errorf("pipeline: local recovery commit is unavailable: %w", err)
 		}
 	}
@@ -266,7 +266,7 @@ func (r Reader) requireReturnedCustody(ctx context.Context, worktree, bare strin
 	if current.Status != run.Status || current.RecordedHead != expected.RecordedHead || current.SubmittedHead != expected.SubmittedHead || current.PushedHead != "" || !status.custodyReturned(current, true) {
 		return errors.New("pipeline: native engine did not prove returned custody")
 	}
-	if _, exists, err := r.recoveryHead(ctx, bare, "refs/no-mistakes/recovery/"+run.RunID+"/gate"); err != nil {
+	if _, exists, err := r.recoveryHead(ctx, bare, "refs/no-mistakes/recovery/"+run.RunID+"/gate", true); err != nil {
 		return err
 	} else if exists {
 		return errors.New("pipeline: native custody return conflicts with CFO swap evidence")
@@ -325,6 +325,13 @@ func (r Reader) requireCleanHead(ctx context.Context, worktree, want string) err
 	return nil
 }
 
+func (r Reader) runGit(ctx context.Context, repo string, bare bool, args ...string) (execx.Result, error) {
+	if bare {
+		args = append([]string{"--git-dir=" + repo}, args...)
+	}
+	return r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: args})
+}
+
 func (r Reader) requireRef(ctx context.Context, repo, ref, want string) error {
 	got, err := r.readRef(ctx, repo, ref)
 	if err != nil || got != want {
@@ -334,15 +341,15 @@ func (r Reader) requireRef(ctx context.Context, repo, ref, want string) error {
 }
 
 func (r Reader) readRef(ctx context.Context, repo, ref string) (string, error) {
-	result, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"rev-parse", ref}})
+	result, err := r.runGit(ctx, repo, true, "rev-parse", ref)
 	if err != nil || result.ExitCode != 0 {
 		return "", fmt.Errorf("pipeline: cannot read %s", ref)
 	}
 	return strings.TrimSpace(string(result.Stdout)), nil
 }
 
-func (r Reader) requireCommit(ctx context.Context, repo, head string) error {
-	result, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"cat-file", "-e", head + "^{commit}"}})
+func (r Reader) requireCommit(ctx context.Context, repo, head string, bare bool) error {
+	result, err := r.runGit(ctx, repo, bare, "cat-file", "-e", head+"^{commit}")
 	if err != nil || result.ExitCode != 0 {
 		return errors.New(head)
 	}
@@ -350,7 +357,7 @@ func (r Reader) requireCommit(ctx context.Context, repo, head string) error {
 }
 
 func (r Reader) safeRecoveryRelation(ctx context.Context, repo, recorded, submitted string) (bool, error) {
-	ancestry, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"merge-base", "--is-ancestor", recorded, submitted}})
+	ancestry, err := r.runGit(ctx, repo, true, "merge-base", "--is-ancestor", recorded, submitted)
 	if err != nil {
 		return false, err
 	}
@@ -364,15 +371,15 @@ func (r Reader) safeRecoveryRelation(ctx context.Context, repo, recorded, submit
 }
 
 func (r Reader) fetchRecoveryHead(ctx context.Context, bare, worktree, head string) error {
-	result, err := r.Commands.Run(ctx, execx.Request{Dir: bare, Name: "git", Args: []string{"fetch", "--no-tags", "--no-write-fetch-head", worktree, head}})
+	result, err := r.runGit(ctx, bare, true, "fetch", "--no-tags", "--no-write-fetch-head", worktree, head)
 	if err != nil || result.ExitCode != 0 {
 		return errors.New("pipeline: could not import the preserved local commit into the gate repository")
 	}
-	return r.requireCommit(ctx, bare, head)
+	return r.requireCommit(ctx, bare, head, true)
 }
 
 func (r Reader) moveRef(ctx context.Context, repo, ref, next, previous string) error {
-	result, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"update-ref", ref, next, previous}})
+	result, err := r.runGit(ctx, repo, true, "update-ref", ref, next, previous)
 	if err != nil || result.ExitCode != 0 {
 		return fmt.Errorf("pipeline: compare-and-swap failed for %s", ref)
 	}
@@ -386,8 +393,8 @@ func (r Reader) rollbackUserOwned(ctx context.Context, bare, gateRef string, run
 	return r.moveRef(ctx, bare, gateRef, run.SubmittedHead, alignedHead)
 }
 
-func (r Reader) recoveryHead(ctx context.Context, repo, ref string) (string, bool, error) {
-	symbolic, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"symbolic-ref", "--quiet", ref}})
+func (r Reader) recoveryHead(ctx context.Context, repo, ref string, bare bool) (string, bool, error) {
+	symbolic, err := r.runGit(ctx, repo, bare, "symbolic-ref", "--quiet", ref)
 	if err != nil {
 		return "", false, err
 	}
@@ -397,7 +404,7 @@ func (r Reader) recoveryHead(ctx context.Context, repo, ref string) (string, boo
 	if symbolic.ExitCode != 1 {
 		return "", false, errors.New("pipeline: could not inspect recovery anchor")
 	}
-	result, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"show-ref", "--verify", "--hash", ref}})
+	result, err := r.runGit(ctx, repo, bare, "show-ref", "--verify", "--hash", ref)
 	if err != nil {
 		return "", false, err
 	}
@@ -408,7 +415,7 @@ func (r Reader) recoveryHead(ctx context.Context, repo, ref string) (string, boo
 	if result.ExitCode != 0 || head == "" {
 		return "", false, errors.New("pipeline: could not inspect recovery anchor")
 	}
-	target, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"cat-file", "-t", head}})
+	target, err := r.runGit(ctx, repo, bare, "cat-file", "-t", head)
 	if err != nil || target.ExitCode != 0 || strings.TrimSpace(string(target.Stdout)) != "commit" {
 		return "", false, errors.New("pipeline: recovery anchor must name a commit directly")
 	}
@@ -417,8 +424,8 @@ func (r Reader) recoveryHead(ctx context.Context, repo, ref string) (string, boo
 
 func (r Reader) nativeRecoveryHead(ctx context.Context, worktree, bare, ref string) (string, error) {
 	var anchored string
-	for _, repo := range []string{worktree, bare} {
-		head, found, err := r.recoveryHead(ctx, repo, ref)
+	for i, repo := range []string{worktree, bare} {
+		head, found, err := r.recoveryHead(ctx, repo, ref, i == 1)
 		if err != nil {
 			return "", err
 		}
@@ -448,7 +455,7 @@ func (r Reader) requireNativeRecoveryHead(ctx context.Context, worktree, bare, r
 }
 
 func (r Reader) requireRecoveryHead(ctx context.Context, repo, ref, want string) error {
-	head, found, err := r.recoveryHead(ctx, repo, ref)
+	head, found, err := r.recoveryHead(ctx, repo, ref, true)
 	if err != nil {
 		return err
 	}
@@ -459,7 +466,7 @@ func (r Reader) requireRecoveryHead(ctx context.Context, repo, ref, want string)
 }
 
 func (r Reader) preserveRecoveryHead(ctx context.Context, repo, ref, head string) error {
-	existing, found, err := r.recoveryHead(ctx, repo, ref)
+	existing, found, err := r.recoveryHead(ctx, repo, ref, true)
 	if err != nil {
 		return err
 	}
@@ -469,7 +476,7 @@ func (r Reader) preserveRecoveryHead(ctx context.Context, repo, ref, head string
 		}
 		return nil
 	}
-	created, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"update-ref", "--no-deref", ref, head, strings.Repeat("0", 40)}})
+	created, err := r.runGit(ctx, repo, true, "update-ref", "--no-deref", ref, head, strings.Repeat("0", 40))
 	if err != nil || created.ExitCode != 0 {
 		return errors.New("pipeline: could not anchor the stale recorded commit")
 	}
