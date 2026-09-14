@@ -21,7 +21,9 @@ Existing tasks without a snapshot are not silently migrated.
 Policy v2 uses the native Codex CLI through the machine's existing ChatGPT OAuth login.
 The global primary profile defaults to Codex gpt-5.6-sol at high effort.
 Global-only `review_agents.reviewer` and `review_agents.fixer` pin every review and review-fix invocation to that same profile without fallbacks.
-A repository may retain its own `agent` setting for ordinary non-review pipeline work; CFO does not inspect or rewrite that field.
+No-mistakes v1.75.1 resolves test, document, and lint from the primary agent, and a trusted default-branch repository `agent` overrides the global primary.
+Before a CFO-managed run starts, the driver therefore requires that trusted field to be absent, which inherits global Codex, or to select only Codex explicitly.
+The driver does not rewrite repository configuration, and non-CFO no-mistakes use retains its native repository policy.
 
 A cycle means one repair followed by another review, after the initial review.
 The driver counts completed rounds from the native database, so the budget is durable within a native run and restarting the CLI mid-run does not reset it.

@@ -93,6 +93,71 @@ func TestRepoAgentCannotAlterRenderedGlobalReviewAgents(t *testing.T) {
 	}
 }
 
+type primaryRoutingRunner struct {
+	trusted []byte
+}
+
+func (r primaryRoutingRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	if request.Name == "sqlite3" {
+		return (execx.OSRunner{}).Run(ctx, request)
+	}
+	if request.Name != "git" {
+		return execx.Result{}, errors.New("unexpected command")
+	}
+	switch strings.Join(request.Args, " ") {
+	case "status --porcelain --untracked-files=all":
+		return execx.Result{}, nil
+	case "show HEAD:.no-mistakes.yaml":
+		return execx.Result{Stdout: []byte("agent: claude\nauto_fix: {review: 0, test: 1, lint: 1, rebase: 1, ci: 1}\n")}, nil
+	case "show refs/remotes/origin/main:.no-mistakes.yaml":
+		return execx.Result{Stdout: r.trusted}, nil
+	default:
+		return execx.Result{}, errors.New("unexpected git command")
+	}
+}
+
+func TestCheckStartUsesOnlyCodexForTheTrustedPrimaryRole(t *testing.T) {
+	sqlite, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 CLI not available")
+	}
+	project := filepath.Join(t.TempDir(), "project")
+	dir := t.TempDir()
+	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT);
+INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'main');`
+	if out, err := exec.Command(sqlite, filepath.Join(dir, "state.sqlite"), sql).CombinedOutput(); err != nil {
+		t.Fatalf("fixture: %s %v", out, err)
+	}
+
+	for _, test := range []struct {
+		name    string
+		trusted string
+		wantErr bool
+	}{
+		{name: "inherits global", trusted: "auto_fix: {review: 0}\n"},
+		{name: "explicit codex", trusted: "agent: codex\n"},
+		{name: "explicit codex list", trusted: "agent: [codex]\n"},
+		{name: "claude override", trusted: "agent: claude\n", wantErr: true},
+		{name: "fallback list", trusted: "agent: [codex, claude]\n", wantErr: true},
+		{name: "automatic selection", trusted: "agent: auto\n", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reader := Reader{Root: dir, Commands: primaryRoutingRunner{trusted: []byte(test.trusted)}}
+			err := reader.CheckStart(context.Background(), project, filepath.Join(project, "worktree"), "feature", testPolicy(t))
+			if test.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "trusted default-branch agent") {
+					t.Fatalf("CheckStart error=%v, want trusted primary refusal", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("CheckStart: %v", err)
+			}
+		})
+	}
+}
+
 func TestCheckStartRefusesOnlyANonTerminalPreviousRun(t *testing.T) {
 	sqlite, err := exec.LookPath("sqlite3")
 	if err != nil {
@@ -187,12 +252,12 @@ func TestCommittedRepoConfigSatisfiesTheCheckedInPolicy(t *testing.T) {
 		t.Fatalf("committed gate config conflicts with config/pipeline.json: %v", err)
 	}
 	var config struct {
-		Agent []string `yaml:"agent"`
+		Agent yaml.Node `yaml:"agent"`
 	}
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		t.Fatal(err)
 	}
-	if len(config.Agent) != 1 || config.Agent[0] != "codex" {
-		t.Fatalf("committed primary gate agent=%v, want [codex]", config.Agent)
+	if config.Agent.Kind != 0 {
+		t.Fatalf("committed config overrides the globally owned primary agent: %+v", config.Agent)
 	}
 }
