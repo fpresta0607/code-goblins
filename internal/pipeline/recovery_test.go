@@ -3,6 +3,8 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -50,6 +52,15 @@ type recoveryRunner struct {
 
 type recoveryScenario struct {
 	run, repo, branch, recorded, submitted string
+}
+
+func newRecoveryReader(t *testing.T, runner execx.Runner) Reader {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return Reader{Commands: runner, Root: root}
 }
 
 func (r *recoveryRunner) values() recoveryScenario {
@@ -269,7 +280,7 @@ func (r *recoveryRunner) Run(_ context.Context, request execx.Request) (execx.Re
 
 func TestRecoverKeepLocalRepairsAncestralRebaseGateShapeWithoutReset(t *testing.T) {
 	runner := &recoveryRunner{ancestral: true}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	result, err := reader.RecoverKeepLocal(context.Background(), `C:\dev\code-goblins\projects\precisiondocs`, `C:\dev\code-goblins\projects\precisiondocs\.worktrees\gb-pd-fly-rightsize`, recoveryBranch, []string{"NM_HOME=test"})
 	if err != nil {
 		t.Fatal(err)
@@ -307,7 +318,7 @@ func TestRecoverKeepLocalRepairsAncestralRebaseGateShapeWithoutReset(t *testing.
 
 func TestRecoverKeepLocalUsesAnExplicitBareRepositoryBoundary(t *testing.T) {
 	runner := &recoveryRunner{ancestral: true, requireExplicitBare: true}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", recoveryBranch, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +336,7 @@ func TestRecoverKeepLocalCreatesSHA256RecoveryAnchor(t *testing.T) {
 		ancestral:              true,
 		requireMatchingNullOID: true,
 	}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", recoveryBranch, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +344,7 @@ func TestRecoverKeepLocalCreatesSHA256RecoveryAnchor(t *testing.T) {
 
 func TestRecoverKeepLocalRefusesNonAncestralCommitsBeforeMutation(t *testing.T) {
 	runner := &recoveryRunner{}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", recoveryBranch, nil); err == nil {
 		t.Fatal("non-equivalent divergence accepted")
 	}
@@ -357,7 +368,7 @@ func TestRecoverKeepLocalAlignsV172UserOwnedGateBeforeSuccess(t *testing.T) {
 		alreadyOwned: true,
 		localHead:    advanced,
 	}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	result, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", branch, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -398,7 +409,7 @@ func TestRecoverKeepLocalRollsBackGateWhenDatabaseCASFails(t *testing.T) {
 		localHead:    advanced,
 		failDatabase: true,
 	}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", branch, nil); err == nil {
 		t.Fatal("failed database compare-and-swap reported recovery success")
 	}
@@ -419,7 +430,7 @@ func TestRecoverKeepLocalVerifiesCommittedDatabaseCASBeforeRollback(t *testing.T
 		localHead:       advanced,
 		failAfterCommit: true,
 	}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	result, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", branch, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -448,7 +459,7 @@ func TestRecoverKeepLocalPreservesAlignedGateWhenDatabaseRollbackFails(t *testin
 		failRollback:  true,
 		failPostCheck: true,
 	}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", branch, nil); err == nil {
 		t.Fatal("failed post-alignment check reported recovery success")
 	}
@@ -479,7 +490,7 @@ func TestRecoverKeepLocalFinishesInterruptedUserOwnedAlignment(t *testing.T) {
 		gateAligned:  true,
 		anchorExists: true,
 	}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	result, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", branch, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -506,7 +517,7 @@ func TestRecoverKeepLocalAlignsUserOwnedMultiCommitAdvance(t *testing.T) {
 		alreadyOwned: true,
 		localHead:    advanced,
 	}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	result, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", branch, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -531,7 +542,7 @@ func TestRecoverKeepLocalAlignsV175CustodyReturnedGateBeforeFreshRun(t *testing.
 		nativeAnchor:    true,
 		custodyReturned: true,
 	}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	result, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", branch, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -580,7 +591,7 @@ func TestRecoverKeepLocalPreservesCFOEvidenceWhenNativeAndTargetHeadsMatch(t *te
 		nativeAnchor:    true,
 		custodyReturned: true,
 	}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	for attempt := 1; attempt <= 2; attempt++ {
 		result, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", runner.scenario.branch, nil)
 		if err != nil {
@@ -605,7 +616,7 @@ func TestRecoverKeepLocalAcceptsNativeAlignedCustodyReturnedWithoutGateAnchor(t 
 		localHead:            head,
 		nativeReturnsCustody: true,
 	}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	for attempt := 1; attempt <= 2; attempt++ {
 		result, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", runner.scenario.branch, nil)
 		if err != nil {
@@ -643,7 +654,7 @@ func TestRecoverKeepLocalRefusesConflictingNativeAnchorsAcrossRepositories(t *te
 		nativeWorktreeHead:   "c5fcb965b84750629f8a87f35ee571a128ec7e4e",
 		custodyReturned:      true,
 	}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", runner.scenario.branch, nil); err == nil || !strings.Contains(err.Error(), "conflict across repositories") {
 		t.Fatalf("conflicting native anchors accepted: %v", err)
 	}
@@ -672,7 +683,7 @@ func TestRecoverKeepLocalRejectsSymbolicRecoveryAnchorBeforeMovement(t *testing.
 		nativeAnchor:    true,
 		custodyReturned: true,
 	}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", runner.scenario.branch, nil); err == nil || !strings.Contains(err.Error(), "must not be symbolic") {
 		t.Fatalf("symbolic recovery anchor accepted: %v", err)
 	}
@@ -702,7 +713,7 @@ func TestRecoverKeepLocalRejectsNonCommitRecoveryAnchor(t *testing.T) {
 		nativeAnchor:    true,
 		custodyReturned: true,
 	}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", runner.scenario.branch, nil); err == nil || !strings.Contains(err.Error(), "must name a commit directly") {
 		t.Fatalf("non-commit recovery anchor accepted: %v", err)
 	}
@@ -725,7 +736,7 @@ func TestRecoverKeepLocalNoDerefCreationCannotMoveSymbolicTarget(t *testing.T) {
 		localHead:          local,
 		anchorSymbolicRace: true,
 	}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", runner.scenario.branch, nil); err == nil {
 		t.Fatal("recovery unexpectedly succeeded through anchor creation race")
 	}
@@ -758,7 +769,7 @@ func TestRecoverKeepLocalRefusesNativeCustodyWithMissingOrConflictingAnchor(t *t
 				missingNativeAnchor:  test.missingNativeAnchor,
 				nativeAnchorHead:     test.nativeAnchorHead,
 			}
-			reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+			reader := newRecoveryReader(t, runner)
 			if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", runner.scenario.branch, nil); err == nil {
 				t.Fatal("unsafe native custody accepted")
 			}
@@ -779,7 +790,7 @@ func TestRecoverKeepLocalRefusesV175CustodyReturnedWithoutNativeAnchor(t *testin
 		localHead:       "e78eae6f6569b7bc37835ae36b4ef79e4e434fd4",
 		custodyReturned: true,
 	}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", runner.scenario.branch, nil); err == nil {
 		t.Fatal("unanchored returned pipeline head was accepted")
 	}
@@ -807,7 +818,7 @@ func TestRecoverKeepLocalRefusesAlignedV175CustodyReturnedWithoutNativeAnchor(t 
 		anchorHead:      "0c61c8d1bb5145fb3dad57fde7f0e139a0c98a83",
 		custodyReturned: true,
 	}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", runner.scenario.branch, nil); err == nil || !strings.Contains(err.Error(), "not anchored") {
 		t.Fatalf("aligned unanchored custody return accepted: %v", err)
 	}
@@ -837,7 +848,7 @@ func TestRecoverKeepLocalFinishesCommittedCustodyReturnedAlignment(t *testing.T)
 		nativeAnchor:    true,
 		custodyReturned: true,
 	}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	result, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", branch, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -872,7 +883,7 @@ func TestRecoverKeepLocalRefusesCommittedCustodyAlignmentWithConflictingGateAnch
 		nativeAnchor:    true,
 		custodyReturned: true,
 	}
-	reader := Reader{Commands: runner, Root: `C:\Users\fpres\.no-mistakes`}
+	reader := newRecoveryReader(t, runner)
 	if _, err := reader.RecoverKeepLocal(context.Background(), "project", "worktree", runner.scenario.branch, nil); err == nil {
 		t.Fatal("aligned custody retry accepted a non-stale CFO gate anchor")
 	}
