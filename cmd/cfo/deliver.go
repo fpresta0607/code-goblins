@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -148,22 +150,32 @@ func runPRCheck(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	metaPath := filepath.Join(h.State, id+".meta")
+	if err := recordPR(h.State, id, url, prHead(url)); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "recorded pr=%s\n", url)
+	return 0
+}
+
+func recordPR(stateDir, id, url, head string) (err error) {
+	lockName := state.MetadataLockName(id)
+	if _, err := lock.AcquireExclusiveNamed(stateDir, lockName); err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(stateDir, lockName)) }()
+
+	metaPath := filepath.Join(stateDir, id+".meta")
 	kv, _ := state.ReadMeta(metaPath)
 	if kv == nil {
 		kv = make(map[string]string)
 	}
 	kv["pr"] = url
 	// Best-effort head resolution; a missing gh or a not-yet-created PR leaves pr_head unset.
-	if head := prHead(url); head != "" {
+	if head != "" {
 		kv["pr_head"] = head
 	}
-	if err := state.WriteMeta(metaPath, kv); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	fmt.Fprintf(stdout, "recorded pr=%s\n", url)
-	return 0
+	return state.WriteMeta(metaPath, kv)
 }
 
 // runPRMerge merges an open PR through the gh CLI. It never merges red work:

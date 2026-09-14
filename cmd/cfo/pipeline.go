@@ -245,6 +245,10 @@ func migratePipelinePolicy(ctx context.Context, h home.Home, root string, reader
 		return err
 	}
 	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(h.State, state.CleanupLockName(meta.ID))) }()
+	if _, err := lock.AcquireExclusiveNamed(h.State, state.MetadataLockName(meta.ID)); err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(h.State, state.MetadataLockName(meta.ID))) }()
 
 	metaPath := filepath.Join(h.State, meta.ID+".meta")
 	values, err := state.ReadMeta(metaPath)
@@ -350,6 +354,10 @@ func resumePipelinePolicyMigration(ctx context.Context, h home.Home, reader pipe
 		return err
 	}
 	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(h.State, state.CleanupLockName(meta.ID))) }()
+	if _, err := lock.AcquireExclusiveNamed(h.State, state.MetadataLockName(meta.ID)); err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(h.State, state.MetadataLockName(meta.ID))) }()
 	return applyPolicyMigration(h, meta, journalPath, journal, true)
 }
 

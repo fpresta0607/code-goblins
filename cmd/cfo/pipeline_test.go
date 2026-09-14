@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -414,6 +416,100 @@ func TestPipelineMigrateResumesInterruptedTransaction(t *testing.T) {
 				t.Fatalf("migration audit count=%d, want 1: %v", count, status)
 			}
 		})
+	}
+}
+
+func TestPipelineMigrationRacingPRCheckPreservesBothUpdates(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("uses a blocking Windows gh shim")
+	}
+	root := t.TempDir()
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	nm := filepath.Join(root, "nm")
+	tmp := filepath.Join(h.State, "tasktmp", "task")
+	project := filepath.Join(root, "project")
+	wt := filepath.Join(project, ".worktrees", "gb-task")
+	bin := filepath.Join(root, "bin")
+	for _, path := range []string{filepath.Join(root, "config"), nm, tmp, wt, bin} {
+		if err := os.MkdirAll(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	current, err := os.ReadFile(filepath.Join("..", "..", "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "config", "pipeline.json"), current, 0600); err != nil {
+		t.Fatal(err)
+	}
+	policy, err := pipeline.Load(filepath.Join(root, "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, _, err := pipeline.Render([]byte("{}"), policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "config.yaml"), config, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	old := legacyPipelineSelection(t, "ordinary")
+	if err := old.Save(filepath.Join(tmp, "pipeline.json")); err != nil {
+		t.Fatal(err)
+	}
+	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: wt, Project: project, TaskTmp: tmp, PipelineClass: old.Class, PipelineHash: old.Hash}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	ready := filepath.Join(root, "gh-ready")
+	release := filepath.Join(root, "gh-release")
+	shim := "@echo off\r\n>\"%GH_READY%\" echo ready\r\n:wait\r\nif not exist \"%GH_RELEASE%\" (\r\n  ping 127.0.0.1 -n 2 >nul\r\n  goto wait\r\n)\r\necho abc123\r\n"
+	if err := os.WriteFile(filepath.Join(bin, "gh.bat"), []byte(shim), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GH_READY", ready)
+	t.Setenv("GH_RELEASE", release)
+	t.Setenv("CFO_HOME", root)
+	t.Setenv("CFO_STATE_OVERRIDE", h.State)
+	done := make(chan int, 1)
+	var stdout, stderr bytes.Buffer
+	go func() {
+		done <- runPRCheck([]string{"task", "https://example.test/pull/1"}, &stdout, &stderr)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("pr check did not reach the blocked head lookup")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	defer os.WriteFile(release, nil, 0600)
+	if err := pipelineCommand(context.Background(), h, nm, &pipelineRunner{worktree: wt}, []string{"migrate", "task"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(release, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if code := <-done; code != 0 {
+		t.Fatalf("pr check code=%d stderr=%s", code, &stderr)
+	}
+	updated, err := state.ReadMeta(filepath.Join(h.State, "task.meta"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := policy.Select("ordinary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated["pipeline_hash"] != want.Hash || updated["pipeline_class"] != want.Class || updated["pr"] != "https://example.test/pull/1" || updated["pr_head"] != "abc123" {
+		t.Fatalf("metadata lost migration or PR update: %+v", updated)
 	}
 }
 
