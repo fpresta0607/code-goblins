@@ -61,7 +61,10 @@ The YAML parser dependency is needed to preserve unrelated configuration structu
 
 Run `config-apply` before migrating any live task snapshot.
 `migrate` requires the applied v2 global configuration, the daemon stopped, every durable native run terminal, and the task's pipeline lock.
-It accepts only the reviewed v1-to-v2 transition, preserves the task class and `review_cycles` cap exactly, atomically replaces the task snapshot and metadata hash, and rolls both files back if either replacement or the audit append fails.
+It accepts only the reviewed v1-to-v2 transition and preserves the task class and `review_cycles` cap exactly.
+Before replacing either owned field, it writes a task-local transaction journal containing the validated old and new snapshots and the expected audit event.
+An interrupted command resumes that journal under the same pipeline, cleanup, and native idle locks before any pipeline command trusts the snapshot hash.
+Recovery finishes the migration once or rolls both owned fields back when audit persistence fails, without overwriting unrelated task metadata.
 The task status receives one line containing the class, cap, old hash and new hash.
 Migration never changes a worktree, native run row, gate ref, origin ref, or review result.
 
@@ -102,10 +105,12 @@ Before a compare-and-swap repairs the stale database field, the old commit is an
 The driver then invokes native `sync --recover --keep-local` and verifies that custody was durably returned without moving the local or gate head.
 When native already reports clean user-owned custody, the registered task worktree and branch may contain rebases and follow-up fixes made after custody returned.
 The driver anchors the old gate head, imports the local commit into the internal repository without writing a fetch ref, and compare-and-swaps the internal gate ref and both database heads to the local head.
-The database and gate updates roll back if either compare-and-swap fails, and native status must confirm all three heads before success is reported.
+If the process exits after the gate compare-and-swap, the anchor lets the next recovery recognize that exact half-state and finish the database compare-and-swap.
+The database and gate updates roll back if an in-process compare-and-swap fails, and native status must confirm all three heads before success is reported.
 The local branch and origin refs are never moved.
 The command never resets a branch or recovers a pushed run.
-Content equivalence remains mandatory when repairing pipeline-owned recorded and submitted heads, but not after native has already returned user-owned custody because the next run reviews the preserved local head as new work.
+Content equivalence remains mandatory when repairing pipeline-owned recorded and submitted heads.
+After native has already returned clean user-owned custody, the registered identity, unpublished-run state, stale-head anchor, and compare-and-swap guards are the authorized boundary, so the driver does not reject legitimate rebases or follow-up commits by comparing them with the stale head.
 
 This repository's committed automatic-fix overrides remain authoritative for a new submitted branch.
 After the shared idle apply, migrate each idle legacy task explicitly before starting its next run.

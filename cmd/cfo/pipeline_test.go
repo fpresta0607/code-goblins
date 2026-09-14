@@ -229,6 +229,111 @@ func TestPipelineMigrateRollsBackWhenAuditCannotBeWritten(t *testing.T) {
 	}
 }
 
+func TestPipelineMigrateResumesInterruptedTransaction(t *testing.T) {
+	for _, stage := range []string{"snapshot", "metadata", "audit"} {
+		t.Run(stage, func(t *testing.T) {
+			root := t.TempDir()
+			h := home.Home{Root: root, State: filepath.Join(root, "state")}
+			nm := filepath.Join(root, "nm")
+			tmp := filepath.Join(h.State, "tasktmp", "task")
+			project := filepath.Join(root, "project")
+			wt := filepath.Join(project, ".worktrees", "gb-task")
+			for _, path := range []string{filepath.Join(root, "config"), nm, tmp, wt} {
+				if err := os.MkdirAll(path, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			current, err := os.ReadFile(filepath.Join("..", "..", "config", "pipeline.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, "config", "pipeline.json"), current, 0600); err != nil {
+				t.Fatal(err)
+			}
+			policy, err := pipeline.Load(filepath.Join(root, "config", "pipeline.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			old := legacyPipelineSelection(t, "high-risk")
+			next, err := pipeline.MigrateSelection(old, policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			snapshot := filepath.Join(tmp, "pipeline.json")
+			if err := old.Save(snapshot); err != nil {
+				t.Fatal(err)
+			}
+			meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: wt, Project: project, TaskTmp: tmp, PipelineClass: old.Class, PipelineHash: old.Hash}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0600); err != nil {
+				t.Fatal(err)
+			}
+			config, _, err := pipeline.Render([]byte("{}"), policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(nm, "config.yaml"), config, 0600); err != nil {
+				t.Fatal(err)
+			}
+			journal := policyMigrationJournal{Version: 1, TaskID: "task", Direction: "forward", Old: old, New: next, Audit: pipelineMigrationAudit(old, next)}
+			journalPath := filepath.Join(tmp, policyMigrationJournalName)
+			if err := writePolicyMigrationJournal(journalPath, journal); err != nil {
+				t.Fatal(err)
+			}
+			if err := next.Save(snapshot); err != nil {
+				t.Fatal(err)
+			}
+			if stage == "metadata" || stage == "audit" {
+				values, err := state.ReadMeta(filepath.Join(h.State, "task.meta"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				values["pipeline_hash"] = next.Hash
+				if err := state.WriteMeta(filepath.Join(h.State, "task.meta"), values); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if stage == "audit" {
+				if err := state.AppendStatus(h.State, "task", journal.Audit); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			runner := &pipelineRunner{worktree: wt}
+			if err := pipelineCommand(context.Background(), h, nm, runner, []string{"migrate", "task"}, &bytes.Buffer{}); err != nil {
+				t.Fatal(err)
+			}
+			migrated, err := pipeline.LoadSelection(snapshot)
+			if err != nil || migrated != next {
+				t.Fatalf("snapshot=%+v err=%v", migrated, err)
+			}
+			updated, err := state.ReadTaskMeta(h.State, "task")
+			if err != nil || updated.PipelineHash != next.Hash || updated.PipelineClass != next.Class {
+				t.Fatalf("metadata=%+v err=%v", updated, err)
+			}
+			if _, err := os.Stat(journalPath); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("journal remains: %v", err)
+			}
+			status, err := state.TailStatus(h.State, "task", 10)
+			if err != nil {
+				t.Fatal(err)
+			}
+			count := 0
+			for _, line := range status {
+				_, event := state.SplitStatus(line)
+				if event == journal.Audit {
+					count++
+				}
+			}
+			if count != 1 {
+				t.Fatalf("migration audit count=%d, want 1: %v", count, status)
+			}
+		})
+	}
+}
+
 func TestPipelineRespondInvokesNativeOnlyForBudgetedExplicitDecision(t *testing.T) {
 	p, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
 	if err != nil {
