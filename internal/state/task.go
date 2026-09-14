@@ -71,6 +71,13 @@ func PipelineLockName(id string) string {
 	return ".pipeline-" + id + ".lock"
 }
 
+// MetadataLockName is the per-task lock held across every read-modify-write
+// of the flat task metadata record. It prevents one command from publishing a
+// stale record after another command has updated an unrelated field.
+func MetadataLockName(id string) string {
+	return ".metadata-" + id + ".lock"
+}
+
 // GoTmpDir is the per-task directory a goblin's GOTMPDIR points at. Go puts
 // build and test temporaries there, t.TempDir() included, so it is
 // deliberately outside the fleet checkout: pointed inside it, every test a

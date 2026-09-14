@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // Every goblin reads its brief before it writes a commit, so the brief is
@@ -42,6 +44,41 @@ func TestBriefScaffoldCarriesTheCommitAuthorshipRule(t *testing.T) {
 	}
 }
 
+func TestRecordPRDoesNotReplaceTemporarilyUnavailableMetadata(t *testing.T) {
+	stateDir := t.TempDir()
+	metaPath := filepath.Join(stateDir, "task.meta")
+	unavailablePath := metaPath + ".unavailable"
+	original := map[string]string{
+		"project":        "demo",
+		"pipeline_class": "ordinary",
+		"pipeline_hash":  "frozen-policy-hash",
+	}
+	if err := state.WriteMeta(metaPath, original); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(metaPath, unavailablePath); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Remove(metaPath)
+		_ = os.Rename(unavailablePath, metaPath)
+	}()
+
+	if err := recordPR(stateDir, "task", "https://example.test/pull/1", "abc123"); err == nil {
+		t.Fatal("recordPR succeeded while task metadata was unavailable")
+	}
+	if _, err := os.Stat(metaPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("recordPR created replacement metadata: %v", err)
+	}
+	preserved, err := state.ReadMeta(unavailablePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preserved["project"] != original["project"] || preserved["pipeline_class"] != original["pipeline_class"] || preserved["pipeline_hash"] != original["pipeline_hash"] {
+		t.Fatalf("task identity or policy changed: %v", preserved)
+	}
+}
+
 // The commit gh reports as the PR's head, and the one an unrelated local
 // branch of the same name in some other checkout happens to sit on.
 const (
@@ -50,7 +87,7 @@ const (
 )
 
 // The gh pr view payload this code parses, in the shape gh 2.86 emits.
-const prMergeHeadJSON = `{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"APPROVED","headRefName":"fix/x","headRefOid":"` + prMergeHeadOID + `","headRepository":{"name":"code-goblins"},"headRepositoryOwner":{"login":"fpresta0607"},"statusCheckRollup":[{"name":"go","status":"COMPLETED","conclusion":"SUCCESS"}]}`
+const prMergeHeadJSON = `{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"APPROVED","headRefName":"fix/x","headRefOid":"` + prMergeHeadOID + `","headRepository":{"name":"code-goblins"},"headRepositoryOwner":{"login":"fpresta0607"},"statusCheckRollup":[{"__typename":"CheckRun","name":"go","status":"COMPLETED","conclusion":"SUCCESS"}]}`
 
 // gh's message for a DELETE of a ref that is not there, which is what a
 // repository with "Automatically delete head branches" enabled produces.

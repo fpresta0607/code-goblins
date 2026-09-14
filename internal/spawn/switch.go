@@ -72,6 +72,20 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if s.Herdr == nil {
 		return SwitchResult{}, errors.New("switch: Herdr client is required")
 	}
+	metadataLock := state.MetadataLockName(req.ID)
+	if _, err := lock.AcquireExclusiveNamed(s.StateDir, metadataLock); err != nil {
+		return SwitchResult{}, fmt.Errorf("switch: acquire metadata lock: %w", err)
+	}
+	defer func() {
+		if releaseErr := s.releaseTaskLock(s.StateDir, metadataLock); releaseErr != nil {
+			releaseErr = fmt.Errorf("switch: release metadata lock: %w", releaseErr)
+			if err == nil {
+				err = releaseErr
+			} else {
+				err = errors.Join(err, releaseErr)
+			}
+		}
+	}()
 
 	meta, err := state.ReadTaskMeta(s.StateDir, req.ID)
 	if err != nil {

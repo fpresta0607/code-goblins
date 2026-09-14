@@ -120,16 +120,47 @@ func (r Reader) CheckStart(ctx context.Context, project, worktree, branch string
 	if err != nil || status.ExitCode != 0 || len(strings.TrimSpace(string(status.Stdout))) != 0 {
 		return errors.New("pipeline: commit task work before starting the gate")
 	}
-	for _, source := range []struct{ dir, ref string }{{worktree, "HEAD"}, {project, "refs/remotes/origin/" + repos[0].DefaultBranch}} {
-		result, err := r.Commands.Run(ctx, execx.Request{Dir: source.dir, Name: "git", Args: []string{"show", source.ref + ":.no-mistakes.yaml"}})
-		if err != nil || result.ExitCode != 0 {
-			return errors.New("pipeline: readable committed task and origin default-branch .no-mistakes.yaml required")
-		}
-		if err := checkRepoConfig(result.Stdout, policy, source.ref == "HEAD"); err != nil {
-			return err
-		}
+	task, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Name: "git", Args: []string{"show", "HEAD:.no-mistakes.yaml"}})
+	if err != nil || task.ExitCode != 0 {
+		return errors.New("pipeline: readable committed task and origin default-branch .no-mistakes.yaml required")
+	}
+	if err := checkRepoConfig(task.Stdout, policy, true); err != nil {
+		return err
+	}
+	defaultBranch := repos[0].DefaultBranch
+	remoteHead, err := r.originDefaultHead(ctx, project, defaultBranch)
+	if err != nil {
+		return err
+	}
+	trustedRef := "refs/remotes/origin/" + defaultBranch
+	local, err := r.Commands.Run(ctx, execx.Request{Dir: project, Name: "git", Args: []string{"rev-parse", "--verify", trustedRef}})
+	localFields := strings.Fields(string(local.Stdout))
+	if err != nil || local.ExitCode != 0 || len(localFields) != 1 {
+		return errors.New("pipeline: readable origin default-branch tracking evidence is required")
+	}
+	if localFields[0] != remoteHead {
+		return errors.New("pipeline: origin default-branch tracking evidence is stale")
+	}
+	trusted, err := r.Commands.Run(ctx, execx.Request{Dir: project, Name: "git", Args: []string{"show", trustedRef + ":.no-mistakes.yaml"}})
+	if err != nil || trusted.ExitCode != 0 {
+		return errors.New("pipeline: readable committed task and origin default-branch .no-mistakes.yaml required")
+	}
+	if err := checkRepoConfig(trusted.Stdout, policy, false); err != nil {
+		return err
+	}
+	if err := checkEffectivePrimaryAgent(task.Stdout, trusted.Stdout, policy); err != nil {
+		return err
 	}
 	return nil
+}
+
+func (r Reader) originDefaultHead(ctx context.Context, project, defaultBranch string) (string, error) {
+	remote, err := r.Commands.Run(ctx, execx.Request{Dir: project, Name: "git", Args: []string{"ls-remote", "--symref", "origin", "HEAD"}})
+	fields := strings.Fields(string(remote.Stdout))
+	if err != nil || remote.ExitCode != 0 || len(fields) != 5 || fields[0] != "ref:" || fields[1] != "refs/heads/"+defaultBranch || fields[2] != "HEAD" || fields[4] != "HEAD" {
+		return "", errors.New("pipeline: current origin default-branch evidence is required")
+	}
+	return fields[3], nil
 }
 
 func CheckRepoConfig(data []byte, p Policy) error {
@@ -145,20 +176,10 @@ func checkRepoConfig(data []byte, p Policy, checkAutomatic bool) error {
 		return err
 	}
 	var config struct {
-		Agent   yaml.Node      `yaml:"agent"`
 		AutoFix map[string]int `yaml:"auto_fix"`
 	}
 	if err := doc.Decode(&config); err != nil {
 		return errors.New("pipeline: invalid repository policy override")
-	}
-	if config.Agent.Kind != 0 {
-		agent := &config.Agent
-		if agent.Kind == yaml.SequenceNode && len(agent.Content) == 1 {
-			agent = agent.Content[0]
-		}
-		if agent.Kind != yaml.ScalarNode || agent.Value != "claude" {
-			return errors.New("pipeline: repository must use Claude without reviewer fallbacks")
-		}
 	}
 	// Native automatic-fix settings come from the submitted branch, not the
 	// trusted default copy. Checking the latter would prevent a safe reduction.
@@ -174,6 +195,52 @@ func checkRepoConfig(data []byte, p Policy, checkAutomatic bool) error {
 		if got, ok := config.AutoFix[key]; ok && got != want {
 			return fmt.Errorf("pipeline: repository auto_fix.%s differs from the task policy", key)
 		}
+	}
+	return nil
+}
+
+func checkEffectivePrimaryAgent(taskData, trustedData []byte, p Policy) error {
+	type repoRouting struct {
+		Agent             yaml.Node `yaml:"agent"`
+		AllowRepoCommands bool      `yaml:"allow_repo_commands"`
+	}
+	decode := func(data []byte) (repoRouting, error) {
+		doc, err := parseYAML(data)
+		if err != nil {
+			return repoRouting{}, err
+		}
+		var config repoRouting
+		if err := doc.Decode(&config); err != nil {
+			return repoRouting{}, errors.New("pipeline: invalid repository policy override")
+		}
+		return config, nil
+	}
+	task, err := decode(taskData)
+	if err != nil {
+		return err
+	}
+	trusted, err := decode(trustedData)
+	if err != nil {
+		return err
+	}
+	agent := &trusted.Agent
+	source := "trusted default-branch"
+	if trusted.AllowRepoCommands {
+		agent = &task.Agent
+		source = "submitted branch"
+	}
+	if agent.Kind == 0 {
+		return nil
+	}
+	if agent.Kind == yaml.SequenceNode && len(agent.Content) == 1 {
+		agent = agent.Content[0]
+	}
+	want := p.Reviewer.Harness
+	if p.Version == 2 {
+		want = p.Primary.Harness
+	}
+	if agent.Kind != yaml.ScalarNode || agent.Value != want {
+		return fmt.Errorf("pipeline: effective %s agent overrides the owned %s primary in no-mistakes v1.75.1; remove the effective repository agent field or set it to %s", source, want, want)
 	}
 	return nil
 }
@@ -221,15 +288,21 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 	if err := json.Unmarshal([]byte(gate.Findings), &report); err != nil || report.Findings == nil {
 		return nil, errors.New("pipeline: missing or invalid findings evidence")
 	}
+	emptyActionFixable := gate.Step != "review" && gate.AutoFixLimit != nil && *gate.AutoFixLimit > 0
 	actions := map[string]string{}
 	unresolved := false
 	for _, f := range *report.Findings {
-		if f.ID == "" || actions[f.ID] != "" {
+		if _, exists := actions[f.ID]; f.ID == "" || exists {
 			return nil, errors.New("pipeline: invalid or duplicate finding ID")
 		}
 		switch f.Action {
 		case "no-op":
 		case "auto-fix", "ask-user":
+			unresolved = true
+		case "":
+			if !emptyActionFixable {
+				return nil, ErrUnresolved
+			}
 			unresolved = true
 		default:
 			return nil, ErrUnresolved
@@ -254,8 +327,8 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 		}
 		seen := map[string]bool{}
 		for _, id := range strings.Split(response.Findings, ",") {
-			action := actions[id]
-			if id == "" || seen[id] || action != "auto-fix" && action != "ask-user" {
+			action, exists := actions[id]
+			if id == "" || seen[id] || !exists || action != "auto-fix" && action != "ask-user" && !(emptyActionFixable && action == "") {
 				return nil, errors.New("pipeline: selected finding is absent, duplicated or not actionable")
 			}
 			seen[id] = true
