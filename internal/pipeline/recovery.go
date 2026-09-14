@@ -156,17 +156,14 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 	if custodyReturned {
 		nativeAnchor := "refs/no-mistakes/recover/" + run.RunID
 		if headsAligned {
-			nativeHead, err := r.readRef(ctx, bare, nativeAnchor)
+			nativeHead, err := r.nativeRecoveryHead(ctx, worktree, bare, nativeAnchor)
 			if err != nil {
 				return RecoveryResult{}, fmt.Errorf("pipeline: returned pipeline head is not anchored: %w", err)
-			}
-			if err := r.requireCommit(ctx, bare, nativeHead); err != nil {
-				return RecoveryResult{}, errors.New("pipeline: returned custody anchor commit is unavailable")
 			}
 			if !cfoSwap && nativeHead != run.RecordedHead {
 				return RecoveryResult{}, errors.New("pipeline: native-aligned returned custody has conflicting recovery evidence")
 			}
-		} else if err := r.requireRef(ctx, bare, nativeAnchor, run.RecordedHead); err != nil {
+		} else if err := r.requireNativeRecoveryHead(ctx, worktree, bare, nativeAnchor, run.RecordedHead); err != nil {
 			return RecoveryResult{}, fmt.Errorf("pipeline: returned pipeline head is not anchored: %w", err)
 		}
 	}
@@ -191,7 +188,7 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 			return RecoveryResult{}, err
 		}
 	case status.Local.Head:
-		if err := r.requireRef(ctx, bare, anchor, run.SubmittedHead); err != nil {
+		if err := r.requireRecoveryHead(ctx, bare, anchor, run.SubmittedHead); err != nil {
 			return RecoveryResult{}, errors.New("pipeline: advanced recovery gate lacks its stale-head anchor")
 		}
 	default:
@@ -206,7 +203,7 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 	if err := r.requireRef(ctx, bare, gateRef, gateHead); err != nil {
 		return RecoveryResult{}, fmt.Errorf("pipeline: gate branch changed during recovery: %w", err)
 	}
-	if err := r.requireRef(ctx, bare, anchor, run.SubmittedHead); err != nil {
+	if err := r.requireRecoveryHead(ctx, bare, anchor, run.SubmittedHead); err != nil {
 		return RecoveryResult{}, errors.New("pipeline: CFO recovery gate anchor changed before head alignment")
 	}
 	movedGate := gateHead == run.SubmittedHead
@@ -274,7 +271,7 @@ func (r Reader) requireReturnedCustody(ctx context.Context, worktree, bare strin
 	} else if exists {
 		return errors.New("pipeline: native custody return conflicts with CFO swap evidence")
 	}
-	if err := r.requireRef(ctx, bare, "refs/no-mistakes/recover/"+run.RunID, current.RecordedHead); err != nil {
+	if err := r.requireNativeRecoveryHead(ctx, worktree, bare, "refs/no-mistakes/recover/"+run.RunID, current.RecordedHead); err != nil {
 		return fmt.Errorf("pipeline: returned pipeline head is not anchored: %w", err)
 	}
 	return nil
@@ -390,7 +387,17 @@ func (r Reader) rollbackUserOwned(ctx context.Context, bare, gateRef string, run
 }
 
 func (r Reader) recoveryHead(ctx context.Context, repo, ref string) (string, bool, error) {
-	result, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", ref}})
+	symbolic, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"symbolic-ref", "--quiet", ref}})
+	if err != nil {
+		return "", false, err
+	}
+	if symbolic.ExitCode == 0 {
+		return "", false, errors.New("pipeline: recovery anchor must not be symbolic")
+	}
+	if symbolic.ExitCode != 1 {
+		return "", false, errors.New("pipeline: could not inspect recovery anchor")
+	}
+	result, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"show-ref", "--verify", "--hash", ref}})
 	if err != nil {
 		return "", false, err
 	}
@@ -401,7 +408,54 @@ func (r Reader) recoveryHead(ctx context.Context, repo, ref string) (string, boo
 	if result.ExitCode != 0 || head == "" {
 		return "", false, errors.New("pipeline: could not inspect recovery anchor")
 	}
+	target, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"cat-file", "-t", head}})
+	if err != nil || target.ExitCode != 0 || strings.TrimSpace(string(target.Stdout)) != "commit" {
+		return "", false, errors.New("pipeline: recovery anchor must name a commit directly")
+	}
 	return head, true, nil
+}
+
+func (r Reader) nativeRecoveryHead(ctx context.Context, worktree, bare, ref string) (string, error) {
+	var anchored string
+	for _, repo := range []string{worktree, bare} {
+		head, found, err := r.recoveryHead(ctx, repo, ref)
+		if err != nil {
+			return "", err
+		}
+		if !found {
+			continue
+		}
+		if anchored != "" && anchored != head {
+			return "", errors.New("pipeline: native recovery anchors conflict across repositories")
+		}
+		anchored = head
+	}
+	if anchored == "" {
+		return "", errors.New("pipeline: native recovery anchor is missing")
+	}
+	return anchored, nil
+}
+
+func (r Reader) requireNativeRecoveryHead(ctx context.Context, worktree, bare, ref, want string) error {
+	head, err := r.nativeRecoveryHead(ctx, worktree, bare, ref)
+	if err != nil {
+		return err
+	}
+	if head != want {
+		return fmt.Errorf("%s does not equal %s", ref, want)
+	}
+	return nil
+}
+
+func (r Reader) requireRecoveryHead(ctx context.Context, repo, ref, want string) error {
+	head, found, err := r.recoveryHead(ctx, repo, ref)
+	if err != nil {
+		return err
+	}
+	if !found || head != want {
+		return fmt.Errorf("%s does not equal %s", ref, want)
+	}
+	return nil
 }
 
 func (r Reader) preserveRecoveryHead(ctx context.Context, repo, ref, head string) error {
@@ -415,11 +469,11 @@ func (r Reader) preserveRecoveryHead(ctx context.Context, repo, ref, head string
 		}
 		return nil
 	}
-	created, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"update-ref", ref, head, strings.Repeat("0", 40)}})
+	created, err := r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: []string{"update-ref", "--no-deref", ref, head, strings.Repeat("0", 40)}})
 	if err != nil || created.ExitCode != 0 {
 		return errors.New("pipeline: could not anchor the stale recorded commit")
 	}
-	return nil
+	return r.requireRecoveryHead(ctx, repo, ref, head)
 }
 
 func (r Reader) replaceRecordedHead(ctx context.Context, run recoveryRecord) error {
