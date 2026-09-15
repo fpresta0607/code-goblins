@@ -4,9 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/taskcontext"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -15,9 +17,9 @@ import (
 // failure reason), so the CFO is woken with the real thing instead of the
 // watcher guessing from pane text. Identical for claude, codex, and pi.
 //
-//	 cfo notify <task-id> --done --pr <url>
-//	 cfo notify <task-id> --blocked "<question>"
-//	 cfo notify <task-id> --failed "<reason>"
+//	cfo notify <task-id> --done --pr <url>
+//	cfo notify <task-id> --blocked "<question>"
+//	cfo notify <task-id> --failed "<reason>"
 func runNotify(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "cfo notify: task ID is required")
@@ -64,6 +66,13 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	if *done {
+		recap := taskcontext.PathsFor(h, id).Recap
+		if info, e := os.Stat(recap); e != nil || info.IsDir() || info.Size() == 0 {
+			fmt.Fprintf(stderr, "cfo notify: save the finished branch recap first: cfo recap %s --file <html>; include tests, limitations and accurate PR/merge/deployment status\n", id)
+			return 1
+		}
 	}
 
 	line := verb + ": " + state.NormalizeStatusDetail(detail)

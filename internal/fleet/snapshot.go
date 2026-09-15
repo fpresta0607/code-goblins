@@ -15,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 const snapshotSchema = "fleet-snapshot.v1"
@@ -31,11 +32,16 @@ type EndpointReader interface {
 // crewstate.StructuralValidator: idle status-log fallback requires workspace,
 // tab, and label proof that an agent status response cannot establish.
 func NewHerdrEndpoint(client *herdr.Client) EndpointReader {
-	return herdrEndpoint{client: client}
+	return herdrEndpoint{client: client, probe: monitor.NewHerdrProber(client)}
 }
 
 type herdrEndpoint struct {
 	client *herdr.Client
+	probe  *monitor.HerdrProber
+}
+
+func (e herdrEndpoint) Inspect(ctx context.Context, meta state.TaskMeta) (monitor.EndpointSample, error) {
+	return e.probe.Inspect(ctx, meta)
 }
 
 func (e herdrEndpoint) Exists(ctx context.Context, target herdr.Target) (bool, error) {
@@ -59,11 +65,12 @@ func (e herdrEndpoint) BusyState(ctx context.Context, target herdr.Target) (herd
 // Snapshot is the typed, read-only fleet view shared by JSON and Markdown
 // renderers.
 type Snapshot struct {
-	Schema      string          `json:"schema"`
-	Home        string          `json:"home"`
-	Tasks       []TaskRow       `json:"tasks"`
-	Backlog     BacklogRows     `json:"backlog"`
-	Secondmates []SecondmateRow `json:"secondmates"`
+	Supervisor  supervisor.Health `json:"supervisor"`
+	Schema      string            `json:"schema"`
+	Home        string            `json:"home"`
+	Tasks       []TaskRow         `json:"tasks"`
+	Backlog     BacklogRows       `json:"backlog"`
+	Secondmates []SecondmateRow   `json:"secondmates"`
 }
 
 // SecondmateRow is deliberately empty because secondmates are outside Plan 3.
@@ -71,6 +78,7 @@ type SecondmateRow struct{}
 
 // TaskRow is the complete typed projection of one local task metadata record.
 type TaskRow struct {
+	Outcome  *Outcome          `json:"last_outcome,omitempty"`
 	ID       string            `json:"id"`
 	Current  crewstate.Current `json:"current_state"`
 	Monitor  MonitorSummary    `json:"monitor"`
@@ -86,11 +94,15 @@ type TaskRow struct {
 // MonitorSummary is the renderer-facing subset of the persisted Task 4
 // observation. It retains only values recorded by the monitor.
 type MonitorSummary struct {
-	Health               monitor.Health `json:"health"`
-	StaleSeconds         int64          `json:"stale_seconds"`
-	LastSeen             *time.Time     `json:"last_seen"`
-	Escalation           int            `json:"escalation"`
-	DemandDeepInspection bool           `json:"demand_deep_inspection"`
+	Gate                 *monitor.GateSample `json:"gate,omitempty"`
+	Reason               monitor.Reason      `json:"reason"`
+	LastObserved         time.Time           `json:"last_observed"`
+	Fresh                bool                `json:"fresh"`
+	Health               monitor.Health      `json:"health"`
+	StaleSeconds         int64               `json:"stale_seconds"`
+	LastSeen             *time.Time          `json:"last_seen"`
+	Escalation           int                 `json:"escalation"`
+	DemandDeepInspection bool                `json:"demand_deep_inspection"`
 }
 
 // EndpointSummary preserves the recorded Herdr identity and the monitor's
@@ -107,7 +119,8 @@ type EndpointSummary struct {
 // Actions lists commands that operate on the task without adding another
 // state-reading path to the renderer.
 type Actions struct {
-	Peek string `json:"peek"`
+	Peek    string `json:"peek"`
+	Context string `json:"context"`
 }
 
 // BuildSnapshot reads local metadata, Task 4 monitor observations, and each
@@ -122,6 +135,7 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 		return Snapshot{}, err
 	}
 	snapshot := Snapshot{
+		Supervisor:  supervisor.Status(h.State),
 		Schema:      snapshotSchema,
 		Home:        h.Root,
 		Tasks:       []TaskRow{},
@@ -149,11 +163,44 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 		if err != nil {
 			return Snapshot{}, fmt.Errorf("fleet: read task metadata %q: %w", id, err)
 		}
-		current, err := crewstate.Resolve(ctx, h.State, id, endpoint)
+		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		var current crewstate.Current
+		var liveExists *bool
+		if probe, ok := endpoint.(monitor.Prober); ok {
+			sample, e := probe.Inspect(probeCtx, meta)
+			current = crewstate.Current{State: crewstate.Unknown, Source: crewstate.SourceEndpoint, Detail: "backend_unavailable"}
+			if e == nil {
+				current.Detail = sample.Detail
+				if sample.Verdict == monitor.ProbeMissing {
+					v := false
+					liveExists = &v
+					current.Detail = "endpoint_missing"
+				}
+				if sample.Verdict == monitor.ProbePresent {
+					v := sample.Agent == herdr.AgentAlive
+					liveExists = &v
+					if !v {
+						current.Detail = "missing_agent; restored shell is a stopped worker"
+					} else if sample.Busy == herdr.BusyWorking {
+						current.State = crewstate.Working
+						current.Detail = "running"
+					} else {
+						current.State = crewstate.Parked
+						current.Detail = "registered agent awaiting input"
+					}
+				}
+			}
+		} else {
+			current, err = crewstate.Resolve(probeCtx, h.State, id, endpoint)
+		}
+		cancel()
 		if err != nil {
 			return Snapshot{}, fmt.Errorf("fleet: resolve current state for %q: %w", id, err)
 		}
 		monitorSummary, endpointExists := readMonitorSummary(h.State, id)
+		if _, ok := endpoint.(monitor.Prober); ok {
+			endpointExists = liveExists
+		}
 		if endpointExists == nil && currentEndpointExists(current) {
 			present := true
 			endpointExists = &present
@@ -164,6 +211,7 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 		}
 		snapshot.Tasks = append(snapshot.Tasks, TaskRow{
 			ID:       meta.ID,
+			Outcome:  lastOutcome(h.State, id),
 			Current:  current,
 			Monitor:  monitorSummary,
 			Kind:     meta.Kind,
@@ -172,7 +220,7 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 			Endpoint: endpointSummary(meta, endpointExists),
 			Artifact: artifact,
 			Path:     taskPath(meta),
-			Actions:  Actions{Peek: "cfo peek gb-" + meta.ID},
+			Actions:  Actions{Peek: "cfo peek gb-" + meta.ID, Context: "cfo context " + meta.ID},
 		})
 	}
 	sort.Slice(snapshot.Tasks, func(i, j int) bool {
@@ -191,6 +239,10 @@ func readMonitorSummary(stateDir, id string) (MonitorSummary, *bool) {
 		return MonitorSummary{Health: monitor.HealthUnknown}, nil
 	}
 	summary := MonitorSummary{
+		Gate:                 observation.Gate,
+		Reason:               observation.Reason,
+		LastObserved:         observation.LastObserved,
+		Fresh:                time.Since(observation.LastObserved) >= 0 && time.Since(observation.LastObserved) < supervisor.FreshFor,
 		Health:               observation.Health,
 		Escalation:           observation.Escalation,
 		DemandDeepInspection: observation.DemandDeepInspection,

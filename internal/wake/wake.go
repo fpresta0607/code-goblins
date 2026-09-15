@@ -53,11 +53,12 @@ var kinds = map[string]bool{
 // Key equals Kind, and Key is the identifying column in drain's blocked-notify
 // refusal listing. Old lines without a key unmarshal with it empty.
 type Record struct {
-	Seq    int       `json:"seq"`
-	Time   time.Time `json:"time"`
-	Kind   string    `json:"kind"`
-	Key    string    `json:"key"`
-	Detail string    `json:"detail"`
+	EventID string    `json:"event_id,omitempty"`
+	Seq     int       `json:"seq"`
+	Time    time.Time `json:"time"`
+	Kind    string    `json:"kind"`
+	Key     string    `json:"key"`
+	Detail  string    `json:"detail"`
 }
 
 // ackFile persists the highest acknowledged sequence so acked sequences stay
@@ -72,7 +73,7 @@ const ackFile = ".wake-ack"
 func withLock(dir string, fn func() error) error {
 	var lastErr error
 	for attempt := 0; attempt < 10; attempt++ {
-		if _, err := lock.AcquireNamedOwner(dir, wakeLockName, os.Getpid(), "wake"); err != nil {
+		if _, err := lock.AcquireExclusiveNamed(dir, wakeLockName); err != nil {
 			if errors.Is(err, lock.ErrHeld) {
 				lastErr = err
 				time.Sleep(50 * time.Millisecond)
@@ -80,7 +81,7 @@ func withLock(dir string, fn func() error) error {
 			}
 			return err
 		}
-		defer lock.ReleaseNamed(dir, wakeLockName)
+		defer lock.ReleaseExclusiveNamed(dir, wakeLockName)
 		return fn()
 	}
 	return lastErr
@@ -100,6 +101,10 @@ func readAckFloor(dir string) (int, error) {
 	}
 	return floor, nil
 }
+
+// AcknowledgedThrough is the durable recipient outcome receipt written by
+// guarded drain acknowledgement. Missing queue records alone are not a receipt.
+func AcknowledgedThrough(dir string) (int, error) { return readAckFloor(dir) }
 
 func readAll(dir string) ([]Record, error) {
 	lines, err := fsx.ReadLines(filepath.Join(dir, queueFile))
@@ -138,6 +143,12 @@ func writeQueue(dir string, records []Record) error {
 // Rewrite the entire queue atomically; O(n) is acceptable for small queue and
 // single-writer, and gains AtomicWriteFile's bounded retry on Windows sharing locks.
 func Append(dir, kind, key, detail string) (Record, error) {
+	return AppendOnce(dir, kind, key, detail, "")
+}
+
+// AppendOnce gives a persisted producer event an idempotent queue receipt.
+// The latest acknowledged receipt per producer key is retained for crash replay.
+func AppendOnce(dir, kind, key, detail, eventID string) (Record, error) {
 	if !kinds[kind] {
 		return Record{}, fmt.Errorf("wake: unknown kind %q, want one of signal, stale, check, heartbeat, notify, orphan", kind)
 	}
@@ -147,15 +158,23 @@ func Append(dir, kind, key, detail string) (Record, error) {
 		if err != nil {
 			return err
 		}
+		if eventID != "" {
+			for _, existing := range records {
+				if existing.EventID == eventID && existing.Kind == kind && existing.Key == key {
+					rec = existing
+					return nil
+				}
+			}
+		}
 		floor, err := readAckFloor(dir)
 		if err != nil {
 			return err
 		}
 		next := floor + 1
 		if n := len(records); n > 0 {
-			next = records[n-1].Seq + 1
+			next = max(next, records[n-1].Seq+1)
 		}
-		rec = Record{Seq: next, Time: time.Now().UTC(), Kind: kind, Key: key, Detail: detail}
+		rec = Record{EventID: eventID, Seq: next, Time: time.Now().UTC(), Kind: kind, Key: key, Detail: detail}
 		records = append(records, rec)
 		return writeQueue(dir, records)
 	})
@@ -164,7 +183,21 @@ func Append(dir, kind, key, detail string) (Record, error) {
 
 // Pending returns every unacknowledged record in sequence order.
 func Pending(dir string) ([]Record, error) {
-	return readAll(dir)
+	records, err := readAll(dir)
+	if err != nil {
+		return nil, err
+	}
+	floor, err := readAckFloor(dir)
+	if err != nil {
+		return nil, err
+	}
+	kept := records[:0]
+	for _, record := range records {
+		if record.Seq > floor {
+			kept = append(kept, record)
+		}
+	}
+	return kept, nil
 }
 
 // ackSequence returns the sequence a reader may safely acknowledge after
@@ -203,12 +236,6 @@ func AckThrough(dir string, seq int) error {
 		if err != nil {
 			return err
 		}
-		kept := records[:0]
-		for _, rec := range records {
-			if rec.Seq > seq {
-				kept = append(kept, rec)
-			}
-		}
 		floor, err := readAckFloor(dir)
 		if err != nil {
 			return err
@@ -219,6 +246,18 @@ func AckThrough(dir string, seq int) error {
 			floor = seq
 			if err := fsx.AtomicWriteFile(filepath.Join(dir, ackFile), []byte(fmt.Sprintf("%d\n", floor))); err != nil {
 				return err
+			}
+		}
+		latest := map[string]int{}
+		for _, rec := range records {
+			if rec.EventID != "" && rec.Seq <= floor {
+				latest[rec.Kind+"\x00"+rec.Key] = rec.Seq
+			}
+		}
+		kept := records[:0]
+		for _, rec := range records {
+			if rec.Seq > floor || (rec.EventID != "" && latest[rec.Kind+"\x00"+rec.Key] == rec.Seq) {
+				kept = append(kept, rec)
 			}
 		}
 		return writeQueue(dir, kept)

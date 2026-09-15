@@ -178,7 +178,7 @@ The core is intentionally local-first:
 - `internal/pipeline/` — durable validation policy and decision gates.
 - `internal/auth/` — project-scoped credential preflight and injection.
 - `internal/state/` / `internal/wake/` — restart-proof task and event state.
-- `cmd/showcase-axi/` — repository-owned review surface.
+- Lavish Editor (`lavish-axi`) provides the review surface and saved delivery recaps.
 - `.agents/skills/` — reusable capabilities exposed to the supported harnesses.
 
 The control plane is local. Your coding harnesses may still call their model providers according to their own configuration.
@@ -189,7 +189,6 @@ The control plane is local. Your coding harnesses may still call their model pro
 go vet ./...
 go test ./... -count=1
 go build ./cmd/cfo
-go build ./cmd/showcase-axi
 ```
 
 CI runs on `windows-latest`. The real-session acceptance suite is opt-in because it requires actual Herdr and harness installations.

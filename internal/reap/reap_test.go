@@ -33,6 +33,12 @@ func (r *gitRunner) Run(_ context.Context, req execx.Request) (execx.Result, err
 		return execx.Result{}, os.ErrInvalid
 	}
 	switch req.Args[0] {
+	case "rev-parse":
+		return execx.Result{Stdout: []byte(strings.Repeat("a", 40) + "\n" + strings.Repeat("a", 40))}, nil
+	case "symbolic-ref":
+		return execx.Result{Stdout: []byte("refs/remotes/origin/main\n")}, nil
+	case "merge-base":
+		return execx.Result{}, nil
 	case "status":
 		return execx.Result{Stdout: []byte(r.status)}, nil
 	case "log":

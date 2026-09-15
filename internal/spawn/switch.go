@@ -13,8 +13,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/taskcontext"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -334,6 +336,13 @@ func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, pane
 	}
 	if meta.PipelineHash != "" {
 		launch.Instruction += " Continue with the frozen pipeline policy at " + filepath.Join(meta.TaskTmp, "pipeline.json") + "; use cfo pipeline run/respond for this task. Do not reset review budgets or bypass them with native AXI."
+	}
+	launch.Instruction += taskcontext.Instruction(id)
+	if _, err := taskcontext.Refresh(ctx, home.Home{State: s.StateDir}, id, nil); err != nil {
+		return "", false, err
+	}
+	for key, value := range taskcontext.BrowserEnv(home.Home{State: s.StateDir}, id) {
+		launch.Env[key] = value
 	}
 
 	if _, err := s.startHarness(ctx, client, paneTarget, launchPlan{

@@ -370,8 +370,24 @@ func runMergeLocal(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	if _, err := gitOutput(runner, meta.Project, "fetch", "--quiet", "origin"); err != nil {
+	remotes, err := gitOutput(runner, meta.Project, "remote")
+	if err != nil {
 		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	hasOrigin := false
+	for _, remote := range strings.Fields(remotes) {
+		if remote == "origin" {
+			hasOrigin = true
+		}
+	}
+	if hasOrigin {
+		if _, err := gitOutput(runner, meta.Project, "fetch", "--quiet", "origin"); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+	} else if meta.Mode != "local-only" {
+		fmt.Fprintln(stderr, "cfo merge-local: no origin; only an explicit local-only task permits local landing")
 		return 1
 	}
 	// git merge --ff-only <sha> refuses (non-zero) on any divergence.

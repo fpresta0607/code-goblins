@@ -85,6 +85,8 @@ const (
 	BusyTurnOverAge Reason = "busy_turn_over_age"
 	DeclaredPause   Reason = "declared_pause"
 	EndpointMissing Reason = "endpoint_missing"
+	AgentMissing    Reason = "agent_missing"
+	ParkedReview    Reason = "parked_review"
 	EndpointUnknown Reason = "endpoint_unknown"
 	InvalidRecord   Reason = "invalid_record"
 	// HarnessError is a provider failure read out of the pane itself.
@@ -107,6 +109,7 @@ const (
 )
 
 type Event struct {
+	ID     string      `json:"id,omitempty"`
 	Source EventSource `json:"source"`
 	TaskID string      `json:"task_id,omitempty"`
 	Kind   string      `json:"kind"`
@@ -118,33 +121,34 @@ type Event struct {
 }
 
 type Observation struct {
-	Schema               string       `json:"schema"`
-	TaskID               string       `json:"task_id"`
-	Endpoint             string       `json:"endpoint"`
-	EndpointVerdict      ProbeVerdict `json:"endpoint_verdict"`
-	Digest               string       `json:"digest"`
-	StatusStamp          string       `json:"status_stamp,omitempty"`
-	GatedVerbLine        int64        `json:"gated_verb_line,omitempty"`
-	ConsumedVerbLine     int64        `json:"consumed_verb_line,omitempty"`
-	GatedStateChangeSeq  int64        `json:"gated_state_change_seq,omitempty"`
-	StateChangeSeq       int64        `json:"state_change_seq,omitempty"`
-	Revision             int64        `json:"revision,omitempty"`
-	LastObserved         time.Time    `json:"last_observed"`
-	LastSeen             time.Time    `json:"last_seen"`
-	LastProgress         time.Time    `json:"last_progress"`
+	Gate                *GateSample  `json:"gate,omitempty"`
+	Schema              string       `json:"schema"`
+	TaskID              string       `json:"task_id"`
+	Endpoint            string       `json:"endpoint"`
+	EndpointVerdict     ProbeVerdict `json:"endpoint_verdict"`
+	Digest              string       `json:"digest"`
+	StatusStamp         string       `json:"status_stamp,omitempty"`
+	GatedVerbLine       int64        `json:"gated_verb_line,omitempty"`
+	ConsumedVerbLine    int64        `json:"consumed_verb_line,omitempty"`
+	GatedStateChangeSeq int64        `json:"gated_state_change_seq,omitempty"`
+	StateChangeSeq      int64        `json:"state_change_seq,omitempty"`
+	Revision            int64        `json:"revision,omitempty"`
+	LastObserved        time.Time    `json:"last_observed"`
+	LastSeen            time.Time    `json:"last_seen"`
+	LastProgress        time.Time    `json:"last_progress"`
 	// BusySince is when the agent last began an unbroken working stretch. A
 	// goblin blocked in a foreground shell reads working forever, so this is
 	// the only clock that can tell a long turn from a wedged one.
-	BusySince            *time.Time   `json:"busy_since,omitempty"`
-	IdleSince            *time.Time   `json:"idle_since,omitempty"`
-	StaleSince           *time.Time   `json:"stale_since,omitempty"`
-	NextEscalation       *time.Time   `json:"next_escalation,omitempty"`
-	NextPauseResurface   *time.Time   `json:"next_pause_resurface,omitempty"`
-	Health               Health       `json:"health"`
-	Reason               Reason       `json:"reason"`
-	Escalation           int          `json:"escalation"`
-	DemandDeepInspection bool         `json:"demand_deep_inspection"`
-	PendingEvent         *Event       `json:"pending_event,omitempty"`
+	BusySince            *time.Time `json:"busy_since,omitempty"`
+	IdleSince            *time.Time `json:"idle_since,omitempty"`
+	StaleSince           *time.Time `json:"stale_since,omitempty"`
+	NextEscalation       *time.Time `json:"next_escalation,omitempty"`
+	NextPauseResurface   *time.Time `json:"next_pause_resurface,omitempty"`
+	Health               Health     `json:"health"`
+	Reason               Reason     `json:"reason"`
+	Escalation           int        `json:"escalation"`
+	DemandDeepInspection bool       `json:"demand_deep_inspection"`
+	PendingEvent         *Event     `json:"pending_event,omitempty"`
 }
 
 type Heartbeat struct {
@@ -355,7 +359,7 @@ func validateObservationState(observation Observation) error {
 			if observation.EndpointVerdict != ProbeMissing {
 				return errors.New("monitor: endpoint-missing observation requires missing verdict")
 			}
-		case EndpointUnknown, InvalidRecord:
+		case EndpointUnknown, InvalidRecord, AgentMissing:
 			if observation.EndpointVerdict != ProbeUnknown {
 				return errors.New("monitor: unknown observation requires unknown verdict")
 			}

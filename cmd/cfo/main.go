@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -106,7 +107,13 @@ func defaultCommandRuntime() commandRuntime {
 				StateDir:   h.State,
 				PolicyPath: filepath.Join(h.Root, "config", "pipeline.json"),
 			}
-			return service.Spawn(ctx, request)
+			result, err := service.Spawn(ctx, request)
+			if err == nil {
+				var report bytes.Buffer
+				rearmRegistered(ctx, h, &report)
+				result.Output += "\n" + report.String()
+			}
+			return result, err
 		},
 		switchTask: func(ctx context.Context, h home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
 			commands := execx.OSRunner{}
@@ -119,7 +126,13 @@ func defaultCommandRuntime() commandRuntime {
 				Commands:  commands,
 				StateDir:  h.State,
 			}
-			return service.Switch(ctx, request)
+			result, err := service.Switch(ctx, request)
+			if err == nil {
+				var report bytes.Buffer
+				rearmRegistered(ctx, h, &report)
+				result.Output += "\n" + report.String()
+			}
+			return result, err
 		},
 		sendText: func(ctx context.Context, h home.Home, target, text string) error {
 			client := &herdr.Client{Commands: execx.OSRunner{}}
@@ -164,6 +177,14 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runInstall(args[1:], stdout, stderr)
 	case "doctor":
 		return runDoctor(stdout)
+	case "supervisor":
+		return runSupervisor(args[1:], stdout, stderr, runtime)
+	case "context":
+		return runContext(args[1:], stdout, stderr, runtime)
+	case "recap":
+		return runRecap(args[1:], stdout, stderr, runtime)
+	case "retention":
+		return runRetention(args[1:], stdout, stderr, runtime)
 	case "pipeline":
 		return runPipeline(args[1:], stdout, stderr, runtime)
 	case "drain":
@@ -218,6 +239,15 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 	case "notify":
 		return runNotify(args[1:], stdout, stderr)
 	case "session-start":
+		if len(args) > 1 {
+			if len(args) != 3 || args[1] != "--primary" {
+				fmt.Fprintln(stderr, "cfo session-start [--primary <session:pane>]")
+				return 2
+			}
+			if code := runSupervisor([]string{"register", args[2]}, stdout, stderr, runtime); code != 0 {
+				return code
+			}
+		}
 		// Deliberate deviation, recorded for the ledger: a home that cannot
 		// be resolved errors out here (stderr plus exit 1), matching this
 		// file's other manual commands (drain, watch) rather than exiting 0
@@ -232,6 +262,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		if err := digest.Compose(h, resolveSessionOwnerPID(), "", stdout); err != nil {
 			fmt.Fprintf(stdout, "SESSION START DEGRADED: %s\n", err)
 		}
+		rearmRegistered(context.Background(), h, stdout)
 		return 0
 	case "watch":
 		h, err := home.Resolve()

@@ -79,6 +79,9 @@ func TestNotifyRequiresExactlyOneOutcome(t *testing.T) {
 func TestNotifyTargetsStateOverrideWithoutCFOHome(t *testing.T) {
 	worktree := t.TempDir()
 	stateDir := t.TempDir()
+	cache := t.TempDir()
+	t.Setenv("LOCALAPPDATA", cache)
+	t.Setenv("XDG_CACHE_HOME", cache)
 	t.Setenv("CFO_HOME", "")
 	t.Setenv("CFO_STATE_OVERRIDE", stateDir)
 	t.Chdir(worktree)
@@ -124,6 +127,13 @@ func TestNotifyTargetsStateOverrideWithAGlobalCFOHome(t *testing.T) {
 	t.Setenv("CFO_STATE_OVERRIDE", stateDir)
 	t.Chdir(worktree)
 
+	recap := filepath.Join(stateDir, "tasks", "g1", "recap.html")
+	if err := os.MkdirAll(filepath.Dir(recap), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(recap, []byte("<html>Saved synthetic branch recap</html>"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	var stdout, stderr bytes.Buffer
 	if exit := runNotify([]string{"g1", "--done", "--pr", "https://example.test/pr/1"}, &stdout, &stderr); exit != 0 {
 		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())

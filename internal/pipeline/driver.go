@@ -21,8 +21,10 @@ var ErrUnresolved = errors.New("pipeline: unresolved; a CFO decision is required
 var terminalRunStatus = map[string]bool{"completed": true, "failed": true, "cancelled": true}
 
 type Reader struct {
-	Commands execx.Runner
-	Root     string
+	Commands      execx.Runner
+	Root          string
+	ReattachRunID string
+	PriorRunID    string
 }
 
 func DefaultRoot() (string, error) {
@@ -96,6 +98,8 @@ func sqlString(value string) string { return "'" + strings.ReplaceAll(value, "'"
 // CheckStart refuses a restart over unresolved work and checks repository
 // overrides before the native engine could spend an automatic repair cycle.
 func (r Reader) CheckStart(ctx context.Context, project, worktree, branch string, policy Policy) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	var repos []struct {
 		DefaultBranch string `json:"default_branch"`
 	}
@@ -107,13 +111,14 @@ func (r Reader) CheckStart(ctx context.Context, project, worktree, branch string
 	}
 	var previous []struct {
 		Status string `json:"status"`
+		ID     string `json:"id"`
 	}
-	if err := r.query(ctx, `SELECT runs.status FROM runs JOIN repos ON repos.id=runs.repo_id WHERE lower(replace(repos.working_path,char(92),'/'))=lower(`+sqlString(filepath.ToSlash(project))+`) AND runs.branch=`+sqlString(branch)+` ORDER BY runs.created_at DESC,runs.id DESC LIMIT 1`, &previous); err != nil {
+	if err := r.query(ctx, `SELECT runs.status,runs.id FROM runs JOIN repos ON repos.id=runs.repo_id WHERE lower(replace(repos.working_path,char(92),'/'))=lower(`+sqlString(filepath.ToSlash(project))+`) AND runs.branch=`+sqlString(branch)+` ORDER BY runs.created_at DESC,runs.id DESC LIMIT 1`, &previous); err != nil {
 		return err
 	}
-	// A terminal run has no budget left to reset, so only a still-live one
-	// blocks a restart. The set matches Idle's.
-	if len(previous) > 0 && !terminalRunStatus[previous[0].Status] {
+	// Even terminal history needs an explicitly bound predecessor; a fresh
+	// invocation must not silently discard task-wide custody or repair usage.
+	if len(previous) > 0 && (previous[0].ID == "" || previous[0].ID != r.ReattachRunID && (previous[0].ID != r.PriorRunID || !terminalRunStatus[previous[0].Status])) {
 		return fmt.Errorf("%w; an earlier run must be resolved, not restarted", ErrUnresolved)
 	}
 	status, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Name: "git", Args: []string{"status", "--porcelain", "--untracked-files=all"}})

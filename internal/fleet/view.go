@@ -33,6 +33,9 @@ func RenderMarkdown(w io.Writer, snapshot Snapshot) error {
 	if err := writeLine(w, "Home: "+dash(snapshot.Home)); err != nil {
 		return err
 	}
+	if err := writeLine(w, "Supervisor: "+snapshot.Supervisor.Reason+"; "+snapshot.Supervisor.Action); err != nil {
+		return err
+	}
 	if err := writeLine(w, ""); err != nil {
 		return err
 	}

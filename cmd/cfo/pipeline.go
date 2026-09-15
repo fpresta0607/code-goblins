@@ -12,12 +12,14 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/taskcontext"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -184,19 +186,106 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		fmt.Fprintf(out, "pipeline custody: recovered run %s; local and gate head preserved at %s\n", result.RunID, result.Head)
 		return nil
 	}
+	paths := taskcontext.PathsFor(h, id)
+	launchPath := filepath.Join(filepath.Dir(paths.Manifest), "pipeline-launch.json")
+	budgetPath := filepath.Join(filepath.Dir(paths.Manifest), "gate-budget.json")
+	budget, err := pipeline.LoadBudget(budgetPath, selection.Hash, selection.ReviewCycles)
+	if err != nil {
+		return err
+	}
+	binding, bindErr := pipeline.LoadLaunch(launchPath)
+	if bindErr != nil && !errors.Is(bindErr, os.ErrNotExist) {
+		return bindErr
+	}
+	if bindErr == nil && (binding.PolicyHash != selection.Hash || binding.Branch != branch || !fsx.SamePath(binding.Project, meta.Project)) {
+		return errors.New("pipeline: persisted launch identity or policy differs from task")
+	}
+	if bindErr == nil {
+		if _, err := os.Stat(budgetPath); err != nil {
+			return fmt.Errorf("pipeline: existing launch has no readable durable budget; do not recreate it: %w", err)
+		}
+	}
 	if args[0] != "respond" {
+		head, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Name: "git", Args: []string{"rev-parse", "HEAD"}})
+		if err != nil || head.ExitCode != 0 {
+			return errors.New("pipeline: current task head unavailable")
+		}
+		next := pipeline.NewLaunch(meta.Project, branch, strings.TrimSpace(string(head.Stdout)), intent, selection.Hash)
+		if bindErr == nil {
+			if binding.Head == next.Head && binding.IntentDigest == next.IntentDigest {
+				next = binding
+				run, e := reader.BoundRun(ctx, binding)
+				if e != nil && (!errors.Is(e, pipeline.ErrNoBoundRun) || binding.RunID != "") {
+					return e
+				}
+				if e == nil {
+					reader.ReattachRunID = run.RunID
+					next.RunID = run.RunID
+				}
+			} else {
+				run, e := reader.BoundRun(ctx, binding)
+				if e != nil {
+					return e
+				}
+				if run.Status != "failed" && run.Status != "cancelled" || run.CustodyReturned == 0 || run.Pushed != "" {
+					return fmt.Errorf("%w; previous native run retains custody; inspect cfo pipeline recover", pipeline.ErrUnresolved)
+				}
+				if len(budget.Responses) >= budget.Cap {
+					return fmt.Errorf("%w; task repair budget exhausted; a new run cannot reset it", pipeline.ErrUnresolved)
+				}
+				reader.PriorRunID = run.RunID
+			}
+		}
 		if err := reader.CheckStart(ctx, meta.Project, meta.Worktree, branch, selection.Policy); err != nil {
 			return err
 		}
-		return errors.New("pipeline: no-mistakes v1.75.1 cannot prove the exact fetched trusted SHA and primary before launch")
+		if err := budget.Save(budgetPath); err != nil {
+			return err
+		}
+		if err := next.Save(launchPath); err != nil {
+			return err
+		}
+		result, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Env: nativeEnv(root), Name: "no-mistakes", Args: []string{"axi", "run", "--intent", intent, "--launch-nonce", next.Nonce, "--validation-generation", next.Generation, "--wait", "1m"}})
+		fmt.Fprint(out, string(result.Stdout), string(result.Stderr))
+		if err != nil {
+			return fmt.Errorf("pipeline: native launch uncertain; retained nonce must be reused: %w", err)
+		}
+		run, verifyErr := reader.BoundRun(ctx, next)
+		if verifyErr != nil {
+			return verifyErr
+		}
+		next.RunID = run.RunID
+		if err := next.Save(launchPath); err != nil {
+			return err
+		}
+		if result.ExitCode != 0 {
+			return fmt.Errorf("pipeline: native command exited %d; run %s retained", result.ExitCode, run.RunID)
+		}
+		fmt.Fprintf(out, "pipeline: associated native run %s; native owns fetched trusted configuration; use cfo pipeline respond for parked gates\n", run.RunID)
+		return nil
 	}
 	gate, err := reader.Gate(ctx, meta.Project, branch)
 	if err != nil {
 		return err
 	}
+	if bindErr != nil {
+		return errors.New("pipeline: gate has no task launch association; retain legacy run and inspect with CFO")
+	}
+	bound, err := reader.BoundRun(ctx, binding)
+	if err != nil {
+		return err
+	}
+	if bound.RunID != gate.RunID {
+		return errors.New("pipeline: current gate belongs to a different native run")
+	}
 	nativeArgs, err := pipeline.ResponseArgs(selection, gate, response)
 	if err != nil {
 		return err
+	}
+	if response.Action == "fix" && gate.Step == "review" {
+		if err := budget.Reserve(budgetPath, gate); err != nil {
+			return err
+		}
 	}
 	result, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Env: nativeEnv(root), Name: "no-mistakes", Args: nativeArgs})
 	if len(result.Stdout) > 0 {
@@ -476,7 +565,7 @@ func nativeEnv(root string) []string {
 		// Windows matches environment names without case, so an existing
 		// NM_HOME has to be dropped rather than left beside the override.
 		name, _, ok := strings.Cut(entry, "=")
-		if ok && strings.EqualFold(name, "NM_HOME") {
+		if ok && (strings.EqualFold(name, "NM_HOME") || auth.IsHarnessBillingKey(name)) {
 			continue
 		}
 		env = append(env, entry)

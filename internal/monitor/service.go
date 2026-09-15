@@ -2,17 +2,21 @@ package monitor
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -32,8 +36,8 @@ type CycleProber interface {
 // Service scans read-only endpoint samples and persists classification state.
 // It deliberately has no lifecycle, send, worktree, or delete dependency.
 type Service struct {
-	StateDir              string
-	Probe                 Prober
+	StateDir string
+	Probe    Prober
 	// Gate is consulted only once a goblin has read working for longer than
 	// BusyTurnMax; nil disables the gate probe but not the budget itself.
 	Gate                  GateProber
@@ -58,6 +62,8 @@ type ScanResult struct {
 // classification. It stores a pending event before returning it so a caller
 // can retry Publish after a crash without losing the wake reason.
 func (s Service) Scan(ctx context.Context) (ScanResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
 	if s.StateDir == "" {
 		return ScanResult{}, errors.New("monitor: state directory is required")
 	}
@@ -90,6 +96,14 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 	if cycler, ok := s.Probe.(CycleProber); ok {
 		cycler.BeginScan(ctx)
 	}
+	type classified struct {
+		observation Observation
+		err         error
+	}
+	completed := make(chan classified, len(entries))
+	slots := make(chan struct{}, 4)
+	var workers sync.WaitGroup
+	defer workers.Wait()
 	for _, entry := range entries {
 		extension := filepath.Ext(entry.Name())
 		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || !strings.EqualFold(extension, ".meta") {
@@ -147,11 +161,27 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 			continue
 		}
 
-		observation := s.classify(ctx, meta, prior, now)
-		if err := WriteObservation(s.StateDir, observation); err != nil {
-			return ScanResult{}, err
+		slots <- struct{}{}
+		workers.Add(1)
+		go func(meta state.TaskMeta, prior Observation) {
+			defer workers.Done()
+			defer func() { <-slots }()
+			taskCtx, taskCancel := context.WithTimeout(ctx, 8*time.Second)
+			defer taskCancel()
+			observation := s.classify(taskCtx, meta, prior, now)
+			completed <- classified{observation, WriteObservation(s.StateDir, observation)}
+		}(meta, prior)
+	}
+	workers.Wait()
+	close(completed)
+	for item := range completed {
+		if item.err != nil {
+			return ScanResult{}, item.err
 		}
-		result.Observations = append(result.Observations, observation)
+		result.Observations = append(result.Observations, item.observation)
+	}
+	sort.Slice(result.Observations, func(i, j int) bool { return result.Observations[i].TaskID < result.Observations[j].TaskID })
+	for _, observation := range result.Observations {
 		if result.Event == nil && observation.PendingEvent != nil {
 			result.Event = cloneEvent(observation.PendingEvent)
 		}
@@ -160,7 +190,7 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 	if !heartbeatCorrupt && s.heartbeatDue(heartbeat, now) {
 		heartbeat.LastHeartbeat = now
 		if result.Event == nil && hasUnsurfacedActionable(result.Observations) {
-			event := Event{Source: HeartbeatEvent, Kind: "heartbeat", Key: "heartbeat", Detail: "actionable fleet observation"}
+			event := Event{ID: rand.Text(), Source: HeartbeatEvent, Kind: "heartbeat", Key: "heartbeat", Detail: "actionable fleet observation"}
 			heartbeat.PendingEvent = &event
 			heartbeat.NoChangeStreak = 0
 			result.Event = cloneEvent(&event)
@@ -182,7 +212,7 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 // queue, publishes its recovery episode, then clears only the matching pending
 // event. Any failure before that clear leaves retry evidence intact.
 func (s Service) Publish(event Event) (wake.Record, error) {
-	record, err := wake.Append(s.StateDir, event.Kind, event.Key, event.Detail)
+	record, err := wake.AppendOnce(s.StateDir, event.Kind, event.Key, event.Detail, event.ID)
 	if err != nil {
 		return wake.Record{}, err
 	}
@@ -196,6 +226,41 @@ func (s Service) Publish(event Event) (wake.Record, error) {
 }
 
 func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observation, now time.Time) Observation {
+	var gate *GateSample
+	if s.Gate != nil && meta.Mode == "no-mistakes" {
+		sample, err := s.Gate.InspectGate(ctx, meta)
+		sample.ObservedAt = now
+		if err != nil {
+			sample.Error = err.Error()
+		}
+		gate = &sample
+		budgetPath := filepath.Join(s.StateDir, "tasks", meta.ID, "gate-budget.json")
+		selection, e := pipeline.LoadSelection(filepath.Join(meta.TaskTmp, "pipeline.json"))
+		if _, statErr := os.Stat(budgetPath); e == nil && statErr == nil && selection.Hash == meta.PipelineHash {
+			if budget, e := pipeline.LoadBudget(budgetPath, selection.Hash, selection.ReviewCycles); e == nil {
+				gate.BudgetKnown = true
+				gate.ReviewUsed = len(budget.Responses)
+				gate.ReviewCap = budget.Cap
+				gate.Exhausted = len(budget.Responses) >= budget.Cap
+			}
+		}
+	}
+	observation := s.classifyWorker(ctx, meta, prior, now)
+	if gate != nil {
+		observation.Gate = gate
+		if gate.Parked && gate.Error == "" && (prior.Gate == nil || !prior.Gate.Parked || prior.Gate.RunID != gate.RunID || prior.Gate.Step != gate.Step || prior.Gate.Exhausted != gate.Exhausted) {
+			detail := "native run " + gate.RunID + " awaiting decision on " + gate.Step + "; inspect cfo context " + meta.ID + " and frozen budget; use cfo pipeline respond, never restart to reset caps"
+			if gate.Exhausted {
+				detail = fmt.Sprintf("review budget exhausted (%d/%d); retain findings and custody; ", gate.ReviewUsed, gate.ReviewCap) + detail
+			}
+			event := taskEvent(meta.ID, ParkedReview, detail)
+			observation.PendingEvent = &event
+		}
+	}
+	return observation
+}
+
+func (s Service) classifyWorker(ctx context.Context, meta state.TaskMeta, prior Observation, now time.Time) Observation {
 	observation := prior
 	observation.Schema = Schema
 	observation.TaskID = meta.ID
@@ -224,6 +289,9 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		// not stay "launching" forever, so past the budget it wakes as death.
 		if sample.Verdict == ProbePresent && sample.Agent == herdr.AgentDead && prior.LastSeen.IsZero() && now.Before(s.launchDeadline(meta)) {
 			return launchingObservation(observation, now)
+		}
+		if sample.Verdict == ProbePresent && sample.Agent == herdr.AgentDead {
+			return unknownObservation(observation, AgentMissing, detail+"; worker stopped; inspect retained context before an explicit resume", now)
 		}
 		return unknownObservation(observation, EndpointUnknown, detail, now)
 	}
@@ -355,9 +423,7 @@ func (s Service) busyOverAge(ctx context.Context, meta state.TaskMeta, now time.
 	if gate.LastActivity != "" {
 		detail += " (last: " + gate.LastActivity + ")"
 	}
-	if gate.Step == "ci" && gate.NoCI {
-		detail += "; repo has no .github/workflows so this step can never complete - run: no-mistakes axi abort"
-	}
+	detail += "; inspect native status and external checks before deciding; age alone does not prove a dead process"
 	return true, detail
 }
 
@@ -393,12 +459,14 @@ func (s Service) busyOverAgeObservation(observation Observation, detail string, 
 // not wake on its own, but it is no longer definitive: BusySince keeps the
 // clock that busyOverAge reads once the stretch outlives the budget.
 func workingObservation(observation Observation, sample EndpointSample, now time.Time) Observation {
+	if sample.StateChangeSeq > observation.StateChangeSeq || sample.Revision > observation.Revision {
+		observation.LastProgress = now
+	}
 	if !sample.CountersUnavailable {
 		observation.StateChangeSeq = sample.StateChangeSeq
 		observation.Revision = sample.Revision
 	}
 	observation.LastSeen = now
-	observation.LastProgress = now
 	if observation.BusySince == nil {
 		observation.BusySince = timePointer(now)
 	}
@@ -607,6 +675,7 @@ func erroringObservation(observation Observation, digest string, fault routing.F
 }
 
 func unknownObservation(observation Observation, reason Reason, detail string, now time.Time) Observation {
+	changed := observation.Health != HealthUnknown || observation.Reason != reason
 	observation.LastObserved = now
 	observation.EndpointVerdict = ProbeUnknown
 	if reason == EndpointMissing {
@@ -619,7 +688,7 @@ func unknownObservation(observation Observation, reason Reason, detail string, n
 	observation.NextPauseResurface = nil
 	observation.Escalation = 0
 	observation.DemandDeepInspection = false
-	if observation.PendingEvent == nil {
+	if changed && observation.PendingEvent == nil {
 		event := taskEvent(observation.TaskID, reason, detail)
 		observation.PendingEvent = &event
 	}
@@ -787,11 +856,12 @@ func taskEvent(id string, reason Reason, detail string) Event {
 	if detail != "" {
 		text += ": " + detail
 	}
-	return Event{Source: TaskEvent, TaskID: id, Kind: "stale", Key: id, Detail: text}
+	return Event{ID: rand.Text(), Source: TaskEvent, TaskID: id, Kind: "stale", Key: id, Detail: text}
 }
 
 func sameEvent(pending *Event, event Event) bool {
 	return pending != nil &&
+		pending.ID == event.ID &&
 		pending.Source == event.Source &&
 		pending.TaskID == event.TaskID &&
 		pending.Kind == event.Kind &&

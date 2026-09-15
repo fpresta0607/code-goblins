@@ -7,8 +7,8 @@ This file is your entire job description.
 
 ## Vocabulary
 
-- **lavish** means **showcase-axi**, this repo's own review-surface tool (`cmd/showcase-axi`, skill at `.agents/skills/showcase/`).
-  The third-party Lavish Editor was replaced; when the Supreme Overlord says "lavish", treat it as the trigger word for the showcase skill.
+- **lavish** means **Lavish Editor**, using `lavish-axi` and `.agents/skills/lavish/`.
+  Every finished branch needs a saved task recap with test evidence, limitations, and its accurate PR, merge, and deployment state.
 
 ## Prime directives
 
@@ -272,7 +272,7 @@ You orchestrate deliberately, never by reflex.
   - Harness: the Supreme Overlord's stated preference wins; otherwise use the installed harness that fits the work (`cfo doctor` confirms what is installed).
   - Effort: `low` for well-understood, mechanical, or explicitly specified work; `xhigh` for ambiguous design or investigation; intermediate levels proportionally. Never `max` without the Supreme Overlord saying so.
   - Model: pass `--model` only when the Supreme Overlord names one; otherwise leave the harness default. Never silently downgrade to a weaker model to save quota.
-- **Conflicts are prevented by serialization.** Because only one goblin runs at a time, two goblins cannot edit the same file at once. Order dependent work sequentially; same-file overlap is not by itself a reason to refuse.
+- **Conflicts are prevented per repository.** Independent repositories can run concurrently; dependent work in one repository is queued.
 - **Never invent goblins.** One request is one goblin (or none). Don't spawn a parallel design exercise beside an implementation you're already confident in.
 
 ## Secondmates
@@ -301,7 +301,8 @@ The goblin's branch is its deliverable.
 - **Poll only with a reason** - a suspected wedge, a CI result you are gating a merge on, or a goblin silent well past when it should have notified. "Checking in" is not a reason.
 - **When you do need the roster, enumerate it once - the Stop hook is not the roster.** The hook fires when a goblin's turn ENDS, so a goblin inside a long turn is invisible to it: on 2026-08-19 `siteplan-studio-r2` spent 1h 1m in one turn holding an escalation nobody answered, and `cognex-outreach-v3` spent 1h 13m unseen. A goblin that has not notified and is not in the hook's list still exists.
 - **The gate daemon is the authoritative "needs a decision" signal, not the pane.** `no-mistakes axi status` in a goblin's worktree reports `awaiting_agent` and an awaiting-findings count while the goblin is still mid-turn; pane text does not.
-- **Liveness is CPU delta, never log age.** Sample the active step's `agent_pid` twice about 30s apart. Frozen CPU with a static working set is the wedge signature; a quiet log with climbing CPU is a long model call. A single-digit-MB working set means the wrapper never started.
+- **Outcome, liveness, and freshness are separate facts.** Read `cfo context <id>` for retained task context and `cfo supervisor status` for continuous observation and delivery health.
+  Low CPU, an old log, or a hidden window cannot prove a worker or browser is dead; a process may be awaiting a network response.
 - **Check PR state yourself.** A goblin's belief about its own PR goes stale: on 2026-08-19 `siteplan-studio-r2` reported #937 green and unmerged when it had already been squash-merged. `gh pr view` is the source of truth.
 
 ## Escalation
@@ -314,4 +315,6 @@ Relay (X/Discord), AFK mode, tmux/zellij/orca/cmux backends, and Grok/OpenCode h
 
 ## Restart is a non-event
 
-All state lives under `$CFO_HOME` (defaults to this repo). Metadata, status, and the wake queue are on disk; a fresh session reconciles with `cfo fleet-view` and `cfo drain`.
+Runtime data defaults to `%LOCALAPPDATA%/cfo` on Windows, outside source; explicit `CFO_HOME` and `CFO_STATE_OVERRIDE` preserve existing operator layouts.
+Use [docs/supervision-recovery.md](docs/supervision-recovery.md) for primary registration, restart recovery, Windows/browser compatibility, retained task context and safe data retirement.
+After a restart, reconcile `cfo supervisor status`, `cfo fleet-view`, `cfo drain` and the task's `cfo context` entry point.

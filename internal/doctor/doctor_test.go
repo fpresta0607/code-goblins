@@ -28,9 +28,15 @@ func TestRunAllToolsPresent(t *testing.T) {
 	}
 	t.Setenv("PATH", dir)
 	t.Setenv("CFO_HOME", t.TempDir()) // no .claude/settings.json: hook-pairing passes
+	fakeTool(t, dir, "node", "1.9.0", 0)
+	backend := filepath.Join(dir, "mcp.js")
+	if err := os.WriteFile(backend, []byte("synthetic backend"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_CHROME_MCP_PATH", backend)
 	checks := Run()
-	if len(checks) != 9 {
-		t.Fatalf("len = %d, want 9 (8 tools + hook-pairing)", len(checks))
+	if len(checks) != 10 {
+		t.Fatalf("len = %d, want 10 (8 tools + hook-pairing + explicit backend)", len(checks))
 	}
 	if !Healthy(checks) {
 		t.Errorf("Healthy = false with all tools present: %+v", checks)

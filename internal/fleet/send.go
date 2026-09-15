@@ -30,9 +30,7 @@ const (
 
 	// typeSettle lets a pane take typed text before Enter submits it, and
 	// completionSettle is the longer wait a message that opens a harness
-	// completion popup needs. Both are the pre-Enter wait only - nothing reads
-	// the pane afterwards, so neither is a remnant of the composer inspection
-	// this file removed and neither should be tidied away as one.
+	// completion popup needs.
 	typeSettle       = 300 * time.Millisecond
 	completionSettle = 1200 * time.Millisecond
 )
@@ -40,9 +38,27 @@ const (
 // Sender submits text to one resolved Herdr pane's registered agent, or sends
 // named keys to the pane.
 type Sender struct {
-	Resolve TargetResolver
-	Herdr   *herdr.Client
-	Sleep   func(context.Context, time.Duration) error
+	Resolve      TargetResolver
+	Herdr        *herdr.Client
+	Sleep        func(context.Context, time.Duration) error
+	RequireAgent bool
+}
+
+// DeliveryError distinguishes evidence of typing or queuing from acceptance.
+// An unknown result must be inspected before any deliberate resubmission.
+type DeliveryError struct {
+	Stage  string
+	Target herdr.Target
+}
+
+func (e *DeliveryError) Error() string {
+	return fmt.Sprintf("fleet: text delivery to %s is unconfirmed: %s; inspect cfo peek before resending", e.Target, e.Stage)
+}
+
+// SubmissionConfirmed is true only for recognized native queue evidence.
+// It deliberately does not claim the agent has accepted or acted on the text.
+func (e *DeliveryError) SubmissionConfirmed() bool {
+	return strings.HasPrefix(e.Stage, "submitted:")
 }
 
 // Text delivers message to the resolved target and returns success only once
@@ -58,13 +74,9 @@ type Sender struct {
 // selector whose agent is gone is refused outright and never typed into: a
 // goblin is addressed through its agent or not at all.
 //
-// Neither mode types into a composer and reads the text back afterwards. That
-// is what this did, and it is unreliable for the same reason spawn's
-// instruction read-back was: a harness renders a submitted prompt however it
-// likes, and Claude Code renders anything it treats as a paste as a collapsed
-// placeholder. The composer then never shows the message, every submit reads
-// as unconfirmed, and a message the CFO believes was delivered is silently
-// lost mid-turn.
+// Codex can leave native agent-prompt text in its composer. Only recognized
+// composer evidence plus unchanged foreground identity permits one Enter.
+// A visible queued message proves submission, not acceptance.
 func (s Sender) Text(ctx context.Context, raw string, message string) error {
 	target, addressedExplicitly, err := s.target(ctx, raw)
 	if err != nil {
@@ -80,7 +92,7 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 	switch registration {
 	case herdr.AgentAlive:
 	case herdr.AgentDead:
-		if !addressedExplicitly {
+		if !addressedExplicitly || s.RequireAgent {
 			return fmt.Errorf("fleet: %s holds no registered agent, so the goblin has nothing to receive the text; address the pane as <session>:<pane-id> to type into it anyway", target)
 		}
 		return s.typeIntoPane(ctx, target, message)
@@ -99,25 +111,29 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 	if err != nil {
 		return fmt.Errorf("fleet: read agent state for %s before submit, so acceptance could not be proven and nothing was sent: %w", target, err)
 	}
+	var beforeProcess herdr.PaneProcessInfo
+	if before.Agent == "codex" {
+		beforeProcess, err = s.Herdr.PaneProcessInfo(ctx, target)
+		if err != nil || beforeProcess.ShellPID == beforeProcess.ForegroundProcessGroupID {
+			return fmt.Errorf("fleet: no verified Codex foreground process; nothing sent: %v", err)
+		}
+		screen, readErr := s.Herdr.CaptureEvidence(ctx, target)
+		if readErr != nil {
+			return fmt.Errorf("fleet: cannot inspect Codex composer; nothing sent: %w", readErr)
+		}
+		if codexComposerOccupied(string(screen)) {
+			return &DeliveryError{Stage: "not sent: Codex composer already contains text; inspect before submitting or clearing it", Target: target}
+		}
+	}
 
 	if err := s.Herdr.AgentPrompt(ctx, target, message); err != nil {
 		return fmt.Errorf("fleet: submit text for %s: %w", target, err)
 	}
 
-	// The prompt is submitted once. `agent prompt` submits on success, so a
-	// re-send would deliver the message twice - and a duplicated instruction
-	// to a working goblin is worse than an unconfirmed one, which the caller
-	// can check and repeat deliberately.
-	//
-	// What the confirmation proves depends on the agent. Against one waiting
-	// on input, a counter that moves after the submit is the accepted prompt:
-	// nothing else moves an idle agent. Against one already working - the
-	// headline steer - it is weaker, because a working agent advances its
-	// counters from ordinary turn output whether or not the prompt landed.
-	// There the confirmation is a liveness check and the delivery guarantee
-	// rests on `agent prompt` having returned success. Herdr publishes no
-	// per-prompt acceptance signal to make a stronger claim from.
+	// Submit text once. Working-agent counters can advance from unrelated
+	// tool output, so they cannot confirm this message was accepted.
 	var lastReadErr error
+	entered := false
 	for poll := 0; poll < confirmPolls; poll++ {
 		if err := s.sleep(ctx, confirmBudget/confirmPolls); err != nil {
 			return fmt.Errorf("fleet: wait for delivery confirmation for %s: %w", target, err)
@@ -137,7 +153,36 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 			lastReadErr = err
 			continue
 		}
-		if herdr.PromptAccepted(before, after) {
+		if after.Agent != before.Agent {
+			return &DeliveryError{Stage: "unknown: registered harness changed", Target: target}
+		}
+		if before.Agent == "codex" {
+			screen, readErr := s.Herdr.CaptureEvidence(ctx, target)
+			if readErr == nil {
+				switch codexDelivery(string(screen), message) {
+				case "submitted":
+					return &DeliveryError{Stage: "submitted: visible in the harness queue", Target: target}
+				case "typed":
+					if entered {
+						return &DeliveryError{Stage: "typed: Enter did not submit", Target: target}
+					}
+					current, e := s.Herdr.AgentDetail(ctx, target)
+					if e != nil || current.Agent != "codex" {
+						return &DeliveryError{Stage: "typed: identity no longer verified", Target: target}
+					}
+					process, e := s.Herdr.PaneProcessInfo(ctx, target)
+					if e != nil || process != beforeProcess {
+						return &DeliveryError{Stage: "typed: foreground harness not verified", Target: target}
+					}
+					if e = s.Herdr.SendKey(ctx, target, "Enter"); e != nil {
+						return fmt.Errorf("fleet: typed but submission failed: %w", e)
+					}
+					entered = true
+					continue
+				}
+			}
+		}
+		if before.Status != "working" && herdr.PromptAccepted(before, after) {
 			return nil
 		}
 	}
@@ -145,6 +190,47 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 		return fmt.Errorf("%w; later agent reads were refused: %w", unconfirmed(target, herdr.SubmitPending), lastReadErr)
 	}
 	return unconfirmed(target, herdr.SubmitPending)
+}
+
+func codexComposerOccupied(screen string) bool {
+	start := strings.LastIndex(screen, "\n› ")
+	if start < 0 {
+		return false
+	}
+	composer := screen[start+len("\n› "):]
+	if end := strings.Index(strings.ToLower(composer), "tab to queue message"); end >= 0 {
+		return strings.TrimSpace(composer[:end]) != ""
+	}
+	return false
+}
+
+// Only exact message text inside a recognized Codex queue or composer is
+// submission evidence. Tool output containing the message is not evidence.
+func codexDelivery(screen, message string) string {
+	normalize := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+	want := normalize(message)
+	if want == "" {
+		return "unknown"
+	}
+	if start := strings.LastIndex(screen, "Messages to be submitted after next tool call"); start >= 0 {
+		queue := screen[start:]
+		if end := strings.Index(queue, "\n›"); end >= 0 {
+			queue = queue[:end]
+		}
+		if entry := strings.Index(queue, "↳ "); entry >= 0 && strings.Contains(normalize(queue[entry+len("↳ "):]), want) {
+			return "submitted"
+		}
+	}
+	if start := strings.LastIndex(screen, "\n› "); start >= 0 {
+		composer := screen[start+len("\n› "):]
+		if end := strings.Index(strings.ToLower(composer), "tab to queue message"); end >= 0 {
+			typed := normalize(composer[:end])
+			if strings.HasPrefix(typed, want) && len(typed)-len(want) < 32 {
+				return "typed"
+			}
+		}
+	}
+	return "unknown"
 }
 
 // preSubmitRead runs one Herdr read across the pre-submit budget, retrying a

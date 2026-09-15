@@ -2,7 +2,7 @@
 
 These skills ship with the repo so a clone carries the full fleet workflow.
 They are synced from the operator's user scope (`%USERPROFILE%\.agents\skills`); edit them there, then refresh the copies here.
-The exception is `showcase`, which is owned by this repo (its CLI is `cmd/showcase-axi`); edit it here, never sync it down over a user-scope copy.
+Lavish Editor is the review-surface tool; its project routing adds the durable task recap requirement.
 
 ## Which harness discovers what
 

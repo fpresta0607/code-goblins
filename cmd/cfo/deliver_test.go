@@ -17,7 +17,10 @@ import (
 // where a standing authorship rule has to live: a goblin that never sees it
 // signs the fleet's history with an author that does not exist.
 func TestBriefScaffoldCarriesTheCommitAuthorshipRule(t *testing.T) {
-	t.Chdir(t.TempDir())
+	root := t.TempDir()
+	t.Chdir(root)
+	t.Setenv("CFO_HOME", root)
+	t.Setenv("CFO_STATE_OVERRIDE", filepath.Join(root, "state"))
 
 	var stdout, stderr bytes.Buffer
 	if exit := runBrief([]string{"t1", "--project", "projects/demo"}, &stdout, &stderr); exit != 0 {

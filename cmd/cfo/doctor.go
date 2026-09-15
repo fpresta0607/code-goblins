@@ -9,6 +9,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/routing"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
 )
 
@@ -26,6 +27,16 @@ func runDoctor(stdout io.Writer) int {
 		}
 	}
 	healthy := doctor.Healthy(checks)
+	if h, err := home.Resolve(); err != nil {
+		fmt.Fprintf(stdout, "supervisor: unavailable (%v)\n", err)
+		healthy = false
+	} else {
+		s := supervisor.Status(h.State)
+		fmt.Fprintf(stdout, "supervisor: %s; pid=%d; last observation=%s; %s\n", s.Reason, s.PID, s.LastObservation, s.Action)
+		if !s.Healthy {
+			healthy = false
+		}
+	}
 
 	probes := doctor.ProbeHarnesses(context.Background())
 	for _, p := range probes {
