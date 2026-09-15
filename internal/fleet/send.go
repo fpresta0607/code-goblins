@@ -201,10 +201,7 @@ func codexComposerEmpty(screen string) bool {
 	if !ok || start < 0 {
 		return false
 	}
-	composer := cells[start+1:]
-	if end := cellsIndexFold(composer, "tab to queue message"); end >= 0 {
-		composer = composer[:end]
-	}
+	composer := codexComposerBody(cells[start+1:])
 	lines := splitANSILines(composer)
 	if len(lines) == 0 {
 		return false
@@ -243,6 +240,25 @@ func codexComposerEmpty(screen string) bool {
 	return true
 }
 
+func codexComposerBody(composer []ansiCell) []ansiCell {
+	if end := cellsIndexFold(composer, "tab to queue message"); end >= 0 {
+		return composer[:end]
+	}
+	// The hint may be below a short capture. A Codex footer is the next
+	// stable boundary, so keep the body above it and preserve wrapped rows.
+	lines := splitANSILines(composer)
+	offset := 0
+	for _, line := range lines {
+		rawLen := len(line)
+		line = trimSpaceCells(line)
+		if len(line) > 0 && codexFooter(cellsText(line)) {
+			return composer[:offset]
+		}
+		offset += rawLen + 1
+	}
+	return composer
+}
+
 type ansiCell struct {
 	Rune  rune
 	Dim   bool
@@ -254,12 +270,21 @@ func (c ansiCell) decoration() bool {
 }
 
 func parseANSICells(value string) ([]ansiCell, bool) {
+	if len(value) > maxANSIFrameBytes || !utf8.ValidString(value) {
+		return nil, false
+	}
+	// Herdr's native subprocess output is UTF-8. A BOM can be introduced by
+	// a Windows capture boundary, but it is not terminal content.
+	value = strings.TrimPrefix(value, "\ufeff")
 	var cells []ansiCell
 	dim, color := false, false
 	for i := 0; i < len(value); {
 		if value[i] != 0x1b {
-			r, size := utf8DecodeRune(value[i:])
+			r, size := utf8.DecodeRuneInString(value[i:])
 			if r == unicode.ReplacementChar && size == 1 {
+				return nil, false
+			}
+			if r < ' ' && r != '\r' && r != '\n' && r != '\t' {
 				return nil, false
 			}
 			cells = append(cells, ansiCell{Rune: r, Dim: dim, Color: color})
@@ -316,9 +341,7 @@ func parseANSICells(value string) ([]ansiCell, bool) {
 	return cells, true
 }
 
-func utf8DecodeRune(value string) (rune, int) {
-	return utf8.DecodeRuneInString(value)
-}
+const maxANSIFrameBytes = 512 * 1024
 
 func lastCodexPrompt(cells []ansiCell) int {
 	last := -1
@@ -331,12 +354,48 @@ func lastCodexPrompt(cells []ansiCell) int {
 }
 
 func cellsIndexFold(cells []ansiCell, needle string) int {
-	text := strings.ToLower(cellsText(cells))
-	index := strings.Index(text, strings.ToLower(needle))
-	if index < 0 {
+	start, _, ok := matchCellsFold(cells, needle)
+	if !ok {
 		return -1
 	}
-	return utf8.RuneCountInString(text[:index])
+	return start
+}
+
+// matchCellsFold finds a UI label while ignoring only whitespace and the
+// colored braille cells Codex uses for its spinner. This keeps message text
+// exact while allowing terminal line wrapping and animation between label
+// characters.
+func matchCellsFold(cells []ansiCell, needle string) (int, int, bool) {
+	want := []rune(strings.ToLower(needle))
+	for start := 0; start < len(cells); start++ {
+		i, w := start, 0
+		for w < len(want) {
+			if want[w] == ' ' {
+				separator := false
+				for i < len(cells) && (unicode.IsSpace(cells[i].Rune) || cells[i].decoration()) {
+					i++
+					separator = true
+				}
+				if !separator {
+					break
+				}
+				w++
+				continue
+			}
+			for i < len(cells) && cells[i].decoration() {
+				i++
+			}
+			if i >= len(cells) || unicode.ToLower(cells[i].Rune) != want[w] {
+				break
+			}
+			i++
+			w++
+		}
+		if w == len(want) {
+			return start, i, true
+		}
+	}
+	return -1, -1, false
 }
 
 func splitANSILines(cells []ansiCell) [][]ansiCell {
@@ -383,15 +442,26 @@ func cellsText(cells []ansiCell) string {
 
 func codexFooter(line string) bool {
 	parts := strings.Split(line, " · ")
-	if len(parts) < 3 || !strings.HasPrefix(strings.TrimSpace(parts[0]), "gpt-") {
+	if len(parts) < 3 {
 		return false
 	}
-	for _, part := range parts {
+	model := strings.TrimSpace(parts[0])
+	workspace := strings.TrimSpace(parts[1])
+	if model == "" || workspace == "" || !absoluteWorkspace(workspace) {
+		return false
+	}
+	for _, part := range parts[2:] {
 		if strings.TrimSpace(part) == "" {
 			return false
 		}
 	}
 	return true
+}
+
+func absoluteWorkspace(value string) bool {
+	return strings.HasPrefix(value, "/") ||
+		strings.HasPrefix(value, "\\\\") ||
+		(len(value) >= 3 && ((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) && value[1] == ':' && (value[2] == '\\' || value[2] == '/'))
 }
 
 // Only exact message text inside a recognized Codex queue or composer is
@@ -401,34 +471,32 @@ func codexDelivery(screen, message string) string {
 	if !ok {
 		return "unknown"
 	}
-	normalize := func(s string) string { return strings.Join(strings.Fields(s), " ") }
-	want := normalize(message)
-	if want == "" {
+	if strings.TrimSpace(message) == "" {
 		return "unknown"
 	}
-	plain := cellsText(cells)
-	if start := strings.LastIndex(plain, "Messages to be submitted after next tool call"); start >= 0 {
-		queue := plain[start:]
-		if end := strings.Index(queue, "\n›"); end >= 0 {
-			queue = queue[:end]
-		}
-		if entry := strings.Index(queue, "↳ "); entry >= 0 && normalize(queue[entry+len("↳ "):]) == want {
-			return "submitted"
+	if start, _, found := matchCellsFold(cells, "Messages to be submitted after next tool call"); found {
+		queue := cells[start:]
+		if _, entryEnd, found := matchCellsFold(queue, "↳ "); found {
+			payload := queue[entryEnd:]
+			if prompt := lastCodexPrompt(payload); prompt >= 0 {
+				payload = payload[:prompt]
+			}
+			if exactCodexTypedText(payload, message) {
+				return "submitted"
+			}
 		}
 	}
 	if start := lastCodexPrompt(cells); start >= 0 {
-		composer := cells[start+1:]
-		if end := cellsIndexFold(composer, "tab to queue message"); end >= 0 {
-			if exactCodexTypedText(composer[:end], message) {
-				return "typed"
-			}
+		composer := codexComposerBody(cells[start+1:])
+		if exactCodexTypedText(composer, message) {
+			return "typed"
 		}
 	}
 	return "unknown"
 }
 
 func exactCodexTypedText(cells []ansiCell, message string) bool {
-	cells = trimSpaceCells(cells)
+	cells = trimSpaceOrDecorationCells(cells)
 	want := []rune(strings.TrimSpace(message))
 	i := 0
 	for w := 0; w < len(want); {
@@ -452,6 +520,16 @@ func exactCodexTypedText(cells []ansiCell, message string) bool {
 		w++
 	}
 	return onlySpaceOrDecoration(cells[i:]) && len(trimSpaceCells(cells[i:])) == 0
+}
+
+func trimSpaceOrDecorationCells(cells []ansiCell) []ansiCell {
+	for len(cells) > 0 && (unicode.IsSpace(cells[0].Rune) || cells[0].decoration()) {
+		cells = cells[1:]
+	}
+	for len(cells) > 0 && (unicode.IsSpace(cells[len(cells)-1].Rune) || cells[len(cells)-1].decoration()) {
+		cells = cells[:len(cells)-1]
+	}
+	return cells
 }
 
 // preSubmitRead runs one Herdr read across the pre-submit budget, retrying a

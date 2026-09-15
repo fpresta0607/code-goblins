@@ -95,7 +95,26 @@ func TestNativeValidatorRejectsReusedPIDCreationTime(t *testing.T) {
 	observed := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
 	validator := NativeValidator{TaskID: "task", RunID: "run", Step: "review", RootPID: 120, StepStartedAt: observed.Add(-time.Minute), ObservedAt: observed}
 	processes := []Process{process(120, 1, "codex.exe", "unrelated reused pid", observed.Add(-time.Hour))}
-	if _, err := verifyNativeValidator(validator, processes); err == nil || !strings.Contains(err.Error(), "creation time") {
+	if _, err := verifyNativeValidatorAt(validator, processes, observed.Add(10*time.Second)); err == nil || !strings.Contains(err.Error(), "creation time") {
 		t.Fatalf("reused pid error = %v", err)
+	}
+}
+
+func TestNativeValidatorRejectsReplacementCreatedAfterStepBegan(t *testing.T) {
+	observed := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	validator := NativeValidator{TaskID: "task", RunID: "run", Step: "review", RootPID: 120, StepStartedAt: observed.Add(-time.Minute), ObservedAt: observed}
+	processes := []Process{process(120, 1, "codex.exe", "replacement", observed.Add(-30*time.Second))}
+	if _, err := verifyNativeValidatorAt(validator, processes, observed.Add(10*time.Second)); err == nil || !strings.Contains(err.Error(), "creation time") {
+		t.Fatalf("replacement pid error = %v", err)
+	}
+}
+
+func TestNativeValidatorRejectsStaleObservation(t *testing.T) {
+	now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	observed := now.Add(-nativeObservationMaxAge - time.Second)
+	validator := NativeValidator{TaskID: "task", RunID: "run", Step: "review", RootPID: 120, StepStartedAt: observed.Add(-time.Minute), ObservedAt: observed}
+	processes := []Process{process(120, 1, "codex.exe", "stale status", observed)}
+	if _, err := verifyNativeValidatorAt(validator, processes, now); err == nil || !strings.Contains(err.Error(), "stale") {
+		t.Fatalf("stale observation error = %v", err)
 	}
 }
