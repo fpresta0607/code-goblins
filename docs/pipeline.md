@@ -100,6 +100,7 @@ Immediately before invoking native start, `run` captures the complete mutable la
 The evidence binds task metadata, frozen policy, worktree identity, named branch, clean submitted head, current origin default branch, local tracking ref, submitted and trusted repository configuration digests, shared configuration digest, and effective Codex primary.
 It then uses the native strict launch nonce and validation generation and requires the returned receipt to bind the exact branch, submitted head, generation, and intent digest.
 The shared configuration routes native Codex through the guarded `cfo exec --cfo-native-gate` and `cfo exec resume --cfo-native-gate` invocation shapes.
+Immediately before delegation, the guard removes every known harness billing credential from the inherited environment case-insensitively, so a machine or user API key cannot replace the required subscription login.
 The task-local launch contract starts as pending and can authorize only the first agent while the native run has no completed invocation.
 At the actual agent boundary, that guard finds the active run by its native worktree, loads the matching task-local launch contract, and requires the durable run head and current native worktree head to agree.
 The initial head must equal the submitted head, while a later head requires durable native fixer or completed rebase transition evidence before the guard rechecks the shared configuration, origin default branch, tracking ref, both repository configuration blobs, and Codex primary.
@@ -107,6 +108,8 @@ The active run must record no-mistakes v1.75.1 build `37ed232`, and its complete
 After those checks, it re-reads both the complete active run identity and native worktree HEAD immediately before delegating and refuses any change to the authorized pair.
 After native returns, the driver requires the durable run identity, no-mistakes version, and build to match the receipt.
 When no invocation exists because native parked at a pre-agent gate, the driver atomically binds the pending contract to that exact run ID and permits only that run's guarded response.
+If the native command returns a verified launch receipt with a nonzero bounded-wait result, the driver retains the verified or receipt-bound contract before returning the wait error.
+An interrupted pending contract whose run ID is still empty can be bound by a later managed response only after the durable native run matches every recorded launch field.
 After the first managed agent returns, the driver requires the trusted configuration SHA, recorded Codex gpt-5.6-sol model, and SHA-256 of the persisted review global configuration before atomically promoting the contract to verified.
 A failed proof atomically revokes the pending contract before best-effort cleanup, so a Windows removal failure cannot preserve authorization.
 Receipt-only validation and after-the-fact cancellation are not treated as proof that the pre-agent boundary was safe.
