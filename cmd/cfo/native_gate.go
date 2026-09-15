@@ -15,6 +15,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -68,6 +69,7 @@ func runNativeGateAgent(args []string, stdin io.Reader, stdout, stderr io.Writer
 		}
 	}
 	cmd := exec.Command("codex", args...)
+	cmd.Env = subscriptionOnlyNativeGateEnvironment(os.Environ())
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
@@ -80,6 +82,24 @@ func runNativeGateAgent(args []string, stdin io.Reader, stdout, stderr io.Writer
 		return 1
 	}
 	return 0
+}
+
+func subscriptionOnlyNativeGateEnvironment(env []string) []string {
+	billingKeys := make(map[string]struct{}, len(harness.HarnessBillingKeys))
+	for _, key := range harness.HarnessBillingKeys {
+		billingKeys[strings.ToUpper(key)] = struct{}{}
+	}
+	clean := make([]string, 0, len(env))
+	for _, entry := range env {
+		name, _, ok := strings.Cut(entry, "=")
+		if ok {
+			if _, blocked := billingKeys[strings.ToUpper(name)]; blocked {
+				continue
+			}
+		}
+		clean = append(clean, entry)
+	}
+	return clean
 }
 
 func nativeGateReader(h home.Home, root, worktree string) (pipeline.Reader, bool, error) {

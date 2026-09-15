@@ -247,11 +247,11 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		if err != nil {
 			return fmt.Errorf("pipeline: native command failed: %w", err)
 		}
-		if result.ExitCode != 0 {
-			return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
-		}
 		receipt, err := parseLaunchReceipt(result.Stdout)
 		if err != nil {
+			if result.ExitCode != 0 {
+				return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
+			}
 			return err
 		}
 		if err := receipt.verify(checked.Start, nonce, generation, intent); err != nil {
@@ -269,6 +269,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			}
 			contractRetained = true
 			fmt.Fprintf(out, "pipeline launch: bound pending run %s at %s before its first managed agent\n", receipt.RunID, checked.Start.HeadSHA)
+			if result.ExitCode != 0 {
+				return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
+			}
 			return nil
 		}
 		verified := bound
@@ -278,6 +281,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		}
 		contractRetained = true
 		fmt.Fprintf(out, "pipeline launch: verified run %s at %s with trusted %s and primary %s\n", receipt.RunID, checked.Start.HeadSHA, checked.Start.TrustedSHA, checked.Start.EffectivePrimary)
+		if result.ExitCode != 0 {
+			return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
+		}
 		return nil
 	}
 	gate, err := reader.Gate(ctx, meta.Project, branch)
@@ -332,6 +338,17 @@ func preparePipelineLaunchContract(ctx context.Context, reader pipeline.Reader, 
 	contract, err := loadPipelineLaunchContract(path)
 	if err != nil {
 		return pipelineLaunchContract{}, err
+	}
+	if contract.Status == pipelineLaunchContractPending && contract.RunID == "" {
+		bound := contract
+		bound.RunID = runID
+		if _, err := reader.VerifyNativeLaunch(ctx, nativeLaunchExpectation(bound, selection)); err != nil {
+			return pipelineLaunchContract{}, err
+		}
+		if err := transitionPipelineLaunchContract(path, contract, bound); err != nil {
+			return pipelineLaunchContract{}, err
+		}
+		contract = bound
 	}
 	if contract.RunID != runID {
 		return pipelineLaunchContract{}, errors.New("pipeline: native run does not match the CFO launch contract")

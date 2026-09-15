@@ -52,6 +52,7 @@ type pipelineStartRunner struct {
 	generation        string
 	durableModel      string
 	preAgent          bool
+	nativeExitCode    int
 }
 
 func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Result, error) {
@@ -159,7 +160,7 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 		if !r.preAgent {
 			r.roleStarted = true
 		}
-		return execx.Result{Stdout: []byte(fmt.Sprintf("launch_receipt:\n  run_id: run-bound\n  disposition: created\n  launch_nonce: %s\n  validation_generation: %s\n  branch: feat/policy\n  head_sha: %s\n  submitted_head_sha: %s\n  intent_digest: %x\ngate: rebase\n", r.nonce, r.generation, trusted, trusted, sha256.Sum256([]byte("ship safely"))))}, nil
+		return execx.Result{Stdout: []byte(fmt.Sprintf("launch_receipt:\n  run_id: run-bound\n  disposition: created\n  launch_nonce: %s\n  validation_generation: %s\n  branch: feat/policy\n  head_sha: %s\n  submitted_head_sha: %s\n  intent_digest: %x\ngate: rebase\n", r.nonce, r.generation, trusted, trusted, sha256.Sum256([]byte("ship safely")))), ExitCode: r.nativeExitCode}, nil
 	}
 	return execx.Result{}, fmt.Errorf("unexpected start command: %#v", q)
 }
@@ -1199,7 +1200,55 @@ func TestPipelineRunBindsAndVerifiesNativeLaunch(t *testing.T) {
 	}
 }
 
-func TestPipelinePreAgentGateKeepsReceiptBoundContractUntilFirstAgent(t *testing.T) {
+func TestPipelineRunRetainsVerifiedContractWhenNativeHoldExpires(t *testing.T) {
+	p, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := p.Select("ordinary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	nm := filepath.Join(root, "nm")
+	tmp := filepath.Join(h.State, "tasktmp", "task")
+	project := filepath.Join(root, "project")
+	wt := filepath.Join(project, ".worktrees", "gb-task")
+	for _, path := range []string{nm, tmp, project, wt} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := selection.Save(filepath.Join(tmp, "pipeline.json")); err != nil {
+		t.Fatal(err)
+	}
+	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: wt, Project: project, TaskTmp: tmp, PipelineClass: selection.Class, PipelineHash: selection.Hash}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	config, _, err := pipeline.Render([]byte("{}"), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "config.yaml"), config, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &pipelineStartRunner{worktree: wt, nativeExitCode: 1}
+	err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "native command exited 1") {
+		t.Fatalf("pipelineCommand error=%v, want bounded native hold error", err)
+	}
+	contract, loadErr := loadPipelineLaunchContract(filepath.Join(tmp, pipelineLaunchContractName))
+	if loadErr != nil || contract.Status != pipelineLaunchContractVerified || contract.RunID != "run-bound" {
+		t.Fatalf("retained contract=%+v err=%v", contract, loadErr)
+	}
+}
+
+func TestPipelinePreAgentGateBindsInterruptedContractBeforeFirstAgent(t *testing.T) {
 	p, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -1245,8 +1294,12 @@ func TestPipelinePreAgentGateKeepsReceiptBoundContractUntilFirstAgent(t *testing
 	if err != nil || pending.Status != pipelineLaunchContractPending || pending.RunID != "run-bound" {
 		t.Fatalf("receipt-bound pending contract=%+v err=%v", pending, err)
 	}
+	pending.RunID = ""
+	if err := savePipelineLaunchContract(contractPath, pending); err != nil {
+		t.Fatal(err)
+	}
 	if err := pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "approve"}, &bytes.Buffer{}); err != nil {
-		t.Fatalf("pre-agent response: %v", err)
+		t.Fatalf("interrupted pre-agent response: %v", err)
 	}
 	verified, err := loadPipelineLaunchContract(contractPath)
 	if err != nil || verified.Status != pipelineLaunchContractVerified || verified.RunID != "run-bound" {

@@ -34,6 +34,20 @@ func TestStripNativeGateMarkerRecognizesOnlyNativeCodexPositions(t *testing.T) {
 	}
 }
 
+func TestSubscriptionOnlyNativeGateEnvironmentStripsBillingKeysCaseInsensitively(t *testing.T) {
+	got := subscriptionOnlyNativeGateEnvironment([]string{
+		"PATH=C:\\tools",
+		"openai_api_key=secret",
+		"OPENAI_KEY=secret",
+		"CoDeX_ApI_KeY=secret",
+		"CFO_HOME=C:\\fleet",
+	})
+	want := []string{"PATH=C:\\tools", "CFO_HOME=C:\\fleet"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("environment=%q, want %q", got, want)
+	}
+}
+
 func TestFindPipelineLaunchContractBindsTaskPathAndLaunchIdentity(t *testing.T) {
 	stateDir := t.TempDir()
 	project := t.TempDir()
