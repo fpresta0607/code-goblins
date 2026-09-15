@@ -35,12 +35,15 @@ type pipelineRunner struct {
 }
 
 type pipelineStartRunner struct {
-	bound       pipeline.NativeRun
-	worktree    string
-	advance     bool
-	remoteRead  int
-	roleStarted bool
-	native      []execx.Request
+	bound          pipeline.NativeRun
+	previous       pipeline.NativeRun
+	worktree       string
+	head           string
+	advance        bool
+	remoteRead     int
+	roleStarted    bool
+	failNativeOnce bool
+	native         []execx.Request
 }
 
 func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Result, error) {
@@ -50,7 +53,7 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 		sql := q.Args[len(q.Args)-1]
 		if strings.Contains(sql, "runs.launch_nonce") {
 			rows := []pipeline.NativeRun{}
-			if r.bound.RunID != "" {
+			if r.bound.RunID != "" && strings.Contains(sql, r.bound.Nonce) {
 				rows = append(rows, r.bound)
 			}
 			data, err := json.Marshal(rows)
@@ -60,12 +63,21 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 			return execx.Result{Stdout: []byte(`[{"default_branch":"main"}]`)}, nil
 		}
 		if strings.Contains(sql, "SELECT runs.status") {
-			return execx.Result{Stdout: []byte(`[]`)}, nil
+			rows := []map[string]string{}
+			if r.previous.RunID != "" {
+				rows = append(rows, map[string]string{"status": r.previous.Status, "id": r.previous.RunID})
+			}
+			data, err := json.Marshal(rows)
+			return execx.Result{Stdout: data}, err
 		}
 	case "git":
 		switch strings.Join(q.Args, " ") {
 		case "rev-parse HEAD":
-			return execx.Result{Stdout: []byte(trusted)}, nil
+			head := r.head
+			if head == "" {
+				head = trusted
+			}
+			return execx.Result{Stdout: []byte(head)}, nil
 		case "rev-parse --show-toplevel":
 			return execx.Result{Stdout: []byte(r.worktree + "\n")}, nil
 		case "symbolic-ref --quiet --short HEAD":
@@ -88,11 +100,23 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 		}
 	case "no-mistakes":
 		r.native = append(r.native, q)
+		if r.failNativeOnce {
+			r.failNativeOnce = false
+			return execx.Result{}, errors.New("injected native launch interruption")
+		}
 		flags := map[string]string{}
 		for i := 2; i+1 < len(q.Args); i += 2 {
 			flags[q.Args[i]] = q.Args[i+1]
 		}
-		r.bound = pipeline.NativeRun{RunID: "native-run", Project: filepath.Dir(filepath.Dir(r.worktree)), Branch: "feat/policy", Head: trusted, Nonce: flags["--launch-nonce"], Generation: flags["--validation-generation"], IntentDigest: fmt.Sprintf("%x", sha256.Sum256([]byte(flags["--intent"]))), Status: "running"}
+		head := r.head
+		if head == "" {
+			head = trusted
+		}
+		runID := fmt.Sprintf("native-run-%d", len(r.native))
+		if r.bound.Nonce == flags["--launch-nonce"] {
+			runID = r.bound.RunID
+		}
+		r.bound = pipeline.NativeRun{RunID: runID, Project: filepath.Dir(filepath.Dir(r.worktree)), Branch: "feat/policy", Head: head, Nonce: flags["--launch-nonce"], Generation: flags["--validation-generation"], IntentDigest: fmt.Sprintf("%x", sha256.Sum256([]byte(flags["--intent"]))), Status: "running"}
 		r.roleStarted = r.advance && r.remoteRead >= 2
 		return execx.Result{}, nil
 	}
@@ -1129,6 +1153,47 @@ func TestPipelineRunUsesSupportedNativeBoundaryAndPersistsAssociation(t *testing
 	}
 	if runner.bound.Nonce != binding.Nonce || runner.bound.Generation != binding.Generation {
 		t.Fatal("restart invented another validation identity")
+	}
+	old := runner.bound
+	old.Status = "failed"
+	old.CustodyReturned = 1
+	runner.bound = old
+	runner.previous = old
+	runner.advance = false
+	runner.head = "89abcdef0123456789abcdef0123456789abcdef"
+	runner.failNativeOnce = true
+	budgetPath := filepath.Join(h.State, "tasks", "task", "gate-budget.json")
+	budgetBefore, err := os.ReadFile(budgetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "injected native launch interruption") {
+		t.Fatalf("interrupted successor error=%v", err)
+	}
+	pending, err := pipeline.LoadLaunch(launchPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.RunID != "" || pending.PredecessorRunID != old.RunID {
+		t.Fatalf("pending successor lost predecessor: %+v", pending)
+	}
+	if err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("successor retry: %v", err)
+	}
+	recovered, err := pipeline.LoadLaunch(launchPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.Nonce != pending.Nonce || recovered.Generation != pending.Generation || recovered.PredecessorRunID != old.RunID || recovered.RunID != runner.bound.RunID {
+		t.Fatalf("successor recovery changed identity: pending=%+v recovered=%+v run=%+v", pending, recovered, runner.bound)
+	}
+	budgetAfter, err := os.ReadFile(budgetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(budgetBefore, budgetAfter) {
+		t.Fatalf("successor recovery reset the task budget: before=%s after=%s", budgetBefore, budgetAfter)
 	}
 }
 

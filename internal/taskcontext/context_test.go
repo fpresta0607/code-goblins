@@ -72,6 +72,7 @@ func TestContextSurvivesWorkerAndMetadataRemoval(t *testing.T) {
 }
 
 func TestBrowserOwnershipSeparatesHomesAndTasks(t *testing.T) {
+	t.Setenv("CFO_BROWSER_HEADED", "")
 	h := home.Home{State: filepath.Join(t.TempDir(), "state")}
 	a := PathsFor(h, "a")
 	b := PathsFor(h, "b")
@@ -89,8 +90,17 @@ func TestBrowserOwnershipSeparatesHomesAndTasks(t *testing.T) {
 	// Operator browser arguments must not override the task's own profile.
 	t.Setenv("CHROME_DEVTOOLS_AXI_CHROME_ARGS", "--user-data-dir=C:/personal-profile")
 	env := BrowserEnv(h, "a")
-	if env["CHROME_DEVTOOLS_AXI_CHROME_ARGS"] != "" || env["CHROME_DEVTOOLS_AXI_CHANNEL"] != "stable" || env["CHROME_DEVTOOLS_AXI_USER_DATA_DIR"] != a.Browser.Profile {
+	if env["CHROME_DEVTOOLS_AXI_CHROME_ARGS"] != "" || env["CHROME_DEVTOOLS_AXI_CHANNEL"] != "stable" || env["CHROME_DEVTOOLS_AXI_USER_DATA_DIR"] != a.Browser.Profile || env["CHROME_DEVTOOLS_AXI_HEADED"] != "0" {
 		t.Fatal("task launch inherited a browser storage redirect")
+	}
+	t.Setenv("CFO_BROWSER_HEADED", "1")
+	visible := BrowserEnv(h, "a")
+	if visible["CHROME_DEVTOOLS_AXI_HEADED"] != "1" || visible["CHROME_DEVTOOLS_AXI_SESSION"] != a.Browser.Session || visible["CHROME_DEVTOOLS_AXI_USER_DATA_DIR"] != a.Browser.Profile || visible["CHROME_DEVTOOLS_AXI_AUTO_CONNECT"] != "0" || visible["CHROME_DEVTOOLS_AXI_BROWSER_URL"] != "" || visible["CHROME_DEVTOOLS_AXI_PORT"] != "" {
+		t.Fatal("attended browser mode changed task ownership or attachment isolation")
+	}
+	t.Setenv("CFO_BROWSER_HEADED", "true")
+	if BrowserEnv(h, "a")["CHROME_DEVTOOLS_AXI_HEADED"] != "0" {
+		t.Fatal("non-explicit attended browser mode was accepted")
 	}
 }
 

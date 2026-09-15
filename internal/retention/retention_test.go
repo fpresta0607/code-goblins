@@ -94,6 +94,14 @@ func TestPreparedRetirementRecoversAfterWorktreeReturnAndLaterRetains(t *testing
 	}
 	git(t, project, "worktree", "remove", "--force", wt)
 	git(t, project, "worktree", "prune")
+	secretDir := filepath.Join(meta.TaskTmp, "auth.ps1")
+	if err := os.MkdirAll(secretDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	secretPath := filepath.Join(secretDir, "secret.txt")
+	if err := os.WriteFile(secretPath, []byte("synthetic-secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	service.Now = func() time.Time { return time.Now().Add(100 * 24 * time.Hour) }
 	beforeRetry, err := service.Run(context.Background(), "task", true)
 	if err != nil {
@@ -104,11 +112,35 @@ func TestPreparedRetirementRecoversAfterWorktreeReturnAndLaterRetains(t *testing
 			t.Fatalf("prepared retirement qualified before recovery: %+v", entry)
 		}
 	}
-	if _, err := cleaner.Cleanup(context.Background(), "task"); err != nil {
-		t.Fatal(err)
+	if _, err := cleaner.Cleanup(context.Background(), "task"); err == nil || !strings.Contains(err.Error(), "scrub and archive task scratch") {
+		t.Fatalf("credential scrub failure = %v", err)
 	}
 	if _, err := os.Stat(wt); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("worktree not returned: %v", err)
+	}
+	if _, err := state.ReadTaskMeta(service.Home.State, "task"); err != nil {
+		t.Fatalf("live metadata lost during incomplete retirement: %v", err)
+	}
+	if _, err := taskcontext.ReadRetirement(service.Home, "task"); err == nil {
+		t.Fatal("failed credential scrub qualified as completed retirement")
+	}
+	duringFailure, err := service.Run(context.Background(), "task", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range duringFailure {
+		if entry.Removed || entry.Hold == "" {
+			t.Fatalf("incomplete scrub released retention: %+v", entry)
+		}
+	}
+	if err := os.Remove(secretPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(secretDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cleaner.Cleanup(context.Background(), "task"); err != nil {
+		t.Fatalf("retirement retry: %v", err)
 	}
 	if _, err := state.ReadTaskMeta(service.Home.State, "task"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("live metadata not retired: %v", err)

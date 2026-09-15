@@ -14,14 +14,15 @@ import (
 )
 
 type Launch struct {
-	Project      string `json:"project"`
-	Branch       string `json:"branch"`
-	Head         string `json:"head"`
-	Nonce        string `json:"nonce"`
-	Generation   string `json:"generation"`
-	IntentDigest string `json:"intent_digest"`
-	PolicyHash   string `json:"policy_hash"`
-	RunID        string `json:"run_id"`
+	Project          string `json:"project"`
+	Branch           string `json:"branch"`
+	Head             string `json:"head"`
+	Nonce            string `json:"nonce"`
+	Generation       string `json:"generation"`
+	IntentDigest     string `json:"intent_digest"`
+	PolicyHash       string `json:"policy_hash"`
+	RunID            string `json:"run_id"`
+	PredecessorRunID string `json:"predecessor_run_id,omitempty"`
 }
 
 var ErrNoBoundRun = errors.New("pipeline: native launch has no associated run yet")
