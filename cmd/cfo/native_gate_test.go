@@ -346,6 +346,14 @@ func TestNativeGateReaderUsesLaunchContractSQLiteOutsidePath(t *testing.T) {
 	if err := saveTestPipelineLaunchEvidence(contractPath, contract); err != nil {
 		t.Fatal(err)
 	}
+	legacyDir := filepath.Join(h.State, "tasktmp", "legacy-task")
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := []byte(`{"version":1,"task_id":"legacy-task","checked":{"repo_id":"repo"},"validation_generation":"legacy-generation"}`)
+	if err := os.WriteFile(filepath.Join(legacyDir, pipelineLaunchContractName), legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("PATH", t.TempDir())
 	reader, inspect, err := nativeGateReader(h, nativeRoot, worktree)
 	if err != nil || !inspect || !filepath.IsAbs(reader.SQLitePath) || !strings.EqualFold(reader.SQLitePath, sqlitePath) {

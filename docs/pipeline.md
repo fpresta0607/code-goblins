@@ -103,6 +103,7 @@ The shared configuration routes native Codex through the guarded `cfo exec --cfo
 Immediately before managed delegation, the guard requires the current CFO executable path and digest to match the contract, confirms ChatGPT authentication, forces the OpenAI provider, ChatGPT login method, and canonical ChatGPT Codex endpoint, and removes every known harness billing credential and alternate OpenAI base URL from the inherited environment case-insensitively.
 Marker invocations outside a CFO-managed run retain their original provider arguments and environment.
 The task-local launch claim identifies managed native worktrees without requiring `sqlite3` on an unmanaged invocation's `PATH`, while the active native run is consulted when both task-local evidence files are absent or invalid so a `cfo-v1` run still fails closed.
+Scoped discovery ignores pre-`cfo-v1` launch records, so an unrelated legacy task cannot claim a newer native worktree in the same repository.
 The task-local launch contract starts as pending and can authorize only the first agent while the native run has no completed invocation.
 That first guarded wrapper binds the exact run and records authorization before delegation, so an automatic following role cannot overtake the outer bounded wait.
 At the actual agent boundary, that guard finds the active run by its native worktree, loads the matching task-local launch contract, and requires the durable run head and current native worktree head to agree.
