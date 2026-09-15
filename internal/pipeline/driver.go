@@ -127,6 +127,10 @@ type NativeLaunchExpectation struct {
 	GlobalConfigSHA256   string
 }
 
+type NativeLaunchState struct {
+	InvocationCount int
+}
+
 type NativeRunContext struct {
 	RunID                string `json:"run_id"`
 	RepoID               string `json:"repo_id"`
@@ -279,9 +283,9 @@ EXISTS(SELECT 1 FROM step_results WHERE run_id=` + sqlString(run.RunID) + ` AND 
 	return nil
 }
 
-func (r Reader) VerifyNativeLaunch(ctx context.Context, expected NativeLaunchExpectation) error {
+func (r Reader) VerifyNativeLaunch(ctx context.Context, expected NativeLaunchExpectation) (NativeLaunchState, error) {
 	if expected.Primary != "codex" || expected.PrimaryModel != "gpt-5.6-sol" {
-		return errors.New("pipeline: managed native primary must be Codex gpt-5.6-sol")
+		return NativeLaunchState{}, errors.New("pipeline: managed native primary must be Codex gpt-5.6-sol")
 	}
 	var rows []struct {
 		RunID                string `json:"run_id"`
@@ -297,31 +301,40 @@ func (r Reader) VerifyNativeLaunch(ctx context.Context, expected NativeLaunchExp
 		GlobalConfigHex      string `json:"global_config_hex"`
 		NoMistakesVersion    string `json:"no_mistakes_version"`
 		NoMistakesBuildSHA   string `json:"no_mistakes_build_sha"`
+		InvocationCount      int    `json:"invocation_count"`
 	}
 	sql := `SELECT runs.id AS run_id,runs.repo_id,repos.working_path,runs.branch,COALESCE(runs.submitted_head_sha,'') AS submitted_head_sha,COALESCE(runs.launch_nonce,'') AS launch_nonce,COALESCE(runs.launch_validation_generation,'') AS validation_generation,COALESCE(runs.no_mistakes_version,'') AS no_mistakes_version,COALESCE(runs.no_mistakes_build_sha,'') AS no_mistakes_build_sha,
 COALESCE((SELECT step_rounds.trusted_config_sha FROM step_rounds JOIN step_results ON step_results.id=step_rounds.step_result_id WHERE step_results.run_id=runs.id AND step_rounds.trusted_config_sha IS NOT NULL ORDER BY step_rounds.created_at,step_rounds.id LIMIT 1),'') AS trusted_sha,
 COALESCE((SELECT agent_invocations.agent FROM agent_invocations WHERE agent_invocations.run_id=runs.id ORDER BY agent_invocations.started_at,agent_invocations.id LIMIT 1),'') AS agent,
 COALESCE((SELECT agent_invocations.model FROM agent_invocations WHERE agent_invocations.run_id=runs.id ORDER BY agent_invocations.started_at,agent_invocations.id LIMIT 1),'') AS model,
 COALESCE((SELECT hex(step_rounds.global_config_yaml) FROM step_rounds JOIN step_results ON step_results.id=step_rounds.step_result_id WHERE step_results.run_id=runs.id AND step_results.step_name='review' AND step_rounds.global_config_yaml IS NOT NULL ORDER BY step_rounds.round,step_rounds.created_at,step_rounds.id LIMIT 1),'') AS global_config_hex
+	,(SELECT COUNT(*) FROM agent_invocations WHERE agent_invocations.run_id=runs.id) AS invocation_count
 FROM runs JOIN repos ON repos.id=runs.repo_id WHERE runs.id=` + sqlString(expected.RunID)
 	if err := r.query(ctx, sql, &rows); err != nil {
-		return err
+		return NativeLaunchState{}, err
 	}
 	if len(rows) != 1 {
-		return errors.New("pipeline: native launch record is missing or ambiguous")
+		return NativeLaunchState{}, errors.New("pipeline: native launch record is missing or ambiguous")
 	}
 	row := rows[0]
 	if row.NoMistakesVersion != NativeVersion || row.NoMistakesBuildSHA != NativeBuildSHA {
-		return errors.New("pipeline: native version and build do not match the managed gate")
+		return NativeLaunchState{}, errors.New("pipeline: native version and build do not match the managed gate")
 	}
-	if row.RunID != expected.RunID || row.RepoID != expected.RepoID || !samePath(row.WorkingPath, expected.Project) || row.Branch != expected.Branch || row.SubmittedHeadSHA != expected.SubmittedHeadSHA || row.LaunchNonce != expected.LaunchNonce || row.ValidationGeneration != expected.ValidationGeneration || row.TrustedSHA != expected.TrustedSHA || row.Agent != expected.Primary || row.Model != expected.PrimaryModel {
-		return errors.New("pipeline: native launch record does not match the checked repository, branch, head, trusted SHA, and primary")
+	if row.RunID != expected.RunID || row.RepoID != expected.RepoID || !samePath(row.WorkingPath, expected.Project) || row.Branch != expected.Branch || row.SubmittedHeadSHA != expected.SubmittedHeadSHA || row.LaunchNonce != expected.LaunchNonce || row.ValidationGeneration != expected.ValidationGeneration {
+		return NativeLaunchState{}, errors.New("pipeline: native launch record does not match the checked repository, branch, head, and launch identity")
+	}
+	state := NativeLaunchState{InvocationCount: row.InvocationCount}
+	if row.InvocationCount == 0 {
+		return state, nil
+	}
+	if row.TrustedSHA != expected.TrustedSHA || row.Agent != expected.Primary || row.Model != expected.PrimaryModel {
+		return NativeLaunchState{}, errors.New("pipeline: native launch record does not match the checked trusted SHA and primary")
 	}
 	globalConfig, err := hex.DecodeString(row.GlobalConfigHex)
 	if err != nil || fmt.Sprintf("%x", sha256.Sum256(globalConfig)) != expected.GlobalConfigSHA256 {
-		return errors.New("pipeline: native launch record does not match the checked global config")
+		return NativeLaunchState{}, errors.New("pipeline: native launch record does not match the checked global config")
 	}
-	return nil
+	return state, nil
 }
 
 func samePath(a, b string) bool {

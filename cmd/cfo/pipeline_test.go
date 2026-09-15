@@ -51,6 +51,7 @@ type pipelineStartRunner struct {
 	nonce             string
 	generation        string
 	durableModel      string
+	preAgent          bool
 }
 
 func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Result, error) {
@@ -58,6 +59,11 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 	switch q.Name {
 	case "sqlite3":
 		sql := q.Args[len(q.Args)-1]
+		if strings.Contains(sql, "WITH latest AS") {
+			gate := []pipeline.Gate{{RunID: "run-bound", StepID: "rebase-step", Step: "rebase", Status: "awaiting_approval", Round: 1, Findings: `{"findings":[]}`}}
+			data, err := json.Marshal(gate)
+			return execx.Result{Stdout: data}, err
+		}
 		if strings.Contains(sql, "SELECT default_branch FROM repos") {
 			return execx.Result{Stdout: []byte(`[{"default_branch":"main"}]`)}, nil
 		}
@@ -76,7 +82,13 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 			if model == "" {
 				model = "gpt-5.6-sol"
 			}
-			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"run_id":"run-bound","repo_id":"repo","working_path":%q,"branch":"feat/policy","submitted_head_sha":%q,"launch_nonce":%q,"validation_generation":%q,"trusted_sha":%q,"agent":"codex","model":%q,"global_config_hex":%q,"no_mistakes_version":"v1.75.1","no_mistakes_build_sha":"37ed232"}]`, filepath.ToSlash(filepath.Dir(filepath.Dir(r.worktree))), trusted, r.nonce, r.generation, trusted, model, fmt.Sprintf("%x", config)))}, nil
+			invocationCount := 1
+			agent, trustedSHA, globalConfigHex := "codex", trusted, fmt.Sprintf("%x", config)
+			if r.preAgent && !r.roleStarted {
+				invocationCount = 0
+				agent, model, trustedSHA, globalConfigHex = "", "", "", ""
+			}
+			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"run_id":"run-bound","repo_id":"repo","working_path":%q,"branch":"feat/policy","submitted_head_sha":%q,"launch_nonce":%q,"validation_generation":%q,"trusted_sha":%q,"agent":%q,"model":%q,"global_config_hex":%q,"no_mistakes_version":"v1.75.1","no_mistakes_build_sha":"37ed232","invocation_count":%d}]`, filepath.ToSlash(filepath.Dir(filepath.Dir(r.worktree))), trusted, r.nonce, r.generation, trustedSHA, agent, model, globalConfigHex, invocationCount))}, nil
 		}
 	case "git":
 		switch strings.Join(q.Args, " ") {
@@ -140,8 +152,14 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 				r.generation = q.Args[i+1]
 			}
 		}
-		r.roleStarted = true
-		return execx.Result{Stdout: []byte(fmt.Sprintf("launch_receipt:\n  run_id: run-bound\n  disposition: created\n  launch_nonce: %s\n  validation_generation: %s\n  branch: feat/policy\n  head_sha: %s\n  submitted_head_sha: %s\n  intent_digest: %x\ngate: review\n", r.nonce, r.generation, trusted, trusted, sha256.Sum256([]byte("ship safely"))))}, nil
+		if len(q.Args) > 1 && q.Args[1] == "respond" {
+			r.roleStarted = true
+			return execx.Result{Stdout: []byte("native decision output\n")}, nil
+		}
+		if !r.preAgent {
+			r.roleStarted = true
+		}
+		return execx.Result{Stdout: []byte(fmt.Sprintf("launch_receipt:\n  run_id: run-bound\n  disposition: created\n  launch_nonce: %s\n  validation_generation: %s\n  branch: feat/policy\n  head_sha: %s\n  submitted_head_sha: %s\n  intent_digest: %x\ngate: rebase\n", r.nonce, r.generation, trusted, trusted, sha256.Sum256([]byte("ship safely"))))}, nil
 	}
 	return execx.Result{}, fmt.Errorf("unexpected start command: %#v", q)
 }
@@ -1179,8 +1197,60 @@ func TestPipelineRunBindsAndVerifiesNativeLaunch(t *testing.T) {
 	if loadErr != nil || revoked.Status != pipelineLaunchContractRevoked {
 		t.Fatalf("failed durable proof contract=%+v err=%v", revoked, loadErr)
 	}
-	if err := requireVerifiedPipelineLaunchContract(contractPath, "run-bound"); err == nil {
-		t.Fatal("revoked contract authorized a pipeline response")
+}
+
+func TestPipelinePreAgentGateKeepsReceiptBoundContractUntilFirstAgent(t *testing.T) {
+	p, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := p.Select("ordinary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	nm := filepath.Join(root, "nm")
+	tmp := filepath.Join(h.State, "tasktmp", "task")
+	project := filepath.Join(root, "project")
+	wt := filepath.Join(project, ".worktrees", "gb-task")
+	for _, path := range []string{nm, tmp, project, wt} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := selection.Save(filepath.Join(tmp, "pipeline.json")); err != nil {
+		t.Fatal(err)
+	}
+	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: wt, Project: project, TaskTmp: tmp, PipelineClass: selection.Class, PipelineHash: selection.Hash}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	config, _, err := pipeline.Render([]byte("{}"), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "config.yaml"), config, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &pipelineStartRunner{worktree: wt, preAgent: true}
+	if err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("pre-agent run: %v", err)
+	}
+	contractPath := filepath.Join(tmp, pipelineLaunchContractName)
+	pending, err := loadPipelineLaunchContract(contractPath)
+	if err != nil || pending.Status != pipelineLaunchContractPending || pending.RunID != "run-bound" {
+		t.Fatalf("receipt-bound pending contract=%+v err=%v", pending, err)
+	}
+	if err := pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "approve"}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("pre-agent response: %v", err)
+	}
+	verified, err := loadPipelineLaunchContract(contractPath)
+	if err != nil || verified.Status != pipelineLaunchContractVerified || verified.RunID != "run-bound" {
+		t.Fatalf("verified contract=%+v err=%v", verified, err)
 	}
 }
 

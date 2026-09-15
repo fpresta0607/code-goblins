@@ -145,16 +145,19 @@ INSERT INTO agent_invocations VALUES('run');`
 	}
 }
 
-func TestNativeGateReaderPreservesUnmanagedRunWithoutSQLiteInPath(t *testing.T) {
+func TestNativeGateReaderIgnoresStaleGlobalRuntimeWithoutScopedContract(t *testing.T) {
 	h := home.Home{State: t.TempDir()}
+	if err := os.WriteFile(filepath.Join(h.State, "native-gate-runtime.json"), []byte("stale and invalid\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("PATH", t.TempDir())
-	reader, inspect, err := nativeGateReader(h, t.TempDir())
+	reader, inspect, err := nativeGateReader(h, t.TempDir(), t.TempDir())
 	if err != nil || inspect || reader.Commands != nil {
 		t.Fatalf("reader=%+v inspect=%t err=%v", reader, inspect, err)
 	}
 }
 
-func TestNativeGateReaderUsesPersistedSQLiteOutsidePath(t *testing.T) {
+func TestNativeGateReaderUsesLaunchContractSQLiteOutsidePath(t *testing.T) {
 	sqlitePath, err := exec.LookPath("sqlite3")
 	if err != nil {
 		t.Skip("sqlite3 CLI not available")
@@ -164,13 +167,41 @@ func TestNativeGateReaderUsesPersistedSQLiteOutsidePath(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := home.Home{State: t.TempDir()}
-	if err := saveNativeGateRuntime(h.State, nativeGateRuntime{Version: 1, SQLitePath: sqlitePath}); err != nil {
+	nativeRoot := t.TempDir()
+	worktree := filepath.Join(t.TempDir(), "run-bound")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitDir := filepath.Join(nativeRoot, "repos", "repo.git", "worktrees", "run-bound")
+	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+gitDir+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	contract := testPipelineLaunchContract(t.TempDir())
+	contract.Status = pipelineLaunchContractVerified
+	contract.RunID = "run-bound"
+	contract.SQLitePath = sqlitePath
+	contractPath := filepath.Join(h.State, "tasktmp", contract.TaskID, pipelineLaunchContractName)
+	if err := os.MkdirAll(filepath.Dir(contractPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := savePipelineLaunchContract(contractPath, contract); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", t.TempDir())
-	reader, inspect, err := nativeGateReader(h, t.TempDir())
+	reader, inspect, err := nativeGateReader(h, nativeRoot, worktree)
 	if err != nil || !inspect || !filepath.IsAbs(reader.SQLitePath) || !strings.EqualFold(reader.SQLitePath, sqlitePath) {
 		t.Fatalf("reader=%+v inspect=%t err=%v", reader, inspect, err)
+	}
+	unmanaged := filepath.Join(filepath.Dir(worktree), "unmanaged-run")
+	if err := os.MkdirAll(unmanaged, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(unmanaged, ".git"), []byte("gitdir: "+filepath.Join(nativeRoot, "repos", "repo.git", "worktrees", "unmanaged-run")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reader, inspect, err = nativeGateReader(h, nativeRoot, unmanaged)
+	if err != nil || inspect || reader.Commands != nil {
+		t.Fatalf("stale contract classified unmanaged run: reader=%+v inspect=%t err=%v", reader, inspect, err)
 	}
 }
 

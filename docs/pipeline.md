@@ -58,7 +58,8 @@ An operator can restore the printed backup in another idle window; restoration i
 Owned machine fields are `agent: [codex]`, `agent_config.codex: {model: gpt-5.6-sol, effort: high}`, both global `review_agents` roles with the same Codex profile, `eval.capture_provenance: true`, `agent_args_override.codex: [--cfo-native-gate, -c, 'service_tier="default"']`, `agent_path_override.codex: cfo`, `auto_fix.review: 0`, and one automatic follow-up each for test, lint, rebase and CI.
 The raw Codex argument override forces standard service for every managed role, so a user-level fast or priority preference cannot leak into a gate, while `agent_config` owns model and reasoning effort.
 The Codex executable override sends native invocations through the CFO pre-agent guard, which recognizes its private marker only immediately after `exec` or `exec resume` and delegates to the real `codex` command from `PATH` only after a managed run's durable bindings still match.
-CFO persists the absolute sqlite executable selected for a managed launch so the guard does not depend on later `PATH` lookup, while a machine with no CFO runtime and no sqlite executable preserves unmanaged native Codex pass-through.
+Before opening SQLite or querying native state, the guard requires a native worktree Git identity and a matching task-local launch contract, then uses the absolute sqlite executable captured in that contract.
+An unmatched invocation passes through unchanged without consulting stale machine-global runtime state, while a matched incomplete, revoked, or mismatched managed identity fails closed.
 CFO validation generations use the versioned `cfo-v1-` prefix accepted by no-mistakes v1.75.1.
 Strict native runs whose validation generation lacks that prefix, and native Codex operations outside a run, pass through unchanged, while a prefixed run without an exact CFO contract fails closed.
 Executable overrides for other harnesses remain operator-owned.
@@ -104,8 +105,9 @@ At the actual agent boundary, that guard finds the active run by its native work
 The initial head must equal the submitted head, while a later head requires durable native fixer or completed rebase transition evidence before the guard rechecks the shared configuration, origin default branch, tracking ref, both repository configuration blobs, and Codex primary.
 The active run must record no-mistakes v1.75.1 build `37ed232`, and its complete identity is read again after the file, Git, and remote checks.
 After those checks, it re-reads both the complete active run identity and native worktree HEAD immediately before delegating and refuses any change to the authorized pair.
-After native returns, the driver also requires the durable run, no-mistakes version and build, trusted configuration SHA, recorded Codex gpt-5.6-sol model, and SHA-256 of the review round's persisted global configuration to match before reporting a verified launch.
-Successful receipt and durable verification atomically bind the contract's verified state to the exact native run ID.
+After native returns, the driver requires the durable run identity, no-mistakes version, and build to match the receipt.
+When no invocation exists because native parked at a pre-agent gate, the driver atomically binds the pending contract to that exact run ID and permits only that run's guarded response.
+After the first managed agent returns, the driver requires the trusted configuration SHA, recorded Codex gpt-5.6-sol model, and SHA-256 of the persisted review global configuration before atomically promoting the contract to verified.
 A failed proof atomically revokes the pending contract before best-effort cleanup, so a Windows removal failure cannot preserve authorization.
 Receipt-only validation and after-the-fact cancellation are not treated as proof that the pre-agent boundary was safe.
 A repository's `agent` field continues to select only its native primary path and cannot replace the global reviewer or fixer profiles.
