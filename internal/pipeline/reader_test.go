@@ -22,6 +22,25 @@ type nativeAgentRaceRunner struct {
 	mutated    bool
 }
 
+type nativeWorktreeRaceRunner struct {
+	inner      execx.OSRunner
+	worktree   string
+	trustedSHA string
+	targetSHA  string
+	mutated    bool
+}
+
+func (r *nativeWorktreeRaceRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	result, err := r.inner.Run(ctx, request)
+	if !r.mutated && request.Name == "git" && strings.Join(request.Args, " ") == "show "+r.trustedSHA+":.no-mistakes.yaml" {
+		r.mutated = true
+		if out, checkoutErr := exec.Command("git", "-C", r.worktree, "checkout", "--detach", r.targetSHA).CombinedOutput(); checkoutErr != nil {
+			return execx.Result{}, fmt.Errorf("worktree race fixture: %s: %w", out, checkoutErr)
+		}
+	}
+	return result, err
+}
+
 func (r *nativeAgentRaceRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if !r.mutated && request.Name == "git" && strings.Join(request.Args, " ") == "show "+r.trustedSHA+":.no-mistakes.yaml" {
 		r.mutated = true
@@ -162,6 +181,12 @@ INSERT INTO runs VALUES('run','repo','feature','` + submitted + `','` + submitte
 		t.Fatalf("mutated native tracking ref error=%v", err)
 	}
 	runPipelineGit(t, nativeWorktree, "update-ref", "refs/remotes/origin/main", trusted)
+	worktreeRace := &nativeWorktreeRaceRunner{worktree: nativeWorktree, trustedSHA: trusted, targetSHA: fixed}
+	reader.Commands = worktreeRace
+	if err := reader.VerifyNativeAgent(context.Background(), nativeWorktree, want); err == nil || !worktreeRace.mutated || !strings.Contains(err.Error(), "worktree") {
+		t.Fatalf("late worktree race error=%v mutated=%t", err, worktreeRace.mutated)
+	}
+	runPipelineGit(t, nativeWorktree, "checkout", "--detach", submitted)
 	race := &nativeAgentRaceRunner{database: filepath.Join(nativeRoot, "state.sqlite"), trustedSHA: trusted}
 	reader.Commands = race
 	if err := reader.VerifyNativeAgent(context.Background(), nativeWorktree, want); err == nil || !race.mutated {
@@ -234,6 +259,7 @@ func TestNativeRunAtWorktreeDoesNotTreatAnEmptyRecordedPathAsTheCurrentDirectory
 	}
 	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
 CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,head_sha TEXT,submitted_head_sha TEXT,status TEXT,created_at INTEGER,launch_nonce TEXT,launch_validation_generation TEXT,worktree_dir TEXT,no_mistakes_version TEXT,no_mistakes_build_sha TEXT);
+CREATE TABLE agent_invocations(run_id TEXT);
 INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'main');
 INSERT INTO runs VALUES('run','repo','feature','head','head','running',1,'nonce','generation','',NULL,NULL);`
 	if out, err := exec.Command("sqlite3", filepath.Join(root, "state.sqlite"), sql).CombinedOutput(); err != nil {

@@ -214,16 +214,23 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		if err := saveNativeGateRuntime(h.State, nativeGateRuntime{Version: 1, SQLitePath: sqlitePath}); err != nil {
 			return err
 		}
-		contract := pipelineLaunchContract{Version: 1, TaskID: id, PolicyHash: selection.Hash, Project: meta.Project, Checked: checked.Start, ConfigSHA256: checked.ConfigSHA256, LaunchNonce: nonce, ValidationGeneration: generation, SQLitePath: sqlitePath}
+		contract := pipelineLaunchContract{Version: 1, Status: pipelineLaunchContractPending, TaskID: id, PolicyHash: selection.Hash, Project: meta.Project, Checked: checked.Start, ConfigSHA256: checked.ConfigSHA256, LaunchNonce: nonce, ValidationGeneration: generation, SQLitePath: sqlitePath}
 		contractPath := filepath.Join(expectedTmp, pipelineLaunchContractName)
 		if err := savePipelineLaunchContract(contractPath, contract); err != nil {
 			return err
 		}
-		keepContract := false
+		contractVerified := false
 		defer func() {
-			if !keepContract {
-				_ = os.Remove(contractPath)
+			if contractVerified {
+				return
 			}
+			revoked := contract
+			revoked.Status = pipelineLaunchContractRevoked
+			if revokeErr := transitionPipelineLaunchContract(contractPath, contract, revoked); revokeErr != nil {
+				err = errors.Join(err, revokeErr)
+				return
+			}
+			_ = removePipelineLaunchContract(contractPath)
 		}()
 		latest, err := capturePipelineLaunch(ctx, h, root, reader, meta, branch, selection)
 		if err != nil {
@@ -262,12 +269,21 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		}); err != nil {
 			return err
 		}
-		keepContract = true
+		verified := contract
+		verified.Status = pipelineLaunchContractVerified
+		verified.RunID = receipt.RunID
+		if err := transitionPipelineLaunchContract(contractPath, contract, verified); err != nil {
+			return err
+		}
+		contractVerified = true
 		fmt.Fprintf(out, "pipeline launch: verified run %s at %s with trusted %s and primary %s\n", receipt.RunID, checked.Start.HeadSHA, checked.Start.TrustedSHA, checked.Start.EffectivePrimary)
 		return nil
 	}
 	gate, err := reader.Gate(ctx, meta.Project, branch)
 	if err != nil {
+		return err
+	}
+	if err := requireVerifiedPipelineLaunchContract(filepath.Join(expectedTmp, pipelineLaunchContractName), gate.RunID); err != nil {
 		return err
 	}
 	nativeArgs, err := pipeline.ResponseArgs(selection, gate, response)
@@ -290,7 +306,14 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	return nil
 }
 
-const pipelineLaunchContractName = "pipeline-launch.json"
+const (
+	pipelineLaunchContractName     = "pipeline-launch.json"
+	pipelineLaunchContractPending  = "pending"
+	pipelineLaunchContractVerified = "verified"
+	pipelineLaunchContractRevoked  = "revoked"
+)
+
+var removePipelineLaunchContract = os.Remove
 
 type pipelineLaunchEvidence struct {
 	Start        pipeline.StartEvidence
@@ -299,6 +322,8 @@ type pipelineLaunchEvidence struct {
 
 type pipelineLaunchContract struct {
 	Version              int                    `json:"version"`
+	Status               string                 `json:"status"`
+	RunID                string                 `json:"run_id,omitempty"`
 	TaskID               string                 `json:"task_id"`
 	PolicyHash           string                 `json:"policy_hash"`
 	Project              string                 `json:"project"`
@@ -363,6 +388,28 @@ func savePipelineLaunchContract(path string, contract pipelineLaunchContract) er
 		return err
 	}
 	return fsx.AtomicWriteFile(path, append(data, '\n'))
+}
+
+func transitionPipelineLaunchContract(path string, from, to pipelineLaunchContract) error {
+	current, err := loadPipelineLaunchContract(path)
+	if err != nil {
+		return err
+	}
+	if current != from {
+		return errors.New("pipeline: managed launch contract changed during lifecycle transition")
+	}
+	return savePipelineLaunchContract(path, to)
+}
+
+func requireVerifiedPipelineLaunchContract(path, runID string) error {
+	contract, err := loadPipelineLaunchContract(path)
+	if err != nil {
+		return err
+	}
+	if contract.Status != pipelineLaunchContractVerified || contract.RunID != runID {
+		return errors.New("pipeline: native run lacks a verified CFO launch contract")
+	}
+	return nil
 }
 
 type nativeLaunchReceipt struct {

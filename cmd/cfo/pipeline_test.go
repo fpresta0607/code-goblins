@@ -1058,6 +1058,17 @@ func TestPipelineRespondInvokesNativeOnlyForBudgetedExplicitDecision(t *testing.
 			if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0600); err != nil {
 				t.Fatal(err)
 			}
+			if err := os.WriteFile(filepath.Join(project, "sqlite3.exe"), []byte("fixture"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			contract := testPipelineLaunchContract(project)
+			contract.Status = pipelineLaunchContractVerified
+			contract.RunID = "run"
+			contract.TaskID = "task"
+			contract.PolicyHash = selection.Hash
+			if err := savePipelineLaunchContract(filepath.Join(tmp, pipelineLaunchContractName), contract); err != nil {
+				t.Fatal(err)
+			}
 			runner := &pipelineRunner{worktree: wt, gate: pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: round, Findings: `{"findings":[{"id":"bug","action":"auto-fix"}]}`}}
 			// A gate runs for hours, so the pipeline must not take the cleanup
 			// lock: holding it that long makes an auth refresh report a live
@@ -1152,16 +1163,24 @@ func TestPipelineRunBindsAndVerifiesNativeLaunch(t *testing.T) {
 		t.Fatalf("output=%q", out.String())
 	}
 	contractPath := filepath.Join(tmp, pipelineLaunchContractName)
-	if err := os.Remove(contractPath); err != nil {
-		t.Fatal(err)
+	verified, err := loadPipelineLaunchContract(contractPath)
+	if err != nil || verified.Status != pipelineLaunchContractVerified || verified.RunID != "run-bound" {
+		t.Fatalf("verified contract=%+v err=%v", verified, err)
 	}
+	originalRemove := removePipelineLaunchContract
+	removePipelineLaunchContract = func(string) error { return errors.New("sharing violation") }
+	defer func() { removePipelineLaunchContract = originalRemove }()
 	mismatch := &pipelineStartRunner{worktree: wt, durableModel: "other"}
 	err = pipelineCommand(context.Background(), h, nm, mismatch, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "primary") {
 		t.Fatalf("durable proof mismatch error=%v", err)
 	}
-	if _, statErr := os.Stat(contractPath); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("failed durable proof retained launch contract: %v", statErr)
+	revoked, loadErr := loadPipelineLaunchContract(contractPath)
+	if loadErr != nil || revoked.Status != pipelineLaunchContractRevoked {
+		t.Fatalf("failed durable proof contract=%+v err=%v", revoked, loadErr)
+	}
+	if err := requireVerifiedPipelineLaunchContract(contractPath, "run-bound"); err == nil {
+		t.Fatal("revoked contract authorized a pipeline response")
 	}
 }
 

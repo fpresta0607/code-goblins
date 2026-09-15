@@ -152,6 +152,18 @@ func authorizeNativeGateAgent(ctx context.Context, h home.Home, reader pipeline.
 	if !fsx.SamePath(reader.SQLitePath, contract.SQLitePath) {
 		return errors.New("pipeline: managed launch sqlite path changed before agent authorization")
 	}
+	switch contract.Status {
+	case pipelineLaunchContractPending:
+		if run.InvocationCount != 0 {
+			return errors.New("pipeline: pending managed launch contract cannot authorize a later agent")
+		}
+	case pipelineLaunchContractVerified:
+		if contract.RunID != run.RunID {
+			return errors.New("pipeline: verified managed launch contract does not match the active run")
+		}
+	default:
+		return errors.New("pipeline: managed launch contract is revoked")
+	}
 	return reader.VerifyNativeAgent(ctx, worktree, pipeline.NativeAgentExpectation{
 		RunID: run.RunID, Project: contract.Project, RepoID: contract.Checked.RepoID,
 		Branch: contract.Checked.Branch, SubmittedHeadSHA: contract.Checked.HeadSHA,
@@ -233,6 +245,18 @@ func validatePipelineLaunchContract(contract pipelineLaunchContract) error {
 	}
 	if !validHexBytes(contract.LaunchNonce, 16) || !strings.HasPrefix(contract.ValidationGeneration, cfoValidationGenerationPrefix) || !validHexBytes(strings.TrimPrefix(contract.ValidationGeneration, cfoValidationGenerationPrefix), 16) {
 		return errors.New("pipeline: invalid managed launch identity")
+	}
+	switch contract.Status {
+	case pipelineLaunchContractPending, pipelineLaunchContractRevoked:
+		if contract.RunID != "" {
+			return errors.New("pipeline: invalid managed launch contract lifecycle")
+		}
+	case pipelineLaunchContractVerified:
+		if strings.TrimSpace(contract.RunID) == "" {
+			return errors.New("pipeline: invalid managed launch contract lifecycle")
+		}
+	default:
+		return errors.New("pipeline: invalid managed launch contract lifecycle")
 	}
 	absProject, err := filepath.Abs(contract.Project)
 	if err != nil || !fsx.SamePath(absProject, contract.Project) {
