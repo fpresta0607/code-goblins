@@ -1033,7 +1033,7 @@ func TestPipelineRespondInvokesNativeOnlyForBudgetedExplicitDecision(t *testing.
 	}
 }
 
-func TestPipelineRunRefusesUnattestedNativeTrustedPrimaryLaunch(t *testing.T) {
+func TestPipelineRunLaunchesNativeAfterCheckStart(t *testing.T) {
 	p, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -1070,13 +1070,34 @@ func TestPipelineRunRefusesUnattestedNativeTrustedPrimaryLaunch(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	runner := &pipelineStartRunner{worktree: wt, advance: true}
-	err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "cannot prove the exact fetched trusted SHA and primary") {
-		t.Fatalf("pipelineCommand error=%v, want native attestation refusal", err)
+	runner := &pipelineStartRunner{worktree: wt}
+	if err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("pipelineCommand: %v", err)
 	}
-	if runner.remoteRead != 1 || len(runner.native) != 0 || runner.roleStarted {
-		t.Fatalf("unattested launch crossed native boundary: remote_reads=%d native=%+v role_started=%v", runner.remoteRead, runner.native, runner.roleStarted)
+	if len(runner.native) != 1 {
+		t.Fatalf("native launches=%+v, want one", runner.native)
+	}
+	request := runner.native[0]
+	if request.Name != "no-mistakes" || strings.Join(request.Args, " ") != "axi run --intent ship safely" {
+		t.Fatalf("native launch argv: %+v", request)
+	}
+	if request.Dir != wt {
+		t.Fatalf("native launch directory=%q, want the task worktree %q", request.Dir, wt)
+	}
+	// execx replaces rather than merges a non-nil Env, so the native engine
+	// must still receive the inherited environment beside the NM_HOME
+	// override it resolves its tools and home directory from.
+	var hasHome, hasPath bool
+	for _, entry := range request.Env {
+		if entry == "NM_HOME="+nm {
+			hasHome = true
+		}
+		if name, _, ok := strings.Cut(entry, "="); ok && strings.EqualFold(name, "PATH") {
+			hasPath = true
+		}
+	}
+	if !hasHome || !hasPath {
+		t.Fatalf("native environment: home=%v path=%v", hasHome, hasPath)
 	}
 }
 

@@ -184,19 +184,20 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		fmt.Fprintf(out, "pipeline custody: recovered run %s; local and gate head preserved at %s\n", result.RunID, result.Head)
 		return nil
 	}
-	if args[0] != "respond" {
+	nativeArgs := []string{"axi", "run", "--intent", intent}
+	if args[0] == "respond" {
+		gate, err := reader.Gate(ctx, meta.Project, branch)
+		if err != nil {
+			return err
+		}
+		nativeArgs, err = pipeline.ResponseArgs(selection, gate, response)
+		if err != nil {
+			return err
+		}
+	} else {
 		if err := reader.CheckStart(ctx, meta.Project, meta.Worktree, branch, selection.Policy); err != nil {
 			return err
 		}
-		return errors.New("pipeline: no-mistakes v1.75.1 cannot prove the exact fetched trusted SHA and primary before launch")
-	}
-	gate, err := reader.Gate(ctx, meta.Project, branch)
-	if err != nil {
-		return err
-	}
-	nativeArgs, err := pipeline.ResponseArgs(selection, gate, response)
-	if err != nil {
-		return err
 	}
 	result, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Env: nativeEnv(root), Name: "no-mistakes", Args: nativeArgs})
 	if len(result.Stdout) > 0 {
