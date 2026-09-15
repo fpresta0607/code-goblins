@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
 func TestExecutableFreshRuntimeIncludesInstructionBundle(t *testing.T) {
@@ -16,16 +18,14 @@ func TestExecutableFreshRuntimeIncludesInstructionBundle(t *testing.T) {
 	}
 	exe := buildCFOBinary(t, goBin, repo)
 	runtimeRoot := t.TempDir()
-	runInstall := func() {
+	prepare := func() {
 		t.Helper()
-		cmd := exec.Command(exe, "install", "--prepare-only")
-		cmd.Dir = repo
-		cmd.Env = cfoTestEnv(t, runtimeRoot, nil)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("prepare runtime: %v %s", err, out)
+		h := home.Home{Root: runtimeRoot, State: filepath.Join(runtimeRoot, "state"), Data: filepath.Join(runtimeRoot, "data")}
+		if err := prepareRuntimeHome(repo, h, exe); err != nil {
+			t.Fatalf("prepare runtime: %v", err)
 		}
 	}
-	runInstall()
+	prepare()
 	for _, rel := range []string{"AGENTS.md", "CLAUDE.md", ".cfo-home", "cfo.exe", "config/pipeline.json", ".agents/skills/lavish/SKILL.md", ".agents/skills/no-mistakes/SKILL.md", ".agents/skills/chrome-devtools-axi/SKILL.md", "docs/pipeline.md"} {
 		if info, err := os.Stat(filepath.Join(runtimeRoot, rel)); err != nil || info.Size() == 0 {
 			t.Fatalf("fresh instruction pointer missing: %s %v", rel, err)
@@ -35,7 +35,7 @@ func TestExecutableFreshRuntimeIncludesInstructionBundle(t *testing.T) {
 	if err := os.WriteFile(memory, []byte("operator-owned memory"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	runInstall()
+	prepare()
 	preserved, err := os.ReadFile(memory)
 	if err != nil || string(preserved) != "operator-owned memory" {
 		t.Fatal("operator memory overwritten")

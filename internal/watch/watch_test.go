@@ -933,6 +933,32 @@ func TestSweepOrphansDoesNotRewakeOnTheSameOrphan(t *testing.T) {
 	}
 }
 
+func TestSweepOrphansWakesOnlyWhenHeldProcessBecomesActionable(t *testing.T) {
+	dir := t.TempDir()
+	held := orphanFleet()
+	held.FleetRootPIDs = nil
+	if reason := sweepOrphans(reapConfig(dir, held)); reason != "" {
+		t.Fatalf("held-only sweep woke: %q", reason)
+	}
+	if pending, err := wake.Pending(dir); err != nil || len(pending) != 0 {
+		t.Fatalf("held-only wake queue = %+v, %v", pending, err)
+	}
+	record, err := reap.ReadRecord(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.Time = time.Now().UTC().Add(-2 * time.Hour)
+	if err := reap.WriteRecord(dir, record); err != nil {
+		t.Fatal(err)
+	}
+	if reason := sweepOrphans(reapConfig(dir, orphanFleet())); !strings.Contains(reason, "orphan:") {
+		t.Fatalf("actionable transition did not wake: %q", reason)
+	}
+	if pending, err := wake.Pending(dir); err != nil || len(pending) != 1 {
+		t.Fatalf("actionable wake queue = %+v, %v", pending, err)
+	}
+}
+
 // TestSweepOrphansRecordsAFailedSweep: an audit that could not read the fleet
 // must be recorded as a failure, never as a clean fleet.
 func TestSweepOrphansRecordsAFailedSweep(t *testing.T) {

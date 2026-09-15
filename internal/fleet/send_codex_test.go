@@ -16,12 +16,16 @@ type codexFake struct {
 	keys           int
 	submitWorks    bool
 	occupiedBefore bool
+	changeProcess  bool
 }
 
 func (f *codexFake) Run(ctx context.Context, r execx.Request) (execx.Result, error) {
 	command := strings.Join(r.Args, " ")
 	switch {
 	case strings.HasPrefix(command, "pane process-info"):
+		if f.changeProcess && f.base.promptCalls > 0 {
+			return execx.Result{Stdout: []byte(`{"result":{"process_info":{"shell_pid":10,"foreground_process_group_id":21}}}`)}, nil
+		}
 		return execx.Result{Stdout: []byte(`{"result":{"process_info":{"shell_pid":10,"foreground_process_group_id":20}}}`)}, nil
 	case strings.HasPrefix(command, "pane read"):
 		if f.base.promptCalls == 0 {
@@ -29,7 +33,7 @@ func (f *codexFake) Run(ctx context.Context, r execx.Request) (execx.Result, err
 				return execx.Result{Stdout: []byte(f.beforeScreen)}, nil
 			}
 			if !f.occupiedBefore {
-				return execx.Result{Stdout: []byte("\n› Ask Codex to do anything\n")}, nil
+				return execx.Result{Stdout: []byte(styledEmptyComposer)}, nil
 			}
 		}
 		return execx.Result{Stdout: []byte(f.screen)}, nil
@@ -44,6 +48,20 @@ func (f *codexFake) Run(ctx context.Context, r execx.Request) (execx.Result, err
 	result.Stdout = []byte(strings.ReplaceAll(string(result.Stdout), `"claude"`, `"codex"`))
 	return result, err
 }
+
+func TestCodexIdentityChangeBeforeEnterRefusesSubmission(t *testing.T) {
+	base := newAgentFake(agentFake{status: "working"})
+	runner := &codexFake{base: base, screen: "\n› retain the old gate\n  tab to queue message", changeProcess: true}
+	sender := newAgentSender(base)
+	sender.Herdr.Commands = runner
+	err := sender.Text(context.Background(), "task-7", "retain the old gate")
+	var receipt *DeliveryError
+	if !errors.As(err, &receipt) || !strings.Contains(receipt.Stage, "foreground harness not verified") || runner.keys != 0 {
+		t.Fatalf("identity change receipt=%v keys=%d", err, runner.keys)
+	}
+}
+
+const styledEmptyComposer = "\n\x1b[1m›\x1b[0m\x1b[38;5;45m⠁\x1b[0m\x1b[2mAsk Codex to do anything\x1b[0m\n  \x1b[38;5;81m⠙⠹\x1b[0m\n  gpt-5.6-sol high · C:\\fixture\\project · Synthetic task\n"
 
 func TestCodexExistingComposerIsNotAppendedOrSubmitted(t *testing.T) {
 	base := newAgentFake(agentFake{status: "working"})
@@ -79,7 +97,7 @@ func TestCodexRealShapedEmptyComposerSubmitsOnce(t *testing.T) {
 	base := newAgentFake(agentFake{status: "working"})
 	runner := &codexFake{
 		base:         base,
-		beforeScreen: "\n› Ask Codex to do anything ⠋⠙⠹\n  ⠸⠼⠴⠦\n  gpt-5.6-sol high · C:\\fixture\\project · Synthetic task\n",
+		beforeScreen: styledEmptyComposer,
 		screen:       "\n› retain the old gate\n  tab to queue message",
 		submitWorks:  true,
 	}
@@ -102,6 +120,7 @@ func TestCodexTypedQueuedAndUnknownSubmission(t *testing.T) {
 		keys                int
 	}{
 		{"typed then submitted", "\n› retain the old gate\n  tab to queue message", "submitted", true, 1},
+		{"styled animation replaces typed whitespace", "\n› retain\x1b[38;5;45m⠁\x1b[0mthe old gate\n  tab to queue message", "submitted", true, 1},
 		{"already queued", "\n• Messages to be submitted after next tool call\n  ↳ retain the old gate\n› Ask Codex to do anything\n", "submitted", false, 0},
 		{"Enter unsupported", "\n› retain the old gate\n  tab to queue message", "typed", false, 1},
 		{"concurrent composer suffix", "\n› retain the old gate plus another draft\n  tab to queue message", "", false, 0},
@@ -125,5 +144,22 @@ func TestCodexTypedQueuedAndUnknownSubmission(t *testing.T) {
 				t.Fatalf("prompt calls %d keys %d", base.promptCalls, runner.keys)
 			}
 		})
+	}
+}
+
+func TestCodexStyledComposerRejectsOccupiedAndUnknownBraille(t *testing.T) {
+	for _, screen := range []string{
+		"\n\x1b[1m›\x1b[0m\x1b[38;5;45m⠁\x1b[0m\x1b[2mAsk Codex to do anything\x1b[0m\x1b[38;5;45m⠙\x1b[0mdraft\n",
+		"\n\x1b[1m›\x1b[0m⠁\x1b[2mAsk Codex to do anything\x1b[0m\n",
+		"\n\x1b[1m›\x1b[0m\x1b[38;5;45m⠁\x1b[0m\x1b[2mAsk Codex to do anything\x1b[0m\x1b[999m⠙\x1b[0m\n",
+	} {
+		base := newAgentFake(agentFake{status: "working"})
+		runner := &codexFake{base: base, beforeScreen: screen}
+		sender := newAgentSender(base)
+		sender.Herdr.Commands = runner
+		err := sender.Text(context.Background(), "task-7", "later wake")
+		if err == nil || !strings.Contains(err.Error(), "not sent") || base.promptCalls != 0 || runner.keys != 0 {
+			t.Fatalf("unsafe styled composer mutated: screen=%q err=%v prompts=%d keys=%d", screen, err, base.promptCalls, runner.keys)
+		}
 	}
 }

@@ -76,16 +76,8 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	}
 
 	line := verb + ": " + state.NormalizeStatusDetail(detail)
-	if err := state.AppendStatus(h.State, id, line); err != nil {
-		fmt.Fprintln(stderr, "cfo notify: record status: "+err.Error())
-		return 1
-	}
-	if _, err := wake.Append(h.State, "notify", id, line); err != nil {
+	if _, err := wake.Notify(h.State, id, line); err != nil {
 		fmt.Fprintln(stderr, "cfo notify: wake the CFO: "+err.Error())
-		return 1
-	}
-	if _, err := wake.PublishEpisode(h.State); err != nil {
-		fmt.Fprintln(stderr, "cfo notify: publish recovery episode: "+err.Error())
 		return 1
 	}
 	fmt.Fprintf(stdout, "notified %s %s\n", id, line)

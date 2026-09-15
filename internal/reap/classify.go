@@ -46,7 +46,8 @@ const (
 	// with it and one resource must not be reported twice.
 	OrphanMeta Class = "orphan_meta"
 	// OrphanStatus is a state/<id>.status log with no matching meta.
-	OrphanStatus Class = "orphan_status"
+	OrphanStatus  Class = "orphan_status"
+	ManagedNative Class = "managed_native"
 )
 
 // Finding is one classified resource and the verdict on acting upon it.
@@ -122,6 +123,16 @@ type WorktreeDir struct {
 	TaskID  string
 }
 
+type NativeValidator struct {
+	TaskID        string
+	RunID         string
+	Step          string
+	RootPID       int
+	RootStart     time.Time
+	StepStartedAt time.Time
+	ObservedAt    time.Time
+}
+
 // Inventory is the cross-referenced evidence one classification runs over. It
 // is a plain value with no I/O so the classification is a pure function over
 // synthetic fixtures; Collector builds the production one.
@@ -146,7 +157,8 @@ type Inventory struct {
 	// looks exactly like an orphan. Every process finding is held while any
 	// pane is unresolved: the sweep still reports what it saw, but it will
 	// not kill on evidence it knows is incomplete.
-	UnresolvedPanes []string
+	UnresolvedPanes  []string
+	NativeValidators []NativeValidator
 }
 
 // harnessSignatures are the distinctive command-line fragments a CFO-launched
@@ -203,7 +215,16 @@ func Classify(inv Inventory) []Finding {
 
 func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[string]Task) []Finding {
 	var findings []Finding
+	managed := managedNativePIDs(inv)
 	for _, process := range inv.Processes {
+		if validator, ok := managed[process.PID]; ok {
+			findings = append(findings, Finding{
+				Class: ManagedNative, TaskID: validator.TaskID, PID: process.PID,
+				Detail: fmt.Sprintf("native validation run=%s step=%s root=%d", validator.RunID, validator.Step, validator.RootPID),
+				Hold:   "managed by the exact active task validation",
+			})
+			continue
+		}
 		if supervised[process.PID] {
 			continue
 		}
@@ -347,7 +368,20 @@ func supervisedPIDs(inv Inventory) map[int]bool {
 		}
 	}
 	roots = append(roots, inv.SelfPIDs...)
+	for _, validator := range inv.NativeValidators {
+		roots = append(roots, validator.RootPID)
+	}
 	return descendants(inv.Processes, roots)
+}
+
+func managedNativePIDs(inv Inventory) map[int]NativeValidator {
+	managed := make(map[int]NativeValidator)
+	for _, validator := range inv.NativeValidators {
+		for pid := range descendants(inv.Processes, []int{validator.RootPID}) {
+			managed[pid] = validator
+		}
+	}
+	return managed
 }
 
 // descendants returns roots plus every process reachable from one by parent

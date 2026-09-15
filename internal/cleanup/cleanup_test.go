@@ -151,8 +151,16 @@ func newCleanupFixture(t *testing.T) *cleanupFixture {
 		HerdrWorkspaceID: "ws",
 		HerdrTabID:       "tab-g1",
 		HerdrPaneID:      "pane-g1",
+		TaskTmp:          filepath.Join(stateDir, "tasktmp", "g1"),
 	}
 	if err := state.WriteTaskMeta(stateDir, meta); err != nil {
+		t.Fatal(err)
+	}
+	recap := taskcontext.PathsFor(home.Home{Root: filepath.Dir(stateDir), State: stateDir}, meta.ID).Recap
+	if err := os.MkdirAll(filepath.Dir(recap), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(recap, []byte("<html>portable synthetic recap</html>"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -266,6 +274,18 @@ func TestCleanupAcceptsMissingPaneAsInactiveEvidence(t *testing.T) {
 		t.Fatalf("worktree return calls = %v, want one", fixture.git.returned)
 	}
 	fixture.assertOnlyTabCloseLifecycle(t)
+}
+
+func TestCleanupRequiresPortableRecapBeforeLifecycleChanges(t *testing.T) {
+	fixture := newCleanupFixture(t)
+	if err := os.Remove(taskcontext.PathsFor(home.Home{Root: filepath.Dir(fixture.stateDir), State: fixture.stateDir}, "g1").Recap); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := fixture.service.Cleanup(context.Background(), "g1"); err == nil || !strings.Contains(err.Error(), "recap") {
+		t.Fatalf("Cleanup error = %v, want recap refusal", err)
+	}
+	fixture.assertMetadataPreserved(t)
 }
 
 func TestCleanupTabCloseFailurePreservesMetadataAndSkipsReturn(t *testing.T) {
@@ -658,6 +678,85 @@ func TestCleanupRefusesToArchiveWhenCredentialsCannotBeDropped(t *testing.T) {
 	}
 	if _, err := state.ReadTaskMeta(fixture.stateDir, "g1"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("retry retained live metadata: %v", err)
+	}
+}
+
+func TestCleanupRejectsLinkedOrMismatchedTaskScratch(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		setup func(*cleanupFixture) error
+	}{
+		{
+			name: "linked scratch",
+			setup: func(f *cleanupFixture) error {
+				target := filepath.Join(filepath.Dir(f.stateDir), "unowned")
+				if err := os.MkdirAll(target, 0o700); err != nil {
+					return err
+				}
+				return os.Symlink(target, f.meta.TaskTmp)
+			},
+		},
+		{
+			name: "mismatched metadata",
+			setup: func(f *cleanupFixture) error {
+				if err := os.MkdirAll(f.meta.TaskTmp, 0o700); err != nil {
+					return err
+				}
+				f.meta.TaskTmp = filepath.Join(f.stateDir, "tasktmp", "other")
+				return state.WriteTaskMeta(f.stateDir, f.meta)
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newCleanupFixture(t)
+			if err := test.setup(fixture); err != nil {
+				if test.name == "linked scratch" {
+					t.Skipf("links unavailable: %v", err)
+				}
+				t.Fatal(err)
+			}
+			_, err := fixture.service.Cleanup(context.Background(), "g1")
+			if err == nil || !strings.Contains(err.Error(), "task temporary") {
+				t.Fatalf("Cleanup error = %v, want scratch ownership refusal", err)
+			}
+			if _, err := state.ReadTaskMeta(fixture.stateDir, "g1"); err != nil {
+				t.Fatalf("metadata lost: %v", err)
+			}
+		})
+	}
+}
+
+func TestForceArchiveRetriesAfterCredentialScrubFailure(t *testing.T) {
+	fixture := newCleanupFixture(t)
+	fixture.service.ForceArchive = true
+	credential := filepath.Join(fixture.meta.TaskTmp, state.AuthScriptName)
+	if err := os.MkdirAll(credential, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(credential, "synthetic.txt"), []byte("synthetic"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := fixture.service.Cleanup(context.Background(), "g1"); err == nil || !strings.Contains(err.Error(), "scrub and archive") {
+		t.Fatalf("force archive error = %v, want scrub refusal", err)
+	}
+	if _, err := state.ReadTaskMeta(fixture.stateDir, "g1"); err != nil {
+		t.Fatalf("metadata lost before archive: %v", err)
+	}
+	if _, err := os.Stat(fixture.worktree); err != nil {
+		t.Fatalf("worktree changed: %v", err)
+	}
+	if err := os.Remove(filepath.Join(credential, "synthetic.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(credential); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.service.Cleanup(context.Background(), "g1"); err != nil {
+		t.Fatalf("force archive retry: %v", err)
+	}
+	if _, err := state.ReadTaskMeta(fixture.stateDir, "g1"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("metadata remains after retry: %v", err)
 	}
 }
 

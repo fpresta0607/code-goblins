@@ -45,6 +45,7 @@ type Collector struct {
 	Session   string
 	Panes     PaneReader
 	Processes ProcessLister
+	Native    NativeValidationReader
 	// StatusTail bounds how much of each status log is read to find the
 	// latest verb, matching crewstate.Resolve's own window.
 	StatusTail int
@@ -104,6 +105,27 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 		inv.FleetRootPIDs = herdrRoots(processes)
 	} else {
 		notes = append(notes, "no process lister configured; process evidence is missing")
+	}
+
+	if c.Native != nil {
+		for _, task := range inv.Tasks {
+			validator, active, err := c.Native.InspectNative(ctx, task)
+			if err != nil {
+				notes = append(notes, fmt.Sprintf("task %s native validation evidence is unknown: %s", task.ID, err))
+				continue
+			}
+			if !active {
+				continue
+			}
+			validator, err = verifyNativeValidator(validator, inv.Processes)
+			if err != nil {
+				notes = append(notes, fmt.Sprintf("task %s native validation evidence is unknown: %s", task.ID, err))
+				continue
+			}
+			inv.NativeValidators = append(inv.NativeValidators, validator)
+		}
+	} else {
+		notes = append(notes, "no native validation reader configured; native process ownership is unknown")
 	}
 
 	return inv, notes, nil

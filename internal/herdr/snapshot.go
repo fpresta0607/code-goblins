@@ -101,6 +101,20 @@ func (c *Client) CaptureEvidence(ctx context.Context, target Target) ([]byte, er
 	return result.Stdout, nil
 }
 
+func (c *Client) CaptureStyledEvidence(ctx context.Context, target Target) ([]byte, error) {
+	if err := validateTarget(target); err != nil {
+		return nil, err
+	}
+	result, err := c.required(ctx, target.Session, target, "pane read", "pane", "read", target.Pane, "--source", "recent-unwrapped", "--lines", fmt.Sprint(captureFloor), "--format", "ansi")
+	if err != nil {
+		return nil, err
+	}
+	if len(result.Stdout) == 0 {
+		return nil, fmt.Errorf("herdr: styled pane read for %s returned no terminal text", target)
+	}
+	return result.Stdout, nil
+}
+
 // AgentList reads every registered agent's native state through
 // `herdr agent list` (socket API, JSON): agent_status (working | idle | done)
 // plus interactive_ready, revision, and state_change_seq. This is the primary

@@ -3,6 +3,7 @@
 package wake
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 const queueFile = ".wake-queue"
@@ -170,15 +172,113 @@ func AppendOnce(dir, kind, key, detail, eventID string) (Record, error) {
 		if err != nil {
 			return err
 		}
-		next := floor + 1
-		if n := len(records); n > 0 {
-			next = max(next, records[n-1].Seq+1)
-		}
-		rec = Record{EventID: eventID, Seq: next, Time: time.Now().UTC(), Kind: kind, Key: key, Detail: detail}
-		records = append(records, rec)
-		return writeQueue(dir, records)
+		rec = nextRecord(records, floor, kind, key, detail, eventID)
+		return writeQueue(dir, append(records, rec))
 	})
 	return rec, err
+}
+
+func nextRecord(records []Record, floor int, kind, key, detail, eventID string) Record {
+	next := floor + 1
+	if n := len(records); n > 0 {
+		next = max(next, records[n-1].Seq+1)
+	}
+	return Record{EventID: eventID, Seq: next, Time: time.Now().UTC(), Kind: kind, Key: key, Detail: detail}
+}
+
+func Notify(dir, key, detail string) (Record, error) {
+	if err := state.ValidTaskID(key); err != nil {
+		return Record{}, err
+	}
+	var rec Record
+	err := withLock(dir, func() error {
+		records, err := readAll(dir)
+		if err != nil {
+			return err
+		}
+		floor, err := readAckFloor(dir)
+		if err != nil {
+			return err
+		}
+		raw, eventID, err := currentNotifyEvent(dir, key, detail)
+		if err != nil {
+			return err
+		}
+		if raw != "" {
+			if existing, found := notificationReceipt(dir, records, floor, key, detail, eventID); found {
+				if existing.Seq > floor {
+					rec = existing
+					return ensureEpisodePending(dir)
+				}
+				raw = ""
+			}
+		}
+		if raw == "" {
+			if err := state.AppendStatus(dir, key, detail); err != nil {
+				return err
+			}
+			_, eventID, err = currentNotifyEvent(dir, key, detail)
+			if err != nil || eventID == "" {
+				if err == nil {
+					err = errors.New("wake: appended notification status is unavailable")
+				}
+				return err
+			}
+		}
+		rec = nextRecord(records, floor, "notify", key, detail, eventID)
+		if err := writeQueue(dir, append(records, rec)); err != nil {
+			return err
+		}
+		return ensureEpisodePending(dir)
+	})
+	return rec, err
+}
+
+func currentNotifyEvent(dir, key, detail string) (string, string, error) {
+	lines, err := state.TailStatus(dir, key, int(^uint(0)>>1))
+	if err != nil || len(lines) == 0 {
+		return "", "", err
+	}
+	raw := lines[len(lines)-1]
+	_, event := state.SplitStatus(raw)
+	if event != detail {
+		return "", "", nil
+	}
+	occurrence := 0
+	for _, line := range lines {
+		if line == raw {
+			occurrence++
+		}
+	}
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d", key, raw, occurrence)))
+	return raw, fmt.Sprintf("notify:%x", sum[:16]), nil
+}
+
+func notificationReceipt(dir string, records []Record, floor int, key, detail, eventID string) (Record, bool) {
+	for _, record := range records {
+		if record.Kind == "notify" && record.Key == key && record.EventID == eventID {
+			return record, true
+		}
+	}
+	info, err := os.Stat(filepath.Join(dir, key+".status"))
+	if err != nil {
+		return Record{}, false
+	}
+	signalID := fmt.Sprintf("%s.status:%d:%d", key, info.Size(), info.ModTime().UnixNano())
+	for _, record := range records {
+		if record.Kind == "signal" && record.Key == key+".status" && record.Detail == detail && record.EventID == signalID {
+			return record, record.Seq > floor
+		}
+	}
+	return Record{}, false
+}
+
+func ensureEpisodePending(dir string) error {
+	episode, err := readEpisode(dir)
+	if err != nil || episode.Pending {
+		return err
+	}
+	return writeEpisode(dir, "pending", episode.Gen+1)
 }
 
 // Pending returns every unacknowledged record in sequence order.

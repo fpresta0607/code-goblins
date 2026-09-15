@@ -76,7 +76,6 @@ Explicit `CFO_HOME` and `CFO_STATE_OVERRIDE` retain existing layouts; changing d
 `cfo install` runs from the source checkout and seeds the selected runtime with the executable, AGENTS/CLAUDE memory, pipeline policy, bundled `.agents/skills` and referenced documentation.
 Existing operator memory, policy and instruction files are preserved.
 Reconcile differences explicitly during an upgrade; a previously copied Showcase alias is not silently overwritten.
-`cfo install --prepare-only` exercises that portable preparation without user environment or hook changes.
 The executable fresh-install regression verifies the installed instruction paths, existing-memory preservation and honest supervisor-down output.
 Commands remain installed operator tools; bundling a skill does not install its CLI or give every harness the same MCP configuration.
 

@@ -344,7 +344,11 @@ func migratePipelinePolicy(ctx context.Context, h home.Home, root string, idle f
 	if values["pipeline_hash"] != old.Hash || values["pipeline_class"] != old.Class {
 		return errors.New("pipeline: task metadata changed during policy migration")
 	}
-	journal := policyMigrationJournal{Version: 1, TaskID: meta.ID, Direction: "forward", Old: old, New: next, Audit: pipelineMigrationAudit(old, next)}
+	launch, budget, err := loadPolicyMigrationAssociations(h, meta, old)
+	if err != nil {
+		return err
+	}
+	journal := policyMigrationJournal{Version: 2, TaskID: meta.ID, Direction: "forward", Old: old, New: next, Audit: pipelineMigrationAudit(old, next), Launch: launch, Budget: budget}
 	journalPath := filepath.Join(meta.TaskTmp, policyMigrationJournalName)
 	if err := writePolicyMigrationJournal(journalPath, journal); err != nil {
 		return err
@@ -365,6 +369,8 @@ type policyMigrationJournal struct {
 	Old       pipeline.Selection `json:"old"`
 	New       pipeline.Selection `json:"new"`
 	Audit     string             `json:"audit"`
+	Launch    *pipeline.Launch   `json:"launch,omitempty"`
+	Budget    *pipeline.Budget   `json:"budget,omitempty"`
 }
 
 func pipelineMigrationAudit(old, next pipeline.Selection) string {
@@ -372,7 +378,7 @@ func pipelineMigrationAudit(old, next pipeline.Selection) string {
 }
 
 func (j policyMigrationJournal) validate() error {
-	if j.Version != 1 || state.ValidTaskID(j.TaskID) != nil || j.Direction != "forward" && j.Direction != "rollback" {
+	if j.Version != 2 || state.ValidTaskID(j.TaskID) != nil || j.Direction != "forward" && j.Direction != "rollback" {
 		return errors.New("pipeline: invalid policy migration journal")
 	}
 	if err := j.Old.Validate(); err != nil {
@@ -385,7 +391,50 @@ func (j policyMigrationJournal) validate() error {
 	if err != nil || j.Old.Policy.Version != 1 || j.New.Policy.Version != 2 || want != j.New || j.Old.Class != j.New.Class || j.Old.ReviewCycles != j.New.ReviewCycles || j.Audit != pipelineMigrationAudit(j.Old, j.New) {
 		return errors.New("pipeline: inconsistent policy migration journal")
 	}
+	if (j.Launch == nil) != (j.Budget == nil) {
+		return errors.New("pipeline: incomplete policy migration associations")
+	}
+	if j.Launch != nil {
+		if j.Launch.Project == "" || j.Launch.Branch == "" || j.Launch.Head == "" || j.Launch.Nonce == "" || j.Launch.Generation == "" || j.Launch.IntentDigest == "" || j.Launch.PolicyHash != j.Old.Hash {
+			return errors.New("pipeline: invalid launch in policy migration journal")
+		}
+		if j.Budget.PolicyHash != j.Old.Hash || j.Budget.Cap != j.Old.ReviewCycles || j.Budget.Responses == nil || len(j.Budget.Responses) > j.Budget.Cap {
+			return errors.New("pipeline: invalid budget in policy migration journal")
+		}
+		for _, reserved := range j.Budget.Responses {
+			if !reserved {
+				return errors.New("pipeline: invalid budget in policy migration journal")
+			}
+		}
+	}
 	return nil
+}
+
+func loadPolicyMigrationAssociations(h home.Home, meta state.TaskMeta, old pipeline.Selection) (*pipeline.Launch, *pipeline.Budget, error) {
+	dir := filepath.Join(h.State, "tasks", meta.ID)
+	launchPath := filepath.Join(dir, "pipeline-launch.json")
+	budgetPath := filepath.Join(dir, "gate-budget.json")
+	launch, launchErr := pipeline.LoadLaunch(launchPath)
+	if errors.Is(launchErr, os.ErrNotExist) {
+		if _, err := os.Stat(budgetPath); err == nil || !errors.Is(err, os.ErrNotExist) {
+			return nil, nil, errors.New("pipeline: durable budget exists without its launch association")
+		}
+		return nil, nil, nil
+	}
+	if launchErr != nil {
+		return nil, nil, launchErr
+	}
+	if launch.PolicyHash != old.Hash || !fsx.SamePath(launch.Project, meta.Project) {
+		return nil, nil, errors.New("pipeline: launch association does not match the legacy task policy")
+	}
+	if _, err := os.Stat(budgetPath); err != nil {
+		return nil, nil, fmt.Errorf("pipeline: launch association has no durable budget: %w", err)
+	}
+	budget, err := pipeline.LoadBudget(budgetPath, old.Hash, old.ReviewCycles)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &launch, &budget, nil
 }
 
 func writePolicyMigrationJournal(path string, journal policyMigrationJournal) error {
@@ -471,6 +520,9 @@ func applyPolicyMigration(h home.Home, meta state.TaskMeta, journalPath string, 
 	if err := journal.New.Save(filepath.Join(meta.TaskTmp, "pipeline.json")); err != nil {
 		return rollbackPolicyMigration(h, meta, journalPath, journal, err)
 	}
+	if err := writePolicyMigrationAssociations(h, meta.ID, journal, true); err != nil {
+		return rollbackPolicyMigration(h, meta, journalPath, journal, err)
+	}
 	if err := setPolicyMigrationMeta(filepath.Join(h.State, meta.ID+".meta"), journal, true); err != nil {
 		return rollbackPolicyMigration(h, meta, journalPath, journal, err)
 	}
@@ -487,12 +539,49 @@ func rollbackPolicyMigration(h home.Home, meta state.TaskMeta, journalPath strin
 	journal.Direction = "rollback"
 	journalErr := writePolicyMigrationJournal(journalPath, journal)
 	snapshotErr := journal.Old.Save(filepath.Join(meta.TaskTmp, "pipeline.json"))
+	associationErr := writePolicyMigrationAssociations(h, meta.ID, journal, false)
 	metaErr := setPolicyMigrationMeta(filepath.Join(h.State, meta.ID+".meta"), journal, false)
 	var removeErr error
-	if snapshotErr == nil && metaErr == nil {
+	if snapshotErr == nil && associationErr == nil && metaErr == nil {
 		removeErr = os.Remove(journalPath)
 	}
-	return errors.Join(cause, journalErr, snapshotErr, metaErr, removeErr)
+	return errors.Join(cause, journalErr, snapshotErr, associationErr, metaErr, removeErr)
+}
+
+func writePolicyMigrationAssociations(h home.Home, id string, journal policyMigrationJournal, forward bool) error {
+	dir := filepath.Join(h.State, "tasks", id)
+	launchPath := filepath.Join(dir, "pipeline-launch.json")
+	budgetPath := filepath.Join(dir, "gate-budget.json")
+	if journal.Launch == nil {
+		if forward {
+			if _, err := os.Stat(launchPath); err == nil || !errors.Is(err, os.ErrNotExist) {
+				return errors.New("pipeline: launch association appeared during policy migration")
+			}
+			if _, err := os.Stat(budgetPath); err == nil || !errors.Is(err, os.ErrNotExist) {
+				return errors.New("pipeline: durable budget appeared during policy migration")
+			}
+			return nil
+		}
+		return errors.Join(removeIfPresent(launchPath), removeIfPresent(budgetPath))
+	}
+	launch := *journal.Launch
+	budget := *journal.Budget
+	if forward {
+		launch.PolicyHash = journal.New.Hash
+		budget.PolicyHash = journal.New.Hash
+	}
+	if err := launch.Save(launchPath); err != nil {
+		return err
+	}
+	return budget.Save(budgetPath)
+}
+
+func removeIfPresent(path string) error {
+	err := os.Remove(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 func setPolicyMigrationMeta(path string, journal policyMigrationJournal, forward bool) error {
