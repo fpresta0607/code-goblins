@@ -23,13 +23,7 @@ import (
 const (
 	nativeGateMarker              = "--cfo-native-gate"
 	cfoValidationGenerationPrefix = "cfo-v1-"
-	nativeGateRuntimeName         = "native-gate-runtime.json"
 )
-
-type nativeGateRuntime struct {
-	Version    int    `json:"version"`
-	SQLitePath string `json:"sqlite_path"`
-}
 
 func stripNativeGateMarker(args []string) ([]string, bool) {
 	marker := -1
@@ -62,7 +56,7 @@ func runNativeGateAgent(args []string, stdin io.Reader, stdout, stderr io.Writer
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	reader, inspect, err := nativeGateReader(h, root)
+	reader, inspect, err := nativeGateReader(h, root, worktree)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -88,47 +82,103 @@ func runNativeGateAgent(args []string, stdin io.Reader, stdout, stderr io.Writer
 	return 0
 }
 
-func nativeGateReader(h home.Home, root string) (pipeline.Reader, bool, error) {
-	runtime, err := loadNativeGateRuntime(filepath.Join(h.State, nativeGateRuntimeName))
-	if errors.Is(err, os.ErrNotExist) {
-		sqlitePath, lookupErr := exec.LookPath("sqlite3")
-		if lookupErr != nil {
-			return pipeline.Reader{}, false, nil
-		}
-		runtime = nativeGateRuntime{Version: 1, SQLitePath: sqlitePath}
-	} else if err != nil {
+func nativeGateReader(h home.Home, root, worktree string) (pipeline.Reader, bool, error) {
+	repoID, runID, ok := nativeGateWorktreeIdentity(root, worktree)
+	if !ok {
+		return pipeline.Reader{}, false, nil
+	}
+	contract, ok, err := findScopedPipelineLaunchContract(h.State, repoID, runID)
+	if err != nil || !ok {
 		return pipeline.Reader{}, false, err
 	}
-	sqlitePath, err := filepath.Abs(runtime.SQLitePath)
-	if err != nil || runtime.Version != 1 || !fsx.SamePath(sqlitePath, runtime.SQLitePath) {
-		return pipeline.Reader{}, false, errors.New("pipeline: invalid managed native gate runtime")
+	sqlitePath, err := filepath.Abs(contract.SQLitePath)
+	if err != nil || !fsx.SamePath(sqlitePath, contract.SQLitePath) {
+		return pipeline.Reader{}, false, errors.New("pipeline: invalid managed native gate sqlite path")
 	}
 	return pipeline.Reader{Root: root, Commands: execx.OSRunner{}, SQLitePath: sqlitePath}, true, nil
 }
 
-func saveNativeGateRuntime(stateDir string, runtime nativeGateRuntime) error {
-	data, err := json.Marshal(runtime)
-	if err != nil {
-		return err
+func nativeGateWorktreeIdentity(root, worktree string) (string, string, bool) {
+	data, err := os.ReadFile(filepath.Join(worktree, ".git"))
+	if err != nil || len(data) > 4096 {
+		return "", "", false
 	}
-	return fsx.AtomicWriteFile(filepath.Join(stateDir, nativeGateRuntimeName), append(data, '\n'))
+	line := strings.TrimSpace(string(data))
+	if !strings.HasPrefix(line, "gitdir: ") {
+		return "", "", false
+	}
+	gitDir := strings.TrimSpace(strings.TrimPrefix(line, "gitdir: "))
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(worktree, gitDir)
+	}
+	rel, err := filepath.Rel(filepath.Join(root, "repos"), filepath.Clean(gitDir))
+	if err != nil || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", "", false
+	}
+	parts := strings.Split(filepath.Clean(rel), string(filepath.Separator))
+	if len(parts) != 3 || !strings.HasSuffix(strings.ToLower(parts[0]), ".git") || !strings.EqualFold(parts[1], "worktrees") {
+		return "", "", false
+	}
+	repoID := strings.TrimSuffix(parts[0], filepath.Ext(parts[0]))
+	runID := filepath.Base(filepath.Clean(worktree))
+	if repoID == "" || runID == "" || runID == "." || runID == string(filepath.Separator) {
+		return "", "", false
+	}
+	return repoID, runID, true
 }
 
-func loadNativeGateRuntime(path string) (nativeGateRuntime, error) {
-	data, err := os.ReadFile(path)
+func findScopedPipelineLaunchContract(stateDir, repoID, runID string) (pipelineLaunchContract, bool, error) {
+	entries, err := os.ReadDir(filepath.Join(stateDir, "tasktmp"))
+	if errors.Is(err, os.ErrNotExist) {
+		return pipelineLaunchContract{}, false, nil
+	}
 	if err != nil {
-		return nativeGateRuntime{}, err
+		return pipelineLaunchContract{}, false, fmt.Errorf("pipeline: read managed launch contracts: %w", err)
 	}
-	var runtime nativeGateRuntime
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&runtime); err != nil {
-		return nativeGateRuntime{}, errors.New("pipeline: invalid managed native gate runtime")
+	var match *pipelineLaunchContract
+	for _, entry := range entries {
+		if !entry.IsDir() || state.ValidTaskID(entry.Name()) != nil {
+			continue
+		}
+		path := filepath.Join(stateDir, "tasktmp", entry.Name(), pipelineLaunchContractName)
+		data, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return pipelineLaunchContract{}, false, err
+		}
+		var hint struct {
+			Status  string `json:"status"`
+			RunID   string `json:"run_id"`
+			Checked struct {
+				RepoID string `json:"repo_id"`
+			} `json:"checked"`
+		}
+		if json.Unmarshal(data, &hint) != nil || hint.Checked.RepoID != repoID {
+			continue
+		}
+		scoped := hint.RunID == runID || hint.RunID == "" && hint.Status == pipelineLaunchContractPending
+		if !scoped {
+			continue
+		}
+		contract, err := loadPipelineLaunchContract(path)
+		if err != nil {
+			return pipelineLaunchContract{}, false, err
+		}
+		if contract.TaskID != entry.Name() {
+			return pipelineLaunchContract{}, false, errors.New("pipeline: managed launch contract path does not match its task identity")
+		}
+		if match != nil {
+			return pipelineLaunchContract{}, false, errors.New("pipeline: duplicate managed launch contracts for native worktree")
+		}
+		copy := contract
+		match = &copy
 	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return nativeGateRuntime{}, errors.New("pipeline: trailing managed native gate runtime data")
+	if match == nil {
+		return pipelineLaunchContract{}, false, nil
 	}
-	return runtime, nil
+	return *match, true, nil
 }
 
 func authorizeNativeGateAgent(ctx context.Context, h home.Home, reader pipeline.Reader, worktree string) error {
@@ -154,6 +204,9 @@ func authorizeNativeGateAgent(ctx context.Context, h home.Home, reader pipeline.
 	}
 	switch contract.Status {
 	case pipelineLaunchContractPending:
+		if contract.RunID != "" && contract.RunID != run.RunID {
+			return errors.New("pipeline: receipt-bound pending launch contract does not match the active run")
+		}
 		if run.InvocationCount != 0 {
 			return errors.New("pipeline: pending managed launch contract cannot authorize a later agent")
 		}
@@ -248,9 +301,6 @@ func validatePipelineLaunchContract(contract pipelineLaunchContract) error {
 	}
 	switch contract.Status {
 	case pipelineLaunchContractPending, pipelineLaunchContractRevoked:
-		if contract.RunID != "" {
-			return errors.New("pipeline: invalid managed launch contract lifecycle")
-		}
 	case pipelineLaunchContractVerified:
 		if strings.TrimSpace(contract.RunID) == "" {
 			return errors.New("pipeline: invalid managed launch contract lifecycle")

@@ -221,13 +221,14 @@ INSERT INTO agent_invocations VALUES('invocation','run','codex','gpt-5.6-sol',1)
 		PrimaryModel: "gpt-5.6-sol", GlobalConfigSHA256: fmt.Sprintf("%x", sha256.Sum256(globalConfig)),
 	}
 	reader := Reader{Root: root, Commands: execx.OSRunner{}}
-	if err := reader.VerifyNativeLaunch(context.Background(), want); err != nil {
-		t.Fatal(err)
+	state, err := reader.VerifyNativeLaunch(context.Background(), want)
+	if err != nil || state.InvocationCount != 1 {
+		t.Fatalf("state=%+v err=%v", state, err)
 	}
 	if out, err := exec.Command("sqlite3", database, `UPDATE runs SET no_mistakes_build_sha='other'`).CombinedOutput(); err != nil {
 		t.Fatalf("build fixture: %s %v", out, err)
 	}
-	if err := reader.VerifyNativeLaunch(context.Background(), want); err == nil || !strings.Contains(err.Error(), "version") {
+	if _, err := reader.VerifyNativeLaunch(context.Background(), want); err == nil || !strings.Contains(err.Error(), "version") {
 		t.Fatalf("durable build mismatch error=%v", err)
 	}
 	if out, err := exec.Command("sqlite3", database, `UPDATE runs SET no_mistakes_build_sha='37ed232'`).CombinedOutput(); err != nil {
@@ -236,14 +237,42 @@ INSERT INTO agent_invocations VALUES('invocation','run','codex','gpt-5.6-sol',1)
 	if out, err := exec.Command("sqlite3", database, `UPDATE agent_invocations SET model='other'`).CombinedOutput(); err != nil {
 		t.Fatalf("model fixture: %s %v", out, err)
 	}
-	if err := reader.VerifyNativeLaunch(context.Background(), want); err == nil || !strings.Contains(err.Error(), "primary") {
+	if _, err := reader.VerifyNativeLaunch(context.Background(), want); err == nil || !strings.Contains(err.Error(), "primary") {
 		t.Fatalf("durable model mismatch error=%v", err)
 	}
 	if out, err := exec.Command("sqlite3", database, `UPDATE agent_invocations SET model='gpt-5.6-sol'; UPDATE step_rounds SET global_config_yaml='changed'`).CombinedOutput(); err != nil {
 		t.Fatalf("config fixture: %s %v", out, err)
 	}
-	if err := reader.VerifyNativeLaunch(context.Background(), want); err == nil || !strings.Contains(err.Error(), "global config") {
+	if _, err := reader.VerifyNativeLaunch(context.Background(), want); err == nil || !strings.Contains(err.Error(), "global config") {
 		t.Fatalf("durable global config mismatch error=%v", err)
+	}
+}
+
+func TestVerifyNativeLaunchDefersAgentProvenanceUntilFirstInvocation(t *testing.T) {
+	if _, err := exec.LookPath("sqlite3"); err != nil {
+		t.Skip("sqlite3 CLI not available")
+	}
+	root := t.TempDir()
+	project := t.TempDir()
+	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,submitted_head_sha TEXT,launch_nonce TEXT,launch_validation_generation TEXT,no_mistakes_version TEXT,no_mistakes_build_sha TEXT);
+CREATE TABLE step_results(id TEXT,run_id TEXT,step_name TEXT);
+CREATE TABLE step_rounds(id TEXT,step_result_id TEXT,round INTEGER,trusted_config_sha TEXT,global_config_yaml BLOB,created_at INTEGER);
+CREATE TABLE agent_invocations(id TEXT,run_id TEXT,agent TEXT,model TEXT,started_at INTEGER);
+INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'main');
+INSERT INTO runs VALUES('run','repo','feature','submitted','nonce','generation','v1.75.1','37ed232');`
+	database := filepath.Join(root, "state.sqlite")
+	if out, err := exec.Command("sqlite3", database, sql).CombinedOutput(); err != nil {
+		t.Fatalf("fixture: %s %v", out, err)
+	}
+	want := NativeLaunchExpectation{
+		RunID: "run", Project: project, RepoID: "repo", Branch: "feature", SubmittedHeadSHA: "submitted",
+		LaunchNonce: "nonce", ValidationGeneration: "generation", TrustedSHA: "trusted", Primary: "codex",
+		PrimaryModel: "gpt-5.6-sol", GlobalConfigSHA256: strings.Repeat("a", 64),
+	}
+	state, err := (Reader{Root: root, Commands: execx.OSRunner{}}).VerifyNativeLaunch(context.Background(), want)
+	if err != nil || state.InvocationCount != 0 {
+		t.Fatalf("pre-agent launch state=%+v err=%v", state, err)
 	}
 }
 
