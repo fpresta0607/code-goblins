@@ -225,7 +225,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			return err
 		}
 		binding := pipelineNativeGateBindingForContract(contract, meta.Worktree)
-		bindingPath := pipelineNativeGateBindingPath(h.State, contract.Checked.RepoID)
+		bindingPath := pipelineNativeGateBindingPath(h.State, binding)
 		if err := createPipelineNativeGateBinding(bindingPath, binding); err != nil {
 			return err
 		}
@@ -312,26 +312,28 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		}
 		if launchState.InvocationCount == 0 {
 			contractRetained = true
-			bindingSettled = true
 			fmt.Fprintf(out, "pipeline launch: bound pending run %s at %s before its first managed agent\n", receipt.RunID, checked.Start.HeadSHA)
 			if result.ExitCode != 0 {
-				return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
+				bindingSettled, err = settlePipelineNativeGateBindingAfterNonzero(ctx, reader, bindingPath, binding, receipt.RunID, result.ExitCode)
+				return err
 			}
+			bindingSettled = true
 			return nil
 		}
 		contractRetained = true
 		if !launchState.ReviewProvenance {
-			bindingSettled = true
 			fmt.Fprintf(out, "pipeline launch: authorized run %s after its first rebase agent; review provenance is pending\n", receipt.RunID)
 			if result.ExitCode != 0 {
-				return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
+				bindingSettled, err = settlePipelineNativeGateBindingAfterNonzero(ctx, reader, bindingPath, binding, receipt.RunID, result.ExitCode)
+				return err
 			}
+			bindingSettled = true
 			return nil
 		}
 		fmt.Fprintf(out, "pipeline launch: verified run %s at %s with trusted %s and primary %s\n", receipt.RunID, checked.Start.HeadSHA, checked.Start.TrustedSHA, checked.Start.EffectivePrimary)
 		if result.ExitCode != 0 {
-			bindingSettled = true
-			return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
+			bindingSettled, err = settlePipelineNativeGateBindingAfterNonzero(ctx, reader, bindingPath, binding, receipt.RunID, result.ExitCode)
+			return err
 		}
 		if err := retirePipelineNativeGateBinding(bindingPath, binding); err != nil {
 			return err
@@ -353,7 +355,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		return err
 	}
 	binding := pipelineNativeGateBindingForContract(contract, meta.Worktree)
-	bindingPath := pipelineNativeGateBindingPath(h.State, contract.Checked.RepoID)
+	bindingPath := pipelineNativeGateBindingPath(h.State, binding)
 	if err := ensurePipelineNativeGateBinding(bindingPath, binding, contract.RunID, launchState.Worktree); err != nil {
 		return err
 	}
@@ -387,8 +389,8 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		}
 	}
 	if result.ExitCode != 0 {
-		bindingSettled = true
-		return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
+		bindingSettled, err = settlePipelineNativeGateBindingAfterNonzero(ctx, reader, bindingPath, binding, contract.RunID, result.ExitCode)
+		return err
 	}
 	if err := retirePipelineNativeGateBinding(bindingPath, binding); err != nil {
 		return err
@@ -540,6 +542,20 @@ func pipelineLaunchClaimForContract(contract pipelineLaunchContract) pipelineLau
 	return pipelineLaunchClaim{Version: 1, TaskID: contract.TaskID, RepoID: contract.Checked.RepoID, RunID: contract.RunID, LaunchNonce: contract.LaunchNonce, ValidationGeneration: contract.ValidationGeneration}
 }
 
+func settlePipelineNativeGateBindingAfterNonzero(ctx context.Context, reader pipeline.Reader, path string, binding pipelineNativeGateBinding, runID string, exitCode int) (bool, error) {
+	exitErr := fmt.Errorf("pipeline: native command exited %d", exitCode)
+	terminal, err := reader.NativeRunTerminal(ctx, runID)
+	if err != nil {
+		return false, errors.Join(exitErr, err)
+	}
+	if terminal {
+		if err := retirePipelineNativeGateBinding(path, binding); err != nil {
+			return false, errors.Join(exitErr, err)
+		}
+	}
+	return true, exitErr
+}
+
 func savePipelineLaunchClaim(path string, claim pipelineLaunchClaim) error {
 	if err := validatePipelineLaunchClaim(claim); err != nil {
 		return err
@@ -616,9 +632,32 @@ func samePipelineLaunchContractIdentity(left, right pipelineLaunchContract) bool
 	return left == right
 }
 
-func pipelineNativeGateBindingPath(stateDir, repoID string) string {
+func pipelineNativeGateBindingPrefix(repoID string) string {
 	digest := sha256.Sum256([]byte(repoID))
-	return filepath.Join(stateDir, "pipeline-native-gate-"+fmt.Sprintf("%x", digest)+".json")
+	return "pipeline-native-gate-" + fmt.Sprintf("%x", digest) + "-"
+}
+
+func pipelineNativeGateBindingPath(stateDir string, binding pipelineNativeGateBinding) string {
+	identity := sha256.Sum256([]byte(strings.Join([]string{binding.TaskID, binding.TaskWorktree, binding.LaunchNonce, binding.ValidationGeneration}, "\x00")))
+	return filepath.Join(stateDir, pipelineNativeGateBindingPrefix(binding.RepoID)+fmt.Sprintf("%x", identity)+".json")
+}
+
+func pipelineNativeGateBindingPaths(stateDir, repoID string) ([]string, error) {
+	entries, err := os.ReadDir(stateDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	prefix := pipelineNativeGateBindingPrefix(repoID)
+	paths := make([]string, 0)
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), prefix) && strings.HasSuffix(entry.Name(), ".json") {
+			paths = append(paths, filepath.Join(stateDir, entry.Name()))
+		}
+	}
+	return paths, nil
 }
 
 func pipelineNativeGateBindingForContract(contract pipelineLaunchContract, taskWorktree string) pipelineNativeGateBinding {
@@ -634,7 +673,7 @@ func pipelineNativeGateBindingForContract(contract pipelineLaunchContract, taskW
 func createPipelineNativeGateBinding(path string, binding pipelineNativeGateBinding) error {
 	current, err := loadPipelineNativeGateBinding(path)
 	if err == nil && current.Status != pipelineNativeGateBindingRevoked {
-		return errors.New("pipeline: active managed native gate binding already exists for repository")
+		return errors.New("pipeline: active managed native gate binding already exists for task launch")
 	}
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err

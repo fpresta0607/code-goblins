@@ -97,17 +97,19 @@ func runNativeGateAgent(args []string, stdin io.Reader, stdout, stderr io.Writer
 }
 
 func subscriptionOnlyNativeGateEnvironment(env []string) []string {
-	billingKeys := make(map[string]struct{}, len(harness.HarnessBillingKeys)+2)
+	blockedKeys := make(map[string]struct{}, len(harness.HarnessBillingKeys)+6)
 	for _, key := range harness.HarnessBillingKeys {
-		billingKeys[strings.ToUpper(key)] = struct{}{}
+		blockedKeys[strings.ToUpper(key)] = struct{}{}
 	}
-	billingKeys["OPENROUTER_API_KEY"] = struct{}{}
-	billingKeys["OPENAI_BASE_URL"] = struct{}{}
+	for _, key := range []string{"OPENROUTER_API_KEY", "OPENAI_BASE_URL", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"} {
+		blockedKeys[key] = struct{}{}
+	}
 	clean := make([]string, 0, len(env))
 	for _, entry := range env {
 		name, _, ok := strings.Cut(entry, "=")
 		if ok {
-			if _, blocked := billingKeys[strings.ToUpper(name)]; blocked {
+			upperName := strings.ToUpper(name)
+			if _, blocked := blockedKeys[upperName]; blocked || strings.HasPrefix(upperName, "OTEL_") {
 				continue
 			}
 		}
@@ -121,7 +123,11 @@ func subscriptionOnlyNativeGateArguments(args []string) []string {
 		"-c", `model_provider="openai"`,
 		"-c", `forced_login_method="chatgpt"`,
 		"-c", `openai_base_url="`+managedOpenAIBaseURL+`"`,
-		"-c", `chatgpt_base_url="`+managedChatGPTBaseURL+`"`)
+		"-c", `chatgpt_base_url="`+managedChatGPTBaseURL+`"`,
+		"-c", `otel.exporter="none"`,
+		"-c", `otel.metrics_exporter="none"`,
+		"-c", `otel.trace_exporter="none"`,
+		"-c", `otel.log_user_prompt=false`)
 }
 
 func nativeGateDelegation(args, env []string, managed bool) ([]string, []string) {
@@ -221,20 +227,50 @@ func nativeGateReader(h home.Home, root, worktree string) (pipeline.Reader, bool
 }
 
 func findPipelineNativeGateBinding(stateDir, repoID, runID, worktree string) (pipelineNativeGateBinding, bool, error) {
-	path := pipelineNativeGateBindingPath(stateDir, repoID)
-	binding, err := loadPipelineNativeGateBinding(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return pipelineNativeGateBinding{}, false, nil
-	}
+	paths, err := pipelineNativeGateBindingPaths(stateDir, repoID)
 	if err != nil {
-		return pipelineNativeGateBinding{}, false, fmt.Errorf("pipeline: invalid managed native gate binding: %w", err)
+		return pipelineNativeGateBinding{}, false, err
 	}
-	if binding.RepoID != repoID {
-		return pipelineNativeGateBinding{}, false, errors.New("pipeline: managed native gate binding repository mismatch")
-	}
-	if binding.RunID != "" && (binding.RunID != runID || !fsx.SamePath(binding.NativeWorktree, worktree)) {
+	if len(paths) == 0 {
 		return pipelineNativeGateBinding{}, false, nil
 	}
+	type match struct {
+		path    string
+		binding pipelineNativeGateBinding
+	}
+	var matches []match
+	var head string
+	for _, path := range paths {
+		binding, loadErr := loadPipelineNativeGateBinding(path)
+		if loadErr != nil {
+			return pipelineNativeGateBinding{}, false, fmt.Errorf("pipeline: invalid managed native gate binding: %w", loadErr)
+		}
+		if binding.RepoID != repoID {
+			return pipelineNativeGateBinding{}, false, errors.New("pipeline: managed native gate binding repository mismatch")
+		}
+		claimed := binding.RunID == runID && binding.RunID != "" && fsx.SamePath(binding.NativeWorktree, worktree)
+		if binding.RunID == "" {
+			if head == "" {
+				result, runErr := (execx.OSRunner{}).Run(context.Background(), execx.Request{Dir: worktree, Name: "git", Args: []string{"rev-parse", "--verify", "HEAD^{commit}"}})
+				fields := strings.Fields(string(result.Stdout))
+				if runErr != nil || result.ExitCode != 0 || len(fields) != 1 {
+					return pipelineNativeGateBinding{}, false, errors.New("pipeline: pending managed native gate worktree evidence is unavailable")
+				}
+				head = fields[0]
+			}
+			claimed = head == binding.SubmittedHeadSHA
+		}
+		if claimed {
+			matches = append(matches, match{path: path, binding: binding})
+		}
+	}
+	if len(matches) == 0 {
+		return pipelineNativeGateBinding{}, false, nil
+	}
+	if len(matches) != 1 {
+		return pipelineNativeGateBinding{}, false, errors.New("pipeline: ambiguous managed native gate binding")
+	}
+	path, binding := matches[0].path, matches[0].binding
 	executable, digest, err := currentCFOExecutableEvidence()
 	if err != nil {
 		return pipelineNativeGateBinding{}, false, err
@@ -246,14 +282,6 @@ func findPipelineNativeGateBinding(stateDir, repoID, runID, worktree string) (pi
 		return pipelineNativeGateBinding{}, false, errors.New("pipeline: managed native gate binding is revoked")
 	}
 	if binding.Status == pipelineNativeGateBindingPending {
-		result, runErr := (execx.OSRunner{}).Run(context.Background(), execx.Request{Dir: worktree, Name: "git", Args: []string{"rev-parse", "--verify", "HEAD^{commit}"}})
-		fields := strings.Fields(string(result.Stdout))
-		if runErr != nil || result.ExitCode != 0 || len(fields) != 1 {
-			return pipelineNativeGateBinding{}, false, errors.New("pipeline: pending managed native gate worktree evidence is unavailable")
-		}
-		if fields[0] != binding.SubmittedHeadSHA {
-			return pipelineNativeGateBinding{}, false, nil
-		}
 		binding, err = activatePipelineNativeGateBinding(path, binding, runID, worktree)
 		if err != nil {
 			return pipelineNativeGateBinding{}, false, err

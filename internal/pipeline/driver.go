@@ -194,6 +194,19 @@ ORDER BY runs.created_at DESC, runs.id DESC`, &rows); err != nil {
 	return *match, nil
 }
 
+func (r Reader) NativeRunTerminal(ctx context.Context, runID string) (bool, error) {
+	var rows []struct {
+		Status string `json:"status"`
+	}
+	if err := r.query(ctx, `SELECT COALESCE(status,'') AS status FROM runs WHERE id=`+sqlString(runID), &rows); err != nil {
+		return false, err
+	}
+	if len(rows) != 1 {
+		return false, errors.New("pipeline: native run status is missing or ambiguous")
+	}
+	return terminalRunStatus[rows[0].Status], nil
+}
+
 func (r Reader) VerifyNativeAgent(ctx context.Context, worktree string, want NativeAgentExpectation) error {
 	if want.EffectivePrimary != "codex" {
 		return errors.New("pipeline: managed native primary must be codex")

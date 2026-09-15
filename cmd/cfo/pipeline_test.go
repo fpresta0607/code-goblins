@@ -34,6 +34,8 @@ type pipelineRunner struct {
 	nativeWorktree string
 	launchContract *pipelineLaunchContract
 	activeRuns     int
+	nativeExitCode int
+	nativeStatus   string
 }
 
 type pipelineStartRunner struct {
@@ -58,7 +60,8 @@ type pipelineStartRunner struct {
 	rebaseFirst       bool
 	reviewStarted     bool
 	nativeExitCode    int
-	bindingPath       string
+	nativeStatus      string
+	bindingStateDir   string
 	bindingObserved   bool
 }
 
@@ -80,6 +83,13 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 		}
 		if strings.Contains(sql, "SELECT runs.status") {
 			return execx.Result{Stdout: []byte(`[]`)}, nil
+		}
+		if strings.Contains(sql, "SELECT COALESCE(status,'') AS status FROM runs WHERE id=") {
+			status := r.nativeStatus
+			if status == "" {
+				status = "running"
+			}
+			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"status":%q}]`, status))}, nil
 		}
 		if strings.Contains(sql, "launch_validation_generation") {
 			config, err := os.ReadFile(filepath.Join(filepath.Dir(q.Args[len(q.Args)-2]), "config.yaml"))
@@ -157,8 +167,12 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 			return execx.Result{Stdout: []byte("auto_fix: {review: 0}\n")}, nil
 		}
 	case "no-mistakes":
-		if r.bindingPath != "" {
-			binding, err := loadPipelineNativeGateBinding(r.bindingPath)
+		if r.bindingStateDir != "" {
+			paths, err := pipelineNativeGateBindingPaths(r.bindingStateDir, "repo")
+			if err != nil || len(paths) != 1 {
+				return execx.Result{}, fmt.Errorf("native launch binding paths=%v: %w", paths, err)
+			}
+			binding, err := loadPipelineNativeGateBinding(paths[0])
 			if err != nil {
 				return execx.Result{}, err
 			}
@@ -286,6 +300,13 @@ func (r *pipelineRunner) Run(_ context.Context, q execx.Request) (execx.Result, 
 			return execx.Result{Stdout: []byte("feat/policy")}, nil
 		}
 	case "sqlite3":
+		if strings.Contains(q.Args[len(q.Args)-1], "SELECT COALESCE(status,'') AS status FROM runs WHERE id=") {
+			status := r.nativeStatus
+			if status == "" {
+				status = "running"
+			}
+			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"status":%q}]`, status))}, nil
+		}
 		if strings.Contains(q.Args[len(q.Args)-1], "COUNT(*) AS n FROM runs") {
 			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"n":%d}]`, r.activeRuns))}, nil
 		}
@@ -298,7 +319,7 @@ func (r *pipelineRunner) Run(_ context.Context, q execx.Request) (execx.Result, 
 		return execx.Result{Stdout: data}, err
 	case "no-mistakes":
 		r.native = append(r.native, q)
-		return execx.Result{Stdout: []byte("native decision output\n")}, nil
+		return execx.Result{Stdout: []byte("native decision output\n"), ExitCode: r.nativeExitCode}, nil
 	}
 	return execx.Result{}, errors.New("unexpected command")
 }
@@ -1157,7 +1178,8 @@ func TestPipelineRespondInvokesNativeOnlyForBudgetedExplicitDecision(t *testing.
 				if out.String() != "native decision output\n" {
 					t.Fatal(out.String())
 				}
-				if _, err := os.Stat(pipelineNativeGateBindingPath(h.State, contract.Checked.RepoID)); !errors.Is(err, os.ErrNotExist) {
+				binding := pipelineNativeGateBindingForContract(contract, wt)
+				if _, err := os.Stat(pipelineNativeGateBindingPath(h.State, binding)); !errors.Is(err, os.ErrNotExist) {
 					t.Fatalf("terminal response left native gate binding: %v", err)
 				}
 			}
@@ -1202,8 +1224,7 @@ func TestPipelineRunBindsAndVerifiesNativeLaunch(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	bindingPath := pipelineNativeGateBindingPath(h.State, "repo")
-	runner := &pipelineStartRunner{worktree: wt, bindingPath: bindingPath}
+	runner := &pipelineStartRunner{worktree: wt, bindingStateDir: h.State}
 	var out bytes.Buffer
 	err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &out)
 	if err != nil {
@@ -1212,9 +1233,6 @@ func TestPipelineRunBindsAndVerifiesNativeLaunch(t *testing.T) {
 	if runner.remoteRead != 2 || len(runner.native) != 1 || !runner.roleStarted || !runner.bindingObserved || runner.nonce == "" || !strings.HasPrefix(runner.generation, cfoValidationGenerationPrefix) {
 		t.Fatalf("bound launch: remote_reads=%d native=%+v role_started=%v nonce=%q generation=%q", runner.remoteRead, runner.native, runner.roleStarted, runner.nonce, runner.generation)
 	}
-	if _, err := os.Stat(bindingPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("terminal launch left native gate binding: %v", err)
-	}
 	if !strings.Contains(out.String(), "launch_receipt:") || !strings.Contains(out.String(), "pipeline launch: verified run run-bound") {
 		t.Fatalf("output=%q", out.String())
 	}
@@ -1222,6 +1240,10 @@ func TestPipelineRunBindsAndVerifiesNativeLaunch(t *testing.T) {
 	verified, err := loadPipelineLaunchContract(contractPath)
 	if err != nil || verified.Status != pipelineLaunchContractVerified || verified.RunID != "run-bound" {
 		t.Fatalf("verified contract=%+v err=%v", verified, err)
+	}
+	bindingPath := pipelineNativeGateBindingPath(h.State, pipelineNativeGateBindingForContract(verified, wt))
+	if _, err := os.Stat(bindingPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("terminal launch left native gate binding: %v", err)
 	}
 	claim, err := loadPipelineLaunchClaim(filepath.Join(tmp, pipelineLaunchClaimName))
 	if err != nil || claim.RunID != "run-bound" || claim.RepoID != verified.Checked.RepoID || claim.LaunchNonce != verified.LaunchNonce || claim.ValidationGeneration != verified.ValidationGeneration {
@@ -1244,7 +1266,11 @@ func TestPipelineRunBindsAndVerifiesNativeLaunch(t *testing.T) {
 	if loadErr != nil || revokedClaim.RunID != "run-bound" {
 		t.Fatalf("failed durable proof claim=%+v err=%v", revokedClaim, loadErr)
 	}
-	revokedBinding, loadErr := loadPipelineNativeGateBinding(bindingPath)
+	paths, pathsErr := pipelineNativeGateBindingPaths(h.State, "repo")
+	if pathsErr != nil || len(paths) != 1 {
+		t.Fatalf("failed durable proof binding paths=%v err=%v", paths, pathsErr)
+	}
+	revokedBinding, loadErr := loadPipelineNativeGateBinding(paths[0])
 	if loadErr != nil || revokedBinding.Status != pipelineNativeGateBindingRevoked {
 		t.Fatalf("failed durable proof binding=%+v err=%v", revokedBinding, loadErr)
 	}
@@ -1287,8 +1313,7 @@ func TestPipelineRunRetainsVerifiedContractWhenNativeHoldExpires(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	bindingPath := pipelineNativeGateBindingPath(h.State, "repo")
-	runner := &pipelineStartRunner{worktree: wt, nativeExitCode: 1, bindingPath: bindingPath}
+	runner := &pipelineStartRunner{worktree: wt, nativeExitCode: 1}
 	err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "native command exited 1") {
 		t.Fatalf("pipelineCommand error=%v, want bounded native hold error", err)
@@ -1297,9 +1322,26 @@ func TestPipelineRunRetainsVerifiedContractWhenNativeHoldExpires(t *testing.T) {
 	if loadErr != nil || contract.Status != pipelineLaunchContractVerified || contract.RunID != "run-bound" {
 		t.Fatalf("retained contract=%+v err=%v", contract, loadErr)
 	}
+	bindingPath := pipelineNativeGateBindingPath(h.State, pipelineNativeGateBindingForContract(contract, wt))
 	binding, loadErr := loadPipelineNativeGateBinding(bindingPath)
 	if loadErr != nil || binding.Status != pipelineNativeGateBindingActive || binding.RunID != "run-bound" || filepath.Base(binding.NativeWorktree) != binding.RunID {
 		t.Fatalf("retained binding=%+v err=%v", binding, loadErr)
+	}
+	if err := retirePipelineNativeGateBinding(bindingPath, binding); err != nil {
+		t.Fatal(err)
+	}
+	runner = &pipelineStartRunner{worktree: wt, nativeExitCode: 1, nativeStatus: "failed"}
+	err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "native command exited 1") {
+		t.Fatalf("terminal pipelineCommand error=%v", err)
+	}
+	terminalContract, loadErr := loadPipelineLaunchContract(filepath.Join(tmp, pipelineLaunchContractName))
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	terminalPath := pipelineNativeGateBindingPath(h.State, pipelineNativeGateBindingForContract(terminalContract, wt))
+	if _, statErr := os.Stat(terminalPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("failed native run left binding: %v", statErr)
 	}
 }
 
@@ -1459,6 +1501,7 @@ func TestPipelineResponsePromotesPendingContractBeforeReturningNativeExit(t *tes
 		t.Fatalf("pre-agent run: %v", err)
 	}
 	runner.nativeExitCode = 1
+	runner.nativeStatus = "cancelled"
 	err = pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "approve"}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "native command exited 1") {
 		t.Fatalf("response error=%v, want bounded native exit", err)
@@ -1466,6 +1509,10 @@ func TestPipelineResponsePromotesPendingContractBeforeReturningNativeExit(t *tes
 	verified, loadErr := loadPipelineLaunchContract(filepath.Join(tmp, pipelineLaunchContractName))
 	if loadErr != nil || verified.Status != pipelineLaunchContractVerified || verified.RunID != "run-bound" {
 		t.Fatalf("verified contract=%+v err=%v", verified, loadErr)
+	}
+	bindingPath := pipelineNativeGateBindingPath(h.State, pipelineNativeGateBindingForContract(verified, wt))
+	if _, statErr := os.Stat(bindingPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("cancelled native response left binding: %v", statErr)
 	}
 }
 
