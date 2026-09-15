@@ -140,6 +140,7 @@ type NativeRunContext struct {
 	Worktree             string `json:"worktree"`
 	NoMistakesVersion    string `json:"no_mistakes_version"`
 	NoMistakesBuildSHA   string `json:"no_mistakes_build_sha"`
+	InvocationCount      int    `json:"invocation_count"`
 }
 
 type NativeAgentExpectation struct {
@@ -164,7 +165,8 @@ func (r Reader) NativeRunAtWorktree(ctx context.Context, worktree string) (Nativ
 repos.default_branch, runs.branch, runs.head_sha, COALESCE(runs.submitted_head_sha,'') AS submitted_head_sha,
 COALESCE(runs.launch_nonce,'') AS launch_nonce, COALESCE(runs.launch_validation_generation,'') AS validation_generation,
 COALESCE(runs.worktree_dir,'') AS worktree,COALESCE(runs.no_mistakes_version,'') AS no_mistakes_version,
-COALESCE(runs.no_mistakes_build_sha,'') AS no_mistakes_build_sha
+COALESCE(runs.no_mistakes_build_sha,'') AS no_mistakes_build_sha,
+(SELECT COUNT(*) FROM agent_invocations WHERE agent_invocations.run_id=runs.id) AS invocation_count
 FROM runs JOIN repos ON repos.id=runs.repo_id
 WHERE runs.status NOT IN ('completed','failed','cancelled')
 ORDER BY runs.created_at DESC, runs.id DESC`, &rows); err != nil {
@@ -247,6 +249,10 @@ func (r Reader) VerifyNativeAgent(ctx context.Context, worktree string, want Nat
 	latest, err := r.NativeRunAtWorktree(ctx, worktree)
 	if err != nil || latest != run {
 		return errors.New("pipeline: active native run changed during managed agent authorization")
+	}
+	latestHead, err := gitOne(worktree, "rev-parse", "--verify", "HEAD^{commit}")
+	if err != nil || latestHead != head || latestHead != latest.HeadSHA {
+		return errors.New("pipeline: native agent worktree changed during managed agent authorization")
 	}
 	return nil
 }

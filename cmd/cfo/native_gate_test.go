@@ -41,6 +41,7 @@ func TestFindPipelineLaunchContractBindsTaskPathAndLaunchIdentity(t *testing.T) 
 		t.Fatal(err)
 	}
 	contract := testPipelineLaunchContract(project)
+	contract.Status = pipelineLaunchContractPending
 	path := filepath.Join(stateDir, "tasktmp", contract.TaskID, pipelineLaunchContractName)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
@@ -70,6 +71,7 @@ func TestAuthorizeNativeGateAgentPreservesUnmanagedNativeRuns(t *testing.T) {
 	}
 	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
 CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,head_sha TEXT,submitted_head_sha TEXT,status TEXT,created_at INTEGER,launch_nonce TEXT,launch_validation_generation TEXT,worktree_dir TEXT,no_mistakes_version TEXT,no_mistakes_build_sha TEXT);
+CREATE TABLE agent_invocations(run_id TEXT);
 INSERT INTO repos VALUES('repo',` + pipelineSQLString(filepath.ToSlash(project)) + `,'main');
 INSERT INTO runs VALUES('run','repo','feature','head','head','running',1,NULL,NULL,` + pipelineSQLString(filepath.ToSlash(worktree)) + `,NULL,NULL);`
 	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), sql).CombinedOutput(); err != nil {
@@ -96,6 +98,50 @@ INSERT INTO runs VALUES('run','repo','feature','head','head','running',1,NULL,NU
 	}
 	if err := authorizeNativeGateAgent(context.Background(), home.Home{State: stateDir}, reader, worktree); err != nil {
 		t.Fatalf("native operation outside a run was not preserved: %v", err)
+	}
+}
+
+func TestAuthorizeNativeGateAgentRefusesPendingContractAfterFirstInvocation(t *testing.T) {
+	sqlitePath, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 CLI not available")
+	}
+	sqlitePath, err = filepath.Abs(sqlitePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateDir := t.TempDir()
+	nativeRoot := t.TempDir()
+	project := t.TempDir()
+	worktree := t.TempDir()
+	contract := testPipelineLaunchContract(project)
+	contract.Status = pipelineLaunchContractPending
+	contract.Checked.RepoID = "repo"
+	contract.Checked.Branch = "feature"
+	contract.Checked.HeadSHA = "head"
+	contract.LaunchNonce = strings.Repeat("a", 32)
+	contract.ValidationGeneration = cfoValidationGenerationPrefix + strings.Repeat("b", 32)
+	contract.SQLitePath = sqlitePath
+	contractPath := filepath.Join(stateDir, "tasktmp", contract.TaskID, pipelineLaunchContractName)
+	if err := os.MkdirAll(filepath.Dir(contractPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := savePipelineLaunchContract(contractPath, contract); err != nil {
+		t.Fatal(err)
+	}
+	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,head_sha TEXT,submitted_head_sha TEXT,status TEXT,created_at INTEGER,launch_nonce TEXT,launch_validation_generation TEXT,worktree_dir TEXT,no_mistakes_version TEXT,no_mistakes_build_sha TEXT);
+CREATE TABLE agent_invocations(run_id TEXT);
+INSERT INTO repos VALUES('repo',` + pipelineSQLString(filepath.ToSlash(project)) + `,'main');
+INSERT INTO runs VALUES('run','repo','feature','head','head','running',1,'` + contract.LaunchNonce + `','` + contract.ValidationGeneration + `',` + pipelineSQLString(filepath.ToSlash(worktree)) + `,'v1.75.1','37ed232');
+INSERT INTO agent_invocations VALUES('run');`
+	if out, err := exec.Command(sqlitePath, filepath.Join(nativeRoot, "state.sqlite"), sql).CombinedOutput(); err != nil {
+		t.Fatalf("fixture: %s %v", out, err)
+	}
+	reader := pipeline.Reader{Root: nativeRoot, Commands: execx.OSRunner{}, SQLitePath: sqlitePath}
+	err = authorizeNativeGateAgent(context.Background(), home.Home{State: stateDir}, reader, worktree)
+	if err == nil || !strings.Contains(err.Error(), "pending") {
+		t.Fatalf("pending contract after invocation error=%v", err)
 	}
 }
 
@@ -130,7 +176,7 @@ func TestNativeGateReaderUsesPersistedSQLiteOutsidePath(t *testing.T) {
 
 func testPipelineLaunchContract(project string) pipelineLaunchContract {
 	return pipelineLaunchContract{
-		Version: 1, TaskID: "native-gate-test", PolicyHash: strings.Repeat("c", 64), Project: project,
+		Version: 1, Status: pipelineLaunchContractPending, TaskID: "native-gate-test", PolicyHash: strings.Repeat("c", 64), Project: project,
 		Checked: pipeline.StartEvidence{
 			RepoID: "repo", Branch: "feature", HeadSHA: strings.Repeat("1", 40), DefaultBranch: "main",
 			TrustedSHA: strings.Repeat("2", 40), TaskConfigSHA256: strings.Repeat("3", 64),
