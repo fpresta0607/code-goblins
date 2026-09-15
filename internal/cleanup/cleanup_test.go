@@ -12,8 +12,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/taskcontext"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -418,6 +420,17 @@ func TestCleanupPreservesMetadataWhenReturnFails(t *testing.T) {
 	status, statusErr := state.TailStatus(fixture.stateDir, "g1", 5)
 	if statusErr != nil || len(status) != 0 {
 		t.Fatalf("status = %v, %v; want no done record after a failed return", status, statusErr)
+	}
+	contextHome := home.Home{Root: filepath.Dir(fixture.stateDir), State: fixture.stateDir}
+	if _, err := taskcontext.ReadRetirement(contextHome, "g1"); err == nil {
+		t.Fatal("prepared return failure qualified as completed retirement")
+	}
+	fixture.git.returnErr = nil
+	if _, err := fixture.service.Cleanup(context.Background(), "g1"); err != nil {
+		t.Fatalf("Cleanup retry: %v", err)
+	}
+	if _, err := taskcontext.ReadRetirement(contextHome, "g1"); err != nil {
+		t.Fatalf("retry did not complete retirement: %v", err)
 	}
 }
 

@@ -785,6 +785,46 @@ func TestSignalIsDecisionScansBackPastATrailingNoiseLine(t *testing.T) {
 	}
 }
 
+func TestRunQueuesAndDeduplicatesDecisionPastTrailingNoise(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		notifyFirst bool
+	}{
+		{name: "queues exact blocker"},
+		{name: "deduplicates direct notify", notifyFirst: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			decision := "needs-decision: merge this PR?"
+			if err := os.WriteFile(filepath.Join(dir, "g1.status"), []byte(decision+"\nnot a status event\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if tc.notifyFirst {
+				if _, err := wake.Append(dir, "notify", "g1", decision); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := Run(baseConfig(dir)); err != nil {
+				t.Fatal(err)
+			}
+			records, err := wake.Pending(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(records) != 1 || records[0].Detail != decision {
+				t.Fatalf("wake records = %+v, want one exact decision payload", records)
+			}
+			wantKind := "signal"
+			if tc.notifyFirst {
+				wantKind = "notify"
+			}
+			if records[0].Kind != wantKind {
+				t.Fatalf("wake kind = %q, want %q", records[0].Kind, wantKind)
+			}
+		})
+	}
+}
+
 // stubInventory hands the sweep a fixed fleet so the watcher test never
 // touches Herdr or the real process table.
 type stubInventory struct{ inv reap.Inventory }

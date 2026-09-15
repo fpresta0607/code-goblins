@@ -353,32 +353,28 @@ func RunContext(ctx context.Context, cfg Config) (string, error) {
 			// decision. Non-decision changes are committed silently and the
 			// heartbeat carries the fleet summary instead.
 			var decisions []string
+			decisionPayloads := map[string]string{}
 			for _, c := range changes {
-				if signalIsDecision(cfg.Home.State, c.Name) {
+				if payload, ok := latestDecisionPayload(cfg.Home.State, c.Name); ok {
 					decisions = append(decisions, c.Name)
+					decisionPayloads[c.Name] = payload
 				}
 			}
 			if len(decisions) > 0 {
 				detail := "signal:" + strings.Join(decisions, " ")
+				pending, e := wake.Pending(cfg.Home.State)
+				if e != nil {
+					return "", e
+				}
 				for _, name := range decisions {
 					// notify already queues its exact outcome. Recover a status-only
 					// write after a crash, without duplicating a pending direct notify.
-					pending, e := wake.Pending(cfg.Home.State)
-					if e != nil {
-						return "", e
-					}
 					notified := false
 					id := strings.TrimSuffix(name, ".status")
-					lines, e := state.TailStatus(cfg.Home.State, id, 1)
-					if e != nil {
-						return "", e
-					}
-					if len(lines) == 1 {
-						_, latest := state.SplitStatus(lines[0])
-						for _, record := range pending {
-							if record.Kind == "notify" && record.Key == id && record.Detail == latest {
-								notified = true
-							}
+					payload := decisionPayloads[name]
+					for _, record := range pending {
+						if record.Kind == "notify" && record.Key == id && record.Detail == payload {
+							notified = true
 						}
 					}
 					if notified {
@@ -389,10 +385,6 @@ func RunContext(ctx context.Context, cfg Config) (string, error) {
 						if change.Name == name {
 							signature = change.Sig
 						}
-					}
-					payload := detail
-					if len(lines) == 1 {
-						_, payload = state.SplitStatus(lines[0])
 					}
 					if _, err := wake.AppendOnce(cfg.Home.State, "signal", name, payload, name+":"+signature); err != nil {
 						return "", err
@@ -596,17 +588,29 @@ func decisionVerb(verb string) bool {
 // decision the CFO must see immediately. *.turn-ended markers and unparsable
 // or non-decision verbs are treated as noise, never as a wake.
 func signalIsDecision(stateDir, name string) bool {
+	_, ok := latestDecisionPayload(stateDir, name)
+	return ok
+}
+
+func latestDecisionPayload(stateDir, name string) (string, bool) {
 	if !strings.HasSuffix(name, ".status") {
-		return false
+		return "", false
 	}
 	id := strings.TrimSuffix(name, ".status")
 	lines, err := state.TailStatus(stateDir, id, 200)
 	if err != nil {
-		return false
+		return "", false
 	}
-	verb, ok := crewstate.LatestVerb(lines)
-	if !ok {
-		return false
+	for i := len(lines) - 1; i >= 0; i-- {
+		verb, _, ok := crewstate.ParseStatusLine(lines[i])
+		if !ok {
+			continue
+		}
+		if !decisionVerb(verb) {
+			return "", false
+		}
+		_, event := state.SplitStatus(lines[i])
+		return event, true
 	}
-	return decisionVerb(verb)
+	return "", false
 }

@@ -24,7 +24,11 @@ func fakeTool(t *testing.T, dir, name, out string, code int) {
 func TestRunAllToolsPresent(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"git", "gh", "herdr", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi"} {
-		fakeTool(t, dir, name, name+" version 1.0.0", 0)
+		version := name + " version 1.0.0"
+		if name == "chrome-devtools-axi" {
+			version = "0.1.34"
+		}
+		fakeTool(t, dir, name, version, 0)
 	}
 	t.Setenv("PATH", dir)
 	t.Setenv("CFO_HOME", t.TempDir()) // no .claude/settings.json: hook-pairing passes
@@ -52,6 +56,30 @@ func TestRunAllToolsPresent(t *testing.T) {
 	}
 	if checks[8].Name != "hook-pairing" {
 		t.Errorf("checks[8] = %+v, want hook-pairing", checks[8])
+	}
+}
+
+func TestRunRejectsUntestedAXIVersionWithTestedMCP(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"git", "gh", "herdr", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi"} {
+		fakeTool(t, dir, name, name+" version 1.0.0", 0)
+	}
+	fakeTool(t, dir, "chrome-devtools-axi", "0.1.35", 0)
+	fakeTool(t, dir, "node", "1.9.0", 0)
+	backend := filepath.Join(dir, "mcp.js")
+	if err := os.WriteFile(backend, []byte("synthetic backend"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("CFO_HOME", t.TempDir())
+	t.Setenv("CFO_STATE_OVERRIDE", t.TempDir())
+	t.Setenv("CFO_CHROME_MCP_PATH", backend)
+	checks := Run()
+	if Healthy(checks) {
+		t.Fatal("untested AXI version reported healthy with tested MCP")
+	}
+	if check := checks[7]; check.Name != "chrome-devtools-axi" || !strings.Contains(check.Err, "0.1.34") {
+		t.Fatalf("AXI compatibility check = %+v", check)
 	}
 }
 

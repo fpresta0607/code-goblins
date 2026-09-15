@@ -69,6 +69,12 @@ func Refresh(ctx context.Context, h home.Home, id string, commands execx.Runner)
 		return Manifest{}, err
 	}
 	paths := PathsFor(h, id)
+	var previous Manifest
+	if data, readErr := os.ReadFile(paths.Manifest); readErr == nil {
+		if json.Unmarshal(data, &previous) != nil || previous.Schema != "cfo-task-context.v1" || previous.ID != id || previous.Paths != paths {
+			previous = Manifest{}
+		}
+	}
 	meta, err := state.ReadTaskMeta(h.State, id)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
@@ -154,6 +160,11 @@ func Refresh(ctx context.Context, h home.Home, id string, commands execx.Runner)
 				m.IdentityStatus = "current"
 			}
 		}
+	}
+	if m.IdentityStatus != "current" && len(previous.Head) == 40 && previous.Branch != "" {
+		m.Head = previous.Head
+		m.Branch = previous.Branch
+		m.IdentityStatus = "stale: worktree identity unavailable; branch and head are last known"
 	}
 	return save(paths, m)
 }

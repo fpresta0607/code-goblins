@@ -386,9 +386,15 @@ func runMergeLocal(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-	} else if meta.Mode != "local-only" {
-		fmt.Fprintln(stderr, "cfo merge-local: no origin; only an explicit local-only task permits local landing")
-		return 1
+	} else {
+		if meta.Mode != "local-only" {
+			fmt.Fprintln(stderr, "cfo merge-local: no origin; only an explicit local-only task permits local landing")
+			return 1
+		}
+		if branch != "main" && branch != "master" {
+			fmt.Fprintln(stderr, "cfo merge-local: no-origin local landing requires the primary checkout on main or master")
+			return 1
+		}
 	}
 	// git merge --ff-only <sha> refuses (non-zero) on any divergence.
 	res, err := runner.Run(context.Background(), execx.Request{
