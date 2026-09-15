@@ -23,7 +23,13 @@ import (
 const (
 	nativeGateMarker              = "--cfo-native-gate"
 	cfoValidationGenerationPrefix = "cfo-v1-"
+	nativeGateRuntimeName         = "native-gate-runtime.json"
 )
+
+type nativeGateRuntime struct {
+	Version    int    `json:"version"`
+	SQLitePath string `json:"sqlite_path"`
+}
 
 func stripNativeGateMarker(args []string) ([]string, bool) {
 	marker := -1
@@ -56,10 +62,16 @@ func runNativeGateAgent(args []string, stdin io.Reader, stdout, stderr io.Writer
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	reader := pipeline.Reader{Root: root, Commands: execx.OSRunner{}}
-	if err := authorizeNativeGateAgent(context.Background(), h, reader, worktree); err != nil {
+	reader, inspect, err := nativeGateReader(h, root)
+	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	if inspect {
+		if err := authorizeNativeGateAgent(context.Background(), h, reader, worktree); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
 	}
 	cmd := exec.Command("codex", args...)
 	cmd.Stdin = stdin
@@ -74,6 +86,49 @@ func runNativeGateAgent(args []string, stdin io.Reader, stdout, stderr io.Writer
 		return 1
 	}
 	return 0
+}
+
+func nativeGateReader(h home.Home, root string) (pipeline.Reader, bool, error) {
+	runtime, err := loadNativeGateRuntime(filepath.Join(h.State, nativeGateRuntimeName))
+	if errors.Is(err, os.ErrNotExist) {
+		sqlitePath, lookupErr := exec.LookPath("sqlite3")
+		if lookupErr != nil {
+			return pipeline.Reader{}, false, nil
+		}
+		runtime = nativeGateRuntime{Version: 1, SQLitePath: sqlitePath}
+	} else if err != nil {
+		return pipeline.Reader{}, false, err
+	}
+	sqlitePath, err := filepath.Abs(runtime.SQLitePath)
+	if err != nil || runtime.Version != 1 || !fsx.SamePath(sqlitePath, runtime.SQLitePath) {
+		return pipeline.Reader{}, false, errors.New("pipeline: invalid managed native gate runtime")
+	}
+	return pipeline.Reader{Root: root, Commands: execx.OSRunner{}, SQLitePath: sqlitePath}, true, nil
+}
+
+func saveNativeGateRuntime(stateDir string, runtime nativeGateRuntime) error {
+	data, err := json.Marshal(runtime)
+	if err != nil {
+		return err
+	}
+	return fsx.AtomicWriteFile(filepath.Join(stateDir, nativeGateRuntimeName), append(data, '\n'))
+}
+
+func loadNativeGateRuntime(path string) (nativeGateRuntime, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nativeGateRuntime{}, err
+	}
+	var runtime nativeGateRuntime
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&runtime); err != nil {
+		return nativeGateRuntime{}, errors.New("pipeline: invalid managed native gate runtime")
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return nativeGateRuntime{}, errors.New("pipeline: trailing managed native gate runtime data")
+	}
+	return runtime, nil
 }
 
 func authorizeNativeGateAgent(ctx context.Context, h home.Home, reader pipeline.Reader, worktree string) error {
@@ -93,6 +148,9 @@ func authorizeNativeGateAgent(ctx context.Context, h home.Home, reader pipeline.
 	contract, err := findPipelineLaunchContract(h.State, run.LaunchNonce, run.ValidationGeneration)
 	if err != nil {
 		return err
+	}
+	if !fsx.SamePath(reader.SQLitePath, contract.SQLitePath) {
+		return errors.New("pipeline: managed launch sqlite path changed before agent authorization")
 	}
 	return reader.VerifyNativeAgent(ctx, worktree, pipeline.NativeAgentExpectation{
 		RunID: run.RunID, Project: contract.Project, RepoID: contract.Checked.RepoID,
@@ -165,7 +223,7 @@ func loadPipelineLaunchContract(path string) (pipelineLaunchContract, error) {
 
 func validatePipelineLaunchContract(contract pipelineLaunchContract) error {
 	checked := contract.Checked
-	if contract.Version != 1 || state.ValidTaskID(contract.TaskID) != nil || contract.PolicyHash == "" || contract.Project == "" || checked.RepoID == "" || checked.Branch == "" || checked.HeadSHA == "" || checked.DefaultBranch == "" || checked.TrustedSHA == "" || checked.EffectivePrimary != "codex" {
+	if contract.Version != 1 || state.ValidTaskID(contract.TaskID) != nil || contract.PolicyHash == "" || contract.Project == "" || contract.SQLitePath == "" || checked.RepoID == "" || checked.Branch == "" || checked.HeadSHA == "" || checked.DefaultBranch == "" || checked.TrustedSHA == "" || checked.EffectivePrimary != "codex" {
 		return errors.New("pipeline: incomplete managed launch contract")
 	}
 	for _, value := range []string{contract.ConfigSHA256, checked.TaskConfigSHA256, checked.TrustedConfigSHA256} {
@@ -179,6 +237,10 @@ func validatePipelineLaunchContract(contract pipelineLaunchContract) error {
 	absProject, err := filepath.Abs(contract.Project)
 	if err != nil || !fsx.SamePath(absProject, contract.Project) {
 		return errors.New("pipeline: managed launch project path must be absolute")
+	}
+	absSQLite, err := filepath.Abs(contract.SQLitePath)
+	if err != nil || !fsx.SamePath(absSQLite, contract.SQLitePath) {
+		return errors.New("pipeline: managed launch sqlite path must be absolute")
 	}
 	return nil
 }

@@ -82,9 +82,13 @@ func TestVerifyNativeAgentBindsDurableRunAndImmutableGitEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
-CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,head_sha TEXT,submitted_head_sha TEXT,status TEXT,created_at INTEGER,launch_nonce TEXT,launch_validation_generation TEXT,worktree_dir TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,head_sha TEXT,submitted_head_sha TEXT,status TEXT,created_at INTEGER,launch_nonce TEXT,launch_validation_generation TEXT,worktree_dir TEXT,no_mistakes_version TEXT,no_mistakes_build_sha TEXT);
+CREATE TABLE step_results(id TEXT,run_id TEXT,step_name TEXT,status TEXT);
+CREATE TABLE step_rounds(step_result_id TEXT,starting_head_sha TEXT);
+CREATE TABLE agent_invocations(run_id TEXT,step_name TEXT);
+CREATE TABLE uncertified_pipeline_ranges(repo_id TEXT,branch TEXT,from_sha TEXT,to_sha TEXT,source_run_id TEXT);
 INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'main');
-INSERT INTO runs VALUES('run','repo','feature','` + submitted + `','` + submitted + `','running',1,'nonce','generation',` + sqlString(filepath.ToSlash(nativeWorktree)) + `);`
+INSERT INTO runs VALUES('run','repo','feature','` + submitted + `','` + submitted + `','running',1,'nonce','generation',` + sqlString(filepath.ToSlash(nativeWorktree)) + `,'v1.75.1','37ed232');`
 	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), sql).CombinedOutput(); err != nil {
 		t.Fatalf("fixture: %s %v", out, err)
 	}
@@ -98,14 +102,49 @@ INSERT INTO runs VALUES('run','repo','feature','` + submitted + `','` + submitte
 	if err := reader.VerifyNativeAgent(context.Background(), nativeWorktree, want); err != nil {
 		t.Fatal(err)
 	}
-	runPipelineGit(t, nativeWorktree, "checkout", "--detach", trusted)
-	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `UPDATE runs SET head_sha=`+sqlString(trusted)).CombinedOutput(); err != nil {
+	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `UPDATE runs SET no_mistakes_version='other'`).CombinedOutput(); err != nil {
+		t.Fatalf("version fixture: %s %v", out, err)
+	}
+	if err := reader.VerifyNativeAgent(context.Background(), nativeWorktree, want); err == nil || !strings.Contains(err.Error(), "version") {
+		t.Fatalf("pre-agent native version mismatch error=%v", err)
+	}
+	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `UPDATE runs SET no_mistakes_version='v1.75.1'`).CombinedOutput(); err != nil {
+		t.Fatalf("restore version fixture: %s %v", out, err)
+	}
+	if err := os.WriteFile(filepath.Join(nativeWorktree, "fixed.txt"), []byte("fixed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runPipelineGit(t, nativeWorktree, "config", "user.name", "Pipeline Test")
+	runPipelineGit(t, nativeWorktree, "config", "user.email", "pipeline@example.com")
+	runPipelineGit(t, nativeWorktree, "add", "fixed.txt")
+	runPipelineGit(t, nativeWorktree, "commit", "-m", "native fix")
+	fixed := runPipelineGit(t, nativeWorktree, "rev-parse", "HEAD")
+	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `UPDATE runs SET head_sha=`+sqlString(fixed)+`; INSERT INTO uncertified_pipeline_ranges VALUES('repo','feature',`+sqlString(submitted)+`,`+sqlString(fixed)+`,'run')`).CombinedOutput(); err != nil {
 		t.Fatalf("move durable head fixture: %s %v", out, err)
 	}
-	if err := reader.VerifyNativeAgent(context.Background(), nativeWorktree, want); err == nil || !strings.Contains(err.Error(), "submitted head") {
+	if err := reader.VerifyNativeAgent(context.Background(), nativeWorktree, want); err != nil {
+		t.Fatalf("native-authorized descendant head refused: %v", err)
+	}
+	runPipelineGit(t, nativeWorktree, "checkout", "--detach", trusted)
+	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `UPDATE runs SET head_sha=`+sqlString(trusted)).CombinedOutput(); err != nil {
+		t.Fatalf("move unrelated durable head fixture: %s %v", out, err)
+	}
+	if err := reader.VerifyNativeAgent(context.Background(), nativeWorktree, want); err == nil || !strings.Contains(err.Error(), "authorized transition") {
 		t.Fatalf("unbound durable and worktree head error=%v", err)
 	}
-	runPipelineGit(t, nativeWorktree, "checkout", "feature")
+	if err := os.WriteFile(filepath.Join(nativeWorktree, "rebased.txt"), []byte("rebased\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runPipelineGit(t, nativeWorktree, "add", "rebased.txt")
+	runPipelineGit(t, nativeWorktree, "commit", "-m", "native rebase result")
+	rebased := runPipelineGit(t, nativeWorktree, "rev-parse", "HEAD")
+	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `UPDATE runs SET head_sha=`+sqlString(rebased)+`; INSERT INTO step_results VALUES('rebase-step','run','rebase','completed')`).CombinedOutput(); err != nil {
+		t.Fatalf("rebase transition fixture: %s %v", out, err)
+	}
+	if err := reader.VerifyNativeAgent(context.Background(), nativeWorktree, want); err != nil {
+		t.Fatalf("completed native rebase head refused: %v", err)
+	}
+	runPipelineGit(t, nativeWorktree, "checkout", "--detach", submitted)
 	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `UPDATE runs SET head_sha=`+sqlString(submitted)).CombinedOutput(); err != nil {
 		t.Fatalf("restore durable head fixture: %s %v", out, err)
 	}
@@ -138,12 +177,12 @@ func TestVerifyNativeLaunchRequiresDurableModelAndGlobalConfig(t *testing.T) {
 	project := t.TempDir()
 	globalConfig := []byte("agent: [codex]\nagent_config:\n  codex: {model: gpt-5.6-sol, effort: high}\n")
 	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
-CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,submitted_head_sha TEXT,launch_nonce TEXT,launch_validation_generation TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,submitted_head_sha TEXT,launch_nonce TEXT,launch_validation_generation TEXT,no_mistakes_version TEXT,no_mistakes_build_sha TEXT);
 CREATE TABLE step_results(id TEXT,run_id TEXT,step_name TEXT);
 CREATE TABLE step_rounds(id TEXT,step_result_id TEXT,round INTEGER,trusted_config_sha TEXT,global_config_yaml BLOB,created_at INTEGER);
 CREATE TABLE agent_invocations(id TEXT,run_id TEXT,agent TEXT,model TEXT,started_at INTEGER);
 INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'main');
-INSERT INTO runs VALUES('run','repo','feature','submitted','nonce','generation');
+INSERT INTO runs VALUES('run','repo','feature','submitted','nonce','generation','v1.75.1','37ed232');
 INSERT INTO step_results VALUES('review-step','run','review');
 INSERT INTO step_rounds VALUES('round','review-step',1,'trusted',X'` + fmt.Sprintf("%x", globalConfig) + `',1);
 INSERT INTO agent_invocations VALUES('invocation','run','codex','gpt-5.6-sol',1);`
@@ -159,6 +198,15 @@ INSERT INTO agent_invocations VALUES('invocation','run','codex','gpt-5.6-sol',1)
 	reader := Reader{Root: root, Commands: execx.OSRunner{}}
 	if err := reader.VerifyNativeLaunch(context.Background(), want); err != nil {
 		t.Fatal(err)
+	}
+	if out, err := exec.Command("sqlite3", database, `UPDATE runs SET no_mistakes_build_sha='other'`).CombinedOutput(); err != nil {
+		t.Fatalf("build fixture: %s %v", out, err)
+	}
+	if err := reader.VerifyNativeLaunch(context.Background(), want); err == nil || !strings.Contains(err.Error(), "version") {
+		t.Fatalf("durable build mismatch error=%v", err)
+	}
+	if out, err := exec.Command("sqlite3", database, `UPDATE runs SET no_mistakes_build_sha='37ed232'`).CombinedOutput(); err != nil {
+		t.Fatalf("restore build fixture: %s %v", out, err)
 	}
 	if out, err := exec.Command("sqlite3", database, `UPDATE agent_invocations SET model='other'`).CombinedOutput(); err != nil {
 		t.Fatalf("model fixture: %s %v", out, err)
@@ -185,9 +233,9 @@ func TestNativeRunAtWorktreeDoesNotTreatAnEmptyRecordedPathAsTheCurrentDirectory
 		t.Fatal(err)
 	}
 	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
-CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,head_sha TEXT,submitted_head_sha TEXT,status TEXT,created_at INTEGER,launch_nonce TEXT,launch_validation_generation TEXT,worktree_dir TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,head_sha TEXT,submitted_head_sha TEXT,status TEXT,created_at INTEGER,launch_nonce TEXT,launch_validation_generation TEXT,worktree_dir TEXT,no_mistakes_version TEXT,no_mistakes_build_sha TEXT);
 INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'main');
-INSERT INTO runs VALUES('run','repo','feature','head','head','running',1,'nonce','generation','');`
+INSERT INTO runs VALUES('run','repo','feature','head','head','running',1,'nonce','generation','',NULL,NULL);`
 	if out, err := exec.Command("sqlite3", filepath.Join(root, "state.sqlite"), sql).CombinedOutput(); err != nil {
 		t.Fatalf("fixture: %s %v", out, err)
 	}

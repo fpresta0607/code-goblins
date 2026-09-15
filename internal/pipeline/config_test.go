@@ -54,6 +54,9 @@ func TestRenderPreservesUnownedConfigAndIsIdempotent(t *testing.T) {
 		} `yaml:"review_agents"`
 		AgentArgs  map[string][]string `yaml:"agent_args_override"`
 		AgentPaths map[string]string   `yaml:"agent_path_override"`
+		Eval       struct {
+			CaptureProvenance bool `yaml:"capture_provenance"`
+		} `yaml:"eval"`
 	}
 	if err := yaml.Unmarshal(after, &rendered); err != nil {
 		t.Fatal(err)
@@ -77,10 +80,38 @@ func TestRenderPreservesUnownedConfigAndIsIdempotent(t *testing.T) {
 	if rendered.AgentPaths["codex"] != "cfo" {
 		t.Fatalf("codex executable=%q, want CFO launch guard", rendered.AgentPaths["codex"])
 	}
+	if !rendered.Eval.CaptureProvenance {
+		t.Fatal("eval provenance capture is not owned")
+	}
 	if _, ok := rendered.AgentArgs["claude"]; ok {
 		t.Fatal("legacy CFO-owned Claude arguments remain")
 	}
 	again, drift, err := Render(after, p)
+	if err != nil || len(drift) != 0 || string(again) != string(after) {
+		t.Fatalf("not idempotent: %v %v", drift, err)
+	}
+}
+
+func TestRenderOverridesDisabledEvalProvenance(t *testing.T) {
+	after, drift, err := Render([]byte("eval:\n  capture_provenance: false\n"), testPolicy(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(drift, "eval.capture_provenance") {
+		t.Fatalf("drift=%v, want provenance ownership", drift)
+	}
+	var config struct {
+		Eval struct {
+			CaptureProvenance bool `yaml:"capture_provenance"`
+		} `yaml:"eval"`
+	}
+	if err := yaml.Unmarshal(after, &config); err != nil {
+		t.Fatal(err)
+	}
+	if !config.Eval.CaptureProvenance {
+		t.Fatal("disabled provenance survived rendering")
+	}
+	again, drift, err := Render(after, testPolicy(t))
 	if err != nil || len(drift) != 0 || string(again) != string(after) {
 		t.Fatalf("not idempotent: %v %v", drift, err)
 	}

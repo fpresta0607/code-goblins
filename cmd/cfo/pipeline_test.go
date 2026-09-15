@@ -50,6 +50,7 @@ type pipelineStartRunner struct {
 	native            []execx.Request
 	nonce             string
 	generation        string
+	durableModel      string
 }
 
 func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Result, error) {
@@ -71,7 +72,11 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 			if err != nil {
 				return execx.Result{}, err
 			}
-			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"run_id":"run-bound","repo_id":"repo","working_path":%q,"branch":"feat/policy","submitted_head_sha":%q,"launch_nonce":%q,"validation_generation":%q,"trusted_sha":%q,"agent":"codex","model":"gpt-5.6-sol","global_config_hex":%q}]`, filepath.ToSlash(filepath.Dir(filepath.Dir(r.worktree))), trusted, r.nonce, r.generation, trusted, fmt.Sprintf("%x", config)))}, nil
+			model := r.durableModel
+			if model == "" {
+				model = "gpt-5.6-sol"
+			}
+			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"run_id":"run-bound","repo_id":"repo","working_path":%q,"branch":"feat/policy","submitted_head_sha":%q,"launch_nonce":%q,"validation_generation":%q,"trusted_sha":%q,"agent":"codex","model":%q,"global_config_hex":%q,"no_mistakes_version":"v1.75.1","no_mistakes_build_sha":"37ed232"}]`, filepath.ToSlash(filepath.Dir(filepath.Dir(r.worktree))), trusted, r.nonce, r.generation, trusted, model, fmt.Sprintf("%x", config)))}, nil
 		}
 	case "git":
 		switch strings.Join(q.Args, " ") {
@@ -1145,6 +1150,18 @@ func TestPipelineRunBindsAndVerifiesNativeLaunch(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "launch_receipt:") || !strings.Contains(out.String(), "pipeline launch: verified run run-bound") {
 		t.Fatalf("output=%q", out.String())
+	}
+	contractPath := filepath.Join(tmp, pipelineLaunchContractName)
+	if err := os.Remove(contractPath); err != nil {
+		t.Fatal(err)
+	}
+	mismatch := &pipelineStartRunner{worktree: wt, durableModel: "other"}
+	err = pipelineCommand(context.Background(), h, nm, mismatch, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "primary") {
+		t.Fatalf("durable proof mismatch error=%v", err)
+	}
+	if _, statErr := os.Stat(contractPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("failed durable proof retained launch contract: %v", statErr)
 	}
 }
 

@@ -108,6 +108,13 @@ func Render(before []byte, p Policy) ([]byte, []string, error) {
 			return nil, nil, err
 		}
 	} else {
+		eval, err := mapping(root, "eval")
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := set(eval, "capture_provenance", "eval.capture_provenance", true); err != nil {
+			return nil, nil, err
+		}
 		if err := removeOwned(args, "claude", "agent_args_override.claude", []string{"--model", "opus", "--effort", "high"}); err != nil {
 			return nil, nil, err
 		}

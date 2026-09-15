@@ -37,6 +37,9 @@ func TestStripNativeGateMarkerRecognizesOnlyNativeCodexPositions(t *testing.T) {
 func TestFindPipelineLaunchContractBindsTaskPathAndLaunchIdentity(t *testing.T) {
 	stateDir := t.TempDir()
 	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "sqlite3.exe"), []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	contract := testPipelineLaunchContract(project)
 	path := filepath.Join(stateDir, "tasktmp", contract.TaskID, pipelineLaunchContractName)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -66,9 +69,9 @@ func TestAuthorizeNativeGateAgentPreservesUnmanagedNativeRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
-CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,head_sha TEXT,submitted_head_sha TEXT,status TEXT,created_at INTEGER,launch_nonce TEXT,launch_validation_generation TEXT,worktree_dir TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,head_sha TEXT,submitted_head_sha TEXT,status TEXT,created_at INTEGER,launch_nonce TEXT,launch_validation_generation TEXT,worktree_dir TEXT,no_mistakes_version TEXT,no_mistakes_build_sha TEXT);
 INSERT INTO repos VALUES('repo',` + pipelineSQLString(filepath.ToSlash(project)) + `,'main');
-INSERT INTO runs VALUES('run','repo','feature','head','head','running',1,NULL,NULL,` + pipelineSQLString(filepath.ToSlash(worktree)) + `);`
+INSERT INTO runs VALUES('run','repo','feature','head','head','running',1,NULL,NULL,` + pipelineSQLString(filepath.ToSlash(worktree)) + `,NULL,NULL);`
 	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), sql).CombinedOutput(); err != nil {
 		t.Fatalf("fixture: %s %v", out, err)
 	}
@@ -96,6 +99,35 @@ INSERT INTO runs VALUES('run','repo','feature','head','head','running',1,NULL,NU
 	}
 }
 
+func TestNativeGateReaderPreservesUnmanagedRunWithoutSQLiteInPath(t *testing.T) {
+	h := home.Home{State: t.TempDir()}
+	t.Setenv("PATH", t.TempDir())
+	reader, inspect, err := nativeGateReader(h, t.TempDir())
+	if err != nil || inspect || reader.Commands != nil {
+		t.Fatalf("reader=%+v inspect=%t err=%v", reader, inspect, err)
+	}
+}
+
+func TestNativeGateReaderUsesPersistedSQLiteOutsidePath(t *testing.T) {
+	sqlitePath, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 CLI not available")
+	}
+	sqlitePath, err = filepath.Abs(sqlitePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := home.Home{State: t.TempDir()}
+	if err := saveNativeGateRuntime(h.State, nativeGateRuntime{Version: 1, SQLitePath: sqlitePath}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	reader, inspect, err := nativeGateReader(h, t.TempDir())
+	if err != nil || !inspect || !filepath.IsAbs(reader.SQLitePath) || !strings.EqualFold(reader.SQLitePath, sqlitePath) {
+		t.Fatalf("reader=%+v inspect=%t err=%v", reader, inspect, err)
+	}
+}
+
 func testPipelineLaunchContract(project string) pipelineLaunchContract {
 	return pipelineLaunchContract{
 		Version: 1, TaskID: "native-gate-test", PolicyHash: strings.Repeat("c", 64), Project: project,
@@ -106,6 +138,7 @@ func testPipelineLaunchContract(project string) pipelineLaunchContract {
 		},
 		ConfigSHA256: strings.Repeat("5", 64), LaunchNonce: strings.Repeat("a", 32),
 		ValidationGeneration: cfoValidationGenerationPrefix + strings.Repeat("b", 32),
+		SQLitePath:           filepath.Join(project, "sqlite3.exe"),
 	}
 }
 
