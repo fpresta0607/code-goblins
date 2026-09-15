@@ -14,6 +14,17 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 )
 
+type nativeGateStatusRunner struct {
+	result  execx.Result
+	err     error
+	request execx.Request
+}
+
+func (r *nativeGateStatusRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
+	r.request = request
+	return r.result, r.err
+}
+
 func TestStripNativeGateMarkerRecognizesOnlyNativeCodexPositions(t *testing.T) {
 	for _, test := range []struct {
 		name   string
@@ -52,9 +63,41 @@ func TestSubscriptionOnlyNativeGateEnvironmentStripsBillingKeysCaseInsensitively
 
 func TestSubscriptionOnlyNativeGateArgumentsForceOpenAIProvider(t *testing.T) {
 	got := subscriptionOnlyNativeGateArguments([]string{"exec", "-c", `model_provider="openrouter"`, "-"})
-	want := []string{"exec", "-c", `model_provider="openrouter"`, "-", "-c", `model_provider="openai"`}
+	want := []string{"exec", "-c", `model_provider="openrouter"`, "-", "-c", `model_provider="openai"`, "-c", `forced_login_method="chatgpt"`}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("arguments=%q, want %q", got, want)
+	}
+}
+
+func TestNativeGateDelegationPreservesUnmanagedProviderAndCredentials(t *testing.T) {
+	args := []string{"exec", "-c", `model_provider="openrouter"`, "-"}
+	env := []string{"PATH=C:\\tools", "OPENROUTER_API_KEY=secret"}
+	gotArgs, gotEnv := nativeGateDelegation(args, env, false)
+	if strings.Join(gotArgs, "\n") != strings.Join(args, "\n") || strings.Join(gotEnv, "\n") != strings.Join(env, "\n") {
+		t.Fatalf("unmanaged delegation args=%q env=%q", gotArgs, gotEnv)
+	}
+}
+
+func TestRequireManagedNativeGateChatGPTRejectsPersistedAPIKey(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		status  string
+		wantErr bool
+	}{
+		{name: "ChatGPT", status: "Logged in using ChatGPT"},
+		{name: "API key", status: "Logged in using an API key - sk-...", wantErr: true},
+		{name: "logged out", status: "Not logged in", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &nativeGateStatusRunner{result: execx.Result{Stderr: []byte(test.status + "\n")}}
+			err := requireManagedNativeGateChatGPT(context.Background(), runner, []string{"PATH=C:\\tools"})
+			if (err != nil) != test.wantErr {
+				t.Fatalf("status=%q error=%v", test.status, err)
+			}
+			if strings.Join(runner.request.Args, " ") != `login status -c model_provider="openai" -c forced_login_method="chatgpt"` {
+				t.Fatalf("status arguments=%q", runner.request.Args)
+			}
+		})
 	}
 }
 
@@ -64,7 +107,7 @@ func TestFindPipelineLaunchContractBindsTaskPathAndLaunchIdentity(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(project, "sqlite3.exe"), []byte("fixture"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	contract := testPipelineLaunchContract(project)
+	contract := testPipelineLaunchContract(t, project)
 	contract.Status = pipelineLaunchContractPending
 	path := filepath.Join(stateDir, "tasktmp", contract.TaskID, pipelineLaunchContractName)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -88,7 +131,7 @@ func TestFindPipelineLaunchContractIgnoresUnrelatedLegacyContract(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(project, "sqlite3.exe"), []byte("fixture"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	legacy := testPipelineLaunchContract(project)
+	legacy := testPipelineLaunchContract(t, project)
 	legacy.TaskID = "a-legacy-task"
 	legacy.Status = ""
 	legacy.LaunchNonce = strings.Repeat("d", 32)
@@ -105,7 +148,7 @@ func TestFindPipelineLaunchContractIgnoresUnrelatedLegacyContract(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	current := testPipelineLaunchContract(project)
+	current := testPipelineLaunchContract(t, project)
 	current.TaskID = "current-task"
 	currentPath := filepath.Join(stateDir, "tasktmp", current.TaskID, pipelineLaunchContractName)
 	if err := os.MkdirAll(filepath.Dir(currentPath), 0o755); err != nil {
@@ -141,25 +184,25 @@ INSERT INTO runs VALUES('run','repo','feature','head','head','running',1,NULL,NU
 		t.Fatalf("fixture: %s %v", out, err)
 	}
 	reader := pipeline.Reader{Root: nativeRoot, Commands: execx.OSRunner{}}
-	if err := authorizeNativeGateAgent(context.Background(), home.Home{State: stateDir}, reader, worktree); err != nil {
+	if managed, err := authorizeNativeGateAgent(context.Background(), home.Home{State: stateDir}, reader, worktree); err != nil || managed {
 		t.Fatal(err)
 	}
 	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `UPDATE runs SET launch_nonce='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',launch_validation_generation='native-generation'`).CombinedOutput(); err != nil {
 		t.Fatalf("update fixture: %s %v", out, err)
 	}
-	if err := authorizeNativeGateAgent(context.Background(), home.Home{State: stateDir}, reader, worktree); err != nil {
+	if managed, err := authorizeNativeGateAgent(context.Background(), home.Home{State: stateDir}, reader, worktree); err != nil || managed {
 		t.Fatalf("strict native run was not preserved: %v", err)
 	}
 	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `UPDATE runs SET status=NULL,launch_validation_generation='cfo-v1-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'`).CombinedOutput(); err != nil {
 		t.Fatalf("update managed fixture: %s %v", out, err)
 	}
-	if err := authorizeNativeGateAgent(context.Background(), home.Home{State: stateDir}, reader, worktree); err == nil || !strings.Contains(err.Error(), "no matching CFO launch contract") {
+	if _, err := authorizeNativeGateAgent(context.Background(), home.Home{State: stateDir}, reader, worktree); err == nil || !strings.Contains(err.Error(), "no matching CFO launch contract") {
 		t.Fatalf("managed run without contract error=%v", err)
 	}
 	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `DELETE FROM runs`).CombinedOutput(); err != nil {
 		t.Fatalf("delete fixture: %s %v", out, err)
 	}
-	if err := authorizeNativeGateAgent(context.Background(), home.Home{State: stateDir}, reader, worktree); err != nil {
+	if managed, err := authorizeNativeGateAgent(context.Background(), home.Home{State: stateDir}, reader, worktree); err != nil || managed {
 		t.Fatalf("native operation outside a run was not preserved: %v", err)
 	}
 }
@@ -177,7 +220,7 @@ func TestAuthorizeNativeGateAgentRefusesPendingContractAfterFirstInvocation(t *t
 	nativeRoot := t.TempDir()
 	project := t.TempDir()
 	worktree := t.TempDir()
-	contract := testPipelineLaunchContract(project)
+	contract := testPipelineLaunchContract(t, project)
 	contract.Status = pipelineLaunchContractPending
 	contract.Checked.RepoID = "repo"
 	contract.Checked.Branch = "feature"
@@ -202,9 +245,22 @@ INSERT INTO agent_invocations VALUES('run');`
 		t.Fatalf("fixture: %s %v", out, err)
 	}
 	reader := pipeline.Reader{Root: nativeRoot, Commands: execx.OSRunner{}, SQLitePath: sqlitePath}
-	err = authorizeNativeGateAgent(context.Background(), home.Home{State: stateDir}, reader, worktree)
+	_, err = authorizeNativeGateAgent(context.Background(), home.Home{State: stateDir}, reader, worktree)
 	if err == nil || !strings.Contains(err.Error(), "pending") {
 		t.Fatalf("pending contract after invocation error=%v", err)
+	}
+	contract.Status = pipelineLaunchContractVerified
+	contract.RunID = "run"
+	contract.CFOExecutablePath = sqlitePath
+	contract.CFOExecutableSHA256, err = fileSHA256(sqlitePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := savePipelineLaunchContract(contractPath, contract); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authorizeNativeGateAgent(context.Background(), home.Home{State: stateDir}, reader, worktree); err == nil || !strings.Contains(err.Error(), "CFO executable identity") {
+		t.Fatalf("different CFO executable error=%v", err)
 	}
 }
 
@@ -239,7 +295,7 @@ func TestNativeGateReaderUsesLaunchContractSQLiteOutsidePath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+gitDir+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	contract := testPipelineLaunchContract(t.TempDir())
+	contract := testPipelineLaunchContract(t, t.TempDir())
 	contract.Status = pipelineLaunchContractVerified
 	contract.RunID = "run-bound"
 	contract.SQLitePath = sqlitePath
@@ -263,12 +319,22 @@ func TestNativeGateReaderUsesLaunchContractSQLiteOutsidePath(t *testing.T) {
 		t.Fatal(err)
 	}
 	reader, inspect, err = nativeGateReader(h, nativeRoot, unmanaged)
-	if err != nil || inspect || reader.Commands != nil {
-		t.Fatalf("stale contract classified unmanaged run: reader=%+v inspect=%t err=%v", reader, inspect, err)
+	if err == nil || inspect || reader.Commands != nil {
+		t.Fatalf("missing sqlite unexpectedly classified native run: reader=%+v inspect=%t err=%v", reader, inspect, err)
+	}
+	t.Setenv("PATH", filepath.Dir(sqlitePath))
+	reader, inspect, err = nativeGateReader(h, nativeRoot, unmanaged)
+	if err != nil || !inspect || !strings.EqualFold(reader.SQLitePath, sqlitePath) {
+		t.Fatalf("native run without contract was not inspected: reader=%+v inspect=%t err=%v", reader, inspect, err)
 	}
 }
 
-func testPipelineLaunchContract(project string) pipelineLaunchContract {
+func testPipelineLaunchContract(t *testing.T, project string) pipelineLaunchContract {
+	t.Helper()
+	executable, digest, err := currentCFOExecutableEvidence()
+	if err != nil {
+		t.Fatal(err)
+	}
 	return pipelineLaunchContract{
 		Version: 1, Status: pipelineLaunchContractPending, TaskID: "native-gate-test", PolicyHash: strings.Repeat("c", 64), Project: project,
 		Checked: pipeline.StartEvidence{
@@ -279,6 +345,8 @@ func testPipelineLaunchContract(project string) pipelineLaunchContract {
 		ConfigSHA256: strings.Repeat("5", 64), LaunchNonce: strings.Repeat("a", 32),
 		ValidationGeneration: cfoValidationGenerationPrefix + strings.Repeat("b", 32),
 		SQLitePath:           filepath.Join(project, "sqlite3.exe"),
+		CFOExecutablePath:    executable,
+		CFOExecutableSHA256:  digest,
 	}
 }
 

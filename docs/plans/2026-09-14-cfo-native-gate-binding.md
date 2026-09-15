@@ -66,7 +66,7 @@ The native agent path enters a CFO guard that verifies the durable launch contra
 
 1. Run the full Go test suite, formatting check, vet or repository lint, documentation checks, and an exact candidate build.
 2. Commit the candidate, fetch current `origin/main`, rebase the clean branch, and repeat affected verification if main moved.
-3. Prove the candidate source commit and SHA-256 before installation.
+3. Prove the candidate source commit and SHA-256 from the uninstalled build.
 4. Wait for the existing native singleton owner to finish, apply any required shared configuration only in an explicit idle window, and run this task's high-risk managed gate without `--yes`.
 5. Resolve legitimate findings within the frozen three-cycle review budget, then wait for green CI.
-6. Open and record the PR, merge under the brief's yolo authorization, fetch and verify merged `main`, rebuild and install the exact merged artifact, verify its hash, remove task-created temporary files, and notify CFO.
+6. Open and record the PR, verify the published branch, remove task-created temporary files, and notify CFO.

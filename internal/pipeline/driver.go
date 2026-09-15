@@ -270,7 +270,7 @@ func (r Reader) verifyNativeHeadTransition(ctx context.Context, run NativeRunCon
 	}
 	sql := `SELECT
 EXISTS(SELECT 1 FROM uncertified_pipeline_ranges WHERE repo_id=` + sqlString(run.RepoID) + ` AND branch=` + sqlString(run.Branch) + ` AND source_run_id=` + sqlString(run.RunID) + ` AND to_sha=` + sqlString(head) + `) AS fix,
-EXISTS(SELECT 1 FROM step_results WHERE run_id=` + sqlString(run.RunID) + ` AND step_name='rebase' AND status='completed') AND NOT EXISTS(SELECT 1 FROM agent_invocations WHERE run_id=` + sqlString(run.RunID) + ` AND step_name<>'rebase') AS rebase`
+EXISTS(SELECT 1 FROM step_results WHERE run_id=` + sqlString(run.RunID) + ` AND step_name='rebase' AND status='completed') AND (NOT EXISTS(SELECT 1 FROM agent_invocations WHERE run_id=` + sqlString(run.RunID) + ` AND step_name<>'rebase') OR EXISTS(SELECT 1 FROM step_rounds JOIN step_results ON step_results.id=step_rounds.step_result_id WHERE step_results.run_id=` + sqlString(run.RunID) + ` AND step_results.step_name='review' AND step_rounds.starting_head_sha=` + sqlString(head) + `)) AS rebase`
 	if queryErr := r.query(ctx, sql, &rows); queryErr != nil || len(rows) != 1 {
 		return errors.New("pipeline: native run head lacks an authorized transition from the managed submitted head")
 	}
@@ -296,6 +296,7 @@ func (r Reader) VerifyNativeLaunch(ctx context.Context, expected NativeLaunchExp
 		TrustedSHA           string `json:"trusted_sha"`
 		Agent                string `json:"agent"`
 		Model                string `json:"model"`
+		ModelProvider        string `json:"model_provider"`
 		GlobalConfigHex      string `json:"global_config_hex"`
 		NoMistakesVersion    string `json:"no_mistakes_version"`
 		NoMistakesBuildSHA   string `json:"no_mistakes_build_sha"`
@@ -305,6 +306,7 @@ func (r Reader) VerifyNativeLaunch(ctx context.Context, expected NativeLaunchExp
 COALESCE((SELECT step_rounds.trusted_config_sha FROM step_rounds JOIN step_results ON step_results.id=step_rounds.step_result_id WHERE step_results.run_id=runs.id AND step_rounds.trusted_config_sha IS NOT NULL ORDER BY step_rounds.created_at,step_rounds.id LIMIT 1),'') AS trusted_sha,
 COALESCE((SELECT agent_invocations.agent FROM agent_invocations WHERE agent_invocations.run_id=runs.id ORDER BY agent_invocations.started_at,agent_invocations.id LIMIT 1),'') AS agent,
 COALESCE((SELECT agent_invocations.model FROM agent_invocations WHERE agent_invocations.run_id=runs.id ORDER BY agent_invocations.started_at,agent_invocations.id LIMIT 1),'') AS model,
+COALESCE((SELECT agent_invocations.model_provider FROM agent_invocations WHERE agent_invocations.run_id=runs.id ORDER BY agent_invocations.started_at,agent_invocations.id LIMIT 1),'') AS model_provider,
 COALESCE((SELECT hex(step_rounds.global_config_yaml) FROM step_rounds JOIN step_results ON step_results.id=step_rounds.step_result_id WHERE step_results.run_id=runs.id AND step_results.step_name='review' AND step_rounds.global_config_yaml IS NOT NULL ORDER BY step_rounds.round,step_rounds.created_at,step_rounds.id LIMIT 1),'') AS global_config_hex
 	,(SELECT COUNT(*) FROM agent_invocations WHERE agent_invocations.run_id=runs.id) AS invocation_count
 FROM runs JOIN repos ON repos.id=runs.repo_id WHERE runs.id=` + sqlString(expected.RunID)
@@ -325,7 +327,7 @@ FROM runs JOIN repos ON repos.id=runs.repo_id WHERE runs.id=` + sqlString(expect
 	if row.InvocationCount == 0 {
 		return state, nil
 	}
-	if row.TrustedSHA != expected.TrustedSHA || row.Agent != expected.Primary || row.Model != expected.PrimaryModel {
+	if row.TrustedSHA != expected.TrustedSHA || row.Agent != expected.Primary || row.Model != expected.PrimaryModel || row.ModelProvider != "openai" {
 		return NativeLaunchState{}, errors.New("pipeline: native launch record does not match the checked trusted SHA and primary")
 	}
 	globalConfig, err := hex.DecodeString(row.GlobalConfigHex)

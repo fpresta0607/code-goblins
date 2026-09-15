@@ -211,7 +211,11 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		if err != nil {
 			return err
 		}
-		contract := pipelineLaunchContract{Version: 1, Status: pipelineLaunchContractPending, TaskID: id, PolicyHash: selection.Hash, Project: meta.Project, Checked: checked.Start, ConfigSHA256: checked.ConfigSHA256, LaunchNonce: nonce, ValidationGeneration: generation, SQLitePath: sqlitePath}
+		cfoExecutablePath, cfoExecutableSHA256, err := currentCFOExecutableEvidence()
+		if err != nil {
+			return err
+		}
+		contract := pipelineLaunchContract{Version: 1, Status: pipelineLaunchContractPending, TaskID: id, PolicyHash: selection.Hash, Project: meta.Project, Checked: checked.Start, ConfigSHA256: checked.ConfigSHA256, LaunchNonce: nonce, ValidationGeneration: generation, SQLitePath: sqlitePath, CFOExecutablePath: cfoExecutablePath, CFOExecutableSHA256: cfoExecutableSHA256}
 		contractPath := filepath.Join(expectedTmp, pipelineLaunchContractName)
 		if err := savePipelineLaunchContract(contractPath, contract); err != nil {
 			return err
@@ -406,6 +410,8 @@ type pipelineLaunchContract struct {
 	LaunchNonce          string                 `json:"launch_nonce"`
 	ValidationGeneration string                 `json:"validation_generation"`
 	SQLitePath           string                 `json:"sqlite_path"`
+	CFOExecutablePath    string                 `json:"cfo_executable_path"`
+	CFOExecutableSHA256  string                 `json:"cfo_executable_sha256"`
 }
 
 func capturePipelineLaunch(ctx context.Context, h home.Home, root string, reader pipeline.Reader, expected state.TaskMeta, branch string, selection pipeline.Selection) (pipelineLaunchEvidence, error) {

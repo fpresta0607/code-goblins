@@ -97,10 +97,11 @@ Commit work on a named feature branch before `run`.
 The project must be initialized for no-mistakes, with readable committed task and origin default-branch `.no-mistakes.yaml` files.
 Refresh origin before starting; global reviewer/fixer drift and repository automatic-fix overrides that conflict with policy are refused.
 Immediately before invoking native start, `run` captures the complete mutable launch evidence twice and requires the snapshots to match.
-The evidence binds task metadata, frozen policy, worktree identity, named branch, clean submitted head, current origin default branch, local tracking ref, submitted and trusted repository configuration digests, shared configuration digest, and effective Codex primary.
+The evidence binds task metadata, frozen policy, worktree identity, named branch, clean submitted head, current origin default branch, local tracking ref, submitted and trusted repository configuration digests, shared configuration digest, effective Codex primary, and the canonical path and SHA-256 of the current CFO executable.
 It then uses the native strict launch nonce and validation generation and requires the returned receipt to bind the exact branch, submitted head, generation, and intent digest.
 The shared configuration routes native Codex through the guarded `cfo exec --cfo-native-gate` and `cfo exec resume --cfo-native-gate` invocation shapes.
-Immediately before delegation, the guard removes every known harness billing credential from the inherited environment case-insensitively, so a machine or user API key cannot replace the required subscription login.
+Immediately before managed delegation, the guard requires the current CFO executable path and digest to match the contract, confirms ChatGPT authentication, forces the OpenAI provider and ChatGPT login method, and removes every known harness billing credential from the inherited environment case-insensitively.
+Marker invocations outside a CFO-managed run retain their original provider arguments and environment.
 The task-local launch contract starts as pending and can authorize only the first agent while the native run has no completed invocation.
 At the actual agent boundary, that guard finds the active run by its native worktree, loads the matching task-local launch contract, and requires the durable run head and current native worktree head to agree.
 The initial head must equal the submitted head, while a later head requires durable native fixer or completed rebase transition evidence before the guard rechecks the shared configuration, origin default branch, tracking ref, both repository configuration blobs, and Codex primary.
@@ -110,7 +111,7 @@ After native returns, the driver requires the durable run identity, no-mistakes 
 When no invocation exists because native parked at a pre-agent gate, the driver atomically binds the pending contract to that exact run ID and permits only that run's guarded response.
 If the native command returns a verified launch receipt with a nonzero bounded-wait result, the driver retains the verified or receipt-bound contract before returning the wait error.
 An interrupted pending contract whose run ID is still empty can be bound by a later managed response only after the durable native run matches every recorded launch field.
-After the first managed agent returns, the driver requires the trusted configuration SHA, recorded Codex gpt-5.6-sol model, and SHA-256 of the persisted review global configuration before atomically promoting the contract to verified.
+After the first managed agent returns, the driver requires the trusted configuration SHA, recorded OpenAI provider, Codex gpt-5.6-sol model, and SHA-256 of the persisted review global configuration before atomically promoting the contract to verified.
 A failed proof atomically revokes the pending contract before best-effort cleanup, so a Windows removal failure cannot preserve authorization.
 Receipt-only validation and after-the-fact cancellation are not treated as proof that the pre-agent boundary was safe.
 A repository's `agent` field continues to select only its native primary path and cannot replace the global reviewer or fixer profiles.
