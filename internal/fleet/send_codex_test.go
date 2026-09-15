@@ -225,6 +225,29 @@ func TestCodexParserAcceptsTypedFrameWhenQueueHintIsOutOfViewport(t *testing.T) 
 	}
 }
 
+func TestCodexSenderSubmitsLunaFrameOnceAfterIdentityCheck(t *testing.T) {
+	base := newAgentFake(agentFake{status: "working"})
+	runner := &codexFake{
+		base: base,
+		beforeScreen: "\r\n› \x1b[2mAsk Codex to do anything\x1b[0m\r\n" +
+			"  Luna Reserve xhigh · C:\\fixture\\project · Synthetic task\r\n",
+		screen: "\r\n› retain the old gate\r\n" +
+			"  \x1b[38;2;61;61;61m\x1b[48;2;41;41;41m\u2804\u2802\x1b[0m\r\n" +
+			"  Luna Reserve xhigh · C:\\fixture\\project · Synthetic task\r\n",
+		submitWorks: true,
+	}
+	sender := newAgentSender(base)
+	sender.Herdr.Commands = runner
+	err := sender.Text(context.Background(), "task-7", "retain the old gate")
+	var receipt *DeliveryError
+	if !errors.As(err, &receipt) || !strings.HasPrefix(receipt.Stage, "submitted") {
+		t.Fatalf("sender receipt = %v keys=%d delivery=%q requests=%v", err, runner.keys, codexDelivery(runner.screen, "retain the old gate"), runner.base.requests)
+	}
+	if runner.keys != 1 {
+		t.Fatalf("Enter keys = %d, want exactly one", runner.keys)
+	}
+}
+
 func TestCodexParserRejectsUnsafeBytesSequencesAndSuffixes(t *testing.T) {
 	cases := []struct {
 		name   string
