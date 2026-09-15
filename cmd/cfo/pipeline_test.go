@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -89,7 +90,7 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 				invocationCount = 0
 				agent, model, trustedSHA, globalConfigHex = "", "", "", ""
 			}
-			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"run_id":"run-bound","repo_id":"repo","working_path":%q,"branch":"feat/policy","submitted_head_sha":%q,"launch_nonce":%q,"validation_generation":%q,"trusted_sha":%q,"agent":%q,"model":%q,"global_config_hex":%q,"no_mistakes_version":"v1.75.1","no_mistakes_build_sha":"37ed232","invocation_count":%d}]`, filepath.ToSlash(filepath.Dir(filepath.Dir(r.worktree))), trusted, r.nonce, r.generation, trustedSHA, agent, model, globalConfigHex, invocationCount))}, nil
+			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"run_id":"run-bound","repo_id":"repo","working_path":%q,"branch":"feat/policy","submitted_head_sha":%q,"launch_nonce":%q,"validation_generation":%q,"trusted_sha":%q,"agent":%q,"model":%q,"model_provider":"openai","global_config_hex":%q,"no_mistakes_version":"v1.75.1","no_mistakes_build_sha":"37ed232","invocation_count":%d}]`, filepath.ToSlash(filepath.Dir(filepath.Dir(r.worktree))), trusted, r.nonce, r.generation, trustedSHA, agent, model, globalConfigHex, invocationCount))}, nil
 		}
 	case "git":
 		switch strings.Join(q.Args, " ") {
@@ -1080,7 +1081,7 @@ func TestPipelineRespondInvokesNativeOnlyForBudgetedExplicitDecision(t *testing.
 			if err := os.WriteFile(filepath.Join(project, "sqlite3.exe"), []byte("fixture"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			contract := testPipelineLaunchContract(project)
+			contract := testPipelineLaunchContract(t, project)
 			contract.Status = pipelineLaunchContractVerified
 			contract.RunID = "run"
 			contract.TaskID = "task"
@@ -1185,6 +1186,10 @@ func TestPipelineRunBindsAndVerifiesNativeLaunch(t *testing.T) {
 	verified, err := loadPipelineLaunchContract(contractPath)
 	if err != nil || verified.Status != pipelineLaunchContractVerified || verified.RunID != "run-bound" {
 		t.Fatalf("verified contract=%+v err=%v", verified, err)
+	}
+	executable, digest, err := currentCFOExecutableEvidence()
+	if err != nil || !fsx.SamePath(verified.CFOExecutablePath, executable) || verified.CFOExecutableSHA256 != digest {
+		t.Fatalf("CFO executable evidence path=%q digest=%q err=%v", verified.CFOExecutablePath, verified.CFOExecutableSHA256, err)
 	}
 	originalRemove := removePipelineLaunchContract
 	removePipelineLaunchContract = func(string) error { return errors.New("sharing violation") }

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -62,14 +63,23 @@ func runNativeGateAgent(args []string, stdin io.Reader, stdout, stderr io.Writer
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	managed := false
 	if inspect {
-		if err := authorizeNativeGateAgent(context.Background(), h, reader, worktree); err != nil {
+		managed, err = authorizeNativeGateAgent(context.Background(), h, reader, worktree)
+		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
 	}
-	cmd := exec.Command("codex", subscriptionOnlyNativeGateArguments(args)...)
-	cmd.Env = subscriptionOnlyNativeGateEnvironment(os.Environ())
+	cmdArgs, cmdEnv := nativeGateDelegation(args, os.Environ(), managed)
+	if managed {
+		if err := requireManagedNativeGateChatGPT(context.Background(), execx.OSRunner{}, cmdEnv); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+	}
+	cmd := exec.Command("codex", cmdArgs...)
+	cmd.Env = cmdEnv
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
@@ -104,7 +114,52 @@ func subscriptionOnlyNativeGateEnvironment(env []string) []string {
 }
 
 func subscriptionOnlyNativeGateArguments(args []string) []string {
-	return append(append([]string(nil), args...), "-c", `model_provider="openai"`)
+	return append(append([]string(nil), args...), "-c", `model_provider="openai"`, "-c", `forced_login_method="chatgpt"`)
+}
+
+func nativeGateDelegation(args, env []string, managed bool) ([]string, []string) {
+	if !managed {
+		return args, env
+	}
+	return subscriptionOnlyNativeGateArguments(args), subscriptionOnlyNativeGateEnvironment(env)
+}
+
+func requireManagedNativeGateChatGPT(ctx context.Context, commands execx.Runner, env []string) error {
+	result, err := commands.Run(ctx, execx.Request{Env: env, Name: "codex", Args: subscriptionOnlyNativeGateArguments([]string{"login", "status"})})
+	status := strings.TrimSpace(string(result.Stdout) + string(result.Stderr))
+	if err != nil || result.ExitCode != 0 || status != "Logged in using ChatGPT" {
+		return errors.New("pipeline: managed native gate requires ChatGPT subscription authentication")
+	}
+	return nil
+}
+
+func currentCFOExecutableEvidence() (string, string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", "", fmt.Errorf("pipeline: resolve current CFO executable: %w", err)
+	}
+	executable, err = fsx.Canonical(executable)
+	if err != nil {
+		return "", "", fmt.Errorf("pipeline: canonicalize current CFO executable: %w", err)
+	}
+	digest, err := fileSHA256(executable)
+	if err != nil {
+		return "", "", fmt.Errorf("pipeline: hash current CFO executable: %w", err)
+	}
+	return executable, digest, nil
+}
+
+func fileSHA256(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil)), nil
 }
 
 func nativeGateReader(h home.Home, root, worktree string) (pipeline.Reader, bool, error) {
@@ -113,8 +168,19 @@ func nativeGateReader(h home.Home, root, worktree string) (pipeline.Reader, bool
 		return pipeline.Reader{}, false, nil
 	}
 	contract, ok, err := findScopedPipelineLaunchContract(h.State, repoID, runID)
-	if err != nil || !ok {
+	if err != nil {
 		return pipeline.Reader{}, false, err
+	}
+	if !ok {
+		sqlitePath, err := exec.LookPath("sqlite3")
+		if err != nil {
+			return pipeline.Reader{}, false, errors.New("pipeline: sqlite3 executable required to classify native gate invocation")
+		}
+		sqlitePath, err = filepath.Abs(sqlitePath)
+		if err != nil || !fsx.SamePath(sqlitePath, sqlitePath) {
+			return pipeline.Reader{}, false, errors.New("pipeline: invalid native gate sqlite path")
+		}
+		return pipeline.Reader{Root: root, Commands: execx.OSRunner{}, SQLitePath: sqlitePath}, true, nil
 	}
 	sqlitePath, err := filepath.Abs(contract.SQLitePath)
 	if err != nil || !fsx.SamePath(sqlitePath, contract.SQLitePath) {
@@ -206,43 +272,50 @@ func findScopedPipelineLaunchContract(stateDir, repoID, runID string) (pipelineL
 	return *match, true, nil
 }
 
-func authorizeNativeGateAgent(ctx context.Context, h home.Home, reader pipeline.Reader, worktree string) error {
+func authorizeNativeGateAgent(ctx context.Context, h home.Home, reader pipeline.Reader, worktree string) (bool, error) {
 	run, err := reader.NativeRunAtWorktree(ctx, worktree)
 	if errors.Is(err, pipeline.ErrNoNativeRunAtWorktree) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !strings.HasPrefix(run.ValidationGeneration, cfoValidationGenerationPrefix) {
-		return nil
+		return false, nil
 	}
 	if run.LaunchNonce == "" {
-		return errors.New("pipeline: native run has an incomplete managed launch identity")
+		return false, errors.New("pipeline: native run has an incomplete managed launch identity")
 	}
 	contract, err := findPipelineLaunchContract(h.State, run.LaunchNonce, run.ValidationGeneration)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !fsx.SamePath(reader.SQLitePath, contract.SQLitePath) {
-		return errors.New("pipeline: managed launch sqlite path changed before agent authorization")
+		return false, errors.New("pipeline: managed launch sqlite path changed before agent authorization")
+	}
+	executable, digest, err := currentCFOExecutableEvidence()
+	if err != nil {
+		return false, err
+	}
+	if !fsx.SamePath(executable, contract.CFOExecutablePath) || digest != contract.CFOExecutableSHA256 {
+		return false, errors.New("pipeline: managed native gate CFO executable identity changed")
 	}
 	switch contract.Status {
 	case pipelineLaunchContractPending:
 		if contract.RunID != "" && contract.RunID != run.RunID {
-			return errors.New("pipeline: receipt-bound pending launch contract does not match the active run")
+			return false, errors.New("pipeline: receipt-bound pending launch contract does not match the active run")
 		}
 		if run.InvocationCount != 0 {
-			return errors.New("pipeline: pending managed launch contract cannot authorize a later agent")
+			return false, errors.New("pipeline: pending managed launch contract cannot authorize a later agent")
 		}
 	case pipelineLaunchContractVerified:
 		if contract.RunID != run.RunID {
-			return errors.New("pipeline: verified managed launch contract does not match the active run")
+			return false, errors.New("pipeline: verified managed launch contract does not match the active run")
 		}
 	default:
-		return errors.New("pipeline: managed launch contract is revoked")
+		return false, errors.New("pipeline: managed launch contract is revoked")
 	}
-	return reader.VerifyNativeAgent(ctx, worktree, pipeline.NativeAgentExpectation{
+	err = reader.VerifyNativeAgent(ctx, worktree, pipeline.NativeAgentExpectation{
 		RunID: run.RunID, Project: contract.Project, RepoID: contract.Checked.RepoID,
 		Branch: contract.Checked.Branch, SubmittedHeadSHA: contract.Checked.HeadSHA,
 		LaunchNonce: contract.LaunchNonce, ValidationGeneration: contract.ValidationGeneration,
@@ -250,6 +323,7 @@ func authorizeNativeGateAgent(ctx context.Context, h home.Home, reader pipeline.
 		TaskConfigSHA256: contract.Checked.TaskConfigSHA256, TrustedConfigSHA256: contract.Checked.TrustedConfigSHA256,
 		GlobalConfigSHA256: contract.ConfigSHA256, EffectivePrimary: contract.Checked.EffectivePrimary,
 	})
+	return err == nil, err
 }
 
 func findPipelineLaunchContract(stateDir, nonce, generation string) (pipelineLaunchContract, error) {
@@ -325,10 +399,10 @@ func decodePipelineLaunchContract(data []byte) (pipelineLaunchContract, error) {
 
 func validatePipelineLaunchContract(contract pipelineLaunchContract) error {
 	checked := contract.Checked
-	if contract.Version != 1 || state.ValidTaskID(contract.TaskID) != nil || contract.PolicyHash == "" || contract.Project == "" || contract.SQLitePath == "" || checked.RepoID == "" || checked.Branch == "" || checked.HeadSHA == "" || checked.DefaultBranch == "" || checked.TrustedSHA == "" || checked.EffectivePrimary != "codex" {
+	if contract.Version != 1 || state.ValidTaskID(contract.TaskID) != nil || contract.PolicyHash == "" || contract.Project == "" || contract.SQLitePath == "" || contract.CFOExecutablePath == "" || checked.RepoID == "" || checked.Branch == "" || checked.HeadSHA == "" || checked.DefaultBranch == "" || checked.TrustedSHA == "" || checked.EffectivePrimary != "codex" {
 		return errors.New("pipeline: incomplete managed launch contract")
 	}
-	for _, value := range []string{contract.ConfigSHA256, checked.TaskConfigSHA256, checked.TrustedConfigSHA256} {
+	for _, value := range []string{contract.ConfigSHA256, contract.CFOExecutableSHA256, checked.TaskConfigSHA256, checked.TrustedConfigSHA256} {
 		if !validHexBytes(value, 32) {
 			return errors.New("pipeline: invalid managed launch evidence digest")
 		}
@@ -352,6 +426,10 @@ func validatePipelineLaunchContract(contract pipelineLaunchContract) error {
 	absSQLite, err := filepath.Abs(contract.SQLitePath)
 	if err != nil || !fsx.SamePath(absSQLite, contract.SQLitePath) {
 		return errors.New("pipeline: managed launch sqlite path must be absolute")
+	}
+	absExecutable, err := filepath.Abs(contract.CFOExecutablePath)
+	if err != nil || !fsx.SamePath(absExecutable, contract.CFOExecutablePath) {
+		return errors.New("pipeline: managed launch CFO executable path must be absolute")
 	}
 	return nil
 }
