@@ -179,6 +179,25 @@ func nativeGateReader(h home.Home, root, worktree string) (pipeline.Reader, bool
 		return pipeline.Reader{}, false, err
 	}
 	if !ok {
+		sqlitePath, err := exec.LookPath("sqlite3")
+		if err != nil {
+			return pipeline.Reader{}, false, nil
+		}
+		sqlitePath, err = filepath.Abs(sqlitePath)
+		if err != nil {
+			return pipeline.Reader{}, false, errors.New("pipeline: invalid native gate sqlite path")
+		}
+		reader := pipeline.Reader{Root: root, Commands: execx.OSRunner{}, SQLitePath: sqlitePath}
+		run, err := reader.NativeRunAtWorktree(context.Background(), worktree)
+		if errors.Is(err, pipeline.ErrNoNativeRunAtWorktree) {
+			return pipeline.Reader{}, false, nil
+		}
+		if err != nil {
+			return pipeline.Reader{}, false, err
+		}
+		if strings.HasPrefix(run.ValidationGeneration, cfoValidationGenerationPrefix) {
+			return pipeline.Reader{}, false, errors.New("pipeline: managed native gate evidence is missing or invalid")
+		}
 		return pipeline.Reader{}, false, nil
 	}
 	sqlitePath, err := filepath.Abs(contract.SQLitePath)

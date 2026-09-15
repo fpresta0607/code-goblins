@@ -53,6 +53,8 @@ type pipelineStartRunner struct {
 	generation        string
 	durableModel      string
 	preAgent          bool
+	rebaseFirst       bool
+	reviewStarted     bool
 	nativeExitCode    int
 }
 
@@ -85,12 +87,17 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 				model = "gpt-5.6-sol"
 			}
 			invocationCount := 1
-			agent, trustedSHA, globalConfigHex := "codex", trusted, fmt.Sprintf("%x", config)
+			agent, trustedSHA, globalConfigHex, firstStep := "codex", trusted, fmt.Sprintf("%x", config), "review"
+			nonRebaseInvocations := 1
 			if r.preAgent && !r.roleStarted {
 				invocationCount = 0
 				agent, model, trustedSHA, globalConfigHex = "", "", "", ""
+				firstStep, nonRebaseInvocations = "", 0
+			} else if r.rebaseFirst && !r.reviewStarted {
+				trustedSHA, globalConfigHex = "", ""
+				firstStep, nonRebaseInvocations = "rebase", 0
 			}
-			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"run_id":"run-bound","repo_id":"repo","working_path":%q,"branch":"feat/policy","submitted_head_sha":%q,"launch_nonce":%q,"validation_generation":%q,"trusted_sha":%q,"agent":%q,"model":%q,"model_provider":"openai","global_config_hex":%q,"no_mistakes_version":"v1.75.1","no_mistakes_build_sha":"37ed232","invocation_count":%d}]`, filepath.ToSlash(filepath.Dir(filepath.Dir(r.worktree))), trusted, r.nonce, r.generation, trustedSHA, agent, model, globalConfigHex, invocationCount))}, nil
+			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"run_id":"run-bound","repo_id":"repo","working_path":%q,"branch":"feat/policy","submitted_head_sha":%q,"launch_nonce":%q,"validation_generation":%q,"trusted_sha":%q,"agent":%q,"model":%q,"model_provider":"openai","first_step":%q,"non_rebase_invocation_count":%d,"global_config_hex":%q,"no_mistakes_version":"v1.75.1","no_mistakes_build_sha":"37ed232","invocation_count":%d}]`, filepath.ToSlash(filepath.Dir(filepath.Dir(r.worktree))), trusted, r.nonce, r.generation, trustedSHA, agent, model, firstStep, nonRebaseInvocations, globalConfigHex, invocationCount))}, nil
 		}
 	case "git":
 		switch strings.Join(q.Args, " ") {
@@ -156,6 +163,7 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 		}
 		if len(q.Args) > 1 && q.Args[1] == "respond" {
 			r.roleStarted = true
+			r.reviewStarted = true
 			return execx.Result{Stdout: []byte("native decision output\n"), ExitCode: r.nativeExitCode}, nil
 		}
 		if !r.preAgent {
@@ -1255,6 +1263,61 @@ func TestPipelineRunRetainsVerifiedContractWhenNativeHoldExpires(t *testing.T) {
 	contract, loadErr := loadPipelineLaunchContract(filepath.Join(tmp, pipelineLaunchContractName))
 	if loadErr != nil || contract.Status != pipelineLaunchContractVerified || contract.RunID != "run-bound" {
 		t.Fatalf("retained contract=%+v err=%v", contract, loadErr)
+	}
+}
+
+func TestPipelineRunRetainsAuthorizedContractUntilFirstReviewAfterRebaseFix(t *testing.T) {
+	p, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := p.Select("ordinary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	nm := filepath.Join(root, "nm")
+	tmp := filepath.Join(h.State, "tasktmp", "task")
+	project := filepath.Join(root, "project")
+	wt := filepath.Join(project, ".worktrees", "gb-task")
+	for _, path := range []string{nm, tmp, project, wt} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := selection.Save(filepath.Join(tmp, "pipeline.json")); err != nil {
+		t.Fatal(err)
+	}
+	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: wt, Project: project, TaskTmp: tmp, PipelineClass: selection.Class, PipelineHash: selection.Hash}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	config, _, err := pipeline.Render([]byte("{}"), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "config.yaml"), config, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &pipelineStartRunner{worktree: wt, rebaseFirst: true}
+	if err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("first rebase invocation: %v", err)
+	}
+	contractPath := filepath.Join(tmp, pipelineLaunchContractName)
+	authorized, err := loadPipelineLaunchContract(contractPath)
+	if err != nil || authorized.Status != pipelineLaunchContractAuthorized || authorized.RunID != "run-bound" {
+		t.Fatalf("authorized rebase contract=%+v err=%v", authorized, err)
+	}
+	if err := pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "approve"}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("post-rebase response: %v", err)
+	}
+	verified, err := loadPipelineLaunchContract(contractPath)
+	if err != nil || verified.Status != pipelineLaunchContractVerified || verified.RunID != "run-bound" {
+		t.Fatalf("verified review contract=%+v err=%v", verified, err)
 	}
 }
 

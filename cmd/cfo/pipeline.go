@@ -285,7 +285,8 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		if current.RunID != receipt.RunID {
 			return errors.New("pipeline: native receipt run does not match the managed launch contract")
 		}
-		launchState, err := reader.VerifyNativeLaunch(ctx, nativeLaunchExpectation(current, selection))
+		var launchState pipeline.NativeLaunchState
+		current, launchState, err = verifyPipelineLaunchContract(ctx, reader, contractPath, current, selection)
 		if err != nil {
 			return err
 		}
@@ -297,12 +298,14 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			}
 			return nil
 		}
-		verified := current
-		verified.Status = pipelineLaunchContractVerified
-		if err := transitionPipelineLaunchContract(contractPath, current, verified); err != nil {
-			return err
-		}
 		contractRetained = true
+		if !launchState.ReviewProvenance {
+			fmt.Fprintf(out, "pipeline launch: authorized run %s after its first rebase agent; review provenance is pending\n", receipt.RunID)
+			if result.ExitCode != 0 {
+				return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
+			}
+			return nil
+		}
 		fmt.Fprintf(out, "pipeline launch: verified run %s at %s with trusted %s and primary %s\n", receipt.RunID, checked.Start.HeadSHA, checked.Start.TrustedSHA, checked.Start.EffectivePrimary)
 		if result.ExitCode != 0 {
 			return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
@@ -402,6 +405,21 @@ func verifyPipelineLaunchContract(ctx context.Context, reader pipeline.Reader, p
 			return pipelineLaunchContract{}, pipeline.NativeLaunchState{}, errors.New("pipeline: native run lacks an active CFO launch contract")
 		}
 		return contract, launchState, nil
+	}
+	if !launchState.ReviewProvenance {
+		switch contract.Status {
+		case pipelineLaunchContractAuthorized:
+			return contract, launchState, nil
+		case pipelineLaunchContractPending:
+			authorized := contract
+			authorized.Status = pipelineLaunchContractAuthorized
+			if err := transitionPipelineLaunchContract(path, contract, authorized); err != nil {
+				return pipelineLaunchContract{}, pipeline.NativeLaunchState{}, err
+			}
+			return authorized, launchState, nil
+		default:
+			return pipelineLaunchContract{}, pipeline.NativeLaunchState{}, errors.New("pipeline: native run lacks an active CFO launch contract")
+		}
 	}
 	if contract.Status == pipelineLaunchContractVerified {
 		return contract, launchState, nil
