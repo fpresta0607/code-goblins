@@ -172,7 +172,7 @@ COALESCE(runs.worktree_dir,'') AS worktree,COALESCE(runs.no_mistakes_version,'')
 COALESCE(runs.no_mistakes_build_sha,'') AS no_mistakes_build_sha,
 (SELECT COUNT(*) FROM agent_invocations WHERE agent_invocations.run_id=runs.id) AS invocation_count
 FROM runs JOIN repos ON repos.id=runs.repo_id
-WHERE runs.status NOT IN ('completed','failed','cancelled')
+WHERE runs.status IS NULL OR runs.status NOT IN ('completed','failed','cancelled')
 ORDER BY runs.created_at DESC, runs.id DESC`, &rows); err != nil {
 		return NativeRunContext{}, err
 	}
@@ -266,17 +266,15 @@ func (r Reader) verifyNativeHeadTransition(ctx context.Context, run NativeRunCon
 	descendant := err == nil && ancestor.ExitCode == 0
 	var rows []struct {
 		Fix    int `json:"fix"`
-		Review int `json:"review"`
 		Rebase int `json:"rebase"`
 	}
 	sql := `SELECT
 EXISTS(SELECT 1 FROM uncertified_pipeline_ranges WHERE repo_id=` + sqlString(run.RepoID) + ` AND branch=` + sqlString(run.Branch) + ` AND source_run_id=` + sqlString(run.RunID) + ` AND to_sha=` + sqlString(head) + `) AS fix,
-EXISTS(SELECT 1 FROM step_rounds JOIN step_results ON step_results.id=step_rounds.step_result_id WHERE step_results.run_id=` + sqlString(run.RunID) + ` AND step_results.step_name='review' AND step_rounds.starting_head_sha=` + sqlString(head) + `) AS review,
 EXISTS(SELECT 1 FROM step_results WHERE run_id=` + sqlString(run.RunID) + ` AND step_name='rebase' AND status='completed') AND NOT EXISTS(SELECT 1 FROM agent_invocations WHERE run_id=` + sqlString(run.RunID) + ` AND step_name<>'rebase') AS rebase`
 	if queryErr := r.query(ctx, sql, &rows); queryErr != nil || len(rows) != 1 {
 		return errors.New("pipeline: native run head lacks an authorized transition from the managed submitted head")
 	}
-	authorized := descendant && rows[0].Fix == 1 || rows[0].Review == 1 || rows[0].Rebase == 1
+	authorized := descendant && rows[0].Fix == 1 || rows[0].Rebase == 1
 	if !authorized {
 		return errors.New("pipeline: native run head lacks an authorized transition from the managed submitted head")
 	}
@@ -494,11 +492,6 @@ func checkRepoConfig(data []byte, p Policy, checkAutomatic bool) error {
 		}
 	}
 	return nil
-}
-
-func checkEffectivePrimaryAgent(taskData, trustedData []byte, p Policy) error {
-	_, err := effectivePrimaryAgent(taskData, trustedData, p)
-	return err
 }
 
 func effectivePrimaryAgent(taskData, trustedData []byte, p Policy) (string, error) {

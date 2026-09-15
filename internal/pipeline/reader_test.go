@@ -145,7 +145,7 @@ INSERT INTO runs VALUES('run','repo','feature','` + submitted + `','` + submitte
 		t.Fatalf("native-authorized descendant head refused: %v", err)
 	}
 	runPipelineGit(t, nativeWorktree, "checkout", "--detach", trusted)
-	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `UPDATE runs SET head_sha=`+sqlString(trusted)).CombinedOutput(); err != nil {
+	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `UPDATE runs SET head_sha=`+sqlString(trusted)+`; INSERT INTO step_results VALUES('review-step','run','review','completed'); INSERT INTO step_rounds VALUES('review-step',`+sqlString(trusted)+`)`).CombinedOutput(); err != nil {
 		t.Fatalf("move unrelated durable head fixture: %s %v", out, err)
 	}
 	if err := reader.VerifyNativeAgent(context.Background(), nativeWorktree, want); err == nil || !strings.Contains(err.Error(), "authorized transition") {

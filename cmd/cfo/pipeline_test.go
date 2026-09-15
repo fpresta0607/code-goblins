@@ -155,7 +155,7 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 		}
 		if len(q.Args) > 1 && q.Args[1] == "respond" {
 			r.roleStarted = true
-			return execx.Result{Stdout: []byte("native decision output\n")}, nil
+			return execx.Result{Stdout: []byte("native decision output\n"), ExitCode: r.nativeExitCode}, nil
 		}
 		if !r.preAgent {
 			r.roleStarted = true
@@ -1304,6 +1304,58 @@ func TestPipelinePreAgentGateBindsInterruptedContractBeforeFirstAgent(t *testing
 	verified, err := loadPipelineLaunchContract(contractPath)
 	if err != nil || verified.Status != pipelineLaunchContractVerified || verified.RunID != "run-bound" {
 		t.Fatalf("verified contract=%+v err=%v", verified, err)
+	}
+}
+
+func TestPipelineResponsePromotesPendingContractBeforeReturningNativeExit(t *testing.T) {
+	p, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := p.Select("ordinary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	nm := filepath.Join(root, "nm")
+	tmp := filepath.Join(h.State, "tasktmp", "task")
+	project := filepath.Join(root, "project")
+	wt := filepath.Join(project, ".worktrees", "gb-task")
+	for _, path := range []string{nm, tmp, project, wt} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := selection.Save(filepath.Join(tmp, "pipeline.json")); err != nil {
+		t.Fatal(err)
+	}
+	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: wt, Project: project, TaskTmp: tmp, PipelineClass: selection.Class, PipelineHash: selection.Hash}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	config, _, err := pipeline.Render([]byte("{}"), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "config.yaml"), config, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &pipelineStartRunner{worktree: wt, preAgent: true}
+	if err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("pre-agent run: %v", err)
+	}
+	runner.nativeExitCode = 1
+	err = pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "approve"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "native command exited 1") {
+		t.Fatalf("response error=%v, want bounded native exit", err)
+	}
+	verified, loadErr := loadPipelineLaunchContract(filepath.Join(tmp, pipelineLaunchContractName))
+	if loadErr != nil || verified.Status != pipelineLaunchContractVerified || verified.RunID != "run-bound" {
+		t.Fatalf("verified contract=%+v err=%v", verified, loadErr)
 	}
 }
 
