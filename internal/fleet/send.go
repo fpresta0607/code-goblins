@@ -121,8 +121,8 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 		if readErr != nil {
 			return fmt.Errorf("fleet: cannot inspect Codex composer; nothing sent: %w", readErr)
 		}
-		if codexComposerOccupied(string(screen)) {
-			return &DeliveryError{Stage: "not sent: Codex composer already contains text; inspect before submitting or clearing it", Target: target}
+		if !codexComposerEmpty(string(screen)) {
+			return &DeliveryError{Stage: "not sent: Codex composer is not recognized as empty; inspect before submitting or clearing it", Target: target}
 		}
 	}
 
@@ -192,16 +192,17 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 	return unconfirmed(target, herdr.SubmitPending)
 }
 
-func codexComposerOccupied(screen string) bool {
+func codexComposerEmpty(screen string) bool {
 	start := strings.LastIndex(screen, "\n› ")
 	if start < 0 {
 		return false
 	}
 	composer := screen[start+len("\n› "):]
 	if end := strings.Index(strings.ToLower(composer), "tab to queue message"); end >= 0 {
-		return strings.TrimSpace(composer[:end]) != ""
+		composer = composer[:end]
 	}
-	return false
+	composer = strings.TrimSpace(composer)
+	return composer == "" || composer == "Ask Codex to do anything"
 }
 
 // Only exact message text inside a recognized Codex queue or composer is
@@ -217,7 +218,7 @@ func codexDelivery(screen, message string) string {
 		if end := strings.Index(queue, "\n›"); end >= 0 {
 			queue = queue[:end]
 		}
-		if entry := strings.Index(queue, "↳ "); entry >= 0 && strings.Contains(normalize(queue[entry+len("↳ "):]), want) {
+		if entry := strings.Index(queue, "↳ "); entry >= 0 && normalize(queue[entry+len("↳ "):]) == want {
 			return "submitted"
 		}
 	}
@@ -225,7 +226,7 @@ func codexDelivery(screen, message string) string {
 		composer := screen[start+len("\n› "):]
 		if end := strings.Index(strings.ToLower(composer), "tab to queue message"); end >= 0 {
 			typed := normalize(composer[:end])
-			if strings.HasPrefix(typed, want) && len(typed)-len(want) < 32 {
+			if typed == want {
 				return "typed"
 			}
 		}

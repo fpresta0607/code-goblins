@@ -50,6 +50,23 @@ func TestCodexExistingComposerIsNotAppendedOrSubmitted(t *testing.T) {
 	}
 }
 
+func TestCodexUnrecognizedComposerIsNotTypedOrSubmitted(t *testing.T) {
+	for _, screen := range []string{
+		"tool output without a composer",
+		"\n› draft without the recognized queue hint\n",
+		"\n› Ask Codex to do anything plus a draft\n",
+	} {
+		base := newAgentFake(agentFake{status: "working"})
+		runner := &codexFake{base: base, screen: screen, occupiedBefore: true}
+		sender := newAgentSender(base)
+		sender.Herdr.Commands = runner
+		err := sender.Text(context.Background(), "task-7", "later wake")
+		if err == nil || !strings.Contains(err.Error(), "not sent") || base.promptCalls != 0 || runner.keys != 0 {
+			t.Fatalf("unrecognized composer mutated: screen=%q err=%v prompts=%d keys=%d", screen, err, base.promptCalls, runner.keys)
+		}
+	}
+}
+
 func TestCodexTypedQueuedAndUnknownSubmission(t *testing.T) {
 	for _, tc := range []struct {
 		name, screen, stage string
@@ -59,6 +76,8 @@ func TestCodexTypedQueuedAndUnknownSubmission(t *testing.T) {
 		{"typed then submitted", "\n› retain the old gate\n  tab to queue message", "submitted", true, 1},
 		{"already queued", "\n• Messages to be submitted after next tool call\n  ↳ retain the old gate\n› Ask Codex to do anything\n", "submitted", false, 0},
 		{"Enter unsupported", "\n› retain the old gate\n  tab to queue message", "typed", false, 1},
+		{"concurrent composer suffix", "\n› retain the old gate plus another draft\n  tab to queue message", "", false, 0},
+		{"non-exact queued suffix", "\n• Messages to be submitted after next tool call\n  ↳ retain the old gate plus another draft\n› Ask Codex to do anything\n", "", false, 0},
 		{"tool output not composer", "tool output: retain the old gate\n› Ask Codex to do anything\n", "", false, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

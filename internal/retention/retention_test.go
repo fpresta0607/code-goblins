@@ -46,7 +46,7 @@ func (cleanupTransport) Run(ctx context.Context, req execx.Request) (execx.Resul
 	return execx.Result{}, errors.New("unexpected lifecycle operation")
 }
 
-func TestRealGitCleanupThenRetentionAfterMetadataAndWorktreeRemoval(t *testing.T) {
+func TestPreparedRetirementRecoversAfterWorktreeReturnAndLaterRetains(t *testing.T) {
 	service, paths, project := fixture(t)
 	t.Setenv("LOCALAPPDATA", t.TempDir())
 	git(t, project, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
@@ -78,6 +78,32 @@ func TestRealGitCleanupThenRetentionAfterMetadataAndWorktreeRemoval(t *testing.T
 	}
 	commands := cleanupTransport{}
 	cleaner := cleanup.Service{StateDir: service.Home.State, Commands: commands, Herdr: &herdr.Client{Commands: commands, Session: "fixture"}, Worktrees: worktree.Service{Commands: commands}}
+	proof, err := worktree.ProveLocalMerged(context.Background(), execx.OSRunner{}, project, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := taskcontext.Refresh(context.Background(), service.Home, "task", execx.OSRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Branch == "" || len(saved.Head) != 40 {
+		t.Fatalf("initial task identity unavailable: %+v", saved)
+	}
+	if err := taskcontext.StageRetirement(service.Home, meta, proof); err != nil {
+		t.Fatal(err)
+	}
+	git(t, project, "worktree", "remove", "--force", wt)
+	git(t, project, "worktree", "prune")
+	service.Now = func() time.Time { return time.Now().Add(100 * 24 * time.Hour) }
+	beforeRetry, err := service.Run(context.Background(), "task", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range beforeRetry {
+		if entry.Removed || entry.Hold == "" {
+			t.Fatalf("prepared retirement qualified before recovery: %+v", entry)
+		}
+	}
 	if _, err := cleaner.Cleanup(context.Background(), "task"); err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +116,6 @@ func TestRealGitCleanupThenRetentionAfterMetadataAndWorktreeRemoval(t *testing.T
 	if _, err := taskcontext.ReadRetirement(service.Home, "task"); err != nil {
 		t.Fatal(err)
 	}
-	service.Now = func() time.Time { return time.Now().Add(100 * 24 * time.Hour) }
 	entries, err := service.Run(context.Background(), "task", true)
 	if err != nil {
 		t.Fatal(err)
@@ -101,7 +126,7 @@ func TestRealGitCleanupThenRetentionAfterMetadataAndWorktreeRemoval(t *testing.T
 		}
 	}
 	m, err := taskcontext.Refresh(context.Background(), service.Home, "task", execx.OSRunner{})
-	if err != nil || !m.MetadataMissing || m.Pointers["recap"] != "present" || m.Pointers["worktree"] != "missing" || m.Pointers["browser_profile"] != "missing" {
+	if err != nil || !m.MetadataMissing || m.Branch != saved.Branch || m.Head != saved.Head || m.Pointers["recap"] != "present" || m.Pointers["worktree"] != "missing" || m.Pointers["browser_profile"] != "missing" {
 		t.Fatalf("resume context lost: %+v %v", m, err)
 	}
 	if _, err := os.Stat(paths.Tests); err != nil {

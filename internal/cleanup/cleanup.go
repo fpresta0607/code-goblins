@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -91,6 +92,32 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if err != nil {
 		return Result{}, fmt.Errorf("cleanup: canonicalize project %q: %w", meta.Project, err)
 	}
+	contextHome := home.Home{Root: filepath.Dir(s.StateDir), State: s.StateDir}
+	retirement, retirementErr := taskcontext.ReadRetirementState(contextHome, id)
+	if retirementErr == nil {
+		if retirement.Meta != meta {
+			return Result{}, errors.New("cleanup: staged retirement identity differs from live task metadata")
+		}
+		if _, statErr := os.Lstat(meta.Worktree); errors.Is(statErr, os.ErrNotExist) {
+			if err := s.proveWorktreeReturned(ctx, project, meta.Worktree); err != nil {
+				return Result{}, err
+			}
+			if err := s.requireInactive(ctx, meta); err != nil {
+				return Result{}, err
+			}
+			if err := s.requireRetirementReady(ctx, contextHome, id, meta); err != nil {
+				return Result{}, err
+			}
+			return s.finishRetirement(contextHome, meta, id, meta.Worktree)
+		} else if statErr != nil {
+			return Result{}, fmt.Errorf("cleanup: inspect staged worktree: %w", statErr)
+		}
+		if _, err := taskcontext.ReadRetirement(contextHome, id); err == nil {
+			return Result{}, errors.New("cleanup: completed retirement conflicts with a live worktree")
+		}
+	} else if !errors.Is(retirementErr, os.ErrNotExist) {
+		return Result{}, fmt.Errorf("cleanup: read staged retirement proof: %w", retirementErr)
+	}
 	worktreePath, err := fsx.Canonical(meta.Worktree)
 	if err != nil {
 		return Result{}, fmt.Errorf("cleanup: canonicalize worktree %q: %w", meta.Worktree, err)
@@ -124,27 +151,8 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if err := s.requireInactive(ctx, meta); err != nil {
 		return Result{}, err
 	}
-	contextHome := home.Home{Root: filepath.Dir(s.StateDir), State: s.StateDir}
-	manifest, err := taskcontext.Refresh(ctx, contextHome, id, s.Commands)
-	if err != nil {
-		return Result{}, fmt.Errorf("cleanup: preserve task context: %w", err)
-	}
-	if len(manifest.Decisions) > 0 {
-		return Result{}, errors.New("cleanup: unresolved decisions must be answered before retirement")
-	}
-	if meta.Mode == "no-mistakes" {
-		launch, e := pipeline.LoadLaunch(filepath.Join(filepath.Dir(manifest.Manifest), "pipeline-launch.json"))
-		if e != nil {
-			return Result{}, fmt.Errorf("cleanup: native gate association unavailable: %w", e)
-		}
-		root, e := pipeline.DefaultRoot()
-		if e != nil {
-			return Result{}, e
-		}
-		run, e := (pipeline.Reader{Root: root, Commands: s.Commands}).BoundRun(ctx, launch)
-		if e != nil || run.Status != "completed" {
-			return Result{}, errors.New("cleanup: native gate remains unresolved or unreadable")
-		}
+	if err := s.requireRetirementReady(ctx, contextHome, id, meta); err != nil {
+		return Result{}, err
 	}
 
 	// The endpoint is proven agent-free: close the recorded tab so a completed
@@ -153,10 +161,78 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 		return Result{}, fmt.Errorf("cleanup: close task tab: %w", err)
 	}
 
+	if err := taskcontext.StageRetirement(contextHome, meta, proof); err != nil {
+		return Result{}, fmt.Errorf("cleanup: stage retirement proof: %w", err)
+	}
 	if err := s.Worktrees.Return(ctx, project, worktreePath); err != nil {
 		return Result{}, fmt.Errorf("cleanup: return worktree: %w", err)
 	}
-	if err := taskcontext.SaveRetirement(contextHome, meta, proof); err != nil {
+	return s.finishRetirement(contextHome, meta, id, worktreePath)
+}
+
+func (s Service) requireRetirementReady(ctx context.Context, contextHome home.Home, id string, meta state.TaskMeta) error {
+	manifest, err := taskcontext.Refresh(ctx, contextHome, id, s.Commands)
+	if err != nil {
+		return fmt.Errorf("cleanup: preserve task context: %w", err)
+	}
+	if len(manifest.Decisions) > 0 {
+		return errors.New("cleanup: unresolved decisions must be answered before retirement")
+	}
+	if meta.Mode != "no-mistakes" {
+		return nil
+	}
+	launch, err := pipeline.LoadLaunch(filepath.Join(filepath.Dir(manifest.Manifest), "pipeline-launch.json"))
+	if err != nil {
+		return fmt.Errorf("cleanup: native gate association unavailable: %w", err)
+	}
+	root, err := pipeline.DefaultRoot()
+	if err != nil {
+		return err
+	}
+	run, err := (pipeline.Reader{Root: root, Commands: s.Commands}).BoundRun(ctx, launch)
+	if err != nil || run.Status != "completed" {
+		return errors.New("cleanup: native gate remains unresolved or unreadable")
+	}
+	return nil
+}
+
+func (s Service) proveWorktreeReturned(ctx context.Context, project, worktreePath string) error {
+	if _, err := os.Lstat(worktreePath); !errors.Is(err, os.ErrNotExist) {
+		if err == nil {
+			return fmt.Errorf("cleanup: staged worktree %q still exists", worktreePath)
+		}
+		return fmt.Errorf("cleanup: inspect staged worktree %q: %w", worktreePath, err)
+	}
+	result, err := s.Commands.Run(ctx, execx.Request{Dir: project, Name: "git", Args: []string{"worktree", "list", "--porcelain"}})
+	if err != nil || result.ExitCode != 0 {
+		return errors.New("cleanup: cannot prove returned worktree is absent from Git administration")
+	}
+	want, err := fsx.AbsClean(worktreePath)
+	if err != nil {
+		return fmt.Errorf("cleanup: normalize staged worktree: %w", err)
+	}
+	for _, line := range strings.Split(string(result.Stdout), "\n") {
+		listed, ok := strings.CutPrefix(strings.TrimSpace(line), "worktree ")
+		if !ok {
+			continue
+		}
+		listed, err = fsx.AbsClean(listed)
+		if err != nil {
+			return fmt.Errorf("cleanup: normalize registered worktree: %w", err)
+		}
+		same := listed == want
+		if runtime.GOOS == "windows" {
+			same = strings.EqualFold(listed, want)
+		}
+		if same {
+			return fmt.Errorf("cleanup: staged worktree %q remains registered", worktreePath)
+		}
+	}
+	return nil
+}
+
+func (s Service) finishRetirement(contextHome home.Home, meta state.TaskMeta, id, worktreePath string) (Result, error) {
+	if err := taskcontext.CompleteRetirement(contextHome, id); err != nil {
 		return Result{}, fmt.Errorf("cleanup: preserve retirement proof: %w", err)
 	}
 
@@ -169,8 +245,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	archived, archiveErr := s.archive(id)
 	goTmpErr := s.removeGoTmp(id)
 
-	result.Meta = meta
-	result.Output = fmt.Sprintf("cleaned %s worktree=%s", id, worktreePath)
+	result := Result{Meta: meta, Output: fmt.Sprintf("cleaned %s worktree=%s", id, worktreePath)}
 	if archived != "" {
 		result.Output += " archive=" + archived
 	}

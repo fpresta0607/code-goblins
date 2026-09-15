@@ -69,7 +69,12 @@ func Run() []Check {
 			continue
 		}
 		version, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
-		checks = append(checks, Check{Name: tool.name, Version: strings.TrimSpace(version)})
+		version = strings.TrimSpace(version)
+		if tool.name == "chrome-devtools-axi" && version != "0.1.34" {
+			checks = append(checks, Check{Name: tool.name, Version: version, Err: "chrome-devtools-axi version " + version + " is outside the tested 0.1.34 pair", Hint: tool.hint})
+			continue
+		}
+		checks = append(checks, Check{Name: tool.name, Version: version})
 	}
 	checks = append(checks, checkHookPairing())
 	checks = append(checks, CheckBrowserBackend(taskcontext.BrowserEnv(home.Home{}, "doctor")["CHROME_DEVTOOLS_AXI_MCP_PATH"]))
