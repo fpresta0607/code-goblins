@@ -261,17 +261,19 @@ func findScopedPipelineLaunchContract(stateDir, repoID, runID string) (pipelineL
 			return pipelineLaunchContract{}, false, contractErr
 		}
 		var claimHint struct {
-			RepoID string `json:"repo_id"`
-			RunID  string `json:"run_id"`
+			RepoID               string `json:"repo_id"`
+			RunID                string `json:"run_id"`
+			ValidationGeneration string `json:"validation_generation"`
 		}
 		var contractHint struct {
-			RunID   string `json:"run_id"`
-			Checked struct {
+			RunID                string `json:"run_id"`
+			ValidationGeneration string `json:"validation_generation"`
+			Checked              struct {
 				RepoID string `json:"repo_id"`
 			} `json:"checked"`
 		}
-		claimScoped := len(claimData) <= 1<<20 && json.Unmarshal(claimData, &claimHint) == nil && claimHint.RepoID == repoID && (claimHint.RunID == "" || claimHint.RunID == runID)
-		contractScoped := len(contractData) <= 1<<20 && json.Unmarshal(contractData, &contractHint) == nil && contractHint.Checked.RepoID == repoID && (contractHint.RunID == "" || contractHint.RunID == runID)
+		claimScoped := len(claimData) <= 1<<20 && json.Unmarshal(claimData, &claimHint) == nil && strings.HasPrefix(claimHint.ValidationGeneration, cfoValidationGenerationPrefix) && claimHint.RepoID == repoID && (claimHint.RunID == "" || claimHint.RunID == runID)
+		contractScoped := len(contractData) <= 1<<20 && json.Unmarshal(contractData, &contractHint) == nil && strings.HasPrefix(contractHint.ValidationGeneration, cfoValidationGenerationPrefix) && contractHint.Checked.RepoID == repoID && (contractHint.RunID == "" || contractHint.RunID == runID)
 		if !claimScoped && !contractScoped {
 			continue
 		}
