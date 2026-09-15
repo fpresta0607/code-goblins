@@ -25,6 +25,8 @@ import (
 const (
 	nativeGateMarker              = "--cfo-native-gate"
 	cfoValidationGenerationPrefix = "cfo-v1-"
+	managedOpenAIBaseURL          = "https://chatgpt.com/backend-api/codex"
+	managedChatGPTBaseURL         = "https://chatgpt.com/backend-api/"
 )
 
 func stripNativeGateMarker(args []string) ([]string, bool) {
@@ -95,11 +97,12 @@ func runNativeGateAgent(args []string, stdin io.Reader, stdout, stderr io.Writer
 }
 
 func subscriptionOnlyNativeGateEnvironment(env []string) []string {
-	billingKeys := make(map[string]struct{}, len(harness.HarnessBillingKeys)+1)
+	billingKeys := make(map[string]struct{}, len(harness.HarnessBillingKeys)+2)
 	for _, key := range harness.HarnessBillingKeys {
 		billingKeys[strings.ToUpper(key)] = struct{}{}
 	}
 	billingKeys["OPENROUTER_API_KEY"] = struct{}{}
+	billingKeys["OPENAI_BASE_URL"] = struct{}{}
 	clean := make([]string, 0, len(env))
 	for _, entry := range env {
 		name, _, ok := strings.Cut(entry, "=")
@@ -114,7 +117,11 @@ func subscriptionOnlyNativeGateEnvironment(env []string) []string {
 }
 
 func subscriptionOnlyNativeGateArguments(args []string) []string {
-	return append(append([]string(nil), args...), "-c", `model_provider="openai"`, "-c", `forced_login_method="chatgpt"`)
+	return append(append([]string(nil), args...),
+		"-c", `model_provider="openai"`,
+		"-c", `forced_login_method="chatgpt"`,
+		"-c", `openai_base_url="`+managedOpenAIBaseURL+`"`,
+		"-c", `chatgpt_base_url="`+managedChatGPTBaseURL+`"`)
 }
 
 func nativeGateDelegation(args, env []string, managed bool) ([]string, []string) {
@@ -172,15 +179,7 @@ func nativeGateReader(h home.Home, root, worktree string) (pipeline.Reader, bool
 		return pipeline.Reader{}, false, err
 	}
 	if !ok {
-		sqlitePath, err := exec.LookPath("sqlite3")
-		if err != nil {
-			return pipeline.Reader{}, false, errors.New("pipeline: sqlite3 executable required to classify native gate invocation")
-		}
-		sqlitePath, err = filepath.Abs(sqlitePath)
-		if err != nil || !fsx.SamePath(sqlitePath, sqlitePath) {
-			return pipeline.Reader{}, false, errors.New("pipeline: invalid native gate sqlite path")
-		}
-		return pipeline.Reader{Root: root, Commands: execx.OSRunner{}, SQLitePath: sqlitePath}, true, nil
+		return pipeline.Reader{}, false, nil
 	}
 	sqlitePath, err := filepath.Abs(contract.SQLitePath)
 	if err != nil || !fsx.SamePath(sqlitePath, contract.SQLitePath) {
@@ -231,34 +230,55 @@ func findScopedPipelineLaunchContract(stateDir, repoID, runID string) (pipelineL
 		if !entry.IsDir() || state.ValidTaskID(entry.Name()) != nil {
 			continue
 		}
-		path := filepath.Join(stateDir, "tasktmp", entry.Name(), pipelineLaunchContractName)
-		data, err := os.ReadFile(path)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
+		dir := filepath.Join(stateDir, "tasktmp", entry.Name())
+		claimPath := filepath.Join(dir, pipelineLaunchClaimName)
+		contractPath := filepath.Join(dir, pipelineLaunchContractName)
+		claimData, claimErr := os.ReadFile(claimPath)
+		contractData, contractErr := os.ReadFile(contractPath)
+		if claimErr != nil && !errors.Is(claimErr, os.ErrNotExist) {
+			return pipelineLaunchContract{}, false, claimErr
 		}
-		if err != nil {
-			return pipelineLaunchContract{}, false, err
+		if contractErr != nil && !errors.Is(contractErr, os.ErrNotExist) {
+			return pipelineLaunchContract{}, false, contractErr
 		}
-		var hint struct {
-			Status  string `json:"status"`
+		var claimHint struct {
+			RepoID string `json:"repo_id"`
+			RunID  string `json:"run_id"`
+		}
+		var contractHint struct {
 			RunID   string `json:"run_id"`
 			Checked struct {
 				RepoID string `json:"repo_id"`
 			} `json:"checked"`
 		}
-		if json.Unmarshal(data, &hint) != nil || hint.Checked.RepoID != repoID {
+		claimScoped := len(claimData) <= 1<<20 && json.Unmarshal(claimData, &claimHint) == nil && claimHint.RepoID == repoID && (claimHint.RunID == "" || claimHint.RunID == runID)
+		contractScoped := len(contractData) <= 1<<20 && json.Unmarshal(contractData, &contractHint) == nil && contractHint.Checked.RepoID == repoID && (contractHint.RunID == "" || contractHint.RunID == runID)
+		if !claimScoped && !contractScoped {
 			continue
 		}
-		scoped := hint.RunID == runID || hint.RunID == "" && hint.Status == pipelineLaunchContractPending
-		if !scoped {
-			continue
+		if errors.Is(claimErr, os.ErrNotExist) {
+			return pipelineLaunchContract{}, false, errors.New("pipeline: managed native gate claim is missing")
 		}
-		contract, err := loadPipelineLaunchContract(path)
+		if errors.Is(contractErr, os.ErrNotExist) {
+			return pipelineLaunchContract{}, false, errors.New("pipeline: managed native gate contract is missing")
+		}
+		claim, err := loadPipelineLaunchClaim(claimPath)
 		if err != nil {
 			return pipelineLaunchContract{}, false, err
 		}
-		if contract.TaskID != entry.Name() {
-			return pipelineLaunchContract{}, false, errors.New("pipeline: managed launch contract path does not match its task identity")
+		if claim.TaskID != entry.Name() {
+			return pipelineLaunchContract{}, false, errors.New("pipeline: managed launch claim path does not match its task identity")
+		}
+		contract, err := loadPipelineLaunchContract(contractPath)
+		if err != nil {
+			return pipelineLaunchContract{}, false, err
+		}
+		expectedClaim := pipelineLaunchClaimForContract(contract)
+		if claim.Version != expectedClaim.Version || claim.TaskID != expectedClaim.TaskID || claim.RepoID != expectedClaim.RepoID || claim.LaunchNonce != expectedClaim.LaunchNonce || claim.ValidationGeneration != expectedClaim.ValidationGeneration || claim.RunID != expectedClaim.RunID {
+			return pipelineLaunchContract{}, false, errors.New("pipeline: managed launch claim does not match its contract")
+		}
+		if contract.RunID != "" && contract.RunID != runID {
+			return pipelineLaunchContract{}, false, errors.New("pipeline: managed launch contract does not match its native worktree")
 		}
 		if match != nil {
 			return pipelineLaunchContract{}, false, errors.New("pipeline: duplicate managed launch contracts for native worktree")
@@ -308,9 +328,9 @@ func authorizeNativeGateAgent(ctx context.Context, h home.Home, reader pipeline.
 		if run.InvocationCount != 0 {
 			return false, errors.New("pipeline: pending managed launch contract cannot authorize a later agent")
 		}
-	case pipelineLaunchContractVerified:
+	case pipelineLaunchContractAuthorized, pipelineLaunchContractVerified:
 		if contract.RunID != run.RunID {
-			return false, errors.New("pipeline: verified managed launch contract does not match the active run")
+			return false, errors.New("pipeline: bound managed launch contract does not match the active run")
 		}
 	default:
 		return false, errors.New("pipeline: managed launch contract is revoked")
@@ -323,7 +343,16 @@ func authorizeNativeGateAgent(ctx context.Context, h home.Home, reader pipeline.
 		TaskConfigSHA256: contract.Checked.TaskConfigSHA256, TrustedConfigSHA256: contract.Checked.TrustedConfigSHA256,
 		GlobalConfigSHA256: contract.ConfigSHA256, EffectivePrimary: contract.Checked.EffectivePrimary,
 	})
-	return err == nil, err
+	if err != nil {
+		return false, err
+	}
+	if contract.Status == pipelineLaunchContractPending {
+		contractPath := filepath.Join(h.State, "tasktmp", contract.TaskID, pipelineLaunchContractName)
+		if _, err := bindPipelineLaunchContract(contractPath, contract, run.RunID, pipelineLaunchContractAuthorized); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 func findPipelineLaunchContract(stateDir, nonce, generation string) (pipelineLaunchContract, error) {
@@ -412,7 +441,7 @@ func validatePipelineLaunchContract(contract pipelineLaunchContract) error {
 	}
 	switch contract.Status {
 	case pipelineLaunchContractPending, pipelineLaunchContractRevoked:
-	case pipelineLaunchContractVerified:
+	case pipelineLaunchContractAuthorized, pipelineLaunchContractVerified:
 		if strings.TrimSpace(contract.RunID) == "" {
 			return errors.New("pipeline: invalid managed launch contract lifecycle")
 		}

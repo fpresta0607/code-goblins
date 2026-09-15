@@ -1187,13 +1187,14 @@ func TestPipelineRunBindsAndVerifiesNativeLaunch(t *testing.T) {
 	if err != nil || verified.Status != pipelineLaunchContractVerified || verified.RunID != "run-bound" {
 		t.Fatalf("verified contract=%+v err=%v", verified, err)
 	}
+	claim, err := loadPipelineLaunchClaim(filepath.Join(tmp, pipelineLaunchClaimName))
+	if err != nil || claim.RunID != "run-bound" || claim.RepoID != verified.Checked.RepoID || claim.LaunchNonce != verified.LaunchNonce || claim.ValidationGeneration != verified.ValidationGeneration {
+		t.Fatalf("verified claim=%+v err=%v", claim, err)
+	}
 	executable, digest, err := currentCFOExecutableEvidence()
 	if err != nil || !fsx.SamePath(verified.CFOExecutablePath, executable) || verified.CFOExecutableSHA256 != digest {
 		t.Fatalf("CFO executable evidence path=%q digest=%q err=%v", verified.CFOExecutablePath, verified.CFOExecutableSHA256, err)
 	}
-	originalRemove := removePipelineLaunchContract
-	removePipelineLaunchContract = func(string) error { return errors.New("sharing violation") }
-	defer func() { removePipelineLaunchContract = originalRemove }()
 	mismatch := &pipelineStartRunner{worktree: wt, durableModel: "other"}
 	err = pipelineCommand(context.Background(), h, nm, mismatch, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "primary") {
@@ -1202,6 +1203,10 @@ func TestPipelineRunBindsAndVerifiesNativeLaunch(t *testing.T) {
 	revoked, loadErr := loadPipelineLaunchContract(contractPath)
 	if loadErr != nil || revoked.Status != pipelineLaunchContractRevoked {
 		t.Fatalf("failed durable proof contract=%+v err=%v", revoked, loadErr)
+	}
+	revokedClaim, loadErr := loadPipelineLaunchClaim(filepath.Join(tmp, pipelineLaunchClaimName))
+	if loadErr != nil || revokedClaim.RunID != "run-bound" {
+		t.Fatalf("failed durable proof claim=%+v err=%v", revokedClaim, loadErr)
 	}
 }
 

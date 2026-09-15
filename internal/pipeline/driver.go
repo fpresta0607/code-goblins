@@ -262,21 +262,83 @@ func (r Reader) VerifyNativeAgent(ctx context.Context, worktree string, want Nat
 }
 
 func (r Reader) verifyNativeHeadTransition(ctx context.Context, run NativeRunContext, submitted, head string) error {
-	ancestor, err := r.Commands.Run(ctx, execx.Request{Dir: run.Worktree, Name: "git", Args: []string{"merge-base", "--is-ancestor", submitted, head}})
-	descendant := err == nil && ancestor.ExitCode == 0
-	var rows []struct {
-		Fix    int `json:"fix"`
-		Rebase int `json:"rebase"`
-	}
-	sql := `SELECT
-EXISTS(SELECT 1 FROM uncertified_pipeline_ranges WHERE repo_id=` + sqlString(run.RepoID) + ` AND branch=` + sqlString(run.Branch) + ` AND source_run_id=` + sqlString(run.RunID) + ` AND to_sha=` + sqlString(head) + `) AS fix,
-EXISTS(SELECT 1 FROM step_results WHERE run_id=` + sqlString(run.RunID) + ` AND step_name='rebase' AND status='completed') AND (NOT EXISTS(SELECT 1 FROM agent_invocations WHERE run_id=` + sqlString(run.RunID) + ` AND step_name<>'rebase') OR EXISTS(SELECT 1 FROM step_rounds JOIN step_results ON step_results.id=step_rounds.step_result_id WHERE step_results.run_id=` + sqlString(run.RunID) + ` AND step_results.step_name='review' AND step_rounds.starting_head_sha=` + sqlString(head) + `)) AS rebase`
-	if queryErr := r.query(ctx, sql, &rows); queryErr != nil || len(rows) != 1 {
+	fail := func() error {
 		return errors.New("pipeline: native run head lacks an authorized transition from the managed submitted head")
 	}
-	authorized := descendant && rows[0].Fix == 1 || rows[0].Rebase == 1
-	if !authorized {
-		return errors.New("pipeline: native run head lacks an authorized transition from the managed submitted head")
+	var stateRows []struct {
+		RebaseCompletedAt    int64  `json:"rebase_completed_at"`
+		NonRebaseInvocations int    `json:"non_rebase_invocations"`
+		RangeFrom            string `json:"range_from"`
+		RangeTo              string `json:"range_to"`
+	}
+	stateSQL := `SELECT
+COALESCE((SELECT completed_at FROM step_results WHERE run_id=` + sqlString(run.RunID) + ` AND step_name='rebase' AND status='completed' ORDER BY completed_at DESC,id DESC LIMIT 1),0) AS rebase_completed_at,
+(SELECT COUNT(*) FROM agent_invocations WHERE run_id=` + sqlString(run.RunID) + ` AND step_name<>'rebase') AS non_rebase_invocations,
+COALESCE((SELECT from_sha FROM uncertified_pipeline_ranges WHERE repo_id=` + sqlString(run.RepoID) + ` AND branch=` + sqlString(run.Branch) + ` AND source_run_id=` + sqlString(run.RunID) + `),'') AS range_from,
+COALESCE((SELECT to_sha FROM uncertified_pipeline_ranges WHERE repo_id=` + sqlString(run.RepoID) + ` AND branch=` + sqlString(run.Branch) + ` AND source_run_id=` + sqlString(run.RunID) + `),'') AS range_to`
+	if err := r.query(ctx, stateSQL, &stateRows); err != nil || len(stateRows) != 1 {
+		return fail()
+	}
+	var rounds []struct {
+		From      string `json:"from_sha"`
+		To        string `json:"to_sha"`
+		CreatedAt int64  `json:"created_at"`
+	}
+	roundSQL := `SELECT COALESCE(step_rounds.starting_head_sha,'') AS from_sha,COALESCE(step_rounds.reviewed_head_sha,'') AS to_sha,step_rounds.created_at
+FROM step_rounds JOIN step_results ON step_results.id=step_rounds.step_result_id
+WHERE step_results.run_id=` + sqlString(run.RunID) + ` AND step_results.step_name='review' AND step_rounds.starting_head_sha IS NOT NULL AND step_rounds.reviewed_head_sha IS NOT NULL
+ORDER BY step_rounds.round,step_rounds.created_at,step_rounds.id`
+	if err := r.query(ctx, roundSQL, &rounds); err != nil {
+		return fail()
+	}
+	isAncestor := func(from, to string) bool {
+		if from == to {
+			return from != ""
+		}
+		result, err := r.Commands.Run(ctx, execx.Request{Dir: run.Worktree, Name: "git", Args: []string{"merge-base", "--is-ancestor", from, to}})
+		return err == nil && result.ExitCode == 0
+	}
+	state := stateRows[0]
+	cursor := submitted
+	authorized := map[string]bool{submitted: true}
+	firstRound := 0
+	if state.RebaseCompletedAt > 0 {
+		firstRound = -1
+		for i := range rounds {
+			if rounds[i].CreatedAt >= state.RebaseCompletedAt {
+				cursor = rounds[i].From
+				authorized[cursor] = cursor != ""
+				firstRound = i
+				break
+			}
+		}
+		if firstRound < 0 {
+			if state.NonRebaseInvocations == 0 && head != submitted {
+				return nil
+			}
+			return fail()
+		}
+	}
+	for _, round := range rounds[firstRound:] {
+		if round.From != cursor || !isAncestor(round.From, round.To) {
+			return fail()
+		}
+		cursor = round.To
+		authorized[cursor] = true
+	}
+	if state.RangeFrom != "" || state.RangeTo != "" {
+		switch {
+		case state.RangeFrom == "" || state.RangeTo == "" || !isAncestor(state.RangeFrom, state.RangeTo):
+			return fail()
+		case state.RangeTo == cursor:
+		case authorized[state.RangeFrom] && isAncestor(cursor, state.RangeTo):
+			cursor = state.RangeTo
+		default:
+			return fail()
+		}
+	}
+	if cursor != head {
+		return fail()
 	}
 	return nil
 }

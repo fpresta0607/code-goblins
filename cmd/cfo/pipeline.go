@@ -220,18 +220,29 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		if err := savePipelineLaunchContract(contractPath, contract); err != nil {
 			return err
 		}
+		claimPath := filepath.Join(expectedTmp, pipelineLaunchClaimName)
+		if err := savePipelineLaunchClaim(claimPath, pipelineLaunchClaimForContract(contract)); err != nil {
+			return err
+		}
 		contractRetained := false
 		defer func() {
 			if contractRetained {
 				return
 			}
-			revoked := contract
-			revoked.Status = pipelineLaunchContractRevoked
-			if revokeErr := transitionPipelineLaunchContract(contractPath, contract, revoked); revokeErr != nil {
-				err = errors.Join(err, revokeErr)
+			current, loadErr := loadPipelineLaunchContract(contractPath)
+			if loadErr != nil {
+				err = errors.Join(err, loadErr)
 				return
 			}
-			_ = removePipelineLaunchContract(contractPath)
+			if !samePipelineLaunchContractIdentity(current, contract) {
+				err = errors.Join(err, errors.New("pipeline: managed launch contract identity changed before revocation"))
+				return
+			}
+			revoked := current
+			revoked.Status = pipelineLaunchContractRevoked
+			if revokeErr := transitionPipelineLaunchContract(contractPath, current, revoked); revokeErr != nil {
+				err = errors.Join(err, revokeErr)
+			}
 		}()
 		latest, err := capturePipelineLaunch(ctx, h, root, reader, meta, branch, selection)
 		if err != nil {
@@ -261,16 +272,24 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		if err := receipt.verify(checked.Start, nonce, generation, intent); err != nil {
 			return err
 		}
-		bound := contract
-		bound.RunID = receipt.RunID
-		launchState, err := reader.VerifyNativeLaunch(ctx, nativeLaunchExpectation(bound, selection))
+		current, err := loadPipelineLaunchContract(contractPath)
+		if err != nil || !samePipelineLaunchContractIdentity(current, contract) {
+			return errors.Join(errors.New("pipeline: managed launch contract changed before receipt verification"), err)
+		}
+		if current.RunID == "" {
+			current, err = bindPipelineLaunchContract(contractPath, current, receipt.RunID, current.Status)
+			if err != nil {
+				return err
+			}
+		}
+		if current.RunID != receipt.RunID {
+			return errors.New("pipeline: native receipt run does not match the managed launch contract")
+		}
+		launchState, err := reader.VerifyNativeLaunch(ctx, nativeLaunchExpectation(current, selection))
 		if err != nil {
 			return err
 		}
 		if launchState.InvocationCount == 0 {
-			if err := transitionPipelineLaunchContract(contractPath, contract, bound); err != nil {
-				return err
-			}
 			contractRetained = true
 			fmt.Fprintf(out, "pipeline launch: bound pending run %s at %s before its first managed agent\n", receipt.RunID, checked.Start.HeadSHA)
 			if result.ExitCode != 0 {
@@ -278,9 +297,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			}
 			return nil
 		}
-		verified := bound
+		verified := current
 		verified.Status = pipelineLaunchContractVerified
-		if err := transitionPipelineLaunchContract(contractPath, contract, verified); err != nil {
+		if err := transitionPipelineLaunchContract(contractPath, current, verified); err != nil {
 			return err
 		}
 		contractRetained = true
@@ -313,8 +332,12 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if err != nil {
 		return fmt.Errorf("pipeline: native command failed: %w", err)
 	}
-	if contract.Status == pipelineLaunchContractPending {
-		verified, launchState, err := verifyPipelineLaunchContract(ctx, reader, contractPath, contract, selection)
+	if contract.Status == pipelineLaunchContractPending || contract.Status == pipelineLaunchContractAuthorized {
+		current, loadErr := loadPipelineLaunchContract(contractPath)
+		if loadErr != nil || !samePipelineLaunchContractIdentity(current, contract) || current.RunID != contract.RunID {
+			return errors.Join(errors.New("pipeline: managed launch contract changed during native response"), loadErr)
+		}
+		verified, launchState, err := verifyPipelineLaunchContract(ctx, reader, contractPath, current, selection)
 		if err != nil {
 			return err
 		}
@@ -349,7 +372,8 @@ func preparePipelineLaunchContract(ctx context.Context, reader pipeline.Reader, 
 		if _, err := reader.VerifyNativeLaunch(ctx, nativeLaunchExpectation(bound, selection)); err != nil {
 			return pipelineLaunchContract{}, err
 		}
-		if err := transitionPipelineLaunchContract(path, contract, bound); err != nil {
+		bound, err = bindPipelineLaunchContract(path, contract, runID, pipelineLaunchContractPending)
+		if err != nil {
 			return pipelineLaunchContract{}, err
 		}
 		contract = bound
@@ -360,7 +384,7 @@ func preparePipelineLaunchContract(ctx context.Context, reader pipeline.Reader, 
 	switch contract.Status {
 	case pipelineLaunchContractVerified:
 		return contract, nil
-	case pipelineLaunchContractPending:
+	case pipelineLaunchContractPending, pipelineLaunchContractAuthorized:
 		verified, _, err := verifyPipelineLaunchContract(ctx, reader, path, contract, selection)
 		return verified, err
 	default:
@@ -374,7 +398,16 @@ func verifyPipelineLaunchContract(ctx context.Context, reader pipeline.Reader, p
 		return pipelineLaunchContract{}, pipeline.NativeLaunchState{}, err
 	}
 	if launchState.InvocationCount == 0 {
+		if contract.Status != pipelineLaunchContractPending && contract.Status != pipelineLaunchContractAuthorized && contract.Status != pipelineLaunchContractVerified {
+			return pipelineLaunchContract{}, pipeline.NativeLaunchState{}, errors.New("pipeline: native run lacks an active CFO launch contract")
+		}
 		return contract, launchState, nil
+	}
+	if contract.Status == pipelineLaunchContractVerified {
+		return contract, launchState, nil
+	}
+	if contract.Status != pipelineLaunchContractPending && contract.Status != pipelineLaunchContractAuthorized {
+		return pipelineLaunchContract{}, pipeline.NativeLaunchState{}, errors.New("pipeline: native run lacks an active CFO launch contract")
 	}
 	verified := contract
 	verified.Status = pipelineLaunchContractVerified
@@ -385,13 +418,13 @@ func verifyPipelineLaunchContract(ctx context.Context, reader pipeline.Reader, p
 }
 
 const (
-	pipelineLaunchContractName     = "pipeline-launch.json"
-	pipelineLaunchContractPending  = "pending"
-	pipelineLaunchContractVerified = "verified"
-	pipelineLaunchContractRevoked  = "revoked"
+	pipelineLaunchContractName       = "pipeline-launch.json"
+	pipelineLaunchClaimName          = "pipeline-launch-claim.json"
+	pipelineLaunchContractPending    = "pending"
+	pipelineLaunchContractAuthorized = "authorized"
+	pipelineLaunchContractVerified   = "verified"
+	pipelineLaunchContractRevoked    = "revoked"
 )
-
-var removePipelineLaunchContract = os.Remove
 
 type pipelineLaunchEvidence struct {
 	Start        pipeline.StartEvidence
@@ -412,6 +445,95 @@ type pipelineLaunchContract struct {
 	SQLitePath           string                 `json:"sqlite_path"`
 	CFOExecutablePath    string                 `json:"cfo_executable_path"`
 	CFOExecutableSHA256  string                 `json:"cfo_executable_sha256"`
+}
+
+type pipelineLaunchClaim struct {
+	Version              int    `json:"version"`
+	TaskID               string `json:"task_id"`
+	RepoID               string `json:"repo_id"`
+	RunID                string `json:"run_id,omitempty"`
+	LaunchNonce          string `json:"launch_nonce"`
+	ValidationGeneration string `json:"validation_generation"`
+}
+
+func pipelineLaunchClaimForContract(contract pipelineLaunchContract) pipelineLaunchClaim {
+	return pipelineLaunchClaim{Version: 1, TaskID: contract.TaskID, RepoID: contract.Checked.RepoID, RunID: contract.RunID, LaunchNonce: contract.LaunchNonce, ValidationGeneration: contract.ValidationGeneration}
+}
+
+func savePipelineLaunchClaim(path string, claim pipelineLaunchClaim) error {
+	if err := validatePipelineLaunchClaim(claim); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(claim, "", "  ")
+	if err != nil {
+		return err
+	}
+	return fsx.AtomicWriteFile(path, append(data, '\n'))
+}
+
+func loadPipelineLaunchClaim(path string) (pipelineLaunchClaim, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return pipelineLaunchClaim{}, err
+	}
+	if len(data) > 1<<20 {
+		return pipelineLaunchClaim{}, errors.New("pipeline: managed launch claim is too large")
+	}
+	var claim pipelineLaunchClaim
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&claim); err != nil {
+		return pipelineLaunchClaim{}, errors.New("pipeline: invalid managed launch claim")
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return pipelineLaunchClaim{}, errors.New("pipeline: trailing managed launch claim data")
+	}
+	if err := validatePipelineLaunchClaim(claim); err != nil {
+		return pipelineLaunchClaim{}, err
+	}
+	return claim, nil
+}
+
+func validatePipelineLaunchClaim(claim pipelineLaunchClaim) error {
+	if claim.Version != 1 || state.ValidTaskID(claim.TaskID) != nil || strings.TrimSpace(claim.RepoID) == "" || !validHexBytes(claim.LaunchNonce, 16) || !strings.HasPrefix(claim.ValidationGeneration, cfoValidationGenerationPrefix) || !validHexBytes(strings.TrimPrefix(claim.ValidationGeneration, cfoValidationGenerationPrefix), 16) {
+		return errors.New("pipeline: invalid managed launch claim")
+	}
+	return nil
+}
+
+func bindPipelineLaunchContract(path string, from pipelineLaunchContract, runID, status string) (pipelineLaunchContract, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" || status != pipelineLaunchContractPending && status != pipelineLaunchContractAuthorized {
+		return pipelineLaunchContract{}, errors.New("pipeline: invalid managed launch binding")
+	}
+	claimPath := filepath.Join(filepath.Dir(path), pipelineLaunchClaimName)
+	claim, err := loadPipelineLaunchClaim(claimPath)
+	if err != nil {
+		return pipelineLaunchContract{}, err
+	}
+	expectedClaim := pipelineLaunchClaimForContract(from)
+	if claim.Version != expectedClaim.Version || claim.TaskID != expectedClaim.TaskID || claim.RepoID != expectedClaim.RepoID || claim.LaunchNonce != expectedClaim.LaunchNonce || claim.ValidationGeneration != expectedClaim.ValidationGeneration || claim.RunID != "" && claim.RunID != runID {
+		return pipelineLaunchContract{}, errors.New("pipeline: managed launch claim does not match its contract")
+	}
+	if claim.RunID == "" {
+		claim.RunID = runID
+		if err := savePipelineLaunchClaim(claimPath, claim); err != nil {
+			return pipelineLaunchContract{}, err
+		}
+	}
+	to := from
+	to.RunID = runID
+	to.Status = status
+	if err := transitionPipelineLaunchContract(path, from, to); err != nil {
+		return pipelineLaunchContract{}, err
+	}
+	return to, nil
+}
+
+func samePipelineLaunchContractIdentity(left, right pipelineLaunchContract) bool {
+	left.Status, right.Status = "", ""
+	left.RunID, right.RunID = "", ""
+	return left == right
 }
 
 func capturePipelineLaunch(ctx context.Context, h home.Home, root string, reader pipeline.Reader, expected state.TaskMeta, branch string, selection pipeline.Selection) (pipelineLaunchEvidence, error) {
