@@ -432,10 +432,6 @@ func TestNativeGateReaderFailsClosedWhenManagedClaimIsMissing(t *testing.T) {
 }
 
 func TestNativeGateReaderFailsClosedWhenAllManagedEvidenceIsMissingOrInvalid(t *testing.T) {
-	sqlitePath, err := exec.LookPath("sqlite3")
-	if err != nil {
-		t.Skip("sqlite3 CLI not available")
-	}
 	for _, test := range []struct {
 		name     string
 		evidence string
@@ -444,6 +440,9 @@ func TestNativeGateReaderFailsClosedWhenAllManagedEvidenceIsMissingOrInvalid(t *
 		{name: "invalid", evidence: "not json\n"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("PATH", t.TempDir())
+			t.Setenv("CFO_NATIVE_GATE_LAUNCH_NONCE", strings.Repeat("a", 32))
+			t.Setenv("CFO_NATIVE_GATE_VALIDATION_GENERATION", cfoValidationGenerationPrefix+strings.Repeat("b", 32))
 			h := home.Home{State: t.TempDir()}
 			nativeRoot := t.TempDir()
 			worktree := filepath.Join(t.TempDir(), "run-bound")
@@ -464,15 +463,6 @@ func TestNativeGateReaderFailsClosedWhenAllManagedEvidenceIsMissingOrInvalid(t *
 						t.Fatal(err)
 					}
 				}
-			}
-			project := t.TempDir()
-			sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
-CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,head_sha TEXT,submitted_head_sha TEXT,status TEXT,created_at INTEGER,launch_nonce TEXT,launch_validation_generation TEXT,worktree_dir TEXT,no_mistakes_version TEXT,no_mistakes_build_sha TEXT);
-CREATE TABLE agent_invocations(run_id TEXT);
-INSERT INTO repos VALUES('repo',` + pipelineSQLString(filepath.ToSlash(project)) + `,'main');
-INSERT INTO runs VALUES('run-bound','repo','feature','head','head','running',1,'` + strings.Repeat("a", 32) + `','` + cfoValidationGenerationPrefix + strings.Repeat("b", 32) + `',` + pipelineSQLString(filepath.ToSlash(worktree)) + `,'v1.75.1','37ed232');`
-			if out, err := exec.Command(sqlitePath, filepath.Join(nativeRoot, "state.sqlite"), sql).CombinedOutput(); err != nil {
-				t.Fatalf("fixture: %s %v", out, err)
 			}
 			if _, _, err := nativeGateReader(h, nativeRoot, worktree); err == nil || !strings.Contains(err.Error(), "evidence") {
 				t.Fatalf("managed run with %s evidence error=%v", test.name, err)
