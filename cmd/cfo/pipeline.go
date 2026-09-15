@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -202,7 +203,18 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			return err
 		}
 		generation := cfoValidationGenerationPrefix + generationValue
-		contract := pipelineLaunchContract{Version: 1, TaskID: id, PolicyHash: selection.Hash, Project: meta.Project, Checked: checked.Start, ConfigSHA256: checked.ConfigSHA256, LaunchNonce: nonce, ValidationGeneration: generation}
+		sqlitePath, err := exec.LookPath("sqlite3")
+		if err != nil {
+			return errors.New("pipeline: sqlite3 executable required for managed native launch")
+		}
+		sqlitePath, err = filepath.Abs(sqlitePath)
+		if err != nil {
+			return err
+		}
+		if err := saveNativeGateRuntime(h.State, nativeGateRuntime{Version: 1, SQLitePath: sqlitePath}); err != nil {
+			return err
+		}
+		contract := pipelineLaunchContract{Version: 1, TaskID: id, PolicyHash: selection.Hash, Project: meta.Project, Checked: checked.Start, ConfigSHA256: checked.ConfigSHA256, LaunchNonce: nonce, ValidationGeneration: generation, SQLitePath: sqlitePath}
 		contractPath := filepath.Join(expectedTmp, pipelineLaunchContractName)
 		if err := savePipelineLaunchContract(contractPath, contract); err != nil {
 			return err
@@ -241,10 +253,6 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		if err := receipt.verify(checked.Start, nonce, generation, intent); err != nil {
 			return err
 		}
-		// Once the native engine has acknowledged this exact managed run, its
-		// later agent launches still need the contract even if the post-return
-		// database proof detects a native incompatibility.
-		keepContract = true
 		if err := reader.VerifyNativeLaunch(ctx, pipeline.NativeLaunchExpectation{
 			RunID: receipt.RunID, Project: meta.Project, RepoID: checked.Start.RepoID,
 			Branch: branch, SubmittedHeadSHA: checked.Start.HeadSHA, LaunchNonce: nonce,
@@ -254,6 +262,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		}); err != nil {
 			return err
 		}
+		keepContract = true
 		fmt.Fprintf(out, "pipeline launch: verified run %s at %s with trusted %s and primary %s\n", receipt.RunID, checked.Start.HeadSHA, checked.Start.TrustedSHA, checked.Start.EffectivePrimary)
 		return nil
 	}
@@ -297,6 +306,7 @@ type pipelineLaunchContract struct {
 	ConfigSHA256         string                 `json:"config_sha256"`
 	LaunchNonce          string                 `json:"launch_nonce"`
 	ValidationGeneration string                 `json:"validation_generation"`
+	SQLitePath           string                 `json:"sqlite_path"`
 }
 
 func capturePipelineLaunch(ctx context.Context, h home.Home, root string, reader pipeline.Reader, expected state.TaskMeta, branch string, selection pipeline.Selection) (pipelineLaunchEvidence, error) {

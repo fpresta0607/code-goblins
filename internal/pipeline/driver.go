@@ -24,9 +24,13 @@ var ErrNoNativeRunAtWorktree = errors.New("pipeline: no active native run owns t
 var terminalRunStatus = map[string]bool{"completed": true, "failed": true, "cancelled": true}
 
 type Reader struct {
-	Commands execx.Runner
-	Root     string
+	Commands   execx.Runner
+	Root       string
+	SQLitePath string
 }
+
+const NativeVersion = "v1.75.1"
+const NativeBuildSHA = "37ed232"
 
 func DefaultRoot() (string, error) {
 	if root := os.Getenv("NM_HOME"); root != "" {
@@ -49,7 +53,11 @@ func (r Reader) query(ctx context.Context, sql string, target interface{}) error
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	result, err := r.Commands.Run(ctx, execx.Request{Name: "sqlite3", Args: []string{"-readonly", "-json", path, sql}})
+	sqlite := r.SQLitePath
+	if sqlite == "" {
+		sqlite = "sqlite3"
+	}
+	result, err := r.Commands.Run(ctx, execx.Request{Name: sqlite, Args: []string{"-readonly", "-json", path, sql}})
 	if err != nil || result.ExitCode != 0 {
 		return errors.New("pipeline: state query failed; sqlite3 and a readable compatible database are required")
 	}
@@ -130,6 +138,8 @@ type NativeRunContext struct {
 	LaunchNonce          string `json:"launch_nonce"`
 	ValidationGeneration string `json:"validation_generation"`
 	Worktree             string `json:"worktree"`
+	NoMistakesVersion    string `json:"no_mistakes_version"`
+	NoMistakesBuildSHA   string `json:"no_mistakes_build_sha"`
 }
 
 type NativeAgentExpectation struct {
@@ -153,7 +163,8 @@ func (r Reader) NativeRunAtWorktree(ctx context.Context, worktree string) (Nativ
 	if err := r.query(ctx, `SELECT runs.id AS run_id, runs.repo_id, repos.working_path AS project,
 repos.default_branch, runs.branch, runs.head_sha, COALESCE(runs.submitted_head_sha,'') AS submitted_head_sha,
 COALESCE(runs.launch_nonce,'') AS launch_nonce, COALESCE(runs.launch_validation_generation,'') AS validation_generation,
-COALESCE(runs.worktree_dir,'') AS worktree
+COALESCE(runs.worktree_dir,'') AS worktree,COALESCE(runs.no_mistakes_version,'') AS no_mistakes_version,
+COALESCE(runs.no_mistakes_build_sha,'') AS no_mistakes_build_sha
 FROM runs JOIN repos ON repos.id=runs.repo_id
 WHERE runs.status NOT IN ('completed','failed','cancelled')
 ORDER BY runs.created_at DESC, runs.id DESC`, &rows); err != nil {
@@ -186,8 +197,8 @@ func (r Reader) VerifyNativeAgent(ctx context.Context, worktree string, want Nat
 	if run.RunID != want.RunID || run.RepoID != want.RepoID || !samePath(run.Project, want.Project) || run.DefaultBranch != want.DefaultBranch || run.Branch != want.Branch || run.SubmittedHeadSHA != want.SubmittedHeadSHA || run.LaunchNonce != want.LaunchNonce || run.ValidationGeneration != want.ValidationGeneration || !samePath(run.Worktree, worktree) {
 		return errors.New("pipeline: active native run does not match the managed launch contract")
 	}
-	if run.HeadSHA != want.SubmittedHeadSHA {
-		return errors.New("pipeline: durable native run head differs from the managed submitted head")
+	if run.NoMistakesVersion != NativeVersion || run.NoMistakesBuildSHA != NativeBuildSHA {
+		return errors.New("pipeline: native version and build do not match the managed gate")
 	}
 	config, err := os.ReadFile(filepath.Join(r.Root, "config.yaml"))
 	if err != nil || fmt.Sprintf("%x", sha256.Sum256(config)) != want.GlobalConfigSHA256 {
@@ -202,8 +213,13 @@ func (r Reader) VerifyNativeAgent(ctx context.Context, worktree string, want Nat
 		return fields[0], nil
 	}
 	head, err := gitOne(worktree, "rev-parse", "--verify", "HEAD^{commit}")
-	if err != nil || head != want.SubmittedHeadSHA {
-		return errors.New("pipeline: native agent worktree head differs from the managed submitted head")
+	if err != nil || head != run.HeadSHA {
+		return errors.New("pipeline: native agent worktree head differs from the durable native run head")
+	}
+	if head != want.SubmittedHeadSHA {
+		if err := r.verifyNativeHeadTransition(ctx, run, want.SubmittedHeadSHA, head); err != nil {
+			return err
+		}
 	}
 	for _, dir := range []string{run.Project, worktree} {
 		tracked, err := gitOne(dir, "rev-parse", "--verify", "refs/remotes/origin/"+want.DefaultBranch)
@@ -235,6 +251,28 @@ func (r Reader) VerifyNativeAgent(ctx context.Context, worktree string, want Nat
 	return nil
 }
 
+func (r Reader) verifyNativeHeadTransition(ctx context.Context, run NativeRunContext, submitted, head string) error {
+	ancestor, err := r.Commands.Run(ctx, execx.Request{Dir: run.Worktree, Name: "git", Args: []string{"merge-base", "--is-ancestor", submitted, head}})
+	descendant := err == nil && ancestor.ExitCode == 0
+	var rows []struct {
+		Fix    int `json:"fix"`
+		Review int `json:"review"`
+		Rebase int `json:"rebase"`
+	}
+	sql := `SELECT
+EXISTS(SELECT 1 FROM uncertified_pipeline_ranges WHERE repo_id=` + sqlString(run.RepoID) + ` AND branch=` + sqlString(run.Branch) + ` AND source_run_id=` + sqlString(run.RunID) + ` AND to_sha=` + sqlString(head) + `) AS fix,
+EXISTS(SELECT 1 FROM step_rounds JOIN step_results ON step_results.id=step_rounds.step_result_id WHERE step_results.run_id=` + sqlString(run.RunID) + ` AND step_results.step_name='review' AND step_rounds.starting_head_sha=` + sqlString(head) + `) AS review,
+EXISTS(SELECT 1 FROM step_results WHERE run_id=` + sqlString(run.RunID) + ` AND step_name='rebase' AND status='completed') AND NOT EXISTS(SELECT 1 FROM agent_invocations WHERE run_id=` + sqlString(run.RunID) + ` AND step_name<>'rebase') AS rebase`
+	if queryErr := r.query(ctx, sql, &rows); queryErr != nil || len(rows) != 1 {
+		return errors.New("pipeline: native run head lacks an authorized transition from the managed submitted head")
+	}
+	authorized := descendant && rows[0].Fix == 1 || rows[0].Review == 1 || rows[0].Rebase == 1
+	if !authorized {
+		return errors.New("pipeline: native run head lacks an authorized transition from the managed submitted head")
+	}
+	return nil
+}
+
 func (r Reader) VerifyNativeLaunch(ctx context.Context, expected NativeLaunchExpectation) error {
 	if expected.Primary != "codex" || expected.PrimaryModel != "gpt-5.6-sol" {
 		return errors.New("pipeline: managed native primary must be Codex gpt-5.6-sol")
@@ -251,8 +289,10 @@ func (r Reader) VerifyNativeLaunch(ctx context.Context, expected NativeLaunchExp
 		Agent                string `json:"agent"`
 		Model                string `json:"model"`
 		GlobalConfigHex      string `json:"global_config_hex"`
+		NoMistakesVersion    string `json:"no_mistakes_version"`
+		NoMistakesBuildSHA   string `json:"no_mistakes_build_sha"`
 	}
-	sql := `SELECT runs.id AS run_id,runs.repo_id,repos.working_path,runs.branch,COALESCE(runs.submitted_head_sha,'') AS submitted_head_sha,COALESCE(runs.launch_nonce,'') AS launch_nonce,COALESCE(runs.launch_validation_generation,'') AS validation_generation,
+	sql := `SELECT runs.id AS run_id,runs.repo_id,repos.working_path,runs.branch,COALESCE(runs.submitted_head_sha,'') AS submitted_head_sha,COALESCE(runs.launch_nonce,'') AS launch_nonce,COALESCE(runs.launch_validation_generation,'') AS validation_generation,COALESCE(runs.no_mistakes_version,'') AS no_mistakes_version,COALESCE(runs.no_mistakes_build_sha,'') AS no_mistakes_build_sha,
 COALESCE((SELECT step_rounds.trusted_config_sha FROM step_rounds JOIN step_results ON step_results.id=step_rounds.step_result_id WHERE step_results.run_id=runs.id AND step_rounds.trusted_config_sha IS NOT NULL ORDER BY step_rounds.created_at,step_rounds.id LIMIT 1),'') AS trusted_sha,
 COALESCE((SELECT agent_invocations.agent FROM agent_invocations WHERE agent_invocations.run_id=runs.id ORDER BY agent_invocations.started_at,agent_invocations.id LIMIT 1),'') AS agent,
 COALESCE((SELECT agent_invocations.model FROM agent_invocations WHERE agent_invocations.run_id=runs.id ORDER BY agent_invocations.started_at,agent_invocations.id LIMIT 1),'') AS model,
@@ -265,6 +305,9 @@ FROM runs JOIN repos ON repos.id=runs.repo_id WHERE runs.id=` + sqlString(expect
 		return errors.New("pipeline: native launch record is missing or ambiguous")
 	}
 	row := rows[0]
+	if row.NoMistakesVersion != NativeVersion || row.NoMistakesBuildSHA != NativeBuildSHA {
+		return errors.New("pipeline: native version and build do not match the managed gate")
+	}
 	if row.RunID != expected.RunID || row.RepoID != expected.RepoID || !samePath(row.WorkingPath, expected.Project) || row.Branch != expected.Branch || row.SubmittedHeadSHA != expected.SubmittedHeadSHA || row.LaunchNonce != expected.LaunchNonce || row.ValidationGeneration != expected.ValidationGeneration || row.TrustedSHA != expected.TrustedSHA || row.Agent != expected.Primary || row.Model != expected.PrimaryModel {
 		return errors.New("pipeline: native launch record does not match the checked repository, branch, head, trusted SHA, and primary")
 	}
