@@ -1121,17 +1121,23 @@ func TestPipelineRespondInvokesNativeOnlyForBudgetedExplicitDecision(t *testing.
 				// execx replaces rather than merges a non-nil Env, so the
 				// native engine must still receive the inherited environment
 				// it resolves its tools and home directory from.
-				var hasHome, hasPath bool
+				var hasHome, hasPath, hasNonce, hasGeneration bool
 				for _, entry := range request.Env {
 					if entry == "NM_HOME="+nm {
 						hasHome = true
+					}
+					if entry == nativeGateLaunchNonceEnv+"="+contract.LaunchNonce {
+						hasNonce = true
+					}
+					if entry == nativeGateValidationEnv+"="+contract.ValidationGeneration {
+						hasGeneration = true
 					}
 					if name, _, ok := strings.Cut(entry, "="); ok && strings.EqualFold(name, "PATH") {
 						hasPath = true
 					}
 				}
-				if !hasHome || !hasPath {
-					t.Fatalf("native environment: home=%v path=%v", hasHome, hasPath)
+				if !hasHome || !hasPath || !hasNonce || !hasGeneration {
+					t.Fatalf("native environment: home=%v path=%v nonce=%v generation=%v", hasHome, hasPath, hasNonce, hasGeneration)
 				}
 				if out.String() != "native decision output\n" {
 					t.Fatal(out.String())

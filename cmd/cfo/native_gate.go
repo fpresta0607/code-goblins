@@ -25,6 +25,8 @@ import (
 const (
 	nativeGateMarker              = "--cfo-native-gate"
 	cfoValidationGenerationPrefix = "cfo-v1-"
+	nativeGateLaunchNonceEnv      = "CFO_NATIVE_GATE_LAUNCH_NONCE"
+	nativeGateValidationEnv       = "CFO_NATIVE_GATE_VALIDATION_GENERATION"
 	managedOpenAIBaseURL          = "https://chatgpt.com/backend-api/codex"
 	managedChatGPTBaseURL         = "https://chatgpt.com/backend-api/"
 )
@@ -174,11 +176,18 @@ func nativeGateReader(h home.Home, root, worktree string) (pipeline.Reader, bool
 	if !ok {
 		return pipeline.Reader{}, false, nil
 	}
+	launchNonce, validationGeneration, managedLaunch, err := nativeGateLaunchSignal()
+	if err != nil {
+		return pipeline.Reader{}, false, err
+	}
 	contract, ok, err := findScopedPipelineLaunchContract(h.State, repoID, runID)
 	if err != nil {
 		return pipeline.Reader{}, false, err
 	}
 	if !ok {
+		if managedLaunch {
+			return pipeline.Reader{}, false, errors.New("pipeline: managed native gate evidence is missing or invalid")
+		}
 		sqlitePath, err := exec.LookPath("sqlite3")
 		if err != nil {
 			return pipeline.Reader{}, false, nil
@@ -200,11 +209,26 @@ func nativeGateReader(h home.Home, root, worktree string) (pipeline.Reader, bool
 		}
 		return pipeline.Reader{}, false, nil
 	}
+	if managedLaunch && (contract.LaunchNonce != launchNonce || contract.ValidationGeneration != validationGeneration) {
+		return pipeline.Reader{}, false, errors.New("pipeline: managed native gate evidence does not match its launch signal")
+	}
 	sqlitePath, err := filepath.Abs(contract.SQLitePath)
 	if err != nil || !fsx.SamePath(sqlitePath, contract.SQLitePath) {
 		return pipeline.Reader{}, false, errors.New("pipeline: invalid managed native gate sqlite path")
 	}
 	return pipeline.Reader{Root: root, Commands: execx.OSRunner{}, SQLitePath: sqlitePath}, true, nil
+}
+
+func nativeGateLaunchSignal() (string, string, bool, error) {
+	launchNonce, hasNonce := os.LookupEnv(nativeGateLaunchNonceEnv)
+	validationGeneration, hasGeneration := os.LookupEnv(nativeGateValidationEnv)
+	if !hasNonce && !hasGeneration {
+		return "", "", false, nil
+	}
+	if !hasNonce || !hasGeneration || !validHexBytes(launchNonce, 16) || !strings.HasPrefix(validationGeneration, cfoValidationGenerationPrefix) || !validHexBytes(strings.TrimPrefix(validationGeneration, cfoValidationGenerationPrefix), 16) {
+		return "", "", false, errors.New("pipeline: invalid managed native gate launch signal")
+	}
+	return launchNonce, validationGeneration, true, nil
 }
 
 func nativeGateWorktreeIdentity(root, worktree string) (string, string, bool) {

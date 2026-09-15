@@ -252,7 +252,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			return errors.New("pipeline: launch evidence changed before native invocation")
 		}
 		nativeArgs := []string{"axi", "run", "--intent", intent, "--launch-nonce", nonce, "--validation-generation", generation}
-		result, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Env: nativeEnv(root), Name: "no-mistakes", Args: nativeArgs})
+		result, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Env: managedNativeEnv(root, nonce, generation), Name: "no-mistakes", Args: nativeArgs})
 		if len(result.Stdout) > 0 {
 			fmt.Fprint(out, string(result.Stdout))
 		}
@@ -325,7 +325,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if err != nil {
 		return err
 	}
-	result, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Env: nativeEnv(root), Name: "no-mistakes", Args: nativeArgs})
+	result, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Env: managedNativeEnv(root, contract.LaunchNonce, contract.ValidationGeneration), Name: "no-mistakes", Args: nativeArgs})
 	if len(result.Stdout) > 0 {
 		fmt.Fprint(out, string(result.Stdout))
 	}
@@ -949,4 +949,17 @@ func nativeEnv(root string) []string {
 		env = append(env, entry)
 	}
 	return append(env, "NM_HOME="+root)
+}
+
+func managedNativeEnv(root, launchNonce, validationGeneration string) []string {
+	env := nativeEnv(root)
+	clean := env[:0]
+	for _, entry := range env {
+		name, _, ok := strings.Cut(entry, "=")
+		if ok && (strings.EqualFold(name, nativeGateLaunchNonceEnv) || strings.EqualFold(name, nativeGateValidationEnv)) {
+			continue
+		}
+		clean = append(clean, entry)
+	}
+	return append(clean, nativeGateLaunchNonceEnv+"="+launchNonce, nativeGateValidationEnv+"="+validationGeneration)
 }
