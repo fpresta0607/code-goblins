@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -69,6 +70,45 @@ func TestFindPipelineLaunchContractBindsTaskPathAndLaunchIdentity(t *testing.T) 
 	}
 	if _, err := findPipelineLaunchContract(stateDir, strings.Repeat("b", 32), contract.ValidationGeneration); err == nil {
 		t.Fatal("unbound launch identity accepted")
+	}
+}
+
+func TestFindPipelineLaunchContractIgnoresUnrelatedLegacyContract(t *testing.T) {
+	stateDir := t.TempDir()
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "sqlite3.exe"), []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	legacy := testPipelineLaunchContract(project)
+	legacy.TaskID = "a-legacy-task"
+	legacy.Status = ""
+	legacy.LaunchNonce = strings.Repeat("d", 32)
+	legacy.ValidationGeneration = strings.Repeat("e", 32)
+	legacyData, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := filepath.Join(stateDir, "tasktmp", legacy.TaskID, pipelineLaunchContractName)
+	if err := os.MkdirAll(filepath.Dir(legacyPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyPath, legacyData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	current := testPipelineLaunchContract(project)
+	current.TaskID = "current-task"
+	currentPath := filepath.Join(stateDir, "tasktmp", current.TaskID, pipelineLaunchContractName)
+	if err := os.MkdirAll(filepath.Dir(currentPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := savePipelineLaunchContract(currentPath, current); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := findPipelineLaunchContract(stateDir, current.LaunchNonce, current.ValidationGeneration)
+	if err != nil || got != current {
+		t.Fatalf("contract=%+v err=%v", got, err)
 	}
 }
 

@@ -258,18 +258,26 @@ func findPipelineLaunchContract(stateDir, nonce, generation string) (pipelineLau
 			continue
 		}
 		path := filepath.Join(stateDir, "tasktmp", entry.Name(), pipelineLaunchContractName)
-		contract, err := loadPipelineLaunchContract(path)
+		data, err := os.ReadFile(path)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
 		if err != nil {
 			return pipelineLaunchContract{}, err
 		}
+		var hint struct {
+			LaunchNonce          string `json:"launch_nonce"`
+			ValidationGeneration string `json:"validation_generation"`
+		}
+		if len(data) > 1<<20 || json.Unmarshal(data, &hint) != nil || hint.LaunchNonce != nonce || hint.ValidationGeneration != generation {
+			continue
+		}
+		contract, err := decodePipelineLaunchContract(data)
+		if err != nil {
+			return pipelineLaunchContract{}, err
+		}
 		if contract.TaskID != entry.Name() {
 			return pipelineLaunchContract{}, errors.New("pipeline: managed launch contract path does not match its task identity")
-		}
-		if contract.LaunchNonce != nonce || contract.ValidationGeneration != generation {
-			continue
 		}
 		if match != nil {
 			return pipelineLaunchContract{}, errors.New("pipeline: duplicate managed launch contracts")
@@ -288,6 +296,10 @@ func loadPipelineLaunchContract(path string) (pipelineLaunchContract, error) {
 	if err != nil {
 		return pipelineLaunchContract{}, err
 	}
+	return decodePipelineLaunchContract(data)
+}
+
+func decodePipelineLaunchContract(data []byte) (pipelineLaunchContract, error) {
 	if len(data) > 1<<20 {
 		return pipelineLaunchContract{}, errors.New("pipeline: managed launch contract is too large")
 	}
