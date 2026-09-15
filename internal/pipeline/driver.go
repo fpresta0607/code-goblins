@@ -130,6 +130,7 @@ type NativeLaunchExpectation struct {
 type NativeLaunchState struct {
 	InvocationCount  int
 	ReviewProvenance bool
+	Worktree         string
 }
 
 type NativeRunContext struct {
@@ -361,6 +362,7 @@ func (r Reader) VerifyNativeLaunch(ctx context.Context, expected NativeLaunchExp
 		RunID                string `json:"run_id"`
 		RepoID               string `json:"repo_id"`
 		WorkingPath          string `json:"working_path"`
+		Worktree             string `json:"worktree"`
 		Branch               string `json:"branch"`
 		SubmittedHeadSHA     string `json:"submitted_head_sha"`
 		LaunchNonce          string `json:"launch_nonce"`
@@ -376,7 +378,7 @@ func (r Reader) VerifyNativeLaunch(ctx context.Context, expected NativeLaunchExp
 		NoMistakesBuildSHA   string `json:"no_mistakes_build_sha"`
 		InvocationCount      int    `json:"invocation_count"`
 	}
-	sql := `SELECT runs.id AS run_id,runs.repo_id,repos.working_path,runs.branch,COALESCE(runs.submitted_head_sha,'') AS submitted_head_sha,COALESCE(runs.launch_nonce,'') AS launch_nonce,COALESCE(runs.launch_validation_generation,'') AS validation_generation,COALESCE(runs.no_mistakes_version,'') AS no_mistakes_version,COALESCE(runs.no_mistakes_build_sha,'') AS no_mistakes_build_sha,
+	sql := `SELECT runs.id AS run_id,runs.repo_id,repos.working_path,COALESCE(runs.worktree_dir,'') AS worktree,runs.branch,COALESCE(runs.submitted_head_sha,'') AS submitted_head_sha,COALESCE(runs.launch_nonce,'') AS launch_nonce,COALESCE(runs.launch_validation_generation,'') AS validation_generation,COALESCE(runs.no_mistakes_version,'') AS no_mistakes_version,COALESCE(runs.no_mistakes_build_sha,'') AS no_mistakes_build_sha,
 COALESCE((SELECT step_rounds.trusted_config_sha FROM step_rounds JOIN step_results ON step_results.id=step_rounds.step_result_id WHERE step_results.run_id=runs.id AND step_rounds.trusted_config_sha IS NOT NULL ORDER BY step_rounds.created_at,step_rounds.id LIMIT 1),'') AS trusted_sha,
 COALESCE((SELECT agent_invocations.agent FROM agent_invocations WHERE agent_invocations.run_id=runs.id ORDER BY agent_invocations.started_at,agent_invocations.id LIMIT 1),'') AS agent,
 COALESCE((SELECT agent_invocations.model FROM agent_invocations WHERE agent_invocations.run_id=runs.id ORDER BY agent_invocations.started_at,agent_invocations.id LIMIT 1),'') AS model,
@@ -396,10 +398,10 @@ FROM runs JOIN repos ON repos.id=runs.repo_id WHERE runs.id=` + sqlString(expect
 	if row.NoMistakesVersion != NativeVersion || row.NoMistakesBuildSHA != NativeBuildSHA {
 		return NativeLaunchState{}, errors.New("pipeline: native version and build do not match the managed gate")
 	}
-	if row.RunID != expected.RunID || row.RepoID != expected.RepoID || !samePath(row.WorkingPath, expected.Project) || row.Branch != expected.Branch || row.SubmittedHeadSHA != expected.SubmittedHeadSHA || row.LaunchNonce != expected.LaunchNonce || row.ValidationGeneration != expected.ValidationGeneration {
+	if row.RunID != expected.RunID || row.RepoID != expected.RepoID || !samePath(row.WorkingPath, expected.Project) || !filepath.IsAbs(row.Worktree) || filepath.Base(filepath.Clean(row.Worktree)) != row.RunID || row.Branch != expected.Branch || row.SubmittedHeadSHA != expected.SubmittedHeadSHA || row.LaunchNonce != expected.LaunchNonce || row.ValidationGeneration != expected.ValidationGeneration {
 		return NativeLaunchState{}, errors.New("pipeline: native launch record does not match the checked repository, branch, head, and launch identity")
 	}
-	state := NativeLaunchState{InvocationCount: row.InvocationCount}
+	state := NativeLaunchState{InvocationCount: row.InvocationCount, Worktree: row.Worktree}
 	if row.InvocationCount == 0 {
 		return state, nil
 	}

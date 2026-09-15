@@ -25,8 +25,6 @@ import (
 const (
 	nativeGateMarker              = "--cfo-native-gate"
 	cfoValidationGenerationPrefix = "cfo-v1-"
-	nativeGateLaunchNonceEnv      = "CFO_NATIVE_GATE_LAUNCH_NONCE"
-	nativeGateValidationEnv       = "CFO_NATIVE_GATE_VALIDATION_GENERATION"
 	managedOpenAIBaseURL          = "https://chatgpt.com/backend-api/codex"
 	managedChatGPTBaseURL         = "https://chatgpt.com/backend-api/"
 )
@@ -176,18 +174,24 @@ func nativeGateReader(h home.Home, root, worktree string) (pipeline.Reader, bool
 	if !ok {
 		return pipeline.Reader{}, false, nil
 	}
-	launchNonce, validationGeneration, managedLaunch, err := nativeGateLaunchSignal()
+	binding, managedLaunch, err := findPipelineNativeGateBinding(h.State, repoID, runID, worktree)
 	if err != nil {
 		return pipeline.Reader{}, false, err
 	}
-	contract, ok, err := findScopedPipelineLaunchContract(h.State, repoID, runID)
-	if err != nil {
-		return pipeline.Reader{}, false, err
+	var contract pipelineLaunchContract
+	if managedLaunch {
+		contract, err = loadPipelineLaunchContractForBinding(h.State, binding)
+		if err != nil {
+			return pipeline.Reader{}, false, err
+		}
+		ok = true
+	} else {
+		contract, ok, err = findScopedPipelineLaunchContract(h.State, repoID, runID)
+		if err != nil {
+			return pipeline.Reader{}, false, err
+		}
 	}
 	if !ok {
-		if managedLaunch {
-			return pipeline.Reader{}, false, errors.New("pipeline: managed native gate evidence is missing or invalid")
-		}
 		sqlitePath, err := exec.LookPath("sqlite3")
 		if err != nil {
 			return pipeline.Reader{}, false, nil
@@ -209,9 +213,6 @@ func nativeGateReader(h home.Home, root, worktree string) (pipeline.Reader, bool
 		}
 		return pipeline.Reader{}, false, nil
 	}
-	if managedLaunch && (contract.LaunchNonce != launchNonce || contract.ValidationGeneration != validationGeneration) {
-		return pipeline.Reader{}, false, errors.New("pipeline: managed native gate evidence does not match its launch signal")
-	}
 	sqlitePath, err := filepath.Abs(contract.SQLitePath)
 	if err != nil || !fsx.SamePath(sqlitePath, contract.SQLitePath) {
 		return pipeline.Reader{}, false, errors.New("pipeline: invalid managed native gate sqlite path")
@@ -219,16 +220,67 @@ func nativeGateReader(h home.Home, root, worktree string) (pipeline.Reader, bool
 	return pipeline.Reader{Root: root, Commands: execx.OSRunner{}, SQLitePath: sqlitePath}, true, nil
 }
 
-func nativeGateLaunchSignal() (string, string, bool, error) {
-	launchNonce, hasNonce := os.LookupEnv(nativeGateLaunchNonceEnv)
-	validationGeneration, hasGeneration := os.LookupEnv(nativeGateValidationEnv)
-	if !hasNonce && !hasGeneration {
-		return "", "", false, nil
+func findPipelineNativeGateBinding(stateDir, repoID, runID, worktree string) (pipelineNativeGateBinding, bool, error) {
+	path := pipelineNativeGateBindingPath(stateDir, repoID)
+	binding, err := loadPipelineNativeGateBinding(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return pipelineNativeGateBinding{}, false, nil
 	}
-	if !hasNonce || !hasGeneration || !validHexBytes(launchNonce, 16) || !strings.HasPrefix(validationGeneration, cfoValidationGenerationPrefix) || !validHexBytes(strings.TrimPrefix(validationGeneration, cfoValidationGenerationPrefix), 16) {
-		return "", "", false, errors.New("pipeline: invalid managed native gate launch signal")
+	if err != nil {
+		return pipelineNativeGateBinding{}, false, fmt.Errorf("pipeline: invalid managed native gate binding: %w", err)
 	}
-	return launchNonce, validationGeneration, true, nil
+	if binding.RepoID != repoID {
+		return pipelineNativeGateBinding{}, false, errors.New("pipeline: managed native gate binding repository mismatch")
+	}
+	if binding.RunID != "" && (binding.RunID != runID || !fsx.SamePath(binding.NativeWorktree, worktree)) {
+		return pipelineNativeGateBinding{}, false, nil
+	}
+	executable, digest, err := currentCFOExecutableEvidence()
+	if err != nil {
+		return pipelineNativeGateBinding{}, false, err
+	}
+	if !fsx.SamePath(binding.CFOExecutablePath, executable) || binding.CFOExecutableSHA256 != digest {
+		return pipelineNativeGateBinding{}, false, errors.New("pipeline: managed native gate binding CFO executable identity changed")
+	}
+	if binding.Status == pipelineNativeGateBindingRevoked {
+		return pipelineNativeGateBinding{}, false, errors.New("pipeline: managed native gate binding is revoked")
+	}
+	if binding.Status == pipelineNativeGateBindingPending {
+		result, runErr := (execx.OSRunner{}).Run(context.Background(), execx.Request{Dir: worktree, Name: "git", Args: []string{"rev-parse", "--verify", "HEAD^{commit}"}})
+		fields := strings.Fields(string(result.Stdout))
+		if runErr != nil || result.ExitCode != 0 || len(fields) != 1 {
+			return pipelineNativeGateBinding{}, false, errors.New("pipeline: pending managed native gate worktree evidence is unavailable")
+		}
+		if fields[0] != binding.SubmittedHeadSHA {
+			return pipelineNativeGateBinding{}, false, nil
+		}
+		binding, err = activatePipelineNativeGateBinding(path, binding, runID, worktree)
+		if err != nil {
+			return pipelineNativeGateBinding{}, false, err
+		}
+	}
+	return binding, true, nil
+}
+
+func loadPipelineLaunchContractForBinding(stateDir string, binding pipelineNativeGateBinding) (pipelineLaunchContract, error) {
+	dir := filepath.Join(stateDir, "tasktmp", binding.TaskID)
+	meta, err := state.ReadTaskMeta(stateDir, binding.TaskID)
+	if err != nil || meta.Mode != "no-mistakes" || !fsx.SamePath(meta.Project, binding.Project) || !fsx.SamePath(meta.Worktree, binding.TaskWorktree) || !fsx.SamePath(meta.TaskTmp, dir) {
+		return pipelineLaunchContract{}, errors.New("pipeline: managed native gate binding does not match its task worktree")
+	}
+	claim, err := loadPipelineLaunchClaim(filepath.Join(dir, pipelineLaunchClaimName))
+	if err != nil {
+		return pipelineLaunchContract{}, fmt.Errorf("pipeline: managed native gate evidence is missing or invalid: %w", err)
+	}
+	contract, err := loadPipelineLaunchContract(filepath.Join(dir, pipelineLaunchContractName))
+	if err != nil {
+		return pipelineLaunchContract{}, fmt.Errorf("pipeline: managed native gate evidence is missing or invalid: %w", err)
+	}
+	expectedClaim := pipelineLaunchClaimForContract(contract)
+	if claim != expectedClaim || !pipelineNativeGateBindingMatchesContract(binding, contract) {
+		return pipelineLaunchContract{}, errors.New("pipeline: managed native gate evidence does not match its durable binding")
+	}
+	return contract, nil
 }
 
 func nativeGateWorktreeIdentity(root, worktree string) (string, string, bool) {

@@ -247,14 +247,15 @@ func TestVerifyNativeLaunchRequiresDurableModelAndGlobalConfig(t *testing.T) {
 	}
 	root := t.TempDir()
 	project := t.TempDir()
+	nativeWorktree := filepath.Join(root, "worktrees", "run")
 	globalConfig := []byte("agent: [codex]\nagent_config:\n  codex: {model: gpt-5.6-sol, effort: high}\n")
 	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
-CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,submitted_head_sha TEXT,launch_nonce TEXT,launch_validation_generation TEXT,no_mistakes_version TEXT,no_mistakes_build_sha TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,submitted_head_sha TEXT,launch_nonce TEXT,launch_validation_generation TEXT,no_mistakes_version TEXT,no_mistakes_build_sha TEXT,worktree_dir TEXT);
 CREATE TABLE step_results(id TEXT,run_id TEXT,step_name TEXT);
 CREATE TABLE step_rounds(id TEXT,step_result_id TEXT,round INTEGER,trusted_config_sha TEXT,global_config_yaml BLOB,created_at INTEGER);
 CREATE TABLE agent_invocations(id TEXT,run_id TEXT,step_name TEXT,agent TEXT,model TEXT,model_provider TEXT,started_at INTEGER);
 INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'main');
-INSERT INTO runs VALUES('run','repo','feature','submitted','nonce','generation','v1.75.1','37ed232');
+INSERT INTO runs VALUES('run','repo','feature','submitted','nonce','generation','v1.75.1','37ed232',` + sqlString(filepath.ToSlash(nativeWorktree)) + `);
 INSERT INTO step_results VALUES('review-step','run','review');
 INSERT INTO step_rounds VALUES('round','review-step',1,'trusted',X'` + fmt.Sprintf("%x", globalConfig) + `',1);
 INSERT INTO agent_invocations VALUES('invocation','run','review','codex','gpt-5.6-sol','openai',1);`
@@ -269,7 +270,7 @@ INSERT INTO agent_invocations VALUES('invocation','run','review','codex','gpt-5.
 	}
 	reader := Reader{Root: root, Commands: execx.OSRunner{}}
 	state, err := reader.VerifyNativeLaunch(context.Background(), want)
-	if err != nil || state.InvocationCount != 1 || !state.ReviewProvenance {
+	if err != nil || state.InvocationCount != 1 || !state.ReviewProvenance || !samePath(state.Worktree, nativeWorktree) {
 		t.Fatalf("state=%+v err=%v", state, err)
 	}
 	if out, err := exec.Command("sqlite3", database, `UPDATE runs SET no_mistakes_build_sha='other'`).CombinedOutput(); err != nil {
@@ -307,13 +308,14 @@ func TestVerifyNativeLaunchDefersAgentProvenanceUntilFirstInvocation(t *testing.
 	}
 	root := t.TempDir()
 	project := t.TempDir()
+	nativeWorktree := filepath.Join(root, "worktrees", "run")
 	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
-CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,submitted_head_sha TEXT,launch_nonce TEXT,launch_validation_generation TEXT,no_mistakes_version TEXT,no_mistakes_build_sha TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,submitted_head_sha TEXT,launch_nonce TEXT,launch_validation_generation TEXT,no_mistakes_version TEXT,no_mistakes_build_sha TEXT,worktree_dir TEXT);
 CREATE TABLE step_results(id TEXT,run_id TEXT,step_name TEXT);
 CREATE TABLE step_rounds(id TEXT,step_result_id TEXT,round INTEGER,trusted_config_sha TEXT,global_config_yaml BLOB,created_at INTEGER);
 CREATE TABLE agent_invocations(id TEXT,run_id TEXT,step_name TEXT,agent TEXT,model TEXT,model_provider TEXT,started_at INTEGER);
 INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'main');
-INSERT INTO runs VALUES('run','repo','feature','submitted','nonce','generation','v1.75.1','37ed232');`
+INSERT INTO runs VALUES('run','repo','feature','submitted','nonce','generation','v1.75.1','37ed232',` + sqlString(filepath.ToSlash(nativeWorktree)) + `);`
 	database := filepath.Join(root, "state.sqlite")
 	if out, err := exec.Command("sqlite3", database, sql).CombinedOutput(); err != nil {
 		t.Fatalf("fixture: %s %v", out, err)
@@ -324,7 +326,7 @@ INSERT INTO runs VALUES('run','repo','feature','submitted','nonce','generation',
 		PrimaryModel: "gpt-5.6-sol", GlobalConfigSHA256: strings.Repeat("a", 64),
 	}
 	state, err := (Reader{Root: root, Commands: execx.OSRunner{}}).VerifyNativeLaunch(context.Background(), want)
-	if err != nil || state.InvocationCount != 0 {
+	if err != nil || state.InvocationCount != 0 || !samePath(state.Worktree, nativeWorktree) {
 		t.Fatalf("pre-agent launch state=%+v err=%v", state, err)
 	}
 	if out, err := exec.Command("sqlite3", database, `INSERT INTO agent_invocations VALUES('rebase','run','rebase','codex','gpt-5.6-sol','openai',1)`).CombinedOutput(); err != nil {

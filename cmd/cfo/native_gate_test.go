@@ -12,6 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 type nativeGateStatusRunner struct {
@@ -441,8 +442,8 @@ func TestNativeGateReaderFailsClosedWhenAllManagedEvidenceIsMissingOrInvalid(t *
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("PATH", t.TempDir())
-			t.Setenv("CFO_NATIVE_GATE_LAUNCH_NONCE", strings.Repeat("a", 32))
-			t.Setenv("CFO_NATIVE_GATE_VALIDATION_GENERATION", cfoValidationGenerationPrefix+strings.Repeat("b", 32))
+			unsetTestEnvironment(t, "CFO_NATIVE_GATE_LAUNCH_NONCE")
+			unsetTestEnvironment(t, "CFO_NATIVE_GATE_VALIDATION_GENERATION")
 			h := home.Home{State: t.TempDir()}
 			nativeRoot := t.TempDir()
 			worktree := filepath.Join(t.TempDir(), "run-bound")
@@ -453,11 +454,18 @@ func TestNativeGateReaderFailsClosedWhenAllManagedEvidenceIsMissingOrInvalid(t *
 			if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+gitDir+"\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
+			contract := testPipelineLaunchContract(t, t.TempDir())
+			taskWorktree := t.TempDir()
+			taskTmp := filepath.Join(h.State, "tasktmp", contract.TaskID)
+			if err := os.MkdirAll(taskTmp, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: contract.TaskID, Mode: "no-mistakes", Project: contract.Project, Worktree: taskWorktree, TaskTmp: taskTmp}); err != nil {
+				t.Fatal(err)
+			}
+			saveTestNativeGateBinding(t, h.State, contract, taskWorktree, worktree)
 			if test.evidence != "" {
-				dir := filepath.Join(h.State, "tasktmp", "task")
-				if err := os.MkdirAll(dir, 0o755); err != nil {
-					t.Fatal(err)
-				}
+				dir := taskTmp
 				for _, name := range []string{pipelineLaunchContractName, pipelineLaunchClaimName} {
 					if err := os.WriteFile(filepath.Join(dir, name), []byte(test.evidence), 0o600); err != nil {
 						t.Fatal(err)
@@ -467,8 +475,44 @@ func TestNativeGateReaderFailsClosedWhenAllManagedEvidenceIsMissingOrInvalid(t *
 			if _, _, err := nativeGateReader(h, nativeRoot, worktree); err == nil || !strings.Contains(err.Error(), "evidence") {
 				t.Fatalf("managed run with %s evidence error=%v", test.name, err)
 			}
+			unmanaged := filepath.Join(filepath.Dir(worktree), "unmanaged-run")
+			if err := os.MkdirAll(unmanaged, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(unmanaged, ".git"), []byte("gitdir: "+filepath.Join(nativeRoot, "repos", "repo.git", "worktrees", "unmanaged-run")+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if reader, inspect, err := nativeGateReader(h, nativeRoot, unmanaged); err != nil || inspect || reader.Commands != nil {
+				t.Fatalf("unmanaged invocation with %s evidence: reader=%+v inspect=%t err=%v", test.name, reader, inspect, err)
+			}
 		})
 	}
+}
+
+func saveTestNativeGateBinding(t *testing.T, stateDir string, contract pipelineLaunchContract, taskWorktree, nativeWorktree string) {
+	t.Helper()
+	binding := pipelineNativeGateBindingForContract(contract, taskWorktree)
+	binding.Status = pipelineNativeGateBindingActive
+	binding.RunID = filepath.Base(nativeWorktree)
+	binding.NativeWorktree = nativeWorktree
+	if err := savePipelineNativeGateBinding(pipelineNativeGateBindingPath(stateDir, contract.Checked.RepoID), binding); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func unsetTestEnvironment(t *testing.T, name string) {
+	t.Helper()
+	value, existed := os.LookupEnv(name)
+	if err := os.Unsetenv(name); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if existed {
+			_ = os.Setenv(name, value)
+		} else {
+			_ = os.Unsetenv(name)
+		}
+	})
 }
 
 func testPipelineLaunchContract(t *testing.T, project string) pipelineLaunchContract {
