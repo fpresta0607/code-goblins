@@ -55,6 +55,12 @@ func TestSubscriptionOnlyNativeGateEnvironmentStripsBillingKeysCaseInsensitively
 		"OPENAI_KEY=secret",
 		"CoDeX_ApI_KeY=secret",
 		"OpenRouter_Api_Key=secret",
+		"HTTPS_PROXY=https://proxy.example",
+		"http_proxy=http://proxy.example",
+		"All_Proxy=socks5://proxy.example",
+		"no_proxy=chatgpt.com",
+		"OTEL_EXPORTER_OTLP_ENDPOINT=https://collector.example",
+		"otel_exporter_otlp_headers=authorization=secret",
 		"CFO_HOME=C:\\fleet",
 	})
 	want := []string{"PATH=C:\\tools", "CFO_HOME=C:\\fleet"}
@@ -64,8 +70,8 @@ func TestSubscriptionOnlyNativeGateEnvironmentStripsBillingKeysCaseInsensitively
 }
 
 func TestSubscriptionOnlyNativeGateArgumentsForceOpenAIProvider(t *testing.T) {
-	got := subscriptionOnlyNativeGateArguments([]string{"exec", "-c", `model_provider="openrouter"`, "-c", `openai_base_url="https://openrouter.ai/api/v1"`, "-"})
-	want := []string{"exec", "-c", `model_provider="openrouter"`, "-c", `openai_base_url="https://openrouter.ai/api/v1"`, "-", "-c", `model_provider="openai"`, "-c", `forced_login_method="chatgpt"`, "-c", `openai_base_url="https://chatgpt.com/backend-api/codex"`, "-c", `chatgpt_base_url="https://chatgpt.com/backend-api/"`}
+	got := subscriptionOnlyNativeGateArguments([]string{"exec", "-c", `model_provider="openrouter"`, "-c", `openai_base_url="https://openrouter.ai/api/v1"`, "-c", `otel.exporter={otlp-http={endpoint="https://collector.example"}}`, "-c", `otel.log_user_prompt=true`, "-"})
+	want := []string{"exec", "-c", `model_provider="openrouter"`, "-c", `openai_base_url="https://openrouter.ai/api/v1"`, "-c", `otel.exporter={otlp-http={endpoint="https://collector.example"}}`, "-c", `otel.log_user_prompt=true`, "-", "-c", `model_provider="openai"`, "-c", `forced_login_method="chatgpt"`, "-c", `openai_base_url="https://chatgpt.com/backend-api/codex"`, "-c", `chatgpt_base_url="https://chatgpt.com/backend-api/"`, "-c", `otel.exporter="none"`, "-c", `otel.metrics_exporter="none"`, "-c", `otel.trace_exporter="none"`, "-c", `otel.log_user_prompt=false`}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("arguments=%q, want %q", got, want)
 	}
@@ -73,7 +79,7 @@ func TestSubscriptionOnlyNativeGateArgumentsForceOpenAIProvider(t *testing.T) {
 
 func TestNativeGateDelegationPreservesUnmanagedProviderAndCredentials(t *testing.T) {
 	args := []string{"exec", "-c", `model_provider="openrouter"`, "-"}
-	env := []string{"PATH=C:\\tools", "OPENROUTER_API_KEY=secret"}
+	env := []string{"PATH=C:\\tools", "OPENROUTER_API_KEY=secret", "HTTPS_PROXY=https://proxy.example", "OTEL_EXPORTER_OTLP_ENDPOINT=https://collector.example"}
 	gotArgs, gotEnv := nativeGateDelegation(args, env, false)
 	if strings.Join(gotArgs, "\n") != strings.Join(args, "\n") || strings.Join(gotEnv, "\n") != strings.Join(env, "\n") {
 		t.Fatalf("unmanaged delegation args=%q env=%q", gotArgs, gotEnv)
@@ -96,7 +102,7 @@ func TestRequireManagedNativeGateChatGPTRejectsPersistedAPIKey(t *testing.T) {
 			if (err != nil) != test.wantErr {
 				t.Fatalf("status=%q error=%v", test.status, err)
 			}
-			if strings.Join(runner.request.Args, " ") != `login status -c model_provider="openai" -c forced_login_method="chatgpt" -c openai_base_url="https://chatgpt.com/backend-api/codex" -c chatgpt_base_url="https://chatgpt.com/backend-api/"` {
+			if strings.Join(runner.request.Args, " ") != `login status -c model_provider="openai" -c forced_login_method="chatgpt" -c openai_base_url="https://chatgpt.com/backend-api/codex" -c chatgpt_base_url="https://chatgpt.com/backend-api/" -c otel.exporter="none" -c otel.metrics_exporter="none" -c otel.trace_exporter="none" -c otel.log_user_prompt=false` {
 				t.Fatalf("status arguments=%q", runner.request.Args)
 			}
 		})
@@ -489,13 +495,106 @@ func TestNativeGateReaderFailsClosedWhenAllManagedEvidenceIsMissingOrInvalid(t *
 	}
 }
 
+func TestNativeGateReaderIsolatesConcurrentTaskBindings(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	h := home.Home{State: t.TempDir()}
+	nativeRoot := t.TempDir()
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "sqlite3.exe"), []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	taskWorktrees := []string{t.TempDir(), t.TempDir()}
+	contracts := []pipelineLaunchContract{testPipelineLaunchContract(t, project), testPipelineLaunchContract(t, project)}
+	contracts[0].TaskID = "native-gate-a"
+	contracts[0].RunID = "run-a"
+	contracts[0].Status = pipelineLaunchContractVerified
+	contracts[1].TaskID = "native-gate-b"
+	contracts[1].RunID = "run-b"
+	contracts[1].Status = pipelineLaunchContractVerified
+	contracts[1].LaunchNonce = strings.Repeat("b", 32)
+	contracts[1].ValidationGeneration = cfoValidationGenerationPrefix + strings.Repeat("b", 32)
+	worktrees := make([]string, len(contracts))
+	for i := range contracts {
+		worktrees[i] = filepath.Join(t.TempDir(), contracts[i].RunID)
+		if err := os.MkdirAll(worktrees[i], 0o755); err != nil {
+			t.Fatal(err)
+		}
+		gitDir := filepath.Join(nativeRoot, "repos", "repo.git", "worktrees", contracts[i].RunID)
+		if err := os.WriteFile(filepath.Join(worktrees[i], ".git"), []byte("gitdir: "+gitDir+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		saveTestNativeGateEvidence(t, h.State, contracts[i], taskWorktrees[i])
+		saveTestNativeGateBinding(t, h.State, contracts[i], taskWorktrees[i], worktrees[i])
+	}
+	for i := range contracts {
+		reader, inspect, err := nativeGateReader(h, nativeRoot, worktrees[i])
+		if err != nil || !inspect || !strings.EqualFold(reader.SQLitePath, contracts[i].SQLitePath) {
+			t.Fatalf("task %d reader=%+v inspect=%t err=%v", i, reader, inspect, err)
+		}
+	}
+	first := pipelineNativeGateBindingForContract(contracts[0], taskWorktrees[0])
+	first.Status = pipelineNativeGateBindingActive
+	first.RunID = contracts[0].RunID
+	first.NativeWorktree = worktrees[0]
+	if err := retirePipelineNativeGateBinding(pipelineNativeGateBindingPath(h.State, first), first); err != nil {
+		t.Fatal(err)
+	}
+	reader, inspect, err := nativeGateReader(h, nativeRoot, worktrees[1])
+	if err != nil || !inspect || !strings.EqualFold(reader.SQLitePath, contracts[1].SQLitePath) {
+		t.Fatalf("remaining task reader=%+v inspect=%t err=%v", reader, inspect, err)
+	}
+}
+
+func TestNativeGateReaderRejectsAmbiguousTaskBindings(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	h := home.Home{State: t.TempDir()}
+	nativeRoot := t.TempDir()
+	worktree := filepath.Join(t.TempDir(), "run-bound")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitDir := filepath.Join(nativeRoot, "repos", "repo.git", "worktrees", "run-bound")
+	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+gitDir+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for i, taskID := range []string{"native-gate-a", "native-gate-b"} {
+		contract := testPipelineLaunchContract(t, t.TempDir())
+		contract.TaskID = taskID
+		contract.RunID = "run-bound"
+		contract.Status = pipelineLaunchContractVerified
+		contract.LaunchNonce = strings.Repeat(string(rune('a'+i)), 32)
+		contract.ValidationGeneration = cfoValidationGenerationPrefix + strings.Repeat(string(rune('a'+i)), 32)
+		saveTestNativeGateBinding(t, h.State, contract, t.TempDir(), worktree)
+	}
+	if _, _, err := nativeGateReader(h, nativeRoot, worktree); err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("ambiguous binding error=%v", err)
+	}
+}
+
+func saveTestNativeGateEvidence(t *testing.T, stateDir string, contract pipelineLaunchContract, taskWorktree string) {
+	t.Helper()
+	taskTmp := filepath.Join(stateDir, "tasktmp", contract.TaskID)
+	if err := os.MkdirAll(taskTmp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteTaskMeta(stateDir, state.TaskMeta{ID: contract.TaskID, Mode: "no-mistakes", Project: contract.Project, Worktree: taskWorktree, TaskTmp: taskTmp}); err != nil {
+		t.Fatal(err)
+	}
+	if err := savePipelineLaunchContract(filepath.Join(taskTmp, pipelineLaunchContractName), contract); err != nil {
+		t.Fatal(err)
+	}
+	if err := savePipelineLaunchClaim(filepath.Join(taskTmp, pipelineLaunchClaimName), pipelineLaunchClaimForContract(contract)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func saveTestNativeGateBinding(t *testing.T, stateDir string, contract pipelineLaunchContract, taskWorktree, nativeWorktree string) {
 	t.Helper()
 	binding := pipelineNativeGateBindingForContract(contract, taskWorktree)
 	binding.Status = pipelineNativeGateBindingActive
 	binding.RunID = filepath.Base(nativeWorktree)
 	binding.NativeWorktree = nativeWorktree
-	if err := savePipelineNativeGateBinding(pipelineNativeGateBindingPath(stateDir, contract.Checked.RepoID), binding); err != nil {
+	if err := savePipelineNativeGateBinding(pipelineNativeGateBindingPath(stateDir, binding), binding); err != nil {
 		t.Fatal(err)
 	}
 }
