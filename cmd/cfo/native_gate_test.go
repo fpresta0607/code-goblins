@@ -50,6 +50,7 @@ func TestSubscriptionOnlyNativeGateEnvironmentStripsBillingKeysCaseInsensitively
 	got := subscriptionOnlyNativeGateEnvironment([]string{
 		"PATH=C:\\tools",
 		"openai_api_key=secret",
+		"OPENAI_BASE_URL=https://openrouter.ai/api/v1",
 		"OPENAI_KEY=secret",
 		"CoDeX_ApI_KeY=secret",
 		"OpenRouter_Api_Key=secret",
@@ -62,8 +63,8 @@ func TestSubscriptionOnlyNativeGateEnvironmentStripsBillingKeysCaseInsensitively
 }
 
 func TestSubscriptionOnlyNativeGateArgumentsForceOpenAIProvider(t *testing.T) {
-	got := subscriptionOnlyNativeGateArguments([]string{"exec", "-c", `model_provider="openrouter"`, "-"})
-	want := []string{"exec", "-c", `model_provider="openrouter"`, "-", "-c", `model_provider="openai"`, "-c", `forced_login_method="chatgpt"`}
+	got := subscriptionOnlyNativeGateArguments([]string{"exec", "-c", `model_provider="openrouter"`, "-c", `openai_base_url="https://openrouter.ai/api/v1"`, "-"})
+	want := []string{"exec", "-c", `model_provider="openrouter"`, "-c", `openai_base_url="https://openrouter.ai/api/v1"`, "-", "-c", `model_provider="openai"`, "-c", `forced_login_method="chatgpt"`, "-c", `openai_base_url="https://chatgpt.com/backend-api/codex"`, "-c", `chatgpt_base_url="https://chatgpt.com/backend-api/"`}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("arguments=%q, want %q", got, want)
 	}
@@ -94,7 +95,7 @@ func TestRequireManagedNativeGateChatGPTRejectsPersistedAPIKey(t *testing.T) {
 			if (err != nil) != test.wantErr {
 				t.Fatalf("status=%q error=%v", test.status, err)
 			}
-			if strings.Join(runner.request.Args, " ") != `login status -c model_provider="openai" -c forced_login_method="chatgpt"` {
+			if strings.Join(runner.request.Args, " ") != `login status -c model_provider="openai" -c forced_login_method="chatgpt" -c openai_base_url="https://chatgpt.com/backend-api/codex" -c chatgpt_base_url="https://chatgpt.com/backend-api/"` {
 				t.Fatalf("status arguments=%q", runner.request.Args)
 			}
 		})
@@ -113,7 +114,7 @@ func TestFindPipelineLaunchContractBindsTaskPathAndLaunchIdentity(t *testing.T) 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := savePipelineLaunchContract(path, contract); err != nil {
+	if err := saveTestPipelineLaunchEvidence(path, contract); err != nil {
 		t.Fatal(err)
 	}
 	got, err := findPipelineLaunchContract(stateDir, contract.LaunchNonce, contract.ValidationGeneration)
@@ -154,7 +155,7 @@ func TestFindPipelineLaunchContractIgnoresUnrelatedLegacyContract(t *testing.T) 
 	if err := os.MkdirAll(filepath.Dir(currentPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := savePipelineLaunchContract(currentPath, current); err != nil {
+	if err := saveTestPipelineLaunchEvidence(currentPath, current); err != nil {
 		t.Fatal(err)
 	}
 
@@ -232,7 +233,7 @@ func TestAuthorizeNativeGateAgentRefusesPendingContractAfterFirstInvocation(t *t
 	if err := os.MkdirAll(filepath.Dir(contractPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := savePipelineLaunchContract(contractPath, contract); err != nil {
+	if err := saveTestPipelineLaunchEvidence(contractPath, contract); err != nil {
 		t.Fatal(err)
 	}
 	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
@@ -249,8 +250,13 @@ INSERT INTO agent_invocations VALUES('run');`
 	if err == nil || !strings.Contains(err.Error(), "pending") {
 		t.Fatalf("pending contract after invocation error=%v", err)
 	}
-	contract.Status = pipelineLaunchContractVerified
-	contract.RunID = "run"
+	contract, err = bindPipelineLaunchContract(contractPath, contract, "run", pipelineLaunchContractAuthorized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authorizeNativeGateAgent(context.Background(), home.Home{State: stateDir}, reader, worktree); err == nil || strings.Contains(err.Error(), "pending") {
+		t.Fatalf("authorized automatic followup lifecycle error=%v", err)
+	}
 	contract.CFOExecutablePath = sqlitePath
 	contract.CFOExecutableSHA256, err = fileSHA256(sqlitePath)
 	if err != nil {
@@ -261,6 +267,36 @@ INSERT INTO agent_invocations VALUES('run');`
 	}
 	if _, err := authorizeNativeGateAgent(context.Background(), home.Home{State: stateDir}, reader, worktree); err == nil || !strings.Contains(err.Error(), "CFO executable identity") {
 		t.Fatalf("different CFO executable error=%v", err)
+	}
+}
+
+func TestBindPipelineLaunchContractAuthorizesAutomaticFollowups(t *testing.T) {
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "sqlite3.exe"), []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	contract := testPipelineLaunchContract(t, project)
+	path := filepath.Join(t.TempDir(), contract.TaskID, pipelineLaunchContractName)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveTestPipelineLaunchEvidence(path, contract); err != nil {
+		t.Fatal(err)
+	}
+	authorized, err := bindPipelineLaunchContract(path, contract, "run-bound", pipelineLaunchContractAuthorized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authorized.Status != pipelineLaunchContractAuthorized || authorized.RunID != "run-bound" {
+		t.Fatalf("authorized contract=%+v", authorized)
+	}
+	claim, err := loadPipelineLaunchClaim(filepath.Join(filepath.Dir(path), pipelineLaunchClaimName))
+	if err != nil || claim.RunID != "run-bound" {
+		t.Fatalf("bound claim=%+v err=%v", claim, err)
+	}
+	loaded, err := loadPipelineLaunchContract(path)
+	if err != nil || loaded != authorized {
+		t.Fatalf("loaded contract=%+v err=%v", loaded, err)
 	}
 }
 
@@ -295,7 +331,11 @@ func TestNativeGateReaderUsesLaunchContractSQLiteOutsidePath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+gitDir+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	contract := testPipelineLaunchContract(t, t.TempDir())
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "sqlite3.exe"), []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	contract := testPipelineLaunchContract(t, project)
 	contract.Status = pipelineLaunchContractVerified
 	contract.RunID = "run-bound"
 	contract.SQLitePath = sqlitePath
@@ -303,7 +343,7 @@ func TestNativeGateReaderUsesLaunchContractSQLiteOutsidePath(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(contractPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := savePipelineLaunchContract(contractPath, contract); err != nil {
+	if err := saveTestPipelineLaunchEvidence(contractPath, contract); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", t.TempDir())
@@ -319,13 +359,67 @@ func TestNativeGateReaderUsesLaunchContractSQLiteOutsidePath(t *testing.T) {
 		t.Fatal(err)
 	}
 	reader, inspect, err = nativeGateReader(h, nativeRoot, unmanaged)
-	if err == nil || inspect || reader.Commands != nil {
-		t.Fatalf("missing sqlite unexpectedly classified native run: reader=%+v inspect=%t err=%v", reader, inspect, err)
+	if err != nil || inspect || reader.Commands != nil {
+		t.Fatalf("unmanaged native invocation did not pass through: reader=%+v inspect=%t err=%v", reader, inspect, err)
 	}
-	t.Setenv("PATH", filepath.Dir(sqlitePath))
-	reader, inspect, err = nativeGateReader(h, nativeRoot, unmanaged)
-	if err != nil || !inspect || !strings.EqualFold(reader.SQLitePath, sqlitePath) {
-		t.Fatalf("native run without contract was not inspected: reader=%+v inspect=%t err=%v", reader, inspect, err)
+}
+
+func TestNativeGateReaderFailsClosedWhenManagedContractIsMissing(t *testing.T) {
+	h := home.Home{State: t.TempDir()}
+	nativeRoot := t.TempDir()
+	worktree := filepath.Join(t.TempDir(), "run-bound")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitDir := filepath.Join(nativeRoot, "repos", "repo.git", "worktrees", "run-bound")
+	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+gitDir+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	contract := testPipelineLaunchContract(t, t.TempDir())
+	contract.RunID = "run-bound"
+	claim := pipelineLaunchClaimForContract(contract)
+	claim.RunID = contract.RunID
+	claimPath := filepath.Join(h.State, "tasktmp", contract.TaskID, pipelineLaunchClaimName)
+	if err := os.MkdirAll(filepath.Dir(claimPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := savePipelineLaunchClaim(claimPath, claim); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	if _, _, err := nativeGateReader(h, nativeRoot, worktree); err == nil || !strings.Contains(err.Error(), "missing") {
+		t.Fatalf("missing managed contract error=%v", err)
+	}
+}
+
+func TestNativeGateReaderFailsClosedWhenManagedClaimIsMissing(t *testing.T) {
+	h := home.Home{State: t.TempDir()}
+	nativeRoot := t.TempDir()
+	worktree := filepath.Join(t.TempDir(), "run-bound")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitDir := filepath.Join(nativeRoot, "repos", "repo.git", "worktrees", "run-bound")
+	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+gitDir+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "sqlite3.exe"), []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	contract := testPipelineLaunchContract(t, project)
+	contract.RunID = "run-bound"
+	contract.Status = pipelineLaunchContractAuthorized
+	contractPath := filepath.Join(h.State, "tasktmp", contract.TaskID, pipelineLaunchContractName)
+	if err := os.MkdirAll(filepath.Dir(contractPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := savePipelineLaunchContract(contractPath, contract); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	if _, _, err := nativeGateReader(h, nativeRoot, worktree); err == nil || !strings.Contains(err.Error(), "claim is missing") {
+		t.Fatalf("missing managed claim error=%v", err)
 	}
 }
 
@@ -348,6 +442,13 @@ func testPipelineLaunchContract(t *testing.T, project string) pipelineLaunchCont
 		CFOExecutablePath:    executable,
 		CFOExecutableSHA256:  digest,
 	}
+}
+
+func saveTestPipelineLaunchEvidence(path string, contract pipelineLaunchContract) error {
+	if err := savePipelineLaunchContract(path, contract); err != nil {
+		return err
+	}
+	return savePipelineLaunchClaim(filepath.Join(filepath.Dir(path), pipelineLaunchClaimName), pipelineLaunchClaimForContract(contract))
 }
 
 func pipelineSQLString(value string) string {
