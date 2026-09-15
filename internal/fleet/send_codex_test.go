@@ -163,3 +163,84 @@ func TestCodexStyledComposerRejectsOccupiedAndUnknownBraille(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexParserAcceptsRawWindowsUTF8StyledFrame(t *testing.T) {
+	// This is the shape emitted by Herdr through cmd.exe redirection: UTF-8
+	// bytes, CRLF rows, RGB foreground/background SGR, and colored braille
+	// animation immediately after the prompt. The BOM is accepted only as a
+	// capture boundary marker and is never treated as composer content.
+	screen := "\ufeff \r\n" +
+		"\x1b[0m\x1b[1m\x1b[48;2;41;41;41m›\x1b[0m" +
+		"\x1b[38;2;129;129;129m\x1b[48;2;41;41;41m\u2801\x1b[0m" +
+		"\x1b[2m\x1b[48;2;41;41;41mAsk Codex to do anything\x1b[0m" +
+		"\x1b[48;2;41;41;41m           \x1b[0m\r\n" +
+		"\x1b[38;2;61;61;61m\x1b[48;2;41;41;41m\u2801\x1b[0m\r\n" +
+		"  \x1b[38;2;246;226;183mgpt-6-astra high\x1b[0m\x1b[2m · \x1b[0m" +
+		"\x1b[38;2;171;223;167mC:\\fixture\\project\x1b[0m\x1b[2m · \x1b[0mSynthetic task\r\n"
+	if !codexComposerEmpty(screen) {
+		t.Fatal("raw UTF-8 styled empty composer was not recognized")
+	}
+	if _, ok := parseANSICells(screen); !ok {
+		t.Fatal("raw UTF-8 styled frame did not decode")
+	}
+}
+
+func TestCodexParserAcceptsModelAgnosticLunaFooter(t *testing.T) {
+	screen := "\r\n› \x1b[2mAsk Codex to do anything\x1b[0m\r\n" +
+		"  Luna Reserve xhigh · C:\\fixture\\project · Synthetic task\r\n"
+	if !codexComposerEmpty(screen) {
+		t.Fatal("Luna Reserve footer should delimit an empty composer")
+	}
+	if !codexFooter("Luna Reserve xhigh · C:\\fixture\\project · Synthetic task") {
+		t.Fatal("Luna Reserve footer was rejected")
+	}
+	if codexFooter("arbitrary text · not-a-workspace · suffix") {
+		t.Fatal("arbitrary footer was accepted")
+	}
+}
+
+func TestCodexParserAcceptsStyledAnimationInsideExactTypedMessage(t *testing.T) {
+	screen := "\r\n\x1b[1m\x1b[48;2;41;41;41m›\x1b[0m" +
+		"CFO-SMOKE-AAD\x1b[38;2;129;129;129m\x1b[48;2;41;41;41m\u2801\x1b[0m" +
+		"\x1b[38;2;121;121;121m\x1b[48;2;41;41;41m\u2802\x1b[0m" +
+		" please inspect\x1b[38;2;61;61;61m\x1b[48;2;41;41;41m\u2804\x1b[0m\r\n" +
+		"  \x1b[2mtab to queue message\x1b[0m\r\n"
+	if got := codexDelivery(screen, "CFO-SMOKE-AAD please inspect"); got != "typed" {
+		t.Fatalf("styled typed frame result = %q, want typed", got)
+	}
+}
+
+func TestCodexParserAcceptsTypedFrameWhenQueueHintIsOutOfViewport(t *testing.T) {
+	// A short Herdr capture can end before the queue hint. The message is
+	// still safe to identify because the composer is bounded by the Codex
+	// footer and all other cells must be styled animation or whitespace.
+	screen := "\r\n\x1b[1m\x1b[48;2;41;41;41m›\x1b[0m" +
+		"\x1b[38;2;129;129;129m\x1b[48;2;41;41;41m\u2801\x1b[0m" +
+		"CFO-SMOKE-AAD please inspect\r\n" +
+		"  \x1b[38;2;61;61;61m\x1b[48;2;41;41;41m\u2804\u2802\x1b[0m\r\n" +
+		"  \x1b[38;2;246;226;183mgpt-6-astra high\x1b[0m\x1b[2m · \x1b[0m" +
+		"\x1b[38;2;171;223;167mC:\\fixture\\project\x1b[0m\x1b[2m · \x1b[0mSynthetic task\r\n"
+	if got := codexDelivery(screen, "CFO-SMOKE-AAD please inspect"); got != "typed" {
+		t.Fatalf("typed frame without visible queue hint result = %q, want typed", got)
+	}
+}
+
+func TestCodexParserRejectsUnsafeBytesSequencesAndSuffixes(t *testing.T) {
+	cases := []struct {
+		name   string
+		screen string
+	}{
+		{"invalid UTF8", "\n› Ask Codex to do anything\xff\n"},
+		{"unknown CSI", "\n\x1b[?25l› Ask Codex to do anything\n"},
+		{"occupied braille", "\n› \u2801 draft\n  tab to queue message\n"},
+		{"arbitrary suffix", "\n› CFO-SMOKE-AAD plus another draft\n  tab to queue message\n"},
+		{"oversized frame", strings.Repeat("x", maxANSIFrameBytes+1)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := codexDelivery(tc.screen, "CFO-SMOKE-AAD"); got != "unknown" {
+				t.Fatalf("result = %q, want unknown", got)
+			}
+		})
+	}
+}
