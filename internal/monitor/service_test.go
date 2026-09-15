@@ -926,8 +926,8 @@ func TestScanWakesWhenLaunchGraceExpiresWithoutAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Scan after grace: %v", err)
 	}
-	if result.Event == nil || result.Observations[0].Reason != EndpointUnknown {
-		t.Fatalf("post-grace scan = %+v, want an endpoint-unknown death wake", result)
+	if result.Event == nil || result.Observations[0].Reason != AgentMissing {
+		t.Fatalf("post-grace scan = %+v, want a missing-worker wake", result)
 	}
 }
 

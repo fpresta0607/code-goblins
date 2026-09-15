@@ -83,7 +83,7 @@ func TestWorkingPastBudgetWakesOnWedgedGate(t *testing.T) {
 	if r.Event == nil {
 		t.Fatal("past budget with a wedged gate did not wake")
 	}
-	for _, want := range []string{"ci", "no .github/workflows", "axi abort"} {
+	for _, want := range []string{"ci", "inspect native status", "age alone does not prove"} {
 		if !strings.Contains(r.Event.Detail, want) {
 			t.Errorf("detail %q lacks %q", r.Event.Detail, want)
 		}

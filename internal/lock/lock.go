@@ -80,6 +80,16 @@ func ownerInfo(pid int, session string) (*Info, processStatus) {
 	return &Info{PID: pid, OwnerPID: pid, Session: session, Start: start, Hostname: hostname, Acquired: time.Now().UTC()}, status
 }
 
+// VerifiedProcess requires positive local process identity evidence. Unlike
+// Alive's conservative lock-stealing rule, unknown is never sufficient.
+func VerifiedProcess(pid int) (Info, error) {
+	info, status := ownerInfo(pid, "")
+	if status != statusAlive {
+		return Info{}, fmt.Errorf("lock: process %d identity is not verifiable", pid)
+	}
+	return *info, nil
+}
+
 func writeInfo(path string, info *Info) error {
 	data, err := json.Marshal(info)
 	if err != nil {

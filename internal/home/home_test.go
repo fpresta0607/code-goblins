@@ -20,8 +20,11 @@ func gitInit(t *testing.T, dir string) {
 	}
 }
 
-func TestResolveDefaultsToCwd(t *testing.T) {
+func TestResolveDefaultsOutsideSource(t *testing.T) {
 	dir := t.TempDir()
+	cache := t.TempDir()
+	t.Setenv("LOCALAPPDATA", cache)
+	t.Setenv("XDG_CACHE_HOME", cache)
 	t.Setenv("CFO_HOME", "")
 	// A goblin pane exports CFO_STATE_OVERRIDE, so the defaults this test
 	// asserts only hold once that inherited value is cleared too.
@@ -31,8 +34,8 @@ func TestResolveDefaultsToCwd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if !strings.EqualFold(filepath.Clean(h.Root), filepath.Clean(dir)) {
-		t.Errorf("Root = %q, want the cwd %q", h.Root, dir)
+	if !strings.EqualFold(filepath.Clean(h.Root), filepath.Join(cache, "cfo")) {
+		t.Errorf("Root = %q, want per-user runtime root", h.Root)
 	}
 	if h.State != filepath.Join(h.Root, "state") || h.Data != filepath.Join(h.Root, "data") {
 		t.Errorf("derived dirs wrong: %+v", h)
@@ -50,6 +53,14 @@ func TestResolveHonorsEnvOverrides(t *testing.T) {
 	}
 	if h.Root != root || h.State != stateDir {
 		t.Errorf("overrides ignored: %+v", h)
+	}
+}
+
+func TestResolveRefusesOperatorDefaultRuntimeWithoutOverrides(t *testing.T) {
+	t.Setenv("CFO_HOME", "")
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+	if _, err := Resolve(); err == nil {
+		t.Fatal("test could resolve the operator's default runtime home")
 	}
 }
 

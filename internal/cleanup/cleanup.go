@@ -21,8 +21,11 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/taskcontext"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -109,8 +112,39 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if err := s.requireClean(ctx, worktreePath); err != nil {
 		return Result{}, err
 	}
+	var proof worktree.MergeProof
+	if meta.Mode == "local-only" {
+		proof, err = worktree.ProveLocalMerged(ctx, s.Commands, project, worktreePath)
+	} else {
+		proof, err = worktree.ProveMerged(ctx, s.Commands, worktreePath)
+	}
+	if err != nil {
+		return Result{}, err
+	}
 	if err := s.requireInactive(ctx, meta); err != nil {
 		return Result{}, err
+	}
+	contextHome := home.Home{Root: filepath.Dir(s.StateDir), State: s.StateDir}
+	manifest, err := taskcontext.Refresh(ctx, contextHome, id, s.Commands)
+	if err != nil {
+		return Result{}, fmt.Errorf("cleanup: preserve task context: %w", err)
+	}
+	if len(manifest.Decisions) > 0 {
+		return Result{}, errors.New("cleanup: unresolved decisions must be answered before retirement")
+	}
+	if meta.Mode == "no-mistakes" {
+		launch, e := pipeline.LoadLaunch(filepath.Join(filepath.Dir(manifest.Manifest), "pipeline-launch.json"))
+		if e != nil {
+			return Result{}, fmt.Errorf("cleanup: native gate association unavailable: %w", e)
+		}
+		root, e := pipeline.DefaultRoot()
+		if e != nil {
+			return Result{}, e
+		}
+		run, e := (pipeline.Reader{Root: root, Commands: s.Commands}).BoundRun(ctx, launch)
+		if e != nil || run.Status != "completed" {
+			return Result{}, errors.New("cleanup: native gate remains unresolved or unreadable")
+		}
 	}
 
 	// The endpoint is proven agent-free: close the recorded tab so a completed
@@ -121,6 +155,9 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 
 	if err := s.Worktrees.Return(ctx, project, worktreePath); err != nil {
 		return Result{}, fmt.Errorf("cleanup: return worktree: %w", err)
+	}
+	if err := taskcontext.SaveRetirement(contextHome, meta, proof); err != nil {
+		return Result{}, fmt.Errorf("cleanup: preserve retirement proof: %w", err)
 	}
 
 	if err := state.AppendStatus(s.StateDir, id, "done: returned worktree "+worktreePath+" via cfo cleanup"); err != nil {
@@ -208,12 +245,12 @@ func (s Service) archive(id string) (string, error) {
 		return "", err
 	}
 
-	// The credential script is the one thing never archived: it holds the
-	// project's secrets, and a finished task has no further use for them. If
-	// it cannot be dropped, refuse to archive rather than move a directory
-	// that still holds credentials.
-	if err := os.Remove(filepath.Join(taskTmp, state.AuthScriptName)); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return "", fmt.Errorf("remove injected credentials: %w", err)
+	// Both generated launch inputs may contain credentials. Preserve frozen
+	// policy and handoff evidence, but refuse archival if either cannot be scrubbed.
+	for _, name := range []string{state.AuthScriptName, "mcp.json"} {
+		if err := os.Remove(filepath.Join(taskTmp, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("remove injected credential file %s: %w", name, err)
+		}
 	}
 	if err := os.Rename(taskTmp, dir); err != nil {
 		return "", fmt.Errorf("task temporary directory: %w", err)

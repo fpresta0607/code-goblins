@@ -4,11 +4,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
 )
 
@@ -25,11 +27,16 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	uninstall := fs.Bool("uninstall", false, "remove what cfo install added")
+	prepareOnly := fs.Bool("prepare-only", false, "prepare a portable runtime home without changing user environment or hooks")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if fs.NArg() != 0 {
 		fmt.Fprintln(stderr, "cfo install: unexpected arguments")
+		return 2
+	}
+	if *uninstall && *prepareOnly {
+		fmt.Fprintln(stderr, "cfo install: --prepare-only and --uninstall are mutually exclusive")
 		return 2
 	}
 
@@ -43,8 +50,23 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	h, err := home.Resolve()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if !*uninstall {
+		if err = prepareRuntimeHome(root, h); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+	}
+	if *prepareOnly {
+		fmt.Fprintf(stdout, "Prepared runtime home %s. Existing operator memory and policy were preserved; reconcile them with the source instructions explicitly before migration. User environment and hooks were not changed.\n", h.Root)
+		return 0
+	}
 	service := install.Service{
-		Root:         root,
+		Root:         h.Root,
 		UserSettings: settings,
 		RepoSettings: filepath.Join(root, ".claude", "settings.json"),
 		Env:          install.NewEnvStore(execx.OSRunner{}),
@@ -67,6 +89,81 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintln(stdout, "Open a new terminal for the environment change to take effect.")
 	return 0
+}
+
+// Only generic instructions, policy and the executable seed a fresh runtime
+// home. Existing operator data is neither imported from source nor overwritten.
+func prepareRuntimeHome(source string, h home.Home) error {
+	for _, dir := range []string{h.State, h.Data, filepath.Join(h.Root, "config")} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return err
+		}
+	}
+	for _, name := range []string{"AGENTS.md", "CLAUDE.md", filepath.Join("config", "pipeline.json")} {
+		dest := filepath.Join(h.Root, name)
+		if _, err := os.Stat(dest); err == nil {
+			continue
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		data, err := os.ReadFile(filepath.Join(source, name))
+		if err != nil {
+			return err
+		}
+		if err = fsx.AtomicWriteFile(dest, data); err != nil {
+			return err
+		}
+	}
+	for _, subdir := range []string{filepath.Join(".agents", "skills"), "docs"} {
+		err := filepath.WalkDir(filepath.Join(source, subdir), func(path string, entry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			_, linkErr := os.Readlink(path)
+			if entry.Type()&os.ModeSymlink != 0 || linkErr == nil {
+				return fmt.Errorf("install: instruction bundle contains a link: %s", path)
+			}
+			rel, err := filepath.Rel(source, path)
+			if err != nil {
+				return err
+			}
+			dest := filepath.Join(h.Root, rel)
+			if _, linkErr = os.Readlink(dest); linkErr == nil {
+				return fmt.Errorf("install: existing instruction path is a link; reconcile it explicitly: %s", dest)
+			}
+			if entry.IsDir() {
+				return os.MkdirAll(dest, 0700)
+			}
+			if _, err = os.Stat(dest); err == nil {
+				return nil
+			} else if !os.IsNotExist(err) {
+				return err
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			return fsx.AtomicWriteFile(dest, data)
+		})
+		if err != nil {
+			return err
+		}
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	dest := filepath.Join(h.Root, "cfo.exe")
+	if !fsx.SamePath(exe, dest) {
+		data, err := os.ReadFile(exe)
+		if err != nil {
+			return err
+		}
+		if err = fsx.AtomicWriteFile(dest, data); err != nil {
+			return err
+		}
+	}
+	return fsx.AtomicWriteFile(filepath.Join(h.Root, ".cfo-home"), []byte("cfo-home.v1\n"))
 }
 
 // installRoot is the checkout install wires in: the working directory, not

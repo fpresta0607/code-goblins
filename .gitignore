@@ -5,6 +5,9 @@ data/
 /caches/
 .no-mistakes/
 .showcase/
+.lavish/
+/deliverables/
+/tasks/
 .DS_Store
 __pycache__/
 *.pyc

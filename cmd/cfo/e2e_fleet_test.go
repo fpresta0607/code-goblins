@@ -39,6 +39,10 @@ func TestFleetEndToEnd(t *testing.T) {
 	fixture := newFleetE2EFixture(t)
 
 	for _, harness := range []string{"claude", "codex", "pi"} {
+		fixture.project = filepath.Join(t.TempDir(), "project-"+harness)
+		if err := os.MkdirAll(fixture.project, 0700); err != nil {
+			t.Fatal(err)
+		}
 		fixture.Spawn(harness)
 	}
 	fixture.AssertTaskMetadataIsIsolated()
@@ -358,7 +362,7 @@ func (f *fleetE2EFixture) AssertTaskMetadataIsIsolated() {
 		if err != nil {
 			f.t.Fatal(err)
 		}
-		if meta.Project != f.project || meta.Worktree == "" || samePath(meta.Worktree, f.project) {
+		if meta.Project == "" || meta.Worktree == "" || samePath(meta.Worktree, meta.Project) {
 			f.t.Fatalf("%s metadata is not an isolated worker: %+v", id, meta)
 		}
 		if info, err := os.Stat(meta.Worktree); err != nil || !info.IsDir() {
@@ -393,9 +397,10 @@ func (f *fleetE2EFixture) AssertTaskMetadataIsIsolated() {
 
 func (f *fleetE2EFixture) SendAndPeek(id string) {
 	f.t.Helper()
-	stdout, stderr := runFleetCommand(f.t, f.runtime, "send", "gb-"+id, "print", "the", "acceptance", "marker")
-	if stdout != "sent gb-"+id+"\n" || stderr != "" {
-		f.t.Fatalf("send stdout=%q stderr=%q", stdout, stderr)
+	var sendOut, sendErr bytes.Buffer
+	code := runWithRuntime([]string{"send", "gb-" + id, "print", "the", "acceptance", "marker"}, &sendOut, &sendErr, f.runtime)
+	if code == 0 || !strings.Contains(sendErr.String(), "unconfirmed") {
+		f.t.Fatalf("working-agent counters falsely proved acceptance: code=%d stdout=%s stderr=%s", code, &sendOut, &sendErr)
 	}
 	// The message travels the native agent channel, so it is pinned on the
 	// prompt rather than on typed pane text. Nothing is typed into the
@@ -414,7 +419,7 @@ func (f *fleetE2EFixture) SendAndPeek(id string) {
 		f.t.Fatalf("message submitted %d times, want exactly one native prompt; prompts=%v", delivered, f.runner.prompts)
 	}
 
-	stdout, stderr = runFleetCommand(f.t, f.runtime, "peek", "gb-"+id, "5")
+	stdout, stderr := runFleetCommand(f.t, f.runtime, "peek", "gb-"+id, "5")
 	if stderr != "" || !strings.Contains(stdout, "acceptance marker") {
 		f.t.Fatalf("peek stdout=%q stderr=%q", stdout, stderr)
 	}

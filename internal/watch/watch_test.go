@@ -302,8 +302,8 @@ func TestRunClosesOnSignal(t *testing.T) {
 		if r.Kind != "signal" {
 			t.Errorf("record kind = %q, want signal", r.Kind)
 		}
-		if r.Detail != reason {
-			t.Errorf("record detail = %q, want %q", r.Detail, reason)
+		if !strings.HasPrefix(r.Detail, "needs-decision:") || r.EventID == "" {
+			t.Errorf("record lacks durable decision payload: %+v", r)
 		}
 		keys[r.Key] = true
 	}
@@ -342,7 +342,7 @@ func TestRunPreservesControlFilenameInQueueButRendersItSafely(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 1 || records[0].Key != name || records[0].Detail != "signal:"+name {
+	if len(records) != 1 || records[0].Key != name || records[0].Detail != "needs-decision: changed" {
 		t.Fatalf("durable wake record = %+v, want raw signal filename and detail", records)
 	}
 
@@ -758,9 +758,9 @@ func TestSignalIsDecisionOwnsOnlyGateAndMergeVerbs(t *testing.T) {
 		{"needs-decision: merge this PR?", true},
 		{"checks-passed: green gate awaiting merge", true},
 		{"checks_passed: green gate awaiting merge", true},
-		{"blocked: Should I merge this?", false},
-		{"failed: the build broke", false},
-		{"done: PR https://example/pr/1", false},
+		{"blocked: Should I merge this?", true},
+		{"failed: the build broke", true},
+		{"done: PR https://example/pr/1", true},
 		{"working: running tests", false},
 		{"switched: claude/default/default -> kimi/default/default", false},
 	}

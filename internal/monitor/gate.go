@@ -2,10 +2,10 @@ package monitor
 
 import (
 	"context"
+	"encoding/csv"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -18,16 +18,23 @@ import (
 // workflows at all, which is the one shape in which a ci step can never
 // complete on its own.
 type GateSample struct {
-	Active       bool
-	Step         string
-	ActiveFor    time.Duration
-	LastActivity string
-	NoCI         bool
+	Active       bool          `json:"active"`
+	Step         string        `json:"step"`
+	ActiveFor    time.Duration `json:"active_for_ns"`
+	LastActivity string        `json:"last_activity"`
+	NoCI         bool          `json:"no_ci"`
+	Parked       bool          `json:"parked"`
+	RunID        string        `json:"run_id"`
+	Status       string        `json:"status"`
+	ObservedAt   time.Time     `json:"observed_at"`
+	Error        string        `json:"error,omitempty"`
+	BudgetKnown  bool          `json:"budget_known"`
+	ReviewUsed   int           `json:"review_repairs_used"`
+	ReviewCap    int           `json:"review_repair_cap"`
+	Exhausted    bool          `json:"review_budget_exhausted"`
 }
 
-// GateProber reads a goblin's gate state. The monitor consults it only for a
-// goblin that has read `working` past the busy-turn budget, so a probe cost
-// of one subprocess is paid rarely and never on a healthy fleet.
+// GateProber reads validation state independently of worker liveness.
 type GateProber interface {
 	InspectGate(ctx context.Context, meta state.TaskMeta) (GateSample, error)
 }
@@ -35,11 +42,9 @@ type GateProber interface {
 // ExecGateProber shells out to `no-mistakes axi status` in the task worktree.
 type ExecGateProber struct{}
 
-var (
-	activeStepLine = regexp.MustCompile(`^\s*([a-z_]+),running,([0-9hms]+),"?([^"]*)"?`)
-)
-
 func (ExecGateProber) InspectGate(ctx context.Context, meta state.TaskMeta) (GateSample, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	sample := GateSample{}
 	if meta.Worktree == "" {
 		return sample, nil
@@ -50,7 +55,7 @@ func (ExecGateProber) InspectGate(ctx context.Context, meta state.TaskMeta) (Gat
 	cmd := exec.CommandContext(ctx, "no-mistakes", "axi", "status")
 	cmd.Dir = meta.Worktree
 	out, err := cmd.CombinedOutput()
-	if err != nil && len(out) == 0 {
+	if err != nil {
 		return sample, err
 	}
 	return parseGateStatus(string(out), sample), nil
@@ -60,31 +65,54 @@ func (ExecGateProber) InspectGate(ctx context.Context, meta state.TaskMeta) (Gat
 // active row matters: a completed or pending step is never what a goblin is
 // wedged on.
 func parseGateStatus(out string, sample GateSample) GateSample {
+	var columns []string
 	inActive := false
 	for _, line := range strings.Split(out, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "active_steps[") {
-			inActive = true
-			continue
+		if value, ok := strings.CutPrefix(trimmed, "id: "); ok && sample.RunID == "" {
+			sample.RunID = strings.Trim(value, "\"")
 		}
-		if !inActive {
-			continue
+		if value, ok := strings.CutPrefix(trimmed, "status: "); ok && sample.Status == "" {
+			sample.Status = value
 		}
-		m := activeStepLine.FindStringSubmatch(line)
-		if m == nil {
-			// The first non-matching line after the header ends the block.
-			if trimmed != "" {
-				break
+		if strings.HasPrefix(trimmed, "awaiting_agent: parked") {
+			sample.Parked = true
+		}
+		if strings.HasPrefix(trimmed, "active_steps[") || strings.HasPrefix(trimmed, "steps[") {
+			start, end := strings.Index(trimmed, "{"), strings.Index(trimmed, "}")
+			if start >= 0 && end > start {
+				columns = strings.Split(trimmed[start+1:end], ",")
 			}
+			inActive = strings.HasPrefix(trimmed, "active_steps[")
 			continue
 		}
-		sample.Active = true
-		sample.Step = m[1]
-		if d, err := time.ParseDuration(m[2]); err == nil {
-			sample.ActiveFor = d
+		if columns == nil {
+			continue
 		}
-		sample.LastActivity = strings.TrimSpace(m[3])
-		break
+		row, err := csv.NewReader(strings.NewReader(trimmed)).Read()
+		if err != nil || len(row) != len(columns) {
+			columns = nil
+			continue
+		}
+		values := map[string]string{}
+		for i, name := range columns {
+			values[name] = row[i]
+		}
+		status := values["status"]
+		if status == "awaiting_approval" || status == "fix_review" {
+			sample.Parked = true
+			sample.Step = values["step"]
+		}
+		if inActive {
+			sample.Active = true
+			sample.Step = values["step"]
+			sample.LastActivity = values["last_activity"]
+			sample.ActiveFor, _ = time.ParseDuration(values["active_for"])
+		}
+	}
+	if sample.Status == "completed" || sample.Status == "failed" || sample.Status == "cancelled" {
+		sample.Parked = false
+		sample.Active = false
 	}
 	return sample
 }

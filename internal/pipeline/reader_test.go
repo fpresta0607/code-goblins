@@ -241,7 +241,7 @@ INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'ma
 	}
 }
 
-func TestCheckStartRefusesOnlyANonTerminalPreviousRun(t *testing.T) {
+func TestCheckStartRefusesUnboundHistoryIncludingTerminalRuns(t *testing.T) {
 	sqlite, err := exec.LookPath("sqlite3")
 	if err != nil {
 		t.Skip("sqlite3 CLI not available")
@@ -250,9 +250,9 @@ func TestCheckStartRefusesOnlyANonTerminalPreviousRun(t *testing.T) {
 		status     string
 		unresolved bool
 	}{
-		{"completed", false},
-		{"failed", false},
-		{"cancelled", false},
+		{"completed", true},
+		{"failed", true},
+		{"cancelled", true},
 		{"running", true},
 		{"awaiting_approval", true},
 	} {

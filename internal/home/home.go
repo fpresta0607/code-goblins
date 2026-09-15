@@ -25,8 +25,9 @@ type Home struct {
 // CFO_HOME and CFO_STATE_OVERRIDE so `cfo` works from a worktree, and `go
 // test` inherits both.
 var inheritedRoot, inheritedState = os.Getenv("CFO_HOME"), os.Getenv("CFO_STATE_OVERRIDE")
+var inheritedCache, inheritedCacheErr = os.UserCacheDir()
 
-// Resolve returns the home from CFO_HOME or the working directory.
+// Resolve returns CFO_HOME or a durable per-user runtime root outside source.
 // It never creates directories.
 //
 // A test binary is refused the fleet home it inherited. A test that resolves
@@ -64,6 +65,14 @@ func Inherited() (root, state string) {
 // would condemn correct fixtures, and a fixture there inherits the checkout's
 // .git and so looks primary too.
 func usesTheInheritedFleet(h Home) bool {
+	// Clearing CFO_HOME must not redirect a test into the operator's new
+	// default runtime. Tests of defaults must provide their own cache root.
+	if inheritedCacheErr == nil {
+		defaultRoot := filepath.Join(inheritedCache, "cfo")
+		if fsx.SamePath(h.Root, defaultRoot) || fsx.SamePath(h.State, filepath.Join(defaultRoot, "state")) {
+			return true
+		}
+	}
 	if inheritedRoot != "" && fsx.SamePath(h.Root, inheritedRoot) {
 		return true
 	}
@@ -81,11 +90,11 @@ func isTestBinary() bool {
 func resolve() (Home, error) {
 	root := os.Getenv("CFO_HOME")
 	if root == "" {
-		wd, err := os.Getwd()
+		base, err := os.UserCacheDir()
 		if err != nil {
 			return Home{}, err
 		}
-		root = wd
+		root = filepath.Join(base, "cfo")
 	}
 	root, err := filepath.Abs(root)
 	if err != nil {
@@ -102,6 +111,10 @@ func resolve() (Home, error) {
 // state/ present, and a plain (non-worktree) git checkout. It never creates
 // anything; any failure to confirm is false, never an error.
 func IsPrimary(h Home) bool {
+	if marker, err := os.ReadFile(filepath.Join(h.Root, ".cfo-home")); err == nil && string(marker) == "cfo-home.v1\n" {
+		info, err := os.Stat(h.State)
+		return err == nil && info.IsDir()
+	}
 	if fi, err := os.Stat(filepath.Join(h.Root, "AGENTS.md")); err != nil || !fi.Mode().IsRegular() {
 		return false
 	}

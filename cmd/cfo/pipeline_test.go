@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +27,7 @@ import (
 )
 
 type pipelineRunner struct {
+	bound      pipeline.NativeRun
 	gate       pipeline.Gate
 	native     []execx.Request
 	worktree   string
@@ -33,6 +35,7 @@ type pipelineRunner struct {
 }
 
 type pipelineStartRunner struct {
+	bound       pipeline.NativeRun
 	worktree    string
 	advance     bool
 	remoteRead  int
@@ -45,6 +48,14 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 	switch q.Name {
 	case "sqlite3":
 		sql := q.Args[len(q.Args)-1]
+		if strings.Contains(sql, "runs.launch_nonce") {
+			rows := []pipeline.NativeRun{}
+			if r.bound.RunID != "" {
+				rows = append(rows, r.bound)
+			}
+			data, err := json.Marshal(rows)
+			return execx.Result{Stdout: data}, err
+		}
 		if strings.Contains(sql, "SELECT default_branch FROM repos") {
 			return execx.Result{Stdout: []byte(`[{"default_branch":"main"}]`)}, nil
 		}
@@ -53,6 +64,8 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 		}
 	case "git":
 		switch strings.Join(q.Args, " ") {
+		case "rev-parse HEAD":
+			return execx.Result{Stdout: []byte(trusted)}, nil
 		case "rev-parse --show-toplevel":
 			return execx.Result{Stdout: []byte(r.worktree + "\n")}, nil
 		case "symbolic-ref --quiet --short HEAD":
@@ -75,6 +88,11 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 		}
 	case "no-mistakes":
 		r.native = append(r.native, q)
+		flags := map[string]string{}
+		for i := 2; i+1 < len(q.Args); i += 2 {
+			flags[q.Args[i]] = q.Args[i+1]
+		}
+		r.bound = pipeline.NativeRun{RunID: "native-run", Project: filepath.Dir(filepath.Dir(r.worktree)), Branch: "feat/policy", Head: trusted, Nonce: flags["--launch-nonce"], Generation: flags["--validation-generation"], IntentDigest: fmt.Sprintf("%x", sha256.Sum256([]byte(flags["--intent"]))), Status: "running"}
 		r.roleStarted = r.advance && r.remoteRead >= 2
 		return execx.Result{}, nil
 	}
@@ -178,6 +196,10 @@ func (r *pipelineRunner) Run(_ context.Context, q execx.Request) (execx.Result, 
 			return execx.Result{Stdout: []byte("feat/policy")}, nil
 		}
 	case "sqlite3":
+		if strings.Contains(q.Args[len(q.Args)-1], "runs.launch_nonce") {
+			data, err := json.Marshal([]pipeline.NativeRun{r.bound})
+			return execx.Result{Stdout: data}, err
+		}
 		if strings.Contains(q.Args[len(q.Args)-1], "COUNT(*) AS n FROM runs") {
 			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"n":%d}]`, r.activeRuns))}, nil
 		}
@@ -990,6 +1012,20 @@ func TestPipelineRespondInvokesNativeOnlyForBudgetedExplicitDecision(t *testing.
 				t.Fatal(err)
 			}
 			runner := &pipelineRunner{worktree: wt, gate: pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: round, Findings: `{"findings":[{"id":"bug","action":"auto-fix"}]}`}}
+			binding := pipeline.NewLaunch(project, "feat/policy", "head", "intent", selection.Hash)
+			binding.RunID = "run"
+			dir := filepath.Join(h.State, "tasks", "task")
+			if err := binding.Save(filepath.Join(dir, "pipeline-launch.json")); err != nil {
+				t.Fatal(err)
+			}
+			budget, err := pipeline.LoadBudget(filepath.Join(dir, "gate-budget.json"), selection.Hash, selection.ReviewCycles)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := budget.Save(filepath.Join(dir, "gate-budget.json")); err != nil {
+				t.Fatal(err)
+			}
+			runner.bound = pipeline.NativeRun{RunID: "run", Project: project, Branch: binding.Branch, Head: binding.Head, Nonce: binding.Nonce, Generation: binding.Generation, IntentDigest: binding.IntentDigest}
 			// A gate runs for hours, so the pipeline must not take the cleanup
 			// lock: holding it that long makes an auth refresh report a live
 			// task as being cleaned up and never deliver its credentials.
@@ -1033,7 +1069,7 @@ func TestPipelineRespondInvokesNativeOnlyForBudgetedExplicitDecision(t *testing.
 	}
 }
 
-func TestPipelineRunRefusesUnattestedNativeTrustedPrimaryLaunch(t *testing.T) {
+func TestPipelineRunUsesSupportedNativeBoundaryAndPersistsAssociation(t *testing.T) {
 	p, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -1072,11 +1108,27 @@ func TestPipelineRunRefusesUnattestedNativeTrustedPrimaryLaunch(t *testing.T) {
 	}
 	runner := &pipelineStartRunner{worktree: wt, advance: true}
 	err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "cannot prove the exact fetched trusted SHA and primary") {
-		t.Fatalf("pipelineCommand error=%v, want native attestation refusal", err)
+	if err != nil {
+		t.Fatalf("pipelineCommand error=%v", err)
 	}
-	if runner.remoteRead != 1 || len(runner.native) != 0 || runner.roleStarted {
-		t.Fatalf("unattested launch crossed native boundary: remote_reads=%d native=%+v role_started=%v", runner.remoteRead, runner.native, runner.roleStarted)
+	if runner.remoteRead != 1 || len(runner.native) != 1 || runner.bound.Nonce == "" || runner.bound.Generation == "" {
+		t.Fatalf("supported native association missing: remote_reads=%d native=%+v", runner.remoteRead, runner.native)
+	}
+	launchPath := filepath.Join(h.State, "tasks", "task", "pipeline-launch.json")
+	binding, err := pipeline.LoadLaunch(launchPath)
+	if err != nil || binding.RunID != runner.bound.RunID {
+		t.Fatalf("binding %+v %v", binding, err)
+	}
+	// Simulate a crash after native creation but before RunID persistence.
+	binding.RunID = ""
+	if err = binding.Save(launchPath); err != nil {
+		t.Fatal(err)
+	}
+	if err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if runner.bound.Nonce != binding.Nonce || runner.bound.Generation != binding.Generation {
+		t.Fatal("restart invented another validation identity")
 	}
 }
 

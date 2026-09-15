@@ -29,6 +29,15 @@ type cleanupRunner struct {
 func (r *cleanupRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
 	r.requests = append(r.requests, req)
 	if req.Name == "git" {
+		if req.Args[0] == "rev-parse" {
+			return execx.Result{Stdout: []byte(strings.Repeat("a", 40) + "\n" + strings.Repeat("a", 40))}, nil
+		}
+		if req.Args[0] == "symbolic-ref" {
+			return execx.Result{Stdout: []byte("refs/remotes/origin/main\n")}, nil
+		}
+		if req.Args[0] == "merge-base" {
+			return execx.Result{}, nil
+		}
 		if len(req.Args) != 3 || req.Args[0] != "status" || req.Args[1] != "--porcelain=v1" || req.Args[2] != "--untracked-files=all" {
 			return execx.Result{}, fmt.Errorf("unexpected git request: %#v", req)
 		}

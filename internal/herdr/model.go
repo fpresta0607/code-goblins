@@ -129,6 +129,7 @@ const (
 // Both claude and pi advance state_change_seq; claude also advances revision
 // while pi's revision stays static.
 type AgentRecord struct {
+	TerminalID       string `json:"terminal_id"`
 	Agent            string `json:"agent"`
 	Status           string `json:"agent_status"`
 	InteractiveReady bool   `json:"interactive_ready"`

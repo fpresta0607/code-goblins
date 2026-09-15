@@ -1,10 +1,8 @@
 // Package watch implements the triage loop: a one-shot cycle that holds a
 // singleton lock, scans state/ for changed status files, coalesces signals
 // within a grace window, emits heartbeats with exponential backoff, and
-// closes on the first actionable event. One actionable reason closes one
-// watcher cycle; continuity across cycles is the arm layer's job (Task 11's
-// stop-autoarm hook, which hosts this loop in-process), never the
-// watcher's, so Run never wraps itself in an outer loop.
+// closes on the first actionable event for hook callers. The supervisor uses
+// continuous mode to keep observing independently of the interactive harness.
 package watch
 
 import (
@@ -43,6 +41,9 @@ const (
 // Cleanup default to nil, meaning pure timer mode with nothing to release,
 // until Task 9 supplies both for filesystem notifications.
 type Config struct {
+	Continuous   bool
+	OnEvent      func(string)
+	OnCycle      func(context.Context)
 	Home         home.Home
 	Poll         time.Duration
 	SignalGrace  time.Duration
@@ -278,6 +279,10 @@ func CommitSignatures(stateDir string, changes []Change) error {
 // close reason, while a monitor event discovered in the same cycle stays
 // persisted for the next cycle so two wake episodes never conflict.
 func Run(cfg Config) (string, error) {
+	return RunContext(context.Background(), cfg)
+}
+
+func RunContext(ctx context.Context, cfg Config) (string, error) {
 	if _, err := lock.AcquireNamedOwner(cfg.Home.State, watchLockName, os.Getpid(), "watch"); err != nil {
 		// The lock was never acquired, so there is no LIFO defer pair to
 		// register here: call Cleanup directly rather than deferring it,
@@ -299,6 +304,9 @@ func Run(cfg Config) (string, error) {
 	}
 
 	for {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		var signalDetail string
 		changes, err := ScanSignals(cfg.Home.State)
 		if err != nil {
@@ -353,7 +361,40 @@ func Run(cfg Config) (string, error) {
 			if len(decisions) > 0 {
 				detail := "signal:" + strings.Join(decisions, " ")
 				for _, name := range decisions {
-					if _, err := wake.Append(cfg.Home.State, "signal", name, detail); err != nil {
+					// notify already queues its exact outcome. Recover a status-only
+					// write after a crash, without duplicating a pending direct notify.
+					pending, e := wake.Pending(cfg.Home.State)
+					if e != nil {
+						return "", e
+					}
+					notified := false
+					id := strings.TrimSuffix(name, ".status")
+					lines, e := state.TailStatus(cfg.Home.State, id, 1)
+					if e != nil {
+						return "", e
+					}
+					if len(lines) == 1 {
+						_, latest := state.SplitStatus(lines[0])
+						for _, record := range pending {
+							if record.Kind == "notify" && record.Key == id && record.Detail == latest {
+								notified = true
+							}
+						}
+					}
+					if notified {
+						continue
+					}
+					signature := ""
+					for _, change := range changes {
+						if change.Name == name {
+							signature = change.Sig
+						}
+					}
+					payload := detail
+					if len(lines) == 1 {
+						_, payload = state.SplitStatus(lines[0])
+					}
+					if _, err := wake.AppendOnce(cfg.Home.State, "signal", name, payload, name+":"+signature); err != nil {
 						return "", err
 					}
 				}
@@ -370,7 +411,7 @@ func Run(cfg Config) (string, error) {
 		}
 
 		if cfg.Monitor != nil {
-			result, err := cfg.Monitor.Scan(context.Background())
+			result, err := cfg.Monitor.Scan(ctx)
 			if err != nil {
 				return "", err
 			}
@@ -380,19 +421,30 @@ func Run(cfg Config) (string, error) {
 				if _, err := cfg.Monitor.Publish(event); err != nil {
 					return "", err
 				}
-				return event.Kind + ":" + event.Detail, nil
+				signalDetail = event.Kind + ":" + event.Detail
 			}
 		} else if err := monitor.TouchHeartbeat(cfg.Home.State, time.Now()); err != nil {
 			return "", err
 		}
-		orphanDetail := sweepOrphans(cfg)
-		if signalDetail != "" {
-			return signalDetail, nil
+		orphanDetail := sweepOrphansContext(ctx, cfg)
+		if signalDetail == "" {
+			signalDetail = orphanDetail
 		}
-		if orphanDetail != "" {
-			return orphanDetail, nil
+		if signalDetail != "" {
+			if !cfg.Continuous {
+				return signalDetail, nil
+			}
+			if cfg.OnEvent != nil {
+				cfg.OnEvent(signalDetail)
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return "", err
 		}
 
+		if cfg.OnCycle != nil {
+			cfg.OnCycle(ctx)
+		}
 		if cfg.WaitEvent != nil {
 			// A true return means WaitEvent observed something within
 			// Poll and Run should proceed to rescan right away. A false
@@ -433,6 +485,12 @@ func Run(cfg Config) (string, error) {
 // never render the same. Nothing here is fatal to the watcher: supervision of
 // the goblins that DO have panes matters more than the sweep.
 func sweepOrphans(cfg Config) string {
+	return sweepOrphansContext(context.Background(), cfg)
+}
+
+func sweepOrphansContext(ctx context.Context, cfg Config) string {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	if cfg.Reap == nil || cfg.ReapEvery <= 0 {
 		return ""
 	}
@@ -442,7 +500,7 @@ func sweepOrphans(cfg Config) string {
 	}
 
 	record := reap.Record{Time: time.Now().UTC()}
-	result, auditErr := cfg.Reap.Audit(context.Background(), reap.Options{})
+	result, auditErr := cfg.Reap.Audit(ctx, reap.Options{})
 	record.Findings = result.Findings
 	record.Notes = result.Notes
 	if auditErr != nil {
@@ -523,13 +581,11 @@ func routeHarnessError(cfg Config, event monitor.Event) string {
 }
 
 // decisionVerb reports whether a status verb needs the CFO's immediate
-// attention: a gate question or a green gate awaiting merge. Blocked and
-// failed are deliberately absent: those outcomes are delivered by cfo notify's
-// own wake (or by a spawn/switch error surfaced to the CFO directly), so the
-// watcher must not re-wake on their status lines.
+// attention. Direct notifications are deduplicated against their queue receipt;
+// status-only decisions recover a notification interrupted before queueing.
 func decisionVerb(verb string) bool {
 	switch verb {
-	case "needs-decision", "checks-passed", "checks_passed":
+	case "needs-decision", "checks-passed", "checks_passed", "blocked", "failed", "done":
 		return true
 	default:
 		return false

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
@@ -432,6 +434,10 @@ func resolveAncestorPID() (int, bool) {
 // bin/fm-claude-stop-autoarm.sh). The stdin/home/IsPrimary prologue lives in
 // runHook's dispatch switch, shared with every other hook in this file.
 func hookStopAutoarm(h home.Home, payload claudehook.Payload, stdout, stderr io.Writer) int {
+	if _, err := supervisor.ReadPrimary(h.State); err == nil {
+		rearmRegistered(context.Background(), h, stdout)
+		return 0
+	}
 	return hookStopAutoarmWithConfig(h, payload, stdout, stderr, watch.ConfigFromEnv)
 }
 
@@ -641,6 +647,9 @@ func resolveSessionOwnerPID() int {
 // session resuming into a home that never received a digest under this
 // custody does not start blind.
 func hookSessionStart(h home.Home, payload claudehook.Payload, stdout io.Writer) int {
+	if _, err := supervisor.ReadPrimary(h.State); err == nil {
+		rearmRegistered(context.Background(), h, stdout)
+	}
 	ownerPID := resolveSessionOwnerPID()
 
 	switch payload.Source {

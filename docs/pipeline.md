@@ -27,8 +27,10 @@ Before a CFO-managed run starts, the driver therefore requires the effective fie
 The driver does not rewrite repository configuration, and non-CFO no-mistakes use retains its native repository policy.
 
 A cycle means one repair followed by another review, after the initial review.
-The driver counts completed rounds from the native database, so the budget is durable within a native run and restarting the CLI mid-run does not reset it.
-A new run started on the same branch after a terminal failed or cancelled run begins a fresh budget, because it is validating new code.
+The driver checks native round evidence and reserves each review repair in `state/tasks/<id>/gate-budget.json` before submitting the response.
+The frozen policy hash and task-wide cap survive CLI restarts, harness switches and successor native runs.
+A repeated response for the same run, step and round does not spend another cycle.
+Deleting budget evidence, rebinding a run, changing policy or starting a fresh run cannot reset the cap.
 After two or three repair cycles, actionable review findings remain unresolved.
 A clean last review can still pass.
 The driver never turns budget exhaustion into approval, skips a step, or uses `--yes`.
@@ -91,9 +93,15 @@ The pane exports `CFO_HOME` and `CFO_STATE_OVERRIDE` and every gate step inherit
 Commit work on a named feature branch before `run`.
 The project must be initialized for no-mistakes, with readable committed task and origin default-branch `.no-mistakes.yaml` files.
 Refresh origin before starting; global reviewer/fixer drift and repository automatic-fix overrides that conflict with policy are refused.
-No-mistakes v1.75.1 does not expose an assertion that binds an expected trusted SHA and effective primary after its fresh fetch but before agent creation, so `run` refuses before invoking native start instead of relying on an opaque launch receipt.
+Native no-mistakes owns fresh fetch and effective configuration resolution before creating validation agents.
+CFO verifies the registered project, worktree, non-default branch, committed code, current origin tracking evidence, effective primary selection and subscription-only owned profiles before invoking the supported native API.
+CFO does not claim a native prelaunch exact-SHA assertion that v1.75.1 does not provide.
+The driver persists a launch nonce, validation generation, submitted SHA and intent digest, then associates exactly one native database run with those fields and the registered project/branch.
+A restart repeats that same launch identity; missing, duplicate, stale or rebound association fails closed.
+An unpublished failed or cancelled run permits a successor only after native custody has returned and the task's existing budget still permits repair.
+Inherited harness API billing keys are removed from native invocations; use the operator's existing ChatGPT OAuth login.
 A repository's `agent` field continues to select only its native primary path and cannot replace the global reviewer or fixer profiles.
-An earlier unresolved run cannot be restarted to reset its budget.
+An earlier unresolved run cannot be restarted to reset its budget, including an unbound legacy terminal run.
 Use native read-only `axi status` and `axi logs` to inspect progress; the engine's guarded `axi sync` remains the branch synchronization interface after validation.
 
 `respond` requires durable evidence of one parked gate in this project's current branch.

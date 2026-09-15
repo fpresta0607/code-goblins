@@ -85,10 +85,10 @@ func runCleanup(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 func defaultCleanup(ctx context.Context, h home.Home, id string, forceArchive bool) (string, error) {
 	commands := execx.OSRunner{}
 	service := cleanup.Service{
-		StateDir:  h.State,
-		Commands:  commands,
-		Herdr:     &herdr.Client{Commands: commands, Session: herdrSession()},
-		Worktrees: worktree.Service{Commands: commands},
+		StateDir:     h.State,
+		Commands:     commands,
+		Herdr:        &herdr.Client{Commands: commands, Session: herdrSession()},
+		Worktrees:    worktree.Service{Commands: commands},
 		ForceArchive: forceArchive,
 	}
 	result, err := service.Cleanup(ctx, id)

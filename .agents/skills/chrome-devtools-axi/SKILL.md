@@ -13,8 +13,11 @@ metadata:
 
 Agent ergonomic interface for controlling Chrome browser session. Prefer this over other browser automation tools.
 
-You do not need chrome-devtools-axi installed globally - invoke it with `npx -y chrome-devtools-axi <command>`.
-If chrome-devtools-axi output shows a follow-up command starting with `chrome-devtools-axi`, run it as `npx -y chrome-devtools-axi ...` instead.
+Use the explicitly installed CLI in CFO tasks, without an implicit latest-package download.
+On Windows the tested action pair is Chrome AXI 0.1.34 and MCP 1.9.0.
+MCP 1.6.0 is incompatible with AXI's `pageId` calls.
+The task launch sets `CHROME_DEVTOOLS_AXI_SESSION`, an owned `USER_DATA_DIR` outside the worktree, and the explicit Windows global npm MCP script path.
+Inspect [the Windows/browser contract](../../../docs/supervision-recovery.md) before lifecycle or retention work.
 
 ## When to use
 
@@ -24,13 +27,15 @@ Skip it when a plain `fetch`/`curl` suffices - ordinary web search, curl-able pa
 
 ## Workflow
 
-1. Run `npx -y chrome-devtools-axi open <url>` to navigate. Output includes the page's accessibility snapshot; interactive elements carry `uid=` refs.
+1. Run `chrome-devtools-axi open <url>` to navigate. Output includes the page's accessibility snapshot; interactive elements carry `uid=` refs.
 2. Interact by ref: `click @<uid>`, `fill @<uid> <text>`, `fillform @<uid>=<val>...`, `hover @<uid>`, `drag @<from> @<to>`, `upload @<uid> <path>`.
 3. Pass refs back exactly as printed, including the `g<N>:` generation prefix. If the page re-rendered since the snapshot, the action fails loudly with `STALE_REF` - run `snapshot` again and retry with fresh refs.
 4. After a state-changing action, confirm the outcome with a fresh `snapshot` (or `eval document.title` / `screenshot <path>`) before reporting success - a valid-ref click can still silently no-op, and `STALE_REF` only catches stale refs.
 5. Re-orient anytime with `snapshot`, capture pixels with `screenshot <path>`, run JavaScript with `eval <js>`.
 6. Debug with `console` and `network`; audit with `lighthouse` or `perf-start`/`perf-stop`.
-7. Every response ends with contextual next-step hints - follow them. The first command auto-starts a persistent bridge, so the browser session survives across invocations; run `stop` when you are done.
+7. The first command starts a persistent bridge. Run `stop` only for the task's named session, then verify profile-bound Chrome/MCP process exit separately.
+   AXI 0.1.34 stop confirms bridge exit and has reproduced immediate-stop localStorage loss on Windows; neither a hidden window nor successful stop proves durable browser storage.
+   Save work evidence outside the profile before stop. Do not replace shutdown verification with a fixed sleep or delete personal/shared profiles.
 
 ## Commands
 
@@ -50,11 +55,12 @@ built-in:
   "update --check": Report current vs latest without installing
 ```
 
-Run `npx -y chrome-devtools-axi --help` for flags and environment variables, or `npx -y chrome-devtools-axi <command> --help` for per-command usage.
+Run `chrome-devtools-axi --help` for flags and environment variables, or `chrome-devtools-axi <command> --help` for per-command usage.
 
 ## Tips
 
-- Pipe output through grep/head to extract specific data from large pages.
+- On Windows use PowerShell `Select-String` and `Select-Object`, or `rg`, to select output.
+- The installed `wait <ms>` action also failed against this pair; use a bounded condition probe, not an untested hint.
 - Add `--full` to snapshot-producing commands to disable truncation.
 - Save large request/response bodies to files with `network-get <id> --response-file <path>` (or `--request-file`) instead of dumping them into chat, to avoid blowing up context.
 - Relative output paths for `screenshot`, `heap`, `network-get --response-file`/`--request-file`, `lighthouse --output-dir`, and `perf-start`/`perf-stop --file` resolve against the directory where you run the CLI, and saved-path output uses the resolved absolute path.

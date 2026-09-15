@@ -18,9 +18,11 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/taskcontext"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -164,6 +166,14 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := rejectTaskIDAlias(s.StateDir, req.ID); err != nil {
 		return Result{}, err
 	}
+	if _, err := os.Stat(filepath.Join(s.StateDir, "tasks", req.ID)); err == nil {
+		return Result{}, fmt.Errorf("spawn: task id %s has retained context or browser custody; use a new task id", req.ID)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Result{}, err
+	}
+	if err := s.requireProjectIdle(ctx, project); err != nil {
+		return Result{}, err
+	}
 	if err := s.ensureProjectSeeded(ctx, project); err != nil {
 		return Result{}, err
 	}
@@ -302,6 +312,10 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// CFO is woken with the actual PR URL, question, or failure reason instead
 	// of the watcher guessing from pane text.
 	launch.Instruction = spawnInstruction(req.BriefPath, req.ID)
+	launch.Instruction += taskcontext.Instruction(req.ID)
+	for key, value := range taskcontext.BrowserEnv(home.Home{State: s.StateDir}, req.ID) {
+		launch.Env[key] = value
+	}
 	if selection != nil {
 		launch.Instruction += selection.Instruction(req.ID, filepath.Join(taskTmp, "pipeline.json"))
 	}
@@ -314,6 +328,12 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		Launch:    launch,
 	}); err != nil {
 		return fail(result, err)
+	}
+	// The worker can resolve context from its live metadata immediately. Do not
+	// reserve durable context for a launch whose instruction never arrived.
+	// Once accepted, retain the live task even if saving its context fails.
+	if _, err := taskcontext.Refresh(ctx, home.Home{State: s.StateDir}, req.ID, nil); err != nil {
+		return result, fmt.Errorf("spawn: worker started but context refresh failed: %w", err)
 	}
 
 	result.Output = successOutput(result.Meta)
@@ -379,7 +399,7 @@ func goblinMCPConfig(taskTmp string) string {
 // unset, and HOME alone on darwin. All three are reserved because a manifest
 // that redirected any of them would leave any cfo command run from that pane
 // computing a different directory than the process that created it.
-var reservedLaunchEnv = []string{"GOTMPDIR", "CFO_STATE_OVERRIDE", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", harness.RoleVariable}
+var reservedLaunchEnv = []string{"GOTMPDIR", "CFO_STATE_OVERRIDE", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", harness.RoleVariable, "CHROME_DEVTOOLS_AXI_SESSION", "CHROME_DEVTOOLS_AXI_USER_DATA_DIR", "CHROME_DEVTOOLS_AXI_AUTO_CONNECT", "CHROME_DEVTOOLS_AXI_BROWSER_URL", "CHROME_DEVTOOLS_AXI_PORT", "CHROME_DEVTOOLS_AXI_HEADED", "CHROME_DEVTOOLS_AXI_MCP_PATH", "CHROME_DEVTOOLS_AXI_CHROME_ARGS", "CHROME_DEVTOOLS_AXI_WS_HEADERS", "CHROME_DEVTOOLS_AXI_CHANNEL"}
 
 // reservedLaunchName reports whether name belongs to the launch contract:
 // one of the names the contract owns, or one the adapter already set on the

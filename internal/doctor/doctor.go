@@ -13,6 +13,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/taskcontext"
 )
 
 // Check is one tool's verdict. Err empty means usable.
@@ -34,7 +35,7 @@ var tools = []struct {
 	{name: "quota-axi", hint: "npm install -g quota-axi"},
 	{name: "no-mistakes", hint: "irm https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1 | iex"},
 	{name: "gh-axi", hint: "npm install -g gh-axi"},
-	{name: "chrome-devtools-axi", hint: "npm install -g chrome-devtools-axi"},
+	{name: "chrome-devtools-axi", hint: "npm install -g chrome-devtools-axi@0.1.34 chrome-devtools-mcp@1.9.0"},
 }
 
 // harnessTools are the interactive harnesses a spawn can select. They are
@@ -60,7 +61,9 @@ func Run() []Check {
 			checks = append(checks, Check{Name: tool.name, Err: "not found on PATH", Hint: tool.hint})
 			continue
 		}
-		out, err := exec.Command(path, "--version").Output()
+		ctx, cancel := context.WithTimeout(context.Background(), ProbeTimeout)
+		out, err := exec.CommandContext(ctx, path, "--version").Output()
+		cancel()
 		if err != nil {
 			checks = append(checks, Check{Name: tool.name, Err: tool.name + " --version failed", Hint: tool.hint})
 			continue
@@ -69,7 +72,33 @@ func Run() []Check {
 		checks = append(checks, Check{Name: tool.name, Version: strings.TrimSpace(version)})
 	}
 	checks = append(checks, checkHookPairing())
+	checks = append(checks, CheckBrowserBackend(taskcontext.BrowserEnv(home.Home{}, "doctor")["CHROME_DEVTOOLS_AXI_MCP_PATH"]))
 	return checks
+}
+
+// CheckBrowserBackend probes the same explicit script task launch selects.
+// Version compatibility is a prerequisite, not evidence of browser actions.
+func CheckBrowserBackend(path string) Check {
+	check := Check{Name: "chrome-devtools-mcp", Hint: "npm install -g chrome-devtools-axi@0.1.34 chrome-devtools-mcp@1.9.0; verify CFO_CHROME_MCP_PATH if overridden"}
+	info, err := os.Stat(path)
+	if !filepath.IsAbs(path) || err != nil || !info.Mode().IsRegular() {
+		check.Err = "explicit browser backend unavailable: " + path
+		return check
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), ProbeTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "node", path, "--version").Output()
+	if err != nil {
+		check.Err = "explicit browser backend could not execute: " + path
+		return check
+	}
+	version := strings.TrimSpace(string(out))
+	if version != "1.9.0" {
+		check.Err = "browser backend version " + version + " is outside the tested 1.9.0 pair; verify compatibility before browser use"
+		return check
+	}
+	check.Version = "1.9.0 at " + path + "; executable prerequisite passed, browser actions require an isolated smoke"
+	return check
 }
 
 // hookPairingHint is checkHookPairing's remedy for a guard registered alone.

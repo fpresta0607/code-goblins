@@ -13,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	worktrees "github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 // InventorySource supplies one sweep's cross-referenced evidence.
@@ -236,6 +237,9 @@ func (s Service) holdIfWorkWouldBeLost(ctx context.Context, worktree string) str
 	if unpushed != "" {
 		count := len(strings.Split(unpushed, "\n"))
 		return fmt.Sprintf("worktree has %d commit(s) on no remote; pushing them is the only way this is safe to remove", count)
+	}
+	if err := worktrees.RequireMerged(ctx, s.Commands, worktree); err != nil {
+		return err.Error()
 	}
 	return ""
 }
