@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -161,11 +162,26 @@ func (r Reader) CheckStart(ctx context.Context, project, worktree, branch string
 
 func (r Reader) originDefaultHead(ctx context.Context, project, defaultBranch string) (string, error) {
 	remote, err := r.Commands.Run(ctx, execx.Request{Dir: project, Name: "git", Args: []string{"ls-remote", "--symref", "origin", "HEAD"}})
-	fields := strings.Fields(string(remote.Stdout))
-	if err != nil || remote.ExitCode != 0 || len(fields) != 5 || fields[0] != "ref:" || fields[1] != "refs/heads/"+defaultBranch || fields[2] != "HEAD" || fields[4] != "HEAD" {
+	var target, head string
+	var symbols, heads int
+	// ls-remote patterns match ref tails, so HEAD can also return an ordinary
+	// refs/heads/HEAD branch. Only the exact symbolic HEAD records prove default.
+	for _, line := range strings.Split(string(remote.Stdout), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 3 && fields[0] == "ref:" && fields[2] == "HEAD" {
+			symbols++
+			target = fields[1]
+		}
+		if len(fields) == 2 && fields[1] == "HEAD" {
+			heads++
+			head = fields[0]
+		}
+	}
+	sha, shaErr := hex.DecodeString(head)
+	if err != nil || remote.ExitCode != 0 || symbols != 1 || heads != 1 || target != "refs/heads/"+defaultBranch || shaErr != nil || len(sha) != 20 {
 		return "", errors.New("pipeline: current origin default-branch evidence is required")
 	}
-	return fields[3], nil
+	return head, nil
 }
 
 func CheckRepoConfig(data []byte, p Policy) error {
