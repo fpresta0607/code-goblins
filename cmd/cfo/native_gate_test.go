@@ -423,6 +423,56 @@ func TestNativeGateReaderFailsClosedWhenManagedClaimIsMissing(t *testing.T) {
 	}
 }
 
+func TestNativeGateReaderFailsClosedWhenAllManagedEvidenceIsMissingOrInvalid(t *testing.T) {
+	sqlitePath, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 CLI not available")
+	}
+	for _, test := range []struct {
+		name     string
+		evidence string
+	}{
+		{name: "missing"},
+		{name: "invalid", evidence: "not json\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			h := home.Home{State: t.TempDir()}
+			nativeRoot := t.TempDir()
+			worktree := filepath.Join(t.TempDir(), "run-bound")
+			if err := os.MkdirAll(worktree, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			gitDir := filepath.Join(nativeRoot, "repos", "repo.git", "worktrees", "run-bound")
+			if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+gitDir+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if test.evidence != "" {
+				dir := filepath.Join(h.State, "tasktmp", "task")
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				for _, name := range []string{pipelineLaunchContractName, pipelineLaunchClaimName} {
+					if err := os.WriteFile(filepath.Join(dir, name), []byte(test.evidence), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			project := t.TempDir()
+			sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,head_sha TEXT,submitted_head_sha TEXT,status TEXT,created_at INTEGER,launch_nonce TEXT,launch_validation_generation TEXT,worktree_dir TEXT,no_mistakes_version TEXT,no_mistakes_build_sha TEXT);
+CREATE TABLE agent_invocations(run_id TEXT);
+INSERT INTO repos VALUES('repo',` + pipelineSQLString(filepath.ToSlash(project)) + `,'main');
+INSERT INTO runs VALUES('run-bound','repo','feature','head','head','running',1,'` + strings.Repeat("a", 32) + `','` + cfoValidationGenerationPrefix + strings.Repeat("b", 32) + `',` + pipelineSQLString(filepath.ToSlash(worktree)) + `,'v1.75.1','37ed232');`
+			if out, err := exec.Command(sqlitePath, filepath.Join(nativeRoot, "state.sqlite"), sql).CombinedOutput(); err != nil {
+				t.Fatalf("fixture: %s %v", out, err)
+			}
+			if _, _, err := nativeGateReader(h, nativeRoot, worktree); err == nil || !strings.Contains(err.Error(), "evidence") {
+				t.Fatalf("managed run with %s evidence error=%v", test.name, err)
+			}
+		})
+	}
+}
+
 func testPipelineLaunchContract(t *testing.T, project string) pipelineLaunchContract {
 	t.Helper()
 	executable, digest, err := currentCFOExecutableEvidence()

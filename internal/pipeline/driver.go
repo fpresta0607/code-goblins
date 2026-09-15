@@ -128,7 +128,8 @@ type NativeLaunchExpectation struct {
 }
 
 type NativeLaunchState struct {
-	InvocationCount int
+	InvocationCount  int
+	ReviewProvenance bool
 }
 
 type NativeRunContext struct {
@@ -302,6 +303,7 @@ ORDER BY step_rounds.round,step_rounds.created_at,step_rounds.id`
 	cursor := submitted
 	authorized := map[string]bool{submitted: true}
 	firstRound := 0
+	rangeConsumed := false
 	if state.RebaseCompletedAt > 0 {
 		firstRound = -1
 		for i := range rounds {
@@ -313,10 +315,18 @@ ORDER BY step_rounds.round,step_rounds.created_at,step_rounds.id`
 			}
 		}
 		if firstRound < 0 {
-			if state.NonRebaseInvocations == 0 && head != submitted {
-				return nil
+			if state.NonRebaseInvocations != 0 || head == submitted {
+				return fail()
 			}
-			return fail()
+			if state.RangeFrom != "" || state.RangeTo != "" {
+				if state.RangeFrom != submitted || state.RangeTo != head {
+					return fail()
+				}
+				rangeConsumed = true
+			}
+			cursor = head
+			authorized[cursor] = true
+			firstRound = len(rounds)
 		}
 	}
 	for _, round := range rounds[firstRound:] {
@@ -326,7 +336,7 @@ ORDER BY step_rounds.round,step_rounds.created_at,step_rounds.id`
 		cursor = round.To
 		authorized[cursor] = true
 	}
-	if state.RangeFrom != "" || state.RangeTo != "" {
+	if !rangeConsumed && (state.RangeFrom != "" || state.RangeTo != "") {
 		switch {
 		case state.RangeFrom == "" || state.RangeTo == "" || !isAncestor(state.RangeFrom, state.RangeTo):
 			return fail()
@@ -359,6 +369,8 @@ func (r Reader) VerifyNativeLaunch(ctx context.Context, expected NativeLaunchExp
 		Agent                string `json:"agent"`
 		Model                string `json:"model"`
 		ModelProvider        string `json:"model_provider"`
+		FirstStep            string `json:"first_step"`
+		NonRebaseInvocations int    `json:"non_rebase_invocation_count"`
 		GlobalConfigHex      string `json:"global_config_hex"`
 		NoMistakesVersion    string `json:"no_mistakes_version"`
 		NoMistakesBuildSHA   string `json:"no_mistakes_build_sha"`
@@ -369,6 +381,8 @@ COALESCE((SELECT step_rounds.trusted_config_sha FROM step_rounds JOIN step_resul
 COALESCE((SELECT agent_invocations.agent FROM agent_invocations WHERE agent_invocations.run_id=runs.id ORDER BY agent_invocations.started_at,agent_invocations.id LIMIT 1),'') AS agent,
 COALESCE((SELECT agent_invocations.model FROM agent_invocations WHERE agent_invocations.run_id=runs.id ORDER BY agent_invocations.started_at,agent_invocations.id LIMIT 1),'') AS model,
 COALESCE((SELECT agent_invocations.model_provider FROM agent_invocations WHERE agent_invocations.run_id=runs.id ORDER BY agent_invocations.started_at,agent_invocations.id LIMIT 1),'') AS model_provider,
+COALESCE((SELECT agent_invocations.step_name FROM agent_invocations WHERE agent_invocations.run_id=runs.id ORDER BY agent_invocations.started_at,agent_invocations.id LIMIT 1),'') AS first_step,
+(SELECT COUNT(*) FROM agent_invocations WHERE agent_invocations.run_id=runs.id AND agent_invocations.step_name<>'rebase') AS non_rebase_invocation_count,
 COALESCE((SELECT hex(step_rounds.global_config_yaml) FROM step_rounds JOIN step_results ON step_results.id=step_rounds.step_result_id WHERE step_results.run_id=runs.id AND step_results.step_name='review' AND step_rounds.global_config_yaml IS NOT NULL ORDER BY step_rounds.round,step_rounds.created_at,step_rounds.id LIMIT 1),'') AS global_config_hex
 	,(SELECT COUNT(*) FROM agent_invocations WHERE agent_invocations.run_id=runs.id) AS invocation_count
 FROM runs JOIN repos ON repos.id=runs.repo_id WHERE runs.id=` + sqlString(expected.RunID)
@@ -389,13 +403,20 @@ FROM runs JOIN repos ON repos.id=runs.repo_id WHERE runs.id=` + sqlString(expect
 	if row.InvocationCount == 0 {
 		return state, nil
 	}
-	if row.TrustedSHA != expected.TrustedSHA || row.Agent != expected.Primary || row.Model != expected.PrimaryModel || row.ModelProvider != "openai" {
+	if row.Agent != expected.Primary || row.Model != expected.PrimaryModel || row.ModelProvider != "openai" {
+		return NativeLaunchState{}, errors.New("pipeline: native launch record does not match the checked trusted SHA and primary")
+	}
+	if row.FirstStep == "rebase" && row.NonRebaseInvocations == 0 && row.TrustedSHA == "" && row.GlobalConfigHex == "" {
+		return state, nil
+	}
+	if row.TrustedSHA != expected.TrustedSHA {
 		return NativeLaunchState{}, errors.New("pipeline: native launch record does not match the checked trusted SHA and primary")
 	}
 	globalConfig, err := hex.DecodeString(row.GlobalConfigHex)
 	if err != nil || fmt.Sprintf("%x", sha256.Sum256(globalConfig)) != expected.GlobalConfigSHA256 {
 		return NativeLaunchState{}, errors.New("pipeline: native launch record does not match the checked global config")
 	}
+	state.ReviewProvenance = true
 	return state, nil
 }
 

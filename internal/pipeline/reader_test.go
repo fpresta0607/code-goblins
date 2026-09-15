@@ -163,6 +163,15 @@ INSERT INTO runs VALUES('run','repo','feature','` + submitted + `','` + submitte
 	if err := reader.VerifyNativeAgent(context.Background(), nativeWorktree, want); err != nil {
 		t.Fatalf("completed native rebase head refused: %v", err)
 	}
+	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `INSERT INTO uncertified_pipeline_ranges VALUES('repo','feature',`+sqlString(trusted)+`,`+sqlString(rebased)+`,'run',20)`).CombinedOutput(); err != nil {
+		t.Fatalf("mismatched rebase range fixture: %s %v", out, err)
+	}
+	if err := reader.VerifyNativeAgent(context.Background(), nativeWorktree, want); err == nil || !strings.Contains(err.Error(), "authorized transition") {
+		t.Fatalf("mismatched first-rebase transition error=%v", err)
+	}
+	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `DELETE FROM uncertified_pipeline_ranges`).CombinedOutput(); err != nil {
+		t.Fatalf("clear mismatched rebase range fixture: %s %v", out, err)
+	}
 	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `INSERT INTO agent_invocations VALUES('run','review',21); UPDATE runs SET head_sha=`+sqlString(trusted)).CombinedOutput(); err != nil {
 		t.Fatalf("review after rebase fixture: %s %v", out, err)
 	}
@@ -243,12 +252,12 @@ func TestVerifyNativeLaunchRequiresDurableModelAndGlobalConfig(t *testing.T) {
 CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,submitted_head_sha TEXT,launch_nonce TEXT,launch_validation_generation TEXT,no_mistakes_version TEXT,no_mistakes_build_sha TEXT);
 CREATE TABLE step_results(id TEXT,run_id TEXT,step_name TEXT);
 CREATE TABLE step_rounds(id TEXT,step_result_id TEXT,round INTEGER,trusted_config_sha TEXT,global_config_yaml BLOB,created_at INTEGER);
-CREATE TABLE agent_invocations(id TEXT,run_id TEXT,agent TEXT,model TEXT,model_provider TEXT,started_at INTEGER);
+CREATE TABLE agent_invocations(id TEXT,run_id TEXT,step_name TEXT,agent TEXT,model TEXT,model_provider TEXT,started_at INTEGER);
 INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'main');
 INSERT INTO runs VALUES('run','repo','feature','submitted','nonce','generation','v1.75.1','37ed232');
 INSERT INTO step_results VALUES('review-step','run','review');
 INSERT INTO step_rounds VALUES('round','review-step',1,'trusted',X'` + fmt.Sprintf("%x", globalConfig) + `',1);
-INSERT INTO agent_invocations VALUES('invocation','run','codex','gpt-5.6-sol','openai',1);`
+INSERT INTO agent_invocations VALUES('invocation','run','review','codex','gpt-5.6-sol','openai',1);`
 	database := filepath.Join(root, "state.sqlite")
 	if out, err := exec.Command("sqlite3", database, sql).CombinedOutput(); err != nil {
 		t.Fatalf("fixture: %s %v", out, err)
@@ -260,7 +269,7 @@ INSERT INTO agent_invocations VALUES('invocation','run','codex','gpt-5.6-sol','o
 	}
 	reader := Reader{Root: root, Commands: execx.OSRunner{}}
 	state, err := reader.VerifyNativeLaunch(context.Background(), want)
-	if err != nil || state.InvocationCount != 1 {
+	if err != nil || state.InvocationCount != 1 || !state.ReviewProvenance {
 		t.Fatalf("state=%+v err=%v", state, err)
 	}
 	if out, err := exec.Command("sqlite3", database, `UPDATE runs SET no_mistakes_build_sha='other'`).CombinedOutput(); err != nil {
@@ -302,7 +311,7 @@ func TestVerifyNativeLaunchDefersAgentProvenanceUntilFirstInvocation(t *testing.
 CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,submitted_head_sha TEXT,launch_nonce TEXT,launch_validation_generation TEXT,no_mistakes_version TEXT,no_mistakes_build_sha TEXT);
 CREATE TABLE step_results(id TEXT,run_id TEXT,step_name TEXT);
 CREATE TABLE step_rounds(id TEXT,step_result_id TEXT,round INTEGER,trusted_config_sha TEXT,global_config_yaml BLOB,created_at INTEGER);
-CREATE TABLE agent_invocations(id TEXT,run_id TEXT,agent TEXT,model TEXT,model_provider TEXT,started_at INTEGER);
+CREATE TABLE agent_invocations(id TEXT,run_id TEXT,step_name TEXT,agent TEXT,model TEXT,model_provider TEXT,started_at INTEGER);
 INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'main');
 INSERT INTO runs VALUES('run','repo','feature','submitted','nonce','generation','v1.75.1','37ed232');`
 	database := filepath.Join(root, "state.sqlite")
@@ -317,6 +326,19 @@ INSERT INTO runs VALUES('run','repo','feature','submitted','nonce','generation',
 	state, err := (Reader{Root: root, Commands: execx.OSRunner{}}).VerifyNativeLaunch(context.Background(), want)
 	if err != nil || state.InvocationCount != 0 {
 		t.Fatalf("pre-agent launch state=%+v err=%v", state, err)
+	}
+	if out, err := exec.Command("sqlite3", database, `INSERT INTO agent_invocations VALUES('rebase','run','rebase','codex','gpt-5.6-sol','openai',1)`).CombinedOutput(); err != nil {
+		t.Fatalf("rebase invocation fixture: %s %v", out, err)
+	}
+	state, err = (Reader{Root: root, Commands: execx.OSRunner{}}).VerifyNativeLaunch(context.Background(), want)
+	if err != nil || state.InvocationCount != 1 || state.ReviewProvenance {
+		t.Fatalf("pre-review rebase launch state=%+v err=%v", state, err)
+	}
+	if out, err := exec.Command("sqlite3", database, `UPDATE agent_invocations SET model_provider='openrouter'`).CombinedOutput(); err != nil {
+		t.Fatalf("rebase provider fixture: %s %v", out, err)
+	}
+	if _, err := (Reader{Root: root, Commands: execx.OSRunner{}}).VerifyNativeLaunch(context.Background(), want); err == nil || !strings.Contains(err.Error(), "primary") {
+		t.Fatalf("pre-review rebase provider error=%v", err)
 	}
 }
 
