@@ -224,6 +224,22 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		if err := savePipelineLaunchClaim(claimPath, pipelineLaunchClaimForContract(contract)); err != nil {
 			return err
 		}
+		binding := pipelineNativeGateBindingForContract(contract, meta.Worktree)
+		bindingPath := pipelineNativeGateBindingPath(h.State, contract.Checked.RepoID)
+		if err := createPipelineNativeGateBinding(bindingPath, binding); err != nil {
+			return err
+		}
+		bindingSettled := false
+		bindingLaunched := false
+		defer func() {
+			if !bindingSettled {
+				if bindingLaunched {
+					err = errors.Join(err, revokePipelineNativeGateBinding(bindingPath, binding))
+				} else {
+					err = errors.Join(err, retirePipelineNativeGateBinding(bindingPath, binding))
+				}
+			}
+		}()
 		contractRetained := false
 		defer func() {
 			if contractRetained {
@@ -252,7 +268,8 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			return errors.New("pipeline: launch evidence changed before native invocation")
 		}
 		nativeArgs := []string{"axi", "run", "--intent", intent, "--launch-nonce", nonce, "--validation-generation", generation}
-		result, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Env: managedNativeEnv(root, nonce, generation), Name: "no-mistakes", Args: nativeArgs})
+		bindingLaunched = true
+		result, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Env: nativeEnv(root), Name: "no-mistakes", Args: nativeArgs})
 		if len(result.Stdout) > 0 {
 			fmt.Fprint(out, string(result.Stdout))
 		}
@@ -290,8 +307,12 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		if err != nil {
 			return err
 		}
+		if _, err := activatePipelineNativeGateBinding(bindingPath, binding, receipt.RunID, launchState.Worktree); err != nil {
+			return err
+		}
 		if launchState.InvocationCount == 0 {
 			contractRetained = true
+			bindingSettled = true
 			fmt.Fprintf(out, "pipeline launch: bound pending run %s at %s before its first managed agent\n", receipt.RunID, checked.Start.HeadSHA)
 			if result.ExitCode != 0 {
 				return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
@@ -300,6 +321,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		}
 		contractRetained = true
 		if !launchState.ReviewProvenance {
+			bindingSettled = true
 			fmt.Fprintf(out, "pipeline launch: authorized run %s after its first rebase agent; review provenance is pending\n", receipt.RunID)
 			if result.ExitCode != 0 {
 				return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
@@ -308,8 +330,13 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		}
 		fmt.Fprintf(out, "pipeline launch: verified run %s at %s with trusted %s and primary %s\n", receipt.RunID, checked.Start.HeadSHA, checked.Start.TrustedSHA, checked.Start.EffectivePrimary)
 		if result.ExitCode != 0 {
+			bindingSettled = true
 			return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
 		}
+		if err := retirePipelineNativeGateBinding(bindingPath, binding); err != nil {
+			return err
+		}
+		bindingSettled = true
 		return nil
 	}
 	gate, err := reader.Gate(ctx, meta.Project, branch)
@@ -317,7 +344,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		return err
 	}
 	contractPath := filepath.Join(expectedTmp, pipelineLaunchContractName)
-	contract, err := preparePipelineLaunchContract(ctx, reader, contractPath, gate.RunID, selection)
+	contract, launchState, err := preparePipelineLaunchContract(ctx, reader, contractPath, gate.RunID, selection)
 	if err != nil {
 		return err
 	}
@@ -325,7 +352,18 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if err != nil {
 		return err
 	}
-	result, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Env: managedNativeEnv(root, contract.LaunchNonce, contract.ValidationGeneration), Name: "no-mistakes", Args: nativeArgs})
+	binding := pipelineNativeGateBindingForContract(contract, meta.Worktree)
+	bindingPath := pipelineNativeGateBindingPath(h.State, contract.Checked.RepoID)
+	if err := ensurePipelineNativeGateBinding(bindingPath, binding, contract.RunID, launchState.Worktree); err != nil {
+		return err
+	}
+	bindingSettled := false
+	defer func() {
+		if !bindingSettled {
+			err = errors.Join(err, revokePipelineNativeGateBinding(bindingPath, binding))
+		}
+	}()
+	result, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Env: nativeEnv(root), Name: "no-mistakes", Args: nativeArgs})
 	if len(result.Stdout) > 0 {
 		fmt.Fprint(out, string(result.Stdout))
 	}
@@ -349,8 +387,13 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		}
 	}
 	if result.ExitCode != 0 {
+		bindingSettled = true
 		return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
 	}
+	if err := retirePipelineNativeGateBinding(bindingPath, binding); err != nil {
+		return err
+	}
+	bindingSettled = true
 	return nil
 }
 
@@ -364,34 +407,34 @@ func nativeLaunchExpectation(contract pipelineLaunchContract, selection pipeline
 	}
 }
 
-func preparePipelineLaunchContract(ctx context.Context, reader pipeline.Reader, path, runID string, selection pipeline.Selection) (pipelineLaunchContract, error) {
+func preparePipelineLaunchContract(ctx context.Context, reader pipeline.Reader, path, runID string, selection pipeline.Selection) (pipelineLaunchContract, pipeline.NativeLaunchState, error) {
 	contract, err := loadPipelineLaunchContract(path)
 	if err != nil {
-		return pipelineLaunchContract{}, err
+		return pipelineLaunchContract{}, pipeline.NativeLaunchState{}, err
 	}
 	if contract.Status == pipelineLaunchContractPending && contract.RunID == "" {
 		bound := contract
 		bound.RunID = runID
 		if _, err := reader.VerifyNativeLaunch(ctx, nativeLaunchExpectation(bound, selection)); err != nil {
-			return pipelineLaunchContract{}, err
+			return pipelineLaunchContract{}, pipeline.NativeLaunchState{}, err
 		}
 		bound, err = bindPipelineLaunchContract(path, contract, runID, pipelineLaunchContractPending)
 		if err != nil {
-			return pipelineLaunchContract{}, err
+			return pipelineLaunchContract{}, pipeline.NativeLaunchState{}, err
 		}
 		contract = bound
 	}
 	if contract.RunID != runID {
-		return pipelineLaunchContract{}, errors.New("pipeline: native run does not match the CFO launch contract")
+		return pipelineLaunchContract{}, pipeline.NativeLaunchState{}, errors.New("pipeline: native run does not match the CFO launch contract")
 	}
 	switch contract.Status {
 	case pipelineLaunchContractVerified:
-		return contract, nil
+		launchState, err := reader.VerifyNativeLaunch(ctx, nativeLaunchExpectation(contract, selection))
+		return contract, launchState, err
 	case pipelineLaunchContractPending, pipelineLaunchContractAuthorized:
-		verified, _, err := verifyPipelineLaunchContract(ctx, reader, path, contract, selection)
-		return verified, err
+		return verifyPipelineLaunchContract(ctx, reader, path, contract, selection)
 	default:
-		return pipelineLaunchContract{}, errors.New("pipeline: native run lacks an active CFO launch contract")
+		return pipelineLaunchContract{}, pipeline.NativeLaunchState{}, errors.New("pipeline: native run lacks an active CFO launch contract")
 	}
 }
 
@@ -442,6 +485,9 @@ const (
 	pipelineLaunchContractAuthorized = "authorized"
 	pipelineLaunchContractVerified   = "verified"
 	pipelineLaunchContractRevoked    = "revoked"
+	pipelineNativeGateBindingPending = "pending"
+	pipelineNativeGateBindingActive  = "active"
+	pipelineNativeGateBindingRevoked = "revoked"
 )
 
 type pipelineLaunchEvidence struct {
@@ -463,6 +509,22 @@ type pipelineLaunchContract struct {
 	SQLitePath           string                 `json:"sqlite_path"`
 	CFOExecutablePath    string                 `json:"cfo_executable_path"`
 	CFOExecutableSHA256  string                 `json:"cfo_executable_sha256"`
+}
+
+type pipelineNativeGateBinding struct {
+	Version              int    `json:"version"`
+	Status               string `json:"status"`
+	TaskID               string `json:"task_id"`
+	RepoID               string `json:"repo_id"`
+	Project              string `json:"project"`
+	TaskWorktree         string `json:"task_worktree"`
+	RunID                string `json:"run_id,omitempty"`
+	NativeWorktree       string `json:"native_worktree,omitempty"`
+	SubmittedHeadSHA     string `json:"submitted_head_sha"`
+	LaunchNonce          string `json:"launch_nonce"`
+	ValidationGeneration string `json:"validation_generation"`
+	CFOExecutablePath    string `json:"cfo_executable_path"`
+	CFOExecutableSHA256  string `json:"cfo_executable_sha256"`
 }
 
 type pipelineLaunchClaim struct {
@@ -552,6 +614,185 @@ func samePipelineLaunchContractIdentity(left, right pipelineLaunchContract) bool
 	left.Status, right.Status = "", ""
 	left.RunID, right.RunID = "", ""
 	return left == right
+}
+
+func pipelineNativeGateBindingPath(stateDir, repoID string) string {
+	digest := sha256.Sum256([]byte(repoID))
+	return filepath.Join(stateDir, "pipeline-native-gate-"+fmt.Sprintf("%x", digest)+".json")
+}
+
+func pipelineNativeGateBindingForContract(contract pipelineLaunchContract, taskWorktree string) pipelineNativeGateBinding {
+	return pipelineNativeGateBinding{
+		Version: 1, Status: pipelineNativeGateBindingPending, TaskID: contract.TaskID,
+		RepoID: contract.Checked.RepoID, Project: contract.Project, TaskWorktree: taskWorktree,
+		SubmittedHeadSHA: contract.Checked.HeadSHA, LaunchNonce: contract.LaunchNonce,
+		ValidationGeneration: contract.ValidationGeneration, CFOExecutablePath: contract.CFOExecutablePath,
+		CFOExecutableSHA256: contract.CFOExecutableSHA256,
+	}
+}
+
+func createPipelineNativeGateBinding(path string, binding pipelineNativeGateBinding) error {
+	current, err := loadPipelineNativeGateBinding(path)
+	if err == nil && current.Status != pipelineNativeGateBindingRevoked {
+		return errors.New("pipeline: active managed native gate binding already exists for repository")
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return savePipelineNativeGateBinding(path, binding)
+}
+
+func ensurePipelineNativeGateBinding(path string, expected pipelineNativeGateBinding, runID, nativeWorktree string) error {
+	current, err := loadPipelineNativeGateBinding(path)
+	if errors.Is(err, os.ErrNotExist) {
+		current = expected
+		current.Status = pipelineNativeGateBindingActive
+		current.RunID = runID
+		current.NativeWorktree = nativeWorktree
+		return savePipelineNativeGateBinding(path, current)
+	}
+	if err != nil {
+		return err
+	}
+	_, err = activatePipelineNativeGateBinding(path, expected, runID, nativeWorktree)
+	return err
+}
+
+func activatePipelineNativeGateBinding(path string, expected pipelineNativeGateBinding, runID, nativeWorktree string) (pipelineNativeGateBinding, error) {
+	current, err := loadPipelineNativeGateBinding(path)
+	if err != nil {
+		return pipelineNativeGateBinding{}, err
+	}
+	if !samePipelineNativeGateBindingIdentity(current, expected) {
+		return pipelineNativeGateBinding{}, errors.New("pipeline: managed native gate binding identity changed")
+	}
+	if current.Status == pipelineNativeGateBindingRevoked {
+		return pipelineNativeGateBinding{}, errors.New("pipeline: managed native gate binding is revoked")
+	}
+	if current.Status == pipelineNativeGateBindingActive {
+		if current.RunID != runID || !samePipelineNativeGatePath(current.NativeWorktree, nativeWorktree) {
+			return pipelineNativeGateBinding{}, errors.New("pipeline: managed native gate binding belongs to another run or worktree")
+		}
+		return current, nil
+	}
+	to := current
+	to.Status = pipelineNativeGateBindingActive
+	to.RunID = runID
+	to.NativeWorktree = nativeWorktree
+	if err := transitionPipelineNativeGateBinding(path, current, to); err != nil {
+		return pipelineNativeGateBinding{}, err
+	}
+	return to, nil
+}
+
+func revokePipelineNativeGateBinding(path string, expected pipelineNativeGateBinding) error {
+	current, err := loadPipelineNativeGateBinding(path)
+	if err != nil {
+		return err
+	}
+	if !samePipelineNativeGateBindingIdentity(current, expected) {
+		return errors.New("pipeline: managed native gate binding identity changed before revocation")
+	}
+	if current.Status == pipelineNativeGateBindingRevoked {
+		return nil
+	}
+	revoked := current
+	revoked.Status = pipelineNativeGateBindingRevoked
+	return transitionPipelineNativeGateBinding(path, current, revoked)
+}
+
+func retirePipelineNativeGateBinding(path string, expected pipelineNativeGateBinding) error {
+	if err := revokePipelineNativeGateBinding(path, expected); err != nil {
+		return err
+	}
+	return os.Remove(path)
+}
+
+func transitionPipelineNativeGateBinding(path string, from, to pipelineNativeGateBinding) error {
+	current, err := loadPipelineNativeGateBinding(path)
+	if err != nil {
+		return err
+	}
+	if current != from {
+		return errors.New("pipeline: managed native gate binding changed during lifecycle transition")
+	}
+	return savePipelineNativeGateBinding(path, to)
+}
+
+func savePipelineNativeGateBinding(path string, binding pipelineNativeGateBinding) error {
+	if err := validatePipelineNativeGateBinding(binding); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(binding, "", "  ")
+	if err != nil {
+		return err
+	}
+	return fsx.AtomicWriteFile(path, append(data, '\n'))
+}
+
+func loadPipelineNativeGateBinding(path string) (pipelineNativeGateBinding, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return pipelineNativeGateBinding{}, err
+	}
+	if len(data) > 1<<20 {
+		return pipelineNativeGateBinding{}, errors.New("pipeline: managed native gate binding is too large")
+	}
+	var binding pipelineNativeGateBinding
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&binding); err != nil {
+		return pipelineNativeGateBinding{}, errors.New("pipeline: invalid managed native gate binding")
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return pipelineNativeGateBinding{}, errors.New("pipeline: trailing managed native gate binding data")
+	}
+	if err := validatePipelineNativeGateBinding(binding); err != nil {
+		return pipelineNativeGateBinding{}, err
+	}
+	return binding, nil
+}
+
+func validatePipelineNativeGateBinding(binding pipelineNativeGateBinding) error {
+	if binding.Version != 1 || state.ValidTaskID(binding.TaskID) != nil || strings.TrimSpace(binding.RepoID) == "" || strings.TrimSpace(binding.Project) == "" || strings.TrimSpace(binding.TaskWorktree) == "" || !validHexBytes(binding.SubmittedHeadSHA, 20) || !validHexBytes(binding.LaunchNonce, 16) || !strings.HasPrefix(binding.ValidationGeneration, cfoValidationGenerationPrefix) || !validHexBytes(strings.TrimPrefix(binding.ValidationGeneration, cfoValidationGenerationPrefix), 16) || !validHexBytes(binding.CFOExecutableSHA256, 32) {
+		return errors.New("pipeline: invalid managed native gate binding")
+	}
+	if binding.Status != pipelineNativeGateBindingPending && binding.Status != pipelineNativeGateBindingActive && binding.Status != pipelineNativeGateBindingRevoked {
+		return errors.New("pipeline: invalid managed native gate binding lifecycle")
+	}
+	if (binding.RunID == "") != (binding.NativeWorktree == "") || binding.Status == pipelineNativeGateBindingPending && binding.RunID != "" || binding.Status == pipelineNativeGateBindingActive && binding.RunID == "" {
+		return errors.New("pipeline: invalid managed native gate binding lifecycle")
+	}
+	for _, path := range []string{binding.Project, binding.TaskWorktree, binding.CFOExecutablePath} {
+		absolute, err := filepath.Abs(path)
+		if err != nil || !fsx.SamePath(absolute, path) {
+			return errors.New("pipeline: managed native gate binding paths must be absolute")
+		}
+	}
+	if binding.NativeWorktree != "" {
+		absolute, err := filepath.Abs(binding.NativeWorktree)
+		if err != nil || !samePipelineNativeGatePath(absolute, binding.NativeWorktree) || filepath.Base(filepath.Clean(binding.NativeWorktree)) != binding.RunID {
+			return errors.New("pipeline: managed native gate binding worktree does not match its run")
+		}
+	}
+	return nil
+}
+
+func samePipelineNativeGateBindingIdentity(left, right pipelineNativeGateBinding) bool {
+	left.Status, right.Status = "", ""
+	left.RunID, right.RunID = "", ""
+	left.NativeWorktree, right.NativeWorktree = "", ""
+	return left == right
+}
+
+func samePipelineNativeGatePath(left, right string) bool {
+	left, leftErr := filepath.Abs(left)
+	right, rightErr := filepath.Abs(right)
+	return leftErr == nil && rightErr == nil && strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
+}
+
+func pipelineNativeGateBindingMatchesContract(binding pipelineNativeGateBinding, contract pipelineLaunchContract) bool {
+	return binding.TaskID == contract.TaskID && binding.RepoID == contract.Checked.RepoID && fsx.SamePath(binding.Project, contract.Project) && binding.SubmittedHeadSHA == contract.Checked.HeadSHA && binding.LaunchNonce == contract.LaunchNonce && binding.ValidationGeneration == contract.ValidationGeneration && fsx.SamePath(binding.CFOExecutablePath, contract.CFOExecutablePath) && binding.CFOExecutableSHA256 == contract.CFOExecutableSHA256 && (contract.RunID == "" || binding.RunID == contract.RunID)
 }
 
 func capturePipelineLaunch(ctx context.Context, h home.Home, root string, reader pipeline.Reader, expected state.TaskMeta, branch string, selection pipeline.Selection) (pipelineLaunchEvidence, error) {
@@ -949,17 +1190,4 @@ func nativeEnv(root string) []string {
 		env = append(env, entry)
 	}
 	return append(env, "NM_HOME="+root)
-}
-
-func managedNativeEnv(root, launchNonce, validationGeneration string) []string {
-	env := nativeEnv(root)
-	clean := env[:0]
-	for _, entry := range env {
-		name, _, ok := strings.Cut(entry, "=")
-		if ok && (strings.EqualFold(name, nativeGateLaunchNonceEnv) || strings.EqualFold(name, nativeGateValidationEnv)) {
-			continue
-		}
-		clean = append(clean, entry)
-	}
-	return append(clean, nativeGateLaunchNonceEnv+"="+launchNonce, nativeGateValidationEnv+"="+validationGeneration)
 }

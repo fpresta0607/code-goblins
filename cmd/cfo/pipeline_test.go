@@ -28,10 +28,12 @@ import (
 )
 
 type pipelineRunner struct {
-	gate       pipeline.Gate
-	native     []execx.Request
-	worktree   string
-	activeRuns int
+	gate           pipeline.Gate
+	native         []execx.Request
+	worktree       string
+	nativeWorktree string
+	launchContract *pipelineLaunchContract
+	activeRuns     int
 }
 
 type pipelineStartRunner struct {
@@ -56,6 +58,8 @@ type pipelineStartRunner struct {
 	rebaseFirst       bool
 	reviewStarted     bool
 	nativeExitCode    int
+	bindingPath       string
+	bindingObserved   bool
 }
 
 func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Result, error) {
@@ -97,7 +101,8 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 				trustedSHA, globalConfigHex = "", ""
 				firstStep, nonRebaseInvocations = "rebase", 0
 			}
-			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"run_id":"run-bound","repo_id":"repo","working_path":%q,"branch":"feat/policy","submitted_head_sha":%q,"launch_nonce":%q,"validation_generation":%q,"trusted_sha":%q,"agent":%q,"model":%q,"model_provider":"openai","first_step":%q,"non_rebase_invocation_count":%d,"global_config_hex":%q,"no_mistakes_version":"v1.75.1","no_mistakes_build_sha":"37ed232","invocation_count":%d}]`, filepath.ToSlash(filepath.Dir(filepath.Dir(r.worktree))), trusted, r.nonce, r.generation, trustedSHA, agent, model, firstStep, nonRebaseInvocations, globalConfigHex, invocationCount))}, nil
+			nativeWorktree := filepath.Join(filepath.Dir(filepath.Dir(r.worktree)), "native-runs", "run-bound")
+			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"run_id":"run-bound","repo_id":"repo","working_path":%q,"worktree":%q,"branch":"feat/policy","submitted_head_sha":%q,"launch_nonce":%q,"validation_generation":%q,"trusted_sha":%q,"agent":%q,"model":%q,"model_provider":"openai","first_step":%q,"non_rebase_invocation_count":%d,"global_config_hex":%q,"no_mistakes_version":"v1.75.1","no_mistakes_build_sha":"37ed232","invocation_count":%d}]`, filepath.ToSlash(filepath.Dir(filepath.Dir(r.worktree))), filepath.ToSlash(nativeWorktree), trusted, r.nonce, r.generation, trustedSHA, agent, model, firstStep, nonRebaseInvocations, globalConfigHex, invocationCount))}, nil
 		}
 	case "git":
 		switch strings.Join(q.Args, " ") {
@@ -152,6 +157,16 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 			return execx.Result{Stdout: []byte("auto_fix: {review: 0}\n")}, nil
 		}
 	case "no-mistakes":
+		if r.bindingPath != "" {
+			binding, err := loadPipelineNativeGateBinding(r.bindingPath)
+			if err != nil {
+				return execx.Result{}, err
+			}
+			if binding.Status != pipelineNativeGateBindingPending || binding.RunID != "" {
+				return execx.Result{}, fmt.Errorf("native launch binding=%+v", binding)
+			}
+			r.bindingObserved = true
+		}
 		r.native = append(r.native, q)
 		for i, arg := range q.Args {
 			if arg == "--launch-nonce" && i+1 < len(q.Args) {
@@ -273,6 +288,11 @@ func (r *pipelineRunner) Run(_ context.Context, q execx.Request) (execx.Result, 
 	case "sqlite3":
 		if strings.Contains(q.Args[len(q.Args)-1], "COUNT(*) AS n FROM runs") {
 			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"n":%d}]`, r.activeRuns))}, nil
+		}
+		if strings.Contains(q.Args[len(q.Args)-1], "launch_validation_generation") && r.launchContract != nil {
+			contract := r.launchContract
+			data := fmt.Sprintf(`[{"run_id":%q,"repo_id":%q,"working_path":%q,"worktree":%q,"branch":%q,"submitted_head_sha":%q,"launch_nonce":%q,"validation_generation":%q,"no_mistakes_version":"v1.75.1","no_mistakes_build_sha":"37ed232","invocation_count":0}]`, contract.RunID, contract.Checked.RepoID, filepath.ToSlash(contract.Project), filepath.ToSlash(r.nativeWorktree), contract.Checked.Branch, contract.Checked.HeadSHA, contract.LaunchNonce, contract.ValidationGeneration)
+			return execx.Result{Stdout: []byte(data)}, nil
 		}
 		data, err := json.Marshal([]pipeline.Gate{r.gate})
 		return execx.Result{Stdout: data}, err
@@ -1097,7 +1117,8 @@ func TestPipelineRespondInvokesNativeOnlyForBudgetedExplicitDecision(t *testing.
 			if err := savePipelineLaunchContract(filepath.Join(tmp, pipelineLaunchContractName), contract); err != nil {
 				t.Fatal(err)
 			}
-			runner := &pipelineRunner{worktree: wt, gate: pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: round, Findings: `{"findings":[{"id":"bug","action":"auto-fix"}]}`}}
+			nativeWorktree := filepath.Join(nm, "worktrees", "run")
+			runner := &pipelineRunner{worktree: wt, nativeWorktree: nativeWorktree, launchContract: &contract, gate: pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: round, Findings: `{"findings":[{"id":"bug","action":"auto-fix"}]}`}}
 			// A gate runs for hours, so the pipeline must not take the cleanup
 			// lock: holding it that long makes an auth refresh report a live
 			// task as being cleaned up and never deliver its credentials.
@@ -1121,26 +1142,23 @@ func TestPipelineRespondInvokesNativeOnlyForBudgetedExplicitDecision(t *testing.
 				// execx replaces rather than merges a non-nil Env, so the
 				// native engine must still receive the inherited environment
 				// it resolves its tools and home directory from.
-				var hasHome, hasPath, hasNonce, hasGeneration bool
+				var hasHome, hasPath bool
 				for _, entry := range request.Env {
 					if entry == "NM_HOME="+nm {
 						hasHome = true
-					}
-					if entry == nativeGateLaunchNonceEnv+"="+contract.LaunchNonce {
-						hasNonce = true
-					}
-					if entry == nativeGateValidationEnv+"="+contract.ValidationGeneration {
-						hasGeneration = true
 					}
 					if name, _, ok := strings.Cut(entry, "="); ok && strings.EqualFold(name, "PATH") {
 						hasPath = true
 					}
 				}
-				if !hasHome || !hasPath || !hasNonce || !hasGeneration {
-					t.Fatalf("native environment: home=%v path=%v nonce=%v generation=%v", hasHome, hasPath, hasNonce, hasGeneration)
+				if !hasHome || !hasPath {
+					t.Fatalf("native environment: home=%v path=%v", hasHome, hasPath)
 				}
 				if out.String() != "native decision output\n" {
 					t.Fatal(out.String())
+				}
+				if _, err := os.Stat(pipelineNativeGateBindingPath(h.State, contract.Checked.RepoID)); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("terminal response left native gate binding: %v", err)
 				}
 			}
 		})
@@ -1184,14 +1202,18 @@ func TestPipelineRunBindsAndVerifiesNativeLaunch(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	runner := &pipelineStartRunner{worktree: wt}
+	bindingPath := pipelineNativeGateBindingPath(h.State, "repo")
+	runner := &pipelineStartRunner{worktree: wt, bindingPath: bindingPath}
 	var out bytes.Buffer
 	err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &out)
 	if err != nil {
 		t.Fatalf("pipelineCommand: %v", err)
 	}
-	if runner.remoteRead != 2 || len(runner.native) != 1 || !runner.roleStarted || runner.nonce == "" || !strings.HasPrefix(runner.generation, cfoValidationGenerationPrefix) {
+	if runner.remoteRead != 2 || len(runner.native) != 1 || !runner.roleStarted || !runner.bindingObserved || runner.nonce == "" || !strings.HasPrefix(runner.generation, cfoValidationGenerationPrefix) {
 		t.Fatalf("bound launch: remote_reads=%d native=%+v role_started=%v nonce=%q generation=%q", runner.remoteRead, runner.native, runner.roleStarted, runner.nonce, runner.generation)
+	}
+	if _, err := os.Stat(bindingPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("terminal launch left native gate binding: %v", err)
 	}
 	if !strings.Contains(out.String(), "launch_receipt:") || !strings.Contains(out.String(), "pipeline launch: verified run run-bound") {
 		t.Fatalf("output=%q", out.String())
@@ -1221,6 +1243,10 @@ func TestPipelineRunBindsAndVerifiesNativeLaunch(t *testing.T) {
 	revokedClaim, loadErr := loadPipelineLaunchClaim(filepath.Join(tmp, pipelineLaunchClaimName))
 	if loadErr != nil || revokedClaim.RunID != "run-bound" {
 		t.Fatalf("failed durable proof claim=%+v err=%v", revokedClaim, loadErr)
+	}
+	revokedBinding, loadErr := loadPipelineNativeGateBinding(bindingPath)
+	if loadErr != nil || revokedBinding.Status != pipelineNativeGateBindingRevoked {
+		t.Fatalf("failed durable proof binding=%+v err=%v", revokedBinding, loadErr)
 	}
 }
 
@@ -1261,7 +1287,8 @@ func TestPipelineRunRetainsVerifiedContractWhenNativeHoldExpires(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	runner := &pipelineStartRunner{worktree: wt, nativeExitCode: 1}
+	bindingPath := pipelineNativeGateBindingPath(h.State, "repo")
+	runner := &pipelineStartRunner{worktree: wt, nativeExitCode: 1, bindingPath: bindingPath}
 	err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "native command exited 1") {
 		t.Fatalf("pipelineCommand error=%v, want bounded native hold error", err)
@@ -1269,6 +1296,10 @@ func TestPipelineRunRetainsVerifiedContractWhenNativeHoldExpires(t *testing.T) {
 	contract, loadErr := loadPipelineLaunchContract(filepath.Join(tmp, pipelineLaunchContractName))
 	if loadErr != nil || contract.Status != pipelineLaunchContractVerified || contract.RunID != "run-bound" {
 		t.Fatalf("retained contract=%+v err=%v", contract, loadErr)
+	}
+	binding, loadErr := loadPipelineNativeGateBinding(bindingPath)
+	if loadErr != nil || binding.Status != pipelineNativeGateBindingActive || binding.RunID != "run-bound" || filepath.Base(binding.NativeWorktree) != binding.RunID {
+		t.Fatalf("retained binding=%+v err=%v", binding, loadErr)
 	}
 }
 
