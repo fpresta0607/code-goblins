@@ -41,11 +41,20 @@ func TestSubscriptionOnlyNativeGateEnvironmentStripsBillingKeysCaseInsensitively
 		"openai_api_key=secret",
 		"OPENAI_KEY=secret",
 		"CoDeX_ApI_KeY=secret",
+		"OpenRouter_Api_Key=secret",
 		"CFO_HOME=C:\\fleet",
 	})
 	want := []string{"PATH=C:\\tools", "CFO_HOME=C:\\fleet"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("environment=%q, want %q", got, want)
+	}
+}
+
+func TestSubscriptionOnlyNativeGateArgumentsForceOpenAIProvider(t *testing.T) {
+	got := subscriptionOnlyNativeGateArguments([]string{"exec", "-c", `model_provider="openrouter"`, "-"})
+	want := []string{"exec", "-c", `model_provider="openrouter"`, "-", "-c", `model_provider="openai"`}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("arguments=%q, want %q", got, want)
 	}
 }
 
@@ -141,7 +150,7 @@ INSERT INTO runs VALUES('run','repo','feature','head','head','running',1,NULL,NU
 	if err := authorizeNativeGateAgent(context.Background(), home.Home{State: stateDir}, reader, worktree); err != nil {
 		t.Fatalf("strict native run was not preserved: %v", err)
 	}
-	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `UPDATE runs SET launch_validation_generation='cfo-v1-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'`).CombinedOutput(); err != nil {
+	if out, err := exec.Command("sqlite3", filepath.Join(nativeRoot, "state.sqlite"), `UPDATE runs SET status=NULL,launch_validation_generation='cfo-v1-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'`).CombinedOutput(); err != nil {
 		t.Fatalf("update managed fixture: %s %v", out, err)
 	}
 	if err := authorizeNativeGateAgent(context.Background(), home.Home{State: stateDir}, reader, worktree); err == nil || !strings.Contains(err.Error(), "no matching CFO launch contract") {

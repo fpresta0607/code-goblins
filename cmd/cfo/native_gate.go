@@ -68,7 +68,7 @@ func runNativeGateAgent(args []string, stdin io.Reader, stdout, stderr io.Writer
 			return 1
 		}
 	}
-	cmd := exec.Command("codex", args...)
+	cmd := exec.Command("codex", subscriptionOnlyNativeGateArguments(args)...)
 	cmd.Env = subscriptionOnlyNativeGateEnvironment(os.Environ())
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
@@ -85,10 +85,11 @@ func runNativeGateAgent(args []string, stdin io.Reader, stdout, stderr io.Writer
 }
 
 func subscriptionOnlyNativeGateEnvironment(env []string) []string {
-	billingKeys := make(map[string]struct{}, len(harness.HarnessBillingKeys))
+	billingKeys := make(map[string]struct{}, len(harness.HarnessBillingKeys)+1)
 	for _, key := range harness.HarnessBillingKeys {
 		billingKeys[strings.ToUpper(key)] = struct{}{}
 	}
+	billingKeys["OPENROUTER_API_KEY"] = struct{}{}
 	clean := make([]string, 0, len(env))
 	for _, entry := range env {
 		name, _, ok := strings.Cut(entry, "=")
@@ -100,6 +101,10 @@ func subscriptionOnlyNativeGateEnvironment(env []string) []string {
 		clean = append(clean, entry)
 	}
 	return clean
+}
+
+func subscriptionOnlyNativeGateArguments(args []string) []string {
+	return append(append([]string(nil), args...), "-c", `model_provider="openai"`)
 }
 
 func nativeGateReader(h home.Home, root, worktree string) (pipeline.Reader, bool, error) {

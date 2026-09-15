@@ -309,9 +309,6 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if err != nil {
 		return fmt.Errorf("pipeline: native command failed: %w", err)
 	}
-	if result.ExitCode != 0 {
-		return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
-	}
 	if contract.Status == pipelineLaunchContractPending {
 		verified, launchState, err := verifyPipelineLaunchContract(ctx, reader, contractPath, contract, selection)
 		if err != nil {
@@ -320,6 +317,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		if launchState.InvocationCount > 0 {
 			fmt.Fprintf(out, "pipeline launch: verified run %s after its first managed agent\n", verified.RunID)
 		}
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
 	}
 	return nil
 }
