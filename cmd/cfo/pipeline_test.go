@@ -499,6 +499,120 @@ func TestPipelineMigrateRollsBackWhenAuditCannotBeWritten(t *testing.T) {
 	}
 }
 
+func TestPolicyMigrationPreservesLaunchAndExhaustedBudgetAcrossRecovery(t *testing.T) {
+	root := t.TempDir()
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	tmp := filepath.Join(h.State, "tasktmp", "task")
+	project := filepath.Join(root, "project")
+	for _, dir := range []string{tmp, project, filepath.Join(h.State, "tasks", "task")} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	current, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := legacyPipelineSelection(t, "high-risk")
+	next, err := pipeline.MigrateSelection(old, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta := state.TaskMeta{ID: "task", Project: project, TaskTmp: tmp, PipelineClass: old.Class, PipelineHash: old.Hash}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	if err := old.Save(filepath.Join(tmp, "pipeline.json")); err != nil {
+		t.Fatal(err)
+	}
+	associationDir := filepath.Join(h.State, "tasks", "task")
+	launch := pipeline.Launch{Project: project, Branch: "feature", Head: strings.Repeat("a", 40), Nonce: "nonce", Generation: "generation", IntentDigest: "intent", PolicyHash: old.Hash, RunID: "run", PredecessorRunID: "prior"}
+	if err := launch.Save(filepath.Join(associationDir, "pipeline-launch.json")); err != nil {
+		t.Fatal(err)
+	}
+	responses := map[string]bool{}
+	for i := 0; i < old.ReviewCycles; i++ {
+		responses[fmt.Sprintf("run/review/%d", i+1)] = true
+	}
+	budget := pipeline.Budget{PolicyHash: old.Hash, Cap: old.ReviewCycles, Responses: responses}
+	if err := budget.Save(filepath.Join(associationDir, "gate-budget.json")); err != nil {
+		t.Fatal(err)
+	}
+	savedLaunch, savedBudget, err := loadPolicyMigrationAssociations(h, meta, old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal := policyMigrationJournal{Version: 2, TaskID: "task", Direction: "forward", Old: old, New: next, Audit: pipelineMigrationAudit(old, next), Launch: savedLaunch, Budget: savedBudget}
+	journalPath := filepath.Join(tmp, policyMigrationJournalName)
+	if err := writePolicyMigrationJournal(journalPath, journal); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyPolicyMigration(h, meta, journalPath, journal, false); err != nil {
+		t.Fatal(err)
+	}
+	migratedLaunch, err := pipeline.LoadLaunch(filepath.Join(associationDir, "pipeline-launch.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	migratedBudget, err := pipeline.LoadBudget(filepath.Join(associationDir, "gate-budget.json"), next.Hash, next.ReviewCycles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migratedLaunch.PolicyHash != next.Hash || migratedLaunch.RunID != launch.RunID || migratedLaunch.PredecessorRunID != launch.PredecessorRunID || len(migratedBudget.Responses) != old.ReviewCycles {
+		t.Fatalf("migrated launch=%+v budget=%+v", migratedLaunch, migratedBudget)
+	}
+
+	journal.Direction = "rollback"
+	if err := writePolicyMigrationJournal(journalPath, journal); err != nil {
+		t.Fatal(err)
+	}
+	if err := rollbackPolicyMigration(h, meta, journalPath, journal, nil); err != nil {
+		t.Fatal(err)
+	}
+	restoredLaunch, err := pipeline.LoadLaunch(filepath.Join(associationDir, "pipeline-launch.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredBudget, err := pipeline.LoadBudget(filepath.Join(associationDir, "gate-budget.json"), old.Hash, old.ReviewCycles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restoredLaunch != launch || len(restoredBudget.Responses) != old.ReviewCycles {
+		t.Fatalf("restored launch=%+v budget=%+v", restoredLaunch, restoredBudget)
+	}
+}
+
+func TestPolicyMigrationRefusesMismatchedOrPartialAssociations(t *testing.T) {
+	root := t.TempDir()
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	project := filepath.Join(root, "project")
+	dir := filepath.Join(h.State, "tasks", "task")
+	for _, path := range []string{project, dir} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := legacyPipelineSelection(t, "ordinary")
+	meta := state.TaskMeta{ID: "task", Project: project}
+	budget := pipeline.Budget{PolicyHash: old.Hash, Cap: old.ReviewCycles, Responses: map[string]bool{}}
+	if err := budget.Save(filepath.Join(dir, "gate-budget.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := loadPolicyMigrationAssociations(h, meta, old); err == nil || !strings.Contains(err.Error(), "without") {
+		t.Fatalf("partial association error = %v", err)
+	}
+	if err := os.Remove(filepath.Join(dir, "gate-budget.json")); err != nil {
+		t.Fatal(err)
+	}
+	launch := pipeline.Launch{Project: project, Branch: "feature", Head: strings.Repeat("a", 40), Nonce: "nonce", Generation: "generation", IntentDigest: "intent", PolicyHash: "wrong"}
+	if err := launch.Save(filepath.Join(dir, "pipeline-launch.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := loadPolicyMigrationAssociations(h, meta, old); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("mismatched association error = %v", err)
+	}
+}
+
 func TestEnsurePolicyMigrationAuditTrustsSuccessfulAppend(t *testing.T) {
 	checks := 0
 	err := ensurePolicyMigrationAuditWith(false, func() (bool, error) {
@@ -560,7 +674,7 @@ func TestPolicyMigrationRetainsForwardStateWhenExistingAuditCannotBeRead(t *test
 	if err := next.Save(filepath.Join(tmp, "pipeline.json")); err != nil {
 		t.Fatal(err)
 	}
-	journal := policyMigrationJournal{Version: 1, TaskID: meta.ID, Direction: "forward", Old: old, New: next, Audit: pipelineMigrationAudit(old, next)}
+	journal := policyMigrationJournal{Version: 2, TaskID: meta.ID, Direction: "forward", Old: old, New: next, Audit: pipelineMigrationAudit(old, next)}
 	journalPath := filepath.Join(tmp, policyMigrationJournalName)
 	if err := writePolicyMigrationJournal(journalPath, journal); err != nil {
 		t.Fatal(err)
@@ -630,7 +744,7 @@ func TestPipelineMigrateResumesInterruptedTransaction(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(nm, "config.yaml"), config, 0600); err != nil {
 				t.Fatal(err)
 			}
-			journal := policyMigrationJournal{Version: 1, TaskID: "task", Direction: "forward", Old: old, New: next, Audit: pipelineMigrationAudit(old, next)}
+			journal := policyMigrationJournal{Version: 2, TaskID: "task", Direction: "forward", Old: old, New: next, Audit: pipelineMigrationAudit(old, next)}
 			journalPath := filepath.Join(tmp, policyMigrationJournalName)
 			if err := writePolicyMigrationJournal(journalPath, journal); err != nil {
 				t.Fatal(err)
@@ -713,7 +827,7 @@ func TestPipelineMigrationRecoveryRetainsJournalWhenNewPolicyDrifts(t *testing.T
 	if err := state.WriteTaskMeta(h.State, meta); err != nil {
 		t.Fatal(err)
 	}
-	journal := policyMigrationJournal{Version: 1, TaskID: meta.ID, Direction: "forward", Old: old, New: next, Audit: pipelineMigrationAudit(old, next)}
+	journal := policyMigrationJournal{Version: 2, TaskID: meta.ID, Direction: "forward", Old: old, New: next, Audit: pipelineMigrationAudit(old, next)}
 	journalPath := filepath.Join(tmp, policyMigrationJournalName)
 	if err := writePolicyMigrationJournal(journalPath, journal); err != nil {
 		t.Fatal(err)

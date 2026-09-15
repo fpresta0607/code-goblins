@@ -23,6 +23,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -131,6 +132,11 @@ func ConfigFromEnv(h home.Home) Config {
 	// session, so orphan detection can never look at a different session than
 	// supervision does.
 	cfg.ReapEvery = clampMin1s(claudehook.Seconds("CFO_REAP_EVERY", 600))
+	var native reap.NativeValidationReader
+	if root, err := pipeline.DefaultRoot(); err == nil {
+		commands := execx.OSRunner{}
+		native = reap.PipelineValidators{Home: h, Reader: pipeline.Reader{Root: root, Commands: commands}, Gate: monitor.ExecGateProber{Commands: commands, Root: root}}
+	}
 	cfg.Reap = &reap.Service{
 		Home: h,
 		Inventory: reap.Collector{
@@ -138,6 +144,7 @@ func ConfigFromEnv(h home.Home) Config {
 			Session:   session,
 			Panes:     &herdr.Client{Commands: execx.OSRunner{}, Session: session},
 			Processes: reap.CIMProcesses{Commands: execx.OSRunner{}},
+			Native:    native,
 		},
 		Commands: execx.OSRunner{},
 	}

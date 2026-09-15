@@ -57,8 +57,11 @@ func (f *primaryRunner) Run(ctx context.Context, r execx.Request) (execx.Result,
 		body = `{"result":{}}`
 	case strings.HasPrefix(command, "pane read"):
 		body = "Working"
+		if f.kind == "codex" {
+			body = "\n\x1b[1m›\x1b[0m\x1b[38;5;45m⠁\x1b[0m\x1b[2mAsk Codex to do anything\x1b[0m\n"
+		}
 		if f.kind == "codex" && len(f.messages) > 0 {
-			body = "\nMessages to be submitted after next tool call\n  ↳ " + f.messages[len(f.messages)-1] + "\n› Ask Codex to do anything\n"
+			body = "\nMessages to be submitted after next tool call\n  ↳ " + f.messages[len(f.messages)-1] + "\n\x1b[1m›\x1b[0m\x1b[2mAsk Codex to do anything\x1b[0m\n"
 		}
 	default:
 		return execx.Result{}, fmt.Errorf("unexpected mutation: %s", command)
@@ -287,6 +290,42 @@ func TestUncertainReceiptDoesNotBlockLaterWakeAndConcurrentConfirmation(t *testi
 	pending, err := wake.Pending(dir)
 	if err != nil || len(pending) != 2 {
 		t.Fatalf("receipt confirmation acknowledged decisions: %v %v", pending, err)
+	}
+}
+
+func TestConfirmingOlderUncertaintyPreservesCurrentAcceptedReceipt(t *testing.T) {
+	dir := t.TempDir()
+	confirmed := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	delivery := supervisor.Delivery{
+		State:       "ready",
+		Sequence:    2,
+		Receipt:     "accepted: idle-agent acceptance observed",
+		Detail:      "",
+		ConfirmedAt: confirmed,
+		CheckedAt:   confirmed,
+		Uncertain:   map[int]string{1: "typed receipt unknown"},
+	}
+	data, err := json.Marshal(delivery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "delivery.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := supervisor.ConfirmDelivery(dir, 1); err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(filepath.Join(dir, "delivery.json"))
+	var reloaded supervisor.Delivery
+	if err != nil || json.Unmarshal(data, &reloaded) != nil {
+		t.Fatalf("delivery unreadable: %v", err)
+	}
+	if reloaded.Receipt != "accepted: idle-agent acceptance observed" || reloaded.Detail != "" || !reloaded.ConfirmedAt.Equal(confirmed) || !reloaded.CheckedAt.Equal(confirmed) {
+		t.Fatalf("older confirmation relabeled current receipt: %+v", reloaded)
+	}
+	if len(reloaded.Uncertain) != 0 || reloaded.State != "ready" {
+		t.Fatalf("older uncertainty was not cleared: %+v", reloaded)
 	}
 }
 

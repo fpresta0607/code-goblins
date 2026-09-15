@@ -406,6 +406,17 @@ func TestFindingsDigestIsOrderIndependent(t *testing.T) {
 	}
 }
 
+func TestHeldProcessIsNotActionableAndHoldTransitionChangesDigest(t *testing.T) {
+	held := []Finding{{Class: OrphanProcess, PID: 7, Detail: "unverified", Action: "kill", Hold: "ownership unknown"}}
+	ready := []Finding{{Class: OrphanProcess, PID: 7, Detail: "verified", Action: "kill"}}
+	if len(Actionable(held)) != 0 || len(Actionable(ready)) != 1 {
+		t.Fatalf("actionable held=%+v ready=%+v", Actionable(held), Actionable(ready))
+	}
+	if FindingsDigest(held) == FindingsDigest(ready) {
+		t.Fatal("held-to-actionable transition retained the same digest")
+	}
+}
+
 // TestUnresolvedPaneHoldsEveryProcessFinding: a pane that exists but cannot
 // say what is running in it leaves a live goblin indistinguishable from an
 // orphan, so nothing may be killed on that evidence.

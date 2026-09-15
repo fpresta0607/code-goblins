@@ -81,7 +81,7 @@ func WriteRecord(stateDir string, record Record) error {
 func FindingsDigest(findings []Finding) string {
 	keys := make([]string, 0, len(findings))
 	for _, finding := range findings {
-		keys = append(keys, fmt.Sprintf("%s|%s|%d|%s", finding.Class, finding.TaskID, finding.PID, normalizePath(finding.Path)))
+		keys = append(keys, fmt.Sprintf("%s|%s|%d|%s|%s", finding.Class, finding.TaskID, finding.PID, normalizePath(finding.Path), finding.Hold))
 	}
 	sort.Strings(keys)
 	sum := sha256.Sum256([]byte(strings.Join(keys, "\n")))
@@ -94,7 +94,7 @@ func FindingsDigest(findings []Finding) string {
 func Actionable(findings []Finding) []Finding {
 	var out []Finding
 	for _, finding := range findings {
-		if finding.Class == OrphanProcess || finding.Class == StaleServer {
+		if finding.Hold == "" && (finding.Class == OrphanProcess || finding.Class == StaleServer) {
 			out = append(out, finding)
 		}
 	}
@@ -111,7 +111,7 @@ func Summary(findings []Finding) string {
 		counts[finding.Class]++
 	}
 	var parts []string
-	for _, class := range []Class{OrphanProcess, StaleServer, OrphanWorktree, OrphanMeta, OrphanStatus} {
+	for _, class := range []Class{ManagedNative, OrphanProcess, StaleServer, OrphanWorktree, OrphanMeta, OrphanStatus} {
 		if counts[class] > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", counts[class], class))
 		}

@@ -175,6 +175,10 @@ func (s Service) requireRetirementReady(ctx context.Context, contextHome home.Ho
 	if err != nil {
 		return fmt.Errorf("cleanup: preserve task context: %w", err)
 	}
+	recap, err := os.Stat(manifest.Recap)
+	if err != nil || recap.IsDir() || recap.Size() == 0 {
+		return errors.New("cleanup: save the finished branch recap before retirement")
+	}
 	if len(manifest.Decisions) > 0 {
 		return errors.New("cleanup: unresolved decisions must be answered before retirement")
 	}
@@ -232,7 +236,7 @@ func (s Service) proveWorktreeReturned(ctx context.Context, project, worktreePat
 }
 
 func (s Service) finishRetirement(contextHome home.Home, meta state.TaskMeta, id, worktreePath string) (Result, error) {
-	archived, err := s.archive(id)
+	archived, err := s.archive(meta)
 	if err != nil {
 		return Result{}, fmt.Errorf("cleanup: scrub and archive task scratch: %w", err)
 	}
@@ -274,13 +278,16 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 	if err := s.Herdr.CloseTab(ctx, meta.HerdrSession, meta.HerdrTabID); err != nil {
 		notes = append(notes, "tab close skipped: "+err.Error())
 	}
+	archived, err := s.archive(meta)
+	if err != nil {
+		return Result{}, fmt.Errorf("cleanup: scrub and archive task scratch: %w", err)
+	}
 	if err := state.AppendStatus(s.StateDir, id, "done: force-archived via cfo cleanup --force-archive; worktree "+worktreePath+" left in place"); err != nil {
 		return Result{}, fmt.Errorf("cleanup: record force archive: %w", err)
 	}
 	if err := state.RemoveTaskMeta(s.StateDir, id); err != nil {
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
-	archived, archiveErr := s.archive(id)
 	goTmpErr := s.removeGoTmp(id)
 
 	result := Result{Meta: meta, Output: fmt.Sprintf("force-archived %s; worktree %s left in place, remove it by hand when its handle clears", id, worktreePath)}
@@ -289,9 +296,6 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 	}
 	for _, note := range notes {
 		result.Output += "\nnote: " + note
-	}
-	if archiveErr != nil {
-		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)
 	}
 	if goTmpErr != nil {
 		result.Output += fmt.Sprintf("\nwarning: %v; remove it by hand once the handle clears", goTmpErr)
@@ -308,12 +312,27 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 // what the goblin reported and callers read it at its known path, so it stays
 // readable; spawn instead treats a status log with no live metadata beside it
 // as history rather than a live claim on the id.
-func (s Service) archive(id string) (string, error) {
-	taskTmp := filepath.Join(s.StateDir, "tasktmp", id)
-	if _, err := os.Stat(taskTmp); err != nil {
+func (s Service) archive(meta state.TaskMeta) (string, error) {
+	taskTmp := filepath.Join(s.StateDir, "tasktmp", meta.ID)
+	expected, err := fsx.AbsClean(taskTmp)
+	if err != nil {
+		return "", err
+	}
+	recorded, err := fsx.AbsClean(meta.TaskTmp)
+	if err != nil || !sameSpelledPath(recorded, expected) {
+		return "", errors.New("task temporary path does not match task ownership")
+	}
+	info, err := os.Lstat(expected)
+	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
 	}
-	dir := filepath.Join(s.StateDir, ArchiveDirName, id+"."+archiveStamp())
+	if err != nil {
+		return "", fmt.Errorf("inspect task temporary directory: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return "", errors.New("task temporary path is not an owned directory")
+	}
+	dir := filepath.Join(s.StateDir, ArchiveDirName, meta.ID+"."+archiveStamp())
 	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 		return "", err
 	}
@@ -321,14 +340,21 @@ func (s Service) archive(id string) (string, error) {
 	// Both generated launch inputs may contain credentials. Preserve frozen
 	// policy and handoff evidence, but refuse archival if either cannot be scrubbed.
 	for _, name := range []string{state.AuthScriptName, "mcp.json"} {
-		if err := os.Remove(filepath.Join(taskTmp, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := os.Remove(filepath.Join(expected, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return "", fmt.Errorf("remove injected credential file %s: %w", name, err)
 		}
 	}
-	if err := os.Rename(taskTmp, dir); err != nil {
+	if err := os.Rename(expected, dir); err != nil {
 		return "", fmt.Errorf("task temporary directory: %w", err)
 	}
 	return dir, nil
+}
+
+func sameSpelledPath(left, right string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
 }
 
 // removeGoTmp removes the task's Go temporary directory, which holds build and

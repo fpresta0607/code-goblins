@@ -27,16 +27,11 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	uninstall := fs.Bool("uninstall", false, "remove what cfo install added")
-	prepareOnly := fs.Bool("prepare-only", false, "prepare a portable runtime home without changing user environment or hooks")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if fs.NArg() != 0 {
 		fmt.Fprintln(stderr, "cfo install: unexpected arguments")
-		return 2
-	}
-	if *uninstall && *prepareOnly {
-		fmt.Fprintln(stderr, "cfo install: --prepare-only and --uninstall are mutually exclusive")
 		return 2
 	}
 
@@ -56,14 +51,15 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if !*uninstall {
-		if err = prepareRuntimeHome(root, h); err != nil {
+		executable, executableErr := os.Executable()
+		if executableErr != nil {
+			fmt.Fprintln(stderr, executableErr)
+			return 1
+		}
+		if err = prepareRuntimeHome(root, h, executable); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-	}
-	if *prepareOnly {
-		fmt.Fprintf(stdout, "Prepared runtime home %s. Existing operator memory and policy were preserved; reconcile them with the source instructions explicitly before migration. User environment and hooks were not changed.\n", h.Root)
-		return 0
 	}
 	service := install.Service{
 		Root:         h.Root,
@@ -93,7 +89,7 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 
 // Only generic instructions, policy and the executable seed a fresh runtime
 // home. Existing operator data is neither imported from source nor overwritten.
-func prepareRuntimeHome(source string, h home.Home) error {
+func prepareRuntimeHome(source string, h home.Home, executable string) error {
 	for _, dir := range []string{h.State, h.Data, filepath.Join(h.Root, "config")} {
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			return err
@@ -149,13 +145,9 @@ func prepareRuntimeHome(source string, h home.Home) error {
 			return err
 		}
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
 	dest := filepath.Join(h.Root, "cfo.exe")
-	if !fsx.SamePath(exe, dest) {
-		data, err := os.ReadFile(exe)
+	if !fsx.SamePath(executable, dest) {
+		data, err := os.ReadFile(executable)
 		if err != nil {
 			return err
 		}

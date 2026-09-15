@@ -287,16 +287,16 @@ func ConfirmDelivery(dir string, seq int) error {
 	}
 	if d.Sequence == seq {
 		d.Unconfirmed = false
+		d.Detail = "operator verified submission"
+		d.Receipt = "submitted: operator verified; acceptance unproven"
+		d.ConfirmedAt = time.Now().UTC()
+		d.CheckedAt = d.ConfirmedAt
 	}
 	delete(d.Uncertain, seq)
 	d.State = "ready"
 	if len(d.Uncertain) > 0 {
 		d.State = "submission_unknown"
 	}
-	d.Detail = "operator verified submission"
-	d.Receipt = "submitted: operator verified; acceptance unproven"
-	d.ConfirmedAt = time.Now().UTC()
-	d.CheckedAt = d.ConfirmedAt
 	return writeDeliveryFile(dir, "delivery.json", d)
 }
 

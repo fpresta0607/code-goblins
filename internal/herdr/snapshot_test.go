@@ -102,6 +102,20 @@ func TestCaptureEvidenceRefusesEmptyRead(t *testing.T) {
 	}
 }
 
+func TestCaptureStyledEvidenceRequestsBoundedANSI(t *testing.T) {
+	runner := &fakeRunner{replies: []runnerReply{rawReply("\x1b[2mstyled\x1b[0m\n")}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+
+	capture, err := client.CaptureStyledEvidence(context.Background(), Target{Session: "fleet", Pane: "w3:p4"})
+	if err != nil || string(capture) != "\x1b[2mstyled\x1b[0m\n" {
+		t.Fatalf("CaptureStyledEvidence = %q, %v", capture, err)
+	}
+	assertRequests(t, runner.Requests(), []execx.Request{
+		command("herdr", "pane", "read", "w3:p4", "--source", "recent-unwrapped", "--lines", "200", "--format", "ansi", "--session", "fleet"),
+	})
+}
+
 func TestAgentListParsesTypedEnvelopeAndRejectsErrors(t *testing.T) {
 	t.Run("typed result", func(t *testing.T) {
 		runner := &fakeRunner{replies: []runnerReply{rawReply(`{"id":"cli:agent:list","result":{"type":"agent_list","agents":[{"agent":"claude","agent_status":"working","pane_id":"w3:p1","tab_id":"w3:t1","workspace_id":"w3","state_change_seq":1,"revision":1}]}}`)}}

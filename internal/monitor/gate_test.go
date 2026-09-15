@@ -30,14 +30,14 @@ const wedgedStatus = `run:
     pr,completed,0,28338
     ci,running,0,0
   active_steps[1]{step,status,active_for,last_activity,agent_pid,round}:
-    ci,running,6h3m,"1m51s ago: log: no CI checks reported yet, waiting for checks to register...","",starting
+    ci,running,6h3m,"1m51s ago: log: no CI checks reported yet, waiting for checks to register...","1234",starting
 branch_sync:
   state: behind
 `
 
 func TestParseGateStatusReadsActiveStep(t *testing.T) {
 	got := parseGateStatus(wedgedStatus, GateSample{NoCI: true})
-	if !got.Active || got.Step != "ci" || got.ActiveFor != 6*time.Hour+3*time.Minute {
+	if !got.Active || got.Step != "ci" || got.ActiveFor != 6*time.Hour+3*time.Minute || got.ActivePID != 1234 {
 		t.Fatalf("parsed = %+v, want active ci at 6h3m", got)
 	}
 	if !strings.Contains(got.LastActivity, "no CI checks reported yet") {

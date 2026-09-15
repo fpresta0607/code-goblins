@@ -3,12 +3,14 @@ package monitor
 import (
 	"context"
 	"encoding/csv"
+	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -32,6 +34,7 @@ type GateSample struct {
 	ReviewUsed   int           `json:"review_repairs_used"`
 	ReviewCap    int           `json:"review_repair_cap"`
 	Exhausted    bool          `json:"review_budget_exhausted"`
+	ActivePID    int           `json:"active_pid,omitempty"`
 }
 
 // GateProber reads validation state independently of worker liveness.
@@ -40,9 +43,13 @@ type GateProber interface {
 }
 
 // ExecGateProber shells out to `no-mistakes axi status` in the task worktree.
-type ExecGateProber struct{}
+type ExecGateProber struct {
+	Commands execx.Runner
+	Root     string
+	Now      func() time.Time
+}
 
-func (ExecGateProber) InspectGate(ctx context.Context, meta state.TaskMeta) (GateSample, error) {
+func (p ExecGateProber) InspectGate(ctx context.Context, meta state.TaskMeta) (GateSample, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	sample := GateSample{}
@@ -52,13 +59,28 @@ func (ExecGateProber) InspectGate(ctx context.Context, meta state.TaskMeta) (Gat
 	if _, err := os.Stat(filepath.Join(meta.Worktree, ".github", "workflows")); err != nil {
 		sample.NoCI = true
 	}
-	cmd := exec.CommandContext(ctx, "no-mistakes", "axi", "status")
-	cmd.Dir = meta.Worktree
-	out, err := cmd.CombinedOutput()
-	if err != nil {
+	runner := p.Commands
+	if runner == nil {
+		runner = execx.OSRunner{}
+	}
+	var env []string
+	if p.Root != "" {
+		env = append(os.Environ(), "NM_HOME="+p.Root)
+	}
+	result, err := runner.Run(ctx, execx.Request{Dir: meta.Worktree, Env: env, Name: "no-mistakes", Args: []string{"axi", "status"}})
+	if err != nil || result.ExitCode != 0 {
+		if err == nil {
+			err = errors.New("native status command failed")
+		}
 		return sample, err
 	}
-	return parseGateStatus(string(out), sample), nil
+	sample = parseGateStatus(string(result.Stdout), sample)
+	now := time.Now
+	if p.Now != nil {
+		now = p.Now
+	}
+	sample.ObservedAt = now().UTC()
+	return sample, nil
 }
 
 // parseGateStatus reads the active_steps row out of `axi status`. Only the
@@ -108,6 +130,7 @@ func parseGateStatus(out string, sample GateSample) GateSample {
 			sample.Step = values["step"]
 			sample.LastActivity = values["last_activity"]
 			sample.ActiveFor, _ = time.ParseDuration(values["active_for"])
+			sample.ActivePID, _ = strconv.Atoi(strings.Trim(values["agent_pid"], `"`))
 		}
 	}
 	if sample.Status == "completed" || sample.Status == "failed" || sample.Status == "cancelled" {

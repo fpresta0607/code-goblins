@@ -13,6 +13,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
@@ -119,6 +121,10 @@ func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.R
 	commands := execx.OSRunner{}
 	session := herdrSession()
 	client := &herdr.Client{Commands: commands, Session: session}
+	var native reap.NativeValidationReader
+	if root, err := pipeline.DefaultRoot(); err == nil {
+		native = reap.PipelineValidators{Home: h, Reader: pipeline.Reader{Root: root, Commands: commands}, Gate: monitor.ExecGateProber{Commands: commands, Root: root}}
+	}
 	service := reap.Service{
 		Home: h,
 		Inventory: reap.Collector{
@@ -126,6 +132,7 @@ func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.R
 			Session:   session,
 			Panes:     client,
 			Processes: reap.CIMProcesses{Commands: commands},
+			Native:    native,
 		},
 		Commands: commands,
 		CPU:      proc.CPUTime,

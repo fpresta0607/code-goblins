@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 )
@@ -118,7 +120,7 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 		if err != nil || beforeProcess.ShellPID == beforeProcess.ForegroundProcessGroupID {
 			return fmt.Errorf("fleet: no verified Codex foreground process; nothing sent: %v", err)
 		}
-		screen, readErr := s.Herdr.CaptureEvidence(ctx, target)
+		screen, readErr := s.Herdr.CaptureStyledEvidence(ctx, target)
 		if readErr != nil {
 			return fmt.Errorf("fleet: cannot inspect Codex composer; nothing sent: %w", readErr)
 		}
@@ -158,7 +160,7 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 			return &DeliveryError{Stage: "unknown: registered harness changed", Target: target}
 		}
 		if before.Agent == "codex" {
-			screen, readErr := s.Herdr.CaptureEvidence(ctx, target)
+			screen, readErr := s.Herdr.CaptureStyledEvidence(ctx, target)
 			if readErr == nil {
 				switch codexDelivery(string(screen), message) {
 				case "submitted":
@@ -194,31 +196,46 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 }
 
 func codexComposerEmpty(screen string) bool {
-	start := strings.LastIndex(screen, "\n› ")
-	if start < 0 {
+	cells, ok := parseANSICells(screen)
+	start := lastCodexPrompt(cells)
+	if !ok || start < 0 {
 		return false
 	}
-	composer := screen[start+len("\n› "):]
-	if end := strings.Index(strings.ToLower(composer), "tab to queue message"); end >= 0 {
-		composer = strings.TrimSpace(composer[:end])
-		return composer == "" || composer == "Ask Codex to do anything"
+	composer := cells[start+1:]
+	if end := cellsIndexFold(composer, "tab to queue message"); end >= 0 {
+		composer = composer[:end]
 	}
-	lines := strings.Split(strings.ReplaceAll(composer, "\r\n", "\n"), "\n")
-	first := strings.TrimSpace(lines[0])
+	lines := splitANSILines(composer)
+	if len(lines) == 0 {
+		return false
+	}
+	first := trimSpaceCells(lines[0])
 	const placeholder = "Ask Codex to do anything"
-	if !strings.HasPrefix(first, placeholder) || !codexBrailleDecoration(strings.TrimPrefix(first, placeholder)) {
+	for len(first) > 0 && (unicode.IsSpace(first[0].Rune) || first[0].decoration()) {
+		first = first[1:]
+	}
+	placeholderRunes := []rune(placeholder)
+	if len(first) < len(placeholderRunes) {
+		return false
+	}
+	for i, want := range placeholderRunes {
+		if first[i].Rune != want || !first[i].Dim {
+			return false
+		}
+	}
+	if !onlySpaceOrDecoration(first[len(placeholderRunes):]) {
 		return false
 	}
 	footerSeen := false
 	for _, line := range lines[1:] {
-		line = strings.TrimSpace(line)
-		if line == "" {
+		line = trimSpaceCells(line)
+		if len(line) == 0 {
 			continue
 		}
-		if codexBrailleDecoration(line) {
+		if onlySpaceOrDecoration(line) {
 			continue
 		}
-		if footerSeen || !codexFooter(line) {
+		if footerSeen || !codexFooter(cellsText(line)) {
 			return false
 		}
 		footerSeen = true
@@ -226,14 +243,142 @@ func codexComposerEmpty(screen string) bool {
 	return true
 }
 
-func codexBrailleDecoration(value string) bool {
-	for _, r := range value {
-		if unicode.IsSpace(r) || r >= '\u2800' && r <= '\u28ff' {
+type ansiCell struct {
+	Rune  rune
+	Dim   bool
+	Color bool
+}
+
+func (c ansiCell) decoration() bool {
+	return c.Rune >= '\u2800' && c.Rune <= '\u28ff' && c.Color && !c.Dim
+}
+
+func parseANSICells(value string) ([]ansiCell, bool) {
+	var cells []ansiCell
+	dim, color := false, false
+	for i := 0; i < len(value); {
+		if value[i] != 0x1b {
+			r, size := utf8DecodeRune(value[i:])
+			if r == unicode.ReplacementChar && size == 1 {
+				return nil, false
+			}
+			cells = append(cells, ansiCell{Rune: r, Dim: dim, Color: color})
+			i += size
 			continue
 		}
-		return false
+		if i+2 >= len(value) || value[i+1] != '[' {
+			return nil, false
+		}
+		end := i + 2
+		for end < len(value) && ((value[end] >= '0' && value[end] <= '9') || value[end] == ';') {
+			end++
+		}
+		if end >= len(value) || value[end] != 'm' {
+			return nil, false
+		}
+		params := strings.Split(value[i+2:end], ";")
+		if len(params) == 1 && params[0] == "" {
+			params[0] = "0"
+		}
+		for p := 0; p < len(params); p++ {
+			code, err := strconv.Atoi(params[p])
+			if err != nil {
+				return nil, false
+			}
+			switch {
+			case code == 0:
+				dim, color = false, false
+			case code == 2:
+				dim = true
+			case code == 22:
+				dim = false
+			case code >= 30 && code <= 37 || code >= 40 && code <= 47 || code >= 90 && code <= 107:
+				color = true
+			case code == 39 || code == 49:
+				color = false
+			case code == 38 || code == 48:
+				color = true
+				if p+1 < len(params) {
+					mode, _ := strconv.Atoi(params[p+1])
+					if mode == 5 && p+2 < len(params) {
+						p += 2
+					} else if mode == 2 && p+4 < len(params) {
+						p += 4
+					}
+				}
+			case code == 1 || code == 3 || code == 4 || code == 5 || code == 7 || code == 8 || code == 9 || code == 21 || code == 23 || code == 24 || code == 25 || code == 27 || code == 28 || code == 29:
+			default:
+				return nil, false
+			}
+		}
+		i = end + 1
+	}
+	return cells, true
+}
+
+func utf8DecodeRune(value string) (rune, int) {
+	return utf8.DecodeRuneInString(value)
+}
+
+func lastCodexPrompt(cells []ansiCell) int {
+	last := -1
+	for i, cell := range cells {
+		if cell.Rune == '›' && (i == 0 || cells[i-1].Rune == '\n') {
+			last = i
+		}
+	}
+	return last
+}
+
+func cellsIndexFold(cells []ansiCell, needle string) int {
+	text := strings.ToLower(cellsText(cells))
+	index := strings.Index(text, strings.ToLower(needle))
+	if index < 0 {
+		return -1
+	}
+	return utf8.RuneCountInString(text[:index])
+}
+
+func splitANSILines(cells []ansiCell) [][]ansiCell {
+	lines := [][]ansiCell{{}}
+	for _, cell := range cells {
+		if cell.Rune == '\r' {
+			continue
+		}
+		if cell.Rune == '\n' {
+			lines = append(lines, []ansiCell{})
+			continue
+		}
+		lines[len(lines)-1] = append(lines[len(lines)-1], cell)
+	}
+	return lines
+}
+
+func trimSpaceCells(cells []ansiCell) []ansiCell {
+	for len(cells) > 0 && unicode.IsSpace(cells[0].Rune) {
+		cells = cells[1:]
+	}
+	for len(cells) > 0 && unicode.IsSpace(cells[len(cells)-1].Rune) {
+		cells = cells[:len(cells)-1]
+	}
+	return cells
+}
+
+func onlySpaceOrDecoration(cells []ansiCell) bool {
+	for _, cell := range cells {
+		if !unicode.IsSpace(cell.Rune) && !cell.decoration() {
+			return false
+		}
 	}
 	return true
+}
+
+func cellsText(cells []ansiCell) string {
+	var out strings.Builder
+	for _, cell := range cells {
+		out.WriteRune(cell.Rune)
+	}
+	return out.String()
 }
 
 func codexFooter(line string) bool {
@@ -252,13 +397,18 @@ func codexFooter(line string) bool {
 // Only exact message text inside a recognized Codex queue or composer is
 // submission evidence. Tool output containing the message is not evidence.
 func codexDelivery(screen, message string) string {
+	cells, ok := parseANSICells(screen)
+	if !ok {
+		return "unknown"
+	}
 	normalize := func(s string) string { return strings.Join(strings.Fields(s), " ") }
 	want := normalize(message)
 	if want == "" {
 		return "unknown"
 	}
-	if start := strings.LastIndex(screen, "Messages to be submitted after next tool call"); start >= 0 {
-		queue := screen[start:]
+	plain := cellsText(cells)
+	if start := strings.LastIndex(plain, "Messages to be submitted after next tool call"); start >= 0 {
+		queue := plain[start:]
 		if end := strings.Index(queue, "\n›"); end >= 0 {
 			queue = queue[:end]
 		}
@@ -266,16 +416,42 @@ func codexDelivery(screen, message string) string {
 			return "submitted"
 		}
 	}
-	if start := strings.LastIndex(screen, "\n› "); start >= 0 {
-		composer := screen[start+len("\n› "):]
-		if end := strings.Index(strings.ToLower(composer), "tab to queue message"); end >= 0 {
-			typed := normalize(composer[:end])
-			if typed == want {
+	if start := lastCodexPrompt(cells); start >= 0 {
+		composer := cells[start+1:]
+		if end := cellsIndexFold(composer, "tab to queue message"); end >= 0 {
+			if exactCodexTypedText(composer[:end], message) {
 				return "typed"
 			}
 		}
 	}
 	return "unknown"
+}
+
+func exactCodexTypedText(cells []ansiCell, message string) bool {
+	cells = trimSpaceCells(cells)
+	want := []rune(strings.TrimSpace(message))
+	i := 0
+	for w := 0; w < len(want); {
+		if unicode.IsSpace(want[w]) {
+			for w < len(want) && unicode.IsSpace(want[w]) {
+				w++
+			}
+			start := i
+			for i < len(cells) && (unicode.IsSpace(cells[i].Rune) || cells[i].decoration()) {
+				i++
+			}
+			if i == start {
+				return false
+			}
+			continue
+		}
+		if i >= len(cells) || cells[i].decoration() || cells[i].Rune != want[w] {
+			return false
+		}
+		i++
+		w++
+	}
+	return onlySpaceOrDecoration(cells[i:]) && len(trimSpaceCells(cells[i:])) == 0
 }
 
 // preSubmitRead runs one Herdr read across the pre-submit budget, retrying a
