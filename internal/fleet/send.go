@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 )
@@ -199,10 +200,53 @@ func codexComposerEmpty(screen string) bool {
 	}
 	composer := screen[start+len("\n› "):]
 	if end := strings.Index(strings.ToLower(composer), "tab to queue message"); end >= 0 {
-		composer = composer[:end]
+		composer = strings.TrimSpace(composer[:end])
+		return composer == "" || composer == "Ask Codex to do anything"
 	}
-	composer = strings.TrimSpace(composer)
-	return composer == "" || composer == "Ask Codex to do anything"
+	lines := strings.Split(strings.ReplaceAll(composer, "\r\n", "\n"), "\n")
+	first := strings.TrimSpace(lines[0])
+	const placeholder = "Ask Codex to do anything"
+	if !strings.HasPrefix(first, placeholder) || !codexBrailleDecoration(strings.TrimPrefix(first, placeholder)) {
+		return false
+	}
+	footerSeen := false
+	for _, line := range lines[1:] {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if codexBrailleDecoration(line) {
+			continue
+		}
+		if footerSeen || !codexFooter(line) {
+			return false
+		}
+		footerSeen = true
+	}
+	return true
+}
+
+func codexBrailleDecoration(value string) bool {
+	for _, r := range value {
+		if unicode.IsSpace(r) || r >= '\u2800' && r <= '\u28ff' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func codexFooter(line string) bool {
+	parts := strings.Split(line, " · ")
+	if len(parts) < 3 || !strings.HasPrefix(strings.TrimSpace(parts[0]), "gpt-") {
+		return false
+	}
+	for _, part := range parts {
+		if strings.TrimSpace(part) == "" {
+			return false
+		}
+	}
+	return true
 }
 
 // Only exact message text inside a recognized Codex queue or composer is

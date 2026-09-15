@@ -221,6 +221,8 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 				if e == nil {
 					reader.ReattachRunID = run.RunID
 					next.RunID = run.RunID
+				} else {
+					reader.PriorRunID = binding.PredecessorRunID
 				}
 			} else {
 				run, e := reader.BoundRun(ctx, binding)
@@ -234,6 +236,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 					return fmt.Errorf("%w; task repair budget exhausted; a new run cannot reset it", pipeline.ErrUnresolved)
 				}
 				reader.PriorRunID = run.RunID
+				next.PredecessorRunID = run.RunID
 			}
 		}
 		if err := reader.CheckStart(ctx, meta.Project, meta.Worktree, branch, selection.Policy); err != nil {

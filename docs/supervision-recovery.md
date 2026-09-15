@@ -110,6 +110,8 @@ Doctor probes the exact configured MCP script and reports an absent, non-executa
 Task session names are stable hashes of the runtime state root and task ID, within AXI's 64-character limit.
 A named session isolates bridge/port state; an explicit task-owned profile supplies separate browser storage.
 Auto-connect and externally supplied browser endpoints are cleared on launch.
+Task browsers default to headless for unattended work and CI.
+Set `CFO_BROWSER_HEADED=1` on the CFO command process for attended verification in the same task-owned session and profile; any other value remains headless and does not restore attachment overrides.
 Headless visibility, session existence, executable version, successful navigation and persistent storage are different assertions.
 
 AXI 0.1.34 `stop` waits for the bridge PID, not the full Chrome/MCP shutdown chain.

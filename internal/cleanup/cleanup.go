@@ -232,6 +232,10 @@ func (s Service) proveWorktreeReturned(ctx context.Context, project, worktreePat
 }
 
 func (s Service) finishRetirement(contextHome home.Home, meta state.TaskMeta, id, worktreePath string) (Result, error) {
+	archived, err := s.archive(id)
+	if err != nil {
+		return Result{}, fmt.Errorf("cleanup: scrub and archive task scratch: %w", err)
+	}
 	if err := taskcontext.CompleteRetirement(contextHome, id); err != nil {
 		return Result{}, fmt.Errorf("cleanup: preserve retirement proof: %w", err)
 	}
@@ -242,17 +246,11 @@ func (s Service) finishRetirement(contextHome home.Home, meta state.TaskMeta, id
 	if err := state.RemoveTaskMeta(s.StateDir, id); err != nil {
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
-	archived, archiveErr := s.archive(id)
 	goTmpErr := s.removeGoTmp(id)
 
 	result := Result{Meta: meta, Output: fmt.Sprintf("cleaned %s worktree=%s", id, worktreePath)}
 	if archived != "" {
 		result.Output += " archive=" + archived
-	}
-	if archiveErr != nil {
-		// The task is genuinely cleaned; only the id is still taken. Say so
-		// plainly rather than failing a completed cleanup.
-		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)
 	}
 	if goTmpErr != nil {
 		result.Output += fmt.Sprintf("\nwarning: %v; remove it by hand once the handle clears", goTmpErr)

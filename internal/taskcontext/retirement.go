@@ -80,12 +80,7 @@ func ReadRetirementState(h home.Home, id string) (Retirement, error) {
 	if err = json.Unmarshal(data, &receipt); err != nil {
 		return receipt, err
 	}
-	if receipt.Schema == "cfo-task-retirement.v1" {
-		receipt.Stage = retirementComplete
-		receipt.PreparedAt = receipt.RetiredAt
-	}
-	validSchema := receipt.Schema == retirementSchema || receipt.Schema == "cfo-task-retirement.v1"
-	if !validSchema || receipt.Meta.ID != id || receipt.Paths != p || receipt.PreparedAt.IsZero() || receipt.Merge.VerifiedAt.IsZero() || len(receipt.Merge.Head) != 40 || len(receipt.Merge.DefaultHead) != 40 || (receipt.Merge.Method != "ancestor" && receipt.Merge.Method != "content-equal") {
+	if receipt.Schema != retirementSchema || receipt.Meta.ID != id || receipt.Paths != p || receipt.PreparedAt.IsZero() || receipt.Merge.VerifiedAt.IsZero() || len(receipt.Merge.Head) != 40 || len(receipt.Merge.DefaultHead) != 40 || (receipt.Merge.Method != "ancestor" && receipt.Merge.Method != "content-equal") {
 		return receipt, errors.New("retirement: incomplete ownership or merge proof")
 	}
 	if receipt.Stage != retirementPrepared && receipt.Stage != retirementComplete {

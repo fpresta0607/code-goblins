@@ -12,6 +12,7 @@ import (
 type codexFake struct {
 	base           *agentFake
 	screen         string
+	beforeScreen   string
 	keys           int
 	submitWorks    bool
 	occupiedBefore bool
@@ -23,8 +24,13 @@ func (f *codexFake) Run(ctx context.Context, r execx.Request) (execx.Result, err
 	case strings.HasPrefix(command, "pane process-info"):
 		return execx.Result{Stdout: []byte(`{"result":{"process_info":{"shell_pid":10,"foreground_process_group_id":20}}}`)}, nil
 	case strings.HasPrefix(command, "pane read"):
-		if f.base.promptCalls == 0 && !f.occupiedBefore {
-			return execx.Result{Stdout: []byte("\n› Ask Codex to do anything\n")}, nil
+		if f.base.promptCalls == 0 {
+			if f.beforeScreen != "" {
+				return execx.Result{Stdout: []byte(f.beforeScreen)}, nil
+			}
+			if !f.occupiedBefore {
+				return execx.Result{Stdout: []byte("\n› Ask Codex to do anything\n")}, nil
+			}
 		}
 		return execx.Result{Stdout: []byte(f.screen)}, nil
 	case strings.HasPrefix(command, "pane send-keys"):
@@ -55,6 +61,8 @@ func TestCodexUnrecognizedComposerIsNotTypedOrSubmitted(t *testing.T) {
 		"tool output without a composer",
 		"\n› draft without the recognized queue hint\n",
 		"\n› Ask Codex to do anything plus a draft\n",
+		"\n› ⠋⠙ occupied Unicode draft\n  gpt-5.6-sol high · C:\\fixture\\project · Synthetic task\n",
+		"\n› Ask Codex to do anything ⠋ draft\n  ⠙⠹\n  gpt-5.6-sol high · C:\\fixture\\project · Synthetic task\n",
 	} {
 		base := newAgentFake(agentFake{status: "working"})
 		runner := &codexFake{base: base, screen: screen, occupiedBefore: true}
@@ -64,6 +72,26 @@ func TestCodexUnrecognizedComposerIsNotTypedOrSubmitted(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "not sent") || base.promptCalls != 0 || runner.keys != 0 {
 			t.Fatalf("unrecognized composer mutated: screen=%q err=%v prompts=%d keys=%d", screen, err, base.promptCalls, runner.keys)
 		}
+	}
+}
+
+func TestCodexRealShapedEmptyComposerSubmitsOnce(t *testing.T) {
+	base := newAgentFake(agentFake{status: "working"})
+	runner := &codexFake{
+		base:         base,
+		beforeScreen: "\n› Ask Codex to do anything ⠋⠙⠹\n  ⠸⠼⠴⠦\n  gpt-5.6-sol high · C:\\fixture\\project · Synthetic task\n",
+		screen:       "\n› retain the old gate\n  tab to queue message",
+		submitWorks:  true,
+	}
+	sender := newAgentSender(base)
+	sender.Herdr.Commands = runner
+	err := sender.Text(context.Background(), "task-7", "retain the old gate")
+	var receipt *DeliveryError
+	if !errors.As(err, &receipt) || !strings.HasPrefix(receipt.Stage, "submitted") {
+		t.Fatalf("real-shaped empty composer receipt=%v", err)
+	}
+	if base.promptCalls != 1 || runner.keys != 1 {
+		t.Fatalf("real-shaped empty composer prompts=%d keys=%d", base.promptCalls, runner.keys)
 	}
 }
 

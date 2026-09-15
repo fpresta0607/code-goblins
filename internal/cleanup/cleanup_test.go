@@ -626,19 +626,38 @@ func TestCleanupRefusesToArchiveWhenCredentialsCannotBeDropped(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := fixture.service.Cleanup(context.Background(), "g1")
-	if err != nil {
-		t.Fatalf("Cleanup: %v", err)
-	}
-	if !strings.Contains(result.Output, "could not be archived") {
-		t.Errorf("Output = %q, want the retained-state warning", result.Output)
+	_, err := fixture.service.Cleanup(context.Background(), "g1")
+	if err == nil || !strings.Contains(err.Error(), "scrub and archive task scratch") {
+		t.Fatalf("Cleanup error = %v, want incomplete scrub refusal", err)
 	}
 	if _, err := os.Stat(filepath.Join(taskTmp, "auth.ps1", "secret.txt")); err != nil {
 		t.Fatalf("the credential file was not left in place: %v", err)
 	}
+	if _, err := state.ReadTaskMeta(fixture.stateDir, "g1"); err != nil {
+		t.Fatalf("metadata lost before credential scrub: %v", err)
+	}
+	contextHome := home.Home{Root: filepath.Dir(fixture.stateDir), State: fixture.stateDir}
+	if _, err := taskcontext.ReadRetirement(contextHome, "g1"); err == nil {
+		t.Fatal("failed credential scrub qualified as completed retirement")
+	}
 	archived := filepath.Join(fixture.stateDir, ArchiveDirName)
 	if entries, err := os.ReadDir(archived); err == nil && len(entries) != 0 {
 		t.Errorf("archive entries = %v, want none when credentials cannot be dropped", entries)
+	}
+	if err := os.Remove(filepath.Join(secretDir, "secret.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(secretDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.service.Cleanup(context.Background(), "g1"); err != nil {
+		t.Fatalf("Cleanup retry: %v", err)
+	}
+	if _, err := taskcontext.ReadRetirement(contextHome, "g1"); err != nil {
+		t.Fatalf("retry did not complete retirement: %v", err)
+	}
+	if _, err := state.ReadTaskMeta(fixture.stateDir, "g1"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("retry retained live metadata: %v", err)
 	}
 }
 

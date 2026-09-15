@@ -200,6 +200,10 @@ func Instruction(id string) string {
 
 func BrowserEnv(h home.Home, id string) map[string]string {
 	b := PathsFor(h, id).Browser
+	headed := "0"
+	if os.Getenv("CFO_BROWSER_HEADED") == "1" {
+		headed = "1"
+	}
 	backend := os.Getenv("CFO_CHROME_MCP_PATH")
 	if backend == "" {
 		if appdata := os.Getenv("APPDATA"); appdata != "" {
@@ -208,5 +212,5 @@ func BrowserEnv(h home.Home, id string) map[string]string {
 			backend = filepath.Join(h.State, "browser-backend-not-configured.js")
 		}
 	}
-	return map[string]string{"CHROME_DEVTOOLS_AXI_SESSION": b.Session, "CHROME_DEVTOOLS_AXI_USER_DATA_DIR": b.Profile, "CHROME_DEVTOOLS_AXI_AUTO_CONNECT": "0", "CHROME_DEVTOOLS_AXI_BROWSER_URL": "", "CHROME_DEVTOOLS_AXI_PORT": "", "CHROME_DEVTOOLS_AXI_HEADED": "0", "CHROME_DEVTOOLS_AXI_MCP_PATH": backend, "CHROME_DEVTOOLS_AXI_CHROME_ARGS": "", "CHROME_DEVTOOLS_AXI_WS_HEADERS": "", "CHROME_DEVTOOLS_AXI_CHANNEL": "stable"}
+	return map[string]string{"CHROME_DEVTOOLS_AXI_SESSION": b.Session, "CHROME_DEVTOOLS_AXI_USER_DATA_DIR": b.Profile, "CHROME_DEVTOOLS_AXI_AUTO_CONNECT": "0", "CHROME_DEVTOOLS_AXI_BROWSER_URL": "", "CHROME_DEVTOOLS_AXI_PORT": "", "CHROME_DEVTOOLS_AXI_HEADED": headed, "CHROME_DEVTOOLS_AXI_MCP_PATH": backend, "CHROME_DEVTOOLS_AXI_CHROME_ARGS": "", "CHROME_DEVTOOLS_AXI_WS_HEADERS": "", "CHROME_DEVTOOLS_AXI_CHANNEL": "stable"}
 }
