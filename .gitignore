@@ -6,7 +6,7 @@ projects/
 # The shared package-cache root every goblin builds against.
 /caches/
 .no-mistakes/
-.showcase/
+.lavish/
 .DS_Store
 __pycache__/
 *.pyc
@@ -16,7 +16,6 @@ config/
 /config/*
 !/config/pipeline.json
 /cfo.exe
-/showcase-axi.exe
 
 # Harness skill junctions created by install.ps1 -Bootstrap (point at .agents/skills).
 /.claude/skills/
