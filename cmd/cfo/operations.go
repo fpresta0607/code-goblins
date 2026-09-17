@@ -73,6 +73,9 @@ func runProject(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 	}
 }
 
+// runRoute is the dry run of a spawn's routing: it classifies the brief text
+// given on the command line, loads the same lane table a spawn would, applies
+// the same quota check, and prints what would run without spawning anything.
 func runRoute(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	fs := flag.NewFlagSet("route", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -93,22 +96,24 @@ func runRoute(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	a := routing.Classify(brief)
 	a.Attempts = *attempts
-	lanes := map[string]routing.ExecutionLane{}
-	def, rescue := "", ""
-	if *project != "" {
-		name := filepath.Base(filepath.Clean(*project))
-		m, e := projectcfg.Load(projectcfg.Path(h.Data, name))
-		if e != nil {
-			fmt.Fprintln(stderr, e)
-			return 1
-		}
-		def, rescue = m.Routing.DefaultLane, m.Routing.EscalateTo
-		for n, l := range m.Routing.Lanes {
-			lanes[n] = routing.ExecutionLane{Name: n, Harness: l.Harness, Model: l.Model, Effort: l.Effort}
-		}
+	inputs, e := loadRouteInputs(h.Data, *project)
+	if e != nil {
+		fmt.Fprintln(stderr, e)
+		return 1
 	}
-	x := routing.ChooseExecution(a, lanes, def, rescue)
-	b, _ := json.MarshalIndent(map[string]any{"task_class": a.Class, "risk": a.Risk, "lane": x}, "", "  ")
+	report, skipped := readQuota(runtime)
+	choice, e := routing.Choose(a, inputs.table, usableLane(report, skipped))
+	if e != nil {
+		fmt.Fprintln(stderr, e)
+		return 1
+	}
+	out := map[string]any{"task_class": a.Class, "risk": a.Risk, "lane": choice.ExecutionLane, "wanted": choice.Wanted, "source": inputs.table.Source}
+	if skipped != "" {
+		out["quota"] = "check skipped (" + skipped + ")"
+	} else {
+		out["quota"] = choice.Notes
+	}
+	b, _ := json.MarshalIndent(out, "", "  ")
 	fmt.Fprintln(stdout, string(b))
 	return 0
 }
