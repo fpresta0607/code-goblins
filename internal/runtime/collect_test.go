@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -146,6 +147,52 @@ func TestCollectWithNoSourcesStillReportsItIsBlind(t *testing.T) {
 	if !strings.Contains(joined, "CONTAINERS UNREADABLE") || !strings.Contains(joined, "SERVERS UNREADABLE") {
 		t.Errorf("notes = %q, want both sources reported missing", joined)
 	}
+}
+
+// A task record the collector could not read must be named like every other
+// degraded source. Dropped silently it is indistinguishable from a task that
+// never existed, and a live goblin's worktree then reads as one nothing holds.
+func TestCollectNamesATaskRecordItCouldNotRead(t *testing.T) {
+	h := collectorHome(t)
+	path := filepath.Join(h.State, "unreadable-task.meta")
+	if err := os.WriteFile(path, []byte("project=C:\\dev\\proj\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	defer holdOpenExclusively(t, path)()
+
+	inv, err := Collector{Home: h, Docker: stubDocker{}, System: stubSystem{}}.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect returned an error instead of degrading: %v", err)
+	}
+	for _, task := range inv.Tasks {
+		if task.ID == "unreadable-task" {
+			t.Fatalf("tasks = %+v, want the unreadable record absent", inv.Tasks)
+		}
+	}
+	joined := strings.Join(inv.Notes, "\n")
+	if !strings.Contains(joined, "TASK RECORDS UNREADABLE") || !strings.Contains(joined, "unreadable-task") {
+		t.Errorf("notes = %q, want one naming the record it could not read", joined)
+	}
+}
+
+// holdOpenExclusively opens path with no sharing, so every other read of it
+// fails the way a record being rewritten under the collector does. It returns
+// the function that releases it.
+func holdOpenExclusively(t *testing.T, path string) func() {
+	t.Helper()
+	name, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle, err := syscall.CreateFile(name, syscall.GENERIC_READ, 0, nil, syscall.OPEN_EXISTING, syscall.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		t.Fatalf("lock %s: %v", path, err)
+	}
+	if _, err := os.ReadFile(path); err == nil {
+		syscall.CloseHandle(handle)
+		t.Fatalf("%s is still readable, so the test proves nothing", path)
+	}
+	return func() { syscall.CloseHandle(handle) }
 }
 
 // Whether a directory is on disk is the evidence that separates a leftover
