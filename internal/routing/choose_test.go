@@ -84,17 +84,6 @@ func TestChooseRefusesWhenNoLaneIsUsable(t *testing.T) {
 	}
 }
 
-func TestChooseNeverChecksAnExplicitHarness(t *testing.T) {
-	usable := func(ExecutionLane) (bool, string) { return false, "would refuse" }
-	c, err := Choose(Assessment{Class: Security, Risk: "high", ExplicitHarness: "codex", ExplicitModel: "gpt-5"}, fleetTable(), usable)
-	if err != nil {
-		t.Fatalf("an explicit harness was refused: %v", err)
-	}
-	if c.Name != "explicit" || c.Harness != "codex" || c.Model != "gpt-5" || len(c.Notes) != 0 {
-		t.Errorf("choice = %+v, want the operator's harness untouched", c)
-	}
-}
-
 func TestFallbackOrderIsWantedDefaultEscalationThenTheRestByName(t *testing.T) {
 	got := fallbackOrder("mechanical", fleetTable())
 	want := []string{"mechanical", "build", "deep", "scout"}

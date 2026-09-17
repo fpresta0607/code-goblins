@@ -95,6 +95,21 @@ func TestDetectReadsAHarnessRefusalAttachedDirectlyUnderASteer(t *testing.T) {
 	}
 }
 
+func TestDetectDoesNotReadAStatusCodeInsideAGitHubRunID(t *testing.T) {
+	// Every github line is examined now, and run 17742950312 contains both
+	// 429 and 503; the harness's own refusal below it must still be the fault.
+	tail := "● Opened https://github.com/org/repo/pull/23\n" +
+		"● CI: https://github.com/org/repo/actions/runs/17742950312\n" +
+		"Error: 429 rate limit reached\n"
+	fault, evidence, found := Detect(tail)
+	if !found || fault != RateLimit || evidence != "Error: 429 rate limit reached" {
+		t.Errorf("Detect = (%q, %q, %v), want the harness rate limit", fault, evidence, found)
+	}
+	if fault, _, found := Detect("gh: 429 API rate limit exceeded for user\n"); !found || fault != ThirdParty {
+		t.Errorf("Detect = (%q, %v), want a genuine gh 429 still third-party", fault, found)
+	}
+}
+
 func TestDetectExclusionUsesTheSameConstantTheSenderStamps(t *testing.T) {
 	// fleet.Sender stamps every steer with SteerPrefix; the exclusion keys on
 	// the same constant, so this test and the sender's test move together
