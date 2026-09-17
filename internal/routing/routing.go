@@ -179,9 +179,11 @@ func allMatches(haystack, needle string) []int {
 
 // redactOperatorLines blanks every line an operator wrote, a cfo send steer
 // or an Overlord line, together with the indented lines a pane wraps the
-// rest of that prompt into. Lengths are kept, so an index into the result
-// still names the same place in the original tail. A pane's own prompt
-// markers before the prefix are ignored.
+// rest of that prompt into. An indented line that opens with a harness result
+// or turn marker (⎿ ● ✻ ◐ ⏺ ❯ › >) is the harness answering, not the prompt
+// wrapping, so it ends the redaction. Lengths are kept, so an index into the
+// result still names the same place in the original tail. A pane's own
+// prompt markers before the prefix are ignored.
 func redactOperatorLines(lowered string) string {
 	lines := strings.Split(lowered, "\n")
 	redacting := false
@@ -190,7 +192,7 @@ func redactOperatorLines(lowered string) string {
 		switch {
 		case strings.HasPrefix(trimmed, strings.ToLower(SteerPrefix)) || strings.HasPrefix(trimmed, strings.ToLower(OverlordPrefix)):
 			redacting = true
-		case redacting && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")):
+		case redacting && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")) && strings.IndexAny(strings.TrimLeft(line, " \t"), "⎿●✻◐⏺❯›>") != 0:
 		default:
 			redacting = false
 		}
@@ -356,35 +358,7 @@ func Load(dataDir string) (Policy, error) {
 			return Policy{}, fmt.Errorf("routing: %s: rule %d for %s does not say what to switch to", path, index, rule.Fault)
 		}
 	}
-	if err := validateLanes(policy.Lanes, policy.DefaultLane, policy.EscalateTo); err != nil {
-		return Policy{}, fmt.Errorf("routing: %s: %w", path, err)
-	}
 	return policy, nil
-}
-
-// validateLanes refuses a lane table a spawn could not route through: a lane
-// with no harness, lanes without a default, or a default or escalation that
-// names no lane.
-func validateLanes(lanes map[string]Lane, defaultLane, escalateTo string) error {
-	for name, lane := range lanes {
-		if lane.Harness == "" {
-			return fmt.Errorf("lane %q has no harness", name)
-		}
-	}
-	if len(lanes) > 0 && defaultLane == "" {
-		return errors.New("lanes are defined but default_lane is not")
-	}
-	if defaultLane != "" {
-		if _, ok := lanes[defaultLane]; !ok {
-			return fmt.Errorf("default_lane %q is not a defined lane", defaultLane)
-		}
-	}
-	if escalateTo != "" {
-		if _, ok := lanes[escalateTo]; !ok {
-			return fmt.Errorf("escalate_to %q is not a defined lane", escalateTo)
-		}
-	}
-	return nil
 }
 
 // Table is the lane table one spawn routes through: the fleet's, or a
@@ -397,13 +371,30 @@ type Table struct {
 	Source string
 }
 
-// Table returns the fleet's lane table.
-func (p Policy) Table() Table {
+// LaneTable returns the fleet's lane table, refusing one a spawn could not
+// route through: a lane with no harness, lanes without a default, or a
+// default or escalation that names no lane. Load does not check this, so a
+// lane typo never costs the watcher its standing switch rules.
+func (p Policy) LaneTable() (Table, error) {
+	for name, lane := range p.Lanes {
+		if lane.Harness == "" {
+			return Table{}, fmt.Errorf("routing: %s: lane %q has no harness", p.Path, name)
+		}
+	}
+	if len(p.Lanes) > 0 && p.DefaultLane == "" {
+		return Table{}, fmt.Errorf("routing: %s: lanes are defined but default_lane is not", p.Path)
+	}
+	if _, ok := p.Lanes[p.DefaultLane]; p.DefaultLane != "" && !ok {
+		return Table{}, fmt.Errorf("routing: %s: default_lane %q is not a defined lane", p.Path, p.DefaultLane)
+	}
+	if _, ok := p.Lanes[p.EscalateTo]; p.EscalateTo != "" && !ok {
+		return Table{}, fmt.Errorf("routing: %s: escalate_to %q is not a defined lane", p.Path, p.EscalateTo)
+	}
 	t := Table{Lanes: map[string]ExecutionLane{}, DefaultLane: p.DefaultLane, EscalateTo: p.EscalateTo, Source: "fleet table " + p.Path}
 	for name, lane := range p.Lanes {
 		t.Lanes[name] = ExecutionLane{Name: name, Harness: lane.Harness, Model: lane.Model, Effort: lane.Effort, Note: lane.Note}
 	}
-	return t
+	return t, nil
 }
 
 // Match returns the rule that answers this harness hitting this fault. The

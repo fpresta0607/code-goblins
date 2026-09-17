@@ -101,6 +101,22 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			fmt.Fprintf(stderr, "cfo spawn: no execution lanes: define lanes in %s (cfo doctor prints the table) or pass --harness\n", filepath.Join(h.Data, routing.FileName))
 			return 1
 		}
+		var overrides []string
+		if *model != "" {
+			overrides = append(overrides, "--model "+*model)
+		}
+		if *effort != "" {
+			overrides = append(overrides, "--effort "+*effort)
+		}
+		for name, lane := range inputs.table.Lanes {
+			if *model != "" {
+				lane.Model = *model
+			}
+			if *effort != "" {
+				lane.Effort = *effort
+			}
+			inputs.table.Lanes[name] = lane
+		}
 		choice, err := routing.Choose(assessment, inputs.table, usableLane(report, skipped))
 		if err != nil {
 			fmt.Fprintf(stderr, "cfo spawn: %v\n", err)
@@ -113,6 +129,9 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		*harnessName, *model, *effort = choice.Harness, choice.Model, choice.Effort
 		routeLane = choice.Name
 		route = routeLine(choice, assessment, inputs.table.Source, skipped)
+		if len(overrides) > 0 {
+			route += " overrides=" + strings.Join(overrides, " ")
+		}
 	} else {
 		route = fmt.Sprintf("routed lane=explicit class=%s risk=%s source=--harness flag", assessment.Class, assessment.Risk)
 		if skipped == "" {
@@ -211,7 +230,11 @@ func loadRouteInputs(dataDir, project string) (routeInputs, error) {
 	if err != nil {
 		return routeInputs{}, err
 	}
-	in := routeInputs{table: policy.Table()}
+	table, err := policy.LaneTable()
+	if err != nil {
+		return routeInputs{}, err
+	}
+	in := routeInputs{table: table}
 	if project == "" {
 		return in, nil
 	}

@@ -83,6 +83,18 @@ func TestDetectRedactsOnlyTheSteerAndItsWrappedContinuation(t *testing.T) {
 	}
 }
 
+func TestDetectReadsAHarnessRefusalAttachedDirectlyUnderASteer(t *testing.T) {
+	refusal := `  ⎿  API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your rate limit"}}`
+	tail := "❯ " + SteerPrefix + "keep going\n" + refusal + "\n"
+	fault, evidence, found := Detect(tail)
+	if !found || fault != RateLimit {
+		t.Fatalf("Detect = (%q, %v), want the harness's own refusal under the steer detected", fault, found)
+	}
+	if evidence != strings.TrimSpace(refusal) {
+		t.Errorf("evidence = %q, want the refusal line %q", evidence, strings.TrimSpace(refusal))
+	}
+}
+
 func TestDetectExclusionUsesTheSameConstantTheSenderStamps(t *testing.T) {
 	// fleet.Sender stamps every steer with SteerPrefix; the exclusion keys on
 	// the same constant, so this test and the sender's test move together

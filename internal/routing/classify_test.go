@@ -125,6 +125,18 @@ func TestClassifyDoesNotReadConstraintsAsTheAsk(t *testing.T) {
 	}
 }
 
+func TestClassifyReadsARenameOrAuditInsideAFeatureAsImplementation(t *testing.T) {
+	for _, ask := range []string{
+		"Add a rename action to the project menu.",
+		"Let users rename a workspace to any unique name.",
+		"Add an audit log for admin actions.",
+	} {
+		if a := Classify("# Brief x\n\n## Task\n\n" + ask + "\n"); a.Class != Implementation || a.Risk != "normal" {
+			t.Errorf("Classify(%q) = %+v, want ordinary implementation", ask, a)
+		}
+	}
+}
+
 func TestClassifyCoversEveryDeclaredClass(t *testing.T) {
 	cases := []struct {
 		ask   string
