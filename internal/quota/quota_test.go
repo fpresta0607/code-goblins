@@ -122,6 +122,17 @@ func TestReadSkipsAFailingUnparseableOrStaleSnapshot(t *testing.T) {
 	}
 }
 
+func TestReadCollapsesAMultiLineFailureOntoOneLine(t *testing.T) {
+	stderr := "node:internal/modules/cjs/loader:1228\n  throw err;\n  ^\n\nError: Cannot find module 'quota-axi'\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1225:15)\r\n"
+	_, skipped := read(t, &fakeRunner{result: execx.Result{ExitCode: 1, Stderr: []byte(stderr)}}, snapshotTime)
+	if strings.ContainsAny(skipped, "\r\n") {
+		t.Errorf("skipped = %q, want one line", skipped)
+	}
+	if want := "exited with code 1: node:internal/modules/cjs/loader:1228 throw err; ^ Error: Cannot find module 'quota-axi' at Module._resolveFilename (node:internal/modules/cjs/loader:1225:15)"; !strings.HasSuffix(skipped, want) {
+		t.Errorf("skipped = %q, want it to end %q", skipped, want)
+	}
+}
+
 func TestHeadroomTreatsWhatQuotaAxiCannotMeasureAsNoEvidence(t *testing.T) {
 	report, err := Parse(fixture(t, "exhausted"), snapshotTime)
 	if err != nil {

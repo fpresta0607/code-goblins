@@ -1,7 +1,6 @@
 package routing
 
 import (
-	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -113,5 +112,3 @@ func TestChooseExecutionStaysOnTheDefaultWithoutAnEscalationLane(t *testing.T) {
 		t.Errorf("lane = %+v, want the default rather than an empty escalation", l)
 	}
 }
-
-var _ = errors.New

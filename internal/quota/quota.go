@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/axi"
@@ -130,17 +131,17 @@ type Reader struct {
 // missing, failing, unparseable, or stale quota-axi is no evidence and never
 // a block: the caller routes as configured and says the check was skipped.
 func (r Reader) Read(ctx context.Context) (Report, string) {
-	payload, err := axi.Quota{Commands: r.Commands}.JSON(ctx)
-	if err != nil {
-		return Report{}, err.Error()
-	}
 	now := time.Now
 	if r.Now != nil {
 		now = r.Now
 	}
-	report, err := Parse(payload, now())
+	var report Report
+	payload, err := axi.Quota{Commands: r.Commands}.JSON(ctx)
+	if err == nil {
+		report, err = Parse(payload, now())
+	}
 	if err != nil {
-		return Report{}, err.Error()
+		return Report{}, strings.Join(strings.Fields(err.Error()), " ")
 	}
 	return report, ""
 }

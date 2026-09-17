@@ -90,18 +90,23 @@ func reportRouting(stdout io.Writer) {
 			fmt.Fprintf(stdout, "  %-9s %-11s %-9s %s\n", from, rule.Fault, mode, rule.Command("<id>"))
 		}
 	}
-	if len(policy.Lanes) == 0 {
+	table, err := policy.LaneTable()
+	if err != nil {
+		fmt.Fprintf(stdout, "routing: lane table invalid (%v)\n", err)
+		return
+	}
+	if len(table.Lanes) == 0 {
 		fmt.Fprintf(stdout, "routing: no execution lanes (add lanes to %s so `cfo spawn` without --harness can pick a model)\n", policy.Path)
 		return
 	}
-	fmt.Fprintf(stdout, "routing: %d execution lane(s) from %s (default %s, escalate to %s)\n", len(policy.Lanes), policy.Path, policy.DefaultLane, valueOr(policy.EscalateTo, "none"))
-	names := make([]string, 0, len(policy.Lanes))
-	for name := range policy.Lanes {
+	fmt.Fprintf(stdout, "routing: %d execution lane(s) from %s (default %s, escalate to %s)\n", len(table.Lanes), policy.Path, table.DefaultLane, valueOr(table.EscalateTo, "none"))
+	names := make([]string, 0, len(table.Lanes))
+	for name := range table.Lanes {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		lane := policy.Lanes[name]
+		lane := table.Lanes[name]
 		fmt.Fprintf(stdout, "  %-11s %-7s %-8s %-7s %s\n", name, lane.Harness, valueOr(lane.Model, "default"), valueOr(lane.Effort, "default"), lane.Note)
 	}
 }

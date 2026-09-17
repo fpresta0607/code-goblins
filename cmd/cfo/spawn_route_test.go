@@ -123,6 +123,60 @@ func TestRunSpawnAutoIsAnAliasForTheDefaultRouting(t *testing.T) {
 	}
 }
 
+func TestRunSpawnAppliesAModelFlagOverTheRoutedLaneAndSaysSo(t *testing.T) {
+	_, deps := routedRuntime(t, shippedRoutingJSON(t))
+	got := captureSpawn(&deps, "spawned g22")
+	brief := briefWith(t, "Security review of the session cookie signing before launch.")
+
+	var stdout, stderr bytes.Buffer
+	if exit := runWithRuntime([]string{"spawn", "g22", "--project", `C:\project`, "--brief", brief, "--model", "opus"}, &stdout, &stderr, deps); exit != 0 {
+		t.Fatalf("exit = %d; stderr=%s", exit, stderr.String())
+	}
+	if string(got.Harness) != "claude" || got.Model != "opus" || got.Effort != "xhigh" {
+		t.Errorf("request = %+v, want the deep lane with the given model (claude/opus/xhigh)", *got)
+	}
+	if !strings.Contains(stdout.String(), "routed lane=deep class=security risk=high ") || !strings.HasSuffix(stdout.String(), " overrides=--model opus\n") {
+		t.Errorf("stdout = %q, want the routed line to end with the override", stdout.String())
+	}
+}
+
+func TestRunSpawnQuotaChecksTheOverriddenModel(t *testing.T) {
+	// codex is exhausted_now in the fixture, so the spawn falls to build, and
+	// build is judged on the model:fable scope of the model that will run
+	// rather than the all-models scope of the lane's own opus.
+	_, deps := routedRuntime(t, codexDeepTable)
+	deps.quota = fixtureQuota(t, "exhausted")
+	got := captureSpawn(&deps, "spawned g23")
+	brief := briefWith(t, "Security review of the session cookie signing before launch.")
+
+	var stdout, stderr bytes.Buffer
+	if exit := runWithRuntime([]string{"spawn", "g23", "--project", `C:\project`, "--brief", brief, "--model", "fable", "--effort", "low"}, &stdout, &stderr, deps); exit != 0 {
+		t.Fatalf("exit = %d; stderr=%s", exit, stderr.String())
+	}
+	if string(got.Harness) != "claude" || got.Model != "fable" || got.Effort != "low" {
+		t.Errorf("request = %+v, want the build lane with both overrides applied", *got)
+	}
+	if !strings.Contains(stdout.String(), " quota=deep: codex all_models exhausted_now, resets 2026-09-20T12:17:37Z; build: claude model:fable 97% remaining, runway through_reset overrides=--model fable --effort low\n") {
+		t.Errorf("stdout = %q, want the fable scope judged on the fallback lane and both overrides reported", stdout.String())
+	}
+}
+
+func TestRunSpawnRoutedFailsOnAnInvalidLaneTableButAnExplicitHarnessDoesNot(t *testing.T) {
+	_, deps := routedRuntime(t, `{"rules":[],"default_lane":"buld","lanes":{"build":{"harness":"claude"}}}`)
+	captureSpawn(&deps, "spawned g24")
+	brief := briefWith(t, "Add a dark-mode toggle to the settings page.")
+
+	var stdout, stderr bytes.Buffer
+	if exit := runWithRuntime([]string{"spawn", "g24", "--project", `C:\project`, "--brief", brief}, &stdout, &stderr, deps); exit != 1 || !strings.Contains(stderr.String(), `default_lane "buld" is not a defined lane`) {
+		t.Errorf("routed: exit = %d stderr = %q, want the lane table refused", exit, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if exit := runWithRuntime([]string{"spawn", "g24", "--project", `C:\project`, "--brief", brief, "--harness", "codex"}, &stdout, &stderr, deps); exit != 0 {
+		t.Errorf("explicit: exit = %d stderr = %q, want a spawn that never routes to ignore the lane table", exit, stderr.String())
+	}
+}
+
 func TestRunSpawnExplicitHarnessWinsOverTheTableAndSaysSo(t *testing.T) {
 	_, deps := routedRuntime(t, shippedRoutingJSON(t))
 	got := captureSpawn(&deps, "spawned g13")

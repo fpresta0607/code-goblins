@@ -23,7 +23,10 @@ func TestLoadReadsTheLaneTableBesideTheRules(t *testing.T) {
 	if len(policy.Rules) != 1 || len(policy.Lanes) != 2 || policy.DefaultLane != "build" || policy.EscalateTo != "deep" {
 		t.Fatalf("policy = %+v, want rules and lanes side by side", policy)
 	}
-	table := policy.Table()
+	table, err := policy.LaneTable()
+	if err != nil {
+		t.Fatalf("LaneTable: %v", err)
+	}
 	if table.Source != "fleet table "+filepath.Join(dir, FileName) {
 		t.Errorf("source = %q, want the fleet table named with its path", table.Source)
 	}
@@ -33,20 +36,46 @@ func TestLoadReadsTheLaneTableBesideTheRules(t *testing.T) {
 	}
 }
 
-func TestLoadRefusesALaneTableASpawnCannotRouteThrough(t *testing.T) {
+func TestLaneTableRefusesATableASpawnCannotRouteThrough(t *testing.T) {
 	cases := []struct{ name, json, want string }{
 		{"lane without harness", `{"rules":[],"default_lane":"build","lanes":{"build":{"model":"opus"}}}`, `lane "build" has no harness`},
-		{"lanes without default", `{"rules":[],"lanes":{"build":{"harness":"claude"}}}`, "default_lane is not"},
+		{"lanes without default", `{"rules":[],"lanes":{"build":{"harness":"claude"}}}`, "lanes are defined but default_lane is not"},
 		{"undefined default", `{"rules":[],"default_lane":"nope","lanes":{"build":{"harness":"claude"}}}`, `default_lane "nope" is not a defined lane`},
 		{"undefined escalation", `{"rules":[],"default_lane":"build","escalate_to":"nope","lanes":{"build":{"harness":"claude"}}}`, `escalate_to "nope" is not a defined lane`},
 	}
 	for _, test := range cases {
 		dir := t.TempDir()
 		write(t, dir, test.json)
-		_, err := Load(dir)
-		if err == nil || !strings.Contains(err.Error(), test.want) {
-			t.Errorf("%s: err = %v, want %q", test.name, err, test.want)
+		policy, err := Load(dir)
+		if err != nil {
+			t.Fatalf("%s: Load: %v, want the lane table checked only when a spawn routes", test.name, err)
 		}
+		_, err = policy.LaneTable()
+		if want := "routing: " + filepath.Join(dir, FileName) + ": " + test.want; err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: err = %v, want %q", test.name, err, want)
+		}
+	}
+}
+
+func TestLoadKeepsTheSwitchRulesWhenTheLaneTableIsInvalid(t *testing.T) {
+	// The watcher loads the same file for its fault-switch rules; a lane typo
+	// must never switch those off.
+	dir := t.TempDir()
+	write(t, dir, `{
+		"rules":[{"harness":"kimi","fault":"rate-limit","switch":{"harness":"codex"},"auto":true}],
+		"default_lane":"buld",
+		"lanes":{"build":{"harness":"claude"}}
+	}`)
+	policy, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, err := policy.LaneTable(); err == nil {
+		t.Fatal("premise: the lane table should be invalid")
+	}
+	rule, ok := policy.Match("kimi", RateLimit)
+	if !ok || rule.Switch.Harness != "codex" || !rule.Auto {
+		t.Errorf("Match = (%+v, %v), want the standing kimi rate-limit rule", rule, ok)
 	}
 }
 
@@ -57,8 +86,9 @@ func TestLoadKeepsAcceptingARulesOnlyPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(policy.Lanes) != 0 || len(policy.Table().Lanes) != 0 {
-		t.Errorf("policy = %+v, want no lanes", policy)
+	table, err := policy.LaneTable()
+	if err != nil || len(policy.Lanes) != 0 || len(table.Lanes) != 0 {
+		t.Errorf("policy = %+v table = %+v err = %v, want no lanes", policy, table, err)
 	}
 }
 

@@ -130,18 +130,20 @@ func fallbackOrder(wanted string, t Table) []string {
 // every brief used to read as high-risk security work. A migration is asked
 // for when the brief says to add, write, apply or run one, or to migrate
 // something; one mentioned in passing ("advanced by triggers (migration
-// 257)") is not. A rename is asked for when something is renamed to
-// something else; "the rename sweep" in a bug report is not.
+// 257)") is not. A rename, investigation, audit or diagnosis is asked for
+// only when it leads a sentence or list item: "Rename X to Y" is, while "the
+// rename sweep" in a bug report, "add a rename action" and "add an audit log"
+// are not.
 var (
 	securityAsk     = regexp.MustCompile(`\b(security|vulnerabilit(y|ies)|exploit|cve-\d+|xss|csrf|sql injection|access control|stripe|checkout|billing|payment (flow|processing|link)s?)\b`)
 	migrationAsk    = regexp.MustCompile(`\b(add|write|create|generate|apply|run|ship|land|author|commit)\b[^.;\n]{0,60}\bmigrations?\b|\bmigrate\b`)
 	architectureAsk = regexp.MustCompile(`\b(architecture|architectural|rearchitect)\b`)
 	rescueAsk       = regexp.MustCompile(`\b(rescue|salvage)\b`)
-	scoutAsk        = regexp.MustCompile(`\b(investigate|investigation|audit|diagnose|diagnosis|scout|feasibility)\b`)
+	scoutAsk        = regexp.MustCompile(`(?:^|[\n.!?:]|[-*]\s)\s*(investigate|investigation|audit|diagnose|diagnosis)\b|\b(scout|feasibility)\b`)
 	debugAsk        = regexp.MustCompile(`\b(fix|fixes|bug|bugs|regression|regressions|crash|crashes|broken|failing|root[- ]cause)\b`)
 	deploymentAsk   = regexp.MustCompile(`\b(deploy|deploys|deployment|redeploy)\b`)
 	reviewAsk       = regexp.MustCompile(`\breview\b[^.;\n]{0,30}\b(pr|prs|pull requests?|diff|branch|changes?|code|merges?)\b`)
-	mechanicalAsk   = regexp.MustCompile(`\brename\b[^.,;\n]{0,50}\b(to|as|into)\b|\b(mechanical|typos?)\b|\bdocs?[- ]only\b`)
+	mechanicalAsk   = regexp.MustCompile(`(?:^|[\n.!?:]|[-*]\s)\s*rename\b[^.,;\n]{0,50}\b(to|as|into)\b|\b(mechanical|typos?)\b|\bdocs?[- ]only\b`)
 
 	kindLine  = regexp.MustCompile(`(?m)^kind:\s*(\S+)`)
 	codeSpan  = regexp.MustCompile("`[^`\n]*`")

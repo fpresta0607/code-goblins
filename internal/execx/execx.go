@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"time"
 )
 
 // Request describes one child process invocation.
@@ -44,6 +45,7 @@ type OSRunner struct{}
 // from failures to start or wait for the process.
 func (OSRunner) Run(ctx context.Context, req Request) (Result, error) {
 	cmd := command(ctx, req)
+	cmd.WaitDelay = 2 * time.Second
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
