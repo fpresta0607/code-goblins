@@ -148,47 +148,44 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			repairRounds = b.MaxRepairRounds
 		}
 	}
-	briefPath := *brief
+	var writeCapsule func(string) (string, error)
 	if (routed || *auto) && inputs.manifestPath != "" {
 		m := inputs.manifest
-		taskTmp := filepath.Join(h.State, "tasktmp", args[0])
-		if err := os.MkdirAll(taskTmp, 0o700); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
+		writeCapsule = func(taskTmp string) (string, error) {
+			if err := os.MkdirAll(taskTmp, 0o700); err != nil {
+				return "", err
+			}
+			runtimePath := filepath.Join(taskTmp, "runtime-capsule.md")
+			if err := os.WriteFile(runtimePath, []byte(m.Capsule()), 0o600); err != nil {
+				return "", err
+			}
+			capsule := map[string]any{
+				"objective_file":    *brief,
+				"project_manifest":  inputs.manifestPath,
+				"runtime_capsule":   runtimePath,
+				"task_class":        taskClass,
+				"route_lane":        routeLane,
+				"budget":            map[string]any{"max_repair_rounds": repairRounds},
+				"hygiene":           map[string]any{"superseded_work_must_be_deleted": m.Hygiene.SupersedeClean},
+				"expected_evidence": filepath.Join(taskTmp, "evidence.json"),
+			}
+			b, _ := json.MarshalIndent(capsule, "", "  ")
+			taskCapsule := filepath.Join(taskTmp, "task-capsule.json")
+			if err := os.WriteFile(taskCapsule, append(b, '\n'), 0o600); err != nil {
+				return "", err
+			}
+			augmented := filepath.Join(taskTmp, "brief.md")
+			extra := fmt.Sprintf("\n\n## CFO durable task capsule\nRead %s and %s before work. Write machine-readable production evidence to %s. Rejected unshipped implementation work is disposable: delete superseded files, tests, routes and flags unless explicitly required.\n", taskCapsule, runtimePath, filepath.Join(taskTmp, "evidence.json"))
+			if err := os.WriteFile(augmented, append(briefText, []byte(extra)...), 0o600); err != nil {
+				return "", err
+			}
+			return augmented, nil
 		}
-		runtimePath := filepath.Join(taskTmp, "runtime-capsule.md")
-		if err := os.WriteFile(runtimePath, []byte(m.Capsule()), 0o600); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		capsule := map[string]any{
-			"objective_file":    *brief,
-			"project_manifest":  inputs.manifestPath,
-			"runtime_capsule":   runtimePath,
-			"task_class":        taskClass,
-			"route_lane":        routeLane,
-			"budget":            map[string]any{"max_repair_rounds": repairRounds},
-			"hygiene":           map[string]any{"superseded_work_must_be_deleted": m.Hygiene.SupersedeClean},
-			"expected_evidence": filepath.Join(taskTmp, "evidence.json"),
-		}
-		b, _ := json.MarshalIndent(capsule, "", "  ")
-		taskCapsule := filepath.Join(taskTmp, "task-capsule.json")
-		if err := os.WriteFile(taskCapsule, append(b, '\n'), 0o600); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		augmented := filepath.Join(taskTmp, "brief.md")
-		extra := fmt.Sprintf("\n\n## CFO durable task capsule\nRead %s and %s before work. Write machine-readable production evidence to %s. Rejected unshipped implementation work is disposable: delete superseded files, tests, routes and flags unless explicitly required.\n", taskCapsule, runtimePath, filepath.Join(taskTmp, "evidence.json"))
-		if err := os.WriteFile(augmented, append(briefText, []byte(extra)...), 0o600); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		briefPath = augmented
 	}
 	result, err := runtime.spawn(context.Background(), h, spawn.Request{
 		ID:        args[0],
 		Project:   *project,
-		BriefPath: briefPath,
+		BriefPath: *brief,
 		Kind:      "ship",
 		Mode:      *mode,
 		Yolo:      *yolo,
@@ -197,6 +194,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Effort:    *effort,
 		Session:   herdrSession(),
 		Class:     *class,
+		Capsule:   writeCapsule,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
