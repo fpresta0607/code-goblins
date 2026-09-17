@@ -149,7 +149,7 @@ func thirdPartyLine(lowered string, index int) bool {
 	line := lineAt(lowered, index)
 	// A status code is unambiguous error framing on its own.
 	for _, code := range []string{"429", "503", "502"} {
-		if strings.Contains(line, code) {
+		if hasStatusCode(line, code) {
 			return true
 		}
 	}
@@ -157,6 +157,22 @@ func thirdPartyLine(lowered string, index int) bool {
 	// line, so a conversational mention of a git host is not an outage.
 	for _, indicator := range []string{"rate limit", "secondary rate", "exceeded", "abuse"} {
 		if strings.Contains(line, indicator) && thirdPartyFramed(line, indicator) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasStatusCode reports whether code stands on the line as a whole token, not
+// inside a longer number or word: a run id such as 17742950312 or a commit
+// hash is not a 429 or a 503.
+func hasStatusCode(line, code string) bool {
+	isWordByte := func(b byte) bool {
+		return b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
+	}
+	for _, index := range allMatches(line, code) {
+		end := index + len(code)
+		if (index == 0 || !isWordByte(line[index-1])) && (end == len(line) || !isWordByte(line[end])) {
 			return true
 		}
 	}
@@ -224,7 +240,12 @@ func lineStartMatches(haystack, needle string) []int {
 // matched keyword itself: a status code or an error word. A prose keyword on
 // its own (a CFO steer saying "not a github rate limit") is not an outage.
 func thirdPartyFramed(line, keyword string) bool {
-	for _, signal := range []string{"429", "403", "503", "502", "error", "refused", "failed", "quota", "reached", "exceeded", "unable", "denied", "forbidden", "fatal"} {
+	for _, code := range []string{"429", "403", "503", "502"} {
+		if hasStatusCode(line, code) {
+			return true
+		}
+	}
+	for _, signal := range []string{"error", "refused", "failed", "quota", "reached", "exceeded", "unable", "denied", "forbidden", "fatal"} {
 		if signal == keyword {
 			continue
 		}
@@ -240,7 +261,12 @@ func thirdPartyFramed(line, keyword string) bool {
 // in a conversational line is not a fault.
 func errorFramed(lowered string, index int) bool {
 	line := lineAt(lowered, index)
-	for _, signal := range []string{"429", "403", "error", "refused", "failed", "quota", "exceeded", "reached"} {
+	for _, code := range []string{"429", "403"} {
+		if hasStatusCode(line, code) {
+			return true
+		}
+	}
+	for _, signal := range []string{"error", "refused", "failed", "quota", "exceeded", "reached"} {
 		if strings.Contains(line, signal) {
 			return true
 		}

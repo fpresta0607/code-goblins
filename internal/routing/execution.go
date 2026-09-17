@@ -78,12 +78,11 @@ type Usable func(ExecutionLane) (ok bool, note string)
 // is given, walks the fallback order (the wanted lane, the default, the
 // escalation, then the rest by name) until a lane passes. No usable lane is
 // an error naming every lane's finding, so a spawn refuses rather than
-// dispatching into a wall. An explicit harness is never checked: the
-// operator decided.
+// dispatching into a wall.
 func Choose(a Assessment, t Table, usable Usable) (Choice, error) {
 	wanted := ChooseExecution(a, t.Lanes, t.DefaultLane, t.EscalateTo)
 	c := Choice{ExecutionLane: wanted, Wanted: wanted.Name}
-	if usable == nil || wanted.Name == "explicit" {
+	if usable == nil {
 		return c, nil
 	}
 	for _, name := range fallbackOrder(wanted.Name, t) {
@@ -135,7 +134,7 @@ func fallbackOrder(wanted string, t Table) []string {
 // rename sweep" in a bug report, "add a rename action" and "add an audit log"
 // are not.
 var (
-	securityAsk     = regexp.MustCompile(`\b(security|vulnerabilit(y|ies)|exploit|cve-\d+|xss|csrf|sql injection|access control|stripe|checkout|billing|payment (flow|processing|link)s?)\b`)
+	securityAsk     = regexp.MustCompile(`\b(security|vulnerabilit(y|ies)|exploit|cve-\d+|xss|csrf|sql injection|access control|stripe|billing|payment (flow|processing|link)s?)\b`)
 	migrationAsk    = regexp.MustCompile(`\b(add|write|create|generate|apply|run|ship|land|author|commit)\b[^.;\n]{0,60}\bmigrations?\b|\bmigrate\b`)
 	architectureAsk = regexp.MustCompile(`\b(architecture|architectural|rearchitect)\b`)
 	rescueAsk       = regexp.MustCompile(`\b(rescue|salvage)\b`)

@@ -137,6 +137,23 @@ func TestClassifyReadsARenameOrAuditInsideAFeatureAsImplementation(t *testing.T)
 	}
 }
 
+func TestClassifyReadsAGitCheckoutAsOrdinaryWorkAndAPaymentCheckoutAsSecurity(t *testing.T) {
+	cases := []struct {
+		ask   string
+		class TaskClass
+		risk  string
+	}{
+		{"Make cfo cleanup refuse a dirty project checkout.", Implementation, "normal"},
+		{"Add Apple Pay to the Stripe checkout flow.", Security, "high"},
+		{"Rework the checkout payment flow for saved cards.", Security, "high"},
+	}
+	for _, test := range cases {
+		if a := Classify("# Brief x\n\n## Task\n\n" + test.ask + "\n"); a.Class != test.class || a.Risk != test.risk {
+			t.Errorf("Classify(%q) = %+v, want %s/%s", test.ask, a, test.class, test.risk)
+		}
+	}
+}
+
 func TestClassifyCoversEveryDeclaredClass(t *testing.T) {
 	cases := []struct {
 		ask   string
