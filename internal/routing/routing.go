@@ -134,7 +134,7 @@ func thirdPartyFault(lowered string) (int, bool) {
 			}
 		}
 	}
-	// gh CLI errors begin with "gh:" at the start of a line; a bare
+	// gh CLI errors begin a line with "gh:"; a bare
 	// substring would also flag words like "high:", "weigh:", or "sigh:".
 	for _, index := range lineStartMatches(lowered, "gh:") {
 		if thirdPartyLine(lowered, index) {
@@ -235,7 +235,9 @@ func redactOperatorLines(lowered string) string {
 	return strings.Join(lines, "\n")
 }
 
-// lineStartMatches returns the indexes where needle begins a line.
+// lineStartMatches returns the indexes where needle begins a line, after any
+// leading whitespace and the harness glyphs a pane prints output under (the
+// ones redactOperatorLines knows), as in Claude Code's " ⎿ gh: ...".
 func lineStartMatches(haystack, needle string) []int {
 	var indexes []int
 	for start := 0; start < len(haystack); {
@@ -244,7 +246,8 @@ func lineStartMatches(haystack, needle string) []int {
 			return indexes
 		}
 		index += start
-		if index == 0 || haystack[index-1] == '\n' {
+		lineStart := strings.LastIndexByte(haystack[:index], '\n') + 1
+		if strings.TrimLeft(haystack[lineStart:index], " \t⎿●✻◐⏺❯›>│") == "" {
 			indexes = append(indexes, index)
 		}
 		start = index + len(needle)
