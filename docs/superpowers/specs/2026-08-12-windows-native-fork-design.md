@@ -107,14 +107,15 @@ Verifying treehouse's behavior on Windows is an early implementation milestone; 
 The backlog keeps upstream's tasks-axi integration: `.tasks.toml` stays, and full task bodies remain readable through `tasks-axi show <id> --full`.
 Quota-aware dispatch keeps the quota-axi integration.
 The instruction layer routes agent-performed GitHub operations through gh-axi, matching the Supreme Overlord's global tooling rules.
+Visual review runs on lavish-axi, a presentation-only dependency: `cfo doctor` reports it against a version floor but never fails on it, and every nonvisual path works in plain text without it.
 `cfo.exe` itself shells to plain `gh` for its own GitHub operations, since the AXI ergonomics target agents, not binaries.
 
 ## 7. Easy to run
 
 Using code-goblins must not require a Go toolchain.
 
-- CI builds `cfo.exe` and `showcase-axi.exe` on tags and publishes both as GitHub Release assets.
-- `install.ps1` is the toolchain bootstrapper: it downloads (or builds) `cfo.exe` and `showcase-axi.exe`, then installs every missing tool `cfo doctor` checks that has a scriptable installer and junctions the bundled skills for claude and codex. The hooks are wired separately, by `cfo install`, because they belong to the user's own configuration rather than to this repository. Run it with `-Bootstrap`; it is idempotent and safe to rerun.
+- CI builds `cfo.exe` on tags and publishes it as a GitHub Release asset.
+- `install.ps1` is the toolchain bootstrapper: it downloads (or builds) `cfo.exe`, then installs every missing tool `cfo doctor` checks that has a scriptable installer and junctions the bundled skills for claude and codex. The hooks are wired separately, by `cfo install`, because they belong to the user's own configuration rather than to this repository. Run it with `-Bootstrap`; it is idempotent and safe to rerun.
 - `cfo doctor` re-checks the environment on demand and says exactly what is missing and how to install it.
 - Quick start: clone, run `install.ps1 -Bootstrap`, then follow README's "From clone to first goblin" (doctor green, spawn a trivial local-only task, cleanup).
 

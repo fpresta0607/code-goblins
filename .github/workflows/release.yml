@@ -19,10 +19,8 @@ jobs:
       - name: Build
         run: |
           go build -ldflags "-X main.version=${{ github.ref_name }}" -o cfo.exe ./cmd/cfo
-          go build -ldflags "-X main.version=${{ github.ref_name }}" -o showcase-axi.exe ./cmd/showcase-axi
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             cfo.exe
-            showcase-axi.exe
