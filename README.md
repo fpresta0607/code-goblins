@@ -133,7 +133,7 @@ Tell the CFO what outcome you want. It handles the fleet mechanics.
 cfo doctor
 cfo auth <project> [--check|--fix] [--env]
 cfo brief <id> --project <path> [--kind <ship|scout>] [--mode <mode>]
-cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <mode>] [--model <model>] [--effort <level>] [--class <class>] [--yolo]
+cfo spawn <id> --project <path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <mode>] [--model <model>] [--effort <level>] [--class <class>] [--yolo]
 cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>]
 cfo send <target> <text...>
 cfo peek <target> [lines]
