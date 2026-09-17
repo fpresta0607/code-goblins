@@ -46,6 +46,23 @@ type Dependencies struct {
 	Paths []string `json:"paths,omitempty"`
 }
 
+// Local is one project's declared local stack: the command that brings it up
+// on this machine and the command that takes it down.
+//
+// It exists so "how do I test this locally" is answered once, by the project,
+// instead of being re-derived from whatever files the checkout happens to
+// hold. A project that declares nothing here still gets an answer - derived
+// from its compose file, its Supabase config or its package scripts - but a
+// derived answer is only ever as good as the guess, and this is how a project
+// whose real command is neither overrides it.
+type Local struct {
+	// Up brings the project's local stack up, one command line per entry,
+	// run in order from the checkout.
+	Up []string `json:"up,omitempty"`
+	// Down takes it back down.
+	Down []string `json:"down,omitempty"`
+}
+
 // Manifest is one project's declared worktree environment.
 type Manifest struct {
 	// Project is the project directory name this manifest describes.
@@ -69,6 +86,8 @@ type Manifest struct {
 	// the goblin's pane and the dependency install, and wins over the CFO's
 	// shared cache root for this project in both.
 	Env map[string]string `json:"env,omitempty"`
+	// Local is how this project's stack is run and torn down on this machine.
+	Local Local `json:"local"`
 	// Path is where the manifest was loaded from. It is not serialized.
 	Path string `json:"-"`
 }
@@ -141,6 +160,17 @@ func (m Manifest) Validate() error {
 		if !harness.ValidEnvironmentName(name) {
 			return fmt.Errorf("env redirect %q is not a valid environment name", name)
 		}
+	}
+	// A blank local command reads as an answer while saying nothing, which is
+	// worse than declaring none: a report would print an empty line where the
+	// CFO expected the command to run.
+	for _, command := range append(append([]string{}, m.Local.Up...), m.Local.Down...) {
+		if strings.TrimSpace(command) == "" {
+			return errors.New("local command is empty")
+		}
+	}
+	if len(m.Local.Down) > 0 && len(m.Local.Up) == 0 {
+		return errors.New("local.down needs a local.up beside it")
 	}
 	return nil
 }
