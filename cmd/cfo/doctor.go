@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sort"
 
 	"github.com/fpresta0607/code-goblins/internal/doctor"
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -58,9 +59,10 @@ func runDoctor(stdout io.Writer) int {
 	return 0
 }
 
-// reportRouting prints the standing switch policy, because a rule that
-// silently restarts a goblin's harness should be visible in the same place
-// the operator checks everything else.
+// reportRouting prints the standing switch policy and the execution lane
+// table, because a rule that silently restarts a goblin's harness and the
+// model each kind of work is dispatched on should both be visible in the
+// same place the operator checks everything else.
 func reportRouting(stdout io.Writer) {
 	h, err := home.Resolve()
 	if err != nil {
@@ -74,18 +76,44 @@ func reportRouting(stdout io.Writer) {
 	if len(policy.Rules) == 0 {
 		fmt.Fprintf(stdout, "routing: no standing switch rules (add %s to answer a harness fault automatically)\n", policy.Path)
 		fmt.Fprintln(stdout, "  a goblin whose harness starts erroring wakes the CFO undecided; fix it with `cfo switch <id> --harness <h>`")
+	} else {
+		fmt.Fprintf(stdout, "routing: %d standing switch rule(s) from %s\n", len(policy.Rules), policy.Path)
+		for _, rule := range policy.Rules {
+			from := rule.Harness
+			if from == "" {
+				from = "any"
+			}
+			mode := "recommend"
+			if rule.Auto {
+				mode = "automatic"
+			}
+			fmt.Fprintf(stdout, "  %-9s %-11s %-9s %s\n", from, rule.Fault, mode, rule.Command("<id>"))
+		}
+	}
+	table, err := policy.LaneTable()
+	if err != nil {
+		fmt.Fprintf(stdout, "routing: lane table invalid (%v)\n", err)
 		return
 	}
-	fmt.Fprintf(stdout, "routing: %d standing switch rule(s) from %s\n", len(policy.Rules), policy.Path)
-	for _, rule := range policy.Rules {
-		from := rule.Harness
-		if from == "" {
-			from = "any"
-		}
-		mode := "recommend"
-		if rule.Auto {
-			mode = "automatic"
-		}
-		fmt.Fprintf(stdout, "  %-9s %-11s %-9s %s\n", from, rule.Fault, mode, rule.Command("<id>"))
+	if len(table.Lanes) == 0 {
+		fmt.Fprintf(stdout, "routing: no execution lanes (add lanes to %s so `cfo spawn` without --harness can pick a model)\n", policy.Path)
+		return
 	}
+	fmt.Fprintf(stdout, "routing: %d execution lane(s) from %s (default %s, escalate to %s)\n", len(table.Lanes), policy.Path, table.DefaultLane, valueOr(table.EscalateTo, "none"))
+	names := make([]string, 0, len(table.Lanes))
+	for name := range table.Lanes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		lane := table.Lanes[name]
+		fmt.Fprintf(stdout, "  %-11s %-7s %-8s %-7s %s\n", name, lane.Harness, valueOr(lane.Model, "default"), valueOr(lane.Effort, "default"), lane.Note)
+	}
+}
+
+func valueOr(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
 }

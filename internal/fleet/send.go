@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/routing"
 )
 
 const (
@@ -87,6 +88,7 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 	default:
 		return fmt.Errorf("fleet: %s cannot take text: pane is %s", target, registration)
 	}
+	message = Stamp(message)
 
 	// Acceptance is measured against the counters as they stood before the
 	// submit, so the baseline has to be a real read. An unreadable one is
@@ -145,6 +147,19 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 		return fmt.Errorf("%w; later agent reads were refused: %w", unconfirmed(target, herdr.SubmitPending), lastReadErr)
 	}
 	return unconfirmed(target, herdr.SubmitPending)
+}
+
+// Stamp marks a steer as the CFO's with routing.SteerPrefix, once, so the
+// fault detector can tell text the CFO wrote about a provider from text the
+// provider wrote. A message the CFO already prefixed is left alone, and so
+// is a slash or dollar command: that is for the harness, not the goblin,
+// and a prefix would turn it into prose. Text typed into a bare pane is
+// never stamped, because that pane may be a shell.
+func Stamp(message string) string {
+	if strings.HasPrefix(message, routing.SteerPrefix) || strings.HasPrefix(message, "/") || strings.HasPrefix(message, "$") {
+		return message
+	}
+	return routing.SteerPrefix + message
 }
 
 // preSubmitRead runs one Herdr read across the pre-submit budget, retrying a

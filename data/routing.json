@@ -1,0 +1,44 @@
+{
+  "rules": [
+    {
+      "harness": "kimi",
+      "fault": "rate-limit",
+      "switch": { "harness": "claude", "model": "opus", "effort": "xhigh" },
+      "auto": true,
+      "note": "standing Overlord rule: a kimi quota refusal moves that session to claude/opus/xhigh"
+    },
+    {
+      "fault": "auth",
+      "switch": { "harness": "claude" },
+      "note": "a rejected credential is usually the harness, not the task; check cfo auth for the project before switching"
+    }
+  ],
+  "default_lane": "build",
+  "escalate_to": "deep",
+  "lanes": {
+    "deep": {
+      "harness": "claude",
+      "model": "fable",
+      "effort": "xhigh",
+      "note": "architecture, security, migration, rescue, anything high risk"
+    },
+    "build": {
+      "harness": "claude",
+      "model": "opus",
+      "effort": "high",
+      "note": "ordinary implementation; the default lane"
+    },
+    "mechanical": {
+      "harness": "claude",
+      "model": "sonnet",
+      "effort": "medium",
+      "note": "renames, config edits, docs, tightly specified changes"
+    },
+    "scout": {
+      "harness": "claude",
+      "model": "opus",
+      "effort": "xhigh",
+      "note": "investigations that produce a report"
+    }
+  }
+}

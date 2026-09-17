@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,6 +25,29 @@ func TestOSRunnerHelper(t *testing.T) {
 		time.Sleep(10 * time.Second)
 	case "short-sleep":
 		time.Sleep(200 * time.Millisecond)
+	case "orphan-stdout":
+		// Like an npm .cmd shim: the direct child starts a grandchild that
+		// inherits its stdout, so killing the direct child leaves the pipe open.
+		grandchild := exec.Command(os.Args[0], "-test.run=TestOSRunnerHelper", "--")
+		grandchild.Env = append(os.Environ(), "EXECX_MODE=hold-stdout")
+		grandchild.Stdout = os.Stdout
+		if err := grandchild.Start(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(9)
+		}
+		time.Sleep(30 * time.Second)
+	case "hold-stdout":
+		marker := os.Getenv("EXECX_MARKER")
+		if err := os.WriteFile(marker+".held", nil, 0o600); err != nil {
+			os.Exit(9)
+		}
+		for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if _, err := os.Stat(marker + ".release"); err == nil {
+				break
+			}
+		}
+		_ = os.WriteFile(marker+".released", nil, 0o600)
+		os.Exit(0)
 	case "survive-cancel", "survive-cancel-empty-marker":
 		marker := os.Getenv("EXECX_MARKER")
 		if os.Getenv("EXECX_MODE") == "survive-cancel-empty-marker" {
@@ -148,6 +172,49 @@ func TestOSRunnerReturnsContextCancellation(t *testing.T) {
 	}
 	if len(result.Stdout) != 0 || len(result.Stderr) != 0 || result.ExitCode != 0 {
 		t.Errorf("result = %+v, want zero result on cancellation", result)
+	}
+}
+
+func TestOSRunnerReturnsAfterCancellationWhileAGrandchildHoldsStdout(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "grandchild")
+	t.Cleanup(func() {
+		// Release the grandchild and let it exit before go test removes its
+		// working directory and the Windows test executable.
+		_ = os.WriteFile(marker+".release", nil, 0o600)
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if _, err := os.Stat(marker + ".released"); err == nil {
+				time.Sleep(100 * time.Millisecond)
+				return
+			}
+		}
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cancelledAt := make(chan time.Time, 1)
+	go func() {
+		for ctx.Err() == nil {
+			if _, err := os.Stat(marker + ".held"); err == nil {
+				cancelledAt <- time.Now()
+				cancel()
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	_, err := (OSRunner{}).Run(ctx, helperRequest(t.TempDir(), []string{"EXECX_HELPER=1", "EXECX_MODE=orphan-stdout", "EXECX_MARKER=" + marker}))
+	returnedAt := time.Now()
+
+	select {
+	case at := <-cancelledAt:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("error = %v, want context canceled", err)
+		}
+		if waited := returnedAt.Sub(at); waited > 8*time.Second {
+			t.Errorf("Run returned %s after cancellation, want it bounded while a grandchild holds stdout open", waited)
+		}
+	default:
+		t.Fatalf("Run returned before the grandchild held stdout: %v", err)
 	}
 }
 

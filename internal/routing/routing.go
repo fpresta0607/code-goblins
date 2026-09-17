@@ -1,6 +1,8 @@
-// Package routing reads the fleet's standing policy for what to do when a
-// goblin's harness starts erroring: which provider failures are recognized,
-// and which of them the Supreme Overlord has already decided the answer to.
+// Package routing reads the fleet's standing policy: the execution lanes a
+// spawn routes through (which harness, model and effort each kind of work
+// gets), and what to do when a goblin's harness starts erroring, which
+// provider failures are recognized, and which of them the Supreme Overlord
+// has already decided the answer to.
 package routing
 
 import (
@@ -10,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -69,13 +72,27 @@ var faultPatterns = []struct {
 	}},
 }
 
+// SteerPrefix is stamped on every line the CFO delivers into a goblin's pane
+// with cfo send, and OverlordPrefix is what the Overlord types before a line
+// of their own. Detect blanks lines carrying either, and the indented
+// continuation lines a pane wraps a long prompt into, before it looks for a
+// fault: text an operator wrote about a provider is not evidence about the
+// harness. The sender (fleet.Sender.Text) stamps with this same constant and
+// its test asserts the stamp through it, so a prefix change here changes the
+// stamp and the exclusion together rather than leaving one behind.
+const (
+	SteerPrefix    = "CFO: "
+	OverlordPrefix = "Overlord: "
+)
+
 // Detect reports the provider fault a pane's tail shows, if any. It reads the
-// tail the watcher already captured rather than probing anything. Third-party
-// platform failures (GitHub and other git hosts) are checked before the model
-// provider's own faults, because a platform rate limit or 5xx is a wait/backoff
-// case that must never route to a harness switch.
+// tail the watcher already captured rather than probing anything. Operator
+// lines are blanked first, then third-party platform failures (GitHub and
+// other git hosts) are checked before the model provider's own faults,
+// because a platform rate limit or 5xx is a wait/backoff case that must never
+// route to a harness switch.
 func Detect(paneTail string) (Fault, string, bool) {
-	lowered := strings.ToLower(paneTail)
+	lowered := redactOperatorLines(strings.ToLower(paneTail))
 	if index, ok := thirdPartyFault(lowered); ok {
 		return ThirdParty, evidence(paneTail, index), true
 	}
@@ -98,16 +115,26 @@ func Detect(paneTail string) (Fault, string, bool) {
 	return "", "", false
 }
 
+// thirdPartyMarkers name a git platform or its CI on a line: GitHub Actions
+// and a workflow run are the platform too, since an Actions runner refused
+// on quota is GitHub's rate limit, never the harness's.
+var thirdPartyMarkers = []string{"github", "api.github.com", "gitlab", "bitbucket", "actions run", "actions workflow", "actions runner", "workflow run"}
+
 // thirdPartyFault recognizes a git-platform (GitHub and friends) rate limit or
 // outage: those are the platform's own quota, not the model provider's, so the
-// recommended action is wait/backoff rather than a harness switch.
+// recommended action is wait/backoff rather than a harness switch. Every
+// occurrence of a marker is examined, not only the first: a pane that names
+// a pull request URL early and reports an API rate limit later must read
+// the later line, or the provider rule below claims it as a harness fault.
 func thirdPartyFault(lowered string) (int, bool) {
-	for _, marker := range []string{"github", "api.github.com", "gitlab", "bitbucket"} {
-		if index := strings.Index(lowered, marker); index >= 0 && thirdPartyLine(lowered, index) {
-			return index, true
+	for _, marker := range thirdPartyMarkers {
+		for _, index := range allMatches(lowered, marker) {
+			if thirdPartyLine(lowered, index) {
+				return index, true
+			}
 		}
 	}
-	// gh CLI errors begin with "gh:" at the start of a line; a bare
+	// gh CLI errors begin a line with "gh:"; a bare
 	// substring would also flag words like "high:", "weigh:", or "sigh:".
 	for _, index := range lineStartMatches(lowered, "gh:") {
 		if thirdPartyLine(lowered, index) {
@@ -117,13 +144,27 @@ func thirdPartyFault(lowered string) (int, bool) {
 	return 0, false
 }
 
+// httpStatusForm is a status code written the way an HTTP client prints one,
+// as gh does ("HTTP 502: 502 Bad Gateway"): after the word http, or directly
+// before a colon and not as part of a path, reference or longer token.
+var httpStatusForm = regexp.MustCompile(`\bhttp (?:429|502|503)\b|(?:^|[^a-z0-9/#-])(?:429|502|503):`)
+
 // thirdPartyLine reports whether the line containing index is a git-platform
-// outage: a status code, or a prose keyword with error framing.
+// outage: a framed status code, or a prose keyword with error framing.
 func thirdPartyLine(lowered string, index int) bool {
 	line := lineAt(lowered, index)
-	// A status code is unambiguous error framing on its own.
+	// A git host line names pull request, issue and run numbers all the time,
+	// so a status code counts only when it is framed as one: written in HTTP
+	// status form, or beside an HTTP status phrase or an error word.
+	if httpStatusForm.MatchString(line) {
+		return true
+	}
+	framed := thirdPartyErrorWord(line, "")
+	for _, phrase := range []string{"bad gateway", "service unavailable", "too many requests", "gateway timeout", "internal server error"} {
+		framed = framed || strings.Contains(line, phrase)
+	}
 	for _, code := range []string{"429", "503", "502"} {
-		if strings.Contains(line, code) {
+		if framed && hasStatusCode(line, code) {
 			return true
 		}
 	}
@@ -137,7 +178,66 @@ func thirdPartyLine(lowered string, index int) bool {
 	return false
 }
 
-// lineStartMatches returns the indexes where needle begins a line.
+// hasStatusCode reports whether code stands on the line as a whole token, not
+// inside a longer number or word and not a path segment, reference or suffix:
+// a run id such as 17742950312, a commit hash, /pull/502, #429 or issue-503
+// is not a status.
+func hasStatusCode(line, code string) bool {
+	isWordByte := func(b byte) bool {
+		return b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
+	}
+	for _, index := range allMatches(line, code) {
+		end := index + len(code)
+		if (index == 0 || !isWordByte(line[index-1]) && !strings.ContainsRune("/#-", rune(line[index-1]))) && (end == len(line) || !isWordByte(line[end])) {
+			return true
+		}
+	}
+	return false
+}
+
+// allMatches returns every index at which needle occurs.
+func allMatches(haystack, needle string) []int {
+	var indexes []int
+	for start := 0; start < len(haystack); {
+		index := strings.Index(haystack[start:], needle)
+		if index < 0 {
+			return indexes
+		}
+		indexes = append(indexes, start+index)
+		start += index + len(needle)
+	}
+	return indexes
+}
+
+// redactOperatorLines blanks every line an operator wrote, a cfo send steer
+// or an Overlord line, together with the indented lines a pane wraps the
+// rest of that prompt into. An indented line that opens with a harness result
+// or turn marker (⎿ ● ✻ ◐ ⏺ ❯ › >) is the harness answering, not the prompt
+// wrapping, so it ends the redaction. Lengths are kept, so an index into the
+// result still names the same place in the original tail. A pane's own
+// prompt markers before the prefix are ignored.
+func redactOperatorLines(lowered string) string {
+	lines := strings.Split(lowered, "\n")
+	redacting := false
+	for i, line := range lines {
+		trimmed := strings.TrimLeft(line, " \t>›❯│")
+		switch {
+		case strings.HasPrefix(trimmed, strings.ToLower(SteerPrefix)) || strings.HasPrefix(trimmed, strings.ToLower(OverlordPrefix)):
+			redacting = true
+		case redacting && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")) && strings.IndexAny(strings.TrimLeft(line, " \t"), "⎿●✻◐⏺❯›>") != 0:
+		default:
+			redacting = false
+		}
+		if redacting {
+			lines[i] = strings.Repeat(" ", len(line))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// lineStartMatches returns the indexes where needle begins a line, after any
+// leading whitespace and the harness glyphs a pane prints output under (the
+// ones redactOperatorLines knows), as in Claude Code's " ⎿ gh: ...".
 func lineStartMatches(haystack, needle string) []int {
 	var indexes []int
 	for start := 0; start < len(haystack); {
@@ -146,7 +246,8 @@ func lineStartMatches(haystack, needle string) []int {
 			return indexes
 		}
 		index += start
-		if index == 0 || haystack[index-1] == '\n' {
+		lineStart := strings.LastIndexByte(haystack[:index], '\n') + 1
+		if strings.TrimLeft(haystack[lineStart:index], " \t⎿●✻◐⏺❯›>│") == "" {
 			indexes = append(indexes, index)
 		}
 		start = index + len(needle)
@@ -158,11 +259,19 @@ func lineStartMatches(haystack, needle string) []int {
 // matched keyword itself: a status code or an error word. A prose keyword on
 // its own (a CFO steer saying "not a github rate limit") is not an outage.
 func thirdPartyFramed(line, keyword string) bool {
-	for _, signal := range []string{"429", "403", "503", "502", "error", "refused", "failed", "quota", "reached", "exceeded", "unable", "denied", "forbidden", "fatal"} {
-		if signal == keyword {
-			continue
+	for _, code := range []string{"429", "403", "503", "502"} {
+		if hasStatusCode(line, code) {
+			return true
 		}
-		if strings.Contains(line, signal) {
+	}
+	return thirdPartyErrorWord(line, keyword)
+}
+
+// thirdPartyErrorWord reports whether a line carries a git-platform error
+// word other than the matched keyword itself.
+func thirdPartyErrorWord(line, keyword string) bool {
+	for _, signal := range []string{"error", "refused", "failed", "quota", "reached", "exceeded", "unable", "denied", "forbidden", "fatal", "abuse"} {
+		if signal != keyword && strings.Contains(line, signal) {
 			return true
 		}
 	}
@@ -174,7 +283,12 @@ func thirdPartyFramed(line, keyword string) bool {
 // in a conversational line is not a fault.
 func errorFramed(lowered string, index int) bool {
 	line := lineAt(lowered, index)
-	for _, signal := range []string{"429", "403", "error", "refused", "failed", "quota", "exceeded", "reached"} {
+	for _, code := range []string{"429", "403"} {
+		if hasStatusCode(line, code) {
+			return true
+		}
+	}
+	for _, signal := range []string{"error", "refused", "failed", "quota", "exceeded", "reached"} {
 		if strings.Contains(line, signal) {
 			return true
 		}
@@ -238,9 +352,31 @@ type Rule struct {
 	Note string `json:"note,omitempty"`
 }
 
+// Lane is one execution profile: the harness, model and effort a kind of
+// work runs on. Model is handed to the harness untouched, so it takes
+// whatever the harness takes (claude: fable, opus, sonnet, haiku, or a full
+// model id); there is deliberately no allowlist here.
+type Lane struct {
+	Harness string `json:"harness"`
+	Model   string `json:"model,omitempty"`
+	Effort  string `json:"effort,omitempty"`
+	// Note says what the lane is for, to whoever reads the file or
+	// `cfo doctor` next.
+	Note string `json:"note,omitempty"`
+}
+
 // Policy is the whole standing routing table.
 type Policy struct {
 	Rules []Rule `json:"rules"`
+	// Lanes are the fleet's execution lanes by name. They are a property of
+	// this machine and its subscriptions, like the shared cache roots, so
+	// they live here rather than in any one project's manifest; a
+	// manifest's routing block overrides them for that project.
+	Lanes map[string]Lane `json:"lanes,omitempty"`
+	// DefaultLane runs ordinary work; EscalateTo runs high-risk work and
+	// retries. Both must name a defined lane.
+	DefaultLane string `json:"default_lane,omitempty"`
+	EscalateTo  string `json:"escalate_to,omitempty"`
 	// Path is where it was loaded from; not serialized.
 	Path string `json:"-"`
 }
@@ -271,6 +407,42 @@ func Load(dataDir string) (Policy, error) {
 		}
 	}
 	return policy, nil
+}
+
+// Table is the lane table one spawn routes through: the fleet's, or a
+// project manifest's override of it.
+type Table struct {
+	Lanes       map[string]ExecutionLane
+	DefaultLane string
+	EscalateTo  string
+	// Source says where the table came from, for the spawn report.
+	Source string
+}
+
+// LaneTable returns the fleet's lane table, refusing one a spawn could not
+// route through: a lane with no harness, lanes without a default, or a
+// default or escalation that names no lane. Load does not check this, so a
+// lane typo never costs the watcher its standing switch rules.
+func (p Policy) LaneTable() (Table, error) {
+	for name, lane := range p.Lanes {
+		if lane.Harness == "" {
+			return Table{}, fmt.Errorf("routing: %s: lane %q has no harness", p.Path, name)
+		}
+	}
+	if len(p.Lanes) > 0 && p.DefaultLane == "" {
+		return Table{}, fmt.Errorf("routing: %s: lanes are defined but default_lane is not", p.Path)
+	}
+	if _, ok := p.Lanes[p.DefaultLane]; p.DefaultLane != "" && !ok {
+		return Table{}, fmt.Errorf("routing: %s: default_lane %q is not a defined lane", p.Path, p.DefaultLane)
+	}
+	if _, ok := p.Lanes[p.EscalateTo]; p.EscalateTo != "" && !ok {
+		return Table{}, fmt.Errorf("routing: %s: escalate_to %q is not a defined lane", p.Path, p.EscalateTo)
+	}
+	t := Table{Lanes: map[string]ExecutionLane{}, DefaultLane: p.DefaultLane, EscalateTo: p.EscalateTo, Source: "fleet table " + p.Path}
+	for name, lane := range p.Lanes {
+		t.Lanes[name] = ExecutionLane{Name: name, Harness: lane.Harness, Model: lane.Model, Effort: lane.Effort, Note: lane.Note}
+	}
+	return t, nil
 }
 
 // Match returns the rule that answers this harness hitting this fault. The

@@ -46,6 +46,11 @@ type Request struct {
 	Effort    string
 	Session   string
 	Class     string
+	// Capsule, when set, writes the task capsule into the task temporary
+	// directory and returns the brief the goblin reads instead of BriefPath.
+	// It runs only once the id is proven free, because the alias check
+	// refuses any existing directory of the id, this spawn's own included.
+	Capsule func(taskTmp string) (briefPath string, err error)
 }
 
 // Result contains the exact published task identity and user-facing outcome.
@@ -163,6 +168,21 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}()
 	if err := rejectTaskIDAlias(s.StateDir, req.ID); err != nil {
 		return Result{}, err
+	}
+	if req.Capsule != nil {
+		// A spawn that fails before the task is published has no teardown, so
+		// the capsule goes with it rather than claiming the id for a retry.
+		defer func() {
+			if err == nil {
+				return
+			}
+			if removeErr := os.RemoveAll(taskTmp); removeErr != nil {
+				err = errors.Join(err, fmt.Errorf("spawn: remove task temporary directory: %w", removeErr))
+			}
+		}()
+		if req.BriefPath, err = req.Capsule(taskTmp); err != nil {
+			return Result{}, err
+		}
 	}
 	if err := s.ensureProjectSeeded(ctx, project); err != nil {
 		return Result{}, err
