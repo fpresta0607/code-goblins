@@ -97,6 +97,31 @@ func TestRunLavishBelowFloorOrMissingIsPresentationOnly(t *testing.T) {
 	}
 }
 
+func TestMeetsFloorTreatsAMissingComponentAsZero(t *testing.T) {
+	for _, tc := range []struct {
+		versionLine string
+		floor       string
+		want        bool
+	}{
+		{versionLine: "1", floor: "1.0.1"},
+		{versionLine: "1.0", floor: "1.0.1"},
+		{versionLine: "1", floor: "1.0.0", want: true},
+		{versionLine: "1.1", floor: "1.0.1", want: true},
+		{versionLine: "2", floor: "1.0.1", want: true},
+		{versionLine: "lavish-axi v0.1.71", floor: "0.1.71", want: true},
+		{versionLine: "0.1.70", floor: "0.1.71"},
+		{versionLine: "0.1.71.1", floor: "0.1.71", want: true},
+		{versionLine: "dev", floor: "0.1.71"},
+		{versionLine: "", floor: "0.1.71"},
+	} {
+		t.Run(tc.versionLine+" vs "+tc.floor, func(t *testing.T) {
+			if got := meetsFloor(tc.versionLine, tc.floor); got != tc.want {
+				t.Errorf("meetsFloor(%q, %q) = %v, want %v", tc.versionLine, tc.floor, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRunMissingToolCarriesHint(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"git", "gh", "herdr"} {

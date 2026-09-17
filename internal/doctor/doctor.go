@@ -89,7 +89,8 @@ func Run() []Check {
 }
 
 // meetsFloor reports whether the last field of a --version line is a dotted
-// numeric version at or above floor. An unparseable version fails the floor.
+// numeric version at or above floor. A component the version does not carry
+// counts as 0. An unparseable version fails the floor.
 func meetsFloor(versionLine, floor string) bool {
 	fields := strings.Fields(versionLine)
 	if len(fields) == 0 {
@@ -98,12 +99,13 @@ func meetsFloor(versionLine, floor string) bool {
 	have := strings.Split(strings.TrimPrefix(fields[len(fields)-1], "v"), ".")
 	for i, wantPart := range strings.Split(floor, ".") {
 		want, _ := strconv.Atoi(wantPart)
-		if i >= len(have) {
-			return want == 0
-		}
-		got, err := strconv.Atoi(have[i])
-		if err != nil {
-			return false
+		got := 0
+		if i < len(have) {
+			parsed, err := strconv.Atoi(have[i])
+			if err != nil {
+				return false
+			}
+			got = parsed
 		}
 		if got != want {
 			return got > want
