@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,17 +16,24 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/install"
 )
 
-// Check is one tool's verdict. Err empty means usable.
+// Check is one tool's verdict. Err empty means usable. Floor is the minimum
+// version when the tool has one. A Presentation check is reported but never
+// makes the environment unhealthy: without it, visual review falls back to
+// plain text and nonvisual work proceeds.
 type Check struct {
-	Name    string
-	Version string
-	Err     string
-	Hint    string
+	Name         string
+	Version      string
+	Err          string
+	Hint         string
+	Floor        string
+	Presentation bool
 }
 
 var tools = []struct {
-	name string
-	hint string
+	name         string
+	hint         string
+	floor        string
+	presentation bool
 }{
 	{name: "git", hint: "winget install Git.Git"},
 	{name: "gh", hint: "winget install GitHub.cli, then gh auth login"},
@@ -35,6 +43,7 @@ var tools = []struct {
 	{name: "no-mistakes", hint: "irm https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1 | iex"},
 	{name: "gh-axi", hint: "npm install -g gh-axi"},
 	{name: "chrome-devtools-axi", hint: "npm install -g chrome-devtools-axi"},
+	{name: "lavish-axi", hint: "npm install -g lavish-axi@latest", floor: "0.1.71", presentation: true},
 }
 
 // harnessTools are the interactive harnesses a spawn can select. They are
@@ -55,21 +64,52 @@ var harnessTools = []struct {
 func Run() []Check {
 	checks := make([]Check, 0, len(tools)+1)
 	for _, tool := range tools {
+		check := Check{Name: tool.name, Hint: tool.hint, Floor: tool.floor, Presentation: tool.presentation}
 		path, err := exec.LookPath(tool.name)
 		if err != nil {
-			checks = append(checks, Check{Name: tool.name, Err: "not found on PATH", Hint: tool.hint})
+			check.Err = "not found on PATH"
+			checks = append(checks, check)
 			continue
 		}
 		out, err := exec.Command(path, "--version").Output()
 		if err != nil {
-			checks = append(checks, Check{Name: tool.name, Err: tool.name + " --version failed", Hint: tool.hint})
+			check.Err = tool.name + " --version failed"
+			checks = append(checks, check)
 			continue
 		}
 		version, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
-		checks = append(checks, Check{Name: tool.name, Version: strings.TrimSpace(version)})
+		check.Version = strings.TrimSpace(version)
+		if tool.floor != "" && !meetsFloor(check.Version, tool.floor) {
+			check.Err = "version " + check.Version + " is below the floor"
+		}
+		checks = append(checks, check)
 	}
 	checks = append(checks, checkHookPairing())
 	return checks
+}
+
+// meetsFloor reports whether the last field of a --version line is a dotted
+// numeric version at or above floor. An unparseable version fails the floor.
+func meetsFloor(versionLine, floor string) bool {
+	fields := strings.Fields(versionLine)
+	if len(fields) == 0 {
+		return false
+	}
+	have := strings.Split(strings.TrimPrefix(fields[len(fields)-1], "v"), ".")
+	for i, wantPart := range strings.Split(floor, ".") {
+		want, _ := strconv.Atoi(wantPart)
+		if i >= len(have) {
+			return want == 0
+		}
+		got, err := strconv.Atoi(have[i])
+		if err != nil {
+			return false
+		}
+		if got != want {
+			return got > want
+		}
+	}
+	return true
 }
 
 // hookPairingHint is checkHookPairing's remedy for a guard registered alone.
@@ -220,10 +260,10 @@ func probeHarness(ctx context.Context, name, path string) HarnessProbe {
 	return HarnessProbe{Name: name, Detail: strings.TrimSpace(version), OK: true}
 }
 
-// Healthy reports whether every check passed.
+// Healthy reports whether every check passed, ignoring presentation checks.
 func Healthy(checks []Check) bool {
 	for _, c := range checks {
-		if c.Err != "" {
+		if c.Err != "" && !c.Presentation {
 			return false
 		}
 	}

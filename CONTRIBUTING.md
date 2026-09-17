@@ -16,7 +16,6 @@ Thanks for wanting to contribute to code-goblins.
 go vet ./...
 go test ./...
 go build ./cmd/cfo
-go build ./cmd/showcase-axi
 ```
 
 CI runs the same steps on `windows-latest` for every push to `main` and every pull request.

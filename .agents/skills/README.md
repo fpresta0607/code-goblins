@@ -2,7 +2,7 @@
 
 These skills ship with the repo so a clone carries the full fleet workflow.
 They are synced from the operator's user scope (`%USERPROFILE%\.agents\skills`); edit them there, then refresh the copies here.
-The exception is `showcase`, which is owned by this repo (its CLI is `cmd/showcase-axi`); edit it here, never sync it down over a user-scope copy.
+The exception is `lavish`, which is owned by this repo because it carries the CFO's presentation-only rules around the third-party `lavish-axi` CLI; edit it here, never sync it down over a user-scope copy.
 
 ## Which harness discovers what
 

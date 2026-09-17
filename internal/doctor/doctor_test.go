@@ -26,11 +26,12 @@ func TestRunAllToolsPresent(t *testing.T) {
 	for _, name := range []string{"git", "gh", "herdr", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi"} {
 		fakeTool(t, dir, name, name+" version 1.0.0", 0)
 	}
+	fakeTool(t, dir, "lavish-axi", "0.1.71", 0)
 	t.Setenv("PATH", dir)
 	t.Setenv("CFO_HOME", t.TempDir()) // no .claude/settings.json: hook-pairing passes
 	checks := Run()
-	if len(checks) != 9 {
-		t.Fatalf("len = %d, want 9 (8 tools + hook-pairing)", len(checks))
+	if len(checks) != 10 {
+		t.Fatalf("len = %d, want 10 (9 tools + hook-pairing)", len(checks))
 	}
 	if !Healthy(checks) {
 		t.Errorf("Healthy = false with all tools present: %+v", checks)
@@ -44,8 +45,55 @@ func TestRunAllToolsPresent(t *testing.T) {
 	if checks[5].Name != "no-mistakes" || checks[6].Name != "gh-axi" || checks[7].Name != "chrome-devtools-axi" {
 		t.Errorf("gate/API checks = %+v, want no-mistakes, gh-axi, chrome-devtools-axi", checks[5:8])
 	}
-	if checks[8].Name != "hook-pairing" {
-		t.Errorf("checks[8] = %+v, want hook-pairing", checks[8])
+	if checks[8].Name != "lavish-axi" || checks[8].Err != "" || checks[8].Floor != "0.1.71" {
+		t.Errorf("checks[8] = %+v, want lavish-axi at its 0.1.71 floor", checks[8])
+	}
+	if checks[9].Name != "hook-pairing" {
+		t.Errorf("checks[9] = %+v, want hook-pairing", checks[9])
+	}
+}
+
+func TestRunLavishBelowFloorOrMissingIsPresentationOnly(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		version string
+		wantErr bool
+	}{
+		{name: "missing", wantErr: true},
+		{name: "below floor", version: "0.1.70", wantErr: true},
+		{name: "older minor", version: "0.0.99", wantErr: true},
+		{name: "unparseable", version: "lavish dev", wantErr: true},
+		{name: "at floor", version: "0.1.71"},
+		{name: "above floor", version: "lavish-axi v0.2.0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, name := range []string{"git", "gh", "herdr", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi"} {
+				fakeTool(t, dir, name, name+" ok", 0)
+			}
+			if tc.version != "" {
+				fakeTool(t, dir, "lavish-axi", tc.version, 0)
+			}
+			t.Setenv("PATH", dir)
+			t.Setenv("CFO_HOME", t.TempDir())
+
+			checks := Run()
+			var lavish Check
+			for _, check := range checks {
+				if check.Name == "lavish-axi" {
+					lavish = check
+				}
+			}
+			if !lavish.Presentation || lavish.Hint != "npm install -g lavish-axi@latest" {
+				t.Errorf("lavish-axi check = %+v, want a presentation check with its install command", lavish)
+			}
+			if (lavish.Err != "") != tc.wantErr {
+				t.Errorf("lavish-axi Err = %q, want error %v", lavish.Err, tc.wantErr)
+			}
+			if !Healthy(checks) {
+				t.Errorf("Healthy = false; lavish-axi must never make doctor unhealthy: %+v", checks)
+			}
+		})
 	}
 }
 
