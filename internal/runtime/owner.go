@@ -67,6 +67,11 @@ type Attribution struct {
 	tasks map[string]Task
 	// checkouts maps a normalized checkout path to its project name.
 	checkouts map[string]Checkout
+	// checkoutNames maps a checkout's directory name to it. compose names a
+	// stack after the directory it was brought up in, so this is what lets a
+	// volume whose containers are all gone still name its project from its
+	// own name alone.
+	checkoutNames map[string]Checkout
 	// stacks maps a stack name a project's own manifest declares to the
 	// project and the manifest that declared it.
 	stacks map[string]declaredStack
@@ -88,12 +93,13 @@ type declaredStack struct {
 // NewAttribution indexes an inventory for attribution.
 func NewAttribution(inv Inventory) Attribution {
 	attribution := Attribution{
-		worktrees: make(map[string]Task, len(inv.Tasks)),
-		tasks:     make(map[string]Task, len(inv.Tasks)),
-		checkouts: make(map[string]Checkout, len(inv.Checkouts)),
-		stacks:    make(map[string]declaredStack),
-		retired:   inv.Retired,
-		present:   make(map[string]bool, len(inv.Checkouts)+len(inv.Present)),
+		worktrees:     make(map[string]Task, len(inv.Tasks)),
+		tasks:         make(map[string]Task, len(inv.Tasks)),
+		checkouts:     make(map[string]Checkout, len(inv.Checkouts)),
+		checkoutNames: make(map[string]Checkout, len(inv.Checkouts)),
+		stacks:        make(map[string]declaredStack),
+		retired:       inv.Retired,
+		present:       make(map[string]bool, len(inv.Checkouts)+len(inv.Present)),
 	}
 	if attribution.retired == nil {
 		attribution.retired = map[string]bool{}
@@ -111,6 +117,7 @@ func NewAttribution(inv Inventory) Attribution {
 		key := normalize(checkout.Path)
 		attribution.checkouts[key] = checkout
 		attribution.present[key] = true
+		attribution.checkoutNames[strings.ToLower(checkout.Name)] = checkout
 	}
 	for _, project := range inv.Projects {
 		for _, stack := range project.Stacks {
@@ -192,6 +199,19 @@ func (a Attribution) Of(workDir, stack string) Owner {
 		}
 	}
 	if workDir == "" {
+		// With no directory at all - a volume, whose containers are long gone -
+		// the name is the only evidence there is. compose takes a stack's name
+		// from the directory it was brought up in, so a stack named exactly
+		// after a project checkout came from that project. This is deliberately
+		// confined to the no-directory case: wherever a directory exists it is
+		// the stronger and more specific evidence, and must win.
+		if checkout, ok := a.checkoutNames[strings.ToLower(stack)]; ok {
+			return Owner{
+				Kind:     OwnerProject,
+				Project:  checkout.Name,
+				Evidence: fmt.Sprintf("its name carries the stack %q, which is the directory name of the %s checkout", stack, checkout.Name),
+			}
+		}
 		if stack != "" {
 			return Owner{
 				Kind:     OwnerUnowned,

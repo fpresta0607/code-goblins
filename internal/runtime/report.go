@@ -221,15 +221,9 @@ func buildStacks(inv Inventory, attribution Attribution) []Stack {
 // left of who made it.
 func buildLooseVolumes(inv Inventory, attribution Attribution) []LooseVolume {
 	referenced := map[string]bool{}
-	stackDir := map[string]string{}
 	for _, container := range inv.Containers {
 		for _, name := range container.Volumes {
 			referenced[name] = true
-		}
-		if container.Stack != "" && container.WorkDir != "" {
-			if _, seen := stackDir[container.Stack]; !seen {
-				stackDir[container.Stack] = container.WorkDir
-			}
 		}
 	}
 	loose := make([]LooseVolume, 0)
@@ -237,11 +231,16 @@ func buildLooseVolumes(inv Inventory, attribution Attribution) []LooseVolume {
 		if referenced[volume.Name] {
 			continue
 		}
-		stack := volume.Stack()
+		// A volume is attributed from its own name and nothing else.
+		// Borrowing the working directory of some container that shares its
+		// stack name would let whichever service sorts first alphabetically
+		// decide the owner, and the live-worktree rule would then hand a live
+		// goblin a volume it never created - the wrong owner, with evidence
+		// pointing at a directory that has nothing to do with the volume.
 		loose = append(loose, LooseVolume{
 			Name:  volume.Name,
 			Bytes: volume.SizeBytes,
-			Owner: attribution.Of(stackDir[stack], stack),
+			Owner: attribution.Of("", volume.Stack()),
 		})
 	}
 	sort.Slice(loose, func(i, j int) bool { return loose[i].Name < loose[j].Name })
@@ -346,7 +345,7 @@ func buildServers(inv Inventory, attribution Attribution) []Server {
 			PID:       listener.PID,
 			Process:   listener.Process,
 			WorkDir:   listener.WorkDir,
-			Directory: directoryKind(listener, attribution, owner),
+			Directory: directoryKind(listener, attribution),
 			Owner:     owner,
 		}
 		server.Stop = stopVerdict(server.Directory, owner)
@@ -361,7 +360,7 @@ func buildServers(inv Inventory, attribution Attribution) []Server {
 	return servers
 }
 
-func directoryKind(listener Listener, attribution Attribution, owner Owner) DirectoryKind {
+func directoryKind(listener Listener, attribution Attribution) DirectoryKind {
 	if _, live := attribution.taskIn(listener.WorkDir); live {
 		return DirLiveWorktree
 	}
@@ -372,9 +371,6 @@ func directoryKind(listener Listener, attribution Attribution, owner Owner) Dire
 		return DirRecordlessWorktree
 	}
 	if _, checkout := attribution.checkoutIn(listener.WorkDir); checkout {
-		return DirCheckout
-	}
-	if owner.Kind == OwnerProject {
 		return DirCheckout
 	}
 	return DirOther
