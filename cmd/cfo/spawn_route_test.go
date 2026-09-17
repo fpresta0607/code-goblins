@@ -13,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // shippedRoutingJSON is the lane table that ships in data/routing.json, so a
@@ -83,8 +84,8 @@ func TestRunSpawnRoutesFromTheFleetTableWithoutHarness(t *testing.T) {
 	if string(got.Harness) != "claude" || got.Model != "opus" || got.Effort != "high" {
 		t.Errorf("request = %+v, want the build lane (claude/opus/high)", *got)
 	}
-	if got.BriefPath != brief {
-		t.Errorf("brief = %q, want the original brief when the project has no manifest", got.BriefPath)
+	if got.BriefPath != brief || got.Capsule != nil {
+		t.Errorf("brief = %q capsule = %v, want the original brief and no capsule when the project has no manifest", got.BriefPath, got.Capsule != nil)
 	}
 	want := "spawned g10\nrouted lane=build class=implementation risk=normal source=fleet table " + filepath.Join(h.Data, "routing.json") + " quota=check skipped (no quota reader in this runtime)\n"
 	if stdout.String() != want {
@@ -217,10 +218,44 @@ func TestRunSpawnProjectManifestOverridesTheFleetTable(t *testing.T) {
 	if !strings.Contains(stdout.String(), "routed lane=open class=implementation risk=normal source=project override "+manifestPath) {
 		t.Errorf("stdout = %q, want the override named with its manifest", stdout.String())
 	}
-	if want := filepath.Join(h.State, "tasktmp", "g14", "brief.md"); got.BriefPath != want {
-		t.Errorf("brief = %q, want the capsule-augmented brief %q", got.BriefPath, want)
+	if got.Capsule == nil {
+		t.Error("capsule = nil, want the manifest's capsule handed to the spawn")
 	}
-	capsule, err := os.ReadFile(filepath.Join(h.State, "tasktmp", "g14", "task-capsule.json"))
+}
+
+// The reported failure, driven through the real spawn service: a routed spawn
+// for a project with a manifest wrote its capsule into state/tasktmp/<id>
+// before the service ran, and the service's alias check refuses any existing
+// directory of the id, so the spawn was refused and the directory it left
+// behind refused every retry too.
+func TestRunSpawnWritesTheManifestCapsuleAndDispatches(t *testing.T) {
+	fixture := newFleetE2EFixture(t)
+	manifestPath := filepath.Join(fixture.home.Data, "projects", filepath.Base(fixture.project), "project.json")
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"project":"disposable-project","routing":{"default_lane":"open","escalate_to":"open","lanes":{"open":{"harness":"claude","model":"open-model","effort":"low"}}},"budgets":{"implementation":{"max_repair_rounds":4}}}`
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	brief := filepath.Join(fixture.home.Root, "g-fresh1.brief.md")
+	if err := os.WriteFile(brief, []byte("Add a dark-mode toggle to the settings page.\n\nDelivery contract: mode=local-only\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, _ := runFleetCommand(t, fixture.runtime, "spawn", "g-fresh1", "--project", fixture.project, "--brief", brief, "--mode", "local-only")
+	if !strings.Contains(stdout, "spawned g-fresh1 ") || !strings.Contains(stdout, "routed lane=open class=implementation risk=normal source=project override "+manifestPath) {
+		t.Errorf("stdout = %q, want the goblin spawned on the project's own lane", stdout)
+	}
+	taskTmp := filepath.Join(fixture.home.State, "tasktmp", "g-fresh1")
+	meta, err := state.ReadTaskMeta(fixture.home.State, "g-fresh1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.Brief != filepath.Join(taskTmp, "brief.md") || meta.Model != "open-model" {
+		t.Errorf("meta brief = %q model = %q, want the capsule-augmented brief on the project's lane", meta.Brief, meta.Model)
+	}
+	capsule, err := os.ReadFile(filepath.Join(taskTmp, "task-capsule.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
