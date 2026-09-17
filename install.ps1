@@ -19,6 +19,20 @@ if (-not $InstallDir) {
 }
 $dest = Join-Path $InstallDir "cfo.exe"
 
+# A clone bootstrapped before the Lavish ruling still has the retired review
+# surface binary here, where nothing builds it and nothing ignores it any
+# more; left alone it sits untracked forever and can be committed by accident.
+$retiredSurface = Join-Path $InstallDir "showcase-axi.exe"
+if (Test-Path $retiredSurface) {
+    Remove-Item $retiredSurface -Force -ErrorAction SilentlyContinue
+    if (Test-Path $retiredSurface) {
+        Write-Host "WARN     retired review-surface binary still present; delete $retiredSurface by hand"
+    }
+    else {
+        Write-Host "Removed the retired review-surface binary -> $retiredSurface"
+    }
+}
+
 # Prefer a published release; fall back to building from source (needs Go).
 try {
     $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/latest"
