@@ -209,8 +209,8 @@ func TestSenderTextSubmitsNativelyAndNeverTypesIntoThePane(t *testing.T) {
 		}
 		if len(args) >= 4 && args[0] == "agent" && args[1] == "prompt" {
 			prompted = true
-			if args[3] != "do the work" {
-				t.Errorf("prompt text = %q, want the message", args[3])
+			if args[3] != Stamp("do the work") {
+				t.Errorf("prompt text = %q, want the message stamped as the CFO's", args[3])
 			}
 		}
 	}

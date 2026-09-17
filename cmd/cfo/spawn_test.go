@@ -19,6 +19,8 @@ func TestRunSpawnPassesValidatedRequestAndEnvironment(t *testing.T) {
 
 	deps := defaultCommandRuntime()
 	deps.speedHint = nil // keep stdout deterministic; the hint has its own tests
+	deps.quota = nil     // no quota-axi call from a unit test; the check has its own tests
+	brief := briefFile(t)
 	var gotHome home.Home
 	var gotRequest spawn.Request
 	deps.spawn = func(_ context.Context, h home.Home, request spawn.Request) (spawn.Result, error) {
@@ -31,7 +33,7 @@ func TestRunSpawnPassesValidatedRequestAndEnvironment(t *testing.T) {
 	exit := runWithRuntime([]string{
 		"spawn", "g1",
 		"--project", `C:\project`,
-		"--brief", `C:\brief.md`,
+		"--brief", brief,
 		"--harness", "codex",
 		"--mode", "direct-PR",
 		"--model", "gpt-5",
@@ -44,11 +46,11 @@ func TestRunSpawnPassesValidatedRequestAndEnvironment(t *testing.T) {
 	if gotHome.Root != homeRoot || gotHome.State != filepath.Join(homeRoot, "state") {
 		t.Errorf("home = %+v, want CFO_HOME %q", gotHome, homeRoot)
 	}
-	if gotRequest.ID != "g1" || gotRequest.Project != `C:\project` || gotRequest.BriefPath != `C:\brief.md` || gotRequest.Kind != "ship" || gotRequest.Mode != "direct-PR" || !gotRequest.Yolo || string(gotRequest.Harness) != "codex" || gotRequest.Model != "gpt-5" || gotRequest.Effort != "high" || gotRequest.Session != "fleet-session" {
+	if gotRequest.ID != "g1" || gotRequest.Project != `C:\project` || gotRequest.BriefPath != brief || gotRequest.Kind != "ship" || gotRequest.Mode != "direct-PR" || !gotRequest.Yolo || string(gotRequest.Harness) != "codex" || gotRequest.Model != "gpt-5" || gotRequest.Effort != "high" || gotRequest.Session != "fleet-session" {
 		t.Errorf("request = %+v, want parsed spawn request", gotRequest)
 	}
-	if stdout.String() != "spawned g1\n" || stderr.Len() != 0 {
-		t.Errorf("stdout=%q stderr=%q, want only result output", stdout.String(), stderr.String())
+	if stdout.String() != "spawned g1\n"+explicitRouteLine || stderr.Len() != 0 {
+		t.Errorf("stdout=%q stderr=%q, want the result output and the routing line", stdout.String(), stderr.String())
 	}
 }
 
@@ -61,7 +63,7 @@ func TestRunSpawnDefaultsSessionAndDeliveryMode(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	exit := runWithRuntime([]string{"spawn", "g2", "--project", `C:\project`, "--brief", `C:\brief.md`, "--harness", "claude"}, &stdout, &stderr, deps)
+	exit := runWithRuntime([]string{"spawn", "g2", "--project", `C:\project`, "--brief", briefFile(t), "--harness", "claude"}, &stdout, &stderr, deps)
 	if exit != 0 {
 		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
 	}
@@ -80,7 +82,7 @@ func TestRunSpawnRejectsInvalidArgumentsWithoutState(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	exit := runWithRuntime([]string{"spawn", "g3", "--project", `C:\project`, "--brief", `C:\brief.md`, "--harness", "grok"}, &stdout, &stderr, deps)
+	exit := runWithRuntime([]string{"spawn", "g3", "--project", `C:\project`, "--brief", briefFile(t), "--harness", "grok"}, &stdout, &stderr, deps)
 	if exit != 2 {
 		t.Fatalf("exit = %d, want 2; stderr=%s", exit, stderr.String())
 	}
@@ -104,7 +106,7 @@ func TestRunSpawnRejectsUnknownFlagInTaskPosition(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	exit := runWithRuntime([]string{"spawn", "--unknown", "--project", `C:\project`, "--brief", `C:\brief.md`, "--harness", "claude"}, &stdout, &stderr, deps)
+	exit := runWithRuntime([]string{"spawn", "--unknown", "--project", `C:\project`, "--brief", briefFile(t), "--harness", "claude"}, &stdout, &stderr, deps)
 	if exit != 2 {
 		t.Fatalf("exit = %d, want 2; stderr=%s", exit, stderr.String())
 	}
@@ -120,7 +122,7 @@ func TestRunSpawnWritesFailureOnlyToStderr(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	exit := runWithRuntime([]string{"spawn", "g4", "--project", `C:\project`, "--brief", `C:\brief.md`, "--harness", "pi"}, &stdout, &stderr, deps)
+	exit := runWithRuntime([]string{"spawn", "g4", "--project", `C:\project`, "--brief", briefFile(t), "--harness", "pi"}, &stdout, &stderr, deps)
 	if exit != 1 {
 		t.Fatalf("exit = %d, want 1", exit)
 	}
@@ -141,14 +143,14 @@ func TestRunSpawnPrintsSpeedHintWhenTelemetryHasOne(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	exit := runWithRuntime([]string{"spawn", "g5", "--project", `C:\project`, "--brief", `C:\brief.md`, "--harness", "kimi"}, &stdout, &stderr, deps)
+	exit := runWithRuntime([]string{"spawn", "g5", "--project", `C:\project`, "--brief", briefFile(t), "--harness", "kimi"}, &stdout, &stderr, deps)
 	if exit != 0 {
 		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
 	}
 	if gotHarness != "kimi" {
 		t.Errorf("speed hint harness = %q, want kimi", gotHarness)
 	}
-	want := "spawned g5\nspeed hint: kimi avg 12.3 min/invocation across 37 measured invocations\n"
+	want := "spawned g5\n" + explicitRouteLine + "speed hint: kimi avg 12.3 min/invocation across 37 measured invocations\n"
 	if stdout.String() != want || stderr.Len() != 0 {
 		t.Errorf("stdout=%q stderr=%q, want result output plus speed hint", stdout.String(), stderr.String())
 	}
@@ -162,13 +164,28 @@ func TestRunSpawnOmitsSpeedHintWhenTelemetryHasNone(t *testing.T) {
 	deps.speedHint = func(context.Context, string) string { return "" }
 
 	var stdout, stderr bytes.Buffer
-	exit := runWithRuntime([]string{"spawn", "g6", "--project", `C:\project`, "--brief", `C:\brief.md`, "--harness", "pi"}, &stdout, &stderr, deps)
+	exit := runWithRuntime([]string{"spawn", "g6", "--project", `C:\project`, "--brief", briefFile(t), "--harness", "pi"}, &stdout, &stderr, deps)
 	if exit != 0 {
 		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
 	}
-	if stdout.String() != "spawned g6\n" || stderr.Len() != 0 {
+	if stdout.String() != "spawned g6\n"+explicitRouteLine || stderr.Len() != 0 {
 		t.Errorf("stdout=%q stderr=%q, want unchanged output without telemetry", stdout.String(), stderr.String())
 	}
+}
+
+// explicitRouteLine is what an explicit --harness spawn of a plain brief
+// reports after the spawned line: the operator's flag won, nothing was routed.
+const explicitRouteLine = "routed lane=explicit class=implementation risk=normal source=--harness flag\n"
+
+// briefFile writes a real brief, because a spawn reads it to classify the
+// task before anything else happens.
+func briefFile(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "brief.md")
+	if err := os.WriteFile(path, []byte("# Brief g\n\n## Task\n\ndo the work\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func testHome(t *testing.T) home.Home {

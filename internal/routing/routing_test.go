@@ -159,6 +159,8 @@ func TestDetectDoesNotReadAGitHostMentionAsAnOutage(t *testing.T) {
 func TestDetectClassifiesAGitHubOutageAsThirdParty(t *testing.T) {
 	tails := []string{
 		"gh: 429 API rate limit exceeded for user 123456",
+		// Claude Code prints command output under its tool-output glyph.
+		" ⎿ gh: 429 API rate limit exceeded for user 123456",
 		"fatal: unable to access 'https://github.com/x/y.git': The requested URL returned error: 503",
 		"You have exceeded a secondary rate limit on api.github.com",
 	}
@@ -175,6 +177,7 @@ func TestDetectDoesNotReadAGhSuffixWordAsAnOutage(t *testing.T) {
 		"high: 429 rows",
 		"weigh: 503 bytes",
 		"sigh: 502 gates",
+		" ⎿ high: 429 rows",
 	}
 	for _, tail := range tails {
 		if fault, _, found := Detect(tail); found {

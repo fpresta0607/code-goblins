@@ -1,6 +1,8 @@
 projects/
 /state/
-data/
+# Fleet data is local state, except the standing routing policy, which ships.
+/data/*
+!/data/routing.json
 # The shared package-cache root every goblin builds against.
 /caches/
 .no-mistakes/

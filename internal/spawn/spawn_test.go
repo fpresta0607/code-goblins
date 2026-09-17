@@ -1142,6 +1142,42 @@ func TestSpawnRejectsUnsupportedHerdrKindBeforeMutation(t *testing.T) {
 	}
 }
 
+// The capsule is written into the id's own task temporary directory only after
+// the alias check, and a spawn that fails before its task is published takes
+// the capsule with it, so the retry is not refused by the failed attempt.
+func TestSpawnRemovesTheCapsuleOfASpawnThatFailsBeforePublishing(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.runner.manifests = []string{"codex", "pi", "kimi"}
+	taskTmp := filepath.Join(fixture.stateDir, "tasktmp", fixture.request.ID)
+	request := fixture.request
+	request.Capsule = func(dir string) (string, error) {
+		if dir != taskTmp {
+			t.Errorf("capsule dir = %q, want %q", dir, taskTmp)
+		}
+		brief := filepath.Join(dir, "brief.md")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return "", err
+		}
+		return brief, os.WriteFile(brief, []byte("Delivery contract: mode=no-mistakes\nDo the work.\n\n## CFO durable task capsule\n"), 0o600)
+	}
+
+	if _, err := fixture.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), `does not support harness kind "claude"`) {
+		t.Fatalf("Spawn error = %v, want kind refusal", err)
+	}
+	if _, err := os.Stat(taskTmp); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("capsule directory %q survived the failed spawn: %v", taskTmp, err)
+	}
+
+	fixture.runner.manifests = []string{"claude"}
+	result, err := fixture.service.Spawn(context.Background(), request)
+	if err != nil {
+		t.Fatalf("retry Spawn error = %v, want the same id spawned with its capsule", err)
+	}
+	if want := filepath.Join(taskTmp, "brief.md"); result.Meta.Brief != want {
+		t.Errorf("meta brief = %q, want the capsule brief %q", result.Meta.Brief, want)
+	}
+}
+
 func TestSpawnConfirmHarnessDialogsFailsFastOnTerminalCaptureError(t *testing.T) {
 	fixture := newFixture(t)
 	fixture.runner.trustDialog = true
