@@ -124,6 +124,25 @@ func TestDetectDoesNotReadAPullRequestOrIssueNumberAsAnOutage(t *testing.T) {
 	}
 }
 
+func TestDetectReadsAGitHubHTTPStatusAsThirdPartyNotProvider(t *testing.T) {
+	// gh prints a GitHub 5xx with no error word; the provider patterns "502
+	// bad gateway" and "service unavailable" would otherwise claim it and
+	// recommend a harness switch.
+	for _, tail := range []string{
+		"HTTP 502: 502 Bad Gateway (https://api.github.com/graphql)",
+		"HTTP 503: Service Unavailable (https://api.github.com/repos)",
+		"HTTP 502 (https://api.github.com/graphql)",
+		"api.github.com answered 503 Service Unavailable",
+	} {
+		if fault, _, found := Detect(tail); !found || fault != ThirdParty {
+			t.Errorf("Detect(%q) = (%q, %v), want %q", tail, fault, found, ThirdParty)
+		}
+	}
+	if fault, evidence, found := Detect("● Opened https://github.com/org/repo/pull/502: ready for review\n"); found {
+		t.Errorf("Detect = (%q, %q), want no fault for a pull request number before a colon", fault, evidence)
+	}
+}
+
 func TestDetectExclusionUsesTheSameConstantTheSenderStamps(t *testing.T) {
 	// fleet.Sender stamps every steer with SteerPrefix; the exclusion keys on
 	// the same constant, so this test and the sender's test move together

@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -143,15 +144,27 @@ func thirdPartyFault(lowered string) (int, bool) {
 	return 0, false
 }
 
+// httpStatusForm is a status code written the way an HTTP client prints one,
+// as gh does ("HTTP 502: 502 Bad Gateway"): after the word http, or directly
+// before a colon and not as part of a path, reference or longer token.
+var httpStatusForm = regexp.MustCompile(`\bhttp (?:429|502|503)\b|(?:^|[^a-z0-9/#-])(?:429|502|503):`)
+
 // thirdPartyLine reports whether the line containing index is a git-platform
-// outage: a status code with an error word, or a prose keyword with error
-// framing.
+// outage: a framed status code, or a prose keyword with error framing.
 func thirdPartyLine(lowered string, index int) bool {
 	line := lineAt(lowered, index)
 	// A git host line names pull request, issue and run numbers all the time,
-	// so a status code counts only beside an error word.
+	// so a status code counts only when it is framed as one: written in HTTP
+	// status form, or beside an HTTP status phrase or an error word.
+	if httpStatusForm.MatchString(line) {
+		return true
+	}
+	framed := thirdPartyErrorWord(line, "")
+	for _, phrase := range []string{"bad gateway", "service unavailable", "too many requests", "gateway timeout", "internal server error"} {
+		framed = framed || strings.Contains(line, phrase)
+	}
 	for _, code := range []string{"429", "503", "502"} {
-		if hasStatusCode(line, code) && thirdPartyErrorWord(line, "") {
+		if framed && hasStatusCode(line, code) {
 			return true
 		}
 	}
