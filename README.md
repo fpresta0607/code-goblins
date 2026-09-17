@@ -100,7 +100,7 @@ cfo install
 cfo doctor
 ```
 
-`install.ps1 -Bootstrap` installs or builds the Code Goblins binaries and scriptable dependencies. `cfo install` wires the CFO into your user environment so a supervisor opened from another project can still manage the fleet.
+`install.ps1 -Bootstrap` installs or builds the Code Goblins binary and scriptable dependencies. `cfo install` wires the CFO into your user environment so a supervisor opened from another project can still manage the fleet.
 
 Then open the project you actually want to build:
 
