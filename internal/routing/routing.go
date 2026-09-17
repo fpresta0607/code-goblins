@@ -1,6 +1,8 @@
-// Package routing reads the fleet's standing policy for what to do when a
-// goblin's harness starts erroring: which provider failures are recognized,
-// and which of them the Supreme Overlord has already decided the answer to.
+// Package routing reads the fleet's standing policy: the execution lanes a
+// spawn routes through (which harness, model and effort each kind of work
+// gets), and what to do when a goblin's harness starts erroring, which
+// provider failures are recognized, and which of them the Supreme Overlord
+// has already decided the answer to.
 package routing
 
 import (
@@ -69,13 +71,27 @@ var faultPatterns = []struct {
 	}},
 }
 
+// SteerPrefix is stamped on every line the CFO delivers into a goblin's pane
+// with cfo send, and OverlordPrefix is what the Overlord types before a line
+// of their own. Detect blanks lines carrying either, and the indented
+// continuation lines a pane wraps a long prompt into, before it looks for a
+// fault: text an operator wrote about a provider is not evidence about the
+// harness. The sender (fleet.Sender.Text) stamps with this same constant and
+// its test asserts the stamp through it, so a prefix change here changes the
+// stamp and the exclusion together rather than leaving one behind.
+const (
+	SteerPrefix    = "CFO: "
+	OverlordPrefix = "Overlord: "
+)
+
 // Detect reports the provider fault a pane's tail shows, if any. It reads the
-// tail the watcher already captured rather than probing anything. Third-party
-// platform failures (GitHub and other git hosts) are checked before the model
-// provider's own faults, because a platform rate limit or 5xx is a wait/backoff
-// case that must never route to a harness switch.
+// tail the watcher already captured rather than probing anything. Operator
+// lines are blanked first, then third-party platform failures (GitHub and
+// other git hosts) are checked before the model provider's own faults,
+// because a platform rate limit or 5xx is a wait/backoff case that must never
+// route to a harness switch.
 func Detect(paneTail string) (Fault, string, bool) {
-	lowered := strings.ToLower(paneTail)
+	lowered := redactOperatorLines(strings.ToLower(paneTail))
 	if index, ok := thirdPartyFault(lowered); ok {
 		return ThirdParty, evidence(paneTail, index), true
 	}
@@ -98,13 +114,23 @@ func Detect(paneTail string) (Fault, string, bool) {
 	return "", "", false
 }
 
+// thirdPartyMarkers name a git platform or its CI on a line: GitHub Actions
+// and a workflow run are the platform too, since an Actions runner refused
+// on quota is GitHub's rate limit, never the harness's.
+var thirdPartyMarkers = []string{"github", "api.github.com", "gitlab", "bitbucket", "actions run", "actions workflow", "actions runner", "workflow run"}
+
 // thirdPartyFault recognizes a git-platform (GitHub and friends) rate limit or
 // outage: those are the platform's own quota, not the model provider's, so the
-// recommended action is wait/backoff rather than a harness switch.
+// recommended action is wait/backoff rather than a harness switch. Every
+// occurrence of a marker is examined, not only the first: a pane that names
+// a pull request URL early and reports an API rate limit later must read
+// the later line, or the provider rule below claims it as a harness fault.
 func thirdPartyFault(lowered string) (int, bool) {
-	for _, marker := range []string{"github", "api.github.com", "gitlab", "bitbucket"} {
-		if index := strings.Index(lowered, marker); index >= 0 && thirdPartyLine(lowered, index) {
-			return index, true
+	for _, marker := range thirdPartyMarkers {
+		for _, index := range allMatches(lowered, marker) {
+			if thirdPartyLine(lowered, index) {
+				return index, true
+			}
 		}
 	}
 	// gh CLI errors begin with "gh:" at the start of a line; a bare
@@ -135,6 +161,44 @@ func thirdPartyLine(lowered string, index int) bool {
 		}
 	}
 	return false
+}
+
+// allMatches returns every index at which needle occurs.
+func allMatches(haystack, needle string) []int {
+	var indexes []int
+	for start := 0; start < len(haystack); {
+		index := strings.Index(haystack[start:], needle)
+		if index < 0 {
+			return indexes
+		}
+		indexes = append(indexes, start+index)
+		start += index + len(needle)
+	}
+	return indexes
+}
+
+// redactOperatorLines blanks every line an operator wrote, a cfo send steer
+// or an Overlord line, together with the indented lines a pane wraps the
+// rest of that prompt into. Lengths are kept, so an index into the result
+// still names the same place in the original tail. A pane's own prompt
+// markers before the prefix are ignored.
+func redactOperatorLines(lowered string) string {
+	lines := strings.Split(lowered, "\n")
+	redacting := false
+	for i, line := range lines {
+		trimmed := strings.TrimLeft(line, " \t>›❯│")
+		switch {
+		case strings.HasPrefix(trimmed, strings.ToLower(SteerPrefix)) || strings.HasPrefix(trimmed, strings.ToLower(OverlordPrefix)):
+			redacting = true
+		case redacting && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")):
+		default:
+			redacting = false
+		}
+		if redacting {
+			lines[i] = strings.Repeat(" ", len(line))
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // lineStartMatches returns the indexes where needle begins a line.
@@ -238,9 +302,31 @@ type Rule struct {
 	Note string `json:"note,omitempty"`
 }
 
+// Lane is one execution profile: the harness, model and effort a kind of
+// work runs on. Model is handed to the harness untouched, so it takes
+// whatever the harness takes (claude: fable, opus, sonnet, haiku, or a full
+// model id); there is deliberately no allowlist here.
+type Lane struct {
+	Harness string `json:"harness"`
+	Model   string `json:"model,omitempty"`
+	Effort  string `json:"effort,omitempty"`
+	// Note says what the lane is for, to whoever reads the file or
+	// `cfo doctor` next.
+	Note string `json:"note,omitempty"`
+}
+
 // Policy is the whole standing routing table.
 type Policy struct {
 	Rules []Rule `json:"rules"`
+	// Lanes are the fleet's execution lanes by name. They are a property of
+	// this machine and its subscriptions, like the shared cache roots, so
+	// they live here rather than in any one project's manifest; a
+	// manifest's routing block overrides them for that project.
+	Lanes map[string]Lane `json:"lanes,omitempty"`
+	// DefaultLane runs ordinary work; EscalateTo runs high-risk work and
+	// retries. Both must name a defined lane.
+	DefaultLane string `json:"default_lane,omitempty"`
+	EscalateTo  string `json:"escalate_to,omitempty"`
 	// Path is where it was loaded from; not serialized.
 	Path string `json:"-"`
 }
@@ -270,7 +356,54 @@ func Load(dataDir string) (Policy, error) {
 			return Policy{}, fmt.Errorf("routing: %s: rule %d for %s does not say what to switch to", path, index, rule.Fault)
 		}
 	}
+	if err := validateLanes(policy.Lanes, policy.DefaultLane, policy.EscalateTo); err != nil {
+		return Policy{}, fmt.Errorf("routing: %s: %w", path, err)
+	}
 	return policy, nil
+}
+
+// validateLanes refuses a lane table a spawn could not route through: a lane
+// with no harness, lanes without a default, or a default or escalation that
+// names no lane.
+func validateLanes(lanes map[string]Lane, defaultLane, escalateTo string) error {
+	for name, lane := range lanes {
+		if lane.Harness == "" {
+			return fmt.Errorf("lane %q has no harness", name)
+		}
+	}
+	if len(lanes) > 0 && defaultLane == "" {
+		return errors.New("lanes are defined but default_lane is not")
+	}
+	if defaultLane != "" {
+		if _, ok := lanes[defaultLane]; !ok {
+			return fmt.Errorf("default_lane %q is not a defined lane", defaultLane)
+		}
+	}
+	if escalateTo != "" {
+		if _, ok := lanes[escalateTo]; !ok {
+			return fmt.Errorf("escalate_to %q is not a defined lane", escalateTo)
+		}
+	}
+	return nil
+}
+
+// Table is the lane table one spawn routes through: the fleet's, or a
+// project manifest's override of it.
+type Table struct {
+	Lanes       map[string]ExecutionLane
+	DefaultLane string
+	EscalateTo  string
+	// Source says where the table came from, for the spawn report.
+	Source string
+}
+
+// Table returns the fleet's lane table.
+func (p Policy) Table() Table {
+	t := Table{Lanes: map[string]ExecutionLane{}, DefaultLane: p.DefaultLane, EscalateTo: p.EscalateTo, Source: "fleet table " + p.Path}
+	for name, lane := range p.Lanes {
+		t.Lanes[name] = ExecutionLane{Name: name, Harness: lane.Harness, Model: lane.Model, Effort: lane.Effort, Note: lane.Note}
+	}
+	return t
 }
 
 // Match returns the rule that answers this harness hitting this fault. The

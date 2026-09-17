@@ -16,6 +16,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
@@ -51,7 +52,7 @@ commands:
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
   cfo supersede <task-id> --reason <text>
-  cfo spawn <id> --project <path> --brief <path> --harness <claude|codex|pi|kimi> [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--yolo]
+  cfo spawn <id> --project <path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--yolo]   without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom
   cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place
   cfo send <target> [--key <key>] <text...>
   cfo peek <target> [lines]
@@ -89,6 +90,7 @@ type commandRuntime struct {
 	cleanup       func(context.Context, home.Home, string, bool) (string, error)
 	reap          func(context.Context, home.Home, reap.Options) (reap.Result, error)
 	speedHint     func(context.Context, string) string
+	quota         func(context.Context) (quota.Report, string)
 }
 
 func defaultCommandRuntime() commandRuntime {
@@ -148,6 +150,7 @@ func defaultCommandRuntime() commandRuntime {
 		speedHint: func(ctx context.Context, name string) string {
 			return telemetry.SpeedHint(ctx, execx.OSRunner{}, name)
 		},
+		quota: quota.Reader{Commands: execx.OSRunner{}}.Read,
 	}
 }
 

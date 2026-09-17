@@ -49,7 +49,7 @@ Code Goblins keeps secrets in the existing auth store and keeps infrastructure s
 }
 ```
 
-`cfo spawn ... --auto` deterministically classifies the task and selects a configured lane. Explicit `--harness`, `--model`, and `--effort` remain authoritative overrides. Spawn writes `runtime-capsule.md` and `task-capsule.json` under the task temporary directory; both contain names and policy, never secret values.
+`cfo spawn` without `--harness` deterministically classifies the task and selects a lane: from the manifest's `routing` block when it defines lanes, otherwise from the fleet table in `data/routing.json` (`cfo doctor` prints it). A lane whose provider or model scope quota-axi reports `exhausted_now` is passed over for the next usable one, and a spawn with no usable lane is refused with the reset time; a missing, stale, or unparseable quota-axi is no evidence. Explicit `--harness`, `--model`, and `--effort` remain authoritative overrides, and `--auto` is an alias for the default. A project without a manifest routes from the fleet table and gets no capsule. Spawn writes `runtime-capsule.md` and `task-capsule.json` under the task temporary directory; both contain names and policy, never secret values.
 
 Verification is tiered. `cfo verify <task> --tier fast` is the default changed-scope gate; `full` is the project regression gate; `deep` is for expensive validation. Every command produces structured timing, exit, scope, task, and commit evidence. `cfo security` follows the project security mode. `cfo deploy` executes every declared target and its verification command, so GitHub CI cannot substitute for a required Vercel/Fly/Railway/custom deployment.
 

@@ -405,7 +405,7 @@ func (f *fleetE2EFixture) SendAndPeek(id string) {
 	var delivered int
 	for _, prompts := range f.runner.prompts {
 		for _, prompt := range prompts {
-			if prompt == "print the acceptance marker" {
+			if prompt == fleet.Stamp("print the acceptance marker") {
 				delivered++
 			}
 		}
