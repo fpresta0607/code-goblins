@@ -28,7 +28,7 @@ If it is empty, infer what to show from the conversation.
 ## Workflow
 
 1. Write the artifact as HTML under `.lavish/` in the working directory (for example `.lavish/dispatch-options.html`).
-   Run `lavish-axi playbook <id>` for the playbook that matches the content (`plan`, `comparison`, `diagram`, `table`, `code`, `input`, `slides`) and `lavish-axi design` for the design direction before writing.
+   Run `lavish-axi playbook` to list the playbooks, `lavish-axi playbook <id>` for the one that matches the content, and `lavish-axi design` for the design direction before writing.
    Keep every referenced asset beside the HTML and reference it with a relative path; a root-absolute path will not resolve.
 2. Run `lavish-axi <file>` to open or resume the session.
 3. Run `lavish-axi poll <file>` and leave it in the foreground until it returns.
