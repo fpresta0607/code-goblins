@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/reap"
+	"github.com/fpresta0607/code-goblins/internal/runtime"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
 	"github.com/fpresta0607/code-goblins/internal/watch"
@@ -57,6 +58,7 @@ commands:
   cfo send <target> [--key <key>] <text...>
   cfo peek <target> [lines]
   cfo fleet-view [--json]
+  cfo runtime [--json]   what is running on this machine and who owns it: containers by owner, listening dev servers and whether each is safe to stop, machine headroom, each project's deploy target, and how to run each project locally
   cfo brief <id> --project <path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>]
   cfo pr check <id> <url>
   cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
@@ -87,6 +89,7 @@ type commandRuntime struct {
 	authRefresher func(home.Home) spawn.AuthRefresher
 	peek          func(context.Context, home.Home, string, int) (string, error)
 	snapshot      func(context.Context, home.Home) (fleet.Snapshot, error)
+	localRuntime  func(context.Context, home.Home) (runtime.Inventory, error)
 	cleanup       func(context.Context, home.Home, string, bool) (string, error)
 	reap          func(context.Context, home.Home, reap.Options) (reap.Result, error)
 	speedHint     func(context.Context, string) string
@@ -144,6 +147,14 @@ func defaultCommandRuntime() commandRuntime {
 		},
 		snapshot: func(ctx context.Context, h home.Home) (fleet.Snapshot, error) {
 			return fleet.BuildSnapshot(ctx, h, fleet.NewHerdrEndpoint(&herdr.Client{Commands: execx.OSRunner{}}))
+		},
+		localRuntime: func(ctx context.Context, h home.Home) (runtime.Inventory, error) {
+			commands := execx.OSRunner{}
+			return runtime.Collector{
+				Home:   h,
+				Docker: runtime.Docker{Commands: commands},
+				System: runtime.System{Commands: commands},
+			}.Collect(ctx)
 		},
 		cleanup: defaultCleanup,
 		reap:    defaultReap,
@@ -204,6 +215,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runPeek(args[1:], stdout, stderr, runtime)
 	case "fleet-view":
 		return runFleet(args[1:], stdout, stderr, runtime)
+	case "runtime":
+		return runRuntime(args[1:], stdout, stderr, runtime)
 	case "brief":
 		return runBrief(args[1:], stdout, stderr)
 	case "pr":
