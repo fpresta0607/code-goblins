@@ -144,12 +144,14 @@ func thirdPartyFault(lowered string) (int, bool) {
 }
 
 // thirdPartyLine reports whether the line containing index is a git-platform
-// outage: a status code, or a prose keyword with error framing.
+// outage: a status code with an error word, or a prose keyword with error
+// framing.
 func thirdPartyLine(lowered string, index int) bool {
 	line := lineAt(lowered, index)
-	// A status code is unambiguous error framing on its own.
+	// A git host line names pull request, issue and run numbers all the time,
+	// so a status code counts only beside an error word.
 	for _, code := range []string{"429", "503", "502"} {
-		if hasStatusCode(line, code) {
+		if hasStatusCode(line, code) && thirdPartyErrorWord(line, "") {
 			return true
 		}
 	}
@@ -164,15 +166,16 @@ func thirdPartyLine(lowered string, index int) bool {
 }
 
 // hasStatusCode reports whether code stands on the line as a whole token, not
-// inside a longer number or word: a run id such as 17742950312 or a commit
-// hash is not a 429 or a 503.
+// inside a longer number or word and not a path segment, reference or suffix:
+// a run id such as 17742950312, a commit hash, /pull/502, #429 or issue-503
+// is not a status.
 func hasStatusCode(line, code string) bool {
 	isWordByte := func(b byte) bool {
 		return b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
 	}
 	for _, index := range allMatches(line, code) {
 		end := index + len(code)
-		if (index == 0 || !isWordByte(line[index-1])) && (end == len(line) || !isWordByte(line[end])) {
+		if (index == 0 || !isWordByte(line[index-1]) && !strings.ContainsRune("/#-", rune(line[index-1]))) && (end == len(line) || !isWordByte(line[end])) {
 			return true
 		}
 	}
@@ -245,11 +248,14 @@ func thirdPartyFramed(line, keyword string) bool {
 			return true
 		}
 	}
-	for _, signal := range []string{"error", "refused", "failed", "quota", "reached", "exceeded", "unable", "denied", "forbidden", "fatal"} {
-		if signal == keyword {
-			continue
-		}
-		if strings.Contains(line, signal) {
+	return thirdPartyErrorWord(line, keyword)
+}
+
+// thirdPartyErrorWord reports whether a line carries a git-platform error
+// word other than the matched keyword itself.
+func thirdPartyErrorWord(line, keyword string) bool {
+	for _, signal := range []string{"error", "refused", "failed", "quota", "reached", "exceeded", "unable", "denied", "forbidden", "fatal", "abuse"} {
+		if signal != keyword && strings.Contains(line, signal) {
 			return true
 		}
 	}

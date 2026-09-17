@@ -110,6 +110,20 @@ func TestDetectDoesNotReadAStatusCodeInsideAGitHubRunID(t *testing.T) {
 	}
 }
 
+func TestDetectDoesNotReadAPullRequestOrIssueNumberAsAnOutage(t *testing.T) {
+	pushed := "To github.com:org/repo.git\n● Opened https://github.com/org/repo/pull/502\n"
+	for _, tail := range []string{pushed, "● Opened https://github.com/org/repo/issues/429\n"} {
+		if fault, evidence, found := Detect(tail); found {
+			t.Errorf("Detect(%q) = (%q, %q), want no fault for a pull request or issue number", tail, fault, evidence)
+		}
+	}
+	refusal := `API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your rate limit"}}`
+	fault, evidence, found := Detect(pushed + refusal + "\n")
+	if !found || fault != RateLimit || evidence != refusal {
+		t.Errorf("Detect = (%q, %q, %v), want the harness's rate limit after the pull request line", fault, evidence, found)
+	}
+}
+
 func TestDetectExclusionUsesTheSameConstantTheSenderStamps(t *testing.T) {
 	// fleet.Sender stamps every steer with SteerPrefix; the exclusion keys on
 	// the same constant, so this test and the sender's test move together
