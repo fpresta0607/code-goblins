@@ -20,9 +20,14 @@ import (
 func runDoctor(stdout io.Writer) int {
 	checks := doctor.Run()
 	for _, c := range checks {
-		if c.Err != "" {
+		switch {
+		case c.Err != "" && c.Presentation:
+			fmt.Fprintf(stdout, "PRESENTATION_UNAVAILABLE %s %s (requires >=%s; install: %s) - nonvisual work proceeds in plain text\n", c.Name, c.Err, c.Floor, c.Hint)
+		case c.Err != "":
 			fmt.Fprintf(stdout, "MISSING  %-10s %s (install: %s)\n", c.Name, c.Err, c.Hint)
-		} else {
+		case c.Floor != "":
+			fmt.Fprintf(stdout, "ok       %-10s %s (floor %s)\n", c.Name, c.Version, c.Floor)
+		default:
 			fmt.Fprintf(stdout, "ok       %-10s %s\n", c.Name, c.Version)
 		}
 	}

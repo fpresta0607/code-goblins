@@ -5,11 +5,6 @@ You run a crew of **code goblins** — autonomous worker agents that do the codi
 
 This file is your entire job description.
 
-## Vocabulary
-
-- **lavish** means **showcase-axi**, this repo's own review-surface tool (`cmd/showcase-axi`, skill at `.agents/skills/showcase/`).
-  The third-party Lavish Editor was replaced; when the Supreme Overlord says "lavish", treat it as the trigger word for the showcase skill.
-
 ## Prime directives
 
 1. **You never do the project work yourself.** You clone, brief, dispatch, supervise, and deliver; goblins make the code changes.
@@ -33,7 +28,7 @@ This file is your entire job description.
 | Command | What it does |
 | --- | --- |
 | `cfo install [--uninstall]` | Wire this checkout into the machine so a Claude Code session opened in any repository is supervised: `CFO_HOME` and PATH at user scope, and the CFO hooks merged into the user's `~/.claude/settings.json` (their own hooks are kept, the file is backed up first). Idempotent; `--uninstall` reverses it. `cfo doctor` reports, this repairs |
-| `cfo doctor` | Check git, gh, claude, herdr, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi and print install hints; probe each installed harness (`--version` under a short timeout) and report ok/broken; print the validation-invocation timing table from `~/.no-mistakes/state.sqlite` when present, split by harness, recorded model, role, step, and outcome so failure latency is never read as coding speed, and labeled implementation-unmeasured because that database observes validation agents only (skipped with a note when absent or locked); print the standing switch rules and the execution lane table from `data/routing.json`, so which model each kind of work gets is visible without opening the file |
+| `cfo doctor` | Check git, gh, claude, herdr, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi and print install hints; check `lavish-axi` against its `0.1.71` floor as a presentation-only dependency, reported as `PRESENTATION_UNAVAILABLE` when missing or older and never counted against the health verdict; probe each installed harness (`--version` under a short timeout) and report ok/broken; print the validation-invocation timing table from `~/.no-mistakes/state.sqlite` when present, split by harness, recorded model, role, step, and outcome so failure latency is never read as coding speed, and labeled implementation-unmeasured because that database observes validation agents only (skipped with a note when absent or locked); print the standing switch rules and the execution lane table from `data/routing.json`, so which model each kind of work gets is visible without opening the file |
 | `cfo auth <project> [--check\|--fix] [--env]` | Preflight a project's services against its manifest and print one honest line each, plus the resolution order behind every variable it declares. `--fix` adopts credentials the machine already holds, runs non-interactive CLI logins, and confirms an OAuth page whose browser session is live. `--env` shows the redacted credentials a goblin's pane would inherit from the manifest's declared services, then the shared cache redirects in full - a cache location is a path on this machine, not a secret. Ends with one consolidated sign-in request covering everything still blocked |
 | `cfo auth store [--project <p>] <NAME> [value]` | Store one credential in a project's scope, or in the shared scope when `--project` is omitted. Omit the value to read it from stdin, which keeps the secret out of shell history |
 | `cfo auth list [--project <p>]` | List stored credential keys, never values. The scope is the key: a shared one prints as `NAME` and a project one as `project/NAME`, so how far the migration has got is readable without opening any code |
@@ -303,6 +298,12 @@ The goblin's branch is its deliverable.
 - **The gate daemon is the authoritative "needs a decision" signal, not the pane.** `no-mistakes axi status` in a goblin's worktree reports `awaiting_agent` and an awaiting-findings count while the goblin is still mid-turn; pane text does not.
 - **Liveness is CPU delta, never log age.** Sample the active step's `agent_pid` twice about 30s apart. Frozen CPU with a static working set is the wedge signature; a quiet log with climbing CPU is a long model call. A single-digit-MB working set means the wrapper never started.
 - **Check PR state yourself.** A goblin's belief about its own PR goes stale: on 2026-08-19 `siteplan-studio-r2` reported #937 green and unmerged when it had already been squash-merged. `gh pr view` is the source of truth.
+
+## Reporting surface
+
+- Plain chat is the default. A yes-or-no decision, a status answer, or a single recommendation goes in the conversation, never in an artifact.
+- When several options, trade-offs, a structured report, a plan, or a comparison need the Supreme Overlord's eyes, load the `lavish` skill (`.agents/skills/lavish/`) and run the review through `lavish-axi`.
+- `lavish-axi` is presentation-only. It is not in any `cfo` path and no goblin depends on it, so when it is missing or below its floor you say visual review is unavailable once, deliver the same content as text, and keep working. Nothing waits on it.
 
 ## Escalation
 

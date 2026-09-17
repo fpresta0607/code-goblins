@@ -178,8 +178,7 @@ The core is intentionally local-first:
 - `internal/pipeline/` — durable validation policy and decision gates.
 - `internal/auth/` — project-scoped credential preflight and injection.
 - `internal/state/` / `internal/wake/` — restart-proof task and event state.
-- `cmd/showcase-axi/` — repository-owned review surface.
-- `.agents/skills/` — reusable capabilities exposed to the supported harnesses.
+- `.agents/skills/` — reusable capabilities exposed to the supported harnesses, including `lavish`, the CFO's review surface over the third-party `lavish-axi` CLI.
 
 The control plane is local. Your coding harnesses may still call their model providers according to their own configuration.
 
@@ -189,7 +188,6 @@ The control plane is local. Your coding harnesses may still call their model pro
 go vet ./...
 go test ./... -count=1
 go build ./cmd/cfo
-go build ./cmd/showcase-axi
 ```
 
 CI runs on `windows-latest`. The real-session acceptance suite is opt-in because it requires actual Herdr and harness installations.
@@ -198,7 +196,7 @@ CI runs on `windows-latest`. The real-session acceptance suite is opt-in because
 
 Code Goblins began from ideas and code in [First Mate](https://github.com/kunchenguid/firstmate), which is MIT licensed. That lineage is retained and credited under the license.
 
-Code Goblins is now maintained as an **independent standalone project** with its own Windows-native Go control plane, supervision model, credential system, harness switching, durable state, delivery pipeline, review surface, and roadmap. You clone and update Code Goblins from this repository directly; First Mate is not an upstream dependency that users need to track or sync.
+Code Goblins is now maintained as an **independent standalone project** with its own Windows-native Go control plane, supervision model, credential system, harness switching, durable state, delivery pipeline, and roadmap. You clone and update Code Goblins from this repository directly; First Mate is not an upstream dependency that users need to track or sync.
 
 ## Contributing
 
