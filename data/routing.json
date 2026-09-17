@@ -3,13 +3,19 @@
     {
       "harness": "kimi",
       "fault": "rate-limit",
-      "switch": { "harness": "claude", "model": "opus", "effort": "xhigh" },
+      "switch": {
+        "harness": "claude",
+        "model": "opus",
+        "effort": "xhigh"
+      },
       "auto": true,
       "note": "standing Overlord rule: a kimi quota refusal moves that session to claude/opus/xhigh"
     },
     {
       "fault": "auth",
-      "switch": { "harness": "claude" },
+      "switch": {
+        "harness": "claude"
+      },
       "note": "a rejected credential is usually the harness, not the task; check cfo auth for the project before switching"
     }
   ],
@@ -20,7 +26,7 @@
       "harness": "claude",
       "model": "fable",
       "effort": "xhigh",
-      "note": "architecture, security, migration, rescue, anything high risk"
+      "note": "architecture, security, migration, rescue, anything high risk | 2026-09-17: Fable's weekly budget recovered to 56% remaining, deep restored to fable/xhigh; watch usableRunwaySeconds before dispatching a long deep task."
     },
     "build": {
       "harness": "claude",
@@ -36,9 +42,9 @@
     },
     "scout": {
       "harness": "claude",
-      "model": "opus",
+      "model": "fable",
       "effort": "xhigh",
-      "note": "investigations that produce a report"
+      "note": "investigations that produce a report; fable/xhigh while the weekly budget holds"
     }
   }
 }
