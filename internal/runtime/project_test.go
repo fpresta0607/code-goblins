@@ -37,9 +37,9 @@ func TestReadProjectReadsDeployTargetsFromTheCheckoutsOwnManifests(t *testing.T)
 	  ]
 	}`)
 
-	project, warning := ReadProject(data, "checkout", checkout)
-	if warning != "" {
-		t.Fatalf("ReadProject warned: %s", warning)
+	project, warnings := ReadProject(data, "checkout", checkout)
+	if len(warnings) != 0 {
+		t.Fatalf("ReadProject warned: %v", warnings)
 	}
 
 	targets := map[string]Target{}

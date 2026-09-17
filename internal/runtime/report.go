@@ -112,7 +112,6 @@ type Server struct {
 	Address string `json:"address"`
 	PID     int    `json:"pid"`
 	Process string `json:"process"`
-	Command string `json:"command"`
 	WorkDir string `json:"work_dir"`
 	// Directory says what kind of directory the server is running in: a live
 	// goblin worktree, a retired one, or a main checkout. It is the whole
@@ -133,12 +132,14 @@ const (
 	// DirRetiredWorktree is a worktree whose task has been retired. A server
 	// still running in one is the leak this section exists to find.
 	DirRetiredWorktree DirectoryKind = "retired worktree"
+	// DirRecordlessWorktree is a worktree whose task appears in neither the
+	// live records nor the archive. It is not evidence the task finished; it
+	// is evidence the fleet cannot see it.
+	DirRecordlessWorktree DirectoryKind = "worktree with no task record"
 	// DirCheckout is a project's main checkout.
 	DirCheckout DirectoryKind = "main checkout"
 	// DirOther is a directory that is none of those.
 	DirOther DirectoryKind = "other"
-	// DirUnknown is a directory that could not be read at all.
-	DirUnknown DirectoryKind = "unknown"
 )
 
 // StopVerdict is the plain answer about stopping a server.
@@ -151,8 +152,9 @@ const (
 	StopSafe StopVerdict = "safe"
 	// StopAsk is the Overlord's own. It is not the fleet's to stop.
 	StopAsk StopVerdict = "ask"
-	// StopUnknown is a server whose directory could not be read, so nothing
-	// may be concluded about it either way.
+	// StopUnknown is a server in a worktree the fleet has no task record for.
+	// A record it cannot read is not a record that says the task finished, so
+	// nothing may be concluded about it either way.
 	StopUnknown StopVerdict = "unknown"
 )
 
@@ -343,13 +345,9 @@ func buildServers(inv Inventory, attribution Attribution) []Server {
 			Address:   listener.Address,
 			PID:       listener.PID,
 			Process:   listener.Process,
-			Command:   listener.Command,
 			WorkDir:   listener.WorkDir,
 			Directory: directoryKind(listener, attribution, owner),
 			Owner:     owner,
-		}
-		if listener.WorkDir == "" && listener.WorkDirError != "" {
-			server.WorkDir = "(" + listener.WorkDirError + ")"
 		}
 		server.Stop = stopVerdict(server.Directory, owner)
 		servers = append(servers, server)
@@ -364,23 +362,17 @@ func buildServers(inv Inventory, attribution Attribution) []Server {
 }
 
 func directoryKind(listener Listener, attribution Attribution, owner Owner) DirectoryKind {
-	if listener.WorkDir == "" {
-		return DirUnknown
-	}
-	if _, live := attribution.worktrees[normalize(listener.WorkDir)]; live {
+	if _, live := attribution.taskIn(listener.WorkDir); live {
 		return DirLiveWorktree
-	}
-	if _, checkout := attribution.checkouts[normalize(listener.WorkDir)]; checkout {
-		return DirCheckout
 	}
 	if taskID, ok := worktreeTaskID(listener.WorkDir); ok {
 		if attribution.retired[taskID] {
 			return DirRetiredWorktree
 		}
-		// A gb- worktree whose task has no record at all is still a worktree,
-		// and still nobody's: reported as retired so it is not mistaken for
-		// a checkout somebody is using.
-		return DirRetiredWorktree
+		return DirRecordlessWorktree
+	}
+	if _, checkout := attribution.checkoutIn(listener.WorkDir); checkout {
+		return DirCheckout
 	}
 	if owner.Kind == OwnerProject {
 		return DirCheckout
@@ -390,10 +382,10 @@ func directoryKind(listener Listener, attribution Attribution, owner Owner) Dire
 
 func stopVerdict(kind DirectoryKind, owner Owner) StopVerdict {
 	switch {
-	case kind == DirUnknown:
-		return StopUnknown
 	case owner.Kind == OwnerGoblin:
 		return StopNo
+	case kind == DirRecordlessWorktree:
+		return StopUnknown
 	case kind == DirRetiredWorktree:
 		return StopSafe
 	default:
@@ -412,7 +404,7 @@ func (s Server) StopReason() string {
 		}
 		return "no task holds this worktree; cfo reap retires it"
 	case StopUnknown:
-		return "its working directory could not be read, so nothing is concluded"
+		return "no task record for this worktree could be read, so it is not established that anything here is finished"
 	default:
 		if s.Owner.Project != "" {
 			return "the Overlord's own, in " + s.Owner.Project
@@ -508,8 +500,8 @@ func Percent(part, whole int64) string {
 	return fmt.Sprintf("%.0f%%", 100*float64(part)/float64(whole))
 }
 
-// Truncate bounds a command line to keep one server on one line. The full
-// value stays in the JSON projection, so nothing is lost, only folded.
+// Truncate bounds an image name or a path to keep one row on one line. The
+// full value stays in the JSON projection, so nothing is lost, only folded.
 func Truncate(value string, limit int) string {
 	value = strings.TrimSpace(value)
 	if len(value) <= limit {

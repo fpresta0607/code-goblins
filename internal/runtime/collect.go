@@ -43,9 +43,6 @@ type Collector struct {
 	Home   home.Home
 	Docker DockerSource
 	System SystemSource
-	// Disk is the drive the headroom reading accounts for. Empty means the
-	// drive the CFO home is on.
-	Disk string
 }
 
 // Collect reads every source once.
@@ -62,11 +59,15 @@ func (c Collector) Collect(ctx context.Context) (Inventory, error) {
 		inv.SystemRoot = os.Getenv("windir")
 	}
 
-	tasks, err := c.tasks()
+	tasks, unreadable, err := c.tasks()
 	if err != nil {
 		return Inventory{}, err
 	}
 	inv.Tasks = tasks
+	if len(unreadable) > 0 {
+		inv.Notes = append(inv.Notes, "TASK RECORDS UNREADABLE: "+strings.Join(unreadable, ", ")+
+			" - a worktree whose task record cannot be read is not a worktree whose task finished; nothing running in one is reported as safe to stop until the record is readable")
+	}
 	inv.Retired = c.retired()
 	inv.Checkouts = c.checkouts(tasks)
 
@@ -104,7 +105,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, error) {
 		} else {
 			inv.Listeners = listeners
 		}
-		machine, err := c.System.Machine(ctx, c.disk())
+		machine, err := c.System.Machine(ctx, diskVolume(c.Home.Root))
 		if err != nil {
 			inv.Notes = append(inv.Notes, "HEADROOM UNREADABLE: "+err.Error()+" - do not treat the absence of a warning below as room to dispatch")
 		} else {
@@ -128,27 +129,35 @@ func (c Collector) Collect(ctx context.Context) (Inventory, error) {
 
 // tasks reads every live task record. A task's worktree is what makes a
 // container or a server attributable to a goblin rather than to nobody.
-func (c Collector) tasks() ([]Task, error) {
+//
+// It also returns the id of every record it found but could not read. A task
+// missing from the inventory is indistinguishable from a task that never
+// existed, and the report's worst answer is telling the Overlord that a live
+// goblin's worktree holds nothing.
+func (c Collector) tasks() ([]Task, []string, error) {
 	scan, err := state.ScanIDs(c.Home.State)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, err
+		return nil, nil, err
 	}
 	var tasks []Task
+	var unreadable []string
 	for _, id := range scan.MetaIDs {
 		if state.ValidTaskID(id) != nil {
 			continue
 		}
 		meta, err := state.ReadTaskMeta(c.Home.State, id)
 		if err != nil {
+			unreadable = append(unreadable, id)
 			continue
 		}
 		tasks = append(tasks, Task{ID: id, Project: meta.Project, Worktree: meta.Worktree})
 	}
 	sort.Slice(tasks, func(i, j int) bool { return tasks[i].ID < tasks[j].ID })
-	return tasks, nil
+	sort.Strings(unreadable)
+	return tasks, unreadable, nil
 }
 
 // retired reads the ids of tasks whose records have been archived. It is what
@@ -206,11 +215,9 @@ func (c Collector) projects(checkouts []Checkout) ([]Project, []string) {
 	projects := make([]Project, 0, len(checkouts))
 	var notes []string
 	for _, checkout := range checkouts {
-		project, warning := ReadProject(c.Home.Data, checkout.Name, checkout.Path)
+		project, warnings := ReadProject(c.Home.Data, checkout.Name, checkout.Path)
 		projects = append(projects, project)
-		if warning != "" {
-			notes = append(notes, warning)
-		}
+		notes = append(notes, warnings...)
 	}
 	return projects, notes
 }
@@ -239,11 +246,12 @@ func (c Collector) markPresent(inv *Inventory) {
 	}
 }
 
-func (c Collector) disk() string {
-	if c.Disk != "" {
-		return c.Disk
-	}
-	if volume := filepath.VolumeName(c.Home.Root); volume != "" {
+// diskVolume is the drive the headroom reading accounts for: the one the CFO
+// home is on. The value is interpolated into a PowerShell filter string, so
+// anything that is not a bare drive letter is refused rather than escaped.
+func diskVolume(root string) string {
+	volume := strings.ToUpper(filepath.VolumeName(root))
+	if len(volume) == 2 && volume[0] >= 'A' && volume[0] <= 'Z' && volume[1] == ':' {
 		return volume
 	}
 	return "C:"

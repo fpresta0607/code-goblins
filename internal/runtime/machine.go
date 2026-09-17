@@ -42,12 +42,18 @@ $procs = @{}
 foreach ($p in Get-CimInstance Win32_Process) { $procs[[int]$p.ProcessId] = $p }
 $out = foreach ($r in $rows.Values) {
   $p = $procs[[int]$r.pid]
-  [pscustomobject]@{ port = $r.port; address = $r.address; pid = $r.pid; name = $(if ($p) { [string]$p.Name } else { '' }); cmd = $(if ($p) { [string]$p.CommandLine } else { '' }) }
+  [pscustomobject]@{ port = $r.port; address = $r.address; pid = $r.pid; name = $(if ($p) { [string]$p.Name } else { '' }) }
 }
 ConvertTo-Json -InputObject @($out) -Compress -Depth 3`
 
 // machineScript reads memory, the disk holding the CFO home, and the WSL
 // virtual machine's footprint, in one query.
+//
+// Available memory is read from the performance counter rather than from
+// Win32_OperatingSystem.FreePhysicalMemory, which counts only the free and
+// zeroed page lists. The standby list is memory a new process can have for the
+// asking, and on this machine the two differ by gigabytes - which is the whole
+// dispatch budget the headroom section is read for.
 //
 // WSL's memory never appears in any Windows per-process accounting a
 // container or a harness shows up in: it is one opaque vmmem process holding
@@ -56,11 +62,12 @@ ConvertTo-Json -InputObject @($out) -Compress -Depth 3`
 // reading looked fine, which is exactly why it is read separately here.
 const machineScript = utf8OutputPrelude + `
 $os = Get-CimInstance Win32_OperatingSystem
+$memory = Get-CimInstance Win32_PerfRawData_PerfOS_Memory
 $disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='%s'"
 $wsl = Get-Process -Name vmmem,vmmemWSL -ErrorAction SilentlyContinue | Measure-Object -Property WorkingSet64 -Sum
 [pscustomobject]@{
   memory_total = [int64]$os.TotalVisibleMemorySize * 1024
-  memory_available = [int64]$os.FreePhysicalMemory * 1024
+  memory_available = [int64]$memory.AvailableBytes
   disk_name = [string]$disk.DeviceID
   disk_total = [int64]$disk.Size
   disk_free = [int64]$disk.FreeSpace
@@ -90,7 +97,6 @@ func (s System) Listeners(ctx context.Context) ([]Listener, error) {
 		Address string `json:"address"`
 		PID     int    `json:"pid"`
 		Name    string `json:"name"`
-		Cmd     string `json:"cmd"`
 	}
 	if err := json.Unmarshal(raw, &rows); err != nil {
 		return nil, fmt.Errorf("runtime: decode listeners: %w", err)
@@ -102,12 +108,10 @@ func (s System) Listeners(ctx context.Context) ([]Listener, error) {
 			Address: row.Address,
 			PID:     row.PID,
 			Process: row.Name,
-			Command: row.Cmd,
 		}
-		directory, err := proc.WorkingDirectory(row.PID)
-		if err != nil {
-			listener.WorkDirError = workDirReason(err)
-		} else {
+		// A directory that cannot be read leaves the field empty, which is
+		// what the report folds the listener out of the table on.
+		if directory, err := proc.WorkingDirectory(row.PID); err == nil {
 			listener.WorkDir = strings.TrimRight(directory, `\`)
 		}
 		listeners = append(listeners, listener)
@@ -119,20 +123,6 @@ func (s System) Listeners(ctx context.Context) ([]Listener, error) {
 		return listeners[i].PID < listeners[j].PID
 	})
 	return listeners, nil
-}
-
-// workDirReason reduces a read failure to the short phrase the report prints
-// in place of a directory. The failure is almost always one of two things: a
-// process running at a higher privilege, or one that exited between the
-// socket listing and the read.
-func workDirReason(err error) string {
-	if strings.Contains(err.Error(), "Access is denied") {
-		return "not readable at this privilege"
-	}
-	if errors.Is(err, proc.ErrDirectoryUnreadable) {
-		return "unreadable"
-	}
-	return "unreadable: " + err.Error()
 }
 
 // Machine reads memory, disk and the WSL footprint. disk is the drive the

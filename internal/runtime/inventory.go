@@ -153,28 +153,33 @@ func (v Volume) Stack() string {
 	return v.Name[:index]
 }
 
-// Listener is one listening socket and the process behind it.
+// Listener is one listening socket and the process behind it. The command
+// line is deliberately not collected: the working directory is what answers
+// the ownership question, and another user's argv can carry the tokens their
+// process was started with.
 type Listener struct {
 	Port    int    `json:"port"`
 	Address string `json:"address"`
 	PID     int    `json:"pid"`
 	Process string `json:"process"`
-	Command string `json:"command"`
 	// WorkDir is the directory the process is running in, read from its own
-	// parameter block. It is empty when the process could not be opened, and
-	// the report says so rather than guessing.
+	// parameter block. It is empty when the process could not be opened, which
+	// is a process at a privilege this command cannot read: the report folds
+	// those out of the servers table and counts them rather than guessing.
 	WorkDir string `json:"work_dir"`
-	// WorkDirError explains an empty WorkDir.
-	WorkDirError string `json:"work_dir_error,omitempty"`
 }
 
 // Machine is the headroom reading, in bytes throughout.
 type Machine struct {
-	MemoryTotal     int64 `json:"memory_total"`
-	MemoryAvailable int64 `json:"memory_available"`
-	DiskTotal       int64 `json:"disk_total"`
-	DiskFree        int64 `json:"disk_free"`
-	DiskName        string
+	MemoryTotal int64 `json:"memory_total"`
+	// MemoryAvailable is what a new process can take without paging: the free
+	// list plus the standby list Windows will evict for it. On a dev machine
+	// that is gigabytes wider than free memory, and it is the figure the
+	// dispatch budget is read from.
+	MemoryAvailable int64  `json:"memory_available"`
+	DiskTotal       int64  `json:"disk_total"`
+	DiskFree        int64  `json:"disk_free"`
+	DiskName        string `json:"disk_name"`
 	// WSL is the working set of the WSL virtual machine, the footprint that
 	// has starved this fleet before by growing without anything on the
 	// Windows side accounting for it.

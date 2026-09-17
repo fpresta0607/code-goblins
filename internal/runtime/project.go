@@ -24,10 +24,8 @@ const (
 // place work is deployed to, rather than a service the app merely talks to.
 // It is an explicit list because the distinction is not derivable: a project
 // declares postgres and openrouter the same way it declares fly and ionos,
-// and only a human knows which of them is a destination.
-//
-// A service outside this list still surfaces when its own note says it is a
-// deploy target, which is how a provider nobody has met yet still appears.
+// and only a human knows which of them is a destination. A provider nobody
+// has met yet is added here, which is the one place a wrong answer is fixed.
 var hostingServices = map[string]bool{
 	"vercel": true, "fly": true, "railway": true, "render": true,
 	"netlify": true, "heroku": true, "supabase": true, "supabase-mgmt": true,
@@ -42,21 +40,29 @@ var hostingServices = map[string]bool{
 // Nothing here is inferred from a project's name or shape. Every fact the
 // report prints carries the file it came from, so a wrong answer is traceable
 // to the manifest that declared it rather than to this command.
-// It returns a warning naming any manifest it found but could not read. A
-// malformed credential manifest would otherwise drop a project's deploy
-// targets silently, and a project that looks like it deploys nowhere is worse
-// than one that says its manifest is broken.
-func ReadProject(dataDir, name, path string) (Project, string) {
+// It returns a warning for each manifest it found but could not read. A
+// malformed manifest would otherwise drop a project's deploy targets or its
+// declared local stack silently, and a project that looks like it deploys
+// nowhere is worse than one that says its manifest is broken.
+func ReadProject(dataDir, name, path string) (Project, []string) {
 	project := Project{Name: name, Path: path}
 	project.Targets, project.Stacks = readManifests(path)
-	credentials, warning := readCredentialTargets(dataDir, name)
+	credentials, credentialWarning := readCredentialTargets(dataDir, name)
 	project.Targets = append(project.Targets, credentials...)
 	sort.SliceStable(project.Targets, func(i, j int) bool {
 		return project.Targets[i].Provider < project.Targets[j].Provider
 	})
 	project.Targets = mergeTargets(project.Targets)
-	project.Local = readLocal(dataDir, name, path)
-	return project, warning
+	local, localWarning := readLocal(dataDir, name, path)
+	project.Local = local
+
+	var warnings []string
+	for _, warning := range []string{credentialWarning, localWarning} {
+		if warning != "" {
+			warnings = append(warnings, warning)
+		}
+	}
+	return project, warnings
 }
 
 // readManifests reads the deploy and stack facts a checkout commits.
@@ -129,7 +135,7 @@ func readCredentialTargets(dataDir, name string) ([]Target, string) {
 	}
 	var targets []Target
 	for _, service := range manifest.Services {
-		if !hostingServices[strings.ToLower(service.Name)] && !strings.Contains(strings.ToLower(service.Note), "deploy") {
+		if !hostingServices[strings.ToLower(service.Name)] {
 			continue
 		}
 		targets = append(targets, Target{Provider: strings.ToLower(service.Name), Source: source, Note: service.Note})
@@ -173,15 +179,29 @@ func mergeTargets(targets []Target) []Target {
 // its word. Everything else is derived from what the checkout actually holds,
 // and says so: a derived answer is a good guess from real evidence, and it
 // must never be presented as the project's own declaration.
-func readLocal(dataDir, name, path string) Local {
-	if manifest, err := worktree.Resolve(dataDir, name); err == nil && len(manifest.Local.Up) > 0 {
+//
+// A manifest that exists but does not parse or does not validate is reported
+// rather than passed over, because the same file is what provisioning reads
+// and it will refuse the project's next spawn for the same reason.
+func readLocal(dataDir, name, path string) (Local, string) {
+	manifest, err := worktree.Resolve(dataDir, name)
+	if err != nil {
+		return derivedLocal(path), "LOCAL STACK UNREADABLE for " + name + ": " + err.Error() +
+			" - the commands below are derived from the checkout rather than declared, and this manifest will refuse the project's next spawn until it is fixed"
+	}
+	if len(manifest.Local.Up) > 0 {
 		source := manifest.Path
 		if source == "" {
 			source = worktree.ManifestPath(dataDir, name)
 		}
-		return Local{Up: manifest.Local.Up, Down: manifest.Local.Down, Source: source, Declared: true}
+		return Local{Up: manifest.Local.Up, Down: manifest.Local.Down, Source: source, Declared: true}, ""
 	}
+	return derivedLocal(path), ""
+}
 
+// derivedLocal reads the local stack commands out of what the checkout holds,
+// for a project that declared none of its own.
+func derivedLocal(path string) Local {
 	if source := filepath.Join(path, "supabase", "config.toml"); exists(source) {
 		return Local{
 			Up:     []string{"npx supabase start"},

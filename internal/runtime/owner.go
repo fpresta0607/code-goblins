@@ -134,10 +134,11 @@ func NewAttribution(inv Inventory) Attribution {
 //
 // The order is strongest evidence first, and the first rule that holds wins:
 //
-//  1. the directory is a live task's worktree - a goblin is working in it;
+//  1. the directory is inside a live task's worktree - a goblin is working
+//     in it;
 //  2. the project's own committed manifest declares this stack name - it is
 //     the project's local stack wherever the CLI happened to be run from;
-//  3. the directory is a project's main checkout;
+//  3. the directory is inside a project's main checkout;
 //  4. the stack name itself carries a task id - the last mark left on a
 //     volume once every container that touched it is gone;
 //  5. the directory belongs to a retired task, or is gone - a leftover;
@@ -147,12 +148,12 @@ func NewAttribution(inv Inventory) Attribution {
 // goblin's bench stack: both can be brought up from a worktree, but only the
 // project commits the name.
 func (a Attribution) Of(workDir, stack string) Owner {
-	if task, ok := a.worktrees[normalize(workDir)]; ok {
+	if task, ok := a.taskIn(workDir); ok {
 		return Owner{
 			Kind:     OwnerGoblin,
 			Project:  projectName(task.Project),
 			TaskID:   task.ID,
-			Evidence: fmt.Sprintf("started from %s, the live worktree of task %s", workDir, task.ID),
+			Evidence: fmt.Sprintf("started from %s, inside the live worktree of task %s", workDir, task.ID),
 		}
 	}
 	if declared, ok := a.stacks[strings.ToLower(stack)]; ok {
@@ -163,11 +164,11 @@ func (a Attribution) Of(workDir, stack string) Owner {
 				declared.source, stack, declared.project.Name),
 		}
 	}
-	if checkout, ok := a.checkouts[normalize(workDir)]; ok {
+	if checkout, ok := a.checkoutIn(workDir); ok {
 		return Owner{
 			Kind:     OwnerProject,
 			Project:  checkout.Name,
-			Evidence: fmt.Sprintf("started from %s, the main checkout of %s", workDir, checkout.Name),
+			Evidence: fmt.Sprintf("started from %s, inside the main checkout of %s", workDir, checkout.Name),
 		}
 	}
 	// A stack name that is itself a task id is the last owner mark left once
@@ -240,6 +241,54 @@ func (a Attribution) Of(workDir, stack string) Owner {
 	}
 }
 
+// taskIn resolves a directory to the live task whose worktree contains it. A
+// dev server is started in the directory it serves, which is often a
+// subdirectory of the worktree - gb-X\frontend - so matching the worktree path
+// alone reported a working goblin's server as nobody's.
+func (a Attribution) taskIn(dir string) (Task, bool) {
+	for _, key := range ancestors(dir) {
+		if task, ok := a.worktrees[key]; ok {
+			return task, true
+		}
+	}
+	return Task{}, false
+}
+
+// checkoutIn resolves a directory to the project checkout containing it.
+//
+// The search stops at a fleet worktree: a worktree lives inside the checkout
+// it was made from but is never part of it, and without that stop every
+// leftover in a retired worktree would read as the project's own checkout.
+func (a Attribution) checkoutIn(dir string) (Checkout, bool) {
+	if _, inWorktree := worktreeRoot(dir); inWorktree {
+		return Checkout{}, false
+	}
+	for _, key := range ancestors(dir) {
+		if checkout, ok := a.checkouts[key]; ok {
+			return checkout, true
+		}
+	}
+	return Checkout{}, false
+}
+
+// ancestors returns the directory and each of its parents, normalized and
+// deepest first, so a lookup over them finds the longest known path that
+// contains the directory - the same longest-match rule internal/reap resolves
+// a worktree by.
+func ancestors(dir string) []string {
+	key := normalize(dir)
+	var walk []string
+	for key != "" {
+		walk = append(walk, key)
+		parent := normalize(filepath.Dir(key))
+		if parent == key {
+			break
+		}
+		key = parent
+	}
+	return walk
+}
+
 // taskFromStack recovers the task id a stack name carries, with or without
 // the gb- prefix spawn gives a worktree. Only an id the fleet has a record of
 // counts, live or retired: a stack that merely happens to be named like a
@@ -277,31 +326,45 @@ const (
 	worktreePrefix  = "gb-"
 )
 
-// worktreeTaskID recovers the task id from a worktree path. It returns false
-// for any path that is not a fleet worktree, so a project checkout or an
-// unrelated directory never gets a task attributed to it.
-func worktreeTaskID(dir string) (string, bool) {
+// worktreeRoot finds the fleet worktree a directory is inside: the directory
+// itself, or the nearest ancestor whose parent is .worktrees. It returns false
+// for any path that is not inside a fleet worktree, so a project checkout or
+// an unrelated directory never gets a task attributed to it.
+func worktreeRoot(dir string) (string, bool) {
 	cleaned := strings.TrimRight(filepath.Clean(dir), `\/`)
-	base := filepath.Base(cleaned)
-	parent := filepath.Base(filepath.Dir(cleaned))
-	if !strings.EqualFold(parent, worktreeDirName) {
+	for cleaned != "" {
+		parent := filepath.Dir(cleaned)
+		if strings.EqualFold(filepath.Base(parent), worktreeDirName) {
+			if id, ok := strings.CutPrefix(filepath.Base(cleaned), worktreePrefix); ok && id != "" {
+				return cleaned, true
+			}
+			return "", false
+		}
+		if parent == cleaned {
+			break
+		}
+		cleaned = parent
+	}
+	return "", false
+}
+
+// worktreeTaskID recovers the task id of the worktree a directory is inside.
+func worktreeTaskID(dir string) (string, bool) {
+	root, ok := worktreeRoot(dir)
+	if !ok {
 		return "", false
 	}
-	id, ok := strings.CutPrefix(base, worktreePrefix)
-	if !ok || id == "" {
-		return "", false
-	}
-	return id, true
+	return strings.TrimPrefix(filepath.Base(root), worktreePrefix), true
 }
 
 // projectFromWorktree names the project a worktree path belongs to: the
 // directory holding the .worktrees/ the worktree sits in.
 func projectFromWorktree(dir string) string {
-	cleaned := strings.TrimRight(filepath.Clean(dir), `\/`)
-	if parent := filepath.Dir(cleaned); strings.EqualFold(filepath.Base(parent), worktreeDirName) {
-		return projectName(filepath.Dir(parent))
+	root, ok := worktreeRoot(dir)
+	if !ok {
+		return ""
 	}
-	return ""
+	return projectName(filepath.Dir(filepath.Dir(root)))
 }
 
 // projectName is a checkout path reduced to the name the fleet calls it by.

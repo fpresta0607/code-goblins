@@ -126,10 +126,12 @@ func TestRenderJSONRoundTripsTheTypedReport(t *testing.T) {
 	if len(back.Stacks) != len(report.Stacks) || len(back.Servers) != len(report.Servers) {
 		t.Errorf("stacks/servers = %d/%d, want %d/%d", len(back.Stacks), len(back.Servers), len(report.Stacks), len(report.Servers))
 	}
-	// The Markdown projection truncates a long command line; the JSON one
+	// The Markdown projection truncates a long working directory; the JSON one
 	// must not, or the full value is lost.
-	if strings.Contains(out.String(), "...") && !strings.Contains(out.String(), `"command"`) {
-		t.Error("JSON appears to carry truncated values")
+	for index, server := range report.Servers {
+		if back.Servers[index].WorkDir != server.WorkDir {
+			t.Errorf("server %d work dir = %q, want the whole %q", index, back.Servers[index].WorkDir, server.WorkDir)
+		}
 	}
 }
 

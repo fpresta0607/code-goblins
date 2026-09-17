@@ -118,6 +118,36 @@ func TestAttributionOfSeparatesTheDemoStackFromAGoblinsBenchStack(t *testing.T) 
 			evidence: "has been retired",
 		},
 		{
+			// A dev server is started in the directory it serves, which is
+			// usually not the root of the worktree. Matching the worktree path
+			// alone reported a working goblin's server as nobody's.
+			name:     "live goblin's server in a subdirectory of its worktree",
+			workDir:  peakLiveTree + `\frontend`,
+			stack:    "",
+			want:     OwnerGoblin,
+			task:     "peak-inbox-connect",
+			project:  "peakCraftsman",
+			evidence: "live worktree of task peak-inbox-connect",
+		},
+		{
+			name:     "leftover in a subdirectory of a retired worktree",
+			workDir:  peakDeadTree + `\frontend`,
+			stack:    "",
+			want:     OwnerUnowned,
+			task:     "peak-compute-to-supabase",
+			project:  "peakCraftsman",
+			reap:     true,
+			evidence: "has been retired",
+		},
+		{
+			name:     "stack brought up in a subdirectory of a main checkout",
+			workDir:  peakRoot + `\apps\web`,
+			stack:    "",
+			want:     OwnerProject,
+			project:  "peakCraftsman",
+			evidence: "main checkout of peakCraftsman",
+		},
+		{
 			name:     "directory nothing in the fleet claims",
 			workDir:  `C:\dev\scratch`,
 			stack:    "scratch",
@@ -222,9 +252,11 @@ func TestWorktreeTaskIDOnlyAcceptsFleetWorktrees(t *testing.T) {
 	}{
 		{peakLiveTree, "peak-inbox-connect"},
 		{peakLiveTree + `\`, "peak-inbox-connect"},
+		{peakLiveTree + `\frontend\src`, "peak-inbox-connect"},
 		{`C:/dev/peakCraftsman/.worktrees/gb-peak-inbox-connect`, "peak-inbox-connect"},
 		{peakRoot, ""},
 		{`C:\dev\peakCraftsman\.worktrees\notagoblin`, ""},
+		{`C:\dev\peakCraftsman\.worktrees\notagoblin\frontend`, ""},
 		{`C:\dev\elsewhere\gb-peak-inbox-connect`, ""},
 	}
 	for _, testCase := range cases {

@@ -44,7 +44,7 @@ func reportFixture() Inventory {
 		{Port: 3300, PID: 36032, Process: "node.exe", WorkDir: peakDeadTree},
 		{Port: 54422, PID: 16248, Process: "com.docker.backend.exe", WorkDir: `C:\Users\x\Docker`},
 		{Port: 5432, PID: 4268, Process: "wslrelay.exe", WorkDir: `C:\WINDOWS\system32`},
-		{Port: 49664, PID: 1520, Process: "lsass.exe", WorkDirError: "not readable at this privilege"},
+		{Port: 49664, PID: 1520, Process: "lsass.exe"},
 	}
 	inv.Machine = Machine{MemoryTotal: 32 << 30, MemoryAvailable: 8 << 30, WSL: 11 << 30}
 	return inv
@@ -157,6 +157,57 @@ func TestBuildAnswersWhichServersAreSafeToStop(t *testing.T) {
 	}
 	if got := verdicts[3200]; got.Stop != StopAsk || got.Directory != DirCheckout {
 		t.Errorf("port 3200 = %+v, want ask/main checkout", got)
+	}
+}
+
+// A dev server is started in the directory it serves - gb-X\frontend - not at
+// the root of the worktree, so an attribution that matched the worktree path
+// alone told the Overlord a working goblin's server was nobody's.
+func TestBuildAttributesAServerStartedInsideAWorktree(t *testing.T) {
+	inv := reportFixture()
+	inv.Listeners = append(inv.Listeners,
+		Listener{Port: 3202, PID: 41000, Process: "node.exe", WorkDir: peakLiveTree + `\frontend`},
+		Listener{Port: 3301, PID: 41001, Process: "node.exe", WorkDir: peakDeadTree + `\frontend`},
+	)
+	servers := map[int]Server{}
+	for _, server := range Build("", inv).Servers {
+		servers[server.Port] = server
+	}
+
+	live := servers[3202]
+	if live.Stop != StopNo || live.Directory != DirLiveWorktree || live.Owner.TaskID != "peak-inbox-connect" {
+		t.Errorf("port 3202 = %+v, want the live goblin's own server, never safe to stop", live)
+	}
+	stale := servers[3301]
+	if stale.Stop != StopSafe || stale.Directory != DirRetiredWorktree {
+		t.Errorf("port 3301 = %+v, want safe/retired worktree", stale)
+	}
+}
+
+// A worktree whose id appears in neither the live records nor the archive is
+// not proof the task finished - it is proof the fleet cannot see it. Calling
+// that "safe" is how a working goblin's server gets stopped.
+func TestBuildRefusesToCallARecordlessWorktreeSafeToStop(t *testing.T) {
+	inv := reportFixture()
+	recordless := `C:\dev\peakCraftsman\.worktrees\gb-peak-no-record`
+	inv.Listeners = append(inv.Listeners,
+		Listener{Port: 3500, PID: 42000, Process: "node.exe", WorkDir: recordless})
+	inv.Present[normalize(recordless)] = true
+
+	var server Server
+	for _, candidate := range Build("", inv).Servers {
+		if candidate.Port == 3500 {
+			server = candidate
+		}
+	}
+	if server.Stop == StopSafe {
+		t.Fatalf("port 3500 = %+v, want anything but safe for a task the fleet cannot see", server)
+	}
+	if server.Stop != StopUnknown || server.Directory != DirRecordlessWorktree {
+		t.Errorf("port 3500 = %+v, want unknown/no task record", server)
+	}
+	if !strings.Contains(server.StopReason(), "task record") {
+		t.Errorf("reason = %q, want it to say the task record could not be read", server.StopReason())
 	}
 }
 
