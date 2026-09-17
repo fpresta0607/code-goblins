@@ -301,3 +301,49 @@ func TestPercentGuardsAnUnreadSource(t *testing.T) {
 		t.Errorf("Percent(8, 32) = %q, want 25%%", got)
 	}
 }
+
+// A volume outlives every container that touched it, so its own name is its
+// only evidence. Borrowing a sibling container's working directory let
+// whichever service sorted first alphabetically decide the owner, and the
+// live-worktree rule then handed a live goblin a volume it never created.
+func TestBuildNeverAttributesALooseVolumeToAGoblinFromASiblingContainer(t *testing.T) {
+	inv := reportFixture()
+	// The goblin's container sorts first in this stack, which is exactly the
+	// ordering that used to decide the owner.
+	inv.Containers = []Container{
+		{Name: "aaa_goblin_service", State: "running", Stack: demoStack, WorkDir: peakLiveTree},
+		{Name: "zzz_project_service", State: "running", Stack: demoStack, WorkDir: peakDemoTree},
+	}
+	inv.Volumes = []Volume{{Name: demoStack + "_db_data", SizeBytes: 1 << 20}}
+
+	report := Build("", inv)
+	if len(report.LooseVolumes) != 1 {
+		t.Fatalf("loose volumes = %+v, want the one nothing mounts", report.LooseVolumes)
+	}
+	owner := report.LooseVolumes[0].Owner
+	if owner.Kind == OwnerGoblin {
+		t.Fatalf("owner = %+v, want the volume not handed to a live goblin", owner)
+	}
+	// The project's committed claim on the stack name is what owns it.
+	if owner.Kind != OwnerProject || owner.Project != "peakCraftsman" {
+		t.Errorf("owner = %+v, want the project that declares the stack name", owner)
+	}
+	if strings.Contains(owner.Evidence, peakLiveTree) {
+		t.Errorf("evidence = %q, want no borrowed working directory in it", owner.Evidence)
+	}
+}
+
+// compose takes a stack's name from the directory it was brought up in, so a
+// stack named after a checkout still names its project once every container
+// is gone - without borrowing any directory.
+func TestBuildNamesAVolumesProjectFromItsStackNameAlone(t *testing.T) {
+	inv := reportFixture()
+	inv.Containers = nil
+	inv.Volumes = []Volume{{Name: "supabase_edge_runtime_peakCraftsman", SizeBytes: 1 << 20}}
+
+	report := Build("", inv)
+	owner := report.LooseVolumes[0].Owner
+	if owner.Kind != OwnerProject || owner.Project != "peakCraftsman" {
+		t.Errorf("owner = %+v, want the checkout its stack name matches", owner)
+	}
+}
