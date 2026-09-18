@@ -32,8 +32,8 @@ type CycleProber interface {
 // Service scans read-only endpoint samples and persists classification state.
 // It deliberately has no lifecycle, send, worktree, or delete dependency.
 type Service struct {
-	StateDir              string
-	Probe                 Prober
+	StateDir string
+	Probe    Prober
 	// Gate is consulted only once a goblin has read working for longer than
 	// BusyTurnMax; nil disables the gate probe but not the budget itself.
 	Gate                  GateProber
@@ -46,6 +46,10 @@ type Service struct {
 	DemandInspectionAfter int
 	Heartbeat             time.Duration
 	HeartbeatMax          time.Duration
+	// DecisionAskAfter is how long an unanswered decision waits before it
+	// asks again, and DecisionAskMax is the ceiling that interval widens to.
+	DecisionAskAfter time.Duration
+	DecisionAskMax   time.Duration
 }
 
 type ScanResult struct {
@@ -89,6 +93,10 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 	}
 	if cycler, ok := s.Probe.(CycleProber); ok {
 		cycler.BeginScan(ctx)
+	}
+	led, err := readLedger(s.StateDir)
+	if err != nil {
+		return ScanResult{}, err
 	}
 	for _, entry := range entries {
 		extension := filepath.Ext(entry.Name())
@@ -148,6 +156,7 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 		}
 
 		observation := s.classify(ctx, meta, prior, now)
+		observation = s.resurfaceDecision(observation, now, led.unanswered(meta.ID))
 		if err := WriteObservation(s.StateDir, observation); err != nil {
 			return ScanResult{}, err
 		}
@@ -159,12 +168,21 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 
 	if !heartbeatCorrupt && s.heartbeatDue(heartbeat, now) {
 		heartbeat.LastHeartbeat = now
-		if result.Event == nil && hasUnsurfacedActionable(result.Observations) {
+		switch {
+		case result.Event == nil && hasUnsurfacedActionable(result.Observations):
 			event := Event{Source: HeartbeatEvent, Kind: "heartbeat", Key: "heartbeat", Detail: "actionable fleet observation"}
 			heartbeat.PendingEvent = &event
 			heartbeat.NoChangeStreak = 0
 			result.Event = cloneEvent(&event)
-		} else {
+		case awaitingHuman(result.Observations, led):
+			// Quiet because a human owes an answer is not quiet because the
+			// fleet is healthy, and the streak conflated the two. It reached
+			// 20 during the incident and stretched the heartbeat to roughly
+			// hourly, turning one missed wake into hourly silence. While any
+			// decision is unacknowledged the streak holds at zero and the
+			// cadence stays at its base interval.
+			heartbeat.NoChangeStreak = 0
+		default:
 			heartbeat.NoChangeStreak++
 		}
 		heartbeat.NextDue = now.Add(s.backoff(heartbeat.NoChangeStreak))
@@ -701,6 +719,12 @@ func (s Service) latestStatusVerb(id string) (string, int64, bool) {
 // the CFO's decision. needs-decision and checks-passed wake through the
 // watcher's decision signal; blocked wakes through cfo notify's own record.
 // The monitor must not re-wake any of them as a genuine stall.
+//
+// A failed goblin is terminal here whatever its wake record says. Health is
+// one cycle's label for a pane; whether the Overlord still owes an answer is
+// the ledger's fact, and resurfaceDecision reads it there. Relabelling an
+// unacknowledged failure as parked only changed how fleet view drew it, so
+// that arm is gone and the ledger keeps asking on its own.
 func parkedDecisionVerb(verb string) bool {
 	switch verb {
 	case "blocked", "needs-decision", "checks-passed", "checks_passed":
@@ -710,9 +734,11 @@ func parkedDecisionVerb(verb string) bool {
 }
 
 // terminalVerb reports whether a status verb delivered a terminal outcome.
-// done and failed already woke the CFO through cfo notify's own record (or a
+// done and failed woke the CFO through cfo notify's own record (or a
 // spawn/switch error surfaced directly), so the monitor must not re-wake the
-// finished goblin as a genuine stall.
+// finished goblin as a genuine stall. While that wake is still
+// unacknowledged, resurfaceDecision keeps asking from the ledger; this label
+// does not decide it.
 func terminalVerb(verb string) bool {
 	switch verb {
 	case "done", "failed":
@@ -766,15 +792,135 @@ func (s Service) clearPending(event Event) error {
 	return WriteHeartbeat(s.StateDir, heartbeat)
 }
 
+// ledger answers, from the wake queue's ack floor, whether a goblin's question
+// has been answered. Records at or below the floor are retired from the queue,
+// so everything still pending is still asking. Surfaced means acknowledged,
+// never merely emitted: a wake that fired once and reached nobody has told
+// nobody anything, and reading a pending event off one cycle's observation is
+// exactly the mistake that let two goblins wait 8h47m in silence.
+type ledger struct {
+	records []wake.Record
+}
+
+// readLedger reads the wake queue. A missing queue is the ordinary empty case
+// and reads as no records. Any other failure is a fault in the single channel
+// every question travels through, so it is returned and the scan stops on it.
+// Reading it as "every goblin is unanswered" instead would smear one storage
+// fault across the whole fleet and bury the fault under the re-asks it caused,
+// none of which could be delivered through the queue that just failed.
+func readLedger(stateDir string) (ledger, error) {
+	records, err := wake.Pending(stateDir)
+	if err != nil {
+		return ledger{}, err
+	}
+	return ledger{records: records}, nil
+}
+
+// unanswered reports whether the Overlord still owes this goblin an answer.
+// That is the question - not whether the goblin filed a formal notify. Keying
+// it to a notify is what left a goblin that merely ended its turn at the
+// prompt, having filed nothing, failing the predicate and going quiet; it
+// happened twice on 2026-09-18. Three pending records mean an answer is owed:
+// the goblin's own blocked/failed notify, the watcher's decision signal for a
+// goblin that files none, and the monitor's own awaiting-answer stall for a
+// goblin that asked nothing at all.
+//
+// Nothing else pending is a question. An informational `done:` notify reports
+// an outcome, and the monitor's own re-asks are the asking rather than the
+// thing asked about - counting those would leave a goblin unanswered forever,
+// its own re-ask outliving the record it re-asked about. Such a notify also
+// suppresses the stall arm for as long as it sits unread: the goblin reported
+// an outcome nobody has taken delivery of yet, so it is finished and its
+// ended turn is not a standing question. Acking it - which is what the CFO
+// does before steering the goblin back to work - ends the suppression too.
+func (l ledger) unanswered(id string) bool {
+	stalled, reportedDone := false, false
+	for _, record := range l.records {
+		if wake.DecisionSignal(record, id) {
+			return true
+		}
+		if _, ok := wake.BlockingNotify(record); ok && record.Key == id {
+			return true
+		}
+		if wake.AwaitingAnswerStall(record, id) {
+			stalled = true
+		}
+		if wake.InformationalNotify(record, id) {
+			reportedDone = true
+		}
+	}
+	return stalled && !reportedDone
+}
+
+// resurfaceDecision keeps asking until the ledger says the question was
+// answered. The noise objection the old suppression raised was legitimate, so
+// this is backoff rather than repetition: the first re-ask comes after
+// DecisionAskAfter (5 minutes), the interval doubles with every re-ask that
+// also goes unanswered, and decisionAskInterval caps it at DecisionAskMax (1
+// hour). That cap is the rule - an unanswered question gets quieter, never
+// silent - so however long the Overlord takes, the fleet asks at least hourly
+// instead of trailing off the way it did on 2026-09-18.
+//
+// It runs once per scan on every goblin, after classification, and owns the
+// re-ask schedule outright. The ledger is the durable fact; a health label is
+// one cycle's reading of a pane, and keying the schedule off the label is
+// what let a routine state_change_seq advance relabel a waiting goblin active
+// and silence its question for good.
+func (s Service) resurfaceDecision(observation Observation, now time.Time, unanswered bool) Observation {
+	if !unanswered {
+		observation.NextDecisionAsk = nil
+		observation.DecisionAsks = 0
+		return observation
+	}
+	// agent_status working is the one reading that suppresses a re-ask: the
+	// goblin is genuinely executing, typically because the CFO answered it.
+	// The schedule is held, not cleared, so it resumes where it left off if
+	// the goblin goes quiet again with the record still unacked.
+	if observation.Health == HealthBusy || observation.PendingEvent != nil {
+		return observation
+	}
+	if observation.NextDecisionAsk == nil {
+		// The question has only just been asked and its own wake is in the
+		// queue. Start the clock rather than repeating it in the same breath.
+		observation.NextDecisionAsk = timePointer(now.Add(s.decisionAskInterval(observation.DecisionAsks)))
+		return observation
+	}
+	if now.Before(*observation.NextDecisionAsk) {
+		return observation
+	}
+	observation.DecisionAsks++
+	observation.NextDecisionAsk = timePointer(now.Add(s.decisionAskInterval(observation.DecisionAsks)))
+	event := taskEvent(observation.TaskID, AwaitingDecision,
+		fmt.Sprintf("still unanswered (re-ask %d); run `cfo drain` for the question", observation.DecisionAsks))
+	observation.PendingEvent = &event
+	return observation
+}
+
+// awaitingHuman reports whether any goblin is waiting on an answer nobody has
+// given. The ledger alone decides: a goblin's health label says what its pane
+// is doing this cycle, not whether the Overlord still owes it a reply, and
+// reading the label here is what let the streak climb back to the hourly
+// cadence while a question sat unanswered.
+func awaitingHuman(observations []Observation, led ledger) bool {
+	for _, observation := range observations {
+		if led.unanswered(observation.TaskID) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasUnsurfacedActionable reports whether the fleet holds something the
+// heartbeat itself must carry. That is now only a genuinely unknown endpoint -
+// a goblin whose pane vanished, which has no other voice. A goblin waiting on
+// a decision is no longer suppressed here; it re-asks on its own schedule in
+// resurfaceDecision, which names the goblin instead of folding it into a
+// fleet summary.
 func hasUnsurfacedActionable(observations []Observation) bool {
 	for _, observation := range observations {
 		if observation.PendingEvent != nil {
 			continue
 		}
-		// Only a genuinely unknown endpoint (a goblin whose pane vanished) is
-		// worth a heartbeat re-surface. Stale goblins are doing their job, and
-		// an erroring or awaiting-answer goblin already woke once with its
-		// decision; re-surfacing it every cycle would be noise.
 		if observation.Health == HealthUnknown {
 			return true
 		}
@@ -907,4 +1053,35 @@ func (s Service) heartbeatDue(heartbeat Heartbeat, now time.Time) bool {
 
 func (s Service) freshHeartbeat(now time.Time) Heartbeat {
 	return Heartbeat{LastHeartbeat: now, NextDue: now.Add(s.heartbeat())}
+}
+
+// decisionAskInterval is the wait before the next re-ask once asks have
+// themselves gone unanswered: DecisionAskAfter doubling per re-ask, and
+// never longer than DecisionAskMax. Same shape as backoff, opposite purpose -
+// backoff reaches its ceiling and rests there because the fleet is healthy;
+// this one rests at its ceiling because the ceiling is what stops an
+// unanswered question from ever going silent.
+func (s Service) decisionAskInterval(asks int) time.Duration {
+	interval := s.decisionAskAfter()
+	for range asks {
+		if interval >= s.decisionAskMax()/2 {
+			return s.decisionAskMax()
+		}
+		interval *= 2
+	}
+	return interval
+}
+
+func (s Service) decisionAskAfter() time.Duration {
+	if s.DecisionAskAfter > 0 {
+		return s.DecisionAskAfter
+	}
+	return 5 * time.Minute
+}
+
+func (s Service) decisionAskMax() time.Duration {
+	if s.DecisionAskMax >= s.decisionAskAfter() {
+		return s.DecisionAskMax
+	}
+	return time.Hour
 }
