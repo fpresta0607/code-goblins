@@ -141,11 +141,12 @@ type Observation struct {
 	NextEscalation     *time.Time `json:"next_escalation,omitempty"`
 	NextPauseResurface *time.Time `json:"next_pause_resurface,omitempty"`
 	// NextDecisionAsk and DecisionAsks schedule the re-ask of a question the
-	// Overlord still owes an answer to. They are set only while the wake
-	// ledger holds an unacknowledged record for this goblin, and they survive
-	// only the classifications in which that is still true; any other one
-	// clears them, so a goblin that parks again starts its re-ask clock from
-	// the beginning rather than inheriting a widened one.
+	// Overlord still owes an answer to. resurfaceDecision owns them outright:
+	// they stand for exactly as long as the wake ledger holds an
+	// unacknowledged decision record for this goblin, whatever its health
+	// reads on any one cycle, and are cleared the moment that record is
+	// acked. No classification may touch them - keying this schedule off a
+	// health label is what silenced two goblins for 8h47m.
 	NextDecisionAsk      *time.Time `json:"next_decision_ask,omitempty"`
 	DecisionAsks         int        `json:"decision_asks,omitempty"`
 	Health               Health     `json:"health"`
@@ -298,13 +299,6 @@ func validateObservation(observation Observation) error {
 	return validateEvent(observation.PendingEvent, observation.TaskID, TaskEvent)
 }
 
-// decisionAskCleared reports whether an observation carries no re-ask
-// schedule. Only the states in which a human owes an answer may carry one;
-// anywhere else it is leftover state that would mis-time the next question.
-func decisionAskCleared(observation Observation) bool {
-	return observation.NextDecisionAsk == nil && observation.DecisionAsks == 0
-}
-
 func validateObservationState(observation Observation) error {
 	requireProgress := func() error {
 		if observation.Digest == "" || observation.LastSeen.IsZero() || observation.LastProgress.IsZero() {
@@ -317,7 +311,7 @@ func validateObservationState(observation Observation) error {
 		if observation.EndpointVerdict != ProbePresent || observation.Reason != None {
 			return errors.New("monitor: active, idle, and busy observations require a present endpoint and reason none")
 		}
-		if observation.StaleSince != nil || observation.NextEscalation != nil || observation.NextPauseResurface != nil || observation.Escalation != 0 || observation.DemandDeepInspection || !decisionAskCleared(observation) {
+		if observation.StaleSince != nil || observation.NextEscalation != nil || observation.NextPauseResurface != nil || observation.Escalation != 0 || observation.DemandDeepInspection {
 			return errors.New("monitor: active, idle, and busy observations must not retain stale state")
 		}
 		return requireProgress()
@@ -327,9 +321,6 @@ func validateObservationState(observation Observation) error {
 		}
 		if observation.StaleSince == nil || observation.NextEscalation == nil || observation.NextPauseResurface != nil {
 			return errors.New("monitor: stale observation is missing escalation timestamps")
-		}
-		if observation.Reason != AwaitingAnswer && !decisionAskCleared(observation) {
-			return errors.New("monitor: only an awaiting-answer stale observation may carry a decision re-ask schedule")
 		}
 		return requireProgress()
 	case HealthErroring:
@@ -344,7 +335,7 @@ func validateObservationState(observation Observation) error {
 		if observation.EndpointVerdict != ProbePresent || observation.Reason != None {
 			return errors.New("monitor: launching observation requires a present endpoint and reason none")
 		}
-		if observation.StaleSince != nil || observation.NextEscalation != nil || observation.NextPauseResurface != nil || observation.Escalation != 0 || observation.DemandDeepInspection || !decisionAskCleared(observation) {
+		if observation.StaleSince != nil || observation.NextEscalation != nil || observation.NextPauseResurface != nil || observation.Escalation != 0 || observation.DemandDeepInspection {
 			return errors.New("monitor: launching observation must not retain stale state")
 		}
 		return nil
@@ -352,7 +343,7 @@ func validateObservationState(observation Observation) error {
 		if observation.EndpointVerdict != ProbePresent || observation.Reason != DeclaredPause {
 			return errors.New("monitor: paused observation has incompatible endpoint or reason")
 		}
-		if observation.StaleSince != nil || observation.NextEscalation != nil || observation.NextPauseResurface == nil || observation.Escalation != 0 || observation.DemandDeepInspection || !decisionAskCleared(observation) {
+		if observation.StaleSince != nil || observation.NextEscalation != nil || observation.NextPauseResurface == nil || observation.Escalation != 0 || observation.DemandDeepInspection {
 			return errors.New("monitor: paused observation has incompatible timing state")
 		}
 		return requireProgress()
@@ -365,7 +356,7 @@ func validateObservationState(observation Observation) error {
 		}
 		return requireProgress()
 	case HealthUnknown:
-		if observation.StaleSince != nil || observation.NextEscalation != nil || observation.NextPauseResurface != nil || observation.Escalation != 0 || observation.DemandDeepInspection || !decisionAskCleared(observation) {
+		if observation.StaleSince != nil || observation.NextEscalation != nil || observation.NextPauseResurface != nil || observation.Escalation != 0 || observation.DemandDeepInspection {
 			return errors.New("monitor: unknown observation must not retain stale state")
 		}
 		switch observation.Reason {
