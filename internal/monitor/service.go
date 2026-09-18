@@ -1055,8 +1055,8 @@ func (s Service) freshHeartbeat(now time.Time) Heartbeat {
 	return Heartbeat{LastHeartbeat: now, NextDue: now.Add(s.heartbeat())}
 }
 
-// decisionAskInterval is the wait before the next re-ask once asks re-asks
-// have themselves gone unanswered: DecisionAskAfter doubling per re-ask, and
+// decisionAskInterval is the wait before the next re-ask once asks have
+// themselves gone unanswered: DecisionAskAfter doubling per re-ask, and
 // never longer than DecisionAskMax. Same shape as backoff, opposite purpose -
 // backoff reaches its ceiling and rests there because the fleet is healthy;
 // this one rests at its ceiling because the ceiling is what stops an
