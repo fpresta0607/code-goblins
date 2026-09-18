@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,13 +27,13 @@ func decisionService(stateDir string, probe Prober, now *time.Time) Service {
 // unacknowledged wake record, exactly as `cfo notify <id> --blocked` leaves it.
 func park(t *testing.T, service Service, stateDir, id, question string) {
 	t.Helper()
-	parkWith(t, service, stateDir, id, "blocked: "+question)
+	notifyFrom(t, service, stateDir, id, "blocked: "+question)
 }
 
-// parkWith is park for any notify verb, so the `--failed` notify - which
+// notifyFrom is park for any notify verb, so a `--failed` notify - which
 // `cfo drain` also renders as a decision and refuses to ack unread - can be
 // driven through the same path.
-func parkWith(t *testing.T, service Service, stateDir, id, detail string) {
+func notifyFrom(t *testing.T, service Service, stateDir, id, detail string) {
 	t.Helper()
 	if _, err := service.Scan(context.Background()); err != nil {
 		t.Fatal(err)
@@ -220,7 +221,7 @@ func TestScanReAsksAnUnansweredFailedNotify(t *testing.T) {
 	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
 	service := decisionService(stateDir, probe, &now)
 
-	parkWith(t, service, stateDir, "g1", "failed: ci step can never pass; abort or fix?")
+	notifyFrom(t, service, stateDir, "g1", "failed: ci step can never pass; abort or fix?")
 	events := cycle(t, service, &now, 60)
 
 	if len(events) < 3 {
@@ -285,5 +286,99 @@ func TestScanKeepsTheReAskClockAcrossAnIndeterminateReading(t *testing.T) {
 	// a re-ask that the reset clock used to swallow.
 	if len(events) < 3 {
 		t.Fatalf("events across the blips = %d (%+v), want the question asked again", len(events), events)
+	}
+}
+
+// A `--done` notify is a goblin reporting a PR, not asking a question: drain
+// acks it without ceremony and never renders it as a DECISION. The terminal
+// verb gate releases as soon as herdr advances the pane's state_change_seq,
+// and an unacknowledged done record must not turn that release into an hourly
+// re-ask for a goblin that asked nothing.
+func TestScanNeverReAsksAnInformationalDoneNotify(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	service := decisionService(stateDir, probe, &now)
+
+	notifyFrom(t, service, stateDir, "g1", "done: PR https://example.test/repo/pull/7")
+	if events := cycle(t, service, &now, 1); len(events) != 0 {
+		t.Fatalf("a freshly reported done woke the CFO: %+v", events)
+	}
+
+	// The pane's own counter advances, which releases the gate the terminal
+	// verb was holding, and herdr reports the turn ended again.
+	released := sampleForStatus(meta, herdr.AgentDone, "same")
+	released.StateChangeSeq++
+	probe.samples["g1"] = released
+
+	for _, event := range cycle(t, service, &now, 60) {
+		if strings.Contains(event.Detail, "still unanswered") {
+			t.Fatalf("re-asked a goblin that reported done and asked nothing: %+v", event)
+		}
+	}
+	heartbeat, err := ReadHeartbeat(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if heartbeat.NoChangeStreak == 0 {
+		t.Fatal("no_change_streak = 0, want the fleet free to back off when nobody asked a question")
+	}
+}
+
+// The other arm: a needs-decision goblin files no notify of its own, so the
+// watcher's signal record keyed "<id>.status" is the only evidence it is
+// waiting. Drop that arm and this goblin goes silent again, which is the
+// original defect.
+func TestScanReAsksAGoblinWaitingBehindTheWatchersDecisionSignal(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	service := decisionService(stateDir, probe, &now)
+
+	if _, err := service.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AppendStatus(stateDir, "g1", "needs-decision: adopt the migration or revert?"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wake.Append(stateDir, "signal", "g1.status", "signal:g1.status"); err != nil {
+		t.Fatal(err)
+	}
+
+	events := cycle(t, service, &now, 60)
+	if len(events) < 3 {
+		t.Fatalf("re-asks over an hour = %d (%+v), want the goblin behind a decision signal to keep asking", len(events), events)
+	}
+}
+
+// The backoff has to actually widen and then rest exactly at its cap. A
+// constant wearing a function's name satisfies every other test here, and an
+// earlier round of this review found a path that silently reset the interval
+// to its base.
+func TestDecisionAskIntervalWidensThenRestsAtTheCap(t *testing.T) {
+	service := Service{DecisionAskAfter: 5 * time.Minute, DecisionAskMax: time.Hour}
+	previous := time.Duration(0)
+	capped := false
+	for asks := 0; asks < 12; asks++ {
+		interval := service.decisionAskInterval(asks)
+		if interval > service.DecisionAskMax {
+			t.Fatalf("interval after %d re-asks = %s, want no longer than the %s cap", asks, interval, service.DecisionAskMax)
+		}
+		switch {
+		case interval == service.DecisionAskMax:
+			capped = true
+		case capped:
+			t.Fatalf("interval after %d re-asks = %s, want it to rest at the %s cap once it reaches it", asks, interval, service.DecisionAskMax)
+		case interval <= previous:
+			t.Fatalf("interval after %d re-asks = %s, want it wider than the previous %s", asks, interval, previous)
+		}
+		previous = interval
+	}
+	if !capped {
+		t.Fatal("the interval never reached its cap, so an unanswered question has no guaranteed asking floor")
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -117,10 +116,10 @@ func blockingAtOrBelow(stateDir string, seq int) ([]wake.Record, error) {
 	var blocking []wake.Record
 	// RAW pending, never a folded view.
 	for _, rec := range pending {
-		if rec.Seq > seq || rec.Kind != "notify" {
+		if rec.Seq > seq {
 			continue
 		}
-		if strings.HasPrefix(rec.Detail, "blocked:") || strings.HasPrefix(rec.Detail, "failed:") {
+		if _, ok := wake.BlockingNotify(rec); ok {
 			blocking = append(blocking, rec)
 		}
 	}
