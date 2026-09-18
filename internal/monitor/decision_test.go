@@ -26,13 +26,21 @@ func decisionService(stateDir string, probe Prober, now *time.Time) Service {
 // unacknowledged wake record, exactly as `cfo notify <id> --blocked` leaves it.
 func park(t *testing.T, service Service, stateDir, id, question string) {
 	t.Helper()
+	parkWith(t, service, stateDir, id, "blocked: "+question)
+}
+
+// parkWith is park for any notify verb, so the `--failed` notify - which
+// `cfo drain` also renders as a decision and refuses to ack unread - can be
+// driven through the same path.
+func parkWith(t *testing.T, service Service, stateDir, id, detail string) {
+	t.Helper()
 	if _, err := service.Scan(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := state.AppendStatus(stateDir, id, "blocked: "+question); err != nil {
+	if err := state.AppendStatus(stateDir, id, detail); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := wake.Append(stateDir, "notify", id, "blocked: "+question); err != nil {
+	if _, err := wake.Append(stateDir, "notify", id, detail); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -196,5 +204,86 @@ func TestScanStopsReAskingOnceTheDecisionIsAcked(t *testing.T) {
 	}
 	if events := cycle(t, service, &now, 60); len(events) != 0 {
 		t.Fatalf("re-asks after the ack = %+v, want silence once the question is answered", events)
+	}
+}
+
+// A `--failed` notify asks a question ("ci can never pass, abort or fix?")
+// exactly as a `--blocked` one does: drain renders both as decisions and
+// refuses to ack either unread. Treating failed as terminal left that class
+// of question with no re-ask at all and let the streak climb back towards
+// hourly. It is terminal only once its record has been acked.
+func TestScanReAsksAnUnansweredFailedNotify(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	service := decisionService(stateDir, probe, &now)
+
+	parkWith(t, service, stateDir, "g1", "failed: ci step can never pass; abort or fix?")
+	events := cycle(t, service, &now, 60)
+
+	if len(events) < 3 {
+		t.Fatalf("re-asks over an hour = %d (%+v), want a failed notify to keep asking", len(events), events)
+	}
+	for _, event := range events {
+		if event.TaskID != "g1" || event.Source != TaskEvent {
+			t.Fatalf("re-ask = %+v, want a task event naming the goblin that is waiting", event)
+		}
+	}
+	heartbeat, err := ReadHeartbeat(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if heartbeat.NoChangeStreak != 0 {
+		t.Fatalf("no_change_streak = %d, want 0 while a failed notify is unanswered", heartbeat.NoChangeStreak)
+	}
+
+	records, err := wake.Pending(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wake.AckThrough(stateDir, records[len(records)-1].Seq); err != nil {
+		t.Fatal(err)
+	}
+	if events := cycle(t, service, &now, 60); len(events) != 0 {
+		t.Fatalf("re-asks after the ack = %+v, want an acked failure to be terminal", events)
+	}
+}
+
+// herdr reports a pane's activity as momentarily indeterminate as a matter of
+// course, and that reading routes an already-stale awaiting-answer goblin
+// back through staleObservation. Wiping the re-ask schedule there deferred
+// the question by a full interval every time, so a blip arriving faster than
+// the interval silenced the goblin entirely - the exact failure being fixed.
+func TestScanKeepsTheReAskClockAcrossAnIndeterminateReading(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	done := sampleForStatus(meta, herdr.AgentDone, "same")
+	blip := sampleForStatus(meta, herdr.AgentUnknown, "same")
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": done}}
+	service := decisionService(stateDir, probe, &now)
+
+	if _, err := wake.Append(stateDir, "notify", "g1", "blocked: merge or hold?"); err != nil {
+		t.Fatal(err)
+	}
+
+	var events []Event
+	for i := 0; i < 30; i++ {
+		// Every other cycle reads indeterminate: more often than the two
+		// minute re-ask interval this service is configured with.
+		probe.samples["g1"] = done
+		if i%2 == 1 {
+			probe.samples["g1"] = blip
+		}
+		events = append(events, cycle(t, service, &now, 1)...)
+	}
+
+	// The first event is the goblin's own first wake; everything after it is
+	// a re-ask that the reset clock used to swallow.
+	if len(events) < 3 {
+		t.Fatalf("events across the blips = %d (%+v), want the question asked again", len(events), events)
 	}
 }

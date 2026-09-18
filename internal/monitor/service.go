@@ -311,8 +311,13 @@ func (s Service) staleObservation(observation Observation, reason Reason, now ti
 	observation.Health = HealthStale
 	observation.Reason = reason
 	observation.NextPauseResurface = nil
-	observation.NextDecisionAsk = nil
-	observation.DecisionAsks = 0
+	// A goblin still awaiting an answer keeps its re-ask schedule: a
+	// momentary unknown reading routes it back through here, and resetting
+	// the clock on every blip is what let the question go silent.
+	if reason != AwaitingAnswer {
+		observation.NextDecisionAsk = nil
+		observation.DecisionAsks = 0
+	}
 	if observation.PendingEvent != nil {
 		return observation
 	}
@@ -451,10 +456,11 @@ func (s Service) statusVerbObservation(observation Observation, id string, now t
 		observation.GatedStateChangeSeq = sample.StateChangeSeq
 		return s.pauseObservation(observation, now), true
 	}
-	if parkedDecisionVerb(verb) {
+	unanswered := led.unanswered(id)
+	if parkedDecisionVerb(verb) || (verb == "failed" && unanswered) {
 		observation.GatedVerbLine = line
 		observation.GatedStateChangeSeq = sample.StateChangeSeq
-		return s.parkedObservation(observation, now, led.unanswered(id)), true
+		return s.parkedObservation(observation, now, unanswered), true
 	}
 	if terminalVerb(verb) {
 		observation.GatedVerbLine = line
@@ -742,7 +748,10 @@ func (s Service) latestStatusVerb(id string) (string, int64, bool) {
 // parkedDecisionVerb reports whether a status verb parks the goblin awaiting
 // the CFO's decision. needs-decision and checks-passed wake through the
 // watcher's decision signal; blocked wakes through cfo notify's own record.
-// The monitor must not re-wake any of them as a genuine stall.
+// The monitor must not re-wake any of them as a genuine stall. failed belongs
+// here too while its wake record is unacknowledged, which the caller decides
+// from the ledger: `cfo drain` renders it as a decision and refuses to ack it
+// unread, so until the CFO retires it the goblin is waiting, not finished.
 func parkedDecisionVerb(verb string) bool {
 	switch verb {
 	case "blocked", "needs-decision", "checks-passed", "checks_passed":
@@ -752,9 +761,9 @@ func parkedDecisionVerb(verb string) bool {
 }
 
 // terminalVerb reports whether a status verb delivered a terminal outcome.
-// done and failed already woke the CFO through cfo notify's own record (or a
-// spawn/switch error surfaced directly), so the monitor must not re-wake the
-// finished goblin as a genuine stall.
+// done and an already-acknowledged failed woke the CFO through cfo notify's
+// own record (or a spawn/switch error surfaced directly), so the monitor must
+// not re-wake the finished goblin as a genuine stall.
 func terminalVerb(verb string) bool {
 	switch verb {
 	case "done", "failed":
