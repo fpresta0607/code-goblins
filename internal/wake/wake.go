@@ -335,6 +335,21 @@ func BlockingNotify(rec Record) (string, bool) {
 	return "", false
 }
 
+// InformationalNotify is the opposite of a question: a goblin's own notify
+// reporting a terminal outcome nobody has read yet. It asks nothing, so a
+// goblin holding one pending is finished rather than waiting, and the
+// monitor suppresses its turn-ended stall while the record sits in the queue.
+// A `failed:` notify is a question and belongs to BlockingNotify, not here.
+//
+// It reads the queue rather than the goblin's status file on purpose: a
+// status line is the last thing the goblin ever wrote and stays `done:`
+// forever, so a goblin steered back to work by `cfo send` would be silenced
+// by a verb it wrote hours ago. Acking the notify is what the CFO does before
+// steering it, so the pending record tracks the state the status line cannot.
+func InformationalNotify(rec Record, id string) bool {
+	return rec.Kind == "notify" && rec.Key == id && strings.HasPrefix(rec.Detail, "done:")
+}
+
 // DecisionSignal is the other arm: the watcher's own signal for a goblin,
 // keyed by the status file that produced it. The watcher appends one only for
 // a decision verb, so a needs-decision or checks-passed goblin - which never

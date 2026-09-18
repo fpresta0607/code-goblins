@@ -336,6 +336,61 @@ func TestScanNeverReAsksAnInformationalDoneNotify(t *testing.T) {
 	}
 }
 
+// The suppression is the pending record, never the status line. A goblin's
+// `done:` verb is the last thing it ever wrote and stays there forever, so a
+// goblin the CFO acked and then steered back to work with `cfo send` would be
+// silenced by a verb from hours ago - the same silence, arriving by a
+// different door. Once the notify is acked, a turn that ends at the prompt is
+// a standing question again.
+func TestScanReAsksAfterAnAckedDoneLeavesTheGoblinWaitingAgain(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	service := decisionService(stateDir, probe, &now)
+
+	notifyFrom(t, service, stateDir, "g1", "done: PR https://example.test/repo/pull/7")
+	cycle(t, service, &now, 1)
+
+	records, err := wake.Pending(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wake.AckThrough(stateDir, records[len(records)-1].Seq); err != nil {
+		t.Fatal(err)
+	}
+
+	// The CFO steers the acked goblin back to work; its turn then ends at the
+	// prompt with a question, and it files no new notify. The `done:` line it
+	// wrote earlier is still the latest verb in its status file.
+	working := sampleForStatus(meta, herdr.AgentWorking, "moved")
+	working.StateChangeSeq++
+	probe.samples["g1"] = working
+	cycle(t, service, &now, 1)
+
+	waiting := sampleForStatus(meta, herdr.AgentDone, "moved")
+	waiting.StateChangeSeq = working.StateChangeSeq + 1
+	probe.samples["g1"] = waiting
+
+	reAsks := 0
+	for _, event := range cycle(t, service, &now, 60) {
+		if strings.Contains(event.Detail, "still unanswered") {
+			reAsks++
+		}
+	}
+	if reAsks < 3 {
+		t.Fatalf("re-asks over an hour = %d, want a stale done verb to silence nothing once its notify is acked", reAsks)
+	}
+	heartbeat, err := ReadHeartbeat(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if heartbeat.NoChangeStreak != 0 {
+		t.Fatalf("no_change_streak = %d, want 0 while the goblin waits", heartbeat.NoChangeStreak)
+	}
+}
+
 // The other arm: a needs-decision goblin files no notify of its own, so the
 // watcher's signal record keyed "<id>.status" is the only evidence it is
 // waiting. Drop that arm and this goblin goes silent again, which is the
