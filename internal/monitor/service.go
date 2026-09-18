@@ -94,7 +94,10 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 	if cycler, ok := s.Probe.(CycleProber); ok {
 		cycler.BeginScan(ctx)
 	}
-	led := readLedger(s.StateDir)
+	led, err := readLedger(s.StateDir)
+	if err != nil {
+		return ScanResult{}, err
+	}
 	for _, entry := range entries {
 		extension := filepath.Ext(entry.Name())
 		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || !strings.EqualFold(extension, ".meta") {
@@ -152,8 +155,8 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 			continue
 		}
 
-		observation := s.classify(ctx, meta, prior, now, led)
-		observation = s.resurfaceDecision(observation, now, led.unanswered(meta.ID))
+		observation := s.classify(ctx, meta, prior, now)
+		observation = s.resurfaceDecision(observation, now, led.unanswered(meta.ID, s.declaredTerminal(meta.ID)))
 		if err := WriteObservation(s.StateDir, observation); err != nil {
 			return ScanResult{}, err
 		}
@@ -171,7 +174,7 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 			heartbeat.PendingEvent = &event
 			heartbeat.NoChangeStreak = 0
 			result.Event = cloneEvent(&event)
-		case awaitingHuman(result.Observations, led):
+		case s.awaitingHuman(result.Observations, led):
 			// Quiet because a human owes an answer is not quiet because the
 			// fleet is healthy, and the streak conflated the two. It reached
 			// 20 during the incident and stretched the heartbeat to roughly
@@ -210,7 +213,7 @@ func (s Service) Publish(event Event) (wake.Record, error) {
 	return record, nil
 }
 
-func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observation, now time.Time, led ledger) Observation {
+func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observation, now time.Time) Observation {
 	observation := prior
 	observation.Schema = Schema
 	observation.TaskID = meta.ID
@@ -290,19 +293,19 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		// The agent's turn ended and it is waiting on input - finished or
 		// blocked. This is the harness-agnostic wake the pane heuristics were
 		// blind to.
-		if gated, ok := s.statusVerbObservation(observation, meta.ID, now, sample, led); ok {
+		if gated, ok := s.statusVerbObservation(observation, meta.ID, now, sample); ok {
 			return gated
 		}
 		return awaitingInputObservation(observation, now)
 	case herdr.AgentIdle:
 		// Between turns: liveness comes from the agent's own counters and the
 		// status log. No movement for the stall window = genuinely wedged.
-		return s.idleClassification(observation, sample, meta.ID, now, led)
+		return s.idleClassification(observation, sample, meta.ID, now)
 	case herdr.AgentUnknown:
 		// A registered agent whose activity is momentarily indeterminate is
 		// not an endpoint failure. Treat it like idle: it stays quiet unless
 		// its counters and status log both freeze for the stall window.
-		return s.idleClassification(observation, sample, meta.ID, now, led)
+		return s.idleClassification(observation, sample, meta.ID, now)
 	default:
 		return unknownObservation(observation, EndpointUnknown, "endpoint activity is unknown", now)
 	}
@@ -432,7 +435,7 @@ func workingObservation(observation Observation, sample EndpointSample, now time
 // pauses, or terminates the goblin, along with whether such a verb is present.
 // These verbs win over liveness because cfo notify (or the watcher's decision
 // signal) already woke the CFO, so the monitor must hold the pane quiet.
-func (s Service) statusVerbObservation(observation Observation, id string, now time.Time, sample EndpointSample, led ledger) (Observation, bool) {
+func (s Service) statusVerbObservation(observation Observation, id string, now time.Time, sample EndpointSample) (Observation, bool) {
 	verb, line, ok := s.latestStatusVerb(id)
 	if !ok || line <= observation.ConsumedVerbLine {
 		return observation, false
@@ -446,8 +449,7 @@ func (s Service) statusVerbObservation(observation Observation, id string, now t
 		observation.GatedStateChangeSeq = sample.StateChangeSeq
 		return s.pauseObservation(observation, now), true
 	}
-	unanswered := led.unanswered(id)
-	if parkedDecisionVerb(verb) || (verb == "failed" && unanswered) {
+	if parkedDecisionVerb(verb) {
 		observation.GatedVerbLine = line
 		observation.GatedStateChangeSeq = sample.StateChangeSeq
 		return s.parkedObservation(observation, now), true
@@ -463,8 +465,8 @@ func (s Service) statusVerbObservation(observation Observation, id string, now t
 // idleClassification handles agent_status idle. Rising state_change_seq or
 // revision (or a status-log write) is liveness: the goblin is working. Only a
 // pane with no counter movement for the stall window is genuinely wedged.
-func (s Service) idleClassification(observation Observation, sample EndpointSample, id string, now time.Time, led ledger) Observation {
-	if gated, ok := s.statusVerbObservation(observation, id, now, sample, led); ok {
+func (s Service) idleClassification(observation Observation, sample EndpointSample, id string, now time.Time) Observation {
+	if gated, ok := s.statusVerbObservation(observation, id, now, sample); ok {
 		return gated
 	}
 
@@ -716,10 +718,13 @@ func (s Service) latestStatusVerb(id string) (string, int64, bool) {
 // parkedDecisionVerb reports whether a status verb parks the goblin awaiting
 // the CFO's decision. needs-decision and checks-passed wake through the
 // watcher's decision signal; blocked wakes through cfo notify's own record.
-// The monitor must not re-wake any of them as a genuine stall. failed belongs
-// here too while its wake record is unacknowledged, which the caller decides
-// from the ledger: `cfo drain` renders it as a decision and refuses to ack it
-// unread, so until the CFO retires it the goblin is waiting, not finished.
+// The monitor must not re-wake any of them as a genuine stall.
+//
+// A failed goblin is terminal here whatever its wake record says. Health is
+// one cycle's label for a pane; whether the Overlord still owes an answer is
+// the ledger's fact, and resurfaceDecision reads it there. Relabelling an
+// unacknowledged failure as parked only changed how fleet view drew it, so
+// that arm is gone and the ledger keeps asking on its own.
 func parkedDecisionVerb(verb string) bool {
 	switch verb {
 	case "blocked", "needs-decision", "checks-passed", "checks_passed":
@@ -729,9 +734,11 @@ func parkedDecisionVerb(verb string) bool {
 }
 
 // terminalVerb reports whether a status verb delivered a terminal outcome.
-// done and an already-acknowledged failed woke the CFO through cfo notify's
-// own record (or a spawn/switch error surfaced directly), so the monitor must
-// not re-wake the finished goblin as a genuine stall.
+// done and failed woke the CFO through cfo notify's own record (or a
+// spawn/switch error surfaced directly), so the monitor must not re-wake the
+// finished goblin as a genuine stall. While that wake is still
+// unacknowledged, resurfaceDecision keeps asking from the ledger; this label
+// does not decide it.
 func terminalVerb(verb string) bool {
 	switch verb {
 	case "done", "failed":
@@ -793,30 +800,36 @@ func (s Service) clearPending(event Event) error {
 // exactly the mistake that let two goblins wait 8h47m in silence.
 type ledger struct {
 	records []wake.Record
-	// unreadable is a corrupt or unreadable queue. It reads as everything
-	// unanswered on purpose: the failure this path guards against is silence,
-	// so an unreadable ledger errs towards asking rather than towards quiet.
-	unreadable bool
 }
 
-func readLedger(stateDir string) ledger {
+// readLedger reads the wake queue. A missing queue is the ordinary empty case
+// and reads as no records. Any other failure is a fault in the single channel
+// every question travels through, so it is returned and the scan stops on it.
+// Reading it as "every goblin is unanswered" instead would smear one storage
+// fault across the whole fleet and bury the fault under the re-asks it caused,
+// none of which could be delivered through the queue that just failed.
+func readLedger(stateDir string) (ledger, error) {
 	records, err := wake.Pending(stateDir)
 	if err != nil {
-		return ledger{unreadable: true}
+		return ledger{}, err
 	}
-	return ledger{records: records}
+	return ledger{records: records}, nil
 }
 
-// unanswered reports whether the ledger still holds an unacknowledged record
-// that means this goblin is waiting on the CFO. Both of wake's arms count: the
-// goblin's own blocked/failed notify, and the watcher's decision signal for a
-// goblin that files none. Any other pending record - an informational `done:`
-// notify, or one of the monitor's own re-asks - is not a question, and
-// re-asking one is the noise the original suppression existed to prevent.
-func (l ledger) unanswered(id string) bool {
-	if l.unreadable {
-		return true
-	}
+// unanswered reports whether the Overlord still owes this goblin an answer.
+// That is the question - not whether the goblin filed a formal notify. Keying
+// it to a notify is what left a goblin that merely ended its turn at the
+// prompt, having filed nothing, failing the predicate and going quiet; it
+// happened twice on 2026-09-18. Three pending records mean an answer is owed:
+// the goblin's own blocked/failed notify, the watcher's decision signal for a
+// goblin that files none, and the monitor's own awaiting-answer stall for a
+// goblin that asked nothing at all.
+//
+// Nothing else pending is a question. An informational `done:` notify reports
+// an outcome, and the monitor's own re-asks are the asking rather than the
+// thing asked about - counting those would leave a goblin unanswered forever,
+// its own re-ask outliving the record it re-asked about.
+func (l ledger) unanswered(id string, declaredTerminal bool) bool {
 	for _, record := range l.records {
 		if wake.DecisionSignal(record, id) {
 			return true
@@ -824,8 +837,22 @@ func (l ledger) unanswered(id string) bool {
 		if _, ok := wake.BlockingNotify(record); ok && record.Key == id {
 			return true
 		}
+		if !declaredTerminal && wake.AwaitingAnswerStall(record, id) {
+			return true
+		}
 	}
 	return false
+}
+
+// declaredTerminal reports whether the goblin's own latest status verb says
+// it finished. Such a goblin still ends its turn at the prompt, and the
+// monitor still wakes once for that - a stale done must not silence a goblin
+// whose counters moved again - but nobody owes it a reply, so that wake must
+// not harden into a standing question. A question it did ask is its notify,
+// which the arms above read and which is not gated on this.
+func (s Service) declaredTerminal(id string) bool {
+	verb, _, ok := s.latestStatusVerb(id)
+	return ok && terminalVerb(verb)
 }
 
 // resurfaceDecision keeps asking until the ledger says the question was
@@ -877,9 +904,9 @@ func (s Service) resurfaceDecision(observation Observation, now time.Time, unans
 // is doing this cycle, not whether the Overlord still owes it a reply, and
 // reading the label here is what let the streak climb back to the hourly
 // cadence while a question sat unanswered.
-func awaitingHuman(observations []Observation, led ledger) bool {
+func (s Service) awaitingHuman(observations []Observation, led ledger) bool {
 	for _, observation := range observations {
-		if led.unanswered(observation.TaskID) {
+		if led.unanswered(observation.TaskID, s.declaredTerminal(observation.TaskID)) {
 			return true
 		}
 	}

@@ -345,6 +345,25 @@ func DecisionSignal(rec Record, id string) bool {
 	return rec.Kind == "signal" && rec.Key == id+".status"
 }
 
+// stallAwaitingAnswer is the detail prefix the monitor writes for a goblin
+// whose agent turn ended at its prompt. It is spelled out here for the same
+// reason BlockingNotify spells out its verbs: the queue stores rendered text,
+// and this package must read that text without importing the monitor.
+const stallAwaitingAnswer = "awaiting_answer:"
+
+// AwaitingAnswerStall is the third arm: the monitor's own stall record for a
+// goblin whose turn ended waiting on input without filing a notify of its
+// own. Such a goblin asked nothing formally, so the notify and signal arms
+// both miss it - and an answer is owed all the same. That gap is how this
+// class went quiet twice on 2026-09-18.
+//
+// Only the awaiting-answer stall counts. The monitor's own re-asks are stall
+// records too, and counting them would make a goblin unanswered forever: the
+// re-ask would be its own evidence, outliving the record it re-asked about.
+func AwaitingAnswerStall(rec Record, id string) bool {
+	return rec.Kind == "stale" && rec.Key == id && strings.HasPrefix(rec.Detail, stallAwaitingAnswer)
+}
+
 // decision splits a blocking notify into the verb that parked it, the question
 // it asked, and the options it offered.
 //
