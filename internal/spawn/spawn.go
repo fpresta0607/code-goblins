@@ -1038,7 +1038,7 @@ func notifyInstruction(id string) string {
 	if err != nil {
 		exe = "cfo"
 	}
-	return " Report outcomes to the CFO: on completion with a PR run: " + exe + " notify " + id + " --done --pr <url>. When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\". On failure run: " + exe + " notify " + id + " --failed \"<reason>\"."
+	return " Report outcomes to the CFO: on completion with a PR run: " + exe + " notify " + id + " --done --pr <url>. When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\"; when the question has a fixed set of choices, name them after one literal options: marker separated by |, as in \"<question> options: a | b | c\", and cfo drain renders those as the decision's options. On failure run: " + exe + " notify " + id + " --failed \"<reason>\"."
 }
 
 // containsMarker matches against whitespace-normalized text: pane captures
