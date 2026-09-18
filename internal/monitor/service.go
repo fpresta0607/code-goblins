@@ -32,8 +32,8 @@ type CycleProber interface {
 // Service scans read-only endpoint samples and persists classification state.
 // It deliberately has no lifecycle, send, worktree, or delete dependency.
 type Service struct {
-	StateDir              string
-	Probe                 Prober
+	StateDir string
+	Probe    Prober
 	// Gate is consulted only once a goblin has read working for longer than
 	// BusyTurnMax; nil disables the gate probe but not the budget itself.
 	Gate                  GateProber
@@ -46,6 +46,10 @@ type Service struct {
 	DemandInspectionAfter int
 	Heartbeat             time.Duration
 	HeartbeatMax          time.Duration
+	// DecisionAskAfter is how long an unanswered decision waits before it
+	// asks again, and DecisionAskMax is the ceiling that interval widens to.
+	DecisionAskAfter time.Duration
+	DecisionAskMax   time.Duration
 }
 
 type ScanResult struct {
@@ -90,6 +94,7 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 	if cycler, ok := s.Probe.(CycleProber); ok {
 		cycler.BeginScan(ctx)
 	}
+	led := readLedger(s.StateDir)
 	for _, entry := range entries {
 		extension := filepath.Ext(entry.Name())
 		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || !strings.EqualFold(extension, ".meta") {
@@ -147,7 +152,7 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 			continue
 		}
 
-		observation := s.classify(ctx, meta, prior, now)
+		observation := s.classify(ctx, meta, prior, now, led)
 		if err := WriteObservation(s.StateDir, observation); err != nil {
 			return ScanResult{}, err
 		}
@@ -159,12 +164,21 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 
 	if !heartbeatCorrupt && s.heartbeatDue(heartbeat, now) {
 		heartbeat.LastHeartbeat = now
-		if result.Event == nil && hasUnsurfacedActionable(result.Observations) {
+		switch {
+		case result.Event == nil && hasUnsurfacedActionable(result.Observations):
 			event := Event{Source: HeartbeatEvent, Kind: "heartbeat", Key: "heartbeat", Detail: "actionable fleet observation"}
 			heartbeat.PendingEvent = &event
 			heartbeat.NoChangeStreak = 0
 			result.Event = cloneEvent(&event)
-		} else {
+		case s.awaitingHuman(result.Observations, led):
+			// Quiet because a human owes an answer is not quiet because the
+			// fleet is healthy, and the streak conflated the two. It reached
+			// 20 during the incident and stretched the heartbeat to roughly
+			// hourly, turning one missed wake into hourly silence. While any
+			// decision is unacknowledged the streak holds at zero and the
+			// cadence stays at its base interval.
+			heartbeat.NoChangeStreak = 0
+		default:
 			heartbeat.NoChangeStreak++
 		}
 		heartbeat.NextDue = now.Add(s.backoff(heartbeat.NoChangeStreak))
@@ -195,7 +209,7 @@ func (s Service) Publish(event Event) (wake.Record, error) {
 	return record, nil
 }
 
-func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observation, now time.Time) Observation {
+func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observation, now time.Time, led ledger) Observation {
 	observation := prior
 	observation.Schema = Schema
 	observation.TaskID = meta.ID
@@ -239,7 +253,7 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	// carries the provider's error framing (429, rate limit, auth), which is a
 	// reliable signal, not a pane-text heuristic.
 	if fault, detail, found := routing.Detect(string(sample.Capture)); found {
-		return erroringObservation(observation, digest, fault, detail, now)
+		return s.erroringObservation(observation, digest, fault, detail, now, led.unanswered(meta.ID))
 	}
 
 	observation.Digest = digest
@@ -275,19 +289,19 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		// The agent's turn ended and it is waiting on input - finished or
 		// blocked. This is the harness-agnostic wake the pane heuristics were
 		// blind to.
-		if gated, ok := s.statusVerbObservation(observation, meta.ID, now, sample); ok {
+		if gated, ok := s.statusVerbObservation(observation, meta.ID, now, sample, led); ok {
 			return gated
 		}
-		return awaitingInputObservation(observation, now)
+		return s.awaitingInputObservation(observation, now, led.unanswered(meta.ID))
 	case herdr.AgentIdle:
 		// Between turns: liveness comes from the agent's own counters and the
 		// status log. No movement for the stall window = genuinely wedged.
-		return s.idleClassification(observation, sample, meta.ID, now)
+		return s.idleClassification(observation, sample, meta.ID, now, led)
 	case herdr.AgentUnknown:
 		// A registered agent whose activity is momentarily indeterminate is
 		// not an endpoint failure. Treat it like idle: it stays quiet unless
 		// its counters and status log both freeze for the stall window.
-		return s.idleClassification(observation, sample, meta.ID, now)
+		return s.idleClassification(observation, sample, meta.ID, now, led)
 	default:
 		return unknownObservation(observation, EndpointUnknown, "endpoint activity is unknown", now)
 	}
@@ -297,6 +311,8 @@ func (s Service) staleObservation(observation Observation, reason Reason, now ti
 	observation.Health = HealthStale
 	observation.Reason = reason
 	observation.NextPauseResurface = nil
+	observation.NextDecisionAsk = nil
+	observation.DecisionAsks = 0
 	if observation.PendingEvent != nil {
 		return observation
 	}
@@ -377,6 +393,8 @@ func (s Service) busyOverAgeObservation(observation Observation, detail string, 
 	observation.Health = HealthStale
 	observation.Reason = BusyTurnOverAge
 	observation.NextPauseResurface = nil
+	observation.NextDecisionAsk = nil
+	observation.DecisionAsks = 0
 	if observation.PendingEvent != nil || observation.StaleSince != nil {
 		return observation
 	}
@@ -406,6 +424,8 @@ func workingObservation(observation Observation, sample EndpointSample, now time
 	observation.StaleSince = nil
 	observation.NextEscalation = nil
 	observation.NextPauseResurface = nil
+	observation.NextDecisionAsk = nil
+	observation.DecisionAsks = 0
 	observation.Health = HealthBusy
 	observation.Reason = None
 	observation.Escalation = 0
@@ -417,7 +437,7 @@ func workingObservation(observation Observation, sample EndpointSample, now time
 // pauses, or terminates the goblin, along with whether such a verb is present.
 // These verbs win over liveness because cfo notify (or the watcher's decision
 // signal) already woke the CFO, so the monitor must hold the pane quiet.
-func (s Service) statusVerbObservation(observation Observation, id string, now time.Time, sample EndpointSample) (Observation, bool) {
+func (s Service) statusVerbObservation(observation Observation, id string, now time.Time, sample EndpointSample, led ledger) (Observation, bool) {
 	verb, line, ok := s.latestStatusVerb(id)
 	if !ok || line <= observation.ConsumedVerbLine {
 		return observation, false
@@ -434,7 +454,7 @@ func (s Service) statusVerbObservation(observation Observation, id string, now t
 	if parkedDecisionVerb(verb) {
 		observation.GatedVerbLine = line
 		observation.GatedStateChangeSeq = sample.StateChangeSeq
-		return s.parkedObservation(observation, now), true
+		return s.parkedObservation(observation, now, led.unanswered(id)), true
 	}
 	if terminalVerb(verb) {
 		observation.GatedVerbLine = line
@@ -447,8 +467,8 @@ func (s Service) statusVerbObservation(observation Observation, id string, now t
 // idleClassification handles agent_status idle. Rising state_change_seq or
 // revision (or a status-log write) is liveness: the goblin is working. Only a
 // pane with no counter movement for the stall window is genuinely wedged.
-func (s Service) idleClassification(observation Observation, sample EndpointSample, id string, now time.Time) Observation {
-	if gated, ok := s.statusVerbObservation(observation, id, now, sample); ok {
+func (s Service) idleClassification(observation Observation, sample EndpointSample, id string, now time.Time, led ledger) Observation {
+	if gated, ok := s.statusVerbObservation(observation, id, now, sample, led); ok {
 		return gated
 	}
 
@@ -466,6 +486,8 @@ func (s Service) idleClassification(observation Observation, sample EndpointSamp
 		observation.StaleSince = nil
 		observation.NextEscalation = nil
 		observation.NextPauseResurface = nil
+		observation.NextDecisionAsk = nil
+		observation.DecisionAsks = 0
 		observation.Health = HealthActive
 		observation.Reason = None
 		observation.Escalation = 0
@@ -492,6 +514,8 @@ func (s Service) idleObservation(observation Observation, now time.Time) Observa
 		observation.StaleSince = nil
 		observation.NextEscalation = nil
 		observation.NextPauseResurface = nil
+		observation.NextDecisionAsk = nil
+		observation.DecisionAsks = 0
 		observation.Escalation = 0
 		observation.DemandDeepInspection = false
 		return observation
@@ -504,7 +528,7 @@ func (s Service) idleObservation(observation Observation, now time.Time) Observa
 // (agent_status done) and is waiting on input - finished or blocked. It wakes
 // once per episode and demands inspection, because the fix is a CFO decision,
 // not another poll.
-func awaitingInputObservation(observation Observation, now time.Time) Observation {
+func (s Service) awaitingInputObservation(observation Observation, now time.Time, unanswered bool) Observation {
 	first := observation.Reason != AwaitingAnswer
 	observation.IdleSince = nil
 	observation.Health = HealthStale
@@ -519,8 +543,9 @@ func awaitingInputObservation(observation Observation, now time.Time) Observatio
 	if first && observation.PendingEvent == nil {
 		event := taskEvent(observation.TaskID, AwaitingAnswer, "agent turn ended; waiting on input")
 		observation.PendingEvent = &event
+		return observation
 	}
-	return observation
+	return s.resurfaceDecision(observation, now, unanswered)
 }
 
 // parkedObservation records a goblin whose latest status verb parks it
@@ -528,7 +553,7 @@ func awaitingInputObservation(observation Observation, now time.Time) Observatio
 // The outcome was already delivered by the watcher's decision signal or by
 // cfo notify's own wake, so this state stays quiet: no new wake and no stall
 // escalation while the goblin waits for the CFO to respond.
-func (s Service) parkedObservation(observation Observation, now time.Time) Observation {
+func (s Service) parkedObservation(observation Observation, now time.Time, unanswered bool) Observation {
 	observation.Health = HealthParked
 	observation.Reason = AwaitingDecision
 	observation.IdleSince = nil
@@ -537,7 +562,7 @@ func (s Service) parkedObservation(observation Observation, now time.Time) Obser
 	observation.NextPauseResurface = nil
 	observation.Escalation = 0
 	observation.DemandDeepInspection = false
-	return observation
+	return s.resurfaceDecision(observation, now, unanswered)
 }
 
 // terminalObservation records a goblin whose latest status verb delivered a
@@ -551,6 +576,8 @@ func (s Service) terminalObservation(observation Observation, now time.Time) Obs
 	observation.StaleSince = nil
 	observation.NextEscalation = nil
 	observation.NextPauseResurface = nil
+	observation.NextDecisionAsk = nil
+	observation.DecisionAsks = 0
 	observation.Escalation = 0
 	observation.DemandDeepInspection = false
 	return observation
@@ -561,6 +588,8 @@ func (s Service) pauseObservation(observation Observation, now time.Time) Observ
 	observation.Reason = DeclaredPause
 	observation.StaleSince = nil
 	observation.NextEscalation = nil
+	observation.NextDecisionAsk = nil
+	observation.DecisionAsks = 0
 	observation.Escalation = 0
 	observation.DemandDeepInspection = false
 	if observation.PendingEvent != nil {
@@ -583,7 +612,7 @@ func (s Service) pauseObservation(observation Observation, now time.Time) Observ
 // resolve itself, so repeating it every cycle would be noise - and demands
 // deep inspection, because the fix is a decision (switch, wait, or top up)
 // rather than another poll.
-func erroringObservation(observation Observation, digest string, fault routing.Fault, detail string, now time.Time) Observation {
+func (s Service) erroringObservation(observation Observation, digest string, fault routing.Fault, detail string, now time.Time, unanswered bool) Observation {
 	first := observation.Health != HealthErroring
 	observation.Digest = digest
 	observation.LastObserved = now
@@ -602,6 +631,13 @@ func erroringObservation(observation Observation, digest string, fault routing.F
 		event := taskEvent(observation.TaskID, HarnessError, string(fault)+": "+detail)
 		event.Fault = fault
 		observation.PendingEvent = &event
+		return observation
+	}
+	observation = s.resurfaceDecision(observation, now, unanswered)
+	if observation.PendingEvent != nil {
+		// A re-ask carries the same provider fault the first wake did, so the
+		// routing advice the watcher attaches does not degrade on a repeat.
+		observation.PendingEvent.Fault = fault
 	}
 	return observation
 }
@@ -617,6 +653,8 @@ func unknownObservation(observation Observation, reason Reason, detail string, n
 	observation.StaleSince = nil
 	observation.NextEscalation = nil
 	observation.NextPauseResurface = nil
+	observation.NextDecisionAsk = nil
+	observation.DecisionAsks = 0
 	observation.Escalation = 0
 	observation.DemandDeepInspection = false
 	if observation.PendingEvent == nil {
@@ -637,6 +675,8 @@ func launchingObservation(observation Observation, now time.Time) Observation {
 	observation.StaleSince = nil
 	observation.NextEscalation = nil
 	observation.NextPauseResurface = nil
+	observation.NextDecisionAsk = nil
+	observation.DecisionAsks = 0
 	observation.Escalation = 0
 	observation.DemandDeepInspection = false
 	observation.PendingEvent = nil
@@ -655,6 +695,8 @@ func invalidRecordObservation(meta state.TaskMeta, prior Observation, now time.T
 	observation.StaleSince = nil
 	observation.NextEscalation = nil
 	observation.NextPauseResurface = nil
+	observation.NextDecisionAsk = nil
+	observation.DecisionAsks = 0
 	observation.Escalation = 0
 	observation.DemandDeepInspection = false
 	if observation.PendingEvent == nil {
@@ -766,15 +808,110 @@ func (s Service) clearPending(event Event) error {
 	return WriteHeartbeat(s.StateDir, heartbeat)
 }
 
+// ledger answers, from the wake queue's ack floor, whether a goblin's question
+// has been answered. Records at or below the floor are retired from the queue,
+// so everything still pending is still asking. Surfaced means acknowledged,
+// never merely emitted: a wake that fired once and reached nobody has told
+// nobody anything, and reading a pending event off one cycle's observation is
+// exactly the mistake that let two goblins wait 8h47m in silence.
+type ledger struct {
+	keys map[string]bool
+	// unreadable is a corrupt or unreadable queue. It reads as everything
+	// unanswered on purpose: the failure this path guards against is silence,
+	// so an unreadable ledger errs towards asking rather than towards quiet.
+	unreadable bool
+}
+
+func readLedger(stateDir string) ledger {
+	records, err := wake.Pending(stateDir)
+	if err != nil {
+		return ledger{unreadable: true}
+	}
+	keys := make(map[string]bool, len(records))
+	for _, record := range records {
+		keys[record.Key] = true
+	}
+	return ledger{keys: keys}
+}
+
+// unanswered reports whether the ledger still holds an unacknowledged record
+// for this goblin. Both key shapes count: cfo notify keys its record by the
+// task ID, while the watcher's decision signal keys its own by the status
+// file that produced it.
+func (l ledger) unanswered(id string) bool {
+	return l.unreadable || l.keys[id] || l.keys[id+".status"]
+}
+
+// resurfaceDecision keeps asking until the ledger says the question was
+// answered. The noise objection the old suppression raised was legitimate, so
+// this is backoff rather than repetition: the first re-ask comes after
+// DecisionAskAfter (5 minutes), the interval doubles with every re-ask that
+// also goes unanswered, and decisionAskInterval caps it at DecisionAskMax (1
+// hour). That cap is the rule - an unanswered question gets quieter, never
+// silent - so however long the Overlord takes, the fleet asks at least hourly
+// instead of trailing off the way it did on 2026-09-18.
+func (s Service) resurfaceDecision(observation Observation, now time.Time, unanswered bool) Observation {
+	if !unanswered {
+		observation.NextDecisionAsk = nil
+		observation.DecisionAsks = 0
+		return observation
+	}
+	if observation.PendingEvent != nil {
+		return observation
+	}
+	if observation.NextDecisionAsk == nil {
+		// The question has only just been asked and its own wake is in the
+		// queue. Start the clock rather than repeating it in the same breath.
+		observation.NextDecisionAsk = timePointer(now.Add(s.decisionAskInterval(observation.DecisionAsks)))
+		return observation
+	}
+	if now.Before(*observation.NextDecisionAsk) {
+		return observation
+	}
+	observation.DecisionAsks++
+	observation.NextDecisionAsk = timePointer(now.Add(s.decisionAskInterval(observation.DecisionAsks)))
+	event := taskEvent(observation.TaskID, observation.Reason,
+		fmt.Sprintf("still unanswered (re-ask %d); run `cfo drain` for the question", observation.DecisionAsks))
+	observation.PendingEvent = &event
+	return observation
+}
+
+// awaitingHuman reports whether any goblin is waiting on an answer nobody has
+// given. Busy and active are deliberately absent: a goblin that is working
+// owes nobody anything, and re-surfacing it is the noise the original
+// suppression was right to worry about.
+func (s Service) awaitingHuman(observations []Observation, led ledger) bool {
+	for _, observation := range observations {
+		if awaitsDecision(observation) && led.unanswered(observation.TaskID) {
+			return true
+		}
+	}
+	return false
+}
+
+// awaitsDecision reports whether an observation means a human owes an answer.
+func awaitsDecision(observation Observation) bool {
+	switch observation.Health {
+	case HealthParked, HealthErroring:
+		return true
+	case HealthStale:
+		return observation.Reason == AwaitingAnswer
+	default:
+		return false
+	}
+}
+
+// hasUnsurfacedActionable reports whether the fleet holds something the
+// heartbeat itself must carry. That is now only a genuinely unknown endpoint -
+// a goblin whose pane vanished, which has no other voice. A goblin waiting on
+// a decision is no longer suppressed here; it re-asks on its own schedule in
+// resurfaceDecision, which names the goblin instead of folding it into a
+// fleet summary.
 func hasUnsurfacedActionable(observations []Observation) bool {
 	for _, observation := range observations {
 		if observation.PendingEvent != nil {
 			continue
 		}
-		// Only a genuinely unknown endpoint (a goblin whose pane vanished) is
-		// worth a heartbeat re-surface. Stale goblins are doing their job, and
-		// an erroring or awaiting-answer goblin already woke once with its
-		// decision; re-surfacing it every cycle would be noise.
 		if observation.Health == HealthUnknown {
 			return true
 		}
@@ -907,4 +1044,35 @@ func (s Service) heartbeatDue(heartbeat Heartbeat, now time.Time) bool {
 
 func (s Service) freshHeartbeat(now time.Time) Heartbeat {
 	return Heartbeat{LastHeartbeat: now, NextDue: now.Add(s.heartbeat())}
+}
+
+// decisionAskInterval is the wait before the next re-ask once asks re-asks
+// have themselves gone unanswered: DecisionAskAfter doubling per re-ask, and
+// never longer than DecisionAskMax. Same shape as backoff, opposite purpose -
+// backoff reaches its ceiling and rests there because the fleet is healthy;
+// this one rests at its ceiling because the ceiling is what stops an
+// unanswered question from ever going silent.
+func (s Service) decisionAskInterval(asks int) time.Duration {
+	interval := s.decisionAskAfter()
+	for range asks {
+		if interval >= s.decisionAskMax()/2 {
+			return s.decisionAskMax()
+		}
+		interval *= 2
+	}
+	return interval
+}
+
+func (s Service) decisionAskAfter() time.Duration {
+	if s.DecisionAskAfter > 0 {
+		return s.DecisionAskAfter
+	}
+	return 5 * time.Minute
+}
+
+func (s Service) decisionAskMax() time.Duration {
+	if s.DecisionAskMax >= s.decisionAskAfter() {
+		return s.DecisionAskMax
+	}
+	return time.Hour
 }
