@@ -101,19 +101,28 @@ func TestScanReAsksAnUnansweredDecisionInsteadOfGoingQuiet(t *testing.T) {
 }
 
 // The noise protection the original comment was right to want, kept exactly
-// where it belongs: a goblin that is working owes nobody an answer.
+// where it belongs. Working is the one reading that suppresses a re-ask even
+// with the question still on the ledger: the goblin is executing, typically
+// because the CFO answered it. An idle pane is not executing, so what keeps
+// it quiet is the record itself - an informational notify is not a question.
 func TestScanNeverReAsksAGoblinThatIsWorking(t *testing.T) {
-	for _, status := range []string{herdr.AgentWorking, herdr.AgentIdle} {
-		t.Run(status, func(t *testing.T) {
+	for _, test := range []struct {
+		status string
+		record string
+	}{
+		{herdr.AgentWorking, "blocked: unrelated older question"},
+		{herdr.AgentIdle, "done: PR https://example.test/repo/pull/3"},
+	} {
+		t.Run(test.status, func(t *testing.T) {
 			stateDir := t.TempDir()
 			now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
 			meta := metaFor("g1")
 			writeTask(t, stateDir, meta)
-			sample := sampleForStatus(meta, status, "first")
+			sample := sampleForStatus(meta, test.status, "first")
 			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sample}}
 			service := decisionService(stateDir, probe, &now)
 
-			if _, err := wake.Append(stateDir, "notify", "g1", "blocked: unrelated older question"); err != nil {
+			if _, err := wake.Append(stateDir, "notify", "g1", test.record); err != nil {
 				t.Fatal(err)
 			}
 			for i := 0; i < 60; i++ {
@@ -380,5 +389,53 @@ func TestDecisionAskIntervalWidensThenRestsAtTheCap(t *testing.T) {
 	}
 	if !capped {
 		t.Fatal("the interval never reached its cap, so an unanswered question has no guaranteed asking floor")
+	}
+}
+
+// The failure this change exists to prevent, on the path every other decision
+// test misses: a routine state_change_seq advance releases the status-verb
+// gate, and a goblin parked on an unanswered question is relabelled active
+// between cycles. The question is still on the ledger, so the re-asks must
+// survive the relabelling and the streak must stay flat. Every other test
+// here pins StateChangeSeq; this one advances it the way herdr does.
+func TestScanKeepsReAskingWhenCountersAdvancePastTheStatusVerbGate(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	sample := sampleFor(meta, herdr.BusyIdle, "same")
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sample}}
+	service := decisionService(stateDir, probe, &now)
+
+	notifyFrom(t, service, stateDir, "g1", "blocked: merge or hold?")
+
+	var events []Event
+	for i := 0; i < 60; i++ {
+		now = now.Add(time.Minute)
+		sample.StateChangeSeq++
+		probe.samples["g1"] = sample
+		result, err := service.Scan(context.Background())
+		if err != nil {
+			t.Fatalf("cycle %d: %v", i, err)
+		}
+		if result.Heartbeat.NoChangeStreak != 0 {
+			t.Fatalf("cycle %d no_change_streak = %d, want 0 while the question stands", i, result.Heartbeat.NoChangeStreak)
+		}
+		if result.Event == nil {
+			continue
+		}
+		events = append(events, *result.Event)
+		if _, err := service.Publish(*result.Event); err != nil {
+			t.Fatalf("cycle %d publish: %v", i, err)
+		}
+	}
+
+	if len(events) < 3 {
+		t.Fatalf("re-asks over an hour = %d (%+v), want the question to survive the counter advance", len(events), events)
+	}
+	for _, event := range events {
+		if !strings.Contains(event.Detail, "still unanswered") {
+			t.Fatalf("event = %+v, want every wake here to be a re-ask of the outstanding question", event)
+		}
 	}
 }
