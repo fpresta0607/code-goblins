@@ -30,7 +30,7 @@ func TestRunDoctorPrintsTheLaneTableBesideTheSwitchRules(t *testing.T) {
 		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "deep", "claude", "fable", "xhigh", "architecture, security, migration, rescue, anything high risk"),
 		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "build", "claude", "opus", "high", "ordinary implementation; the default lane"),
 		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "mechanical", "claude", "sonnet", "medium", "renames, config edits, docs, tightly specified changes"),
-		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "scout", "claude", "opus", "xhigh", "investigations that produce a report"),
+		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "scout", "claude", "fable", "xhigh", "investigations that produce a report"),
 	}
 	for _, want := range wants {
 		if !strings.Contains(stdout.String(), want) {
