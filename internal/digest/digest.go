@@ -197,7 +197,7 @@ func writeWakeQueue(stateDir string, ew *werr) {
 	if ew.err != nil {
 		return
 	}
-	if err := wake.Render(ew.w, records, episode); err != nil {
+	if err := wake.Render(ew.w, records, episode, time.Now().UTC()); err != nil {
 		ew.err = err
 	}
 }

@@ -347,7 +347,7 @@ func TestRunPreservesControlFilenameInQueueButRendersItSafely(t *testing.T) {
 	}
 
 	var rendered bytes.Buffer
-	if err := wake.Render(&rendered, records, wake.Episode{}); err != nil {
+	if err := wake.Render(&rendered, records, wake.Episode{}, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(rendered.String(), "\u009b") {

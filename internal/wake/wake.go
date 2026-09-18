@@ -261,7 +261,7 @@ func AckThrough(dir string, seq int) error {
 // queued records with no episode. That shape's ack line must never carry
 // --recovery-generation 0: acking generation 0 against a home that never had
 // an episode would fabricate one (see AckEpisode's guard).
-func Render(w io.Writer, records []Record, ep Episode) error {
+func Render(w io.Writer, records []Record, ep Episode, now time.Time) error {
 	if len(records) == 0 && !ep.Pending {
 		_, err := fmt.Fprintln(w, "WAKE QUEUE: empty")
 		return err
@@ -272,6 +272,13 @@ func Render(w io.Writer, records []Record, ep Episode) error {
 	}
 	displayed := make([]Record, 0, len(records))
 	for _, rec := range records {
+		if verb, question, options, ok := decision(rec); ok {
+			if err := renderDecision(w, rec, verb, question, options, now); err != nil {
+				return err
+			}
+			displayed = append(displayed, rec)
+			continue
+		}
 		line := fmt.Sprintf("  %d  %-6s  ", rec.Seq, rec.Kind)
 		if rec.Key != rec.Kind {
 			line += terminalText(rec.Key) + ": "
@@ -304,6 +311,98 @@ func Render(w io.Writer, records []Record, ep Episode) error {
 	}
 	_, err := fmt.Fprintf(w, "WAKE_ACK_REQUIRED: cfo drain --ack-through %d --recovery-generation %d\n", maxSeq, ep.Gen)
 	return err
+}
+
+// decision splits a record that is a goblin waiting on the CFO into the verb
+// that parked it, the question it asked, and the options it offered, and
+// reports whether it is one at all. The verbs are the same two `cfo drain`
+// already refuses to ack unread: a blocked goblin and a failed one both hold
+// a question only the CFO can answer.
+//
+// The options convention is one literal "options:" marker in the question,
+// with the choices separated by "|", which is what
+// `cfo notify <id> --blocked "<question> options: a | b"` produces. A question
+// with no marker offered no options, and the rendering says so rather than
+// inventing choices the goblin never named.
+func decision(rec Record) (verb, question string, options []string, ok bool) {
+	if rec.Kind != "notify" {
+		return "", "", nil, false
+	}
+	for _, candidate := range []string{"blocked", "failed"} {
+		prefix := candidate + ":"
+		if !strings.HasPrefix(rec.Detail, prefix) {
+			continue
+		}
+		question, options = splitOptions(strings.TrimSpace(rec.Detail[len(prefix):]))
+		return candidate, question, options, true
+	}
+	return "", "", nil, false
+}
+
+func splitOptions(detail string) (string, []string) {
+	// Both spellings are matched literally rather than by lowercasing the
+	// whole string, because a case fold can change byte length and the index
+	// is used to slice the original.
+	marker := "options:"
+	at := strings.Index(detail, marker)
+	if at < 0 {
+		marker = "Options:"
+		at = strings.Index(detail, marker)
+	}
+	if at < 0 {
+		return detail, nil
+	}
+	var options []string
+	for _, option := range strings.Split(detail[at+len(marker):], "|") {
+		if option = strings.TrimSpace(option); option != "" {
+			options = append(options, option)
+		}
+	}
+	return strings.TrimSpace(detail[:at]), options
+}
+
+// renderDecision prints an outstanding decision as a decision rather than as
+// one more status line. Waiting time leads because it is the field that was
+// missing: on 2026-09-18 two goblins sat on a question for 8 hours 47 minutes
+// and the Overlord noticed before the fleet did, which a listing that says
+// how long each one has been waiting makes impossible to miss.
+func renderDecision(w io.Writer, rec Record, verb, question string, options []string, now time.Time) error {
+	if _, err := fmt.Fprintf(w, "  %d  DECISION  %s  %s, waiting %s\n",
+		rec.Seq, terminalText(rec.Key), verb, waited(now.Sub(rec.Time))); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "       question: %s\n", terminalText(question)); err != nil {
+		return err
+	}
+	if len(options) == 0 {
+		_, err := fmt.Fprintf(w, "       options:  none offered; answer with `cfo send %s \"...\"`\n", terminalText(rec.Key))
+		return err
+	}
+	for i, option := range options {
+		label := "       options: "
+		if i > 0 {
+			label = "                "
+		}
+		if _, err := fmt.Fprintf(w, "%s %d) %s\n", label, i+1, terminalText(option)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// waited renders how long a decision has gone unanswered, to the minute.
+// Go's own Duration string keeps a trailing "0s" that buries the number the
+// reader is looking for, and a record stamped in the future (clock skew, or a
+// hand-edited queue) reads as no wait at all rather than as a negative one.
+func waited(d time.Duration) string {
+	if d < time.Minute {
+		return "under a minute"
+	}
+	d = d.Round(time.Minute)
+	if hours := int(d / time.Hour); hours > 0 {
+		return fmt.Sprintf("%dh%02dm", hours, int(d/time.Minute)%60)
+	}
+	return fmt.Sprintf("%dm", int(d/time.Minute))
 }
 
 // terminalText preserves durable wake evidence while making controls visible

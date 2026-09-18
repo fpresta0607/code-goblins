@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAppendAssignsSequence(t *testing.T) {
@@ -148,7 +149,7 @@ func TestRenderListsEveryRecordFromOneTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := Render(&out, pending, Episode{}); err != nil {
+	if err := Render(&out, pending, Episode{}, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	got := out.String()
@@ -156,7 +157,7 @@ func TestRenderListsEveryRecordFromOneTask(t *testing.T) {
 	if !strings.Contains(got, "WAKE QUEUE: 2 pending") {
 		t.Errorf("render = %q, want both records counted", got)
 	}
-	if !strings.Contains(got, "blocked: rule on PR #1140") {
+	if !strings.Contains(got, "question: rule on PR #1140") {
 		t.Errorf("render = %q, want the blocked escalation listed, not folded behind the later notify", got)
 	}
 	if !strings.Contains(got, "done: PR https://example.test/pull/1") {
@@ -186,5 +187,83 @@ func TestAckSequenceRefusesToOutrunTheListing(t *testing.T) {
 	}
 	if seq, ok := ackSequence(records, narrowed); ok {
 		t.Errorf("ackSequence(record hidden) = %d, true, want a refusal: acking 503 here retires the unread 502", seq)
+	}
+}
+
+// The field that was missing. On 2026-09-18 two goblins waited 8h47m on a CFO
+// decision and the Overlord noticed before the fleet did, because the question
+// read as one more status line. An outstanding decision is rendered as a
+// decision: which goblin, how long it has waited, what it asked, and the
+// options it offered.
+func TestRenderShowsAnOutstandingDecisionWithItsWaitAndOptions(t *testing.T) {
+	now := time.Date(2026, 9, 18, 11, 27, 49, 0, time.UTC)
+	records := []Record{
+		{Seq: 1, Time: now.Add(-8*time.Hour - 47*time.Minute), Kind: "notify", Key: "siteplan-r2",
+			Detail: "blocked: rebaseline or fix? options: rebaseline the snapshot | fix the renderer"},
+		{Seq: 2, Time: now.Add(-4 * time.Minute), Kind: "notify", Key: "runtime-truth",
+			Detail: "done: PR https://example.test/pull/24"},
+	}
+
+	var out bytes.Buffer
+	if err := Render(&out, records, Episode{}, now); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+
+	for _, want := range []string{
+		"DECISION  siteplan-r2  blocked, waiting 8h47m",
+		"question: rebaseline or fix?",
+		"1) rebaseline the snapshot",
+		"2) fix the renderer",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("render = %q, want it to contain %q", got, want)
+		}
+	}
+	if !strings.Contains(got, "  2  notify  runtime-truth: done: PR https://example.test/pull/24") {
+		t.Errorf("render = %q, want an informational notify left as a plain line", got)
+	}
+	if !strings.Contains(got, "--ack-through 2") {
+		t.Errorf("render = %q, want the ack line still derived from every row shown", got)
+	}
+}
+
+// A goblin that offered no options still gets a decision block: the renderer
+// says none were offered rather than inventing choices it never named.
+func TestRenderSaysWhenADecisionOfferedNoOptions(t *testing.T) {
+	now := time.Date(2026, 9, 18, 11, 27, 49, 0, time.UTC)
+	records := []Record{
+		{Seq: 7, Time: now.Add(-90 * time.Second), Kind: "notify", Key: "ocr-eval", Detail: "blocked: which tokenizer?"},
+	}
+
+	var out bytes.Buffer
+	if err := Render(&out, records, Episode{}, now); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+
+	if !strings.Contains(got, "DECISION  ocr-eval  blocked, waiting 2m") {
+		t.Errorf("render = %q, want the decision block with its wait", got)
+	}
+	if !strings.Contains(got, "options:  none offered") {
+		t.Errorf("render = %q, want the absence of options stated out loud", got)
+	}
+}
+
+func TestWaitedReadsToTheMinuteAndNeverNegative(t *testing.T) {
+	for _, tc := range []struct {
+		in   time.Duration
+		want string
+	}{
+		{8*time.Hour + 47*time.Minute, "8h47m"},
+		{time.Hour + 20*time.Second, "1h00m"},
+		{time.Hour + 40*time.Second, "1h01m"},
+		{45 * time.Minute, "45m"},
+		{30 * time.Second, "under a minute"},
+		{-2 * time.Hour, "under a minute"},
+	} {
+		if got := waited(tc.in); got != tc.want {
+			t.Errorf("waited(%s) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }
