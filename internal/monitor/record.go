@@ -142,9 +142,10 @@ type Observation struct {
 	NextPauseResurface *time.Time `json:"next_pause_resurface,omitempty"`
 	// NextDecisionAsk and DecisionAsks schedule the re-ask of a question the
 	// Overlord still owes an answer to. They are set only while the wake
-	// ledger holds an unacknowledged record for this goblin; every other
-	// classification clears them, so a goblin that parks again starts its
-	// re-ask clock from the beginning rather than inheriting a widened one.
+	// ledger holds an unacknowledged record for this goblin, and they survive
+	// only the classifications in which that is still true; any other one
+	// clears them, so a goblin that parks again starts its re-ask clock from
+	// the beginning rather than inheriting a widened one.
 	NextDecisionAsk      *time.Time `json:"next_decision_ask,omitempty"`
 	DecisionAsks         int        `json:"decision_asks,omitempty"`
 	Health               Health     `json:"health"`

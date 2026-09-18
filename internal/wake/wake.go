@@ -340,15 +340,11 @@ func decision(rec Record) (verb, question string, options []string, ok bool) {
 }
 
 func splitOptions(detail string) (string, []string) {
-	// Both spellings are matched literally rather than by lowercasing the
-	// whole string, because a case fold can change byte length and the index
-	// is used to slice the original.
-	marker := "options:"
+	// The marker is matched literally rather than by lowercasing the whole
+	// string, because a case fold can change byte length and the index is
+	// used to slice the original.
+	const marker = "options:"
 	at := strings.Index(detail, marker)
-	if at < 0 {
-		marker = "Options:"
-		at = strings.Index(detail, marker)
-	}
 	if at < 0 {
 		return detail, nil
 	}

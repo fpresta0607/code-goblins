@@ -337,12 +337,16 @@ func TestRunDrainListsBothNotifiesFromOneTask(t *testing.T) {
 	if want := fmt.Sprintf("WAKE QUEUE: %d pending", len(pending)); !strings.Contains(got, want) {
 		t.Errorf("drain output = %q, want %q", got, want)
 	}
-	// Every record is listed. An outstanding decision is listed as a decision
-	// block rather than a status line, so it is matched by its sequence and
-	// its question instead of by the raw detail string.
+	// Every record is listed with its own content, not merely its sequence
+	// column. An outstanding decision renders as a decision block, so its
+	// content is the question line; every other record renders its detail.
 	for _, rec := range pending {
-		if !strings.Contains(got, fmt.Sprintf("  %d  ", rec.Seq)) {
-			t.Errorf("drain output = %q, want it to list seq %d (%s)", got, rec.Seq, rec.Detail)
+		want := rec.Detail
+		if question, isDecision := strings.CutPrefix(rec.Detail, "blocked: "); isDecision {
+			want = "question: " + question
+		}
+		if !strings.Contains(got, want) {
+			t.Errorf("drain output = %q, want it to list seq %d as %q", got, rec.Seq, want)
 		}
 	}
 	if !strings.Contains(got, "question: rule on PR #1140") {
