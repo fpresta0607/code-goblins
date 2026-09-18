@@ -439,3 +439,86 @@ func TestScanKeepsReAskingWhenCountersAdvancePastTheStatusVerbGate(t *testing.T)
 		}
 	}
 }
+
+// The class a notify-shaped predicate cannot see: a goblin whose turn simply
+// ended at its prompt. It filed no notify and wrote no decision verb, so the
+// notify arm and the watcher's signal arm both miss it - and the Overlord
+// owes it an answer all the same. Its only evidence is the monitor's own
+// awaiting-answer stall, and until the predicate counted that, this goblin
+// asked once and went quiet. It happened twice on 2026-09-18, to a goblin
+// parked on a ruling while the supervision meant to surface it was down.
+func TestScanReAsksAGoblinWaitingAtItsPromptWithNoNotify(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, herdr.AgentDone, "same")}}
+	service := decisionService(stateDir, probe, &now)
+
+	// The ended turn becomes the awaiting-answer stall and the watcher
+	// publishes it. Nothing else is ever written for this goblin: no notify,
+	// no status verb, no decision signal.
+	opening := cycle(t, service, &now, 1)
+	if len(opening) != 1 || !strings.Contains(opening[0].Detail, string(AwaitingAnswer)) {
+		t.Fatalf("first scan = %+v, want one awaiting-answer stall", opening)
+	}
+
+	reAsks := 0
+	for _, event := range cycle(t, service, &now, 60) {
+		if strings.Contains(event.Detail, "still unanswered") {
+			reAsks++
+		}
+	}
+	if reAsks < 3 {
+		t.Fatalf("re-asks over an hour = %d, want a goblin waiting at its prompt to keep asking", reAsks)
+	}
+}
+
+// wake matches the awaiting-answer stall by a literal prefix, because the
+// queue stores rendered text and wake cannot import this package. Rename the
+// Reason constant and that match stops silently, taking the whole class back
+// into the silence this change exists to end. Fail here, loudly, instead.
+func TestAwaitingAnswerStallIsRecognisedByWake(t *testing.T) {
+	event := taskEvent("g1", AwaitingAnswer, "agent turn ended; waiting on input")
+	record := wake.Record{Kind: event.Kind, Key: event.Key, Detail: event.Detail}
+	if !wake.AwaitingAnswerStall(record, "g1") {
+		t.Fatalf("wake does not recognise the monitor's own awaiting-answer stall: %+v", record)
+	}
+}
+
+// The re-ask must never become its own evidence. Each re-ask appends another
+// stall record for the same goblin, so a predicate that counted those would
+// hold the goblin unanswered forever - asking about an answer it had already
+// been given. Acking the queue must stop it dead.
+func TestScanStopsReAskingTheWaitingPromptOnceItIsAcked(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, herdr.AgentDone, "same")}}
+	service := decisionService(stateDir, probe, &now)
+
+	cycle(t, service, &now, 1)
+	before := 0
+	for _, event := range cycle(t, service, &now, 30) {
+		if strings.Contains(event.Detail, "still unanswered") {
+			before++
+		}
+	}
+	if before == 0 {
+		t.Fatal("no re-ask before the ack, so the ack proves nothing")
+	}
+
+	records, err := wake.Pending(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wake.AckThrough(stateDir, records[len(records)-1].Seq); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range cycle(t, service, &now, 60) {
+		if strings.Contains(event.Detail, "still unanswered") {
+			t.Fatalf("re-asked after the ack: %+v", event)
+		}
+	}
+}
