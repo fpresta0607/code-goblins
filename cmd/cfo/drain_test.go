@@ -337,12 +337,19 @@ func TestRunDrainListsBothNotifiesFromOneTask(t *testing.T) {
 	if want := fmt.Sprintf("WAKE QUEUE: %d pending", len(pending)); !strings.Contains(got, want) {
 		t.Errorf("drain output = %q, want %q", got, want)
 	}
+	// Every record is listed with its own content, not merely its sequence
+	// column. An outstanding decision renders as a decision block, so its
+	// content is the question line; every other record renders its detail.
 	for _, rec := range pending {
-		if !strings.Contains(got, rec.Detail) {
-			t.Errorf("drain output = %q, want it to list seq %d (%s)", got, rec.Seq, rec.Detail)
+		want := rec.Detail
+		if question, isDecision := strings.CutPrefix(rec.Detail, "blocked: "); isDecision {
+			want = "question: " + question
+		}
+		if !strings.Contains(got, want) {
+			t.Errorf("drain output = %q, want it to list seq %d as %q", got, rec.Seq, want)
 		}
 	}
-	if !strings.Contains(got, "blocked: rule on PR #1140") {
+	if !strings.Contains(got, "question: rule on PR #1140") {
 		t.Errorf("drain output = %q, want the escalation the fold used to hide", got)
 	}
 }
@@ -364,6 +371,38 @@ func TestRunDrainAckBlockingRetiresBlockedNotify(t *testing.T) {
 	}
 	if len(pending) != 0 {
 		t.Errorf("pending = %+v, want empty", pending)
+	}
+}
+
+// The refusal set is one arm of the shared decision rule, not both. The
+// watcher's decision signal feeds the monitor's re-ask predicate only; the
+// ack protocol retires questions a goblin asked for itself, so a pending
+// signal record must still ack without --ack-blocking.
+func TestRunDrainAcksAPendingDecisionSignal(t *testing.T) {
+	h := buildDrainFixture(t)
+	pending, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var signal bool
+	for _, rec := range pending {
+		if rec.Kind == "signal" && rec.Key == "g1.status" {
+			signal = true
+		}
+	}
+	if !signal {
+		t.Fatal("fixture has no pending decision signal, so this proves nothing")
+	}
+	var stdout, stderr bytes.Buffer
+	if exit := runDrain(h, []string{"--ack-through", "99"}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("exit = %d, want 0: a decision signal is not refusable; stderr=%s", exit, stderr.String())
+	}
+	remaining, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining) != 0 {
+		t.Errorf("pending = %+v, want empty", remaining)
 	}
 }
 

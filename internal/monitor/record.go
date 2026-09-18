@@ -118,33 +118,42 @@ type Event struct {
 }
 
 type Observation struct {
-	Schema               string       `json:"schema"`
-	TaskID               string       `json:"task_id"`
-	Endpoint             string       `json:"endpoint"`
-	EndpointVerdict      ProbeVerdict `json:"endpoint_verdict"`
-	Digest               string       `json:"digest"`
-	StatusStamp          string       `json:"status_stamp,omitempty"`
-	GatedVerbLine        int64        `json:"gated_verb_line,omitempty"`
-	ConsumedVerbLine     int64        `json:"consumed_verb_line,omitempty"`
-	GatedStateChangeSeq  int64        `json:"gated_state_change_seq,omitempty"`
-	StateChangeSeq       int64        `json:"state_change_seq,omitempty"`
-	Revision             int64        `json:"revision,omitempty"`
-	LastObserved         time.Time    `json:"last_observed"`
-	LastSeen             time.Time    `json:"last_seen"`
-	LastProgress         time.Time    `json:"last_progress"`
+	Schema              string       `json:"schema"`
+	TaskID              string       `json:"task_id"`
+	Endpoint            string       `json:"endpoint"`
+	EndpointVerdict     ProbeVerdict `json:"endpoint_verdict"`
+	Digest              string       `json:"digest"`
+	StatusStamp         string       `json:"status_stamp,omitempty"`
+	GatedVerbLine       int64        `json:"gated_verb_line,omitempty"`
+	ConsumedVerbLine    int64        `json:"consumed_verb_line,omitempty"`
+	GatedStateChangeSeq int64        `json:"gated_state_change_seq,omitempty"`
+	StateChangeSeq      int64        `json:"state_change_seq,omitempty"`
+	Revision            int64        `json:"revision,omitempty"`
+	LastObserved        time.Time    `json:"last_observed"`
+	LastSeen            time.Time    `json:"last_seen"`
+	LastProgress        time.Time    `json:"last_progress"`
 	// BusySince is when the agent last began an unbroken working stretch. A
 	// goblin blocked in a foreground shell reads working forever, so this is
 	// the only clock that can tell a long turn from a wedged one.
-	BusySince            *time.Time   `json:"busy_since,omitempty"`
-	IdleSince            *time.Time   `json:"idle_since,omitempty"`
-	StaleSince           *time.Time   `json:"stale_since,omitempty"`
-	NextEscalation       *time.Time   `json:"next_escalation,omitempty"`
-	NextPauseResurface   *time.Time   `json:"next_pause_resurface,omitempty"`
-	Health               Health       `json:"health"`
-	Reason               Reason       `json:"reason"`
-	Escalation           int          `json:"escalation"`
-	DemandDeepInspection bool         `json:"demand_deep_inspection"`
-	PendingEvent         *Event       `json:"pending_event,omitempty"`
+	BusySince          *time.Time `json:"busy_since,omitempty"`
+	IdleSince          *time.Time `json:"idle_since,omitempty"`
+	StaleSince         *time.Time `json:"stale_since,omitempty"`
+	NextEscalation     *time.Time `json:"next_escalation,omitempty"`
+	NextPauseResurface *time.Time `json:"next_pause_resurface,omitempty"`
+	// NextDecisionAsk and DecisionAsks schedule the re-ask of a question the
+	// Overlord still owes an answer to. resurfaceDecision owns them outright:
+	// they stand for exactly as long as the wake ledger holds an
+	// unacknowledged decision record for this goblin, whatever its health
+	// reads on any one cycle, and are cleared the moment that record is
+	// acked. No classification may touch them - keying this schedule off a
+	// health label is what silenced two goblins for 8h47m.
+	NextDecisionAsk      *time.Time `json:"next_decision_ask,omitempty"`
+	DecisionAsks         int        `json:"decision_asks,omitempty"`
+	Health               Health     `json:"health"`
+	Reason               Reason     `json:"reason"`
+	Escalation           int        `json:"escalation"`
+	DemandDeepInspection bool       `json:"demand_deep_inspection"`
+	PendingEvent         *Event     `json:"pending_event,omitempty"`
 }
 
 type Heartbeat struct {

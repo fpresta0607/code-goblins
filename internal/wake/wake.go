@@ -261,7 +261,7 @@ func AckThrough(dir string, seq int) error {
 // queued records with no episode. That shape's ack line must never carry
 // --recovery-generation 0: acking generation 0 against a home that never had
 // an episode would fabricate one (see AckEpisode's guard).
-func Render(w io.Writer, records []Record, ep Episode) error {
+func Render(w io.Writer, records []Record, ep Episode, now time.Time) error {
 	if len(records) == 0 && !ep.Pending {
 		_, err := fmt.Fprintln(w, "WAKE QUEUE: empty")
 		return err
@@ -272,6 +272,13 @@ func Render(w io.Writer, records []Record, ep Episode) error {
 	}
 	displayed := make([]Record, 0, len(records))
 	for _, rec := range records {
+		if verb, question, options, ok := decision(rec); ok {
+			if err := renderDecision(w, rec, verb, question, options, now); err != nil {
+				return err
+			}
+			displayed = append(displayed, rec)
+			continue
+		}
 		line := fmt.Sprintf("  %d  %-6s  ", rec.Seq, rec.Kind)
 		if rec.Key != rec.Kind {
 			line += terminalText(rec.Key) + ": "
@@ -304,6 +311,151 @@ func Render(w io.Writer, records []Record, ep Episode) error {
 	}
 	_, err := fmt.Fprintf(w, "WAKE_ACK_REQUIRED: cfo drain --ack-through %d --recovery-generation %d\n", maxSeq, ep.Gen)
 	return err
+}
+
+// BlockingNotify is one of the two arms of "a goblin is waiting on the CFO",
+// and the only one the drain ack refusal consults: a goblin's own notify
+// whose detail reports it blocked or failed, carrying a question only the CFO
+// can answer. It returns the verb that parked it. An informational notify - a
+// `done:` reporting a PR - matches neither arm and is not a decision.
+//
+// This is the single definition of that rule. Render prints exactly this set
+// as a DECISION block, and `cfo drain` refuses to ack exactly this set unread;
+// --ack-blocking's promise that the operator has read the question holds only
+// while those two sets are the same one.
+func BlockingNotify(rec Record) (string, bool) {
+	if rec.Kind != "notify" {
+		return "", false
+	}
+	for _, verb := range []string{"blocked", "failed"} {
+		if strings.HasPrefix(rec.Detail, verb+":") {
+			return verb, true
+		}
+	}
+	return "", false
+}
+
+// InformationalNotify is the opposite of a question: a goblin's own notify
+// reporting a terminal outcome nobody has read yet. It asks nothing, so a
+// goblin holding one pending is finished rather than waiting, and the
+// monitor suppresses its turn-ended stall while the record sits in the queue.
+// A `failed:` notify is a question and belongs to BlockingNotify, not here.
+//
+// It reads the queue rather than the goblin's status file on purpose: a
+// status line is the last thing the goblin ever wrote and stays `done:`
+// forever, so a goblin steered back to work by `cfo send` would be silenced
+// by a verb it wrote hours ago. Acking the notify is what the CFO does before
+// steering it, so the pending record tracks the state the status line cannot.
+func InformationalNotify(rec Record, id string) bool {
+	return rec.Kind == "notify" && rec.Key == id && strings.HasPrefix(rec.Detail, "done:")
+}
+
+// DecisionSignal is the other arm: the watcher's own signal for a goblin,
+// keyed by the status file that produced it. The watcher appends one only for
+// a decision verb, so a needs-decision or checks-passed goblin - which never
+// files a notify of its own - is waiting on the CFO through this record
+// alone. The monitor's re-ask predicate consults it; the ack refusal does not,
+// because the wake ack protocol retires questions the goblin itself asked.
+func DecisionSignal(rec Record, id string) bool {
+	return rec.Kind == "signal" && rec.Key == id+".status"
+}
+
+// stallAwaitingAnswer is the detail prefix the monitor writes for a goblin
+// whose agent turn ended at its prompt. It is spelled out here for the same
+// reason BlockingNotify spells out its verbs: the queue stores rendered text,
+// and this package must read that text without importing the monitor.
+const stallAwaitingAnswer = "awaiting_answer:"
+
+// AwaitingAnswerStall is the third arm: the monitor's own stall record for a
+// goblin whose turn ended waiting on input without filing a notify of its
+// own. Such a goblin asked nothing formally, so the notify and signal arms
+// both miss it - and an answer is owed all the same. That gap is how this
+// class went quiet twice on 2026-09-18.
+//
+// Only the awaiting-answer stall counts. The monitor's own re-asks are stall
+// records too, and counting them would make a goblin unanswered forever: the
+// re-ask would be its own evidence, outliving the record it re-asked about.
+func AwaitingAnswerStall(rec Record, id string) bool {
+	return rec.Kind == "stale" && rec.Key == id && strings.HasPrefix(rec.Detail, stallAwaitingAnswer)
+}
+
+// decision splits a blocking notify into the verb that parked it, the question
+// it asked, and the options it offered.
+//
+// The options convention is one literal "options:" marker in the question,
+// with the choices separated by "|", which is what
+// `cfo notify <id> --blocked "<question> options: a | b"` produces. A question
+// with no marker offered no options, and the rendering says so rather than
+// inventing choices the goblin never named.
+func decision(rec Record) (verb, question string, options []string, ok bool) {
+	verb, ok = BlockingNotify(rec)
+	if !ok {
+		return "", "", nil, false
+	}
+	question, options = splitOptions(strings.TrimSpace(rec.Detail[len(verb)+1:]))
+	return verb, question, options, true
+}
+
+func splitOptions(detail string) (string, []string) {
+	// The marker is matched literally rather than by lowercasing the whole
+	// string, because a case fold can change byte length and the index is
+	// used to slice the original.
+	const marker = "options:"
+	at := strings.Index(detail, marker)
+	if at < 0 {
+		return detail, nil
+	}
+	var options []string
+	for _, option := range strings.Split(detail[at+len(marker):], "|") {
+		if option = strings.TrimSpace(option); option != "" {
+			options = append(options, option)
+		}
+	}
+	return strings.TrimSpace(detail[:at]), options
+}
+
+// renderDecision prints an outstanding decision as a decision rather than as
+// one more status line. Waiting time leads because it is the field that was
+// missing: on 2026-09-18 two goblins sat on a question for 8 hours 47 minutes
+// and the Overlord noticed before the fleet did, which a listing that says
+// how long each one has been waiting makes impossible to miss.
+func renderDecision(w io.Writer, rec Record, verb, question string, options []string, now time.Time) error {
+	if _, err := fmt.Fprintf(w, "  %d  DECISION  %s  %s, waiting %s\n",
+		rec.Seq, terminalText(rec.Key), verb, waited(now.Sub(rec.Time))); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "       question: %s\n", terminalText(question)); err != nil {
+		return err
+	}
+	if len(options) == 0 {
+		_, err := fmt.Fprintf(w, "       options:  none offered; answer with `cfo send %s \"...\"`\n", terminalText(rec.Key))
+		return err
+	}
+	for i, option := range options {
+		label := "       options: "
+		if i > 0 {
+			label = "                "
+		}
+		if _, err := fmt.Fprintf(w, "%s %d) %s\n", label, i+1, terminalText(option)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// waited renders how long a decision has gone unanswered, to the minute.
+// Go's own Duration string keeps a trailing "0s" that buries the number the
+// reader is looking for, and a record stamped in the future (clock skew, or a
+// hand-edited queue) reads as no wait at all rather than as a negative one.
+func waited(d time.Duration) string {
+	if d < time.Minute {
+		return "under a minute"
+	}
+	d = d.Round(time.Minute)
+	if hours := int(d / time.Hour); hours > 0 {
+		return fmt.Sprintf("%dh%02dm", hours, int(d/time.Minute)%60)
+	}
+	return fmt.Sprintf("%dm", int(d/time.Minute))
 }
 
 // terminalText preserves durable wake evidence while making controls visible
