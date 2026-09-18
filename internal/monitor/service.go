@@ -156,7 +156,7 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 		}
 
 		observation := s.classify(ctx, meta, prior, now)
-		observation = s.resurfaceDecision(observation, now, led.unanswered(meta.ID, s.declaredTerminal(meta.ID)))
+		observation = s.resurfaceDecision(observation, now, led.unanswered(meta.ID))
 		if err := WriteObservation(s.StateDir, observation); err != nil {
 			return ScanResult{}, err
 		}
@@ -174,7 +174,7 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 			heartbeat.PendingEvent = &event
 			heartbeat.NoChangeStreak = 0
 			result.Event = cloneEvent(&event)
-		case s.awaitingHuman(result.Observations, led):
+		case awaitingHuman(result.Observations, led):
 			// Quiet because a human owes an answer is not quiet because the
 			// fleet is healthy, and the streak conflated the two. It reached
 			// 20 during the incident and stretched the heartbeat to roughly
@@ -828,8 +828,13 @@ func readLedger(stateDir string) (ledger, error) {
 // Nothing else pending is a question. An informational `done:` notify reports
 // an outcome, and the monitor's own re-asks are the asking rather than the
 // thing asked about - counting those would leave a goblin unanswered forever,
-// its own re-ask outliving the record it re-asked about.
-func (l ledger) unanswered(id string, declaredTerminal bool) bool {
+// its own re-ask outliving the record it re-asked about. Such a notify also
+// suppresses the stall arm for as long as it sits unread: the goblin reported
+// an outcome nobody has taken delivery of yet, so it is finished and its
+// ended turn is not a standing question. Acking it - which is what the CFO
+// does before steering the goblin back to work - ends the suppression too.
+func (l ledger) unanswered(id string) bool {
+	stalled, reportedDone := false, false
 	for _, record := range l.records {
 		if wake.DecisionSignal(record, id) {
 			return true
@@ -837,22 +842,14 @@ func (l ledger) unanswered(id string, declaredTerminal bool) bool {
 		if _, ok := wake.BlockingNotify(record); ok && record.Key == id {
 			return true
 		}
-		if !declaredTerminal && wake.AwaitingAnswerStall(record, id) {
-			return true
+		if wake.AwaitingAnswerStall(record, id) {
+			stalled = true
+		}
+		if wake.InformationalNotify(record, id) {
+			reportedDone = true
 		}
 	}
-	return false
-}
-
-// declaredTerminal reports whether the goblin's own latest status verb says
-// it finished. Such a goblin still ends its turn at the prompt, and the
-// monitor still wakes once for that - a stale done must not silence a goblin
-// whose counters moved again - but nobody owes it a reply, so that wake must
-// not harden into a standing question. A question it did ask is its notify,
-// which the arms above read and which is not gated on this.
-func (s Service) declaredTerminal(id string) bool {
-	verb, _, ok := s.latestStatusVerb(id)
-	return ok && terminalVerb(verb)
+	return stalled && !reportedDone
 }
 
 // resurfaceDecision keeps asking until the ledger says the question was
@@ -904,9 +901,9 @@ func (s Service) resurfaceDecision(observation Observation, now time.Time, unans
 // is doing this cycle, not whether the Overlord still owes it a reply, and
 // reading the label here is what let the streak climb back to the hourly
 // cadence while a question sat unanswered.
-func (s Service) awaitingHuman(observations []Observation, led ledger) bool {
+func awaitingHuman(observations []Observation, led ledger) bool {
 	for _, observation := range observations {
-		if led.unanswered(observation.TaskID, s.declaredTerminal(observation.TaskID)) {
+		if led.unanswered(observation.TaskID) {
 			return true
 		}
 	}
