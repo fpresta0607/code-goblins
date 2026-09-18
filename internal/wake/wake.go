@@ -313,11 +313,40 @@ func Render(w io.Writer, records []Record, ep Episode, now time.Time) error {
 	return err
 }
 
-// decision splits a record that is a goblin waiting on the CFO into the verb
-// that parked it, the question it asked, and the options it offered, and
-// reports whether it is one at all. The verbs are the same two `cfo drain`
-// already refuses to ack unread: a blocked goblin and a failed one both hold
-// a question only the CFO can answer.
+// BlockingNotify is one of the two arms of "a goblin is waiting on the CFO",
+// and the only one the drain ack refusal consults: a goblin's own notify
+// whose detail reports it blocked or failed, carrying a question only the CFO
+// can answer. It returns the verb that parked it. An informational notify - a
+// `done:` reporting a PR - matches neither arm and is not a decision.
+//
+// This is the single definition of that rule. Render prints exactly this set
+// as a DECISION block, and `cfo drain` refuses to ack exactly this set unread;
+// --ack-blocking's promise that the operator has read the question holds only
+// while those two sets are the same one.
+func BlockingNotify(rec Record) (string, bool) {
+	if rec.Kind != "notify" {
+		return "", false
+	}
+	for _, verb := range []string{"blocked", "failed"} {
+		if strings.HasPrefix(rec.Detail, verb+":") {
+			return verb, true
+		}
+	}
+	return "", false
+}
+
+// DecisionSignal is the other arm: the watcher's own signal for a goblin,
+// keyed by the status file that produced it. The watcher appends one only for
+// a decision verb, so a needs-decision or checks-passed goblin - which never
+// files a notify of its own - is waiting on the CFO through this record
+// alone. The monitor's re-ask predicate consults it; the ack refusal does not,
+// because the wake ack protocol retires questions the goblin itself asked.
+func DecisionSignal(rec Record, id string) bool {
+	return rec.Kind == "signal" && rec.Key == id+".status"
+}
+
+// decision splits a blocking notify into the verb that parked it, the question
+// it asked, and the options it offered.
 //
 // The options convention is one literal "options:" marker in the question,
 // with the choices separated by "|", which is what
@@ -325,18 +354,12 @@ func Render(w io.Writer, records []Record, ep Episode, now time.Time) error {
 // with no marker offered no options, and the rendering says so rather than
 // inventing choices the goblin never named.
 func decision(rec Record) (verb, question string, options []string, ok bool) {
-	if rec.Kind != "notify" {
+	verb, ok = BlockingNotify(rec)
+	if !ok {
 		return "", "", nil, false
 	}
-	for _, candidate := range []string{"blocked", "failed"} {
-		prefix := candidate + ":"
-		if !strings.HasPrefix(rec.Detail, prefix) {
-			continue
-		}
-		question, options = splitOptions(strings.TrimSpace(rec.Detail[len(prefix):]))
-		return candidate, question, options, true
-	}
-	return "", "", nil, false
+	question, options = splitOptions(strings.TrimSpace(rec.Detail[len(verb)+1:]))
+	return verb, question, options, true
 }
 
 func splitOptions(detail string) (string, []string) {

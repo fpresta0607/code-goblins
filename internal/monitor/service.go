@@ -824,7 +824,7 @@ func (s Service) clearPending(event Event) error {
 // nobody anything, and reading a pending event off one cycle's observation is
 // exactly the mistake that let two goblins wait 8h47m in silence.
 type ledger struct {
-	keys map[string]bool
+	records []wake.Record
 	// unreadable is a corrupt or unreadable queue. It reads as everything
 	// unanswered on purpose: the failure this path guards against is silence,
 	// so an unreadable ledger errs towards asking rather than towards quiet.
@@ -836,19 +836,28 @@ func readLedger(stateDir string) ledger {
 	if err != nil {
 		return ledger{unreadable: true}
 	}
-	keys := make(map[string]bool, len(records))
-	for _, record := range records {
-		keys[record.Key] = true
-	}
-	return ledger{keys: keys}
+	return ledger{records: records}
 }
 
 // unanswered reports whether the ledger still holds an unacknowledged record
-// for this goblin. Both key shapes count: cfo notify keys its record by the
-// task ID, while the watcher's decision signal keys its own by the status
-// file that produced it.
+// that means this goblin is waiting on the CFO. Both of wake's arms count: the
+// goblin's own blocked/failed notify, and the watcher's decision signal for a
+// goblin that files none. Any other pending record - an informational `done:`
+// notify, or one of the monitor's own re-asks - is not a question, and
+// re-asking one is the noise the original suppression existed to prevent.
 func (l ledger) unanswered(id string) bool {
-	return l.unreadable || l.keys[id] || l.keys[id+".status"]
+	if l.unreadable {
+		return true
+	}
+	for _, record := range l.records {
+		if wake.DecisionSignal(record, id) {
+			return true
+		}
+		if _, ok := wake.BlockingNotify(record); ok && record.Key == id {
+			return true
+		}
+	}
+	return false
 }
 
 // resurfaceDecision keeps asking until the ledger says the question was

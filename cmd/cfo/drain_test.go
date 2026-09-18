@@ -374,6 +374,38 @@ func TestRunDrainAckBlockingRetiresBlockedNotify(t *testing.T) {
 	}
 }
 
+// The refusal set is one arm of the shared decision rule, not both. The
+// watcher's decision signal feeds the monitor's re-ask predicate only; the
+// ack protocol retires questions a goblin asked for itself, so a pending
+// signal record must still ack without --ack-blocking.
+func TestRunDrainAcksAPendingDecisionSignal(t *testing.T) {
+	h := buildDrainFixture(t)
+	pending, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var signal bool
+	for _, rec := range pending {
+		if rec.Kind == "signal" && rec.Key == "g1.status" {
+			signal = true
+		}
+	}
+	if !signal {
+		t.Fatal("fixture has no pending decision signal, so this proves nothing")
+	}
+	var stdout, stderr bytes.Buffer
+	if exit := runDrain(h, []string{"--ack-through", "99"}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("exit = %d, want 0: a decision signal is not refusable; stderr=%s", exit, stderr.String())
+	}
+	remaining, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining) != 0 {
+		t.Errorf("pending = %+v, want empty", remaining)
+	}
+}
+
 // An ordinary done notify must still ack without ceremony — the guard is for
 // questions, not for every notify.
 func TestRunDrainAcksDoneNotifyWithoutFlag(t *testing.T) {
