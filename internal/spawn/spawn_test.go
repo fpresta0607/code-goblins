@@ -345,6 +345,42 @@ func TestSpawnDisclosesATrackedMCPConfigOnlyWhenSomethingWasWithheld(t *testing.
 	}
 }
 
+func TestSpawnWarnsOnceWhenTheCheckoutDoesNotIgnoreWorktrees(t *testing.T) {
+	const warning = "does not ignore .worktrees/"
+
+	covered := newFixture(t)
+	result, err := covered.service.Spawn(context.Background(), covered.request)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if strings.Contains(result.Output, warning) {
+		t.Errorf("a checkout whose .gitignore covers .worktrees/ was warned:\n%s", result.Output)
+	}
+
+	uncovered := newFixture(t)
+	uncovered.runner.worktreesUncovered = true
+	if result, err = uncovered.service.Spawn(context.Background(), uncovered.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if got := strings.Count(result.Output, warning); got != 1 {
+		t.Errorf("the warning appears %d times, want exactly once:\n%s", got, result.Output)
+	}
+	if !strings.Contains(result.Output, filepath.Join(uncovered.project, ".gitignore")) {
+		t.Errorf("the warning does not name the file to edit:\n%s", result.Output)
+	}
+
+	// A checkout that already holds a worktree has had its warning.
+	later := newFixture(t)
+	later.runner.worktreesUncovered = true
+	makeDir(t, filepath.Join(later.project, ".worktrees", "gb-earlier"))
+	if result, err = later.service.Spawn(context.Background(), later.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if strings.Contains(result.Output, warning) {
+		t.Errorf("a checkout that already holds a worktree was warned again:\n%s", result.Output)
+	}
+}
+
 func TestSpawnReportsADefaultLinkSkippedForACheckedOutFile(t *testing.T) {
 	fixture := newFixture(t)
 	// The project commits .env, so git worktree add checks it out before
@@ -1496,6 +1532,9 @@ type herdrRunner struct {
 	installer        string
 	installerStderr  string
 	mcpTracked       bool
+	// worktreesUncovered models a checkout whose own .gitignore says nothing
+	// about .worktrees/, so only the clone's info/exclude hides it.
+	worktreesUncovered bool
 }
 
 func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -1506,6 +1545,15 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 	}
 	// Provisioning drives the same runner: it asks git whether a path is
 	// already ignored, then runs the project's own installer.
+	if req.Name == "git" && len(req.Args) > 1 && req.Args[0] == "check-ignore" && req.Args[1] == "-v" {
+		// Spawn asks which file ignores .worktrees/; git answers with the
+		// deciding rule's source in front.
+		source := ".gitignore"
+		if r.worktreesUncovered {
+			source = ".git/info/exclude"
+		}
+		return execx.Result{Stdout: []byte(source + ":1:.worktrees/\t.worktrees/\n")}, nil
+	}
 	if req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "check-ignore" {
 		return execx.Result{}, nil
 	}

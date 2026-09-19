@@ -20,7 +20,7 @@ func TestBriefScaffoldCarriesTheCommitAuthorshipRule(t *testing.T) {
 	t.Chdir(t.TempDir())
 
 	var stdout, stderr bytes.Buffer
-	if exit := runBrief([]string{"t1", "--project", "projects/demo"}, &stdout, &stderr); exit != 0 {
+	if exit := runBrief([]string{"t1", "--project", "projects/demo"}, &stdout, &stderr, commandRuntime{}); exit != 0 {
 		t.Fatalf("runBrief exit=%d stderr=%s", exit, stderr.String())
 	}
 

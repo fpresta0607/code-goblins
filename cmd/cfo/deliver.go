@@ -20,7 +20,7 @@ import (
 
 // runBrief writes a task brief scaffold at data/<id>/brief.md and prints its
 // absolute path. It refuses to overwrite an existing brief.
-func runBrief(args []string, stdout, stderr io.Writer) int {
+func runBrief(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "cfo brief: task ID is required")
 		return 2
@@ -54,6 +54,12 @@ func runBrief(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	checkout, err := runtime.resolveProject(*project)
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo brief: %v\n", err)
+		return 1
+	}
+	*project = checkout
 	h, err := home.Resolve()
 	if err != nil {
 		fmt.Fprintln(stderr, err)

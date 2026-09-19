@@ -13,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
@@ -126,6 +127,8 @@ func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.R
 			Session:   session,
 			Panes:     client,
 			Processes: reap.CIMProcesses{Commands: commands},
+
+			ProjectsRoot: install.MachineProjectsRoot,
 		},
 		Commands: commands,
 		CPU:      proc.CPUTime,

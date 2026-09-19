@@ -20,16 +20,22 @@ import (
 // inspect it is the kind of surprise that costs an adopter their trust.
 //
 //	cfo install
+//	cfo install --projects-root <dir>
 //	cfo install --uninstall
 func runInstall(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	uninstall := fs.Bool("uninstall", false, "remove what cfo install added")
+	projectsRoot := fs.String("projects-root", "", "the folder that holds your checkouts, so --project can take a bare name")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if fs.NArg() != 0 {
 		fmt.Fprintln(stderr, "cfo install: unexpected arguments")
+		return 2
+	}
+	if *uninstall && *projectsRoot != "" {
+		fmt.Fprintln(stderr, "cfo install: --projects-root cannot be combined with --uninstall")
 		return 2
 	}
 
@@ -48,6 +54,12 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		UserSettings: settings,
 		RepoSettings: filepath.Join(root, ".claude", "settings.json"),
 		Env:          install.NewEnvStore(execx.OSRunner{}),
+	}
+	if *projectsRoot != "" {
+		if service.ProjectsRoot, err = fsx.AbsClean(*projectsRoot); err != nil {
+			fmt.Fprintf(stderr, "cfo install: resolve --projects-root: %v\n", err)
+			return 1
+		}
 	}
 
 	if *uninstall {
