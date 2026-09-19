@@ -2,6 +2,7 @@ package reap
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"testing"
@@ -9,6 +10,38 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
+
+// A junction is how an operator keeps a checkout on another drive while it
+// still sits under the projects root, so the scan has to see through one.
+func TestWorktreesScansAJunctionedCheckout(t *testing.T) {
+	root := t.TempDir()
+	projects := filepath.Join(root, "dev")
+	elsewhere := filepath.Join(root, "other-drive", "BigRepo")
+	for _, dir := range []string{projects, filepath.Join(elsewhere, ".worktrees", "gb-archived")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	junction := filepath.Join(projects, "BigRepo")
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", junction, elsewhere).CombinedOutput(); err != nil {
+		t.Skipf("no directory junction available here: %v: %s", err, out)
+	}
+
+	collector := Collector{
+		Home:         home.Home{Root: filepath.Join(root, "home")},
+		ProjectsRoot: func() (string, error) { return projects, nil },
+	}
+
+	var notes []string
+	found := collector.worktrees(nil, &notes)
+	want := filepath.Join(junction, ".worktrees", "gb-archived")
+	if len(found) != 1 || found[0].Path != want {
+		t.Errorf("worktrees = %+v, want only %q", found, want)
+	}
+	if len(notes) != 0 {
+		t.Errorf("unexpected notes: %q", notes)
+	}
+}
 
 func TestWorktreesScansTheProjectsRootForGoblinWorktreesOnly(t *testing.T) {
 	root := t.TempDir()

@@ -187,8 +187,17 @@ func (c Collector) worktrees(tasks []Task, notes *[]string) []WorktreeDir {
 			*notes = append(*notes, fmt.Sprintf("projects root: UNREADABLE (%s); checkouts no task names were not scanned", err))
 		}
 		if projectsRoot != "" {
-			for _, entry := range readDirNames(projectsRoot) {
-				if checkout := filepath.Join(filepath.Clean(projectsRoot), entry); !roots[checkout] {
+			projectsRoot = filepath.Clean(projectsRoot)
+			entries, _ := os.ReadDir(projectsRoot)
+			for _, entry := range entries {
+				checkout := filepath.Join(projectsRoot, entry.Name())
+				// Stat rather than the entry's own type, so a junction to a
+				// checkout kept on another drive counts as the directory it
+				// is, exactly as it does when a name resolves to it.
+				if info, err := os.Stat(checkout); err != nil || !info.IsDir() {
+					continue
+				}
+				if !roots[checkout] {
 					roots[checkout] = false
 				}
 			}
