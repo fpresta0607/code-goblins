@@ -80,8 +80,13 @@ func TestClassify(t *testing.T) {
 				if findings[0].PID != 31032 {
 					t.Fatalf("orphan pid = %d, want 31032", findings[0].PID)
 				}
-				if findings[0].Hold() != "" {
-					t.Fatalf("a fleet-descended orphan must not be held at classification: %q", findings[0].Hold())
+				// The one thing holding a fleet-descended orphan is the
+				// authorisation its kill needs, carried from the moment it is
+				// classified so the line states it even when something else
+				// holds the finding too.
+				want := killNeedsItsOwnPID + ". Name 31032 with --force to take responsibility for it"
+				if findings[0].Hold() != want {
+					t.Fatalf("hold = %q, want only the kill authorisation keyed to the pid: %q", findings[0].Hold(), want)
 				}
 			},
 		},
@@ -435,11 +440,14 @@ func TestUnresolvedPaneHoldsEveryProcessFinding(t *testing.T) {
 			t.Fatalf("%s hold = %q, want the unresolved-pane refusal", class, matched[0].Hold())
 		}
 	}
-	// The remedy here is fixing Herdr. Inviting --force on evidence the sweep
-	// knows is incomplete is how a working goblin gets killed.
+	// The remedy here is fixing Herdr. The only thing --force is offered for
+	// is the authorisation the kill itself needs; the pane evidence is to be
+	// resolved rather than overridden, and the line has to say so, because
+	// inviting --force on evidence the sweep knows is incomplete is how a
+	// working goblin gets killed.
 	for _, finding := range classOf(findings, OrphanProcess) {
-		if strings.Contains(finding.Hold(), "--force") {
-			t.Errorf("hold = %q, want no --force invitation", finding.Hold())
+		if !strings.Contains(finding.Hold(), "resolve it rather than overriding it") {
+			t.Errorf("hold = %q, want the pane evidence offered as something to resolve", finding.Hold())
 		}
 	}
 }
@@ -501,19 +509,21 @@ func TestClassifyProcessPopulations(t *testing.T) {
 	if !ok {
 		t.Fatalf("the genuine orphan was not reported; findings: %+v", findings)
 	}
-	if orphan.Hold() != "" {
-		t.Errorf("the genuine orphan was held: %q", orphan.Hold())
+	if want := killNeedsItsOwnPID + ". Name 31032 with --force to take responsibility for it"; orphan.Hold() != want {
+		t.Errorf("hold = %q, want the genuine orphan held by nothing but its kill authorisation: %q", orphan.Hold(), want)
 	}
 	if len(findings) != 1 {
 		t.Fatalf("got %d orphan_process findings, want only the genuine orphan: %+v", len(findings), findings)
 	}
 }
 
-// TestUnidentifiedHarnessDoesNotInviteForce: the fourteen false positives all
-// carried a HELD line telling the operator to name the pid with --force, which
-// would have closed the Overlord's application or killed a review round. What
-// survives the classifier now says what could not be determined instead.
-func TestUnidentifiedHarnessDoesNotInviteForce(t *testing.T) {
+// TestUnidentifiedHarnessAsksToBeIdentifiedRatherThanForced: the fourteen
+// false positives all carried a HELD line offering --force as the remedy,
+// which would have closed the Overlord's application or killed a review
+// round. Every process finding now names the pid its kill answers to, so the
+// line cannot stop mentioning --force; what it must not do is present it as
+// the answer to a process the sweep could not identify.
+func TestUnidentifiedHarnessAsksToBeIdentifiedRatherThanForced(t *testing.T) {
 	inventory := Inventory{
 		FleetRootPIDs: []int{100},
 		Processes: []Process{
@@ -522,11 +532,11 @@ func TestUnidentifiedHarnessDoesNotInviteForce(t *testing.T) {
 		},
 	}
 	finding := classOf(Classify(inventory), OrphanProcess)[0]
-	if strings.Contains(finding.Hold(), "--force") {
-		t.Errorf("hold = %q, want no --force invitation", finding.Hold())
-	}
 	if !strings.Contains(finding.Hold(), "could not determine") {
 		t.Errorf("hold = %q, want it to say what could not be determined", finding.Hold())
+	}
+	if !strings.Contains(finding.Hold(), "resolve it rather than overriding it") {
+		t.Errorf("hold = %q, want identifying the process offered as the remedy rather than --force", finding.Hold())
 	}
 }
 
@@ -809,8 +819,8 @@ func TestAHoldNamesWhatActuallyClearsIt(t *testing.T) {
 			Processes:       []Process{process(555, 1, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest)},
 		}
 		hold := classOf(Classify(inventory), StaleServer)[0].Hold()
-		if !strings.Contains(hold, "Name broken with --force") {
-			t.Fatalf("hold = %q, want the key a --force does answer", hold)
+		if !strings.Contains(hold, "Name every one of broken and 555 with --force") {
+			t.Fatalf("hold = %q, want both keys a --force does answer: the task and the pid its kill needs", hold)
 		}
 		if strings.Contains(hold, "act on it") {
 			t.Fatalf("hold = %q, want no promise that the sweep acts, because the pane refusal stands whatever is forced", hold)
@@ -938,8 +948,9 @@ func TestALiveGoblinsServerIsNeverStale(t *testing.T) {
 		if len(findings) != 1 {
 			t.Fatalf("got %d stale_server findings, want the genuinely abandoned server: %+v", len(findings), findings)
 		}
-		if findings[0].Hold() != "" {
-			t.Fatalf("hold = %q, want an abandoned server of a finished task to be actionable", findings[0].Hold())
+		want := killNeedsItsOwnPID + ". Name 35012 with --force to take responsibility for it"
+		if findings[0].Hold() != want {
+			t.Fatalf("hold = %q, want an abandoned server of a finished task held by nothing but its kill authorisation: %q", findings[0].Hold(), want)
 		}
 		if !strings.Contains(findings[0].Detail, "no pane holding an agent working there") {
 			t.Fatalf("detail = %q, want it to state the evidence that established this", findings[0].Detail)

@@ -172,20 +172,16 @@ func taskReported(lines []string) []string {
 // nowhere nor a fleet-wide failure: it is one agent the sweep cannot place, so
 // it is carried out and the classes that rest on placing it hold.
 //
-// The snapshot has to answer the protocol this build pins, as it does for
-// cleanup and the monitor. Where it does not, the agent fields the sweep reads
-// are not the fields it thinks they are: an agent whose working directory
-// arrives empty places no goblin anywhere, which turns the evidence that
-// stands between a working goblin and a killed dev server into silence that
-// reads as absence. A sweep that cannot see agents refuses, for the same
-// reason one that cannot see panes does.
+// That per-agent answer is why no protocol check stands here. A snapshot whose
+// working directories all arrive empty leaves every agent unplaced and every
+// destructive finding held, while the recoverable ones the operator asked for
+// still get done. Refusing the whole sweep on a protocol bump would instead
+// fail Collect, so the watcher records an error, fires no wake, and nothing at
+// all is swept.
 func (c Collector) readPanes(ctx context.Context) (panes []Pane, unresolved, unplaced []string, err error) {
 	snapshot, err := c.Panes.Snapshot(ctx)
 	if err != nil {
 		return nil, nil, nil, err
-	}
-	if snapshot.Protocol != herdr.SupportedProtocol {
-		return nil, nil, nil, fmt.Errorf("session snapshot protocol %d, want %d", snapshot.Protocol, herdr.SupportedProtocol)
 	}
 	agents := make(map[string]herdr.SnapshotAgent, len(snapshot.Agents))
 	for _, agent := range snapshot.Agents {

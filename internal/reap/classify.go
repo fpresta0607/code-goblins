@@ -437,6 +437,16 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				finding.refuseUntilEstablished(unidentifiedHold, strconv.Itoa(process.PID))
 			}
 			finding.refuseUntilEstablished(unresolvedPaneHold(inv), strconv.Itoa(process.PID))
+			// Ending a process is the one action here that cannot be undone
+			// and that costs somebody else their work, so it answers to the
+			// operator naming that process and to nothing else. A sweep run
+			// to tidy a status log acts on every finding it is not holding,
+			// and on 19 September 2026 that killed a goblin's dev server
+			// mid-suite. It is recorded here rather than at the gate so that
+			// a finding already held for another reason still states the pid
+			// its only action needs, and one --force naming every key on the
+			// line clears it in a single pass.
+			finding.refuseUnlessForced(killNeedsItsOwnPID, strconv.Itoa(process.PID))
 			findings = append(findings, finding)
 		case isServer(process):
 			worktree, ok := worktreeOf(process, inv.Worktrees)
@@ -466,6 +476,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 			// assigned, so an unrelated pane that could not report its
 			// identity cannot drop it.
 			finding.refuseUnlessForced(unfinishedHold(task, known, unreadableRecord), finding.TaskID)
+			finding.refuseUnlessForced(killNeedsItsOwnPID, strconv.Itoa(process.PID))
 			findings = append(findings, finding)
 		}
 	}
