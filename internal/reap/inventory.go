@@ -279,9 +279,11 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 // answered by the enclosing repository, which is how an empty directory came
 // to be reported as carrying that repository's uncommitted changes.
 //
-// A root that is not a repository at all answers with the enclosing
-// repository's list, which cannot contain a path under this root, so it
-// reports nothing as registered, which is the truth.
+// A root that is not a repository at all is refused rather than read. Git
+// there answers with the enclosing repository's list, which says nothing about
+// a path under this root, so every directory beneath it would read as
+// unregistered, which is the removable class, on the word of a repository
+// nobody asked about it.
 //
 // The second return says whether the repository answered at all. Every failure
 // path leaves it false, which is what keeps "could not be asked" from reading
