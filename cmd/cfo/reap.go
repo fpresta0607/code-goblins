@@ -21,27 +21,37 @@ import (
 
 const reapUsage = `usage: cfo reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]
 
-Find the fleet resources nothing else notices and, with --apply, retire them:
+Find the fleet resources nothing else notices and retire them:
 an unsupervised harness process whose pane is gone, a dev server left running
-in a finished goblin's worktree, an orphaned worktree, task record or status
-log, and the empty directory a dead task leaves under .worktrees/.
+in a worktree no pane's agent is working in, whatever its status log says, an
+orphaned worktree, task record or status log, and the empty directory a dead
+task leaves under .worktrees/.
 
 A harness process is placed by its ancestry and its command line, never by its
 image name: the desktop application and the agents of a no-mistakes review
 round are not fleet processes and are not reported.
 
---dry-run is the default and only reports. --apply acts, behind gates that
-never kill a process still burning processor time, never remove a worktree
-with uncommitted or unpushed work, and never reap a task that has not
-finished.
+--dry-run is the default and only reports.
+
+--apply acts on every finding it is not holding, and it never ends a process.
+That asymmetry is deliberate: everything else this sweep does is recoverable,
+an archived log is moved rather than deleted, a removed directory was proven
+empty, a returned worktree was proven to hold no unpushed work. Ending a
+process is none of those and costs a goblin the round it is in, so a kill is
+authorised only by naming that pid with --force. Tidying a status log can
+therefore never take a dev server with it.
+
+--apply is otherwise gated: it never removes a worktree with uncommitted or
+unpushed work, and never reaps a task that has not finished.
 
 --force names one pid or one task id the operator takes responsibility for,
 and may be repeated. Every refusal answers only to its own key: naming a pid
 speaks for that process, naming a task id says that task is over, and neither
 speaks for the other. A finding held for two reasons therefore needs both
-answered, and its HELD line says which keys to name and what has to be
-resolved instead. Some refusals answer to no --force at
-all, including the uncommitted or unpushed work gate, because that work is
+answered, and its HELD line says which keys to name; where a refusal answers
+to a key that line does not ask you to name, it also says that the rest is
+evidence to resolve rather than override. Some refusals answer to no --force
+at all, including the uncommitted or unpushed work gate, because that work is
 the whole product of a goblin's run.
 `
 
@@ -116,7 +126,7 @@ func runReap(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 		return 1
 	}
 	if !options.Apply && len(result.Findings) > 0 {
-		fmt.Fprintln(stdout, "Nothing was changed. Run cfo reap --apply to act on the findings above.")
+		fmt.Fprintln(stdout, "Nothing was changed. Run cfo reap --apply to act on the findings above, except to end a process, which needs its pid named with --force.")
 	}
 	return 0
 }

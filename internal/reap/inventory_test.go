@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -380,4 +381,153 @@ func TestANestedDirectoryDoesNotBorrowAnEnclosingRepositorysAnswer(t *testing.T)
 	if len(notes) != 1 || !strings.Contains(notes[0], "not its own repository") {
 		t.Fatalf("notes = %q, want one saying whose answer it would have been", notes)
 	}
+}
+
+// stubPanes stands in for Herdr's session snapshot. Every pane reports its
+// process identity, because an unresolved pane is a different test.
+type stubPanes struct {
+	snapshot herdr.SessionSnapshot
+}
+
+func (s stubPanes) Snapshot(context.Context) (herdr.SessionSnapshot, error) {
+	return s.snapshot, nil
+}
+
+func (stubPanes) PaneProcessInfo(context.Context, herdr.Target) (herdr.PaneProcessInfo, error) {
+	return herdr.PaneProcessInfo{ShellPID: 900, ForegroundProcessGroupID: 901}, nil
+}
+
+// The working directory of a pane's agent is what places a live goblin in a
+// worktree when the record's pane id no longer matches, so it has to survive
+// the trip from the snapshot onto the pane the sweep classifies.
+func TestPanesCarryTheirAgentsWorkingDirectory(t *testing.T) {
+	const worktree = `C:\dev\proj\.worktrees\gb-task`
+	collector := Collector{Session: "fleet", Panes: stubPanes{snapshot: herdr.SessionSnapshot{
+		Protocol: herdr.SupportedProtocol,
+		Panes:    []herdr.SnapshotPane{{ID: "w3:p4"}, {ID: "w3:p5"}},
+		Agents:   []herdr.SnapshotAgent{{PaneID: "w3:p4", Agent: "claude", Status: "done", Cwd: worktree}},
+	}}}
+
+	panes, unresolved, unplaced, err := collector.readPanes(context.Background())
+	if err != nil {
+		t.Fatalf("readPanes: %v", err)
+	}
+	if len(unresolved) != 0 {
+		t.Fatalf("unresolved = %q, want none", unresolved)
+	}
+	if len(unplaced) != 0 {
+		t.Fatalf("unplaced = %q, want none; the one agent here reported where it is working", unplaced)
+	}
+	if len(panes) != 2 {
+		t.Fatalf("panes = %+v, want both panes", panes)
+	}
+	if !panes[0].HasAgent || panes[0].AgentCwd != worktree {
+		t.Errorf("pane %s = %+v, want the agent and the directory it is working in", panes[0].ID, panes[0])
+	}
+	if panes[1].HasAgent || panes[1].AgentCwd != "" {
+		t.Errorf("pane %s = %+v, want no agent and no working directory", panes[1].ID, panes[1])
+	}
+}
+
+// A snapshot of another protocol may carry the agent fields under other names,
+// so every working directory can arrive empty. That is answered per agent
+// rather than by refusing: failing the sweep would leave the watcher with an
+// error and the operator with nothing swept at all, while an unplaced agent
+// holds exactly the findings that depend on placing it and leaves the
+// recoverable ones alone.
+func TestASnapshotOfAnotherProtocolLeavesItsAgentsUnplaced(t *testing.T) {
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	collector := Collector{
+		Home:    home.Home{Root: root, State: stateDir},
+		Session: "fleet",
+		Panes: stubPanes{snapshot: herdr.SessionSnapshot{
+			Protocol: herdr.SupportedProtocol - 1,
+			Panes:    []herdr.SnapshotPane{{ID: "w3:p4"}},
+			Agents:   []herdr.SnapshotAgent{{PaneID: "w3:p4", Agent: "claude"}},
+		}},
+	}
+
+	inv, _, err := collector.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v, want the sweep to run on what the snapshot did answer", err)
+	}
+	if len(inv.UnplacedAgents) != 1 || inv.UnplacedAgents[0] != "w3:p4" {
+		t.Fatalf("unplaced agents = %q, want the agent whose working directory did not arrive", inv.UnplacedAgents)
+	}
+}
+
+// Herdr declares an agent's working directory nullable and does not require
+// it, so one agent reporting none is a legitimate state rather than a fault.
+// It is neither an agent working nowhere nor a reason to refuse the whole
+// sweep: it is one agent the sweep cannot place, so it is carried out by name
+// and the classes that rest on placing it hold.
+func TestAnAgentThatReportsNoWorkingDirectoryIsCarriedOut(t *testing.T) {
+	const worktree = `C:\dev\proj\.worktrees\gb-task`
+	collector := func(agents []herdr.SnapshotAgent) Collector {
+		root := t.TempDir()
+		stateDir := filepath.Join(root, "state")
+		if err := os.MkdirAll(stateDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return Collector{
+			Home:    home.Home{Root: root, State: stateDir},
+			Session: "fleet",
+			Panes: stubPanes{snapshot: herdr.SessionSnapshot{
+				Protocol: herdr.SupportedProtocol,
+				Panes:    []herdr.SnapshotPane{{ID: "w3:p4"}, {ID: "w3:p5"}},
+				Agents:   agents,
+			}},
+		}
+	}
+
+	t.Run("one agent that reported none is named", func(t *testing.T) {
+		inv, notes, err := collector([]herdr.SnapshotAgent{
+			{PaneID: "w3:p4", Agent: "claude", Cwd: worktree},
+			{PaneID: "w3:p5", Agent: "codex"},
+		}).Collect(context.Background())
+		if err != nil {
+			t.Fatalf("Collect: %v", err)
+		}
+		if len(inv.UnplacedAgents) != 1 || inv.UnplacedAgents[0] != "w3:p5" {
+			t.Fatalf("unplaced agents = %q, want the one that reported no working directory", inv.UnplacedAgents)
+		}
+		if !strings.Contains(strings.Join(notes, " "), "w3:p5 reported no working directory") {
+			t.Fatalf("notes = %q, want one naming the agent that could not be placed", notes)
+		}
+	})
+
+	// Counting unplaced agents to infer that herdr stopped sending the field
+	// looked like a guard and was a trap: the field is nullable and not
+	// required, so the smallest legitimate fleet, one goblin answering with
+	// nothing, would have failed the whole sweep and reported no orphans at
+	// all. Every agent answering with nothing is the same fact as one agent
+	// answering with nothing, repeated, and it is carried out the same way.
+	t.Run("every agent reporting none still sweeps, carrying them all out", func(t *testing.T) {
+		inv, _, err := collector([]herdr.SnapshotAgent{
+			{PaneID: "w3:p4", Agent: "claude"},
+			{PaneID: "w3:p5", Agent: "codex"},
+		}).Collect(context.Background())
+		if err != nil {
+			t.Fatalf("Collect refused a fleet whose agents all answered with nothing: %v", err)
+		}
+		if len(inv.UnplacedAgents) != 2 {
+			t.Fatalf("unplaced = %v, want both agents carried out so findings that need them are held", inv.UnplacedAgents)
+		}
+	})
+
+	t.Run("one goblin answering with nothing does not disable the sweep", func(t *testing.T) {
+		inv, _, err := collector([]herdr.SnapshotAgent{
+			{PaneID: "w3:p4", Agent: "claude"},
+		}).Collect(context.Background())
+		if err != nil {
+			t.Fatalf("Collect refused the smallest legitimate fleet: %v", err)
+		}
+		if len(inv.UnplacedAgents) != 1 {
+			t.Fatalf("unplaced = %v, want the one agent carried out", inv.UnplacedAgents)
+		}
+	})
 }

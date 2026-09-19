@@ -80,8 +80,13 @@ func TestClassify(t *testing.T) {
 				if findings[0].PID != 31032 {
 					t.Fatalf("orphan pid = %d, want 31032", findings[0].PID)
 				}
-				if findings[0].Hold() != "" {
-					t.Fatalf("a fleet-descended orphan must not be held at classification: %q", findings[0].Hold())
+				// The one thing holding a fleet-descended orphan is the
+				// authorisation its kill needs, carried from the moment it is
+				// classified so the line states it even when something else
+				// holds the finding too.
+				want := killNeedsItsOwnPID + ". Name 31032 with --force to take responsibility for it"
+				if findings[0].Hold() != want {
+					t.Fatalf("hold = %q, want only the kill authorisation keyed to the pid: %q", findings[0].Hold(), want)
 				}
 			},
 		},
@@ -158,8 +163,10 @@ func TestClassify(t *testing.T) {
 			want:      OrphanWorktree,
 			wantCount: 1,
 			assert: func(t *testing.T, findings []Finding) {
-				if !strings.Contains(findings[0].Detail, "no metadata record") {
-					t.Fatalf("detail = %q, want the missing-record reason", findings[0].Detail)
+				// There was no record to ask about, which is the whole of what
+				// this sweep established, said once.
+				if findings[0].Detail != "no task record to ask about" {
+					t.Fatalf("detail = %q, want the missing-record reason and nothing restated", findings[0].Detail)
 				}
 			},
 		},
@@ -433,11 +440,13 @@ func TestUnresolvedPaneHoldsEveryProcessFinding(t *testing.T) {
 			t.Fatalf("%s hold = %q, want the unresolved-pane refusal", class, matched[0].Hold())
 		}
 	}
-	// The remedy here is fixing Herdr. Inviting --force on evidence the sweep
-	// knows is incomplete is how a working goblin gets killed.
+	// The remedy here is fixing Herdr, and the refusal says so in its own
+	// words. What the rendered line must not do is tell the operator that
+	// something still stands after the --force it names, because this refusal
+	// answers to the same pid the kill does and that force clears both.
 	for _, finding := range classOf(findings, OrphanProcess) {
-		if strings.Contains(finding.Hold(), "--force") {
-			t.Errorf("hold = %q, want no --force invitation", finding.Hold())
+		if strings.Contains(finding.Hold(), "resolve it rather than overriding it") {
+			t.Errorf("hold = %q, claims evidence survives a --force that clears every refusal on the line", finding.Hold())
 		}
 	}
 }
@@ -499,19 +508,22 @@ func TestClassifyProcessPopulations(t *testing.T) {
 	if !ok {
 		t.Fatalf("the genuine orphan was not reported; findings: %+v", findings)
 	}
-	if orphan.Hold() != "" {
-		t.Errorf("the genuine orphan was held: %q", orphan.Hold())
+	if want := killNeedsItsOwnPID + ". Name 31032 with --force to take responsibility for it"; orphan.Hold() != want {
+		t.Errorf("hold = %q, want the genuine orphan held by nothing but its kill authorisation: %q", orphan.Hold(), want)
 	}
 	if len(findings) != 1 {
 		t.Fatalf("got %d orphan_process findings, want only the genuine orphan: %+v", len(findings), findings)
 	}
 }
 
-// TestUnidentifiedHarnessDoesNotInviteForce: the fourteen false positives all
-// carried a HELD line telling the operator to name the pid with --force, which
-// would have closed the Overlord's application or killed a review round. What
-// survives the classifier now says what could not be determined instead.
-func TestUnidentifiedHarnessDoesNotInviteForce(t *testing.T) {
+// TestUnidentifiedHarnessSaysWhatCouldNotBeDetermined: the fourteen false
+// positives all carried a HELD line that read as a judgement to override, and
+// pid 900 here is the population behind them, the Overlord's application or a
+// live review agent. Every process finding now names the pid its kill answers
+// to, so the line cannot stop mentioning --force; the refusal carries its own
+// remedy in its own words, and the line may not claim that identifying the
+// process still stands after a force that in fact ends it.
+func TestUnidentifiedHarnessSaysWhatCouldNotBeDetermined(t *testing.T) {
 	inventory := Inventory{
 		FleetRootPIDs: []int{100},
 		Processes: []Process{
@@ -520,11 +532,11 @@ func TestUnidentifiedHarnessDoesNotInviteForce(t *testing.T) {
 		},
 	}
 	finding := classOf(Classify(inventory), OrphanProcess)[0]
-	if strings.Contains(finding.Hold(), "--force") {
-		t.Errorf("hold = %q, want no --force invitation", finding.Hold())
+	if !strings.Contains(finding.Hold(), "identify it before anything acts on it") {
+		t.Errorf("hold = %q, want it to say what could not be determined and what answers that", finding.Hold())
 	}
-	if !strings.Contains(finding.Hold(), "could not determine") {
-		t.Errorf("hold = %q, want it to say what could not be determined", finding.Hold())
+	if strings.Contains(finding.Hold(), "resolve it rather than overriding it") {
+		t.Errorf("hold = %q, claims the identification survives --force 900, which clears every refusal on the line and kills the tree", finding.Hold())
 	}
 }
 
@@ -797,21 +809,40 @@ func TestAHoldNamesWhatActuallyClearsIt(t *testing.T) {
 		}
 	})
 
+	t.Run("a hold whose every refusal answers to a named key promises nothing beyond them", func(t *testing.T) {
+		// Both refusals here answer to the pid, so the one --force the line
+		// names clears the whole hold and ends the tree. Telling the operator
+		// that the identification still stands would be the command describing
+		// an outcome it will not produce.
+		finding := Finding{Class: OrphanProcess, PID: 900}
+		finding.refuseUntilEstablished(unidentifiedHold, "900")
+		finding.refuseUnlessForced(killNeedsItsOwnPID, "900")
+		hold := finding.Hold()
+		if !strings.Contains(hold, "Name 900 with --force to take responsibility for it") {
+			t.Fatalf("hold = %q, want the one key that clears every refusal on the line", hold)
+		}
+		if strings.Contains(hold, "resolve it rather than overriding it") {
+			t.Fatalf("hold = %q, claims something survives a --force naming 900, which clears both refusals", hold)
+		}
+	})
+
 	t.Run("a mixed hold names no outcome the force cannot deliver", func(t *testing.T) {
+		// The unplaced agent answers to its pane and to neither key the line
+		// names, so here something really does stand behind the --force.
 		const worktree = `C:\dev\pd\.worktrees\gb-broken`
 		inventory := Inventory{
 			Panes:           []Pane{{ID: "pane-b", HasAgent: true}},
-			UnresolvedPanes: []string{"pane-b"},
+			UnplacedAgents:  []string{"pane-b"},
 			UnreadableTasks: []string{"broken"},
 			Worktrees:       []WorktreeDir{{Path: worktree, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "broken"}},
 			Processes:       []Process{process(555, 1, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest)},
 		}
 		hold := classOf(Classify(inventory), StaleServer)[0].Hold()
-		if !strings.Contains(hold, "Name broken with --force") {
-			t.Fatalf("hold = %q, want the key a --force does answer", hold)
+		if !strings.Contains(hold, "Name every one of broken and 555 with --force") {
+			t.Fatalf("hold = %q, want both keys a --force does answer: the task and the pid its kill needs", hold)
 		}
 		if strings.Contains(hold, "act on it") {
-			t.Fatalf("hold = %q, want no promise that the sweep acts, because the pane refusal stands whatever is forced", hold)
+			t.Fatalf("hold = %q, want no promise that the sweep acts, because the agent refusal stands whatever is forced", hold)
 		}
 		if !strings.Contains(hold, "resolve it rather than overriding it") {
 			t.Fatalf("hold = %q, want it to say the evidence has to be resolved rather than forced", hold)
@@ -850,4 +881,190 @@ func TestARefusalCannotBeReplacedBySite(t *testing.T) {
 			t.Fatalf("hold = %q, want it to carry %q", finding.Hold(), want)
 		}
 	}
+}
+
+// TestALiveGoblinsServerIsNeverStale is the incident of 19 September 2026,
+// after PR #27 landed. The sweep offered to kill pid 35012, the vite server of
+// pd-1229-1187-landing, whose status log read done. The goblin was running
+// browser tests against that exact server at the time. It had notified done
+// for one pull request and carried on to the next under the same id, which is
+// what a landing task does, so the record said a pull request had finished and
+// the sweep read it as the goblin having finished.
+func TestALiveGoblinsServerIsNeverStale(t *testing.T) {
+	const worktree = `C:\dev\pd\.worktrees\gb-pd-landing`
+	server := process(35012, 1, "node.exe", `node `+worktree+`\frontend\node_modules\vite\bin\vite.js`, fixtureLatest)
+	landing := task("pd-landing", worktree, "w9:p8Y", "done")
+	worktrees := []WorktreeDir{{Path: worktree, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "pd-landing"}}
+
+	t.Run("a pane holding an agent says the goblin is working", func(t *testing.T) {
+		inventory := Inventory{
+			// The pane the task record names, with an agent on it: exactly
+			// what herdr reported while the sweep offered up the server.
+			Panes:     []Pane{{ID: "w9:p8Y", ShellPID: 900, ForegroundPID: 901, HasAgent: true}},
+			Tasks:     []Task{landing},
+			Worktrees: worktrees,
+			Processes: []Process{server},
+		}
+		if findings := classOf(Classify(inventory), StaleServer); len(findings) != 0 {
+			t.Fatalf("a live goblin's dev server was offered up: %+v", findings)
+		}
+	})
+
+	t.Run("an agent working in the worktree says so too", func(t *testing.T) {
+		inventory := Inventory{
+			// The record's pane id no longer matches the pane the goblin is
+			// in, so the only thing left to ask is where the agents are
+			// working. One of them is working under this worktree.
+			Panes: []Pane{
+				{ID: "w9:p0", ShellPID: 800, HasAgent: true, AgentCwd: `C:\dev\code-goblins`},
+				{ID: "w9:pMoved", ShellPID: 900, HasAgent: true, AgentCwd: worktree + `\frontend`},
+			},
+			Tasks:     []Task{landing},
+			Worktrees: worktrees,
+			Processes: []Process{server},
+		}
+		if findings := classOf(Classify(inventory), StaleServer); len(findings) != 0 {
+			t.Fatalf("a server was offered up while an agent is working in its worktree: %+v", findings)
+		}
+	})
+
+	t.Run("and the worktree it is working in is not an orphan either", func(t *testing.T) {
+		inventory := Inventory{
+			// The same drift, one class over, and the worse outcome: this
+			// finding proposes returning the checkout the goblin is working
+			// in, and cleanup's own guard cannot stop it, because that counts
+			// panes matching the recorded pane id too.
+			Panes:     []Pane{{ID: "w9:pMoved", ShellPID: 900, HasAgent: true, AgentCwd: worktree + `\frontend`}},
+			Tasks:     []Task{landing},
+			Worktrees: worktrees,
+			Processes: []Process{server},
+		}
+		if findings := classOf(Classify(inventory), OrphanWorktree); len(findings) != 0 {
+			t.Fatalf("a worktree an agent is working in was offered up for return: %+v", findings)
+		}
+	})
+
+	t.Run("a neighbouring worktree with a longer name is not that agent's", func(t *testing.T) {
+		inventory := Inventory{
+			Panes:     []Pane{{ID: "w9:pOther", ShellPID: 900, HasAgent: true, AgentCwd: worktree + `-two`}},
+			Tasks:     []Task{landing},
+			Worktrees: worktrees,
+			Processes: []Process{server},
+		}
+		if findings := classOf(Classify(inventory), StaleServer); len(findings) != 1 {
+			t.Fatalf("got %d findings, want the abandoned server reported: %+v", len(findings), findings)
+		}
+	})
+
+	t.Run("with the goblin gone it is reported, and done is not what establishes that", func(t *testing.T) {
+		inventory := Inventory{
+			Panes:     []Pane{{ID: "w9:pOther", ShellPID: 900, HasAgent: true}},
+			Tasks:     []Task{landing},
+			Worktrees: worktrees,
+			Processes: []Process{server},
+		}
+		findings := classOf(Classify(inventory), StaleServer)
+		if len(findings) != 1 {
+			t.Fatalf("got %d stale_server findings, want the genuinely abandoned server: %+v", len(findings), findings)
+		}
+		want := killNeedsItsOwnPID + ". Name 35012 with --force to take responsibility for it"
+		if findings[0].Hold() != want {
+			t.Fatalf("hold = %q, want an abandoned server of a finished task held by nothing but its kill authorisation: %q", findings[0].Hold(), want)
+		}
+		if !strings.Contains(findings[0].Detail, "no pane holding an agent working there") {
+			t.Fatalf("detail = %q, want it to state the evidence that established this", findings[0].Detail)
+		}
+	})
+
+	t.Run("an agent that reported no working directory holds both classes", func(t *testing.T) {
+		// Herdr declares an agent's working directory nullable, so one agent
+		// answering with nothing is a state the fleet reaches without anything
+		// being broken. With the record's pane id drifted, that agent is the
+		// only thing that could still place this goblin, and it might be it.
+		inventory := Inventory{
+			Panes:          []Pane{{ID: "w9:pMoved", ShellPID: 900, HasAgent: true}},
+			UnplacedAgents: []string{"w9:pMoved"},
+			Tasks:          []Task{landing},
+			Worktrees:      worktrees,
+			Processes:      []Process{server},
+		}
+		findings := Classify(inventory)
+		for _, class := range []Class{StaleServer, OrphanWorktree} {
+			found := classOf(findings, class)
+			if len(found) != 1 {
+				t.Fatalf("got %d %s findings, want one: %+v", len(found), class, findings)
+			}
+			if !strings.Contains(found[0].Hold(), "reported no working directory") {
+				t.Errorf("%s hold = %q, want it held because an agent could not be placed", class, found[0].Hold())
+			}
+			if strings.Contains(found[0].Detail, "no pane holding an agent working there") {
+				t.Errorf("%s detail = %q, claims the evidence its own hold says could not be gathered", class, found[0].Detail)
+			}
+		}
+	})
+
+	t.Run("a task that never said done is reported but held", func(t *testing.T) {
+		working := task("pd-landing", worktree, "w9:pGone", "working")
+		inventory := Inventory{
+			Tasks:     []Task{working},
+			Worktrees: worktrees,
+			Processes: []Process{server},
+		}
+		findings := classOf(Classify(inventory), StaleServer)
+		if len(findings) != 1 {
+			t.Fatalf("got %d findings, want the leak reported even though the task never said done: %+v", len(findings), findings)
+		}
+		if !strings.Contains(findings[0].Hold(), "terminal status") {
+			t.Fatalf("hold = %q, want it held because the task never finished", findings[0].Hold())
+		}
+	})
+}
+
+// TestAnUnplacedAgentRefusalAnswersToThatAgent: a refusal about an agent that
+// did not say where it is running is not answered by naming the process beside
+// it or the task it belongs to. Keying it to either let one refusal be cleared
+// by the key for another, which is what the refusal model exists to stop:
+// naming a pid says nothing about where an unrelated agent is working, and
+// naming a task id says its work is over, not that nobody else is in its
+// directory.
+func TestAnUnplacedAgentRefusalAnswersToThatAgent(t *testing.T) {
+	const worktree = `C:\dev\pd\.worktrees\gb-pd-landing`
+	inventory := Inventory{
+		Panes:          []Pane{{ID: "w9:pMoved", ShellPID: 900, HasAgent: true}},
+		UnplacedAgents: []string{"w9:pMoved"},
+		Tasks:          []Task{task("pd-landing", worktree, "w9:p8Y", "working")},
+		Worktrees:      []WorktreeDir{{Path: worktree, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "pd-landing"}},
+		Processes: []Process{
+			process(35012, 1, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest),
+		},
+	}
+
+	for _, testCase := range []struct {
+		name  string
+		class Class
+		force map[string]bool
+	}{
+		{"a task force does not answer it on a worktree", OrphanWorktree, map[string]bool{"pd-landing": true}},
+		{"a pid force does not answer it on a server", StaleServer, map[string]bool{"35012": true}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			findings := classOf(Classify(inventory), testCase.class)
+			if len(findings) != 1 {
+				t.Fatalf("got %d %s findings, want 1: %+v", len(findings), testCase.class, findings)
+			}
+			finding := findings[0]
+			finding.clearForced(testCase.force)
+			if !strings.Contains(finding.Hold(), "no working directory") {
+				t.Fatalf("hold = %q, want the unplaced-agent refusal to survive a key that does not answer it", finding.Hold())
+			}
+		})
+	}
+
+	t.Run("naming the pane that could not be placed is what answers it", func(t *testing.T) {
+		finding := classOf(Classify(inventory), StaleServer)[0]
+		finding.clearForced(map[string]bool{"w9:pMoved": true})
+		if strings.Contains(finding.Hold(), "no working directory") {
+			t.Fatalf("hold = %q, want the refusal answered by the agent it is about", finding.Hold())
+		}
+	})
 }

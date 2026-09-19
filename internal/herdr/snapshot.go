@@ -43,6 +43,10 @@ type SnapshotAgent struct {
 	WorkspaceID string `json:"workspace_id"`
 	Agent       string `json:"agent"`
 	Status      string `json:"agent_status"`
+	// Cwd is the directory the agent is working in. It is the one live answer
+	// to "which worktree is this goblin in" that does not depend on any record
+	// CFO keeps, which is what the reap sweep asks it for.
+	Cwd string `json:"cwd"`
 }
 
 // Snapshot reads the complete structural session state through

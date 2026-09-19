@@ -463,7 +463,7 @@ func sweepOrphans(cfg Config) string {
 	if len(actionable) == 0 || reap.FindingsDigest(record.Findings) == previous.Digest {
 		return ""
 	}
-	detail := reap.Summary(record.Findings) + "; still running: " + reap.Summary(actionable) + "; run cfo reap to see them, cfo reap --apply to retire them"
+	detail := reap.Summary(record.Findings) + "; still running: " + reap.Summary(actionable) + "; run cfo reap to see them, cfo reap --apply to retire everything else, and cfo reap --force <pid> --apply to end one of these, because a kill is authorised only by naming its pid"
 	if _, err := wake.Append(cfg.Home.State, "orphan", "orphans", detail); err != nil {
 		return ""
 	}
