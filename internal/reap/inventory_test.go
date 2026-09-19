@@ -498,16 +498,34 @@ func TestAnAgentThatReportsNoWorkingDirectoryIsCarriedOut(t *testing.T) {
 		}
 	})
 
-	t.Run("every agent reporting none is the field going missing", func(t *testing.T) {
+	// Counting unplaced agents to infer that herdr stopped sending the field
+	// looked like a guard and was a trap: the field is nullable and not
+	// required, so the smallest legitimate fleet, one goblin answering with
+	// nothing, would have failed the whole sweep and reported no orphans at
+	// all. Every agent answering with nothing is the same fact as one agent
+	// answering with nothing, repeated, and it is carried out the same way.
+	t.Run("every agent reporting none still sweeps, carrying them all out", func(t *testing.T) {
 		inv, _, err := collector([]herdr.SnapshotAgent{
 			{PaneID: "w3:p4", Agent: "claude"},
 			{PaneID: "w3:p5", Agent: "codex"},
 		}).Collect(context.Background())
-		if err == nil {
-			t.Fatalf("Collect succeeded with no agent carrying a working directory: %+v", inv)
+		if err != nil {
+			t.Fatalf("Collect refused a fleet whose agents all answered with nothing: %v", err)
 		}
-		if !strings.Contains(err.Error(), "working directory") {
-			t.Errorf("err = %v, want it to name the evidence that is missing", err)
+		if len(inv.UnplacedAgents) != 2 {
+			t.Fatalf("unplaced = %v, want both agents carried out so findings that need them are held", inv.UnplacedAgents)
+		}
+	})
+
+	t.Run("one goblin answering with nothing does not disable the sweep", func(t *testing.T) {
+		inv, _, err := collector([]herdr.SnapshotAgent{
+			{PaneID: "w3:p4", Agent: "claude"},
+		}).Collect(context.Background())
+		if err != nil {
+			t.Fatalf("Collect refused the smallest legitimate fleet: %v", err)
+		}
+		if len(inv.UnplacedAgents) != 1 {
+			t.Fatalf("unplaced = %v, want the one agent carried out", inv.UnplacedAgents)
 		}
 	})
 }

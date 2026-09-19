@@ -194,17 +194,16 @@ func (c Collector) readPanes(ctx context.Context) (panes []Pane, unresolved, unp
 			unplaced = append(unplaced, agent.PaneID)
 		}
 	}
-	// The protocol number says the shape is supported, not that this field
-	// arrived: a renamed or dropped key decodes as the empty string and the
-	// signal that stands between a live goblin and a killed dev server matches
-	// nothing, silently. So the field is checked for rather than assumed. No
-	// agents at all is not a failure, because then there is nothing to place;
-	// agents that all report no working directory is one, because a key that
-	// vanished for every agent is the evidence going missing rather than one
-	// agent declining to say.
-	if len(snapshot.Agents) > 0 && len(unplaced) == len(snapshot.Agents) {
-		return nil, nil, nil, fmt.Errorf("session snapshot reports %d agent(s) and none carries a working directory; the evidence that places a live goblin is missing", len(snapshot.Agents))
-	}
+	// An agent that reported no working directory is carried out as unplaced
+	// rather than treated as an agent working nowhere, because the field is
+	// declared nullable and is not required, so answering with nothing is a
+	// legitimate state. Whether it is that or a key that vanished makes no
+	// difference here: either way the sweep cannot say where that agent is
+	// running, and a finding that depends on placing it is held rather than
+	// acted on. Counting them to infer a missing key would turn the smallest
+	// legitimate fleet, one goblin answering with nothing, into a sweep that
+	// reports no orphans at all.
+
 	panes = make([]Pane, 0, len(snapshot.Panes))
 	for _, pane := range snapshot.Panes {
 		agent, hasAgent := agents[pane.ID]

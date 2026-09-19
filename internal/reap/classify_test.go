@@ -989,3 +989,52 @@ func TestALiveGoblinsServerIsNeverStale(t *testing.T) {
 		}
 	})
 }
+
+// TestAnUnplacedAgentRefusalAnswersToThatAgent: a refusal about an agent that
+// did not say where it is running is not answered by naming the process beside
+// it or the task it belongs to. Keying it to either let one refusal be cleared
+// by the key for another, which is what the refusal model exists to stop:
+// naming a pid says nothing about where an unrelated agent is working, and
+// naming a task id says its work is over, not that nobody else is in its
+// directory.
+func TestAnUnplacedAgentRefusalAnswersToThatAgent(t *testing.T) {
+	const worktree = `C:\dev\pd\.worktrees\gb-pd-landing`
+	inventory := Inventory{
+		Panes:          []Pane{{ID: "w9:pMoved", ShellPID: 900, HasAgent: true}},
+		UnplacedAgents: []string{"w9:pMoved"},
+		Tasks:          []Task{task("pd-landing", worktree, "w9:p8Y", "working")},
+		Worktrees:      []WorktreeDir{{Path: worktree, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "pd-landing"}},
+		Processes: []Process{
+			process(35012, 1, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest),
+		},
+	}
+
+	for _, testCase := range []struct {
+		name  string
+		class Class
+		force map[string]bool
+	}{
+		{"a task force does not answer it on a worktree", OrphanWorktree, map[string]bool{"pd-landing": true}},
+		{"a pid force does not answer it on a server", StaleServer, map[string]bool{"35012": true}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			findings := classOf(Classify(inventory), testCase.class)
+			if len(findings) != 1 {
+				t.Fatalf("got %d %s findings, want 1: %+v", len(findings), testCase.class, findings)
+			}
+			finding := findings[0]
+			finding.clearForced(testCase.force)
+			if !strings.Contains(finding.Hold(), "no working directory") {
+				t.Fatalf("hold = %q, want the unplaced-agent refusal to survive a key that does not answer it", finding.Hold())
+			}
+		})
+	}
+
+	t.Run("naming the pane that could not be placed is what answers it", func(t *testing.T) {
+		finding := classOf(Classify(inventory), StaleServer)[0]
+		finding.clearForced(map[string]bool{"w9:pMoved": true})
+		if strings.Contains(finding.Hold(), "no working directory") {
+			t.Fatalf("hold = %q, want the refusal answered by the agent it is about", finding.Hold())
+		}
+	})
+}

@@ -278,7 +278,11 @@ func (s Service) measureBusy(pid int, options Options) string {
 	if delta > idleThreshold(options) {
 		return fmt.Sprintf("busy: burned %s of processor time in %s, which is a process doing work, not an idle one", delta.Round(time.Millisecond), window)
 	}
-	return ""
+	// An idle reading is still a reading, and it is the one the operator acts
+	// on: this is the line they decide from when naming a pid. Reporting it as
+	// nothing would make a measured idle process indistinguishable from one
+	// nobody measured, which is the difference this whole sweep turns on.
+	return fmt.Sprintf("idle: burned %s of processor time in %s", delta.Round(time.Millisecond), window)
 }
 
 // sweepAgain closes every work-gate refusal where the sweep could not look.
