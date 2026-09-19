@@ -96,11 +96,16 @@ Code Goblins is a standalone repository. Clone this repository directly; no upst
 git clone https://github.com/fpresta0607/code-goblins.git
 cd code-goblins
 powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Bootstrap
-cfo install
+cfo install --projects-root <dir>
 cfo doctor
 ```
 
 `install.ps1 -Bootstrap` installs or builds the Code Goblins binary and scriptable dependencies. `cfo install` wires the CFO into your user environment so a supervisor opened from another project can still manage the fleet.
+
+`--projects-root <dir>` names the folder that holds your checkouts, wherever you keep them.
+It is recorded on your machine as `CFO_PROJECTS_ROOT`, beside `CFO_HOME`, and never in this repository, so every adopter's layout stays their own.
+With it set, `--project` takes a bare name as well as a path: `--project my-project` is `<dir>\my-project`, matched without regard to case, and the fleet works in that one checkout instead of cloning a second copy.
+It is optional: without it every command still takes a path, and `cfo doctor` tells you it is unset.
 
 Then open the project you actually want to build:
 
@@ -132,8 +137,9 @@ Tell the CFO what outcome you want. It handles the fleet mechanics.
 ```text
 cfo doctor
 cfo auth <project> [--check|--fix] [--env]
-cfo brief <id> --project <path> [--kind <ship|scout>] [--mode <mode>]
-cfo spawn <id> --project <path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <mode>] [--model <model>] [--effort <level>] [--class <class>] [--yolo]
+cfo install [--projects-root <dir>] [--uninstall]
+cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <mode>]
+cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <mode>] [--model <model>] [--effort <level>] [--class <class>] [--yolo]
 cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>]
 cfo send <target> <text...>
 cfo peek <target> [lines]

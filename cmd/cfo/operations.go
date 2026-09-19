@@ -96,7 +96,14 @@ func runRoute(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	a := routing.Classify(brief)
 	a.Attempts = *attempts
-	inputs, e := loadRouteInputs(h.Data, *project)
+	// Resolved the way a spawn resolves it, or the dry run would read a
+	// different manifest than the dispatch it previews.
+	checkout, e := runtime.resolveProject(*project)
+	if e != nil {
+		fmt.Fprintf(stderr, "cfo route: %v\n", e)
+		return 1
+	}
+	inputs, e := loadRouteInputs(h.Data, checkout)
 	if e != nil {
 		fmt.Fprintln(stderr, e)
 		return 1

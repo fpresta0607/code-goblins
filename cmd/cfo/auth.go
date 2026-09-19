@@ -14,6 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -42,7 +43,7 @@ func runAuth(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 	case "store":
 		return runAuthStore(args[1:], stdout, stderr, runtime)
 	case "list":
-		return runAuthList(args[1:], stdout, stderr)
+		return runAuthList(args[1:], stdout, stderr, runtime)
 	case "copy":
 		return runAuthCopy(args[1:], stdout, stderr, runtime)
 	case "refresh":
@@ -51,10 +52,10 @@ func runAuth(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 		fmt.Fprint(stdout, authUsage)
 		return 0
 	}
-	return runAuthPreflight(args, stdout, stderr)
+	return runAuthPreflight(args, stdout, stderr, runtime)
 }
 
-func runAuthPreflight(args []string, stdout, stderr io.Writer) int {
+func runAuthPreflight(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	flags := flag.NewFlagSet("auth", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	check := flags.Bool("check", false, "probe every service and report without changing anything (default)")
@@ -78,7 +79,14 @@ func runAuthPreflight(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	project := positional[0]
+	// A preflight reads the checkout as well as the scope: --fix adopts what
+	// the project's own .env already holds, so a bare name has to be a
+	// checkout here, exactly as it does for the spawn this clears the way for.
+	project, err := runtime.resolveProject(positional[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo auth: %v\n", err)
+		return 1
+	}
 	scope := auth.ProjectName(project)
 	manifest, err := auth.LoadManifest(h.Data, project)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -234,7 +242,7 @@ func runAuthStore(args []string, stdout, stderr io.Writer, runtime commandRuntim
 		fmt.Fprint(stderr, authUsage)
 		return 2
 	}
-	key, ok := credentialKey(*project, positional[0], stderr)
+	key, ok := credentialKey(runtime, *project, positional[0], stderr)
 	if !ok {
 		return 2
 	}
@@ -280,12 +288,12 @@ func runAuthStore(args []string, stdout, stderr io.Writer, runtime commandRuntim
 // credentialKey builds and validates one store key from the operator's
 // arguments, refusing rather than sanitizing so a typo cannot land a
 // credential in a scope nobody will look in.
-func credentialKey(project, name string, stderr io.Writer) (auth.Key, bool) {
+func credentialKey(runtime commandRuntime, project, name string, stderr io.Writer) (auth.Key, bool) {
 	key := auth.Shared(name)
 	if project != "" {
-		scope, ok := credentialScope(project)
-		if !ok {
-			fmt.Fprintf(stderr, "cfo auth: %q is not a usable project scope\n", project)
+		scope, err := credentialScope(runtime, project)
+		if err != nil {
+			fmt.Fprintf(stderr, "cfo auth: %v\n", err)
 			return auth.Key{}, false
 		}
 		key = auth.Key{Project: scope, Name: name}
@@ -301,20 +309,39 @@ func credentialKey(project, name string, stderr io.Writer) (auth.Key, bool) {
 // that walks upward is refused rather than reduced: `../escaped` would
 // otherwise quietly become the scope `escaped`, and the operator would store a
 // credential where nothing will ever look for it.
-func credentialScope(project string) (string, bool) {
+//
+// A bare name that is one of the machine's checkouts becomes that checkout's
+// folder name, so a credential stored by name lands in the scope a spawn by
+// the same name reads. A name that is no checkout, or a machine with no
+// projects root, keeps the name as the scope, which is what a bare name meant
+// before names resolved and is still how a scope with no checkout here is
+// addressed. An ambiguous name is refused: guessing between two scopes is the
+// same mistake as the one above.
+func credentialScope(runtime commandRuntime, project string) (string, error) {
+	unusable := fmt.Errorf("%q is not a usable project scope", project)
 	separator := func(r rune) bool { return r == '/' || r == '\\' }
 	for _, segment := range strings.FieldsFunc(project, separator) {
 		// A relative segment is what walks; a name that merely contains dots
 		// is one the spawn path already stores credentials under.
 		if segment == ".." || segment == "." {
-			return "", false
+			return "", unusable
 		}
 	}
-	scope := auth.ProjectName(project)
-	return scope, auth.ValidProjectName(scope)
+	resolved, err := runtime.resolveProject(project)
+	switch {
+	case errors.Is(err, projectcfg.ErrRootUnset), errors.Is(err, projectcfg.ErrUnknown):
+		resolved = project
+	case err != nil:
+		return "", err
+	}
+	scope := auth.ProjectName(resolved)
+	if !auth.ValidProjectName(scope) {
+		return "", unusable
+	}
+	return scope, nil
 }
 
-func runAuthList(args []string, stdout, stderr io.Writer) int {
+func runAuthList(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	flags := flag.NewFlagSet("auth list", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	project := flags.String("project", "", "list only this project's scope")
@@ -338,9 +365,8 @@ func runAuthList(args []string, stdout, stderr io.Writer) int {
 	}
 	scope := ""
 	if *project != "" {
-		valid := false
-		if scope, valid = credentialScope(*project); !valid {
-			fmt.Fprintf(stderr, "cfo auth list: %q is not a usable project scope\n", *project)
+		if scope, err = credentialScope(runtime, *project); err != nil {
+			fmt.Fprintf(stderr, "cfo auth list: %v\n", err)
 			return 2
 		}
 	}
@@ -372,11 +398,11 @@ func runAuthCopy(args []string, stdout, stderr io.Writer, runtime commandRuntime
 		fmt.Fprint(stderr, authUsage)
 		return 2
 	}
-	source, ok := credentialKey(*from, positional[0], stderr)
+	source, ok := credentialKey(runtime, *from, positional[0], stderr)
 	if !ok {
 		return 2
 	}
-	target, ok := credentialKey(*to, positional[0], stderr)
+	target, ok := credentialKey(runtime, *to, positional[0], stderr)
 	if !ok {
 		return 2
 	}

@@ -609,6 +609,11 @@ func (f *fleetE2EFixture) AssertVisibleTabsAndNoLifecycleDeletes() {
 			if request.Name == "pi" && len(request.Args) == 1 && request.Args[0] == "--help" {
 				continue
 			}
+			// Spawn asks git which file ignores .worktrees/ before a checkout's
+			// first worktree. It is a query: nothing in the lifecycle writes.
+			if request.Name == "git" && slices.Equal(request.Args, []string{"check-ignore", "-v", ".worktrees/"}) {
+				continue
+			}
 			f.t.Fatalf("unexpected fake external request=%+v", request)
 		}
 		sessionAt := slices.Index(request.Args, "--session")

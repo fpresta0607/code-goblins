@@ -586,3 +586,91 @@ func TestExpandWindowsVarsLeavesUnknownNamesAlone(t *testing.T) {
 		}
 	}
 }
+
+func TestInstallRecordsTheProjectsRoot(t *testing.T) {
+	f := newFixture(t, adopterSettings, nil)
+	f.service.ProjectsRoot = t.TempDir()
+	output := f.install()
+
+	if got := f.env.values[ProjectsRootVariable]; got != f.service.ProjectsRoot {
+		t.Errorf("%s = %q, want %q", ProjectsRootVariable, got, f.service.ProjectsRoot)
+	}
+	if !strings.Contains(output, "changed   root set to "+f.service.ProjectsRoot) {
+		t.Errorf("output does not report the new projects root:\n%s", output)
+	}
+
+	sets := len(f.env.setCalls)
+	if output = f.install(); !strings.Contains(output, "unchanged root already "+f.service.ProjectsRoot) {
+		t.Errorf("a second install did not find the projects root in place:\n%s", output)
+	}
+	if len(f.env.setCalls) != sets {
+		t.Errorf("a second install rewrote the environment: %v", f.env.setCalls[sets:])
+	}
+}
+
+func TestInstallWithoutTheFlagKeepsTheRecordedProjectsRoot(t *testing.T) {
+	f := newFixture(t, adopterSettings, map[string]string{ProjectsRootVariable: `D:\code`})
+	output := f.install()
+
+	if got := f.env.values[ProjectsRootVariable]; got != `D:\code` {
+		t.Errorf("a plain install changed the projects root to %q", got)
+	}
+	if !strings.Contains(output, `unchanged root is D:\code`) {
+		t.Errorf("output does not show the recorded projects root:\n%s", output)
+	}
+}
+
+func TestInstallSaysWhenNoProjectsRootIsRecorded(t *testing.T) {
+	f := newFixture(t, adopterSettings, nil)
+	if output := f.install(); !strings.Contains(output, "root not set; `cfo install --projects-root <dir>`") {
+		t.Errorf("output does not say how to set the projects root:\n%s", output)
+	}
+	if _, set := f.env.values[ProjectsRootVariable]; set {
+		t.Error("a plain install invented a projects root")
+	}
+}
+
+func TestInstallRefusesAProjectsRootThatIsNotADirectory(t *testing.T) {
+	f := newFixture(t, adopterSettings, nil)
+	f.service.ProjectsRoot = filepath.Join(t.TempDir(), "absent")
+
+	var out strings.Builder
+	if err := f.service.Install(&out); err == nil || !strings.Contains(err.Error(), f.service.ProjectsRoot) {
+		t.Fatalf("err = %v, want a refusal naming the folder", err)
+	}
+	if len(f.env.setCalls) != 0 {
+		t.Errorf("the environment was written before the refusal: %v", f.env.setCalls)
+	}
+	if raw, err := os.ReadFile(f.user); err != nil || string(raw) != adopterSettings {
+		t.Errorf("the settings file was touched before the refusal (%v)", err)
+	}
+}
+
+func TestUninstallRemovesTheProjectsRoot(t *testing.T) {
+	f := newFixture(t, adopterSettings, nil)
+	f.service.ProjectsRoot = t.TempDir()
+	f.install()
+	f.uninstall()
+
+	if value, ok := f.env.values[ProjectsRootVariable]; ok {
+		t.Errorf("the projects root survived the uninstall as %q", value)
+	}
+}
+
+func TestProjectsRootPrefersTheProcessEnvironment(t *testing.T) {
+	env := newFakeEnv(map[string]string{ProjectsRootVariable: `D:\recorded`})
+
+	t.Setenv(ProjectsRootVariable, "")
+	if got, err := ProjectsRoot(env); err != nil || got != `D:\recorded` {
+		t.Errorf("ProjectsRoot = %q, %v; want the recorded user-scope value", got, err)
+	}
+	t.Setenv(ProjectsRootVariable, `E:\override`)
+	if got, err := ProjectsRoot(env); err != nil || got != `E:\override` {
+		t.Errorf("ProjectsRoot = %q, %v; want the process override", got, err)
+	}
+
+	t.Setenv(ProjectsRootVariable, "")
+	if got, err := ProjectsRoot(newFakeEnv(nil)); err != nil || got != "" {
+		t.Errorf("ProjectsRoot = %q, %v; want empty when nothing is recorded", got, err)
+	}
+}

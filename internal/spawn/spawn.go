@@ -228,6 +228,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return Result{}, err
 	}
 
+	// Asked before the worktree exists, because "the first worktree in this
+	// checkout" stops being answerable the moment Acquire succeeds.
+	gitignoreNotice := s.Worktrees.GitignoreNotice(ctx, project)
 	wt, err := s.Worktrees.Acquire(ctx, project, "gb-"+req.ID)
 	if err != nil {
 		return Result{}, fmt.Errorf("spawn: acquire task worktree: %w", err)
@@ -337,6 +340,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 
 	result.Output = successOutput(result.Meta)
+	if gitignoreNotice != "" {
+		result.Output += "\n" + gitignoreNotice
+	}
 	if provision.Installed != "" {
 		result.Output += "\ndependencies: " + provision.Installed
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/reap"
@@ -137,6 +138,8 @@ func ConfigFromEnv(h home.Home) Config {
 			Session:   session,
 			Panes:     &herdr.Client{Commands: execx.OSRunner{}, Session: session},
 			Processes: reap.CIMProcesses{Commands: execx.OSRunner{}},
+
+			ProjectsRoot: install.MachineProjectsRoot,
 		},
 		Commands: execx.OSRunner{},
 	}

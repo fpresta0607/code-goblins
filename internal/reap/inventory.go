@@ -48,6 +48,10 @@ type Collector struct {
 	// StatusTail bounds how much of each status log is read to find the
 	// latest verb, matching crewstate.Resolve's own window.
 	StatusTail int
+	// ProjectsRoot reads the folder that holds the operator's checkouts. It is
+	// a function because reading it can cost a registry query, and the
+	// watcher builds a Collector far more often than it runs a sweep.
+	ProjectsRoot func() (string, error)
 }
 
 // Collect reads state, panes, processes and worktree directories once each.
@@ -159,6 +163,12 @@ func (c Collector) readPanes(ctx context.Context) (panes []Pane, unresolved []st
 // CFO home's own, each clone under projects/, and the project of every task
 // that has a record. The last is what reaches a project cloned outside the
 // home, which is most of them.
+//
+// Every checkout under the projects root is scanned as well, because a goblin
+// worktree whose records were all archived sits in a project no task names any
+// more. Only gb-* directories count there: no record says the fleet was ever
+// in such a checkout, so anything else under its .worktrees/ is the operator's
+// own worktree, and this sweep must not so much as report it as an orphan.
 func (c Collector) worktrees(tasks []Task, notes *[]string) []WorktreeDir {
 	roots := map[string]bool{c.Home.Root: true}
 	for _, entry := range readDirNames(filepath.Join(c.Home.Root, "projects")) {
@@ -167,6 +177,21 @@ func (c Collector) worktrees(tasks []Task, notes *[]string) []WorktreeDir {
 	for _, task := range tasks {
 		if task.Meta.Project != "" {
 			roots[filepath.Clean(task.Meta.Project)] = true
+		}
+	}
+	// A root's value is whether everything under its .worktrees/ is the
+	// fleet's. A checkout already known from a record keeps true.
+	if c.ProjectsRoot != nil {
+		projectsRoot, err := c.ProjectsRoot()
+		if err != nil {
+			*notes = append(*notes, fmt.Sprintf("projects root: UNREADABLE (%s); checkouts no task names were not scanned", err))
+		}
+		if projectsRoot != "" {
+			for _, entry := range readDirNames(projectsRoot) {
+				if checkout := filepath.Join(filepath.Clean(projectsRoot), entry); !roots[checkout] {
+					roots[checkout] = false
+				}
+			}
 		}
 	}
 
@@ -182,7 +207,7 @@ func (c Collector) worktrees(tasks []Task, notes *[]string) []WorktreeDir {
 			continue
 		}
 		for _, entry := range entries {
-			if !entry.IsDir() {
+			if !entry.IsDir() || (!roots[root] && !strings.HasPrefix(entry.Name(), "gb-")) {
 				continue
 			}
 			path := filepath.Join(dir, entry.Name())

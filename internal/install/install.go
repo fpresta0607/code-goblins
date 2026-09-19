@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
 // homeVariable is the variable that tells cfo where the fleet lives, and the
@@ -14,6 +16,12 @@ const homeVariable = "CFO_HOME"
 
 // pathVariable is the user PATH.
 const pathVariable = "Path"
+
+// ProjectsRootVariable names the folder that holds the operator's checkouts,
+// which is what lets `--project <name>` stand for `<root>/<name>`. It is a
+// fact about the machine, so it is kept where CFO_HOME is and nowhere in the
+// repository: every adopter's folder is somewhere else.
+const ProjectsRootVariable = "CFO_PROJECTS_ROOT"
 
 // Service installs and uninstalls the CFO on one machine. Every destination
 // is a field so a test can point the whole thing at a temp directory and a
@@ -32,6 +40,9 @@ type Service struct {
 	RepoSettings string
 	// Env is the user-scope environment.
 	Env EnvStore
+	// ProjectsRoot is the folder to record as the projects root. Empty leaves
+	// whatever is recorded alone, so a plain re-install never forgets it.
+	ProjectsRoot string
 }
 
 // Install wires the CFO into the machine and reports every change and every
@@ -49,6 +60,11 @@ func (s Service) Install(out io.Writer) error {
 	if _, _, err := s.Env.Get(homeVariable); err != nil {
 		return err
 	}
+	if s.ProjectsRoot != "" {
+		if info, err := os.Stat(s.ProjectsRoot); err != nil || !info.IsDir() {
+			return fmt.Errorf("install: --projects-root %s is not a directory; name the folder that holds your checkouts", s.ProjectsRoot)
+		}
+	}
 	if err := s.writeUserHooks(report); err != nil {
 		return err
 	}
@@ -59,6 +75,9 @@ func (s Service) Install(out io.Writer) error {
 		return err
 	}
 	if err := s.addToPath(report); err != nil {
+		return err
+	}
+	if err := s.setProjectsRoot(report); err != nil {
 		return err
 	}
 	if err := s.finish(report, "cfo install: already installed - nothing changed"); err != nil {
@@ -84,6 +103,9 @@ func (s Service) Uninstall(out io.Writer) error {
 		return err
 	}
 	if err := s.removeFromPath(report); err != nil {
+		return err
+	}
+	if err := s.unsetProjectsRoot(report); err != nil {
 		return err
 	}
 	return s.finish(report, "cfo install --uninstall: nothing to remove")
@@ -154,6 +176,73 @@ func (s Service) unsetHome(report *reporter) error {
 	report.envChanged = true
 	report.change("CFO_HOME", "removed (was "+current+")")
 	return nil
+}
+
+func (s Service) setProjectsRoot(report *reporter) error {
+	current, set, err := s.Env.Get(ProjectsRootVariable)
+	if err != nil {
+		return err
+	}
+	switch {
+	case s.ProjectsRoot == "" && set:
+		report.same("projects", "root is "+current)
+		return nil
+	case s.ProjectsRoot == "":
+		report.same("projects", "root not set; `cfo install --projects-root <dir>` lets --project take a bare name")
+		return nil
+	case set && sameDirectory(current, s.ProjectsRoot):
+		report.same("projects", "root already "+current)
+		return nil
+	}
+	if err := s.Env.Set(ProjectsRootVariable, s.ProjectsRoot); err != nil {
+		return err
+	}
+	report.envChanged = true
+	if set {
+		report.change("projects", fmt.Sprintf("root changed from %s to %s (user scope)", current, s.ProjectsRoot))
+		return nil
+	}
+	report.change("projects", "root set to "+s.ProjectsRoot+" (user scope)")
+	return nil
+}
+
+func (s Service) unsetProjectsRoot(report *reporter) error {
+	current, set, err := s.Env.Get(ProjectsRootVariable)
+	if err != nil {
+		return err
+	}
+	if !set {
+		report.same("projects", "root not set")
+		return nil
+	}
+	if err := s.Env.Unset(ProjectsRootVariable); err != nil {
+		return err
+	}
+	report.envChanged = true
+	report.change("projects", "root removed (was "+current+")")
+	return nil
+}
+
+// ProjectsRoot reads the machine's projects root, or "" when none is recorded.
+// The process environment answers first, so an operator can point one command
+// somewhere else. The user scope answers second, because a session that was
+// already open when `cfo install --projects-root` ran keeps its old
+// environment for as long as it lives, and the CFO's own session is exactly
+// that.
+func ProjectsRoot(env EnvStore) (string, error) {
+	if root := strings.TrimSpace(os.Getenv(ProjectsRootVariable)); root != "" {
+		return root, nil
+	}
+	root, _, err := env.Get(ProjectsRootVariable)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(root), nil
+}
+
+// MachineProjectsRoot is ProjectsRoot against this machine's own user scope.
+func MachineProjectsRoot() (string, error) {
+	return ProjectsRoot(NewEnvStore(execx.OSRunner{}))
 }
 
 func (s Service) addToPath(report *reporter) error {

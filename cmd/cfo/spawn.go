@@ -73,6 +73,12 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintln(stderr, "cfo spawn: command runtime is incomplete")
 		return 1
 	}
+	checkout, err := runtime.resolveProject(*project)
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo spawn: %v\n", err)
+		return 1
+	}
+	*project = checkout
 	h, err := runtime.resolveHome()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
