@@ -222,7 +222,7 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 		// .worktrees/ to classify: the answer costs a subprocess, and most
 		// roots have nothing there at all.
 		var registered []os.FileInfo
-		asked := false
+		var answered, asked bool
 		for _, entry := range entries {
 			if !entry.IsDir() || (!roots[root] && !strings.HasPrefix(entry.Name(), "gb-")) {
 				continue
@@ -233,13 +233,14 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 			}
 			seen[normalizePath(path)] = true
 			if !asked {
-				registered, asked = c.registeredWorktrees(ctx, root, notes), true
+				registered, answered = c.registeredWorktrees(ctx, root, notes)
+				asked = true
 			}
 			found = append(found, WorktreeDir{
-				Path:       path,
-				Project:    root,
-				TaskID:     strings.TrimPrefix(entry.Name(), "gb-"),
-				Registered: isRegisteredDir(path, registered),
+				Path:         path,
+				Project:      root,
+				TaskID:       strings.TrimPrefix(entry.Name(), "gb-"),
+				Registration: registrationOf(path, registered, answered),
 			})
 		}
 	}
@@ -258,19 +259,23 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 // A root that is not a repository at all answers with the enclosing
 // repository's list, which cannot contain a path under this root, so it
 // reports nothing as registered, which is the truth.
-func (c Collector) registeredWorktrees(ctx context.Context, root string, notes *[]string) []os.FileInfo {
+//
+// The second return says whether the repository answered at all. Every failure
+// path leaves it false, which is what keeps "could not be asked" from reading
+// as "answered, and does not list this".
+func (c Collector) registeredWorktrees(ctx context.Context, root string, notes *[]string) ([]os.FileInfo, bool) {
 	if c.Commands == nil {
 		*notes = append(*notes, "no command runner configured; no directory under .worktrees/ can be confirmed to be a worktree")
-		return nil
+		return nil, false
 	}
 	result, err := c.Commands.Run(ctx, execx.Request{Dir: root, Name: "git", Args: []string{"worktree", "list", "--porcelain"}})
 	if err != nil {
 		*notes = append(*notes, fmt.Sprintf("%s: git worktree list failed (%s); its directories cannot be confirmed to be worktrees", root, err))
-		return nil
+		return nil, false
 	}
 	if result.ExitCode != 0 {
 		*notes = append(*notes, fmt.Sprintf("%s: git worktree list exited with code %d (%s); its directories cannot be confirmed to be worktrees", root, result.ExitCode, strings.TrimSpace(string(result.Stderr))))
-		return nil
+		return nil, false
 	}
 	var registered []os.FileInfo
 	for _, line := range strings.Split(string(result.Stdout), "\n") {
@@ -284,30 +289,30 @@ func (c Collector) registeredWorktrees(ctx context.Context, root string, notes *
 			registered = append(registered, info)
 		}
 	}
-	return registered
+	return registered, true
 }
 
-// isRegisteredDir asks whether a directory is one of the registered ones, by
-// identity rather than by spelling. An operator keeps a checkout on another
-// drive behind a junction: git prints the junction's target while the scan
-// joins the junction's own name, so the two spellings of one directory never
-// match as strings, and filepath.EvalSymlinks does not see through a Windows
-// junction either. os.Stat does, and os.SameFile then answers the only
-// question that matters, which is whether this is the same directory on disk.
-func isRegisteredDir(path string, registered []os.FileInfo) bool {
-	if len(registered) == 0 {
-		return false
+// registrationOf places a directory against what the repository answered. The
+// comparison is by directory identity rather than by spelling: an operator
+// keeps a checkout on another drive behind a junction, git prints the
+// junction's target while the scan joins the junction's own name, and
+// filepath.EvalSymlinks does not see through a Windows junction. os.Stat does,
+// and os.SameFile then answers the only question that matters, which is
+// whether this is the same directory on disk.
+func registrationOf(path string, registered []os.FileInfo, answered bool) Registration {
+	if !answered {
+		return RegistrationUnknown
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		return false
+		return RegistrationUnlisted
 	}
 	for _, entry := range registered {
 		if os.SameFile(info, entry) {
-			return true
+			return RegistrationListed
 		}
 	}
-	return false
+	return RegistrationUnlisted
 }
 
 // herdrRoots finds the Herdr server processes. Every pane shell CFO ever

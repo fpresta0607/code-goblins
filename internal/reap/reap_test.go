@@ -197,7 +197,7 @@ func TestForceNamesOneProcess(t *testing.T) {
 func worktreeInventory(verb string) Inventory {
 	path := `C:\dev\pd\.worktrees\gb-old`
 	inventory := Inventory{
-		Worktrees: []WorktreeDir{{Path: path, Project: `C:\dev\pd`, Registered: true, TaskID: "old"}},
+		Worktrees: []WorktreeDir{{Path: path, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "old"}},
 	}
 	if verb != "" {
 		inventory.Tasks = []Task{task("old", path, "pane-gone", verb)}
@@ -389,7 +389,7 @@ func TestEmptyShellIsNeverReportedAsADirtyWorktree(t *testing.T) {
 	service := Service{
 		Home:      testHome(t),
 		Commands:  execx.OSRunner{},
-		Inventory: fixedInventory(Inventory{Worktrees: []WorktreeDir{{Path: shell, Project: repo, TaskID: "dead"}}}),
+		Inventory: fixedInventory(Inventory{Worktrees: []WorktreeDir{{Path: shell, Project: repo, Registration: RegistrationUnlisted, TaskID: "dead"}}}),
 		Sleep:     func(time.Duration) {},
 		Now:       func() time.Time { return fixtureStart },
 	}
@@ -417,7 +417,7 @@ func TestEmptyShellIsNeverReportedAsADirtyWorktree(t *testing.T) {
 			t.Fatalf("git status from inside the shell = %q, want the enclosing repository's untracked file", status)
 		}
 		service.Inventory = fixedInventory(Inventory{
-			Worktrees: []WorktreeDir{{Path: shell, Project: repo, Registered: true, TaskID: "dead"}},
+			Worktrees: []WorktreeDir{{Path: shell, Project: repo, Registration: RegistrationListed, TaskID: "dead"}},
 		})
 		result, err := service.Audit(context.Background(), Options{})
 		if err != nil {
@@ -439,7 +439,7 @@ func TestApplyRemovesAnEmptyShellAndHoldsAnythingElse(t *testing.T) {
 	if err := os.MkdirAll(shell, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	inventory := Inventory{Worktrees: []WorktreeDir{{Path: shell, Project: repo, TaskID: "dead"}}}
+	inventory := Inventory{Worktrees: []WorktreeDir{{Path: shell, Project: repo, Registration: RegistrationUnlisted, TaskID: "dead"}}}
 
 	h := testHome(t)
 	service := newService(t, h, inventory, &gitRunner{})
@@ -473,4 +473,66 @@ func TestApplyRemovesAnEmptyShellAndHoldsAnythingElse(t *testing.T) {
 			t.Fatalf("the contents were removed: %v", err)
 		}
 	})
+}
+
+// TestUnconfirmableRegistrationKeepsTheWorkGate: git worktree list can fail on
+// a perfectly healthy repository, most realistically on a safe.directory
+// refusal. When it does, the worktree holding unpushed commits must still be
+// gated by the work check rather than offered up as an empty shell to delete
+// and a record to force-archive.
+func TestUnconfirmableRegistrationKeepsTheWorkGate(t *testing.T) {
+	path := `C:\dev\pd\.worktrees\gb-utah`
+	inventory := Inventory{
+		Tasks: []Task{task("utah", path, "pane-gone", "done")},
+		// The zero value, which is what the collector produces for every
+		// directory under a root whose registration could not be read.
+		Worktrees: []WorktreeDir{{Path: path, Project: `C:\dev\pd`, TaskID: "utah"}},
+	}
+	runner := &gitRunner{unpushed: "abc1234 feat: the whole product of the run"}
+	service := newService(t, testHome(t), inventory, runner)
+	var cleaned []string
+	service.Clean = func(_ context.Context, id string, force bool) error {
+		cleaned = append(cleaned, id)
+		return nil
+	}
+
+	result, err := service.Apply(context.Background(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finding := onlyFinding(t, result, OrphanWorktree); !strings.Contains(finding.Hold, "no remote") {
+		t.Fatalf("hold = %q, want the unpushed-work refusal", finding.Hold)
+	}
+	if directories := classOf(result.Findings, OrphanDirectory); len(directories) != 0 {
+		t.Fatalf("a worktree with unpushed commits was offered up for removal: %+v", directories)
+	}
+	if len(cleaned) != 0 {
+		t.Fatalf("the record of a worktree with unpushed commits was archived: %v", cleaned)
+	}
+}
+
+// TestApplyHoldsAnUnfinishedTasksShell: the empty shell is removable, but
+// --apply never reaps a task that has not finished, so the removal waits for
+// the operator to name the id.
+func TestApplyHoldsAnUnfinishedTasksShell(t *testing.T) {
+	repo := t.TempDir()
+	shell := filepath.Join(repo, ".worktrees", "gb-wedged")
+	if err := os.MkdirAll(shell, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	inventory := Inventory{
+		Tasks:     []Task{task("wedged", shell, "pane-gone", "working")},
+		Worktrees: []WorktreeDir{{Path: shell, Project: repo, Registration: RegistrationUnlisted, TaskID: "wedged"}},
+	}
+
+	result, err := newService(t, testHome(t), inventory, &gitRunner{}).Apply(context.Background(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hold := onlyFinding(t, result, OrphanDirectory).Hold; !strings.Contains(hold, "terminal status") {
+		t.Fatalf("hold = %q, want the terminal-status refusal", hold)
+	}
+	if _, err := os.Stat(shell); err != nil {
+		t.Fatalf("an unfinished task's shell was removed: %v", err)
+	}
 }

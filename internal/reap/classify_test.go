@@ -121,7 +121,7 @@ func TestClassify(t *testing.T) {
 				Panes:         []Pane{livePane},
 				FleetRootPIDs: []int{herdrPID},
 				Tasks:         []Task{task("pp-money", `C:\dev\pp\.worktrees\gb-pp-money`, "pane-gone", "done")},
-				Worktrees:     []WorktreeDir{{Path: `C:\dev\pp\.worktrees\gb-pp-money`, Project: `C:\dev\pp`, Registered: true, TaskID: "pp-money"}},
+				Worktrees:     []WorktreeDir{{Path: `C:\dev\pp\.worktrees\gb-pp-money`, Project: `C:\dev\pp`, Registration: RegistrationListed, TaskID: "pp-money"}},
 				Processes: append(append([]Process{}, liveProcesses...),
 					process(555, 1, "node.exe", `node C:\dev\pp\.worktrees\gb-pp-money\node_modules\next\dist\bin\next dev`, fixtureLatest),
 				),
@@ -140,7 +140,7 @@ func TestClassify(t *testing.T) {
 				Panes:         []Pane{livePane},
 				FleetRootPIDs: []int{herdrPID},
 				Tasks:         []Task{task("pp-money", `C:\dev\pp\.worktrees\gb-pp-money`, "pane-live", "working")},
-				Worktrees:     []WorktreeDir{{Path: `C:\dev\pp\.worktrees\gb-pp-money`, Project: `C:\dev\pp`, Registered: true, TaskID: "pp-money"}},
+				Worktrees:     []WorktreeDir{{Path: `C:\dev\pp\.worktrees\gb-pp-money`, Project: `C:\dev\pp`, Registration: RegistrationListed, TaskID: "pp-money"}},
 				Processes: append(append([]Process{}, liveProcesses...),
 					process(555, 1, "node.exe", `node C:\dev\pp\.worktrees\gb-pp-money\node_modules\vite\bin\vite.js`, fixtureLatest),
 				),
@@ -153,7 +153,7 @@ func TestClassify(t *testing.T) {
 			inventory: Inventory{
 				Panes:     []Pane{livePane},
 				Processes: liveProcesses,
-				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-pdocs-help-docs`, Project: `C:\dev\pd`, Registered: true, TaskID: "pdocs-help-docs"}},
+				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-pdocs-help-docs`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "pdocs-help-docs"}},
 			},
 			want:      OrphanWorktree,
 			wantCount: 1,
@@ -169,7 +169,7 @@ func TestClassify(t *testing.T) {
 				Panes:     []Pane{livePane},
 				Processes: liveProcesses,
 				Tasks:     []Task{task("live", `C:\dev\pd\.worktrees\gb-live`, "pane-live", "working")},
-				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, Registered: true, TaskID: "live"}},
+				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "live"}},
 			},
 			want:      OrphanWorktree,
 			wantCount: 0,
@@ -195,7 +195,7 @@ func TestClassify(t *testing.T) {
 				Panes:     []Pane{livePane},
 				Processes: liveProcesses,
 				Tasks:     []Task{task("utah", `C:\dev\pd\.worktrees\gb-utah`, "pane-gone", "done")},
-				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-utah`, Project: `C:\dev\pd`, Registered: true, TaskID: "utah"}},
+				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-utah`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "utah"}},
 			},
 			want:      OrphanMeta,
 			wantCount: 0,
@@ -249,7 +249,7 @@ func TestClassifyLiveFleetIsNeverReported(t *testing.T) {
 		Panes:         []Pane{{ID: "pane-live", ShellPID: 200, ForegroundPID: 300, HasAgent: true}},
 		FleetRootPIDs: []int{100},
 		Tasks:         []Task{task("live", `C:\dev\pd\.worktrees\gb-live`, "pane-live", "working")},
-		Worktrees:     []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, Registered: true, TaskID: "live"}},
+		Worktrees:     []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "live"}},
 		Processes: []Process{
 			process(100, 1, "herdr.exe", "herdr server", fixtureStart),
 			process(200, 100, "powershell.exe", "powershell", fixtureLater),
@@ -415,7 +415,7 @@ func TestUnresolvedPaneHoldsEveryProcessFinding(t *testing.T) {
 		UnresolvedPanes: []string{"pane-a"},
 		FleetRootPIDs:   []int{100},
 		Tasks:           []Task{task("old", `C:\dev\pd\.worktrees\gb-old`, "pane-b", "done")},
-		Worktrees:       []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-old`, Project: `C:\dev\pd`, Registered: true, TaskID: "old"}},
+		Worktrees:       []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-old`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "old"}},
 		Processes: []Process{
 			process(100, 1, "herdr.exe", "herdr server", fixtureStart),
 			process(400, 100, "powershell.exe", "powershell", fixtureLater),
@@ -534,7 +534,7 @@ func TestUnidentifiedHarnessDoesNotInviteForce(t *testing.T) {
 // answers those from the enclosing repository.
 func TestUnregisteredDirectoryIsNotAWorktree(t *testing.T) {
 	inventory := Inventory{
-		Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-dead`, Project: `C:\dev\pd`, TaskID: "dead"}},
+		Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-dead`, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "dead"}},
 	}
 	findings := Classify(inventory)
 	if worktrees := classOf(findings, OrphanWorktree); len(worktrees) != 0 {
@@ -557,7 +557,7 @@ func TestUnregisteredDirectoryIsNotAWorktree(t *testing.T) {
 // directory is held because it is the process that has to be dealt with.
 func TestUnregisteredDirectoryNamesTheProcessHoldingIt(t *testing.T) {
 	inventory := Inventory{
-		Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-dead`, Project: `C:\dev\pd`, TaskID: "dead"}},
+		Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-dead`, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "dead"}},
 		Processes: []Process{
 			process(4242, 1, "node.exe", `node C:\dev\pd\.worktrees\gb-dead\scripts\watch.js`, fixtureLatest),
 		},
@@ -578,8 +578,8 @@ func TestUnregisteredDirectoryNamesTheProcessHoldingIt(t *testing.T) {
 func TestDirectoryIsNotBlamedOnANeighbourWithALongerName(t *testing.T) {
 	inventory := Inventory{
 		Worktrees: []WorktreeDir{
-			{Path: `C:\dev\pd\.worktrees\gb-old`, Project: `C:\dev\pd`, TaskID: "old"},
-			{Path: `C:\dev\pd\.worktrees\gb-old-2`, Project: `C:\dev\pd`, TaskID: "old-2"},
+			{Path: `C:\dev\pd\.worktrees\gb-old`, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "old"},
+			{Path: `C:\dev\pd\.worktrees\gb-old-2`, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "old-2"},
 		},
 		Processes: []Process{
 			process(4242, 1, "node.exe", `node C:\dev\pd\.worktrees\gb-old-2\node_modules\vite\bin\vite.js`, fixtureLatest),
@@ -608,14 +608,14 @@ func TestDirectoryIsNotBlamedOnANeighbourWithALongerName(t *testing.T) {
 // TestLiveGoblinOutranksUnconfirmedRegistration: git worktree list can fail
 // for reasons that say nothing about the directory (git missing, an index
 // lock, a root that is not a repository), and every directory under that root
-// then reads as unregistered. A pane holding an agent right now is harder
-// evidence than that, so it wins.
+// then has an unknown registration. A pane holding an agent right now is
+// harder evidence than that, so it wins.
 func TestLiveGoblinOutranksUnconfirmedRegistration(t *testing.T) {
 	inventory := Inventory{
 		Panes: []Pane{{ID: "pane-live", ShellPID: 200, ForegroundPID: 300, HasAgent: true}},
 		Tasks: []Task{task("live", `C:\dev\pd\.worktrees\gb-live`, "pane-live", "working")},
-		// Registration could not be confirmed, so the scan reports what it
-		// knows: nothing here is proven to be a worktree.
+		// The zero value: the repository could not be asked, so nothing about
+		// this directory was established.
 		Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, TaskID: "live"}},
 	}
 	if findings := Classify(inventory); len(findings) != 0 {
@@ -623,26 +623,68 @@ func TestLiveGoblinOutranksUnconfirmedRegistration(t *testing.T) {
 	}
 }
 
-// TestOrphanMetaDoesNotDenyADirectoryTheSameReportNames: an unregistered shell
-// keeps its record, so both classes fire for one task. The meta must not then
-// claim nothing is left on disk while an orphan_directory beside it names that
-// exact path.
-func TestOrphanMetaDoesNotDenyADirectoryTheSameReportNames(t *testing.T) {
+// TestUnknownRegistrationIsAWorktreeNotARemovableDirectory: a sweep that could
+// not ask the repository has established nothing, and must not tell the
+// operator that a worktree holding real work is a directory a dead task left
+// behind. The unknown case therefore takes the gated class, which is the one
+// the work gate protects.
+func TestUnknownRegistrationIsAWorktreeNotARemovableDirectory(t *testing.T) {
+	inventory := Inventory{
+		Tasks:     []Task{task("utah", `C:\dev\pd\.worktrees\gb-utah`, "pane-gone", "done")},
+		Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-utah`, Project: `C:\dev\pd`, TaskID: "utah"}},
+	}
+	findings := Classify(inventory)
+	if directories := classOf(findings, OrphanDirectory); len(directories) != 0 {
+		t.Fatalf("an unconfirmable directory was offered up for removal: %+v", directories)
+	}
+	worktrees := classOf(findings, OrphanWorktree)
+	if len(worktrees) != 1 || worktrees[0].Action != "return the worktree through cfo cleanup" {
+		t.Fatalf("orphan_worktree findings = %+v, want one routed through cleanup", worktrees)
+	}
+	// The record must not be force-archived out from under a directory that
+	// is still there and was never established to be anything.
+	if metas := classOf(findings, OrphanMeta); len(metas) != 0 {
+		t.Fatalf("the task record was reported alongside its directory: %+v", metas)
+	}
+}
+
+// TestOneDeadTaskReportsOneResourceAtATime: a shell and the record behind it
+// are one leak, not two. Reporting both in one sweep made --apply remove the
+// directory and then archive a record whose worktree path no longer resolves,
+// which fails and recurs forever. The record waits for the sweep after the
+// directory is gone.
+func TestOneDeadTaskReportsOneResourceAtATime(t *testing.T) {
 	const shell = `C:\dev\pd\.worktrees\gb-dead`
 	inventory := Inventory{
 		Tasks:     []Task{task("dead", shell, "pane-gone", "done")},
-		Worktrees: []WorktreeDir{{Path: shell, Project: `C:\dev\pd`, TaskID: "dead"}},
+		Worktrees: []WorktreeDir{{Path: shell, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "dead"}},
 	}
 	findings := Classify(inventory)
-	directories := classOf(findings, OrphanDirectory)
-	if len(directories) != 1 || directories[0].Path != shell {
-		t.Fatalf("orphan_directory findings = %+v, want one naming %q", directories, shell)
+	if len(findings) != 1 || findings[0].Class != OrphanDirectory || findings[0].Path != shell {
+		t.Fatalf("findings = %+v, want only the orphan_directory at %q", findings, shell)
 	}
-	metas := classOf(findings, OrphanMeta)
-	if len(metas) != 1 {
-		t.Fatalf("orphan_meta findings = %+v, want 1", metas)
+
+	// The next sweep, with the shell removed.
+	inventory.Worktrees = nil
+	findings = Classify(inventory)
+	if len(findings) != 1 || findings[0].Class != OrphanMeta || findings[0].TaskID != "dead" {
+		t.Fatalf("findings = %+v, want only the orphan_meta for dead", findings)
 	}
-	if strings.Contains(metas[0].Detail, "on disk") {
-		t.Errorf("detail = %q, but %s is on disk and this same report says so", metas[0].Detail, shell)
+}
+
+// TestUnlistedShellOfAnUnfinishedTaskIsHeld: --apply never reaps a task that
+// has not finished, and a shell is a task resource like any other.
+func TestUnlistedShellOfAnUnfinishedTaskIsHeld(t *testing.T) {
+	const shell = `C:\dev\pd\.worktrees\gb-wedged`
+	inventory := Inventory{
+		Tasks:     []Task{task("wedged", shell, "pane-gone", "working")},
+		Worktrees: []WorktreeDir{{Path: shell, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "wedged"}},
+	}
+	finding := classOf(Classify(inventory), OrphanDirectory)[0]
+	if !strings.Contains(finding.Hold, "terminal status") {
+		t.Fatalf("hold = %q, want the terminal-status refusal", finding.Hold)
+	}
+	if !strings.Contains(finding.Hold, "working") {
+		t.Errorf("hold = %q, want it to name the latest verb", finding.Hold)
 	}
 }
