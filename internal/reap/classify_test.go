@@ -80,8 +80,8 @@ func TestClassify(t *testing.T) {
 				if findings[0].PID != 31032 {
 					t.Fatalf("orphan pid = %d, want 31032", findings[0].PID)
 				}
-				if findings[0].Hold != "" {
-					t.Fatalf("a fleet-descended orphan must not be held at classification: %q", findings[0].Hold)
+				if findings[0].Hold() != "" {
+					t.Fatalf("a fleet-descended orphan must not be held at classification: %q", findings[0].Hold())
 				}
 			},
 		},
@@ -97,8 +97,8 @@ func TestClassify(t *testing.T) {
 			want:      OrphanProcess,
 			wantCount: 1,
 			assert: func(t *testing.T, findings []Finding) {
-				if !strings.Contains(findings[0].Hold, "Herdr ancestry") {
-					t.Fatalf("hold = %q, want an attribution refusal", findings[0].Hold)
+				if !strings.Contains(findings[0].Hold(), "Herdr ancestry") {
+					t.Fatalf("hold = %q, want an attribution refusal", findings[0].Hold())
 				}
 			},
 		},
@@ -121,7 +121,7 @@ func TestClassify(t *testing.T) {
 				Panes:         []Pane{livePane},
 				FleetRootPIDs: []int{herdrPID},
 				Tasks:         []Task{task("pp-money", `C:\dev\pp\.worktrees\gb-pp-money`, "pane-gone", "done")},
-				Worktrees:     []WorktreeDir{{Path: `C:\dev\pp\.worktrees\gb-pp-money`, Project: `C:\dev\pp`, TaskID: "pp-money"}},
+				Worktrees:     []WorktreeDir{{Path: `C:\dev\pp\.worktrees\gb-pp-money`, Project: `C:\dev\pp`, Registration: RegistrationListed, TaskID: "pp-money"}},
 				Processes: append(append([]Process{}, liveProcesses...),
 					process(555, 1, "node.exe", `node C:\dev\pp\.worktrees\gb-pp-money\node_modules\next\dist\bin\next dev`, fixtureLatest),
 				),
@@ -140,7 +140,7 @@ func TestClassify(t *testing.T) {
 				Panes:         []Pane{livePane},
 				FleetRootPIDs: []int{herdrPID},
 				Tasks:         []Task{task("pp-money", `C:\dev\pp\.worktrees\gb-pp-money`, "pane-live", "working")},
-				Worktrees:     []WorktreeDir{{Path: `C:\dev\pp\.worktrees\gb-pp-money`, Project: `C:\dev\pp`, TaskID: "pp-money"}},
+				Worktrees:     []WorktreeDir{{Path: `C:\dev\pp\.worktrees\gb-pp-money`, Project: `C:\dev\pp`, Registration: RegistrationListed, TaskID: "pp-money"}},
 				Processes: append(append([]Process{}, liveProcesses...),
 					process(555, 1, "node.exe", `node C:\dev\pp\.worktrees\gb-pp-money\node_modules\vite\bin\vite.js`, fixtureLatest),
 				),
@@ -153,7 +153,7 @@ func TestClassify(t *testing.T) {
 			inventory: Inventory{
 				Panes:     []Pane{livePane},
 				Processes: liveProcesses,
-				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-pdocs-help-docs`, Project: `C:\dev\pd`, TaskID: "pdocs-help-docs"}},
+				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-pdocs-help-docs`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "pdocs-help-docs"}},
 			},
 			want:      OrphanWorktree,
 			wantCount: 1,
@@ -169,7 +169,7 @@ func TestClassify(t *testing.T) {
 				Panes:     []Pane{livePane},
 				Processes: liveProcesses,
 				Tasks:     []Task{task("live", `C:\dev\pd\.worktrees\gb-live`, "pane-live", "working")},
-				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, TaskID: "live"}},
+				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "live"}},
 			},
 			want:      OrphanWorktree,
 			wantCount: 0,
@@ -184,7 +184,7 @@ func TestClassify(t *testing.T) {
 			want:      OrphanMeta,
 			wantCount: 1,
 			assert: func(t *testing.T, findings []Finding) {
-				if findings[0].TaskID != "utah" || findings[0].Hold != "" {
+				if findings[0].TaskID != "utah" || findings[0].Hold() != "" {
 					t.Fatalf("finding = %+v, want an unheld utah record", findings[0])
 				}
 			},
@@ -195,7 +195,7 @@ func TestClassify(t *testing.T) {
 				Panes:     []Pane{livePane},
 				Processes: liveProcesses,
 				Tasks:     []Task{task("utah", `C:\dev\pd\.worktrees\gb-utah`, "pane-gone", "done")},
-				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-utah`, Project: `C:\dev\pd`, TaskID: "utah"}},
+				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-utah`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "utah"}},
 			},
 			want:      OrphanMeta,
 			wantCount: 0,
@@ -210,8 +210,8 @@ func TestClassify(t *testing.T) {
 			want:      OrphanMeta,
 			wantCount: 1,
 			assert: func(t *testing.T, findings []Finding) {
-				if !strings.Contains(findings[0].Hold, "terminal status") {
-					t.Fatalf("hold = %q, want the terminal-status refusal", findings[0].Hold)
+				if !strings.Contains(findings[0].Hold(), "terminal status") {
+					t.Fatalf("hold = %q, want the terminal-status refusal", findings[0].Hold())
 				}
 			},
 		},
@@ -249,7 +249,7 @@ func TestClassifyLiveFleetIsNeverReported(t *testing.T) {
 		Panes:         []Pane{{ID: "pane-live", ShellPID: 200, ForegroundPID: 300, HasAgent: true}},
 		FleetRootPIDs: []int{100},
 		Tasks:         []Task{task("live", `C:\dev\pd\.worktrees\gb-live`, "pane-live", "working")},
-		Worktrees:     []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, TaskID: "live"}},
+		Worktrees:     []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "live"}},
 		Processes: []Process{
 			process(100, 1, "herdr.exe", "herdr server", fixtureStart),
 			process(200, 100, "powershell.exe", "powershell", fixtureLater),
@@ -415,7 +415,7 @@ func TestUnresolvedPaneHoldsEveryProcessFinding(t *testing.T) {
 		UnresolvedPanes: []string{"pane-a"},
 		FleetRootPIDs:   []int{100},
 		Tasks:           []Task{task("old", `C:\dev\pd\.worktrees\gb-old`, "pane-b", "done")},
-		Worktrees:       []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-old`, Project: `C:\dev\pd`, TaskID: "old"}},
+		Worktrees:       []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-old`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "old"}},
 		Processes: []Process{
 			process(100, 1, "herdr.exe", "herdr server", fixtureStart),
 			process(400, 100, "powershell.exe", "powershell", fixtureLater),
@@ -429,8 +429,425 @@ func TestUnresolvedPaneHoldsEveryProcessFinding(t *testing.T) {
 		if len(matched) != 1 {
 			t.Fatalf("got %d %s findings, want 1", len(matched), class)
 		}
-		if !strings.Contains(matched[0].Hold, "process identity") {
-			t.Fatalf("%s hold = %q, want the unresolved-pane refusal", class, matched[0].Hold)
+		if !strings.Contains(matched[0].Hold(), "process identity") {
+			t.Fatalf("%s hold = %q, want the unresolved-pane refusal", class, matched[0].Hold())
+		}
+	}
+	// The remedy here is fixing Herdr. Inviting --force on evidence the sweep
+	// knows is incomplete is how a working goblin gets killed.
+	for _, finding := range classOf(findings, OrphanProcess) {
+		if strings.Contains(finding.Hold(), "--force") {
+			t.Errorf("hold = %q, want no --force invitation", finding.Hold())
+		}
+	}
+}
+
+// TestClassifyProcessPopulations is the fix for four identical sweeps in
+// ninety minutes, fourteen findings each, every one a false positive. The
+// image name says nothing on this machine: claude.exe is the Overlord's
+// desktop application a dozen times over and a reviewer of a round in
+// progress, as often as it is a fleet harness. The parent process and the
+// command line are what tell them apart, and only the last case here is
+// something the sweep has any business reporting.
+func TestClassifyProcessPopulations(t *testing.T) {
+	const (
+		herdrPID   = 100
+		desktopPID = 700
+		gatePID    = 800
+	)
+	const desktopExe = `"C:\Program Files\WindowsApps\Claude_2.2553.1.0_x64__pzs8sxrjxfjjc\app\claude.exe"`
+	// One machine, all four populations at once, because that is how they
+	// actually appear and a fixture with one at a time would not prove the
+	// classifier keeps them apart.
+	processes := []Process{
+		process(herdrPID, 1, "herdr.exe", "herdr server", fixtureStart),
+		// The desktop application: one parent under sihost, then the Chromium
+		// children it spawns, each carrying a --type= switch.
+		process(desktopPID, 7996, "claude.exe", desktopExe+" ", fixtureStart),
+		process(701, desktopPID, "claude.exe", desktopExe+" --type=renderer --user-data-dir=...", fixtureLater),
+		process(702, desktopPID, "claude.exe", desktopExe+" --type=gpu-process --gpu-preferences=...", fixtureLater),
+		process(703, desktopPID, "claude.exe", desktopExe+" --type=crashpad-handler --user-data-dir=...", fixtureLater),
+		// A no-mistakes review round: the daemon and the reviewer it launched.
+		process(gatePID, 1, "no-mistakes.exe", `no-mistakes.exe daemon run --root C:\Users\x\.no-mistakes`, fixtureStart),
+		process(801, gatePID, "claude.exe", `claude --model opus --effort high -p --verbose --output-format stream-json --json-schema "{}"`, fixtureLater),
+		// The real thing: a harness that descends from the Herdr server and
+		// has no pane left.
+		process(400, herdrPID, "powershell.exe", "powershell -NoExit", fixtureLater),
+		process(31032, 400, "claude.exe", `claude --dangerously-skip-permissions --strict-mcp-config`, fixtureLatest),
+	}
+	findings := classOf(Classify(Inventory{FleetRootPIDs: []int{herdrPID}, Processes: processes}), OrphanProcess)
+
+	reported := make(map[int]Finding, len(findings))
+	for _, finding := range findings {
+		reported[finding.PID] = finding
+	}
+	for _, unwanted := range []struct {
+		pid        int
+		population string
+	}{
+		{desktopPID, "the desktop application the Overlord is using"},
+		{701, "a desktop application renderer child"},
+		{702, "a desktop application gpu-process child"},
+		{703, "a desktop application crashpad-handler child"},
+		{801, "a gate agent reviewing for a goblin that is working"},
+	} {
+		if finding, ok := reported[unwanted.pid]; ok {
+			t.Errorf("pid %d (%s) was reported: %s", unwanted.pid, unwanted.population, finding.Line())
+		}
+	}
+	orphan, ok := reported[31032]
+	if !ok {
+		t.Fatalf("the genuine orphan was not reported; findings: %+v", findings)
+	}
+	if orphan.Hold() != "" {
+		t.Errorf("the genuine orphan was held: %q", orphan.Hold())
+	}
+	if len(findings) != 1 {
+		t.Fatalf("got %d orphan_process findings, want only the genuine orphan: %+v", len(findings), findings)
+	}
+}
+
+// TestUnidentifiedHarnessDoesNotInviteForce: the fourteen false positives all
+// carried a HELD line telling the operator to name the pid with --force, which
+// would have closed the Overlord's application or killed a review round. What
+// survives the classifier now says what could not be determined instead.
+func TestUnidentifiedHarnessDoesNotInviteForce(t *testing.T) {
+	inventory := Inventory{
+		FleetRootPIDs: []int{100},
+		Processes: []Process{
+			process(100, 1, "herdr.exe", "herdr server", fixtureStart),
+			process(900, 1, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest),
+		},
+	}
+	finding := classOf(Classify(inventory), OrphanProcess)[0]
+	if strings.Contains(finding.Hold(), "--force") {
+		t.Errorf("hold = %q, want no --force invitation", finding.Hold())
+	}
+	if !strings.Contains(finding.Hold(), "could not determine") {
+		t.Errorf("hold = %q, want it to say what could not be determined", finding.Hold())
+	}
+}
+
+// TestUnregisteredDirectoryIsNotAWorktree: a directory under .worktrees/ that
+// the project does not register is a shell a dead task left behind. Calling it
+// a worktree is what made the sweep ask git questions inside it, and git
+// answers those from the enclosing repository.
+func TestUnregisteredDirectoryIsNotAWorktree(t *testing.T) {
+	inventory := Inventory{
+		Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-dead`, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "dead"}},
+	}
+	findings := Classify(inventory)
+	if worktrees := classOf(findings, OrphanWorktree); len(worktrees) != 0 {
+		t.Fatalf("an unregistered directory was classified as a worktree: %+v", worktrees)
+	}
+	directories := classOf(findings, OrphanDirectory)
+	if len(directories) != 1 {
+		t.Fatalf("got %d orphan_directory findings, want 1: %+v", len(directories), findings)
+	}
+	if !strings.Contains(directories[0].Detail, "git worktree list") {
+		t.Errorf("detail = %q, want it to name the premise that failed", directories[0].Detail)
+	}
+	if !strings.Contains(directories[0].Detail, "working directory is not readable") {
+		t.Errorf("detail = %q, want it to say what it could not determine about who holds the directory", directories[0].Detail)
+	}
+}
+
+// TestUnregisteredDirectoryNamesTheProcessHoldingIt: when a command line does
+// name the shell, that process is the leak the sweep exists to catch, and the
+// directory is held because it is the process that has to be dealt with.
+func TestUnregisteredDirectoryNamesTheProcessHoldingIt(t *testing.T) {
+	inventory := Inventory{
+		Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-dead`, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "dead"}},
+		Processes: []Process{
+			process(4242, 1, "node.exe", `node C:\dev\pd\.worktrees\gb-dead\scripts\watch.js`, fixtureLatest),
+		},
+	}
+	finding := classOf(Classify(inventory), OrphanDirectory)[0]
+	if finding.PID != 4242 {
+		t.Fatalf("finding = %+v, want pid 4242 named", finding)
+	}
+	if !strings.Contains(finding.Hold(), "that process is the leak") {
+		t.Errorf("hold = %q, want the process named as the leak", finding.Hold())
+	}
+}
+
+// TestDirectoryIsNotBlamedOnANeighbourWithALongerName: task ids are names the
+// operator chooses, so one is routinely a prefix of another. A process working
+// in gb-old-2 is not the process holding gb-old open, and saying it is names
+// the wrong pid as the leak and leaves a removable shell in place.
+func TestDirectoryIsNotBlamedOnANeighbourWithALongerName(t *testing.T) {
+	inventory := Inventory{
+		Worktrees: []WorktreeDir{
+			{Path: `C:\dev\pd\.worktrees\gb-old`, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "old"},
+			{Path: `C:\dev\pd\.worktrees\gb-old-2`, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "old-2"},
+		},
+		Processes: []Process{
+			process(4242, 1, "node.exe", `node C:\dev\pd\.worktrees\gb-old-2\node_modules\vite\bin\vite.js`, fixtureLatest),
+		},
+	}
+	findings := classOf(Classify(inventory), OrphanDirectory)
+	byTask := make(map[string]Finding, len(findings))
+	for _, finding := range findings {
+		byTask[finding.TaskID] = finding
+	}
+	if got := byTask["old"]; got.PID != 0 {
+		t.Errorf("gb-old was blamed on pid %d, which is working in gb-old-2: %s", got.PID, got.Line())
+	}
+	if got := byTask["old-2"]; got.PID != 4242 {
+		t.Errorf("gb-old-2 finding = %+v, want pid 4242 named", got)
+	}
+	// The same unanchored match decides which worktree a stale server belongs
+	// to, so the neighbour must not collect the server either.
+	for _, server := range classOf(Classify(inventory), StaleServer) {
+		if server.TaskID == "old" {
+			t.Errorf("a server running in gb-old-2 was attributed to gb-old: %s", server.Line())
+		}
+	}
+}
+
+// TestLiveGoblinOutranksUnconfirmedRegistration: git worktree list can fail
+// for reasons that say nothing about the directory (git missing, an index
+// lock, a root that is not a repository), and every directory under that root
+// then has an unknown registration. A pane holding an agent right now is
+// harder evidence than that, so it wins.
+func TestLiveGoblinOutranksUnconfirmedRegistration(t *testing.T) {
+	inventory := Inventory{
+		Panes: []Pane{{ID: "pane-live", ShellPID: 200, ForegroundPID: 300, HasAgent: true}},
+		Tasks: []Task{task("live", `C:\dev\pd\.worktrees\gb-live`, "pane-live", "working")},
+		// The zero value: the repository could not be asked, so nothing about
+		// this directory was established.
+		Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, TaskID: "live"}},
+	}
+	if findings := Classify(inventory); len(findings) != 0 {
+		t.Fatalf("a live goblin's worktree was reported: %+v", findings)
+	}
+}
+
+// TestUnknownRegistrationIsAWorktreeNotARemovableDirectory: a sweep that could
+// not ask the repository has established nothing, and must not tell the
+// operator that a worktree holding real work is a directory a dead task left
+// behind. The unknown case therefore takes the gated class, which is the one
+// the work gate protects.
+func TestUnknownRegistrationIsAWorktreeNotARemovableDirectory(t *testing.T) {
+	inventory := Inventory{
+		Tasks:     []Task{task("utah", `C:\dev\pd\.worktrees\gb-utah`, "pane-gone", "done")},
+		Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-utah`, Project: `C:\dev\pd`, TaskID: "utah"}},
+	}
+	findings := Classify(inventory)
+	if directories := classOf(findings, OrphanDirectory); len(directories) != 0 {
+		t.Fatalf("an unconfirmable directory was offered up for removal: %+v", directories)
+	}
+	worktrees := classOf(findings, OrphanWorktree)
+	if len(worktrees) != 1 || worktrees[0].Action != "return the worktree through cfo cleanup" {
+		t.Fatalf("orphan_worktree findings = %+v, want one routed through cleanup", worktrees)
+	}
+	// The record must not be force-archived out from under a directory that
+	// is still there and was never established to be anything.
+	if metas := classOf(findings, OrphanMeta); len(metas) != 0 {
+		t.Fatalf("the task record was reported alongside its directory: %+v", metas)
+	}
+}
+
+// TestOneDeadTaskReportsOneResourceAtATime: a shell and the record behind it
+// are one leak, not two. Reporting both in one sweep made --apply remove the
+// directory and then archive a record whose worktree path no longer resolves,
+// which fails and recurs forever. The record waits for the sweep after the
+// directory is gone.
+func TestOneDeadTaskReportsOneResourceAtATime(t *testing.T) {
+	const shell = `C:\dev\pd\.worktrees\gb-dead`
+	inventory := Inventory{
+		Tasks:     []Task{task("dead", shell, "pane-gone", "done")},
+		Worktrees: []WorktreeDir{{Path: shell, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "dead"}},
+	}
+	findings := Classify(inventory)
+	if len(findings) != 1 || findings[0].Class != OrphanDirectory || findings[0].Path != shell {
+		t.Fatalf("findings = %+v, want only the orphan_directory at %q", findings, shell)
+	}
+
+	// The next sweep, with the shell removed.
+	inventory.Worktrees = nil
+	findings = Classify(inventory)
+	if len(findings) != 1 || findings[0].Class != OrphanMeta || findings[0].TaskID != "dead" {
+		t.Fatalf("findings = %+v, want only the orphan_meta for dead", findings)
+	}
+}
+
+// TestUnlistedShellOfAnUnfinishedTaskIsHeld: --apply never reaps a task that
+// has not finished, and a shell is a task resource like any other.
+func TestUnlistedShellOfAnUnfinishedTaskIsHeld(t *testing.T) {
+	const shell = `C:\dev\pd\.worktrees\gb-wedged`
+	inventory := Inventory{
+		Tasks:     []Task{task("wedged", shell, "pane-gone", "working")},
+		Worktrees: []WorktreeDir{{Path: shell, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "wedged"}},
+	}
+	finding := classOf(Classify(inventory), OrphanDirectory)[0]
+	if !strings.Contains(finding.Hold(), "terminal status") {
+		t.Fatalf("hold = %q, want the terminal-status refusal", finding.Hold())
+	}
+	if !strings.Contains(finding.Hold(), "working") {
+		t.Errorf("hold = %q, want it to name the latest verb", finding.Hold())
+	}
+}
+
+// TestAnUnreadableTaskRecordHoldsItsDirectory is the same class of defect this
+// branch exists to remove, found by auditing every error branch in the package
+// rather than by a report. A meta that cannot be read is dropped from the task
+// list, and a directory whose task is absent classifies as "has no metadata
+// record", which carries no hold at all. A record the sweep could not read
+// therefore produced a more actionable finding than one it read and found
+// unfinished. Whether that task finished is exactly what is unknown, so it is
+// gated.
+func TestAnUnreadableTaskRecordHoldsItsDirectory(t *testing.T) {
+	for _, testCase := range []struct {
+		name         string
+		registration Registration
+		class        Class
+		// The worktree detail states the task outcome, so it must not call an
+		// unreadable record an absent one. The directory detail is about the
+		// directory, and carries the record state in its hold instead.
+		detailNamesTheRecord bool
+	}{
+		{"a registered worktree", RegistrationListed, OrphanWorktree, true},
+		{"an unlisted directory", RegistrationUnlisted, OrphanDirectory, false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			inventory := Inventory{
+				UnreadableTasks: []string{"broken"},
+				Worktrees: []WorktreeDir{{
+					Path:         `C:\dev\pd\.worktrees\gb-broken`,
+					Project:      `C:\dev\pd`,
+					TaskID:       "broken",
+					Registration: testCase.registration,
+				}},
+			}
+			findings := classOf(Classify(inventory), testCase.class)
+			if len(findings) != 1 {
+				t.Fatalf("got %d %s findings, want 1: %+v", len(findings), testCase.class, findings)
+			}
+			if !strings.Contains(findings[0].Hold(), "could not be read") {
+				t.Fatalf("hold = %q, want a refusal naming the unreadable record", findings[0].Hold())
+			}
+			if testCase.detailNamesTheRecord && !strings.Contains(findings[0].Detail, "could not be read") {
+				t.Fatalf("detail = %q, want it to say the record was unreadable rather than absent", findings[0].Detail)
+			}
+		})
+	}
+}
+
+// TestAnUnreadableTaskRecordHoldsItsServer: killing a dev server says the task
+// behind it is over, and an unreadable record is the one thing that cannot say
+// so. Without this, the server of a task whose meta went unreadable is more
+// killable than one the sweep read and found still working.
+func TestAnUnreadableTaskRecordHoldsItsServer(t *testing.T) {
+	inventory := Inventory{
+		UnreadableTasks: []string{"broken"},
+		Worktrees: []WorktreeDir{{
+			Path:         `C:\dev\pd\.worktrees\gb-broken`,
+			Project:      `C:\dev\pd`,
+			TaskID:       "broken",
+			Registration: RegistrationListed,
+		}},
+		Processes: []Process{
+			process(555, 1, "node.exe", `node C:\dev\pd\.worktrees\gb-broken\node_modules\vite\bin\vite.js`, fixtureLatest),
+		},
+	}
+	findings := classOf(Classify(inventory), StaleServer)
+	if len(findings) != 1 {
+		t.Fatalf("got %d stale_server findings, want 1: %+v", len(findings), findings)
+	}
+	if !strings.Contains(findings[0].Hold(), "could not be read") {
+		t.Fatalf("hold = %q, want a refusal naming the unreadable record", findings[0].Hold())
+	}
+}
+
+// TestAHoldNamesWhatActuallyClearsIt is the defect this whole sweep exists to
+// stop reporting, appearing inside its own fix: the reaper's HELD text named a
+// --force that would have closed the desktop application and killed three live
+// review agents, and a hold that needs two keys while telling the operator one
+// will do is the same lie in a new place. The line is derived from the
+// refusals rather than written at each site, so it cannot drift from them.
+func TestAHoldNamesWhatActuallyClearsIt(t *testing.T) {
+	t.Run("one key is named", func(t *testing.T) {
+		finding := Finding{Class: OrphanWorktree, TaskID: "wedged"}
+		finding.refuseUnlessForced("task has not reached a terminal status", "wedged")
+		if !strings.Contains(finding.Hold(), "Name wedged with --force") {
+			t.Fatalf("hold = %q, want the one key named", finding.Hold())
+		}
+	})
+
+	t.Run("every key is named when a hold carries more than one refusal", func(t *testing.T) {
+		finding := Finding{Class: OrphanDirectory, TaskID: "wedged", PID: 4242}
+		finding.refuseUnlessForced("pid 4242 is still using this directory", "4242")
+		finding.refuseUnlessForced("task has not reached a terminal status", "wedged")
+		for _, key := range []string{"4242", "wedged"} {
+			if !strings.Contains(finding.Hold(), key) {
+				t.Fatalf("hold = %q, want it to name %q, which --force must also name", finding.Hold(), key)
+			}
+		}
+		if !strings.Contains(finding.Hold(), "every one of") {
+			t.Fatalf("hold = %q, want it to say that naming one is not enough", finding.Hold())
+		}
+	})
+
+	t.Run("a refusal whose remedy is not force does not propose one", func(t *testing.T) {
+		finding := Finding{Class: OrphanProcess, PID: 900}
+		finding.refuseUntilEstablished(unidentifiedHold, "900")
+		if strings.Contains(finding.Hold(), "--force") {
+			t.Fatalf("hold = %q, want no --force proposed for something the sweep could not identify", finding.Hold())
+		}
+	})
+
+	t.Run("a mixed hold names no outcome the force cannot deliver", func(t *testing.T) {
+		const worktree = `C:\dev\pd\.worktrees\gb-broken`
+		inventory := Inventory{
+			Panes:           []Pane{{ID: "pane-b", HasAgent: true}},
+			UnresolvedPanes: []string{"pane-b"},
+			UnreadableTasks: []string{"broken"},
+			Worktrees:       []WorktreeDir{{Path: worktree, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "broken"}},
+			Processes:       []Process{process(555, 1, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest)},
+		}
+		hold := classOf(Classify(inventory), StaleServer)[0].Hold()
+		if !strings.Contains(hold, "Name broken with --force") {
+			t.Fatalf("hold = %q, want the key a --force does answer", hold)
+		}
+		if strings.Contains(hold, "act on it") {
+			t.Fatalf("hold = %q, want no promise that the sweep acts, because the pane refusal stands whatever is forced", hold)
+		}
+		if !strings.Contains(hold, "resolve it rather than overriding it") {
+			t.Fatalf("hold = %q, want it to say the evidence has to be resolved rather than forced", hold)
+		}
+		// The correction that matters: an unestablished refusal IS cleared by
+		// naming its key, so a line saying otherwise would be this command
+		// describing what it wishes were true, which is the habit the branch
+		// exists to break.
+		if strings.Contains(hold, "answers to no --force") {
+			t.Fatalf("hold = %q, want no claim that the evidence refusal cannot be forced, because naming its key does clear it", hold)
+		}
+	})
+
+	t.Run("an absolute refusal says so", func(t *testing.T) {
+		finding := Finding{Class: OrphanWorktree, TaskID: "old"}
+		finding.refuseAbsolutely("worktree has 2 commit(s) on no remote")
+		if !strings.Contains(finding.Hold(), "No --force clears this") {
+			t.Fatalf("hold = %q, want it to say no force clears it", finding.Hold())
+		}
+	})
+}
+
+// TestARefusalCannotBeReplacedBySite is the root cause of three rounds of
+// findings: refusals were composed by hand at each call site, so one that ran
+// later silently replaced one already recorded. Adding is now the only way to
+// record one.
+func TestARefusalCannotBeReplacedBySite(t *testing.T) {
+	finding := Finding{Class: StaleServer, TaskID: "broken", PID: 555}
+	finding.refuseUntilEstablished("1 pane(s) could not report their process identity", "555")
+	finding.refuseUnlessForced("its task record could not be read", "broken")
+	if len(finding.Holds) != 2 {
+		t.Fatalf("holds = %+v, want both refusals kept", finding.Holds)
+	}
+	for _, want := range []string{"could not report their process identity", "task record could not be read"} {
+		if !strings.Contains(finding.Hold(), want) {
+			t.Fatalf("hold = %q, want it to carry %q", finding.Hold(), want)
 		}
 	}
 }
