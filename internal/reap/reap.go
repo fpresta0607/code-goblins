@@ -49,20 +49,21 @@ type Options struct {
 	// a decimal pid, or a task id. It is deliberately never a blanket
 	// override, so "force" always names what it forces.
 	Force map[string]bool
-	// ProbeIdle samples processor time to decide whether a process is really
-	// idle. It costs CPUSample of wall clock per process finding, so the
-	// watcher's background audit leaves it off and simply reports what it
-	// found; --apply always turns it on, because nothing is ever killed
-	// without a fresh idleness measurement.
+	// ProbeIdle samples processor time and reports it beside each process
+	// finding, so the operator reads whether it is doing work before deciding
+	// which pid to name. It costs CPUSample of wall clock per process
+	// finding, so the watcher's background audit leaves it off and simply
+	// reports what it found; every cfo reap invocation turns it on.
 	ProbeIdle bool
-	// CPUSample and CPUIdle override the idleness gate's window and threshold.
+	// CPUSample and CPUIdle override the idleness measurement's window and
+	// threshold.
 	CPUSample time.Duration
 	CPUIdle   time.Duration
 }
 
 // forcedPID reports whether the operator named this finding's process. It is
-// the only force that skips the idleness probe, because idleness is a fact
-// about that process and nothing else can stand in for it.
+// the only thing that authorises ending it: a task id says a task is over and
+// can never speak for a process still running under it.
 func (o Options) forcedPID(finding Finding) bool {
 	return finding.PID != 0 && o.Force[strconv.Itoa(finding.PID)]
 }
@@ -86,8 +87,8 @@ type Service struct {
 	Inventory InventorySource
 	Commands  execx.Runner
 	// CPU reads a process's total consumed processor time. A false second
-	// return means the process could not be measured, which is treated as
-	// "cannot prove it is idle" and holds the kill.
+	// return means the process could not be measured, which is reported as
+	// "cannot prove it is idle" rather than as idleness.
 	CPU func(pid int) (time.Duration, bool)
 	// Kill ends a process and its children.
 	Kill func(ctx context.Context, pid int) error
@@ -214,6 +215,18 @@ func (s Service) gate(ctx context.Context, finding *Finding, options Options) {
 	}
 	switch finding.Class {
 	case OrphanProcess, StaleServer:
+		// The measurement is reported rather than used to refuse: naming a pid
+		// has always meant killing that process even if it is busy. It is
+		// taken on every sweep that asks for one, authorised or not, because
+		// the operator decides which pid to name by reading a report, and
+		// whether a process is burning processor time is the one fact that
+		// separates a live process from an abandoned one. Measuring only on
+		// the run that kills produces it after the decision it informs.
+		if options.ProbeIdle {
+			if busy := s.measureBusy(finding.PID, options); busy != "" {
+				finding.Detail += "; " + busy
+			}
+		}
 		if !options.forcedPID(*finding) {
 			// Ending a process is the one action here that cannot be undone
 			// and that costs somebody else their work, so it answers to the
@@ -224,16 +237,6 @@ func (s Service) gate(ctx context.Context, finding *Finding, options Options) {
 			// exactly that reading.
 			finding.refuseUnlessForced(killNeedsItsOwnPID, strconv.Itoa(finding.PID))
 			return
-		}
-		if !options.ProbeIdle {
-			return
-		}
-		// The operator named this process, which is what authorises the kill,
-		// so the idleness measurement is reported rather than used to refuse.
-		// An orphan worth killing is usually one that is spending, and a
-		// measurement is not a judgement about whose work it is.
-		if busy := s.holdIfBusy(finding.PID, options); busy != "" {
-			finding.Detail += "; " + busy
 		}
 	case OrphanWorktree:
 		// Its work-preservation refusals are absolute and stand even for a
@@ -253,9 +256,12 @@ func (s Service) gate(ctx context.Context, finding *Finding, options Options) {
 	finding.clearForced(options.Force)
 }
 
-// holdIfBusy samples processor time twice and refuses anything that moved.
-// An unmeasurable process is held too: "I could not tell" is not "it is idle".
-func (s Service) holdIfBusy(pid int, options Options) string {
+// measureBusy samples processor time twice and says what it found when the
+// process moved, or when it could not be read at all: "I could not tell" is
+// not "it is idle". The answer is reported beside the finding, because log age
+// is not evidence and a goblin waiting on an API response writes nothing for
+// minutes while very much alive.
+func (s Service) measureBusy(pid int, options Options) string {
 	if s.CPU == nil {
 		return "no processor-time sampler configured, so idleness cannot be proven"
 	}

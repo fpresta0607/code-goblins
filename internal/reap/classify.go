@@ -332,6 +332,12 @@ type Inventory struct {
 	// pane is unresolved: the sweep still reports what it saw, but it will
 	// not kill on evidence it knows is incomplete.
 	UnresolvedPanes []string
+	// UnplacedAgents are panes whose agent reported no working directory.
+	// Herdr declares that field nullable, so this is an agent declining to
+	// say where it is rather than one working nowhere, and any of them could
+	// be the goblin working in the worktree a finding names. Whatever rests
+	// on placing an agent is held while any agent is unplaced.
+	UnplacedAgents []string
 }
 
 // harnessSignatures are the distinctive command-line fragments a CFO-launched
@@ -452,6 +458,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				Action: "kill the process tree",
 			}
 			finding.refuseUntilEstablished(unresolvedPaneHold(inv), strconv.Itoa(process.PID))
+			finding.refuseUntilEstablished(unplacedAgentHold(inv), strconv.Itoa(process.PID))
 			// A task that never said it was done, or whose record could not be
 			// read, is reported and held rather than skipped: the server is
 			// still a leak once its goblin is gone, and the operator is the
@@ -487,6 +494,7 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 			Detail:     "no pane holding an agent working there, and its task " + taskOutcome(task, known, unreadable[worktree.TaskID]),
 			Action:     "return the worktree through cfo cleanup",
 		}
+		finding.refuseUntilEstablished(unplacedAgentHold(inv), finding.TaskID)
 		// A goblin whose pane died mid-work leaks its worktree just as surely
 		// as a finished one, so it is reported; it is held because the task
 		// never said it was done, or because nothing can say whether it did.
@@ -637,6 +645,10 @@ func classifyMetas(inv Inventory, panes map[string]Pane, supervised, fleet map[i
 // names at all; a subdirectory counts, because a goblin does not stay at its
 // worktree root.
 //
+// An agent that reported no working directory answers neither way, and a false
+// here would read as one working somewhere else. That is unplacedAgentHold's
+// to say instead, on every class that asks this question.
+//
 // The process table cannot answer this, which is the first place the next
 // reader will look: no harness adapter puts the worktree on a command line,
 // spawn carries it as the launch directory instead, and a working directory is
@@ -750,6 +762,20 @@ func unresolvedPaneHold(inv Inventory) string {
 		return ""
 	}
 	return fmt.Sprintf("%d pane(s) could not report their process identity (%s), so a live goblin is indistinguishable from an orphan here; fix Herdr so those panes report what is running in them, then sweep again", len(inv.UnresolvedPanes), strings.Join(inv.UnresolvedPanes, ", "))
+}
+
+// unplacedAgentHold refuses a finding while a live agent has not said where it
+// is working. Reaching it means the pane the record names holds no agent, so
+// the only evidence left that a goblin is working here is an agent's working
+// directory, and an agent that reported none is a question the sweep cannot
+// answer rather than an agent working somewhere else. Herdr declares that
+// field nullable, so this is a state the fleet reaches without anything being
+// broken.
+func unplacedAgentHold(inv Inventory) string {
+	if len(inv.UnplacedAgents) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d live agent(s) (pane %s) reported no working directory, so the sweep cannot place them and one of them may be the goblin working here; have those agents report where they are running, then sweep again", len(inv.UnplacedAgents), strings.Join(inv.UnplacedAgents, ", "))
 }
 
 func isHarness(process Process) bool {

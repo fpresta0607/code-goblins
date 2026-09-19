@@ -408,12 +408,15 @@ func TestPanesCarryTheirAgentsWorkingDirectory(t *testing.T) {
 		Agents:   []herdr.SnapshotAgent{{PaneID: "w3:p4", Agent: "claude", Status: "done", Cwd: worktree}},
 	}}}
 
-	panes, unresolved, err := collector.readPanes(context.Background())
+	panes, unresolved, unplaced, err := collector.readPanes(context.Background())
 	if err != nil {
 		t.Fatalf("readPanes: %v", err)
 	}
 	if len(unresolved) != 0 {
 		t.Fatalf("unresolved = %q, want none", unresolved)
+	}
+	if len(unplaced) != 0 {
+		t.Fatalf("unplaced = %q, want none; the one agent here reported where it is working", unplaced)
 	}
 	if len(panes) != 2 {
 		t.Fatalf("panes = %+v, want both panes", panes)
@@ -453,4 +456,58 @@ func TestASnapshotOfTheWrongProtocolRefusesTheSweep(t *testing.T) {
 	if !strings.Contains(err.Error(), "protocol") {
 		t.Errorf("err = %v, want it to name the protocol it could not accept", err)
 	}
+}
+
+// Herdr declares an agent's working directory nullable and does not require
+// it, so one agent reporting none is a legitimate state rather than a fault.
+// It is neither an agent working nowhere nor a reason to refuse the whole
+// sweep: it is one agent the sweep cannot place, so it is carried out by name
+// and the classes that rest on placing it hold.
+func TestAnAgentThatReportsNoWorkingDirectoryIsCarriedOut(t *testing.T) {
+	const worktree = `C:\dev\proj\.worktrees\gb-task`
+	collector := func(agents []herdr.SnapshotAgent) Collector {
+		root := t.TempDir()
+		stateDir := filepath.Join(root, "state")
+		if err := os.MkdirAll(stateDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return Collector{
+			Home:    home.Home{Root: root, State: stateDir},
+			Session: "fleet",
+			Panes: stubPanes{snapshot: herdr.SessionSnapshot{
+				Protocol: herdr.SupportedProtocol,
+				Panes:    []herdr.SnapshotPane{{ID: "w3:p4"}, {ID: "w3:p5"}},
+				Agents:   agents,
+			}},
+		}
+	}
+
+	t.Run("one agent that reported none is named", func(t *testing.T) {
+		inv, notes, err := collector([]herdr.SnapshotAgent{
+			{PaneID: "w3:p4", Agent: "claude", Cwd: worktree},
+			{PaneID: "w3:p5", Agent: "codex"},
+		}).Collect(context.Background())
+		if err != nil {
+			t.Fatalf("Collect: %v", err)
+		}
+		if len(inv.UnplacedAgents) != 1 || inv.UnplacedAgents[0] != "w3:p5" {
+			t.Fatalf("unplaced agents = %q, want the one that reported no working directory", inv.UnplacedAgents)
+		}
+		if !strings.Contains(strings.Join(notes, " "), "w3:p5 reported no working directory") {
+			t.Fatalf("notes = %q, want one naming the agent that could not be placed", notes)
+		}
+	})
+
+	t.Run("every agent reporting none is the field going missing", func(t *testing.T) {
+		inv, _, err := collector([]herdr.SnapshotAgent{
+			{PaneID: "w3:p4", Agent: "claude"},
+			{PaneID: "w3:p5", Agent: "codex"},
+		}).Collect(context.Background())
+		if err == nil {
+			t.Fatalf("Collect succeeded with no agent carrying a working directory: %+v", inv)
+		}
+		if !strings.Contains(err.Error(), "working directory") {
+			t.Errorf("err = %v, want it to name the evidence that is missing", err)
+		}
+	})
 }

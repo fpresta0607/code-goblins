@@ -944,6 +944,30 @@ func TestALiveGoblinsServerIsNeverStale(t *testing.T) {
 		}
 	})
 
+	t.Run("an agent that reported no working directory holds both classes", func(t *testing.T) {
+		// Herdr declares an agent's working directory nullable, so one agent
+		// answering with nothing is a state the fleet reaches without anything
+		// being broken. With the record's pane id drifted, that agent is the
+		// only thing that could still place this goblin, and it might be it.
+		inventory := Inventory{
+			Panes:          []Pane{{ID: "w9:pMoved", ShellPID: 900, HasAgent: true}},
+			UnplacedAgents: []string{"w9:pMoved"},
+			Tasks:          []Task{landing},
+			Worktrees:      worktrees,
+			Processes:      []Process{server},
+		}
+		findings := Classify(inventory)
+		for _, class := range []Class{StaleServer, OrphanWorktree} {
+			found := classOf(findings, class)
+			if len(found) != 1 {
+				t.Fatalf("got %d %s findings, want one: %+v", len(found), class, findings)
+			}
+			if !strings.Contains(found[0].Hold(), "reported no working directory") {
+				t.Errorf("%s hold = %q, want it held because an agent could not be placed", class, found[0].Hold())
+			}
+		}
+	})
+
 	t.Run("a task that never said done is reported but held", func(t *testing.T) {
 		working := task("pd-landing", worktree, "w9:pGone", "working")
 		inventory := Inventory{

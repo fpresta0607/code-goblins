@@ -116,10 +116,12 @@ func orphanProcessInventory() Inventory {
 	}
 }
 
-// TestGateRefusesBusyProcess is the lesson the fleet already paid for: a
-// goblin waiting on an API response looks idle by log age but is not by
-// processor time, so idleness is measured, never inferred.
-func TestGateRefusesBusyProcess(t *testing.T) {
+// TestANamedBusyProcessIsKilledAndTheMeasurementReported is the lesson the
+// fleet already paid for: a goblin waiting on an API response looks idle by
+// log age but is not by processor time, so idleness is measured, never
+// inferred. Naming the pid has always meant killing that process even if it is
+// busy, so the measurement is reported beside the kill rather than refusing it.
+func TestANamedBusyProcessIsKilledAndTheMeasurementReported(t *testing.T) {
 	h := testHome(t)
 	runner := &gitRunner{}
 	service := newService(t, h, orphanProcessInventory(), runner)
@@ -135,19 +137,52 @@ func TestGateRefusesBusyProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Naming the pid has always meant "kill it even if it is busy", so the
-	// measurement is reported rather than used to refuse. What it must never
-	// be is inferred: a goblin waiting on an API response writes nothing for
-	// minutes and is very much alive, which is why this is measured at all.
 	finding := onlyFinding(t, result, OrphanProcess)
 	if !strings.Contains(finding.Detail, "busy") {
 		t.Fatalf("detail = %q, want the measurement reported beside the kill", finding.Detail)
 	}
+	if len(runner.killed) != 1 || runner.killed[0] != 31032 {
+		t.Fatalf("killed = %v, want [31032]; a named pid is killed even when the measurement says it is busy", runner.killed)
+	}
 }
 
-// TestGateRefusesUnmeasurableProcess: not being able to read processor time is
-// not evidence of idleness.
-func TestGateRefusesUnmeasurableProcess(t *testing.T) {
+// A process the operator has not named is not killed, and the measurement is
+// still taken: the report is what the operator reads to decide which pid to
+// name, so the one fact that separates a live process from an abandoned one
+// has to be in it rather than appearing only on the run that ends it.
+func TestAnUnnamedProcessIsMeasuredAndLeftAlone(t *testing.T) {
+	h := testHome(t)
+	runner := &gitRunner{}
+	service := newService(t, h, orphanProcessInventory(), runner)
+	samples := []time.Duration{2 * time.Second, 4 * time.Second}
+	call := 0
+	service.CPU = func(int) (time.Duration, bool) {
+		sample := samples[call]
+		call++
+		return sample, true
+	}
+
+	result, err := service.Apply(context.Background(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finding := onlyFinding(t, result, OrphanProcess)
+	if !strings.Contains(finding.Detail, "busy") {
+		t.Fatalf("detail = %q, want the measurement in the report the operator decides from", finding.Detail)
+	}
+	if !strings.Contains(finding.Hold(), "31032") {
+		t.Fatalf("hold = %q, want it to name the pid that authorises the kill", finding.Hold())
+	}
+	if len(runner.killed) != 0 {
+		t.Fatalf("killed = %v, want nothing; no pid was named", runner.killed)
+	}
+}
+
+// TestANamedUnmeasurableProcessIsKilledAndSaysSo: not being able to read
+// processor time is not evidence of idleness, so the report says the
+// measurement failed. It still does not refuse a kill the operator authorised
+// by naming the pid.
+func TestANamedUnmeasurableProcessIsKilledAndSaysSo(t *testing.T) {
 	h := testHome(t)
 	runner := &gitRunner{}
 	service := newService(t, h, orphanProcessInventory(), runner)
@@ -159,6 +194,9 @@ func TestGateRefusesUnmeasurableProcess(t *testing.T) {
 	}
 	if finding := onlyFinding(t, result, OrphanProcess); !strings.Contains(finding.Detail, "could not be read") {
 		t.Fatalf("detail = %q, want the failed measurement reported", finding.Detail)
+	}
+	if len(runner.killed) != 1 || runner.killed[0] != 31032 {
+		t.Fatalf("killed = %v, want [31032]; an unreadable measurement refuses nothing once the pid is named", runner.killed)
 	}
 }
 

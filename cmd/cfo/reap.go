@@ -125,7 +125,7 @@ func runReap(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 		return 1
 	}
 	if !options.Apply && len(result.Findings) > 0 {
-		fmt.Fprintln(stdout, "Nothing was changed. Run cfo reap --apply to act on the findings above.")
+		fmt.Fprintln(stdout, "Nothing was changed. Run cfo reap --apply to act on the findings above, except to end a process, which needs its pid named with --force.")
 	}
 	return 0
 }
