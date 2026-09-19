@@ -24,7 +24,11 @@ const reapUsage = `usage: cfo reap [--dry-run] [--apply] [--force <pid|task-id>]
 Find the fleet resources nothing else notices and, with --apply, retire them:
 an unsupervised harness process whose pane is gone, a dev server left running
 in a finished goblin's worktree, an orphaned worktree, task record or status
-log.
+log, and the empty directory a dead task leaves under .worktrees/.
+
+A harness process is placed by its ancestry and its command line, never by its
+image name: the desktop application and the agents of a no-mistakes review
+round are not fleet processes and are not reported.
 
 --dry-run is the default and only reports. --apply acts, behind gates that
 never kill a process still burning processor time, never remove a worktree
@@ -32,9 +36,13 @@ with uncommitted or unpushed work, and never reap a task that has not
 finished.
 
 --force names one pid or one task id the operator takes responsibility for,
-and may be repeated. It clears the idleness gate for that pid and the
-terminal-status gate for that task. It never clears the uncommitted or
-unpushed work gate: that work is the whole product of a goblin's run.
+and may be repeated. Every refusal answers only to its own key: naming a pid
+speaks for that process, naming a task id says that task is over, and neither
+speaks for the other. A finding held for two reasons therefore needs both
+answered, and its HELD line says which keys to name and what has to be
+resolved instead. Some refusals answer to no --force at
+all, including the uncommitted or unpushed work gate, because that work is
+the whole product of a goblin's run.
 `
 
 // runReap sweeps the fleet for leaked resources. Reporting is the default
@@ -127,6 +135,7 @@ func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.R
 			Session:   session,
 			Panes:     client,
 			Processes: reap.CIMProcesses{Commands: commands},
+			Commands:  commands,
 
 			ProjectsRoot: install.MachineProjectsRoot,
 		},

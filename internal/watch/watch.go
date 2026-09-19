@@ -138,6 +138,7 @@ func ConfigFromEnv(h home.Home) Config {
 			Session:   session,
 			Panes:     &herdr.Client{Commands: execx.OSRunner{}, Session: session},
 			Processes: reap.CIMProcesses{Commands: execx.OSRunner{}},
+			Commands:  execx.OSRunner{},
 
 			ProjectsRoot: install.MachineProjectsRoot,
 		},

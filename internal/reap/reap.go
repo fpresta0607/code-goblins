@@ -60,14 +60,11 @@ type Options struct {
 	CPUIdle   time.Duration
 }
 
-func (o Options) forced(finding Finding) bool {
-	if o.Force == nil {
-		return false
-	}
-	if finding.PID != 0 && o.Force[strconv.Itoa(finding.PID)] {
-		return true
-	}
-	return finding.TaskID != "" && o.Force[finding.TaskID]
+// forcedPID reports whether the operator named this finding's process. It is
+// the only force that skips the idleness probe, because idleness is a fact
+// about that process and nothing else can stand in for it.
+func (o Options) forcedPID(finding Finding) bool {
+	return finding.PID != 0 && o.Force[strconv.Itoa(finding.PID)]
 }
 
 // Result is one sweep: what was found, what was done about it, and anything
@@ -129,33 +126,71 @@ func (s Service) Apply(ctx context.Context, options Options) (Result, error) {
 	if err != nil {
 		return result, err
 	}
+	// Which tasks had a record is read once, before anything is acted on,
+	// because the question is about the fleet the sweep classified and not
+	// about whatever is left by the time each finding's turn comes. Two
+	// findings can name one task, the action for a worktree and for a meta is
+	// a cleanup that removes the record, and findings are acted on in class
+	// order, so asking per finding still loses the audit line for whichever
+	// one sorts second.
+	hadRecord := make(map[string]bool, len(result.Findings))
+	for _, finding := range result.Findings {
+		if finding.TaskID != "" {
+			hadRecord[finding.TaskID] = s.hasRecord(finding.TaskID)
+		}
+	}
 	for i := range result.Findings {
 		finding := &result.Findings[i]
-		if finding.Hold != "" {
+		if finding.Held() {
 			continue
 		}
 		if err := s.act(ctx, *finding); err != nil {
-			finding.Hold = "action failed: " + err.Error()
+			finding.refuseAbsolutely("action failed: " + err.Error())
 			continue
 		}
-		line := "reaped: " + finding.Line()
+		line := ReapedPrefix + finding.Line()
 		result.Applied = append(result.Applied, line)
-		s.record(*finding, line)
+		s.record(*finding, line, hadRecord[finding.TaskID])
 	}
 	return result, nil
 }
 
+// ReapedPrefix marks a line the reaper wrote about its own action, as opposed
+// to a line the task reported about itself. It is a constant because it is
+// written here and read back in Collector.latestVerb: a status line's verb is
+// its first word before the colon, so an unmarked "reaped: ..." line makes
+// "reaped" the task's latest verb, and "reaped" ends nothing. A record the
+// sweep touched once would then read as unfinished forever, and every later
+// finding for it would sit behind --force.
+const ReapedPrefix = "reaped: "
+
 // record writes one line per reaped resource: into the task's own status log
 // when the finding names a task, and always into the fleet-level reap log, so
 // there is one place that answers "what did the reaper do".
-func (s Service) record(finding Finding, line string) {
-	// An archived status log must not be recreated by the very line that
-	// reports its archiving; the fleet log below carries that one.
-	if finding.Class != OrphanStatus && finding.TaskID != "" && state.ValidTaskID(finding.TaskID) == nil {
+func (s Service) record(finding Finding, line string, hadRecord bool) {
+	// The reaper may add to the history of a task that exists and must never
+	// manufacture one for a task that does not. state.AppendStatus creates
+	// the log it is handed, so a line written for a record retired long ago
+	// would leave behind a status log holding nothing but the reaper's own
+	// line, which state.ScanIDs reports as an orphan the sweep itself made.
+	// The record is the fact to ask about, not the log: a goblin spawned a
+	// moment ago has a record and has reported nothing yet. The fleet log
+	// below carries every line either way.
+	if hadRecord {
 		// Best effort: a failed status write must not undo a completed kill.
 		_ = state.AppendStatus(s.Home.State, finding.TaskID, state.NormalizeStatusDetail(line))
 	}
 	_ = state.AppendStatus(s.Home.State, StatusID, state.NormalizeStatusDetail(line))
+}
+
+// hasRecord reports whether the task behind a finding still has a state
+// record. It is asked while the record can still answer.
+func (s Service) hasRecord(id string) bool {
+	if id == "" || state.ValidTaskID(id) != nil {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(s.Home.State, id+".meta"))
+	return err == nil
 }
 
 // gate is where the correctness lives. Every class gets the checks that make
@@ -163,29 +198,44 @@ func (s Service) record(finding Finding, line string) {
 // dropping it: the operator must be able to see what was found AND why it was
 // left alone.
 func (s Service) gate(ctx context.Context, finding *Finding, options Options) {
-	if finding.Hold != "" && options.forced(*finding) {
-		// The operator named this exact pid or task, which is the only thing
-		// that clears an attribution or non-terminal hold.
-		finding.Hold = ""
-	}
-	if finding.Hold != "" {
+	// The operator's --force drops the refusals it actually answers and leaves
+	// every other one standing.
+	finding.clearForced(options.Force)
+	// A finding still refused after that takes no measurement, because none of
+	// them can change the outcome: three seconds of processor sampling per
+	// process finding, and three git subprocesses per worktree, spent to reach
+	// a verdict already reached. This is not the mistake the refusal machinery
+	// exists to prevent. Dropping a refusal during classification is a lie,
+	// because classification is pure and cheap and its whole job is to state
+	// every reason something is held; skipping a measurement here adds no
+	// refusal and replaces none, so nothing is lost but the wait.
+	if finding.Held() {
 		return
 	}
 	switch finding.Class {
 	case OrphanProcess, StaleServer:
-		if options.forced(*finding) || !options.ProbeIdle {
+		if options.forcedPID(*finding) || !options.ProbeIdle {
 			return
 		}
-		if hold := s.holdIfBusy(finding.PID, options); hold != "" {
-			finding.Hold = hold
-		}
+		// Busy is a measurement, not a judgement: the remedy is to let it
+		// finish or to look at what it is doing, never to propose a kill.
+		finding.refuseUntilEstablished(s.holdIfBusy(finding.PID, options), strconv.Itoa(finding.PID))
 	case OrphanWorktree:
-		// Runs even for a forced task: --force covers the operator's
-		// judgement about a task's status, never a decision to destroy work.
-		if hold := s.holdIfWorkWouldBeLost(ctx, finding.Path); hold != "" {
-			finding.Hold = hold
-		}
+		// Its work-preservation refusals are absolute and stand even for a
+		// forced task: --force covers the operator's judgement about a task's
+		// status, never a decision to destroy work.
+		s.holdIfWorkWouldBeLost(ctx, finding)
+	case OrphanDirectory:
+		// Removing the shell is only ever a removal of an empty directory.
+		// Anything with contents is somebody's files in a directory this
+		// sweep has already failed to explain, so it is reported, not touched.
+		finding.refuseAbsolutely(holdIfNotEmpty(finding.Path))
 	}
+	// A gate records its own refusals after the clear above, so the force is
+	// applied once more: a refusal the operator has already answered may not
+	// stand merely because the gate that found it ran second. The absolute
+	// ones are untouched, which is what makes them absolute.
+	finding.clearForced(options.Force)
 }
 
 // holdIfBusy samples processor time twice and refuses anything that moved.
@@ -211,33 +261,91 @@ func (s Service) holdIfBusy(pid int, options Options) string {
 	return ""
 }
 
+// sweepAgain closes every work-gate refusal where the sweep could not look.
+// Such a refusal is still absolute, because unreadable is not clean and the
+// worktree may hold the only copy of a goblin's work, but the operator is owed
+// the remedy that does exist: fix the read and sweep again.
+const sweepAgain = ", then sweep again, because a worktree whose state cannot be read may hold the only copy of a goblin's work"
+
 // holdIfWorkWouldBeLost refuses any worktree with uncommitted changes or with
 // commits that exist nowhere else. A goblin's unpushed branch is the entire
-// product of its run, and no --force clears this: the point of the sweep is to
-// free resources, never to decide that somebody's work did not matter.
-func (s Service) holdIfWorkWouldBeLost(ctx context.Context, worktree string) string {
+// product of its run, and no --force clears that: the point of the sweep is to
+// free resources, never to decide that somebody's work did not matter. A
+// question it could not ask refuses too, and absolutely, because unprovable
+// stays unremovable; it says it could not look rather than claiming it found
+// work. Only the premise refusal is the operator's to answer, because an empty
+// directory holds no work to preserve.
+func (s Service) holdIfWorkWouldBeLost(ctx context.Context, finding *Finding) {
+	worktree := finding.Path
 	if worktree == "" {
-		return ""
+		return
 	}
 	if s.Commands == nil {
-		return "no command runner configured, so the worktree cannot be proven clean"
+		finding.refuseAbsolutely("no command runner is configured, so the sweep could not ask git anything here and this worktree's state is unknown rather than proven clean; configure one" + sweepAgain)
+		return
 	}
+	// Every git question below is answered by the nearest enclosing repository
+	// when this path is not a worktree of its own, so the premise is asserted
+	// once, here, rather than checked again inside each answer. Emptiness only
+	// ruled out one shape of not being a worktree; a populated folder that is
+	// not one got the enclosing repository's dirt reported as its own, which
+	// is the defect this whole branch exists to remove.
+	itsOwn, err := answersForItself(ctx, s.Commands, worktree)
+	if err != nil {
+		finding.refuseAbsolutely("the sweep could not establish whether git at this path answers for this path or for an enclosing repository, so nothing git reports here can be attributed to this worktree: " + err.Error() + "; resolve that" + sweepAgain)
+		return
+	}
+	if !itsOwn {
+		holdNotAWorktreeOfItsOwn(finding)
+		return
+	}
+
 	status, err := s.git(ctx, worktree, "status", "--porcelain=v1", "--untracked-files=all")
 	if err != nil {
-		return "cannot read git status: " + err.Error()
+		finding.refuseAbsolutely("the sweep could not read git status here, so whether this worktree holds uncommitted work is unknown rather than answered: " + err.Error() + "; resolve that" + sweepAgain)
+		return
 	}
 	if status != "" {
-		return "worktree has uncommitted or untracked changes"
+		finding.refuseAbsolutely("worktree has uncommitted or untracked changes")
+		return
 	}
 	unpushed, err := s.git(ctx, worktree, "log", "--oneline", "HEAD", "--not", "--remotes")
 	if err != nil {
-		return "cannot read unpushed commits: " + err.Error()
+		finding.refuseAbsolutely("the sweep could not list this worktree's unpushed commits, so whether it holds the only copy of any of them is unknown: " + err.Error() + "; resolve that" + sweepAgain)
+		return
 	}
 	if unpushed != "" {
 		count := len(strings.Split(unpushed, "\n"))
-		return fmt.Sprintf("worktree has %d commit(s) on no remote; pushing them is the only way this is safe to remove", count)
+		finding.refuseAbsolutely(fmt.Sprintf("worktree has %d commit(s) on no remote; pushing them is the only way this is safe to remove", count))
 	}
-	return ""
+}
+
+// holdNotAWorktreeOfItsOwn refuses a path git does not answer for, and what
+// the path holds decides which refusal it gets. Nothing at all holds no work,
+// so that one is the operator's to answer by naming the task, and what the
+// force buys is the removal of the directory and the prune of the
+// registration behind it where one was established, never the cleanup the
+// class was named for. The reason there deliberately names no cause, because
+// the same emptiness arrives from a registration that could not be read and
+// from a listed worktree whose files are gone, and a remedy right for one is
+// wrong for the other. Files are the absolute case: they belong to something
+// the sweep cannot attribute to any repository, and unattributable stays
+// unremovable.
+func holdNotAWorktreeOfItsOwn(finding *Finding) {
+	empty, err := isEmptyDir(finding.Path)
+	if err != nil {
+		finding.refuseAbsolutely("git at this path answers for a different repository, and the sweep could not read the directory to establish what removing it would destroy: " + err.Error() + "; resolve that" + sweepAgain)
+		return
+	}
+	if !empty {
+		finding.refuseAbsolutely("git at this path answers for a different repository, so nothing it reports about uncommitted work or unpushed commits can be attributed here, and the files this directory does hold belong to something the sweep cannot identify; identify them before anything removes this")
+		return
+	}
+	finding.Action = "remove the empty directory"
+	if finding.Registered {
+		finding.Action += " and prune its registration from the project"
+	}
+	finding.refuseUntilEstablished("this directory holds no files, so no git answer about it belongs to it rather than to an enclosing repository, and nothing about what it is can be established from here; establish what it is before it is removed", finding.TaskID)
 }
 
 func (s Service) act(ctx context.Context, finding Finding) error {
@@ -249,6 +357,11 @@ func (s Service) act(ctx context.Context, finding Finding) error {
 		return s.Kill(ctx, finding.PID)
 	case OrphanWorktree:
 		return s.returnWorktree(ctx, finding)
+	case OrphanDirectory:
+		// Non-recursive on purpose: it removes the empty shell and fails on
+		// anything else, including a directory a process still holds open,
+		// which is the failure that names the real leak.
+		return os.Remove(finding.Path)
 	case OrphanMeta:
 		if s.Clean == nil {
 			return errors.New("no cleanup path configured")
@@ -267,6 +380,27 @@ func (s Service) act(ctx context.Context, finding Finding) error {
 // it goes through the same worktree return primitive cleanup itself calls,
 // rather than through a second removal implementation.
 func (s Service) returnWorktree(ctx context.Context, finding Finding) error {
+	// A directory holding no files has nothing to return, and both paths below
+	// run git inside it, which is answered by the enclosing repository. That
+	// is the lie this whole branch exists to stop telling, so it must not be
+	// told by the action either. What is left of a return is administrative:
+	// remove the directory, then prune the registration that outlives it,
+	// asked of the project, which is the repository that answered for this
+	// path in the first place. A project that could not be asked registers
+	// nothing here, so there is nothing to prune and no repository the sweep
+	// has any business asking. A failed prune surfaces rather than being
+	// swallowed: the directory is gone by then, and the administrative entry
+	// it leaves is what nothing else in the fleet ever clears.
+	if empty, err := isEmptyDir(finding.Path); err == nil && empty {
+		if err := os.Remove(finding.Path); err != nil {
+			return err
+		}
+		if !finding.Registered {
+			return nil
+		}
+		_, err := s.git(ctx, filepath.Dir(filepath.Dir(finding.Path)), "worktree", "prune")
+		return err
+	}
 	if finding.TaskID != "" && state.ValidTaskID(finding.TaskID) == nil {
 		if _, err := os.Stat(filepath.Join(s.Home.State, finding.TaskID+".meta")); err == nil {
 			if s.Clean == nil {
@@ -296,6 +430,32 @@ func (s Service) archiveStatus(id string) error {
 	}
 	target := filepath.Join(dir, id+".status."+s.now().UTC().Format("20060102T150405Z"))
 	return os.Rename(filepath.Join(s.Home.State, id+".status"), target)
+}
+
+// holdIfNotEmpty refuses anything with contents. isEmptyDir reads one entry,
+// which is all "does this directory hold files" needs. A directory the sweep
+// could not read is refused too, and says it could not look rather than that
+// it found contents; that refusal is absolute for the same reason its
+// siblings in the work gate are, because a directory whose contents cannot be
+// read is one that cannot be shown to be empty.
+func holdIfNotEmpty(dir string) string {
+	empty, err := isEmptyDir(dir)
+	if err != nil {
+		return "the sweep could not read this directory, so whether it is an abandoned shell or somebody's files is unknown rather than answered: " + err.Error() + "; resolve that and sweep again, because a directory that cannot be read may hold the only copy of somebody's work"
+	}
+	if !empty {
+		return "the directory is not empty, so it is not an abandoned shell; what is in it has to be explained before it is removed"
+	}
+	return ""
+}
+
+// isEmptyDir reports whether a directory holds nothing at all.
+func isEmptyDir(dir string) (bool, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false, err
+	}
+	return len(entries) == 0, nil
 }
 
 func (s Service) git(ctx context.Context, dir string, args ...string) (string, error) {
