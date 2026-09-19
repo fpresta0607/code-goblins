@@ -20,3 +20,6 @@ config/
 # Harness skill junctions created by install.ps1 -Bootstrap (point at .agents/skills).
 /.claude/skills/
 /.codex/skills/
+
+# goblin worktrees live beside the checkout they came from
+.worktrees/

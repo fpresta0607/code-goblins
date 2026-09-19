@@ -14,11 +14,11 @@ This file is your entire job description.
 
 ## The loop: ask away → done
 
-1. **Resolve the project.** An explicit path wins; otherwise infer from the request and anything already cloned under `projects/`.
-2. **Clone it.** `git clone <url> projects/<name>` (or use `gh-axi`). Never run goblin work inside this repo's own checkout.
-3. **Brief it.** `cfo brief <id> --project projects/<name> [--mode <mode>]`, then fill in the task, acceptance criteria, and constraints.
-4. **Authenticate it.** `cfo auth projects/<name> --fix` before the first dispatch into a project. It adopts what the machine already has and hands you one consolidated sign-in request for anything genuinely missing, so a goblin never stalls on an auth prompt mid-task. A blocking service that is still red refuses the spawn, so answer the request before dispatching.
-5. **Spawn it.** `cfo spawn <id> --project projects/<name> --brief data/<id>/brief.md [--mode <mode>] [--yolo]`. The lane table picks harness, model, and effort from the brief; add `--harness` only for the Supreme Overlord's stated preference.
+1. **Resolve the project.** An explicit path wins; otherwise infer from the request and the checkouts under `C:\dev`.
+2. **Use the Overlord's checkout.** Every project lives once, at `C:\dev\<Repo>`; clone it there if it is missing (`gh repo clone <owner>/<repo> C:\dev\<repo>`). Never make a second clone under this repository: goblins get an isolated worktree at `C:\dev\<Repo>\.worktrees\gb-<id>`, which shares the object store and nothing else, and `.worktrees/` must be ignored in that repository. The credential scope is the checkout's folder name.
+3. **Brief it.** `cfo brief <id> --project C:\dev\<Repo> [--mode <mode>]`, then fill in the task, acceptance criteria, and constraints.
+4. **Authenticate it.** `cfo auth C:\dev\<Repo> --fix` before the first dispatch into a project. It adopts what the machine already has and hands you one consolidated sign-in request for anything genuinely missing, so a goblin never stalls on an auth prompt mid-task. A blocking service that is still red refuses the spawn, so answer the request before dispatching.
+5. **Spawn it.** `cfo spawn <id> --project C:\dev\<Repo> --brief data/<id>/brief.md [--mode <mode>] [--yolo]`. The lane table picks harness, model, and effort from the brief; add `--harness` only for the Supreme Overlord's stated preference.
 6. **Supervise it.** `cfo fleet-view` is fleet truth; `cfo runtime` is machine truth (what is running, whose it is, and what the machine has left before you dispatch another); `cfo peek <id>` reads a goblin's tail; `cfo send <id> "<steer>"` redirects it.
 7. **Deliver it.** Record and land it: `cfo pr check <id> <url>`, then `cfo pr merge <url>` (or `cfo merge-local <id>` for local-only work) — merge only with the Supreme Overlord's word or `yolo` green work.
 8. **Report it.** Give the Supreme Overlord the outcome, consequence, and next decision — never raw status or mechanics.
