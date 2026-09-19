@@ -851,3 +851,87 @@ func TestARefusalCannotBeReplacedBySite(t *testing.T) {
 		}
 	}
 }
+
+// TestALiveGoblinsServerIsNeverStale is the incident of 19 September 2026,
+// after PR #27 landed. The sweep offered to kill pid 35012, the vite server of
+// pd-1229-1187-landing, whose status log read done. The goblin was running
+// browser tests against that exact server at the time. It had notified done
+// for one pull request and carried on to the next under the same id, which is
+// what a landing task does, so the record said a pull request had finished and
+// the sweep read it as the goblin having finished.
+func TestALiveGoblinsServerIsNeverStale(t *testing.T) {
+	const worktree = `C:\dev\pd\.worktrees\gb-pd-landing`
+	server := process(35012, 1, "node.exe", `node `+worktree+`\frontend\node_modules\vite\bin\vite.js`, fixtureLatest)
+	landing := task("pd-landing", worktree, "w9:p8Y", "done")
+	worktrees := []WorktreeDir{{Path: worktree, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "pd-landing"}}
+
+	t.Run("a pane holding an agent says the goblin is working", func(t *testing.T) {
+		inventory := Inventory{
+			// The pane the task record names, with an agent on it: exactly
+			// what herdr reported while the sweep offered up the server.
+			Panes:     []Pane{{ID: "w9:p8Y", ShellPID: 900, ForegroundPID: 901, HasAgent: true}},
+			Tasks:     []Task{landing},
+			Worktrees: worktrees,
+			Processes: []Process{server},
+		}
+		if findings := classOf(Classify(inventory), StaleServer); len(findings) != 0 {
+			t.Fatalf("a live goblin's dev server was offered up: %+v", findings)
+		}
+	})
+
+	t.Run("a harness the fleet is running says so too", func(t *testing.T) {
+		withTmp := landing
+		withTmp.Meta.TaskTmp = `C:\dev\code-goblins\state\tasktmp\pd-landing`
+		inventory := Inventory{
+			// No pane under the recorded id, so the second signal is the only
+			// one left: a harness under the herdr server naming this task.
+			FleetRootPIDs: []int{100},
+			Tasks:         []Task{withTmp},
+			Worktrees:     worktrees,
+			Processes: []Process{
+				process(100, 1, "herdr.exe", "herdr server", fixtureStart),
+				process(400, 100, "powershell.exe", "powershell", fixtureLater),
+				process(31032, 400, "claude.exe", `claude --dangerously-skip-permissions --mcp-config C:\dev\code-goblins\state\tasktmp\pd-landing\mcp.json`, fixtureLatest),
+				server,
+			},
+		}
+		if findings := classOf(Classify(inventory), StaleServer); len(findings) != 0 {
+			t.Fatalf("a server was offered up while its task's harness is still running: %+v", findings)
+		}
+	})
+
+	t.Run("with the goblin gone it is reported, and done is not what establishes that", func(t *testing.T) {
+		inventory := Inventory{
+			Panes:     []Pane{{ID: "w9:pOther", ShellPID: 900, HasAgent: true}},
+			Tasks:     []Task{landing},
+			Worktrees: worktrees,
+			Processes: []Process{server},
+		}
+		findings := classOf(Classify(inventory), StaleServer)
+		if len(findings) != 1 {
+			t.Fatalf("got %d stale_server findings, want the genuinely abandoned server: %+v", len(findings), findings)
+		}
+		if findings[0].Hold() != "" {
+			t.Fatalf("hold = %q, want an abandoned server of a finished task to be actionable", findings[0].Hold())
+		}
+		if !strings.Contains(findings[0].Detail, "no live pane and no harness") {
+			t.Fatalf("detail = %q, want it to state the evidence that established this", findings[0].Detail)
+		}
+	})
+
+	t.Run("a task that never said done is reported but held", func(t *testing.T) {
+		working := task("pd-landing", worktree, "w9:pGone", "working")
+		inventory := Inventory{
+			Tasks:     []Task{working},
+			Worktrees: worktrees,
+			Processes: []Process{server},
+		}
+		findings := classOf(Classify(inventory), StaleServer)
+		if len(findings) != 1 {
+			t.Fatalf("got %d findings, want the leak reported even though the task never said done: %+v", len(findings), findings)
+		}
+		if !strings.Contains(findings[0].Hold(), "terminal status") {
+			t.Fatalf("hold = %q, want it held because the task never finished", findings[0].Hold())
+		}
+	})
+}
