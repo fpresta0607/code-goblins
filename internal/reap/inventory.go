@@ -90,7 +90,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 	inv.Worktrees = c.worktrees(ctx, inv.Tasks, &notes)
 
 	if c.Panes != nil {
-		panes, unresolved, err := c.readPanes(ctx)
+		panes, unresolved, unplaced, err := c.readPanes(ctx)
 		if err != nil {
 			// Every pane reads as gone when Herdr is unreadable, which would
 			// classify the whole live fleet as orphaned. Refuse instead: a
@@ -99,8 +99,12 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 		}
 		inv.Panes = panes
 		inv.UnresolvedPanes = unresolved
+		inv.UnplacedAgents = unplaced
 		for _, pane := range unresolved {
 			notes = append(notes, "pane "+pane+" could not report its process identity; process findings are held")
+		}
+		for _, pane := range unplaced {
+			notes = append(notes, "the agent on pane "+pane+" reported no working directory, so it cannot be placed in a worktree; findings that rest on placing it are held")
 		}
 	} else {
 		notes = append(notes, "no pane reader configured; pane evidence is missing")
@@ -162,6 +166,12 @@ func taskReported(lines []string) []string {
 // list; but its shell pid is missing from the supervised set, so it is named
 // separately and every process finding is held while any pane is unresolved.
 //
+// The third return is the panes whose agent reported no working directory.
+// Herdr declares that field nullable, so one agent answering with nothing is a
+// legitimate state rather than a fault, and it is neither an agent working
+// nowhere nor a fleet-wide failure: it is one agent the sweep cannot place, so
+// it is carried out and the classes that rest on placing it hold.
+//
 // The snapshot has to answer the protocol this build pins, as it does for
 // cleanup and the monitor. Where it does not, the agent fields the sweep reads
 // are not the fields it thinks they are: an agent whose working directory
@@ -169,20 +179,19 @@ func taskReported(lines []string) []string {
 // stands between a working goblin and a killed dev server into silence that
 // reads as absence. A sweep that cannot see agents refuses, for the same
 // reason one that cannot see panes does.
-func (c Collector) readPanes(ctx context.Context) (panes []Pane, unresolved []string, err error) {
+func (c Collector) readPanes(ctx context.Context) (panes []Pane, unresolved, unplaced []string, err error) {
 	snapshot, err := c.Panes.Snapshot(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if snapshot.Protocol != herdr.SupportedProtocol {
-		return nil, nil, fmt.Errorf("session snapshot protocol %d, want %d", snapshot.Protocol, herdr.SupportedProtocol)
+		return nil, nil, nil, fmt.Errorf("session snapshot protocol %d, want %d", snapshot.Protocol, herdr.SupportedProtocol)
 	}
 	agents := make(map[string]herdr.SnapshotAgent, len(snapshot.Agents))
-	carriesCwd := false
 	for _, agent := range snapshot.Agents {
 		agents[agent.PaneID] = agent
-		if agent.Cwd != "" {
-			carriesCwd = true
+		if agent.Cwd == "" {
+			unplaced = append(unplaced, agent.PaneID)
 		}
 	}
 	// The protocol number says the shape is supported, not that this field
@@ -190,10 +199,11 @@ func (c Collector) readPanes(ctx context.Context) (panes []Pane, unresolved []st
 	// signal that stands between a live goblin and a killed dev server matches
 	// nothing, silently. So the field is checked for rather than assumed. No
 	// agents at all is not a failure, because then there is nothing to place;
-	// agents that all report no working directory is one, because that is the
-	// evidence going missing rather than being absent.
-	if len(snapshot.Agents) > 0 && !carriesCwd {
-		return nil, nil, fmt.Errorf("session snapshot reports %d agent(s) and none carries a working directory; the evidence that places a live goblin is missing", len(snapshot.Agents))
+	// agents that all report no working directory is one, because a key that
+	// vanished for every agent is the evidence going missing rather than one
+	// agent declining to say.
+	if len(snapshot.Agents) > 0 && len(unplaced) == len(snapshot.Agents) {
+		return nil, nil, nil, fmt.Errorf("session snapshot reports %d agent(s) and none carries a working directory; the evidence that places a live goblin is missing", len(snapshot.Agents))
 	}
 	panes = make([]Pane, 0, len(snapshot.Panes))
 	for _, pane := range snapshot.Panes {
@@ -208,7 +218,7 @@ func (c Collector) readPanes(ctx context.Context) (panes []Pane, unresolved []st
 		}
 		panes = append(panes, entry)
 	}
-	return panes, unresolved, nil
+	return panes, unresolved, unplaced, nil
 }
 
 // worktrees enumerates every .worktrees/ directory the fleet could own: the
