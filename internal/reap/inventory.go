@@ -221,7 +221,7 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 		// Read once per root, and only for a root that has something under
 		// .worktrees/ to classify: the answer costs a subprocess, and most
 		// roots have nothing there at all.
-		var registered map[string]bool
+		var registered []os.FileInfo
 		asked := false
 		for _, entry := range entries {
 			if !entry.IsDir() || (!roots[root] && !strings.HasPrefix(entry.Name(), "gb-")) {
@@ -239,14 +239,15 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 				Path:       path,
 				Project:    root,
 				TaskID:     strings.TrimPrefix(entry.Name(), "gb-"),
-				Registered: registered[normalizePath(path)],
+				Registered: isRegisteredDir(path, registered),
 			})
 		}
 	}
 	return found
 }
 
-// registeredWorktrees reads the paths a project registers as worktrees. It is
+// registeredWorktrees reads the directories a project registers as worktrees,
+// as their on-disk identities rather than as the paths git spelled them. It is
 // the premise the whole worktree classification rests on, and it is checked
 // because it stops holding: a task that dies leaves its directory behind, the
 // repository drops it from the list, and the directory still looks exactly
@@ -257,7 +258,7 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 // A root that is not a repository at all answers with the enclosing
 // repository's list, which cannot contain a path under this root, so it
 // reports nothing as registered, which is the truth.
-func (c Collector) registeredWorktrees(ctx context.Context, root string, notes *[]string) map[string]bool {
+func (c Collector) registeredWorktrees(ctx context.Context, root string, notes *[]string) []os.FileInfo {
 	if c.Commands == nil {
 		*notes = append(*notes, "no command runner configured; no directory under .worktrees/ can be confirmed to be a worktree")
 		return nil
@@ -271,15 +272,42 @@ func (c Collector) registeredWorktrees(ctx context.Context, root string, notes *
 		*notes = append(*notes, fmt.Sprintf("%s: git worktree list exited with code %d (%s); its directories cannot be confirmed to be worktrees", root, result.ExitCode, strings.TrimSpace(string(result.Stderr))))
 		return nil
 	}
-	registered := make(map[string]bool)
+	var registered []os.FileInfo
 	for _, line := range strings.Split(string(result.Stdout), "\n") {
 		path, ok := strings.CutPrefix(strings.TrimSpace(line), "worktree ")
 		if !ok {
 			continue
 		}
-		registered[normalizePath(filepath.Clean(path))] = true
+		// A path git still lists but that is gone from disk cannot match a
+		// directory this scan found, so it is simply dropped.
+		if info, err := os.Stat(filepath.Clean(path)); err == nil {
+			registered = append(registered, info)
+		}
 	}
 	return registered
+}
+
+// isRegisteredDir asks whether a directory is one of the registered ones, by
+// identity rather than by spelling. An operator keeps a checkout on another
+// drive behind a junction: git prints the junction's target while the scan
+// joins the junction's own name, so the two spellings of one directory never
+// match as strings, and filepath.EvalSymlinks does not see through a Windows
+// junction either. os.Stat does, and os.SameFile then answers the only
+// question that matters, which is whether this is the same directory on disk.
+func isRegisteredDir(path string, registered []os.FileInfo) bool {
+	if len(registered) == 0 {
+		return false
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	for _, entry := range registered {
+		if os.SameFile(info, entry) {
+			return true
+		}
+	}
+	return false
 }
 
 // herdrRoots finds the Herdr server processes. Every pane shell CFO ever

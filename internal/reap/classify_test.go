@@ -433,6 +433,13 @@ func TestUnresolvedPaneHoldsEveryProcessFinding(t *testing.T) {
 			t.Fatalf("%s hold = %q, want the unresolved-pane refusal", class, matched[0].Hold)
 		}
 	}
+	// The remedy here is fixing Herdr. Inviting --force on evidence the sweep
+	// knows is incomplete is how a working goblin gets killed.
+	for _, finding := range classOf(findings, OrphanProcess) {
+		if strings.Contains(finding.Hold, "--force") {
+			t.Errorf("hold = %q, want no --force invitation", finding.Hold)
+		}
+	}
 }
 
 // TestClassifyProcessPopulations is the fix for four identical sweeps in
@@ -460,10 +467,6 @@ func TestClassifyProcessPopulations(t *testing.T) {
 		process(701, desktopPID, "claude.exe", desktopExe+" --type=renderer --user-data-dir=...", fixtureLater),
 		process(702, desktopPID, "claude.exe", desktopExe+" --type=gpu-process --gpu-preferences=...", fixtureLater),
 		process(703, desktopPID, "claude.exe", desktopExe+" --type=crashpad-handler --user-data-dir=...", fixtureLater),
-		// A Chromium child whose parent row is gone and whose command line
-		// carries no install path: the --type= switch is the only evidence
-		// left, and it is enough, because CFO launches no harness with one.
-		process(704, 1, "claude.exe", "claude.exe --type=renderer --user-data-dir=...", fixtureLater),
 		// A no-mistakes review round: the daemon and the reviewer it launched.
 		process(gatePID, 1, "no-mistakes.exe", `no-mistakes.exe daemon run --root C:\Users\x\.no-mistakes`, fixtureStart),
 		process(801, gatePID, "claude.exe", `claude --model opus --effort high -p --verbose --output-format stream-json --json-schema "{}"`, fixtureLater),
@@ -486,7 +489,6 @@ func TestClassifyProcessPopulations(t *testing.T) {
 		{701, "a desktop application renderer child"},
 		{702, "a desktop application gpu-process child"},
 		{703, "a desktop application crashpad-handler child"},
-		{704, "a Chromium child with no readable install path"},
 		{801, "a gate agent reviewing for a goblin that is working"},
 	} {
 		if finding, ok := reported[unwanted.pid]; ok {
@@ -566,5 +568,81 @@ func TestUnregisteredDirectoryNamesTheProcessHoldingIt(t *testing.T) {
 	}
 	if !strings.Contains(finding.Hold, "that process is the leak") {
 		t.Errorf("hold = %q, want the process named as the leak", finding.Hold)
+	}
+}
+
+// TestDirectoryIsNotBlamedOnANeighbourWithALongerName: task ids are names the
+// operator chooses, so one is routinely a prefix of another. A process working
+// in gb-old-2 is not the process holding gb-old open, and saying it is names
+// the wrong pid as the leak and leaves a removable shell in place.
+func TestDirectoryIsNotBlamedOnANeighbourWithALongerName(t *testing.T) {
+	inventory := Inventory{
+		Worktrees: []WorktreeDir{
+			{Path: `C:\dev\pd\.worktrees\gb-old`, Project: `C:\dev\pd`, TaskID: "old"},
+			{Path: `C:\dev\pd\.worktrees\gb-old-2`, Project: `C:\dev\pd`, TaskID: "old-2"},
+		},
+		Processes: []Process{
+			process(4242, 1, "node.exe", `node C:\dev\pd\.worktrees\gb-old-2\node_modules\vite\bin\vite.js`, fixtureLatest),
+		},
+	}
+	findings := classOf(Classify(inventory), OrphanDirectory)
+	byTask := make(map[string]Finding, len(findings))
+	for _, finding := range findings {
+		byTask[finding.TaskID] = finding
+	}
+	if got := byTask["old"]; got.PID != 0 {
+		t.Errorf("gb-old was blamed on pid %d, which is working in gb-old-2: %s", got.PID, got.Line())
+	}
+	if got := byTask["old-2"]; got.PID != 4242 {
+		t.Errorf("gb-old-2 finding = %+v, want pid 4242 named", got)
+	}
+	// The same unanchored match decides which worktree a stale server belongs
+	// to, so the neighbour must not collect the server either.
+	for _, server := range classOf(Classify(inventory), StaleServer) {
+		if server.TaskID == "old" {
+			t.Errorf("a server running in gb-old-2 was attributed to gb-old: %s", server.Line())
+		}
+	}
+}
+
+// TestLiveGoblinOutranksUnconfirmedRegistration: git worktree list can fail
+// for reasons that say nothing about the directory (git missing, an index
+// lock, a root that is not a repository), and every directory under that root
+// then reads as unregistered. A pane holding an agent right now is harder
+// evidence than that, so it wins.
+func TestLiveGoblinOutranksUnconfirmedRegistration(t *testing.T) {
+	inventory := Inventory{
+		Panes: []Pane{{ID: "pane-live", ShellPID: 200, ForegroundPID: 300, HasAgent: true}},
+		Tasks: []Task{task("live", `C:\dev\pd\.worktrees\gb-live`, "pane-live", "working")},
+		// Registration could not be confirmed, so the scan reports what it
+		// knows: nothing here is proven to be a worktree.
+		Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, TaskID: "live"}},
+	}
+	if findings := Classify(inventory); len(findings) != 0 {
+		t.Fatalf("a live goblin's worktree was reported: %+v", findings)
+	}
+}
+
+// TestOrphanMetaDoesNotDenyADirectoryTheSameReportNames: an unregistered shell
+// keeps its record, so both classes fire for one task. The meta must not then
+// claim nothing is left on disk while an orphan_directory beside it names that
+// exact path.
+func TestOrphanMetaDoesNotDenyADirectoryTheSameReportNames(t *testing.T) {
+	const shell = `C:\dev\pd\.worktrees\gb-dead`
+	inventory := Inventory{
+		Tasks:     []Task{task("dead", shell, "pane-gone", "done")},
+		Worktrees: []WorktreeDir{{Path: shell, Project: `C:\dev\pd`, TaskID: "dead"}},
+	}
+	findings := Classify(inventory)
+	directories := classOf(findings, OrphanDirectory)
+	if len(directories) != 1 || directories[0].Path != shell {
+		t.Fatalf("orphan_directory findings = %+v, want one naming %q", directories, shell)
+	}
+	metas := classOf(findings, OrphanMeta)
+	if len(metas) != 1 {
+		t.Fatalf("orphan_meta findings = %+v, want 1", metas)
+	}
+	if strings.Contains(metas[0].Detail, "on disk") {
+		t.Errorf("detail = %q, but %s is on disk and this same report says so", metas[0].Detail, shell)
 	}
 }

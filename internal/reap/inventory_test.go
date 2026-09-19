@@ -189,6 +189,48 @@ func TestWorktreesConfirmRegistrationWithTheRepository(t *testing.T) {
 	}
 }
 
+// TestWorktreesConfirmRegistrationThroughAJunction: git answers with the
+// junction's target while the scan joins the junction's own name, so comparing
+// the two spellings reports every live worktree in a junctioned checkout as an
+// abandoned directory. Both sides have to be resolved before they are compared.
+func TestWorktreesConfirmRegistrationThroughAJunction(t *testing.T) {
+	root := t.TempDir()
+	projects := filepath.Join(root, "dev")
+	elsewhere := filepath.Join(root, "other-drive", "BigRepo")
+	if err := os.MkdirAll(projects, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitInit(t, elsewhere)
+	junction := filepath.Join(projects, "BigRepo")
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", junction, elsewhere).CombinedOutput(); err != nil {
+		t.Skipf("no directory junction available here: %v: %s", err, out)
+	}
+
+	live := filepath.Join(junction, ".worktrees", "gb-live")
+	command := exec.Command("git", "worktree", "add", "--detach", live)
+	command.Dir = junction
+	if out, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v: %s", err, out)
+	}
+
+	collector := Collector{
+		Home:         home.Home{Root: filepath.Join(root, "home")},
+		Commands:     execx.OSRunner{},
+		ProjectsRoot: func() (string, error) { return projects, nil },
+	}
+	var notes []string
+	found := collector.worktrees(context.Background(), nil, &notes)
+	if len(found) != 1 || found[0].Path != live {
+		t.Fatalf("worktrees = %+v, want only %q", found, live)
+	}
+	if !found[0].Registered {
+		t.Errorf("a live worktree reached through a junction was not confirmed registered: %+v", found[0])
+	}
+	if len(notes) != 0 {
+		t.Errorf("unexpected notes: %q", notes)
+	}
+}
+
 // TestWorktreesSayWhenRegistrationCannotBeConfirmed: a scan with no way to ask
 // the repository has not proven anything is a worktree, and says so rather
 // than assuming it.
