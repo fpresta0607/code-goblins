@@ -688,3 +688,74 @@ func TestUnlistedShellOfAnUnfinishedTaskIsHeld(t *testing.T) {
 		t.Errorf("hold = %q, want it to name the latest verb", finding.Hold)
 	}
 }
+
+// TestAnUnreadableTaskRecordHoldsItsDirectory is the same class of defect this
+// branch exists to remove, found by auditing every error branch in the package
+// rather than by a report. A meta that cannot be read is dropped from the task
+// list, and a directory whose task is absent classifies as "has no metadata
+// record", which carries no hold at all. A record the sweep could not read
+// therefore produced a more actionable finding than one it read and found
+// unfinished. Whether that task finished is exactly what is unknown, so it is
+// gated.
+func TestAnUnreadableTaskRecordHoldsItsDirectory(t *testing.T) {
+	for _, testCase := range []struct {
+		name         string
+		registration Registration
+		class        Class
+		// The worktree detail states the task outcome, so it must not call an
+		// unreadable record an absent one. The directory detail is about the
+		// directory, and carries the record state in its hold instead.
+		detailNamesTheRecord bool
+	}{
+		{"a registered worktree", RegistrationListed, OrphanWorktree, true},
+		{"an unlisted directory", RegistrationUnlisted, OrphanDirectory, false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			inventory := Inventory{
+				UnreadableTasks: []string{"broken"},
+				Worktrees: []WorktreeDir{{
+					Path:         `C:\dev\pd\.worktrees\gb-broken`,
+					Project:      `C:\dev\pd`,
+					TaskID:       "broken",
+					Registration: testCase.registration,
+				}},
+			}
+			findings := classOf(Classify(inventory), testCase.class)
+			if len(findings) != 1 {
+				t.Fatalf("got %d %s findings, want 1: %+v", len(findings), testCase.class, findings)
+			}
+			if !strings.Contains(findings[0].Hold, "could not be read") {
+				t.Fatalf("hold = %q, want a refusal naming the unreadable record", findings[0].Hold)
+			}
+			if testCase.detailNamesTheRecord && !strings.Contains(findings[0].Detail, "could not be read") {
+				t.Fatalf("detail = %q, want it to say the record was unreadable rather than absent", findings[0].Detail)
+			}
+		})
+	}
+}
+
+// TestAnUnreadableTaskRecordHoldsItsServer: killing a dev server says the task
+// behind it is over, and an unreadable record is the one thing that cannot say
+// so. Without this, the server of a task whose meta went unreadable is more
+// killable than one the sweep read and found still working.
+func TestAnUnreadableTaskRecordHoldsItsServer(t *testing.T) {
+	inventory := Inventory{
+		UnreadableTasks: []string{"broken"},
+		Worktrees: []WorktreeDir{{
+			Path:         `C:\dev\pd\.worktrees\gb-broken`,
+			Project:      `C:\dev\pd`,
+			TaskID:       "broken",
+			Registration: RegistrationListed,
+		}},
+		Processes: []Process{
+			process(555, 1, "node.exe", `node C:\dev\pd\.worktrees\gb-broken\node_modules\vite\bin\vite.js`, fixtureLatest),
+		},
+	}
+	findings := classOf(Classify(inventory), StaleServer)
+	if len(findings) != 1 {
+		t.Fatalf("got %d stale_server findings, want 1: %+v", len(findings), findings)
+	}
+	if !strings.Contains(findings[0].Hold, "could not be read") {
+		t.Fatalf("hold = %q, want a refusal naming the unreadable record", findings[0].Hold)
+	}
+}

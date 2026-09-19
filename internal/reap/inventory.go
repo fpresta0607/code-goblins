@@ -77,6 +77,10 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 		meta, err := state.ReadTaskMeta(c.Home.State, id)
 		if err != nil {
 			notes = append(notes, fmt.Sprintf("state/%s.meta: UNREADABLE (%s)", id, err))
+			// Named rather than dropped: a task that vanishes here reads as a
+			// task that never existed, and a directory with no record behind
+			// it carries no hold at all.
+			inv.UnreadableTasks = append(inv.UnreadableTasks, id)
 			continue
 		}
 		verb := c.latestVerb(id)
@@ -125,11 +129,30 @@ func (c Collector) latestVerb(id string) string {
 	if err != nil {
 		return ""
 	}
-	verb, ok := crewstate.LatestVerb(lines)
+	verb, ok := crewstate.LatestVerb(taskReported(lines))
 	if !ok {
 		return ""
 	}
 	return verb
+}
+
+// taskReported drops the reaper's own audit lines from a task's status log.
+// The latest verb answers what the task last reported, and the reaper is not
+// the task: its line parses as the verb "reaped", which ends nothing, so a
+// task the sweep has acted on once would read as unfinished for the rest of
+// its life and every later finding for it would be held behind --force. That
+// is the two-sweep sequence this package relies on, where a directory is
+// removed in one sweep and the record it leaves behind is archived in the next.
+func taskReported(lines []string) []string {
+	kept := make([]string, 0, len(lines))
+	for _, line := range lines {
+		_, event := state.SplitStatus(line)
+		if strings.HasPrefix(strings.TrimSpace(event), ReapedPrefix) {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return kept
 }
 
 // readPanes pairs each pane in the structural snapshot with its
@@ -283,11 +306,23 @@ func (c Collector) registeredWorktrees(ctx context.Context, root string, notes *
 		if !ok {
 			continue
 		}
-		// A path git still lists but that is gone from disk cannot match a
-		// directory this scan found, so it is simply dropped.
-		if info, err := os.Stat(filepath.Clean(path)); err == nil {
-			registered = append(registered, info)
+		info, err := os.Stat(filepath.Clean(path))
+		if errors.Is(err, os.ErrNotExist) {
+			// A path git still lists but that is gone from disk is a worktree
+			// awaiting a prune. It cannot be any directory this scan found, so
+			// dropping it leaves the evidence about the others complete.
+			continue
 		}
+		if err != nil {
+			// Any other failure means this entry could not be compared at all,
+			// so the evidence set is incomplete, and an incomplete set cannot
+			// prove a directory is absent from it. Reporting that as "not
+			// listed" would be the same failure this package exists to remove:
+			// a premise that stopped holding, resolved to the permissive answer.
+			*notes = append(*notes, fmt.Sprintf("%s: %s is listed as a worktree but could not be read (%s); directories under this root cannot be confirmed", root, path, err))
+			return nil, false
+		}
+		registered = append(registered, info)
 	}
 	return registered, true
 }
@@ -305,7 +340,10 @@ func registrationOf(path string, registered []os.FileInfo, answered bool) Regist
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		return RegistrationUnlisted
+		// Nothing was established about this directory, so it takes the gated
+		// class. Answering "unlisted" here would put a directory the sweep
+		// could not even read into the removable one.
+		return RegistrationUnknown
 	}
 	for _, entry := range registered {
 		if os.SameFile(info, entry) {

@@ -169,6 +169,13 @@ type Inventory struct {
 	// CFO's own session, so without this it would report the session it is
 	// running in as an orphan.
 	SelfPIDs []int
+	// UnreadableTasks are the ids whose state/<id>.meta could not be read.
+	// Without them such a task is simply absent, and its directory then
+	// classifies as having no record at all, which carries no hold: a record
+	// the sweep could not read would produce a more actionable finding than
+	// one it read and found unfinished. Whether the task finished is exactly
+	// what is unknown here, so it is gated.
+	UnreadableTasks []string
 	// UnresolvedPanes are panes that exist but could not report their
 	// operating-system identity. Their harness processes are therefore
 	// missing from the supervised set, and a live goblin under one of them
@@ -225,8 +232,13 @@ func Classify(inv Inventory) []Finding {
 		panes[pane.ID] = pane
 	}
 
-	findings := classifyProcesses(inv, supervised, fleet, tasks)
-	findings = append(findings, classifyWorktrees(inv, supervised, tasks, panes)...)
+	unreadable := make(map[string]bool, len(inv.UnreadableTasks))
+	for _, id := range inv.UnreadableTasks {
+		unreadable[id] = true
+	}
+
+	findings := classifyProcesses(inv, supervised, fleet, tasks, unreadable)
+	findings = append(findings, classifyWorktrees(inv, supervised, tasks, panes, unreadable)...)
 	findings = append(findings, classifyMetas(inv, panes, supervised, fleet)...)
 	for _, id := range inv.OrphanStatusIDs {
 		findings = append(findings, Finding{
@@ -240,7 +252,7 @@ func Classify(inv Inventory) []Finding {
 	return findings
 }
 
-func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[string]Task) []Finding {
+func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[string]Task, unreadable map[string]bool) []Finding {
 	desktop := descendants(inv.Processes, rootsMatching(inv.Processes, isDesktopApp))
 	gates := descendants(inv.Processes, rootsMatching(inv.Processes, isGateSupervisor))
 	var findings []Finding
@@ -283,21 +295,28 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				// Its goblin is still working; the server is doing its job.
 				continue
 			}
-			findings = append(findings, Finding{
+			unreadableRecord := unreadable[worktree.TaskID]
+			finding := Finding{
 				Class:  StaleServer,
 				TaskID: worktree.TaskID,
 				PID:    process.PID,
 				Path:   worktree.Path,
-				Detail: fmt.Sprintf("%s rooted in %s, whose task %s", process.Name, worktree.Path, taskOutcome(task, known)),
+				Detail: fmt.Sprintf("%s rooted in %s, whose task %s", process.Name, worktree.Path, taskOutcome(task, known, unreadableRecord)),
 				Action: "kill the process tree",
 				Hold:   unresolvedPaneHold(inv),
-			})
+			}
+			if finding.Hold == "" && unreadableRecord {
+				// Killing this server says the task behind it is over, and an
+				// unreadable record is the one thing that cannot say so.
+				finding.Hold = unfinishedHold(task, known, true)
+			}
+			findings = append(findings, finding)
 		}
 	}
 	return findings
 }
 
-func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]Task, panes map[string]Pane) []Finding {
+func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]Task, panes map[string]Pane, unreadable map[string]bool) []Finding {
 	var findings []Finding
 	for _, worktree := range inv.Worktrees {
 		task, known := tasks[worktree.TaskID]
@@ -310,25 +329,36 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 			}
 		}
 		if worktree.Registration == RegistrationUnlisted {
-			findings = append(findings, classifyDirectory(inv, supervised, worktree, task, known))
+			findings = append(findings, classifyDirectory(inv, supervised, worktree, task, known, unreadable[worktree.TaskID]))
 			continue
 		}
 		finding := Finding{
 			Class:  OrphanWorktree,
 			TaskID: worktree.TaskID,
 			Path:   worktree.Path,
-			Detail: "no live pane, and its task " + taskOutcome(task, known),
+			Detail: "no live pane, and its task " + taskOutcome(task, known, unreadable[worktree.TaskID]),
 			Action: "return the worktree through cfo cleanup",
 		}
-		if known && !task.Terminal {
-			// A goblin whose pane died mid-work leaks its worktree just as
-			// surely as a finished one, so it is reported; it is held because
-			// the task never said it was done.
-			finding.Hold = "task has not reached a terminal status (latest verb " + verbText(task.Verb) + "); name its id with --force to reap it anyway"
-		}
+		// A goblin whose pane died mid-work leaks its worktree just as surely
+		// as a finished one, so it is reported; it is held because the task
+		// never said it was done, or because nothing can say whether it did.
+		finding.Hold = unfinishedHold(task, known, unreadable[worktree.TaskID])
 		findings = append(findings, finding)
 	}
 	return findings
+}
+
+// unfinishedHold is why a directory may not be retired yet: the task behind it
+// never said it was done, or its record could not be read at all. Both are the
+// same refusal, because both mean the sweep cannot show the work is over.
+func unfinishedHold(task Task, known, unreadable bool) string {
+	switch {
+	case unreadable:
+		return "its task record could not be read, so whether the task finished is unknown; name its id with --force to reap it anyway"
+	case known && !task.Terminal:
+		return "task has not reached a terminal status (latest verb " + verbText(task.Verb) + "); name its id with --force to reap it anyway"
+	}
+	return ""
 }
 
 // classifyDirectory reports a directory under .worktrees/ that the project
@@ -342,7 +372,7 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 // directory, and that process is the real leak. The command lines are searched
 // for one; a working directory is not readable from a process listing, so when
 // nothing names the path the finding says that rather than guessing.
-func classifyDirectory(inv Inventory, supervised map[int]bool, dir WorktreeDir, task Task, known bool) Finding {
+func classifyDirectory(inv Inventory, supervised map[int]bool, dir WorktreeDir, task Task, known, unreadable bool) Finding {
 	finding := Finding{
 		Class:  OrphanDirectory,
 		TaskID: dir.TaskID,
@@ -357,9 +387,7 @@ func classifyDirectory(inv Inventory, supervised map[int]bool, dir WorktreeDir, 
 		return finding
 	}
 	finding.Detail += "; no command line names it, and a working directory is not readable from a process listing, so if the removal fails a leaked process is holding it open"
-	if known && !task.Terminal {
-		finding.Hold = "task has not reached a terminal status (latest verb " + verbText(task.Verb) + "); name its id with --force to reap it anyway"
-	}
+	finding.Hold = unfinishedHold(task, known, unreadable)
 	return finding
 }
 
@@ -435,7 +463,7 @@ func classifyMetas(inv Inventory, panes map[string]Pane, supervised, fleet map[i
 			Class:  OrphanMeta,
 			TaskID: task.ID,
 			Path:   task.Meta.Worktree,
-			Detail: "no pane, no process, and no worktree left on disk; its task " + taskOutcome(task, true),
+			Detail: "no pane, no process, and no directory left on disk; its task " + taskOutcome(task, true, false),
 			Action: "force-archive the task record",
 		}
 		if !task.Terminal {
@@ -635,7 +663,13 @@ func worktreeOf(process Process, worktrees []WorktreeDir) (WorktreeDir, bool) {
 	return best, found
 }
 
-func taskOutcome(task Task, known bool) string {
+func taskOutcome(task Task, known, unreadable bool) string {
+	if unreadable {
+		// "no record" and "a record nothing could read" must not read the
+		// same: the first is a fact about the task, the second is a fact
+		// about the sweep.
+		return "has a metadata record that could not be read"
+	}
 	if !known {
 		return "has no metadata record"
 	}
