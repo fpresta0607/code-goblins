@@ -41,9 +41,9 @@ const (
 	// it either way.
 	OrphanWorktree Class = "orphan_worktree"
 	// OrphanMeta is a state/<id>.meta with no pane, no process, and no
-	// worktree left on disk. A meta whose worktree still exists classifies as
-	// OrphanWorktree instead, because returning the worktree retires the meta
-	// with it and one resource must not be reported twice.
+	// registered worktree. A meta whose worktree is still registered
+	// classifies as OrphanWorktree instead, because returning the worktree
+	// retires the meta with it and one resource must not be reported twice.
 	OrphanMeta Class = "orphan_meta"
 	// OrphanStatus is a state/<id>.status log with no matching meta.
 	OrphanStatus Class = "orphan_status"
@@ -283,16 +283,18 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]Task, panes map[string]Pane) []Finding {
 	var findings []Finding
 	for _, worktree := range inv.Worktrees {
-		if !worktree.Registered {
-			findings = append(findings, classifyDirectory(inv, supervised, worktree))
-			continue
-		}
 		task, known := tasks[worktree.TaskID]
 		if known {
 			if pane, ok := panes[task.Meta.HerdrPaneID]; ok && pane.HasAgent {
-				// A live goblin owns this directory.
+				// A live goblin owns this directory. This outranks
+				// registration: "could not confirm a worktree" is not
+				// evidence against a pane that is holding an agent right now.
 				continue
 			}
+		}
+		if !worktree.Registered {
+			findings = append(findings, classifyDirectory(inv, supervised, worktree))
+			continue
 		}
 		finding := Finding{
 			Class:  OrphanWorktree,
@@ -346,19 +348,48 @@ func classifyDirectory(inv Inventory, supervised map[int]bool, dir WorktreeDir) 
 // tool launched with the path as an argument, and misses one that merely has
 // it as its working directory.
 func processNaming(path string, inv Inventory, supervised map[int]bool) (int, bool) {
-	target := normalizePath(path)
-	if target == "" {
-		return 0, false
-	}
 	for _, process := range inv.Processes {
 		if supervised[process.PID] {
 			continue
 		}
-		if strings.Contains(normalizePath(process.CommandLine), target) {
+		if namesPath(process.CommandLine, path) {
 			return process.PID, true
 		}
 	}
 	return 0, false
+}
+
+// namesPath reports whether a command line names a directory. The match ends
+// at a boundary because task ids are operator-chosen names, so one is
+// routinely a prefix of another: without it, a process working in gb-old-2 is
+// read as the process holding gb-old open, and the sweep names the wrong pid
+// as the leak.
+func namesPath(commandLine, path string) bool {
+	target := normalizePath(path)
+	if target == "" {
+		return false
+	}
+	command := normalizePath(commandLine)
+	for offset := 0; offset+len(target) <= len(command); {
+		index := strings.Index(command[offset:], target)
+		if index < 0 {
+			return false
+		}
+		end := offset + index + len(target)
+		if end == len(command) || isPathBoundary(command[end]) {
+			return true
+		}
+		offset += index + 1
+	}
+	return false
+}
+
+func isPathBoundary(char byte) bool {
+	switch char {
+	case '\\', '"', '\'', ' ', '\t':
+		return true
+	}
+	return false
 }
 
 func classifyMetas(inv Inventory, panes map[string]Pane, supervised, fleet map[int]bool) []Finding {
@@ -388,7 +419,7 @@ func classifyMetas(inv Inventory, panes map[string]Pane, supervised, fleet map[i
 			Class:  OrphanMeta,
 			TaskID: task.ID,
 			Path:   task.Meta.Worktree,
-			Detail: "no pane, no process, and no worktree left on disk; its task " + taskOutcome(task, true),
+			Detail: "no pane, no process, and no registered worktree to return; its task " + taskOutcome(task, true),
 			Action: "force-archive the task record",
 		}
 		if !task.Terminal {
@@ -407,12 +438,11 @@ func taskHasProcess(task Task, processes []Process, supervised, fleet map[int]bo
 	if task.Meta.Worktree == "" {
 		return false
 	}
-	target := normalizePath(task.Meta.Worktree)
 	for _, process := range processes {
 		if !supervised[process.PID] && !fleet[process.PID] {
 			continue
 		}
-		if strings.Contains(normalizePath(process.CommandLine), target) {
+		if namesPath(process.CommandLine, task.Meta.Worktree) {
 			return true
 		}
 	}
@@ -482,7 +512,7 @@ func unresolvedPaneHold(inv Inventory) string {
 	if len(inv.UnresolvedPanes) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("%d pane(s) could not report their process identity (%s), so a live goblin is indistinguishable from an orphan here; fix Herdr or name the pid with --force", len(inv.UnresolvedPanes), strings.Join(inv.UnresolvedPanes, ", "))
+	return fmt.Sprintf("%d pane(s) could not report their process identity (%s), so a live goblin is indistinguishable from an orphan here; fix Herdr so those panes report what is running in them, then sweep again", len(inv.UnresolvedPanes), strings.Join(inv.UnresolvedPanes, ", "))
 }
 
 func isHarness(process Process) bool {
@@ -510,8 +540,8 @@ const unidentifiedHold = "could not determine what this process belongs to: it h
 
 // isNonFleetHarness reports whether a harness-shaped process is not a fleet
 // process at all. The image name alone says nothing on this machine: claude.exe
-// is the Overlord's desktop application a dozen times over (one parent plus its
-// Chromium children, each carrying a --type= switch), and one more per
+// is the Overlord's desktop application a dozen times over (one parent plus the
+// Chromium children it spawns, which run the same executable), and one more per
 // no-mistakes review round in progress. Both are read from the evidence the
 // scan already has, the ancestry and the command line, and both must be left
 // alone entirely: forcing one closes the application the Overlord is using or
@@ -523,11 +553,6 @@ func isNonFleetHarness(process Process, desktopApp, gateAgents map[int]bool) boo
 		return true
 	case gateAgents[process.PID]:
 		// A reviewer launched by a round in progress.
-		return true
-	case hasElectronType(process):
-		// A Chromium child: a renderer, a gpu-process, a utility or a crash
-		// handler. CFO launches no harness with a --type= switch, so this
-		// holds even where the install path could not be read.
 		return true
 	}
 	return false
@@ -543,13 +568,6 @@ func isDesktopApp(process Process) bool {
 // harnesses of a round in progress.
 func isGateSupervisor(process Process) bool {
 	return executableName(process.Name) == gateExecutable
-}
-
-// hasElectronType matches a Chromium child process. CFO launches no harness
-// with a --type= switch, so one that carries it is a renderer, a GPU process,
-// a utility or a crash handler, never a goblin.
-func hasElectronType(process Process) bool {
-	return strings.Contains(process.CommandLine, " --type=")
 }
 
 // rootsMatching collects the pids of every process the predicate accepts, for
@@ -586,12 +604,11 @@ func isServer(process Process) bool {
 // directory needs a PEB walk; add that only if a real leak is ever missed
 // this way.
 func worktreeOf(process Process, worktrees []WorktreeDir) (WorktreeDir, bool) {
-	command := normalizePath(process.CommandLine)
 	best := WorktreeDir{}
 	found := false
 	for _, worktree := range worktrees {
 		path := normalizePath(worktree.Path)
-		if path == "" || !strings.Contains(command, path) {
+		if !namesPath(process.CommandLine, worktree.Path) {
 			continue
 		}
 		// Longest match wins so a nested worktree beats its parent.
