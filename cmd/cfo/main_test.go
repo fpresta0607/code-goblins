@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/install"
 )
 
 func TestRun(t *testing.T) {
@@ -74,7 +76,7 @@ func TestRunUsageListsFleetCommands(t *testing.T) {
 		t.Fatalf("exit = %d, want 2", exit)
 	}
 	for _, command := range []string{
-		"cfo spawn <id> --project <path> --brief <path> [--harness <claude|codex|pi|kimi>]",
+		"cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>]",
 		"cfo send <target> [--key <key>] <text...>",
 		"cfo peek <target> [lines]",
 		"cfo fleet-view [--json]",
@@ -101,6 +103,12 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	if err := os.Setenv("CLAUDE_CONFIG_DIR", configDir); err != nil {
+		panic(err)
+	}
+	// The process value answers before the user scope is read, so pinning it
+	// keeps every test that runs a real command off this machine's registry,
+	// and off whichever checkouts its operator happens to keep.
+	if err := os.Setenv(install.ProjectsRootVariable, configDir); err != nil {
 		panic(err)
 	}
 	code := m.Run()

@@ -33,6 +33,8 @@ The telemetry and pipeline database regressions are the exception - they build r
 A test must never resolve the fleet home its shell exported.
 `internal/home.Resolve` refuses the `CFO_HOME` and `CFO_STATE_OVERRIDE` values the process was launched with whenever the caller is a test binary, so a test that needs a home points both at its own directory.
 That refusal cannot cover the real `cfo` binary, which is not a test binary, so a test that execs it - or a shell that resolves it - builds its environment through `cfoTestEnv` in `cmd/cfo`, and the exec helpers fail a test that would hand the child the inherited fleet.
+The machine's projects root is a second inherited value with no such refusal behind it, so a test package that builds a production `reap.Collector` or `watch.Config` pins `CFO_PROJECTS_ROOT` at an empty temporary directory in its own `TestMain`, as `cmd/cfo` and `internal/watch` do.
+The process value answers before the user scope, so the pin keeps the package off this machine's registry and off whichever checkouts its operator keeps.
 
 ```sh
 go test ./...

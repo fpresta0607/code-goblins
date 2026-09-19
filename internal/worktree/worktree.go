@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -85,6 +87,33 @@ func (s Service) Acquire(ctx context.Context, project, holder string) (Worktree,
 		return Worktree{}, fmt.Errorf("worktree: acquired worktree %q is the primary project", path)
 	}
 	return Worktree{Path: path}, nil
+}
+
+// GitignoreNotice returns the one line to show when project is about to get
+// its first worktree and its own .gitignore does not cover .worktrees/, or ""
+// otherwise. Acquire already hides the directory from git through the clone's
+// info/exclude, but everything else that walks a checkout - formatters,
+// bundlers, test runners, deploy uploads - reads .gitignore and nothing else,
+// so an uncovered checkout has them crawling every goblin's copy of the code.
+//
+// It only ever says so. The repository is the operator's, and a tracked file
+// there is not this tool's to edit. A checkout git cannot answer for gets no
+// notice rather than a guess: the line is advice, never a gate.
+func (s Service) GitignoreNotice(ctx context.Context, project string) string {
+	if entries, _ := os.ReadDir(filepath.Join(project, ".worktrees")); len(entries) > 0 {
+		return ""
+	}
+	if s.Commands == nil {
+		return ""
+	}
+	// -v names the file the deciding rule came from. Only the root .gitignore
+	// can be written as the bare name here: info/exclude and a global excludes
+	// file both print with a directory in front.
+	result, err := s.Commands.Run(ctx, execx.Request{Dir: project, Name: "git", Args: []string{"check-ignore", "-v", ".worktrees/"}})
+	if err != nil || result.ExitCode > 1 || strings.HasPrefix(string(result.Stdout), ".gitignore:") {
+		return ""
+	}
+	return fmt.Sprintf("warning: %s does not ignore .worktrees/; add the line `.worktrees/` to it so the tools that read .gitignore skip goblin worktrees (cfo never edits your repository, and git itself already ignores them through info/exclude)", filepath.Join(project, ".gitignore"))
 }
 
 // Return releases an acquired worktree: its shared links are unlinked, the
