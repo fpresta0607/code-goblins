@@ -194,6 +194,45 @@ func TestForceNamesOneProcess(t *testing.T) {
 	}
 }
 
+// TestATaskForceNeverClearsARefusalAboutAProcess: a task id says that task is
+// over and can say nothing about whether the sweep's view of what is running
+// is complete. A pane that cannot report its processes leaves a live goblin
+// indistinguishable from an orphan, and that refusal answers to the pid alone,
+// so forcing the unreadable task behind this server must not kill it.
+func TestATaskForceNeverClearsARefusalAboutAProcess(t *testing.T) {
+	const worktree = `C:\dev\pd\.worktrees\gb-broken`
+	inventory := Inventory{
+		Panes:           []Pane{{ID: "pane-b", HasAgent: true}},
+		UnresolvedPanes: []string{"pane-b"},
+		UnreadableTasks: []string{"broken"},
+		Worktrees:       []WorktreeDir{{Path: worktree, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "broken"}},
+		Processes:       []Process{process(555, 1, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest)},
+	}
+	runner := &gitRunner{}
+	service := newService(t, testHome(t), inventory, runner)
+	samples := 0
+	service.CPU = func(int) (time.Duration, bool) {
+		samples++
+		return 0, true
+	}
+
+	result, err := service.Apply(context.Background(), Options{Force: map[string]bool{"broken": true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hold := onlyFinding(t, result, StaleServer).Hold; !strings.Contains(hold, "process identity") {
+		t.Fatalf("hold = %q, want the unresolved-pane refusal to survive a task force", hold)
+	}
+	if len(runner.killed) != 0 {
+		t.Fatalf("a task force killed a process the sweep could not account for: %v", runner.killed)
+	}
+	// Three seconds of sampling per held finding buys nothing: the verdict is
+	// already reached and no measurement can change it.
+	if samples != 0 {
+		t.Fatalf("processor time was sampled %d time(s) for a finding that was already held", samples)
+	}
+}
+
 // populatedWorktree is a directory that holds a file, which is what makes it a
 // worktree rather than a shell. The work gate asserts that premise before it
 // believes any git answer about the path, so a fixture pointing at a directory
