@@ -221,16 +221,21 @@ func (s Service) gate(ctx context.Context, finding *Finding, options Options) {
 		// finish or to look at what it is doing, never to propose a kill.
 		finding.refuseUntilEstablished(s.holdIfBusy(finding.PID, options), strconv.Itoa(finding.PID))
 	case OrphanWorktree:
-		// Absolute, and it runs even for a forced task: --force covers the
-		// operator's judgement about a task's status, never a decision to
-		// destroy work.
-		finding.refuseAbsolutely(s.holdIfWorkWouldBeLost(ctx, finding.Path))
+		// Its work-preservation refusals are absolute and stand even for a
+		// forced task: --force covers the operator's judgement about a task's
+		// status, never a decision to destroy work.
+		s.holdIfWorkWouldBeLost(ctx, finding)
 	case OrphanDirectory:
 		// Removing the shell is only ever a removal of an empty directory.
 		// Anything with contents is somebody's files in a directory this
 		// sweep has already failed to explain, so it is reported, not touched.
 		finding.refuseAbsolutely(holdIfNotEmpty(finding.Path))
 	}
+	// A gate records its own refusals after the clear above, so the force is
+	// applied once more: a refusal the operator has already answered may not
+	// stand merely because the gate that found it ran second. The absolute
+	// ones are untouched, which is what makes them absolute.
+	finding.clearForced(options.Force)
 }
 
 // holdIfBusy samples processor time twice and refuses anything that moved.
@@ -264,16 +269,20 @@ const sweepAgain = ", then sweep again, because a worktree whose state cannot be
 
 // holdIfWorkWouldBeLost refuses any worktree with uncommitted changes or with
 // commits that exist nowhere else. A goblin's unpushed branch is the entire
-// product of its run, and no --force clears this: the point of the sweep is to
+// product of its run, and no --force clears that: the point of the sweep is to
 // free resources, never to decide that somebody's work did not matter. A
-// question it could not ask refuses too, and says so in those words rather
-// than claiming it found work.
-func (s Service) holdIfWorkWouldBeLost(ctx context.Context, worktree string) string {
+// question it could not ask refuses too, and absolutely, because unprovable
+// stays unremovable; it says it could not look rather than claiming it found
+// work. Only the premise refusal is the operator's to answer, because an empty
+// directory holds no work to preserve.
+func (s Service) holdIfWorkWouldBeLost(ctx context.Context, finding *Finding) {
+	worktree := finding.Path
 	if worktree == "" {
-		return ""
+		return
 	}
 	if s.Commands == nil {
-		return "no command runner is configured, so the sweep could not ask git anything here and this worktree's state is unknown rather than proven clean; configure one" + sweepAgain
+		finding.refuseAbsolutely("no command runner is configured, so the sweep could not ask git anything here and this worktree's state is unknown rather than proven clean; configure one" + sweepAgain)
+		return
 	}
 	// Every git question below is answered by the nearest enclosing repository
 	// when this path is not a worktree of its own, so the premise is asserted
@@ -282,28 +291,32 @@ func (s Service) holdIfWorkWouldBeLost(ctx context.Context, worktree string) str
 	// went on being reported as an empty directory's own.
 	empty, err := isEmptyDir(worktree)
 	if err != nil {
-		return "the sweep could not read this directory, so it could not establish whether a git answer would describe this path or an enclosing repository: " + err.Error() + "; resolve that" + sweepAgain
+		finding.refuseAbsolutely("the sweep could not read this directory, so it could not establish whether a git answer would describe this path or an enclosing repository: " + err.Error() + "; resolve that" + sweepAgain)
+		return
 	}
 	if empty {
-		return "this directory holds no files, so any git answer about it belongs to an enclosing repository and this path is not a worktree at all"
+		finding.refuseUntilEstablished("this directory holds no files, so nothing in it confirms the registration that made it read as a worktree, and any git answer about it would belong to an enclosing repository; confirm the project's worktree registration for this path and sweep again", finding.TaskID)
+		return
 	}
 
 	status, err := s.git(ctx, worktree, "status", "--porcelain=v1", "--untracked-files=all")
 	if err != nil {
-		return "the sweep could not read git status here, so whether this worktree holds uncommitted work is unknown rather than answered: " + err.Error() + "; resolve that" + sweepAgain
+		finding.refuseAbsolutely("the sweep could not read git status here, so whether this worktree holds uncommitted work is unknown rather than answered: " + err.Error() + "; resolve that" + sweepAgain)
+		return
 	}
 	if status != "" {
-		return "worktree has uncommitted or untracked changes"
+		finding.refuseAbsolutely("worktree has uncommitted or untracked changes")
+		return
 	}
 	unpushed, err := s.git(ctx, worktree, "log", "--oneline", "HEAD", "--not", "--remotes")
 	if err != nil {
-		return "the sweep could not list this worktree's unpushed commits, so whether it holds the only copy of any of them is unknown: " + err.Error() + "; resolve that" + sweepAgain
+		finding.refuseAbsolutely("the sweep could not list this worktree's unpushed commits, so whether it holds the only copy of any of them is unknown: " + err.Error() + "; resolve that" + sweepAgain)
+		return
 	}
 	if unpushed != "" {
 		count := len(strings.Split(unpushed, "\n"))
-		return fmt.Sprintf("worktree has %d commit(s) on no remote; pushing them is the only way this is safe to remove", count)
+		finding.refuseAbsolutely(fmt.Sprintf("worktree has %d commit(s) on no remote; pushing them is the only way this is safe to remove", count))
 	}
-	return ""
 }
 
 func (s Service) act(ctx context.Context, finding Finding) error {

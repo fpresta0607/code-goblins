@@ -58,10 +58,11 @@ const (
 )
 
 // Finding is one classified resource and the verdict on acting upon it.
-// Hold, when set, is why --apply will leave it alone: an unattributable
-// process, a task that has not finished, work that would be destroyed. Every
-// gate that refuses records its refusal here rather than dropping the finding,
-// so the report says what was found AND why it was not touched.
+// Holds, when any are recorded, are why --apply will leave it alone: an
+// unattributable process, a task that has not finished, work that would be
+// destroyed. Every gate that refuses records its refusal here rather than
+// dropping the finding, so the report says what was found AND why it was not
+// touched.
 type Finding struct {
 	Class  Class  `json:"class"`
 	TaskID string `json:"task_id,omitempty"`
@@ -69,15 +70,10 @@ type Finding struct {
 	Path   string `json:"path,omitempty"`
 	Detail string `json:"detail"`
 	Action string `json:"action"`
-	// Hold is the rendered refusal, and it is the only thing most readers
-	// need. It is written exclusively by the refuse methods below and never
-	// assigned at a call site: composing refusals by hand is what let a later
-	// one silently replace an earlier one, so that an unrelated missing pane
-	// could drop a refusal about a task record nobody could read.
-	Hold string `json:"hold,omitempty"`
-	// Holds are the refusals behind Hold, each carrying the key that clears
-	// it. They accumulate, so a finding refused for two reasons answers to
-	// both, and neither key answers for the other.
+	// Holds are the refusals, each carrying the key that clears it. They
+	// accumulate, so a finding refused for two reasons answers to both, and
+	// neither key answers for the other. The rendered hold is Hold(), a
+	// function of these and never a second copy kept beside them.
 	Holds []Refusal `json:"holds,omitempty"`
 }
 
@@ -126,15 +122,14 @@ func (f *Finding) refuseAbsolutely(reason string) {
 	f.add(Refusal{Reason: reason, Absolute: true})
 }
 
-// add appends a refusal and rebuilds the rendered hold. Appending is the whole
-// point: every site adds, none assigns, so a refusal already recorded cannot
-// be dropped by a later one that happens to run after it.
+// add appends a refusal. Appending is the whole point: every site adds, none
+// assigns, so a refusal already recorded cannot be dropped by a later one that
+// happens to run after it.
 func (f *Finding) add(refusal Refusal) {
 	if refusal.Reason == "" {
 		return
 	}
 	f.Holds = append(f.Holds, refusal)
-	f.Hold = f.holdText()
 }
 
 // Held reports whether anything is refusing this finding.
@@ -142,13 +137,12 @@ func (f Finding) Held() bool {
 	return len(f.Holds) > 0
 }
 
-// holdText renders every refusal and then says what answers them, derived
-// from the refusals themselves rather than written by hand at each site. It
-// describes which reasons a --force answers and never that the sweep will act:
-// a cleared hold only means the action is attempted, and a HELD line promising
-// an outcome it cannot deliver is the defect this sweep exists to stop
-// reporting.
-func (f Finding) holdText() string {
+// Hold renders every refusal and then says what answers them, derived from
+// the refusals themselves rather than stored beside them. It describes which
+// reasons a --force answers and never that the sweep will act: a cleared hold
+// only means the action is attempted, and a HELD line promising an outcome it
+// cannot deliver is the defect this sweep exists to stop reporting.
+func (f Finding) Hold() string {
 	reasons := make([]string, 0, len(f.Holds))
 	absolute := false
 	unestablished := false
@@ -205,7 +199,6 @@ func (f *Finding) clearForced(force map[string]bool) {
 		}
 	}
 	f.Holds = kept
-	f.Hold = f.holdText()
 }
 
 // Line renders one finding as the single line both the report and the status
@@ -223,8 +216,8 @@ func (f Finding) Line() string {
 		b.WriteString(" " + f.Path)
 	}
 	b.WriteString(": " + f.Detail)
-	if f.Hold != "" {
-		b.WriteString(" | HELD: " + f.Hold)
+	if hold := f.Hold(); hold != "" {
+		b.WriteString(" | HELD: " + hold)
 		return b.String()
 	}
 	b.WriteString(" | would " + f.Action)

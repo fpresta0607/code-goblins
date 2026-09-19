@@ -80,8 +80,8 @@ func TestClassify(t *testing.T) {
 				if findings[0].PID != 31032 {
 					t.Fatalf("orphan pid = %d, want 31032", findings[0].PID)
 				}
-				if findings[0].Hold != "" {
-					t.Fatalf("a fleet-descended orphan must not be held at classification: %q", findings[0].Hold)
+				if findings[0].Hold() != "" {
+					t.Fatalf("a fleet-descended orphan must not be held at classification: %q", findings[0].Hold())
 				}
 			},
 		},
@@ -97,8 +97,8 @@ func TestClassify(t *testing.T) {
 			want:      OrphanProcess,
 			wantCount: 1,
 			assert: func(t *testing.T, findings []Finding) {
-				if !strings.Contains(findings[0].Hold, "Herdr ancestry") {
-					t.Fatalf("hold = %q, want an attribution refusal", findings[0].Hold)
+				if !strings.Contains(findings[0].Hold(), "Herdr ancestry") {
+					t.Fatalf("hold = %q, want an attribution refusal", findings[0].Hold())
 				}
 			},
 		},
@@ -184,7 +184,7 @@ func TestClassify(t *testing.T) {
 			want:      OrphanMeta,
 			wantCount: 1,
 			assert: func(t *testing.T, findings []Finding) {
-				if findings[0].TaskID != "utah" || findings[0].Hold != "" {
+				if findings[0].TaskID != "utah" || findings[0].Hold() != "" {
 					t.Fatalf("finding = %+v, want an unheld utah record", findings[0])
 				}
 			},
@@ -210,8 +210,8 @@ func TestClassify(t *testing.T) {
 			want:      OrphanMeta,
 			wantCount: 1,
 			assert: func(t *testing.T, findings []Finding) {
-				if !strings.Contains(findings[0].Hold, "terminal status") {
-					t.Fatalf("hold = %q, want the terminal-status refusal", findings[0].Hold)
+				if !strings.Contains(findings[0].Hold(), "terminal status") {
+					t.Fatalf("hold = %q, want the terminal-status refusal", findings[0].Hold())
 				}
 			},
 		},
@@ -429,15 +429,15 @@ func TestUnresolvedPaneHoldsEveryProcessFinding(t *testing.T) {
 		if len(matched) != 1 {
 			t.Fatalf("got %d %s findings, want 1", len(matched), class)
 		}
-		if !strings.Contains(matched[0].Hold, "process identity") {
-			t.Fatalf("%s hold = %q, want the unresolved-pane refusal", class, matched[0].Hold)
+		if !strings.Contains(matched[0].Hold(), "process identity") {
+			t.Fatalf("%s hold = %q, want the unresolved-pane refusal", class, matched[0].Hold())
 		}
 	}
 	// The remedy here is fixing Herdr. Inviting --force on evidence the sweep
 	// knows is incomplete is how a working goblin gets killed.
 	for _, finding := range classOf(findings, OrphanProcess) {
-		if strings.Contains(finding.Hold, "--force") {
-			t.Errorf("hold = %q, want no --force invitation", finding.Hold)
+		if strings.Contains(finding.Hold(), "--force") {
+			t.Errorf("hold = %q, want no --force invitation", finding.Hold())
 		}
 	}
 }
@@ -499,8 +499,8 @@ func TestClassifyProcessPopulations(t *testing.T) {
 	if !ok {
 		t.Fatalf("the genuine orphan was not reported; findings: %+v", findings)
 	}
-	if orphan.Hold != "" {
-		t.Errorf("the genuine orphan was held: %q", orphan.Hold)
+	if orphan.Hold() != "" {
+		t.Errorf("the genuine orphan was held: %q", orphan.Hold())
 	}
 	if len(findings) != 1 {
 		t.Fatalf("got %d orphan_process findings, want only the genuine orphan: %+v", len(findings), findings)
@@ -520,11 +520,11 @@ func TestUnidentifiedHarnessDoesNotInviteForce(t *testing.T) {
 		},
 	}
 	finding := classOf(Classify(inventory), OrphanProcess)[0]
-	if strings.Contains(finding.Hold, "--force") {
-		t.Errorf("hold = %q, want no --force invitation", finding.Hold)
+	if strings.Contains(finding.Hold(), "--force") {
+		t.Errorf("hold = %q, want no --force invitation", finding.Hold())
 	}
-	if !strings.Contains(finding.Hold, "could not determine") {
-		t.Errorf("hold = %q, want it to say what could not be determined", finding.Hold)
+	if !strings.Contains(finding.Hold(), "could not determine") {
+		t.Errorf("hold = %q, want it to say what could not be determined", finding.Hold())
 	}
 }
 
@@ -566,8 +566,8 @@ func TestUnregisteredDirectoryNamesTheProcessHoldingIt(t *testing.T) {
 	if finding.PID != 4242 {
 		t.Fatalf("finding = %+v, want pid 4242 named", finding)
 	}
-	if !strings.Contains(finding.Hold, "that process is the leak") {
-		t.Errorf("hold = %q, want the process named as the leak", finding.Hold)
+	if !strings.Contains(finding.Hold(), "that process is the leak") {
+		t.Errorf("hold = %q, want the process named as the leak", finding.Hold())
 	}
 }
 
@@ -681,11 +681,11 @@ func TestUnlistedShellOfAnUnfinishedTaskIsHeld(t *testing.T) {
 		Worktrees: []WorktreeDir{{Path: shell, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "wedged"}},
 	}
 	finding := classOf(Classify(inventory), OrphanDirectory)[0]
-	if !strings.Contains(finding.Hold, "terminal status") {
-		t.Fatalf("hold = %q, want the terminal-status refusal", finding.Hold)
+	if !strings.Contains(finding.Hold(), "terminal status") {
+		t.Fatalf("hold = %q, want the terminal-status refusal", finding.Hold())
 	}
-	if !strings.Contains(finding.Hold, "working") {
-		t.Errorf("hold = %q, want it to name the latest verb", finding.Hold)
+	if !strings.Contains(finding.Hold(), "working") {
+		t.Errorf("hold = %q, want it to name the latest verb", finding.Hold())
 	}
 }
 
@@ -724,8 +724,8 @@ func TestAnUnreadableTaskRecordHoldsItsDirectory(t *testing.T) {
 			if len(findings) != 1 {
 				t.Fatalf("got %d %s findings, want 1: %+v", len(findings), testCase.class, findings)
 			}
-			if !strings.Contains(findings[0].Hold, "could not be read") {
-				t.Fatalf("hold = %q, want a refusal naming the unreadable record", findings[0].Hold)
+			if !strings.Contains(findings[0].Hold(), "could not be read") {
+				t.Fatalf("hold = %q, want a refusal naming the unreadable record", findings[0].Hold())
 			}
 			if testCase.detailNamesTheRecord && !strings.Contains(findings[0].Detail, "could not be read") {
 				t.Fatalf("detail = %q, want it to say the record was unreadable rather than absent", findings[0].Detail)
@@ -755,8 +755,8 @@ func TestAnUnreadableTaskRecordHoldsItsServer(t *testing.T) {
 	if len(findings) != 1 {
 		t.Fatalf("got %d stale_server findings, want 1: %+v", len(findings), findings)
 	}
-	if !strings.Contains(findings[0].Hold, "could not be read") {
-		t.Fatalf("hold = %q, want a refusal naming the unreadable record", findings[0].Hold)
+	if !strings.Contains(findings[0].Hold(), "could not be read") {
+		t.Fatalf("hold = %q, want a refusal naming the unreadable record", findings[0].Hold())
 	}
 }
 
@@ -770,8 +770,8 @@ func TestAHoldNamesWhatActuallyClearsIt(t *testing.T) {
 	t.Run("one key is named", func(t *testing.T) {
 		finding := Finding{Class: OrphanWorktree, TaskID: "wedged"}
 		finding.refuseUnlessForced("task has not reached a terminal status", "wedged")
-		if !strings.Contains(finding.Hold, "Name wedged with --force") {
-			t.Fatalf("hold = %q, want the one key named", finding.Hold)
+		if !strings.Contains(finding.Hold(), "Name wedged with --force") {
+			t.Fatalf("hold = %q, want the one key named", finding.Hold())
 		}
 	})
 
@@ -780,20 +780,20 @@ func TestAHoldNamesWhatActuallyClearsIt(t *testing.T) {
 		finding.refuseUnlessForced("pid 4242 is still using this directory", "4242")
 		finding.refuseUnlessForced("task has not reached a terminal status", "wedged")
 		for _, key := range []string{"4242", "wedged"} {
-			if !strings.Contains(finding.Hold, key) {
-				t.Fatalf("hold = %q, want it to name %q, which --force must also name", finding.Hold, key)
+			if !strings.Contains(finding.Hold(), key) {
+				t.Fatalf("hold = %q, want it to name %q, which --force must also name", finding.Hold(), key)
 			}
 		}
-		if !strings.Contains(finding.Hold, "every one of") {
-			t.Fatalf("hold = %q, want it to say that naming one is not enough", finding.Hold)
+		if !strings.Contains(finding.Hold(), "every one of") {
+			t.Fatalf("hold = %q, want it to say that naming one is not enough", finding.Hold())
 		}
 	})
 
 	t.Run("a refusal whose remedy is not force does not propose one", func(t *testing.T) {
 		finding := Finding{Class: OrphanProcess, PID: 900}
 		finding.refuseUntilEstablished(unidentifiedHold, "900")
-		if strings.Contains(finding.Hold, "--force") {
-			t.Fatalf("hold = %q, want no --force proposed for something the sweep could not identify", finding.Hold)
+		if strings.Contains(finding.Hold(), "--force") {
+			t.Fatalf("hold = %q, want no --force proposed for something the sweep could not identify", finding.Hold())
 		}
 	})
 
@@ -806,7 +806,7 @@ func TestAHoldNamesWhatActuallyClearsIt(t *testing.T) {
 			Worktrees:       []WorktreeDir{{Path: worktree, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "broken"}},
 			Processes:       []Process{process(555, 1, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest)},
 		}
-		hold := classOf(Classify(inventory), StaleServer)[0].Hold
+		hold := classOf(Classify(inventory), StaleServer)[0].Hold()
 		if !strings.Contains(hold, "Name broken with --force") {
 			t.Fatalf("hold = %q, want the key a --force does answer", hold)
 		}
@@ -828,8 +828,8 @@ func TestAHoldNamesWhatActuallyClearsIt(t *testing.T) {
 	t.Run("an absolute refusal says so", func(t *testing.T) {
 		finding := Finding{Class: OrphanWorktree, TaskID: "old"}
 		finding.refuseAbsolutely("worktree has 2 commit(s) on no remote")
-		if !strings.Contains(finding.Hold, "No --force clears this") {
-			t.Fatalf("hold = %q, want it to say no force clears it", finding.Hold)
+		if !strings.Contains(finding.Hold(), "No --force clears this") {
+			t.Fatalf("hold = %q, want it to say no force clears it", finding.Hold())
 		}
 	})
 }
@@ -846,8 +846,8 @@ func TestARefusalCannotBeReplacedBySite(t *testing.T) {
 		t.Fatalf("holds = %+v, want both refusals kept", finding.Holds)
 	}
 	for _, want := range []string{"could not report their process identity", "task record could not be read"} {
-		if !strings.Contains(finding.Hold, want) {
-			t.Fatalf("hold = %q, want it to carry %q", finding.Hold, want)
+		if !strings.Contains(finding.Hold(), want) {
+			t.Fatalf("hold = %q, want it to carry %q", finding.Hold(), want)
 		}
 	}
 }
