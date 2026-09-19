@@ -81,7 +81,8 @@ A whole-name match beats a longer sibling: `pocketpiggies` is `PocketPiggies`, n
 
 There is no registry and no mapping file: the folder is the project, and its name is the credential scope on every machine.
 `cfo auth store`, `cfo auth list` and `cfo auth copy` name a scope rather than a checkout, so they resolve a bare name the same way when it is one of your checkouts and otherwise keep it as the scope you typed, which is how a scope with no checkout on this machine is still addressed; the `stored <scope>/<NAME>` line always prints the scope that was written.
-An ambiguous name is refused there too.
+A folder that matches the name but holds no `.git` is not one of your checkouts, so the store commands keep the name as typed there as well, while every command that needs a checkout still refuses it.
+An ambiguous name is refused there too, and so is a projects root that is recorded but cannot be read: whether the name is a checkout is then unknowable, and writing a credential into a guessed scope is the silent failure this refusal exists to prevent.
 To reach a scope whose name would now resolve to a checkout, such as one stored under `precisiondocs` before this, write it as a path: `--from projects/precisiondocs`.
 
 ## Project authentication

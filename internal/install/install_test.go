@@ -661,16 +661,16 @@ func TestProjectsRootPrefersTheProcessEnvironment(t *testing.T) {
 	env := newFakeEnv(map[string]string{ProjectsRootVariable: `D:\recorded`})
 
 	t.Setenv(ProjectsRootVariable, "")
-	if got, err := ProjectsRoot(env); err != nil || got != `D:\recorded` {
+	if got, err := projectsRoot(env); err != nil || got != `D:\recorded` {
 		t.Errorf("ProjectsRoot = %q, %v; want the recorded user-scope value", got, err)
 	}
 	t.Setenv(ProjectsRootVariable, `E:\override`)
-	if got, err := ProjectsRoot(env); err != nil || got != `E:\override` {
+	if got, err := projectsRoot(env); err != nil || got != `E:\override` {
 		t.Errorf("ProjectsRoot = %q, %v; want the process override", got, err)
 	}
 
 	t.Setenv(ProjectsRootVariable, "")
-	if got, err := ProjectsRoot(newFakeEnv(nil)); err != nil || got != "" {
+	if got, err := projectsRoot(newFakeEnv(nil)); err != nil || got != "" {
 		t.Errorf("ProjectsRoot = %q, %v; want empty when nothing is recorded", got, err)
 	}
 }

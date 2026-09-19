@@ -8,15 +8,18 @@ import (
 	"strings"
 )
 
-// A bare name that cannot be placed fails for one of three reasons, and a
+// A bare name that cannot be placed fails for one of four reasons, and a
 // caller that treats a project argument as a credential scope rather than a
-// checkout has to tell them apart: an unset root and an unknown name leave the
-// name as written, while an ambiguous one is a question only the operator can
-// answer.
+// checkout has to tell them apart: an unset root, an unknown name and a folder
+// that is no checkout all leave the name as written, while an ambiguous one is
+// a question only the operator can answer. A root that is recorded but cannot
+// be read is none of these: it comes back unwrapped, because which of the four
+// the name is cannot be known, and every caller refuses.
 var (
-	ErrRootUnset = errors.New("projects root is not set")
-	ErrUnknown   = errors.New("no such checkout")
-	ErrAmbiguous = errors.New("ambiguous project name")
+	ErrRootUnset   = errors.New("projects root is not set")
+	ErrUnknown     = errors.New("no such checkout")
+	ErrNotCheckout = errors.New("not a git checkout")
+	ErrAmbiguous   = errors.New("ambiguous project name")
 )
 
 // Resolve turns a --project argument into a checkout directory.
@@ -36,7 +39,7 @@ var (
 // The folder is the answer, never a mapping: the credential scope is the
 // resolved folder's name on every machine, so a name and its path agree.
 func Resolve(arg string, root func() (string, error)) (string, error) {
-	if !IsBareName(arg) {
+	if !isBareName(arg) {
 		return arg, nil
 	}
 	dir := ""
@@ -80,7 +83,7 @@ func Resolve(arg string, root func() (string, error)) (string, error) {
 		case 1:
 			checkout := filepath.Join(dir, matched[0])
 			if !hasGit(checkout) {
-				return "", fmt.Errorf("project %q resolves to %s, which is not a git checkout (no .git); clone it there or pass a path", arg, checkout)
+				return "", fmt.Errorf("project %q resolves to %s, which is %w (no .git); clone it there or pass a path", arg, checkout, ErrNotCheckout)
 			}
 			return checkout, nil
 		default:
@@ -100,9 +103,9 @@ func Resolve(arg string, root func() (string, error)) (string, error) {
 	return "", fmt.Errorf("%w: %q under the projects root %s; candidates: %s", ErrUnknown, arg, dir, strings.Join(candidates, ", "))
 }
 
-// IsBareName reports whether a project argument is a name to look up rather
+// isBareName reports whether a project argument is a name to look up rather
 // than a path to use.
-func IsBareName(arg string) bool {
+func isBareName(arg string) bool {
 	return arg != "" && arg != "." && arg != ".." &&
 		!strings.ContainsAny(arg, `/\`) && filepath.VolumeName(arg) == ""
 }

@@ -95,8 +95,8 @@ func TestResolveRefusesADirectoryWithoutGit(t *testing.T) {
 	root := projectsRoot(t, "notes!")
 
 	_, err := Resolve("notes", fixedRoot(root))
-	if err == nil || !strings.Contains(err.Error(), "no .git") {
-		t.Fatalf("err = %v, want a refusal naming the missing .git", err)
+	if !errors.Is(err, ErrNotCheckout) || !strings.Contains(err.Error(), "no .git") {
+		t.Fatalf("err = %v, want ErrNotCheckout naming the missing .git", err)
 	}
 	if errors.Is(err, ErrUnknown) || errors.Is(err, ErrRootUnset) {
 		t.Errorf("a directory that exists must not read as an unknown name: %v", err)
@@ -151,7 +151,12 @@ func TestResolveReportsARootThatCannotBeRead(t *testing.T) {
 
 	missing := filepath.Join(t.TempDir(), "gone")
 	_, err = Resolve("demo", fixedRoot(missing))
-	if err == nil || !strings.Contains(err.Error(), missing) || errors.Is(err, ErrUnknown) {
+	if err == nil || !strings.Contains(err.Error(), missing) {
 		t.Errorf("err = %v, want a refusal naming the unreadable root", err)
+	}
+	// None of the sentinels a caller keeps the name for: whether the name is a
+	// checkout is unknowable, so every caller has to refuse.
+	if errors.Is(err, ErrUnknown) || errors.Is(err, ErrRootUnset) || errors.Is(err, ErrNotCheckout) {
+		t.Errorf("an unreadable root read as an answer about the name: %v", err)
 	}
 }

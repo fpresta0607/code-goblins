@@ -223,13 +223,13 @@ func (s Service) unsetProjectsRoot(report *reporter) error {
 	return nil
 }
 
-// ProjectsRoot reads the machine's projects root, or "" when none is recorded.
+// projectsRoot reads the machine's projects root, or "" when none is recorded.
 // The process environment answers first, so an operator can point one command
 // somewhere else. The user scope answers second, because a session that was
 // already open when `cfo install --projects-root` ran keeps its old
 // environment for as long as it lives, and the CFO's own session is exactly
 // that.
-func ProjectsRoot(env EnvStore) (string, error) {
+func projectsRoot(env EnvStore) (string, error) {
 	if root := strings.TrimSpace(os.Getenv(ProjectsRootVariable)); root != "" {
 		return root, nil
 	}
@@ -240,9 +240,9 @@ func ProjectsRoot(env EnvStore) (string, error) {
 	return strings.TrimSpace(root), nil
 }
 
-// MachineProjectsRoot is ProjectsRoot against this machine's own user scope.
+// MachineProjectsRoot is projectsRoot against this machine's own user scope.
 func MachineProjectsRoot() (string, error) {
-	return ProjectsRoot(NewEnvStore(execx.OSRunner{}))
+	return projectsRoot(NewEnvStore(execx.OSRunner{}))
 }
 
 func (s Service) addToPath(report *reporter) error {

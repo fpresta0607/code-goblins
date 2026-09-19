@@ -312,11 +312,15 @@ func credentialKey(runtime commandRuntime, project, name string, stderr io.Write
 //
 // A bare name that is one of the machine's checkouts becomes that checkout's
 // folder name, so a credential stored by name lands in the scope a spawn by
-// the same name reads. A name that is no checkout, or a machine with no
-// projects root, keeps the name as the scope, which is what a bare name meant
-// before names resolved and is still how a scope with no checkout here is
-// addressed. An ambiguous name is refused: guessing between two scopes is the
-// same mistake as the one above.
+// the same name reads. A name that is no checkout, whether nothing under the
+// root carries it or the folder that does holds no .git, keeps the name as the
+// scope, which is what a bare name meant before names resolved and is still
+// how a scope with no checkout here is addressed. An ambiguous name is
+// refused: guessing between two scopes is the same mistake as the one above. A
+// projects root that is recorded but cannot be read is refused too, here as
+// everywhere: whether the name is a checkout is then unknowable, and a
+// credential written into a guessed scope is the silent failure this function
+// exists to prevent.
 func credentialScope(runtime commandRuntime, project string) (string, error) {
 	unusable := fmt.Errorf("%q is not a usable project scope", project)
 	separator := func(r rune) bool { return r == '/' || r == '\\' }
@@ -329,7 +333,7 @@ func credentialScope(runtime commandRuntime, project string) (string, error) {
 	}
 	resolved, err := runtime.resolveProject(project)
 	switch {
-	case errors.Is(err, projectcfg.ErrRootUnset), errors.Is(err, projectcfg.ErrUnknown):
+	case errors.Is(err, projectcfg.ErrRootUnset), errors.Is(err, projectcfg.ErrUnknown), errors.Is(err, projectcfg.ErrNotCheckout):
 		resolved = project
 	case err != nil:
 		return "", err
