@@ -2,6 +2,7 @@ package reap
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -645,10 +646,15 @@ func TestEmptyShellUnderUnconfirmableRegistrationIsTheOperatorsToAnswer(t *testi
 	}
 	inventory := Inventory{Worktrees: []WorktreeDir{{Path: shell, Project: repo, Registration: RegistrationUnknown, TaskID: "dead"}}}
 	service := newService(t, testHome(t), inventory, &gitRunner{})
+	// The worktree return path runs git inside the directory it is returning,
+	// which for an empty one is answered by the enclosing repository: the very
+	// lie this branch removes. So it must not be reached at all, and the fake
+	// says so rather than standing in for it. An earlier version of this test
+	// stubbed this with os.Remove, which made the wrong path look right.
 	var returned []string
 	service.Return = func(_ context.Context, _, worktree string) error {
 		returned = append(returned, worktree)
-		return os.Remove(worktree)
+		return errors.New("the worktree return path asked git about a directory holding no files")
 	}
 
 	result, err := service.Apply(context.Background(), Options{})
@@ -656,9 +662,9 @@ func TestEmptyShellUnderUnconfirmableRegistrationIsTheOperatorsToAnswer(t *testi
 		t.Fatal(err)
 	}
 	hold := onlyFinding(t, result, OrphanWorktree).Hold()
-	for _, want := range []string{"registration", "sweep again"} {
+	for _, want := range []string{"holds no files", "enclosing repository", "establish what it is"} {
 		if !strings.Contains(hold, want) {
-			t.Fatalf("hold = %q, want it to name %q as what has to be resolved", hold, want)
+			t.Fatalf("hold = %q, want it to say %q", hold, want)
 		}
 	}
 	if strings.Contains(hold, "No --force clears this") {
@@ -671,7 +677,7 @@ func TestEmptyShellUnderUnconfirmableRegistrationIsTheOperatorsToAnswer(t *testi
 		t.Fatalf("the shell was removed behind its own hold: %v", err)
 	}
 
-	t.Run("the task id the operator names clears it", func(t *testing.T) {
+	t.Run("the task id the operator names clears it, and git is never asked", func(t *testing.T) {
 		result, err := service.Apply(context.Background(), Options{Force: map[string]bool{"dead": true}})
 		if err != nil {
 			t.Fatal(err)
@@ -679,8 +685,11 @@ func TestEmptyShellUnderUnconfirmableRegistrationIsTheOperatorsToAnswer(t *testi
 		if finding := onlyFinding(t, result, OrphanWorktree); finding.Hold() != "" {
 			t.Fatalf("hold = %q, want the named task id to answer it", finding.Hold())
 		}
-		if len(returned) != 1 || returned[0] != shell {
-			t.Fatalf("returned = %v, want the empty shell returned once the operator named it", returned)
+		if len(returned) != 0 {
+			t.Fatalf("returned = %v, want the empty directory removed directly, never through a path that asks git about it", returned)
+		}
+		if _, err := os.Stat(shell); !os.IsNotExist(err) {
+			t.Fatalf("the empty shell survived the force that answered its hold: %v", err)
 		}
 	})
 }

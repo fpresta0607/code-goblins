@@ -295,7 +295,13 @@ func (s Service) holdIfWorkWouldBeLost(ctx context.Context, finding *Finding) {
 		return
 	}
 	if empty {
-		finding.refuseUntilEstablished("this directory holds no files, so nothing in it confirms the registration that made it read as a worktree, and any git answer about it would belong to an enclosing repository; confirm the project's worktree registration for this path and sweep again", finding.TaskID)
+		// The reason states only what was established here, which is that the
+		// directory is empty and that git therefore speaks for somewhere else.
+		// It does not name a cause, because the same emptiness reaches this
+		// point from a registration that could not be read and from a listed
+		// worktree whose files are gone, and a remedy right for one of those
+		// is wrong for the other.
+		finding.refuseUntilEstablished("this directory holds no files, so no git answer about it belongs to it rather than to an enclosing repository, and nothing about what it is can be established from here; establish what it is before it is removed", finding.TaskID)
 		return
 	}
 
@@ -351,6 +357,14 @@ func (s Service) act(ctx context.Context, finding Finding) error {
 // it goes through the same worktree return primitive cleanup itself calls,
 // rather than through a second removal implementation.
 func (s Service) returnWorktree(ctx context.Context, finding Finding) error {
+	// A directory holding no files has nothing to return, and both paths below
+	// run git inside it, which is answered by the enclosing repository. That
+	// is the lie this whole branch exists to stop telling, so it must not be
+	// told by the action either: removing the empty directory is the whole of
+	// what returning it can honestly mean.
+	if empty, err := isEmptyDir(finding.Path); err == nil && empty {
+		return os.Remove(finding.Path)
+	}
 	if finding.TaskID != "" && state.ValidTaskID(finding.TaskID) == nil {
 		if _, err := os.Stat(filepath.Join(s.Home.State, finding.TaskID+".meta")); err == nil {
 			if s.Clean == nil {

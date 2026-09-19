@@ -19,8 +19,15 @@ import (
 // RecordSchema versions the persisted audit, and RecordFile is where it lives.
 // The dot keeps it out of state.ScanIDs alongside the rest of CFO's own
 // bookkeeping.
+// The schema moved to v2 when a finding stopped carrying its rendered hold as
+// a field and started deriving it from the refusals behind it. A v1 record
+// holds "hold" and no "holds", so decoding one under v2 rules would produce a
+// finding with no refusals at all, and the session-start digest would tell the
+// operator that the sweep will act on everything the last sweep refused to
+// touch. Refusing to read it says the audit is stale, which is true, and the
+// next sweep replaces it within the watcher's own interval.
 const (
-	RecordSchema = "cfo-reap.v1"
+	RecordSchema = "cfo-reap.v2"
 	RecordFile   = ".reap-audit.json"
 )
 
