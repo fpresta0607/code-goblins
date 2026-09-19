@@ -1263,3 +1263,26 @@ func TestApplyNeverKillsWithoutANamedPID(t *testing.T) {
 		}
 	})
 }
+
+// TestAnIdleReadingIsReportedRatherThanLeftSilent: the operator decides
+// whether to name a pid from the reported line, and the idle case is exactly
+// the one they act on. Reporting it as nothing made a measured idle process
+// indistinguishable from one nobody measured.
+func TestAnIdleReadingIsReportedRatherThanLeftSilent(t *testing.T) {
+	h := testHome(t)
+	runner := &gitRunner{}
+	service := newService(t, h, orphanProcessInventory(), runner)
+	service.CPU = func(int) (time.Duration, bool) { return 2 * time.Second, true }
+
+	result, err := service.Audit(context.Background(), Options{ProbeIdle: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finding := onlyFinding(t, result, OrphanProcess)
+	if !strings.Contains(finding.Detail, "idle:") {
+		t.Fatalf("detail = %q, want the idle reading reported on the line the operator decides from", finding.Detail)
+	}
+	if len(runner.killed) != 0 {
+		t.Fatalf("an audit killed something: %v", runner.killed)
+	}
+}

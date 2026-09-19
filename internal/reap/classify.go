@@ -458,7 +458,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				Action: "kill the process tree",
 			}
 			finding.refuseUntilEstablished(unresolvedPaneHold(inv), strconv.Itoa(process.PID))
-			finding.refuseUntilEstablished(unplacedAgentHold(inv), strconv.Itoa(process.PID))
+			finding.refuseUntilEstablished(unplacedAgentHold(inv), unplacedAgentKey(inv))
 			// A task that never said it was done, or whose record could not be
 			// read, is reported and held rather than skipped: the server is
 			// still a leak once its goblin is gone, and the operator is the
@@ -494,7 +494,7 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 			Detail:     placementOutcome(inv, task, known, unreadable[worktree.TaskID]),
 			Action:     "return the worktree through cfo cleanup",
 		}
-		finding.refuseUntilEstablished(unplacedAgentHold(inv), finding.TaskID)
+		finding.refuseUntilEstablished(unplacedAgentHold(inv), unplacedAgentKey(inv))
 		// A goblin whose pane died mid-work leaks its worktree just as surely
 		// as a finished one, so it is reported; it is held because the task
 		// never said it was done, or because nothing can say whether it did.
@@ -771,6 +771,20 @@ func unresolvedPaneHold(inv Inventory) string {
 // answer rather than an agent working somewhere else. Herdr declares that
 // field nullable, so this is a state the fleet reaches without anything being
 // broken.
+// unplacedAgentKey is what answers an unplaced-agent refusal: the panes whose
+// agents did not say where they are running, and nothing else. Keying it to
+// the pid or the task id beside it would let one refusal be answered by the
+// key for another, which is the mistake the whole refusal model exists to
+// stop: naming a pid says nothing about where an unrelated agent is working,
+// and naming a task id says its work is over, not that nobody else is in its
+// directory.
+func unplacedAgentKey(inv Inventory) string {
+	if len(inv.UnplacedAgents) == 0 {
+		return ""
+	}
+	return strings.Join(inv.UnplacedAgents, "+")
+}
+
 func unplacedAgentHold(inv Inventory) string {
 	if len(inv.UnplacedAgents) == 0 {
 		return ""
