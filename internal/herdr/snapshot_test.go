@@ -9,7 +9,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
-const testSnapshotEnvelope = `{"id":"cli:api:snapshot","result":{"type":"session_snapshot","snapshot":{"version":"0.8.0-test","protocol":19,"workspaces":[{"workspace_id":"w3","label":"cfo"}],"tabs":[{"tab_id":"w3:t4","workspace_id":"w3","label":"gb-task"}],"panes":[{"pane_id":"w3:p4","tab_id":"w3:t4","workspace_id":"w3"}],"agents":[{"pane_id":"w3:p4","tab_id":"w3:t4","workspace_id":"w3","agent":"claude","agent_status":"done"}]}}}`
+const testSnapshotEnvelope = `{"id":"cli:api:snapshot","result":{"type":"session_snapshot","snapshot":{"version":"0.8.0-test","protocol":19,"workspaces":[{"workspace_id":"w3","label":"cfo"}],"tabs":[{"tab_id":"w3:t4","workspace_id":"w3","label":"gb-task"}],"panes":[{"pane_id":"w3:p4","tab_id":"w3:t4","workspace_id":"w3"}],"agents":[{"pane_id":"w3:p4","tab_id":"w3:t4","workspace_id":"w3","agent":"claude","agent_status":"done","cwd":"C:\\dev\\proj\\.worktrees\\gb-task"}]}}}`
 
 func TestSnapshotParsesTypedEnvelopeWithoutJSONFlag(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{rawReply(testSnapshotEnvelope)}}
@@ -34,6 +34,12 @@ func TestSnapshotParsesTypedEnvelopeWithoutJSONFlag(t *testing.T) {
 	}
 	if len(snapshot.Agents) != 1 || snapshot.Agents[0].PaneID != "w3:p4" || snapshot.Agents[0].Status != "done" {
 		t.Errorf("agents = %+v", snapshot.Agents)
+	}
+	// The working directory is the one live answer to which worktree a goblin
+	// is in, and the reap sweep decides what to kill on it, so the key it
+	// arrives under is part of this envelope's contract.
+	if snapshot.Agents[0].Cwd != `C:\dev\proj\.worktrees\gb-task` {
+		t.Errorf("agent cwd = %q, want the working directory the envelope carries", snapshot.Agents[0].Cwd)
 	}
 	assertRequests(t, runner.Requests(), []execx.Request{
 		command("herdr", "api", "snapshot", "--session", "fleet"),
