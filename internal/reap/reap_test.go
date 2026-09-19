@@ -116,10 +116,41 @@ func orphanProcessInventory() Inventory {
 	}
 }
 
-// TestGateRefusesBusyProcess is the lesson the fleet already paid for: a
-// goblin waiting on an API response looks idle by log age but is not by
-// processor time, so idleness is measured, never inferred.
-func TestGateRefusesBusyProcess(t *testing.T) {
+// TestANamedBusyProcessIsKilledAndTheMeasurementReported is the lesson the
+// fleet already paid for: a goblin waiting on an API response looks idle by
+// log age but is not by processor time, so idleness is measured, never
+// inferred. Naming the pid has always meant killing that process even if it is
+// busy, so the measurement is reported beside the kill rather than refusing it.
+func TestANamedBusyProcessIsKilledAndTheMeasurementReported(t *testing.T) {
+	h := testHome(t)
+	runner := &gitRunner{}
+	service := newService(t, h, orphanProcessInventory(), runner)
+	samples := []time.Duration{2 * time.Second, 4 * time.Second}
+	call := 0
+	service.CPU = func(int) (time.Duration, bool) {
+		sample := samples[call]
+		call++
+		return sample, true
+	}
+
+	result, err := service.Apply(context.Background(), Options{Force: map[string]bool{"31032": true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finding := onlyFinding(t, result, OrphanProcess)
+	if !strings.Contains(finding.Detail, "busy") {
+		t.Fatalf("detail = %q, want the measurement reported beside the kill", finding.Detail)
+	}
+	if len(runner.killed) != 1 || runner.killed[0] != 31032 {
+		t.Fatalf("killed = %v, want [31032]; a named pid is killed even when the measurement says it is busy", runner.killed)
+	}
+}
+
+// A process the operator has not named is not killed, and the measurement is
+// still taken: the report is what the operator reads to decide which pid to
+// name, so the one fact that separates a live process from an abandoned one
+// has to be in it rather than appearing only on the run that ends it.
+func TestAnUnnamedProcessIsMeasuredAndLeftAlone(t *testing.T) {
 	h := testHome(t)
 	runner := &gitRunner{}
 	service := newService(t, h, orphanProcessInventory(), runner)
@@ -136,31 +167,36 @@ func TestGateRefusesBusyProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	finding := onlyFinding(t, result, OrphanProcess)
-	if !strings.Contains(finding.Hold(), "busy") {
-		t.Fatalf("hold = %q, want a busy refusal", finding.Hold())
+	if !strings.Contains(finding.Detail, "busy") {
+		t.Fatalf("detail = %q, want the measurement in the report the operator decides from", finding.Detail)
+	}
+	if !strings.Contains(finding.Hold(), "31032") {
+		t.Fatalf("hold = %q, want it to name the pid that authorises the kill", finding.Hold())
 	}
 	if len(runner.killed) != 0 {
-		t.Fatalf("a busy process was killed: %v", runner.killed)
+		t.Fatalf("killed = %v, want nothing; no pid was named", runner.killed)
 	}
 }
 
-// TestGateRefusesUnmeasurableProcess: not being able to read processor time is
-// not evidence of idleness.
-func TestGateRefusesUnmeasurableProcess(t *testing.T) {
+// TestANamedUnmeasurableProcessIsKilledAndSaysSo: not being able to read
+// processor time is not evidence of idleness, so the report says the
+// measurement failed. It still does not refuse a kill the operator authorised
+// by naming the pid.
+func TestANamedUnmeasurableProcessIsKilledAndSaysSo(t *testing.T) {
 	h := testHome(t)
 	runner := &gitRunner{}
 	service := newService(t, h, orphanProcessInventory(), runner)
 	service.CPU = func(int) (time.Duration, bool) { return 0, false }
 
-	result, err := service.Apply(context.Background(), Options{})
+	result, err := service.Apply(context.Background(), Options{Force: map[string]bool{"31032": true}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if finding := onlyFinding(t, result, OrphanProcess); !strings.Contains(finding.Hold(), "could not be read") {
-		t.Fatalf("hold = %q, want an unmeasurable refusal", finding.Hold())
+	if finding := onlyFinding(t, result, OrphanProcess); !strings.Contains(finding.Detail, "could not be read") {
+		t.Fatalf("detail = %q, want the failed measurement reported", finding.Detail)
 	}
-	if len(runner.killed) != 0 {
-		t.Fatalf("an unmeasurable process was killed: %v", runner.killed)
+	if len(runner.killed) != 1 || runner.killed[0] != 31032 {
+		t.Fatalf("killed = %v, want [31032]; an unreadable measurement refuses nothing once the pid is named", runner.killed)
 	}
 }
 
@@ -170,12 +206,12 @@ func TestApplyKillsAnIdleOrphanAndRecordsIt(t *testing.T) {
 	service := newService(t, h, orphanProcessInventory(), runner)
 	service.CPU = func(int) (time.Duration, bool) { return 2 * time.Second, true }
 
-	result, err := service.Apply(context.Background(), Options{})
+	result, err := service.Apply(context.Background(), Options{Force: map[string]bool{"31032": true}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if finding := onlyFinding(t, result, OrphanProcess); finding.Hold() != "" {
-		t.Fatalf("an idle orphan was held: %q", finding.Hold())
+		t.Fatalf("an orphan whose pid the operator named was held: %q", finding.Hold())
 	}
 	if len(runner.killed) != 1 || runner.killed[0] != 31032 {
 		t.Fatalf("killed = %v, want [31032]", runner.killed)
@@ -240,26 +276,30 @@ func TestATaskForceNeverClearsARefusalAboutAProcess(t *testing.T) {
 	}
 	runner := &gitRunner{}
 	service := newService(t, testHome(t), inventory, runner)
-	samples := 0
+	samples := []time.Duration{2 * time.Second, 4 * time.Second}
+	call := 0
 	service.CPU = func(int) (time.Duration, bool) {
-		samples++
-		return 0, true
+		sample := samples[call]
+		call++
+		return sample, true
 	}
 
 	result, err := service.Apply(context.Background(), Options{Force: map[string]bool{"broken": true}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hold := onlyFinding(t, result, StaleServer).Hold(); !strings.Contains(hold, "process identity") {
+	finding := onlyFinding(t, result, StaleServer)
+	if hold := finding.Hold(); !strings.Contains(hold, "process identity") {
 		t.Fatalf("hold = %q, want the unresolved-pane refusal to survive a task force", hold)
 	}
 	if len(runner.killed) != 0 {
 		t.Fatalf("a task force killed a process the sweep could not account for: %v", runner.killed)
 	}
-	// Three seconds of sampling per held finding buys nothing: the verdict is
-	// already reached and no measurement can change it.
-	if samples != 0 {
-		t.Fatalf("processor time was sampled %d time(s) for a finding that was already held", samples)
+	// A held finding is exactly what the operator reads to decide whether to
+	// name this pid, so the one number that separates a live process from an
+	// abandoned one has to be in it.
+	if !strings.Contains(finding.Detail, "busy") {
+		t.Fatalf("detail = %q, want the measurement reported on the held finding", finding.Detail)
 	}
 }
 
@@ -1070,11 +1110,12 @@ func TestReapingARecordLessShellManufacturesNoStatusLog(t *testing.T) {
 }
 
 // TestAnUnestablishedRefusalIsOverridableExactlyAsItsHoldImplies pins the
-// mechanism to the words. The hold tells the operator to resolve the evidence
-// rather than override it, and stops there, because naming the key does
-// override it. Saying it could not would be the command describing what it
-// wishes were true, and an operator whose Herdr cannot report pane identity
-// would be locked out of killing a genuine orphan until they fixed Herdr.
+// mechanism to the words. The pane refusal answers to the same pid the kill
+// does, so the one key the line names clears the whole hold, and the line says
+// exactly that and no more. Claiming the evidence outlives that force would be
+// the command describing what it wishes were true, and an operator whose Herdr
+// cannot report pane identity would read themselves as locked out of killing a
+// genuine orphan until they fixed Herdr.
 func TestAnUnestablishedRefusalIsOverridableExactlyAsItsHoldImplies(t *testing.T) {
 	inventory := orphanProcessInventory()
 	inventory.Panes = []Pane{{ID: "pane-b", HasAgent: true}}
@@ -1093,8 +1134,11 @@ func TestAnUnestablishedRefusalIsOverridableExactlyAsItsHoldImplies(t *testing.T
 	if !strings.Contains(finding.Hold(), "process identity") {
 		t.Fatalf("hold = %q, want the unresolved-pane refusal", finding.Hold())
 	}
-	if strings.Contains(finding.Hold(), "--force") {
-		t.Fatalf("hold = %q, want no --force proposed for evidence the sweep could not gather", finding.Hold())
+	if !strings.Contains(finding.Hold(), "Name 31032 with --force to take responsibility for it") {
+		t.Fatalf("hold = %q, want the one key that clears every refusal on the line", finding.Hold())
+	}
+	if strings.Contains(finding.Hold(), "resolve it rather than overriding it") {
+		t.Fatalf("hold = %q, claims the pane evidence outlives the --force the same line names", finding.Hold())
 	}
 	if len(runner.killed) != 0 {
 		t.Fatalf("a process was killed on incomplete pane evidence: %v", runner.killed)
@@ -1147,7 +1191,7 @@ func TestOneTaskActedOnTwiceKeepsBothReapedLines(t *testing.T) {
 		return state.RemoveTaskMeta(h.State, id)
 	}
 
-	result, err := service.Apply(context.Background(), Options{})
+	result, err := service.Apply(context.Background(), Options{Force: map[string]bool{"555": true}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1166,5 +1210,83 @@ func TestOneTaskActedOnTwiceKeepsBothReapedLines(t *testing.T) {
 	}
 	if len(reaped) != 2 {
 		t.Fatalf("the task's log holds %d reaped lines, want both: %q", len(reaped), lines)
+	}
+}
+
+// TestApplyNeverKillsWithoutANamedPID is the second half of the 19 September
+// 2026 incident. The CFO ran cfo reap --apply to retire a harmless status log
+// and it also killed pid 35012, a goblin's vite server, because --apply acts on
+// every finding it is not holding and one flag covered both. The brief this
+// package was rewritten under said the sweep "must still refuse to kill
+// anything without an explicitly named pid"; it did not, and this is what that
+// cost.
+func TestApplyNeverKillsWithoutANamedPID(t *testing.T) {
+	h := testHome(t)
+	inventory := orphanProcessInventory()
+	inventory.OrphanStatusIDs = []string{"scout-old"}
+	if err := state.AppendStatus(h.State, "scout-old", "done: reported"); err != nil {
+		t.Fatal(err)
+	}
+	runner := &gitRunner{}
+	service := newService(t, h, inventory, runner)
+	service.CPU = func(int) (time.Duration, bool) { return 0, true }
+
+	result, err := service.Apply(context.Background(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.killed) != 0 {
+		t.Fatalf("killed = %v, want nothing ended by a sweep that named no process", runner.killed)
+	}
+	hold := onlyFinding(t, result, OrphanProcess).Hold()
+	if !strings.Contains(hold, "authorised only by naming this process") {
+		t.Fatalf("hold = %q, want it to say what authorises a kill", hold)
+	}
+	if !strings.Contains(hold, "31032") {
+		t.Fatalf("hold = %q, want the pid the operator would have to name", hold)
+	}
+
+	// The tidying the operator actually asked for still happens, which is the
+	// whole point: the two actions stop sharing one flag.
+	if len(result.Applied) != 1 || !strings.Contains(result.Applied[0], "orphan_status") {
+		t.Fatalf("applied = %v, want the status log archived and nothing else", result.Applied)
+	}
+	if _, err := os.Stat(filepath.Join(h.State, "scout-old.status")); !os.IsNotExist(err) {
+		t.Fatal("the status log the operator asked to retire is still in the live listing")
+	}
+
+	t.Run("naming the pid is what ends it", func(t *testing.T) {
+		runner := &gitRunner{}
+		service := newService(t, testHome(t), orphanProcessInventory(), runner)
+		service.CPU = func(int) (time.Duration, bool) { return 0, true }
+		if _, err := service.Apply(context.Background(), Options{Force: map[string]bool{"31032": true}}); err != nil {
+			t.Fatal(err)
+		}
+		if len(runner.killed) != 1 || runner.killed[0] != 31032 {
+			t.Fatalf("killed = %v, want the named process ended", runner.killed)
+		}
+	})
+}
+
+// TestAnIdleReadingIsReportedRatherThanLeftSilent: the operator decides
+// whether to name a pid from the reported line, and the idle case is exactly
+// the one they act on. Reporting it as nothing made a measured idle process
+// indistinguishable from one nobody measured.
+func TestAnIdleReadingIsReportedRatherThanLeftSilent(t *testing.T) {
+	h := testHome(t)
+	runner := &gitRunner{}
+	service := newService(t, h, orphanProcessInventory(), runner)
+	service.CPU = func(int) (time.Duration, bool) { return 2 * time.Second, true }
+
+	result, err := service.Audit(context.Background(), Options{ProbeIdle: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finding := onlyFinding(t, result, OrphanProcess)
+	if !strings.Contains(finding.Detail, "idle:") {
+		t.Fatalf("detail = %q, want the idle reading reported on the line the operator decides from", finding.Detail)
+	}
+	if len(runner.killed) != 0 {
+		t.Fatalf("an audit killed something: %v", runner.killed)
 	}
 }

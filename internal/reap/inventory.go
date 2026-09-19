@@ -90,7 +90,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 	inv.Worktrees = c.worktrees(ctx, inv.Tasks, &notes)
 
 	if c.Panes != nil {
-		panes, unresolved, err := c.readPanes(ctx)
+		panes, unresolved, unplaced, err := c.readPanes(ctx)
 		if err != nil {
 			// Every pane reads as gone when Herdr is unreadable, which would
 			// classify the whole live fleet as orphaned. Refuse instead: a
@@ -99,8 +99,12 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 		}
 		inv.Panes = panes
 		inv.UnresolvedPanes = unresolved
+		inv.UnplacedAgents = unplaced
 		for _, pane := range unresolved {
 			notes = append(notes, "pane "+pane+" could not report its process identity; process findings are held")
+		}
+		for _, pane := range unplaced {
+			notes = append(notes, "the agent on pane "+pane+" reported no working directory, so it cannot be placed in a worktree; findings that rest on placing it are held")
 		}
 	} else {
 		notes = append(notes, "no pane reader configured; pane evidence is missing")
@@ -161,18 +165,35 @@ func taskReported(lines []string) []string {
 // as a live pane, because it exists, which is what keeps its worktree off the
 // list; but its shell pid is missing from the supervised set, so it is named
 // separately and every process finding is held while any pane is unresolved.
-func (c Collector) readPanes(ctx context.Context) (panes []Pane, unresolved []string, err error) {
+//
+// The third return is the panes whose agent reported no working directory.
+// Herdr declares that field nullable, so one agent answering with nothing is a
+// legitimate state rather than a fault, and it is neither an agent working
+// nowhere nor a fleet-wide failure: it is one agent the sweep cannot place, so
+// it is carried out and the classes that rest on placing it hold.
+//
+// That per-agent answer is why no protocol check stands here. A snapshot whose
+// working directories all arrive empty leaves every agent unplaced and every
+// destructive finding held, while the recoverable ones the operator asked for
+// still get done. Refusing the whole sweep on a protocol bump would instead
+// fail Collect, so the watcher records an error, fires no wake, and nothing at
+// all is swept.
+func (c Collector) readPanes(ctx context.Context) (panes []Pane, unresolved, unplaced []string, err error) {
 	snapshot, err := c.Panes.Snapshot(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	agents := make(map[string]bool, len(snapshot.Agents))
+	agents := make(map[string]herdr.SnapshotAgent, len(snapshot.Agents))
 	for _, agent := range snapshot.Agents {
-		agents[agent.PaneID] = true
+		agents[agent.PaneID] = agent
+		if agent.Cwd == "" {
+			unplaced = append(unplaced, agent.PaneID)
+		}
 	}
 	panes = make([]Pane, 0, len(snapshot.Panes))
 	for _, pane := range snapshot.Panes {
-		entry := Pane{ID: pane.ID, HasAgent: agents[pane.ID]}
+		agent, hasAgent := agents[pane.ID]
+		entry := Pane{ID: pane.ID, HasAgent: hasAgent, AgentCwd: agent.Cwd}
 		info, err := c.Panes.PaneProcessInfo(ctx, herdr.Target{Session: c.Session, Pane: pane.ID})
 		if err == nil {
 			entry.ShellPID = info.ShellPID
@@ -182,7 +203,7 @@ func (c Collector) readPanes(ctx context.Context) (panes []Pane, unresolved []st
 		}
 		panes = append(panes, entry)
 	}
-	return panes, unresolved, nil
+	return panes, unresolved, unplaced, nil
 }
 
 // worktrees enumerates every .worktrees/ directory the fleet could own: the

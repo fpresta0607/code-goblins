@@ -199,6 +199,6 @@ func RenderRecord(w io.Writer, stateDir string, now time.Time) error {
 		return err
 	}
 	age := now.Sub(record.Time).Round(time.Second)
-	_, err = fmt.Fprintf(w, "  swept %s ago (%s); cfo reap re-runs it, cfo reap --apply acts on it\n", age, record.Time.UTC().Format(time.RFC3339))
+	_, err = fmt.Fprintf(w, "  swept %s ago (%s); cfo reap re-runs it, cfo reap --apply acts on it except to end a process, which needs its pid named with --force\n", age, record.Time.UTC().Format(time.RFC3339))
 	return err
 }

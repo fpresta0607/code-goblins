@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -49,22 +48,16 @@ type Options struct {
 	// a decimal pid, or a task id. It is deliberately never a blanket
 	// override, so "force" always names what it forces.
 	Force map[string]bool
-	// ProbeIdle samples processor time to decide whether a process is really
-	// idle. It costs CPUSample of wall clock per process finding, so the
-	// watcher's background audit leaves it off and simply reports what it
-	// found; --apply always turns it on, because nothing is ever killed
-	// without a fresh idleness measurement.
+	// ProbeIdle samples processor time and reports it beside each process
+	// finding, so the operator reads whether it is doing work before deciding
+	// which pid to name. It costs CPUSample of wall clock per process
+	// finding, so the watcher's background audit leaves it off and simply
+	// reports what it found; every cfo reap invocation turns it on.
 	ProbeIdle bool
-	// CPUSample and CPUIdle override the idleness gate's window and threshold.
+	// CPUSample and CPUIdle override the idleness measurement's window and
+	// threshold.
 	CPUSample time.Duration
 	CPUIdle   time.Duration
-}
-
-// forcedPID reports whether the operator named this finding's process. It is
-// the only force that skips the idleness probe, because idleness is a fact
-// about that process and nothing else can stand in for it.
-func (o Options) forcedPID(finding Finding) bool {
-	return finding.PID != 0 && o.Force[strconv.Itoa(finding.PID)]
 }
 
 // Result is one sweep: what was found, what was done about it, and anything
@@ -86,8 +79,8 @@ type Service struct {
 	Inventory InventorySource
 	Commands  execx.Runner
 	// CPU reads a process's total consumed processor time. A false second
-	// return means the process could not be measured, which is treated as
-	// "cannot prove it is idle" and holds the kill.
+	// return means the process could not be measured, which is reported as
+	// "cannot prove it is idle" rather than as idleness.
 	CPU func(pid int) (time.Duration, bool)
 	// Kill ends a process and its children.
 	Kill func(ctx context.Context, pid int) error
@@ -201,25 +194,27 @@ func (s Service) gate(ctx context.Context, finding *Finding, options Options) {
 	// The operator's --force drops the refusals it actually answers and leaves
 	// every other one standing.
 	finding.clearForced(options.Force)
-	// A finding still refused after that takes no measurement, because none of
-	// them can change the outcome: three seconds of processor sampling per
-	// process finding, and three git subprocesses per worktree, spent to reach
+	// The measurement is reported rather than used to refuse: naming a pid has
+	// always meant killing that process even if it is busy. It is taken on
+	// every sweep that asks for one, held or not and authorised or not,
+	// because the operator reads a held process finding to decide whether to
+	// name its pid, and whether it is burning processor time is the one fact
+	// that separates a live process from an abandoned one. A number produced
+	// only on the run that kills arrives after the decision it informs.
+	if options.ProbeIdle && (finding.Class == OrphanProcess || finding.Class == StaleServer) {
+		finding.Detail += "; " + s.measureBusy(finding.PID, options)
+	}
+	// A finding still refused takes no further gate, because none of them can
+	// change the outcome: three git subprocesses per worktree, spent to reach
 	// a verdict already reached. This is not the mistake the refusal machinery
 	// exists to prevent. Dropping a refusal during classification is a lie,
 	// because classification is pure and cheap and its whole job is to state
-	// every reason something is held; skipping a measurement here adds no
-	// refusal and replaces none, so nothing is lost but the wait.
+	// every reason something is held; skipping a question here adds no refusal
+	// and replaces none, so nothing is lost but the wait.
 	if finding.Held() {
 		return
 	}
 	switch finding.Class {
-	case OrphanProcess, StaleServer:
-		if options.forcedPID(*finding) || !options.ProbeIdle {
-			return
-		}
-		// Busy is a measurement, not a judgement: the remedy is to let it
-		// finish or to look at what it is doing, never to propose a kill.
-		finding.refuseUntilEstablished(s.holdIfBusy(finding.PID, options), strconv.Itoa(finding.PID))
 	case OrphanWorktree:
 		// Its work-preservation refusals are absolute and stand even for a
 		// forced task: --force covers the operator's judgement about a task's
@@ -238,9 +233,12 @@ func (s Service) gate(ctx context.Context, finding *Finding, options Options) {
 	finding.clearForced(options.Force)
 }
 
-// holdIfBusy samples processor time twice and refuses anything that moved.
-// An unmeasurable process is held too: "I could not tell" is not "it is idle".
-func (s Service) holdIfBusy(pid int, options Options) string {
+// measureBusy samples processor time twice and always says what it found,
+// whether the process moved, sat idle, or could not be read at all: "I could
+// not tell" is not "it is idle". The answer is reported beside the finding,
+// because log age is not evidence and a goblin waiting on an API response
+// writes nothing for minutes while very much alive.
+func (s Service) measureBusy(pid int, options Options) string {
 	if s.CPU == nil {
 		return "no processor-time sampler configured, so idleness cannot be proven"
 	}
@@ -258,7 +256,11 @@ func (s Service) holdIfBusy(pid int, options Options) string {
 	if delta > idleThreshold(options) {
 		return fmt.Sprintf("busy: burned %s of processor time in %s, which is a process doing work, not an idle one", delta.Round(time.Millisecond), window)
 	}
-	return ""
+	// An idle reading is still a reading, and it is the one the operator acts
+	// on: this is the line they decide from when naming a pid. Reporting it as
+	// nothing would make a measured idle process indistinguishable from one
+	// nobody measured, which is the difference this whole sweep turns on.
+	return fmt.Sprintf("idle: burned %s of processor time in %s", delta.Round(time.Millisecond), window)
 }
 
 // sweepAgain closes every work-gate refusal where the sweep could not look.

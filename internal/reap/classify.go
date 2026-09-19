@@ -1,9 +1,9 @@
 // Package reap finds and retires the fleet resources nothing else notices: a
-// harness process whose pane is gone, a dev server left running in a finished
-// goblin's worktree, the worktree, metadata and status records left behind
-// when a task ends without a clean cleanup, and the directory under a
-// project's .worktrees/ that the project does not register as a worktree at
-// all.
+// harness process whose pane is gone, a dev server left running in a worktree
+// no live goblin is working in, the worktree, metadata and status records
+// left behind when a task ends without a clean cleanup, and the directory
+// under a project's .worktrees/ that the project does not register as a
+// worktree at all.
 //
 // No single source sees all of it. cfo knows the tasks it started, Herdr knows
 // the panes that still exist, only the operating system knows what is still
@@ -38,7 +38,11 @@ const (
 	// every CFO surface, and still able to spend tokens.
 	OrphanProcess Class = "orphan_process"
 	// StaleServer is a long-lived child (a next dev, a vite server) rooted in
-	// a worktree whose task has finished.
+	// a worktree with no live evidence of its goblin: no pane holding an agent
+	// there, whatever the status log says. One whose task never reported a
+	// terminal verb is still reported, and held: an abandoned server is a leak
+	// whatever the log says, and whether the work behind it is over is the
+	// operator's call.
 	StaleServer Class = "stale_server"
 	// OrphanWorktree is a worktree directory with no pane holding a live agent
 	// behind it. One whose task never reported a terminal status is still
@@ -155,7 +159,6 @@ func (f Finding) Held() bool {
 func (f Finding) Hold() string {
 	reasons := make([]string, 0, len(f.Holds))
 	absolute := false
-	unestablished := false
 	var keys []string
 	for _, refusal := range f.Holds {
 		reasons = append(reasons, refusal.Reason)
@@ -166,8 +169,6 @@ func (f Finding) Hold() string {
 			if !slices.Contains(keys, refusal.Key) {
 				keys = append(keys, refusal.Key)
 			}
-		default:
-			unestablished = true
 		}
 	}
 	text := strings.Join(reasons, "; also ")
@@ -176,6 +177,18 @@ func (f Finding) Hold() string {
 	}
 	if len(keys) == 0 {
 		return text
+	}
+	// An unestablished refusal answering a key the operator is about to be
+	// told to name is cleared by that same --force, so only one answering a
+	// key nobody was told to name leaves anything standing behind it. Saying
+	// otherwise would tell the operator that a hold survives a force that in
+	// fact ends the process, which is the reading the whole branch exists to
+	// stop. The reasons still carry their own remedies in their own words.
+	unestablished := false
+	for _, refusal := range f.Holds {
+		if !refusal.Propose && !slices.Contains(keys, refusal.Key) {
+			unestablished = true
+		}
 	}
 	named := "Name " + keys[0] + " with --force"
 	if len(keys) > 1 {
@@ -252,6 +265,10 @@ type Pane struct {
 	ShellPID      int
 	ForegroundPID int
 	HasAgent      bool
+	// AgentCwd is the directory the registered agent is working in, empty when
+	// no agent holds the pane. It is what places a goblin in a worktree
+	// without going through any record CFO keeps.
+	AgentCwd string
 }
 
 // Task is one state record, reduced to what classification needs.
@@ -324,6 +341,12 @@ type Inventory struct {
 	// pane is unresolved: the sweep still reports what it saw, but it will
 	// not kill on evidence it knows is incomplete.
 	UnresolvedPanes []string
+	// UnplacedAgents are panes whose agent reported no working directory.
+	// Herdr declares that field nullable, so this is an agent declining to
+	// say where it is rather than one working nowhere, and any of them could
+	// be the goblin working in the worktree a finding names. Whatever rests
+	// on placing an agent is held while any agent is unplaced.
+	UnplacedAgents []string
 }
 
 // harnessSignatures are the distinctive command-line fragments a CFO-launched
@@ -378,7 +401,7 @@ func Classify(inv Inventory) []Finding {
 		unreadable[id] = true
 	}
 
-	findings := classifyProcesses(inv, supervised, fleet, tasks, unreadable)
+	findings := classifyProcesses(inv, supervised, fleet, tasks, panes, unreadable)
 	findings = append(findings, classifyWorktrees(inv, supervised, tasks, panes, unreadable)...)
 	findings = append(findings, classifyMetas(inv, panes, supervised, fleet)...)
 	for _, id := range inv.OrphanStatusIDs {
@@ -393,7 +416,7 @@ func Classify(inv Inventory) []Finding {
 	return findings
 }
 
-func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[string]Task, unreadable map[string]bool) []Finding {
+func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[string]Task, panes map[string]Pane, unreadable map[string]bool) []Finding {
 	desktop := descendants(inv.Processes, rootsMatching(inv.Processes, isDesktopApp))
 	gates := descendants(inv.Processes, rootsMatching(inv.Processes, isGateSupervisor))
 	var findings []Finding
@@ -423,6 +446,16 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				finding.refuseUntilEstablished(unidentifiedHold, strconv.Itoa(process.PID))
 			}
 			finding.refuseUntilEstablished(unresolvedPaneHold(inv), strconv.Itoa(process.PID))
+			// Ending a process is the one action here that cannot be undone
+			// and that costs somebody else their work, so it answers to the
+			// operator naming that process and to nothing else. A sweep run
+			// to tidy a status log acts on every finding it is not holding,
+			// and on 19 September 2026 that killed a goblin's dev server
+			// mid-suite. It is recorded here rather than at the gate so that
+			// a finding already held for another reason still states the pid
+			// its only action needs, and one --force naming every key on the
+			// line clears it in a single pass.
+			finding.refuseUnlessForced(killNeedsItsOwnPID, strconv.Itoa(process.PID))
 			findings = append(findings, finding)
 		case isServer(process):
 			worktree, ok := worktreeOf(process, inv.Worktrees)
@@ -430,7 +463,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				continue
 			}
 			task, known := tasks[worktree.TaskID]
-			if known && !task.Terminal {
+			if goblinIsAlive(task, known, panes, worktree.Path) {
 				// Its goblin is still working; the server is doing its job.
 				continue
 			}
@@ -440,17 +473,19 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				TaskID: worktree.TaskID,
 				PID:    process.PID,
 				Path:   worktree.Path,
-				Detail: fmt.Sprintf("%s rooted in %s, whose task %s", process.Name, worktree.Path, taskOutcome(task, known, unreadableRecord)),
+				Detail: fmt.Sprintf("%s rooted in %s, with %s", process.Name, worktree.Path, placementOutcome(inv, task, known, unreadableRecord)),
 				Action: "kill the process tree",
 			}
 			finding.refuseUntilEstablished(unresolvedPaneHold(inv), strconv.Itoa(process.PID))
-			if unreadableRecord {
-				// Killing this server says the task behind it is over, and an
-				// unreadable record is the one thing that cannot say so. It is
-				// added, not assigned, so an unrelated pane that could not
-				// report its identity cannot drop it.
-				finding.refuseUnlessForced(unfinishedHold(task, known, true), finding.TaskID)
-			}
+			finding.refuseUntilEstablished(unplacedAgentHold(inv), unplacedAgentKey(inv))
+			// A task that never said it was done, or whose record could not be
+			// read, is reported and held rather than skipped: the server is
+			// still a leak once its goblin is gone, and the operator is the
+			// one who decides that the work behind it is over. Added, not
+			// assigned, so an unrelated pane that could not report its
+			// identity cannot drop it.
+			finding.refuseUnlessForced(unfinishedHold(task, known, unreadableRecord), finding.TaskID)
+			finding.refuseUnlessForced(killNeedsItsOwnPID, strconv.Itoa(process.PID))
 			findings = append(findings, finding)
 		}
 	}
@@ -461,13 +496,11 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 	var findings []Finding
 	for _, worktree := range inv.Worktrees {
 		task, known := tasks[worktree.TaskID]
-		if known {
-			if pane, ok := panes[task.Meta.HerdrPaneID]; ok && pane.HasAgent {
-				// A live goblin owns this directory. This outranks
-				// registration: "could not confirm a worktree" is not
-				// evidence against a pane that is holding an agent right now.
-				continue
-			}
+		if goblinIsAlive(task, known, panes, worktree.Path) {
+			// A live goblin owns this directory. This outranks registration:
+			// "could not confirm a worktree" is not evidence against a pane
+			// that is holding an agent right now.
+			continue
 		}
 		if worktree.Registration == RegistrationUnlisted {
 			findings = append(findings, classifyDirectory(inv, supervised, worktree, task, known, unreadable[worktree.TaskID]))
@@ -478,9 +511,10 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 			TaskID:     worktree.TaskID,
 			Path:       worktree.Path,
 			Registered: worktree.Registration == RegistrationListed,
-			Detail:     "no live pane, and its task " + taskOutcome(task, known, unreadable[worktree.TaskID]),
+			Detail:     placementOutcome(inv, task, known, unreadable[worktree.TaskID]),
 			Action:     "return the worktree through cfo cleanup",
 		}
+		finding.refuseUntilEstablished(unplacedAgentHold(inv), unplacedAgentKey(inv))
 		// A goblin whose pane died mid-work leaks its worktree just as surely
 		// as a finished one, so it is reported; it is held because the task
 		// never said it was done, or because nothing can say whether it did.
@@ -616,6 +650,55 @@ func classifyMetas(inv Inventory, panes map[string]Pane, supervised, fleet map[i
 	return findings
 }
 
+// goblinIsAlive reports whether anything that could say the goblin behind a
+// worktree is still working says so. It deliberately does not consult the
+// status log, because a goblin notifies done per pull request and a task can
+// ship several under one id: a terminal verb establishes that a pull request
+// finished, and nothing at all about whether the goblin is still at work.
+//
+// Every class that would take something a goblin is using asks this one
+// question, so a signal added here reaches all of them: a killed dev server
+// costs a goblin its round, and a returned worktree costs it more. The pane
+// the record names is the direct answer, since Herdr holds its session. An
+// agent working in the worktree itself answers for a record whose pane id no
+// longer matches the pane the goblin is in, and for a directory no record
+// names at all; a subdirectory counts, because a goblin does not stay at its
+// worktree root.
+//
+// An agent that reported no working directory answers neither way, and a false
+// here would read as one working somewhere else. That is unplacedAgentHold's
+// to say instead, on every class that asks this question.
+//
+// The process table cannot answer this, which is the first place the next
+// reader will look: no harness adapter puts the worktree on a command line,
+// spawn carries it as the launch directory instead, and a working directory is
+// not readable from a process listing. That is the same limit this package
+// already names on an orphan_directory finding.
+func goblinIsAlive(task Task, known bool, panes map[string]Pane, worktree string) bool {
+	if known {
+		if pane, ok := panes[task.Meta.HerdrPaneID]; ok && pane.HasAgent {
+			return true
+		}
+	}
+	for _, pane := range panes {
+		if pane.HasAgent && pathWithin(pane.AgentCwd, worktree) {
+			return true
+		}
+	}
+	return false
+}
+
+// pathWithin reports whether path is root or a directory under it, folded the
+// same way every other path comparison here is.
+func pathWithin(path, root string) bool {
+	if path == "" || root == "" {
+		return false
+	}
+	base := strings.TrimSuffix(normalizePath(root), `\`)
+	folded := strings.TrimSuffix(normalizePath(path), `\`)
+	return folded == base || strings.HasPrefix(folded, base+`\`)
+}
+
 // taskHasProcess reports whether anything still running belongs to the task. A
 // meta is only an orphan when nothing at all is left, so a process this sweep
 // has already flagged as an orphan still counts as a process: the process
@@ -701,6 +784,34 @@ func unresolvedPaneHold(inv Inventory) string {
 	return fmt.Sprintf("%d pane(s) could not report their process identity (%s), so a live goblin is indistinguishable from an orphan here; fix Herdr so those panes report what is running in them, then sweep again", len(inv.UnresolvedPanes), strings.Join(inv.UnresolvedPanes, ", "))
 }
 
+// unplacedAgentKey is what answers an unplaced-agent refusal: the panes whose
+// agents did not say where they are running, and nothing else. Keying it to
+// the pid or the task id beside it would let one refusal be answered by the
+// key for another, which is the mistake the whole refusal model exists to
+// stop: naming a pid says nothing about where an unrelated agent is working,
+// and naming a task id says its work is over, not that nobody else is in its
+// directory.
+func unplacedAgentKey(inv Inventory) string {
+	if len(inv.UnplacedAgents) == 0 {
+		return ""
+	}
+	return strings.Join(inv.UnplacedAgents, "+")
+}
+
+// unplacedAgentHold refuses a finding while a live agent has not said where it
+// is working. Reaching it means the pane the record names holds no agent, so
+// the only evidence left that a goblin is working here is an agent's working
+// directory, and an agent that reported none is a question the sweep cannot
+// answer rather than an agent working somewhere else. Herdr declares that
+// field nullable, so this is a state the fleet reaches without anything being
+// broken.
+func unplacedAgentHold(inv Inventory) string {
+	if len(inv.UnplacedAgents) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d live agent(s) (pane %s) reported no working directory, so the sweep cannot place them and one of them may be the goblin working here; have those agents report where they are running, then sweep again", len(inv.UnplacedAgents), strings.Join(inv.UnplacedAgents, ", "))
+}
+
 func isHarness(process Process) bool {
 	command := strings.ToLower(process.CommandLine)
 	for _, signature := range harnessSignatures {
@@ -716,6 +827,14 @@ func isHarness(process Process) bool {
 	}
 	return false
 }
+
+// killNeedsItsOwnPID is why --apply alone never ends a process. Every other
+// action this sweep takes is recoverable: an archived log is moved rather than
+// deleted, a removed directory was proven empty, a returned worktree was proven
+// to hold no unpushed work. Ending a process is none of those, and it costs a
+// goblin the round it was in the middle of, so it is authorised by naming that
+// process and never as a side effect of tidying something else.
+const killNeedsItsOwnPID = "ending a process cannot be undone and can cost a goblin the round it is in, so a kill is authorised only by naming this process, never by a sweep acting on everything at once"
 
 // unidentifiedHold is what a harness-shaped process gets when the sweep has
 // run out of evidence. It says what could not be determined and stops there:
@@ -803,6 +922,23 @@ func worktreeOf(process Process, worktrees []WorktreeDir) (WorktreeDir, bool) {
 		}
 	}
 	return best, found
+}
+
+// placementOutcome says what the sweep actually established about the goblin
+// behind a worktree, which is not the same sentence in every case and must
+// never be one the hold on the same line contradicts. Where an agent reported
+// no working directory, whether a goblin is working here is precisely what
+// could not be answered, and unplacedAgentHold beside it says so. Where no
+// record names the worktree, there was no record to ask about, and claiming
+// anything about panes restates the outcome a second time.
+func placementOutcome(inv Inventory, task Task, known, unreadable bool) string {
+	switch {
+	case len(inv.UnplacedAgents) > 0:
+		return "an agent the sweep could not place, so nothing establishes whether its goblin is working there, and its task " + taskOutcome(task, known, unreadable)
+	case !known && !unreadable:
+		return "no task record to ask about"
+	}
+	return "no pane holding an agent working there, and its task " + taskOutcome(task, known, unreadable)
 }
 
 func taskOutcome(task Task, known, unreadable bool) string {
