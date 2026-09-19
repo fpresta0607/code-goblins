@@ -429,11 +429,13 @@ func TestPanesCarryTheirAgentsWorkingDirectory(t *testing.T) {
 	}
 }
 
-// A snapshot of another protocol carries other fields under other names, so an
-// agent's working directory can arrive empty while the fleet is full of live
-// goblins. The sweep refuses rather than deciding what to kill on evidence it
-// knows it cannot read, exactly as it does when panes are unreadable.
-func TestASnapshotOfTheWrongProtocolRefusesTheSweep(t *testing.T) {
+// A snapshot of another protocol may carry the agent fields under other names,
+// so every working directory can arrive empty. That is answered per agent
+// rather than by refusing: failing the sweep would leave the watcher with an
+// error and the operator with nothing swept at all, while an unplaced agent
+// holds exactly the findings that depend on placing it and leaves the
+// recoverable ones alone.
+func TestASnapshotOfAnotherProtocolLeavesItsAgentsUnplaced(t *testing.T) {
 	root := t.TempDir()
 	stateDir := filepath.Join(root, "state")
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
@@ -450,11 +452,11 @@ func TestASnapshotOfTheWrongProtocolRefusesTheSweep(t *testing.T) {
 	}
 
 	inv, _, err := collector.Collect(context.Background())
-	if err == nil {
-		t.Fatalf("Collect succeeded on an unsupported snapshot protocol: %+v", inv)
+	if err != nil {
+		t.Fatalf("Collect: %v, want the sweep to run on what the snapshot did answer", err)
 	}
-	if !strings.Contains(err.Error(), "protocol") {
-		t.Errorf("err = %v, want it to name the protocol it could not accept", err)
+	if len(inv.UnplacedAgents) != 1 || inv.UnplacedAgents[0] != "w3:p4" {
+		t.Fatalf("unplaced agents = %q, want the agent whose working directory did not arrive", inv.UnplacedAgents)
 	}
 }
 

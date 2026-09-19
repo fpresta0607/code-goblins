@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -59,13 +58,6 @@ type Options struct {
 	// threshold.
 	CPUSample time.Duration
 	CPUIdle   time.Duration
-}
-
-// forcedPID reports whether the operator named this finding's process. It is
-// the only thing that authorises ending it: a task id says a task is over and
-// can never speak for a process still running under it.
-func (o Options) forcedPID(finding Finding) bool {
-	return finding.PID != 0 && o.Force[strconv.Itoa(finding.PID)]
 }
 
 // Result is one sweep: what was found, what was done about it, and anything
@@ -225,18 +217,6 @@ func (s Service) gate(ctx context.Context, finding *Finding, options Options) {
 		return
 	}
 	switch finding.Class {
-	case OrphanProcess, StaleServer:
-		if !options.forcedPID(*finding) {
-			// Ending a process is the one action here that cannot be undone
-			// and that costs somebody else their work, so it answers to the
-			// operator naming that process and to nothing else. A sweep run
-			// to tidy a status log acts on every finding it is not holding,
-			// and on 19 September 2026 that killed a goblin's dev server
-			// mid-suite: one flag covering an archive and a kill invites
-			// exactly that reading.
-			finding.refuseUnlessForced(killNeedsItsOwnPID, strconv.Itoa(finding.PID))
-			return
-		}
 	case OrphanWorktree:
 		// Its work-preservation refusals are absolute and stand even for a
 		// forced task: --force covers the operator's judgement about a task's

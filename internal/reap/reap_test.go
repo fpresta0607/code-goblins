@@ -1133,8 +1133,8 @@ func TestAnUnestablishedRefusalIsOverridableExactlyAsItsHoldImplies(t *testing.T
 	if !strings.Contains(finding.Hold(), "process identity") {
 		t.Fatalf("hold = %q, want the unresolved-pane refusal", finding.Hold())
 	}
-	if strings.Contains(finding.Hold(), "--force") {
-		t.Fatalf("hold = %q, want no --force proposed for evidence the sweep could not gather", finding.Hold())
+	if !strings.Contains(finding.Hold(), "resolve it rather than overriding it") {
+		t.Fatalf("hold = %q, want the evidence the sweep could not gather offered as something to resolve, not to force", finding.Hold())
 	}
 	if len(runner.killed) != 0 {
 		t.Fatalf("a process was killed on incomplete pane evidence: %v", runner.killed)
