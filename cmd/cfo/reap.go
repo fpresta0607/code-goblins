@@ -48,9 +48,10 @@ unpushed work, and never reaps a task that has not finished.
 and may be repeated. Every refusal answers only to its own key: naming a pid
 speaks for that process, naming a task id says that task is over, and neither
 speaks for the other. A finding held for two reasons therefore needs both
-answered, and its HELD line says which keys to name and what has to be
-resolved instead. Some refusals answer to no --force at
-all, including the uncommitted or unpushed work gate, because that work is
+answered, and its HELD line says which keys to name; where a refusal answers
+to a key that line does not ask you to name, it also says that the rest is
+evidence to resolve rather than override. Some refusals answer to no --force
+at all, including the uncommitted or unpushed work gate, because that work is
 the whole product of a goblin's run.
 `
 
