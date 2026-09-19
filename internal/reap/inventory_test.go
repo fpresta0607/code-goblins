@@ -251,3 +251,94 @@ func TestWorktreesSayWhenRegistrationCannotBeConfirmed(t *testing.T) {
 		t.Fatalf("notes = %q, want the missing-runner note", notes)
 	}
 }
+
+// TestLatestVerbIgnoresTheReapersOwnLines is the two-sweep sequence this
+// package relies on: a shell is removed in one sweep and the record it leaves
+// behind is archived in the next. The first sweep writes its own "reaped:"
+// line into that task's status log, and a status line's verb is its first word
+// before the colon, so without this the task's latest verb becomes "reaped",
+// which ends nothing. The record would then read as unfinished for the rest of
+// its life and every later finding for it would sit behind --force.
+func TestLatestVerbIgnoresTheReapersOwnLines(t *testing.T) {
+	h := testHome(t)
+	if err := state.AppendStatus(h.State, "dead", "done: finished the work"); err != nil {
+		t.Fatal(err)
+	}
+	collector := Collector{Home: h}
+	if verb := collector.latestVerb("dead"); verb != "done" {
+		t.Fatalf("latest verb = %q before the sweep, want done", verb)
+	}
+
+	// Exactly the line Service.record writes after it acts on a finding.
+	line := ReapedPrefix + Finding{
+		Class:  OrphanDirectory,
+		TaskID: "dead",
+		Path:   `C:\dev\pd\.worktrees\gb-dead`,
+		Detail: "a directory a dead task left behind",
+		Action: "remove the empty directory",
+	}.Line()
+	if err := state.AppendStatus(h.State, "dead", state.NormalizeStatusDetail(line)); err != nil {
+		t.Fatal(err)
+	}
+
+	verb := collector.latestVerb("dead")
+	if verb == "reaped" {
+		t.Fatal("the reaper's own line became the task's latest verb, so the record could never be archived")
+	}
+	if verb != "done" {
+		t.Fatalf("latest verb = %q after the sweep, want the task's own done", verb)
+	}
+	if !IsTerminal(verb) {
+		t.Fatalf("verb %q is not terminal, so the next sweep would hold the record", verb)
+	}
+}
+
+// TestRegistrationOfAnUnprovableDirectoryIsUnknown: a directory the sweep
+// cannot even read must not land in the removable class. Unknown is the gated
+// one, and it is the zero value precisely so every path that proves nothing
+// arrives there.
+func TestRegistrationOfAnUnprovableDirectoryIsUnknown(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "gone")
+	if got := registrationOf(missing, nil, true); got != RegistrationUnknown {
+		t.Fatalf("registration of an unreadable directory = %q, want unknown", got)
+	}
+}
+
+// listing answers git worktree list with a fixed porcelain body, so what the
+// collector does with git's answer can be tested without arranging the
+// repository state that would produce it.
+type listing struct{ body string }
+
+func (l listing) Run(context.Context, execx.Request) (execx.Result, error) {
+	return execx.Result{Stdout: []byte(l.body)}, nil
+}
+
+// TestAPrunePendingEntryDoesNotMakeARootUnconfirmable separates the two ways a
+// listed path fails to stat. A worktree git still lists but that is gone from
+// disk is an ordinary prune-pending entry: it cannot be any directory the scan
+// found, so the evidence about the others is still complete. Only an entry that
+// could not be compared at all makes the root unconfirmable.
+func TestAPrunePendingEntryDoesNotMakeARootUnconfirmable(t *testing.T) {
+	root := t.TempDir()
+	live := filepath.Join(root, ".worktrees", "gb-live")
+	if err := os.MkdirAll(live, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pruned := filepath.Join(root, ".worktrees", "gb-pruned")
+	collector := Collector{
+		Home:     home.Home{Root: root},
+		Commands: listing{body: "worktree " + root + "\nworktree " + live + "\nworktree " + pruned + "\n"},
+	}
+
+	var notes []string
+	found := collector.worktrees(context.Background(), nil, &notes)
+	if len(found) != 1 || found[0].Path != live {
+		t.Fatalf("worktrees = %+v, want only the live one", found)
+	}
+	if found[0].Registration != RegistrationListed {
+		t.Fatalf("registration = %q, want listed; a prune-pending entry beside it must not make the root unconfirmable", found[0].Registration)
+	}
+	if len(notes) != 0 {
+		t.Errorf("unexpected notes: %q", notes)
+	}
+}
