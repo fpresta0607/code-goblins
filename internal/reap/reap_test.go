@@ -276,26 +276,30 @@ func TestATaskForceNeverClearsARefusalAboutAProcess(t *testing.T) {
 	}
 	runner := &gitRunner{}
 	service := newService(t, testHome(t), inventory, runner)
-	samples := 0
+	samples := []time.Duration{2 * time.Second, 4 * time.Second}
+	call := 0
 	service.CPU = func(int) (time.Duration, bool) {
-		samples++
-		return 0, true
+		sample := samples[call]
+		call++
+		return sample, true
 	}
 
 	result, err := service.Apply(context.Background(), Options{Force: map[string]bool{"broken": true}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hold := onlyFinding(t, result, StaleServer).Hold(); !strings.Contains(hold, "process identity") {
+	finding := onlyFinding(t, result, StaleServer)
+	if hold := finding.Hold(); !strings.Contains(hold, "process identity") {
 		t.Fatalf("hold = %q, want the unresolved-pane refusal to survive a task force", hold)
 	}
 	if len(runner.killed) != 0 {
 		t.Fatalf("a task force killed a process the sweep could not account for: %v", runner.killed)
 	}
-	// Three seconds of sampling per held finding buys nothing: the verdict is
-	// already reached and no measurement can change it.
-	if samples != 0 {
-		t.Fatalf("processor time was sampled %d time(s) for a finding that was already held", samples)
+	// A held finding is exactly what the operator reads to decide whether to
+	// name this pid, so the one number that separates a live process from an
+	// abandoned one has to be in it.
+	if !strings.Contains(finding.Detail, "busy") {
+		t.Fatalf("detail = %q, want the measurement reported on the held finding", finding.Detail)
 	}
 }
 

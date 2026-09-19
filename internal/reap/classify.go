@@ -454,7 +454,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				TaskID: worktree.TaskID,
 				PID:    process.PID,
 				Path:   worktree.Path,
-				Detail: fmt.Sprintf("%s rooted in %s, with no pane holding an agent working there, and its task %s", process.Name, worktree.Path, taskOutcome(task, known, unreadableRecord)),
+				Detail: fmt.Sprintf("%s rooted in %s, with %s", process.Name, worktree.Path, placementOutcome(inv, task, known, unreadableRecord)),
 				Action: "kill the process tree",
 			}
 			finding.refuseUntilEstablished(unresolvedPaneHold(inv), strconv.Itoa(process.PID))
@@ -491,7 +491,7 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 			TaskID:     worktree.TaskID,
 			Path:       worktree.Path,
 			Registered: worktree.Registration == RegistrationListed,
-			Detail:     "no pane holding an agent working there, and its task " + taskOutcome(task, known, unreadable[worktree.TaskID]),
+			Detail:     placementOutcome(inv, task, known, unreadable[worktree.TaskID]),
 			Action:     "return the worktree through cfo cleanup",
 		}
 		finding.refuseUntilEstablished(unplacedAgentHold(inv), finding.TaskID)
@@ -888,6 +888,23 @@ func worktreeOf(process Process, worktrees []WorktreeDir) (WorktreeDir, bool) {
 		}
 	}
 	return best, found
+}
+
+// placementOutcome says what the sweep actually established about the goblin
+// behind a worktree, which is not the same sentence in every case and must
+// never be one the hold on the same line contradicts. Where an agent reported
+// no working directory, whether a goblin is working here is precisely what
+// could not be answered, and unplacedAgentHold beside it says so. Where no
+// record names the worktree, there was no record to ask about, and claiming
+// anything about panes restates the outcome a second time.
+func placementOutcome(inv Inventory, task Task, known, unreadable bool) string {
+	switch {
+	case len(inv.UnplacedAgents) > 0:
+		return "an agent the sweep could not place, so nothing establishes whether its goblin is working there, and its task " + taskOutcome(task, known, unreadable)
+	case !known && !unreadable:
+		return "no task record to ask about"
+	}
+	return "no pane holding an agent working there, and its task " + taskOutcome(task, known, unreadable)
 }
 
 func taskOutcome(task Task, known, unreadable bool) string {
