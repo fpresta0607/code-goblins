@@ -1,12 +1,16 @@
 // Package reap finds and retires the fleet resources nothing else notices: a
 // harness process whose pane is gone, a dev server left running in a finished
-// goblin's worktree, and the worktree, metadata and status records left behind
-// when a task ends without a clean cleanup.
+// goblin's worktree, the worktree, metadata and status records left behind
+// when a task ends without a clean cleanup, and the directory under a
+// project's .worktrees/ that the project does not register as a worktree at
+// all.
 //
 // No single source sees all of it. cfo knows the tasks it started, Herdr knows
-// the panes that still exist, and only the operating system knows what is
-// still running, so classification cross-references all four (state, panes,
-// processes, worktree directories) and trusts none of them alone.
+// the panes that still exist, only the operating system knows what is still
+// running, and only a project's own git worktree list says which directories
+// under it are worktrees, so classification cross-references all five (state,
+// panes, processes, worktree directories, registration) and trusts none of
+// them alone.
 //
 // Detection is the default and acting is opt-in: see Service.Apply for the
 // gates, which is where the correctness of this package actually lives.

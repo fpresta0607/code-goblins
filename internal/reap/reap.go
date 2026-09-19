@@ -203,8 +203,8 @@ func (s Service) gate(ctx context.Context, finding *Finding, options Options) {
 	finding.clearForced(options.Force)
 	// A finding still refused after that takes no measurement, because none of
 	// them can change the outcome: three seconds of processor sampling per
-	// process finding, and two git subprocesses per worktree, spent to reach a
-	// verdict already reached. This is not the mistake the refusal machinery
+	// process finding, and three git subprocesses per worktree, spent to reach
+	// a verdict already reached. This is not the mistake the refusal machinery
 	// exists to prevent. Dropping a refusal during classification is a lie,
 	// because classification is pure and cheap and its whole job is to state
 	// every reason something is held; skipping a measurement here adds no
