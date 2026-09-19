@@ -378,7 +378,7 @@ func Classify(inv Inventory) []Finding {
 		unreadable[id] = true
 	}
 
-	findings := classifyProcesses(inv, supervised, fleet, tasks, unreadable)
+	findings := classifyProcesses(inv, supervised, fleet, tasks, panes, unreadable)
 	findings = append(findings, classifyWorktrees(inv, supervised, tasks, panes, unreadable)...)
 	findings = append(findings, classifyMetas(inv, panes, supervised, fleet)...)
 	for _, id := range inv.OrphanStatusIDs {
@@ -393,7 +393,7 @@ func Classify(inv Inventory) []Finding {
 	return findings
 }
 
-func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[string]Task, unreadable map[string]bool) []Finding {
+func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[string]Task, panes map[string]Pane, unreadable map[string]bool) []Finding {
 	desktop := descendants(inv.Processes, rootsMatching(inv.Processes, isDesktopApp))
 	gates := descendants(inv.Processes, rootsMatching(inv.Processes, isGateSupervisor))
 	var findings []Finding
@@ -430,7 +430,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				continue
 			}
 			task, known := tasks[worktree.TaskID]
-			if known && !task.Terminal {
+			if goblinIsAlive(task, known, panes, inv.Processes, supervised, fleet) {
 				// Its goblin is still working; the server is doing its job.
 				continue
 			}
@@ -440,17 +440,17 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				TaskID: worktree.TaskID,
 				PID:    process.PID,
 				Path:   worktree.Path,
-				Detail: fmt.Sprintf("%s rooted in %s, whose task %s", process.Name, worktree.Path, taskOutcome(task, known, unreadableRecord)),
+				Detail: fmt.Sprintf("%s rooted in %s, with no live pane and no harness of its own left, and its task %s", process.Name, worktree.Path, taskOutcome(task, known, unreadableRecord)),
 				Action: "kill the process tree",
 			}
 			finding.refuseUntilEstablished(unresolvedPaneHold(inv), strconv.Itoa(process.PID))
-			if unreadableRecord {
-				// Killing this server says the task behind it is over, and an
-				// unreadable record is the one thing that cannot say so. It is
-				// added, not assigned, so an unrelated pane that could not
-				// report its identity cannot drop it.
-				finding.refuseUnlessForced(unfinishedHold(task, known, true), finding.TaskID)
-			}
+			// A task that never said it was done, or whose record could not be
+			// read, is reported and held rather than skipped: the server is
+			// still a leak once its goblin is gone, and the operator is the
+			// one who decides that the work behind it is over. Added, not
+			// assigned, so an unrelated pane that could not report its
+			// identity cannot drop it.
+			finding.refuseUnlessForced(unfinishedHold(task, known, unreadableRecord), finding.TaskID)
 			findings = append(findings, finding)
 		}
 	}
@@ -614,6 +614,51 @@ func classifyMetas(inv Inventory, panes map[string]Pane, supervised, fleet map[i
 		findings = append(findings, finding)
 	}
 	return findings
+}
+
+// goblinIsAlive reports whether anything that could say the goblin behind a
+// worktree is still working says so. It deliberately does not consult the
+// status log, because a goblin notifies done per pull request and a task can
+// ship several under one id: a terminal verb establishes that a pull request
+// finished, and nothing at all about whether the goblin is still at work.
+//
+// A kill needs a stronger premise than a removal. A wrongly removed empty
+// directory costs nothing and a wrongly killed dev server costs a goblin its
+// round, so this asks live evidence rather than a record. The pane is the
+// direct answer, since Herdr holds the goblin's own session; the harness check
+// covers a task whose recorded pane id no longer matches the pane it is in,
+// where a process still running under the fleet names the task itself.
+func goblinIsAlive(task Task, known bool, panes map[string]Pane, processes []Process, supervised, fleet map[int]bool) bool {
+	if !known {
+		return false
+	}
+	if pane, ok := panes[task.Meta.HerdrPaneID]; ok && pane.HasAgent {
+		return true
+	}
+	return taskHasLiveHarness(task, processes, supervised, fleet)
+}
+
+// taskHasLiveHarness reports whether a harness the fleet is running names this
+// task. A goblin's harness carries its task through the per-task temporary
+// directory it was launched with, and some carry the worktree instead, so both
+// are checked; a harness that carries neither is invisible here, which is why
+// this is the second signal and not the only one.
+func taskHasLiveHarness(task Task, processes []Process, supervised, fleet map[int]bool) bool {
+	for _, process := range processes {
+		if !supervised[process.PID] && !fleet[process.PID] {
+			continue
+		}
+		if !isHarness(process) {
+			continue
+		}
+		if task.Meta.TaskTmp != "" && namesPath(process.CommandLine, task.Meta.TaskTmp) {
+			return true
+		}
+		if task.Meta.Worktree != "" && namesPath(process.CommandLine, task.Meta.Worktree) {
+			return true
+		}
+	}
+	return false
 }
 
 // taskHasProcess reports whether anything still running belongs to the task. A
