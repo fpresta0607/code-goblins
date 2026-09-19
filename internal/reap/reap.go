@@ -64,8 +64,13 @@ func (o Options) forced(finding Finding) bool {
 	if o.Force == nil {
 		return false
 	}
-	if finding.ForceKey != "" {
-		return o.Force[finding.ForceKey]
+	if len(finding.ForceKeys) > 0 {
+		for _, key := range finding.ForceKeys {
+			if !o.Force[key] {
+				return false
+			}
+		}
+		return true
 	}
 	if finding.PID != 0 && o.Force[strconv.Itoa(finding.PID)] {
 		return true
@@ -161,14 +166,16 @@ const ReapedPrefix = "reaped: "
 // when the finding names a task, and always into the fleet-level reap log, so
 // there is one place that answers "what did the reaper do".
 func (s Service) record(finding Finding, line string) {
-	// The reaper may add to a task's history and must never manufacture one.
-	// state.AppendStatus creates the log it is handed, so writing to a task
-	// with no log left - the one this sweep just archived, or the shell of a
-	// task retired long ago - would leave behind a log with nothing in it but
-	// the reaper's own line, which the next sweep reads back as an orphan
-	// status the sweep itself created. The fleet log below carries those.
+	// The reaper may add to the history of a task that exists and must never
+	// manufacture one for a task that does not. state.AppendStatus creates
+	// the log it is handed, so a line written for a record retired long ago
+	// would leave behind a status log holding nothing but the reaper's own
+	// line, which state.ScanIDs reports as an orphan the sweep itself made.
+	// The record is the fact to ask about, not the log: a goblin spawned a
+	// moment ago has a record and has reported nothing yet. The fleet log
+	// below carries every line either way.
 	if finding.TaskID != "" && state.ValidTaskID(finding.TaskID) == nil {
-		if _, err := os.Stat(filepath.Join(s.Home.State, finding.TaskID+".status")); err == nil {
+		if _, err := os.Stat(filepath.Join(s.Home.State, finding.TaskID+".meta")); err == nil {
 			// Best effort: a failed status write must not undo a completed kill.
 			_ = state.AppendStatus(s.Home.State, finding.TaskID, state.NormalizeStatusDetail(line))
 		}
