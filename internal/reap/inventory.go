@@ -45,6 +45,9 @@ type Collector struct {
 	Session   string
 	Panes     PaneReader
 	Processes ProcessLister
+	// Commands runs git, which is the only source that can say whether a
+	// directory under .worktrees/ is a worktree at all.
+	Commands execx.Runner
 	// StatusTail bounds how much of each status log is read to find the
 	// latest verb, matching crewstate.Resolve's own window.
 	StatusTail int
@@ -80,7 +83,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 		inv.Tasks = append(inv.Tasks, Task{ID: id, Meta: meta, Verb: verb, Terminal: IsTerminal(verb)})
 	}
 
-	inv.Worktrees = c.worktrees(inv.Tasks, &notes)
+	inv.Worktrees = c.worktrees(ctx, inv.Tasks, &notes)
 
 	if c.Panes != nil {
 		panes, unresolved, err := c.readPanes(ctx)
@@ -169,7 +172,7 @@ func (c Collector) readPanes(ctx context.Context) (panes []Pane, unresolved []st
 // more. Only gb-* directories count there: no record says the fleet was ever
 // in such a checkout, so anything else under its .worktrees/ is the operator's
 // own worktree, and this sweep must not so much as report it as an orphan.
-func (c Collector) worktrees(tasks []Task, notes *[]string) []WorktreeDir {
+func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string) []WorktreeDir {
 	roots := map[string]bool{c.Home.Root: true}
 	for _, entry := range readDirNames(filepath.Join(c.Home.Root, "projects")) {
 		roots[filepath.Join(c.Home.Root, "projects", entry)] = true
@@ -215,6 +218,11 @@ func (c Collector) worktrees(tasks []Task, notes *[]string) []WorktreeDir {
 			}
 			continue
 		}
+		// Read once per root, and only for a root that has something under
+		// .worktrees/ to classify: the answer costs a subprocess, and most
+		// roots have nothing there at all.
+		var registered map[string]bool
+		asked := false
 		for _, entry := range entries {
 			if !entry.IsDir() || (!roots[root] && !strings.HasPrefix(entry.Name(), "gb-")) {
 				continue
@@ -224,14 +232,54 @@ func (c Collector) worktrees(tasks []Task, notes *[]string) []WorktreeDir {
 				continue
 			}
 			seen[normalizePath(path)] = true
+			if !asked {
+				registered, asked = c.registeredWorktrees(ctx, root, notes), true
+			}
 			found = append(found, WorktreeDir{
-				Path:    path,
-				Project: root,
-				TaskID:  strings.TrimPrefix(entry.Name(), "gb-"),
+				Path:       path,
+				Project:    root,
+				TaskID:     strings.TrimPrefix(entry.Name(), "gb-"),
+				Registered: registered[normalizePath(path)],
 			})
 		}
 	}
 	return found
+}
+
+// registeredWorktrees reads the paths a project registers as worktrees. It is
+// the premise the whole worktree classification rests on, and it is checked
+// because it stops holding: a task that dies leaves its directory behind, the
+// repository drops it from the list, and the directory still looks exactly
+// like a worktree. Every git question asked from inside such a shell is
+// answered by the enclosing repository, which is how an empty directory came
+// to be reported as carrying that repository's uncommitted changes.
+//
+// A root that is not a repository at all answers with the enclosing
+// repository's list, which cannot contain a path under this root, so it
+// reports nothing as registered, which is the truth.
+func (c Collector) registeredWorktrees(ctx context.Context, root string, notes *[]string) map[string]bool {
+	if c.Commands == nil {
+		*notes = append(*notes, "no command runner configured; no directory under .worktrees/ can be confirmed to be a worktree")
+		return nil
+	}
+	result, err := c.Commands.Run(ctx, execx.Request{Dir: root, Name: "git", Args: []string{"worktree", "list", "--porcelain"}})
+	if err != nil {
+		*notes = append(*notes, fmt.Sprintf("%s: git worktree list failed (%s); its directories cannot be confirmed to be worktrees", root, err))
+		return nil
+	}
+	if result.ExitCode != 0 {
+		*notes = append(*notes, fmt.Sprintf("%s: git worktree list exited with code %d (%s); its directories cannot be confirmed to be worktrees", root, result.ExitCode, strings.TrimSpace(string(result.Stderr))))
+		return nil
+	}
+	registered := make(map[string]bool)
+	for _, line := range strings.Split(string(result.Stdout), "\n") {
+		path, ok := strings.CutPrefix(strings.TrimSpace(line), "worktree ")
+		if !ok {
+			continue
+		}
+		registered[normalizePath(filepath.Clean(path))] = true
+	}
+	return registered
 }
 
 // herdrRoots finds the Herdr server processes. Every pane shell CFO ever

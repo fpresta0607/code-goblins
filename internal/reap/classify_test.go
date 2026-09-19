@@ -121,7 +121,7 @@ func TestClassify(t *testing.T) {
 				Panes:         []Pane{livePane},
 				FleetRootPIDs: []int{herdrPID},
 				Tasks:         []Task{task("pp-money", `C:\dev\pp\.worktrees\gb-pp-money`, "pane-gone", "done")},
-				Worktrees:     []WorktreeDir{{Path: `C:\dev\pp\.worktrees\gb-pp-money`, Project: `C:\dev\pp`, TaskID: "pp-money"}},
+				Worktrees:     []WorktreeDir{{Path: `C:\dev\pp\.worktrees\gb-pp-money`, Project: `C:\dev\pp`, Registered: true, TaskID: "pp-money"}},
 				Processes: append(append([]Process{}, liveProcesses...),
 					process(555, 1, "node.exe", `node C:\dev\pp\.worktrees\gb-pp-money\node_modules\next\dist\bin\next dev`, fixtureLatest),
 				),
@@ -140,7 +140,7 @@ func TestClassify(t *testing.T) {
 				Panes:         []Pane{livePane},
 				FleetRootPIDs: []int{herdrPID},
 				Tasks:         []Task{task("pp-money", `C:\dev\pp\.worktrees\gb-pp-money`, "pane-live", "working")},
-				Worktrees:     []WorktreeDir{{Path: `C:\dev\pp\.worktrees\gb-pp-money`, Project: `C:\dev\pp`, TaskID: "pp-money"}},
+				Worktrees:     []WorktreeDir{{Path: `C:\dev\pp\.worktrees\gb-pp-money`, Project: `C:\dev\pp`, Registered: true, TaskID: "pp-money"}},
 				Processes: append(append([]Process{}, liveProcesses...),
 					process(555, 1, "node.exe", `node C:\dev\pp\.worktrees\gb-pp-money\node_modules\vite\bin\vite.js`, fixtureLatest),
 				),
@@ -153,7 +153,7 @@ func TestClassify(t *testing.T) {
 			inventory: Inventory{
 				Panes:     []Pane{livePane},
 				Processes: liveProcesses,
-				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-pdocs-help-docs`, Project: `C:\dev\pd`, TaskID: "pdocs-help-docs"}},
+				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-pdocs-help-docs`, Project: `C:\dev\pd`, Registered: true, TaskID: "pdocs-help-docs"}},
 			},
 			want:      OrphanWorktree,
 			wantCount: 1,
@@ -169,7 +169,7 @@ func TestClassify(t *testing.T) {
 				Panes:     []Pane{livePane},
 				Processes: liveProcesses,
 				Tasks:     []Task{task("live", `C:\dev\pd\.worktrees\gb-live`, "pane-live", "working")},
-				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, TaskID: "live"}},
+				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, Registered: true, TaskID: "live"}},
 			},
 			want:      OrphanWorktree,
 			wantCount: 0,
@@ -195,7 +195,7 @@ func TestClassify(t *testing.T) {
 				Panes:     []Pane{livePane},
 				Processes: liveProcesses,
 				Tasks:     []Task{task("utah", `C:\dev\pd\.worktrees\gb-utah`, "pane-gone", "done")},
-				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-utah`, Project: `C:\dev\pd`, TaskID: "utah"}},
+				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-utah`, Project: `C:\dev\pd`, Registered: true, TaskID: "utah"}},
 			},
 			want:      OrphanMeta,
 			wantCount: 0,
@@ -249,7 +249,7 @@ func TestClassifyLiveFleetIsNeverReported(t *testing.T) {
 		Panes:         []Pane{{ID: "pane-live", ShellPID: 200, ForegroundPID: 300, HasAgent: true}},
 		FleetRootPIDs: []int{100},
 		Tasks:         []Task{task("live", `C:\dev\pd\.worktrees\gb-live`, "pane-live", "working")},
-		Worktrees:     []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, TaskID: "live"}},
+		Worktrees:     []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, Registered: true, TaskID: "live"}},
 		Processes: []Process{
 			process(100, 1, "herdr.exe", "herdr server", fixtureStart),
 			process(200, 100, "powershell.exe", "powershell", fixtureLater),
@@ -415,7 +415,7 @@ func TestUnresolvedPaneHoldsEveryProcessFinding(t *testing.T) {
 		UnresolvedPanes: []string{"pane-a"},
 		FleetRootPIDs:   []int{100},
 		Tasks:           []Task{task("old", `C:\dev\pd\.worktrees\gb-old`, "pane-b", "done")},
-		Worktrees:       []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-old`, Project: `C:\dev\pd`, TaskID: "old"}},
+		Worktrees:       []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-old`, Project: `C:\dev\pd`, Registered: true, TaskID: "old"}},
 		Processes: []Process{
 			process(100, 1, "herdr.exe", "herdr server", fixtureStart),
 			process(400, 100, "powershell.exe", "powershell", fixtureLater),
@@ -432,5 +432,139 @@ func TestUnresolvedPaneHoldsEveryProcessFinding(t *testing.T) {
 		if !strings.Contains(matched[0].Hold, "process identity") {
 			t.Fatalf("%s hold = %q, want the unresolved-pane refusal", class, matched[0].Hold)
 		}
+	}
+}
+
+// TestClassifyProcessPopulations is the fix for four identical sweeps in
+// ninety minutes, fourteen findings each, every one a false positive. The
+// image name says nothing on this machine: claude.exe is the Overlord's
+// desktop application a dozen times over and a reviewer of a round in
+// progress, as often as it is a fleet harness. The parent process and the
+// command line are what tell them apart, and only the last case here is
+// something the sweep has any business reporting.
+func TestClassifyProcessPopulations(t *testing.T) {
+	const (
+		herdrPID   = 100
+		desktopPID = 700
+		gatePID    = 800
+	)
+	const desktopExe = `"C:\Program Files\WindowsApps\Claude_2.2553.1.0_x64__pzs8sxrjxfjjc\app\claude.exe"`
+	// One machine, all four populations at once, because that is how they
+	// actually appear and a fixture with one at a time would not prove the
+	// classifier keeps them apart.
+	processes := []Process{
+		process(herdrPID, 1, "herdr.exe", "herdr server", fixtureStart),
+		// The desktop application: one parent under sihost, then the Chromium
+		// children it spawns, each carrying a --type= switch.
+		process(desktopPID, 7996, "claude.exe", desktopExe+" ", fixtureStart),
+		process(701, desktopPID, "claude.exe", desktopExe+" --type=renderer --user-data-dir=...", fixtureLater),
+		process(702, desktopPID, "claude.exe", desktopExe+" --type=gpu-process --gpu-preferences=...", fixtureLater),
+		process(703, desktopPID, "claude.exe", desktopExe+" --type=crashpad-handler --user-data-dir=...", fixtureLater),
+		// A Chromium child whose parent row is gone and whose command line
+		// carries no install path: the --type= switch is the only evidence
+		// left, and it is enough, because CFO launches no harness with one.
+		process(704, 1, "claude.exe", "claude.exe --type=renderer --user-data-dir=...", fixtureLater),
+		// A no-mistakes review round: the daemon and the reviewer it launched.
+		process(gatePID, 1, "no-mistakes.exe", `no-mistakes.exe daemon run --root C:\Users\x\.no-mistakes`, fixtureStart),
+		process(801, gatePID, "claude.exe", `claude --model opus --effort high -p --verbose --output-format stream-json --json-schema "{}"`, fixtureLater),
+		// The real thing: a harness that descends from the Herdr server and
+		// has no pane left.
+		process(400, herdrPID, "powershell.exe", "powershell -NoExit", fixtureLater),
+		process(31032, 400, "claude.exe", `claude --dangerously-skip-permissions --strict-mcp-config`, fixtureLatest),
+	}
+	findings := classOf(Classify(Inventory{FleetRootPIDs: []int{herdrPID}, Processes: processes}), OrphanProcess)
+
+	reported := make(map[int]Finding, len(findings))
+	for _, finding := range findings {
+		reported[finding.PID] = finding
+	}
+	for _, unwanted := range []struct {
+		pid        int
+		population string
+	}{
+		{desktopPID, "the desktop application the Overlord is using"},
+		{701, "a desktop application renderer child"},
+		{702, "a desktop application gpu-process child"},
+		{703, "a desktop application crashpad-handler child"},
+		{704, "a Chromium child with no readable install path"},
+		{801, "a gate agent reviewing for a goblin that is working"},
+	} {
+		if finding, ok := reported[unwanted.pid]; ok {
+			t.Errorf("pid %d (%s) was reported: %s", unwanted.pid, unwanted.population, finding.Line())
+		}
+	}
+	orphan, ok := reported[31032]
+	if !ok {
+		t.Fatalf("the genuine orphan was not reported; findings: %+v", findings)
+	}
+	if orphan.Hold != "" {
+		t.Errorf("the genuine orphan was held: %q", orphan.Hold)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("got %d orphan_process findings, want only the genuine orphan: %+v", len(findings), findings)
+	}
+}
+
+// TestUnidentifiedHarnessDoesNotInviteForce: the fourteen false positives all
+// carried a HELD line telling the operator to name the pid with --force, which
+// would have closed the Overlord's application or killed a review round. What
+// survives the classifier now says what could not be determined instead.
+func TestUnidentifiedHarnessDoesNotInviteForce(t *testing.T) {
+	inventory := Inventory{
+		FleetRootPIDs: []int{100},
+		Processes: []Process{
+			process(100, 1, "herdr.exe", "herdr server", fixtureStart),
+			process(900, 1, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest),
+		},
+	}
+	finding := classOf(Classify(inventory), OrphanProcess)[0]
+	if strings.Contains(finding.Hold, "--force") {
+		t.Errorf("hold = %q, want no --force invitation", finding.Hold)
+	}
+	if !strings.Contains(finding.Hold, "could not determine") {
+		t.Errorf("hold = %q, want it to say what could not be determined", finding.Hold)
+	}
+}
+
+// TestUnregisteredDirectoryIsNotAWorktree: a directory under .worktrees/ that
+// the project does not register is a shell a dead task left behind. Calling it
+// a worktree is what made the sweep ask git questions inside it, and git
+// answers those from the enclosing repository.
+func TestUnregisteredDirectoryIsNotAWorktree(t *testing.T) {
+	inventory := Inventory{
+		Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-dead`, Project: `C:\dev\pd`, TaskID: "dead"}},
+	}
+	findings := Classify(inventory)
+	if worktrees := classOf(findings, OrphanWorktree); len(worktrees) != 0 {
+		t.Fatalf("an unregistered directory was classified as a worktree: %+v", worktrees)
+	}
+	directories := classOf(findings, OrphanDirectory)
+	if len(directories) != 1 {
+		t.Fatalf("got %d orphan_directory findings, want 1: %+v", len(directories), findings)
+	}
+	if !strings.Contains(directories[0].Detail, "git worktree list") {
+		t.Errorf("detail = %q, want it to name the premise that failed", directories[0].Detail)
+	}
+	if !strings.Contains(directories[0].Detail, "working directory is not readable") {
+		t.Errorf("detail = %q, want it to say what it could not determine about who holds the directory", directories[0].Detail)
+	}
+}
+
+// TestUnregisteredDirectoryNamesTheProcessHoldingIt: when a command line does
+// name the shell, that process is the leak the sweep exists to catch, and the
+// directory is held because it is the process that has to be dealt with.
+func TestUnregisteredDirectoryNamesTheProcessHoldingIt(t *testing.T) {
+	inventory := Inventory{
+		Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-dead`, Project: `C:\dev\pd`, TaskID: "dead"}},
+		Processes: []Process{
+			process(4242, 1, "node.exe", `node C:\dev\pd\.worktrees\gb-dead\scripts\watch.js`, fixtureLatest),
+		},
+	}
+	finding := classOf(Classify(inventory), OrphanDirectory)[0]
+	if finding.PID != 4242 {
+		t.Fatalf("finding = %+v, want pid 4242 named", finding)
+	}
+	if !strings.Contains(finding.Hold, "that process is the leak") {
+		t.Errorf("hold = %q, want the process named as the leak", finding.Hold)
 	}
 }

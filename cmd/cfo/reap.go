@@ -24,7 +24,11 @@ const reapUsage = `usage: cfo reap [--dry-run] [--apply] [--force <pid|task-id>]
 Find the fleet resources nothing else notices and, with --apply, retire them:
 an unsupervised harness process whose pane is gone, a dev server left running
 in a finished goblin's worktree, an orphaned worktree, task record or status
-log.
+log, and the empty directory a dead task leaves under .worktrees/.
+
+A harness process is placed by its ancestry and its command line, never by its
+image name: the desktop application and the agents of a no-mistakes review
+round are not fleet processes and are not reported.
 
 --dry-run is the default and only reports. --apply acts, behind gates that
 never kill a process still burning processor time, never remove a worktree
@@ -127,6 +131,7 @@ func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.R
 			Session:   session,
 			Panes:     client,
 			Processes: reap.CIMProcesses{Commands: commands},
+			Commands:  commands,
 
 			ProjectsRoot: install.MachineProjectsRoot,
 		},

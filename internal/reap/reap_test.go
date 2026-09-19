@@ -197,7 +197,7 @@ func TestForceNamesOneProcess(t *testing.T) {
 func worktreeInventory(verb string) Inventory {
 	path := `C:\dev\pd\.worktrees\gb-old`
 	inventory := Inventory{
-		Worktrees: []WorktreeDir{{Path: path, Project: `C:\dev\pd`, TaskID: "old"}},
+		Worktrees: []WorktreeDir{{Path: path, Project: `C:\dev\pd`, Registered: true, TaskID: "old"}},
 	}
 	if verb != "" {
 		inventory.Tasks = []Task{task("old", path, "pane-gone", verb)}
@@ -363,4 +363,114 @@ func TestRecordRoundTrip(t *testing.T) {
 	if !strings.Contains(out.String(), "1 orphan_process") || !strings.Contains(out.String(), "swept 1m0s ago") {
 		t.Fatalf("rendered %q", out.String())
 	}
+}
+
+// TestEmptyShellIsNeverReportedAsADirtyWorktree is the observed failure:
+// C:\dev\code-goblins\projects\siqsermon\.worktrees\gb-siqsermon-manuscript-header
+// is an empty directory with no files in it, and it was reported as a worktree
+// with uncommitted or untracked changes. The changes were code-goblins' own,
+// because git asked from inside that directory answers for the enclosing
+// repository. Both halves are proven here: the premise check keeps the
+// directory out of the worktree class, and the file count catches the lie if
+// anything ever puts it back.
+func TestEmptyShellIsNeverReportedAsADirtyWorktree(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	gitInit(t, repo)
+	// The enclosing repository's own dirt, which is what git reported as the
+	// empty directory's.
+	if err := os.WriteFile(filepath.Join(repo, "scratch.txt"), []byte("the parent's file\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	shell := filepath.Join(repo, ".worktrees", "gb-dead")
+	if err := os.MkdirAll(shell, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	service := Service{
+		Home:      testHome(t),
+		Commands:  execx.OSRunner{},
+		Inventory: fixedInventory(Inventory{Worktrees: []WorktreeDir{{Path: shell, Project: repo, TaskID: "dead"}}}),
+		Sleep:     func(time.Duration) {},
+		Now:       func() time.Time { return fixtureStart },
+	}
+
+	result, err := service.Audit(context.Background(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if worktrees := classOf(result.Findings, OrphanWorktree); len(worktrees) != 0 {
+		t.Fatalf("an empty shell was reported as a worktree: %+v", worktrees)
+	}
+	if finding := onlyFinding(t, result, OrphanDirectory); finding.Hold != "" {
+		t.Fatalf("an empty shell nothing is using was held: %q", finding.Hold)
+	}
+
+	t.Run("without the premise git answers for the enclosing repository", func(t *testing.T) {
+		// The premise check is what stops the report: restore the assumption
+		// that a directory under .worktrees/ is a worktree and the old
+		// question gets asked again, from inside a directory holding nothing.
+		status, err := service.git(context.Background(), shell, "status", "--porcelain=v1", "--untracked-files=all")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(status, "scratch.txt") {
+			t.Fatalf("git status from inside the shell = %q, want the enclosing repository's untracked file", status)
+		}
+		service.Inventory = fixedInventory(Inventory{
+			Worktrees: []WorktreeDir{{Path: shell, Project: repo, Registered: true, TaskID: "dead"}},
+		})
+		result, err := service.Audit(context.Background(), Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		hold := onlyFinding(t, result, OrphanWorktree).Hold
+		if strings.Contains(hold, "uncommitted or untracked changes") {
+			t.Fatalf("hold = %q, want the dirt not attributed to a directory with no files in it", hold)
+		}
+		if !strings.Contains(hold, "enclosing repository") {
+			t.Fatalf("hold = %q, want it to name whose changes those are", hold)
+		}
+	})
+}
+
+func TestApplyRemovesAnEmptyShellAndHoldsAnythingElse(t *testing.T) {
+	repo := t.TempDir()
+	shell := filepath.Join(repo, ".worktrees", "gb-dead")
+	if err := os.MkdirAll(shell, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	inventory := Inventory{Worktrees: []WorktreeDir{{Path: shell, Project: repo, TaskID: "dead"}}}
+
+	h := testHome(t)
+	service := newService(t, h, inventory, &gitRunner{})
+	result, err := service.Apply(context.Background(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finding := onlyFinding(t, result, OrphanDirectory); finding.Hold != "" {
+		t.Fatalf("the empty shell was held: %q", finding.Hold)
+	}
+	if _, err := os.Stat(shell); !os.IsNotExist(err) {
+		t.Fatalf("the empty shell is still there: %v", err)
+	}
+
+	t.Run("a directory with contents is reported, not removed", func(t *testing.T) {
+		if err := os.MkdirAll(shell, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(shell, "somebodys-file.txt"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		service := newService(t, testHome(t), inventory, &gitRunner{})
+		result, err := service.Apply(context.Background(), Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if hold := onlyFinding(t, result, OrphanDirectory).Hold; !strings.Contains(hold, "not empty") {
+			t.Fatalf("hold = %q, want a refusal naming the contents", hold)
+		}
+		if _, err := os.Stat(filepath.Join(shell, "somebodys-file.txt")); err != nil {
+			t.Fatalf("the contents were removed: %v", err)
+		}
+	})
 }

@@ -185,6 +185,13 @@ func (s Service) gate(ctx context.Context, finding *Finding, options Options) {
 		if hold := s.holdIfWorkWouldBeLost(ctx, finding.Path); hold != "" {
 			finding.Hold = hold
 		}
+	case OrphanDirectory:
+		// Removing the shell is only ever a removal of an empty directory.
+		// Anything with contents is somebody's files in a directory this
+		// sweep has already failed to explain, so it is reported, not touched.
+		if hold := holdIfNotEmpty(finding.Path); hold != "" {
+			finding.Hold = hold
+		}
 	}
 }
 
@@ -227,6 +234,13 @@ func (s Service) holdIfWorkWouldBeLost(ctx context.Context, worktree string) str
 		return "cannot read git status: " + err.Error()
 	}
 	if status != "" {
+		// git answers from the nearest enclosing repository, so a status that
+		// reports changes in a directory holding no files is the enclosing
+		// repository's status, not this path's. Counting the files is what
+		// tells the two apart.
+		if empty, err := isEmptyDir(worktree); err == nil && empty {
+			return "git reported changes but this directory holds no files, so the changes are an enclosing repository's and this path is not a worktree at all"
+		}
 		return "worktree has uncommitted or untracked changes"
 	}
 	unpushed, err := s.git(ctx, worktree, "log", "--oneline", "HEAD", "--not", "--remotes")
@@ -249,6 +263,11 @@ func (s Service) act(ctx context.Context, finding Finding) error {
 		return s.Kill(ctx, finding.PID)
 	case OrphanWorktree:
 		return s.returnWorktree(ctx, finding)
+	case OrphanDirectory:
+		// Non-recursive on purpose: it removes the empty shell and fails on
+		// anything else, including a directory a process still holds open,
+		// which is the failure that names the real leak.
+		return os.Remove(finding.Path)
 	case OrphanMeta:
 		if s.Clean == nil {
 			return errors.New("no cleanup path configured")
@@ -296,6 +315,28 @@ func (s Service) archiveStatus(id string) error {
 	}
 	target := filepath.Join(dir, id+".status."+s.now().UTC().Format("20060102T150405Z"))
 	return os.Rename(filepath.Join(s.Home.State, id+".status"), target)
+}
+
+// holdIfNotEmpty refuses anything with contents. isEmptyDir reads one entry,
+// which is all "does this directory hold files" needs.
+func holdIfNotEmpty(dir string) string {
+	empty, err := isEmptyDir(dir)
+	if err != nil {
+		return "cannot read the directory: " + err.Error()
+	}
+	if !empty {
+		return "the directory is not empty, so it is not an abandoned shell; what is in it has to be explained before it is removed"
+	}
+	return ""
+}
+
+// isEmptyDir reports whether a directory holds nothing at all.
+func isEmptyDir(dir string) (bool, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false, err
+	}
+	return len(entries) == 0, nil
 }
 
 func (s Service) git(ctx context.Context, dir string, args ...string) (string, error) {

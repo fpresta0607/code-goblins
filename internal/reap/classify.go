@@ -47,6 +47,12 @@ const (
 	OrphanMeta Class = "orphan_meta"
 	// OrphanStatus is a state/<id>.status log with no matching meta.
 	OrphanStatus Class = "orphan_status"
+	// OrphanDirectory is a directory under a project's .worktrees/ that the
+	// project does not register as a worktree: the empty shell a task that
+	// died leaves behind. It is a separate class because it is not a worktree,
+	// and every git question asked from inside one is answered by the
+	// enclosing repository instead.
+	OrphanDirectory Class = "orphan_directory"
 )
 
 // Finding is one classified resource and the verdict on acting upon it.
@@ -120,6 +126,12 @@ type WorktreeDir struct {
 	Path    string
 	Project string
 	TaskID  string
+	// Registered is whether the project repository lists this path in git
+	// worktree list. It is the premise the whole worktree classification rests
+	// on, and it stops holding the moment a task dies leaving its directory
+	// behind: the shell is still a directory, so it still reads as a worktree,
+	// but git run inside it answers for the enclosing repository instead.
+	Registered bool
 }
 
 // Inventory is the cross-referenced evidence one classification runs over. It
@@ -166,6 +178,16 @@ var harnessSignatures = []string{
 // flag is absent.
 var harnessExecutables = []string{"claude", "codex", "kimi", "pi"}
 
+// desktopAppMarker is the install path of the Overlord's Claude Desktop
+// application. It is a packaged app, so every one of its processes runs from
+// under WindowsApps\Claude_<version>_<publisher>\app\claude.exe.
+const desktopAppMarker = `\windowsapps\claude_`
+
+// gateExecutable supervises a no-mistakes review round and launches the
+// reviewer harnesses under it. Those harnesses are as supervised as a goblin
+// in a pane: killing one ends a review round for a goblin that is working.
+const gateExecutable = "no-mistakes"
+
 // serverModules are the long-lived development servers a goblin leaves behind.
 // The match is on the module path in the command line, which is how a server
 // started from a worktree names the worktree it belongs to.
@@ -187,7 +209,7 @@ func Classify(inv Inventory) []Finding {
 	}
 
 	findings := classifyProcesses(inv, supervised, fleet, tasks)
-	findings = append(findings, classifyWorktrees(inv, tasks, panes)...)
+	findings = append(findings, classifyWorktrees(inv, supervised, tasks, panes)...)
 	findings = append(findings, classifyMetas(inv, panes, supervised, fleet)...)
 	for _, id := range inv.OrphanStatusIDs {
 		findings = append(findings, Finding{
@@ -202,6 +224,8 @@ func Classify(inv Inventory) []Finding {
 }
 
 func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[string]Task) []Finding {
+	desktop := descendants(inv.Processes, rootsMatching(inv.Processes, isDesktopApp))
+	gates := descendants(inv.Processes, rootsMatching(inv.Processes, isGateSupervisor))
 	var findings []Finding
 	for _, process := range inv.Processes {
 		if supervised[process.PID] {
@@ -209,6 +233,12 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 		}
 		switch {
 		case isHarness(process):
+			if isNonFleetHarness(process, desktop, gates) {
+				// Not a fleet process at all, so not this sweep's business:
+				// reporting it would wake the CFO for something no action of
+				// its own could ever be right about.
+				continue
+			}
 			finding := Finding{
 				Class:  OrphanProcess,
 				PID:    process.PID,
@@ -220,7 +250,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				finding.Path = worktree.Path
 			}
 			if !fleet[process.PID] {
-				finding.Hold = "no Herdr ancestry, so this may not be a fleet process at all; name its pid with --force to kill it"
+				finding.Hold = unidentifiedHold
 			}
 			if hold := unresolvedPaneHold(inv); hold != "" {
 				finding.Hold = hold
@@ -250,9 +280,13 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 	return findings
 }
 
-func classifyWorktrees(inv Inventory, tasks map[string]Task, panes map[string]Pane) []Finding {
+func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]Task, panes map[string]Pane) []Finding {
 	var findings []Finding
 	for _, worktree := range inv.Worktrees {
+		if !worktree.Registered {
+			findings = append(findings, classifyDirectory(inv, supervised, worktree))
+			continue
+		}
 		task, known := tasks[worktree.TaskID]
 		if known {
 			if pane, ok := panes[task.Meta.HerdrPaneID]; ok && pane.HasAgent {
@@ -278,10 +312,64 @@ func classifyWorktrees(inv Inventory, tasks map[string]Task, panes map[string]Pa
 	return findings
 }
 
+// classifyDirectory reports a directory under .worktrees/ that the project
+// does not register as a worktree. It is deliberately not an OrphanWorktree:
+// the premise every worktree question rests on has stopped holding here, and a
+// git command run inside such a shell is answered by the enclosing repository,
+// which is how an empty directory came to be reported as having the parent
+// repository's uncommitted changes.
+//
+// A shell that cannot be removed is a process using it as its working
+// directory, and that process is the real leak. The command lines are searched
+// for one; a working directory is not readable from a process listing, so when
+// nothing names the path the finding says that rather than guessing.
+func classifyDirectory(inv Inventory, supervised map[int]bool, dir WorktreeDir) Finding {
+	finding := Finding{
+		Class:  OrphanDirectory,
+		TaskID: dir.TaskID,
+		Path:   dir.Path,
+		Detail: dir.Project + " does not list it in git worktree list, so it is a directory a dead task left behind, not a worktree",
+		Action: "remove the empty directory",
+	}
+	if pid, ok := processNaming(dir.Path, inv, supervised); ok {
+		finding.PID = pid
+		finding.Detail += fmt.Sprintf("; pid %d names it on its command line", pid)
+		finding.Hold = fmt.Sprintf("pid %d is still using this directory, and that process is the leak here, not the directory it holds", pid)
+		return finding
+	}
+	finding.Detail += "; no command line names it, and a working directory is not readable from a process listing, so if the removal fails a leaked process is holding it open"
+	return finding
+}
+
+// processNaming finds an unsupervised process whose command line names the
+// directory. It is the cheap half of the question: it catches a server or a
+// tool launched with the path as an argument, and misses one that merely has
+// it as its working directory.
+func processNaming(path string, inv Inventory, supervised map[int]bool) (int, bool) {
+	target := normalizePath(path)
+	if target == "" {
+		return 0, false
+	}
+	for _, process := range inv.Processes {
+		if supervised[process.PID] {
+			continue
+		}
+		if strings.Contains(normalizePath(process.CommandLine), target) {
+			return process.PID, true
+		}
+	}
+	return 0, false
+}
+
 func classifyMetas(inv Inventory, panes map[string]Pane, supervised, fleet map[int]bool) []Finding {
 	worktrees := make(map[string]bool, len(inv.Worktrees))
 	for _, worktree := range inv.Worktrees {
-		worktrees[normalizePath(worktree.Path)] = true
+		// Only a registered worktree retires its record with it: returning an
+		// unregistered shell is a directory removal, which leaves the record
+		// behind for this class to report.
+		if worktree.Registered {
+			worktrees[normalizePath(worktree.Path)] = true
+		}
 	}
 	var findings []Finding
 	for _, task := range inv.Tasks {
@@ -411,6 +499,69 @@ func isHarness(process Process) bool {
 		}
 	}
 	return false
+}
+
+// unidentifiedHold is what a harness-shaped process gets when the sweep has
+// run out of evidence. It says what could not be determined and stops there:
+// the populations it cannot place are the Overlord's own sessions and tools,
+// and every one of the fourteen findings that named --force here was a process
+// that must never be killed.
+const unidentifiedHold = "could not determine what this process belongs to: it has no Herdr ancestry, and it is neither the desktop application nor a gate agent; identify it before anything acts on it"
+
+// isNonFleetHarness reports whether a harness-shaped process is not a fleet
+// process at all. The image name alone says nothing on this machine: claude.exe
+// is the Overlord's desktop application a dozen times over (one parent plus its
+// Chromium children, each carrying a --type= switch), and one more per
+// no-mistakes review round in progress. Both are read from the evidence the
+// scan already has, the ancestry and the command line, and both must be left
+// alone entirely: forcing one closes the application the Overlord is using or
+// ends a review round for a goblin that is working.
+func isNonFleetHarness(process Process, desktopApp, gateAgents map[int]bool) bool {
+	switch {
+	case desktopApp[process.PID]:
+		// The packaged application, by its own install path or an ancestor's.
+		return true
+	case gateAgents[process.PID]:
+		// A reviewer launched by a round in progress.
+		return true
+	case hasElectronType(process):
+		// A Chromium child: a renderer, a gpu-process, a utility or a crash
+		// handler. CFO launches no harness with a --type= switch, so this
+		// holds even where the install path could not be read.
+		return true
+	}
+	return false
+}
+
+// isDesktopApp matches the packaged desktop application by its install path,
+// which every one of its processes carries.
+func isDesktopApp(process Process) bool {
+	return strings.Contains(normalizePath(process.CommandLine), desktopAppMarker)
+}
+
+// isGateSupervisor matches no-mistakes, whose children are the reviewer
+// harnesses of a round in progress.
+func isGateSupervisor(process Process) bool {
+	return executableName(process.Name) == gateExecutable
+}
+
+// hasElectronType matches a Chromium child process. CFO launches no harness
+// with a --type= switch, so one that carries it is a renderer, a GPU process,
+// a utility or a crash handler, never a goblin.
+func hasElectronType(process Process) bool {
+	return strings.Contains(process.CommandLine, " --type=")
+}
+
+// rootsMatching collects the pids of every process the predicate accepts, for
+// descendants to walk down from.
+func rootsMatching(processes []Process, match func(Process) bool) []int {
+	var roots []int
+	for _, process := range processes {
+		if match(process) {
+			roots = append(roots, process.PID)
+		}
+	}
+	return roots
 }
 
 func isServer(process Process) bool {
