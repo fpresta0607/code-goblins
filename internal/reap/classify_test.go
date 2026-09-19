@@ -879,24 +879,33 @@ func TestALiveGoblinsServerIsNeverStale(t *testing.T) {
 		}
 	})
 
-	t.Run("a harness the fleet is running says so too", func(t *testing.T) {
-		withTmp := landing
-		withTmp.Meta.TaskTmp = `C:\dev\code-goblins\state\tasktmp\pd-landing`
+	t.Run("an agent working in the worktree says so too", func(t *testing.T) {
 		inventory := Inventory{
-			// No pane under the recorded id, so the second signal is the only
-			// one left: a harness under the herdr server naming this task.
-			FleetRootPIDs: []int{100},
-			Tasks:         []Task{withTmp},
-			Worktrees:     worktrees,
-			Processes: []Process{
-				process(100, 1, "herdr.exe", "herdr server", fixtureStart),
-				process(400, 100, "powershell.exe", "powershell", fixtureLater),
-				process(31032, 400, "claude.exe", `claude --dangerously-skip-permissions --mcp-config C:\dev\code-goblins\state\tasktmp\pd-landing\mcp.json`, fixtureLatest),
-				server,
+			// The record's pane id no longer matches the pane the goblin is
+			// in, so the only thing left to ask is where the agents are
+			// working. One of them is working under this worktree.
+			Panes: []Pane{
+				{ID: "w9:p0", ShellPID: 800, HasAgent: true, AgentCwd: `C:\dev\code-goblins`},
+				{ID: "w9:pMoved", ShellPID: 900, HasAgent: true, AgentCwd: worktree + `\frontend`},
 			},
+			Tasks:     []Task{landing},
+			Worktrees: worktrees,
+			Processes: []Process{server},
 		}
 		if findings := classOf(Classify(inventory), StaleServer); len(findings) != 0 {
-			t.Fatalf("a server was offered up while its task's harness is still running: %+v", findings)
+			t.Fatalf("a server was offered up while an agent is working in its worktree: %+v", findings)
+		}
+	})
+
+	t.Run("a neighbouring worktree with a longer name is not that agent's", func(t *testing.T) {
+		inventory := Inventory{
+			Panes:     []Pane{{ID: "w9:pOther", ShellPID: 900, HasAgent: true, AgentCwd: worktree + `-two`}},
+			Tasks:     []Task{landing},
+			Worktrees: worktrees,
+			Processes: []Process{server},
+		}
+		if findings := classOf(Classify(inventory), StaleServer); len(findings) != 1 {
+			t.Fatalf("got %d findings, want the abandoned server reported: %+v", len(findings), findings)
 		}
 	})
 
@@ -914,7 +923,7 @@ func TestALiveGoblinsServerIsNeverStale(t *testing.T) {
 		if findings[0].Hold() != "" {
 			t.Fatalf("hold = %q, want an abandoned server of a finished task to be actionable", findings[0].Hold())
 		}
-		if !strings.Contains(findings[0].Detail, "no live pane and no harness") {
+		if !strings.Contains(findings[0].Detail, "no pane holding an agent working there") {
 			t.Fatalf("detail = %q, want it to state the evidence that established this", findings[0].Detail)
 		}
 	})

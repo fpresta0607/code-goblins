@@ -166,13 +166,14 @@ func (c Collector) readPanes(ctx context.Context) (panes []Pane, unresolved []st
 	if err != nil {
 		return nil, nil, err
 	}
-	agents := make(map[string]bool, len(snapshot.Agents))
+	agents := make(map[string]herdr.SnapshotAgent, len(snapshot.Agents))
 	for _, agent := range snapshot.Agents {
-		agents[agent.PaneID] = true
+		agents[agent.PaneID] = agent
 	}
 	panes = make([]Pane, 0, len(snapshot.Panes))
 	for _, pane := range snapshot.Panes {
-		entry := Pane{ID: pane.ID, HasAgent: agents[pane.ID]}
+		agent, hasAgent := agents[pane.ID]
+		entry := Pane{ID: pane.ID, HasAgent: hasAgent, AgentCwd: agent.Cwd}
 		info, err := c.Panes.PaneProcessInfo(ctx, herdr.Target{Session: c.Session, Pane: pane.ID})
 		if err == nil {
 			entry.ShellPID = info.ShellPID

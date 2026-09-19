@@ -1,9 +1,9 @@
 // Package reap finds and retires the fleet resources nothing else notices: a
-// harness process whose pane is gone, a dev server left running in a finished
-// goblin's worktree, the worktree, metadata and status records left behind
-// when a task ends without a clean cleanup, and the directory under a
-// project's .worktrees/ that the project does not register as a worktree at
-// all.
+// harness process whose pane is gone, a dev server left running in a worktree
+// no live goblin is working in, the worktree, metadata and status records
+// left behind when a task ends without a clean cleanup, and the directory
+// under a project's .worktrees/ that the project does not register as a
+// worktree at all.
 //
 // No single source sees all of it. cfo knows the tasks it started, Herdr knows
 // the panes that still exist, only the operating system knows what is still
@@ -38,7 +38,11 @@ const (
 	// every CFO surface, and still able to spend tokens.
 	OrphanProcess Class = "orphan_process"
 	// StaleServer is a long-lived child (a next dev, a vite server) rooted in
-	// a worktree whose task has finished.
+	// a worktree with no live evidence of its goblin: no pane holding an agent
+	// there, whatever the status log says. One whose task never reported a
+	// terminal verb is still reported, and held: an abandoned server is a leak
+	// whatever the log says, and whether the work behind it is over is the
+	// operator's call.
 	StaleServer Class = "stale_server"
 	// OrphanWorktree is a worktree directory with no pane holding a live agent
 	// behind it. One whose task never reported a terminal status is still
@@ -252,6 +256,10 @@ type Pane struct {
 	ShellPID      int
 	ForegroundPID int
 	HasAgent      bool
+	// AgentCwd is the directory the registered agent is working in, empty when
+	// no agent holds the pane. It is what places a goblin in a worktree
+	// without going through any record CFO keeps.
+	AgentCwd string
 }
 
 // Task is one state record, reduced to what classification needs.
@@ -430,7 +438,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				continue
 			}
 			task, known := tasks[worktree.TaskID]
-			if goblinIsAlive(task, known, panes, inv.Processes, supervised, fleet) {
+			if goblinIsAlive(task, known, panes, worktree.Path) {
 				// Its goblin is still working; the server is doing its job.
 				continue
 			}
@@ -440,7 +448,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				TaskID: worktree.TaskID,
 				PID:    process.PID,
 				Path:   worktree.Path,
-				Detail: fmt.Sprintf("%s rooted in %s, with no live pane and no harness of its own left, and its task %s", process.Name, worktree.Path, taskOutcome(task, known, unreadableRecord)),
+				Detail: fmt.Sprintf("%s rooted in %s, with no pane holding an agent working there, and its task %s", process.Name, worktree.Path, taskOutcome(task, known, unreadableRecord)),
 				Action: "kill the process tree",
 			}
 			finding.refuseUntilEstablished(unresolvedPaneHold(inv), strconv.Itoa(process.PID))
@@ -624,41 +632,41 @@ func classifyMetas(inv Inventory, panes map[string]Pane, supervised, fleet map[i
 //
 // A kill needs a stronger premise than a removal. A wrongly removed empty
 // directory costs nothing and a wrongly killed dev server costs a goblin its
-// round, so this asks live evidence rather than a record. The pane is the
-// direct answer, since Herdr holds the goblin's own session; the harness check
-// covers a task whose recorded pane id no longer matches the pane it is in,
-// where a process still running under the fleet names the task itself.
-func goblinIsAlive(task Task, known bool, panes map[string]Pane, processes []Process, supervised, fleet map[int]bool) bool {
-	if !known {
-		return false
-	}
-	if pane, ok := panes[task.Meta.HerdrPaneID]; ok && pane.HasAgent {
-		return true
-	}
-	return taskHasLiveHarness(task, processes, supervised, fleet)
-}
-
-// taskHasLiveHarness reports whether a harness the fleet is running names this
-// task. A goblin's harness carries its task through the per-task temporary
-// directory it was launched with, and some carry the worktree instead, so both
-// are checked; a harness that carries neither is invisible here, which is why
-// this is the second signal and not the only one.
-func taskHasLiveHarness(task Task, processes []Process, supervised, fleet map[int]bool) bool {
-	for _, process := range processes {
-		if !supervised[process.PID] && !fleet[process.PID] {
-			continue
-		}
-		if !isHarness(process) {
-			continue
-		}
-		if task.Meta.TaskTmp != "" && namesPath(process.CommandLine, task.Meta.TaskTmp) {
+// round, so this asks live evidence rather than a record. The pane the record
+// names is the direct answer, since Herdr holds the goblin's own session. An
+// agent working in the worktree itself answers for a record whose pane id no
+// longer matches the pane the goblin is in, and for a directory no record
+// names at all; a subdirectory counts, because a goblin does not stay at its
+// worktree root.
+//
+// The process table cannot answer this, which is the first place the next
+// reader will look: no harness adapter puts the worktree on a command line,
+// spawn carries it as the launch directory instead, and a working directory is
+// not readable from a process listing. That is the same limit this package
+// already names on an orphan_directory finding.
+func goblinIsAlive(task Task, known bool, panes map[string]Pane, worktree string) bool {
+	if known {
+		if pane, ok := panes[task.Meta.HerdrPaneID]; ok && pane.HasAgent {
 			return true
 		}
-		if task.Meta.Worktree != "" && namesPath(process.CommandLine, task.Meta.Worktree) {
+	}
+	for _, pane := range panes {
+		if pane.HasAgent && pathWithin(pane.AgentCwd, worktree) {
 			return true
 		}
 	}
 	return false
+}
+
+// pathWithin reports whether path is root or a directory under it, folded the
+// same way every other path comparison here is.
+func pathWithin(path, root string) bool {
+	if path == "" || root == "" {
+		return false
+	}
+	base := strings.TrimSuffix(normalizePath(root), `\`)
+	folded := strings.TrimSuffix(normalizePath(path), `\`)
+	return folded == base || strings.HasPrefix(folded, base+`\`)
 }
 
 // taskHasProcess reports whether anything still running belongs to the task. A
