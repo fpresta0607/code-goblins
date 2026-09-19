@@ -112,8 +112,8 @@ func TestGateRefusesBusyProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	finding := onlyFinding(t, result, OrphanProcess)
-	if !strings.Contains(finding.Hold, "busy") {
-		t.Fatalf("hold = %q, want a busy refusal", finding.Hold)
+	if !strings.Contains(finding.Hold(), "busy") {
+		t.Fatalf("hold = %q, want a busy refusal", finding.Hold())
 	}
 	if len(runner.killed) != 0 {
 		t.Fatalf("a busy process was killed: %v", runner.killed)
@@ -132,8 +132,8 @@ func TestGateRefusesUnmeasurableProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if finding := onlyFinding(t, result, OrphanProcess); !strings.Contains(finding.Hold, "could not be read") {
-		t.Fatalf("hold = %q, want an unmeasurable refusal", finding.Hold)
+	if finding := onlyFinding(t, result, OrphanProcess); !strings.Contains(finding.Hold(), "could not be read") {
+		t.Fatalf("hold = %q, want an unmeasurable refusal", finding.Hold())
 	}
 	if len(runner.killed) != 0 {
 		t.Fatalf("an unmeasurable process was killed: %v", runner.killed)
@@ -150,8 +150,8 @@ func TestApplyKillsAnIdleOrphanAndRecordsIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if finding := onlyFinding(t, result, OrphanProcess); finding.Hold != "" {
-		t.Fatalf("an idle orphan was held: %q", finding.Hold)
+	if finding := onlyFinding(t, result, OrphanProcess); finding.Hold() != "" {
+		t.Fatalf("an idle orphan was held: %q", finding.Hold())
 	}
 	if len(runner.killed) != 1 || runner.killed[0] != 31032 {
 		t.Fatalf("killed = %v, want [31032]", runner.killed)
@@ -194,7 +194,7 @@ func TestForceNamesOneProcess(t *testing.T) {
 		t.Fatalf("killed = %v, want only the forced pid", runner.killed)
 	}
 	for _, finding := range classOf(result.Findings, OrphanProcess) {
-		if finding.PID == 31033 && finding.Hold == "" {
+		if finding.PID == 31033 && finding.Hold() == "" {
 			t.Fatal("an unnamed unmeasurable process was not held")
 		}
 	}
@@ -226,7 +226,7 @@ func TestATaskForceNeverClearsARefusalAboutAProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hold := onlyFinding(t, result, StaleServer).Hold; !strings.Contains(hold, "process identity") {
+	if hold := onlyFinding(t, result, StaleServer).Hold(); !strings.Contains(hold, "process identity") {
 		t.Fatalf("hold = %q, want the unresolved-pane refusal to survive a task force", hold)
 	}
 	if len(runner.killed) != 0 {
@@ -275,8 +275,8 @@ func TestGateRefusesDirtyWorktree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if finding := onlyFinding(t, result, OrphanWorktree); !strings.Contains(finding.Hold, "uncommitted") {
-		t.Fatalf("hold = %q, want an uncommitted-work refusal", finding.Hold)
+	if finding := onlyFinding(t, result, OrphanWorktree); !strings.Contains(finding.Hold(), "uncommitted") {
+		t.Fatalf("hold = %q, want an uncommitted-work refusal", finding.Hold())
 	}
 }
 
@@ -289,8 +289,8 @@ func TestGateRefusesUnpushedBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if finding := onlyFinding(t, result, OrphanWorktree); !strings.Contains(finding.Hold, "no remote") {
-		t.Fatalf("hold = %q, want an unpushed-work refusal", finding.Hold)
+	if finding := onlyFinding(t, result, OrphanWorktree); !strings.Contains(finding.Hold(), "no remote") {
+		t.Fatalf("hold = %q, want an unpushed-work refusal", finding.Hold())
 	}
 }
 
@@ -305,8 +305,8 @@ func TestForceNeverClearsTheWorkGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if finding := onlyFinding(t, result, OrphanWorktree); !strings.Contains(finding.Hold, "no remote") {
-		t.Fatalf("hold = %q, want the unpushed-work refusal to survive --force", finding.Hold)
+	if finding := onlyFinding(t, result, OrphanWorktree); !strings.Contains(finding.Hold(), "no remote") {
+		t.Fatalf("hold = %q, want the unpushed-work refusal to survive --force", finding.Hold())
 	}
 }
 
@@ -332,12 +332,12 @@ func TestWorkGateSaysItCouldNotLookRatherThanThatItFoundWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	finding := onlyFinding(t, result, OrphanWorktree)
-	if strings.Contains(finding.Hold, "has uncommitted or untracked changes") {
-		t.Fatalf("hold = %q, claims it found work when it could not read git status", finding.Hold)
+	if strings.Contains(finding.Hold(), "has uncommitted or untracked changes") {
+		t.Fatalf("hold = %q, claims it found work when it could not read git status", finding.Hold())
 	}
 	for _, want := range []string{"could not read git status", "unknown rather than answered", "resolve that, then sweep again", "No --force clears this"} {
-		if !strings.Contains(finding.Hold, want) {
-			t.Fatalf("hold = %q, want it to contain %q", finding.Hold, want)
+		if !strings.Contains(finding.Hold(), want) {
+			t.Fatalf("hold = %q, want it to contain %q", finding.Hold(), want)
 		}
 	}
 	if len(cleaned) != 0 || len(result.Applied) != 0 {
@@ -357,8 +357,8 @@ func TestGateRefusesNonTerminalTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if finding := onlyFinding(t, result, OrphanWorktree); !strings.Contains(finding.Hold, "terminal status") {
-		t.Fatalf("hold = %q, want a terminal-status refusal", finding.Hold)
+	if finding := onlyFinding(t, result, OrphanWorktree); !strings.Contains(finding.Hold(), "terminal status") {
+		t.Fatalf("hold = %q, want a terminal-status refusal", finding.Hold())
 	}
 }
 
@@ -384,8 +384,8 @@ func TestApplyReturnsACleanOrphanWorktree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if finding := onlyFinding(t, result, OrphanWorktree); finding.Hold != "" {
-		t.Fatalf("a clean, finished worktree was held: %q", finding.Hold)
+	if finding := onlyFinding(t, result, OrphanWorktree); finding.Hold() != "" {
+		t.Fatalf("a clean, finished worktree was held: %q", finding.Hold())
 	}
 	if len(cleaned) != 1 || cleaned[0] != "old" {
 		t.Fatalf("cleaned = %v, want [old] through the cfo cleanup path", cleaned)
@@ -558,8 +558,8 @@ func TestEmptyShellIsNeverReportedAsADirtyWorktree(t *testing.T) {
 	if worktrees := classOf(result.Findings, OrphanWorktree); len(worktrees) != 0 {
 		t.Fatalf("an empty shell was reported as a worktree: %+v", worktrees)
 	}
-	if finding := onlyFinding(t, result, OrphanDirectory); finding.Hold != "" {
-		t.Fatalf("an empty shell nothing is using was held: %q", finding.Hold)
+	if finding := onlyFinding(t, result, OrphanDirectory); finding.Hold() != "" {
+		t.Fatalf("an empty shell nothing is using was held: %q", finding.Hold())
 	}
 
 	t.Run("without the premise git answers for the enclosing repository", func(t *testing.T) {
@@ -580,7 +580,7 @@ func TestEmptyShellIsNeverReportedAsADirtyWorktree(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		hold := onlyFinding(t, result, OrphanWorktree).Hold
+		hold := onlyFinding(t, result, OrphanWorktree).Hold()
 		if strings.Contains(hold, "uncommitted or untracked changes") {
 			t.Fatalf("hold = %q, want the dirt not attributed to a directory with no files in it", hold)
 		}
@@ -604,8 +604,8 @@ func TestApplyRemovesAnEmptyShellAndHoldsAnythingElse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if finding := onlyFinding(t, result, OrphanDirectory); finding.Hold != "" {
-		t.Fatalf("the empty shell was held: %q", finding.Hold)
+	if finding := onlyFinding(t, result, OrphanDirectory); finding.Hold() != "" {
+		t.Fatalf("the empty shell was held: %q", finding.Hold())
 	}
 	if _, err := os.Stat(shell); !os.IsNotExist(err) {
 		t.Fatalf("the empty shell is still there: %v", err)
@@ -623,11 +623,64 @@ func TestApplyRemovesAnEmptyShellAndHoldsAnythingElse(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if hold := onlyFinding(t, result, OrphanDirectory).Hold; !strings.Contains(hold, "not empty") {
+		if hold := onlyFinding(t, result, OrphanDirectory).Hold(); !strings.Contains(hold, "not empty") {
 			t.Fatalf("hold = %q, want a refusal naming the contents", hold)
 		}
 		if _, err := os.Stat(filepath.Join(shell, "somebodys-file.txt")); err != nil {
 			t.Fatalf("the contents were removed: %v", err)
+		}
+	})
+}
+
+// TestEmptyShellUnderUnconfirmableRegistrationIsTheOperatorsToAnswer: when
+// git worktree list cannot be read, an empty shell takes the worktree class,
+// and its premise refusal is not a work-preservation one, because a directory
+// holding no files holds no work. It has to say the registration is what could
+// not be confirmed, and the task id has to clear it.
+func TestEmptyShellUnderUnconfirmableRegistrationIsTheOperatorsToAnswer(t *testing.T) {
+	repo := t.TempDir()
+	shell := filepath.Join(repo, ".worktrees", "gb-dead")
+	if err := os.MkdirAll(shell, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	inventory := Inventory{Worktrees: []WorktreeDir{{Path: shell, Project: repo, Registration: RegistrationUnknown, TaskID: "dead"}}}
+	service := newService(t, testHome(t), inventory, &gitRunner{})
+	var returned []string
+	service.Return = func(_ context.Context, _, worktree string) error {
+		returned = append(returned, worktree)
+		return os.Remove(worktree)
+	}
+
+	result, err := service.Apply(context.Background(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hold := onlyFinding(t, result, OrphanWorktree).Hold()
+	for _, want := range []string{"registration", "sweep again"} {
+		if !strings.Contains(hold, want) {
+			t.Fatalf("hold = %q, want it to name %q as what has to be resolved", hold, want)
+		}
+	}
+	if strings.Contains(hold, "No --force clears this") {
+		t.Fatalf("hold = %q, want no permanent refusal on a directory that holds no work", hold)
+	}
+	if len(returned) != 0 {
+		t.Fatalf("returned = %v, want nothing removed while the finding is held", returned)
+	}
+	if _, err := os.Stat(shell); err != nil {
+		t.Fatalf("the shell was removed behind its own hold: %v", err)
+	}
+
+	t.Run("the task id the operator names clears it", func(t *testing.T) {
+		result, err := service.Apply(context.Background(), Options{Force: map[string]bool{"dead": true}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if finding := onlyFinding(t, result, OrphanWorktree); finding.Hold() != "" {
+			t.Fatalf("hold = %q, want the named task id to answer it", finding.Hold())
+		}
+		if len(returned) != 1 || returned[0] != shell {
+			t.Fatalf("returned = %v, want the empty shell returned once the operator named it", returned)
 		}
 	})
 }
@@ -657,8 +710,8 @@ func TestUnconfirmableRegistrationKeepsTheWorkGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if finding := onlyFinding(t, result, OrphanWorktree); !strings.Contains(finding.Hold, "no remote") {
-		t.Fatalf("hold = %q, want the unpushed-work refusal", finding.Hold)
+	if finding := onlyFinding(t, result, OrphanWorktree); !strings.Contains(finding.Hold(), "no remote") {
+		t.Fatalf("hold = %q, want the unpushed-work refusal", finding.Hold())
 	}
 	if directories := classOf(result.Findings, OrphanDirectory); len(directories) != 0 {
 		t.Fatalf("a worktree with unpushed commits was offered up for removal: %+v", directories)
@@ -686,7 +739,7 @@ func TestApplyHoldsAnUnfinishedTasksShell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hold := onlyFinding(t, result, OrphanDirectory).Hold; !strings.Contains(hold, "terminal status") {
+	if hold := onlyFinding(t, result, OrphanDirectory).Hold(); !strings.Contains(hold, "terminal status") {
 		t.Fatalf("hold = %q, want the terminal-status refusal", hold)
 	}
 	if _, err := os.Stat(shell); err != nil {
@@ -718,14 +771,14 @@ func TestEveryRefusalInAHoldNeedsItsOwnForce(t *testing.T) {
 		t.Fatal(err)
 	}
 	finding := onlyFinding(t, result, OrphanDirectory)
-	if !strings.Contains(finding.Hold, "terminal status") {
-		t.Fatalf("hold = %q, want the terminal-status refusal to survive a pid force", finding.Hold)
+	if !strings.Contains(finding.Hold(), "terminal status") {
+		t.Fatalf("hold = %q, want the terminal-status refusal to survive a pid force", finding.Hold())
 	}
 	// The refusal the operator answered is gone from the text and the one
 	// they did not answer remains, so the hold always reads as exactly what is
 	// still standing rather than as the full list it started with.
-	if strings.Contains(finding.Hold, "pid 4242") {
-		t.Fatalf("hold = %q, want the refusal the operator answered to be gone from it", finding.Hold)
+	if strings.Contains(finding.Hold(), "pid 4242") {
+		t.Fatalf("hold = %q, want the refusal the operator answered to be gone from it", finding.Hold())
 	}
 	if _, err := os.Stat(shell); err != nil {
 		t.Fatalf("a pid force removed the shell of a task that has not finished: %v", err)
@@ -736,7 +789,7 @@ func TestEveryRefusalInAHoldNeedsItsOwnForce(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if hold := onlyFinding(t, result, OrphanDirectory).Hold; !strings.Contains(hold, "pid 4242") {
+		if hold := onlyFinding(t, result, OrphanDirectory).Hold(); !strings.Contains(hold, "pid 4242") {
 			t.Fatalf("hold = %q, want the process attribution to survive a task force", hold)
 		}
 		if _, err := os.Stat(shell); err != nil {
@@ -749,7 +802,7 @@ func TestEveryRefusalInAHoldNeedsItsOwnForce(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if hold := onlyFinding(t, result, OrphanDirectory).Hold; hold != "" {
+		if hold := onlyFinding(t, result, OrphanDirectory).Hold(); hold != "" {
 			t.Fatalf("hold = %q, want responsibility taken for both reasons to clear it", hold)
 		}
 		if _, err := os.Stat(shell); !os.IsNotExist(err) {
@@ -850,11 +903,11 @@ func TestAnUnestablishedRefusalIsOverridableExactlyAsItsHoldImplies(t *testing.T
 		t.Fatal(err)
 	}
 	finding := onlyFinding(t, held, OrphanProcess)
-	if !strings.Contains(finding.Hold, "process identity") {
-		t.Fatalf("hold = %q, want the unresolved-pane refusal", finding.Hold)
+	if !strings.Contains(finding.Hold(), "process identity") {
+		t.Fatalf("hold = %q, want the unresolved-pane refusal", finding.Hold())
 	}
-	if strings.Contains(finding.Hold, "--force") {
-		t.Fatalf("hold = %q, want no --force proposed for evidence the sweep could not gather", finding.Hold)
+	if strings.Contains(finding.Hold(), "--force") {
+		t.Fatalf("hold = %q, want no --force proposed for evidence the sweep could not gather", finding.Hold())
 	}
 	if len(runner.killed) != 0 {
 		t.Fatalf("a process was killed on incomplete pane evidence: %v", runner.killed)
@@ -868,8 +921,8 @@ func TestAnUnestablishedRefusalIsOverridableExactlyAsItsHoldImplies(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		if finding := onlyFinding(t, result, OrphanProcess); finding.Hold != "" {
-			t.Fatalf("hold = %q, want the operator's own pid force to clear it", finding.Hold)
+		if finding := onlyFinding(t, result, OrphanProcess); finding.Hold() != "" {
+			t.Fatalf("hold = %q, want the operator's own pid force to clear it", finding.Hold())
 		}
 		if len(runner.killed) != 1 || runner.killed[0] != 31032 {
 			t.Fatalf("killed = %v, want the forced pid, because a broken Herdr must not lock the operator out", runner.killed)
