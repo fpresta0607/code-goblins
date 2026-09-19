@@ -23,9 +23,12 @@ func (f fixedInventory) Collect(context.Context) (Inventory, []string, error) {
 // anything else, so a gate that started shelling out to something new fails
 // loudly instead of silently passing.
 type gitRunner struct {
-	status   string
-	unpushed string
-	killed   []int
+	status string
+	// statusFailure is what git prints when the question cannot be answered at
+	// all, such as a concurrent git holding index.lock.
+	statusFailure string
+	unpushed      string
+	killed        []int
 }
 
 func (r *gitRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -34,6 +37,9 @@ func (r *gitRunner) Run(_ context.Context, req execx.Request) (execx.Result, err
 	}
 	switch req.Args[0] {
 	case "status":
+		if r.statusFailure != "" {
+			return execx.Result{ExitCode: 128, Stderr: []byte(r.statusFailure)}, nil
+		}
 		return execx.Result{Stdout: []byte(r.status)}, nil
 	case "log":
 		return execx.Result{Stdout: []byte(r.unpushed)}, nil
@@ -301,6 +307,44 @@ func TestForceNeverClearsTheWorkGate(t *testing.T) {
 	}
 	if finding := onlyFinding(t, result, OrphanWorktree); !strings.Contains(finding.Hold, "no remote") {
 		t.Fatalf("hold = %q, want the unpushed-work refusal to survive --force", finding.Hold)
+	}
+}
+
+// TestWorkGateSaysItCouldNotLookRatherThanThatItFoundWork: an unreadable git
+// status is not a dirty worktree. The refusal stands and no --force clears
+// it, because unreadable is not clean, but the line has to say the sweep
+// could not establish the state and name resolving that as the remedy instead
+// of stating a rule with nothing to do about it.
+func TestWorkGateSaysItCouldNotLookRatherThanThatItFoundWork(t *testing.T) {
+	h := testHome(t)
+	runner := &gitRunner{statusFailure: "fatal: Unable to create '.git/index.lock': File exists"}
+	inventory := worktreeInventory(t, "done")
+	worktree := inventory.Worktrees[0].Path
+	service := newService(t, h, inventory, runner)
+	var cleaned []string
+	service.Clean = func(_ context.Context, id string, _ bool) error {
+		cleaned = append(cleaned, id)
+		return nil
+	}
+
+	result, err := service.Apply(context.Background(), Options{Force: map[string]bool{"old": true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finding := onlyFinding(t, result, OrphanWorktree)
+	if strings.Contains(finding.Hold, "has uncommitted or untracked changes") {
+		t.Fatalf("hold = %q, claims it found work when it could not read git status", finding.Hold)
+	}
+	for _, want := range []string{"could not read git status", "unknown rather than answered", "resolve that, then sweep again", "No --force clears this"} {
+		if !strings.Contains(finding.Hold, want) {
+			t.Fatalf("hold = %q, want it to contain %q", finding.Hold, want)
+		}
+	}
+	if len(cleaned) != 0 || len(result.Applied) != 0 {
+		t.Fatalf("cleaned = %v, applied = %v, want a --force on the task id to remove nothing", cleaned, result.Applied)
+	}
+	if _, err := os.Stat(worktree); err != nil {
+		t.Fatalf("the worktree was removed behind an unreadable git status: %v", err)
 	}
 }
 
