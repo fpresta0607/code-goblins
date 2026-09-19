@@ -149,6 +149,45 @@ func TestAuthStoreByNameLandsInTheCheckoutsScope(t *testing.T) {
 	}
 }
 
+// A folder under the projects root that holds no .git is not one of the
+// machine's checkouts, so the store commands keep the name as typed while the
+// preflight, which needs a checkout, still refuses it.
+func TestAuthStoreKeepsANameWhoseFolderIsNoCheckout(t *testing.T) {
+	useFileStore(t)
+	t.Setenv("CFO_HOME", t.TempDir())
+	root, deps := checkoutsRoot(t, commandRuntime{}, "PrecisionDocs-AI")
+	if err := os.MkdirAll(filepath.Join(root, "notes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := runCLIWithRuntime(t, deps, "store", "--project", "notes", "DATABASE_URL", "postgres://notes")
+	if code != 0 || !strings.Contains(stdout, "stored notes/DATABASE_URL") {
+		t.Errorf("store by a name that is no checkout = %d, want the typed scope: %s%s", code, stdout, stderr)
+	}
+
+	code, _, stderr = runCLIWithRuntime(t, deps, "notes", "--check")
+	if code != 1 || !strings.Contains(stderr, "no .git") {
+		t.Errorf("cfo auth notes --check = %d, want a refusal naming the missing .git: %s", code, stderr)
+	}
+}
+
+// A recorded root that cannot be read leaves it unknowable whether the name is
+// a checkout, so the store refuses rather than guess a scope.
+func TestAuthStoreRefusesAProjectsRootItCannotRead(t *testing.T) {
+	useFileStore(t)
+	gone := filepath.Join(t.TempDir(), "gone")
+	deps := commandRuntime{projectsRoot: func() (string, error) { return gone, nil }}
+
+	code, _, stderr := runCLIWithRuntime(t, deps, "store", "--project", "notes", "DATABASE_URL", "postgres://notes")
+	if code == 0 || !strings.Contains(stderr, gone) {
+		t.Fatalf("store under an unreadable root = %d, want a refusal naming it: %s", code, stderr)
+	}
+	code, stdout, stderr := runCLIWithRuntime(t, deps, "list")
+	if code != 0 || strings.Contains(stdout, "notes") {
+		t.Errorf("the refused store left a credential behind: %d %s%s", code, stdout, stderr)
+	}
+}
+
 func TestDoctorReportsTheProjectsRoot(t *testing.T) {
 	root, withRoot := checkoutsRoot(t, commandRuntime{})
 	gone := filepath.Join(root, "gone")
