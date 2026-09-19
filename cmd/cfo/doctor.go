@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 
 	"github.com/fpresta0607/code-goblins/internal/doctor"
@@ -17,7 +18,7 @@ import (
 // (ok/broken from real --version probes), then the measured speed table from
 // the no-mistakes telemetry database when one is available. A broken harness
 // is unhealthy: every pipeline attempt on it is wasted time.
-func runDoctor(stdout io.Writer) int {
+func runDoctor(stdout io.Writer, runtime commandRuntime) int {
 	checks := doctor.Run()
 	for _, c := range checks {
 		switch {
@@ -57,11 +58,35 @@ func runDoctor(stdout io.Writer) int {
 	fmt.Fprintln(stdout, "telemetry: implementation unmeasured (the gate database records validation agents only)")
 
 	reportRouting(stdout)
+	reportProjectsRoot(stdout, runtime)
 
 	if !healthy {
 		return 1
 	}
 	return 0
+}
+
+// reportProjectsRoot prints where a bare `--project <name>` is looked up, or
+// how to record it when nothing is. It never counts against the health
+// verdict: every command still takes a path without it.
+func reportProjectsRoot(stdout io.Writer, runtime commandRuntime) {
+	root := ""
+	if runtime.projectsRoot != nil {
+		var err error
+		if root, err = runtime.projectsRoot(); err != nil {
+			fmt.Fprintf(stdout, "projects root: unreadable (%v)\n", err)
+			return
+		}
+	}
+	if root == "" {
+		fmt.Fprintln(stdout, "projects root: not set, so --project takes a path only; run `cfo install --projects-root <dir>` with the folder that holds your checkouts to use bare names")
+		return
+	}
+	if info, err := os.Stat(root); err != nil || !info.IsDir() {
+		fmt.Fprintf(stdout, "projects root: %s is not a directory; record the right folder with `cfo install --projects-root <dir>`\n", root)
+		return
+	}
+	fmt.Fprintf(stdout, "projects root: %s (--project <name> resolves to a checkout under it)\n", root)
 }
 
 // reportRouting prints the standing switch policy and the execution lane

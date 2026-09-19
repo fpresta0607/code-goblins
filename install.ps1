@@ -55,6 +55,7 @@ catch {
 Write-Host ""
 Write-Host "Installed cfo.exe -> $dest"
 Write-Host "Next: run cfo install from this checkout to wire CFO_HOME, PATH, and the Claude Code hooks in your user settings."
+Write-Host "      Add --projects-root <dir> with the folder that holds your checkouts so --project can take a bare name."
 Write-Host ""
 
 # From here on, native stderr (npm progress, installer notes, mklink) must

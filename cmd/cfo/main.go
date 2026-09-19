@@ -16,6 +16,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/install"
+	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/runtime"
@@ -34,7 +36,7 @@ const usage = `usage: cfo <command> [args]
 
 commands:
   version   print the cfo version
-  install   wire this checkout into the machine (CFO_HOME, PATH, and the Claude Code hooks in your user settings) so a session in any repo is supervised; --uninstall reverses it
+  install   wire this checkout into the machine (CFO_HOME, PATH, and the Claude Code hooks in your user settings) so a session in any repo is supervised; --projects-root <dir> records the folder that holds your checkouts so --project can take a bare name; --uninstall reverses it
   doctor    check the tools cfo needs (git, gh, claude, herdr, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi)
   pipeline  config-drift | config-apply | migrate <id> | run <id> --intent <text> | respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>] | recover <id>
   drain     print or acknowledge the wake queue and recovery episode
@@ -53,13 +55,13 @@ commands:
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
   cfo supersede <task-id> --reason <text>
-  cfo spawn <id> --project <path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--yolo]   without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom
+  cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--yolo]   without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom
   cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place
   cfo send <target> [--key <key>] <text...>
   cfo peek <target> [lines]
   cfo fleet-view [--json]
   cfo runtime [--json]   what is running on this machine and who owns it: containers by owner, listening dev servers and whether each is safe to stop, machine headroom, each project's deploy target, and how to run each project locally
-  cfo brief <id> --project <path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>]
+  cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>]
   cfo pr check <id> <url>
   cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
   cfo merge-local <id>
@@ -94,6 +96,17 @@ type commandRuntime struct {
 	reap          func(context.Context, home.Home, reap.Options) (reap.Result, error)
 	speedHint     func(context.Context, string) string
 	quota         func(context.Context) (quota.Report, string)
+	// projectsRoot reads the machine's projects root. A runtime without one
+	// (a test's) has no root, so a bare project name stays what it was before
+	// names resolved: refused where a checkout is needed, a literal scope
+	// where a credential scope is.
+	projectsRoot func() (string, error)
+}
+
+// resolveProject turns a --project argument into a checkout directory: a path
+// as written, a bare name looked up under the projects root.
+func (r commandRuntime) resolveProject(arg string) (string, error) {
+	return projectcfg.Resolve(arg, r.projectsRoot)
 }
 
 func defaultCommandRuntime() commandRuntime {
@@ -161,7 +174,8 @@ func defaultCommandRuntime() commandRuntime {
 		speedHint: func(ctx context.Context, name string) string {
 			return telemetry.SpeedHint(ctx, execx.OSRunner{}, name)
 		},
-		quota: quota.Reader{Commands: execx.OSRunner{}}.Read,
+		quota:        quota.Reader{Commands: execx.OSRunner{}}.Read,
+		projectsRoot: install.MachineProjectsRoot,
 	}
 }
 
@@ -177,7 +191,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 	case "install":
 		return runInstall(args[1:], stdout, stderr)
 	case "doctor":
-		return runDoctor(stdout)
+		return runDoctor(stdout, runtime)
 	case "pipeline":
 		return runPipeline(args[1:], stdout, stderr, runtime)
 	case "drain":
@@ -218,7 +232,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 	case "runtime":
 		return runRuntime(args[1:], stdout, stderr, runtime)
 	case "brief":
-		return runBrief(args[1:], stdout, stderr)
+		return runBrief(args[1:], stdout, stderr, runtime)
 	case "pr":
 		if len(args) < 2 {
 			fmt.Fprintln(stderr, "cfo pr: check or merge subcommand is required")

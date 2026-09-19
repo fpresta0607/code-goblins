@@ -14,6 +14,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/reap"
@@ -21,6 +22,24 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
+
+// The watcher's own sweep reads the machine's projects root, and the process
+// value answers before the user scope is read, so pinning it to an empty
+// directory keeps every test in this package off this machine's registry, and
+// off whichever checkouts its operator happens to keep.
+func TestMain(m *testing.M) {
+	root, err := os.MkdirTemp("", "cfo-watch-projects-root-")
+	if err != nil {
+		panic(err)
+	}
+	if err := os.Setenv(install.ProjectsRootVariable, root); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	os.Unsetenv(install.ProjectsRootVariable)
+	os.RemoveAll(root)
+	os.Exit(code)
+}
 
 func TestSanitize(t *testing.T) {
 	tests := []struct{ in, want string }{
