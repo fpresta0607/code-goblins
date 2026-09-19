@@ -668,3 +668,52 @@ func TestForceArchiveStillRefusesLiveAgent(t *testing.T) {
 	}
 	fixture.assertMetadataPreserved(t)
 }
+
+// TestForceArchiveRetiresARecordWhoseWorktreeIsGone: --force-archive exists
+// for a worktree already deleted out from under the record, so resolving that
+// path must not be the thing that refuses it. Without this, a sweep that
+// removed an empty shell could never retire the record behind it, and the
+// finding recurred on every later sweep.
+func TestForceArchiveRetiresARecordWhoseWorktreeIsGone(t *testing.T) {
+	fixture := newCleanupFixture(t)
+	if err := os.RemoveAll(fixture.worktree); err != nil {
+		t.Fatal(err)
+	}
+	fixture.service.ForceArchive = true
+
+	result, err := fixture.service.Cleanup(context.Background(), "g1")
+	if err != nil {
+		t.Fatalf("force archive of a record whose worktree is gone: %v", err)
+	}
+	if !strings.Contains(result.Output, "force-archived g1") {
+		t.Errorf("output = %q", result.Output)
+	}
+	if _, err := state.ReadTaskMeta(fixture.stateDir, "g1"); err == nil {
+		t.Error("task metadata still present after force archive")
+	}
+	if len(fixture.git.returned) != 0 {
+		t.Errorf("force archive returned a worktree: %v", fixture.git.returned)
+	}
+}
+
+// A resolution failure that is not a missing path still refuses, even under
+// --force-archive: a path that exists and will not resolve might be the
+// primary checkout, and the guard that proves it is not cannot be applied to
+// a path nothing can resolve.
+func TestForceArchiveStillRefusesAnUnresolvableWorktree(t *testing.T) {
+	fixture := newCleanupFixture(t)
+	meta := fixture.meta
+	// A wildcard is not a legal path character on Windows, so resolving it
+	// fails with an invalid-name error rather than a missing-path one.
+	meta.Worktree = filepath.Join(fixture.worktree, "unresolvable*")
+	if err := state.WriteTaskMeta(fixture.stateDir, meta); err != nil {
+		t.Fatal(err)
+	}
+	fixture.service.ForceArchive = true
+
+	_, err := fixture.service.Cleanup(context.Background(), "g1")
+	if err == nil || !strings.Contains(err.Error(), "canonicalize worktree") {
+		t.Fatalf("err = %v, want the canonicalisation refusal", err)
+	}
+	fixture.assertMetadataPreserved(t)
+}

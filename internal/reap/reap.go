@@ -64,6 +64,9 @@ func (o Options) forced(finding Finding) bool {
 	if o.Force == nil {
 		return false
 	}
+	if finding.ForceKey != "" {
+		return o.Force[finding.ForceKey]
+	}
 	if finding.PID != 0 && o.Force[strconv.Itoa(finding.PID)] {
 		return true
 	}
@@ -158,11 +161,17 @@ const ReapedPrefix = "reaped: "
 // when the finding names a task, and always into the fleet-level reap log, so
 // there is one place that answers "what did the reaper do".
 func (s Service) record(finding Finding, line string) {
-	// An archived status log must not be recreated by the very line that
-	// reports its archiving; the fleet log below carries that one.
-	if finding.Class != OrphanStatus && finding.TaskID != "" && state.ValidTaskID(finding.TaskID) == nil {
-		// Best effort: a failed status write must not undo a completed kill.
-		_ = state.AppendStatus(s.Home.State, finding.TaskID, state.NormalizeStatusDetail(line))
+	// The reaper may add to a task's history and must never manufacture one.
+	// state.AppendStatus creates the log it is handed, so writing to a task
+	// with no log left - the one this sweep just archived, or the shell of a
+	// task retired long ago - would leave behind a log with nothing in it but
+	// the reaper's own line, which the next sweep reads back as an orphan
+	// status the sweep itself created. The fleet log below carries those.
+	if finding.TaskID != "" && state.ValidTaskID(finding.TaskID) == nil {
+		if _, err := os.Stat(filepath.Join(s.Home.State, finding.TaskID+".status")); err == nil {
+			// Best effort: a failed status write must not undo a completed kill.
+			_ = state.AppendStatus(s.Home.State, finding.TaskID, state.NormalizeStatusDetail(line))
+		}
 	}
 	_ = state.AppendStatus(s.Home.State, StatusID, state.NormalizeStatusDetail(line))
 }
@@ -173,8 +182,9 @@ func (s Service) record(finding Finding, line string) {
 // left alone.
 func (s Service) gate(ctx context.Context, finding *Finding, options Options) {
 	if finding.Hold != "" && options.forced(*finding) {
-		// The operator named this exact pid or task, which is the only thing
-		// that clears an attribution or non-terminal hold.
+		// The operator named exactly what this finding says may clear it,
+		// which is the only thing that lifts an attribution or non-terminal
+		// hold.
 		finding.Hold = ""
 	}
 	if finding.Hold != "" {

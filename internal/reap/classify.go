@@ -68,6 +68,12 @@ type Finding struct {
 	Detail string `json:"detail"`
 	Action string `json:"action"`
 	Hold   string `json:"hold,omitempty"`
+	// ForceKey is the one thing --force may name to clear this finding's
+	// hold. It is set whenever the hold rests on a judgement about a task,
+	// because naming a pid accepts responsibility for that process and can
+	// never answer whether a task has finished. Empty leaves the default:
+	// either identifier the finding carries clears the hold.
+	ForceKey string `json:"force_key,omitempty"`
 }
 
 // Line renders one finding as the single line both the report and the status
@@ -309,6 +315,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				// Killing this server says the task behind it is over, and an
 				// unreadable record is the one thing that cannot say so.
 				finding.Hold = unfinishedHold(task, known, true)
+				finding.ForceKey = finding.TaskID
 			}
 			findings = append(findings, finding)
 		}
@@ -342,7 +349,10 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 		// A goblin whose pane died mid-work leaks its worktree just as surely
 		// as a finished one, so it is reported; it is held because the task
 		// never said it was done, or because nothing can say whether it did.
-		finding.Hold = unfinishedHold(task, known, unreadable[worktree.TaskID])
+		if hold := unfinishedHold(task, known, unreadable[worktree.TaskID]); hold != "" {
+			finding.Hold = hold
+			finding.ForceKey = finding.TaskID
+		}
 		findings = append(findings, finding)
 	}
 	return findings
@@ -380,14 +390,19 @@ func classifyDirectory(inv Inventory, supervised map[int]bool, dir WorktreeDir, 
 		Detail: dir.Project + " does not list it in git worktree list, so it is a directory a dead task left behind, not a worktree",
 		Action: "remove the empty directory",
 	}
+	var holds []string
 	if pid, ok := processNaming(dir.Path, inv, supervised); ok {
 		finding.PID = pid
 		finding.Detail += fmt.Sprintf("; pid %d names it on its command line", pid)
-		finding.Hold = fmt.Sprintf("pid %d is still using this directory, and that process is the leak here, not the directory it holds", pid)
-		return finding
+		holds = append(holds, fmt.Sprintf("pid %d is still using this directory, and that process is the leak here, not the directory it holds", pid))
+	} else {
+		finding.Detail += "; no command line names it, and a working directory is not readable from a process listing, so if the removal fails a leaked process is holding it open"
 	}
-	finding.Detail += "; no command line names it, and a working directory is not readable from a process listing, so if the removal fails a leaked process is holding it open"
-	finding.Hold = unfinishedHold(task, known, unreadable)
+	if hold := unfinishedHold(task, known, unreadable); hold != "" {
+		holds = append(holds, hold)
+		finding.ForceKey = finding.TaskID
+	}
+	finding.Hold = strings.Join(holds, "; also ")
 	return finding
 }
 
