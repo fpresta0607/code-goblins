@@ -41,9 +41,9 @@ const (
 	// it either way.
 	OrphanWorktree Class = "orphan_worktree"
 	// OrphanMeta is a state/<id>.meta with no pane, no process, and no
-	// registered worktree. A meta whose worktree is still registered
-	// classifies as OrphanWorktree instead, because returning the worktree
-	// retires the meta with it and one resource must not be reported twice.
+	// directory left on disk. A meta whose directory still exists is left to
+	// the finding at that path, because one resource must not be reported
+	// twice; the record reports on a later sweep, once the directory is gone.
 	OrphanMeta Class = "orphan_meta"
 	// OrphanStatus is a state/<id>.status log with no matching meta.
 	OrphanStatus Class = "orphan_status"
@@ -121,17 +121,34 @@ type Task struct {
 	Terminal bool
 }
 
+// Registration is what a project repository answered about a directory under
+// its .worktrees/. It is three-valued because "the repository does not list
+// this directory" and "the repository could not be asked" are different facts,
+// and the sweep must not act on the second as though it were the first.
+type Registration string
+
+const (
+	// RegistrationUnknown is the zero value: the repository could not be
+	// asked, so nothing was established. It classifies as a worktree, which
+	// is the gated class, because a sweep that proved nothing must not tell
+	// the operator a live worktree is a directory a dead task left behind.
+	RegistrationUnknown Registration = ""
+	// RegistrationListed is a directory the repository lists as a worktree.
+	RegistrationListed Registration = "listed"
+	// RegistrationUnlisted is a directory the repository answered about and
+	// does not list: the shell a task that died leaves behind. It is the
+	// premise the whole worktree classification rests on having stopped
+	// holding, because git run inside such a shell answers for the enclosing
+	// repository instead.
+	RegistrationUnlisted Registration = "unlisted"
+)
+
 // WorktreeDir is one directory found under a project's .worktrees/.
 type WorktreeDir struct {
-	Path    string
-	Project string
-	TaskID  string
-	// Registered is whether the project repository lists this path in git
-	// worktree list. It is the premise the whole worktree classification rests
-	// on, and it stops holding the moment a task dies leaving its directory
-	// behind: the shell is still a directory, so it still reads as a worktree,
-	// but git run inside it answers for the enclosing repository instead.
-	Registered bool
+	Path         string
+	Project      string
+	TaskID       string
+	Registration Registration
 }
 
 // Inventory is the cross-referenced evidence one classification runs over. It
@@ -292,8 +309,8 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 				continue
 			}
 		}
-		if !worktree.Registered {
-			findings = append(findings, classifyDirectory(inv, supervised, worktree))
+		if worktree.Registration == RegistrationUnlisted {
+			findings = append(findings, classifyDirectory(inv, supervised, worktree, task, known))
 			continue
 		}
 		finding := Finding{
@@ -325,7 +342,7 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 // directory, and that process is the real leak. The command lines are searched
 // for one; a working directory is not readable from a process listing, so when
 // nothing names the path the finding says that rather than guessing.
-func classifyDirectory(inv Inventory, supervised map[int]bool, dir WorktreeDir) Finding {
+func classifyDirectory(inv Inventory, supervised map[int]bool, dir WorktreeDir, task Task, known bool) Finding {
 	finding := Finding{
 		Class:  OrphanDirectory,
 		TaskID: dir.TaskID,
@@ -340,6 +357,9 @@ func classifyDirectory(inv Inventory, supervised map[int]bool, dir WorktreeDir) 
 		return finding
 	}
 	finding.Detail += "; no command line names it, and a working directory is not readable from a process listing, so if the removal fails a leaked process is holding it open"
+	if known && !task.Terminal {
+		finding.Hold = "task has not reached a terminal status (latest verb " + verbText(task.Verb) + "); name its id with --force to reap it anyway"
+	}
 	return finding
 }
 
@@ -395,12 +415,7 @@ func isPathBoundary(char byte) bool {
 func classifyMetas(inv Inventory, panes map[string]Pane, supervised, fleet map[int]bool) []Finding {
 	worktrees := make(map[string]bool, len(inv.Worktrees))
 	for _, worktree := range inv.Worktrees {
-		// Only a registered worktree retires its record with it: returning an
-		// unregistered shell is a directory removal, which leaves the record
-		// behind for this class to report.
-		if worktree.Registered {
-			worktrees[normalizePath(worktree.Path)] = true
-		}
+		worktrees[normalizePath(worktree.Path)] = true
 	}
 	var findings []Finding
 	for _, task := range inv.Tasks {
@@ -408,8 +423,9 @@ func classifyMetas(inv Inventory, panes map[string]Pane, supervised, fleet map[i
 			continue
 		}
 		if worktrees[normalizePath(task.Meta.Worktree)] {
-			// The directory is still there, so OrphanWorktree owns this one:
-			// returning the worktree retires the meta with it.
+			// The directory is still there, so the finding at that path owns
+			// this one: the record reports on a later sweep, once the
+			// directory is gone.
 			continue
 		}
 		if taskHasProcess(task, inv.Processes, supervised, fleet) {
@@ -419,7 +435,7 @@ func classifyMetas(inv Inventory, panes map[string]Pane, supervised, fleet map[i
 			Class:  OrphanMeta,
 			TaskID: task.ID,
 			Path:   task.Meta.Worktree,
-			Detail: "no pane, no process, and no registered worktree to return; its task " + taskOutcome(task, true),
+			Detail: "no pane, no process, and no worktree left on disk; its task " + taskOutcome(task, true),
 			Action: "force-archive the task record",
 		}
 		if !task.Terminal {

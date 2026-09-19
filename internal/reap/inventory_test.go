@@ -174,15 +174,15 @@ func TestWorktreesConfirmRegistrationWithTheRepository(t *testing.T) {
 		ProjectsRoot: func() (string, error) { return projects, nil },
 	}
 	var notes []string
-	registered := map[string]bool{}
+	registration := map[string]Registration{}
 	for _, worktree := range collector.worktrees(context.Background(), nil, &notes) {
-		registered[worktree.Path] = worktree.Registered
+		registration[worktree.Path] = worktree.Registration
 	}
-	if !registered[live] {
-		t.Errorf("the live worktree was not confirmed registered; scanned %v", registered)
+	if registration[live] != RegistrationListed {
+		t.Errorf("the live worktree was not confirmed registered; scanned %v", registration)
 	}
-	if registered[shell] {
-		t.Errorf("an empty directory shell was accepted as a registered worktree; scanned %v", registered)
+	if registration[shell] != RegistrationUnlisted {
+		t.Errorf("an empty directory shell was not placed as unlisted; scanned %v", registration)
 	}
 	if len(notes) != 0 {
 		t.Errorf("unexpected notes: %q", notes)
@@ -223,7 +223,7 @@ func TestWorktreesConfirmRegistrationThroughAJunction(t *testing.T) {
 	if len(found) != 1 || found[0].Path != live {
 		t.Fatalf("worktrees = %+v, want only %q", found, live)
 	}
-	if !found[0].Registered {
+	if found[0].Registration != RegistrationListed {
 		t.Errorf("a live worktree reached through a junction was not confirmed registered: %+v", found[0])
 	}
 	if len(notes) != 0 {
@@ -244,8 +244,8 @@ func TestWorktreesSayWhenRegistrationCannotBeConfirmed(t *testing.T) {
 
 	var notes []string
 	found := collector.worktrees(context.Background(), nil, &notes)
-	if len(found) != 1 || found[0].Registered {
-		t.Fatalf("worktrees = %+v, want one unconfirmed directory", found)
+	if len(found) != 1 || found[0].Registration != RegistrationUnknown {
+		t.Fatalf("worktrees = %+v, want one directory whose registration is unknown", found)
 	}
 	if len(notes) != 1 || !strings.Contains(notes[0], "no command runner") {
 		t.Fatalf("notes = %q, want the missing-runner note", notes)
