@@ -91,24 +91,26 @@ type Finding struct {
 // operator's judgement to waive through this command.
 type Refusal struct {
 	Reason string `json:"reason"`
-	// Key is what --force must name to clear this one, and setting it also
-	// says that forcing is a legitimate answer here, so the rendered hold
-	// names it. Empty means the remedy is not a --force: either identifier the
-	// finding carries still clears it, but the hold does not propose that.
+	// Key is what --force must name to clear this one, and nothing else ever
+	// clears it. Every refusal a --force can answer carries one, because a
+	// refusal with no key of its own is one that any identifier the finding
+	// happens to carry could clear, which is the opposite of the rule.
 	Key string `json:"key,omitempty"`
+	// Propose says the rendered hold offers --force as the remedy, which is
+	// true only where forcing is the operator's judgement to make.
+	Propose bool `json:"propose,omitempty"`
 	// Absolute is a refusal no --force clears.
 	Absolute bool `json:"absolute,omitempty"`
 }
 
-// refuse records a refusal whose remedy is not a --force at all: the sweep
-// could not establish something, and the answer is to establish it. The reason
-// carries that remedy in its own words, and the rendered hold does not offer
-// --force, because proposing it is how fourteen findings came to invite an
-// operator to kill the desktop application and three live review agents. The
-// operator can still take responsibility for the resource by naming either
-// identifier the finding carries; it is simply never advertised as the fix.
-func (f *Finding) refuse(reason string) {
-	f.add(Refusal{Reason: reason})
+// refuseUntilEstablished records a refusal where the sweep could not establish
+// something and the answer is to establish it. The key is still the authority
+// that refusal answers to and nothing else clears it, but the rendered hold
+// does not offer --force, because proposing it is how fourteen findings came
+// to invite an operator to kill the desktop application and three live review
+// agents. The reason carries its own remedy in its own words.
+func (f *Finding) refuseUntilEstablished(reason, key string) {
+	f.add(Refusal{Reason: reason, Key: key})
 }
 
 // refuseUnlessForced records a refusal where a --force IS the legitimate
@@ -116,7 +118,7 @@ func (f *Finding) refuse(reason string) {
 // judgement about a process, the task id for whether a task has finished. Only
 // that key clears it, and the rendered hold says so.
 func (f *Finding) refuseUnlessForced(reason, key string) {
-	f.add(Refusal{Reason: reason, Key: key})
+	f.add(Refusal{Reason: reason, Key: key, Propose: true})
 }
 
 // refuseAbsolutely records a refusal no --force clears.
@@ -131,19 +133,13 @@ func (f *Finding) add(refusal Refusal) {
 	if refusal.Reason == "" {
 		return
 	}
-	for _, existing := range f.Holds {
-		if existing.Reason == refusal.Reason {
-			return
-		}
-	}
 	f.Holds = append(f.Holds, refusal)
 	f.Hold = f.holdText()
 }
 
-// Held reports whether anything is refusing this finding. A record read back
-// from an older audit carries only the rendered text, so that counts too.
+// Held reports whether anything is refusing this finding.
 func (f Finding) Held() bool {
-	return len(f.Holds) > 0 || f.Hold != ""
+	return len(f.Holds) > 0
 }
 
 // holdText renders every refusal and then says what actually clears them,
@@ -159,7 +155,7 @@ func (f Finding) holdText() string {
 		switch {
 		case refusal.Absolute:
 			absolute = true
-		case refusal.Key != "":
+		case refusal.Propose:
 			if !slices.Contains(keys, refusal.Key) {
 				keys = append(keys, refusal.Key)
 			}
@@ -186,23 +182,12 @@ func (f *Finding) clearForced(force map[string]bool) {
 	}
 	kept := make([]Refusal, 0, len(f.Holds))
 	for _, refusal := range f.Holds {
-		if !f.forceAnswers(refusal, force) {
+		if refusal.Absolute || !force[refusal.Key] {
 			kept = append(kept, refusal)
 		}
 	}
 	f.Holds = kept
 	f.Hold = f.holdText()
-}
-
-// forceAnswers reports whether what the operator named covers this refusal.
-func (f Finding) forceAnswers(refusal Refusal, force map[string]bool) bool {
-	if refusal.Absolute {
-		return false
-	}
-	if refusal.Key != "" {
-		return force[refusal.Key]
-	}
-	return f.PID != 0 && force[strconv.Itoa(f.PID)] || f.TaskID != "" && force[f.TaskID]
 }
 
 // Line renders one finding as the single line both the report and the status
@@ -414,9 +399,9 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				finding.Path = worktree.Path
 			}
 			if !fleet[process.PID] {
-				finding.refuse(unidentifiedHold)
+				finding.refuseUntilEstablished(unidentifiedHold, strconv.Itoa(process.PID))
 			}
-			finding.refuse(unresolvedPaneHold(inv))
+			finding.refuseUntilEstablished(unresolvedPaneHold(inv), strconv.Itoa(process.PID))
 			findings = append(findings, finding)
 		case isServer(process):
 			worktree, ok := worktreeOf(process, inv.Worktrees)
@@ -437,7 +422,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				Detail: fmt.Sprintf("%s rooted in %s, whose task %s", process.Name, worktree.Path, taskOutcome(task, known, unreadableRecord)),
 				Action: "kill the process tree",
 			}
-			finding.refuse(unresolvedPaneHold(inv))
+			finding.refuseUntilEstablished(unresolvedPaneHold(inv), strconv.Itoa(process.PID))
 			if unreadableRecord {
 				// Killing this server says the task behind it is over, and an
 				// unreadable record is the one thing that cannot say so. It is

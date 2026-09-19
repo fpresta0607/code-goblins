@@ -791,7 +791,7 @@ func TestAHoldNamesWhatActuallyClearsIt(t *testing.T) {
 
 	t.Run("a refusal whose remedy is not force does not propose one", func(t *testing.T) {
 		finding := Finding{Class: OrphanProcess, PID: 900}
-		finding.refuse(unidentifiedHold)
+		finding.refuseUntilEstablished(unidentifiedHold, "900")
 		if strings.Contains(finding.Hold, "--force") {
 			t.Fatalf("hold = %q, want no --force proposed for something the sweep could not identify", finding.Hold)
 		}
@@ -812,7 +812,7 @@ func TestAHoldNamesWhatActuallyClearsIt(t *testing.T) {
 // record one.
 func TestARefusalCannotBeReplacedBySite(t *testing.T) {
 	finding := Finding{Class: StaleServer, TaskID: "broken", PID: 555}
-	finding.refuse("1 pane(s) could not report their process identity")
+	finding.refuseUntilEstablished("1 pane(s) could not report their process identity", "555")
 	finding.refuseUnlessForced("its task record could not be read", "broken")
 	if len(finding.Holds) != 2 {
 		t.Fatalf("holds = %+v, want both refusals kept", finding.Holds)

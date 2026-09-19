@@ -180,6 +180,17 @@ func (s Service) gate(ctx context.Context, finding *Finding, options Options) {
 	// The operator's --force drops the refusals it actually answers and leaves
 	// every other one standing.
 	finding.clearForced(options.Force)
+	// A finding still refused after that takes no measurement, because none of
+	// them can change the outcome: three seconds of processor sampling per
+	// process finding, and two git subprocesses per worktree, spent to reach a
+	// verdict already reached. This is not the mistake the refusal machinery
+	// exists to prevent. Dropping a refusal during classification is a lie,
+	// because classification is pure and cheap and its whole job is to state
+	// every reason something is held; skipping a measurement here adds no
+	// refusal and replaces none, so nothing is lost but the wait.
+	if finding.Held() {
+		return
+	}
 	switch finding.Class {
 	case OrphanProcess, StaleServer:
 		if options.forcedPID(*finding) || !options.ProbeIdle {
@@ -187,7 +198,7 @@ func (s Service) gate(ctx context.Context, finding *Finding, options Options) {
 		}
 		// Busy is a measurement, not a judgement: the remedy is to let it
 		// finish or to look at what it is doing, never to propose a kill.
-		finding.refuse(s.holdIfBusy(finding.PID, options))
+		finding.refuseUntilEstablished(s.holdIfBusy(finding.PID, options), strconv.Itoa(finding.PID))
 	case OrphanWorktree:
 		// Absolute, and it runs even for a forced task: --force covers the
 		// operator's judgement about a task's status, never a decision to
