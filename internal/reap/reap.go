@@ -202,31 +202,30 @@ func (s Service) gate(ctx context.Context, finding *Finding, options Options) {
 	// The operator's --force drops the refusals it actually answers and leaves
 	// every other one standing.
 	finding.clearForced(options.Force)
-	// A finding still refused after that takes no measurement, because none of
-	// them can change the outcome: three seconds of processor sampling per
-	// process finding, and three git subprocesses per worktree, spent to reach
+	// The measurement is reported rather than used to refuse: naming a pid has
+	// always meant killing that process even if it is busy. It is taken on
+	// every sweep that asks for one, held or not and authorised or not,
+	// because the operator reads a held process finding to decide whether to
+	// name its pid, and whether it is burning processor time is the one fact
+	// that separates a live process from an abandoned one. A number produced
+	// only on the run that kills arrives after the decision it informs.
+	if options.ProbeIdle && (finding.Class == OrphanProcess || finding.Class == StaleServer) {
+		if busy := s.measureBusy(finding.PID, options); busy != "" {
+			finding.Detail += "; " + busy
+		}
+	}
+	// A finding still refused takes no further gate, because none of them can
+	// change the outcome: three git subprocesses per worktree, spent to reach
 	// a verdict already reached. This is not the mistake the refusal machinery
 	// exists to prevent. Dropping a refusal during classification is a lie,
 	// because classification is pure and cheap and its whole job is to state
-	// every reason something is held; skipping a measurement here adds no
-	// refusal and replaces none, so nothing is lost but the wait.
+	// every reason something is held; skipping a question here adds no refusal
+	// and replaces none, so nothing is lost but the wait.
 	if finding.Held() {
 		return
 	}
 	switch finding.Class {
 	case OrphanProcess, StaleServer:
-		// The measurement is reported rather than used to refuse: naming a pid
-		// has always meant killing that process even if it is busy. It is
-		// taken on every sweep that asks for one, authorised or not, because
-		// the operator decides which pid to name by reading a report, and
-		// whether a process is burning processor time is the one fact that
-		// separates a live process from an abandoned one. Measuring only on
-		// the run that kills produces it after the decision it informs.
-		if options.ProbeIdle {
-			if busy := s.measureBusy(finding.PID, options); busy != "" {
-				finding.Detail += "; " + busy
-			}
-		}
 		if !options.forcedPID(*finding) {
 			// Ending a process is the one action here that cannot be undone
 			// and that costs somebody else their work, so it answers to the

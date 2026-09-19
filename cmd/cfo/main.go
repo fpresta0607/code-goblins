@@ -66,7 +66,7 @@ commands:
   cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
   cfo merge-local <id>
   cfo cleanup <id>
-  cfo reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]   find and, with --apply, retire orphaned harness processes, stale dev servers, worktrees, task records and status logs
+  cfo reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]   find orphaned harness processes, stale dev servers, worktrees, task records and status logs; --apply retires the worktrees, records and logs, and ending a process needs its pid named with --force
   cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>"   a goblin reports its outcome straight into the wake queue
   hook <name>  claude code hook entry points (session-start, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm)
 `

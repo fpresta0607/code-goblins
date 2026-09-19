@@ -158,8 +158,10 @@ func TestClassify(t *testing.T) {
 			want:      OrphanWorktree,
 			wantCount: 1,
 			assert: func(t *testing.T, findings []Finding) {
-				if !strings.Contains(findings[0].Detail, "no metadata record") {
-					t.Fatalf("detail = %q, want the missing-record reason", findings[0].Detail)
+				// There was no record to ask about, which is the whole of what
+				// this sweep established, said once.
+				if findings[0].Detail != "no task record to ask about" {
+					t.Fatalf("detail = %q, want the missing-record reason and nothing restated", findings[0].Detail)
 				}
 			},
 		},
@@ -964,6 +966,9 @@ func TestALiveGoblinsServerIsNeverStale(t *testing.T) {
 			}
 			if !strings.Contains(found[0].Hold(), "reported no working directory") {
 				t.Errorf("%s hold = %q, want it held because an agent could not be placed", class, found[0].Hold())
+			}
+			if strings.Contains(found[0].Detail, "no pane holding an agent working there") {
+				t.Errorf("%s detail = %q, claims the evidence its own hold says could not be gathered", class, found[0].Detail)
 			}
 		}
 	})

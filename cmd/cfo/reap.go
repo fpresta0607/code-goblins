@@ -21,7 +21,7 @@ import (
 
 const reapUsage = `usage: cfo reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]
 
-Find the fleet resources nothing else notices and, with --apply, retire them:
+Find the fleet resources nothing else notices and retire them:
 an unsupervised harness process whose pane is gone, a dev server left running
 in a worktree no pane's agent is working in, whatever its status log says, an
 orphaned worktree, task record or status log, and the empty directory a dead
