@@ -126,21 +126,31 @@ func (s Service) Apply(ctx context.Context, options Options) (Result, error) {
 	if err != nil {
 		return result, err
 	}
+	// Which tasks had a record is read once, before anything is acted on,
+	// because the question is about the fleet the sweep classified and not
+	// about whatever is left by the time each finding's turn comes. Two
+	// findings can name one task, the action for a worktree and for a meta is
+	// a cleanup that removes the record, and findings are acted on in class
+	// order, so asking per finding still loses the audit line for whichever
+	// one sorts second.
+	hadRecord := make(map[string]bool, len(result.Findings))
+	for _, finding := range result.Findings {
+		if finding.TaskID != "" {
+			hadRecord[finding.TaskID] = s.hasRecord(finding.TaskID)
+		}
+	}
 	for i := range result.Findings {
 		finding := &result.Findings[i]
 		if finding.Held() {
 			continue
 		}
-		// Asked before acting, because the action for a worktree and for a
-		// meta is a cleanup that removes the record itself.
-		hadRecord := s.hasRecord(finding.TaskID)
 		if err := s.act(ctx, *finding); err != nil {
 			finding.refuseAbsolutely("action failed: " + err.Error())
 			continue
 		}
 		line := ReapedPrefix + finding.Line()
 		result.Applied = append(result.Applied, line)
-		s.record(*finding, line, hadRecord)
+		s.record(*finding, line, hadRecord[finding.TaskID])
 	}
 	return result, nil
 }

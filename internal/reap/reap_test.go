@@ -784,3 +784,103 @@ func TestReapingARecordLessShellManufacturesNoStatusLog(t *testing.T) {
 		}
 	})
 }
+
+// TestAnUnestablishedRefusalIsOverridableExactlyAsItsHoldImplies pins the
+// mechanism to the words. The hold tells the operator to resolve the evidence
+// rather than override it, and stops there, because naming the key does
+// override it. Saying it could not would be the command describing what it
+// wishes were true, and an operator whose Herdr cannot report pane identity
+// would be locked out of killing a genuine orphan until they fixed Herdr.
+func TestAnUnestablishedRefusalIsOverridableExactlyAsItsHoldImplies(t *testing.T) {
+	inventory := orphanProcessInventory()
+	inventory.Panes = []Pane{{ID: "pane-b", HasAgent: true}}
+	inventory.UnresolvedPanes = []string{"pane-b"}
+
+	h := testHome(t)
+	runner := &gitRunner{}
+	service := newService(t, h, inventory, runner)
+	service.CPU = func(int) (time.Duration, bool) { return 0, true }
+
+	held, err := service.Apply(context.Background(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finding := onlyFinding(t, held, OrphanProcess)
+	if !strings.Contains(finding.Hold, "process identity") {
+		t.Fatalf("hold = %q, want the unresolved-pane refusal", finding.Hold)
+	}
+	if strings.Contains(finding.Hold, "--force") {
+		t.Fatalf("hold = %q, want no --force proposed for evidence the sweep could not gather", finding.Hold)
+	}
+	if len(runner.killed) != 0 {
+		t.Fatalf("a process was killed on incomplete pane evidence: %v", runner.killed)
+	}
+
+	t.Run("naming its key overrides it", func(t *testing.T) {
+		runner := &gitRunner{}
+		service := newService(t, testHome(t), inventory, runner)
+		service.CPU = func(int) (time.Duration, bool) { return 0, true }
+		result, err := service.Apply(context.Background(), Options{Force: map[string]bool{"31032": true}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if finding := onlyFinding(t, result, OrphanProcess); finding.Hold != "" {
+			t.Fatalf("hold = %q, want the operator's own pid force to clear it", finding.Hold)
+		}
+		if len(runner.killed) != 1 || runner.killed[0] != 31032 {
+			t.Fatalf("killed = %v, want the forced pid, because a broken Herdr must not lock the operator out", runner.killed)
+		}
+	})
+}
+
+// TestOneTaskActedOnTwiceKeepsBothReapedLines: findings are acted on in class
+// order and two of them can name one task, so a worktree cleanup that retires
+// the record runs before the stale server beside it. Asking whether the record
+// existed per finding reads the world the earlier action already changed; the
+// question is about the fleet the sweep classified, so it is asked once, up
+// front, for every task.
+func TestOneTaskActedOnTwiceKeepsBothReapedLines(t *testing.T) {
+	h := testHome(t)
+	worktree := populatedWorktree(t, "gb-old")
+	inventory := Inventory{
+		Tasks:     []Task{task("old", worktree, "pane-gone", "done")},
+		Worktrees: []WorktreeDir{{Path: worktree, Project: filepath.Dir(filepath.Dir(worktree)), Registration: RegistrationListed, TaskID: "old"}},
+		Processes: []Process{process(555, 1, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest)},
+	}
+	if err := state.WriteTaskMeta(h.State, state.TaskMeta{
+		ID: "old", Backend: "herdr", Project: `C:\dev\pd`, Worktree: worktree,
+		HerdrSession: "default", HerdrWorkspaceID: "w", HerdrTabID: "t", HerdrPaneID: "p",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &gitRunner{}
+	service := newService(t, h, inventory, runner)
+	service.CPU = func(int) (time.Duration, bool) { return 0, true }
+	// The cleanup path retires the record, which is what the second finding
+	// would otherwise read as a task that never had one.
+	service.Clean = func(_ context.Context, id string, _ bool) error {
+		return state.RemoveTaskMeta(h.State, id)
+	}
+
+	result, err := service.Apply(context.Background(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Applied) != 2 {
+		t.Fatalf("applied = %v, want both the worktree and the server acted on", result.Applied)
+	}
+	lines, err := state.TailStatus(h.State, "old", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reaped []string
+	for _, line := range lines {
+		if _, event := state.SplitStatus(line); strings.HasPrefix(strings.TrimSpace(event), ReapedPrefix) {
+			reaped = append(reaped, event)
+		}
+	}
+	if len(reaped) != 2 {
+		t.Fatalf("the task's log holds %d reaped lines, want both: %q", len(reaped), lines)
+	}
+}

@@ -813,8 +813,15 @@ func TestAHoldNamesWhatActuallyClearsIt(t *testing.T) {
 		if strings.Contains(hold, "act on it") {
 			t.Fatalf("hold = %q, want no promise that the sweep acts, because the pane refusal stands whatever is forced", hold)
 		}
-		if !strings.Contains(hold, "has to be resolved first") {
+		if !strings.Contains(hold, "resolve it rather than overriding it") {
 			t.Fatalf("hold = %q, want it to say the evidence has to be resolved rather than forced", hold)
+		}
+		// The correction that matters: an unestablished refusal IS cleared by
+		// naming its key, so a line saying otherwise would be this command
+		// describing what it wishes were true, which is the habit the branch
+		// exists to break.
+		if strings.Contains(hold, "answers to no --force") {
+			t.Fatalf("hold = %q, want no claim that the evidence refusal cannot be forced, because naming its key does clear it", hold)
 		}
 	})
 

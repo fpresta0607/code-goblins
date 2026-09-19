@@ -179,7 +179,12 @@ func (f Finding) holdText() string {
 	}
 	switch {
 	case unestablished:
-		return text + ". " + named + " to take responsibility for that much; what the sweep could not establish answers to no --force and has to be resolved first"
+		// It says what is true and stops there. A --force naming that key does
+		// clear an unestablished refusal, and saying otherwise would be this
+		// command describing what it wishes were so, which is the habit the
+		// whole branch exists to break. What it will not do is propose the
+		// override as the remedy, because the remedy is the evidence.
+		return text + ". " + named + " to take responsibility for that much. The rest is evidence the sweep could not gather rather than a judgement to make, so resolve it rather than overriding it"
 	case len(keys) > 1:
 		return text + ". " + named + " to take responsibility for every reason above, because each refusal answers only to its own"
 	}
