@@ -131,13 +131,16 @@ func (s Service) Apply(ctx context.Context, options Options) (Result, error) {
 		if finding.Held() {
 			continue
 		}
+		// Asked before acting, because the action for a worktree and for a
+		// meta is a cleanup that removes the record itself.
+		hadRecord := s.hasRecord(finding.TaskID)
 		if err := s.act(ctx, *finding); err != nil {
 			finding.refuseAbsolutely("action failed: " + err.Error())
 			continue
 		}
 		line := ReapedPrefix + finding.Line()
 		result.Applied = append(result.Applied, line)
-		s.record(*finding, line)
+		s.record(*finding, line, hadRecord)
 	}
 	return result, nil
 }
@@ -154,7 +157,7 @@ const ReapedPrefix = "reaped: "
 // record writes one line per reaped resource: into the task's own status log
 // when the finding names a task, and always into the fleet-level reap log, so
 // there is one place that answers "what did the reaper do".
-func (s Service) record(finding Finding, line string) {
+func (s Service) record(finding Finding, line string, hadRecord bool) {
 	// The reaper may add to the history of a task that exists and must never
 	// manufacture one for a task that does not. state.AppendStatus creates
 	// the log it is handed, so a line written for a record retired long ago
@@ -163,13 +166,21 @@ func (s Service) record(finding Finding, line string) {
 	// The record is the fact to ask about, not the log: a goblin spawned a
 	// moment ago has a record and has reported nothing yet. The fleet log
 	// below carries every line either way.
-	if finding.TaskID != "" && state.ValidTaskID(finding.TaskID) == nil {
-		if _, err := os.Stat(filepath.Join(s.Home.State, finding.TaskID+".meta")); err == nil {
-			// Best effort: a failed status write must not undo a completed kill.
-			_ = state.AppendStatus(s.Home.State, finding.TaskID, state.NormalizeStatusDetail(line))
-		}
+	if hadRecord {
+		// Best effort: a failed status write must not undo a completed kill.
+		_ = state.AppendStatus(s.Home.State, finding.TaskID, state.NormalizeStatusDetail(line))
 	}
 	_ = state.AppendStatus(s.Home.State, StatusID, state.NormalizeStatusDetail(line))
+}
+
+// hasRecord reports whether the task behind a finding still has a state
+// record. It is asked while the record can still answer.
+func (s Service) hasRecord(id string) bool {
+	if id == "" || state.ValidTaskID(id) != nil {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(s.Home.State, id+".meta"))
+	return err == nil
 }
 
 // gate is where the correctness lives. Every class gets the checks that make

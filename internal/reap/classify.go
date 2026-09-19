@@ -142,13 +142,16 @@ func (f Finding) Held() bool {
 	return len(f.Holds) > 0
 }
 
-// holdText renders every refusal and then says what actually clears them,
-// derived from the refusals themselves rather than written by hand at each
-// site. A HELD line that names an action which will not work is the defect
-// this whole sweep exists to stop reporting.
+// holdText renders every refusal and then says what answers them, derived
+// from the refusals themselves rather than written by hand at each site. It
+// describes which reasons a --force answers and never that the sweep will act:
+// a cleared hold only means the action is attempted, and a HELD line promising
+// an outcome it cannot deliver is the defect this sweep exists to stop
+// reporting.
 func (f Finding) holdText() string {
 	reasons := make([]string, 0, len(f.Holds))
 	absolute := false
+	unestablished := false
 	var keys []string
 	for _, refusal := range f.Holds {
 		reasons = append(reasons, refusal.Reason)
@@ -159,18 +162,28 @@ func (f Finding) holdText() string {
 			if !slices.Contains(keys, refusal.Key) {
 				keys = append(keys, refusal.Key)
 			}
+		default:
+			unestablished = true
 		}
 	}
 	text := strings.Join(reasons, "; also ")
-	switch {
-	case absolute:
+	if absolute {
 		return text + ". No --force clears this"
-	case len(keys) == 1:
-		return text + ". Name " + keys[0] + " with --force to act on it anyway"
-	case len(keys) > 1:
-		return text + ". Name every one of " + strings.Join(keys, " and ") + " with --force to act on it anyway, because each refusal answers only to its own"
 	}
-	return text
+	if len(keys) == 0 {
+		return text
+	}
+	named := "Name " + keys[0] + " with --force"
+	if len(keys) > 1 {
+		named = "Name every one of " + strings.Join(keys, " and ") + " with --force"
+	}
+	switch {
+	case unestablished:
+		return text + ". " + named + " to take responsibility for that much; what the sweep could not establish answers to no --force and has to be resolved first"
+	case len(keys) > 1:
+		return text + ". " + named + " to take responsibility for every reason above, because each refusal answers only to its own"
+	}
+	return text + ". " + named + " to take responsibility for it"
 }
 
 // clearForced drops the refusals the operator has taken responsibility for and
