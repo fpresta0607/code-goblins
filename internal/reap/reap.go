@@ -286,31 +286,17 @@ func (s Service) holdIfWorkWouldBeLost(ctx context.Context, finding *Finding) {
 	}
 	// Every git question below is answered by the nearest enclosing repository
 	// when this path is not a worktree of its own, so the premise is asserted
-	// once, here, rather than checked again inside each answer. Checking it in
-	// the status branch alone is how the enclosing repository's commit count
-	// went on being reported as an empty directory's own.
-	empty, err := isEmptyDir(worktree)
+	// once, here, rather than checked again inside each answer. Emptiness only
+	// ruled out one shape of not being a worktree; a populated folder that is
+	// not one got the enclosing repository's dirt reported as its own, which
+	// is the defect this whole branch exists to remove.
+	itsOwn, err := answersForItself(ctx, s.Commands, worktree)
 	if err != nil {
-		finding.refuseAbsolutely("the sweep could not read this directory, so it could not establish whether a git answer would describe this path or an enclosing repository: " + err.Error() + "; resolve that" + sweepAgain)
+		finding.refuseAbsolutely("the sweep could not establish whether git at this path answers for this path or for an enclosing repository, so nothing git reports here can be attributed to this worktree: " + err.Error() + "; resolve that" + sweepAgain)
 		return
 	}
-	if empty {
-		// The reason states only what was established here, which is that the
-		// directory is empty and that git therefore speaks for somewhere else.
-		// It does not name a cause, because the same emptiness reaches this
-		// point from a registration that could not be read and from a listed
-		// worktree whose files are gone, and a remedy right for one of those
-		// is wrong for the other.
-		//
-		// The action is corrected here because this is where emptiness is
-		// established: what the operator's force buys is the removal of an
-		// empty directory, plus the prune of the registration behind it where
-		// one was established, and never the cleanup the class was named for.
-		finding.Action = "remove the empty directory"
-		if finding.Registered {
-			finding.Action += " and prune its registration from the project"
-		}
-		finding.refuseUntilEstablished("this directory holds no files, so no git answer about it belongs to it rather than to an enclosing repository, and nothing about what it is can be established from here; establish what it is before it is removed", finding.TaskID)
+	if !itsOwn {
+		holdNotAWorktreeOfItsOwn(finding)
 		return
 	}
 
@@ -332,6 +318,34 @@ func (s Service) holdIfWorkWouldBeLost(ctx context.Context, finding *Finding) {
 		count := len(strings.Split(unpushed, "\n"))
 		finding.refuseAbsolutely(fmt.Sprintf("worktree has %d commit(s) on no remote; pushing them is the only way this is safe to remove", count))
 	}
+}
+
+// holdNotAWorktreeOfItsOwn refuses a path git does not answer for, and what
+// the path holds decides which refusal it gets. Nothing at all holds no work,
+// so that one is the operator's to answer by naming the task, and what the
+// force buys is the removal of the directory and the prune of the
+// registration behind it where one was established, never the cleanup the
+// class was named for. The reason there deliberately names no cause, because
+// the same emptiness arrives from a registration that could not be read and
+// from a listed worktree whose files are gone, and a remedy right for one is
+// wrong for the other. Files are the absolute case: they belong to something
+// the sweep cannot attribute to any repository, and unattributable stays
+// unremovable.
+func holdNotAWorktreeOfItsOwn(finding *Finding) {
+	empty, err := isEmptyDir(finding.Path)
+	if err != nil {
+		finding.refuseAbsolutely("git at this path answers for a different repository, and the sweep could not read the directory to establish what removing it would destroy: " + err.Error() + "; resolve that" + sweepAgain)
+		return
+	}
+	if !empty {
+		finding.refuseAbsolutely("git at this path answers for a different repository, so nothing it reports about uncommitted work or unpushed commits can be attributed here, and the files this directory does hold belong to something the sweep cannot identify; identify them before anything removes this")
+		return
+	}
+	finding.Action = "remove the empty directory"
+	if finding.Registered {
+		finding.Action += " and prune its registration from the project"
+	}
+	finding.refuseUntilEstablished("this directory holds no files, so no git answer about it belongs to it rather than to an enclosing repository, and nothing about what it is can be established from here; establish what it is before it is removed", finding.TaskID)
 }
 
 func (s Service) act(ctx context.Context, finding Finding) error {
