@@ -1110,11 +1110,12 @@ func TestReapingARecordLessShellManufacturesNoStatusLog(t *testing.T) {
 }
 
 // TestAnUnestablishedRefusalIsOverridableExactlyAsItsHoldImplies pins the
-// mechanism to the words. The hold tells the operator to resolve the evidence
-// rather than override it, and stops there, because naming the key does
-// override it. Saying it could not would be the command describing what it
-// wishes were true, and an operator whose Herdr cannot report pane identity
-// would be locked out of killing a genuine orphan until they fixed Herdr.
+// mechanism to the words. The pane refusal answers to the same pid the kill
+// does, so the one key the line names clears the whole hold, and the line says
+// exactly that and no more. Claiming the evidence outlives that force would be
+// the command describing what it wishes were true, and an operator whose Herdr
+// cannot report pane identity would read themselves as locked out of killing a
+// genuine orphan until they fixed Herdr.
 func TestAnUnestablishedRefusalIsOverridableExactlyAsItsHoldImplies(t *testing.T) {
 	inventory := orphanProcessInventory()
 	inventory.Panes = []Pane{{ID: "pane-b", HasAgent: true}}
@@ -1133,8 +1134,11 @@ func TestAnUnestablishedRefusalIsOverridableExactlyAsItsHoldImplies(t *testing.T
 	if !strings.Contains(finding.Hold(), "process identity") {
 		t.Fatalf("hold = %q, want the unresolved-pane refusal", finding.Hold())
 	}
-	if !strings.Contains(finding.Hold(), "resolve it rather than overriding it") {
-		t.Fatalf("hold = %q, want the evidence the sweep could not gather offered as something to resolve, not to force", finding.Hold())
+	if !strings.Contains(finding.Hold(), "Name 31032 with --force to take responsibility for it") {
+		t.Fatalf("hold = %q, want the one key that clears every refusal on the line", finding.Hold())
+	}
+	if strings.Contains(finding.Hold(), "resolve it rather than overriding it") {
+		t.Fatalf("hold = %q, claims the pane evidence outlives the --force the same line names", finding.Hold())
 	}
 	if len(runner.killed) != 0 {
 		t.Fatalf("a process was killed on incomplete pane evidence: %v", runner.killed)

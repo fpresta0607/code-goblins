@@ -190,16 +190,6 @@ func (c Collector) readPanes(ctx context.Context) (panes []Pane, unresolved, unp
 			unplaced = append(unplaced, agent.PaneID)
 		}
 	}
-	// An agent that reported no working directory is carried out as unplaced
-	// rather than treated as an agent working nowhere, because the field is
-	// declared nullable and is not required, so answering with nothing is a
-	// legitimate state. Whether it is that or a key that vanished makes no
-	// difference here: either way the sweep cannot say where that agent is
-	// running, and a finding that depends on placing it is held rather than
-	// acted on. Counting them to infer a missing key would turn the smallest
-	// legitimate fleet, one goblin answering with nothing, into a sweep that
-	// reports no orphans at all.
-
 	panes = make([]Pane, 0, len(snapshot.Panes))
 	for _, pane := range snapshot.Panes {
 		agent, hasAgent := agents[pane.ID]
