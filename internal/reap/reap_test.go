@@ -194,10 +194,26 @@ func TestForceNamesOneProcess(t *testing.T) {
 	}
 }
 
-func worktreeInventory(verb string) Inventory {
-	path := `C:\dev\pd\.worktrees\gb-old`
+// populatedWorktree is a directory that holds a file, which is what makes it a
+// worktree rather than a shell. The work gate asserts that premise before it
+// believes any git answer about the path, so a fixture pointing at a directory
+// that never existed would be testing the premise failure, not the work gate.
+func populatedWorktree(t *testing.T, name string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), ".worktrees", name)
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "tracked.go"), []byte("package x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func worktreeInventory(t *testing.T, verb string) Inventory {
+	path := populatedWorktree(t, "gb-old")
 	inventory := Inventory{
-		Worktrees: []WorktreeDir{{Path: path, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "old"}},
+		Worktrees: []WorktreeDir{{Path: path, Project: filepath.Dir(filepath.Dir(path)), Registration: RegistrationListed, TaskID: "old"}},
 	}
 	if verb != "" {
 		inventory.Tasks = []Task{task("old", path, "pane-gone", verb)}
@@ -208,7 +224,7 @@ func worktreeInventory(verb string) Inventory {
 func TestGateRefusesDirtyWorktree(t *testing.T) {
 	h := testHome(t)
 	runner := &gitRunner{status: " M internal/thing.go"}
-	service := newService(t, h, worktreeInventory("done"), runner)
+	service := newService(t, h, worktreeInventory(t, "done"), runner)
 
 	result, err := service.Apply(context.Background(), Options{})
 	if err != nil {
@@ -222,7 +238,7 @@ func TestGateRefusesDirtyWorktree(t *testing.T) {
 func TestGateRefusesUnpushedBranch(t *testing.T) {
 	h := testHome(t)
 	runner := &gitRunner{unpushed: "abc1234 feat: the whole product of the run"}
-	service := newService(t, h, worktreeInventory("done"), runner)
+	service := newService(t, h, worktreeInventory(t, "done"), runner)
 
 	result, err := service.Apply(context.Background(), Options{})
 	if err != nil {
@@ -238,7 +254,7 @@ func TestGateRefusesUnpushedBranch(t *testing.T) {
 func TestForceNeverClearsTheWorkGate(t *testing.T) {
 	h := testHome(t)
 	runner := &gitRunner{unpushed: "abc1234 feat: the whole product of the run"}
-	service := newService(t, h, worktreeInventory("working"), runner)
+	service := newService(t, h, worktreeInventory(t, "working"), runner)
 
 	result, err := service.Apply(context.Background(), Options{Force: map[string]bool{"old": true}})
 	if err != nil {
@@ -252,7 +268,7 @@ func TestForceNeverClearsTheWorkGate(t *testing.T) {
 func TestGateRefusesNonTerminalTask(t *testing.T) {
 	h := testHome(t)
 	runner := &gitRunner{}
-	service := newService(t, h, worktreeInventory("working"), runner)
+	service := newService(t, h, worktreeInventory(t, "working"), runner)
 
 	result, err := service.Apply(context.Background(), Options{})
 	if err != nil {
@@ -266,7 +282,7 @@ func TestGateRefusesNonTerminalTask(t *testing.T) {
 func TestApplyReturnsACleanOrphanWorktree(t *testing.T) {
 	h := testHome(t)
 	runner := &gitRunner{}
-	service := newService(t, h, worktreeInventory("done"), runner)
+	service := newService(t, h, worktreeInventory(t, "done"), runner)
 	var cleaned []string
 	service.Clean = func(_ context.Context, id string, force bool) error {
 		cleaned = append(cleaned, id)
@@ -481,12 +497,12 @@ func TestApplyRemovesAnEmptyShellAndHoldsAnythingElse(t *testing.T) {
 // gated by the work check rather than offered up as an empty shell to delete
 // and a record to force-archive.
 func TestUnconfirmableRegistrationKeepsTheWorkGate(t *testing.T) {
-	path := `C:\dev\pd\.worktrees\gb-utah`
+	path := populatedWorktree(t, "gb-utah")
 	inventory := Inventory{
 		Tasks: []Task{task("utah", path, "pane-gone", "done")},
 		// The zero value, which is what the collector produces for every
 		// directory under a root whose registration could not be read.
-		Worktrees: []WorktreeDir{{Path: path, Project: `C:\dev\pd`, TaskID: "utah"}},
+		Worktrees: []WorktreeDir{{Path: path, Project: filepath.Dir(filepath.Dir(path)), TaskID: "utah"}},
 	}
 	runner := &gitRunner{unpushed: "abc1234 feat: the whole product of the run"}
 	service := newService(t, testHome(t), inventory, runner)
@@ -564,8 +580,11 @@ func TestEveryRefusalInAHoldNeedsItsOwnForce(t *testing.T) {
 	if !strings.Contains(finding.Hold, "terminal status") {
 		t.Fatalf("hold = %q, want the terminal-status refusal to survive a pid force", finding.Hold)
 	}
-	if !strings.Contains(finding.Hold, "pid 4242") {
-		t.Fatalf("hold = %q, want it to name the process holding the directory as well", finding.Hold)
+	// The refusal the operator answered is gone from the text and the one
+	// they did not answer remains, so the hold always reads as exactly what is
+	// still standing rather than as the full list it started with.
+	if strings.Contains(finding.Hold, "pid 4242") {
+		t.Fatalf("hold = %q, want the refusal the operator answered to be gone from it", finding.Hold)
 	}
 	if _, err := os.Stat(shell); err != nil {
 		t.Fatalf("a pid force removed the shell of a task that has not finished: %v", err)

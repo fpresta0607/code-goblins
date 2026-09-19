@@ -15,6 +15,7 @@ package reap
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -68,15 +69,140 @@ type Finding struct {
 	Path   string `json:"path,omitempty"`
 	Detail string `json:"detail"`
 	Action string `json:"action"`
-	Hold   string `json:"hold,omitempty"`
-	// ForceKeys are what --force must name, every one of them, to clear this
-	// finding's hold. A hold can carry more than one refusal and each answers
-	// to its own authority: naming a pid accepts responsibility for that
-	// process and can never say whether a task has finished, and naming a
-	// task id says the task is over and can never speak for a process still
-	// holding its directory. Empty leaves the default, where either
-	// identifier the finding carries clears the hold.
-	ForceKeys []string `json:"force_keys,omitempty"`
+	// Hold is the rendered refusal, and it is the only thing most readers
+	// need. It is written exclusively by the refuse methods below and never
+	// assigned at a call site: composing refusals by hand is what let a later
+	// one silently replace an earlier one, so that an unrelated missing pane
+	// could drop a refusal about a task record nobody could read.
+	Hold string `json:"hold,omitempty"`
+	// Holds are the refusals behind Hold, each carrying the key that clears
+	// it. They accumulate, so a finding refused for two reasons answers to
+	// both, and neither key answers for the other.
+	Holds []Refusal `json:"holds,omitempty"`
+}
+
+// Refusal is one reason a finding is held, together with what clears it.
+//
+// Each refusal answers to its own authority and to nothing else. Naming a pid
+// accepts responsibility for that process and can never say whether a task has
+// finished; naming a task id says the task is over and can never speak for a
+// process still holding its directory. Some refusals answer to no --force at
+// all, because they exist to stop work being destroyed, and that is not the
+// operator's judgement to waive through this command.
+type Refusal struct {
+	Reason string `json:"reason"`
+	// Key is what --force must name to clear this one, and setting it also
+	// says that forcing is a legitimate answer here, so the rendered hold
+	// names it. Empty means the remedy is not a --force: either identifier the
+	// finding carries still clears it, but the hold does not propose that.
+	Key string `json:"key,omitempty"`
+	// Absolute is a refusal no --force clears.
+	Absolute bool `json:"absolute,omitempty"`
+}
+
+// refuse records a refusal whose remedy is not a --force at all: the sweep
+// could not establish something, and the answer is to establish it. The reason
+// carries that remedy in its own words, and the rendered hold does not offer
+// --force, because proposing it is how fourteen findings came to invite an
+// operator to kill the desktop application and three live review agents. The
+// operator can still take responsibility for the resource by naming either
+// identifier the finding carries; it is simply never advertised as the fix.
+func (f *Finding) refuse(reason string) {
+	f.add(Refusal{Reason: reason})
+}
+
+// refuseUnlessForced records a refusal where a --force IS the legitimate
+// answer, because it is a judgement only the operator can make: the pid for a
+// judgement about a process, the task id for whether a task has finished. Only
+// that key clears it, and the rendered hold says so.
+func (f *Finding) refuseUnlessForced(reason, key string) {
+	f.add(Refusal{Reason: reason, Key: key})
+}
+
+// refuseAbsolutely records a refusal no --force clears.
+func (f *Finding) refuseAbsolutely(reason string) {
+	f.add(Refusal{Reason: reason, Absolute: true})
+}
+
+// add appends a refusal and rebuilds the rendered hold. Appending is the whole
+// point: every site adds, none assigns, so a refusal already recorded cannot
+// be dropped by a later one that happens to run after it.
+func (f *Finding) add(refusal Refusal) {
+	if refusal.Reason == "" {
+		return
+	}
+	for _, existing := range f.Holds {
+		if existing.Reason == refusal.Reason {
+			return
+		}
+	}
+	f.Holds = append(f.Holds, refusal)
+	f.Hold = f.holdText()
+}
+
+// Held reports whether anything is refusing this finding. A record read back
+// from an older audit carries only the rendered text, so that counts too.
+func (f Finding) Held() bool {
+	return len(f.Holds) > 0 || f.Hold != ""
+}
+
+// holdText renders every refusal and then says what actually clears them,
+// derived from the refusals themselves rather than written by hand at each
+// site. A HELD line that names an action which will not work is the defect
+// this whole sweep exists to stop reporting.
+func (f Finding) holdText() string {
+	reasons := make([]string, 0, len(f.Holds))
+	absolute := false
+	var keys []string
+	for _, refusal := range f.Holds {
+		reasons = append(reasons, refusal.Reason)
+		switch {
+		case refusal.Absolute:
+			absolute = true
+		case refusal.Key != "":
+			if !slices.Contains(keys, refusal.Key) {
+				keys = append(keys, refusal.Key)
+			}
+		}
+	}
+	text := strings.Join(reasons, "; also ")
+	switch {
+	case absolute:
+		return text + ". No --force clears this"
+	case len(keys) == 1:
+		return text + ". Name " + keys[0] + " with --force to act on it anyway"
+	case len(keys) > 1:
+		return text + ". Name every one of " + strings.Join(keys, " and ") + " with --force to act on it anyway, because each refusal answers only to its own"
+	}
+	return text
+}
+
+// clearForced drops the refusals the operator has taken responsibility for and
+// keeps the rest, so a force that answers one refusal cannot carry a finding
+// past another it says nothing about.
+func (f *Finding) clearForced(force map[string]bool) {
+	if len(force) == 0 || len(f.Holds) == 0 {
+		return
+	}
+	kept := make([]Refusal, 0, len(f.Holds))
+	for _, refusal := range f.Holds {
+		if !f.forceAnswers(refusal, force) {
+			kept = append(kept, refusal)
+		}
+	}
+	f.Holds = kept
+	f.Hold = f.holdText()
+}
+
+// forceAnswers reports whether what the operator named covers this refusal.
+func (f Finding) forceAnswers(refusal Refusal, force map[string]bool) bool {
+	if refusal.Absolute {
+		return false
+	}
+	if refusal.Key != "" {
+		return force[refusal.Key]
+	}
+	return f.PID != 0 && force[strconv.Itoa(f.PID)] || f.TaskID != "" && force[f.TaskID]
 }
 
 // Line renders one finding as the single line both the report and the status
@@ -288,11 +414,9 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				finding.Path = worktree.Path
 			}
 			if !fleet[process.PID] {
-				finding.Hold = unidentifiedHold
+				finding.refuse(unidentifiedHold)
 			}
-			if hold := unresolvedPaneHold(inv); hold != "" {
-				finding.Hold = hold
-			}
+			finding.refuse(unresolvedPaneHold(inv))
 			findings = append(findings, finding)
 		case isServer(process):
 			worktree, ok := worktreeOf(process, inv.Worktrees)
@@ -312,13 +436,14 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				Path:   worktree.Path,
 				Detail: fmt.Sprintf("%s rooted in %s, whose task %s", process.Name, worktree.Path, taskOutcome(task, known, unreadableRecord)),
 				Action: "kill the process tree",
-				Hold:   unresolvedPaneHold(inv),
 			}
-			if finding.Hold == "" && unreadableRecord {
+			finding.refuse(unresolvedPaneHold(inv))
+			if unreadableRecord {
 				// Killing this server says the task behind it is over, and an
-				// unreadable record is the one thing that cannot say so.
-				finding.Hold = unfinishedHold(task, known, true)
-				finding.ForceKeys = []string{finding.TaskID}
+				// unreadable record is the one thing that cannot say so. It is
+				// added, not assigned, so an unrelated pane that could not
+				// report its identity cannot drop it.
+				finding.refuseUnlessForced(unfinishedHold(task, known, true), finding.TaskID)
 			}
 			findings = append(findings, finding)
 		}
@@ -352,10 +477,7 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 		// A goblin whose pane died mid-work leaks its worktree just as surely
 		// as a finished one, so it is reported; it is held because the task
 		// never said it was done, or because nothing can say whether it did.
-		if hold := unfinishedHold(task, known, unreadable[worktree.TaskID]); hold != "" {
-			finding.Hold = hold
-			finding.ForceKeys = []string{finding.TaskID}
-		}
+		finding.refuseUnlessForced(unfinishedHold(task, known, unreadable[worktree.TaskID]), finding.TaskID)
 		findings = append(findings, finding)
 	}
 	return findings
@@ -367,9 +489,9 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 func unfinishedHold(task Task, known, unreadable bool) string {
 	switch {
 	case unreadable:
-		return "its task record could not be read, so whether the task finished is unknown; name its id with --force to reap it anyway"
+		return "its task record could not be read, so whether the task finished is unknown"
 	case known && !task.Terminal:
-		return "task has not reached a terminal status (latest verb " + verbText(task.Verb) + "); name its id with --force to reap it anyway"
+		return "task has not reached a terminal status (latest verb " + verbText(task.Verb) + ")"
 	}
 	return ""
 }
@@ -393,20 +515,14 @@ func classifyDirectory(inv Inventory, supervised map[int]bool, dir WorktreeDir, 
 		Detail: dir.Project + " does not list it in git worktree list, so it is a directory a dead task left behind, not a worktree",
 		Action: "remove the empty directory",
 	}
-	var holds []string
 	if pid, ok := processNaming(dir.Path, inv, supervised); ok {
 		finding.PID = pid
 		finding.Detail += fmt.Sprintf("; pid %d names it on its command line", pid)
-		holds = append(holds, fmt.Sprintf("pid %d is still using this directory, and that process is the leak here, not the directory it holds", pid))
-		finding.ForceKeys = append(finding.ForceKeys, strconv.Itoa(pid))
+		finding.refuseUnlessForced(fmt.Sprintf("pid %d is still using this directory, and that process is the leak here, not the directory it holds", pid), strconv.Itoa(pid))
 	} else {
 		finding.Detail += "; no command line names it, and a working directory is not readable from a process listing, so if the removal fails a leaked process is holding it open"
 	}
-	if hold := unfinishedHold(task, known, unreadable); hold != "" {
-		holds = append(holds, hold)
-		finding.ForceKeys = append(finding.ForceKeys, finding.TaskID)
-	}
-	finding.Hold = strings.Join(holds, "; also ")
+	finding.refuseUnlessForced(unfinishedHold(task, known, unreadable), finding.TaskID)
 	return finding
 }
 
@@ -486,7 +602,7 @@ func classifyMetas(inv Inventory, panes map[string]Pane, supervised, fleet map[i
 			Action: "force-archive the task record",
 		}
 		if !task.Terminal {
-			finding.Hold = "task has not reached a terminal status (latest verb " + verbText(task.Verb) + "); name its id with --force to archive it anyway"
+			finding.refuseUnlessForced("task has not reached a terminal status (latest verb "+verbText(task.Verb)+")", finding.TaskID)
 		}
 		findings = append(findings, finding)
 	}

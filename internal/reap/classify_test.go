@@ -759,3 +759,67 @@ func TestAnUnreadableTaskRecordHoldsItsServer(t *testing.T) {
 		t.Fatalf("hold = %q, want a refusal naming the unreadable record", findings[0].Hold)
 	}
 }
+
+// TestAHoldNamesWhatActuallyClearsIt is the defect this whole sweep exists to
+// stop reporting, appearing inside its own fix: the reaper's HELD text named a
+// --force that would have closed the desktop application and killed three live
+// review agents, and a hold that needs two keys while telling the operator one
+// will do is the same lie in a new place. The line is derived from the
+// refusals rather than written at each site, so it cannot drift from them.
+func TestAHoldNamesWhatActuallyClearsIt(t *testing.T) {
+	t.Run("one key is named", func(t *testing.T) {
+		finding := Finding{Class: OrphanWorktree, TaskID: "wedged"}
+		finding.refuseUnlessForced("task has not reached a terminal status", "wedged")
+		if !strings.Contains(finding.Hold, "Name wedged with --force") {
+			t.Fatalf("hold = %q, want the one key named", finding.Hold)
+		}
+	})
+
+	t.Run("every key is named when a hold carries more than one refusal", func(t *testing.T) {
+		finding := Finding{Class: OrphanDirectory, TaskID: "wedged", PID: 4242}
+		finding.refuseUnlessForced("pid 4242 is still using this directory", "4242")
+		finding.refuseUnlessForced("task has not reached a terminal status", "wedged")
+		for _, key := range []string{"4242", "wedged"} {
+			if !strings.Contains(finding.Hold, key) {
+				t.Fatalf("hold = %q, want it to name %q, which --force must also name", finding.Hold, key)
+			}
+		}
+		if !strings.Contains(finding.Hold, "every one of") {
+			t.Fatalf("hold = %q, want it to say that naming one is not enough", finding.Hold)
+		}
+	})
+
+	t.Run("a refusal whose remedy is not force does not propose one", func(t *testing.T) {
+		finding := Finding{Class: OrphanProcess, PID: 900}
+		finding.refuse(unidentifiedHold)
+		if strings.Contains(finding.Hold, "--force") {
+			t.Fatalf("hold = %q, want no --force proposed for something the sweep could not identify", finding.Hold)
+		}
+	})
+
+	t.Run("an absolute refusal says so", func(t *testing.T) {
+		finding := Finding{Class: OrphanWorktree, TaskID: "old"}
+		finding.refuseAbsolutely("worktree has 2 commit(s) on no remote")
+		if !strings.Contains(finding.Hold, "No --force clears this") {
+			t.Fatalf("hold = %q, want it to say no force clears it", finding.Hold)
+		}
+	})
+}
+
+// TestARefusalCannotBeReplacedBySite is the root cause of three rounds of
+// findings: refusals were composed by hand at each call site, so one that ran
+// later silently replaced one already recorded. Adding is now the only way to
+// record one.
+func TestARefusalCannotBeReplacedBySite(t *testing.T) {
+	finding := Finding{Class: StaleServer, TaskID: "broken", PID: 555}
+	finding.refuse("1 pane(s) could not report their process identity")
+	finding.refuseUnlessForced("its task record could not be read", "broken")
+	if len(finding.Holds) != 2 {
+		t.Fatalf("holds = %+v, want both refusals kept", finding.Holds)
+	}
+	for _, want := range []string{"could not report their process identity", "task record could not be read"} {
+		if !strings.Contains(finding.Hold, want) {
+			t.Fatalf("hold = %q, want it to carry %q", finding.Hold, want)
+		}
+	}
+}
