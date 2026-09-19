@@ -214,12 +214,27 @@ func (s Service) gate(ctx context.Context, finding *Finding, options Options) {
 	}
 	switch finding.Class {
 	case OrphanProcess, StaleServer:
-		if options.forcedPID(*finding) || !options.ProbeIdle {
+		if !options.forcedPID(*finding) {
+			// Ending a process is the one action here that cannot be undone
+			// and that costs somebody else their work, so it answers to the
+			// operator naming that process and to nothing else. A sweep run
+			// to tidy a status log acts on every finding it is not holding,
+			// and on 19 September 2026 that killed a goblin's dev server
+			// mid-suite: one flag covering an archive and a kill invites
+			// exactly that reading.
+			finding.refuseUnlessForced(killNeedsItsOwnPID, strconv.Itoa(finding.PID))
 			return
 		}
-		// Busy is a measurement, not a judgement: the remedy is to let it
-		// finish or to look at what it is doing, never to propose a kill.
-		finding.refuseUntilEstablished(s.holdIfBusy(finding.PID, options), strconv.Itoa(finding.PID))
+		if !options.ProbeIdle {
+			return
+		}
+		// The operator named this process, which is what authorises the kill,
+		// so the idleness measurement is reported rather than used to refuse.
+		// An orphan worth killing is usually one that is spending, and a
+		// measurement is not a judgement about whose work it is.
+		if busy := s.holdIfBusy(finding.PID, options); busy != "" {
+			finding.Detail += "; " + busy
+		}
 	case OrphanWorktree:
 		// Its work-preservation refusals are absolute and stand even for a
 		// forced task: --force covers the operator's judgement about a task's

@@ -178,8 +178,22 @@ func (c Collector) readPanes(ctx context.Context) (panes []Pane, unresolved []st
 		return nil, nil, fmt.Errorf("session snapshot protocol %d, want %d", snapshot.Protocol, herdr.SupportedProtocol)
 	}
 	agents := make(map[string]herdr.SnapshotAgent, len(snapshot.Agents))
+	carriesCwd := false
 	for _, agent := range snapshot.Agents {
 		agents[agent.PaneID] = agent
+		if agent.Cwd != "" {
+			carriesCwd = true
+		}
+	}
+	// The protocol number says the shape is supported, not that this field
+	// arrived: a renamed or dropped key decodes as the empty string and the
+	// signal that stands between a live goblin and a killed dev server matches
+	// nothing, silently. So the field is checked for rather than assumed. No
+	// agents at all is not a failure, because then there is nothing to place;
+	// agents that all report no working directory is one, because that is the
+	// evidence going missing rather than being absent.
+	if len(snapshot.Agents) > 0 && !carriesCwd {
+		return nil, nil, fmt.Errorf("session snapshot reports %d agent(s) and none carries a working directory; the evidence that places a live goblin is missing", len(snapshot.Agents))
 	}
 	panes = make([]Pane, 0, len(snapshot.Panes))
 	for _, pane := range snapshot.Panes {

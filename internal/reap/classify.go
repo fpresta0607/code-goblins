@@ -768,6 +768,14 @@ func isHarness(process Process) bool {
 	return false
 }
 
+// killNeedsItsOwnPID is why --apply alone never ends a process. Every other
+// action this sweep takes is recoverable: an archived log is moved rather than
+// deleted, a removed directory was proven empty, a returned worktree was proven
+// to hold no unpushed work. Ending a process is none of those, and it costs a
+// goblin the round it was in the middle of, so it is authorised by naming that
+// process and never as a side effect of tidying something else.
+const killNeedsItsOwnPID = "ending a process cannot be undone and can cost a goblin the round it is in, so a kill is authorised only by naming this process, never by a sweep acting on everything at once"
+
 // unidentifiedHold is what a harness-shaped process gets when the sweep has
 // run out of evidence. It says what could not be determined and stops there:
 // the populations it cannot place are the Overlord's own sessions and tools,

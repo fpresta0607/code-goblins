@@ -31,10 +31,18 @@ A harness process is placed by its ancestry and its command line, never by its
 image name: the desktop application and the agents of a no-mistakes review
 round are not fleet processes and are not reported.
 
---dry-run is the default and only reports. --apply acts, behind gates that
-never kill a process still burning processor time, never remove a worktree
-with uncommitted or unpushed work, and never reap a task that has not
-finished.
+--dry-run is the default and only reports.
+
+--apply acts on every finding it is not holding, and it never ends a process.
+That asymmetry is deliberate: everything else this sweep does is recoverable,
+an archived log is moved rather than deleted, a removed directory was proven
+empty, a returned worktree was proven to hold no unpushed work. Ending a
+process is none of those and costs a goblin the round it is in, so a kill is
+authorised only by naming that pid with --force. Tidying a status log can
+therefore never take a dev server with it.
+
+--apply is otherwise gated: it never removes a worktree with uncommitted or
+unpushed work, and never reaps a task that has not finished.
 
 --force names one pid or one task id the operator takes responsibility for,
 and may be repeated. Every refusal answers only to its own key: naming a pid
