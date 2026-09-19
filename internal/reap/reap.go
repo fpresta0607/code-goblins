@@ -202,9 +202,7 @@ func (s Service) gate(ctx context.Context, finding *Finding, options Options) {
 	// that separates a live process from an abandoned one. A number produced
 	// only on the run that kills arrives after the decision it informs.
 	if options.ProbeIdle && (finding.Class == OrphanProcess || finding.Class == StaleServer) {
-		if busy := s.measureBusy(finding.PID, options); busy != "" {
-			finding.Detail += "; " + busy
-		}
+		finding.Detail += "; " + s.measureBusy(finding.PID, options)
 	}
 	// A finding still refused takes no further gate, because none of them can
 	// change the outcome: three git subprocesses per worktree, spent to reach
@@ -235,11 +233,11 @@ func (s Service) gate(ctx context.Context, finding *Finding, options Options) {
 	finding.clearForced(options.Force)
 }
 
-// measureBusy samples processor time twice and says what it found when the
-// process moved, or when it could not be read at all: "I could not tell" is
-// not "it is idle". The answer is reported beside the finding, because log age
-// is not evidence and a goblin waiting on an API response writes nothing for
-// minutes while very much alive.
+// measureBusy samples processor time twice and always says what it found,
+// whether the process moved, sat idle, or could not be read at all: "I could
+// not tell" is not "it is idle". The answer is reported beside the finding,
+// because log age is not evidence and a goblin waiting on an API response
+// writes nothing for minutes while very much alive.
 func (s Service) measureBusy(pid int, options Options) string {
 	if s.CPU == nil {
 		return "no processor-time sampler configured, so idleness cannot be proven"

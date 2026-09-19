@@ -159,7 +159,6 @@ func (f Finding) Held() bool {
 func (f Finding) Hold() string {
 	reasons := make([]string, 0, len(f.Holds))
 	absolute := false
-	unestablished := false
 	var keys []string
 	for _, refusal := range f.Holds {
 		reasons = append(reasons, refusal.Reason)
@@ -170,8 +169,6 @@ func (f Finding) Hold() string {
 			if !slices.Contains(keys, refusal.Key) {
 				keys = append(keys, refusal.Key)
 			}
-		default:
-			unestablished = true
 		}
 	}
 	text := strings.Join(reasons, "; also ")
@@ -180,6 +177,18 @@ func (f Finding) Hold() string {
 	}
 	if len(keys) == 0 {
 		return text
+	}
+	// An unestablished refusal answering a key the operator is about to be
+	// told to name is cleared by that same --force, so only one answering a
+	// key nobody was told to name leaves anything standing behind it. Saying
+	// otherwise would tell the operator that a hold survives a force that in
+	// fact ends the process, which is the reading the whole branch exists to
+	// stop. The reasons still carry their own remedies in their own words.
+	unestablished := false
+	for _, refusal := range f.Holds {
+		if !refusal.Propose && !slices.Contains(keys, refusal.Key) {
+			unestablished = true
+		}
 	}
 	named := "Name " + keys[0] + " with --force"
 	if len(keys) > 1 {
@@ -775,13 +784,6 @@ func unresolvedPaneHold(inv Inventory) string {
 	return fmt.Sprintf("%d pane(s) could not report their process identity (%s), so a live goblin is indistinguishable from an orphan here; fix Herdr so those panes report what is running in them, then sweep again", len(inv.UnresolvedPanes), strings.Join(inv.UnresolvedPanes, ", "))
 }
 
-// unplacedAgentHold refuses a finding while a live agent has not said where it
-// is working. Reaching it means the pane the record names holds no agent, so
-// the only evidence left that a goblin is working here is an agent's working
-// directory, and an agent that reported none is a question the sweep cannot
-// answer rather than an agent working somewhere else. Herdr declares that
-// field nullable, so this is a state the fleet reaches without anything being
-// broken.
 // unplacedAgentKey is what answers an unplaced-agent refusal: the panes whose
 // agents did not say where they are running, and nothing else. Keying it to
 // the pid or the task id beside it would let one refusal be answered by the
@@ -796,6 +798,13 @@ func unplacedAgentKey(inv Inventory) string {
 	return strings.Join(inv.UnplacedAgents, "+")
 }
 
+// unplacedAgentHold refuses a finding while a live agent has not said where it
+// is working. Reaching it means the pane the record names holds no agent, so
+// the only evidence left that a goblin is working here is an agent's working
+// directory, and an agent that reported none is a question the sweep cannot
+// answer rather than an agent working somewhere else. Herdr declares that
+// field nullable, so this is a state the fleet reaches without anything being
+// broken.
 func unplacedAgentHold(inv Inventory) string {
 	if len(inv.UnplacedAgents) == 0 {
 		return ""

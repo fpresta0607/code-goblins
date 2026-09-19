@@ -440,14 +440,13 @@ func TestUnresolvedPaneHoldsEveryProcessFinding(t *testing.T) {
 			t.Fatalf("%s hold = %q, want the unresolved-pane refusal", class, matched[0].Hold())
 		}
 	}
-	// The remedy here is fixing Herdr. The only thing --force is offered for
-	// is the authorisation the kill itself needs; the pane evidence is to be
-	// resolved rather than overridden, and the line has to say so, because
-	// inviting --force on evidence the sweep knows is incomplete is how a
-	// working goblin gets killed.
+	// The remedy here is fixing Herdr, and the refusal says so in its own
+	// words. What the rendered line must not do is tell the operator that
+	// something still stands after the --force it names, because this refusal
+	// answers to the same pid the kill does and that force clears both.
 	for _, finding := range classOf(findings, OrphanProcess) {
-		if !strings.Contains(finding.Hold(), "resolve it rather than overriding it") {
-			t.Errorf("hold = %q, want the pane evidence offered as something to resolve", finding.Hold())
+		if strings.Contains(finding.Hold(), "resolve it rather than overriding it") {
+			t.Errorf("hold = %q, claims evidence survives a --force that clears every refusal on the line", finding.Hold())
 		}
 	}
 }
@@ -517,13 +516,14 @@ func TestClassifyProcessPopulations(t *testing.T) {
 	}
 }
 
-// TestUnidentifiedHarnessAsksToBeIdentifiedRatherThanForced: the fourteen
-// false positives all carried a HELD line offering --force as the remedy,
-// which would have closed the Overlord's application or killed a review
-// round. Every process finding now names the pid its kill answers to, so the
-// line cannot stop mentioning --force; what it must not do is present it as
-// the answer to a process the sweep could not identify.
-func TestUnidentifiedHarnessAsksToBeIdentifiedRatherThanForced(t *testing.T) {
+// TestUnidentifiedHarnessSaysWhatCouldNotBeDetermined: the fourteen false
+// positives all carried a HELD line that read as a judgement to override, and
+// pid 900 here is the population behind them, the Overlord's application or a
+// live review agent. Every process finding now names the pid its kill answers
+// to, so the line cannot stop mentioning --force; the refusal carries its own
+// remedy in its own words, and the line may not claim that identifying the
+// process still stands after a force that in fact ends it.
+func TestUnidentifiedHarnessSaysWhatCouldNotBeDetermined(t *testing.T) {
 	inventory := Inventory{
 		FleetRootPIDs: []int{100},
 		Processes: []Process{
@@ -532,11 +532,11 @@ func TestUnidentifiedHarnessAsksToBeIdentifiedRatherThanForced(t *testing.T) {
 		},
 	}
 	finding := classOf(Classify(inventory), OrphanProcess)[0]
-	if !strings.Contains(finding.Hold(), "could not determine") {
-		t.Errorf("hold = %q, want it to say what could not be determined", finding.Hold())
+	if !strings.Contains(finding.Hold(), "identify it before anything acts on it") {
+		t.Errorf("hold = %q, want it to say what could not be determined and what answers that", finding.Hold())
 	}
-	if !strings.Contains(finding.Hold(), "resolve it rather than overriding it") {
-		t.Errorf("hold = %q, want identifying the process offered as the remedy rather than --force", finding.Hold())
+	if strings.Contains(finding.Hold(), "resolve it rather than overriding it") {
+		t.Errorf("hold = %q, claims the identification survives --force 900, which clears every refusal on the line and kills the tree", finding.Hold())
 	}
 }
 
@@ -809,11 +809,30 @@ func TestAHoldNamesWhatActuallyClearsIt(t *testing.T) {
 		}
 	})
 
+	t.Run("a hold whose every refusal answers to a named key promises nothing beyond them", func(t *testing.T) {
+		// Both refusals here answer to the pid, so the one --force the line
+		// names clears the whole hold and ends the tree. Telling the operator
+		// that the identification still stands would be the command describing
+		// an outcome it will not produce.
+		finding := Finding{Class: OrphanProcess, PID: 900}
+		finding.refuseUntilEstablished(unidentifiedHold, "900")
+		finding.refuseUnlessForced(killNeedsItsOwnPID, "900")
+		hold := finding.Hold()
+		if !strings.Contains(hold, "Name 900 with --force to take responsibility for it") {
+			t.Fatalf("hold = %q, want the one key that clears every refusal on the line", hold)
+		}
+		if strings.Contains(hold, "resolve it rather than overriding it") {
+			t.Fatalf("hold = %q, claims something survives a --force naming 900, which clears both refusals", hold)
+		}
+	})
+
 	t.Run("a mixed hold names no outcome the force cannot deliver", func(t *testing.T) {
+		// The unplaced agent answers to its pane and to neither key the line
+		// names, so here something really does stand behind the --force.
 		const worktree = `C:\dev\pd\.worktrees\gb-broken`
 		inventory := Inventory{
 			Panes:           []Pane{{ID: "pane-b", HasAgent: true}},
-			UnresolvedPanes: []string{"pane-b"},
+			UnplacedAgents:  []string{"pane-b"},
 			UnreadableTasks: []string{"broken"},
 			Worktrees:       []WorktreeDir{{Path: worktree, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "broken"}},
 			Processes:       []Process{process(555, 1, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest)},
@@ -823,7 +842,7 @@ func TestAHoldNamesWhatActuallyClearsIt(t *testing.T) {
 			t.Fatalf("hold = %q, want both keys a --force does answer: the task and the pid its kill needs", hold)
 		}
 		if strings.Contains(hold, "act on it") {
-			t.Fatalf("hold = %q, want no promise that the sweep acts, because the pane refusal stands whatever is forced", hold)
+			t.Fatalf("hold = %q, want no promise that the sweep acts, because the agent refusal stands whatever is forced", hold)
 		}
 		if !strings.Contains(hold, "resolve it rather than overriding it") {
 			t.Fatalf("hold = %q, want it to say the evidence has to be resolved rather than forced", hold)
