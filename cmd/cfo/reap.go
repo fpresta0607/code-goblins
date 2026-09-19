@@ -36,9 +36,12 @@ with uncommitted or unpushed work, and never reap a task that has not
 finished.
 
 --force names one pid or one task id the operator takes responsibility for,
-and may be repeated. It clears the idleness gate for that pid and the
-terminal-status gate for that task. It never clears the uncommitted or
-unpushed work gate: that work is the whole product of a goblin's run.
+and may be repeated. Every refusal answers only to its own key: naming a pid
+speaks for that process, naming a task id says that task is over, and neither
+speaks for the other. A finding held for two reasons therefore needs both
+named, and its HELD line says which. Some refusals answer to no --force at
+all, including the uncommitted or unpushed work gate, because that work is
+the whole product of a goblin's run.
 `
 
 // runReap sweeps the fleet for leaked resources. Reporting is the default

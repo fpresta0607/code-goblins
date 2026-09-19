@@ -60,22 +60,11 @@ type Options struct {
 	CPUIdle   time.Duration
 }
 
-func (o Options) forced(finding Finding) bool {
-	if o.Force == nil {
-		return false
-	}
-	if len(finding.ForceKeys) > 0 {
-		for _, key := range finding.ForceKeys {
-			if !o.Force[key] {
-				return false
-			}
-		}
-		return true
-	}
-	if finding.PID != 0 && o.Force[strconv.Itoa(finding.PID)] {
-		return true
-	}
-	return finding.TaskID != "" && o.Force[finding.TaskID]
+// forcedPID reports whether the operator named this finding's process. It is
+// the only force that skips the idleness probe, because idleness is a fact
+// about that process and nothing else can stand in for it.
+func (o Options) forcedPID(finding Finding) bool {
+	return finding.PID != 0 && o.Force[strconv.Itoa(finding.PID)]
 }
 
 // Result is one sweep: what was found, what was done about it, and anything
@@ -139,11 +128,11 @@ func (s Service) Apply(ctx context.Context, options Options) (Result, error) {
 	}
 	for i := range result.Findings {
 		finding := &result.Findings[i]
-		if finding.Hold != "" {
+		if finding.Held() {
 			continue
 		}
 		if err := s.act(ctx, *finding); err != nil {
-			finding.Hold = "action failed: " + err.Error()
+			finding.refuseAbsolutely("action failed: " + err.Error())
 			continue
 		}
 		line := ReapedPrefix + finding.Line()
@@ -188,36 +177,27 @@ func (s Service) record(finding Finding, line string) {
 // dropping it: the operator must be able to see what was found AND why it was
 // left alone.
 func (s Service) gate(ctx context.Context, finding *Finding, options Options) {
-	if finding.Hold != "" && options.forced(*finding) {
-		// The operator named exactly what this finding says may clear it,
-		// which is the only thing that lifts an attribution or non-terminal
-		// hold.
-		finding.Hold = ""
-	}
-	if finding.Hold != "" {
-		return
-	}
+	// The operator's --force drops the refusals it actually answers and leaves
+	// every other one standing.
+	finding.clearForced(options.Force)
 	switch finding.Class {
 	case OrphanProcess, StaleServer:
-		if options.forced(*finding) || !options.ProbeIdle {
+		if options.forcedPID(*finding) || !options.ProbeIdle {
 			return
 		}
-		if hold := s.holdIfBusy(finding.PID, options); hold != "" {
-			finding.Hold = hold
-		}
+		// Busy is a measurement, not a judgement: the remedy is to let it
+		// finish or to look at what it is doing, never to propose a kill.
+		finding.refuse(s.holdIfBusy(finding.PID, options))
 	case OrphanWorktree:
-		// Runs even for a forced task: --force covers the operator's
-		// judgement about a task's status, never a decision to destroy work.
-		if hold := s.holdIfWorkWouldBeLost(ctx, finding.Path); hold != "" {
-			finding.Hold = hold
-		}
+		// Absolute, and it runs even for a forced task: --force covers the
+		// operator's judgement about a task's status, never a decision to
+		// destroy work.
+		finding.refuseAbsolutely(s.holdIfWorkWouldBeLost(ctx, finding.Path))
 	case OrphanDirectory:
 		// Removing the shell is only ever a removal of an empty directory.
 		// Anything with contents is somebody's files in a directory this
 		// sweep has already failed to explain, so it is reported, not touched.
-		if hold := holdIfNotEmpty(finding.Path); hold != "" {
-			finding.Hold = hold
-		}
+		finding.refuseAbsolutely(holdIfNotEmpty(finding.Path))
 	}
 }
 
@@ -255,18 +235,24 @@ func (s Service) holdIfWorkWouldBeLost(ctx context.Context, worktree string) str
 	if s.Commands == nil {
 		return "no command runner configured, so the worktree cannot be proven clean"
 	}
+	// Every git question below is answered by the nearest enclosing repository
+	// when this path is not a worktree of its own, so the premise is asserted
+	// once, here, rather than checked again inside each answer. Checking it in
+	// the status branch alone is how the enclosing repository's commit count
+	// went on being reported as an empty directory's own.
+	empty, err := isEmptyDir(worktree)
+	if err != nil {
+		return "cannot read this directory, so nothing git says about it can be attributed to it: " + err.Error()
+	}
+	if empty {
+		return "this directory holds no files, so any git answer about it belongs to an enclosing repository and this path is not a worktree at all"
+	}
+
 	status, err := s.git(ctx, worktree, "status", "--porcelain=v1", "--untracked-files=all")
 	if err != nil {
 		return "cannot read git status: " + err.Error()
 	}
 	if status != "" {
-		// git answers from the nearest enclosing repository, so a status that
-		// reports changes in a directory holding no files is the enclosing
-		// repository's status, not this path's. Counting the files is what
-		// tells the two apart.
-		if empty, err := isEmptyDir(worktree); err == nil && empty {
-			return "git reported changes but this directory holds no files, so the changes are an enclosing repository's and this path is not a worktree at all"
-		}
 		return "worktree has uncommitted or untracked changes"
 	}
 	unpushed, err := s.git(ctx, worktree, "log", "--oneline", "HEAD", "--not", "--remotes")
