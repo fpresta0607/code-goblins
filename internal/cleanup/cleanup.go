@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,7 +91,16 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	}
 	worktreePath, err := fsx.Canonical(meta.Worktree)
 	if err != nil {
-		return Result{}, fmt.Errorf("cleanup: canonicalize worktree %q: %w", meta.Worktree, err)
+		// A worktree already deleted out from under the record cannot be
+		// resolved, and that is precisely the case ForceArchive exists for: a
+		// path that is not there is not the primary checkout either. Every
+		// other resolution failure still refuses, because a path that exists
+		// and will not resolve might be the primary checkout, and the guard
+		// below cannot be applied to it.
+		if !s.ForceArchive || !errors.Is(err, fs.ErrNotExist) {
+			return Result{}, fmt.Errorf("cleanup: canonicalize worktree %q: %w", meta.Worktree, err)
+		}
+		return s.forceArchive(ctx, meta, id, meta.Worktree)
 	}
 	if fsx.SamePath(worktreePath, project) {
 		return Result{}, fmt.Errorf("cleanup: worktree %q is the primary checkout", worktreePath)

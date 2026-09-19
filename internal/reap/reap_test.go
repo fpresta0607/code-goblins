@@ -536,3 +536,112 @@ func TestApplyHoldsAnUnfinishedTasksShell(t *testing.T) {
 		t.Fatalf("an unfinished task's shell was removed: %v", err)
 	}
 }
+
+// TestPidForceNeverAnswersWhetherATaskFinished: a shell can carry two
+// refusals at once, and they answer to different authorities. Naming a pid
+// accepts responsibility for that process; only naming the task id can say
+// the task is over, and AGENTS.md's contract is that --apply never reaps a
+// task that has not finished.
+func TestPidForceNeverAnswersWhetherATaskFinished(t *testing.T) {
+	repo := t.TempDir()
+	shell := filepath.Join(repo, ".worktrees", "gb-wedged")
+	if err := os.MkdirAll(shell, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	inventory := Inventory{
+		Tasks:     []Task{task("wedged", shell, "pane-gone", "working")},
+		Processes: []Process{process(4242, 1, "rg.exe", "rg --files "+shell, fixtureLater)},
+		Worktrees: []WorktreeDir{{Path: shell, Project: repo, Registration: RegistrationUnlisted, TaskID: "wedged"}},
+	}
+
+	result, err := newService(t, testHome(t), inventory, &gitRunner{}).Apply(context.Background(), Options{Force: map[string]bool{"4242": true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finding := onlyFinding(t, result, OrphanDirectory)
+	if !strings.Contains(finding.Hold, "terminal status") {
+		t.Fatalf("hold = %q, want the terminal-status refusal to survive a pid force", finding.Hold)
+	}
+	if !strings.Contains(finding.Hold, "pid 4242") {
+		t.Fatalf("hold = %q, want it to name the process holding the directory as well", finding.Hold)
+	}
+	if _, err := os.Stat(shell); err != nil {
+		t.Fatalf("a pid force removed the shell of a task that has not finished: %v", err)
+	}
+
+	t.Run("naming the task id is what clears it", func(t *testing.T) {
+		result, err := newService(t, testHome(t), inventory, &gitRunner{}).Apply(context.Background(), Options{Force: map[string]bool{"wedged": true}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if hold := onlyFinding(t, result, OrphanDirectory).Hold; hold != "" {
+			t.Fatalf("hold = %q, want the operator's judgement about the task to clear it", hold)
+		}
+		if _, err := os.Stat(shell); !os.IsNotExist(err) {
+			t.Fatalf("the shell survived a force naming its task: %v", err)
+		}
+	})
+}
+
+// TestReapingARecordLessShellManufacturesNoStatusLog: state.AppendStatus
+// creates the log it is handed, so a per-task line for a task whose record
+// was archived long ago would leave behind a status log holding nothing but
+// the reaper's own line - and state.ScanIDs reports a status log with no meta
+// beside it as an orphan, so the next sweep finds a leak this one created.
+func TestReapingARecordLessShellManufacturesNoStatusLog(t *testing.T) {
+	repo := t.TempDir()
+	shell := filepath.Join(repo, ".worktrees", "gb-utah")
+	if err := os.MkdirAll(shell, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h := testHome(t)
+	inventory := Inventory{Worktrees: []WorktreeDir{{Path: shell, Project: repo, Registration: RegistrationUnlisted, TaskID: "utah"}}}
+
+	result, err := newService(t, h, inventory, &gitRunner{}).Apply(context.Background(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Applied) != 1 {
+		t.Fatalf("applied = %v, want the empty shell removed", result.Applied)
+	}
+	if _, err := os.Stat(filepath.Join(h.State, "utah.status")); !os.IsNotExist(err) {
+		t.Fatalf("the reaper manufactured a status log for a task with no record: %v", err)
+	}
+	scan, err := state.ScanIDs(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scan.OrphanStatusIDs) != 0 {
+		t.Fatalf("the sweep created its own next finding: %v", scan.OrphanStatusIDs)
+	}
+	lines, err := state.TailStatus(h.State, StatusID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 || !strings.Contains(lines[0], "orphan_directory") {
+		t.Fatalf("fleet log = %v, want the one reaped line carrying it instead", lines)
+	}
+
+	t.Run("a task that does have a history still gets the line", func(t *testing.T) {
+		repo := t.TempDir()
+		shell := filepath.Join(repo, ".worktrees", "gb-utah")
+		if err := os.MkdirAll(shell, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		h := testHome(t)
+		if err := state.AppendStatus(h.State, "utah", "done: reported"); err != nil {
+			t.Fatal(err)
+		}
+		inventory := Inventory{Worktrees: []WorktreeDir{{Path: shell, Project: repo, Registration: RegistrationUnlisted, TaskID: "utah"}}}
+		if _, err := newService(t, h, inventory, &gitRunner{}).Apply(context.Background(), Options{}); err != nil {
+			t.Fatal(err)
+		}
+		lines, err := state.TailStatus(h.State, "utah", 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(lines) != 2 || !strings.Contains(lines[1], "orphan_directory") {
+			t.Fatalf("task log = %v, want the reaped line appended to the existing history", lines)
+		}
+	})
+}
