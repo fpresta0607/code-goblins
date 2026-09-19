@@ -34,6 +34,11 @@ type gitRunner struct {
 	// is the only evidence that a removed registration was actually cleared.
 	pruned       []string
 	pruneFailure string
+	// toplevel is what git answers when asked whose repository it speaks for
+	// at a path. Empty means it answers for the path it was asked from, which
+	// is a real worktree; a fixture whose directory is not one sets the
+	// repository that would really answer instead.
+	toplevel string
 }
 
 func (r *gitRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -41,6 +46,11 @@ func (r *gitRunner) Run(_ context.Context, req execx.Request) (execx.Result, err
 		return execx.Result{}, os.ErrInvalid
 	}
 	switch req.Args[0] {
+	case "rev-parse":
+		if r.toplevel != "" {
+			return execx.Result{Stdout: []byte(r.toplevel)}, nil
+		}
+		return execx.Result{Stdout: []byte(req.Dir)}, nil
 	case "status":
 		if r.statusFailure != "" {
 			return execx.Result{ExitCode: 128, Stderr: []byte(r.statusFailure)}, nil
@@ -604,6 +614,58 @@ func TestEmptyShellIsNeverReportedAsADirtyWorktree(t *testing.T) {
 	})
 }
 
+// TestPopulatedDirectoryDoesNotBorrowTheEnclosingRepositorysDirt is the same
+// lie in the shape emptiness never covered: a partial or retired clone under
+// the home's projects folder leaves a directory that holds files and is not a
+// worktree, its registration cannot be confirmed, and git asked from inside it
+// answers for the repository around it. Those answers are not this path's, so
+// none of them may be reported as its state, and the files are not the
+// operator's to force away either, because the sweep cannot say whose they are.
+func TestPopulatedDirectoryDoesNotBorrowTheEnclosingRepositorysDirt(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	gitInit(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, "scratch.txt"), []byte("the parent's file\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	shell := filepath.Join(repo, ".worktrees", "gb-dead")
+	if err := os.MkdirAll(shell, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	leftover := filepath.Join(shell, "leftover.txt")
+	if err := os.WriteFile(leftover, []byte("what a failed removal left\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	service := Service{
+		Home:      testHome(t),
+		Commands:  execx.OSRunner{},
+		Inventory: fixedInventory(Inventory{Worktrees: []WorktreeDir{{Path: shell, Project: repo, Registration: RegistrationUnknown, TaskID: "dead"}}}),
+		Sleep:     func(time.Duration) {},
+		Now:       func() time.Time { return fixtureStart },
+		Return: func(context.Context, string, string) error {
+			return errors.New("the worktree return path was reached for a path git does not answer for")
+		},
+	}
+
+	result, err := service.Apply(context.Background(), Options{Force: map[string]bool{"dead": true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hold := onlyFinding(t, result, OrphanWorktree).Hold()
+	if strings.Contains(hold, "uncommitted or untracked changes") || strings.Contains(hold, "no remote") {
+		t.Fatalf("hold = %q, want the enclosing repository's state not reported as this directory's", hold)
+	}
+	if !strings.Contains(hold, "different repository") {
+		t.Fatalf("hold = %q, want it to say git here answers for somewhere else", hold)
+	}
+	if !strings.Contains(hold, "No --force clears this") {
+		t.Fatalf("hold = %q, want files the sweep cannot attribute to stay unremovable", hold)
+	}
+	if _, err := os.Stat(leftover); err != nil {
+		t.Fatalf("a force removed files the sweep could not attribute to anything: %v", err)
+	}
+}
+
 func TestApplyRemovesAnEmptyShellAndHoldsAnythingElse(t *testing.T) {
 	repo := t.TempDir()
 	shell := filepath.Join(repo, ".worktrees", "gb-dead")
@@ -685,8 +747,11 @@ func TestUnreadableShellSaysItCouldNotLookAndNamesTheRemedy(t *testing.T) {
 // TestEmptyShellUnderUnconfirmableRegistrationIsTheOperatorsToAnswer: when
 // git worktree list cannot be read, an empty shell takes the worktree class,
 // and its premise refusal is not a work-preservation one, because a directory
-// holding no files holds no work. It has to say the registration is what could
-// not be confirmed, and the task id has to clear it.
+// holding no files holds no work. The refusal says what was established, that
+// the path holds nothing and git there speaks for an enclosing repository, and
+// deliberately names no cause: the same emptiness arrives from a registration
+// that could not be read and from a listed worktree whose files are gone. The
+// task id has to clear it, and nothing may be removed until it does.
 func TestEmptyShellUnderUnconfirmableRegistrationIsTheOperatorsToAnswer(t *testing.T) {
 	repo := t.TempDir()
 	shell := filepath.Join(repo, ".worktrees", "gb-dead")
@@ -694,7 +759,7 @@ func TestEmptyShellUnderUnconfirmableRegistrationIsTheOperatorsToAnswer(t *testi
 		t.Fatal(err)
 	}
 	inventory := Inventory{Worktrees: []WorktreeDir{{Path: shell, Project: repo, Registration: RegistrationUnknown, TaskID: "dead"}}}
-	runner := &gitRunner{}
+	runner := &gitRunner{toplevel: repo}
 	service := newService(t, testHome(t), inventory, runner)
 	// The worktree return path runs git inside the directory it is returning,
 	// which for an empty one is answered by the enclosing repository: the very
@@ -727,7 +792,7 @@ func TestEmptyShellUnderUnconfirmableRegistrationIsTheOperatorsToAnswer(t *testi
 		t.Fatalf("the shell was removed behind its own hold: %v", err)
 	}
 
-	t.Run("the task id the operator names clears it, and git is never asked", func(t *testing.T) {
+	t.Run("the task id the operator names clears it, and nothing asks git about the directory", func(t *testing.T) {
 		result, err := service.Apply(context.Background(), Options{Force: map[string]bool{"dead": true}})
 		if err != nil {
 			t.Fatal(err)
@@ -759,7 +824,7 @@ func TestForcedEmptyWorktreeIsPrunedRatherThanLeftRegistered(t *testing.T) {
 		t.Fatal(err)
 	}
 	inventory := Inventory{Worktrees: []WorktreeDir{{Path: shell, Project: repo, Registration: RegistrationListed, TaskID: "utah"}}}
-	runner := &gitRunner{}
+	runner := &gitRunner{toplevel: repo}
 	service := newService(t, testHome(t), inventory, runner)
 	// The return path asks git from inside the worktree, which for an empty
 	// one is answered by the enclosing repository, so it must not be reached.
@@ -792,7 +857,7 @@ func TestForcedEmptyWorktreeIsPrunedRatherThanLeftRegistered(t *testing.T) {
 		if err := os.MkdirAll(shell, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		runner := &gitRunner{pruneFailure: "fatal: could not prune"}
+		runner := &gitRunner{toplevel: repo, pruneFailure: "fatal: could not prune"}
 		service := newService(t, testHome(t), inventory, runner)
 		result, err := service.Apply(context.Background(), Options{Force: map[string]bool{"utah": true}})
 		if err != nil {

@@ -300,7 +300,12 @@ func (c Collector) registeredWorktrees(ctx context.Context, root string, notes *
 	// the removable class, on the word of a repository that was never asked
 	// about it. This scan removes directories, so it establishes whose answer
 	// it is getting before it trusts one.
-	if !c.isRepositoryRoot(ctx, root) {
+	itsOwn, err := answersForItself(ctx, c.Commands, root)
+	if err != nil {
+		*notes = append(*notes, fmt.Sprintf("%s: whose repository git there answers for could not be established (%s); its directories cannot be confirmed to be worktrees", root, err))
+		return nil, false
+	}
+	if !itsOwn {
 		*notes = append(*notes, fmt.Sprintf("%s: not its own repository, so git there answers for an enclosing one; its directories cannot be confirmed to be worktrees", root))
 		return nil, false
 	}
@@ -340,29 +345,38 @@ func (c Collector) registeredWorktrees(ctx context.Context, root string, notes *
 	return registered, true
 }
 
-// isRepositoryRoot reports whether git run in root answers for root itself.
-// The comparison is by directory identity rather than by spelling, for the
-// same reason the registration comparison is: an operator keeps a checkout
-// behind a junction and git prints the target while the scan holds the
-// junction's own name.
-func (c Collector) isRepositoryRoot(ctx context.Context, root string) bool {
-	result, err := c.Commands.Run(ctx, execx.Request{Dir: root, Name: "git", Args: []string{"rev-parse", "--show-toplevel"}})
-	if err != nil || result.ExitCode != 0 {
-		return false
+// answersForItself reports whether git run in dir answers for dir itself,
+// which is the premise under every git question this package asks: a project
+// root that registers its own worktrees, and a worktree whose status and
+// commits are its own. The comparison is by directory identity rather than by
+// spelling, for the same reason the registration comparison is: an operator
+// keeps a checkout behind a junction and git prints the target while the scan
+// holds the junction's own name.
+//
+// A question git could not answer comes back as an error rather than as an
+// answer, because "git here speaks for somewhere else" and "git could not be
+// asked" are different facts and only the first one establishes anything.
+func answersForItself(ctx context.Context, commands execx.Runner, dir string) (bool, error) {
+	result, err := commands.Run(ctx, execx.Request{Dir: dir, Name: "git", Args: []string{"rev-parse", "--show-toplevel"}})
+	if err != nil {
+		return false, err
+	}
+	if result.ExitCode != 0 {
+		return false, fmt.Errorf("git rev-parse --show-toplevel exited with code %d: %s", result.ExitCode, strings.TrimSpace(string(result.Stderr)))
 	}
 	top := strings.TrimSpace(string(result.Stdout))
 	if top == "" {
-		return false
+		return false, errors.New("git rev-parse --show-toplevel answered with nothing")
 	}
 	topInfo, err := os.Stat(filepath.Clean(top))
 	if err != nil {
-		return false
+		return false, err
 	}
-	rootInfo, err := os.Stat(root)
+	dirInfo, err := os.Stat(dir)
 	if err != nil {
-		return false
+		return false, err
 	}
-	return os.SameFile(topInfo, rootInfo)
+	return os.SameFile(topInfo, dirInfo), nil
 }
 
 // registrationOf places a directory against what the repository answered. The
