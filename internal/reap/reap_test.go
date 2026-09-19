@@ -348,6 +348,64 @@ func TestApplyReturnsACleanOrphanWorktree(t *testing.T) {
 	}
 }
 
+// TestTheReapedLineOutlivesTheRecordItRetires: the action for a worktree and
+// for a meta is a cleanup, and cleanup removes state/<id>.meta, so asking
+// after the action whether the task had a record answers no for exactly the
+// tasks the sweep retires and their audit line is lost.
+func TestTheReapedLineOutlivesTheRecordItRetires(t *testing.T) {
+	meta := func(t *testing.T, h home.Home, worktree string) {
+		t.Helper()
+		if err := state.WriteTaskMeta(h.State, state.TaskMeta{
+			ID: "old", Backend: "herdr", Project: filepath.Dir(filepath.Dir(worktree)), Worktree: worktree,
+			HerdrSession: "default", HerdrWorkspaceID: "w", HerdrTabID: "t", HerdrPaneID: "pane-gone",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reapedLine := func(t *testing.T, h home.Home) string {
+		t.Helper()
+		lines, err := state.TailStatus(h.State, "old", 10)
+		if err != nil {
+			t.Fatalf("the task kept no history of its own reaping: %v", err)
+		}
+		return strings.Join(lines, "\n")
+	}
+
+	t.Run("orphan worktree", func(t *testing.T) {
+		h := testHome(t)
+		inventory := worktreeInventory(t, "done")
+		meta(t, h, inventory.Worktrees[0].Path)
+		service := newService(t, h, inventory, &gitRunner{})
+		service.Clean = func(_ context.Context, id string, _ bool) error {
+			return state.RemoveTaskMeta(h.State, id)
+		}
+
+		if _, err := service.Apply(context.Background(), Options{}); err != nil {
+			t.Fatal(err)
+		}
+		if history := reapedLine(t, h); !strings.Contains(history, ReapedPrefix+string(OrphanWorktree)) {
+			t.Fatalf("status log = %q, want the reaped line for the worktree", history)
+		}
+	})
+
+	t.Run("orphan meta", func(t *testing.T) {
+		h := testHome(t)
+		gone := filepath.Join(t.TempDir(), ".worktrees", "gb-old")
+		meta(t, h, gone)
+		service := newService(t, h, Inventory{Tasks: []Task{task("old", gone, "pane-gone", "done")}}, &gitRunner{})
+		service.Clean = func(_ context.Context, id string, _ bool) error {
+			return state.RemoveTaskMeta(h.State, id)
+		}
+
+		if _, err := service.Apply(context.Background(), Options{}); err != nil {
+			t.Fatal(err)
+		}
+		if history := reapedLine(t, h); !strings.Contains(history, ReapedPrefix+string(OrphanMeta)) {
+			t.Fatalf("status log = %q, want the reaped line for the record", history)
+		}
+	})
+}
+
 func TestApplyArchivesAnOrphanStatusLog(t *testing.T) {
 	h := testHome(t)
 	if err := state.AppendStatus(h.State, "scout-old", "done: reported"); err != nil {

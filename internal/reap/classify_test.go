@@ -797,6 +797,27 @@ func TestAHoldNamesWhatActuallyClearsIt(t *testing.T) {
 		}
 	})
 
+	t.Run("a mixed hold names no outcome the force cannot deliver", func(t *testing.T) {
+		const worktree = `C:\dev\pd\.worktrees\gb-broken`
+		inventory := Inventory{
+			Panes:           []Pane{{ID: "pane-b", HasAgent: true}},
+			UnresolvedPanes: []string{"pane-b"},
+			UnreadableTasks: []string{"broken"},
+			Worktrees:       []WorktreeDir{{Path: worktree, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "broken"}},
+			Processes:       []Process{process(555, 1, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest)},
+		}
+		hold := classOf(Classify(inventory), StaleServer)[0].Hold
+		if !strings.Contains(hold, "Name broken with --force") {
+			t.Fatalf("hold = %q, want the key a --force does answer", hold)
+		}
+		if strings.Contains(hold, "act on it") {
+			t.Fatalf("hold = %q, want no promise that the sweep acts, because the pane refusal stands whatever is forced", hold)
+		}
+		if !strings.Contains(hold, "has to be resolved first") {
+			t.Fatalf("hold = %q, want it to say the evidence has to be resolved rather than forced", hold)
+		}
+	})
+
 	t.Run("an absolute refusal says so", func(t *testing.T) {
 		finding := Finding{Class: OrphanWorktree, TaskID: "old"}
 		finding.refuseAbsolutely("worktree has 2 commit(s) on no remote")
