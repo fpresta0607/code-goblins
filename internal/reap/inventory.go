@@ -291,6 +291,17 @@ func (c Collector) registeredWorktrees(ctx context.Context, root string, notes *
 		*notes = append(*notes, "no command runner configured; no directory under .worktrees/ can be confirmed to be a worktree")
 		return nil, false
 	}
+	// The query asks a directory what it registers, which is only a question
+	// this root can answer when it is its own repository. Run inside a plain
+	// directory nested in a repository, git answers for that repository
+	// instead, and an absent path would then read as unregistered, which is
+	// the removable class, on the word of a repository that was never asked
+	// about it. This scan removes directories, so it establishes whose answer
+	// it is getting before it trusts one.
+	if !c.isRepositoryRoot(ctx, root) {
+		*notes = append(*notes, fmt.Sprintf("%s: not its own repository, so git there answers for an enclosing one; its directories cannot be confirmed to be worktrees", root))
+		return nil, false
+	}
 	result, err := c.Commands.Run(ctx, execx.Request{Dir: root, Name: "git", Args: []string{"worktree", "list", "--porcelain"}})
 	if err != nil {
 		*notes = append(*notes, fmt.Sprintf("%s: git worktree list failed (%s); its directories cannot be confirmed to be worktrees", root, err))
@@ -325,6 +336,31 @@ func (c Collector) registeredWorktrees(ctx context.Context, root string, notes *
 		registered = append(registered, info)
 	}
 	return registered, true
+}
+
+// isRepositoryRoot reports whether git run in root answers for root itself.
+// The comparison is by directory identity rather than by spelling, for the
+// same reason the registration comparison is: an operator keeps a checkout
+// behind a junction and git prints the target while the scan holds the
+// junction's own name.
+func (c Collector) isRepositoryRoot(ctx context.Context, root string) bool {
+	result, err := c.Commands.Run(ctx, execx.Request{Dir: root, Name: "git", Args: []string{"rev-parse", "--show-toplevel"}})
+	if err != nil || result.ExitCode != 0 {
+		return false
+	}
+	top := strings.TrimSpace(string(result.Stdout))
+	if top == "" {
+		return false
+	}
+	topInfo, err := os.Stat(filepath.Clean(top))
+	if err != nil {
+		return false
+	}
+	rootInfo, err := os.Stat(root)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(topInfo, rootInfo)
 }
 
 // registrationOf places a directory against what the repository answered. The

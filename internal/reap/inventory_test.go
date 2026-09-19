@@ -20,6 +20,11 @@ import (
 type registerEverything struct{}
 
 func (registerEverything) Run(_ context.Context, req execx.Request) (execx.Result, error) {
+	// The scan establishes whose repository is answering before it trusts a
+	// registration, so a fake standing in for git has to answer that too.
+	if req.Args[0] == "rev-parse" {
+		return execx.Result{Stdout: []byte(req.Dir)}, nil
+	}
 	entries, err := os.ReadDir(filepath.Join(req.Dir, ".worktrees"))
 	if err != nil {
 		return execx.Result{Stdout: []byte("worktree " + req.Dir + "\n")}, nil
@@ -309,7 +314,10 @@ func TestRegistrationOfAnUnprovableDirectoryIsUnknown(t *testing.T) {
 // repository state that would produce it.
 type listing struct{ body string }
 
-func (l listing) Run(context.Context, execx.Request) (execx.Result, error) {
+func (l listing) Run(_ context.Context, req execx.Request) (execx.Result, error) {
+	if req.Args[0] == "rev-parse" {
+		return execx.Result{Stdout: []byte(req.Dir)}, nil
+	}
 	return execx.Result{Stdout: []byte(l.body)}, nil
 }
 
@@ -340,5 +348,36 @@ func TestAPrunePendingEntryDoesNotMakeARootUnconfirmable(t *testing.T) {
 	}
 	if len(notes) != 0 {
 		t.Errorf("unexpected notes: %q", notes)
+	}
+}
+
+// TestANestedDirectoryDoesNotBorrowAnEnclosingRepositorysAnswer: git run in a
+// plain directory inside a repository answers for that repository, so a path
+// it does not list would read as unregistered, which is the removable class,
+// on the word of a repository nobody asked about it. The scan removes
+// directories, so it establishes whose answer it is getting first.
+func TestANestedDirectoryDoesNotBorrowAnEnclosingRepositorysAnswer(t *testing.T) {
+	root := t.TempDir()
+	checkout := filepath.Join(root, "repo")
+	gitInit(t, checkout)
+	// A plain directory inside the repository, exactly like a retired
+	// projects/<name> folder, holding what looks like a goblin worktree.
+	nested := filepath.Join(checkout, "projects", "siqsermon")
+	shell := filepath.Join(nested, ".worktrees", "gb-dead")
+	if err := os.MkdirAll(shell, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	collector := Collector{Home: home.Home{Root: nested}, Commands: execx.OSRunner{}}
+	var notes []string
+	found := collector.worktrees(context.Background(), nil, &notes)
+	if len(found) != 1 || found[0].Path != shell {
+		t.Fatalf("worktrees = %+v, want the one directory found", found)
+	}
+	if found[0].Registration != RegistrationUnknown {
+		t.Fatalf("registration = %q, want unknown; the enclosing repository was never asked about this path", found[0].Registration)
+	}
+	if len(notes) != 1 || !strings.Contains(notes[0], "not its own repository") {
+		t.Fatalf("notes = %q, want one saying whose answer it would have been", notes)
 	}
 }
