@@ -469,13 +469,11 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 	var findings []Finding
 	for _, worktree := range inv.Worktrees {
 		task, known := tasks[worktree.TaskID]
-		if known {
-			if pane, ok := panes[task.Meta.HerdrPaneID]; ok && pane.HasAgent {
-				// A live goblin owns this directory. This outranks
-				// registration: "could not confirm a worktree" is not
-				// evidence against a pane that is holding an agent right now.
-				continue
-			}
+		if goblinIsAlive(task, known, panes, worktree.Path) {
+			// A live goblin owns this directory. This outranks registration:
+			// "could not confirm a worktree" is not evidence against a pane
+			// that is holding an agent right now.
+			continue
 		}
 		if worktree.Registration == RegistrationUnlisted {
 			findings = append(findings, classifyDirectory(inv, supervised, worktree, task, known, unreadable[worktree.TaskID]))
@@ -486,7 +484,7 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 			TaskID:     worktree.TaskID,
 			Path:       worktree.Path,
 			Registered: worktree.Registration == RegistrationListed,
-			Detail:     "no live pane, and its task " + taskOutcome(task, known, unreadable[worktree.TaskID]),
+			Detail:     "no pane holding an agent working there, and its task " + taskOutcome(task, known, unreadable[worktree.TaskID]),
 			Action:     "return the worktree through cfo cleanup",
 		}
 		// A goblin whose pane died mid-work leaks its worktree just as surely
@@ -630,10 +628,10 @@ func classifyMetas(inv Inventory, panes map[string]Pane, supervised, fleet map[i
 // ship several under one id: a terminal verb establishes that a pull request
 // finished, and nothing at all about whether the goblin is still at work.
 //
-// A kill needs a stronger premise than a removal. A wrongly removed empty
-// directory costs nothing and a wrongly killed dev server costs a goblin its
-// round, so this asks live evidence rather than a record. The pane the record
-// names is the direct answer, since Herdr holds the goblin's own session. An
+// Every class that would take something a goblin is using asks this one
+// question, so a signal added here reaches all of them: a killed dev server
+// costs a goblin its round, and a returned worktree costs it more. The pane
+// the record names is the direct answer, since Herdr holds its session. An
 // agent working in the worktree itself answers for a record whose pane id no
 // longer matches the pane the goblin is in, and for a directory no record
 // names at all; a subdirectory counts, because a goblin does not stay at its

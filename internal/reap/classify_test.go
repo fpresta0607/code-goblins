@@ -897,6 +897,22 @@ func TestALiveGoblinsServerIsNeverStale(t *testing.T) {
 		}
 	})
 
+	t.Run("and the worktree it is working in is not an orphan either", func(t *testing.T) {
+		inventory := Inventory{
+			// The same drift, one class over, and the worse outcome: this
+			// finding proposes returning the checkout the goblin is working
+			// in, and cleanup's own guard cannot stop it, because that counts
+			// panes matching the recorded pane id too.
+			Panes:     []Pane{{ID: "w9:pMoved", ShellPID: 900, HasAgent: true, AgentCwd: worktree + `\frontend`}},
+			Tasks:     []Task{landing},
+			Worktrees: worktrees,
+			Processes: []Process{server},
+		}
+		if findings := classOf(Classify(inventory), OrphanWorktree); len(findings) != 0 {
+			t.Fatalf("a worktree an agent is working in was offered up for return: %+v", findings)
+		}
+	})
+
 	t.Run("a neighbouring worktree with a longer name is not that agent's", func(t *testing.T) {
 		inventory := Inventory{
 			Panes:     []Pane{{ID: "w9:pOther", ShellPID: 900, HasAgent: true, AgentCwd: worktree + `-two`}},

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -379,5 +380,77 @@ func TestANestedDirectoryDoesNotBorrowAnEnclosingRepositorysAnswer(t *testing.T)
 	}
 	if len(notes) != 1 || !strings.Contains(notes[0], "not its own repository") {
 		t.Fatalf("notes = %q, want one saying whose answer it would have been", notes)
+	}
+}
+
+// stubPanes stands in for Herdr's session snapshot. Every pane reports its
+// process identity, because an unresolved pane is a different test.
+type stubPanes struct {
+	snapshot herdr.SessionSnapshot
+}
+
+func (s stubPanes) Snapshot(context.Context) (herdr.SessionSnapshot, error) {
+	return s.snapshot, nil
+}
+
+func (stubPanes) PaneProcessInfo(context.Context, herdr.Target) (herdr.PaneProcessInfo, error) {
+	return herdr.PaneProcessInfo{ShellPID: 900, ForegroundProcessGroupID: 901}, nil
+}
+
+// The working directory of a pane's agent is what places a live goblin in a
+// worktree when the record's pane id no longer matches, so it has to survive
+// the trip from the snapshot onto the pane the sweep classifies.
+func TestPanesCarryTheirAgentsWorkingDirectory(t *testing.T) {
+	const worktree = `C:\dev\proj\.worktrees\gb-task`
+	collector := Collector{Session: "fleet", Panes: stubPanes{snapshot: herdr.SessionSnapshot{
+		Protocol: herdr.SupportedProtocol,
+		Panes:    []herdr.SnapshotPane{{ID: "w3:p4"}, {ID: "w3:p5"}},
+		Agents:   []herdr.SnapshotAgent{{PaneID: "w3:p4", Agent: "claude", Status: "done", Cwd: worktree}},
+	}}}
+
+	panes, unresolved, err := collector.readPanes(context.Background())
+	if err != nil {
+		t.Fatalf("readPanes: %v", err)
+	}
+	if len(unresolved) != 0 {
+		t.Fatalf("unresolved = %q, want none", unresolved)
+	}
+	if len(panes) != 2 {
+		t.Fatalf("panes = %+v, want both panes", panes)
+	}
+	if !panes[0].HasAgent || panes[0].AgentCwd != worktree {
+		t.Errorf("pane %s = %+v, want the agent and the directory it is working in", panes[0].ID, panes[0])
+	}
+	if panes[1].HasAgent || panes[1].AgentCwd != "" {
+		t.Errorf("pane %s = %+v, want no agent and no working directory", panes[1].ID, panes[1])
+	}
+}
+
+// A snapshot of another protocol carries other fields under other names, so an
+// agent's working directory can arrive empty while the fleet is full of live
+// goblins. The sweep refuses rather than deciding what to kill on evidence it
+// knows it cannot read, exactly as it does when panes are unreadable.
+func TestASnapshotOfTheWrongProtocolRefusesTheSweep(t *testing.T) {
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	collector := Collector{
+		Home:    home.Home{Root: root, State: stateDir},
+		Session: "fleet",
+		Panes: stubPanes{snapshot: herdr.SessionSnapshot{
+			Protocol: herdr.SupportedProtocol - 1,
+			Panes:    []herdr.SnapshotPane{{ID: "w3:p4"}},
+			Agents:   []herdr.SnapshotAgent{{PaneID: "w3:p4", Agent: "claude"}},
+		}},
+	}
+
+	inv, _, err := collector.Collect(context.Background())
+	if err == nil {
+		t.Fatalf("Collect succeeded on an unsupported snapshot protocol: %+v", inv)
+	}
+	if !strings.Contains(err.Error(), "protocol") {
+		t.Errorf("err = %v, want it to name the protocol it could not accept", err)
 	}
 }

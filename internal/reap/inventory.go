@@ -161,10 +161,21 @@ func taskReported(lines []string) []string {
 // as a live pane, because it exists, which is what keeps its worktree off the
 // list; but its shell pid is missing from the supervised set, so it is named
 // separately and every process finding is held while any pane is unresolved.
+//
+// The snapshot has to answer the protocol this build pins, as it does for
+// cleanup and the monitor. Where it does not, the agent fields the sweep reads
+// are not the fields it thinks they are: an agent whose working directory
+// arrives empty places no goblin anywhere, which turns the evidence that
+// stands between a working goblin and a killed dev server into silence that
+// reads as absence. A sweep that cannot see agents refuses, for the same
+// reason one that cannot see panes does.
 func (c Collector) readPanes(ctx context.Context) (panes []Pane, unresolved []string, err error) {
 	snapshot, err := c.Panes.Snapshot(ctx)
 	if err != nil {
 		return nil, nil, err
+	}
+	if snapshot.Protocol != herdr.SupportedProtocol {
+		return nil, nil, fmt.Errorf("session snapshot protocol %d, want %d", snapshot.Protocol, herdr.SupportedProtocol)
 	}
 	agents := make(map[string]herdr.SnapshotAgent, len(snapshot.Agents))
 	for _, agent := range snapshot.Agents {
