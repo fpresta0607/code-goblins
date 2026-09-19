@@ -301,6 +301,15 @@ func (s Service) holdIfWorkWouldBeLost(ctx context.Context, finding *Finding) {
 		// point from a registration that could not be read and from a listed
 		// worktree whose files are gone, and a remedy right for one of those
 		// is wrong for the other.
+		//
+		// The action is corrected here because this is where emptiness is
+		// established: what the operator's force buys is the removal of an
+		// empty directory, plus the prune of the registration behind it where
+		// one was established, and never the cleanup the class was named for.
+		finding.Action = "remove the empty directory"
+		if finding.Registered {
+			finding.Action += " and prune its registration from the project"
+		}
 		finding.refuseUntilEstablished("this directory holds no files, so no git answer about it belongs to it rather than to an enclosing repository, and nothing about what it is can be established from here; establish what it is before it is removed", finding.TaskID)
 		return
 	}
@@ -360,10 +369,23 @@ func (s Service) returnWorktree(ctx context.Context, finding Finding) error {
 	// A directory holding no files has nothing to return, and both paths below
 	// run git inside it, which is answered by the enclosing repository. That
 	// is the lie this whole branch exists to stop telling, so it must not be
-	// told by the action either: removing the empty directory is the whole of
-	// what returning it can honestly mean.
+	// told by the action either. What is left of a return is administrative:
+	// remove the directory, then prune the registration that outlives it,
+	// asked of the project, which is the repository that answered for this
+	// path in the first place. A project that could not be asked registers
+	// nothing here, so there is nothing to prune and no repository the sweep
+	// has any business asking. A failed prune surfaces rather than being
+	// swallowed: the directory is gone by then, and the administrative entry
+	// it leaves is what nothing else in the fleet ever clears.
 	if empty, err := isEmptyDir(finding.Path); err == nil && empty {
-		return os.Remove(finding.Path)
+		if err := os.Remove(finding.Path); err != nil {
+			return err
+		}
+		if !finding.Registered {
+			return nil
+		}
+		_, err := s.git(ctx, filepath.Dir(filepath.Dir(finding.Path)), "worktree", "prune")
+		return err
 	}
 	if finding.TaskID != "" && state.ValidTaskID(finding.TaskID) == nil {
 		if _, err := os.Stat(filepath.Join(s.Home.State, finding.TaskID+".meta")); err == nil {
@@ -397,11 +419,15 @@ func (s Service) archiveStatus(id string) error {
 }
 
 // holdIfNotEmpty refuses anything with contents. isEmptyDir reads one entry,
-// which is all "does this directory hold files" needs.
+// which is all "does this directory hold files" needs. A directory the sweep
+// could not read is refused too, and says it could not look rather than that
+// it found contents; that refusal is absolute for the same reason its
+// siblings in the work gate are, because a directory whose contents cannot be
+// read is one that cannot be shown to be empty.
 func holdIfNotEmpty(dir string) string {
 	empty, err := isEmptyDir(dir)
 	if err != nil {
-		return "cannot read the directory: " + err.Error()
+		return "the sweep could not read this directory, so whether it is an abandoned shell or somebody's files is unknown rather than answered: " + err.Error() + "; resolve that and sweep again, because a directory that cannot be read may hold the only copy of somebody's work"
 	}
 	if !empty {
 		return "the directory is not empty, so it is not an abandoned shell; what is in it has to be explained before it is removed"

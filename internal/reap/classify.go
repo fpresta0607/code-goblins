@@ -70,6 +70,12 @@ type Finding struct {
 	Path   string `json:"path,omitempty"`
 	Detail string `json:"detail"`
 	Action string `json:"action"`
+	// Registered says the project answered git worktree list and listed this
+	// path. It is what makes the administrative entry the project's to prune
+	// once the directory goes: where the project could not be asked, no
+	// registration was established, so there is none to clear and no
+	// repository established as the one to ask.
+	Registered bool `json:"registered,omitempty"`
 	// Holds are the refusals, each carrying the key that clears it. They
 	// accumulate, so a finding refused for two reasons answers to both, and
 	// neither key answers for the other. The rendered hold is Hold(), a
@@ -464,11 +470,12 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 			continue
 		}
 		finding := Finding{
-			Class:  OrphanWorktree,
-			TaskID: worktree.TaskID,
-			Path:   worktree.Path,
-			Detail: "no live pane, and its task " + taskOutcome(task, known, unreadable[worktree.TaskID]),
-			Action: "return the worktree through cfo cleanup",
+			Class:      OrphanWorktree,
+			TaskID:     worktree.TaskID,
+			Path:       worktree.Path,
+			Registered: worktree.Registration == RegistrationListed,
+			Detail:     "no live pane, and its task " + taskOutcome(task, known, unreadable[worktree.TaskID]),
+			Action:     "return the worktree through cfo cleanup",
 		}
 		// A goblin whose pane died mid-work leaks its worktree just as surely
 		// as a finished one, so it is reported; it is held because the task
@@ -508,7 +515,7 @@ func classifyDirectory(inv Inventory, supervised map[int]bool, dir WorktreeDir, 
 		Class:  OrphanDirectory,
 		TaskID: dir.TaskID,
 		Path:   dir.Path,
-		Detail: dir.Project + " does not list it in git worktree list, so it is a directory a dead task left behind, not a worktree",
+		Detail: dir.Project + " answered git worktree list and does not list this path, so it is not one of that project's worktrees",
 		Action: "remove the empty directory",
 	}
 	if pid, ok := processNaming(dir.Path, inv, supervised); ok {
