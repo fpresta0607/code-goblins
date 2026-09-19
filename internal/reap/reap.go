@@ -256,16 +256,24 @@ func (s Service) holdIfBusy(pid int, options Options) string {
 	return ""
 }
 
+// sweepAgain closes every work-gate refusal where the sweep could not look.
+// Such a refusal is still absolute, because unreadable is not clean and the
+// worktree may hold the only copy of a goblin's work, but the operator is owed
+// the remedy that does exist: fix the read and sweep again.
+const sweepAgain = ", then sweep again, because a worktree whose state cannot be read may hold the only copy of a goblin's work"
+
 // holdIfWorkWouldBeLost refuses any worktree with uncommitted changes or with
 // commits that exist nowhere else. A goblin's unpushed branch is the entire
 // product of its run, and no --force clears this: the point of the sweep is to
-// free resources, never to decide that somebody's work did not matter.
+// free resources, never to decide that somebody's work did not matter. A
+// question it could not ask refuses too, and says so in those words rather
+// than claiming it found work.
 func (s Service) holdIfWorkWouldBeLost(ctx context.Context, worktree string) string {
 	if worktree == "" {
 		return ""
 	}
 	if s.Commands == nil {
-		return "no command runner configured, so the worktree cannot be proven clean"
+		return "no command runner is configured, so the sweep could not ask git anything here and this worktree's state is unknown rather than proven clean; configure one" + sweepAgain
 	}
 	// Every git question below is answered by the nearest enclosing repository
 	// when this path is not a worktree of its own, so the premise is asserted
@@ -274,7 +282,7 @@ func (s Service) holdIfWorkWouldBeLost(ctx context.Context, worktree string) str
 	// went on being reported as an empty directory's own.
 	empty, err := isEmptyDir(worktree)
 	if err != nil {
-		return "cannot read this directory, so nothing git says about it can be attributed to it: " + err.Error()
+		return "the sweep could not read this directory, so it could not establish whether a git answer would describe this path or an enclosing repository: " + err.Error() + "; resolve that" + sweepAgain
 	}
 	if empty {
 		return "this directory holds no files, so any git answer about it belongs to an enclosing repository and this path is not a worktree at all"
@@ -282,14 +290,14 @@ func (s Service) holdIfWorkWouldBeLost(ctx context.Context, worktree string) str
 
 	status, err := s.git(ctx, worktree, "status", "--porcelain=v1", "--untracked-files=all")
 	if err != nil {
-		return "cannot read git status: " + err.Error()
+		return "the sweep could not read git status here, so whether this worktree holds uncommitted work is unknown rather than answered: " + err.Error() + "; resolve that" + sweepAgain
 	}
 	if status != "" {
 		return "worktree has uncommitted or untracked changes"
 	}
 	unpushed, err := s.git(ctx, worktree, "log", "--oneline", "HEAD", "--not", "--remotes")
 	if err != nil {
-		return "cannot read unpushed commits: " + err.Error()
+		return "the sweep could not list this worktree's unpushed commits, so whether it holds the only copy of any of them is unknown: " + err.Error() + "; resolve that" + sweepAgain
 	}
 	if unpushed != "" {
 		count := len(strings.Split(unpushed, "\n"))
