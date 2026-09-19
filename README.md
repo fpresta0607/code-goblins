@@ -110,7 +110,7 @@ It is optional: without it every command still takes a path, and `cfo doctor` te
 Then open the project you actually want to build:
 
 ```powershell
-cd C:\dev\my-project
+cd <dir>\my-project
 herdr
 claude   # or codex / pi / kimi for the CFO session
 ```
