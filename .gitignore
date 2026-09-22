@@ -16,6 +16,7 @@ config/
 /config/*
 !/config/pipeline.json
 /cfo.exe
+/frontend/node_modules/
 
 # Harness skill junctions created by install.ps1 -Bootstrap (point at .agents/skills).
 /.claude/skills/

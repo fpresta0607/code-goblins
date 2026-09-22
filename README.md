@@ -74,6 +74,10 @@ A task can run through Claude Code, Codex, Pi, or Kimi. `cfo switch` can change 
 
 Task metadata, fleet state, and wake events live on disk. Closing the supervisor does not erase what the fleet was doing.
 
+`cfo serve` runs the native supervisor and an embedded React board at `http://127.0.0.1:4310`.
+Native lifecycle hooks, durable actions, task evidence, code review previews, and reported session lineage remain independent of browser lifetime.
+See [the native board guide](docs/native-board.md) for hook setup, build requirements, evidence rules, and terminal limitations.
+
 ### Production-oriented gates
 
 The `no-mistakes` path owns review, bounded repair cycles, tests, lint, documentation, push, PR creation, and CI. Review budgets are frozen per task so changing global policy cannot silently weaken an in-flight job.

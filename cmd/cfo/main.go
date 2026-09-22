@@ -36,6 +36,9 @@ const usage = `usage: cfo <command> [args]
 
 commands:
   version   print the cfo version
+  serve     run the persistent native supervisor and embedded browser board on loopback
+  hooks     check|install <claude|codex|pi> native lifecycle hooks
+  native-hook <harness>  bounded hook entry point (JSON on stdin)
   install   wire this checkout into the machine (CFO_HOME, PATH, and the Claude Code hooks in your user settings) so a session in any repo is supervised; --projects-root <dir> records the folder that holds your checkouts so --project can take a bare name; --uninstall reverses it
   doctor    check the tools cfo needs (git, gh, claude, herdr, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi)
   pipeline  config-drift | config-apply | migrate <id> | run <id> --intent <text> | respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>] | recover <id>
@@ -185,6 +188,12 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return 2
 	}
 	switch args[0] {
+	case "serve":
+		return runServe(args[1:], stdout, stderr, runtime)
+	case "native-hook":
+		return runNativeHook(args[1:], os.Stdin, stdout, stderr, runtime)
+	case "hooks":
+		return runNativeSetup(args[1:], stdout, stderr, runtime)
 	case "version":
 		fmt.Fprintf(stdout, "cfo %s\n", version)
 		return 0

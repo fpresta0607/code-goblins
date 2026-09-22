@@ -58,10 +58,9 @@ type LaunchSpec struct {
 // harness because the default-highlighted option differs.
 // TypedLaunch is the fallback for harnesses Herdr cannot start natively
 // (Herdr's Windows agent start uses Start-Process -FilePath, which cannot
-// execute the npm .cmd shims codex and pi install as): the full command plus
-// the brief instruction is typed into the prepared pane shell instead, and
-// Herdr detects the agent. Resumed is the one exception to the typed
-// instruction.
+// execute the npm .cmd shims codex and pi install as): the command is typed
+// into the prepared pane shell, and Herdr detects the agent. Both paths send
+// the instruction through the verified native prompt channel after startup.
 // SecretsFile, when set, is dot-sourced by the prefix instead of the values
 // being typed into the pane. A credential typed inline would sit in the
 // pane's scrollback and in every `cfo peek`, so the pane only ever sees the
@@ -77,10 +76,7 @@ type Launch struct {
 	ConfirmKeys    []string
 	TypedLaunch    bool
 	Executable     string
-	// Resumed marks a launch that continues an existing session. It changes
-	// how the instruction is delivered on the typed path: a resume subcommand
-	// binds its first positional to a session identifier, not to a prompt, so
-	// the instruction has to reach the composer instead of the command line.
+	// Resumed marks a launch that continues an existing session.
 	Resumed bool
 }
 
@@ -95,8 +91,7 @@ func (launch Launch) PromptInstruction() string {
 }
 
 // BriefInstruction is the single prompt every goblin receives, delivered
-// through `herdr agent prompt` on the native path or as the final typed
-// argument on the typed-launch path.
+// through `herdr agent prompt` after either launch path is ready.
 func BriefInstruction(promptFile string) string {
 	return "Read the brief at " + promptFile + " and follow it exactly."
 }

@@ -1,0 +1,69 @@
+{
+    "elapsed_s":  20.2673114,
+    "processes":  [
+                      {
+                          "pid":  17224,
+                          "parent":  42820,
+                          "role":  "browser",
+                          "cpu_seconds":  0.0156,
+                          "working_set_mb":  132.14,
+                          "private_mb":  43.32
+                      },
+                      {
+                          "pid":  32892,
+                          "parent":  17224,
+                          "role":  "crashpad-handler",
+                          "cpu_seconds":  0,
+                          "working_set_mb":  10.07,
+                          "private_mb":  2.4
+                      },
+                      {
+                          "pid":  14220,
+                          "parent":  17224,
+                          "role":  "gpu-process",
+                          "cpu_seconds":  0,
+                          "working_set_mb":  124.86,
+                          "private_mb":  100.39
+                      },
+                      {
+                          "pid":  32736,
+                          "parent":  17224,
+                          "role":  "utility",
+                          "cpu_seconds":  0,
+                          "working_set_mb":  38.87,
+                          "private_mb":  13.46
+                      },
+                      {
+                          "pid":  42300,
+                          "parent":  17224,
+                          "role":  "utility",
+                          "cpu_seconds":  0,
+                          "working_set_mb":  18.96,
+                          "private_mb":  9.88
+                      },
+                      {
+                          "pid":  13640,
+                          "parent":  17224,
+                          "role":  "renderer",
+                          "cpu_seconds":  0.0156,
+                          "working_set_mb":  87.17,
+                          "private_mb":  34.02
+                      },
+                      {
+                          "pid":  40940,
+                          "parent":  17224,
+                          "role":  "renderer",
+                          "cpu_seconds":  0,
+                          "working_set_mb":  46.26,
+                          "private_mb":  17.52
+                      },
+                      {
+                          "pid":  30432,
+                          "parent":  17224,
+                          "role":  "renderer",
+                          "cpu_seconds":  0,
+                          "working_set_mb":  30.35,
+                          "private_mb":  15.1
+                      }
+                  ]
+}
