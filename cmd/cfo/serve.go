@@ -10,10 +10,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/boardweb"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/watch"
@@ -23,6 +26,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	f := flag.NewFlagSet("serve", flag.ContinueOnError)
 	f.SetOutput(stderr)
 	address := f.String("listen", "127.0.0.1:4310", "loopback address for the native board")
+	example := f.Bool("example", false, "label an isolated temporary example home and omit machine-wide orphan inventory")
 	if err := f.Parse(args); err != nil || f.NArg() != 0 {
 		return 2
 	}
@@ -35,6 +39,13 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	if *example {
+		rel, err := filepath.Rel(os.TempDir(), h.Root)
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || !strings.EqualFold(filepath.Clean(h.State), filepath.Join(h.Root, "state")) {
+			fmt.Fprintln(stderr, "--example requires a separate home under the temporary directory with its own state directory")
+			return 2
+		}
 	}
 	assets, err := boardweb.Assets()
 	if err != nil {
@@ -55,14 +66,21 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	config.WaitEvent = nil
 	config.Cleanup = nil
+	if *example {
+		// The production orphan collector intentionally inventories the entire
+		// machine. A temporary example must not mix that with isolated panes.
+		config.Reap = nil
+	}
 	root, err := pipeline.DefaultRoot()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
-		Gate: pipeline.Reader{Root: root, Commands: execx.OSRunner{}},
-		Send: func(ctx context.Context, id, text string) error { return runtime.sendText(ctx, h, id, text) },
+		Example: *example,
+		CFO:     &supervisor.CFOConnection{State: h.State, Herdr: &herdr.Client{Commands: execx.OSRunner{}}},
+		Gate:    pipeline.Reader{Root: root, Commands: execx.OSRunner{}},
+		Send:    func(ctx context.Context, id, text string) error { return runtime.sendText(ctx, h, id, text) },
 		Peek: func(ctx context.Context, id string, lines int) (string, error) {
 			return runtime.peek(ctx, h, id, lines)
 		},

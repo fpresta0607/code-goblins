@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,11 +29,12 @@ type HTTP struct {
 	mu       sync.Mutex
 	cache    map[string]cachedResponse
 	gitSlots chan struct{}
+	captures chan struct{}
 	streams  chan struct{}
 }
 
 func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
-	return &HTTP{Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8)}
+	return &HTTP{Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), captures: make(chan struct{}, 1), streams: make(chan struct{}, 8)}
 }
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -68,6 +70,18 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, snapshot)
 	case r.URL.Path == "/api/events" && r.Method == "GET":
 		h.stream(w, r)
+	case r.URL.Path == "/api/cfo" && r.Method == "GET":
+		if !h.captureSlot(w) {
+			return
+		}
+		defer func() { <-h.captures }()
+		if h.Service.Options.CFO == nil {
+			respond(w, 200, CFOView{Reason: "Primary CFO transport is unavailable."})
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		defer cancel()
+		respond(w, 200, h.Service.Options.CFO.Read(ctx))
 	case r.URL.Path == "/api/actions" && r.Method == "POST":
 		h.action(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/tasks/") && r.Method == "GET":
@@ -82,6 +96,18 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.FileServer(http.FS(h.Assets)).ServeHTTP(w, r)
 	default:
 		http.NotFound(w, r)
+	}
+}
+
+// A slow native capture never fans out into overlapping Herdr snapshots,
+// including requests from multiple tabs or an interrupted pane switch.
+func (h *HTTP) captureSlot(w http.ResponseWriter) bool {
+	select {
+	case h.captures <- struct{}{}:
+		return true
+	default:
+		apiError(w, 503, "Native output is being read; retry shortly")
+		return false
 	}
 }
 
@@ -159,6 +185,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 		Text       string `json:"text"`
 		File       string `json:"file"`
 		Line       int    `json:"line"`
+		EndLine    int    `json:"end_line"`
 		Side       string `json:"side"`
 		Head       string `json:"head"`
 		Revision   string `json:"revision"`
@@ -176,14 +203,14 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if input.Generation == "" {
-		apiError(w, 409, "Task generation is required; refresh the board")
+		apiError(w, 409, "Recipient identity is required; refresh the board")
 		return
 	}
 	if input.File != "" && !SafeFilePath(input.File) {
 		apiError(w, 400, "Unsafe file path")
 		return
 	}
-	a, err := h.Service.Store.Queue(Action{ID: input.ID, Kind: input.Kind, TaskID: input.TaskID, Generation: input.Generation, Text: input.Text, File: input.File, Line: input.Line, Side: input.Side, Head: input.Head, Revision: input.Revision, DiffID: input.DiffID})
+	a, err := h.Service.Store.Queue(Action{ID: input.ID, Kind: input.Kind, TaskID: input.TaskID, Generation: input.Generation, Text: input.Text, File: input.File, Line: input.Line, EndLine: input.EndLine, Side: input.Side, Head: input.Head, Revision: input.Revision, DiffID: input.DiffID})
 	if err != nil {
 		apiError(w, 409, err.Error())
 		return
@@ -213,11 +240,17 @@ func (h *HTTP) task(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if parts[1] == "terminal" {
+		if !h.captureSlot(w) {
+			return
+		}
+		defer func() { <-h.captures }()
 		if h.Service.Options.Peek == nil {
 			apiError(w, 503, "Herdr terminal capture is unavailable")
 			return
 		}
-		text, err := h.Service.Options.Peek(r.Context(), meta.ID, 120)
+		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		defer cancel()
+		text, err := h.Service.Options.Peek(ctx, meta.ID, 120)
 		if err != nil {
 			apiError(w, 503, "Herdr could not read this task's terminal; inspect cfo peek")
 			return

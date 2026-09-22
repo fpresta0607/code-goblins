@@ -87,23 +87,45 @@ Malformed records leave a bounded diagnostic and do not wedge subsequent valid w
 An interrupted evaluation is safe to replay; an interrupted feedback delivery becomes uncertain and is not resent automatically.
 Uncertain actions remain visible for operator inspection and can eventually exhaust action capacity if left unresolved.
 
-## Board and lineage
+## Board and orchestration
 
-The board offers project/search filters, decisions, task selection, native activity, commit history, file tabs, syntax-highlighted unified/split diffs, and line-based review feedback.
-Repeated submission of an unchanged payload keeps its request ID after an ambiguous HTTP failure.
-An SSE outcome is displayed instead of sending that instruction again; a new deliberate instruction starts a new identity.
+The header switches between Board and Orchestration, with one main view visible at a time and one contextual pane on the right.
+Board groups actual tasks into Tasks, In progress and Completed; only verified delivery enters Completed.
+Active cards open their native terminal, while selecting a completed card opens Changes, including when that same task completed after selection.
+The default pane shows the registered CFO's native output and submitted messages.
+Needs attention discloses unresolved decisions without acknowledging or hiding them.
+Task-semantic goblin avatars are presentation choices, not inferred native role evidence.
 
 Orchestration nodes use explicit native parent/root IDs and the launch environment's reported relationships.
 Directory names and temporal proximity never establish parentage.
 Replayed, stale, reparenting, or cyclic input cannot silently change the tree.
 Unknown and retired parents remain visible, and task dependencies are rendered separately from spawned/delegated links.
 Unreported child models remain unreported even when their owning task declares a model and effort.
-Canvas and nested-list layouts share selectable, collapsible nodes and the task details drawer.
+Dragging a card or using Alt plus an arrow key changes only its saved browser position; connectors retain their reported parent identity.
+The canvas starts at no less than 80% scale, with scroll/pan for extra roots; explicit Fit can zoom further out.
+Arrange resets positions, and storage failures remain visible.
+Narrow screens use a collapsible nested list that names the actual parent when indentation is capped.
+A child without its own reported native transport explains that limitation and links its owning task without borrowing that task's terminal or model.
+Communication pulses last at most ten seconds and require a recent successful targeted worker instruction, matching task identity, and a connected stream.
 
-The installed Herdr schema supports on-demand terminal text capture and verified native agent steering.
-No supported browser PTY attachment contract was found in that installed interface.
-The board therefore loads at most 120 lines / 64 KiB on request and directs interactive terminal work to the existing Herdr tab.
-It does not retain hidden browser terminals or scrape panes as its lifecycle engine.
+Changes presents stacked file disclosures with lazy syntax-highlighted unified, split and code previews.
+Select a visible old/new line or contiguous range, including unchanged context, and Send to CFO queues a durable review record containing the exact file, side, range, revision, HEAD and diff fingerprint.
+The server validates those coordinates and derives the selected code; it never sends a review comment to the worker.
+Review remains available during gate custody, while actual worker steering retains the custody checks.
+Drafts bind the task session identity at selection and survive view, file and recipient changes without silently moving to a restarted task.
+An unchanged submitted payload keeps its request ID after an ambiguous HTTP failure; an SSE outcome is displayed instead of dispatching it again.
+An interrupted external delivery becomes uncertain and is not replayed automatically.
+
+The installed Herdr schema supports native terminal capture and verified submitted messages, not a browser PTY attachment.
+Each capture is limited to 120 lines / 64 KiB and eight seconds, with one shared in-flight slot across CFO and worker requests.
+The visible pane requests its next capture five seconds after the previous request finishes and stops while hidden or disconnected.
+Captured output preserves native newlines; replies are not generated or simulated by the board.
+Full cursor, keyboard and Ctrl+C emulation remains in the existing native Herdr tab.
+
+CFO transport reads the operator-owned `state/primary.json` registration and binds each queued message to its fingerprint.
+On Windows it holds that registration against replacement during delivery and validates the live process/start time, foreground process group, registered agent, pane, workspace and tab before using a required-agent sender.
+Missing or changed identity is refused, never passed to the explicit-pane shell fallback.
+Herdr acceptance counters establish accepted delivery; the current native contract cannot prove a model response or provide an atomic process-identity compare-and-send operation.
 
 ## Local endpoint boundaries
 
@@ -137,10 +159,14 @@ For frontend development, `npm run dev` listens at `127.0.0.1:5173` and proxies 
 
 Before any test step invokes `cfo` or `go test`, clear `CFO_HOME` and `CFO_STATE_OVERRIDE` or point both to an isolated temporary home.
 For bounded local checks, use `GOMAXPROCS=2`, `go vet -p 1 ./...`, and `go test -p 1 ./...`.
-The opt-in `tests/acceptance/native_board_windows.ps1 -Binary <absolute-built-executable>` requires `CFO_BOARD_REAL=1` and creates an isolated home, git project, named Herdr session, hooks, and board.
-Validate/scan the supplied executable before running it when required by machine security policy; copying or rebuilding a flagged binary is not clearance.
+The opt-in `tests/acceptance/native_board_windows.ps1 -Binary <absolute-built-executable> -HarnessBinary <absolute-harness-executable>` requires `CFO_BOARD_REAL=1` and creates an isolated home, git project, named Herdr session, native CFO and worker processes, hooks, and board.
+Build the harness from `./tests/fixtures/native-board-harness` with the basename `codex.exe`.
+Validate/scan both supplied executables before running them when required by machine security policy; copying or rebuilding a flagged binary is not clearance.
 The fixture's disposable `codex.exe` is a deterministic test process, not Codex and not a model invocation; its basename exercises Herdr's real foreground-process contract.
 Only the recorded fixture PIDs/session may be stopped during crash checks.
+The fixture uses `serve --example`, allowed only with a temporary CFO home and its own state directory.
+That mode labels Example workspace and omits the production machine-wide orphan inventory, which otherwise sees unrelated host processes beside the isolated Herdr session.
+It retains task monitoring and custody checks and never clears shared decisions or stops shared processes.
 See [the implementation evidence](evidence/cfo-native-board.md) for measured overhead, browser results, and the unresolved earlier Defender detections.
 
 ## Source provenance
@@ -148,5 +174,6 @@ See [the implementation evidence](evidence/cfo-native-board.md) for measured ove
 Native contracts were checked against installed versions and the primary [Codex hooks](https://learn.chatgpt.com/docs/hooks), [Claude Code hooks](https://code.claude.com/docs/en/hooks), and [Pi extensions](https://pi.dev/docs/latest/extensions) documentation.
 The pinned [Cline Kanban source](https://github.com/cline/kanban/tree/abd4912c27ce6b7f18b5a8106c145fd838e90cc4) supplied adapted board, diff, history, and runtime-stream behavior.
 Its Apache-2.0 license, copyright, file links, and modification notes are retained in `frontend/public/assets/NOTICE.txt` and the bundled license files; no upstream NOTICE file was present at that revision.
-SIQshift's shared brand stylesheet supplied the black, mint, and blue design tokens after read-only inspection.
-The two supplied tabbed-code/workflow references informed review and lineage presentation without adding a graph dependency or an automation editor.
+SIQshift's shared brand stylesheet, desktop/web controls, and shared ShiftGroups supplied inspected card/ghost/focus, native-select and disclosure primitives.
+The user-approved generated mockups supplied the final dark/mint two-view composition, large system typography and terminal-goblin artwork.
+The supplied code/workflow references informed review and lineage presentation without adding a graph dependency or an automation editor.

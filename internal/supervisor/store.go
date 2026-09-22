@@ -71,6 +71,7 @@ type Action struct {
 	Text       string    `json:"text,omitempty"`
 	File       string    `json:"file,omitempty"`
 	Line       int       `json:"line,omitempty"`
+	EndLine    int       `json:"end_line,omitempty"`
 	Side       string    `json:"side,omitempty"`
 	Head       string    `json:"head,omitempty"`
 	Revision   string    `json:"revision,omitempty"`
@@ -365,32 +366,53 @@ func (s *Store) queue(a Action) (Action, error) {
 	if a.ID == "" || len(a.ID) > 128 || strings.ContainsAny(a.ID, "\x00\r\n") {
 		return Action{}, errors.New("action requires a bounded request ID")
 	}
-	if a.Kind != "evaluate" && a.Kind != "feedback" {
+	if a.Kind != "evaluate" && a.Kind != "feedback" && a.Kind != "review" && a.Kind != "cfo_message" {
 		return Action{}, errors.New("unsupported action; task lifecycle cannot be dragged or assigned")
 	}
 	if len(a.Text) > 16000 || len(a.File) > 4096 {
 		return Action{}, errors.New("action exceeds size limit")
 	}
-	if a.Kind == "feedback" && strings.TrimSpace(a.Text) == "" {
-		return Action{}, errors.New("feedback is empty")
+	if a.Kind != "evaluate" && strings.TrimSpace(a.Text) == "" {
+		return Action{}, errors.New("comment is empty")
 	}
-	meta, err := state.ReadTaskMeta(s.Home.State, a.TaskID)
-	if err != nil {
-		return Action{}, err
+	if a.Kind == "review" && a.Generation == "" {
+		return Action{}, errors.New("task generation is required; refresh the board")
 	}
-	if a.Generation != "" && a.Generation != meta.SpawnGen {
-		return Action{}, errors.New("action belongs to another task generation")
+	if a.Kind == "cfo_message" {
+		if a.Generation == "" || a.TaskID != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" {
+			return Action{}, errors.New("CFO message requires only its registered recipient identity and text")
+		}
+	} else {
+		meta, err := state.ReadTaskMeta(s.Home.State, a.TaskID)
+		if err != nil {
+			return Action{}, err
+		}
+		if a.Generation != "" && a.Generation != meta.SpawnGen {
+			return Action{}, errors.New("task restarted or was replaced; refresh the board")
+		}
+		a.Generation = meta.SpawnGen
 	}
-	a.Generation = meta.SpawnGen
 	for _, existing := range s.db.Actions {
 		if existing.ID == a.ID {
-			if existing.Kind != a.Kind || existing.TaskID != a.TaskID || existing.Generation != a.Generation || existing.Text != a.Text || existing.File != a.File || existing.Head != a.Head || existing.Line != a.Line || existing.Side != a.Side || existing.Revision != a.Revision || existing.DiffID != a.DiffID {
+			if existing.Kind != a.Kind || existing.TaskID != a.TaskID || existing.Generation != a.Generation || existing.Text != a.Text || existing.File != a.File || existing.Head != a.Head || existing.Line != a.Line || existing.EndLine != a.EndLine || existing.Side != a.Side || existing.Revision != a.Revision || existing.DiffID != a.DiffID {
 				return Action{}, errors.New("request ID was already used for another action")
 			}
 			return existing, nil
 		}
 	}
+	if a.Kind == "cfo_message" {
+		file, err := openPrimary(filepath.Join(s.Home.State, "primary.json"))
+		if err != nil {
+			return Action{}, errors.New("primary CFO registration is unavailable")
+		}
+		_, identity, err := decodePrimary(file)
+		_ = file.Close()
+		if err != nil || identity != a.Generation {
+			return Action{}, errors.New("the primary CFO changed; refresh before sending")
+		}
+	}
 	if len(s.db.Actions) >= maxActions {
+		// Terminal actions can roll out; pending and uncertain intent stays.
 		remove := -1
 		for i, old := range s.db.Actions {
 			if old.Status == "succeeded" || old.Status == "failed" {
@@ -411,7 +433,7 @@ func (s *Store) queue(a Action) (Action, error) {
 }
 
 // ProcessOne commits intent before executing it. Only read-only evaluation is
-// safe to replay after a crash; feedback has an explicit uncertain outcome.
+// safe to replay after a crash; feedback/review have explicit uncertain outcomes.
 func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Action) (Evaluation, error)) error {
 	s.mu.Lock()
 	i := -1
@@ -452,7 +474,7 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 	completed.UpdatedAt = time.Now().UTC()
 	if runErr != nil {
 		completed.Status = "failed"
-		if a.Kind == "feedback" && !errors.Is(runErr, ErrRejected) {
+		if a.Kind != "evaluate" && !errors.Is(runErr, ErrRejected) {
 			completed.Status = "uncertain"
 		}
 		completed.Message = bounded(runErr.Error(), 1200)
