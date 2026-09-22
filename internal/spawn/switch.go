@@ -214,12 +214,15 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		briefPath = req.BriefPath
 	}
 
-	handoff, resumed, err := s.relaunchHarness(ctx, &herdrClient, paneTarget, meta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, goTmp, manifest.Env)
+	from := describe(meta.Harness, meta.Model, meta.Effort)
+	launchMeta := meta
+	// Publish the replacement generation before its first native hook can run.
+	if err := s.publishSwitch(&meta, target); err != nil {
+		return SwitchResult{}, err
+	}
+	launchMeta.SpawnGen = meta.SpawnGen
+	handoff, resumed, err := s.relaunchHarness(ctx, &herdrClient, paneTarget, launchMeta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, goTmp, manifest.Env)
 	if err != nil {
-		from := describe(meta.Harness, meta.Model, meta.Effort)
-		if writeErr := s.publishSwitch(&meta, target); writeErr != nil {
-			err = errors.Join(err, writeErr)
-		}
 		// The failure may have come after the new harness was already
 		// running - a rejected instruction read-back, for instance - so the
 		// pane is re-probed before it is described. Reporting an empty pane
@@ -251,10 +254,6 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		return SwitchResult{Meta: meta, From: from, Handoff: handoff, Resumed: resumed}, err
 	}
 
-	from := describe(meta.Harness, meta.Model, meta.Effort)
-	if err := s.publishSwitch(&meta, target); err != nil {
-		return SwitchResult{}, err
-	}
 	result.Handoff = handoff
 	result.Resumed = resumed
 	line := fmt.Sprintf("switched: %s -> %s", from, describe(meta.Harness, meta.Model, meta.Effort))
@@ -309,11 +308,13 @@ func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, pane
 		return "", false, err
 	}
 	mergeProvisionEnv(launch.Env, preflight.Caches)
+	nativeEnvironment(launch.Env, meta)
 	if err := s.injectProjectCredentials(preflight, meta.TaskTmp, &launch); err != nil {
 		return "", false, err
 	}
 
 	if resumed {
+		launch.Env["CFO_PARENT_SESSION_ID"], launch.Env["CFO_PARENT_HARNESS"] = "", ""
 		control := adapter.Control()
 		// ResumeArgs lead because codex takes its resume as a subcommand.
 		launch.Args = append(append([]string{}, control.ResumeArgs...), launch.Args...)

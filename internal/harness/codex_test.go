@@ -41,7 +41,7 @@ func TestCodexBuildsStructuredLaunchWithoutBashNotify(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build explicit: %v", err)
 	}
-	wantArgs := []string{"--dangerously-bypass-approvals-and-sandbox", "--model", "gpt-5.2-codex", "-c", `model_reasoning_effort="high"`}
+	wantArgs := []string{"--dangerously-bypass-approvals-and-sandbox", "--model", "gpt-5.2-codex", "-c", `model_reasoning_effort=high`}
 	if !equalStrings(explicit.Args, wantArgs) {
 		t.Errorf("Args = %#v, want %#v", explicit.Args, wantArgs)
 	}
@@ -51,8 +51,8 @@ func TestCodexBuildsStructuredLaunchWithoutBashNotify(t *testing.T) {
 		}
 	}
 
-	if _, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, GoTmp: `C:\gotmp\task`, Effort: "max"}); err == nil {
-		t.Fatal("Build returned nil error for unsupported max effort")
+	if _, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, GoTmp: `C:\gotmp\task`, Effort: "invalid"}); err == nil {
+		t.Fatal("Build returned nil error for invalid effort")
 	}
 }
 
@@ -67,4 +67,16 @@ func TestCodexValidateChecksExecutable(t *testing.T) {
 		t.Fatalf("Validate: %v", err)
 	}
 	assertRequests(t, runner.requests, []execx.Request{{Name: "codex", Args: []string{"--version"}}})
+}
+
+func TestCodexMaxEffortForAstra(t *testing.T) {
+	adapter, _ := DefaultRegistry().Get(Codex)
+	launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, GoTmp: `C:\gotmp\task`, Model: "gpt-6-astra", Effort: "max"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"--dangerously-bypass-approvals-and-sandbox", "--model", "gpt-6-astra", "-c", "model_reasoning_effort=max"}
+	if !equalStrings(launch.Args, want) {
+		t.Fatalf("Args = %q, want %q", launch.Args, want)
+	}
 }

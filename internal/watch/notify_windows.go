@@ -67,7 +67,8 @@ type DirWaiter struct {
 	ov          syscall.Overlapped
 	buf         [4096]byte
 
-	failMax int
+	failMax      int
+	nativeEvents bool
 
 	pending    bool // a ReadDirectoryChangesW is outstanding on ov/buf
 	closed     bool
@@ -107,6 +108,16 @@ func NewDirWaiter(dir string) (*DirWaiter, error) {
 		eventHandle: eventHandle,
 		failMax:     claudehook.Int("CFO_EVENT_CAP_FAIL_MAX", dirWaiterFailMaxDefault, 1, 10),
 	}, nil
+}
+
+// NewNativeWaiter uses the same bounded Windows notification mechanism for
+// the durable native inbox. It never watches its own supervisor writes.
+func NewNativeWaiter(dir string) (*DirWaiter, error) {
+	w, err := NewDirWaiter(dir)
+	if err == nil {
+		w.nativeEvents = true
+	}
+	return w, err
 }
 
 // Wait blocks for up to timeout for a directory change and reports whether
@@ -233,6 +244,9 @@ func (w *DirWaiter) matchesStatusFile() bool {
 		// rather than read out of bounds.
 		return true
 	}
+	if w.nativeEvents {
+		return bufferNamesMatching(w.buf[:n], func(name string) bool { return strings.HasSuffix(name, ".event.json") })
+	}
 	return bufferNamesStatusFile(w.buf[:n])
 }
 
@@ -243,6 +257,10 @@ func (w *DirWaiter) matchesStatusFile() bool {
 // .status or .turn-ended, matched case-insensitively: exactly the two
 // suffixes ScanSignals acts on.
 func bufferNamesStatusFile(data []byte) bool {
+	return bufferNamesMatching(data, hasStatusSuffix)
+}
+
+func bufferNamesMatching(data []byte, matches func(string) bool) bool {
 	for offset := 0; offset+12 <= len(data); {
 		nextEntry := binary.LittleEndian.Uint32(data[offset:])
 		nameLen := int(binary.LittleEndian.Uint32(data[offset+8:]))
@@ -253,7 +271,7 @@ func bufferNamesStatusFile(data []byte) bool {
 			// this buffer either, so stop scanning it.
 			break
 		}
-		if hasStatusSuffix(decodeUTF16LE(data[nameStart:nameEnd])) {
+		if matches(decodeUTF16LE(data[nameStart:nameEnd])) {
 			return true
 		}
 		if nextEntry == 0 {

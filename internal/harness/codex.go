@@ -38,8 +38,10 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	}
 	if hasValue(spec.Effort) {
 		switch spec.Effort {
-		case "low", "medium", "high", "xhigh":
-			launch.Args = append(launch.Args, "-c", `model_reasoning_effort="`+spec.Effort+`"`)
+		case "low", "medium", "high", "xhigh", "max":
+			// Codex accepts a raw string when a config value is not TOML.
+			// Avoid embedded quotes on PowerShell 5.1's native argument path.
+			launch.Args = append(launch.Args, "-c", "model_reasoning_effort="+spec.Effort)
 		default:
 			return Launch{}, fmt.Errorf("harness: Codex does not support effort %q", spec.Effort)
 		}

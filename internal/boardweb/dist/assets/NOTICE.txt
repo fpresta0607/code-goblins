@@ -1,0 +1,22 @@
+CFO Native Board
+
+This product includes adapted portions of Cline Kanban, Copyright 2026 Cline Bot Inc.
+Licensed under the Apache License, Version 2.0.
+License: /assets/cline-kanban-LICENSE.txt
+Source: https://github.com/cline/kanban/tree/abd4912c27ce6b7f18b5a8106c145fd838e90cc4
+
+Modified files and behavior:
+Board.tsx adapts column ordering and card selection from kanban-board.tsx.
+diff.ts and syntax.tsx adapt patch parsing and language selection from shared/diff-renderer.tsx.
+Details.tsx adapts on-demand commit selection and diff presentation from git-history-view.tsx, plus contextual line feedback from detail-panels/diff-viewer-panel.tsx.
+stream.ts adapts bounded reconnection from runtime/use-runtime-state-stream.ts.
+CFO removes drag-to-progress, automation creation and destructive Git controls; adds durable Go actions, pipeline custody checks, two-sided line coordinates, safe text-token rendering, full SSE snapshots, and evidence-backed lineage.
+The pinned upstream tree contains LICENSE and no NOTICE file.
+
+Design tokens are adapted from the inspected local SIQshift brand.css.
+Runtime dependencies: React and React DOM (MIT), PrismJS (MIT).
+React: https://github.com/facebook/react/blob/main/LICENSE
+Prism: https://github.com/PrismJS/prism/blob/master/LICENSE
+
+Bundled React and React DOM license: /assets/react-LICENSE.txt
+Bundled PrismJS license: /assets/prism-LICENSE.txt

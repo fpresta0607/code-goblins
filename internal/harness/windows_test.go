@@ -33,7 +33,7 @@ func TestPowerShellTypedLineRendersQuotingSafeCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PowerShellTypedLine: %v", err)
 	}
-	want := `Set-Location -LiteralPath 'C:\work\O''Brien\task'; $env:GOTMPDIR = 'C:\task tmp\O''Brien\gotmp'; & 'pi' '--tui-mode' 'regular' 'Read the brief at C:\briefs\O''Brien\task.md and follow it exactly.'`
+	want := `Set-Location -LiteralPath 'C:\work\O''Brien\task'; $env:GOTMPDIR = 'C:\task tmp\O''Brien\gotmp'; & 'pi' '--tui-mode' 'regular'`
 	if got != want {
 		t.Errorf("PowerShellTypedLine() = %q\nwant %q", got, want)
 	}
@@ -64,8 +64,8 @@ func TestTypedLineOmitsTheInstructionOnAResume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PowerShellTypedLine: %v", err)
 	}
-	if !strings.Contains(freshLine, base.Instruction) {
-		t.Errorf("a launch that is not a resume must still carry its instruction positionally:\n%s", freshLine)
+	if strings.Contains(freshLine, base.Instruction) {
+		t.Errorf("a fresh launch must deliver its instruction through the agent channel:\n%s", freshLine)
 	}
 
 	resumed := base

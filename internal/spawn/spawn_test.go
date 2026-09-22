@@ -157,6 +157,9 @@ func TestSpawnRefusesEmptyDeliveryModeLine(t *testing.T) {
 }
 
 func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
+	for _, key := range []string{"CODEX_THREAD_ID", "CFO_SESSION_ID", "CFO_SESSION_HARNESS", "CFO_ROOT_SESSION_ID"} {
+		t.Setenv(key, "")
+	}
 	fixture := newFixture(t)
 	result, err := fixture.service.Spawn(context.Background(), fixture.request)
 	if err != nil {
@@ -238,7 +241,7 @@ func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
 	}
 	// The prefix dot-sources the secrets script right after the location, so
 	// the billing-key strip lands before the launch contract and the harness.
-	if got, want := fixture.runner.literals[0], "Set-Location -LiteralPath '"+fixture.worktree+"'; . '"+filepath.Join(meta.TaskTmp, "auth.ps1")+"'; $env:CFO_STATE_OVERRIDE = '"+fixture.stateDir+"'; $env:GOTMPDIR = '"+goTmpDir(t, fixture.stateDir, meta.ID)+"'"; got != want {
+	if got, want := fixture.runner.literals[0], "Set-Location -LiteralPath '"+fixture.worktree+"'; . '"+filepath.Join(meta.TaskTmp, "auth.ps1")+"'; $env:CFO_PARENT_HARNESS = ''; $env:CFO_PARENT_SESSION_ID = ''; $env:CFO_ROOT_SESSION_ID = ''; $env:CFO_SPAWN_GEN = '"+meta.SpawnGen+"'; $env:CFO_STATE_OVERRIDE = '"+fixture.stateDir+"'; $env:CFO_TASK_ID = 'task-7'; $env:GOTMPDIR = '"+goTmpDir(t, fixture.stateDir, meta.ID)+"'"; got != want {
 		t.Errorf("launch prefix = %q\nwant %q", got, want)
 	}
 	if got, want := fixture.runner.startName, "gb-task-7"; got != want {
@@ -758,6 +761,9 @@ func TestSpawnStartsNamedAgentThenPromptsNatively(t *testing.T) {
 }
 
 func TestSpawnPiTypedLaunchTypesFullCommandAndSkipsNativeStart(t *testing.T) {
+	for _, key := range []string{"CODEX_THREAD_ID", "CFO_SESSION_ID", "CFO_SESSION_HARNESS", "CFO_ROOT_SESSION_ID"} {
+		t.Setenv(key, "")
+	}
 	fixture := newFixture(t)
 	fixture.request.Harness = harness.Pi
 	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
@@ -774,18 +780,18 @@ func TestSpawnPiTypedLaunchTypesFullCommandAndSkipsNativeStart(t *testing.T) {
 	if got := len(fixture.runner.literals); got != 1 {
 		t.Fatalf("literals = %q, want exactly one typed launch line", fixture.runner.literals)
 	}
-	wantLine := "Set-Location -LiteralPath '" + fixture.worktree + "'; . '" + filepath.Join(result.Meta.TaskTmp, "auth.ps1") + "'; $env:CFO_STATE_OVERRIDE = '" + fixture.stateDir + "'; $env:GOTMPDIR = '" + goTmpDir(t, fixture.stateDir, result.Meta.ID) + "'; & 'pi' '--tui-mode' 'regular' 'Read the brief at " + fixture.brief + " and follow it exactly."
+	wantLine := "Set-Location -LiteralPath '" + fixture.worktree + "'; . '" + filepath.Join(result.Meta.TaskTmp, "auth.ps1") + "'; $env:CFO_PARENT_HARNESS = ''; $env:CFO_PARENT_SESSION_ID = ''; $env:CFO_ROOT_SESSION_ID = ''; $env:CFO_SPAWN_GEN = '" + result.Meta.SpawnGen + "'; $env:CFO_STATE_OVERRIDE = '" + fixture.stateDir + "'; $env:CFO_TASK_ID = 'task-7'; $env:GOTMPDIR = '" + goTmpDir(t, fixture.stateDir, result.Meta.ID) + "'; & 'pi' '--tui-mode' 'regular'"
 	if got := fixture.runner.literal; !strings.HasPrefix(got, wantLine) {
 		t.Errorf("typed launch line = %q\nwant prefix %q", got, wantLine)
 	}
 	if fixture.runner.startName != "" || fixture.runner.startKind != "" || fixture.runner.startArgs != nil {
 		t.Errorf("typed launch used native agent start: name=%q kind=%q args=%q", fixture.runner.startName, fixture.runner.startKind, fixture.runner.startArgs)
 	}
-	if fixture.runner.prompt != "" {
-		t.Errorf("typed launch sent a native agent prompt: %q", fixture.runner.prompt)
+	if fixture.runner.prompt != spawnInstruction(fixture.brief, fixture.request.ID) {
+		t.Errorf("typed launch did not send the complete native agent prompt: %q", fixture.runner.prompt)
 	}
-	if slices.Contains(fixture.events, "agent-start") || slices.Contains(fixture.events, "agent-prompt") {
-		t.Errorf("events = %v, want typed launch without native start or prompt", fixture.events)
+	if slices.Contains(fixture.events, "agent-start") || !slices.Contains(fixture.events, "agent-prompt") {
+		t.Errorf("events = %v, want typed launch with a native prompt", fixture.events)
 	}
 	if !slices.Contains(fixture.events, "send-enter") || !slices.Contains(fixture.events, "agent-working") {
 		t.Errorf("events = %v, want typed submit followed by working confirmation", fixture.events)
@@ -1286,6 +1292,7 @@ func isolateUserCacheDir(t *testing.T) {
 		t.Fatalf("UserCacheDir = %q, want it under the test's own directory %q", resolved, cache)
 	}
 }
+
 const fixtureStartCounters = 42
 
 func newFixture(t *testing.T) *fixture {
@@ -1738,6 +1745,7 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 	case len(args) >= 8 && args[0] == "pane" && args[1] == "report-agent":
 		*r.events = append(*r.events, "report-agent")
 		r.reportedAgent = append([]string{}, args...)
+		r.agentNotFound = false
 		return jsonResult(`{}`), nil
 	case reflect.DeepEqual(args, []string{"agent", "get", "pane-1"}):
 		r.agentCalls++
@@ -2089,5 +2097,29 @@ func TestResumedTypedLaunchDeliversTheInstructionToTheComposer(t *testing.T) {
 	}
 	if !delivered {
 		t.Errorf("the instruction never reached the resumed harness, so the goblin has nothing to do: prompt=%q", fixture.runner.prompt)
+	}
+}
+
+func TestFreshTypedLaunchDeliversQuotedInstructionOnceThroughHerdr(t *testing.T) {
+	fixture := newFixture(t)
+	instruction := "Read C:\\task dir\\brief.md. Report --blocked \"question options: a | b\". Preserve O'Brien, $(), and `text`."
+	plan := launchPlan{AgentName: "gb-task-7", Harness: harness.Codex, Launch: harness.Launch{
+		TypedLaunch: true, Executable: "codex", Instruction: instruction,
+		Args: []string{"--model", "gpt-6-astra", "-c", "model_reasoning_effort=max"},
+		Dir:  fixture.worktree, Env: map[string]string{"GOTMPDIR": t.TempDir()},
+	}}
+	if _, err := fixture.service.startHarness(context.Background(), fixture.service.Herdr, herdr.Target{Session: "fleet", Pane: "pane-1"}, plan); err != nil {
+		t.Fatal(err)
+	}
+	if fixture.runner.prompt != instruction {
+		t.Fatalf("prompt did not reach the native agent channel intact: %q", fixture.runner.prompt)
+	}
+	if fixture.runner.promptCalls != 1 {
+		t.Fatalf("instruction was submitted %d times", fixture.runner.promptCalls)
+	}
+	for _, line := range fixture.runner.literals {
+		if strings.Contains(line, "--blocked") || strings.Contains(line, "options:") {
+			t.Fatalf("instruction reached PowerShell native argument parsing: %q", line)
+		}
 	}
 }

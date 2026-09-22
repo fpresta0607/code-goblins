@@ -1,0 +1,33 @@
+[
+    {
+        "ThreatID":  2147731250,
+        "InitialDetectionTime":  "\/Date(1790089729734)\/",
+        "LastThreatStatusChangeTime":  "\/Date(1790089740262)\/",
+        "ActionSuccess":  true,
+        "ProcessName":  "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "Resources":  [
+                          "file:_C:\\Users\\fpres\\AppData\\Local\\Temp\\cfo-native-board-test.exe"
+                      ]
+    },
+    {
+        "ThreatID":  2147731250,
+        "InitialDetectionTime":  "\/Date(1790089680513)\/",
+        "LastThreatStatusChangeTime":  "\/Date(1790089739950)\/",
+        "ActionSuccess":  true,
+        "ProcessName":  "C:\\Program Files\\Go\\bin\\go.exe",
+        "Resources":  [
+                          "file:_C:\\Users\\fpres\\AppData\\Local\\Temp\\cfo-native-board-test.exe"
+                      ]
+    },
+    {
+        "ThreatID":  2147731250,
+        "InitialDetectionTime":  "\/Date(1790089399261)\/",
+        "LastThreatStatusChangeTime":  "\/Date(1790089483550)\/",
+        "ActionSuccess":  true,
+        "ProcessName":  "C:\\Users\\fpres\\AppData\\Local\\Temp\\cfo-board-windows-33eb9388f1e6449b8070a73a12dfd69f\\cfo.exe",
+        "Resources":  [
+                          "file:_C:\\Users\\fpres\\AppData\\Local\\Temp\\cfo-board-windows-33eb9388f1e6449b8070a73a12dfd69f\\cfo.exe",
+                          "process:_pid:34556,ProcessStart:134345628828462503"
+                      ]
+    }
+]

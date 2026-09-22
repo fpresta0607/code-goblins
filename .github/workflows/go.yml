@@ -16,6 +16,28 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.13.0'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Check frontend and regenerate embedded assets
+        working-directory: frontend
+        shell: pwsh
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run lint
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (git status --porcelain --untracked-files=all -- ../internal/boardweb/dist) {
+            throw 'Embedded assets differ from the lockfile build. Run npm ci and npm run build in frontend, then commit the assets.'
+          }
       - name: Ensure SQLite integration tests can run
         shell: pwsh
         run: |
