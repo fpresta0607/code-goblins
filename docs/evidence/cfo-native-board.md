@@ -181,5 +181,5 @@ The supervising CFO reports global v2 policy applied but this task still on its 
 The worker has not retried the gate or changed shared settings; the next managed gate remains required and externally held, with no push, PR or merge claimed.
 
 The first external clean-checkout rebuild caught a Windows reproducibility defect: Vite retained CRLF template newlines while inserting LF asset tags, producing mixed-line-ending HTML.
-Pinning the source template and embedded HTML to LF in `.gitattributes` fixed the actual lockfile-build comparison.
+Pinning the source template and embedded HTML/JavaScript/CSS to LF in `.gitattributes` fixes both the actual lockfile-build comparison and Windows Git's modified-file detection after regeneration.
 The final artifact is built from the subsequent clean commit containing that correction, with no hand edits to generated assets.

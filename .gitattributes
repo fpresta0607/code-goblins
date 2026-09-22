@@ -1,3 +1,5 @@
 # Vite preserves template newlines. Keep clean Windows builds reproducible.
 frontend/index.html text eol=lf
 internal/boardweb/dist/index.html text eol=lf
+internal/boardweb/dist/**/*.js text eol=lf
+internal/boardweb/dist/**/*.css text eol=lf
