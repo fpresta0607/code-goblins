@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([Parameter(Mandatory=$true)][string]$Binary)
+param([Parameter(Mandatory=$true)][string]$Binary, [Parameter(Mandatory=$true)][string]$HarnessBinary)
 $ErrorActionPreference = 'Stop'
 if ($env:CFO_BOARD_REAL -ne '1') { throw 'Set CFO_BOARD_REAL=1 to create the isolated native board fixture.' }
 Remove-Item Env:CFO_HOME,Env:CFO_STATE_OVERRIDE -ErrorAction SilentlyContinue
@@ -23,7 +23,8 @@ function Checked([string]$Command, [string[]]$Arguments) {
 }
 Write-UTF8 $env:HERDR_CONFIG_PATH ((Checked 'herdr' @('--default-config')) -join "`n")
 $cfo = (Resolve-Path -LiteralPath $Binary).Path
-# Validate and scan the supplied executable before this opt-in test.
+$harness = (Resolve-Path -LiteralPath $HarnessBinary).Path
+# Build, validate and scan both supplied executables before this opt-in test.
 # A second path or copy is not security clearance for a flagged artifact.
 Checked 'git' @('-C',$project,'init','-q','--initial-branch=main') | Out-Null
 Checked 'git' @('-C',$project,'config','user.name','Local acceptance fixture') | Out-Null
@@ -38,9 +39,9 @@ Write-UTF8 "$project\supervisor.ts" "export function summarize(state: string): s
 Write-UTF8 "$project\board.css" ":root {`n  --accent: #00e59b;`n  --surface: #03050a;`n}`n"
 Checked 'git' @('-C',$project,'add','.') | Out-Null
 Checked 'git' @('-C',$project,'commit','-qm','Show evidence freshness in the native board') | Out-Null
-foreach ($harness in @('codex','claude','pi')) {
-    Checked $cfo @('hooks','install',$harness,'--config-dir',"$root\$harness") | Out-Host
-    Checked $cfo @('hooks','install',$harness,'--config-dir',"$root\$harness") | Out-Host
+foreach ($kind in @('codex','claude','pi')) {
+    Checked $cfo @('hooks','install',$kind,'--config-dir',"$root\$kind") | Out-Host
+    Checked $cfo @('hooks','install',$kind,'--config-dir',"$root\$kind") | Out-Host
 }
 $server = Start-Process -FilePath 'herdr' -ArgumentList @('--session',$session,'server') -WindowStyle Hidden -RedirectStandardOutput "$root\herdr.out" -RedirectStandardError "$root\herdr.err" -PassThru
 $deadline = (Get-Date).AddSeconds(15)
@@ -54,25 +55,34 @@ $pane = $tab.root_pane.pane_id
 if (!$pane) { throw 'Herdr did not return a fixture pane.' }
 Write-UTF8 "$fixtureHome\state\board-fixture.meta" (@(
     "worktree=$project", "project=$project", 'harness=codex', 'kind=ship', 'mode=local-only', 'yolo=no',
-    'spawn_gen=fixture-1', 'model=fixture (no model calls)', 'effort=max', 'backend=herdr',
+    'spawn_gen=fixture-1', 'model=example (no model calls)', 'effort=max', 'backend=herdr',
     "herdr_session=$session", "herdr_workspace_id=$($workspace.workspace.workspace_id)", "herdr_tab_id=$($tab.tab.tab_id)", "herdr_pane_id=$pane"
 ) -join "`n")
-Write-UTF8 "$fixtureHome\state\board-fixture.status" ((Get-Date).ToUniversalTime().ToString('o') + ' working: Native board Windows acceptance fixture')
-Write-UTF8 "$fixtureHome\data\backlog.md" "## Queued`n- [ ] board-fixture - Native event recovery and code review (repo: fixture)`n- [ ] follow-up - Verify landed content (repo: fixture) blocked-by: board-fixture`n"
-$parent = @{hook_event_name='SessionStart';session_id='board-cfo';cwd=$project;model='fixture supervisor'} | ConvertTo-Json -Compress
-$parent | & $cfo native-hook claude
-if ($LASTEXITCODE -ne 0) { throw 'CFO native fixture hook failed' }
-$config = @{ root=$root; home=$fixtureHome; project=$project; session=$session; pane=$pane; hook="$root\codex\cfo-native-hook.ps1"; binary=$cfo; herdr_pid=$server.Id }
+Write-UTF8 "$fixtureHome\state\board-fixture.status" ((Get-Date).ToUniversalTime().ToString('o') + ' working: Build review panel')
+Write-UTF8 "$fixtureHome\data\backlog.md" "## Queued`n- [ ] board-fixture - Build review panel (repo: example)`n- [ ] follow-up - Polish settings (repo: example)`n"
+$config = @{ root=$root; home=$fixtureHome; project=$project; session=$session; pane=$pane; hook="$root\codex\cfo-native-hook.ps1"; binary=$cfo; herdr_pid=$server.Id; parentHarness='codex' }
 Write-UTF8 "$root\fixture.json" ($config | ConvertTo-Json)
-$harnessSource = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\fixtures\native-board-harness'))
-$env:GOMAXPROCS = '2'
-Checked 'go' @('build','-o',"$root\bin\codex.exe",$harnessSource) | Out-Null
-$line = "& '" + "$root\bin\codex.exe".Replace("'","''") + "' '" + "$root\fixture.json".Replace("'","''") + "'"
+$cfoTab = (Checked 'herdr' @('--session',$session,'tab','create','--workspace',$workspace.workspace.workspace_id,'--cwd',$project,'--label','example-cfo','--no-focus') | ConvertFrom-Json).result
+$cfoConfig = $config.Clone()
+$cfoConfig.pane = $cfoTab.root_pane.pane_id
+$cfoConfig.role = 'cfo'
+$cfoConfig.nativeID = 'board-cfo'
+Write-UTF8 "$root\cfo.json" ($cfoConfig | ConvertTo-Json)
+$cfoLine = "& '" + $harness.Replace("'","''") + "' '" + "$root\cfo.json".Replace("'","''") + "'"
+Checked 'herdr' @('--session',$session,'pane','run',$cfoConfig.pane,$cfoLine) | Out-Null
+$deadline = (Get-Date).AddSeconds(20)
+while (!(Test-Path "$root\cfo-harness.pid") -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
+if (!(Test-Path "$root\cfo-harness.pid")) { throw "Example CFO did not start. Inspect $root" }
+$cfoProcess = Get-Process -Id ([int](Get-Content "$root\cfo-harness.pid"))
+$cfoPane = (Checked 'herdr' @('--session',$session,'pane','get',$cfoConfig.pane) | ConvertFrom-Json).result.pane
+$primary = @{ target=@{Session=$session;Pane=$cfoConfig.pane};workspace=$workspace.workspace.workspace_id;tab=$cfoTab.tab.tab_id;agent='codex';terminal=$cfoPane.terminal_id;process=@{pid=$cfoProcess.Id;owner_pid=$cfoProcess.Id;session='';start=$cfoProcess.StartTime.ToUniversalTime().ToString('o');hostname=[System.Net.Dns]::GetHostName();acquired=(Get-Date).ToUniversalTime().ToString('o')} }
+Write-UTF8 "$fixtureHome\state\primary.json" ($primary | ConvertTo-Json -Depth 5)
+$line = "& '" + $harness.Replace("'","''") + "' '" + "$root\fixture.json".Replace("'","''") + "'"
 Checked 'herdr' @('--session',$session,'pane','run',$pane,$line) | Out-Null
 $deadline = (Get-Date).AddSeconds(15)
 while (!(Test-Path "$root\harness.pid") -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
 if (!(Test-Path "$root\harness.pid")) { throw "Fixture harness did not start. Inspect $root" }
-$board = Start-Process -FilePath $cfo -ArgumentList @('serve','--listen','127.0.0.1:0') -WindowStyle Hidden -RedirectStandardOutput "$root\board.out" -RedirectStandardError "$root\board.err" -PassThru
+$board = Start-Process -FilePath $cfo -ArgumentList @('serve','--example','--listen','127.0.0.1:0') -WindowStyle Hidden -RedirectStandardOutput "$root\board.out" -RedirectStandardError "$root\board.err" -PassThru
 $deadline = (Get-Date).AddSeconds(15)
 do {
     Start-Sleep -Milliseconds 100
@@ -82,6 +92,8 @@ if ($log -notmatch 'http://127.0.0.1:\d+') { throw "Board did not start. Inspect
 $config.url = $Matches[0]
 $config.board_pid = $board.Id
 $config.harness_pid = [int](Get-Content "$root\harness.pid")
+$config.cfo_harness_pid = $cfoProcess.Id
+$config.cfo_pane = $cfoConfig.pane
 Write-UTF8 "$root\fixture.json" ($config | ConvertTo-Json)
 Write-Output ($config | ConvertTo-Json)
 Write-Output 'Fixture remains running for browser/restart/crash verification. Stop only the PIDs and named test session recorded above.'

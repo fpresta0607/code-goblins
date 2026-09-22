@@ -46,6 +46,7 @@ export interface Action {
   id: string;
   kind: string;
   task_id: string;
+  generation: string;
   status: string;
   message: string;
   text: string;
@@ -62,6 +63,7 @@ export interface Decision {
   detail: string;
 }
 export interface Snapshot {
+  example: boolean;
   instance: string;
   revision: number;
   started: string;
@@ -97,13 +99,46 @@ export interface Commit {
   author: string;
   date: string;
 }
-export interface Feedback {
+export interface ReviewSelection {
+  task_id: string;
+  generation: string;
   file: string;
   line: number;
-  side: "added" | "removed" | "context";
+  end_line: number;
+  side: "old" | "new";
   head: string;
   revision: string;
   diff_id: string;
+}
+
+export interface CFOOutput {
+  identity: string;
+  harness: string;
+  available: boolean;
+  reason: string;
+  text: string;
+  at: string;
+}
+
+export function parseCFO(value: unknown): CFOOutput {
+  const v = object(value);
+  return { identity: string(v.identity), harness: string(v.harness), available: boolean(v.available), reason: string(v.reason), text: string(v.text), at: string(v.at) };
+}
+
+export function decisionText(detail: string): string {
+  if (!detail.startsWith("review: ")) return detail;
+  try {
+    const record = object(JSON.parse(detail.slice(8)));
+    const file = string(record.file), text = string(record.text);
+    const first = number(record.line), last = number(record.end_line);
+    const side = string(record.side);
+    if (!file || !text || !Number.isInteger(first) || !Number.isInteger(last) || first < 1 || last < first || (side !== "old" && side !== "new")) {
+      throw new Error("Invalid review context");
+    }
+    return `${file} · ${side} ${first === last ? "line " + first : "lines " + first + "–" + last}\n${text}`;
+  } catch {
+    return "Review request metadata is invalid. Inspect the durable CFO queue.";
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -140,6 +175,7 @@ export function parseAction(value: unknown): Action {
     id: string(v.id),
     kind: string(v.kind),
     task_id: string(v.task_id),
+    generation: string(v.generation),
     status: string(v.status),
     message: string(v.message),
     text: string(v.text),
@@ -163,6 +199,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     at: string(v.at),
     reconciled: string(v.reconciled),
     healthy: boolean(v.healthy),
+    example: v.example === undefined ? false : boolean(v.example),
     error: string(v.error),
     inbox: number(v.inbox),
     retired: strings(v.retired),

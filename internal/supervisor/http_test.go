@@ -13,6 +13,45 @@ import (
 	"time"
 )
 
+func TestNativeCaptureRequestsAreBoundedAcrossRecipients(t *testing.T) {
+	store, _ := testStore(t)
+	entered, release := make(chan struct{}), make(chan struct{})
+	service := &Service{Store: store, Options: Options{Peek: func(ctx context.Context, _ string, _ int) (string, error) {
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) > 8*time.Second {
+			return "", fmt.Errorf("capture has no bounded deadline")
+		}
+		close(entered)
+		<-release
+		return "Native output\nSecond line", nil
+	}}}
+	handler := NewHTTP(service, "board.local", nil)
+	completed := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local/api/tasks/task-1/terminal", nil))
+		completed <- response
+	}()
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		close(release)
+		t.Fatal("capture did not begin")
+	}
+	for _, path := range []string{"/api/cfo", "/api/tasks/task-1/terminal"} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local"+path, nil))
+		if response.Code != 503 {
+			close(release)
+			t.Fatalf("overlapping capture admitted: %d", response.Code)
+		}
+	}
+	close(release)
+	if response := <-completed; response.Code != 200 || !strings.Contains(response.Body.String(), `Native output\nSecond line`) {
+		t.Fatalf("native capture failed: %d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestAPIOriginIdempotencySafePathsAndReconnect(t *testing.T) {
 	_, h := testStore(t)
 	meta, _ := state.ReadTaskMeta(h.State, "task-1")

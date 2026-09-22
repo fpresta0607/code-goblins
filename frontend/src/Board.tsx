@@ -1,150 +1,28 @@
-// Board column ordering and card selection adapted from Cline Kanban's
-// kanban-board.tsx. Copyright 2026 Cline Bot Inc., Apache-2.0.
-// CFO changes: evidence-derived columns, semantic buttons, no drag transitions.
-import type { Task } from "./types";
+import type { Snapshot, Task } from "./types";
+import { Avatar } from "./Avatar";
+import { nodeStatus, personaFor, taskColumn } from "./workflow";
 
-const BOARD_COLUMN_ORDER = [
-  "queued",
-  "working",
-  "review",
-  "blocked",
-  "done",
-] as const;
-const titles = {
-  queued: "Queued",
-  working: "In progress",
-  review: "Review & delivery",
-  blocked: "Needs attention",
-  done: "Delivered",
-};
-export function taskColumn(task: Task): (typeof BOARD_COLUMN_ORDER)[number] {
-  if (task.phase === "unavailable") return "blocked";
-  if (
-    task.phase === "queued" ||
-    task.phase === "blocked" ||
-    task.phase === "done"
-  )
-    return task.phase;
-  if (
-    task.phase === "review" ||
-    task.phase === "ready" ||
-    task.phase === "merged"
-  )
-    return "review";
-  return "working";
-}
-export function age(timestamp: string): string {
-  if (!timestamp || timestamp.startsWith("0001")) return "No evidence";
-  const seconds = Math.max(
-    0,
-    Math.floor((Date.now() - Date.parse(timestamp)) / 1000),
-  );
-  if (!Number.isFinite(seconds)) return "Unknown freshness";
-  if (seconds < 60) return `${seconds}s ago`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-  return `${Math.floor(seconds / 86400)}d ago`;
-}
-export function Badge({ phase }: { phase: string }) {
-  return (
-    <span className={`badge phase-${phase}`}>
-      {phase === "unknown"
-        ? "Unknown"
-        : phase === "ready"
-          ? "Checks passed"
-          : phase === "merged"
-            ? "Verify landed content"
-            : phase || "Unknown"}
-    </span>
-  );
-}
-export function KanbanBoard({
-  tasks,
-  onCardSelect,
-}: {
-  tasks: Task[];
-  onCardSelect: (id: string) => void;
+export function Board({ snapshot, selected, onSelect }: {
+  snapshot: Snapshot; selected?: string;
+  onSelect: (task: Task, source: HTMLElement) => void;
 }) {
-  return (
-    <div className="board" aria-label="Task board">
-      {BOARD_COLUMN_ORDER.map((column) => {
-        const cards = tasks.filter((task) => taskColumn(task) === column);
-        return (
-          <section
-            className="board-column"
-            key={column}
-            aria-labelledby={`column-${column}`}
-          >
-            <header className="column-header">
-              <span className={`column-dot ${column}`} />
-              <h2 id={`column-${column}`}>{titles[column]}</h2>
-              <span className="count">{cards.length}</span>
-            </header>
-            <div className="column-cards">
-              {cards.map((task) => (
-                <button
-                  className="task-card"
-                  key={task.id}
-                  onClick={() => onCardSelect(task.id)}
-                >
-                  <div className="card-top">
-                    <span className="project-label">
-                      {task.project || "Unassigned project"}
-                    </span>
-                    <span className="task-mark" aria-hidden="true">
-                      ↗
-                    </span>
-                  </div>
-                  <h3>{task.title}</h3>
-                  <p className="card-reason">
-                    {task.reason || "Awaiting dispatch"}
-                  </p>
-                  {task.dependencies.length > 0 && (
-                    <p className="dependency">
-                      Depends on {task.dependencies.join(", ")}
-                    </p>
-                  )}
-                  <div className="card-tags">
-                    <Badge phase={task.phase} />
-                    {task.phase !== "done" &&
-                      task.runtime?.state &&
-                      !["busy", "active", "idle", "parked"].includes(
-                        task.runtime.state,
-                      ) && (
-                        <span className="harness-label">
-                          Worker {task.runtime.state}
-                        </span>
-                      )}
-                    {task.harness && (
-                      <span className="harness-label">{task.harness}</span>
-                    )}
-                  </div>
-                  <footer>
-                    <span className="mono">
-                      {task.model && task.model !== "default"
-                        ? task.model
-                        : task.id}
-                    </span>
-                    <span>{age(task.at)}</span>
-                  </footer>
-                </button>
-              ))}
-              {cards.length === 0 && (
-                <div className="empty-column">
-                  <span aria-hidden="true">○</span>
-                  <p>
-                    {column === "blocked"
-                      ? "Nothing needs a decision"
-                      : column === "done"
-                        ? "Verified deliveries appear here"
-                        : "No tasks in this stage"}
-                  </p>
-                </div>
-              )}
-            </div>
-          </section>
-        );
-      })}
-    </div>
-  );
+  return <section className="task-board" aria-label="Task board">
+    {(["Tasks", "In progress", "Completed"] as const).map((column) => {
+      const tasks = snapshot.tasks.filter((task) => taskColumn(task) === column);
+      return <section key={column} className="board-column" aria-label={column}>
+        <h2>{column}<span className="column-count">{tasks.length}</span></h2>
+        <div className="task-cards">
+          {tasks.map((task) => <button key={task.id} className={"task-card" + (selected === task.id ? " selected" : "")}
+            aria-pressed={selected === task.id} onClick={(event) => onSelect(task, event.currentTarget)}>
+            <Avatar persona={personaFor(task)} />
+            <span className="card-copy"><strong>{task.title || task.id}</strong>
+              <span className={"plain-status phase-" + task.phase}><span className="status-dot" />{nodeStatus({ id: task.id, title: task.title, task, relation: "" })}</span>
+              {snapshot.decisions.some((decision) => decision.key === task.id && decision.kind !== "heartbeat") && <span className="attention-dot">Needs attention</span>}
+            </span>
+          </button>)}
+          {!tasks.length && <p className="column-empty">{column === "Tasks" ? "Nothing queued" : column === "Completed" ? "Verified work will appear here" : "No work in progress"}</p>}
+        </div>
+      </section>;
+    })}
+  </section>;
 }

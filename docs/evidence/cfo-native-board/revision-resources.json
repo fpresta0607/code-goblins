@@ -1,0 +1,34 @@
+[
+    {
+        "pid":  6108,
+        "name":  "cfo-native-board-ui-v5",
+        "seconds":  30.1148647,
+        "cpu_seconds":  0.40625,
+        "working_mib":  65.78125,
+        "private_mib":  53.47265625
+    },
+    {
+        "pid":  46956,
+        "name":  "herdr",
+        "seconds":  30.2070938,
+        "cpu_seconds":  1.390625,
+        "working_mib":  33.57421875,
+        "private_mib":  15.54296875
+    },
+    {
+        "pid":  26796,
+        "name":  "codex",
+        "seconds":  30.2183761,
+        "cpu_seconds":  0,
+        "working_mib":  8.2734375,
+        "private_mib":  14.265625
+    },
+    {
+        "pid":  4080,
+        "name":  "codex",
+        "seconds":  30.262745499999998,
+        "cpu_seconds":  0,
+        "working_mib":  10.65625,
+        "private_mib":  13.76953125
+    }
+]

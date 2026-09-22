@@ -9,6 +9,15 @@ export interface DiffRow {
   next: number | null;
   text: string;
 }
+
+export function reviewRange(rows: DiffRow[], first: number, last: number, side: "old" | "new"): boolean {
+  if (first < 1 || last < first || last - first >= 200) return false;
+  const selected = rows.filter((row) => {
+    const line = side === "old" ? row.old : row.next;
+    return line !== null && line >= first && line <= last;
+  });
+  return selected.length === last - first + 1 && selected.every((row, index) => (side === "old" ? row.old : row.next) === first + index);
+}
 export function parsePatchToRows(patch: string): DiffRow[] {
   const rows: DiffRow[] = [];
   let old = 0,

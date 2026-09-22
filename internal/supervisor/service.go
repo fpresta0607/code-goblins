@@ -31,6 +31,8 @@ type ProgressReader interface {
 }
 
 type Options struct {
+	Example        bool
+	CFO            *CFOConnection
 	Gate           ProgressReader
 	Send           func(context.Context, string, string) error
 	Peek           func(context.Context, string, int) (string, error)
@@ -266,12 +268,21 @@ func (s *Service) process(ctx context.Context) {
 }
 
 func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
+	if a.Kind == "cfo_message" {
+		if s.Options.CFO == nil {
+			return Evaluation{}, fmt.Errorf("%w: CFO message transport is unavailable", ErrRejected)
+		}
+		return s.Options.CFO.Send(ctx, a.Generation, a.Text)
+	}
 	meta, err := state.ReadTaskMeta(s.Store.Home.State, a.TaskID)
 	if err != nil {
 		return Evaluation{}, err
 	}
 	if meta.SpawnGen != a.Generation {
-		return Evaluation{}, errors.New("task generation changed before action execution")
+		return Evaluation{}, fmt.Errorf("%w: task restarted or was replaced; refresh the board", ErrRejected)
+	}
+	if a.Kind == "review" {
+		return s.deliverReview(ctx, meta, a)
 	}
 	if a.Kind == "feedback" {
 		if err := s.validateFeedback(ctx, meta, a); err != nil {
@@ -458,6 +469,7 @@ type Task struct {
 }
 
 type Snapshot struct {
+	Example    bool          `json:"example"`
 	Instance   string        `json:"instance"`
 	Revision   uint64        `json:"revision"`
 	Started    time.Time     `json:"started"`
@@ -477,7 +489,7 @@ type Snapshot struct {
 func (s *Service) Snapshot() (Snapshot, error) {
 	d := s.Store.Snapshot()
 	s.mu.Lock()
-	out := Snapshot{Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
+	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
 	s.mu.Unlock()
 	out.Healthy = supervise.WatcherHealthy(s.Store.Home.State, 30*time.Second)
 	for _, node := range d.Sessions {

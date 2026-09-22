@@ -44,6 +44,9 @@ type Sender struct {
 	Resolve TargetResolver
 	Herdr   *herdr.Client
 	Sleep   func(context.Context, time.Duration) error
+	// Guard pins an externally registered recipient through the native submit
+	// and confirmation reads. It cannot enable the explicit-pane fallback.
+	Guard func(context.Context, herdr.Target, herdr.AgentDetail) error
 }
 
 // Text delivers message to the resolved target and returns success only once
@@ -101,6 +104,11 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 	if err != nil {
 		return fmt.Errorf("fleet: read agent state for %s before submit, so acceptance could not be proven and nothing was sent: %w", target, err)
 	}
+	if s.Guard != nil {
+		if err := s.Guard(ctx, target, before); err != nil {
+			return err
+		}
+	}
 
 	if err := s.Herdr.AgentPrompt(ctx, target, message); err != nil {
 		return fmt.Errorf("fleet: submit text for %s: %w", target, err)
@@ -140,6 +148,11 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 			continue
 		}
 		if herdr.PromptAccepted(before, after) {
+			if s.Guard != nil {
+				if err := s.Guard(ctx, target, after); err != nil {
+					return fmt.Errorf("recipient changed after submission; delivery is unconfirmed: %w", err)
+				}
+			}
 			return nil
 		}
 	}

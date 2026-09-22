@@ -6,14 +6,19 @@ License: /assets/cline-kanban-LICENSE.txt
 Source: https://github.com/cline/kanban/tree/abd4912c27ce6b7f18b5a8106c145fd838e90cc4
 
 Modified files and behavior:
-Board.tsx adapts column ordering and card selection from kanban-board.tsx.
+Board.tsx adapts kanban-board.tsx grouping into evidence-backed Tasks, In progress and Completed columns.
 diff.ts and syntax.tsx adapt patch parsing and language selection from shared/diff-renderer.tsx.
 Details.tsx adapts on-demand commit selection and diff presentation from git-history-view.tsx, plus contextual line feedback from detail-panels/diff-viewer-panel.tsx.
 stream.ts adapts bounded reconnection from runtime/use-runtime-state-stream.ts.
 CFO removes drag-to-progress, automation creation and destructive Git controls; adds durable Go actions, pipeline custody checks, two-sided line coordinates, safe text-token rendering, full SSE snapshots, and evidence-backed lineage.
 The pinned upstream tree contains LICENSE and no NOTICE file.
 
-Design tokens are adapted from the inspected local SIQshift brand.css.
+Design tokens and card/ghost/focus primitives are adapted from the inspected local SIQshift packages/shared/styles/brand.css.
+Rounded rectangle controls, the native select chevron/skin, and native details/summary styling are adapted from SIQshift apps/desktop/src/styles.css and the matching apps/web/src/styles.css controls.
+Details.tsx adapts load-on-open and release-on-close disclosure behavior from packages/shared/src/ui.tsx ShiftGroups, using the existing CFO resource hook with stale-response cancellation.
+CFO uses larger system typography, static soft node surfaces, mutually exclusive Board/Orchestration views and one contextual pane; SIQshift reporting labels, charts, WebGL and API contracts are not included.
+The app icon and three transparent goblin sprite atlases were generated with the built-in image generation tool for this project and approved by the user on 2026-09-22.
+They were copied unchanged from the approved production assets; role-specific artwork is chosen deterministically from reported role or task wording, never presented as inferred runtime telemetry.
 Runtime dependencies: React and React DOM (MIT), PrismJS (MIT).
 React: https://github.com/facebook/react/blob/main/LICENSE
 Prism: https://github.com/PrismJS/prism/blob/master/LICENSE

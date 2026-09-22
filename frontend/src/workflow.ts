@@ -1,0 +1,134 @@
+import type { Action, Session, Snapshot, Task } from "./types.ts";
+import { lineageRoots, ownsTaskSession, sessionTitle, tasksWithoutSession } from "./lineageTree.ts";
+
+export type Persona = "cfo" | "builder" | "reviewer" | "tester" | "planner" | "finisher" | "general"
+  | "debugger" | "security" | "database" | "designer" | "documentation" | "operations"
+  | "researcher" | "performance" | "integrations" | "git" | "accessibility" | "releases";
+export type Point = { x: number; y: number };
+export const NODE_WIDTH = 292;
+export const NODE_HEIGHT = 132;
+
+export function taskColumn(task: Task): "Tasks" | "In progress" | "Completed" {
+  if (task.phase === "queued") return "Tasks";
+  return task.phase === "done" && task.verified ? "Completed" : "In progress";
+}
+
+export function personaFor(task?: Task, node?: Session): Persona {
+  if (node?.role === "cfo") return "cfo";
+  if (task && ownsTaskSession(node, task) && taskColumn(task) === "Completed") return "finisher";
+  const meaning = (node?.agent_type || task?.title || "").toLowerCase();
+  const specialists: [RegExp, Persona][] = [
+    [/\b(debug|debugger|crash|bug|regression)\b/, "debugger"],
+    [/\b(security|vulnerability|threat|hardening)\b/, "security"],
+    [/\b(database|postgres|sql|schema|migration)\b/, "database"],
+    [/\b(designer|styling|visual|typography|brand)\b/, "designer"],
+    [/\b(documentation|docs|readme|guide)\b/, "documentation"],
+    [/\b(deploy|deployment|operations|infra|infrastructure)\b/, "operations"],
+    [/\b(research|researcher|investigate|explore)\b/, "researcher"],
+    [/\b(performance|latency|benchmark|optimize)\b/, "performance"],
+    [/\b(integration|integrations|webhook|connector)\b/, "integrations"],
+    [/\b(git|rebase|merge|conflict|version control)\b/, "git"],
+    [/\b(accessibility|a11y|screen reader)\b/, "accessibility"],
+    [/\b(release|releases|versioning|publish)\b/, "releases"],
+  ];
+  const specialist = specialists.find(([pattern]) => pattern.test(meaning));
+  if (specialist) return specialist[1];
+  if (/^(build|implement|fix|repair|develop)\b/.test(meaning)) return "builder";
+  if (/\b(test|tester|testing|qa|keyboard|validate|validation)\b/.test(meaning)) return "tester";
+  if (/\b(review|reviewer|audit|diff)\b/.test(meaning)) return "reviewer";
+  if (/\b(plan|planner|planning|design|research)\b/.test(meaning)) return "planner";
+  if (/\b(build|builder|implement|fix|repair|develop)\b/.test(meaning)) return "builder";
+  return "general";
+}
+
+export function statusText(phase: string): string {
+  const labels: Record<string, string> = {
+    queued: "Ready to start", working: "Working", active: "Active", started: "Session started",
+    review: "Awaiting review", ready: "Checks passed", done: "Verified delivery", merged: "Verify landed content",
+    blocked: "Needs attention", failed: "Needs attention", unavailable: "Evidence unavailable",
+    stale: "Evidence is stale", interrupted: "Interrupted", settled: "Turn settled", ended: "Session ended",
+  };
+  return labels[phase] || "Awaiting evidence";
+}
+
+export function nativeStatus(phase: string): string {
+  const labels: Record<string, string> = {
+    busy: "Working", working: "Working", active: "Active", started: "Session started",
+    idle: "Awaiting input", done: "Native turn finished", settled: "Turn settled",
+    ended: "Session ended", interrupted: "Interrupted", stale: "Evidence is stale",
+    unavailable: "Evidence unavailable", unknown: "Awaiting evidence",
+  };
+  return labels[phase] || "Awaiting evidence";
+}
+
+export function nodeStatus(node: WorkflowNode): string {
+  if (node.task && ownsTaskSession(node.session, node.task)) {
+    return node.task.phase === "done" && !node.task.verified ? "Delivery unverified" : statusText(node.task.phase);
+  }
+  return nativeStatus(node.session?.runtime?.state || node.session?.phase || "");
+}
+
+export interface WorkflowNode {
+  id: string;
+  title: string;
+  task?: Task;
+  session?: Session;
+  parent?: string;
+  relation: string;
+}
+
+export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
+  const ids = new Set(snapshot.sessions.map((node) => node.id));
+  const nodes: WorkflowNode[] = [
+    ...snapshot.sessions.map((session) => {
+      const task = snapshot.tasks.find((task) => task.id === session.task_id);
+      return {
+        id: "session:" + session.id, title: sessionTitle(session, task), task, session,
+        parent: session.parent && ids.has(session.parent) ? "session:" + session.parent : undefined,
+        relation: session.parent && ids.has(session.parent) ? session.relation || "Reported child"
+          : session.role === "cfo" ? "Supervisor"
+            : snapshot.retired.includes(session.parent) ? "Parent retired" : "Parent unreported",
+      };
+    }),
+    ...tasksWithoutSession(snapshot.tasks, snapshot.sessions).map((task) => ({
+      id: "task:" + task.id, title: task.title || task.id, task, relation: "Session unreported",
+    })),
+  ];
+  const byID = new Map(nodes.map((node) => [node.id, node]));
+  const cyclic = new Set<string>();
+  for (const node of nodes) {
+    const seen = new Set([node.id]);
+    let parent = node.parent;
+    while (parent && !seen.has(parent)) { seen.add(parent); parent = byID.get(parent)?.parent; }
+    if (parent) cyclic.add(node.id);
+  }
+  return nodes.map((node) => cyclic.has(node.id) ? { ...node, parent: undefined, relation: "Cyclic parent link" } : node);
+}
+
+// Positioning changes presentation only. Cycles retain a visible node but do
+// not become recursively laid-out family relationships.
+export function arrange(nodes: WorkflowNode[]): Record<string, Point> {
+  const positions: Record<string, Point> = {};
+  const visited = new Set<string>();
+  let leaf = 0;
+  const place = (node: WorkflowNode, depth: number): number => {
+    visited.add(node.id);
+    const children = nodes.filter((child) => child.parent === node.id && !visited.has(child.id));
+    const xs = children.filter((child) => !visited.has(child.id)).map((child) => place(child, depth + 1));
+    const x = xs.length ? (xs[0] + xs[xs.length - 1]) / 2 : 40 + leaf++ * (NODE_WIDTH + 44);
+    positions[node.id] = { x, y: 72 + depth * 244 };
+    return x;
+  };
+  const sessions = nodes.flatMap((node) => node.session ? [node.session] : []);
+  const rootIDs = new Set(lineageRoots(sessions).map((session) => "session:" + session.id));
+  for (const node of nodes) if (!visited.has(node.id) && (!node.parent || rootIDs.has(node.id))) place(node, 0);
+  for (const node of nodes) if (!visited.has(node.id)) place(node, 0);
+  return positions;
+}
+
+export function recentCommunication(actions: Action[], task: Task | undefined, now: number, connected: boolean): Action | undefined {
+  if (!connected || !task) return undefined;
+  return actions.slice().reverse().find((action) => action.kind === "feedback" && action.task_id === task.id
+    && action.generation === task.generation && action.status === "succeeded"
+    && now >= Date.parse(action.updated_at) && now - Date.parse(action.updated_at) < 10_000);
+}

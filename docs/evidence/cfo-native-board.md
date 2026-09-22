@@ -5,6 +5,7 @@ Implementation used the confirmed GPT-6 Astra max worker without dispatching ano
 The architecture remains a Go supervisor with an embedded React/TypeScript/Vite browser UI; Tauri packaging is outside this change.
 The managed no-mistakes result and final artifact manifest are reported through task status and `cfo notify cfo-native-board` after implementation verification.
 No merge is authorized by this report.
+The first sections preserve the original implementation checkpoint; the final section records the approved two-view revision and current delivery hold.
 
 ## Automated checks
 
@@ -114,5 +115,67 @@ The final delivery executable is rebuilt outside this worktree after committing 
 Its manifest belongs in `C:\dev\code-goblins\data\cfo-native-board\final-artifact.json`, outside tracked source, and records the actual delivery commit with `vcs.modified=false`, final SHA256, and a fresh targeted Defender scan.
 Recording that manifest must not alter the clean delivery commit.
 
-The operator's codex-then-claude primary chain and frozen v1 task policy remain untouched.
-A managed gate refusal must be reported exactly and must not be bypassed with a native no-mistakes mutation, policy migration, configuration overwrite, or manual push/PR.
+At that original checkpoint, the operator's codex-then-claude primary chain and frozen v1 task policy remained untouched, and the managed gate refused shared config drift.
+That refusal was reported without a native mutation, configuration overwrite, or manual push/PR.
+
+## Approved two-view revision
+
+The later user-approved generated design supersedes the intermediate single-canvas layout.
+The implementation now renders mutually exclusive Board and Orchestration views with one persistent contextual pane, semantic goblin artwork, actual native CFO/worker capture and verified submitted messages.
+The three task columns use raised rounded surfaces and 120-121 px desktop cards with 80 px avatars.
+Initial orchestration scale is at least 80%; explicit Fit can go smaller without changing parentage.
+All three final visual findings were resolved and independently accepted by the supervising CFO.
+
+The retained example is `http://127.0.0.1:58749`, backed by temporary home `cfo-board-windows-3c143d71c82d408584aaccd5249610aa` and isolated Herdr session `cfo-board-test-8891404635a4`.
+It has queued, active and completed task records plus five-level native lineage and an explicitly unlinked root.
+Completed example evaluation is seeded acceptance data after comparing its local main contents, not a production managed-gate result.
+Its actual native CFO/worker processes are deterministic fixtures with no model calls; the UI labels Example workspace and does not invent model responses.
+
+| Revision check | Result |
+| --- | --- |
+| Automated checks | Full `go test -p 1 ./...` and `go vet -p 1 ./...` passed with isolated test variables and GOMAXPROCS=2; cmd/cfo took 93.092 s |
+| Frontend | Final typecheck, ESLint, ten behavior tests and Vite production build passed; no new dependency |
+| CFO identity | Required registered-agent delivery, stale/missing registration, changed process, registration write fence, interrupted delivery and full-history rejection tests passed |
+| Capture bounds | One shared CFO/worker capture slot and eight-second timeout regression passed; visible-pane polling is sequential |
+| Native conversation | One CFO submission produced one CFO receipt; a later intentional worker instruction produced one worker receipt and real captured output |
+| Review separation | Two files, new-side lines 2-3, produced two CFO review records with exact HEAD/fingerprint and zero worker receipts at that checkpoint |
+| Context review | A third comment on visible unchanged old-side line 1 produced its own CFO record |
+| Ambiguous response | Lost response plus SSE success retained one request ID, one POST, one queue record and the known outcome across recipient changes |
+| Session replacement | An old draft stayed bound to its original task session and disabled sending after the snapshot changed |
+| Completion selection | Active selection, streamed verified completion, then clicking that Completed card opened Changes, collapsed Terminal and retained the draft |
+| Pointer and keyboard | CFO independently verified drag/connectors/save/reload/collapse/Arrange/zoom/Fit; worker verified Alt+ArrowRight movement and visible storage failure |
+| Truthful activity | Accepted worker feedback displayed one pulse, which expired; stale/disconnected and wrong-session pulses are excluded by behavior tests |
+| Narrow layout | At actual 390 x 844, page width was 390, header did not overlap, compact chevrons replaced the footer strip, and deep nodes named actual parents |
+| Child details | Missing native child model stayed Model unreported; no parent terminal appeared, and the empty state linked the owning task |
+
+Browser screenshots and structured outcomes are retained in [cfo-native-board/](cfo-native-board/), including `revision-board-desktop.png`, `revision-orchestration-desktop.png`, `revision-orchestration-narrow.png`, `revision-child-narrow.png`, `revision-deep-lineage-narrow.png`, `revision-worker-desktop.png`, `revision-review-delivery.json` and `root-pointer-review.json`.
+The worker used its named task-owned Chrome session; the CFO used and then closed a separate review tab.
+Unrelated pages and production workers were preserved.
+
+### Revision resource observations
+
+During a 30-second sample with the CFO pane visible and sequential native capture enabled, supervisor PID 6108 used 0.4063 CPU seconds, 65.78 MiB working set and 53.47 MiB private memory.
+The same sample measured Herdr PID 46956 at 1.3906 CPU seconds / 33.57 MiB working set, fixture worker PID 26796 at 0 CPU seconds / 8.27 MiB, and fixture CFO PID 4080 at 0 CPU seconds / 10.66 MiB.
+These are attributable short process samples, excluding transient child CPU and unrelated browsers; they are not unique physical-memory or capacity estimates.
+The earlier separately attributed browser measurements remain historical observations rather than measurements of this revision.
+
+Twenty accepted direct hook invocations measured median 41.66 ms, p95 74.46 ms and maximum 77.49 ms.
+Twenty installed PowerShell helper invocations measured median 387.07 ms, p95 768.25 ms and maximum 1937.41 ms.
+The initial measurement payload omitted required role/cwd context and was refused; only the corrected accepted invocations enter these figures.
+PowerShell launch overhead remains material and is not hidden in the supervisor's idle CPU number.
+Raw samples are in `revision-resources.json` and `revision-hook-latency.json` beside the screenshots.
+
+### Revision security and delivery boundary
+
+The earlier Bearfoos quarantines above remain unexplained and are not cleared by subsequent clean scans.
+The v5 review executable had SHA256 `3CEF1ADCB24BAE475DAC68BA6B43FD02C08553A060A45459E2029D2ED7220E29`; exact-path scan `{C70E6E84-7879-4E6E-BC38-40D2B6B02485}` completed at 18:20:56 Central with zero recorded detections for that path before execution.
+The final revision executable is built outside the worktree only after this source/evidence commit, with its exact SHA256, delivery commit, `vcs.modified=false`, build information and matched Defender scan recorded in `C:\dev\code-goblins\data\cfo-native-board\revision-final-artifact.json`.
+The original `9c9af11` executable and manifest remain retained.
+
+The reported credential incident concerns `GITHUB_TOKEN` from the inherited process environment, with upstream provenance undetermined.
+The literal scan found zero in the scanned worktree files, branch commit objects, named artifacts and known task output locations, and five matches in the existing worker transcript.
+It stopped at that disclosure; remaining logs were not scanned, so neither universal absence nor a no-transmission claim is supported.
+The credential value is not reproduced here, and the operator's ruling leaves credentials and transcripts unchanged.
+
+The supervising CFO reports global v2 policy applied but this task still on its frozen v1 snapshot, awaiting an idle migration window while unrelated runs continue.
+The worker has not retried the gate or changed shared settings; the next managed gate remains required and externally held, with no push, PR or merge claimed.

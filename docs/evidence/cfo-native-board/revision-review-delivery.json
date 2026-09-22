@@ -1,0 +1,66 @@
+{
+    "draft_recipient_switch":  "preserved",
+    "initial_scale_percent":  80,
+    "cfo_receipts":  1,
+    "stale_task_session":  "disabled before send",
+    "worker_receipts_before_direct_instruction":  0,
+    "pulse":  "observed after accepted worker feedback, expired",
+    "child_native_terminal":  "unavailable, owning task linked",
+    "worker_receipts_after_direct_instruction":  1,
+    "narrow_page_width":  390,
+    "deep_parent_labels":  [
+                               "Diff syntax",
+                               "Visible context checks"
+                           ],
+    "keyboard_move":  "Alt+ArrowRight moved +10, saved",
+    "narrow_viewport":  "390x844",
+    "lost_response_posts":  1,
+    "child_model":  "Model unreported",
+    "completion_click":  "Changes opened, Terminal closed, draft preserved",
+    "storage_failure":  "visible notice",
+    "reviews":  [
+                    {
+                        "id":  "48d3cbf7-f4dd-4e8c-8835-a8e356bb29ad",
+                        "task_id":  "board-fixture",
+                        "generation":  "fixture-1",
+                        "file":  "supervisor.ts",
+                        "line":  2,
+                        "end_line":  3,
+                        "side":  "new",
+                        "head":  "aec9dbc40d82f71a216c8979f210324d0c7efbf1",
+                        "revision":  "",
+                        "diff_id":  "cfe48452658b5b132ca579195ef9a66425db4f2bbe97708014f037b3c91e9639",
+                        "text":  "Keep this fallback readable after a task restarts.",
+                        "code":  "  const phase = state.trim();\n  return phase || \u0027Evidence unavailable\u0027;\n"
+                    },
+                    {
+                        "id":  "168a21bb-deac-4bbc-bc71-61f831cc5851",
+                        "task_id":  "board-fixture",
+                        "generation":  "fixture-1",
+                        "file":  "board.css",
+                        "line":  2,
+                        "end_line":  3,
+                        "side":  "new",
+                        "head":  "aec9dbc40d82f71a216c8979f210324d0c7efbf1",
+                        "revision":  "",
+                        "diff_id":  "3771917003febf11690107100829b06834697026edfb1d4c10396c5ae6aeed44",
+                        "text":  "Keep these mint surface tokens consistent.",
+                        "code":  "  --accent: #00e59b;\n  --surface: #03050a;\n"
+                    },
+                    {
+                        "id":  "630c335c-7806-4fff-84de-44827ee66bbd",
+                        "task_id":  "board-fixture",
+                        "generation":  "fixture-1",
+                        "file":  "supervisor.ts",
+                        "line":  1,
+                        "end_line":  1,
+                        "side":  "old",
+                        "head":  "aec9dbc40d82f71a216c8979f210324d0c7efbf1",
+                        "revision":  "",
+                        "diff_id":  "cfe48452658b5b132ca579195ef9a66425db4f2bbe97708014f037b3c91e9639",
+                        "text":  "Keep this public signature unchanged.",
+                        "code":  "export function summarize(state: string): string {\n"
+                    }
+                ],
+    "url":  "http://127.0.0.1:58749"
+}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { object, string } from "./types";
 
 export async function request(
@@ -50,4 +50,43 @@ export function useResource<T>(
       setVersion((v) => v + 1);
     },
   };
+}
+
+// Only a visible native pane refreshes. Each read schedules the next after it
+// completes, so a slow Herdr never creates overlapping capture requests.
+export function useNativeOutput<T>(path: string | null, parse: (value: unknown) => T) {
+  const [result, setResult] = useState<{ path: string; data?: T; error?: string }>({ path: "" });
+  const [loading, setLoading] = useState(false);
+  const refresh = useRef<() => void>(() => {});
+  useEffect(() => {
+    if (!path) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    let reading = false;
+    const read = async () => {
+      if (reading || controller.signal.aborted) return;
+      clearTimeout(timer);
+      if (document.hidden) { timer = setTimeout(() => { void read(); }, 5000); return; }
+      reading = true;
+      setLoading(true);
+      try {
+        const data = parse(await request(path, controller.signal));
+        if (!controller.signal.aborted) setResult({ path, data });
+      } catch (error: unknown) {
+        if (!controller.signal.aborted) setResult((prior) => ({ path, data: prior.path === path ? prior.data : undefined, error: message(error) }));
+      } finally {
+        reading = false;
+        if (!controller.signal.aborted) {
+          setLoading(false);
+          timer = setTimeout(() => { void read(); }, 5000);
+        }
+      }
+    };
+    const refreshVisible = () => { void read(); };
+    refresh.current = refreshVisible;
+    document.addEventListener("visibilitychange", refreshVisible);
+    void read();
+    return () => { controller.abort(); clearTimeout(timer); document.removeEventListener("visibilitychange", refreshVisible); refresh.current = () => {}; };
+  }, [path, parse]);
+  return { data: result.path === path ? result.data : undefined, error: result.path === path ? result.error : undefined, loading, reload: () => refresh.current() };
 }
