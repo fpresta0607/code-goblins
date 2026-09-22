@@ -31,13 +31,13 @@
     "build": {
       "harness": "claude",
       "model": "opus",
-      "effort": "high",
+      "effort": "xhigh",
       "note": "ordinary implementation; the default lane"
     },
     "mechanical": {
       "harness": "claude",
-      "model": "sonnet",
-      "effort": "medium",
+      "model": "opus",
+      "effort": "xhigh",
       "note": "renames, config edits, docs, tightly specified changes"
     },
     "scout": {
