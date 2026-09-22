@@ -188,3 +188,6 @@ Shared gate policy remains held for the owning CFO.
   Attributable native CPU/RAM and twenty direct/twenty PowerShell hook samples are recorded in the revision evidence.
 - Final source/evidence commit is next, followed by an external clean-commit build, exact-artifact Defender scan and manifest outside tracked source.
   Shared task migration and the managed gate remain with the supervising CFO; no retry or bypass is authorized during this hold.
+- Committed the approved UI and evidence as `a45e2cd`.
+  The external clean-checkout build exposed mixed HTML line endings under Windows checkout conversion; pinning Vite input/output HTML to LF restored the committed asset comparison.
+  A follow-up build correction commit precedes the final executable; no generated file was hand edited.

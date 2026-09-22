@@ -179,3 +179,7 @@ The credential value is not reproduced here, and the operator's ruling leaves cr
 
 The supervising CFO reports global v2 policy applied but this task still on its frozen v1 snapshot, awaiting an idle migration window while unrelated runs continue.
 The worker has not retried the gate or changed shared settings; the next managed gate remains required and externally held, with no push, PR or merge claimed.
+
+The first external clean-checkout rebuild caught a Windows reproducibility defect: Vite retained CRLF template newlines while inserting LF asset tags, producing mixed-line-ending HTML.
+Pinning the source template and embedded HTML to LF in `.gitattributes` fixed the actual lockfile-build comparison.
+The final artifact is built from the subsequent clean commit containing that correction, with no hand edits to generated assets.

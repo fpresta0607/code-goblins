@@ -153,6 +153,7 @@ go build -o cfo.exe ./cmd/cfo
 
 Vite generates `internal/boardweb/dist`; do not edit that output manually.
 Commit the regenerated assets with frontend source changes.
+The HTML input and embedded HTML output are pinned to LF in `.gitattributes`, because Vite preserves template newlines and a CRLF Windows checkout otherwise changes the regenerated bundle.
 Both Windows CI and release workflows install from the lockfile, check the frontend, regenerate assets, and fail if the committed bundle differs before compiling Go.
 The runtime executable embeds those assets and requires no Node process.
 For frontend development, `npm run dev` listens at `127.0.0.1:5173` and proxies API calls to a supervisor on `127.0.0.1:4310`, translating only that explicit local development origin.
