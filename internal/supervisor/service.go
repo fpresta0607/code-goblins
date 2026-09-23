@@ -219,7 +219,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 }
 
 // refreshHistory rebuilds the Completed column on the once-a-minute recovery
-// cycle: finished tasks, and the pull requests the gate saw merged.
+// cycle: finished tasks, and the pull requests merged into fleet repositories.
 func (s *Service) refreshHistory(ctx context.Context) error {
 	now := time.Now().UTC()
 	history := finishedTasks(s.Store.Home.State, now)
@@ -488,7 +488,7 @@ type Task struct {
 	// Activity is the task's own latest status line.
 	Activity string `json:"activity"`
 	// Archived marks completed history rather than a live task, and Merged
-	// that the gate saw its pull request merged.
+	// that its pull request merged into a fleet repository.
 	Archived bool `json:"archived"`
 	Merged   bool `json:"merged"`
 	Evaluation

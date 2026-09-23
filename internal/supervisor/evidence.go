@@ -19,9 +19,10 @@ import (
 )
 
 // The board reads the fleet's own records for work no native hook reported:
-// task metadata, status logs, the wake queue, the gate database and what
-// cfo cleanup leaves behind. Without them a goblin that never installed the
-// native hooks read as awaiting evidence however busy it was.
+// task metadata, status logs, the wake queue, the gate database, merge
+// commits in fleet repositories and what cfo cleanup leaves behind. Without
+// them a goblin that never installed the native hooks read as awaiting
+// evidence however busy it was.
 
 const (
 	historyWindow = 7 * 24 * time.Hour
