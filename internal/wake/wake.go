@@ -392,10 +392,11 @@ func AwaitingAnswerStall(rec Record, id string) bool {
 	return rec.Kind == "stale" && rec.Key == id && strings.HasPrefix(rec.Detail, stallAwaitingAnswer)
 }
 
-// Question is a blocking notify's question and the options it offered.
+// Question is a blocked notify's question and the options it offered. A
+// failed notify is still a decision for the CFO, but it is not a question.
 func Question(rec Record) (string, []string, bool) {
-	_, question, options, ok := decision(rec)
-	return question, options, ok
+	verb, question, options, ok := decision(rec)
+	return question, options, ok && verb == "blocked"
 }
 
 // decision splits a blocking notify into the verb that parked it, the question

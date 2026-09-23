@@ -96,7 +96,7 @@ func goblinAsker(ctx context.Context, stateDir string, client *herdr.Client, tas
 // SurfaceNotify shows a goblin's blocking notify in the Command Center when
 // it offers choices, labelled with the goblin, and the Overlord's answer
 // returns to the goblin's pane once. A notify without choices is prose for
-// the CFO and never opens the modal.
+// the CFO and never opens the modal, and neither does a failed notify.
 func SurfaceNotify(ctx context.Context, stateDir string, client *herdr.Client, taskID string, record wake.Record) error {
 	question, options, ok := wake.Question(record)
 	if !ok || len(options) == 0 {
@@ -106,9 +106,11 @@ func SurfaceNotify(ctx context.Context, stateDir string, client *herdr.Client, t
 	// by ending it with "(Recommended)".
 	recommended := ""
 	for i, option := range options {
-		if choice, marked := strings.CutSuffix(option, "(Recommended)"); marked && recommended == "" {
+		if choice, marked := strings.CutSuffix(option, "(Recommended)"); marked {
 			options[i] = strings.TrimSpace(choice)
-			recommended = options[i]
+			if recommended == "" {
+				recommended = options[i]
+			}
 		}
 	}
 	meta, err := goblinAsker(ctx, stateDir, client, taskID)

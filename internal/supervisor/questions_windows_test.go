@@ -311,7 +311,7 @@ func goblinFixture(t *testing.T, store *Store) (state.TaskMeta, wake.Record, *cf
 	if err := state.WriteTaskMeta(store.Home.State, meta); err != nil {
 		t.Fatal(err)
 	}
-	record, err := wake.Append(store.Home.State, "notify", meta.ID, "blocked: Which store? options: Postgres | SQLite (Recommended)")
+	record, err := wake.Append(store.Home.State, "notify", meta.ID, "blocked: Which store? options: Postgres | SQLite (Recommended) | MySQL (Recommended)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +346,7 @@ func TestGoblinQuestionAnsweredOnceInItsOwnPane(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := surfaced(t, store, meta, record, connection)
-	if q.Task != meta.ID || q.Generation != meta.SpawnGen || q.Seq != record.Seq || q.Text != "Which store?" || !slices.Equal(q.Options, []string{"Postgres", "SQLite"}) || q.Recommended != "SQLite" {
+	if q.Task != meta.ID || q.Generation != meta.SpawnGen || q.Seq != record.Seq || q.Text != "Which store?" || !slices.Equal(q.Options, []string{"Postgres", "SQLite", "MySQL"}) || q.Recommended != "SQLite" {
 		t.Fatalf("surfaced question = %+v", q)
 	}
 	if _, err := store.Queue(Action{ID: "cfo-route", Kind: "cfo_answer", Generation: q.Identity, QuestionID: q.ID, Text: "SQLite"}); err == nil {
@@ -461,6 +461,13 @@ func TestSurfaceNotifyNeedsChoicesAndTheGoblinsOwnPane(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := SurfaceNotify(context.Background(), h.State, connection.Herdr, meta.ID, plain); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := wake.Append(h.State, "notify", meta.ID, "failed: Tests fail. options: Retry (Recommended) | Abandon")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SurfaceNotify(context.Background(), h.State, connection.Herdr, meta.ID, failed); err != nil {
 		t.Fatal(err)
 	}
 	runner.pid = 2147483647
