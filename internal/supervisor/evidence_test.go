@@ -10,7 +10,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
-	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -135,7 +134,7 @@ func TestFinishedTasksReadEveryCleanupLayout(t *testing.T) {
 
 func TestMergedPullRequestsJoinTheTaskThatReportedThem(t *testing.T) {
 	at := time.Date(2026, 9, 23, 16, 0, 0, 0, time.UTC)
-	history := withMergedPRs([]Task{{ID: "finished:a", Title: "a", Archived: true, Evaluation: Evaluation{Phase: "done", PR: "https://example/pr/1", At: at}}}, []pipeline.MergedPR{
+	history := withMergedPRs([]Task{{ID: "finished:a", Title: "a", Archived: true, Evaluation: Evaluation{Phase: "done", PR: "https://example/pr/1", At: at}}}, []MergedPR{
 		{PR: "https://example/pr/1", Branch: "fix/a", Project: `C:\dev\code-goblins`, At: at.Unix()},
 		{PR: "https://example/pr/2", Branch: "fix/b", Project: `C:\dev\code-goblins`, At: at.Add(time.Hour).Unix()},
 	})
@@ -239,5 +238,52 @@ func TestStatusActivityKeepsOnlyHttpsPullRequests(t *testing.T) {
 		if pr != c.pr || activity != c.line {
 			t.Errorf("statusActivity(%q) = %q, %q; want pr %q", c.line, activity, pr, c.pr)
 		}
+	}
+}
+
+func TestGitMergedPRsReadsMergeCommitsOfEachFleetRepository(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "code-goblins")
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_COMMITTER_DATE=2026-09-23T16:00:00Z", "GIT_AUTHOR_DATE=2026-09-23T16:00:00Z")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run("init", "-q", "--initial-branch=main")
+	run("config", "user.email", "t@t")
+	run("config", "user.name", "t")
+	run("remote", "add", "origin", "https://github.com/o/code-goblins.git")
+	run("commit", "-q", "--allow-empty", "-m", "base")
+	run("switch", "-q", "-c", "fix/wake")
+	run("commit", "-q", "--allow-empty", "-m", "the fix")
+	run("switch", "-q", "main")
+	run("merge", "-q", "--no-ff", "fix/wake", "-m", "Merge pull request #31 from o/fix/wake")
+	run("commit", "-q", "--allow-empty", "-m", "Merge pull request #99 from o/not-a-merge")
+	run("update-ref", "refs/remotes/origin/main", "HEAD")
+	// A checkout with no GitHub remote has nothing to link and is skipped.
+	other := filepath.Join(dir, "local-only")
+	if err := os.MkdirAll(filepath.Join(other, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	repos := FleetRepos(home.Home{Root: repo}, dir)
+	if len(repos) != 2 {
+		t.Fatalf("repos = %v, want the home once and the other checkout", repos)
+	}
+	merged, err := GitMergedPRs(repos)(t.Context(), time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(merged) != 1 || merged[0].PR != "https://github.com/o/code-goblins/pull/31" || merged[0].Branch != "fix/wake" || merged[0].At != time.Date(2026, 9, 23, 16, 0, 0, 0, time.UTC).Unix() {
+		t.Fatalf("merged = %+v, want only the merge commit of PR 31", merged)
+	}
+	if later, err := GitMergedPRs(repos)(t.Context(), time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC), 10); err != nil || len(later) != 0 {
+		t.Fatalf("merges before the window = %+v, %v; want none", later, err)
 	}
 }
