@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ActivityBuffer, activityDisplay, activityTransition, livePresentations, mergeActivityEffects } from "./activity.ts";
+import { ActivityBuffer, activityDisplay, activityTransition, livePresentations, mergeActivityEffects, presentationShownOn, safePresentationURL } from "./activity.ts";
 import { parseSnapshot } from "./types.ts";
 
 test("live receipts animate once on actual recursive links, never initial load or reconnect", () => {
@@ -69,4 +69,35 @@ test("browser notice and indicator expire, reject unsafe links and require curre
   assert.equal(livePresentations(snapshot,now+60001).length,0);
   assert.equal(livePresentations({...snapshot,sessions:[{...snapshot.sessions[0],runtime:{state:"unavailable",reason:"",at:""}}]},now).length,0);
   assert.equal(livePresentations({...snapshot,activity:[{...snapshot.activity![0],url:"javascript:alert(1)"}]},now).length,0);
+});
+
+test("a goblin's pane-proven presentation names no session and lives on its task's runtime", () => {
+  const now=Date.now();
+  const snapshot=parseSnapshot({healthy:true,activity:[{id:"task-2-review",kind:"review",task_id:"work",generation:"g7",target:"",state:"active",url:"http://127.0.0.1:4387/session/abc",at:new Date(now).toISOString(),until:new Date(now+60000).toISOString()}],tasks:[{id:"work",generation:"g7",verified:false,runtime:{state:"idle",at:new Date(now).toISOString()}}],sessions:[]});
+  assert.equal(livePresentations(snapshot,now).length,1);
+  assert.equal(livePresentations({...snapshot,tasks:[{...snapshot.tasks[0],generation:"g8"}]},now).length,0);
+  assert.equal(livePresentations({...snapshot,tasks:[{...snapshot.tasks[0],runtime:{state:"stale",reason:"",at:new Date(now).toISOString()}}]},now).length,0);
+  assert.equal(livePresentations(snapshot,now+120001).length,0);
+});
+
+test("a Lavish tailnet link opens as returned, and plain http elsewhere stays refused", () => {
+  for (const raw of ["http://sermon.tailcc4238.ts.net:4387/session/f26e","http://100.122.0.50:4387/session/f26e","http://127.0.0.1:4387/session/f26e","https://example.com/review"]) assert.equal(safePresentationURL(raw),true,raw);
+  for (const raw of ["http://192.0.2.10:4387/session/f26e","http://100.128.0.1:4387/session/f26e","http://100.64.evil.example/review","http://[::ffff:100.64.0.1]/review","http://example.com/review","javascript:alert(1)"]) assert.equal(safePresentationURL(raw),false,raw);
+});
+
+test("a presentation naming a session marks only that card, and a pane-proven one only its task's own card", () => {
+  const snapshot=parseSnapshot({healthy:true,tasks:[{id:"work",generation:"g7",session:"g",verified:false},{id:"quiet",generation:"g1",verified:false}],
+    sessions:[{id:"g",role:"goblin",task_id:"work",generation:"g7"},{id:"child",role:"goblin",parent:"g",task_id:"work",generation:"g7"},{id:"old",role:"goblin",task_id:"work",generation:"g6"}]});
+  const [work,quiet]=snapshot.tasks, [owner,child,old]=snapshot.sessions;
+  const paneProven={id:"task-2-review",kind:"review",task_id:"work",generation:"g7",source:"",target:"",state:"active",url:"http://127.0.0.1:4387/session/abc",at:"",until:""};
+  assert.equal(presentationShownOn(paneProven,owner,work),true);
+  assert.equal(presentationShownOn(paneProven,undefined,work),true);
+  assert.equal(presentationShownOn(paneProven,child,work),false);
+  assert.equal(presentationShownOn(paneProven,old,work),false);
+  assert.equal(presentationShownOn(paneProven,undefined,quiet),false);
+  assert.equal(presentationShownOn(paneProven,undefined,undefined),false);
+  const named={...paneProven,target:"child"};
+  assert.equal(presentationShownOn(named,child,work),true);
+  assert.equal(presentationShownOn(named,owner,work),false);
+  assert.equal(presentationShownOn(named,undefined,work),false);
 });

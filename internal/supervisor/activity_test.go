@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/lock"
 )
 
 func TestPresentationAndActivityReceiptsStayBoundedAndDoNotDriveWork(t *testing.T) {
@@ -120,5 +122,51 @@ func TestPendingPresentationPreservesEndIdentityAndOrdering(t *testing.T) {
 	got := store.Snapshot().Activity[1]
 	if got.State != "ended" || !got.At.Equal(ended.At) {
 		t.Fatal("pending terminal receipt lost", got)
+	}
+}
+
+// Lavish hands out its tailnet name. Plain http is accepted only where it
+// never crosses an untrusted network, and every refusal names its rule.
+func TestPresentationURLNamesTheRuleAndKeepsTailnetLinks(t *testing.T) {
+	for raw, rule := range map[string]string{
+		"http://192.0.2.10:4387/session/f26e":  "plain http",
+		"http://100.128.0.1:4387/session/f26e": "plain http",
+		"http://100.64.evil.example/review":    "plain http",
+		"http://[::ffff:100.64.0.1]/review":    "plain http",
+		"http://example.com/review":            "plain http",
+		"https://user:pass@example.com/review": "credentials",
+		"https://example.com/review?x=1":       "query",
+		"https://example.com/reset-token/x":    "credential (token)",
+		"review page":                          "absolute URL",
+	} {
+		if problem := presentationURLProblem(raw); !strings.Contains(problem, rule) {
+			t.Errorf("%s: problem = %q, want the %q rule named", raw, problem, rule)
+		}
+	}
+	for _, raw := range []string{"https://example.com/review", "http://localhost:4387/session/f26e", "http://sermon.tailcc4238.ts.net:4387/session/f26e1c33babf6415", "http://100.122.0.50:4387/session/f26e"} {
+		if problem := presentationURLProblem(raw); problem != "" {
+			t.Errorf("%s refused: %s", raw, problem)
+		}
+	}
+}
+
+// Serve holds the activity lock while it ingests, every few seconds, so a
+// report made at that moment waits for it instead of being refused.
+func TestSpoolActivityWaitsForTheIngestLock(t *testing.T) {
+	_, h := testStore(t)
+	if _, err := lock.AcquireExclusiveNamed(h.State, ".board-activity.lock"); err != nil {
+		t.Fatal(err)
+	}
+	released := make(chan error, 1)
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		released <- lock.ReleaseExclusiveNamed(h.State, ".board-activity.lock")
+	}()
+	now := time.Now().UTC()
+	if err := spoolActivity(h.State, BoardActivity{ID: "held-lock-review", Kind: "review", TaskID: "task-1", Generation: "g1", State: "active", URL: "http://127.0.0.1:4387/session/f26e", At: now, Until: now.Add(time.Minute)}); err != nil {
+		t.Fatalf("a report was refused while serve briefly held the lock: %v", err)
+	}
+	if err := <-released; err != nil {
+		t.Fatal(err)
 	}
 }

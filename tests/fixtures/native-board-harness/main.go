@@ -158,6 +158,12 @@ func run() error {
 			output, err := exec.Command(c.Binary, args...).CombinedOutput()
 			fmt.Printf("cfo notify: %s (error: %v)\n", strings.TrimSpace(string(output)), err)
 		}
+		// It reports a review page the same way, from its own pane.
+		if _, presentation, ok := strings.Cut(text, "fixture:present "); ok && c.Role == "goblin" {
+			id, link, _ := strings.Cut(presentation, " ")
+			output, err := exec.Command(c.Binary, "present", "--id", id, "--task", "board-fixture", "--kind", "review", "--url", link).CombinedOutput()
+			fmt.Printf("cfo present: %s (error: %v)\n", strings.TrimSpace(string(output)), err)
+		}
 		if strings.Contains(text, "fixture:crash-ready") {
 			continue
 		}

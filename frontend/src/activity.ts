@@ -1,4 +1,5 @@
-import type { BoardActivity, Snapshot } from "./types.ts";
+import { ownsTaskSession } from "./lineageTree.ts";
+import type { BoardActivity, Session, Snapshot, Task } from "./types.ts";
 
 interface ActivityState { instance:string; connected:boolean; seen:Set<string>; effects:BoardActivity[] }
 export function activityTransition(prior:ActivityState|null,snapshot:Snapshot,connected:boolean,now:number):ActivityState {
@@ -51,20 +52,33 @@ export function activityDisplay(effects:BoardActivity[],target:string,parent:str
 
 export function safePresentationURL(raw:string):boolean {
   try {
-    const url=new URL(raw);
+    const url=new URL(raw), host=url.hostname.toLowerCase(), octets=/^\d{1,3}(\.\d{1,3}){3}$/.test(host)?host.split(".").map(Number):[];
+    // Plain http only where it never crosses an untrusted network: this
+    // machine, or the tailnet, whose traffic Tailscale encrypts.
+    const tailnet=host.endsWith(".ts.net")||octets.length===4&&octets[0]===100&&octets[1]>=64&&octets[1]<=127;
     return !url.username&&!url.password&&!url.search&&!url.hash
-      &&(url.protocol==="https:"||(url.protocol==="http:"&&["localhost","127.0.0.1","[::1]"].includes(url.hostname)))
+      &&(url.protocol==="https:"||(url.protocol==="http:"&&(["localhost","127.0.0.1","[::1]"].includes(host)||tailnet)))
       &&!/(token|secret|credential|password|signature|github_pat_|ghp_|api_key|apikey)/i.test(decodeURIComponent(url.pathname));
   } catch { return false; }
+}
+
+// A goblin's pane-proven presentation names no session, so it belongs to its
+// task's own card: the session that owns the task, or the task card when no
+// session does. One that names a session belongs to that session's card.
+export function presentationShownOn(presentation:BoardActivity,session:Session|undefined,task:Task|undefined):boolean {
+  return presentation.target?presentation.target===session?.id:!!task&&presentation.task_id===task.id&&ownsTaskSession(session,task);
 }
 
 export function livePresentations(snapshot:Snapshot,now:number):BoardActivity[] {
   return (snapshot.activity||[]).filter(event=>{
     if(!["browser","review"].includes(event.kind)||event.state!=="active"||!safePresentationURL(event.url)||Date.parse(event.until)<=now||Date.parse(event.at)>now) return false;
     if(event.cfo_identity) return !!event.live;
-    const task=snapshot.tasks.find(t=>t.id===event.task_id),node=snapshot.sessions.find(n=>n.id===event.target);
-    return !!task&&!!node&&task.generation===event.generation&&node.generation===event.generation
-      &&node.phase!=="ended"&&!!node.runtime&&["active","busy","idle","working","done"].includes(node.runtime.state)
-      &&now-Date.parse(node.runtime.at)<120000;
+    // A goblin proves its presentation by its own pane and names no native
+    // session, so the task's own runtime evidence decides whether it is live.
+    const task=snapshot.tasks.find(t=>t.id===event.task_id),node=event.target?snapshot.sessions.find(n=>n.id===event.target):undefined;
+    const runtime=event.target?node?.runtime:task?.runtime;
+    return !!task&&task.generation===event.generation&&(!event.target||!!node&&node.generation===event.generation&&node.phase!=="ended")
+      &&!!runtime&&["active","busy","idle","working","done"].includes(runtime.state)
+      &&now-Date.parse(runtime.at)<120000;
   });
 }
