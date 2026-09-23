@@ -13,7 +13,7 @@ Adapted from First Mate's stow pass for the Code Goblins homes.
 
 | Home | What belongs there | Default tier | Loaded |
 | --- | --- | --- | --- |
-| `data/overlord.md` | The Supreme Overlord's standing directives, rulings and authority grants, each with its date and his words | `pinned` | every session, printed in full by the session-start digest |
+| `data/overlord.md` | The Supreme Overlord's standing directives, rulings and authority grants, each with its date and the Overlord's own words | `pinned` | every session, printed in full by the session-start digest |
 | `data/learnings.md` | Fleet operating facts: gotchas, workarounds, verified tool behaviour | `aging` | every session, printed in full by the session-start digest |
 | The CFO harness's own memory index, when it keeps one (Claude Code's auto-memory `MEMORY.md` for this checkout) | The same kind of operating facts, one line per entry | `aging` | every session, by the harness |
 | `data/backlog.md` | Open work, held operations, follow-ups; its items carry no markers, because `tasks-axi` owns their state | `perishable` | its first queued rows, by the digest |
@@ -29,7 +29,7 @@ Markers are compact trailing HTML comments, because every marker byte is paid fo
 - `<!--a:YYYY-MM-DD-->` - an `aging` entry; the date is its last-reinforced date.
 - `<!--p:YYYY-MM-DD-->` - a `perishable` entry; the date is its last-reinforced date.
 - `<!--P-->` - an explicitly `pinned` entry in a file whose default tier is not `pinned`.
-- `<!--g-->` - migration only: an unconfirmed legacy entry that has consumed its one grace cycle.
+- `<!--g-->` - migration only: an unconfirmed legacy entry in its one grace cycle, which lasts until the next pass.
 
 The tiers:
 
@@ -89,9 +89,11 @@ Every invocation runs the whole pass, even when the session produced no new find
 7. **Consolidate every governed file**, not only the one a finding touched.
    Archive completed chronology, stale versions and paths, transient task state, resolved alternatives, old metrics and report-sized procedures.
    Never plainly remove a unique current fact: it leaves only by archiving with provenance, by moving to a live owner that already holds it, or by a merge that preserves it.
-8. **Over budget after consolidation**, reduce in this order: archive every eligible stale, superseded or low-value non-pinned entry; consolidate tighter; propose moving conditional entries (true, but relevant only in a nameable situation, such as one project) to an on-demand owner such as that project's `AGENTS.md` or a skill; then archive eligible `aging` entries oldest-reinforced first.
-   A `pinned` entry is never archived or moved for budget; when pinned material alone exceeds the budget, say so and ask the Overlord whether to raise the budget or approve a named move.
-   A proposal is not relief: the pass ends within budget or with that question open, never with an accepted overrun.
+8. **Over budget after consolidation**, first total what this pass may not archive: `pinned` entries and entries still in their grace cycle.
+   Neither is ever archived or moved for budget.
+   When that floor alone exceeds the budget, archive nothing for budget reasons, name the floor and the shortfall in the receipt, and ask the Overlord whether to raise the budget or approve named moves.
+   Otherwise reduce in this order: archive every eligible stale, superseded or low-value entry; consolidate tighter; propose moving conditional entries (true, but relevant only in a nameable situation, such as one project) to an on-demand owner such as that project's `AGENTS.md` or a skill; then archive eligible `aging` entries oldest-reinforced first.
+   A proposal is not relief: the pass ends within budget or with the floor question open, never with an accepted overrun.
 9. **Measure again** and write the receipt.
 
 ## The cold tier
@@ -115,6 +117,7 @@ Unmarked legacy entries are their file's default tier with unknown age, and unkn
 
 - In `data/overlord.md` every unmarked entry is simply pinned; consolidation still moves history out.
 - In `data/learnings.md` and the harness memory index, stamp each entry this session can confirm with today's `aging` marker; mark the rest `<!--g-->` and keep them for this pass.
+  A `<!--g-->` entry is in its grace cycle until the next pass: it is never archived for budget, and it counts toward the floor in step 8, so an oversized legacy file ends its first pass with the floor question open rather than with unvalidated archiving.
   On the next pass, an entry still carrying `<!--g-->` is either confirmed and stamped, or archived as `legacy-unvalidated`.
 
 ## What this skill never does
@@ -128,7 +131,7 @@ Unmarked legacy entries are their file's default tier with unknown age, and unkn
 
 Report in plain language:
 
-- the budget and the estimated token total before and after;
+- the budget and the estimated token total before and after, and, when step 8 stopped at its floor, the floor and the shortfall;
 - one action per governed file: `unchanged`, `added`, `rewritten`, `archived`, `routed` or `proposed-offload`;
 - every finding filed outside memory and where it went;
 - every archived entry's reason, every supersession candidate left in `data/overlord.md`, and every open item moved to the backlog;

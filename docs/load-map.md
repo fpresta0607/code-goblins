@@ -177,7 +177,7 @@ The gate reads it from the default branch, and `cfo pipeline run` refuses to sta
 The `cfo session-start` digest prints the first queued rows of `data/backlog.md`, every task's metadata and recent status, and `data/projects.md`, `data/overlord.md` and `data/learnings.md` in full.
 Apart from the shipped lane table, `data/routing.json`, `data/` is the operator's private fleet state and never part of this repository.
 A Claude CFO also loads its auto-memory index for this checkout.
-The `stow` skill keeps these files current and inside a startup budget: directives stay word for word, operating facts decay unless re-confirmed, and stale history moves to `data/memory-archive.md`, which no session loads.
+The `stow` skill keeps `data/overlord.md`, `data/learnings.md`, the harness memory index and the backlog current and inside a startup budget: directives stay word for word, operating facts decay unless re-confirmed, and stale history moves to `data/memory-archive.md`, which no session loads.
 
 ## Third-party skills
 
