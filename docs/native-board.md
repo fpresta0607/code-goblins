@@ -101,6 +101,7 @@ Any other merged pull request keeps its Completed card, even when a live task re
 A history card is its pull request link, since it has no live worktree to review.
 A task no native hook has reported takes its status from the fleet's own records: a question it is still waiting on in the wake queue, then what its gate proved, then what Herdr sees in its pane, and it is evaluated once a minute like any other.
 Each card shows the task's own latest status line and its pull request, linked only when the reported value is an https URL.
+Both come from the current generation's lines only, so a respawned task id shows neither its earlier generation's activity nor its pull request until it reports again.
 Every Board card opens its changes, activity and commit history; Board has no terminal or standalone message composer.
 Orchestration opens the selected native terminal and defaults to the registered CFO.
 Cards show their reported project name, and the spacious contextual panel provides repository, branch and working-folder context on one continuous surface.
