@@ -61,7 +61,7 @@ Open work found in a memory file moves to the backlog as a queued or held item, 
 
 Every invocation runs the whole pass, even when the session produced no new finding.
 
-1. **Measure.** Report each governed file's size and the total, in bytes and estimated tokens (bytes / 4, a deliberately conservative local estimate, not provider accounting):
+1. **Measure.** Report the size of each always-loaded memory file and their total, in bytes and estimated tokens (bytes / 4, a deliberately conservative local estimate, not provider accounting):
 
    ```powershell
    Get-Item data\overlord.md, data\learnings.md -ErrorAction SilentlyContinue | Select-Object Name, Length
@@ -91,11 +91,11 @@ Every invocation runs the whole pass, even when the session produced no new find
 7. **Consolidate every governed file**, not only the one a finding touched.
    Archive completed chronology, stale versions and paths, transient task state, resolved alternatives, old metrics and report-sized procedures.
    Never plainly remove a unique current fact: it leaves only by archiving with provenance, by moving to a live owner that already holds it, or by a merge that preserves it.
-8. **Over budget after consolidation**, first total what this pass may not archive: `pinned` entries and entries still in their grace cycle.
-   Neither is ever archived or moved for budget.
+8. **Over budget after consolidation**, first total what this pass may not archive: `pinned` entries, entries still in their grace cycle, and every line of an always-loaded memory file that is not an entry (its header, headings and blank lines).
+   None of it is ever archived or moved for budget.
    When that floor alone exceeds the budget, archive nothing for budget reasons, name the floor and the shortfall in the receipt, and ask the Overlord whether to raise the budget or approve named moves.
    Otherwise reduce in this order: archive every eligible stale, superseded or low-value entry; consolidate tighter; propose moving conditional entries (true, but relevant only in a nameable situation, such as one project) to an on-demand owner such as that project's `AGENTS.md` or a skill; then archive the remaining `aging` and `perishable` entries oldest-reinforced first.
-   Every entry is either in the floor or archivable, so this ladder always reaches the budget or the floor question.
+   Everything outside the floor is archivable, so this ladder always reaches the budget or the floor question.
    A proposal is not relief: the pass ends within budget or with the floor question open, never with an accepted overrun.
 9. **Measure again** and write the receipt.
 
@@ -134,8 +134,8 @@ Unmarked legacy entries are their file's default tier with unknown age, and unkn
 
 Report in plain language:
 
-- the budget and the estimated token total before and after, and, when step 8 stopped at its floor, the floor and the shortfall;
+- the budget and the always-loaded memory files' estimated token total before and after, and, when step 8 stopped at its floor, the floor and the shortfall;
 - one action per governed file: `unchanged`, `added`, `rewritten`, `archived`, `routed` or `proposed-offload`;
 - every finding filed outside memory and where it went;
 - every archived entry's reason, every supersession candidate left in `data/overlord.md`, and every open item moved to the backlog;
-- whether the session is safe to reset: only when every durable finding is on disk, every open item this session held is filed, and the total is within budget with no question pending.
+- whether the session is safe to reset: only when every durable finding is on disk, every open item this session held is filed, and the always-loaded memory total is within budget with no question pending.
