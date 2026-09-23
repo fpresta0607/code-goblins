@@ -181,13 +181,7 @@ A Claude CFO also loads its auto-memory index for this checkout.
 ## Third-party skills
 
 The tools the fleet drives publish their own skills, and this repository does not copy them.
-Install each once at user scope with `-g`, so Codex, Pi and Kimi find it in `~/.agents/skills` and Claude Code in `~/.claude/skills`:
-
-```powershell
-npx skills add kunchenguid/gh-axi --skill gh-axi -g
-npx skills add kunchenguid/chrome-devtools-axi --skill chrome-devtools-axi -g
-npx skills add kunchenguid/no-mistakes --skill no-mistakes -g
-```
+Install each once at user scope with `-g`, so Codex, Pi and Kimi find it in `~/.agents/skills` and Claude Code in `~/.claude/skills`; the commands are in the [README's Quick start](../README.md#quick-start).
 
 A copy inside this repository would reach only sessions opened in this checkout, never a goblin working on another project, and would compete with the user copy under the collision rules above.
 `cfo doctor` checks that these tools are installed but not yet that their skills are; checking for each skill at user scope is a natural next addition to it.
