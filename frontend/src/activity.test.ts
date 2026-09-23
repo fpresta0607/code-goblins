@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ActivityBuffer, activityDisplay, activityTransition, livePresentations, mergeActivityEffects } from "./activity.ts";
+import { ActivityBuffer, activityDisplay, activityTransition, livePresentations, mergeActivityEffects, safePresentationURL } from "./activity.ts";
 import { parseSnapshot } from "./types.ts";
 
 test("live receipts animate once on actual recursive links, never initial load or reconnect", () => {
@@ -78,4 +78,9 @@ test("a goblin's pane-proven presentation names no session and lives on its task
   assert.equal(livePresentations({...snapshot,tasks:[{...snapshot.tasks[0],generation:"g8"}]},now).length,0);
   assert.equal(livePresentations({...snapshot,tasks:[{...snapshot.tasks[0],runtime:{state:"stale",reason:"",at:new Date(now).toISOString()}}]},now).length,0);
   assert.equal(livePresentations(snapshot,now+120001).length,0);
+});
+
+test("a Lavish tailnet link opens as returned, and plain http elsewhere stays refused", () => {
+  for (const raw of ["http://sermon.tailcc4238.ts.net:4387/session/f26e","http://100.122.0.50:4387/session/f26e","http://127.0.0.1:4387/session/f26e","https://example.com/review"]) assert.equal(safePresentationURL(raw),true,raw);
+  for (const raw of ["http://192.0.2.10:4387/session/f26e","http://100.128.0.1:4387/session/f26e","http://example.com/review","javascript:alert(1)"]) assert.equal(safePresentationURL(raw),false,raw);
 });
