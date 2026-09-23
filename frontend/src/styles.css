@@ -220,7 +220,7 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 .native-terminal-pane .panel-header { grid-template-columns: 64px minmax(0, 1fr); gap: 10px 14px; padding: 12px 18px 0; }
 .native-terminal-pane .panel-header .goblin-avatar { width: 64px; height: 64px; }
 .panel-header .muted { color: var(--muted); font-size: .9375rem; margin-top: 2px; }
-.details-panel { min-height: 0; overflow: auto; flex: 1; }
+.details-panel { position: relative; min-height: 0; overflow: auto; flex: 1; }
 .panel-header > div { min-width: 0; }
 .panel-header h2 { margin: 4px 0 8px; font-size: clamp(1.5rem, 2.4vw, 1.875rem); overflow-wrap: anywhere; }
 .panel-status { color: #a6dac7; font-size: 1rem; }
