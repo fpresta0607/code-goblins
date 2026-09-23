@@ -1,0 +1,42 @@
+package main
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/home"
+)
+
+// cfo review refuses a withdrawal mixed with a publication, and a report
+// from a process that is not the task's goblin records nothing.
+func TestReviewCommandRefusesBeforeRecordingAnything(t *testing.T) {
+	dir := t.TempDir()
+	h := home.Home{Root: dir, State: filepath.Join(dir, "state"), Data: filepath.Join(dir, "data")}
+	if err := os.MkdirAll(h.State, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runtime := commandRuntime{resolveHome: func() (home.Home, error) { return h, nil }}
+	for name, c := range map[string]struct {
+		args []string
+		exit int
+		says string
+	}{
+		"a withdrawal with a title": {[]string{"--id", "mockups-review-1", "--withdraw", "replaced", "--title", "Look"}, 2, "--withdraw takes only"},
+		"a stray argument":          {[]string{"--id", "mockups-review-1", "--title", "Look", "extra"}, 2, ""},
+		"a task with no goblin":     {[]string{"--id", "mockups-review-1", "--task", "g1", "--title", "Look"}, 1, "no live record"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if exit := runReview(c.args, &stdout, &stderr, runtime); exit != c.exit || !strings.Contains(stderr.String(), c.says) {
+			t.Errorf("%s: exit=%d stderr=%q, want %d naming %q", name, exit, stderr.String(), c.exit, c.says)
+		}
+	}
+	if entries, err := os.ReadDir(filepath.Join(h.State, "reviews-inbox")); err == nil && len(entries) != 0 {
+		t.Fatalf("a refused report left %d inbox records", len(entries))
+	}
+	if _, err := os.Stat(filepath.Join(h.State, "reviews")); !os.IsNotExist(err) {
+		t.Fatalf("a refused report copied images: %v", err)
+	}
+}
