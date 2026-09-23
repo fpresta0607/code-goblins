@@ -1,4 +1,9 @@
-# Per-repo no-mistakes overrides.
+# This repository's settings for the no-mistakes gate, the local pipeline
+# (review, test, document, lint, push, PR, CI) every change here passes
+# through before it merges. The gate reads this file from the default branch.
+# It exists for two reasons: gate agents must never load AGENTS.md or
+# CLAUDE.md, and automatic fix rounds stay bounded. docs/load-map.md places
+# it among everything else the gate's agents read.
 
 # AGENTS.md installs a CFO identity. Disable project-level agent settings and
 # instructions for gate agents so a no-mistakes review/fix/document/test/lint

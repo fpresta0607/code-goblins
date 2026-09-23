@@ -108,6 +108,16 @@ cfo doctor
 
 `install.ps1 -Bootstrap` installs or builds the Code Goblins binary and scriptable dependencies. `cfo install` wires the CFO into your user environment so a supervisor opened from another project can still manage the fleet.
 
+The CFO and its goblins drive `gh-axi`, `chrome-devtools-axi` and `no-mistakes` through the skills those tools publish. Install the skills once at user scope, so every harness and every project sees them:
+
+```powershell
+npx skills add kunchenguid/gh-axi --skill gh-axi -g
+npx skills add kunchenguid/chrome-devtools-axi --skill chrome-devtools-axi -g
+npx skills add kunchenguid/no-mistakes --skill no-mistakes -g
+```
+
+[docs/load-map.md](docs/load-map.md) shows where each harness looks for skills and why this repository keeps only its own.
+
 `--projects-root <dir>` names the folder that holds your checkouts, wherever you keep them.
 It is recorded on your machine as `CFO_PROJECTS_ROOT`, beside `CFO_HOME`, and never in this repository, so every adopter's layout stays their own.
 With it set, `--project` takes a bare name as well as a path: `--project my-project` is `<dir>\my-project`, matched without regard to case, and the fleet works in that one checkout instead of cloning a second copy.
@@ -271,7 +281,7 @@ The core is intentionally local-first:
 - `internal/state/` / `internal/wake/` — restart-proof task and event state.
 - `internal/supervisor/` - native event ingestion, durable actions and the local board API behind `cfo serve`.
 - `frontend/` - the board's React/TypeScript source; Vite compiles it into `internal/boardweb/dist`, which is embedded in `cfo.exe`.
-- `.agents/skills/` — reusable capabilities exposed to the supported harnesses, including `lavish`, the CFO's review surface over the third-party `lavish-axi` CLI.
+- `.agents/skills/` - the skills this repository owns, including `lavish`, the CFO's review surface over the third-party `lavish-axi` CLI; [docs/load-map.md](docs/load-map.md) maps every file each harness reads for instructions, skills, hooks and MCP.
 
 The control plane is local. Your coding harnesses may still call their model providers according to their own configuration.
 
