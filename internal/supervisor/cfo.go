@@ -252,6 +252,12 @@ func (r primaryResolver) Resolve(ctx context.Context, _ string) (herdr.Target, s
 	return r.primary.Target, state.TaskMeta{HerdrPaneID: r.primary.Target.Pane}, nil
 }
 
+// oneLine keeps a board delivery on one line: Herdr's agent prompt drops
+// line breaks, which would run the words on either side together.
+func oneLine(text string) string {
+	return strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace(text)
+}
+
 func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evaluation, error) {
 	file, err := openPrimary(filepath.Join(c.State, "primary.json"))
 	if err != nil {
@@ -269,7 +275,7 @@ func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evalua
 		return c.verify(ctx, primary)
 	}
 	sender := fleet.Sender{Herdr: c.Herdr, Resolve: primaryResolver{c, primary}, Guard: guard}
-	if err := sender.Text(ctx, "primary-cfo", "Overlord: "+text); err != nil {
+	if err := sender.Text(ctx, "primary-cfo", oneLine("Overlord: "+text)); err != nil {
 		return Evaluation{}, err
 	}
 	return Evaluation{Reason: "Accepted by the registered CFO through Herdr."}, nil

@@ -130,7 +130,7 @@ func TestQuestionAnswerDeliveredOnlyOnceToCFOAndCrashUncertain(t *testing.T) {
 	if err := store.ProcessOne(context.Background(), s.execute); err != nil {
 		t.Fatal(err)
 	}
-	if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], "Answer: One") || store.Snapshot().Questions[0].Status != "succeeded" {
+	if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], "Answer: One") || strings.ContainsAny(runner.prompts[0], "\r\n") || store.Snapshot().Questions[0].Status != "succeeded" {
 		t.Fatal("answer missing")
 	}
 	if _, err := store.Queue(a); err != nil {
@@ -189,7 +189,7 @@ func TestQuestionRecommendationAndOtherAnswer(t *testing.T) {
 	if err := store.acceptQuestion(bad); err == nil {
 		t.Fatal("same ID changed recommendation")
 	}
-	a := Action{ID: "other-answer-1", Kind: "cfo_answer", Generation: identity, QuestionID: q.ID, AnswerKind: "other", Text: "Use the folder with spaces: review 日本語"}
+	a := Action{ID: "other-answer-1", Kind: "cfo_answer", Generation: identity, QuestionID: q.ID, AnswerKind: "other", Text: "Use the folder with spaces:\nreview 日本語"}
 	badAnswer := a
 	badAnswer.AnswerKind = "option"
 	if _, err := store.Queue(badAnswer); err == nil {
@@ -217,7 +217,7 @@ func TestQuestionRecommendationAndOtherAnswer(t *testing.T) {
 	if err := reopened.ProcessOne(context.Background(), s.execute); err != nil {
 		t.Fatal(err)
 	}
-	if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], "Answer (Other): "+a.Text) {
+	if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], "Answer (Other): Use the folder with spaces: review 日本語") || strings.ContainsAny(runner.prompts[0], "\r\n") {
 		t.Fatal("typed answer not delivered exactly once", len(runner.prompts))
 	}
 	got := reopened.Snapshot().Questions[0]
@@ -369,7 +369,7 @@ func TestGoblinQuestionAnsweredOnceInItsOwnPane(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], "Question: Which store?") || !strings.Contains(runner.prompts[0], "Answer: SQLite") {
+	if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], "Question: Which store?") || !strings.Contains(runner.prompts[0], "Answer: SQLite") || strings.ContainsAny(runner.prompts[0], "\r\n") {
 		t.Fatalf("goblin prompts = %q, want the answer delivered once", runner.prompts)
 	}
 	if got := store.Snapshot().Questions[0]; got.Status != "succeeded" || got.Answer != "SQLite" {
