@@ -42,6 +42,11 @@ type Question struct {
 	Task       string `json:"task,omitempty"`
 	Generation string `json:"generation,omitempty"`
 	Seq        int    `json:"seq,omitempty"`
+	// Images are a goblin's review images as absolute paths, one for each
+	// choice in order. cfo notify checks them before publishing and the board
+	// checks them again whenever it serves one, and only ever sees ImageCount.
+	Images     []string `json:"images,omitempty"`
+	ImageCount int      `json:"image_count,omitempty"`
 }
 
 func validQuestion(q Question) error {
@@ -61,11 +66,19 @@ func validQuestion(q Question) error {
 	if q.Task != "" && (state.ValidTaskID(q.Task) != nil || q.Generation == "" || q.Seq <= 0) {
 		return errors.New("a goblin's question names its task, generation and blocked notify")
 	}
+	if len(q.Images) > 0 && (q.Task == "" || len(q.Images) != len(q.Options)) {
+		return errors.New("only a goblin's question takes images, one for each choice it offers")
+	}
+	for _, image := range q.Images {
+		if !filepath.IsAbs(image) || filepath.Clean(image) != image {
+			return errors.New("a review image must be an absolute, clean path")
+		}
+	}
 	return nil
 }
 
 func sameQuestion(a, b Question) bool {
-	return a.Identity == b.Identity && a.Text == b.Text && slices.Equal(a.Options, b.Options) && a.Recommended == b.Recommended && a.Task == b.Task
+	return a.Identity == b.Identity && a.Text == b.Text && slices.Equal(a.Options, b.Options) && a.Recommended == b.Recommended && a.Task == b.Task && slices.Equal(a.Images, b.Images)
 }
 
 // goblinIdentity binds a goblin's question to the task generation and pane
@@ -97,7 +110,7 @@ func goblinAsker(ctx context.Context, stateDir string, client *herdr.Client, tas
 // it offers choices, labelled with the goblin, and the Overlord's answer
 // returns to the goblin's pane once. A notify without choices is prose for
 // the CFO and never opens the modal, and neither does a failed notify.
-func SurfaceNotify(ctx context.Context, stateDir string, client *herdr.Client, taskID string, record wake.Record) error {
+func SurfaceNotify(ctx context.Context, stateDir string, client *herdr.Client, taskID string, record wake.Record, images []string) error {
 	question, options, ok := wake.Question(record)
 	if !ok || len(options) == 0 {
 		return nil
@@ -117,7 +130,7 @@ func SurfaceNotify(ctx context.Context, stateDir string, client *herdr.Client, t
 	if err != nil {
 		return err
 	}
-	q := Question{ID: fmt.Sprintf("notify-%s-%d", taskID, record.Seq), Identity: goblinIdentity(meta), Text: question, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending", Task: taskID, Generation: meta.SpawnGen, Seq: record.Seq}
+	q := Question{ID: fmt.Sprintf("notify-%s-%d", taskID, record.Seq), Identity: goblinIdentity(meta), Text: question, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending", Task: taskID, Generation: meta.SpawnGen, Seq: record.Seq, Images: images}
 	if err := validQuestion(q); err != nil {
 		return err
 	}
