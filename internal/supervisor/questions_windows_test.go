@@ -12,7 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
+	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 func TestCFOQuestionDurableConflictAndOwnedPublication(t *testing.T) {
@@ -293,5 +296,181 @@ func TestDeferredQuestionsSurviveHistoryRollover(t *testing.T) {
 				t.Fatalf("deferred questions not delivered: %v", seen)
 			}
 		})
+	}
+}
+
+// goblinFixture is a live goblin whose pane w1:p1 runs this test process in
+// its foreground, blocked on a notify that offers two choices.
+func goblinFixture(t *testing.T, store *Store) (state.TaskMeta, wake.Record, *cfoRunner, *CFOConnection) {
+	t.Helper()
+	meta, err := state.ReadTaskMeta(store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.HerdrSession, meta.HerdrPaneID = "isolated", "w1:p1"
+	if err := state.WriteTaskMeta(store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	record, err := wake.Append(store.Home.State, "notify", meta.ID, "blocked: Which store? options: Postgres | SQLite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &cfoRunner{t: t, pid: os.Getpid()}
+	return meta, record, runner, &CFOConnection{State: store.Home.State, Herdr: &herdr.Client{Commands: runner}}
+}
+
+// surfaced publishes the fixture's notify on the board and returns the
+// question the supervisor ingested.
+func surfaced(t *testing.T, store *Store, meta state.TaskMeta, record wake.Record, connection *CFOConnection) Question {
+	t.Helper()
+	if err := SurfaceNotify(context.Background(), store.Home.State, connection.Herdr, meta.ID, record); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestQuestions(); err != nil {
+		t.Fatal(err)
+	}
+	questions := store.Snapshot().Questions
+	if len(questions) != 1 {
+		t.Fatalf("questions = %+v, want the goblin's one question", questions)
+	}
+	return questions[0]
+}
+
+// A goblin's blocked notify with choices becomes a Command Center question
+// labelled with the goblin, and the Overlord's answer reaches that goblin's
+// own pane exactly once. The CFO's notify then reads answered.
+func TestGoblinQuestionAnsweredOnceInItsOwnPane(t *testing.T) {
+	store, h := testStore(t)
+	meta, record, runner, connection := goblinFixture(t, store)
+	if err := SurfaceNotify(context.Background(), h.State, connection.Herdr, meta.ID, record); err != nil {
+		t.Fatal(err)
+	}
+	q := surfaced(t, store, meta, record, connection)
+	if q.Task != meta.ID || q.Generation != meta.SpawnGen || q.Seq != record.Seq || q.Text != "Which store?" || !slices.Equal(q.Options, []string{"Postgres", "SQLite"}) {
+		t.Fatalf("surfaced question = %+v", q)
+	}
+	if _, err := store.Queue(Action{ID: "cfo-route", Kind: "cfo_answer", Generation: q.Identity, QuestionID: q.ID, Text: "SQLite"}); err == nil {
+		t.Fatal("a goblin's question accepted an answer routed to the CFO")
+	}
+	cfoQuestion := Question{ID: "question-cfo", Identity: strings.Repeat("c", 64), Text: "Ship it?", Options: []string{"Yes", "No"}, CreatedAt: time.Now().UTC()}
+	if err := store.acceptQuestion(cfoQuestion); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Queue(Action{ID: "goblin-route", Kind: "goblin_answer", Generation: cfoQuestion.Identity, QuestionID: cfoQuestion.ID, Text: "Yes"}); err == nil {
+		t.Fatal("the CFO's question accepted an answer routed to a goblin")
+	}
+	a := Action{ID: "answer-1", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "SQLite"}
+	s := &Service{Store: store, Options: Options{CFO: connection}}
+	for i := 0; i < 2; i++ {
+		if _, err := store.Queue(a); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.ProcessOne(context.Background(), s.execute); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], "Question: Which store?") || !strings.Contains(runner.prompts[0], "Answer: SQLite") {
+		t.Fatalf("goblin prompts = %q, want the answer delivered once", runner.prompts)
+	}
+	if got := store.Snapshot().Questions[0]; got.Status != "succeeded" || got.Answer != "SQLite" {
+		t.Fatalf("question = %+v", got)
+	}
+	if got := store.Snapshot().Questions[1]; got.Status != "pending" || got.AnswerID != "" {
+		t.Fatalf("the CFO's question = %+v, want it untouched", got)
+	}
+	pending, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].Answered != "SQLite" {
+		t.Fatalf("notify = %+v, want it marked answered on the board", pending)
+	}
+}
+
+// An answer follows the goblin that asked, never its successor, and never
+// arrives after the CFO has already handled the question itself.
+func TestGoblinAnswerRefusedAfterRespawnOrCFOAck(t *testing.T) {
+	respawn := func(t *testing.T, h string, meta state.TaskMeta) {
+		meta.SpawnGen = "g2"
+		if err := state.WriteTaskMeta(h, meta); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ack := func(t *testing.T, h string, record wake.Record) {
+		if err := wake.AckThrough(h, record.Seq); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Run("respawn before the answer", func(t *testing.T) {
+		store, h := testStore(t)
+		meta, record, runner, connection := goblinFixture(t, store)
+		q := surfaced(t, store, meta, record, connection)
+		respawn(t, h.State, meta)
+		if _, err := store.Queue(Action{ID: "answer-1", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "SQLite"}); err == nil {
+			t.Fatal("an answer for the previous generation was queued")
+		}
+		if err := store.supersedeQuestions(); err != nil {
+			t.Fatal(err)
+		}
+		if got := store.Snapshot().Questions[0]; got.Status != "superseded" || len(runner.prompts) != 0 {
+			t.Fatalf("question = %+v, prompts = %q", got, runner.prompts)
+		}
+	})
+	for name, change := range map[string]func(*testing.T, string, state.TaskMeta, wake.Record){
+		"respawn while queued": func(t *testing.T, h string, meta state.TaskMeta, _ wake.Record) { respawn(t, h, meta) },
+		"CFO ack while queued": func(t *testing.T, h string, _ state.TaskMeta, record wake.Record) { ack(t, h, record) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			store, h := testStore(t)
+			meta, record, runner, connection := goblinFixture(t, store)
+			q := surfaced(t, store, meta, record, connection)
+			if _, err := store.Queue(Action{ID: "answer-1", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "SQLite"}); err != nil {
+				t.Fatal(err)
+			}
+			change(t, h.State, meta, record)
+			s := &Service{Store: store, Options: Options{CFO: connection}}
+			if err := store.ProcessOne(context.Background(), s.execute); err != nil {
+				t.Fatal(err)
+			}
+			if got := store.Snapshot().Questions[0]; got.Status != "failed" || !strings.Contains(got.Message, "nothing was sent") || len(runner.prompts) != 0 {
+				t.Fatalf("question = %+v, prompts = %q", got, runner.prompts)
+			}
+		})
+	}
+	t.Run("CFO ack before the answer", func(t *testing.T) {
+		store, h := testStore(t)
+		meta, record, _, connection := goblinFixture(t, store)
+		surfaced(t, store, meta, record, connection)
+		ack(t, h.State, record)
+		if err := store.supersedeQuestions(); err != nil {
+			t.Fatal(err)
+		}
+		if got := store.Snapshot().Questions[0]; got.Status != "superseded" || !strings.Contains(got.Message, "CFO already handled") {
+			t.Fatalf("question = %+v", got)
+		}
+	})
+}
+
+// Only a notify that offers choices opens the modal, and only a process in
+// the goblin's own pane can surface it.
+func TestSurfaceNotifyNeedsChoicesAndTheGoblinsOwnPane(t *testing.T) {
+	store, h := testStore(t)
+	meta, record, runner, connection := goblinFixture(t, store)
+	plain, err := wake.Append(h.State, "notify", meta.ID, "blocked: Should I merge this?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SurfaceNotify(context.Background(), h.State, connection.Herdr, meta.ID, plain); err != nil {
+		t.Fatal(err)
+	}
+	runner.pid = 2147483647
+	if err := SurfaceNotify(context.Background(), h.State, connection.Herdr, meta.ID, record); err == nil {
+		t.Fatal("a process outside the goblin's pane surfaced its question")
+	}
+	if err := store.ingestQuestions(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Questions; len(got) != 0 {
+		t.Fatalf("questions = %+v, want none", got)
 	}
 }

@@ -107,7 +107,8 @@ func runDrain(h home.Home, args []string, stdout, stderr io.Writer) int {
 // blocked record from the guard as well as from the listing. Only
 // --ack-blocking retires these, and it is range-scoped: it retires every one
 // at or below the sequence, so the operator retires them deliberately after
-// seeing the full listing.
+// seeing the full listing. A notify the Overlord already answered on the
+// board is not listed: the goblin has its answer.
 func blockingAtOrBelow(stateDir string, seq int) ([]wake.Record, error) {
 	pending, err := wake.Pending(stateDir)
 	if err != nil {
@@ -119,7 +120,7 @@ func blockingAtOrBelow(stateDir string, seq int) ([]wake.Record, error) {
 		if rec.Seq > seq {
 			continue
 		}
-		if _, ok := wake.BlockingNotify(rec); ok {
+		if _, ok := wake.BlockingNotify(rec); ok && rec.Answered == "" {
 			blocking = append(blocking, rec)
 		}
 	}

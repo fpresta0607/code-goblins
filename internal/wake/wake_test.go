@@ -3,6 +3,8 @@ package wake
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -265,5 +267,53 @@ func TestWaitedReadsToTheMinuteAndNeverNegative(t *testing.T) {
 		if got := waited(tc.in); got != tc.want {
 			t.Errorf("waited(%s) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+// A board answer rides along with its record until the CFO acks it, and the
+// ack retires the answer with the record.
+func TestMarkAnsweredRidesAlongUntilTheAck(t *testing.T) {
+	dir := t.TempDir()
+	question, err := Append(dir, "notify", "g1", "blocked: which store? options: Postgres | SQLite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	later, err := Append(dir, "notify", "g2", "blocked: merge or hold? options: merge | hold")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := MarkAnswered(dir, question.Seq, "SQLite"); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := Pending(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 2 || pending[0].Answered != "SQLite" || pending[1].Answered != "" {
+		t.Fatalf("pending = %+v, want only the answered record to carry its answer", pending)
+	}
+	var out bytes.Buffer
+	if err := Render(&out, pending, Episode{}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "answered on the board: SQLite") {
+		t.Fatalf("drain rendering does not say the question was answered:\n%s", out.String())
+	}
+	if err := AckThrough(dir, question.Seq); err != nil {
+		t.Fatal(err)
+	}
+	pending, err = Pending(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].Seq != later.Seq || pending[0].Answered != "" {
+		t.Fatalf("pending after the ack = %+v, want only the later record, unanswered", pending)
+	}
+	entries, err := os.ReadDir(filepath.Join(dir, answeredDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("answer markers left after the ack: %d", len(entries))
 	}
 }
