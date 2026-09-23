@@ -354,9 +354,9 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		found := false
 		for _, q := range s.Store.Snapshot().Questions {
 			if q.ID == a.QuestionID && q.Identity == a.Generation && q.AnswerID == a.ID {
-				text = fmt.Sprintf("User answer to CFO question %s\nQuestion: %s\nAnswer: %s", q.ID, q.Text, a.Text)
+				text = fmt.Sprintf("User answer to CFO question %s. Question: %s Answer: %s", q.ID, q.Text, a.Text)
 				if a.AnswerKind == "other" {
-					text = fmt.Sprintf("User answer to CFO question %s\nQuestion: %s\nAnswer (Other): %s", q.ID, q.Text, a.Text)
+					text = fmt.Sprintf("User answer to CFO question %s. Question: %s Answer (Other): %s", q.ID, q.Text, a.Text)
 				}
 				found = true
 			}
