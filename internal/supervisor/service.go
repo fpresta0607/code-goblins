@@ -226,9 +226,8 @@ func (s *Service) refreshHistory(ctx context.Context) error {
 	var err error
 	if s.Options.MergedPRs != nil {
 		var merged []MergedPR
-		if merged, err = s.Options.MergedPRs(ctx, now.Add(-historyWindow), historyLimit); err == nil {
-			history = withMergedPRs(history, merged)
-		}
+		merged, err = s.Options.MergedPRs(ctx, now.Add(-historyWindow), historyLimit)
+		history = withMergedPRs(history, merged)
 	}
 	s.mu.Lock()
 	s.history = history
@@ -582,7 +581,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			evaluation = Evaluation{Phase: "review", Reason: "Session settled; evaluation is queued", At: node.UpdatedAt}
 		}
 		lines, _ := state.TailStatus(s.Store.Home.State, id, 200)
-		activity, pr := statusActivity(lines)
+		activity, pr := statusActivity(lines, spawnTime(meta.SpawnGen))
 		if _, detail, ok := waitingQuestion(out.Decisions, id); ok {
 			activity = detail
 		}
@@ -620,7 +619,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			out.Tasks = append(out.Tasks, brief)
 		}
 	}
-	out.Tasks = append(out.Tasks, history...)
+	for _, done := range history {
+		if strings.HasPrefix(done.ID, "merged:") && slices.ContainsFunc(out.Tasks, func(t Task) bool { return t.PR == done.PR }) {
+			continue
+		}
+		out.Tasks = append(out.Tasks, done)
+	}
 	if len(out.Decisions) > 100 {
 		out.Decisions = out.Decisions[len(out.Decisions)-100:]
 	}

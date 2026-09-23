@@ -4,7 +4,7 @@ import { Avatar } from "./Avatar";
 import { activityDisplay } from "./activity";
 import { Chevron } from "./Chevron";
 import { ownsTaskSession } from "./lineageTree";
-import { arrange, fleetTraffic, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, workflowNodes, type Point, type WorkflowNode } from "./workflow";
+import { arrange, expireTraffic, fleetTraffic, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, workflowNodes, type Point, type WorkflowNode } from "./workflow";
 
 const layoutKey = "cfo-orchestration-layout-v1";
 
@@ -43,15 +43,23 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   const initialized = useRef(false);
   const signatures = useRef<Map<string, string> | null>(null);
   const [traffic, setTraffic] = useState<Record<string, number>>({});
+  const pulses = useRef(new Set<ReturnType<typeof setTimeout>>());
   useEffect(() => {
     const { signatures: next, moved } = fleetTraffic(signatures.current, snapshot);
     signatures.current = next;
     if (!moved.length) return;
     const at = Date.now();
-    setTraffic((prior) => ({ ...prior, ...Object.fromEntries(moved.map((id) => [id, at])) }));
-    const timer = setTimeout(() => setTraffic((prior) => Object.fromEntries(Object.entries(prior).filter(([, when]) => when !== at))), 6000);
-    return () => clearTimeout(timer);
+    setTraffic((prior) => reportTraffic(prior, moved, at));
+    const timer = setTimeout(() => {
+      pulses.current.delete(timer);
+      setTraffic((prior) => expireTraffic(prior, moved, at));
+    }, PULSE_MS);
+    pulses.current.add(timer);
   }, [snapshot]);
+  useEffect(() => {
+    const pending = pulses.current;
+    return () => pending.forEach(clearTimeout);
+  }, []);
   const byID = new Map(nodes.map((node) => [node.id, node]));
   const hidden = (node: WorkflowNode) => {
     const seen = new Set([node.id]);

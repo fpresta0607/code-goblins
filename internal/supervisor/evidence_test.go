@@ -1,9 +1,13 @@
 package supervisor
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -234,7 +238,7 @@ func TestStatusActivityKeepsOnlyHttpsPullRequests(t *testing.T) {
 		{"done: PR javascript:alert(1)", ""},
 		{"done: PR http://github.com/o/r/pull/9", ""},
 	} {
-		activity, pr := statusActivity([]string{c.line})
+		activity, pr := statusActivity([]string{c.line}, time.Time{})
 		if pr != c.pr || activity != c.line {
 			t.Errorf("statusActivity(%q) = %q, %q; want pr %q", c.line, activity, pr, c.pr)
 		}
@@ -244,14 +248,15 @@ func TestStatusActivityKeepsOnlyHttpsPullRequests(t *testing.T) {
 func TestGitMergedPRsReadsMergeCommitsOfEachFleetRepository(t *testing.T) {
 	dir := t.TempDir()
 	repo := filepath.Join(dir, "code-goblins")
-	run := func(args ...string) {
+	git := func(dir string, args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 		cmd.Env = append(os.Environ(), "GIT_COMMITTER_DATE=2026-09-23T16:00:00Z", "GIT_AUTHOR_DATE=2026-09-23T16:00:00Z")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
+	run := func(args ...string) { t.Helper(); git(repo, args...) }
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -272,9 +277,21 @@ func TestGitMergedPRsReadsMergeCommitsOfEachFleetRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// A master checkout that never fetched has no default branch to read,
+	// which is not an error and does not hide the other repositories.
+	legacy := filepath.Join(dir, "legacy")
+	if err := os.MkdirAll(legacy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git(legacy, "init", "-q", "--initial-branch=master")
+	git(legacy, "config", "user.email", "t@t")
+	git(legacy, "config", "user.name", "t")
+	git(legacy, "remote", "add", "origin", "https://github.com/o/legacy.git")
+	git(legacy, "commit", "-q", "--allow-empty", "-m", "base")
+
 	repos := FleetRepos(home.Home{Root: repo}, dir)
-	if len(repos) != 2 {
-		t.Fatalf("repos = %v, want the home once and the other checkout", repos)
+	if len(repos) != 3 {
+		t.Fatalf("repos = %v, want the home once and the other two checkouts", repos)
 	}
 	merged, err := GitMergedPRs(repos)(t.Context(), time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC), 10)
 	if err != nil {
@@ -285,5 +302,88 @@ func TestGitMergedPRsReadsMergeCommitsOfEachFleetRepository(t *testing.T) {
 	}
 	if later, err := GitMergedPRs(repos)(t.Context(), time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC), 10); err != nil || len(later) != 0 {
 		t.Fatalf("merges before the window = %+v, %v; want none", later, err)
+	}
+}
+
+// Cleanup leaves a task's status log in place, and a respawned id appends to
+// it, so the new generation must not show the old one's pull request.
+func TestSnapshotReadsOnlyTheStatusLinesOfTheTasksOwnGeneration(t *testing.T) {
+	store, h := testStore(t)
+	meta, err := state.ReadTaskMeta(h.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spawned := time.Date(2026, 9, 21, 12, 0, 0, 500_000_000, time.UTC)
+	meta.SpawnGen = fmt.Sprintf("s%d", spawned.UnixNano())
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	log := filepath.Join(h.State, "task-1.status")
+	if err := os.WriteFile(log, []byte("done: PR https://github.com/o/r/pull/9\n2026-09-20T00:00:00Z done: PR https://github.com/o/r/pull/10\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: store}
+	view, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := view.Tasks[0]; got.Activity != "" || got.PR != "" {
+		t.Fatalf("respawned task = activity %q pr %q, want nothing from the earlier generation", got.Activity, got.PR)
+	}
+	f, err := os.OpenFile(log, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("2026-09-21T12:00:00Z working: fresh start\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if view, err = service.Snapshot(); err != nil {
+		t.Fatal(err)
+	}
+	if got := view.Tasks[0]; got.Activity != "working: fresh start" || got.PR != "" {
+		t.Fatalf("respawned task = activity %q pr %q, want its own first line and no PR", got.Activity, got.PR)
+	}
+}
+
+func TestHistoryKeepsHealthyMergesWhenARepositoryFails(t *testing.T) {
+	store, _ := testStore(t)
+	failure := errors.New("git log failed in one repository")
+	service := &Service{Store: store, Options: Options{MergedPRs: func(context.Context, time.Time, int) ([]MergedPR, error) {
+		return []MergedPR{{PR: "https://github.com/o/r/pull/32", Branch: "fix/b", Project: "r", At: time.Now().Unix()}}, failure
+	}}}
+	if err := service.refreshHistory(t.Context()); !errors.Is(err, failure) {
+		t.Fatalf("refreshHistory error = %v, want the failing repository reported", err)
+	}
+	view, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(view.Tasks, func(task Task) bool { return task.ID == "merged:https://github.com/o/r/pull/32" }) {
+		t.Fatalf("tasks = %+v, want the healthy repository's merge", view.Tasks)
+	}
+}
+
+func TestSnapshotDoesNotRepeatAMergeALiveTaskCarries(t *testing.T) {
+	store, h := testStore(t)
+	if err := state.AppendStatus(h.State, "task-1", "done: PR https://github.com/o/r/pull/31"); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: store, history: withMergedPRs(nil, []MergedPR{
+		{PR: "https://github.com/o/r/pull/31", Branch: "fix/a", Project: "r", At: time.Now().Unix()},
+		{PR: "https://github.com/o/r/pull/32", Branch: "fix/b", Project: "r", At: time.Now().Unix()},
+	})}
+	view, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, task := range view.Tasks {
+		ids = append(ids, task.ID)
+	}
+	if !slices.Equal(ids, []string{"task-1", "merged:https://github.com/o/r/pull/32"}) {
+		t.Fatalf("tasks = %v, want the live task once and only the merge no live task carries", ids)
 	}
 }

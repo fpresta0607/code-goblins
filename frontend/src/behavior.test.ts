@@ -4,7 +4,7 @@ import { parsePatchToRows, splitRows, reviewRange } from "./diff.ts";
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
-import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, pullRequestLabel, safePullRequest, fleetTraffic, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
+import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
 
 test("board completion and semantic personas require the corresponding evidence", () => {
   const task = parseSnapshot({healthy:true, tasks:[{id:"work",title:"Test keyboard access",phase:"done",generation:"new",verified:false}]}).tasks[0];
@@ -257,4 +257,25 @@ test("a connector pulses only when a goblin reports something new", () => {
   assert.deepEqual(fleetTraffic(first.signatures, snapshot("working: gate review")).moved, ["a"]);
   assert.deepEqual(fleetTraffic(first.signatures, snapshot("working: tests", [{seq:4, key:"a"}])).moved, ["a"]);
   assert.equal(first.signatures.has("old"), false);
+});
+
+test("a pulse ends with its own report however many snapshots follow", () => {
+  const snapshot = (activity: string) => parseSnapshot({healthy:true, tasks:[{id:"a", phase:"working", verified:false, activity}]});
+  let seen = fleetTraffic(null, snapshot("working: tests")).signatures;
+  let traffic: Record<string, number> = {};
+  const report = (activity: string, at: number) => {
+    const { signatures, moved } = fleetTraffic(seen, snapshot(activity));
+    seen = signatures;
+    traffic = reportTraffic(traffic, moved, at);
+    return moved;
+  };
+  const first = report("working: gate review", 1000);
+  for (let at = 1001; at < 1010; at++) assert.deepEqual(report("working: gate review", at), []);
+  assert.deepEqual(traffic, {a:1000});
+  traffic = expireTraffic(traffic, first, 1000);
+  assert.deepEqual(traffic, {});
+  const older = report("working: lint", 2000);
+  report("working: push", 3000);
+  traffic = expireTraffic(traffic, older, 2000);
+  assert.deepEqual(traffic, {a:3000});
 });
