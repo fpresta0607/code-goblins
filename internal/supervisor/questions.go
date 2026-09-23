@@ -102,11 +102,20 @@ func SurfaceNotify(ctx context.Context, stateDir string, client *herdr.Client, t
 	if !ok || len(options) == 0 {
 		return nil
 	}
+	// A goblin marks the choice it recommends the way AskUserQuestion does,
+	// by ending it with "(Recommended)".
+	recommended := ""
+	for i, option := range options {
+		if choice, marked := strings.CutSuffix(option, "(Recommended)"); marked && recommended == "" {
+			options[i] = strings.TrimSpace(choice)
+			recommended = options[i]
+		}
+	}
 	meta, err := goblinAsker(ctx, stateDir, client, taskID)
 	if err != nil {
 		return err
 	}
-	q := Question{ID: fmt.Sprintf("notify-%s-%d", taskID, record.Seq), Identity: goblinIdentity(meta), Text: question, Options: options, CreatedAt: time.Now().UTC(), Status: "pending", Task: taskID, Generation: meta.SpawnGen, Seq: record.Seq}
+	q := Question{ID: fmt.Sprintf("notify-%s-%d", taskID, record.Seq), Identity: goblinIdentity(meta), Text: question, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending", Task: taskID, Generation: meta.SpawnGen, Seq: record.Seq}
 	if err := validQuestion(q); err != nil {
 		return err
 	}

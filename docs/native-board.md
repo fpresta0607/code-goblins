@@ -208,7 +208,7 @@ Conflicting, corrupt or oversized inbox records leave bounded diagnostics and ca
 
 ## Goblin questions
 
-A goblin's `cfo notify <id> --blocked "<question> options: a | b"` also opens the modal, labelled with the goblin and its artwork.
+A goblin's `cfo notify <id> --blocked "<question> options: a (Recommended) | b"` also opens the modal, labelled with the goblin and its artwork; the choice that ends with `(Recommended)` is shown first and marked, like a CFO recommendation.
 A blocked notify without an `options:` marker, and every other worker alert, stays in the CFO wake queue only.
 Only a process running under the task's own Herdr pane can surface its notify, by the same foreground-harness proof `cfo register` uses.
 A notify that fails that proof or offers more than eight choices still wakes the CFO, and `cfo notify` prints why the board could not show it.
