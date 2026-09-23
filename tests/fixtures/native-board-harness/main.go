@@ -148,8 +148,14 @@ func run() error {
 		fmt.Printf("Accepted message %d in the %s process:\n%s\n", turn, c.Role, text)
 		// A goblin asks the way a real one does: cfo notify from inside its
 		// own pane, so the board's pane proof sees this process as the asker.
-		if _, question, ok := strings.Cut(text, "fixture:ask "); ok && c.Role == "goblin" {
-			output, err := exec.Command(c.Binary, "notify", "board-fixture", "--blocked", question).CombinedOutput()
+		// Each " --image <path>" after the question attaches a review image.
+		if _, ask, ok := strings.Cut(text, "fixture:ask "); ok && c.Role == "goblin" {
+			parts := strings.Split(ask, " --image ")
+			args := []string{"notify", "board-fixture", "--blocked", parts[0]}
+			for _, image := range parts[1:] {
+				args = append(args, "--image", image)
+			}
+			output, err := exec.Command(c.Binary, args...).CombinedOutput()
 			fmt.Printf("cfo notify: %s (error: %v)\n", strings.TrimSpace(string(output)), err)
 		}
 		if strings.Contains(text, "fixture:crash-ready") {
