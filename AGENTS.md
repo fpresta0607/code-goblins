@@ -338,6 +338,7 @@ Run publication from the registered primary session's shell and reuse the same I
 The board sends the durable answer to that same verified CFO as an ordinary message, so continue independent supervision or finish the turn while waiting.
 Do not also invoke a native question tool for this decision: an ordinary Herdr message cannot answer a correlated Codex or Pi native prompt.
 A goblin's `cfo notify --blocked "<question> options: a (Recommended) | b"` also reaches the board, labelled with the goblin and with the choice it ends with `(Recommended)` marked, and the Overlord's answer goes straight to that goblin's pane once.
+When the choice is visual, such as mockups, brief the goblin to add `--image <path>` once for each choice, in order, so the Overlord picks by picture; the images must be PNG, JPEG, GIF or WebP files inside the goblin's worktree, task scratch or data directory.
 `cfo drain` then shows that notify as answered on the board and acks it without `--ack-blocking`; answer a goblin in one place, and ack a question you answered with `cfo send` promptly so the board retires its copy.
 Other worker alerts stay in the CFO wake queue until the CFO deliberately escalates a real user decision.
 For a nonblocking walkthrough or review, prefer Lavish `--no-open`, then report the returned safe URL with `cfo present --id <stable-id> --kind browser|review --url <safe-url>` from verified primary context.

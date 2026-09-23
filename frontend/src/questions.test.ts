@@ -14,6 +14,12 @@ test("recommendation moves first without changing answer identity; Other stays e
   assert.equal(questionAnswer(q, "option:Isolate", "")?.text, "Isolate");
 });
 
+test("each choice keeps the image the goblin attached to it after the recommendation moves first", () => {
+  const q = parseSnapshot({ healthy:true, questions: [{id:"notify-gb-x-7", identity:"goblin-1", task:"gb-x", options:["Postgres", "SQLite", "MySQL"], recommended:"SQLite", image_count:3}] }).questions![0];
+  assert.deepEqual(questionChoices(q).map(c=>[c.value,c.image]), [["SQLite","/api/questions/notify-gb-x-7/images/1"],["Postgres","/api/questions/notify-gb-x-7/images/0"],["MySQL","/api/questions/notify-gb-x-7/images/2"]]);
+  assert.equal(questionChoices({...q, image_count:0}).some(c=>c.image), false);
+});
+
 test("a durable answer from another tab replaces every unsent or edited draft", () => {
   const question = parseSnapshot({healthy:true,questions:[{id:"question-1",identity:"cfo-1",status:"queued",answer_id:"answer-1",answer:"Proceed",answer_kind:"option",options:["Proceed"]}]}).questions![0];
   const draft={selection:"other",written:"Wait"};

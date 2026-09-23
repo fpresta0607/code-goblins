@@ -10,7 +10,9 @@ export function questionChoices(question: Question) {
   const options = [...question.options];
   const index = options.indexOf(question.recommended);
   if (index > 0) options.unshift(...options.splice(index, 1));
-  return options.map((value, i) => ({ value, label: String.fromCharCode(65 + i), recommended: value === question.recommended }));
+  // Moving the recommendation first reorders the choices, so each keeps the
+  // image the goblin attached to it by its original position.
+  return options.map((value, i) => ({ value, label: String.fromCharCode(65 + i), recommended: value === question.recommended, image: question.image_count ? "/api/questions/" + encodeURIComponent(question.id) + "/images/" + question.options.indexOf(value) : "" }));
 }
 
 export function questionAnswer(question: Question, selection: string, written: string) {
