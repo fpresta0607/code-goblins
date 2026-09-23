@@ -74,8 +74,10 @@ func validReview(r Review) error {
 			return errors.New("invalid review image digest")
 		}
 	}
-	if r.Lavish != "" && !safePresentationURL(r.Lavish) {
-		return errors.New("a review's Lavish link must be https, or plain http on this machine")
+	if r.Lavish != "" {
+		if problem := presentationURLProblem(r.Lavish); problem != "" {
+			return errors.New("a review's Lavish link " + problem)
+		}
 	}
 	return nil
 }
