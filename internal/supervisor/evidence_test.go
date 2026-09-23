@@ -366,31 +366,36 @@ func TestHistoryKeepsHealthyMergesWhenARepositoryFails(t *testing.T) {
 	}
 }
 
-func TestSnapshotCarriesAMergeOntoTheLiveTaskThatReportedIt(t *testing.T) {
-	store, h := testStore(t)
-	store.db.Tasks["task-1"] = Evaluation{Phase: "ready", Generation: "g1", At: time.Now()}
-	if err := state.AppendStatus(h.State, "task-1", "done: PR https://github.com/o/r/pull/31"); err != nil {
-		t.Fatal(err)
-	}
-	service := &Service{Store: store, history: withMergedPRs(nil, []MergedPR{
-		{PR: "https://github.com/o/r/pull/31", Branch: "fix/a", Project: "r", At: time.Now().Unix()},
-		{PR: "https://github.com/o/r/pull/32", Branch: "fix/b", Project: "r", At: time.Now().Unix()},
-	})}
-	view, err := service.Snapshot()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var ids []string
-	for _, task := range view.Tasks {
-		ids = append(ids, task.ID)
-	}
-	if !slices.Equal(ids, []string{"task-1", "merged:https://github.com/o/r/pull/32"}) {
-		t.Fatalf("tasks = %v, want the live task once and only the merge no live task carries", ids)
-	}
-	if got := view.Tasks[0]; !got.Merged || got.Phase != "ready" {
-		t.Fatalf("live task = merged %v phase %q, want the merge the gate missed carried onto it", got.Merged, got.Phase)
-	}
-	if !view.Tasks[1].Merged {
-		t.Fatalf("history = %+v, want its own merge", view.Tasks[1])
+func TestSnapshotDropsAMergeOnlyWhenTheLiveTaskAlreadyShowsIt(t *testing.T) {
+	for _, c := range []struct {
+		phase    string
+		isListed bool
+	}{
+		{"merged", false},
+		{"done", false},
+		{"ready", true},
+		{"blocked", true},
+	} {
+		t.Run(c.phase, func(t *testing.T) {
+			store, h := testStore(t)
+			store.db.Tasks["task-1"] = Evaluation{Phase: c.phase, Generation: "g1", At: time.Now()}
+			if err := state.AppendStatus(h.State, "task-1", "done: PR https://github.com/o/r/pull/31"); err != nil {
+				t.Fatal(err)
+			}
+			service := &Service{Store: store, history: withMergedPRs(nil, []MergedPR{
+				{PR: "https://github.com/o/r/pull/31", Branch: "fix/a", Project: "r", At: time.Now().Unix()},
+			})}
+			view, err := service.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := view.Tasks[0]; got.ID != "task-1" || got.Phase != c.phase || got.Merged {
+				t.Fatalf("live task = %s phase %q merged %v, want its own phase %q untouched", got.ID, got.Phase, got.Merged, c.phase)
+			}
+			isListed := slices.ContainsFunc(view.Tasks, func(task Task) bool { return task.ID == "merged:https://github.com/o/r/pull/31" })
+			if isListed != c.isListed {
+				t.Fatalf("merged card listed = %v, want %v for a live task in phase %q", isListed, c.isListed, c.phase)
+			}
+		})
 	}
 }
