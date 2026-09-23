@@ -4,7 +4,7 @@ import { Avatar } from "./Avatar";
 import { activityDisplay } from "./activity";
 import { Chevron } from "./Chevron";
 import { ownsTaskSession } from "./lineageTree";
-import { arrange, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, workflowNodes, type Point, type WorkflowNode } from "./workflow";
+import { arrange, expireTraffic, fleetTraffic, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, workflowNodes, type Point, type WorkflowNode } from "./workflow";
 
 const layoutKey = "cfo-orchestration-layout-v1";
 
@@ -41,6 +41,25 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   const drag = useRef<{ id: string; pointer: Point; start: Point } | null>(null);
   const pan = useRef<{ pointer: Point; scroll: Point } | null>(null);
   const initialized = useRef(false);
+  const signatures = useRef<Map<string, string> | null>(null);
+  const [traffic, setTraffic] = useState<Record<string, number>>({});
+  const pulses = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const { signatures: next, moved } = fleetTraffic(signatures.current, snapshot);
+    signatures.current = next;
+    if (!moved.length) return;
+    const at = Date.now();
+    setTraffic((prior) => reportTraffic(prior, moved, at));
+    const timer = setTimeout(() => {
+      pulses.current.delete(timer);
+      setTraffic((prior) => expireTraffic(prior, moved, at));
+    }, PULSE_MS);
+    pulses.current.add(timer);
+  }, [snapshot]);
+  useEffect(() => {
+    const pending = pulses.current;
+    return () => pending.forEach(clearTimeout);
+  }, []);
   const byID = new Map(nodes.map((node) => [node.id, node]));
   const hidden = (node: WorkflowNode) => {
     const seen = new Set([node.id]);
@@ -67,10 +86,10 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
     const canvas = viewport.current;
     const frame = requestAnimationFrame(() => {
       initialized.current = true;
-      setScale(Math.max(.8, Math.min(1, (canvas.clientWidth - 24) / width)));
+      setScale(Math.max(.35, Math.min(1, (canvas.clientWidth - 24) / width, (canvas.clientHeight - 24) / height)));
     });
     return () => cancelAnimationFrame(frame);
-  }, [nodes.length, width]);
+  }, [nodes.length, width, height]);
   const move = (id: string, next: Point) => setLayout((prior) => ({ ...prior, positions: {
     ...prior.positions, [id]: { x: Math.max(0, Math.min(50000, next.x)), y: Math.max(0, Math.min(50000, next.y)) },
   } }));
@@ -129,12 +148,17 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
               if (parent) return null;
               const sx = from.x + NODE_WIDTH / 2, sy = from.y + NODE_HEIGHT;
               const ex = to.x + NODE_WIDTH / 2, ey = to.y;
-              const mid = (sy + ey) / 2;
-              const path = `M${sx},${sy} C${sx},${mid} ${ex},${mid} ${ex},${ey}`;
+              // Travel sideways just below the parent, then drop straight
+              // down, so a connector to a second row passes through a gap in
+              // the first. For the next row this is the plain S curve.
+              const drop = Math.min((ey - sy) / 2, 56);
+              const path = `M${sx},${sy} C${sx},${sy + drop} ${ex},${sy + drop} ${ex},${sy + 2 * drop} L${ex},${ey}`;
               const activity = activityDisplay(connected ? effects : [],node.session?.id || "",byID.get(node.parent || "")?.session?.id || "");
-              return <g key={node.id + ":" + (activity.communication?.id || activity.creation?.id || "")} className={"connection-line " + (activity.communication ? "communicating " : "") + (activity.creation ? "creating " : "") + "relation-" + node.relation}>
+              const report = connected && node.task ? traffic[node.task.id] : undefined;
+              const communicating = activity.communication || report;
+              return <g key={node.id + ":" + (activity.communication?.id || activity.creation?.id || report || "")} className={"connection-line " + (communicating ? "communicating " : "") + (activity.creation ? "creating " : "") + "relation-" + node.relation}>
                 <path d={path} /><circle cx={sx} cy={sy} r={4} /><circle cx={ex} cy={ey} r={4} />
-                {activity.communication && <path className="communication-pulse" d={path} />}
+                {communicating && <path className="communication-pulse" d={path} />}
               </g>;
             })}
           </svg>
@@ -156,9 +180,9 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
                 }} onKeyUp={(event) => { if (event.key.startsWith("Arrow")) save(); }}
                 onClick={(event) => { if (ignoreClick.current) { ignoreClick.current = false; return; } onSelect(node, event.currentTarget); }} aria-pressed={selected === node.id}
                 aria-label={node.title + ". " + nodeStatus(node) + ". " + (parent ? "Parent: " + parent.title : node.relation)} aria-describedby="canvas-help">
-                <Avatar persona={personaFor(node.task, node.session)} />
+                <Avatar persona={node.cfo ? "cfo" : personaFor(node.task, node.session)} />
                 <span className="card-copy"><strong>{node.title}</strong>{presentations.some(a=>a.target===node.session?.id)&&<span className="browser-indicator">Browser active</span>}{node.task?.project && <span className="project-label">{node.task.project}</span>}<span className={"plain-status phase-" + phase}><span className="status-dot" />{nodeStatus(node)}</span>
-                  {!node.parent && node.session?.role !== "cfo" && <small>{node.relation}</small>}
+                  {!node.parent && node.session?.role !== "cfo" && !node.cfo && <small>{node.relation}</small>}
                 </span>
               </button>
               {children && <button className="node-disclosure" aria-label={(collapsed.has(node.id) ? "Expand" : "Collapse") + " descendants of " + node.title} aria-expanded={!collapsed.has(node.id)} onClick={() => setCollapsed((prior) => { const next = new Set(prior); if (next.has(node.id)) next.delete(node.id); else next.add(node.id); return next; })}><Chevron collapsed={collapsed.has(node.id)} /></button>}

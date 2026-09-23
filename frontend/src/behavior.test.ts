@@ -4,14 +4,20 @@ import { parsePatchToRows, splitRows, reviewRange } from "./diff.ts";
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
-import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText } from "./workflow.ts";
+import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
 
 test("board completion and semantic personas require the corresponding evidence", () => {
   const task = parseSnapshot({healthy:true, tasks:[{id:"work",title:"Test keyboard access",phase:"done",generation:"new",verified:false}]}).tasks[0];
   assert.equal(taskColumn(task), "In progress");
   assert.equal(taskColumn({...task,verified:true}), "Completed");
   assert.equal(personaFor(task), "tester");
-  assert.equal(personaFor({...task,title:"Unclassified work"}), "general");
+  // Work no keyword classifies still gets its own stable goblin, never the
+  // shared app icon, which stays for nodes with no task at all.
+  const unclassified = personaFor({...task,title:"Unclassified work"});
+  assert.notEqual(unclassified, "general");
+  assert.equal(personaFor({...task,title:"Unclassified work"}), unclassified);
+  assert.equal(personaFor(), "general");
+  assert.equal(personaFor({...task,archived:true}), "finisher");
   assert.equal(personaFor({...task,title:"Build review panel"}), "builder");
   assert.equal(personaFor({...task,title:"Review the authentication changes"}), "reviewer");
   assert.equal(nativeStatus("busy"), "Working");
@@ -170,4 +176,111 @@ test("the board keeps the CFO registration state the supervisor reports", () => 
   const stale = "The CFO is not registered; run cfo register in the CFO session";
   assert.equal(parseSnapshot({healthy:true, registration:stale}).registration, stale);
   assert.equal(parseSnapshot({healthy:true}).registration, "");
+});
+
+test("completed history and fleet statuses read the way the fleet reports them", () => {
+  const [live, finished, merged, queued] = parseSnapshot({healthy:true, tasks:[
+    {id:"work", phase:"idle", verified:false, activity:"working: gate test step", pr:"https://github.com/o/code-goblins/pull/29"},
+    {id:"finished:old", phase:"done", verified:false, archived:true},
+    {id:"merged:x", phase:"done", verified:false, archived:true, merged:true, pr:"https://github.com/o/code-goblins/pull/30"},
+    {id:"brief", phase:"queued", verified:false},
+  ]}).tasks;
+  assert.equal(live.activity, "working: gate test step");
+  assert.equal(taskColumn(live), "In progress");
+  assert.equal(statusText(live.phase), "Awaiting input");
+  assert.equal(taskColumn(finished), "Completed");
+  assert.equal(nodeStatus({id:"f", title:"old", task:finished, relation:""}), "Finished");
+  assert.equal(taskColumn(merged), "Completed");
+  assert.equal(nodeStatus({id:"m", title:"x", task:merged, relation:""}), "PR merged");
+  assert.equal(taskColumn(queued), "Tasks");
+  for (const [phase, label] of [["merged", "Verify landed content"], ["blocked", "Blocked"], ["ready", "Checks passed"]]) {
+    const landed = {...live, phase, merged:true};
+    assert.equal(taskColumn(landed), "In progress");
+    assert.equal(nodeStatus({id:"l", title:"work", task:landed, relation:""}), label);
+  }
+  assert.equal(parseSnapshot({healthy:true, tasks:[{id:"older-server", verified:false}]}).tasks[0].archived, false);
+});
+
+test("every live goblin gets its own stable artwork instead of the generic app icon", () => {
+  const ids = ["cfo-native-board", "cms-editor-fast-load", "pd-land-1251-1252"];
+  const persona = (id: string) => personaFor(parseSnapshot({healthy:true, tasks:[{id, title:id, verified:false}]}).tasks[0]);
+  const personas = ids.map(persona);
+  assert.ok(!personas.includes("general"), personas.join());
+  assert.equal(new Set(personas).size, ids.length, personas.join());
+  assert.deepEqual(ids.map(persona), personas);
+});
+
+test("only an https pull request becomes a link, labelled by repository and number", () => {
+  assert.equal(safePullRequest("https://github.com/o/code-goblins/pull/29"), "https://github.com/o/code-goblins/pull/29");
+  for (const unsafe of ["javascript:alert(1)", "http://github.com/o/r/pull/1", "https://x y", ""]) assert.equal(safePullRequest(unsafe), "", unsafe);
+  assert.equal(pullRequestLabel("https://github.com/o/code-goblins/pull/29"), "code-goblins #29");
+  assert.equal(pullRequestLabel("https://example.invalid/review/3"), "Pull request");
+});
+
+test("dispatched goblins hang under the CFO, and only live work is in the tree", () => {
+  const live = ["a", "b", "c", "d", "e", "f"].map((id) => ({id, phase:"working", verified:false}));
+  const history = [{id:"finished:x", phase:"done", verified:false, archived:true}, {id:"brief", phase:"queued", verified:false}];
+  const drawn = workflowNodes(parseSnapshot({healthy:true, registration:"The CFO is not registered; run cfo register in the CFO session", tasks:[...live, ...history]}));
+  const root = drawn.find((node) => node.id === CFO_ROOT);
+  assert.ok(root?.cfo);
+  assert.equal(nodeStatus(root!), "Registration stale");
+  assert.deepEqual(drawn.filter((node) => node.task).map((node) => [node.task!.id, node.parent, node.relation]), live.map((task) => [task.id, CFO_ROOT, "Dispatched by the CFO"]));
+
+  const reported = workflowNodes(parseSnapshot({healthy:true, sessions:[{id:"cfo", role:"cfo"}, {id:"lost", role:"goblin", parent:"missing"}], tasks:[{id:"a", phase:"working", verified:false}]}));
+  assert.equal(reported.find((node) => node.id === CFO_ROOT), undefined);
+  assert.equal(reported.find((node) => node.id === "task:a")?.parent, "session:cfo");
+  assert.equal(reported.find((node) => node.id === "session:lost")?.parent, undefined);
+  assert.equal(workflowNodes(parseSnapshot({healthy:true, tasks:history})).length, 0);
+});
+
+test("a wide family of goblins wraps into rows that never overlap", () => {
+  const nodes = workflowNodes(parseSnapshot({healthy:true, tasks:["a", "b", "c", "d", "e", "f"].map((id) => ({id, phase:"working", verified:false}))}));
+  const positions = arrange(nodes);
+  const cards = nodes.filter((node) => node.task).map((node) => positions[node.id]);
+  const rows = [...new Set(cards.map((point) => point.y))].sort((a, b) => a - b);
+  assert.equal(rows.length, 2);
+  for (const [i, one] of cards.entries()) for (const other of cards.slice(i + 1)) {
+    assert.ok(Math.abs(one.x - other.x) >= NODE_WIDTH || Math.abs(one.y - other.y) >= NODE_HEIGHT, JSON.stringify([one, other]));
+  }
+  assert.ok(cards.every((point) => point.y > positions[CFO_ROOT].y));
+  // A second-row card's connector drops through a gap in the first row, never
+  // behind a first-row card that would then look like its parent.
+  const first = cards.filter((point) => point.y === rows[0]);
+  for (const card of cards.filter((point) => point.y === rows[1])) {
+    const center = card.x + NODE_WIDTH / 2;
+    assert.ok(first.every((above) => center < above.x || center > above.x + NODE_WIDTH), JSON.stringify({ card, first }));
+  }
+});
+
+test("a connector pulses only when a goblin reports something new", () => {
+  const snapshot = (activity: string, decisions: {seq:number,key:string}[] = []) => parseSnapshot({healthy:true,
+    tasks:[{id:"a", phase:"working", verified:false, activity}, {id:"old", phase:"done", verified:false, archived:true, activity}],
+    decisions:decisions.map((d) => ({...d, kind:"notify", detail:"blocked: which?", time:"2026-09-23T00:00:00Z"}))});
+  const first = fleetTraffic(null, snapshot("working: tests"));
+  assert.deepEqual(first.moved, []);
+  assert.deepEqual(fleetTraffic(first.signatures, snapshot("working: tests")).moved, []);
+  assert.deepEqual(fleetTraffic(first.signatures, snapshot("working: gate review")).moved, ["a"]);
+  assert.deepEqual(fleetTraffic(first.signatures, snapshot("working: tests", [{seq:4, key:"a"}])).moved, ["a"]);
+  assert.equal(first.signatures.has("old"), false);
+});
+
+test("a pulse ends with its own report however many snapshots follow", () => {
+  const snapshot = (activity: string) => parseSnapshot({healthy:true, tasks:[{id:"a", phase:"working", verified:false, activity}]});
+  let seen = fleetTraffic(null, snapshot("working: tests")).signatures;
+  let traffic: Record<string, number> = {};
+  const report = (activity: string, at: number) => {
+    const { signatures, moved } = fleetTraffic(seen, snapshot(activity));
+    seen = signatures;
+    traffic = reportTraffic(traffic, moved, at);
+    return moved;
+  };
+  const first = report("working: gate review", 1000);
+  for (let at = 1001; at < 1010; at++) assert.deepEqual(report("working: gate review", at), []);
+  assert.deepEqual(traffic, {a:1000});
+  traffic = expireTraffic(traffic, first, 1000);
+  assert.deepEqual(traffic, {});
+  const older = report("working: lint", 2000);
+  report("working: push", 3000);
+  traffic = expireTraffic(traffic, older, 2000);
+  assert.deepEqual(traffic, {a:3000});
 });
