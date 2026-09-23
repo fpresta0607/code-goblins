@@ -323,7 +323,7 @@ func goblinFixture(t *testing.T, store *Store) (state.TaskMeta, wake.Record, *cf
 // question the supervisor ingested.
 func surfaced(t *testing.T, store *Store, meta state.TaskMeta, record wake.Record, connection *CFOConnection) Question {
 	t.Helper()
-	if err := SurfaceNotify(context.Background(), store.Home.State, connection.Herdr, meta.ID, record); err != nil {
+	if err := SurfaceNotify(context.Background(), store.Home.State, connection.Herdr, meta.ID, record, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {
@@ -342,7 +342,7 @@ func surfaced(t *testing.T, store *Store, meta state.TaskMeta, record wake.Recor
 func TestGoblinQuestionAnsweredOnceInItsOwnPane(t *testing.T) {
 	store, h := testStore(t)
 	meta, record, runner, connection := goblinFixture(t, store)
-	if err := SurfaceNotify(context.Background(), h.State, connection.Herdr, meta.ID, record); err != nil {
+	if err := SurfaceNotify(context.Background(), h.State, connection.Herdr, meta.ID, record, nil); err != nil {
 		t.Fatal(err)
 	}
 	q := surfaced(t, store, meta, record, connection)
@@ -460,18 +460,18 @@ func TestSurfaceNotifyNeedsChoicesAndTheGoblinsOwnPane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SurfaceNotify(context.Background(), h.State, connection.Herdr, meta.ID, plain); err != nil {
+	if err := SurfaceNotify(context.Background(), h.State, connection.Herdr, meta.ID, plain, nil); err != nil {
 		t.Fatal(err)
 	}
 	failed, err := wake.Append(h.State, "notify", meta.ID, "failed: Tests fail. options: Retry (Recommended) | Abandon")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SurfaceNotify(context.Background(), h.State, connection.Herdr, meta.ID, failed); err != nil {
+	if err := SurfaceNotify(context.Background(), h.State, connection.Herdr, meta.ID, failed, nil); err != nil {
 		t.Fatal(err)
 	}
 	runner.pid = 2147483647
-	if err := SurfaceNotify(context.Background(), h.State, connection.Herdr, meta.ID, record); err == nil {
+	if err := SurfaceNotify(context.Background(), h.State, connection.Herdr, meta.ID, record, nil); err == nil {
 		t.Fatal("a process outside the goblin's pane surfaced its question")
 	}
 	if err := store.ingestQuestions(); err != nil {

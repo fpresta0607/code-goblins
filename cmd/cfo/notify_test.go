@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"slices"
@@ -227,5 +229,61 @@ func TestBlockedNotifyIsQueuedAtOnceWithAndWithoutServe(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Review images are checked before anything is recorded: a wrong count or a
+// path outside the task fails the whole notify, so the CFO is never woken
+// with a question whose images the Overlord cannot see.
+func TestNotifyImagesAreCheckedBeforeAnythingIsRecorded(t *testing.T) {
+	dir := t.TempDir()
+	stateDir, worktree := filepath.Join(dir, "state"), filepath.Join(dir, "work")
+	for _, d := range []string{stateDir, worktree} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("CFO_HOME", dir)
+	// No Herdr pane, so the Command Center step stops before any Herdr call.
+	if err := state.WriteTaskMeta(stateDir, state.TaskMeta{ID: "g1", Project: worktree, Worktree: worktree, Harness: "codex", Mode: "no-mistakes", Kind: "ship", SpawnGen: "g1"}); err != nil {
+		t.Fatal(err)
+	}
+	var shot bytes.Buffer
+	if err := png.Encode(&shot, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	inside, outside := filepath.Join(worktree, "grid.png"), filepath.Join(t.TempDir(), "list.png")
+	for _, path := range []string{inside, outside} {
+		if err := os.WriteFile(path, shot.Bytes(), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	question := "Which layout? options: Grid | List"
+	for name, c := range map[string]struct {
+		args []string
+		exit int
+	}{
+		"a failed notify":   {[]string{"--failed", question, "--image", inside, "--image", inside}, 2},
+		"no choices":        {[]string{"--blocked", "Which layout?", "--image", inside}, 2},
+		"one image too few": {[]string{"--blocked", question, "--image", inside}, 2},
+		"outside the task":  {[]string{"--blocked", question, "--image", inside, "--image", outside}, 1},
+	} {
+		var stdout, stderr bytes.Buffer
+		if exit := runNotify(append([]string{"g1"}, c.args...), &stdout, &stderr); exit != c.exit {
+			t.Fatalf("%s: exit=%d stderr=%q, want %d", name, exit, stderr.String(), c.exit)
+		}
+	}
+	if lines, _ := state.TailStatus(stateDir, "g1", 1); len(lines) != 0 {
+		t.Fatalf("a refused notify recorded status %q", lines)
+	}
+	if records, err := wake.Pending(stateDir); err != nil || len(records) != 0 {
+		t.Fatalf("a refused notify woke the CFO: %+v %v", records, err)
+	}
+	var stdout, stderr bytes.Buffer
+	if exit := runNotify([]string{"g1", "--blocked", question, "--image", inside, "--image", filepath.Join(dir, "work", ".", "grid.png")}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("exit=%d stderr=%q, want the notify recorded", exit, stderr.String())
+	}
+	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != "blocked: "+question {
+		t.Fatalf("wake records = %+v %v, want the question", records, err)
 	}
 }
