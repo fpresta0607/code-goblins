@@ -401,7 +401,7 @@ func (s *Store) QueueReview(ctx context.Context, a Action, cfo *CFOConnection) (
 	}
 	file, err := openPrimary(filepath.Join(s.Home.State, "primary.json"))
 	if err != nil {
-		return Action{}, errors.New("Primary CFO registration is unavailable. No review was queued.")
+		return Action{}, fmt.Errorf("%v. No review was queued.", errNotRegistered)
 	}
 	defer file.Close()
 	primary, identity, err := decodePrimary(file)
@@ -486,7 +486,7 @@ func (s *Store) queue(a Action) (Action, error) {
 	if a.Kind == "cfo_answer" {
 		file, err := openPrimary(filepath.Join(s.Home.State, "primary.json"))
 		if err != nil {
-			return Action{}, errors.New("primary CFO registration is unavailable")
+			return Action{}, errNotRegistered
 		}
 		_, identity, err := decodePrimary(file)
 		_ = file.Close()

@@ -78,6 +78,7 @@ export interface Snapshot {
   reconciled: string;
   healthy: boolean;
   error: string;
+  registration?: string;
   inbox: number;
   tasks: Task[];
   sessions: Session[];

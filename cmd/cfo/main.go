@@ -40,6 +40,7 @@ commands:
   serve     run the persistent native supervisor and embedded browser board on loopback
   hooks     check|install <claude|codex|pi> native lifecycle hooks
   native-hook <harness>  bounded hook entry point (JSON on stdin)
+  register  make this session the primary CFO the board delivers to; the SessionStart hooks do it, run it by hand when the board says the registration is stale
   install   wire this checkout into the machine (CFO_HOME, PATH, and the Claude Code hooks in your user settings) so a session in any repo is supervised; --projects-root <dir> records the folder that holds your checkouts so --project can take a bare name; --uninstall reverses it
   doctor    check the tools cfo needs (git, gh, claude, herdr, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi)
   pipeline  config-drift | config-apply | migrate <id> | run <id> --intent <text> | respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>] | recover <id>
@@ -268,6 +269,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runNotify(args[1:], stdout, stderr)
 	case "question":
 		return runQuestion(args[1:], stdout, stderr, runtime)
+	case "register":
+		return runRegister(args[1:], stdout, stderr, runtime)
 	case "present":
 		return runPresent(args[1:], stdout, stderr, runtime)
 	case "session-start":

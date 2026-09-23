@@ -56,7 +56,7 @@ func validQuestion(q Question) error {
 func (c *CFOConnection) PublishQuestion(ctx context.Context, id, text string, options []string, recommended string) error {
 	file, err := openPrimary(filepath.Join(c.State, "primary.json"))
 	if err != nil {
-		return errors.New("primary CFO registration is unavailable")
+		return errNotRegistered
 	}
 	defer file.Close()
 	p, identity, err := decodePrimary(file)
