@@ -228,6 +228,24 @@ The notify then reads answered: `cfo drain` prints the board's answer and acks t
 The CFO still acks it in the ordinary way.
 Once the CFO acks a notify it handled itself, the board retires its copy, and an answer queued before that ack is refused with nothing sent.
 One window stays open: if the CFO answers with `cfo send` and the Overlord answers on the board before the CFO acks, the goblin receives both, each labelled with its sender.
+A question that closed without an answer, because its goblin restarted or ended or the CFO handled it, stays listed with its reason until the Overlord clears it (`question_clear`); a pending question cannot be cleared, so an unanswered decision is never hidden.
+
+## Review items
+
+A review item is something that needs the Overlord's attention without blocking anyone, such as a page of mockups, a report or before and after screenshots:
+
+```powershell
+cfo review --id mockups-review-1 --task task-id --title "Pick a task list layout" --image grid.png --image list.png --lavish http://127.0.0.1:4387/session/<id>
+cfo review --id mockups-review-1 --task task-id --withdraw "Replaced by mockups-review-2"
+```
+
+A goblin runs it from its own pane, proven the way its questions are; the registered primary CFO omits `--task`, and only a goblin's item takes images.
+The ID is 8 to 128 letters, digits, dots, dashes or underscores; republishing the same ID with the same content changes nothing, and other content under that ID is refused.
+Up to twelve images, each a PNG, JPEG, GIF or WebP of at most 10 MiB inside the task's worktree, task scratch or data directory, are checked like a question's and copied under `state/reviews`, so the item outlives the worktree and the goblin; `data/` is never used, because it is pushed.
+An item stays open until the Overlord clears it (`review_clear`) or its reporter withdraws it with a reason; nothing expires it, a `cfo serve` restart keeps it, and a respawned or retired goblin leaves it listed.
+The board sees each item in `snapshot.reviews` with an image count, never a path or a digest, and fetches image n at `/api/reviews/<id>/images/<n>`, checked again on every request.
+Closed items and their copies are pruned a week after they close; open items are never dropped, and a new item waits in the inbox while 128 are open.
+The API contract for the board is `data/board-ui/api-contract.md`.
 
 ## Nonblocking presentation notices
 
