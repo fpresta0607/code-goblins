@@ -177,11 +177,12 @@ The gate reads it from the default branch, and `cfo pipeline run` refuses to sta
 The `cfo session-start` digest prints the first queued rows of `data/backlog.md`, every task's metadata and recent status, and `data/projects.md`, `data/overlord.md` and `data/learnings.md` in full.
 Apart from the shipped lane table, `data/routing.json`, `data/` is the operator's private fleet state and never part of this repository.
 A Claude CFO also loads its auto-memory index for this checkout.
+The `stow` skill keeps these files current and inside a startup budget: directives stay word for word, operating facts decay unless re-confirmed, and stale history moves to `data/memory-archive.md`, which no session loads.
 
 ## Third-party skills
 
 The tools the fleet drives publish their own skills, and this repository does not copy them.
-Install each once at user scope with `-g`, so Codex, Pi and Kimi find it in `~/.agents/skills` and Claude Code in `~/.claude/skills`; the commands are in the [README's Quick start](../README.md#quick-start).
+Install each once at user scope with `npx skills add kunchenguid/<tool> --skill <tool> -g`, so Codex, Pi and Kimi find it in `~/.agents/skills` and Claude Code in `~/.claude/skills`; the three exact commands are in the [README's Quick start](../README.md#quick-start).
 
 A copy inside this repository would reach only sessions opened in this checkout, never a goblin working on another project, and would compete with the user copy under the collision rules above.
 `cfo doctor` checks that these tools are installed but not yet that their skills are; checking for each skill at user scope is a natural next addition to it.
