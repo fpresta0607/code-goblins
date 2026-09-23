@@ -159,7 +159,7 @@ export function Details({ task, snapshot, connected, reviews }: {
       <h2 id="details-title">{task.title || task.id}</h2>
       {task.project && <p className="project-label">{task.project}</p>}
       <p className="panel-status">{nodeStatus({ id: task.id, title: task.title, task, relation: "" })}</p>
-    </div><WorkspaceDetails task={task} /></header>
+    </div><WorkspaceDetails task={task} instance={snapshot.instance} /></header>
     <div className="panel-content">
       {task.pr && /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/.test(task.pr) && <a className="review-pr" href={task.pr} target="_blank" rel="noreferrer">Open pull request</a>}
       {task.generation ? <Disclosure title="Changes" defaultOpen kind="changes-section"><Changes task={task} reviews={reviews} connected={connected} /></Disclosure> : <p className="muted padded">Changes will appear when this task starts.</p>}

@@ -243,3 +243,24 @@ func TestTaskTerminalIdentityIgnoresDeliveryMetadata(t *testing.T) {
 		t.Fatal("replacement task accepted")
 	}
 }
+
+func TestMissingTerminalRegistrationIsNotATransientConnection(t *testing.T) {
+	store, h := testStore(t)
+	_, _, _, cfo := primaryFixture(t, store)
+	meta, _ := state.ReadTaskMeta(h.State, "task-1")
+	meta.HerdrPaneID = ""
+	meta.Backend = ""
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHTTP(&Service{Store: store, Instance: "instance", Options: Options{CFO: cfo}}, "board.local", nil)
+	r := httptest.NewRequest("POST", "http://board.local/api/terminal/stream", strings.NewReader(`{"task":"task-1","generation":"g1","cols":80,"rows":24}`))
+	r.Header.Set("Origin", "http://board.local")
+	r.Header.Set("X-CFO-Token", "instance")
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != 409 || !strings.Contains(w.Body.String(), `"code":"terminal_unavailable"`) {
+		t.Fatal("missing registration offered retry", w.Code, w.Body.String())
+	}
+}

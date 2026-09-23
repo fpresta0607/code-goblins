@@ -17,6 +17,16 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
+func TestPrimaryContextRoutesUserDecisionsThroughExplicitQuestions(t *testing.T) {
+	var out bytes.Buffer
+	writeSupervisionInstructions(&werr{w: &out})
+	for _, want := range []string{"cfo question --id", "--recommend", "Claude", "Codex", "Pi", "native prompt", "same CFO"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("primary context omitted %q", want)
+		}
+	}
+}
+
 // newDigestHome builds a bare home.Home over a fresh temp dir with empty
 // state/ and data/ subdirectories: enough for Compose, which never requires
 // AGENTS.md or a git checkout (that gate is the hook dispatcher's job, not

@@ -228,3 +228,40 @@ The previous unexplained Bearfoos quarantines and the precise credential-scan li
 The real CFO's production registration is known stale; its owner must establish a verified registration only in the agreed isolated test home before the authorized live round trip.
 The final candidate is built from the new clean commit outside this worktree, with its commit, `vcs.modified=false`, SHA256 and completed exact-path Defender scan recorded externally in `terminal-final-artifact.json`.
 The owning CFO reports task/global v2 policy migrated with high-risk three-cycle review preserved; the managed gate remains required after the new acceptance work, with no gate, push, PR or merge claimed at this checkpoint.
+
+## Command Center and verified review candidate, September 23 UTC
+
+The approved Command Center modal now presents real recommended choices plus Other, and persists the actual submitted answer across tabs and ambiguous responses.
+Primary session guidance and command help route explicit decisions through `cfo question` across supported harnesses without pretending a normal message answers a pending native prompt tool.
+The approved full-height workspace panel uses larger text, native editor actions, quiet connection details and inline diffs; the generated canvas illustration is anchored at the bottom right.
+Missing or shared native transports show concise empty states, and an unlinked session does not borrow the primary CFO's workspace.
+
+New review annotations pin the primary recipient separately from task generation, revalidate exact diff context and use only `CFOConnection.Send`.
+The previous wake-only transport did not establish native receipt, so its old queue records remain intact while new reviews create no second actionable wake.
+Unit integration tests cover two distinct files, exact server-derived ranges, required native adapters for Claude/Codex/Pi, zero worker sends, duplicate/restart suppression, stale task/primary identity, legacy unpinned actions and post-acceptance crash uncertainty.
+These tests use controlled Herdr adapters; actual native-process and model/browser receipts for this candidate remain acceptance work.
+
+Explicit bounded `cfo present` receipts support task and verified primary presentations without opening a page or gating work.
+Pending same-ID records preserve identity, chronology and terminal end state before ingestion.
+Accepted send and creation effects require exact native parent evidence for a connector; otherwise only the destination is highlighted.
+Independent deadlines prevent unrelated traffic from extending an old effect, and hidden-tab, reconnect and instance boundaries suppress replay.
+Screen reader output is an explicit saved xterm option; default Unicode InsertText and bounded adjacent-text coalescing are implemented, with paste/control/resize/scroll barriers preserved.
+
+| Check | Result |
+| --- | --- |
+| Frontend | TypeScript, ESLint, 19 behavior tests and production Vite build passed |
+| Broad Go sweep | Every package except `cmd/cfo` passed; supervisor completed in 90.253 s |
+| Command regression | The sweep found an obsolete exact nudge string in three resumed-session cases; after updating that assertion, the full `cmd/cfo` package passed in 141.474 s |
+| Go vet | `go vet -p 2 ./...` passed |
+| Editor behavior | Genuine linked worktree, literal spaces/non-ASCII arguments, primary/nested/missing-path rejection, local origin/token and Electron flag sanitation passed without launching an editor |
+| External evidence | `command-center-go-test.log`, `command-center-cfo-recheck.log`, `command-center-go-vet.log` and `command-center-milestones.json` under the fleet task directory |
+
+Go checks ran with production home/state overrides and `GITHUB_TOKEN` removed from the child process, and `GOMAXPROCS=2`.
+The original full-run failure log is retained beside the successful recheck rather than overwritten.
+No credential value was inspected or printed for this revision.
+The existing disclosure, unscanned-log limits and unexplained historical Bearfoos detections remain as documented above.
+
+The final candidate is built outside the worktree from this clean source commit, with its exact executable/hash/build metadata and completed targeted Defender scan recorded in `C:\dev\code-goblins\data\cfo-native-board\command-center-final-artifact.json`.
+The parent-owned `http://127.0.0.1:62197/` preview still serves the earlier `b242192` build and does not certify these changes.
+Fresh responsive screenshots, actual Unicode typing/coalescing latency, independent pulse lifetime/hidden-tab behavior, question/Other round trips, and two-file native CFO review receipt remain pending on the new candidate.
+No real primary CFO input, shared configuration mutation, gate, push, PR or merge occurred in this revision.

@@ -1,4 +1,4 @@
-import type { Action, Session, Snapshot, Task } from "./types.ts";
+import type { Session, Snapshot, Task } from "./types.ts";
 import { lineageRoots, ownsTaskSession, sessionTitle, tasksWithoutSession } from "./lineageTree.ts";
 
 export type Persona = "cfo" | "builder" | "reviewer" | "tester" | "planner" | "finisher" | "general"
@@ -126,9 +126,7 @@ export function arrange(nodes: WorkflowNode[]): Record<string, Point> {
   return positions;
 }
 
-export function recentCommunication(actions: Action[], task: Task | undefined, now: number, connected: boolean): Action | undefined {
-  if (!connected || !task) return undefined;
-  return actions.slice().reverse().find((action) => action.kind === "feedback" && action.task_id === task.id
-    && action.generation === task.generation && action.status === "succeeded"
-    && now >= Date.parse(action.updated_at) && now - Date.parse(action.updated_at) < 10_000);
+export function harnessName(id: string): string {
+  const names: Record<string, string> = { codex: "Codex", claude: "Claude Code", pi: "Pi", kimi: "Kimi" };
+  return names[id] || id;
 }

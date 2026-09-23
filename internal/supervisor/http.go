@@ -11,12 +11,14 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -37,10 +39,12 @@ type HTTP struct {
 	terminalSlots chan struct{}
 	terminals     map[string]*terminalLease
 	openTerminal  func(context.Context, string, string, bool, int, int) (herdr.TerminalStream, error)
+	editor        execx.Starter
+	editorLookup  func(string) (string, error)
 }
 
 func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
-	return &HTTP{Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), captures: make(chan struct{}, 1), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 4), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal}
+	return &HTTP{Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), captures: make(chan struct{}, 1), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 4), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, editor: execx.OSRunner{}, editorLookup: exec.LookPath}
 }
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -89,6 +93,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respond(w, 200, value)
+	case r.URL.Path == "/api/workspace/open" && r.Method == "POST":
+		h.openWorkspace(w, r)
 	case r.URL.Path == "/api/cfo" && r.Method == "GET":
 		if !h.captureSlot(w) {
 			return
@@ -229,6 +235,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 		Revision   string `json:"revision"`
 		DiffID     string `json:"diff_id"`
 		QuestionID string `json:"question_id"`
+		AnswerKind string `json:"answer_kind"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 24<<10))
 	decoder.DisallowUnknownFields()
@@ -249,7 +256,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 400, "Unsafe file path")
 		return
 	}
-	a, err := h.Service.Store.Queue(Action{ID: input.ID, Kind: input.Kind, TaskID: input.TaskID, Generation: input.Generation, Text: input.Text, File: input.File, Line: input.Line, EndLine: input.EndLine, Side: input.Side, Head: input.Head, Revision: input.Revision, DiffID: input.DiffID, QuestionID: input.QuestionID})
+	a, err := h.Service.Store.Queue(Action{ID: input.ID, Kind: input.Kind, TaskID: input.TaskID, Generation: input.Generation, Text: input.Text, File: input.File, Line: input.Line, EndLine: input.EndLine, Side: input.Side, Head: input.Head, Revision: input.Revision, DiffID: input.DiffID, QuestionID: input.QuestionID, AnswerKind: input.AnswerKind})
 	if err != nil {
 		apiError(w, 409, err.Error())
 		return

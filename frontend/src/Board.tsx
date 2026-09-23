@@ -1,8 +1,9 @@
-import type { Snapshot, Task } from "./types";
+import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
 import { nodeStatus, personaFor, taskColumn } from "./workflow";
 
-export function Board({ snapshot, selected, onSelect }: {
+export function Board({ snapshot, selected, onSelect, presentations }: {
+  presentations:BoardActivity[];
   snapshot: Snapshot; selected?: string;
   onSelect: (task: Task, source: HTMLElement) => void;
 }) {
@@ -15,7 +16,7 @@ export function Board({ snapshot, selected, onSelect }: {
           {tasks.map((task) => <button key={task.id} className={"task-card" + (selected === task.id ? " selected" : "")}
             aria-pressed={selected === task.id} onClick={(event) => onSelect(task, event.currentTarget)}>
             <Avatar persona={personaFor(task)} />
-            <span className="card-copy"><strong>{task.title || task.id}</strong>{task.project && <span className="project-label">{task.project}</span>}
+            <span className="card-copy">{presentations.some(event=>event.task_id===task.id) && <span className="browser-indicator">Browser active</span>}<strong>{task.title || task.id}</strong>{task.project && <span className="project-label">{task.project}</span>}
               <span className={"plain-status phase-" + task.phase}><span className="status-dot" />{nodeStatus({ id: task.id, title: task.title, task, relation: "" })}</span>
             </span>
           </button>)}

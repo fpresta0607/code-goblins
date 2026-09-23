@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
-import type { Snapshot } from "./types";
+import type { BoardActivity, Snapshot } from "./types";
 import { Avatar } from "./Avatar";
 import { Chevron } from "./Chevron";
 import { ownsTaskSession } from "./lineageTree";
-import { arrange, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, recentCommunication, workflowNodes, type Point, type WorkflowNode } from "./workflow";
+import { arrange, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, workflowNodes, type Point, type WorkflowNode } from "./workflow";
 
 const layoutKey = "cfo-orchestration-layout-v1";
 
@@ -24,8 +24,9 @@ function readLayout(): { positions: Record<string, Point>; error: string } {
   } catch { return { positions: {}, error: "Saved layout is unavailable. Arrange starts a fresh layout." }; }
 }
 
-export function Orchestration({ snapshot, selected, connected, onSelect }: {
-  snapshot: Snapshot; selected: string; connected: boolean;
+export function Orchestration({ snapshot, selected, connected, effects, onSelect, presentations }: {
+  presentations:BoardActivity[];
+  snapshot: Snapshot; selected: string; connected: boolean; effects: BoardActivity[];
   onSelect: (node: WorkflowNode, source: HTMLElement) => void;
 }) {
   const nodes = useMemo(() => workflowNodes(snapshot), [snapshot]);
@@ -33,16 +34,12 @@ export function Orchestration({ snapshot, selected, connected, onSelect }: {
   const [layout, setLayout] = useState(readLayout);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [scale, setScale] = useState(1);
-  const [now, setNow] = useState(Date.now);
+
   const viewport = useRef<HTMLDivElement>(null);
   const ignoreClick = useRef(false);
   const drag = useRef<{ id: string; pointer: Point; start: Point } | null>(null);
   const pan = useRef<{ pointer: Point; scroll: Point } | null>(null);
   const initialized = useRef(false);
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
   const byID = new Map(nodes.map((node) => [node.id, node]));
   const hidden = (node: WorkflowNode) => {
     const seen = new Set([node.id]);
@@ -133,20 +130,21 @@ export function Orchestration({ snapshot, selected, connected, onSelect }: {
               const ex = to.x + NODE_WIDTH / 2, ey = to.y;
               const mid = (sy + ey) / 2;
               const path = `M${sx},${sy} C${sx},${mid} ${ex},${mid} ${ex},${ey}`;
-              const communication = byID.get(node.parent)?.session?.role === "cfo" && ownsTaskSession(node.session, node.task)
-                ? recentCommunication(snapshot.actions, node.task, now, connected) : undefined;
-              return <g key={node.id} className={"connection-line " + (communication ? "communicating" : "") + " relation-" + node.relation}>
+              const communication = connected && effects.find(event=>event.source === byID.get(node.parent || "")?.session?.id && event.target===node.session?.id);
+              return <g key={node.id + ":" + (communication ? communication.id : "")} className={"connection-line " + (communication ? "communicating" : "") + " relation-" + node.relation}>
                 <path d={path} /><circle cx={sx} cy={sy} r={4} /><circle cx={ex} cy={ey} r={4} />
-                {communication && <><path className="communication-pulse" d={path} /><text x={sx + 12} y={sy + 38}>Guidance accepted</text></>}
+                {communication && <><path className="communication-pulse" d={path} /></>}
               </g>;
             })}
           </svg>
           {visible.map((node) => {
+            const effect = connected ? effects.find(event=>event.target===node.session?.id) : undefined;
             const p = point(node.id), owner = ownsTaskSession(node.session, node.task);
             const phase = owner ? node.task?.phase : node.session?.runtime?.state || node.session?.phase;
             const children = nodes.some((child) => child.parent === node.id);
             const parent = node.parent ? byID.get(node.parent) : undefined;
-            return <article key={node.id} className={"flow-node" + (selected === node.id ? " selected" : "")} style={{ left: p.x, top: p.y, width: NODE_WIDTH, height: NODE_HEIGHT }}>
+            return <article key={node.id} className={"flow-node" + (effect?.kind === "created" ? " node-enter" : "") + (selected === node.id ? " selected" : "")} style={{ left: p.x, top: p.y, width: NODE_WIDTH, height: NODE_HEIGHT }}>
+              {effect && <span key={effect.id} className="activity-glow" aria-hidden="true" />}
               <button className="flow-node-main" onPointerDown={(event) => startDrag(event, node)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
                 onKeyDown={(event) => {
                   if (!event.altKey || !event.key.startsWith("Arrow")) return;
@@ -157,7 +155,7 @@ export function Orchestration({ snapshot, selected, connected, onSelect }: {
                 onClick={(event) => { if (ignoreClick.current) { ignoreClick.current = false; return; } onSelect(node, event.currentTarget); }} aria-pressed={selected === node.id}
                 aria-label={node.title + ". " + nodeStatus(node) + ". " + (parent ? "Parent: " + parent.title : node.relation)} aria-describedby="canvas-help">
                 <Avatar persona={personaFor(node.task, node.session)} />
-                <span className="card-copy"><strong>{node.title}</strong>{node.task?.project && <span className="project-label">{node.task.project}</span>}<span className={"plain-status phase-" + phase}><span className="status-dot" />{nodeStatus(node)}</span>
+                <span className="card-copy"><strong>{node.title}</strong>{presentations.some(a=>a.target===node.session?.id)&&<span className="browser-indicator">Browser active</span>}{node.task?.project && <span className="project-label">{node.task.project}</span>}<span className={"plain-status phase-" + phase}><span className="status-dot" />{nodeStatus(node)}</span>
                   {!node.parent && node.session?.role !== "cfo" && <small>{node.relation}</small>}
                 </span>
               </button>

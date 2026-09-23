@@ -6,33 +6,40 @@ import { message, request } from "./api";
 import { object, string, type Session, type Task } from "./types";
 import { Avatar } from "./Avatar";
 import { personaFor } from "./workflow";
-import { sessionTitle } from "./lineageTree";
+import { sessionTitle, ownsTaskSession } from "./lineageTree";
 import { WorkspaceDetails } from "./WorkspaceDetails";
-import { bracketedPaste, inputBytes, maxInputBytes } from "./terminalInput";
+import { bracketedPaste, inputBytes, maxInputBytes, queueInput, type TerminalCommand } from "./terminalInput";
 import { terminalDocument } from "./terminalDocument";
 
-interface Command { type: "terminal.input" | "terminal.resize" | "terminal.scroll"; text?: string; cols?: number; rows?: number; direction?: "up" | "down"; lines?: number; source?: "wheel" | "page_key" }
 interface Connection { identity: string; lease: string; control: boolean }
 
-export function NativeTerminal({ task, node, instance, visible }: { task?: Task; node?: Session; instance: string; visible: boolean }) {
+export function NativeTerminal({ task, node, instance, visible, onOwner }: { task?: Task; node?: Session; instance: string; visible: boolean; onOwner?: () => void }) {
   const host = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const inputControl = useRef<HTMLButtonElement>(null);
+  const [readerSupport, setReaderSupport] = useState(() => { try { return localStorage.getItem("cfo-terminal-screen-reader") === "true"; } catch { return false; } });
+  const [preferenceError, setPreferenceError] = useState("");
+  const readerValue = useRef(readerSupport);
+  useEffect(() => { readerValue.current = readerSupport; if (terminal.current) terminal.current.options.screenReaderMode = readerSupport; }, [readerSupport]);
   const usedControlAttempt = useRef(-1);
   const [connection, setConnection] = useState<Connection | null>(null);
   const [status, setStatus] = useState("Connecting to native terminal...");
   const [error, setError] = useState("");
+  const [unavailable, setUnavailable] = useState(false);
   const [attempt, setAttempt] = useState({ version: 0, control: false, identity: "" });
   const taskID = task?.id || "", generation = task?.generation || "", session = node?.id || "";
   const cfo = !task && !node;
+  const shared = !!node && !ownsTaskSession(node, task);
+  const queued = !!task && !task.generation;
+  const missing = !cfo && (shared || queued) || unavailable;
   useEffect(() => {
-    if (!host.current || !visible) return;
+    if (!host.current || !visible || missing) return;
     const element = host.current;
     const abort = new AbortController();
     const wantsControl = attempt.control && usedControlAttempt.current !== attempt.version;
     if (wantsControl) usedControlAttempt.current = attempt.version;
     const nonce = document.querySelector<HTMLMetaElement>('meta[name="cfo-style-nonce"]')?.content || "";
-    const term = new Terminal({ documentOverride: terminalDocument(nonce), fontSize: 15, fontFamily: '"Cascadia Code", Consolas, monospace', lineHeight: 1.2, scrollback: 0, disableStdin: true, cursorBlink: false, screenReaderMode: true, theme: { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" }, linkHandler: { activate: () => {} } });
+    const term = new Terminal({ documentOverride: terminalDocument(nonce), fontSize: 15, fontFamily: '"Cascadia Code", Consolas, monospace', lineHeight: 1.2, scrollback: 0, disableStdin: true, cursorBlink: false, screenReaderMode: readerValue.current, theme: { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" }, linkHandler: { activate: () => {} } });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(element);
@@ -41,7 +48,9 @@ export function NativeTerminal({ task, node, instance, visible }: { task?: Task;
     term.parser.registerOscHandler(52, () => true);
     let active: Connection | null = null;
     let seq = 0, pendingBytes = 0, frameSeq = 0;
-    let full = false, writing = Promise.resolve();
+    let full = false, flushing = false;
+    const queue: TerminalCommand[] = [];
+    let inputTimer: ReturnType<typeof setTimeout> | undefined;
     let resizeTimer: ReturnType<typeof setTimeout>;
     let lastDimensions = "";
     const dimensions = () => {
@@ -56,21 +65,29 @@ export function NativeTerminal({ task, node, instance, visible }: { task?: Task;
       setStatus("Disconnected");
       setError(reason);
     };
-    const send = (command: Command) => {
+    const flush = async () => {
+      inputTimer = undefined;
+      flushing = true;
+      while (queue.length && active?.control && !abort.signal.aborted) {
+        const command = queue.shift()!;
+        const size = command.text ? inputBytes(command.text) : 1;
+        const lease = active.lease;
+        try {
+          await request("/api/terminal/input", abort.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ lease, seq: ++seq, command }) });
+          pendingBytes -= size;
+        } catch (e: unknown) { if (!abort.signal.aborted) stop(message(e) + " Input was not retried."); break; }
+      }
+      flushing = false;
+    };
+    const send = (command: TerminalCommand) => {
       if (!active?.control || abort.signal.aborted) return;
-      const lease = active.lease;
       const size = command.text ? inputBytes(command.text) : 1;
       if (size > maxInputBytes) { setError("Input exceeds 64 KiB. Use a smaller selection; nothing was sent."); return; }
       if (command.type === "terminal.input") setError("");
       pendingBytes += size;
-      if (pendingBytes > maxInputBytes) { stop("Input queue is full. Unsent input was discarded; reconnect deliberately."); return; }
-      writing = writing.then(async () => {
-        if (abort.signal.aborted || active?.lease !== lease) return;
-        try {
-          await request("/api/terminal/input", abort.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ lease, seq: ++seq, command }) });
-          pendingBytes -= size;
-        } catch (e: unknown) { if (!abort.signal.aborted) stop(message(e) + " Input was not retried."); }
-      });
+      if (pendingBytes > maxInputBytes || queue.length >= 256) { stop("Input queue is full. Unsent input was discarded; reconnect deliberately."); return; }
+      queueInput(queue, command);
+      if (!flushing && !inputTimer) inputTimer = setTimeout(() => { void flush(); }, 20);
     };
     term.onData((text) => send({ type: "terminal.input", text }));
     const paste = (event: ClipboardEvent) => {
@@ -84,7 +101,7 @@ export function NativeTerminal({ task, node, instance, visible }: { task?: Task;
       event.stopPropagation();
       if (event.shiftKey && event.key === "Escape") {
         event.preventDefault();
-        if (event.type === "keydown") { setAttempt((prior) => ({ version: prior.version + 1, control: false, identity: "" })); inputControl.current?.focus(); }
+        if (event.type === "keydown") { active = null; abort.abort(); term.options.disableStdin = true; setAttempt((prior) => ({ version: prior.version + 1, control: false, identity: "" })); inputControl.current?.focus(); }
         return false;
       }
       if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "c") {
@@ -118,7 +135,11 @@ export function NativeTerminal({ task, node, instance, visible }: { task?: Task;
         const size = dimensions();
         lastDimensions = JSON.stringify(size);
         const response = await fetch("/api/terminal/stream", { signal: abort.signal, method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ task: taskID, session, generation, ...size, control: wantsControl, identity: attempt.identity }) });
-        if (!response.ok) throw new Error(string(object(await response.json()).error));
+        if (!response.ok) {
+          const failure = object(await response.json());
+          if (failure.code === "terminal_unavailable") setUnavailable(true);
+          throw new Error(string(failure.error));
+        }
         if (!response.body) throw new Error("Native stream is unavailable.");
         const reader = response.body.getReader(), decoder = new TextDecoder();
         let buffer = "";
@@ -148,10 +169,11 @@ export function NativeTerminal({ task, node, instance, visible }: { task?: Task;
       } catch (e: unknown) { if (!abort.signal.aborted) stop(message(e)); }
     };
     void read();
-    return () => { active = null; abort.abort(); clearTimeout(resizeTimer); resize.disconnect(); element.removeEventListener("paste", paste, true); term.dispose(); terminal.current = null; };
-  }, [taskID, generation, session, instance, visible, attempt]);
+    return () => { active = null; abort.abort(); queue.length = 0; clearTimeout(inputTimer); clearTimeout(resizeTimer); resize.disconnect(); element.removeEventListener("paste", paste, true); term.dispose(); terminal.current = null; };
+  }, [taskID, generation, session, instance, visible, attempt, missing]);
   return <section className="native-terminal-pane" aria-label={cfo ? "CFO terminal" : "Selected native terminal"}>
-    <header className="panel-header"><Avatar persona={cfo ? "cfo" : personaFor(task, node)} small /><div><h2>{cfo ? "CFO" : node ? sessionTitle(node, task) : task?.title}</h2>{task?.project && <p className="project-label">{task.project}</p>}</div><WorkspaceDetails task={task} node={node} /></header>
+    <header className="panel-header"><Avatar persona={cfo ? "cfo" : personaFor(task, node)} small /><div><h2>{cfo ? "CFO" : node ? sessionTitle(node, task) : task?.title}</h2>{task?.project && <p className="project-label">{task.project}</p>}</div><WorkspaceDetails task={task} node={node} instance={instance} /></header>
+    {missing ? <div className="terminal-empty"><p>{queued ? "This task has not started yet." : shared ? "This child has no separate terminal." : error}</p>{onOwner && shared && <button onClick={onOwner}>Open owning task</button>}</div> : <>
     <div className="terminal-toolbar"><span role="status">{status}</span>
       {connection ? <button ref={inputControl} disabled={!visible} onClick={() => setAttempt((prior) => ({ version: prior.version + 1, control: !connection.control, identity: connection.identity }))}>{connection.control ? "Release input" : "Connect input"}</button>
         : <button ref={inputControl} disabled={!visible} onClick={() => setAttempt((prior) => ({ version: prior.version + 1, control: false, identity: "" }))}>Reconnect</button>}
@@ -159,5 +181,9 @@ export function NativeTerminal({ task, node, instance, visible }: { task?: Task;
     {error && <p className="error-box" role="alert">{error}</p>}
     <div className="terminal-surface" ref={host} />
     <p className="terminal-caption">{connection?.control ? "Ctrl+C interrupts. Shift+Escape releases input. Ctrl+Shift+C copies a selection." : "Connect input to type, paste or use native scrollback. No session is started."}</p>
+    <details className="terminal-options"><summary>Terminal options</summary><label><input type="checkbox" checked={readerSupport} onChange={(event) => {
+      const enabled = event.target.checked; setReaderSupport(enabled); setPreferenceError("");
+      try { localStorage.setItem("cfo-terminal-screen-reader", String(enabled)); } catch { setPreferenceError("This preference could not be saved in this browser."); }
+    }} />Screen reader support</label><p>Enables accessible terminal output. Some text input methods are unavailable in this mode; paste remains supported.</p>{preferenceError && <p role="status">{preferenceError}</p>}</details></>}
   </section>;
 }

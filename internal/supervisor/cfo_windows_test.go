@@ -70,6 +70,7 @@ type cfoRunner struct {
 	beforePrompt      func()
 	terminal          string
 	workerTree        string
+	harness           string
 }
 
 func (r *cfoRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -113,6 +114,9 @@ func (r *cfoRunner) Run(_ context.Context, req execx.Request) (execx.Result, err
 		r.t.Fatal("CFO message reached raw pane typing")
 	default:
 		return execx.Result{}, fmt.Errorf("unexpected Herdr operation: %v", a)
+	}
+	if r.harness != "" {
+		body = strings.ReplaceAll(body, `"agent":"codex"`, `"agent":"`+r.harness+`"`)
 	}
 	return execx.Result{Stdout: []byte(body)}, nil
 }

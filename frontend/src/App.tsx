@@ -5,6 +5,8 @@ import { Board } from "./Board";
 import { Orchestration } from "./Orchestration";
 import { Details } from "./Details";
 import { Questions } from "./Questions";
+import { useActivity } from "./useActivity";
+import { livePresentations } from "./activity";
 import { useReview } from "./review";
 import { ownsTaskSession } from "./lineageTree";
 
@@ -30,6 +32,10 @@ export function App() {
   const selectedSession = node || (task && snapshot?.sessions.find((session) => ownsTaskSession(session, task)));
   const reviews = useReview(task, snapshot);
   const connected = connection === "Live";
+  const effects = useActivity(snapshot, connected);
+  const [now,setNow]=useState(Date.now);
+  useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[]);
+  const presentations=snapshot&&connected?livePresentations(snapshot,now):[];
   const select = (next: Selection, source: HTMLElement) => {
     returnFocus.current = source;
     const cfo = snapshot?.sessions.find((session) => session.id === next.session)?.role === "cfo";
@@ -57,7 +63,7 @@ export function App() {
         {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={view === name} onClick={() => setView(name)}>{name}</button>)}
       </div>
       <div className="topbar-controls">
-        {snapshot && <Questions snapshot={snapshot} connected={connected} />}
+        {snapshot && <Questions snapshot={snapshot} connected={connected} presentations={presentations} />}
         <div className="connection" role="status">
           <span className={"live-dot " + (!connected ? "offline" : "")} />{connection}
         </div>
@@ -68,9 +74,9 @@ export function App() {
       <main className="canvas-region" aria-label={view}>
         {(error || snapshot?.error) && <div className="connection-banner" role="alert">{error || snapshot?.error}</div>}
         {!snapshot ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
-          : view === "Board" ? <Board snapshot={snapshot} selected={task?.id} onSelect={(task, source) => select({ task: task.id }, source)} />
-            : compact ? <Lineage snapshot={snapshot} project="" selected={selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
-              : <Orchestration snapshot={snapshot} connected={connected} selected={selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
+          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} selected={task?.id} onSelect={(task, source) => select({ task: task.id }, source)} />
+            : compact ? <Lineage presentations={presentations} effects={effects} snapshot={snapshot} project="" selected={selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
+              : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} connected={connected} selected={selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
                 onSelect={(node, source) => select(node.session ? { session: node.session.id } : { task: node.task?.id }, source)} />}
       </main>
       <aside ref={pane} className="context-pane" hidden={!paneOpen} tabIndex={-1} aria-label={view === "Board" ? "Task review" : "Native terminal"}>
@@ -80,7 +86,7 @@ export function App() {
         </div>
         {snapshot && (view === "Board"
           ? <Details key={selectionEpoch} task={task} snapshot={snapshot} connected={connected} reviews={reviews} />
-          : paneOpen && <Suspense fallback={<p className="loading">Opening native terminal...</p>}><NativeTerminal key={(selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "")} task={selected ? task : undefined} node={selected ? selectedSession : undefined} instance={snapshot.instance} visible={connected} /></Suspense>)}
+          : paneOpen && <Suspense fallback={<p className="loading">Opening native terminal...</p>}><NativeTerminal key={(selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "")} task={selected ? task : undefined} node={selected ? selectedSession : undefined} instance={snapshot.instance} visible={connected} onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} /></Suspense>)}
       </aside>
     </div>
   </div>;

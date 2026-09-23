@@ -1042,7 +1042,8 @@ func notifyInstruction(id string) string {
 	if err != nil {
 		exe = "cfo"
 	}
-	return " Report outcomes to the CFO: on completion with a PR run: " + exe + " notify " + id + " --done --pr <url>. When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\"; when the question has a fixed set of choices, name them after one literal options: marker separated by |, as in \"<question> options: a | b | c\", and cfo drain renders those as the decision's options. On failure run: " + exe + " notify " + id + " --failed \"<reason>\"."
+	return " Report outcomes to the CFO: on completion with a PR run: " + exe + " notify " + id + " --done --pr <url>. When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\"; when the question has a fixed set of choices, name them after one literal options: marker separated by |, as in \"<question> options: a | b | c\", and cfo drain renders those as the decision's options. On failure run: " + exe + " notify " + id + " --failed \"<reason>\"." +
+		" For a successful browser walkthrough or Lavish presentation, use Lavish --no-open and report its safe URL with cfo present --id <stable-id> --task " + id + " --generation <CFO_SPAWN_GEN> --kind browser|review --url <safe-url>. Refresh only while live and report --state ended when finished. A viewing choice never pauses your work. See docs/native-board.md; do not publish secrets, query parameters or browser history."
 }
 
 // containsMarker matches against whitespace-normalized text: pane captures

@@ -4,9 +4,9 @@ import { parsePatchToRows, splitRows, reviewRange } from "./diff.ts";
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
-import { arrange, workflowNodes, taskColumn, personaFor, recentCommunication, nodeStatus, nativeStatus } from "./workflow.ts";
+import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus } from "./workflow.ts";
 
-test("board completion, semantic personas and pulses require the corresponding evidence", () => {
+test("board completion and semantic personas require the corresponding evidence", () => {
   const task = parseSnapshot({healthy:true, tasks:[{id:"work",title:"Test keyboard access",phase:"done",generation:"new",verified:false}]}).tasks[0];
   assert.equal(taskColumn(task), "In progress");
   assert.equal(taskColumn({...task,verified:true}), "Completed");
@@ -17,13 +17,6 @@ test("board completion, semantic personas and pulses require the corresponding e
   assert.equal(nativeStatus("busy"), "Working");
   assert.equal(nativeStatus("done"), "Native turn finished");
   assert.equal(nodeStatus({id:"t",title:"",task,relation:""}), "Delivery unverified");
-  const now=Date.now();
-  const action=parseAction({id:"send",kind:"feedback",task_id:"work",generation:"new",status:"succeeded",updated_at:new Date(now).toISOString()});
-  assert.equal(recentCommunication([action],task,now,true)?.id,"send");
-  assert.equal(recentCommunication([action],task,now,false),undefined);
-  assert.equal(recentCommunication([action],task,now+10001,true),undefined);
-  assert.equal(recentCommunication([{...action,generation:"old"}],task,now,true),undefined);
-  assert.equal(recentCommunication([{...action,kind:"review"}],task,now,true),undefined);
 });
 
 test("arrangement preserves five-level lineage and never invents an orphan parent", () => {

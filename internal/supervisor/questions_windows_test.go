@@ -18,7 +18,7 @@ import (
 func TestCFOQuestionDurableConflictAndOwnedPublication(t *testing.T) {
 	store, _ := testStore(t)
 	primary, _, _, cfo := primaryFixture(t, store)
-	if err := cfo.PublishQuestion(context.Background(), "question-1", "Pick a layout", []string{"Board", "Tree"}); err != nil {
+	if err := cfo.PublishQuestion(context.Background(), "question-1", "Pick a layout", []string{"Board", "Tree"}, "Tree"); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {
@@ -27,10 +27,10 @@ func TestCFOQuestionDurableConflictAndOwnedPublication(t *testing.T) {
 	if len(store.Snapshot().Questions) != 1 {
 		t.Fatal("missing published question")
 	}
-	if err := cfo.PublishQuestion(context.Background(), "question-1", "Changed text", []string{"Other"}); err == nil {
+	if err := cfo.PublishQuestion(context.Background(), "question-1", "Changed text", []string{"Other"}, ""); err == nil {
 		t.Fatal("conflicting durable ID published")
 	}
-	if err := cfo.PublishQuestion(context.Background(), "question-1", "Pick a layout", []string{"Board", "Tree"}); err != nil {
+	if err := cfo.PublishQuestion(context.Background(), "question-1", "Pick a layout", []string{"Board", "Tree"}, "Tree"); err != nil {
 		t.Fatal(err)
 	}
 	primary.Process.PID = 1
@@ -38,7 +38,7 @@ func TestCFOQuestionDurableConflictAndOwnedPublication(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(store.Home.State, "primary.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := cfo.PublishQuestion(context.Background(), "question-2", "Worker impersonation", nil); err == nil {
+	if err := cfo.PublishQuestion(context.Background(), "question-2", "Worker impersonation", nil, ""); err == nil {
 		t.Fatal("non-CFO published a user modal")
 	}
 }
@@ -166,6 +166,60 @@ func TestQuestionStorageFailurePreservesRetry(t *testing.T) {
 	}
 	if err := store.acceptQuestion(q); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestQuestionRecommendationAndOtherAnswer(t *testing.T) {
+	store, h := testStore(t)
+	_, identity, runner, cfo := primaryFixture(t, store)
+	q := Question{ID: "question-other", Identity: identity, Text: "Where should we work?", Options: []string{"Current checkout", "Isolated worktree", "Wait"}, Recommended: "Isolated worktree", CreatedAt: time.Now().UTC()}
+	bad := q
+	bad.Recommended = "Invented choice"
+	if err := store.acceptQuestion(bad); err == nil {
+		t.Fatal("unreported recommendation accepted")
+	}
+	if err := store.acceptQuestion(q); err != nil {
+		t.Fatal(err)
+	}
+	bad = q
+	bad.Recommended = "Wait"
+	if err := store.acceptQuestion(bad); err == nil {
+		t.Fatal("same ID changed recommendation")
+	}
+	a := Action{ID: "other-answer-1", Kind: "cfo_answer", Generation: identity, QuestionID: q.ID, AnswerKind: "other", Text: "Use the folder with spaces: review 日本語"}
+	badAnswer := a
+	badAnswer.AnswerKind = "option"
+	if _, err := store.Queue(badAnswer); err == nil {
+		t.Fatal("invented option accepted")
+	}
+	if _, err := store.Queue(a); err != nil {
+		t.Fatal(err)
+	}
+	badAnswer = a
+	badAnswer.AnswerKind = "option"
+	if _, err := store.Queue(badAnswer); err == nil {
+		t.Fatal("request identity ignored answer kind")
+	}
+	reopened, err := Open(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Service{Store: reopened, Options: Options{CFO: cfo, Send: func(context.Context, string, string) error { t.Fatal("answer reached worker"); return nil }}}
+	if err := reopened.ProcessOne(context.Background(), s.execute); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reopened.Queue(a); err != nil {
+		t.Fatal(err)
+	}
+	if err := reopened.ProcessOne(context.Background(), s.execute); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], "Answer (Other): "+a.Text) {
+		t.Fatal("typed answer not delivered exactly once", len(runner.prompts))
+	}
+	got := reopened.Snapshot().Questions[0]
+	if got.Answer != a.Text || got.AnswerKind != "other" || got.Status != "succeeded" || got.Recommended != q.Recommended {
+		t.Fatal("durable receipt lost context", got)
 	}
 }
 

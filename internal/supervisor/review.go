@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // A review asks the CFO to direct work. It never steers a worker or borrows
@@ -43,16 +42,13 @@ func (s *Service) deliverReview(ctx context.Context, meta state.TaskMeta, a Acti
 	if err != nil {
 		return Evaluation{}, fmt.Errorf("%w: invalid review context", ErrRejected)
 	}
-	// Intent is already durable as running. Failure/crash after either write
-	// remains uncertain, never automatically replaying an accepted CFO comment.
-	record, err := wake.Append(s.Store.Home.State, "notify", a.TaskID, "review: "+string(detail))
-	if err != nil {
-		return Evaluation{}, err
+	if a.CFOIdentity == "" || s.Options.CFO == nil {
+		return Evaluation{}, fmt.Errorf("%w: this review has no pinned CFO recipient; refresh and submit a new comment", ErrRejected)
 	}
-	if _, err := wake.PublishEpisode(s.Store.Home.State); err != nil {
-		return Evaluation{}, err
-	}
-	return Evaluation{Reason: fmt.Sprintf("Sent to CFO (wake %d). Awaiting CFO direction.", record.Seq)}, nil
+	// Running intent and the recipient fingerprint are already durable. Native
+	// acceptance is the only delivery transport; no second actionable wake is
+	// appended. A crash or unknown send remains uncertain and is never replayed.
+	return s.Options.CFO.Send(ctx, a.CFOIdentity, "Review request for CFO\n"+string(detail))
 }
 
 func diffRangeContext(patch string, first, last int, side string) (string, error) {

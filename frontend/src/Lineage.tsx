@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Session, Snapshot, Task } from "./types";
+import type { BoardActivity, Session, Snapshot, Task } from "./types";
 import { nodeStatus } from "./workflow";
 import { Avatar } from "./Avatar";
 import { Chevron } from "./Chevron";
@@ -8,8 +8,10 @@ import { lineageRoots, ownsTaskSession, projectSessions, sessionRole, sessionTit
 
 export interface Selection { session?: string; task?: string }
 
-export function Lineage({ snapshot, project, selected, onSelect }: {
+export function Lineage({ snapshot, project, selected, onSelect, effects, presentations }: {
+  presentations:BoardActivity[];
   snapshot: Snapshot;
+  effects: BoardActivity[];
   project: string;
   selected: Selection | null;
   onSelect: (selection: Selection, source: HTMLElement) => void;
@@ -38,6 +40,7 @@ export function Lineage({ snapshot, project, selected, onSelect }: {
     const task = snapshot.tasks.find((task) => task.id === node.task_id);
     const owner = ownsTaskSession(node, task);
     const title = sessionTitle(node, task);
+    const effect = effects.find(event=>event.target===node.id);
     const isCollapsed = collapsed.has(node.id);
     const parent = byID.get(node.parent);
     const relation = node.parent
@@ -48,10 +51,11 @@ export function Lineage({ snapshot, project, selected, onSelect }: {
       <div className="node-group">
         {relation && <p className="node-relation">{relation}{ancestors.size >= 3 && parent && " · Parent: " + sessionTitle(parent, snapshot.tasks.find((task) => task.id === parent.task_id))}</p>}
         <div className={"workflow-node role-" + node.role + (selected?.session === node.id ? " selected" : "")}>
+          {effect && <span key={effect.id} className="activity-glow" aria-hidden="true" />}
           <button className="node-select" aria-pressed={selected?.session === node.id}
             onClick={(event) => onSelect({ session: node.id }, event.currentTarget)}>
             <Avatar persona={personaFor(task, node)} small /><span className="node-role">{sessionRole(node)}</span>
-            <strong>{title}</strong>{task?.project && <span className="project-label">{task.project}</span>}
+            <strong>{title}</strong>{presentations.some(a=>a.target===node.id)&&<span className="browser-indicator">Browser active</span>}{task?.project && <span className="project-label">{task.project}</span>}
             {!owner && node.role !== "cfo" && task?.title && <span className="node-task">Task: {task.title}</span>}
             <span className="node-status">{nodeStatus({ id: node.id, title, task, session: node, relation })}
               {owner && needsDecision(task) && <span className="decision-indicator">Decision waiting</span>}
