@@ -327,6 +327,20 @@ The goblin's branch is its deliverable.
 - When several options, trade-offs, a structured report, a plan, or a comparison need the Supreme Overlord's eyes, load the `lavish` skill (`.agents/skills/lavish/`) and run the review through `lavish-axi`.
 - `lavish-axi` is presentation-only. It is not in any `cfo` path and no goblin depends on it, so when it is missing or below its floor you say visual review is unavailable once, deliver the same content as text, and keep working. Nothing waits on it.
 
+## User decisions on the board
+
+The registered primary CFO in any supported harness (Claude Code, Codex, Pi) must publish deliberate user questions with `cfo question --id <stable-id> --text "<question>" --option "<choice>" --recommend "<exact-choice>"`.
+Repeat `--option` for actual choices; omit `--recommend` when no choice is recommended.
+Other always accepts a written answer, and no answer is selected automatically.
+Run publication from the registered primary session's shell and reuse the same ID/content for an uncertain retry.
+The board sends the durable answer to that same verified CFO as an ordinary message, so continue independent supervision or finish the turn while waiting.
+Do not also invoke a native question tool for this decision: an ordinary Herdr message cannot answer a correlated Codex or Pi native prompt.
+Worker alerts stay in the CFO wake queue until the CFO deliberately escalates a real user decision.
+For a nonblocking walkthrough or review, prefer Lavish `--no-open`, then report the returned safe URL with `cfo present --id <stable-id> --kind browser|review --url <safe-url>` from verified primary context.
+Workers add their `--task` and `--generation`; refresh only while actually live and report `--state ended` when finished.
+Viewing choices never pause autonomous work, and opening a URL does not mirror browser control.
+See [docs/native-board.md](docs/native-board.md) for ownership and delivery limits.
+
 ## Escalation
 
 Talk in outcomes, not mechanics. Reach the Supreme Overlord immediately for: work ready for review (full PR URL), a decision only they can make, a real blocker after you've exhausted the playbook, anything destructive, irreversible, or security-sensitive, or a needed credential.

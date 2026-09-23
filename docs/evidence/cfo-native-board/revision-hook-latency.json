@@ -1,0 +1,222 @@
+{
+    "summary":  [
+                    {
+                        "kind":  "direct",
+                        "samples":  20,
+                        "median":  41.6616,
+                        "p95":  74.4555,
+                        "max":  77.488
+                    },
+                    {
+                        "kind":  "powershell",
+                        "samples":  20,
+                        "median":  387.06855,
+                        "p95":  768.2499,
+                        "max":  1937.4117
+                    }
+                ],
+    "samples":  [
+                    {
+                        "kind":  "direct",
+                        "sample":  1,
+                        "milliseconds":  77.488
+                    },
+                    {
+                        "kind":  "direct",
+                        "sample":  2,
+                        "milliseconds":  33.6678
+                    },
+                    {
+                        "kind":  "direct",
+                        "sample":  3,
+                        "milliseconds":  40.3018
+                    },
+                    {
+                        "kind":  "direct",
+                        "sample":  4,
+                        "milliseconds":  27.2714
+                    },
+                    {
+                        "kind":  "direct",
+                        "sample":  5,
+                        "milliseconds":  20.5407
+                    },
+                    {
+                        "kind":  "direct",
+                        "sample":  6,
+                        "milliseconds":  46.2153
+                    },
+                    {
+                        "kind":  "direct",
+                        "sample":  7,
+                        "milliseconds":  45.0011
+                    },
+                    {
+                        "kind":  "direct",
+                        "sample":  8,
+                        "milliseconds":  40.0675
+                    },
+                    {
+                        "kind":  "direct",
+                        "sample":  9,
+                        "milliseconds":  38.9902
+                    },
+                    {
+                        "kind":  "direct",
+                        "sample":  10,
+                        "milliseconds":  43.0214
+                    },
+                    {
+                        "kind":  "direct",
+                        "sample":  11,
+                        "milliseconds":  31.721300000000003
+                    },
+                    {
+                        "kind":  "direct",
+                        "sample":  12,
+                        "milliseconds":  30.5455
+                    },
+                    {
+                        "kind":  "direct",
+                        "sample":  13,
+                        "milliseconds":  74.4555
+                    },
+                    {
+                        "kind":  "direct",
+                        "sample":  14,
+                        "milliseconds":  61.516400000000004
+                    },
+                    {
+                        "kind":  "direct",
+                        "sample":  15,
+                        "milliseconds":  61.7659
+                    },
+                    {
+                        "kind":  "direct",
+                        "sample":  16,
+                        "milliseconds":  48.8072
+                    },
+                    {
+                        "kind":  "direct",
+                        "sample":  17,
+                        "milliseconds":  26.5185
+                    },
+                    {
+                        "kind":  "direct",
+                        "sample":  18,
+                        "milliseconds":  22.4962
+                    },
+                    {
+                        "kind":  "direct",
+                        "sample":  19,
+                        "milliseconds":  72.675300000000007
+                    },
+                    {
+                        "kind":  "direct",
+                        "sample":  20,
+                        "milliseconds":  57.3676
+                    },
+                    {
+                        "kind":  "powershell",
+                        "sample":  1,
+                        "milliseconds":  672.0793
+                    },
+                    {
+                        "kind":  "powershell",
+                        "sample":  2,
+                        "milliseconds":  392.5152
+                    },
+                    {
+                        "kind":  "powershell",
+                        "sample":  3,
+                        "milliseconds":  389.1866
+                    },
+                    {
+                        "kind":  "powershell",
+                        "sample":  4,
+                        "milliseconds":  555.00330000000008
+                    },
+                    {
+                        "kind":  "powershell",
+                        "sample":  5,
+                        "milliseconds":  1937.4117
+                    },
+                    {
+                        "kind":  "powershell",
+                        "sample":  6,
+                        "milliseconds":  742.226
+                    },
+                    {
+                        "kind":  "powershell",
+                        "sample":  7,
+                        "milliseconds":  321.5912
+                    },
+                    {
+                        "kind":  "powershell",
+                        "sample":  8,
+                        "milliseconds":  324.8093
+                    },
+                    {
+                        "kind":  "powershell",
+                        "sample":  9,
+                        "milliseconds":  313.9055
+                    },
+                    {
+                        "kind":  "powershell",
+                        "sample":  10,
+                        "milliseconds":  375.0239
+                    },
+                    {
+                        "kind":  "powershell",
+                        "sample":  11,
+                        "milliseconds":  313.2722
+                    },
+                    {
+                        "kind":  "powershell",
+                        "sample":  12,
+                        "milliseconds":  363.9132
+                    },
+                    {
+                        "kind":  "powershell",
+                        "sample":  13,
+                        "milliseconds":  474.03200000000004
+                    },
+                    {
+                        "kind":  "powershell",
+                        "sample":  14,
+                        "milliseconds":  768.2499
+                    },
+                    {
+                        "kind":  "powershell",
+                        "sample":  15,
+                        "milliseconds":  476.6333
+                    },
+                    {
+                        "kind":  "powershell",
+                        "sample":  16,
+                        "milliseconds":  316.6714
+                    },
+                    {
+                        "kind":  "powershell",
+                        "sample":  17,
+                        "milliseconds":  414.66270000000003
+                    },
+                    {
+                        "kind":  "powershell",
+                        "sample":  18,
+                        "milliseconds":  367.0511
+                    },
+                    {
+                        "kind":  "powershell",
+                        "sample":  19,
+                        "milliseconds":  378.04650000000004
+                    },
+                    {
+                        "kind":  "powershell",
+                        "sample":  20,
+                        "milliseconds":  384.95050000000003
+                    }
+                ],
+    "binary":  "C:\\Users\\fpres\\AppData\\Local\\Temp\\cfo-native-board-ui-v5.exe",
+    "home":  "C:\\Users\\fpres\\AppData\\Local\\Temp\\cfo-board-latency-5b0fc55e746f4a32a1137a04b568a917"
+}

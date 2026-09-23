@@ -85,6 +85,7 @@ type pipelineSwitchRunner struct {
 	statusReady   chan struct{}
 	statusRelease chan struct{}
 	alive         bool
+	prompts       int
 }
 
 func (r *pipelineSwitchRunner) Run(ctx context.Context, q execx.Request) (execx.Result, error) {
@@ -105,9 +106,13 @@ func (r *pipelineSwitchRunner) Run(ctx context.Context, q execx.Request) (execx.
 		}
 		if len(q.Args) >= 3 && q.Args[0] == "agent" && q.Args[1] == "get" {
 			if r.alive {
-				return execx.Result{Stdout: []byte(`{"result":{"agent":{"agent_status":"working"}}}`)}, nil
+				return execx.Result{Stdout: []byte(fmt.Sprintf(`{"result":{"agent":{"agent":"kimi","agent_status":"working","interactive_ready":false,"state_change_seq":%d,"revision":%d}}}`, r.prompts+1, r.prompts+1))}, nil
 			}
 			return execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`)}, nil
+		}
+		if len(q.Args) >= 3 && q.Args[0] == "agent" && q.Args[1] == "prompt" {
+			r.prompts++
+			return execx.Result{Stdout: []byte(`{"result":{}}`)}, nil
 		}
 		if len(q.Args) >= 4 && q.Args[0] == "pane" && q.Args[1] == "send-text" {
 			return execx.Result{Stdout: []byte(`{"result":{}}`)}, nil
@@ -910,6 +915,9 @@ func TestPipelineMigrationRacingSwitchPreservesBothUpdates(t *testing.T) {
 	close(switchRunner.statusRelease)
 	if err := <-switchDone; err != nil {
 		t.Fatalf("switch: %v", err)
+	}
+	if switchRunner.prompts != 1 {
+		t.Fatalf("switch delivered %d prompts, want one", switchRunner.prompts)
 	}
 	if err := pipelineCommand(context.Background(), h, nm, runner, []string{"migrate", meta.ID}, &bytes.Buffer{}); err != nil {
 		t.Fatalf("retry migration: %v", err)

@@ -74,6 +74,10 @@ A task can run through Claude Code, Codex, Pi, or Kimi. `cfo switch` can change 
 
 Task metadata, fleet state, and wake events live on disk. Closing the supervisor does not erase what the fleet was doing.
 
+`cfo serve` runs the native supervisor and an embedded React board at `http://127.0.0.1:4310`.
+Native lifecycle hooks, durable actions, task evidence, code review previews, and reported session lineage remain independent of browser lifetime.
+See [the native board guide](docs/native-board.md) for hook setup, build requirements, evidence rules, and terminal limitations.
+
 ### Production-oriented gates
 
 The `no-mistakes` path owns review, bounded repair cycles, tests, lint, documentation, push, PR creation, and CI. Review budgets are frozen per task so changing global policy cannot silently weaken an in-flight job.
@@ -116,6 +120,79 @@ claude   # or codex / pi / kimi for the CFO session
 ```
 
 Tell the CFO what outcome you want. It handles the fleet mechanics.
+
+## Using the board
+
+<p align="center">
+  <img src="docs/images/board-review.png" alt="Board view: Tasks, In progress and Completed columns beside the selected goblin's review panel with Open in VS Code" width="900" />
+</p>
+
+`cfo serve` runs the native supervisor and serves its board, which is compiled into `cfo.exe`, at `http://127.0.0.1:4310`.
+Install the native lifecycle hooks once for each harness you use, then start the supervisor in its own terminal and open the URL it prints:
+
+```powershell
+cfo hooks install claude   # repeat for codex or pi
+cfo serve                  # --listen 127.0.0.1:0 picks a free loopback port
+```
+
+The board is a view, not the engine: tasks keep progressing with every browser closed, and restarting `cfo serve` with the same CFO home recovers its events, actions and lineage.
+`cfo serve` takes over from `cfo watch` as the fleet's single supervisor, so a running watcher must finish first.
+It listens on loopback only, and Ctrl-C in its terminal stops it.
+Hook setup, evidence rules and terminal limits are in [the native board guide](docs/native-board.md).
+
+### Board and Orchestration
+
+The header switches between two views, one at a time, each with a contextual panel on the right.
+
+- **Board** is task review. Real tasks sit in **Tasks**, **In progress** and **Completed**. Only verified delivery reaches Completed; failed work and work awaiting review stay in progress with a plain status. Selecting a card opens its changes, activity and commit history.
+- **Orchestration** is the live family tree: the CFO above its goblins and any child sessions they reported. The panel shows the selected session's real native terminal and starts on the CFO. Dragging cards, panning, zooming, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence. A brief pulse along a connector marks a real accepted message.
+
+<p align="center">
+  <img src="docs/images/orchestration.png" alt="Orchestration view: the CFO above its goblin, with the goblin's live native terminal in the right panel" width="900" />
+</p>
+
+Each card's goblin is chosen from the task's work, such as builder, reviewer, tester or planner, and the crowned goblin is the CFO:
+
+<p align="center">
+  <img src="frontend/public/assets/goblin-personas.png" alt="The CFO, builder, reviewer, tester, planner and finisher goblins" width="560" />
+</p>
+
+### The goblin panel
+
+Clicking a card opens its panel on one continuous surface: the task and its project, then **Workspace** with the repository, branch and exact working folder.
+**Connections** lists the MCP servers the task is configured with; configured is not the same as connected, and no secret values are shown.
+On Board the panel continues with **Changes**, **Activity** and **History**.
+In Orchestration it holds the native terminal, which stays read-only until you choose **Connect input**; **Shift+Escape** hands the keyboard back.
+
+### Sending a diff comment to the CFO
+
+<p align="center">
+  <img src="docs/images/annotation-delivery.png" alt="An inline comment on board.css line 2, sent to the CFO and accepted through Herdr" width="900" />
+</p>
+
+Open **Changes**, expand a file and click a line number; Shift-click extends the selection to a range.
+Write your comment in the form that opens beside the selection and choose **Send to CFO**.
+The comment reaches the verified CFO session with its exact file, side, lines, HEAD and diff fingerprint, and the CFO decides how to direct the goblin; the board never sends it to the goblin itself.
+If the registered CFO session is not live, the comment is refused and nothing is queued.
+Retrying an unchanged comment keeps its request ID, so a retry cannot deliver the same comment twice.
+
+### Supreme Overlord Command Center
+
+<p align="center">
+  <img src="docs/images/command-center.png" alt="Supreme Overlord Command Center: a CFO question with A, B and C choices, a recommended option and Other" width="700" />
+</p>
+
+When the CFO needs a decision only you can make, it publishes the question with `cfo question` and the Command Center opens as a modal.
+Choices are labelled A, B and C with the CFO's recommendation marked, and **Other** takes a written answer.
+Nothing is preselected, **Later** keeps the question and your draft, and the **Command Center** menu in the header brings the question back.
+Your answer goes to the same verified CFO session, never to a goblin, and it never approves a gate or merges anything.
+The same menu carries nonblocking notices, such as a review ready in Lavish, with **Open review** and **Keep in background**; neither pauses work.
+
+### Open in VS Code
+
+**Open in VS Code** opens the selected goblin's own isolated worktree, the folder it is actually editing, in your installed VS Code, and **Open folder** opens it in File Explorer.
+The supervisor resolves that folder from task metadata and starts the program directly; the browser never supplies a path or a command.
+A missing editor or a folder that no longer exists is reported instead of guessed.
 
 ## Typical autonomous delivery loop
 
@@ -185,6 +262,8 @@ The core is intentionally local-first:
 - `internal/pipeline/` — durable validation policy and decision gates.
 - `internal/auth/` — project-scoped credential preflight and injection.
 - `internal/state/` / `internal/wake/` — restart-proof task and event state.
+- `internal/supervisor/` - native event ingestion, durable actions and the local board API behind `cfo serve`.
+- `frontend/` - the board's React/TypeScript source; Vite compiles it into `internal/boardweb/dist`, which is embedded in `cfo.exe`.
 - `.agents/skills/` — reusable capabilities exposed to the supported harnesses, including `lavish`, the CFO's review surface over the third-party `lavish-axi` CLI.
 
 The control plane is local. Your coding harnesses may still call their model providers according to their own configuration.

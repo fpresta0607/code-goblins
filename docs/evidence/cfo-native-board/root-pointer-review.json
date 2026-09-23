@@ -1,0 +1,42 @@
+{
+  "url": "http://127.0.0.1:58749",
+  "artifact": "cfo-native-board-ui-v4.exe",
+  "browser": "Root Codex IAB",
+  "native_viewport": "1280x720",
+  "drag_before": {
+    "top": 72,
+    "left": 460
+  },
+  "drag_after": {
+    "top": 77,
+    "left": 370
+  },
+  "connector_follow": "visually verified",
+  "accidental_recipient_switch": false,
+  "saved_position_after_reload": true,
+  "collapse_expand": "passed",
+  "arrange_reset": {
+    "top": 72,
+    "left": 460
+  },
+  "zoom": "50 to 100 percent passed",
+  "fit": "46 percent, passed",
+  "narrow_viewport": "390x844",
+  "narrow_page_width": 380,
+  "completed_click": "Changes opened, Terminal collapsed, 2 files loaded",
+  "remaining_findings": [
+    "Initial 50 percent zoom makes text too small; minimum 80 percent requested",
+    "Narrow topbar Example workspace overlaps Needs attention",
+    "Narrow Lineage still shows rejected large dash footer"
+  ],
+  "viewport_reset": true,
+  "temporary_tab_closed": true,
+  "message_or_backend_mutations": false,
+  "followup_v5": {
+    "narrow_dash_footer": "resolved, screenshot reviewed",
+    "initial_zoom": "80 percent verified in final desktop screenshot",
+    "narrow_header_overlap": "resolved, screenshot reviewed",
+    "child_terminal_explanation": "verified in screenshot"
+  },
+  "visual_acceptance": "Board and Orchestration desktop, narrow tree, and child terminal state reviewed; reported visual findings resolved."
+}

@@ -1,0 +1,53 @@
+{
+    "elapsed_s":  8.9556041,
+    "processes":  [
+                      {
+                          "pid":  17224,
+                          "cpu_seconds":  0.1875,
+                          "working_set_mb":  149.01,
+                          "private_mb":  58.03
+                      },
+                      {
+                          "pid":  32892,
+                          "cpu_seconds":  0,
+                          "working_set_mb":  10.05,
+                          "private_mb":  2.36
+                      },
+                      {
+                          "pid":  14220,
+                          "cpu_seconds":  1.625,
+                          "working_set_mb":  209.13,
+                          "private_mb":  181.43
+                      },
+                      {
+                          "pid":  32736,
+                          "cpu_seconds":  0.0781,
+                          "working_set_mb":  40.32,
+                          "private_mb":  13.29
+                      },
+                      {
+                          "pid":  42300,
+                          "cpu_seconds":  0,
+                          "working_set_mb":  19,
+                          "private_mb":  9.8
+                      },
+                      {
+                          "pid":  13640,
+                          "cpu_seconds":  1.3281,
+                          "working_set_mb":  120.96,
+                          "private_mb":  62.55
+                      },
+                      {
+                          "pid":  40940,
+                          "cpu_seconds":  0,
+                          "working_set_mb":  46.96,
+                          "private_mb":  17.93
+                      },
+                      {
+                          "pid":  30432,
+                          "cpu_seconds":  0,
+                          "working_set_mb":  30.36,
+                          "private_mb":  15.1
+                      }
+                  ]
+}

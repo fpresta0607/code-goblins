@@ -101,16 +101,11 @@ var HarnessBillingKeys = []string{
 }
 
 // PowerShellTypedLine renders the full typed launch for harnesses Herdr cannot
-// start natively (npm .cmd shims): the shell prefix plus the harness command
-// with the brief instruction as its final positional argument. The instruction
-// is a single-quoted literal with no embedded quotes, safe for the Windows
-// PowerShell 5.1 native-argument path.
-//
-// A resumed launch omits the instruction. `codex resume [OPTIONS]
-// [SESSION_ID] [PROMPT]` binds its first positional to SESSION_ID, so an
-// instruction appended there is read as a session name and the resumed goblin
-// starts with no instruction at all. Caller delivers it to the composer
-// instead, which is what the native path has always done.
+// start natively (npm .cmd shims). Instructions always use Herdr's verified
+// prompt channel after startup. PowerShell 5.1 re-parses embedded double
+// quotes in native arguments even inside a single-quoted PowerShell literal.
+// Keeping the instruction out of argv also avoids Codex resume's SESSION_ID
+// positional binding.
 func (launch Launch) PowerShellTypedLine() (string, error) {
 	if !launch.TypedLaunch {
 		return "", errors.New("harness: typed line requires a typed-launch harness")
@@ -124,10 +119,10 @@ func (launch Launch) PowerShellTypedLine() (string, error) {
 	}
 	command := "& " + powerShellLiteral(launch.Executable)
 	for _, arg := range launch.Args {
+		if strings.ContainsAny(arg, "\"\r\n") {
+			return "", errors.New("harness: typed launch arguments cannot contain double quotes or line breaks")
+		}
 		command += " " + powerShellLiteral(arg)
-	}
-	if !launch.Resumed {
-		command += " " + powerShellLiteral(launch.PromptInstruction())
 	}
 	return prefix + "; " + command, nil
 }

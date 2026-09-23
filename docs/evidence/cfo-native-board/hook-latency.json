@@ -1,0 +1,14 @@
+{
+  "native": {
+    "samples": 20,
+    "median_ms": 16.31,
+    "p95_ms": 24.24,
+    "max_ms": 24.49
+  },
+  "powershell-helper": {
+    "samples": 20,
+    "median_ms": 279.25,
+    "p95_ms": 503.77,
+    "max_ms": 597.22
+  }
+}

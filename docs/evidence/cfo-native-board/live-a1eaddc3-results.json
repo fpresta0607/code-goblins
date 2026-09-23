@@ -1,0 +1,101 @@
+{
+  "commit": "a1eaddc32f57a28cd5ebf98a2c18360ca549d6ba",
+  "authorization": "Supreme Overlord approved the isolated live browser pass on 2026-09-23",
+  "artifact": {
+    "executable": "cfo-native-board-a1eaddc3.exe",
+    "sha256": "7EB7F0C2949908C321896F52189CEFEB58F29ACC6E324FE6BAF185DBAC2D9737",
+    "vcs_revision": "a1eaddc32f57a28cd5ebf98a2c18360ca549d6ba",
+    "vcs_modified": false,
+    "built_from": "clean detached checkout outside the repository",
+    "harness": "tests/fixtures/native-board-harness built as codex.exe",
+    "harness_sha256": "32BE5FE11A705CA1B428EECDA3FE3F2F7AC2E32B3C276B9F744A69680A00946A",
+    "scan": "MpCmdRun custom scan of each file: found no threats"
+  },
+  "fixture": {
+    "script": "tests/acceptance/native_board_windows.ps1 with CFO_BOARD_REAL=1",
+    "home": "temporary CFO home with CFO_STATE_OVERRIDE set to its own state directory",
+    "herdr_session": "cfo-board-test-fd0bba7071b6",
+    "board": "cfo serve --example on 127.0.0.1:52097",
+    "browser": "headless chrome-devtools-axi session cfo-native-board-live",
+    "actors": "deterministic fixture CFO and goblin processes only; no real CFO or goblin pane was driven"
+  },
+  "scenarios": [
+    {
+      "id": 1,
+      "name": "respawned generation settles (Codex Stop) before evaluation reports review, unverified, not unknown",
+      "result": "pass",
+      "observed": [
+        "09:03:20.922 fixture-3 unknown (only the fixture-2 session linked)",
+        "09:03:21.510 fixture-3 unavailable (fixture-3 SessionStart, no runtime evidence yet)",
+        "09:03:24.350 fixture-3 review, verified false, Session settled; evaluation is queued (held 3.6 s behind two CFO deliveries)",
+        "09:03:27.954 fixture-3 review, verified false, after evaluation"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "current generation ended (Codex SessionEnd) before evaluation reports review, not unknown, and after a supervisor restart",
+      "result": "pass",
+      "observed": [
+        "09:03:46.678 fixture-4 review, verified false, Session settled; evaluation is queued (held 3.5 s)",
+        "09:03:50.203 fixture-4 review, verified false, after evaluation",
+        "after stopping and restarting the supervisor on the same home: review, verified false; card Awaiting review"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "a done/verified result from generation 1 is never shown as complete after respawn",
+      "result": "pass",
+      "observed": [
+        "seeded fixture-1 done/verified in the isolated store: board showed it complete",
+        "after the fixture-1 session ended and the task respawned to fixture-2: unknown, verified false in every poll; card Awaiting evidence, Completed 0"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "while only the prior-generation session is linked, the task reports unknown even though a matching evaluation exists",
+      "result": "pass",
+      "observed": [
+        "POST /api/actions evaluate for fixture-2 was admitted and succeeded; the store held a fixture-2 review evaluation",
+        "snapshot still reported unknown with only the ended fixture-1 session linked",
+        "a still-active prior-generation session instead reports unavailable, because runtime evidence from another generation is refused; neither state is complete or working"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "round-three repairs hold",
+      "result": "pass for every part drivable here",
+      "observed": [
+        "junction: linked/secret.txt was offered by the change set and readable through the OS, and the diff API answered 422 symlink and junction file previews are not supported; the board showed that refusal",
+        "zero-byte file: patch had no hunk and the board showed No text changes in this file; a line-1 review was admitted and failed at delivery with select a contiguous visible diff range, with no CFO receipt",
+        "newline-only file: one empty line, @@ -0,0 +1,1 @@",
+        "stale CFO: with the fixture CFO process stopped, Send to CFO in the browser showed the registered CFO process is unavailable; ask the CFO to refresh its registration. No review was queued, and the action count and CFO receipts did not change",
+        "Other answer: the Command Center showed A/B/C with the recommendation first, no preselection, and Other; the written answer reached the fixture CFO once as Answer (Other)"
+      ],
+      "not_driven_live": [
+        "file and parent-directory symlinks: this account cannot create symlinks",
+        "exact tree-entry delivery: it runs only for a GitHub-merged PR with terminal gate state, which an isolated fixture cannot provide; covered by TestLandedContentComparesExactTreeEntries"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "on the running packaged board a settled current-generation goblin card shows Awaiting review, not Awaiting evidence",
+      "result": "pass",
+      "observed": [
+        "card and panel read Awaiting review after the fixture-2 Stop"
+      ]
+    }
+  ],
+  "deliveries": {
+    "cfo_receipts": 8,
+    "worker_receipts": 0,
+    "first_annotation": "board.css new line 2 at head b310ddf0 reached the fixture CFO once with its diff fingerprint and selected code"
+  },
+  "console": "no CSP violations; only connection resets during deliberate restarts and the intended 422 and 409 refusals",
+  "finding": "an absolutely positioned .sr-only label inside the scrolled review panel extends the document to 1700 px at a 900 px viewport after long diffs are expanded; .details-panel has no positioned ancestor for it",
+  "cleanup": "stopped by pid: boards 19764, 48496, 37284 and 18796, fixture harnesses 3688 and 52788, Herdr test server 39064; closed test tabs w1:t2 and w1:t3; stopped axi session cfo-native-board-live; cfo reap no longer lists the fixture processes",
+  "finding_fix": {
+    "commit": "d7c9701",
+    "change": ".details-panel position: relative, embedded assets rebuilt",
+    "check": "four diffs expanded (two 300-line files, 21193 px of panel content) at 1440x900: document 900 px with the fix, 11397 px with the panel switched to static in the same page, 900 px restored; Orchestration 900x1440"
+  }
+}
