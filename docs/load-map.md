@@ -72,13 +72,13 @@ Project files load from the project root (the nearest `.git`, which a worktree's
 All project files share one budget, `project_doc_max_bytes`, 32 KiB by default; the global file does not count against it.
 Past the budget the text is cut off.
 
-This repository's `AGENTS.md` is about 50 KB, so a Codex session sees it cut part-way through "Share caches, never share materialized environments", and everything after it, from dispatch policy through escalation, never arrives.
+This repository's `AGENTS.md` is well over that budget, so a Codex session loses roughly the last third of the file, which includes dispatch policy, delivery, supervision, the board question contract and escalation.
 Until the contract is shorter, run a Codex CFO with `project_doc_max_bytes = 65536` in `~/.codex/config.toml`.
 
 **Skills.**
 Codex scans, in order: the project's `.codex/skills` directories (nearest first), `~/.codex/skills`, `~/.agents/skills`, its system skills, plugins, and the project's `.agents/skills` from the root down to the working directory.
 It removes duplicates by `SKILL.md` path, never by name, so the same skill at two paths is listed twice, and a bare `$name` mention of an ambiguous name is ignored.
-Codex already reads the project's `.agents/skills`, so a `.codex/skills` junction to it only adds a second route to the same skills, and this repository no longer creates one.
+Codex already reads the project's `.agents/skills`, so a `.codex/skills` junction to it only adds a second route to the same skills; `install.ps1 -Bootstrap` no longer creates one and removes the one an earlier bootstrap made.
 
 **Prompts.**
 Codex 0.154 has no loader for `~/.codex/prompts`; commands reach Codex as skills or plugins.

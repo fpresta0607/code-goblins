@@ -8,4 +8,4 @@ You orchestrate through the `cfo` binary.
 Spec: `docs/superpowers/specs/2026-08-12-windows-native-fork-design.md`.
 Build: `go build ./cmd/cfo`. First move: `cfo doctor`.
 
-A goblin that `cfo spawn` dispatched into this repository (`CFO_ROLE=goblin` in its environment) is a contributor, not the CFO: it follows its brief, runs only the `cfo` commands the brief names, and never dispatches or supervises goblins.
+A goblin that `cfo spawn` dispatched into this repository (its pane carries `CFO_ROLE=goblin`) is a contributor, not the CFO: it follows its brief, runs only the `cfo` commands the brief names, never dispatches or supervises goblins, and reads [AGENTS.md](AGENTS.md) as the product documentation.
