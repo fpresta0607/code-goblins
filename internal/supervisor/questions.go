@@ -110,6 +110,8 @@ func goblinAsker(ctx context.Context, stateDir string, client *herdr.Client, tas
 // it offers choices, labelled with the goblin, and the Overlord's answer
 // returns to the goblin's pane once. A notify without choices is prose for
 // the CFO and never opens the modal, and neither does a failed notify.
+// images, one for each choice in order, must already have passed
+// ReviewImages: SurfaceNotify records them without checking the files.
 func SurfaceNotify(ctx context.Context, stateDir string, client *herdr.Client, taskID string, record wake.Record, images []string) error {
 	question, options, ok := wake.Question(record)
 	if !ok || len(options) == 0 {
