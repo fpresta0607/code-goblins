@@ -231,7 +231,13 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 400, "Unsafe file path")
 		return
 	}
-	a, err := h.Service.Store.Queue(Action{ID: input.ID, Kind: input.Kind, TaskID: input.TaskID, Generation: input.Generation, Text: input.Text, File: input.File, Line: input.Line, EndLine: input.EndLine, Side: input.Side, Head: input.Head, Revision: input.Revision, DiffID: input.DiffID, QuestionID: input.QuestionID, AnswerKind: input.AnswerKind})
+	a := Action{ID: input.ID, Kind: input.Kind, TaskID: input.TaskID, Generation: input.Generation, Text: input.Text, File: input.File, Line: input.Line, EndLine: input.EndLine, Side: input.Side, Head: input.Head, Revision: input.Revision, DiffID: input.DiffID, QuestionID: input.QuestionID, AnswerKind: input.AnswerKind}
+	var err error
+	if a.Kind == "review" {
+		a, err = h.Service.Store.QueueReview(r.Context(), a, h.Service.Options.CFO)
+	} else {
+		a, err = h.Service.Store.Queue(a)
+	}
 	if err != nil {
 		apiError(w, 409, err.Error())
 		return

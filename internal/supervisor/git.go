@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -220,10 +221,14 @@ func (g Git) Diff(ctx context.Context, dir, revision, path string) (result FileD
 			return FileDiff{}, err
 		}
 		if status == "?" {
-			lines := strings.Split(strings.TrimSuffix(d.Code, "\n"), "\n")
-			d.Patch = fmt.Sprintf("--- /dev/null\n+++ b/%s\n@@ -0,0 +1,%d @@\n", path, len(lines))
-			for _, line := range lines {
-				d.Patch += "+" + line + "\n"
+			d.Patch = fmt.Sprintf("--- /dev/null\n+++ b/%s\n", path)
+			// A zero-byte file has no line to select; a lone newline is one empty line.
+			if d.Code != "" {
+				lines := strings.Split(strings.TrimSuffix(d.Code, "\n"), "\n")
+				d.Patch += fmt.Sprintf("@@ -0,0 +1,%d @@\n", len(lines))
+				for _, line := range lines {
+					d.Patch += "+" + line + "\n"
+				}
 			}
 		} else {
 			base, baseErr := g.base(ctx, dir)
@@ -247,20 +252,33 @@ func (g Git) Diff(ctx context.Context, dir, revision, path string) (result FileD
 	return d, nil
 }
 
+// readPreview refuses any link on the way to the file: Lstat reports a symlink
+// as ModeSymlink and a junction or other reparse point as ModeIrregular, so
+// every parent must be a plain directory and the file a regular one. The open
+// itself goes through an os.Root on the canonical task root, so a component
+// swapped for a link after these checks still cannot resolve outside it.
 func readPreview(dir, path string) (string, error) {
-	root, err := fsx.Canonical(dir)
+	canonical, err := fsx.Canonical(dir)
 	if err != nil {
 		return "", err
 	}
-	full := filepath.Join(root, filepath.FromSlash(path))
-	canonical, err := fsx.Canonical(full)
+	root, err := os.OpenRoot(canonical)
 	if err != nil {
 		return "", err
 	}
-	if !fsx.SamePath(full, canonical) {
-		return "", errors.New("symlink and junction file previews are not supported")
+	defer root.Close()
+	name := filepath.FromSlash(path)
+	parts := strings.Split(name, string(filepath.Separator))
+	for i := range parts {
+		info, err := root.Lstat(filepath.Join(parts[:i+1]...))
+		if err != nil {
+			return "", err
+		}
+		if i < len(parts)-1 && info.Mode().Type() != fs.ModeDir || i == len(parts)-1 && !info.Mode().IsRegular() {
+			return "", errors.New("symlink and junction file previews are not supported")
+		}
 	}
-	f, err := os.Open(full)
+	f, err := root.Open(name)
 	if err != nil {
 		return "", err
 	}

@@ -383,9 +383,45 @@ func (s *Store) Queue(a Action) (Action, error) {
 	return queued, s.save()
 }
 
-func (s *Store) queue(a Action) (Action, error) {
+// QueueReview admits a review only for a CFO the verifier proves live, and
+// pins that registration as its recipient. An identical retry answers from
+// its durable record before any probe, so a replacement registration can
+// never adopt it. The registration stays open, which denies its replacement,
+// until the pinned review is durable. The probe runs outside the store lock
+// and never sends.
+func (s *Store) QueueReview(ctx context.Context, a Action, cfo *CFOConnection) (Action, error) {
+	s.mu.Lock()
+	existing, found, err := s.lookup(a)
+	s.mu.Unlock()
+	if err != nil || found {
+		return existing, err
+	}
+	if cfo == nil {
+		return Action{}, errors.New("CFO transport is unavailable. No review was queued.")
+	}
+	file, err := openPrimary(filepath.Join(s.Home.State, "primary.json"))
+	if err != nil {
+		return Action{}, errors.New("Primary CFO registration is unavailable. No review was queued.")
+	}
+	defer file.Close()
+	primary, identity, err := decodePrimary(file)
+	if err != nil {
+		return Action{}, err
+	}
+	probe, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	if err := cfo.verify(probe, primary); err != nil {
+		return Action{}, fmt.Errorf("%v. No review was queued.", err)
+	}
+	a.CFOIdentity = identity
+	return s.Queue(a)
+}
+
+// lookup returns the durable action an identical retry names. A changed
+// payload under the same ID is refused rather than treated as a new request.
+func (s *Store) lookup(a Action) (Action, bool, error) {
 	if a.ID == "" || len(a.ID) > 128 || strings.ContainsAny(a.ID, "\x00\r\n") {
-		return Action{}, errors.New("action requires a bounded request ID")
+		return Action{}, false, errors.New("action requires a bounded request ID")
 	}
 	for _, existing := range s.db.Actions {
 		if existing.ID != a.ID {
@@ -396,9 +432,16 @@ func (s *Store) queue(a Action) (Action, error) {
 			generation = existing.Generation
 		}
 		if existing.Kind != a.Kind || existing.TaskID != a.TaskID || existing.Generation != generation || existing.Session != a.Session || existing.EventID != a.EventID || existing.Text != a.Text || existing.File != a.File || existing.Head != a.Head || existing.Line != a.Line || existing.EndLine != a.EndLine || existing.Side != a.Side || existing.Revision != a.Revision || existing.DiffID != a.DiffID || existing.QuestionID != a.QuestionID || existing.AnswerKind != a.AnswerKind {
-			return Action{}, errors.New("request ID was already used for another action")
+			return Action{}, false, errors.New("request ID was already used for another action")
 		}
-		return existing, nil
+		return existing, true, nil
+	}
+	return Action{}, false, nil
+}
+
+func (s *Store) queue(a Action) (Action, error) {
+	if existing, found, err := s.lookup(a); err != nil || found {
+		return existing, err
 	}
 	if a.Kind != "cfo_answer" && a.AnswerKind != "" {
 		return Action{}, errors.New("answer kind is only valid for a CFO question")
@@ -437,17 +480,8 @@ func (s *Store) queue(a Action) (Action, error) {
 			return Action{}, err
 		}
 	}
-	if a.Kind == "review" {
-		file, err := openPrimary(filepath.Join(s.Home.State, "primary.json"))
-		if err != nil {
-			return Action{}, errors.New("Primary CFO registration is unavailable. No review was queued.")
-		}
-		_, identity, err := decodePrimary(file)
-		_ = file.Close()
-		if err != nil {
-			return Action{}, err
-		}
-		a.CFOIdentity = identity
+	if a.Kind == "review" && a.CFOIdentity == "" {
+		return Action{}, errors.New("A review needs a verified CFO recipient. No review was queued.")
 	}
 	if a.Kind == "cfo_answer" {
 		file, err := openPrimary(filepath.Join(s.Home.State, "primary.json"))
