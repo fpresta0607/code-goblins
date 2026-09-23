@@ -63,10 +63,10 @@ Write-Host ""
 # and existence checks instead.
 $ErrorActionPreference = "Continue"
 
-# Ship the bundled skills to the harnesses that read a different project
-# directory: claude reads .claude/skills and codex reads .codex/skills, while
-# kimi and pi read .agents/skills directly. A junction keeps one copy tracked
-# in git (no duplicate files, no developer-mode symlinks).
+# Claude reads project skills only from .claude/skills, so a junction points it
+# at .agents/skills; codex, pi and kimi read .agents/skills directly, and a
+# .codex/skills link would only give codex a second route to the same skills.
+# A junction keeps one copy tracked in git (no developer-mode symlinks).
 function Ensure-SkillJunctions {
     param([string]$Root)
     $source = Join-Path $Root ".agents\skills"
@@ -74,7 +74,7 @@ function Ensure-SkillJunctions {
         Write-Host "WARN     skills           .agents\skills not found; skipping skill junctions"
         return
     }
-    foreach ($rel in @(".claude\skills", ".codex\skills")) {
+    foreach ($rel in @(".claude\skills")) {
         $link = Join-Path $Root $rel
         if (Test-Path $link) {
             $item = Get-Item $link -Force
