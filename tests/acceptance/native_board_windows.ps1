@@ -58,7 +58,7 @@ Write-UTF8 "$fixtureHome\state\board-fixture.meta" (@(
     'spawn_gen=fixture-1', 'model=example (no model calls)', 'effort=max', 'backend=herdr',
     "herdr_session=$session", "herdr_workspace_id=$($workspace.workspace.workspace_id)", "herdr_tab_id=$($tab.tab.tab_id)", "herdr_pane_id=$pane"
 ) -join "`n")
-Write-UTF8 "$fixtureHome\state\board-fixture.status" ((Get-Date).ToUniversalTime().ToString('o') + ' working: Build review panel')
+Write-UTF8 "$fixtureHome\state\board-fixture.status" ((Get-Date).ToUniversalTime().ToString('o') + ' working: Build review panel' + "`n")
 Write-UTF8 "$fixtureHome\data\backlog.md" "## Queued`n- [ ] board-fixture - Build review panel (repo: example)`n- [ ] follow-up - Polish settings (repo: example)`n"
 $config = @{ root=$root; home=$fixtureHome; project=$project; session=$session; pane=$pane; hook="$root\codex\cfo-native-hook.ps1"; binary=$cfo; herdr_pid=$server.Id; parentHarness='codex' }
 Write-UTF8 "$root\fixture.json" ($config | ConvertTo-Json)
