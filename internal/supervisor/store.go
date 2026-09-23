@@ -450,18 +450,18 @@ func (s *Store) queue(a Action) (Action, error) {
 		return existing, err
 	}
 	answer := a.Kind == "cfo_answer" || a.Kind == "goblin_answer"
-	clear := a.Kind == "review_clear" || a.Kind == "question_clear"
+	item := a.Kind == "review_answer" || a.Kind == "review_clear" || a.Kind == "question_clear"
 	if !answer && a.AnswerKind != "" {
 		return Action{}, errors.New("answer kind is only valid for a question")
 	}
-	if a.Kind != "evaluate" && a.Kind != "review" && !answer && !clear {
+	if a.Kind != "evaluate" && a.Kind != "review" && !answer && !item {
 		return Action{}, errors.New("unsupported action; task lifecycle cannot be dragged or assigned")
 	}
 	if len(a.Text) > 16000 || len(a.File) > 4096 {
 		return Action{}, errors.New("action exceeds size limit")
 	}
-	if clear {
-		return s.queueClear(a)
+	if item {
+		return s.queueItemAction(a)
 	}
 	if a.Kind != "evaluate" && strings.TrimSpace(a.Text) == "" {
 		return Action{}, errors.New("comment is empty")
@@ -534,17 +534,21 @@ func (s *Store) queue(a Action) (Action, error) {
 	return a, nil
 }
 
-// queueClear admits the Overlord clearing one Command Center item: an open
-// review, or a question that closed without an answer. A pending question
-// cannot be cleared, so an unanswered decision is never hidden.
-func (s *Store) queueClear(a Action) (Action, error) {
-	if a.Generation == "" || a.Text != "" || a.TaskID != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || (a.Kind == "review_clear") != (a.ReviewID != "") || (a.Kind == "question_clear") != (a.QuestionID != "") {
-		return Action{}, errors.New("a clear names only its item and that item's identity")
+// queueItemAction admits the Overlord answering or clearing one Command
+// Center item: an open review, or a question that closed without an answer.
+// A pending question cannot be cleared, so an unanswered decision is never
+// hidden.
+func (s *Store) queueItemAction(a Action) (Action, error) {
+	answer := a.Kind == "review_answer"
+	if a.Generation == "" || answer && strings.TrimSpace(a.Text) == "" || !answer && a.Text != "" || a.TaskID != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || (a.Kind == "question_clear") != (a.QuestionID != "") || (a.Kind != "question_clear") != (a.ReviewID != "") {
+		return Action{}, errors.New("an item action names only its item, that item's identity and, for an answer, its text")
 	}
-	if a.Kind == "review_clear" && !slices.ContainsFunc(s.db.Reviews, func(r Review) bool {
-		return r.ID == a.ReviewID && r.Identity == a.Generation && r.State == "open"
-	}) {
-		return Action{}, errors.New("that review is not open; refresh the board")
+	review := -1
+	if a.ReviewID != "" {
+		review = slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == a.ReviewID && r.Identity == a.Generation && r.State == "open" })
+		if review < 0 {
+			return Action{}, errors.New("that review is not open; refresh the board")
+		}
 	}
 	if a.Kind == "question_clear" && !slices.ContainsFunc(s.db.Questions, func(q Question) bool {
 		return q.ID == a.QuestionID && q.Identity == a.Generation && (q.Status == "superseded" || q.Status == "failed")
@@ -562,6 +566,10 @@ func (s *Store) queueClear(a Action) (Action, error) {
 	a.CreatedAt = time.Now().UTC()
 	a.UpdatedAt = a.CreatedAt
 	s.db.Actions = append(s.db.Actions, a)
+	if answer {
+		r := &s.db.Reviews[review]
+		r.State, r.Answer, r.AnswerID, r.Delivered, r.UpdatedAt = "answered", a.Text, a.ID, false, a.CreatedAt
+	}
 	return a, nil
 }
 

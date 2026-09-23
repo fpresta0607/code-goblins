@@ -245,6 +245,7 @@ The ID is 8 to 128 letters, digits, dots, dashes or underscores; republishing th
 Up to twelve images, each a PNG, JPEG, GIF or WebP of at most 10 MiB inside the task's worktree, task scratch or data directory, are checked like a question's and copied under `state/reviews`, so the item outlives the worktree and the goblin; `data/` is never used, because it is pushed.
 A `--lavish` link follows the presentation URL rule below, and a refusal names the rule it broke.
 An item stays open until the Overlord clears it (`review_clear`) or its reporter withdraws it with a reason; nothing expires it, a `cfo serve` restart keeps it, and a respawned or retired goblin leaves it listed.
+The Overlord can instead answer it (`review_answer`): his text goes once to the reporter, the goblin's own pane while it is the same task generation or the CFO that reported it, and the item closes as answered; an answer for a goblin that restarted or ended goes to the current CFO instead, and the item reads `delivered: false`.
 The board sees each item in `snapshot.reviews` with an image count, never a path or a digest, and fetches image n at `/api/reviews/<id>/images/<n>`, checked again on every request.
 Closed items and their copies are pruned a week after they close; open items are never dropped, and a new item waits in the inbox while 128 are open.
 The API contract for the board is `data/board-ui/api-contract.md`.

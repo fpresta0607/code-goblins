@@ -342,8 +342,11 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	if a.Kind == "feedback" || a.Kind == "cfo_message" {
 		return Evaluation{}, fmt.Errorf("%w: obsolete action kind %q is not accepted", ErrRejected, a.Kind)
 	}
-	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" {
+	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "review_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" {
 		return Evaluation{}, fmt.Errorf("%w: unsupported action kind %q", ErrRejected, a.Kind)
+	}
+	if a.Kind == "review_answer" {
+		return s.answerReview(ctx, a)
 	}
 	if a.Kind == "review_clear" {
 		return s.Store.clearReview(a.ReviewID, a.Generation)
