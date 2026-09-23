@@ -246,12 +246,14 @@ func TestSnapshotKeepsEvaluationWithinCurrentGeneration(t *testing.T) {
 		name                 string
 		evaluationGeneration string
 		linked               bool
+		sessionGeneration    string
 		phase                string
 		wantPhase            string
 		wantVerified         bool
 	}{
-		{name: "settled current session rejects completed prior generation", evaluationGeneration: "g1", linked: true, phase: "settled", wantPhase: "unknown"},
-		{name: "ended current session rejects completed prior generation", evaluationGeneration: "g1", linked: true, phase: "ended", wantPhase: "unknown"},
+		{name: "settled current session rejects completed prior generation", evaluationGeneration: "g1", linked: true, phase: "settled", wantPhase: "review"},
+		{name: "ended current session rejects completed prior generation", evaluationGeneration: "g1", linked: true, phase: "ended", wantPhase: "review"},
+		{name: "prior generation session rejects matching evaluation", evaluationGeneration: "g2", linked: true, sessionGeneration: "g1", phase: "settled", wantPhase: "unknown"},
 		{name: "unlinked task rejects completed prior generation", evaluationGeneration: "g1", wantPhase: "unknown"},
 		{name: "matching generation retains completed evaluation", evaluationGeneration: "g2", linked: true, phase: "settled", wantPhase: "done", wantVerified: true},
 	}
@@ -268,8 +270,12 @@ func TestSnapshotKeepsEvaluationWithinCurrentGeneration(t *testing.T) {
 			}
 			store.db.Tasks[meta.ID] = Evaluation{Phase: "done", Reason: "prior delivery", Generation: tt.evaluationGeneration, Verified: true, At: time.Now().Add(-time.Minute)}
 			if tt.linked {
+				sessionGeneration := meta.SpawnGen
+				if tt.sessionGeneration != "" {
+					sessionGeneration = tt.sessionGeneration
+				}
 				store.db.TaskSessions[meta.ID] = "codex/current"
-				store.db.Sessions["codex/current"] = Session{ID: "codex/current", TaskID: meta.ID, Generation: meta.SpawnGen, Role: "goblin", Phase: tt.phase, UpdatedAt: time.Now()}
+				store.db.Sessions["codex/current"] = Session{ID: "codex/current", TaskID: meta.ID, Generation: sessionGeneration, Role: "goblin", Phase: tt.phase, UpdatedAt: time.Now()}
 			}
 			view, err := (&Service{Store: store}).Snapshot()
 			if err != nil {
