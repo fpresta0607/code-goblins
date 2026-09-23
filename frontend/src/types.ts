@@ -23,6 +23,9 @@ export interface Task extends Evaluation {
   generation: string;
   session: string;
   dependencies: string[];
+  activity: string;
+  archived: boolean;
+  merged: boolean;
 }
 export interface Session {
   runtime?: RuntimeEvidence;
@@ -224,6 +227,9 @@ export function parseSnapshot(value: unknown): Snapshot {
         generation: string(t.generation),
         session: string(t.session),
         dependencies: strings(t.dependencies),
+        activity: t.activity === undefined ? "" : string(t.activity),
+        archived: t.archived === undefined ? false : boolean(t.archived),
+        merged: t.merged === undefined ? false : boolean(t.merged),
         phase: string(t.phase),
         reason: string(t.reason),
         head: string(t.head),

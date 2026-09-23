@@ -38,7 +38,8 @@ export function App() {
   const presentations=snapshot&&connected?livePresentations(snapshot,now):[];
   const select = (next: Selection, source: HTMLElement) => {
     returnFocus.current = source;
-    const cfo = snapshot?.sessions.find((session) => session.id === next.session)?.role === "cfo";
+    // An empty selection is the supervisor root drawn for the CFO.
+    const cfo = !next.session && !next.task || snapshot?.sessions.find((session) => session.id === next.session)?.role === "cfo";
     setSelected(cfo ? null : next);
     setSelectionEpoch((epoch) => epoch + 1);
     setPaneOpen(true);
@@ -78,7 +79,7 @@ export function App() {
           : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} selected={task?.id} onSelect={(task, source) => select({ task: task.id }, source)} />
             : compact ? <Lineage presentations={presentations} effects={effects} snapshot={snapshot} project="" selected={selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
               : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} connected={connected} selected={selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
-                onSelect={(node, source) => select(node.session ? { session: node.session.id } : { task: node.task?.id }, source)} />}
+                onSelect={(node, source) => select(node.session ? { session: node.session.id } : node.task ? { task: node.task.id } : {}, source)} />}
       </main>
       <aside ref={pane} className="context-pane" hidden={!paneOpen} tabIndex={-1} aria-label={view === "Board" ? "Task review" : "Native terminal"}>
         <div className="pane-controls">

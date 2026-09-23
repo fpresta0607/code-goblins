@@ -93,7 +93,15 @@ Uncertain actions remain visible for operator inspection and can eventually exha
 ## Board and orchestration
 
 The header switches between Board and Orchestration, with one main view visible at a time and one contextual pane on the right.
-Board groups actual tasks into Tasks, In progress and Completed; only verified delivery enters Completed.
+Board groups actual tasks into Tasks, In progress and Completed.
+Tasks lists backlog rows and briefs nothing has started: a `data/<id>/brief.md` with no live task record, status log or archive entry.
+Completed lists verified delivery, and within the last week at most 20 entries of history: tasks cleanup finished, from a status log left without its record or one the archive holds, and pull requests merged into a fleet repository, read from merge commits on origin's default branch of this home and each checkout under the projects root, locally and without a forge call.
+A merged pull request whose live task already shows the merge, in phase merged or done, appears only on that task's card, which stays In progress as merged-awaiting-verification until landed content is verified.
+Any other merged pull request keeps its Completed card, even when a live task reported it: a task whose gate missed the merge, or that is blocked, failed or waiting on a question, keeps its own proven state on its card.
+A history card is its pull request link, since it has no live worktree to review.
+A task no native hook has reported takes its status from the fleet's own records: a question it is still waiting on in the wake queue, then what its gate proved, then what Herdr sees in its pane, and it is evaluated once a minute like any other.
+Each card shows the task's own latest status line and its pull request, linked only when the reported value is an https URL.
+Both come from the current generation's lines only, so a respawned task id shows neither its earlier generation's activity nor its pull request until it reports again.
 Every Board card opens its changes, activity and commit history; Board has no terminal or standalone message composer.
 Orchestration opens the selected native terminal and defaults to the registered CFO.
 Cards show their reported project name, and the spacious contextual panel provides repository, branch and working-folder context on one continuous surface.
@@ -102,15 +110,19 @@ The API accepts task identity and an editor enum, never a browser-provided path 
 Successful launch means the application was requested, not that a window was observed.
 Queued tasks show their known project and Not started yet, without querying nonexistent task metadata.
 Operational wake records remain intact; only explicitly escalated CFO questions open a modal.
-Task-semantic goblin avatars are presentation choices, not inferred native role evidence.
+Task-semantic goblin avatars are presentation choices, not inferred native role evidence; a task no keyword classifies gets a stable artwork of its own instead of the shared app icon.
 
 Orchestration nodes use explicit native parent/root IDs and the launch environment's reported relationships.
+A live task record no native hook reported hangs under the CFO, because cfo spawn is how every task record was dispatched: under the reported CFO session, or under a supervisor root drawn when none reported, which opens the CFO terminal and names a stale registration.
+Completed history and unstarted briefs stay on the board, not in the tree.
 Directory names and temporal proximity never establish parentage.
 Replayed, stale, reparenting, or cyclic input cannot silently change the tree.
 Unknown and retired parents remain visible, and task dependencies are rendered separately from spawned/delegated links.
 Unreported child models remain unreported even when their owning task declares a model and effort.
 Dragging a card or using Alt plus an arrow key changes only its saved browser position; connectors retain their reported parent identity.
-The canvas starts at no less than 80% scale, with scroll/pan for extra roots; explicit Fit can zoom further out.
+The first render fits the whole tree, down to 35%, and explicit Fit does the same later.
+A family of more than three leaf goblins wraps into two rows, the second offset by half a card so its connectors drop through gaps in the first instead of behind a sibling.
+A connector pulses for a few seconds when its goblin reports a new status line or files a wake record.
 Arrange resets positions, and storage failures remain visible.
 Narrow screens use a collapsible nested list that names the actual parent when indentation is capped.
 A child without its own reported native transport explains that limitation without borrowing its owning task's terminal or model.
