@@ -3,9 +3,12 @@ package supervisor
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/lock"
 )
 
 func TestPresentationAndActivityReceiptsStayBoundedAndDoNotDriveWork(t *testing.T) {
@@ -120,5 +123,66 @@ func TestPendingPresentationPreservesEndIdentityAndOrdering(t *testing.T) {
 	got := store.Snapshot().Activity[1]
 	if got.State != "ended" || !got.At.Equal(ended.At) {
 		t.Fatal("pending terminal receipt lost", got)
+	}
+}
+
+// Lavish hands out its tailnet name; plain http on a name that resolves only
+// to this machine is linked by its loopback form, and every refusal names the
+// rule it broke.
+func TestPresentationURLNamesTheRuleAndLinksThisMachineByLoopback(t *testing.T) {
+	ctx := context.Background()
+	for raw, rule := range map[string]string{
+		"http://192.0.2.10:4387/session/f26e":  "plain http",
+		"https://user:pass@example.com/review": "credentials",
+		"https://example.com/review?x=1":       "query",
+		"https://example.com/reset-token/x":    "credential (token)",
+		"review page":                          "absolute URL",
+	} {
+		if _, err := PresentationURL(ctx, raw); err == nil || !strings.Contains(err.Error(), rule) {
+			t.Errorf("%s: err = %v, want the %q rule named", raw, err, rule)
+		}
+	}
+	for _, raw := range []string{"https://example.com/review", "http://localhost:4387/session/f26e"} {
+		if got, err := PresentationURL(ctx, raw); err != nil || got != raw {
+			t.Errorf("%s = %q %v, want it unchanged", raw, got, err)
+		}
+	}
+	local := ""
+	addresses, err := net.InterfaceAddrs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, address := range addresses {
+		if network, ok := address.(*net.IPNet); ok && !network.IP.IsLoopback() && network.IP.To4() != nil {
+			local = network.IP.String()
+			break
+		}
+	}
+	if local == "" {
+		t.Skip("this machine has no non-loopback IPv4 address to stand in for its tailnet name")
+	}
+	if got, err := PresentationURL(ctx, "http://"+local+":4387/session/f26e1c33babf6415"); err != nil || got != "http://127.0.0.1:4387/session/f26e1c33babf6415" {
+		t.Fatalf("this machine's own address = %q %v, want its loopback form", got, err)
+	}
+}
+
+// Serve holds the activity lock while it ingests, every few seconds, so a
+// report made at that moment waits for it instead of being refused.
+func TestSpoolActivityWaitsForTheIngestLock(t *testing.T) {
+	_, h := testStore(t)
+	if _, err := lock.AcquireExclusiveNamed(h.State, ".board-activity.lock"); err != nil {
+		t.Fatal(err)
+	}
+	released := make(chan error, 1)
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		released <- lock.ReleaseExclusiveNamed(h.State, ".board-activity.lock")
+	}()
+	now := time.Now().UTC()
+	if err := spoolActivity(h.State, BoardActivity{ID: "held-lock-review", Kind: "review", TaskID: "task-1", Generation: "g1", State: "active", URL: "http://127.0.0.1:4387/session/f26e", At: now, Until: now.Add(time.Minute)}); err != nil {
+		t.Fatalf("a report was refused while serve briefly held the lock: %v", err)
+	}
+	if err := <-released; err != nil {
+		t.Fatal(err)
 	}
 }
