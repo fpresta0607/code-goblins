@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import type { Snapshot } from "./types";
 import { Avatar } from "./Avatar";
+import { Chevron } from "./Chevron";
 import { ownsTaskSession } from "./lineageTree";
 import { arrange, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, recentCommunication, workflowNodes, type Point, type WorkflowNode } from "./workflow";
 
@@ -154,13 +155,13 @@ export function Orchestration({ snapshot, selected, connected, onSelect }: {
                   move(node.id, { x: p.x + (event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0), y: p.y + (event.key === "ArrowDown" ? step : event.key === "ArrowUp" ? -step : 0) });
                 }} onKeyUp={(event) => { if (event.key.startsWith("Arrow")) save(); }}
                 onClick={(event) => { if (ignoreClick.current) { ignoreClick.current = false; return; } onSelect(node, event.currentTarget); }} aria-pressed={selected === node.id}
-                aria-label={node.title + ". " + nodeStatus(node) + ". " + (parent ? "Parent: " + parent.title : node.relation)} aria-describedby="canvas-help" title={node.title}>
+                aria-label={node.title + ". " + nodeStatus(node) + ". " + (parent ? "Parent: " + parent.title : node.relation)} aria-describedby="canvas-help">
                 <Avatar persona={personaFor(node.task, node.session)} />
-                <span className="card-copy"><strong>{node.title}</strong><span className={"plain-status phase-" + phase}><span className="status-dot" />{nodeStatus(node)}</span>
+                <span className="card-copy"><strong>{node.title}</strong>{node.task?.project && <span className="project-label">{node.task.project}</span>}<span className={"plain-status phase-" + phase}><span className="status-dot" />{nodeStatus(node)}</span>
                   {!node.parent && node.session?.role !== "cfo" && <small>{node.relation}</small>}
                 </span>
               </button>
-              {children && <button className="node-disclosure" title={(collapsed.has(node.id) ? "Expand" : "Collapse") + " descendants"} aria-label={(collapsed.has(node.id) ? "Expand" : "Collapse") + " descendants of " + node.title} aria-expanded={!collapsed.has(node.id)} onClick={() => setCollapsed((prior) => { const next = new Set(prior); if (next.has(node.id)) next.delete(node.id); else next.add(node.id); return next; })}>{collapsed.has(node.id) ? "›" : "⌄"}</button>}
+              {children && <button className="node-disclosure" aria-label={(collapsed.has(node.id) ? "Expand" : "Collapse") + " descendants of " + node.title} aria-expanded={!collapsed.has(node.id)} onClick={() => setCollapsed((prior) => { const next = new Set(prior); if (next.has(node.id)) next.delete(node.id); else next.add(node.id); return next; })}><Chevron collapsed={collapsed.has(node.id)} /></button>}
             </article>;
           })}
         </div>

@@ -71,6 +71,7 @@ commands:
   cfo cleanup <id>
   cfo reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]   find orphaned harness processes, stale dev servers, worktrees, task records and status logs; --apply retires the worktrees, records and logs, and ending a process needs its pid named with --force
   cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>"   a goblin reports its outcome straight into the wake queue
+  cfo question --id <stable-id> --text "<user question>" [--option "<choice>"]...   registered CFO deliberately opens a user decision modal; omit choices for a written answer
   hook <name>  claude code hook entry points (session-start, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm)
 `
 
@@ -256,6 +257,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runReap(args[1:], stdout, stderr, runtime)
 	case "notify":
 		return runNotify(args[1:], stdout, stderr)
+	case "question":
+		return runQuestion(args[1:], stdout, stderr, runtime)
 	case "session-start":
 		// Deliberate deviation, recorded for the ledger: a home that cannot
 		// be resolved errors out here (stderr plus exit 1), matching this

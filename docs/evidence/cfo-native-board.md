@@ -183,3 +183,48 @@ The worker has not retried the gate or changed shared settings; the next managed
 The first external clean-checkout rebuild caught a Windows reproducibility defect: Vite retained CRLF template newlines while inserting LF asset tags, producing mixed-line-ending HTML.
 Pinning the source template and embedded HTML/JavaScript/CSS to LF in `.gitattributes` fixes both the actual lockfile-build comparison and Windows Git's modified-file detection after regeneration.
 The final artifact is built from the subsequent clean commit containing that correction, with no hand edits to generated assets.
+
+## Native terminal and focused review candidate, September 23 UTC
+
+This subsequent revision separates Board review from Orchestration's actual native terminal.
+Board retains inline, revision-bound file/range annotations to the CFO and contains no terminal or standalone chat composer.
+Orchestration uses the installed Herdr protocol22 native screen stream, observes by default, and claims input only after Connect input.
+The xterm.js renderer and fit addon are pinned, loaded on demand and distributed with their MIT license notices.
+Workspace details exposes scoped names/configuration and reported model evidence without environment values, MCP commands or headers.
+The verified primary CFO can deliberately publish a modal with `cfo question`; worker notifications and natural-language questions alone cannot open it.
+
+| Candidate check | Evidence and boundary |
+| --- | --- |
+| Frontend | TypeScript, ESLint, eleven behavior tests and Vite production build passed |
+| Backend | Full supervisor package passed in 47.574 s; Herdr package passed in 1.559 s; production home/state overrides cleared, GOMAXPROCS=2 |
+| Terminal regressions | Blocked-write cancellation/teardown, changed/exited identities, stable binding across PR metadata, frame gap/full rebaseline, ownership refusal and non-replayed input passed |
+| Questions | CFO-owned publication, durable ID conflict, corrupt/overflow isolation, stale CFO supersession, answer idempotency, interrupted-delivery uncertainty and storage rollback passed |
+| Retention reproduction | Pre-fix source overlay loses unseen deferred questions for distinct and equal timestamps; the fixed test preserves each record through capacity rollover and restart at the 128-record bound |
+| Metadata | Scoped MCP/environment name redaction and reported-versus-configured model behavior passed |
+| Additional source checks | Scoped `go vet -p 1` for supervisor/Herdr/cmd-cfo passed; `git diff --check` passed; production npm audit reported zero vulnerabilities |
+| V2 browser only | Actual isolated fixture typing/Enter, complete multiline paste, Escape remaining in the terminal, PageUp not scrolling the page, Shift+Escape releasing input and keyboard focus, and oversized Unicode paste rejection without disconnection |
+| V2 latency sample | Seventeen input requests: median 80.2 ms, maximum 169.8 ms, zero HTTP failures; short sample only |
+| Latest layout/CSP | Root's clipping and compressed-column defects are corrected in source; final browser acceptance remains pending |
+| Remaining acceptance | Final responsive screenshots, sustained typing, copy/native scroll/interrupt checks, final modal and inline review round trips, and coordinated real CFO/Codex tests are not yet complete |
+
+The retained v2 candidate is `http://127.0.0.1:63790`, SHA256 `00E20173BACFCDF372A43F25C18E2572A53852E4791C31B74874468241E26DFB`.
+Its screenshot is `C:\dev\code-goblins\data\cfo-native-board\terminal-v2-worker-readonly.png`; the root's independent UI review is `root-terminal-ui-review.json` in that directory.
+The processes used for these input checks are deterministic acceptance fixtures, not live model evidence.
+Three additional harmless fixture receipts confirm the typed nonce and two pasted lines; no real CFO input or control was used.
+The original stable preview at :58749 remains running.
+
+Automatic approval review rejected restarting the v2 preview and then launching a fresh isolated preview for the scanned v3 binary.
+Both were refused before execution with the sole stated reason `blocked by policy`.
+Exact commands and action boundaries are retained in `C:\dev\code-goblins\data\cfo-native-board\preview-approval-block.md`.
+The owning CFO instructed the worker to stop equivalent launch attempts, finish source/unit checks and provide a clean committed artifact plus exact scan before coordinating approval.
+The latest CSS/CSP fixes cannot be certified from the still-running v2 preview.
+
+Native input is bound to the exact terminal, task generation, routing and process identity, with custody checked separately before each write.
+Herdr has no input acceptance acknowledgment and cannot atomically bind a write to the expected foreground PID; an exit between proof and write can expose the same PowerShell terminal to those bytes.
+The bridge rejects known exited/changed identities, never automatically takes over, and never retries uncertain input.
+It preserves the real ANSI screen while omitting unsupported Kitty/graphics negotiation; input and frame contents are not persisted by the bridge.
+
+The previous unexplained Bearfoos quarantines and the precise credential-scan limits above remain in force.
+The real CFO's production registration is known stale; its owner must establish a verified registration only in the agreed isolated test home before the authorized live round trip.
+The final candidate is built from the new clean commit outside this worktree, with its commit, `vcs.modified=false`, SHA256 and completed exact-path Defender scan recorded externally in `terminal-final-artifact.json`.
+The owning CFO reports task/global v2 policy migrated with high-risk three-cycle review preserved; the managed gate remains required after the new acceptance work, with no gate, push, PR or merge claimed at this checkpoint.

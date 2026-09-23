@@ -1,15 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useRuntimeStream } from "./stream";
 import { Lineage, type Selection } from "./Lineage";
 import { Board } from "./Board";
 import { Orchestration } from "./Orchestration";
 import { Details } from "./Details";
-import { CFOPane } from "./CFOPane";
-import { useMessages } from "./Messages";
+import { Questions } from "./Questions";
 import { useReview } from "./review";
-import { age } from "./presentation";
-import { decisionText } from "./types";
 import { ownsTaskSession } from "./lineageTree";
+
+const NativeTerminal = lazy(() => import("./NativeTerminal").then((module) => ({ default: module.NativeTerminal })));
 
 export function App() {
   const { snapshot, connection, error } = useRuntimeStream();
@@ -30,8 +29,6 @@ export function App() {
   const task = snapshot?.tasks.find((task) => task.id === (selected?.task || node?.task_id));
   const selectedSession = node || (task && snapshot?.sessions.find((session) => ownsTaskSession(session, task)));
   const reviews = useReview(task, snapshot);
-  const messages = useMessages(snapshot);
-  const decisions = snapshot?.decisions.filter((decision) => decision.kind !== "heartbeat") || [];
   const connected = connection === "Live";
   const select = (next: Selection, source: HTMLElement) => {
     returnFocus.current = source;
@@ -60,17 +57,8 @@ export function App() {
         {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={view === name} onClick={() => setView(name)}>{name}</button>)}
       </div>
       <div className="topbar-controls">
-        {(decisions.length > 0 || !!snapshot?.issues.length) && <details className="attention-menu">
-          <summary>Needs attention <span>{decisions.length + (snapshot?.issues.length || 0)}</span></summary>
-          <div className="attention-content">
-            {decisions.slice().reverse().map((decision) => <article className="decision" key={decision.seq}>
-              <h3>{snapshot?.tasks.find((task) => task.id === decision.key)?.title || decision.key || "Fleet decision"}</h3>
-              <p>{decisionText(decision.detail)}</p><time>{age(decision.time)}</time>
-            </article>)}
-            {!!snapshot?.issues.length && <details><summary>Event diagnostics</summary><ul>{snapshot.issues.map((issue, i) => <li key={i}>{issue}</li>)}</ul></details>}
-          </div>
-        </details>}
-        <div className="connection" role="status" title={snapshot ? "Updated " + age(snapshot.at) : "Waiting for native evidence"}>
+        {snapshot && <Questions snapshot={snapshot} connected={connected} />}
+        <div className="connection" role="status">
           <span className={"live-dot " + (!connected ? "offline" : "")} />{connection}
         </div>
         {!paneOpen && <button onClick={() => setPaneOpen(true)}>Open {selected ? "details" : "CFO"}</button>}
@@ -85,15 +73,14 @@ export function App() {
               : <Orchestration snapshot={snapshot} connected={connected} selected={selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
                 onSelect={(node, source) => select(node.session ? { session: node.session.id } : { task: node.task?.id }, source)} />}
       </main>
-      <aside ref={pane} className="context-pane" hidden={!paneOpen} tabIndex={-1} aria-label={selected ? "Task details" : "CFO conversation"}>
+      <aside ref={pane} className="context-pane" hidden={!paneOpen} tabIndex={-1} aria-label={view === "Board" ? "Task review" : "Native terminal"}>
         <div className="pane-controls">
-          {selected ? <button className="return-cfo" onClick={() => setSelected(null)}>← CFO conversation</button> : <span className="muted">Conversation</span>}
+          {view === "Orchestration" && selected ? <button className="return-cfo" onClick={() => setSelected(null)}>Back to CFO</button> : <span className="muted">{view === "Board" ? "Review" : "CFO terminal"}</span>}
           <button className="icon-button" aria-label="Close contextual pane" onClick={close}>×</button>
         </div>
-        {snapshot && selected ? <Details key={selectionEpoch} task={task} node={node}
-          missingSession={!!selected.session && !node} snapshot={snapshot} connected={connected} visible={paneOpen}
-          reviews={reviews} messages={messages} onSelectTask={(id, source) => select({ task: id }, source)} />
-          : <CFOPane snapshot={snapshot} messages={messages} connected={connected} visible={paneOpen} />}
+        {snapshot && (view === "Board"
+          ? <Details key={selectionEpoch} task={task} snapshot={snapshot} connected={connected} reviews={reviews} />
+          : paneOpen && <Suspense fallback={<p className="loading">Opening native terminal...</p>}><NativeTerminal key={(selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "")} task={selected ? task : undefined} node={selected ? selectedSession : undefined} instance={snapshot.instance} visible={connected} /></Suspense>)}
       </aside>
     </div>
   </div>;

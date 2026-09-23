@@ -60,7 +60,8 @@ Silence, a vanished process, a Stop, and a prior `notify --done` are never subst
 
 Review, tests, lint, documentation, push, PR, and CI must agree with the task's exact HEAD under its frozen policy.
 Unrecovered pipeline custody blocks feedback even if a run is failed or cancelled.
-The browser can request evaluation or send contextual feedback through verified Herdr delivery; it cannot approve gates, drag a task to done, merge, or execute arbitrary shell commands.
+The browser can request evaluation or send contextual feedback through verified Herdr delivery; it cannot approve gates, drag a task to done, or merge.
+An explicitly connected terminal sends ordinary terminal input to that existing session, subject to the identity and custody boundaries below.
 
 For a ship task, a merged PR remains **merged-awaiting-verification** until the supervisor verifies landed main content.
 It checks repository identity, current remote default-branch HEAD, matching locally available main objects, and the contents or absence of every task-changed file on main, then rechecks the remote head.
@@ -91,9 +92,11 @@ Uncertain actions remain visible for operator inspection and can eventually exha
 
 The header switches between Board and Orchestration, with one main view visible at a time and one contextual pane on the right.
 Board groups actual tasks into Tasks, In progress and Completed; only verified delivery enters Completed.
-Active cards open their native terminal, while selecting a completed card opens Changes, including when that same task completed after selection.
-The default pane shows the registered CFO's native output and submitted messages.
-Needs attention discloses unresolved decisions without acknowledging or hiding them.
+Every Board card opens its changes, activity and commit history; Board has no terminal or standalone message composer.
+Orchestration opens the selected native terminal and defaults to the registered CFO.
+Cards show their reported project name, and a compact Workspace details disclosure provides scoped configuration.
+Queued tasks show their known project and Not started yet, without querying nonexistent task metadata.
+Operational wake records remain intact; only explicitly escalated CFO questions open a modal.
 Task-semantic goblin avatars are presentation choices, not inferred native role evidence.
 
 Orchestration nodes use explicit native parent/root IDs and the launch environment's reported relationships.
@@ -105,7 +108,7 @@ Dragging a card or using Alt plus an arrow key changes only its saved browser po
 The canvas starts at no less than 80% scale, with scroll/pan for extra roots; explicit Fit can zoom further out.
 Arrange resets positions, and storage failures remain visible.
 Narrow screens use a collapsible nested list that names the actual parent when indentation is capped.
-A child without its own reported native transport explains that limitation and links its owning task without borrowing that task's terminal or model.
+A child without its own reported native transport explains that limitation without borrowing its owning task's terminal or model.
 Communication pulses last at most ten seconds and require a recent successful targeted worker instruction, matching task identity, and a connected stream.
 
 Changes presents stacked file disclosures with lazy syntax-highlighted unified, split and code previews.
@@ -116,16 +119,51 @@ Drafts bind the task session identity at selection and survive view, file and re
 An unchanged submitted payload keeps its request ID after an ambiguous HTTP failure; an SSE outcome is displayed instead of dispatching it again.
 An interrupted external delivery becomes uncertain and is not replayed automatically.
 
-The installed Herdr schema supports native terminal capture and verified submitted messages, not a browser PTY attachment.
-Each capture is limited to 120 lines / 64 KiB and eight seconds, with one shared in-flight slot across CFO and worker requests.
-The visible pane requests its next capture five seconds after the previous request finishes and stops while hidden or disconnected.
-Captured output preserves native newlines; replies are not generated or simulated by the board.
-Full cursor, keyboard and Ctrl+C emulation remains in the existing native Herdr tab.
+The installed Herdr build `0.9.0-preview.2026-09-08-62431dbd033b` exposes `terminal session observe` and `terminal session control` over NDJSON.
+The browser renders its real ANSI screen frames using xterm, loaded only in Orchestration.
+Observation does not claim ownership, resize the native runtime, or resume an agent.
+Connect input explicitly claims the single native controller, which can resize the runtime and resume a pending agent; another controller is refused without takeover.
+Keyboard input, one complete bracketed paste and native scrollback commands use that connection.
+Shift+Escape releases input and restores keyboard access to its control; ordinary Escape stays with the connected agent.
+Ctrl+Shift+C copies a selected terminal region.
+Closing, switching, disconnecting or restarting invalidates the input lease; reconnection starts with observation and a full screen frame, never replayed input.
+At most four native streams are open, writes have an eight-second cancellation bound, frame gaps disconnect, and oversized UTF-8 paste is rejected before sending.
+There is no second model session or generated reply.
+The native interface exposes rendered screen updates rather than original historical PTY bytes, and omits Kitty keyboard negotiation, graphics and host mouse notifications.
 
 CFO transport reads the operator-owned `state/primary.json` registration and binds each queued message to its fingerprint.
-On Windows it holds that registration against replacement during delivery and validates the live process/start time, foreground process group, registered agent, pane, workspace and tab before using a required-agent sender.
+On Windows normal message delivery holds that registration against replacement and validates the live process/start time, foreground process group, registered agent, pane, workspace, tab and terminal ID before using a required-agent sender.
 Missing or changed identity is refused, never passed to the explicit-pane shell fallback.
 Herdr acceptance counters establish accepted delivery; the current native contract cannot prove a model response or provide an atomic process-identity compare-and-send operation.
+Terminal input pins the exact terminal ID and task generation, checks current process ownership and pipeline custody before every write, and consumes ordered input identities once.
+Writing native stdin does not acknowledge application acceptance.
+Herdr cannot atomically compare the foreground process while writing: if an agent exits after the check, bytes may reach the same PowerShell terminal.
+Known exited/replaced sessions are refused, but the board does not claim to eliminate that native check-then-write race.
+
+Workspace details read only declared project/provisioning metadata and configured MCP names.
+Configured is not connected; one shared note explains unavailable live connection and environment evidence.
+Matching-generation native model evidence takes precedence; otherwise the model is explicitly labeled configured, including a configured default.
+Environment values, full process environments, dotenv, auth scripts, MCP commands and headers are never exposed.
+
+## Deliberate CFO questions
+
+Worker `cfo notify --blocked` records and natural-language questions do not automatically become user modals.
+The registered CFO must deliberately publish a decision from its own process ancestry:
+
+```powershell
+cfo question --id layout-choice-001 --text "Which layout should I use?" --option "Compact" --option "Spacious"
+```
+
+Omit `--option` when the question needs a written answer.
+Use a new stable ID for a new question, and keep the same ID/content for an uncertain publication retry.
+The publisher walks up to 32 process ancestors and verifies the registered CFO PID, creation time and live native identity; a worker cannot escalate on the CFO's behalf.
+The UI serializes questions, provides radio choices without automatic selection/submission, preserves drafts through reconnects, and supports Escape/Later plus Questions to revisit.
+Answers retain their question and CFO identity and enter the durable native CFO message queue, never a worker send or gate approval.
+Duplicate HTTP/SSE outcomes cannot cause a second delivery; interrupted delivery becomes uncertain.
+A replaced CFO's pending questions become superseded instead of reopening unanswerable modals.
+The store bounds question history at 128 records, retires answered/superseded history, and defers overflow when all questions remain unresolved.
+The bounded publication inbox is admitted in timestamp order, not hash-filename order, and rollover keeps its cutoff below the incoming timestamp so deferred and same-time questions are not discarded.
+Conflicting, corrupt or oversized inbox records leave bounded diagnostics and cannot stop unrelated native events.
 
 ## Local endpoint boundaries
 
@@ -134,7 +172,10 @@ Host and Origin checks, cross-site rejection, a per-instance mutation token, str
 These are local browser boundaries, not authentication against another process already running as the same Windows user.
 Git previews refuse unsafe revisions, traversal, symlinks/junctions, and common credential-bearing paths.
 Git output, timeouts, cache entries, concurrent previews, and event streams are bounded.
-Terminal capture applies the existing bounded redaction patterns; operators should still avoid putting secrets into terminal output.
+The legacy text-capture endpoint applies bounded redaction patterns.
+Native terminal frames preserve the actual screen, including anything printed there; avoid displaying secrets in the terminal.
+Input bytes and native frames are not logged or persisted by this bridge.
+Per-page CSP nonces permit only the terminal's trusted generated styles; script restrictions remain unchanged.
 
 ## Build and verification
 

@@ -15,9 +15,8 @@ export function Board({ snapshot, selected, onSelect }: {
           {tasks.map((task) => <button key={task.id} className={"task-card" + (selected === task.id ? " selected" : "")}
             aria-pressed={selected === task.id} onClick={(event) => onSelect(task, event.currentTarget)}>
             <Avatar persona={personaFor(task)} />
-            <span className="card-copy"><strong>{task.title || task.id}</strong>
+            <span className="card-copy"><strong>{task.title || task.id}</strong>{task.project && <span className="project-label">{task.project}</span>}
               <span className={"plain-status phase-" + task.phase}><span className="status-dot" />{nodeStatus({ id: task.id, title: task.title, task, relation: "" })}</span>
-              {snapshot.decisions.some((decision) => decision.key === task.id && decision.kind !== "heartbeat") && <span className="attention-dot">Needs attention</span>}
             </span>
           </button>)}
           {!tasks.length && <p className="column-empty">{column === "Tasks" ? "Nothing queued" : column === "Completed" ? "Verified work will appear here" : "No work in progress"}</p>}

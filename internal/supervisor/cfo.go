@@ -86,6 +86,15 @@ func (c *CFOConnection) verify(ctx context.Context, primary primaryRegistration)
 	if !found {
 		return errors.New("the registered CFO agent changed or is missing")
 	}
+	found = false
+	for _, pane := range snapshot.Panes {
+		if pane.ID == primary.Target.Pane && pane.TabID == primary.Tab && pane.WorkspaceID == primary.Workspace && pane.TerminalID == primary.Terminal {
+			found = true
+		}
+	}
+	if !found {
+		return errors.New("the registered CFO terminal changed or is missing")
+	}
 	process, err := client.PaneProcessInfo(ctx, primary.Target)
 	if err != nil || process.ForegroundProcessGroupID != primary.Process.PID || process.ForegroundProcessGroupID == process.ShellPID {
 		return errors.New("the registered CFO process no longer owns its pane")

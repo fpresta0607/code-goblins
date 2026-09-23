@@ -34,6 +34,7 @@ type SnapshotPane struct {
 	ID          string `json:"pane_id"`
 	TabID       string `json:"tab_id"`
 	WorkspaceID string `json:"workspace_id"`
+	TerminalID  string `json:"terminal_id"`
 }
 
 // SnapshotAgent is the registered agent association CFO validates against.

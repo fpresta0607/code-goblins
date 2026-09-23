@@ -68,6 +68,8 @@ type cfoRunner struct {
 	unregistered      bool
 	replaceAtBaseline bool
 	beforePrompt      func()
+	terminal          string
+	workerTree        string
 }
 
 func (r *cfoRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -75,7 +77,15 @@ func (r *cfoRunner) Run(_ context.Context, req execx.Request) (execx.Result, err
 	var body string
 	switch {
 	case len(a) >= 2 && a[0] == "api" && a[1] == "snapshot":
-		body = `{"result":{"type":"session_snapshot","snapshot":{"protocol":1,"agents":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","agent":"codex","agent_status":"idle"}]}}}`
+		body = `{"result":{"type":"session_snapshot","snapshot":{"protocol":1,"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","terminal_id":"test-terminal"}],"agents":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","agent":"codex","agent_status":"idle"}]}}}`
+		if r.terminal != "" {
+			body = strings.ReplaceAll(body, "test-terminal", r.terminal)
+		}
+		if r.workerTree != "" {
+			body = strings.ReplaceAll(strings.ReplaceAll(body, "w1:p1", "p1"), "w1:t1", "tab1")
+			cwd, _ := json.Marshal(r.workerTree)
+			body = strings.ReplaceAll(body, `"agent_status":"idle"`, `"agent_status":"idle","cwd":`+string(cwd))
+		}
 	case len(a) >= 2 && a[0] == "pane" && a[1] == "process-info":
 		body = fmt.Sprintf(`{"result":{"process_info":{"shell_pid":1,"foreground_process_group_id":%d}}}`, r.pid)
 	case len(a) >= 2 && a[0] == "pane" && a[1] == "get":

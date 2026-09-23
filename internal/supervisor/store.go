@@ -76,6 +76,7 @@ type Action struct {
 	Head       string    `json:"head,omitempty"`
 	Revision   string    `json:"revision,omitempty"`
 	DiffID     string    `json:"diff_id,omitempty"`
+	QuestionID string    `json:"question_id,omitempty"`
 	Status     string    `json:"status"`
 	Message    string    `json:"message,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
@@ -83,15 +84,17 @@ type Action struct {
 }
 
 type Database struct {
-	Schema       int                   `json:"schema"`
-	Revision     uint64                `json:"revision"`
-	Sessions     map[string]Session    `json:"sessions"`
-	Retired      []string              `json:"retired"`
-	TaskSessions map[string]string     `json:"task_sessions"`
-	Tasks        map[string]Evaluation `json:"tasks"`
-	Actions      []Action              `json:"actions"`
-	Seen         []string              `json:"seen"`
-	Issues       []string              `json:"issues"`
+	Schema        int                   `json:"schema"`
+	Revision      uint64                `json:"revision"`
+	Sessions      map[string]Session    `json:"sessions"`
+	Retired       []string              `json:"retired"`
+	TaskSessions  map[string]string     `json:"task_sessions"`
+	Tasks         map[string]Evaluation `json:"tasks"`
+	Actions       []Action              `json:"actions"`
+	Seen          []string              `json:"seen"`
+	Issues        []string              `json:"issues"`
+	Questions     []Question            `json:"questions"`
+	QuestionFloor time.Time             `json:"question_floor,omitempty"`
 }
 
 type Store struct {
@@ -138,6 +141,7 @@ func Open(h home.Home) (*Store, error) {
 				}
 			}
 		}
+		s.updateQuestionOutcomes()
 		if err := s.save(); err != nil {
 			return nil, err
 		}
@@ -197,6 +201,10 @@ func cloneDatabase(d Database) Database {
 	d.Actions = slices.Clone(d.Actions)
 	d.Seen = slices.Clone(d.Seen)
 	d.Issues = slices.Clone(d.Issues)
+	d.Questions = slices.Clone(d.Questions)
+	for i := range d.Questions {
+		d.Questions[i].Options = slices.Clone(d.Questions[i].Options)
+	}
 	return d
 }
 
@@ -366,7 +374,7 @@ func (s *Store) queue(a Action) (Action, error) {
 	if a.ID == "" || len(a.ID) > 128 || strings.ContainsAny(a.ID, "\x00\r\n") {
 		return Action{}, errors.New("action requires a bounded request ID")
 	}
-	if a.Kind != "evaluate" && a.Kind != "feedback" && a.Kind != "review" && a.Kind != "cfo_message" {
+	if a.Kind != "evaluate" && a.Kind != "feedback" && a.Kind != "review" && a.Kind != "cfo_message" && a.Kind != "cfo_answer" {
 		return Action{}, errors.New("unsupported action; task lifecycle cannot be dragged or assigned")
 	}
 	if len(a.Text) > 16000 || len(a.File) > 4096 {
@@ -378,9 +386,12 @@ func (s *Store) queue(a Action) (Action, error) {
 	if a.Kind == "review" && a.Generation == "" {
 		return Action{}, errors.New("task generation is required; refresh the board")
 	}
-	if a.Kind == "cfo_message" {
+	if a.Kind == "cfo_message" || a.Kind == "cfo_answer" {
 		if a.Generation == "" || a.TaskID != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" {
 			return Action{}, errors.New("CFO message requires only its registered recipient identity and text")
+		}
+		if (a.Kind == "cfo_message" && a.QuestionID != "") || (a.Kind == "cfo_answer" && a.QuestionID == "") {
+			return Action{}, errors.New("invalid user question context")
 		}
 	} else {
 		meta, err := state.ReadTaskMeta(s.Home.State, a.TaskID)
@@ -394,13 +405,18 @@ func (s *Store) queue(a Action) (Action, error) {
 	}
 	for _, existing := range s.db.Actions {
 		if existing.ID == a.ID {
-			if existing.Kind != a.Kind || existing.TaskID != a.TaskID || existing.Generation != a.Generation || existing.Text != a.Text || existing.File != a.File || existing.Head != a.Head || existing.Line != a.Line || existing.EndLine != a.EndLine || existing.Side != a.Side || existing.Revision != a.Revision || existing.DiffID != a.DiffID {
+			if existing.Kind != a.Kind || existing.TaskID != a.TaskID || existing.Generation != a.Generation || existing.Text != a.Text || existing.File != a.File || existing.Head != a.Head || existing.Line != a.Line || existing.EndLine != a.EndLine || existing.Side != a.Side || existing.Revision != a.Revision || existing.DiffID != a.DiffID || existing.QuestionID != a.QuestionID {
 				return Action{}, errors.New("request ID was already used for another action")
 			}
 			return existing, nil
 		}
 	}
-	if a.Kind == "cfo_message" {
+	if a.Kind == "cfo_answer" {
+		if err := s.questionAnswer(a); err != nil {
+			return Action{}, err
+		}
+	}
+	if a.Kind == "cfo_message" || a.Kind == "cfo_answer" {
 		file, err := openPrimary(filepath.Join(s.Home.State, "primary.json"))
 		if err != nil {
 			return Action{}, errors.New("primary CFO registration is unavailable")
@@ -429,6 +445,13 @@ func (s *Store) queue(a Action) (Action, error) {
 	a.CreatedAt = time.Now().UTC()
 	a.UpdatedAt = a.CreatedAt
 	s.db.Actions = append(s.db.Actions, a)
+	if a.Kind == "cfo_answer" {
+		for i := range s.db.Questions {
+			if s.db.Questions[i].ID == a.QuestionID {
+				s.db.Questions[i].AnswerID, s.db.Questions[i].Status = a.ID, "queued"
+			}
+		}
+	}
 	return a, nil
 }
 
@@ -491,7 +514,18 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 			s.db.Tasks[a.TaskID] = result
 		}
 	}
+	s.updateQuestionOutcomes()
 	return s.save()
+}
+
+func (s *Store) updateQuestionOutcomes() {
+	for i := range s.db.Questions {
+		for _, a := range s.db.Actions {
+			if a.Kind == "cfo_answer" && a.ID == s.db.Questions[i].AnswerID {
+				s.db.Questions[i].Status, s.db.Questions[i].Message = a.Status, a.Message
+			}
+		}
+	}
 }
 
 func (s *Store) Ingest() error {
