@@ -311,7 +311,7 @@ func goblinFixture(t *testing.T, store *Store) (state.TaskMeta, wake.Record, *cf
 	if err := state.WriteTaskMeta(store.Home.State, meta); err != nil {
 		t.Fatal(err)
 	}
-	record, err := wake.Append(store.Home.State, "notify", meta.ID, "blocked: Which store? options: Postgres | SQLite")
+	record, err := wake.Append(store.Home.State, "notify", meta.ID, "blocked: Which store? options: Postgres | SQLite (Recommended)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +346,7 @@ func TestGoblinQuestionAnsweredOnceInItsOwnPane(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := surfaced(t, store, meta, record, connection)
-	if q.Task != meta.ID || q.Generation != meta.SpawnGen || q.Seq != record.Seq || q.Text != "Which store?" || !slices.Equal(q.Options, []string{"Postgres", "SQLite"}) {
+	if q.Task != meta.ID || q.Generation != meta.SpawnGen || q.Seq != record.Seq || q.Text != "Which store?" || !slices.Equal(q.Options, []string{"Postgres", "SQLite"}) || q.Recommended != "SQLite" {
 		t.Fatalf("surfaced question = %+v", q)
 	}
 	if _, err := store.Queue(Action{ID: "cfo-route", Kind: "cfo_answer", Generation: q.Identity, QuestionID: q.ID, Text: "SQLite"}); err == nil {
