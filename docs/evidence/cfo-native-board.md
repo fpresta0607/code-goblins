@@ -314,4 +314,34 @@ The README board section uses two screenshots of scanned `3309a5b` example-works
 Later frontend commits changed the Orchestration terminal pane and compact tree, diff line-number columns, link hover underlines and activity effects.
 The Board screenshot shows none of those, and the modal screenshot shows older diff rows only dimmed behind the dialog.
 No existing screenshot shows the current Orchestration pane or an annotation with native CFO delivery, and the preview execution hold prevented new captures, so those views are described in text.
+The live pass below added fresh captures of both views to the README.
 No compiled preview, browser acceptance or managed gate ran for this head.
+
+## Live browser pass on a1eaddc3, September 23 UTC
+
+The Supreme Overlord approved an isolated live browser pass on the gate-passed head `a1eaddc3` before merge.
+The executable was built from a clean detached checkout outside the repository: SHA256 `7EB7F0C2949908C321896F52189CEFEB58F29ACC6E324FE6BAF185DBAC2D9737`, `vcs.revision` a1eaddc3, `vcs.modified=false`.
+The fixture harness `codex.exe` has SHA256 `32BE5FE11A705CA1B428EECDA3FE3F2F7AC2E32B3C276B9F744A69680A00946A`, and MpCmdRun custom scans found no threats in either file.
+`tests/acceptance/native_board_windows.ps1` created the temporary CFO home, its own state directory, Herdr session `cfo-board-test-fd0bba7071b6`, deterministic fixture CFO and goblin processes and a board on `127.0.0.1:52097`.
+A headless chrome-devtools-axi session named `cfo-native-board-live` drove the board; no real CFO or goblin pane was touched.
+Real Codex hook payloads went through the installed fixture hook script to the packaged executable, and every state was read from the running board's `/api/snapshot` and browser.
+Structured results are in `cfo-native-board/live-a1eaddc3-results.json`.
+
+1. A respawned generation that settles before evaluation reported review, unverified: on fresh generation `fixture-3`, Stop showed "Session settled; evaluation is queued" for 3.6 s while two CFO deliveries held the worker, then review. It never showed unknown after settling.
+2. A current generation that ended before evaluation did the same on `fixture-4` for 3.5 s, and it still reported review after the supervisor was stopped and restarted on the same home.
+3. A seeded generation-1 done/verified result showed as complete until the task respawned; after that every poll reported unknown and unverified, and Completed stayed empty.
+4. A matching generation-2 evaluation, created through the board's action API, still reported unknown while only the ended generation-1 session was linked. A still-active prior-generation session reports unavailable instead, because runtime evidence from another generation is refused; neither state is complete or working.
+5. The round-three repairs held wherever they could be driven here. A junction to an outside file was offered by the change set, and its preview was refused with 422 in the API and the board. A zero-byte file had no hunk or selectable line, and a line-1 review failed at delivery without reaching the CFO. With the fixture CFO stopped, Send to CFO was refused with "No review was queued" and nothing was queued. The Other answer reached the fixture CFO once. File and parent-directory symlinks could not be created on this account, and exact tree-entry delivery only runs for a GitHub-merged PR with terminal gate state, so both rest on their deterministic regressions.
+6. The settled current-generation goblin card and panel read Awaiting review, not Awaiting evidence.
+
+The first annotation on `board.css` line 2 reached the fixture CFO once with its head, diff fingerprint and selected code, and the goblin received nothing: 8 CFO receipts and 0 goblin receipts over the pass.
+The browser console showed no CSP violations.
+An answered question did not reopen after a restart.
+
+The pass found one layout defect outside the six scenarios.
+After long diffs are expanded, a hidden `.sr-only` label, absolutely positioned inside the scrolling review panel, extends the document to 1700 px at a 900 px viewport, so the page can scroll into empty space.
+`.details-panel` gives it no positioned ancestor.
+
+Every fixture process was stopped by pid, the test tabs were closed, and the browser session was stopped by name.
+`cfo reap` no longer lists the fixture processes.
+The full evidence, including snapshots, poll transcripts and receipts, is retained outside the repository in the task's data directory.
