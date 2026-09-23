@@ -62,9 +62,12 @@ export function livePresentations(snapshot:Snapshot,now:number):BoardActivity[] 
   return (snapshot.activity||[]).filter(event=>{
     if(!["browser","review"].includes(event.kind)||event.state!=="active"||!safePresentationURL(event.url)||Date.parse(event.until)<=now||Date.parse(event.at)>now) return false;
     if(event.cfo_identity) return !!event.live;
-    const task=snapshot.tasks.find(t=>t.id===event.task_id),node=snapshot.sessions.find(n=>n.id===event.target);
-    return !!task&&!!node&&task.generation===event.generation&&node.generation===event.generation
-      &&node.phase!=="ended"&&!!node.runtime&&["active","busy","idle","working","done"].includes(node.runtime.state)
-      &&now-Date.parse(node.runtime.at)<120000;
+    // A goblin proves its presentation by its own pane and names no native
+    // session, so the task's own runtime evidence decides whether it is live.
+    const task=snapshot.tasks.find(t=>t.id===event.task_id),node=event.target?snapshot.sessions.find(n=>n.id===event.target):undefined;
+    const runtime=event.target?node?.runtime:task?.runtime;
+    return !!task&&task.generation===event.generation&&(!event.target||!!node&&node.generation===event.generation&&node.phase!=="ended")
+      &&!!runtime&&["active","busy","idle","working","done"].includes(runtime.state)
+      &&now-Date.parse(runtime.at)<120000;
   });
 }

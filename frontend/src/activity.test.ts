@@ -70,3 +70,12 @@ test("browser notice and indicator expire, reject unsafe links and require curre
   assert.equal(livePresentations({...snapshot,sessions:[{...snapshot.sessions[0],runtime:{state:"unavailable",reason:"",at:""}}]},now).length,0);
   assert.equal(livePresentations({...snapshot,activity:[{...snapshot.activity![0],url:"javascript:alert(1)"}]},now).length,0);
 });
+
+test("a goblin's pane-proven presentation names no session and lives on its task's runtime", () => {
+  const now=Date.now();
+  const snapshot=parseSnapshot({healthy:true,activity:[{id:"task-2-review",kind:"review",task_id:"work",generation:"g7",target:"",state:"active",url:"http://127.0.0.1:4387/session/abc",at:new Date(now).toISOString(),until:new Date(now+60000).toISOString()}],tasks:[{id:"work",generation:"g7",verified:false,runtime:{state:"idle",at:new Date(now).toISOString()}}],sessions:[]});
+  assert.equal(livePresentations(snapshot,now).length,1);
+  assert.equal(livePresentations({...snapshot,tasks:[{...snapshot.tasks[0],generation:"g8"}]},now).length,0);
+  assert.equal(livePresentations({...snapshot,tasks:[{...snapshot.tasks[0],runtime:{state:"stale",reason:"",at:new Date(now).toISOString()}}]},now).length,0);
+  assert.equal(livePresentations(snapshot,now+120001).length,0);
+});

@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -42,27 +44,70 @@ type BoardActivity struct {
 	Until       time.Time `json:"until,omitempty"`
 }
 
-func safePresentationURL(raw string) bool {
+func loopbackHost(host string) bool {
+	return host == "127.0.0.1" || host == "localhost" || host == "::1"
+}
+
+// presentationURLProblem names the rule raw breaks, or returns "" for a URL
+// the board may link to: https, or plain http on this machine's loopback,
+// without credentials, query or fragment.
+func presentationURLProblem(raw string) string {
 	if raw == "" || len(raw) > 2048 || strings.ContainsAny(raw, "\r\n\x00\\") {
-		return false
+		return "must be one line of at most 2048 characters"
 	}
 	u, err := url.Parse(raw)
-	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" {
-		return false
+	if err != nil || u.Hostname() == "" || u.Opaque != "" {
+		return "must be an absolute URL with a host"
 	}
-	if u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost" || u.Hostname() == "::1")) {
-		return false
+	if u.User != nil {
+		return "must not carry credentials"
+	}
+	if u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return "must not carry a query or fragment"
+	}
+	if u.Scheme != "https" && !(u.Scheme == "http" && loopbackHost(u.Hostname())) {
+		return "must be https, or plain http on 127.0.0.1, localhost or ::1"
 	}
 	path := strings.ToLower(u.Path)
-	if strings.ContainsAny(path, "\r\n\x00\\") {
-		return false
-	}
 	for _, key := range []string{"token", "secret", "credential", "password", "signature", "github_pat_", "ghp_", "api_key", "apikey"} {
 		if strings.Contains(path, key) {
-			return false
+			return "must not name a credential (" + key + ") in its path"
 		}
 	}
-	return true
+	return ""
+}
+
+// PresentationURL returns the URL a presentation links to, or an error naming
+// the rule raw breaks. Plain http on a name that resolves only to this
+// machine, such as the tailnet name Lavish hands out, becomes its loopback
+// form, where the same server answers, so the board never links to a name
+// that could later resolve somewhere else.
+func PresentationURL(ctx context.Context, raw string) (string, error) {
+	if u, err := url.Parse(raw); err == nil && u.Scheme == "http" && u.Hostname() != "" && !loopbackHost(u.Hostname()) {
+		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		resolved, lookupErr := net.DefaultResolver.LookupIPAddr(ctx, u.Hostname())
+		cancel()
+		local, localErr := net.InterfaceAddrs()
+		own := lookupErr == nil && localErr == nil && len(resolved) > 0
+		for _, address := range resolved {
+			own = own && slices.ContainsFunc(local, func(a net.Addr) bool {
+				network, ok := a.(*net.IPNet)
+				return ok && network.IP.Equal(address.IP)
+			})
+		}
+		if own {
+			port := u.Port()
+			u.Host = "127.0.0.1"
+			if port != "" {
+				u.Host += ":" + port
+			}
+			raw = u.String()
+		}
+	}
+	if problem := presentationURLProblem(raw); problem != "" {
+		return "", fmt.Errorf("presentation URL %s", problem)
+	}
+	return raw, nil
 }
 
 func (s *Store) retainActivity(a BoardActivity) error {
@@ -71,6 +116,9 @@ func (s *Store) retainActivity(a BoardActivity) error {
 	}
 	a.Live = false
 	node, ok := s.db.Sessions[a.Target]
+	// A goblin proves its presentation by its own Herdr pane when it
+	// publishes, so the report names no native session.
+	paneProven := a.Target == "" && a.TaskID != "" && (a.Kind == "browser" || a.Kind == "review")
 	if a.CFOIdentity != "" {
 		if a.TaskID != "" || a.Generation != "" || a.Source != "" || (a.Kind != "browser" && a.Kind != "review") || (a.Target != "primary-cfo" && (!ok || node.Role != "cfo")) {
 			return errors.New("invalid primary presentation identity")
@@ -84,7 +132,7 @@ func (s *Store) retainActivity(a BoardActivity) error {
 		if err != nil || identity != a.CFOIdentity {
 			return errors.New("primary presentation recipient changed")
 		}
-	} else if !ok || node.TaskID != a.TaskID || node.Generation != a.Generation {
+	} else if !paneProven && (!ok || node.TaskID != a.TaskID || node.Generation != a.Generation) {
 		return errors.New("activity recipient changed or is unreported")
 	}
 	if a.TaskID != "" {
@@ -102,8 +150,14 @@ func (s *Store) retainActivity(a BoardActivity) error {
 			return errors.New("invalid native activity receipt")
 		}
 	case "browser", "review":
-		if (a.State != "active" && a.State != "ended") || !safePresentationURL(a.URL) || !a.Until.After(a.At) || a.Until.Sub(a.At) > 30*time.Minute {
-			return errors.New("presentation requires a safe URL and expiry within thirty minutes")
+		if a.State != "active" && a.State != "ended" {
+			return errors.New("presentation state must be active or ended")
+		}
+		if problem := presentationURLProblem(a.URL); problem != "" {
+			return errors.New("presentation URL " + problem)
+		}
+		if !a.Until.After(a.At) || a.Until.Sub(a.At) > 30*time.Minute {
+			return errors.New("presentation expiry must be later than its report and within thirty minutes")
 		}
 	default:
 		return errors.New("unsupported board activity")
@@ -149,7 +203,14 @@ func (s *Store) acceptActivity(a BoardActivity) error {
 }
 
 func spoolActivity(dir string, a BoardActivity) error {
-	if _, err := lock.AcquireExclusiveNamed(dir, ".board-activity.lock"); err != nil {
+	// Serve holds this lock while it ingests, every few seconds, so a report
+	// waits briefly for it instead of being refused.
+	_, err := lock.AcquireExclusiveNamed(dir, ".board-activity.lock")
+	for deadline := time.Now().Add(2 * time.Second); err != nil && time.Now().Before(deadline); {
+		time.Sleep(25 * time.Millisecond)
+		_, err = lock.AcquireExclusiveNamed(dir, ".board-activity.lock")
+	}
+	if err != nil {
 		return err
 	}
 	defer lock.ReleaseExclusiveNamed(dir, ".board-activity.lock")
@@ -279,25 +340,40 @@ func callerSession() string {
 // PublishPresentation is an explicit report after the browser/presentation
 // command succeeds. It neither invokes that tool nor controls its browser.
 func PublishPresentation(ctx context.Context, h home.Home, client *herdr.Client, a BoardActivity) error {
+	if a.Kind != "browser" && a.Kind != "review" {
+		return errors.New("presentation kind must be browser or review")
+	}
+	var err error
+	if a.URL, err = PresentationURL(ctx, a.URL); err != nil {
+		return err
+	}
 	store, err := readBoardState(h)
 	if err != nil {
 		return err
 	}
-	a.Target = store.db.TaskSessions[a.TaskID]
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Herdr: client}}}
-	b, err := service.resolveTerminal(ctx, terminalSelection{Task: a.TaskID, Generation: a.Generation, Session: a.Target}, false)
-	if err != nil {
-		return err
-	}
-	if !callerOwns(b.Process) {
-		return errors.New("only the registered native agent may report its presentation")
-	}
-	if a.TaskID == "" {
+	if a.TaskID != "" {
+		// A goblin proves itself the way it does for a question: this command
+		// runs under the task's own Herdr pane. That needs no native hook, so
+		// a goblin can present however and whenever it was spawned.
+		meta, err := goblinAsker(ctx, h.State, client, a.TaskID)
+		if err != nil {
+			return err
+		}
+		if a.Generation != "" && a.Generation != meta.SpawnGen {
+			return fmt.Errorf("task %s is now generation %s, not %s", a.TaskID, meta.SpawnGen, a.Generation)
+		}
+		a.Generation, a.Target = meta.SpawnGen, ""
+	} else {
+		service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Herdr: client}}}
+		b, err := service.resolveTerminal(ctx, terminalSelection{Generation: a.Generation}, false)
+		if err != nil {
+			return err
+		}
+		if !callerOwns(b.Process) {
+			return errors.New("only the registered primary CFO may report a presentation without a task")
+		}
 		// Native session discovery can arrive later; it must not change a report's recipient.
 		a.CFOIdentity, a.Target = b.Identity, "primary-cfo"
-	}
-	if a.Kind != "browser" && a.Kind != "review" {
-		return errors.New("presentation kind must be browser or review")
 	}
 	if err := store.retainActivity(a); err != nil {
 		return err
