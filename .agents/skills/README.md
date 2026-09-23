@@ -4,7 +4,7 @@ This directory holds the skills Code Goblins itself provides, each tracked once,
 
 - `lavish` - the CFO's review surface over the third-party `lavish-axi` CLI.
   It is owned here because it carries the CFO's presentation-only rules; edit it here.
-- `stow` - curates the CFO's startup memory (`data/overlord.md`, `data/learnings.md`, the backlog) with tiered, decaying entries and a cold archive, adapted from First Mate's stow pass.
+- `stow` - curates the CFO's startup memory (`data/overlord.md`, `data/learnings.md`, the harness memory index, the backlog) with tiered, decaying entries and a cold archive, adapted from First Mate's stow pass.
 
 ## Which harness reads this directory
 
