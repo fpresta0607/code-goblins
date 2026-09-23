@@ -188,7 +188,7 @@ if ($Bootstrap -and $installedAny) {
     $env:Path = ($parts | Where-Object { $_ -ne "" } | Select-Object -Unique) -join ';'
 }
 
-# Wire the bundled skills into the harness project-scope directories.
+# Point Claude Code's project skills directory at .agents/skills.
 if ($Bootstrap) {
     Write-Host ""
     Ensure-SkillJunctions -Root $InstallDir
