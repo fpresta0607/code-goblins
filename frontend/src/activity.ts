@@ -51,7 +51,7 @@ export function activityDisplay(effects:BoardActivity[],target:string,parent:str
 
 export function safePresentationURL(raw:string):boolean {
   try {
-    const url=new URL(raw), host=url.hostname.toLowerCase(), octets=host.split(".").map(Number);
+    const url=new URL(raw), host=url.hostname.toLowerCase(), octets=/^\d{1,3}(\.\d{1,3}){3}$/.test(host)?host.split(".").map(Number):[];
     // Plain http only where it never crosses an untrusted network: this
     // machine, or the tailnet, whose traffic Tailscale encrypts.
     const tailnet=host.endsWith(".ts.net")||octets.length===4&&octets[0]===100&&octets[1]>=64&&octets[1]<=127;
@@ -59,6 +59,12 @@ export function safePresentationURL(raw:string):boolean {
       &&(url.protocol==="https:"||(url.protocol==="http:"&&(["localhost","127.0.0.1","[::1]"].includes(host)||tailnet)))
       &&!/(token|secret|credential|password|signature|github_pat_|ghp_|api_key|apikey)/i.test(decodeURIComponent(url.pathname));
   } catch { return false; }
+}
+
+// A goblin's pane-proven presentation names no session, so it belongs to the
+// card of its task; one that names a session belongs to that session's card.
+export function presentationShownOn(presentation:BoardActivity,session:string|undefined,task:string|undefined):boolean {
+  return presentation.target?presentation.target===session:!!task&&presentation.task_id===task;
 }
 
 export function livePresentations(snapshot:Snapshot,now:number):BoardActivity[] {
