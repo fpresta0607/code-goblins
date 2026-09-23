@@ -91,11 +91,11 @@ Every invocation runs the whole pass, even when the session produced no new find
 7. **Consolidate every governed file**, not only the one a finding touched.
    Archive completed chronology, stale versions and paths, transient task state, resolved alternatives, old metrics and report-sized procedures.
    Never plainly remove a unique current fact: it leaves only by archiving with provenance, by moving to a live owner that already holds it, or by a merge that preserves it.
-8. **Over budget after consolidation**, first total what this pass may not archive: `pinned` entries and entries still in their grace cycle.
-   Neither is ever archived or moved for budget.
+8. **Over budget after consolidation**, first total what this pass may not archive: `pinned` entries, entries still in their grace cycle, and every line of a file that is not an entry (its header, headings and blank lines).
+   None of it is ever archived or moved for budget.
    When that floor alone exceeds the budget, archive nothing for budget reasons, name the floor and the shortfall in the receipt, and ask the Overlord whether to raise the budget or approve named moves.
    Otherwise reduce in this order: archive every eligible stale, superseded or low-value entry; consolidate tighter; propose moving conditional entries (true, but relevant only in a nameable situation, such as one project) to an on-demand owner such as that project's `AGENTS.md` or a skill; then archive the remaining `aging` and `perishable` entries oldest-reinforced first.
-   Every entry is either in the floor or archivable, so this ladder always reaches the budget or the floor question.
+   Everything outside the floor is archivable, so this ladder always reaches the budget or the floor question.
    A proposal is not relief: the pass ends within budget or with the floor question open, never with an accepted overrun.
 9. **Measure again** and write the receipt.
 
