@@ -37,9 +37,9 @@ type Options struct {
 	Gate           ProgressReader
 	Reconcile      func(context.Context) error
 	VerifyDelivery func(context.Context, state.TaskMeta, string, string, string) (string, error)
-	// MergedPRs lists, newest first, at most limit pull requests the gate
-	// saw merged since a time.
-	MergedPRs func(ctx context.Context, since time.Time, limit int) ([]pipeline.MergedPR, error)
+	// MergedPRs lists, newest first, at most limit pull requests merged since
+	// a time.
+	MergedPRs func(ctx context.Context, since time.Time, limit int) ([]MergedPR, error)
 }
 
 type Service struct {
@@ -225,7 +225,7 @@ func (s *Service) refreshHistory(ctx context.Context) error {
 	history := finishedTasks(s.Store.Home.State, now)
 	var err error
 	if s.Options.MergedPRs != nil {
-		var merged []pipeline.MergedPR
+		var merged []MergedPR
 		if merged, err = s.Options.MergedPRs(ctx, now.Add(-historyWindow), historyLimit); err == nil {
 			history = withMergedPRs(history, merged)
 		}

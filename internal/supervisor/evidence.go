@@ -1,17 +1,19 @@
 package supervisor
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
-	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -29,7 +31,82 @@ const (
 var (
 	archivedStatusFile = regexp.MustCompile(`^(.+)\.status\.(\d{8}T\d{6}Z)$`)
 	archivedTaskDir    = regexp.MustCompile(`^(.+)\.(\d{8}T\d{6}Z)$`)
+	mergeSubject       = regexp.MustCompile(`^Merge pull request #(\d+) from [^/\s]+/(\S+)`)
+	githubRemote       = regexp.MustCompile(`^(?:https://github\.com/|git@github\.com:)([\w.-]+/[\w.-]+?)(?:\.git)?/?$`)
 )
+
+// MergedPR is one pull request merged into a fleet repository.
+type MergedPR struct {
+	PR      string
+	Branch  string
+	Project string
+	At      int64
+}
+
+// FleetRepos are the repositories whose merges the board lists: this home
+// and every git checkout directly under the projects root.
+func FleetRepos(h home.Home, projectsRoot string) []string {
+	repos := []string{h.Root}
+	if entries, err := os.ReadDir(projectsRoot); err == nil && projectsRoot != "" {
+		for _, entry := range entries {
+			dir := filepath.Join(projectsRoot, entry.Name())
+			if entry.IsDir() && exists(filepath.Join(dir, ".git")) && !slicesContainsPath(repos, dir) {
+				repos = append(repos, dir)
+			}
+		}
+	}
+	return repos
+}
+
+func slicesContainsPath(paths []string, path string) bool {
+	for _, p := range paths {
+		if fsx.SamePath(p, path) {
+			return true
+		}
+	}
+	return false
+}
+
+// GitMergedPRs reads merged pull requests from each repository's own
+// history. The fleet merges with merge commits, whose subject names the pull
+// request, so this sees every merge, gated or not, without a forge call; the
+// gate database only knows merges its CI monitor happened to watch.
+func GitMergedPRs(repos []string) func(context.Context, time.Time, int) ([]MergedPR, error) {
+	return func(ctx context.Context, since time.Time, limit int) ([]MergedPR, error) {
+		var merged []MergedPR
+		var errs error
+		for _, repo := range repos {
+			remote, err := (Git{}).run(ctx, repo, "remote", "get-url", "origin")
+			match := githubRemote.FindStringSubmatch(strings.TrimSpace(remote))
+			if err != nil || match == nil {
+				continue // Only a GitHub remote gives a pull request a link.
+			}
+			ref := "origin/main"
+			if head, err := (Git{}).run(ctx, repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil && strings.TrimSpace(head) != "" {
+				ref = strings.TrimSpace(head)
+			}
+			out, err := (Git{}).run(ctx, repo, "log", ref, "--merges", "--since="+since.UTC().Format(time.RFC3339), "--format=%ct%x09%s")
+			if err != nil {
+				errs = errors.Join(errs, err)
+				continue
+			}
+			for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+				at, subject, ok := strings.Cut(strings.TrimSpace(line), "\t")
+				m := mergeSubject.FindStringSubmatch(subject)
+				seconds, err := strconv.ParseInt(at, 10, 64)
+				if !ok || m == nil || err != nil {
+					continue
+				}
+				merged = append(merged, MergedPR{PR: "https://github.com/" + match[1] + "/pull/" + m[1], Branch: m[2], Project: repo, At: seconds})
+			}
+		}
+		sort.Slice(merged, func(i, j int) bool { return merged[i].At > merged[j].At })
+		if len(merged) > limit {
+			merged = merged[:limit]
+		}
+		return merged, errs
+	}
+}
 
 // fleetEvaluation is the status of a task no native hook has reported: a
 // question it is still waiting on first, then what the gate proved, then what
@@ -149,10 +226,10 @@ func finishedTasks(stateDir string, now time.Time) []Task {
 	return newestHistory(tasks)
 }
 
-// withMergedPRs adds the pull requests the gate saw merged to the finished
+// withMergedPRs adds the merged pull requests to the finished
 // tasks: a finished task that reported the same pull request carries the
 // merge, and any other merged pull request is its own completed entry.
-func withMergedPRs(history []Task, merged []pipeline.MergedPR) []Task {
+func withMergedPRs(history []Task, merged []MergedPR) []Task {
 	for _, pr := range merged {
 		found := false
 		for i := range history {
