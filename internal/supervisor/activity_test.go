@@ -3,7 +3,6 @@ package supervisor
 import (
 	"context"
 	"fmt"
-	"net"
 	"strings"
 	"testing"
 	"time"
@@ -126,43 +125,26 @@ func TestPendingPresentationPreservesEndIdentityAndOrdering(t *testing.T) {
 	}
 }
 
-// Lavish hands out its tailnet name; plain http on a name that resolves only
-// to this machine is linked by its loopback form, and every refusal names the
-// rule it broke.
-func TestPresentationURLNamesTheRuleAndLinksThisMachineByLoopback(t *testing.T) {
-	ctx := context.Background()
+// Lavish hands out its tailnet name. Plain http is accepted only where it
+// never crosses an untrusted network, and every refusal names its rule.
+func TestPresentationURLNamesTheRuleAndKeepsTailnetLinks(t *testing.T) {
 	for raw, rule := range map[string]string{
 		"http://192.0.2.10:4387/session/f26e":  "plain http",
+		"http://100.128.0.1:4387/session/f26e": "plain http",
+		"http://example.com/review":            "plain http",
 		"https://user:pass@example.com/review": "credentials",
 		"https://example.com/review?x=1":       "query",
 		"https://example.com/reset-token/x":    "credential (token)",
 		"review page":                          "absolute URL",
 	} {
-		if _, err := PresentationURL(ctx, raw); err == nil || !strings.Contains(err.Error(), rule) {
-			t.Errorf("%s: err = %v, want the %q rule named", raw, err, rule)
+		if problem := presentationURLProblem(raw); !strings.Contains(problem, rule) {
+			t.Errorf("%s: problem = %q, want the %q rule named", raw, problem, rule)
 		}
 	}
-	for _, raw := range []string{"https://example.com/review", "http://localhost:4387/session/f26e"} {
-		if got, err := PresentationURL(ctx, raw); err != nil || got != raw {
-			t.Errorf("%s = %q %v, want it unchanged", raw, got, err)
+	for _, raw := range []string{"https://example.com/review", "http://localhost:4387/session/f26e", "http://sermon.tailcc4238.ts.net:4387/session/f26e1c33babf6415", "http://100.122.0.50:4387/session/f26e"} {
+		if problem := presentationURLProblem(raw); problem != "" {
+			t.Errorf("%s refused: %s", raw, problem)
 		}
-	}
-	local := ""
-	addresses, err := net.InterfaceAddrs()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, address := range addresses {
-		if network, ok := address.(*net.IPNet); ok && !network.IP.IsLoopback() && network.IP.To4() != nil {
-			local = network.IP.String()
-			break
-		}
-	}
-	if local == "" {
-		t.Skip("this machine has no non-loopback IPv4 address to stand in for its tailnet name")
-	}
-	if got, err := PresentationURL(ctx, "http://"+local+":4387/session/f26e1c33babf6415"); err != nil || got != "http://127.0.0.1:4387/session/f26e1c33babf6415" {
-		t.Fatalf("this machine's own address = %q %v, want its loopback form", got, err)
 	}
 }
 

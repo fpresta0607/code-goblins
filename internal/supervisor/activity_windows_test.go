@@ -177,6 +177,14 @@ func TestGoblinSpawnedWhileServeRunsPresentsFromItsOwnPane(t *testing.T) {
 	if got.TaskID != "task-2" || got.Generation != "g7" || got.Target != "" || got.State != "active" {
 		t.Fatalf("serve holds %+v, want the goblin's live review", got)
 	}
+	a.ID, a.URL = "task-2-tailnet", "http://sermon.tailcc4238.ts.net:4387/session/f26e1c33babf6415"
+	if err := PublishPresentation(context.Background(), h, client, a); err != nil {
+		t.Fatalf("the tailnet link Lavish returns was refused: %v", err)
+	}
+	a.ID, a.URL = "task-2-foreign", "http://192.0.2.10:4387/session/f26e1c33babf6415"
+	if err := PublishPresentation(context.Background(), h, client, a); err == nil || !strings.Contains(err.Error(), "plain http") {
+		t.Fatalf("a plain http link off this machine and the tailnet = %v, want the rule named", err)
+	}
 	a.ID, a.Generation = "task-2-stale", "g6"
 	if err := PublishPresentation(context.Background(), h, client, a); err == nil || !strings.Contains(err.Error(), "generation") {
 		t.Fatalf("a previous generation presented: %v", err)

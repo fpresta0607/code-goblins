@@ -44,13 +44,11 @@ type BoardActivity struct {
 	Until       time.Time `json:"until,omitempty"`
 }
 
-func loopbackHost(host string) bool {
-	return host == "127.0.0.1" || host == "localhost" || host == "::1"
-}
-
 // presentationURLProblem names the rule raw breaks, or returns "" for a URL
-// the board may link to: https, or plain http on this machine's loopback,
-// without credentials, query or fragment.
+// the board may link to. Plain http is accepted only where it never crosses
+// an untrusted network: this machine's loopback, or the tailnet, whose
+// traffic Tailscale encrypts. So a Lavish link is kept exactly as Lavish
+// returns it, under its tailnet name, and opens on the Overlord's phone too.
 func presentationURLProblem(raw string) string {
 	if raw == "" || len(raw) > 2048 || strings.ContainsAny(raw, "\r\n\x00\\") {
 		return "must be one line of at most 2048 characters"
@@ -65,8 +63,13 @@ func presentationURLProblem(raw string) string {
 	if u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
 		return "must not carry a query or fragment"
 	}
-	if u.Scheme != "https" && !(u.Scheme == "http" && loopbackHost(u.Hostname())) {
-		return "must be https, or plain http on 127.0.0.1, localhost or ::1"
+	host := strings.ToLower(u.Hostname())
+	tailnet := strings.HasSuffix(host, ".ts.net")
+	if ip := net.ParseIP(host).To4(); ip != nil {
+		tailnet = ip[0] == 100 && ip[1]&0xc0 == 64
+	}
+	if u.Scheme != "https" && !(u.Scheme == "http" && (host == "127.0.0.1" || host == "localhost" || host == "::1" || tailnet)) {
+		return "must be https, or plain http on this machine (127.0.0.1, localhost, ::1) or the tailnet (*.ts.net, 100.64.0.0/10)"
 	}
 	path := strings.ToLower(u.Path)
 	for _, key := range []string{"token", "secret", "credential", "password", "signature", "github_pat_", "ghp_", "api_key", "apikey"} {
@@ -75,39 +78,6 @@ func presentationURLProblem(raw string) string {
 		}
 	}
 	return ""
-}
-
-// PresentationURL returns the URL a presentation links to, or an error naming
-// the rule raw breaks. Plain http on a name that resolves only to this
-// machine, such as the tailnet name Lavish hands out, becomes its loopback
-// form, where the same server answers, so the board never links to a name
-// that could later resolve somewhere else.
-func PresentationURL(ctx context.Context, raw string) (string, error) {
-	if u, err := url.Parse(raw); err == nil && u.Scheme == "http" && u.Hostname() != "" && !loopbackHost(u.Hostname()) {
-		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		resolved, lookupErr := net.DefaultResolver.LookupIPAddr(ctx, u.Hostname())
-		cancel()
-		local, localErr := net.InterfaceAddrs()
-		own := lookupErr == nil && localErr == nil && len(resolved) > 0
-		for _, address := range resolved {
-			own = own && slices.ContainsFunc(local, func(a net.Addr) bool {
-				network, ok := a.(*net.IPNet)
-				return ok && network.IP.Equal(address.IP)
-			})
-		}
-		if own {
-			port := u.Port()
-			u.Host = "127.0.0.1"
-			if port != "" {
-				u.Host += ":" + port
-			}
-			raw = u.String()
-		}
-	}
-	if problem := presentationURLProblem(raw); problem != "" {
-		return "", fmt.Errorf("presentation URL %s", problem)
-	}
-	return raw, nil
 }
 
 func (s *Store) retainActivity(a BoardActivity) error {
@@ -342,10 +312,6 @@ func callerSession() string {
 func PublishPresentation(ctx context.Context, h home.Home, client *herdr.Client, a BoardActivity) error {
 	if a.Kind != "browser" && a.Kind != "review" {
 		return errors.New("presentation kind must be browser or review")
-	}
-	var err error
-	if a.URL, err = PresentationURL(ctx, a.URL); err != nil {
-		return err
 	}
 	store, err := readBoardState(h)
 	if err != nil {

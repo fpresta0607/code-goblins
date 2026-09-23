@@ -231,7 +231,8 @@ A goblin proves itself the way it does for a question: the command must run unde
 Its report names no native session, and the board treats it as live while the task's own runtime evidence is fresh.
 `--generation` is optional and refused when it is no longer the task's current generation.
 Use `--kind review` for a review surface, and omit the task only from the verified primary CFO's own process ancestry.
-A URL must be https, or plain http on 127.0.0.1, localhost or ::1; plain http on a name that resolves only to this machine, such as the tailnet name Lavish returns, is linked by its loopback form, where Lavish also answers, and every refusal names the rule the URL broke.
+A URL must be https, or plain http where it never crosses an untrusted network: this machine (127.0.0.1, localhost, ::1) or the tailnet (`*.ts.net` names and 100.64.0.0/10 addresses), whose traffic Tailscale encrypts.
+The tailnet URL Lavish returns is therefore kept exactly as returned and opens on the Overlord's phone through the tailnet as well as on this machine, and every refusal names the rule the URL broke.
 For Lavish, use `lavish-axi <file> --no-open`, then report the actual successful session URL; do not republish a user-ended session.
 Refresh the same ID only while the activity remains live, and report `--state ended` with the same identity/URL on completion.
 IDs cannot change recipient or URL, and an ended pending record cannot be reopened by a later refresh.

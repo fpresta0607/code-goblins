@@ -51,9 +51,12 @@ export function activityDisplay(effects:BoardActivity[],target:string,parent:str
 
 export function safePresentationURL(raw:string):boolean {
   try {
-    const url=new URL(raw);
+    const url=new URL(raw), host=url.hostname.toLowerCase(), octets=host.split(".").map(Number);
+    // Plain http only where it never crosses an untrusted network: this
+    // machine, or the tailnet, whose traffic Tailscale encrypts.
+    const tailnet=host.endsWith(".ts.net")||octets.length===4&&octets[0]===100&&octets[1]>=64&&octets[1]<=127;
     return !url.username&&!url.password&&!url.search&&!url.hash
-      &&(url.protocol==="https:"||(url.protocol==="http:"&&["localhost","127.0.0.1","[::1]"].includes(url.hostname)))
+      &&(url.protocol==="https:"||(url.protocol==="http:"&&(["localhost","127.0.0.1","[::1]"].includes(host)||tailnet)))
       &&!/(token|secret|credential|password|signature|github_pat_|ghp_|api_key|apikey)/i.test(decodeURIComponent(url.pathname));
   } catch { return false; }
 }
