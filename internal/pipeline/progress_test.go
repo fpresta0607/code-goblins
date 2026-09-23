@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type custodyProgressRunner struct {
@@ -111,5 +112,32 @@ func TestProgressRequiresReviewTestsCommitPushAndPRAtExactHead(t *testing.T) {
 	p.ReviewedHead = "old"
 	if p.Ready("abc") {
 		t.Fatal("stale review accepted")
+	}
+}
+
+func TestMergedListsEachRecentlyMergedPullRequestOnce(t *testing.T) {
+	root := t.TempDir()
+	database := filepath.Join(root, "state.sqlite")
+	sql := `CREATE TABLE repos(id TEXT,working_path TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,updated_at INTEGER,pr_url TEXT,pr_state TEXT,pr_state_observed_at INTEGER);
+INSERT INTO repos VALUES('repo','C:\dev\code-goblins');
+INSERT INTO runs VALUES('a','repo','fix/wake',1,1000,'https://example/pr/31','merged',2000),
+('b','repo','fix/wake',2,3000,'https://example/pr/31','merged',NULL),
+('c','repo','feat/open',3,4000,'https://example/pr/32','open',4000),
+('d','repo','fix/old',4,100,'https://example/pr/9','merged',100),
+('e','repo','fix/nopr',5,5000,'','merged',5000);`
+	result, err := (execx.OSRunner{}).Run(context.Background(), execx.Request{Name: "sqlite3", Args: []string{database, sql}})
+	if err != nil {
+		t.Skipf("sqlite3 unavailable: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatal(string(result.Stderr))
+	}
+	merged, err := (Reader{Root: root, Commands: execx.OSRunner{}}).Merged(context.Background(), time.Unix(500, 0), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(merged) != 1 || merged[0].PR != "https://example/pr/31" || merged[0].Branch != "fix/wake" || merged[0].Project != `C:\dev\code-goblins` || merged[0].At != 3000 {
+		t.Fatalf("merged = %+v, want only PR 31 once, observed at its latest run", merged)
 	}
 }

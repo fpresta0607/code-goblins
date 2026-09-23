@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strconv"
+	"time"
 )
 
 // Progress is read-only, task-branch-bound gate evidence for the supervisor.
@@ -45,6 +47,26 @@ func (r Reader) Progress(ctx context.Context, project, branch string) (Progress,
 		return Progress{}, err
 	}
 	return p, nil
+}
+
+// MergedPR is one pull request the gate saw merged.
+type MergedPR struct {
+	PR      string `json:"pr"`
+	Branch  string `json:"branch"`
+	Project string `json:"project"`
+	At      int64  `json:"at"`
+}
+
+// Merged lists the pull requests the gate observed merged since the given
+// time, newest first and at most limit, one row per pull request. It reads
+// the gate's own state database only, never the forge.
+func (r Reader) Merged(ctx context.Context, since time.Time, limit int) ([]MergedPR, error) {
+	var rows []MergedPR
+	q := `SELECT runs.pr_url AS pr,runs.branch,repos.working_path AS project,MAX(COALESCE(runs.pr_state_observed_at,runs.updated_at)) AS at FROM runs JOIN repos ON repos.id=runs.repo_id WHERE runs.pr_state='merged' AND COALESCE(runs.pr_url,'')<>'' GROUP BY runs.pr_url HAVING at>=` + strconv.FormatInt(since.Unix(), 10) + ` ORDER BY at DESC LIMIT ` + strconv.Itoa(limit)
+	if err := r.query(ctx, q, &rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 // CanSteer is a read-only custody check. A failed or cancelled unpublished

@@ -8,6 +8,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"slices"
 	"testing"
 	"time"
 )
@@ -195,8 +196,13 @@ func TestSupervisorProcessesWithoutBrowserAndRestarts(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// The startup reconciliation may evaluate the task before its native
+	// events arrive, so wait for the Stop event's own evaluation.
+	evaluated := func() bool {
+		return slices.ContainsFunc(s.Store.Snapshot().Actions, func(a Action) bool { return a.ID == "eval-"+stop.ID && a.Status == "succeeded" })
+	}
 	deadline := time.Now().Add(10 * time.Second)
-	for s.Store.Snapshot().Tasks["task-1"].Phase == "" && time.Now().Before(deadline) {
+	for !evaluated() && time.Now().Before(deadline) {
 		time.Sleep(25 * time.Millisecond)
 	}
 	if got := s.Store.Snapshot().Tasks["task-1"]; got.Phase != "review" || got.Verified {

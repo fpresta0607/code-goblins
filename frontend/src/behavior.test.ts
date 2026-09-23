@@ -4,14 +4,20 @@ import { parsePatchToRows, splitRows, reviewRange } from "./diff.ts";
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
-import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText } from "./workflow.ts";
+import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, pullRequestLabel, safePullRequest } from "./workflow.ts";
 
 test("board completion and semantic personas require the corresponding evidence", () => {
   const task = parseSnapshot({healthy:true, tasks:[{id:"work",title:"Test keyboard access",phase:"done",generation:"new",verified:false}]}).tasks[0];
   assert.equal(taskColumn(task), "In progress");
   assert.equal(taskColumn({...task,verified:true}), "Completed");
   assert.equal(personaFor(task), "tester");
-  assert.equal(personaFor({...task,title:"Unclassified work"}), "general");
+  // Work no keyword classifies still gets its own stable goblin, never the
+  // shared app icon, which stays for nodes with no task at all.
+  const unclassified = personaFor({...task,title:"Unclassified work"});
+  assert.notEqual(unclassified, "general");
+  assert.equal(personaFor({...task,title:"Unclassified work"}), unclassified);
+  assert.equal(personaFor(), "general");
+  assert.equal(personaFor({...task,archived:true}), "finisher");
   assert.equal(personaFor({...task,title:"Build review panel"}), "builder");
   assert.equal(personaFor({...task,title:"Review the authentication changes"}), "reviewer");
   assert.equal(nativeStatus("busy"), "Working");
@@ -170,4 +176,38 @@ test("the board keeps the CFO registration state the supervisor reports", () => 
   const stale = "The CFO is not registered; run cfo register in the CFO session";
   assert.equal(parseSnapshot({healthy:true, registration:stale}).registration, stale);
   assert.equal(parseSnapshot({healthy:true}).registration, "");
+});
+
+test("completed history and fleet statuses read the way the fleet reports them", () => {
+  const [live, finished, merged, queued] = parseSnapshot({healthy:true, tasks:[
+    {id:"work", phase:"idle", verified:false, activity:"working: gate test step", pr:"https://github.com/o/code-goblins/pull/29"},
+    {id:"finished:old", phase:"done", verified:false, archived:true},
+    {id:"merged:x", phase:"done", verified:false, archived:true, merged:true, pr:"https://github.com/o/code-goblins/pull/30"},
+    {id:"brief", phase:"queued", verified:false},
+  ]}).tasks;
+  assert.equal(live.activity, "working: gate test step");
+  assert.equal(taskColumn(live), "In progress");
+  assert.equal(statusText(live.phase), "Awaiting input");
+  assert.equal(taskColumn(finished), "Completed");
+  assert.equal(nodeStatus({id:"f", title:"old", task:finished, relation:""}), "Finished");
+  assert.equal(taskColumn(merged), "Completed");
+  assert.equal(nodeStatus({id:"m", title:"x", task:merged, relation:""}), "PR merged");
+  assert.equal(taskColumn(queued), "Tasks");
+  assert.equal(parseSnapshot({healthy:true, tasks:[{id:"older-server", verified:false}]}).tasks[0].archived, false);
+});
+
+test("every live goblin gets its own stable artwork instead of the generic app icon", () => {
+  const ids = ["cfo-native-board", "cms-editor-fast-load", "pd-land-1251-1252"];
+  const persona = (id: string) => personaFor(parseSnapshot({healthy:true, tasks:[{id, title:id, verified:false}]}).tasks[0]);
+  const personas = ids.map(persona);
+  assert.ok(!personas.includes("general"), personas.join());
+  assert.equal(new Set(personas).size, ids.length, personas.join());
+  assert.deepEqual(ids.map(persona), personas);
+});
+
+test("only an https pull request becomes a link, labelled by repository and number", () => {
+  assert.equal(safePullRequest("https://github.com/o/code-goblins/pull/29"), "https://github.com/o/code-goblins/pull/29");
+  for (const unsafe of ["javascript:alert(1)", "http://github.com/o/r/pull/1", "https://x y", ""]) assert.equal(safePullRequest(unsafe), "", unsafe);
+  assert.equal(pullRequestLabel("https://github.com/o/code-goblins/pull/29"), "code-goblins #29");
+  assert.equal(pullRequestLabel("https://example.invalid/review/3"), "Pull request");
 });
