@@ -264,7 +264,7 @@ The core is intentionally local-first:
 - `internal/state/` / `internal/wake/` — restart-proof task and event state.
 - `internal/supervisor/` - native event ingestion, durable actions and the local board API behind `cfo serve`.
 - `frontend/` - the board's React/TypeScript source; Vite compiles it into `internal/boardweb/dist`, which is embedded in `cfo.exe`.
-- `.agents/skills/` — reusable capabilities exposed to the supported harnesses, including `lavish`, the CFO's review surface over the third-party `lavish-axi` CLI.
+- `.agents/skills/` - the skills this repository owns, including `lavish`, the CFO's review surface over the third-party `lavish-axi` CLI; [docs/load-map.md](docs/load-map.md) maps every file each harness reads for instructions, skills, hooks and MCP.
 
 The control plane is local. Your coding harnesses may still call their model providers according to their own configuration.
 
