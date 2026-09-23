@@ -306,7 +306,11 @@ func TestReviewCannotDeliverALineAZeroByteFileDoesNotHave(t *testing.T) {
 		var wire struct {
 			Code string `json:"code"`
 		}
-		if err := json.Unmarshal([]byte(strings.SplitN(runner.prompts[prompts], "\n", 2)[1]), &wire); err != nil || wire.Code != c.code {
+		prompt := runner.prompts[prompts]
+		if strings.ContainsAny(prompt, "\r\n") {
+			t.Fatalf("%s: review request spans lines: %q", c.path, prompt)
+		}
+		if err := json.Unmarshal([]byte(prompt[strings.Index(prompt, "{"):]), &wire); err != nil || wire.Code != c.code {
 			t.Fatalf("%s: delivered context %q %v", c.path, wire.Code, err)
 		}
 	}
@@ -400,7 +404,7 @@ func TestReviewTwoFilesReachNativeCFOWithoutWorkerSteering(t *testing.T) {
 			Line       int    `json:"line"`
 			EndLine    int    `json:"end_line"`
 		}
-		if err := json.Unmarshal([]byte(strings.SplitN(prompt, "\n", 2)[1]), &wire); err != nil {
+		if err := json.Unmarshal([]byte(prompt[strings.Index(prompt, "{"):]), &wire); err != nil {
 			t.Fatal(err)
 		}
 		if wire.TaskID != meta.ID || wire.Generation != "g1" || wire.Line != 2 || wire.Head == "" || wire.DiffID == "" || wire.Code == "" || wire.Text != "Please simplify this range" {
