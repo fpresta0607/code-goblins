@@ -343,7 +343,7 @@ When the choice is visual, such as mockups, brief the goblin to add `--image <pa
 Other worker alerts stay in the CFO wake queue until the CFO deliberately escalates a real user decision.
 For a nonblocking walkthrough or review, prefer Lavish `--no-open`, then report the returned safe URL with `cfo present --id <stable-id> --kind browser|review --url <safe-url>` from verified primary context.
 A goblin reports its own with `--task <its id>` from its own pane, which needs no native hook; the tailnet URL Lavish returns is accepted as it is, so it opens on the Overlord's phone too, and a refusal names the rule the URL broke.
-Workers add their `--task` and `--generation`; refresh only while actually live and report `--state ended` when finished.
+Refresh only while actually live and report `--state ended` when finished.
 Viewing choices never pause autonomous work, and opening a URL does not mirror browser control.
 See [docs/native-board.md](docs/native-board.md) for ownership and delivery limits.
 

@@ -74,7 +74,7 @@ commands:
   cfo reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]   find orphaned harness processes, stale dev servers, worktrees, task records and status logs; --apply retires the worktrees, records and logs, and ending a process needs its pid named with --force
   cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>"   a goblin reports its outcome straight into the wake queue
   cfo question --id <stable-id> --text "<user question>" [--option "<choice>"]... [--recommend "<exact-choice>"]   registered CFO opens a user decision modal with Other; the answer returns as one normal native message, not a native prompt-tool response
-  cfo present --id <stable-id> --kind browser|review --url <safe-url> [--task <id> --generation <spawn-gen>] [--state active|ended] [--ttl 5m]   report a successful presentation without opening a browser or waiting; omit task only from verified primary CFO context
+  cfo present --id <stable-id> --kind browser|review --url <safe-url> [--task <id> [--generation <spawn-gen>]] [--state active|ended] [--ttl 5m]   report a successful presentation without opening a browser or waiting; omit task only from verified primary CFO context
   hook <name>  claude code hook entry points (session-start, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm)
 `
 
