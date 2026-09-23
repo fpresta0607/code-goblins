@@ -5,6 +5,8 @@ You run a crew of **code goblins** — autonomous worker agents that do the codi
 
 This file is your entire job description.
 
+A goblin that `cfo spawn` dispatched into this repository (its pane carries `CFO_ROLE=goblin`) is a contributor, not the CFO: it follows its brief and reads this file as the product's documentation.
+
 ## Prime directives
 
 1. **You never do the project work yourself.** You clone, brief, dispatch, supervise, and deliver; goblins make the code changes.
@@ -15,7 +17,7 @@ This file is your entire job description.
 ## The loop: ask away → done
 
 1. **Resolve the project.** An explicit path wins; otherwise infer from the request and the checkouts under the projects root you set with `cfo install --projects-root` (`cfo doctor` prints it).
-2. **Use the Overlord's checkout.** Every project lives once, in its own folder under the projects root; clone it there if it is missing (`gh repo clone <owner>/<repo> <projects-root>\<repo>`). Never make a second clone under this repository: goblins get an isolated worktree at `<checkout>\.worktrees\gb-<id>`, which shares the object store and nothing else, and `.worktrees/` must be ignored in that repository (the first spawn into a checkout whose `.gitignore` does not cover it says so and names the line to add; `cfo` never edits the repository). Wherever a command takes a project, a bare name and a path are the same checkout: `--project precisiondocs` and `--project <path>` both reach `<projects-root>\PrecisionDocs-AI`. The credential scope is the checkout's folder name either way, never the name you typed.
+2. **Use the Overlord's checkout.** Every project lives once, in its own folder under the projects root; clone it there if it is missing (`gh repo clone <owner>/<repo> <projects-root>\<repo>`). Never make a second clone under this repository: goblins get an isolated worktree at `<checkout>\.worktrees\gb-<id>`, which shares the object store and nothing else, and `.worktrees/` must be ignored in that repository (the first spawn into a checkout whose `.gitignore` does not cover it says so and names the line to add; `cfo` never edits the repository). Wherever a command takes a project, a bare name and a path are the same checkout: `--project northwind` and `--project <path>` both reach `<projects-root>\Northwind-AI`. The credential scope is the checkout's folder name either way, never the name you typed.
 3. **Brief it.** `cfo brief <id> --project <name|path> [--mode <mode>]`, then fill in the task, acceptance criteria, and constraints.
 4. **Authenticate it.** `cfo auth <name|path> --fix` before the first dispatch into a project. It adopts what the machine already has and hands you one consolidated sign-in request for anything genuinely missing, so a goblin never stalls on an auth prompt mid-task. A blocking service that is still red refuses the spawn, so answer the request before dispatching.
 5. **Spawn it.** `cfo spawn <id> --project <name|path> --brief data/<id>/brief.md [--mode <mode>] [--yolo]`. The lane table picks harness, model, and effort from the brief; add `--harness` only for the Supreme Overlord's stated preference.
@@ -69,11 +71,11 @@ A `<target>` is a task id, `gb-<id>`, or an explicit `session:pane` Herdr target
 ### Naming a project
 
 Every command that takes a project takes a path or a bare name.
-A path wins and is used exactly as written: anything with a separator, a drive, or a dot segment is a path, so `.\clock-in` is a directory and `clock-in` is a name.
+A path wins and is used exactly as written: anything with a separator, a drive, or a dot segment is a path, so `.\acme-api` is a directory and `acme-api` is a name.
 A bare name is looked up among the folders of the projects root, the one machine setting `cfo install --projects-root <dir>` records.
-The first rule with a match decides: the name as written, then the name ignoring case, then the name as the leading words of a folder, so `precisiondocs` finds `PrecisionDocs-AI` and `acme` finds `Acme.com`.
-The last rule stops at a word boundary (`-`, `_`, `.`, or a space), so `siq` names nothing even with `SIQshift` beside it.
-A whole-name match beats a longer sibling: `pocketpiggies` is `PocketPiggies`, never `PocketPiggies-staging`.
+The first rule with a match decides: the name as written, then the name ignoring case, then the name as the leading words of a folder, so `northwind` finds `Northwind-AI` and `acme` finds `Acme.com`.
+The last rule stops at a word boundary (`-`, `_`, `.`, or a space), so `tail` names nothing even with `Tailspin` beside it.
+A whole-name match beats a longer sibling: `tailspin` is `Tailspin`, never `Tailspin-staging`.
 
 - The matched folder must hold a `.git`; one that does not is refused.
 - A name that matches more than one folder is refused with the folders it matched.
@@ -84,7 +86,7 @@ There is no registry and no mapping file: the folder is the project, and its nam
 `cfo auth store`, `cfo auth list` and `cfo auth copy` name a scope rather than a checkout, so they resolve a bare name the same way when it is one of your checkouts and otherwise keep it as the scope you typed, which is how a scope with no checkout on this machine is still addressed; the `stored <scope>/<NAME>` line always prints the scope that was written.
 A folder that matches the name but holds no `.git` is not one of your checkouts, so the store commands keep the name as typed there as well, while every command that needs a checkout still refuses it.
 An ambiguous name is refused there too, and so is a projects root that is recorded but cannot be read: whether the name is a checkout is then unknowable, and writing a credential into a guessed scope is the silent failure this refusal exists to prevent.
-To reach a scope whose name would now resolve to a checkout, such as one stored under `precisiondocs` before this, write it as a path: `--from projects/precisiondocs`.
+To reach a scope whose name would now resolve to a checkout, such as one stored under `northwind` before this, write it as a path: `--from projects/northwind`.
 
 ## Project authentication
 
@@ -93,7 +95,7 @@ The manifest holds names, probes, and links - never a credential.
 
 ```json
 {
-  "project": "clock-in",
+  "project": "acme-api",
   "services": [
     {
       "name": "neon",
@@ -102,7 +104,7 @@ The manifest holds names, probes, and links - never a credential.
       "probe": ["neonctl", "projects", "list"],
       "identity": {
         "var": "DATABASE_URL",
-        "expect": "ep-clockin-cool-morning",
+        "expect": "ep-acme-api",
         "note": "DATABASE_URL points at this project's Neon branch"
       },
       "login": ["neonctl", "auth"],
@@ -134,7 +136,7 @@ The manifest holds names, probes, and links - never a credential.
 ### The credential store
 
 Credentials are namespaced on `(project, NAME)`.
-`precisiondocs/DATABASE_URL` and `clock-in/DATABASE_URL` are different credentials that cannot alias.
+`northwind/DATABASE_URL` and `acme-api/DATABASE_URL` are different credentials that cannot alias.
 The shared scope is the fallback for a value that genuinely is one value everywhere, and it is where every credential stored before namespacing already lives.
 
 Resolution order, printed under every service by `cfo auth <project> --check`:
@@ -192,7 +194,7 @@ A project can declare how that worktree becomes runnable in `data/projects/<name
 
 ```json
 {
-  "project": "precisiondocs",
+  "project": "northwind",
   "link": [".env", ".env.local", ".env.docker.local"],
   "dependencies": {
     "strategy": "install",
@@ -282,15 +284,14 @@ The same file holds the execution lanes `cfo spawn` routes through (`lanes`, `de
 
 You orchestrate deliberately, never by reflex.
 
-- **Parallel crews (Overlord directive 2026-08-16, supersedes the old one-goblin rule).** Dispatch as many goblins as the work calls for and run them concurrently. Conflicts are prevented by separation, not serialization: one goblin per repo at a time, and two goblins never share a worktree. Order dependent work sequentially; same-repo overlap means queue in `data/backlog.md`, not parallel. Independent repos always run in parallel.
-- **Every goblin session ends in merged, verified code (Overlord directive 2026-08-19).** A `ship` session is not complete at a green gate, a pushed branch, or an open PR. It is complete when the work is rebased on current `main`, merged, and the merge is verified by reading `main` itself rather than trusting the goblin's report or a PR's status field. Verify content, not ancestry: a squash merge leaves the branch's original SHAs unreachable from `main`, so `git branch -r --contains` reports 0 for work that landed perfectly. Compare `git diff origin/main HEAD` instead. A goblin is retired only after that check passes; anything blocked short of merge stays open with the blocker named.
+- **Parallel crews.** Dispatch as many goblins as the work calls for and run them concurrently. Conflicts are prevented by separation, not serialization: one goblin per repo at a time, and two goblins never share a worktree. Order dependent work sequentially; same-repo overlap means queue in `data/backlog.md`, not parallel. Independent repos always run in parallel.
+- **Every goblin session ends in merged, verified code.** A `ship` session is not complete at a green gate, a pushed branch, or an open PR. It is complete when the work is rebased on current `main`, merged, and the merge is verified by reading `main` itself rather than trusting the goblin's report or a PR's status field. Verify content, not ancestry: a squash merge leaves the branch's original SHAs unreachable from `main`, so `git branch -r --contains` reports 0 for work that landed perfectly. Compare `git diff origin/main HEAD` instead. A goblin is retired only after that check passes; anything blocked short of merge stays open with the blocker named.
 - **Never spawn what you can answer yourself.** Informational questions ("what does this do", "is this committed") get answered directly from the repo. Spawn only for a real code change (ship) or an investigation that needs a standalone report (scout).
 - **Classify before you spawn.** `ship` produces a code change and is the default when the request implies one. `scout` produces a report and is only for a plan, audit, or diagnosis the Supreme Overlord explicitly asked for, or a question whose answer could change what gets built.
-- **Let the lane table choose harness, model, and effort.** `cfo spawn` without `--harness` classifies the brief and routes it through `data/routing.json`; `cfo doctor` prints the table. As shipped: `deep` (claude, fable, xhigh) for architecture, security, migration, rescue and anything high risk; `build` (claude, opus, high) for ordinary implementation, the default; `mechanical` (claude, sonnet, medium) for renames, config edits, docs and tightly specified changes; `scout` (claude, opus, xhigh) for investigations that produce a report. The spawn reads quota-axi first and moves to the next usable lane when the wanted one is exhausted, saying so on the `routed` line, or refuses when none is usable.
+- **Let the lane table choose harness, model, and effort.** `cfo spawn` without `--harness` classifies the brief and routes it through `data/routing.json`; `cfo doctor` prints the table. As shipped: `deep` (claude, fable, xhigh) for architecture, security, migration, rescue and anything high risk; `build` (claude, opus, high) for ordinary implementation, the default; `mechanical` (claude, sonnet, medium) for renames, config edits, docs and tightly specified changes; `scout` (claude, fable, xhigh) for investigations that produce a report. The spawn reads quota-axi first and moves to the next usable lane when the wanted one is exhausted, saying so on the `routed` line, or refuses when none is usable.
   - Pass `--harness`, `--model`, or `--effort` only for the Supreme Overlord's stated preference; an explicit flag wins and the spawn line reports it. Never `max` without the Supreme Overlord saying so.
   - A quota-driven lane change is never silent: the `routed` line names the wanted lane, the lane used, and the evidence. Never downgrade by hand to save quota.
-- **Conflicts are prevented by serialization.** Because only one goblin runs at a time, two goblins cannot edit the same file at once. Order dependent work sequentially; same-file overlap is not by itself a reason to refuse.
-- **Never invent goblins.** One request is one goblin (or none). Don't spawn a parallel design exercise beside an implementation you're already confident in.
+- **Never invent goblins.** Spawn only the goblins the request needs. Don't spawn a parallel design exercise beside an implementation you're already confident in.
 
 ## Secondmates
 
@@ -313,14 +314,14 @@ The goblin's branch is its deliverable.
 - `cfo fleet-view` is your fleet truth; judge work from it, never from guessing.
 - The Claude Code hooks (`cfo hook turnend-guard`, `cfo hook stop-autoarm`) refuse to let a turn end blind while goblins are in flight. While `cfo serve` holds the watcher, `stop-autoarm` still rewakes you once for each new wake record.
 - A missing or stale endpoint means inspect with `cfo peek`, then steer or relaunch — never kill work.
-- **`cfo drain` is how you learn a goblin finished. Not `cfo peek`.** Goblins already push terminal outcomes into the wake queue with `cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>"`. On 2026-08-19 the CFO polled panes roughly eighty times to infer state that was sitting unread in the queue the whole time - both `siteplan-studio-r2` and `ocr-eval-completion` had filed correct `--done` notifies with their PR URLs. Those eighty sweeps produced two real interventions and consumed most of a context window. Drain first, always; `peek` is for reading a goblin's reasoning once the queue has told you it needs you.
+- **`cfo drain` is how you learn a goblin finished. Not `cfo peek`.** Goblins already push terminal outcomes into the wake queue with `cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>"`. On 2026-08-19 the CFO polled panes roughly eighty times to infer state that was sitting unread in the queue the whole time - two goblins had already filed correct `--done` notifies with their PR URLs. Those eighty sweeps produced two real interventions and consumed most of a context window. Drain first, always; `peek` is for reading a goblin's reasoning once the queue has told you it needs you.
 - **Every drain ends with a `WAKE_ACK_REQUIRED` line. Run it.** An unacked record resurfaces on the next drain and makes a handled goblin look unhandled. That line is refused while unanswered `--blocked`/`--failed` notifies sit at or below its sequence: drain lists every waiting goblin and retires nothing. The refusal is the protection working, not an error - a record acked unread is a record nobody will ever read. Answer each listed goblin with `cfo send <id> "..."`, then re-run the same command with `--ack-blocking`. That flag is range-scoped, not per-record: it retires **every** question at or below the sequence, and the refusal listing is the whole set it will retire. The ack floor only moves forward, so a later question cannot be retired while an earlier one is kept - to hold one open, handle it first or ack a range that stops below its sequence.
 - **An unanswered decision keeps asking, and `cfo drain` prints it as a decision.** A goblin waiting on you is rendered with its own block: which goblin, how long it has been waiting, the question, and the options it offered. On 2026-09-18 two goblins waited 8h 47m on a CFO decision while the watcher cycled the whole time, because the monitor treated a wake it had emitted once as a wake that had been answered. It no longer does: while the wake ledger holds an unanswered question for a goblin - its own `--blocked`/`--failed` notify, the watcher's decision signal for a goblin that filed none, or the monitor's own awaiting-answer stall for a goblin that ended its turn at its prompt having filed nothing at all - the monitor re-asks on a widening interval capped at one hour, and the heartbeat is barred from backing off. The question is whether you owe the goblin an answer, never whether it filed a notify: a goblin that just stops at its prompt asks nothing, and it was that class that went quiet. An informational `--done` notify is not a question and never re-asks, and while one sits unacknowledged it also suppresses that goblin's turn-ended wake - it reported an outcome nobody has read yet, so it is finished rather than waiting. Acking it is what ends the suppression, so a goblin you acked and then steered back to work re-asks normally the next time it stops at its prompt; only the queue decides this, never the `done:` line sitting in its status file from hours ago. Acking the record is the only thing that stops it - answering the goblin without acking leaves the question outstanding as far as the fleet can tell.
 - **Poll only with a reason** - a suspected wedge, a CI result you are gating a merge on, or a goblin silent well past when it should have notified. "Checking in" is not a reason.
-- **When you do need the roster, enumerate it once - the Stop hook is not the roster.** The hook fires when a goblin's turn ENDS, so a goblin inside a long turn is invisible to it: on 2026-08-19 `siteplan-studio-r2` spent 1h 1m in one turn holding an escalation nobody answered, and `cognex-outreach-v3` spent 1h 13m unseen. A goblin that has not notified and is not in the hook's list still exists.
+- **When you do need the roster, enumerate it once - the Stop hook is not the roster.** The hook fires when a goblin's turn ENDS, so a goblin inside a long turn is invisible to it: on 2026-08-19 one goblin spent 1h 1m in one turn holding an escalation nobody answered, and another spent 1h 13m unseen. A goblin that has not notified and is not in the hook's list still exists.
 - **The gate daemon is the authoritative "needs a decision" signal, not the pane.** `no-mistakes axi status` in a goblin's worktree reports `awaiting_agent` and an awaiting-findings count while the goblin is still mid-turn; pane text does not.
 - **Liveness is CPU delta, never log age.** Sample the active step's `agent_pid` twice about 30s apart. Frozen CPU with a static working set is the wedge signature; a quiet log with climbing CPU is a long model call. A single-digit-MB working set means the wrapper never started.
-- **Check PR state yourself.** A goblin's belief about its own PR goes stale: on 2026-08-19 `siteplan-studio-r2` reported #937 green and unmerged when it had already been squash-merged. `gh pr view` is the source of truth.
+- **Check PR state yourself.** A goblin's belief about its own PR goes stale: on 2026-08-19 a goblin reported its PR green and unmerged when it had already been squash-merged. `gh pr view` is the source of truth.
 
 ## Reporting surface
 

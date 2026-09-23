@@ -4,7 +4,7 @@ Code Goblins keeps secrets in the existing auth store and keeps infrastructure s
 
 ```json
 {
-  "project": "precisiondocs",
+  "project": "northwind",
   "services": [
     {"name":"postgres","kind":"database","provider":"supabase","environment":"production","location":"remote","env":["DATABASE_URL"],"health":["psql","$DATABASE_URL","-c","select 1"]},
     {"name":"redis","kind":"redis","provider":"upstash","location":"remote","env":["REDIS_URL"]},
