@@ -1,12 +1,17 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
+	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -15,9 +20,9 @@ import (
 // failure reason), so the CFO is woken with the real thing instead of the
 // watcher guessing from pane text. Identical for claude, codex, and pi.
 //
-//	 cfo notify <task-id> --done --pr <url>
-//	 cfo notify <task-id> --blocked "<question>"
-//	 cfo notify <task-id> --failed "<reason>"
+//	cfo notify <task-id> --done --pr <url>
+//	cfo notify <task-id> --blocked "<question>"
+//	cfo notify <task-id> --failed "<reason>"
 func runNotify(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "cfo notify: task ID is required")
@@ -71,13 +76,21 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cfo notify: record status: "+err.Error())
 		return 1
 	}
-	if _, err := wake.Append(h.State, "notify", id, line); err != nil {
+	record, err := wake.Append(h.State, "notify", id, line)
+	if err != nil {
 		fmt.Fprintln(stderr, "cfo notify: wake the CFO: "+err.Error())
 		return 1
 	}
 	if _, err := wake.PublishEpisode(h.State); err != nil {
 		fmt.Fprintln(stderr, "cfo notify: publish recovery episode: "+err.Error())
 		return 1
+	}
+	// The CFO is already woken; the Command Center copy is a second route
+	// to the Overlord, so its failure is reported and never fails the notify.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := supervisor.SurfaceNotify(ctx, h.State, &herdr.Client{Commands: execx.OSRunner{}}, id, record); err != nil {
+		fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this question, the CFO still has it: "+err.Error())
 	}
 	fmt.Fprintf(stdout, "notified %s %s\n", id, line)
 	return 0

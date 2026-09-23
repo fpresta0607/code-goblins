@@ -821,7 +821,8 @@ func readLedger(stateDir string) (ledger, error) {
 // it to a notify is what left a goblin that merely ended its turn at the
 // prompt, having filed nothing, failing the predicate and going quiet; it
 // happened twice on 2026-09-18. Three pending records mean an answer is owed:
-// the goblin's own blocked/failed notify, the watcher's decision signal for a
+// the goblin's own blocked/failed notify, unless the Overlord already answered
+// it on the board, the watcher's decision signal for a
 // goblin that files none, and the monitor's own awaiting-answer stall for a
 // goblin that asked nothing at all.
 //
@@ -839,7 +840,7 @@ func (l ledger) unanswered(id string) bool {
 		if wake.DecisionSignal(record, id) {
 			return true
 		}
-		if _, ok := wake.BlockingNotify(record); ok && record.Key == id {
+		if _, ok := wake.BlockingNotify(record); ok && record.Key == id && record.Answered == "" {
 			return true
 		}
 		if wake.AwaitingAnswerStall(record, id) {

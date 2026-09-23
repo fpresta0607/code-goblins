@@ -93,6 +93,8 @@ export interface Snapshot {
 }
 export interface Question {
   id: string; identity: string; text: string; options: string[]; recommended: string; answer: string; answer_kind: string; created_at: string; answer_id: string; status: string; message: string;
+  // task names the goblin that asked; it is empty for the CFO's own question.
+  task: string;
 }
 export interface ChangedFile {
   path: string;
@@ -211,7 +213,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     activity: array(v.activity).map(value=>{const a=object(value);return {id:string(a.id),kind:string(a.kind),task_id:string(a.task_id),generation:string(a.generation),cfo_identity:string(a.cfo_identity),live:a.live===undefined?false:boolean(a.live),source:string(a.source),target:string(a.target),state:string(a.state),url:string(a.url),at:string(a.at),until:string(a.until)};}),
     questions: array(v.questions).map((value) => {
       const q = object(value);
-      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message) };
+      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), task: string(q.task) };
     }),
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
