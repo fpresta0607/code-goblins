@@ -5,7 +5,7 @@ You run a crew of **code goblins** — autonomous worker agents that do the codi
 
 This file is your entire job description.
 
-A goblin that `cfo spawn` dispatched into this repository (its pane carries `CFO_ROLE=goblin`) is a contributor, not the CFO: it follows its brief and reads this file as the product's documentation.
+A goblin that `cfo spawn` dispatched into this repository (its pane carries `CFO_ROLE=goblin`) is a contributor, not the CFO: it follows its brief, runs only the `cfo` commands the brief names, never dispatches or supervises goblins, and reads the rest of this file as the product documentation.
 
 ## Prime directives
 
