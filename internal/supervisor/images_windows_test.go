@@ -12,28 +12,37 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// A task whose worktree is recorded under its 8.3 short name, as GitHub
-// runners report their temp directory, still reviews and serves an image
-// spelled under either the short or the long name of that worktree.
+// A task whose worktree is recorded under its 8.3 short name still reviews
+// and serves an image spelled under the short name, the long name, or a mix
+// of the two, as GitHub runners spell their temp directory.
 func TestReviewImagesAcceptEitherSpellingOfTheRoot(t *testing.T) {
 	store, h := testStore(t)
 	meta, err := state.ReadTaskMeta(h.State, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
+	shortName := func(long string) string {
+		path, err := syscall.UTF16PtrFromString(long)
+		if err != nil {
+			t.Fatal(err)
+		}
+		buf := make([]uint16, syscall.MAX_LONG_PATH)
+		n, err := syscall.GetShortPathName(path, &buf[0], uint32(len(buf)))
+		if err != nil || n == 0 || int(n) > len(buf) {
+			t.Fatalf("short name of %s: %v", long, err)
+		}
+		return syscall.UTF16ToString(buf[:n])
+	}
 	long := meta.Worktree
-	path, err := syscall.UTF16PtrFromString(long)
-	if err != nil {
-		t.Fatal(err)
-	}
-	buf := make([]uint16, syscall.MAX_LONG_PATH)
-	n, err := syscall.GetShortPathName(path, &buf[0], uint32(len(buf)))
-	if err != nil || n == 0 || int(n) > len(buf) {
-		t.Fatalf("short name of %s: %v", long, err)
-	}
-	short := syscall.UTF16ToString(buf[:n])
+	short := shortName(long)
 	if short == long {
 		t.Skipf("the volume has no 8.3 short name for %s", long)
+	}
+	// Only the test's own directory, two levels up, is spelled short.
+	testDir := filepath.Dir(filepath.Dir(long))
+	mixed := filepath.Join(filepath.Dir(testDir), filepath.Base(shortName(testDir)), filepath.Base(filepath.Dir(long)), filepath.Base(long))
+	if mixed == long || mixed == short {
+		t.Skipf("the test directory %s has no 8.3 short name to mix in", testDir)
 	}
 	meta.Worktree = short
 	if err := state.WriteTaskMeta(h.State, meta); err != nil {
@@ -41,7 +50,7 @@ func TestReviewImagesAcceptEitherSpellingOfTheRoot(t *testing.T) {
 	}
 	meta, record, _, connection := goblinFixture(t, store)
 	data := writePNG(t, filepath.Join(long, "a.png"))
-	paths := []string{filepath.Join(short, "a.png"), filepath.Join(long, "a.png"), filepath.Join(short, "a.png")}
+	paths := []string{filepath.Join(short, "a.png"), filepath.Join(long, "a.png"), filepath.Join(mixed, "a.png")}
 	images, err := ReviewImages(h, meta.ID, paths)
 	if err != nil {
 		t.Fatalf("an image under the task's own worktree refused: %v", err)
