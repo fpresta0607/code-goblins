@@ -61,19 +61,21 @@ func ReviewImages(h home.Home, taskID string, images []string) ([]string, error)
 // of roots, reached through plain directories, and within the size cap. It
 // returns the file at its start with its sniffed type. The path is never
 // resolved through links: it must already be spelled under a root, either as
-// the task records it or in its canonical form.
+// the task records it or in its canonical form. 8.3 short names are expanded
+// on both sides first, since they are the same directory under another name.
 func openReviewImage(roots []string, path string) (*os.File, string, error) {
 	abs, err := fsx.AbsClean(path)
 	if err != nil {
 		return nil, "", err
 	}
+	abs = fsx.LongPath(abs)
 	for _, dir := range roots {
 		canonical, err := fsx.Canonical(dir)
 		if err != nil {
 			continue
 		}
 		rel := ""
-		for _, spelling := range []string{filepath.Clean(dir), canonical} {
+		for _, spelling := range []string{fsx.LongPath(filepath.Clean(dir)), canonical} {
 			r, err := filepath.Rel(spelling, abs)
 			if err == nil && r != "." && r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator)) && !filepath.IsAbs(r) {
 				rel = r
