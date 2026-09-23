@@ -176,6 +176,76 @@ func TestRegisterReplacesAStaleRegistrationWithOneTheBoardVerifies(t *testing.T)
 	}
 }
 
+// A compact, clear or resume of the same CFO registers again. primary.json's
+// hash is the identity a pending question is bound to, so rewriting it would
+// supersede the question the user has not answered yet.
+func TestRegisterKeepsTheIdentityOfTheSameProcess(t *testing.T) {
+	store, _, cfo := registerFixture(t)
+	ctx := context.Background()
+	if _, err := Register(ctx, store.Home.State, cfo.Herdr, "", "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(store.Home.State, "primary.json")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfo.PublishQuestion(ctx, "question-1", "Pick a layout", []string{"Board", "Tree"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestQuestions(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Register(ctx, store.Home.State, cfo.Herdr, "", "session-2"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("registering the same process again rewrote primary.json")
+	}
+	if err := store.supersedeQuestions(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestQuestions(); err != nil {
+		t.Fatal(err)
+	}
+	if questions := store.Snapshot().Questions; len(questions) != 1 || questions[0].Status != "pending" {
+		t.Fatalf("the question after registering again: %+v", questions)
+	}
+}
+
+// A recycled pid is a different process, so its registration is replaced.
+func TestRegisterReplacesARegistrationOfAnotherProcessWithTheSamePID(t *testing.T) {
+	store, _, cfo := registerFixture(t)
+	ctx := context.Background()
+	if _, err := Register(ctx, store.Home.State, cfo.Herdr, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(store.Home.State, "primary.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recycled primaryRegistration
+	if err := json.Unmarshal(data, &recycled); err != nil {
+		t.Fatal(err)
+	}
+	recycled.Process.Start = recycled.Process.Start.Add(-time.Hour)
+	data, _ = json.Marshal(recycled)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Register(ctx, store.Home.State, cfo.Herdr, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfo.check(ctx); err != nil {
+		t.Fatalf("the registration of a recycled pid was kept: %v", err)
+	}
+}
+
 func TestRegisterRefusesWhatItCannotProve(t *testing.T) {
 	for _, c := range []struct {
 		name, want string
