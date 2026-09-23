@@ -95,3 +95,40 @@ func TestSendReceiptNeverBorrowsSameHarnessParent(t *testing.T) {
 		t.Fatal("explicit sender link missing", got)
 	}
 }
+
+func TestPrimaryPresentationLateSessionDiscoveryKeepsReportIdentity(t *testing.T) {
+	store, h := testStore(t)
+	_, identity, _, cfo := primaryFixture(t, store)
+	if err := store.save(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_SESSION_ID", "actual-primary")
+	t.Setenv("CFO_SESSION_HARNESS", "codex")
+	now := time.Now().UTC()
+	a := BoardActivity{ID: "late-primary-report", Kind: "review", State: "active", URL: "http://127.0.0.1:4387/session/review", At: now, Until: now.Add(time.Minute)}
+	if err := PublishPresentation(context.Background(), h, cfo.Herdr, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestActivity(); err != nil {
+		t.Fatal(err)
+	}
+	start := event(t, h, "SessionStart", "actual-primary", "", now)
+	start.Harness, start.Role, start.TaskID, start.Generation = "codex", "cfo", "", ""
+	if err := store.Accept(start); err != nil {
+		t.Fatal(err)
+	}
+	for i, status := range []string{"active", "ended"} {
+		a.State = status
+		a.At = now.Add(time.Duration(i+1) * time.Second)
+		if err := PublishPresentation(context.Background(), h, cfo.Herdr, a); err != nil {
+			t.Fatal("late native discovery rejected update", status, err)
+		}
+		if err := store.ingestActivity(); err != nil {
+			t.Fatal(err)
+		}
+		got := store.Snapshot().Activity[0]
+		if got.Target != "primary-cfo" || got.CFOIdentity != identity || got.State != status {
+			t.Fatal("primary report changed identity", got)
+		}
+	}
+}

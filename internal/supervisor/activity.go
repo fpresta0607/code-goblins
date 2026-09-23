@@ -293,19 +293,8 @@ func PublishPresentation(ctx context.Context, h home.Home, client *herdr.Client,
 		return errors.New("only the registered native agent may report its presentation")
 	}
 	if a.TaskID == "" {
+		// Native session discovery can arrive later; it must not change a report's recipient.
 		a.CFOIdentity, a.Target = b.Identity, "primary-cfo"
-		file, err := openPrimary(filepath.Join(h.State, "primary.json"))
-		if err != nil {
-			return err
-		}
-		p, identity, err := decodePrimary(file)
-		_ = file.Close()
-		if err != nil || identity != b.Identity {
-			return errors.New("primary presentation registration changed")
-		}
-		if node, ok := store.db.Sessions[callerSession()]; ok && node.Role == "cfo" && node.Harness == p.Agent && node.Phase != "ended" {
-			a.Target = node.ID
-		}
 	}
 	if a.Kind != "browser" && a.Kind != "review" {
 		return errors.New("presentation kind must be browser or review")
