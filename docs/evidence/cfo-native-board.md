@@ -268,3 +268,28 @@ The final candidate is built outside the worktree from this clean source commit,
 The parent-owned `http://127.0.0.1:62197/` preview still serves the earlier `b242192` build and does not certify these changes.
 Fresh responsive screenshots, actual Unicode typing/coalescing latency, independent pulse lifetime/hidden-tab behavior, question/Other round trips, and two-file native CFO review receipt remain pending on the new candidate.
 No real primary CFO input, shared configuration mutation, gate, push, PR or merge occurred in this revision.
+
+## Native terminal layout and truecolor follow-up
+
+Root acceptance on the scanned `3309a5b` fixture verified exact Unicode typing/paste, two-file native CFO annotations with zero worker annotation receipts, Other answers and durable cross-tab answers.
+Those are deterministic native-process results, not actual-model receipts; the root's record is `root-native-acceptance-3309.json` in the fleet task directory.
+The same pass reproduced a clipped terminal at 1280 by 720, and a later read-only view of the actual Codex screen exposed blocked ANSI truecolor attributes.
+
+Orchestration now starts with Workspace details collapsed, preserves text sizes, and scrolls its own pane when details or terminal options need more space.
+Board retains the approved expanded workspace and review layout.
+The terminal's minimum viewport is 160 px, leaving its caption and options visible in shorter windows without reducing its font.
+Browser geometry checks used the changed source CSS and identical disclosure markup in a dedicated tab of the scanned `3309a5b` preview; they are not a compiled replacement acceptance claim.
+The controls were inside the pane at 1280 by 720, 1280 by 600, 390 by 844 and 390 by 600, with no page horizontal overflow.
+At 390 by 600, expanding both disclosures and scrolling the pane also kept all terminal options reachable.
+Measurements are retained as `worker-terminal-layout-*.txt`; the browser screenshot command timed out, so no new worker screenshot is claimed.
+
+The HTTP policy now permits `style-src-attr 'unsafe-inline'` for xterm 6's DOM-rendered colors.
+This permits CSS attributes across the page, while style elements retain their nonce or same-origin restriction and scripts, connections, framing and base URLs keep their prior protections.
+No renderer interception, global DOM patch or dependency was added.
+The directive-semantics regression failed before the change and passed after it; origin/idempotency and late-primary-discovery regressions passed in the same focused run, followed by supervisor vet.
+Frontend type checking, ESLint, all 19 behavior tests and the production build passed.
+
+The replacement executable is built once from the clean follow-up commit outside the worktree and scanned before execution, with provenance in `command-center-final-artifact.json`.
+The owning CFO still needs to confirm the compiled layout and actual Codex computed colors on that executable.
+The authorized actual-Codex question test uses only this worker's existing process and a separate temporary primary registration, then waits for the owning CFO's modal answer.
+Its result is recorded outside tracked source, and the managed gate remains parent-owned.

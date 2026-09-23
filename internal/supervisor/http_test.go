@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-func TestTerminalStyleNonceIsUniqueAndDoesNotRelaxScripts(t *testing.T) {
+func TestTerminalCSPAllowsColorAttributesWithoutRelaxingScriptsOrStyleElements(t *testing.T) {
 	store, _ := testStore(t)
 	h := NewHTTP(&Service{Store: store}, "board.local", fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html><head></head><body></body></html>")}})
 	seen := map[string]bool{}
@@ -22,8 +22,38 @@ func TestTerminalStyleNonceIsUniqueAndDoesNotRelaxScripts(t *testing.T) {
 		response := httptest.NewRecorder()
 		h.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local/", nil))
 		policy := response.Header().Get("Content-Security-Policy")
-		if !strings.Contains(policy, "script-src 'self';") || strings.Contains(policy, "unsafe-inline") || !strings.Contains(policy, "style-src 'self' 'nonce-") {
-			t.Fatal("unexpected CSP", policy)
+		directives := map[string]string{}
+		for _, directive := range strings.Split(policy, ";") {
+			fields := strings.Fields(directive)
+			if len(fields) == 0 {
+				continue
+			}
+			if _, duplicate := directives[fields[0]]; duplicate {
+				t.Fatal("duplicate CSP directive", fields[0])
+			}
+			directives[fields[0]] = strings.Join(fields[1:], " ")
+		}
+		want := map[string]string{
+			"default-src": "'self'", "script-src": "'self'", "style-src-attr": "'unsafe-inline'",
+			"img-src": "'self' data:", "connect-src": "'self'", "frame-ancestors": "'none'",
+			"base-uri": "'none'", "form-action": "'self'",
+		}
+		// Unlisted script/style element directives could override these fallbacks.
+		if len(directives) != len(want)+1 {
+			t.Fatal("unexpected CSP directive", policy)
+		}
+		for directive, sources := range want {
+			if directives[directive] != sources {
+				t.Fatalf("%s = %q, want %q", directive, directives[directive], sources)
+			}
+		}
+		styles := strings.Fields(directives["style-src"])
+		if len(styles) != 2 || styles[0] != "'self'" || !strings.HasPrefix(styles[1], "'nonce-") || !strings.HasSuffix(styles[1], "'") {
+			t.Fatal("inline style elements are not nonce restricted", policy)
+		}
+		nonce := strings.TrimSuffix(strings.TrimPrefix(styles[1], "'nonce-"), "'")
+		if nonce == "" || !strings.Contains(response.Body.String(), `content="`+nonce+`"`) {
+			t.Fatal("style nonce does not match the document")
 		}
 		if seen[response.Body.String()] || !strings.Contains(response.Body.String(), "cfo-style-nonce") {
 			t.Fatal("style nonce missing or reused")

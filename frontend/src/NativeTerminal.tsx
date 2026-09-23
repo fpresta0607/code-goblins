@@ -172,7 +172,9 @@ export function NativeTerminal({ task, node, instance, visible, onOwner }: { tas
     return () => { active = null; abort.abort(); queue.length = 0; clearTimeout(inputTimer); clearTimeout(resizeTimer); resize.disconnect(); element.removeEventListener("paste", paste, true); term.dispose(); terminal.current = null; };
   }, [taskID, generation, session, instance, visible, attempt, missing]);
   return <section className="native-terminal-pane" aria-label={cfo ? "CFO terminal" : "Selected native terminal"}>
-    <header className="panel-header"><Avatar persona={cfo ? "cfo" : personaFor(task, node)} small /><div><h2>{cfo ? "CFO" : node ? sessionTitle(node, task) : task?.title}</h2>{task?.project && <p className="project-label">{task.project}</p>}</div><WorkspaceDetails task={task} node={node} instance={instance} /></header>
+    <header className="panel-header"><Avatar persona={cfo ? "cfo" : personaFor(task, node)} small /><div><h2>{cfo ? "CFO" : node ? sessionTitle(node, task) : task?.title}</h2>{task?.project && <p className="project-label">{task.project}</p>}</div>
+      <details className="terminal-workspace"><summary>Workspace details</summary><WorkspaceDetails task={task} node={node} instance={instance} /></details>
+    </header>
     {missing ? <div className="terminal-empty"><p>{queued ? "This task has not started yet." : shared ? "This child has no separate terminal." : error}</p>{onOwner && shared && <button onClick={onOwner}>Open owning task</button>}</div> : <>
     <div className="terminal-toolbar"><span role="status">{status}</span>
       {connection ? <button ref={inputControl} disabled={!visible} onClick={() => setAttempt((prior) => ({ version: prior.version + 1, control: !connection.control, identity: connection.identity }))}>{connection.control ? "Release input" : "Connect input"}</button>

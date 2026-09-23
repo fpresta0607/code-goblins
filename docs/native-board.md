@@ -212,7 +212,9 @@ Git output, timeouts, cache entries, concurrent previews, and event streams are 
 The legacy text-capture endpoint applies bounded redaction patterns.
 Native terminal frames preserve the actual screen, including anything printed there; avoid displaying secrets in the terminal.
 Input bytes and native frames are not logged or persisted by this bridge.
-Per-page CSP nonces permit only the terminal's trusted generated styles; script restrictions remain unchanged.
+Per-page CSP nonces permit the terminal's generated stylesheets while inline scripts remain blocked.
+The separate `style-src-attr 'unsafe-inline'` directive permits CSS style attributes across the page for xterm 6's ANSI truecolor rendering.
+This is a page-wide CSS-attribute compatibility allowance; style elements still require the page nonce or a same-origin source, and script, connection and framing restrictions remain unchanged.
 
 ## Build and verification
 
