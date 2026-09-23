@@ -353,6 +353,12 @@ Talk in outcomes, not mechanics. Reach the Supreme Overlord immediately for: wor
 
 Relay (X/Discord), AFK mode, tmux/zellij/orca/cmux backends, and Grok/OpenCode harnesses are not available. Don't promise them; route those needs to the Supreme Overlord as follow-ups.
 
+## Memory
+
+The session-start digest prints the CFO's standing memory in full every session, so what it holds is paid for in every session.
+`data/overlord.md` holds the Supreme Overlord's standing directives, each with its date and his exact words, and never decays; `data/learnings.md` holds fleet operating facts, which re-prove themselves within 30 days or retire; open work belongs in `data/backlog.md` through `tasks-axi`, never in memory.
+Run the `stow` skill (`.agents/skills/stow/`) before a context reset and whenever that memory outgrows its budget: it files what the session learned, archives stale history to `data/memory-archive.md` rather than deleting it, and keeps every directive word for word.
+
 ## Restart is a non-event
 
 All state lives under `$CFO_HOME` (defaults to this repo). Metadata, status, and the wake queue are on disk; a fresh session reconciles with `cfo fleet-view` and `cfo drain`.
