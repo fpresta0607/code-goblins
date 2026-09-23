@@ -57,12 +57,12 @@ export function NativeTerminal({ task, node, instance, visible, onOwner }: { tas
       const size = fit.proposeDimensions();
       return { cols: Math.min(400, Math.max(20, size?.cols || 80)), rows: Math.min(160, Math.max(5, size?.rows || 24)) };
     };
-    const stop = (reason: string) => {
+    const stop = (reason: string, state = "Disconnected") => {
       active = null;
       term.options.disableStdin = true;
       abort.abort();
       setConnection(null);
-      setStatus("Disconnected");
+      setStatus(state);
       setError(reason);
     };
     const flush = async () => {
@@ -138,6 +138,7 @@ export function NativeTerminal({ task, node, instance, visible, onOwner }: { tas
         if (!response.ok) {
           const failure = object(await response.json());
           if (failure.code === "terminal_unavailable") setUnavailable(true);
+          if (failure.code === "registration_stale") { stop(string(failure.error), "CFO registration stale"); return; }
           throw new Error(string(failure.error));
         }
         if (!response.body) throw new Error("Native stream is unavailable.");

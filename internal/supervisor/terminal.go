@@ -49,7 +49,7 @@ func (s *Service) resolveTerminal(ctx context.Context, selected terminalSelectio
 	if selected.Task == "" && selected.Session == "" {
 		file, err := openPrimary(filepath.Join(c.State, "primary.json"))
 		if err != nil {
-			return b, errors.New("Primary CFO registration is unavailable.")
+			return b, errNotRegistered
 		}
 		defer file.Close()
 		p, identity, err := decodePrimary(file)
@@ -254,11 +254,19 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 	stop()
 	if err != nil {
 		var unavailable unavailableTerminal
-		if errors.As(err, &unavailable) {
+		var stale registrationProblem
+		switch {
+		case errors.As(err, &unavailable):
 			respond(w, 409, struct {
 				Error string `json:"error"`
 				Code  string `json:"code"`
 			}{err.Error(), "terminal_unavailable"})
+			return
+		case errors.As(err, &stale):
+			respond(w, 409, struct {
+				Error string `json:"error"`
+				Code  string `json:"code"`
+			}{err.Error(), "registration_stale"})
 			return
 		}
 		apiError(w, 409, err.Error())

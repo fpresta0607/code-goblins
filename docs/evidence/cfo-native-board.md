@@ -350,3 +350,20 @@ Orchestration also stayed at 900 by 1440 px with no horizontal overflow.
 Every fixture process was stopped by pid, the test tabs were closed, and the browser session was stopped by name.
 `cfo reap` no longer lists the fixture processes.
 The full evidence, including snapshots, poll transcripts and receipts, is retained outside the repository in the task's data directory.
+
+## Primary CFO registration, live pass
+
+Dogfooding the merged board on the live fleet found that nothing wrote `state/primary.json`: the live file named a CFO process from 2026-09-15, so the CFO terminal read Disconnected and every CFO delivery path failed with a generic error.
+The acceptance fixture had hidden this by writing the file itself; it now waits for the example CFO to register from its own native SessionStart hook and fails if the registration does not name that CFO's pid and pane.
+Both fixture binaries were built from the clean branch and passed a targeted Defender scan before they ran, in an isolated fixture home and Herdr session with loopback boards only.
+
+1. The example CFO registered itself as pid 33576 in pane `w1:p3`, and its terminal opened live.
+   ![Self-registered CFO terminal](cfo-native-board/register-1-self-registered-cfo-connected.png)
+2. After its process was stopped, the first run showed the supervisor reporting the stale registration while the page showed nothing, because the snapshot parser dropped the new field.
+   After that fix, which has a red-proved parser test, the board shows one banner and the CFO terminal shows its own state, both naming the dead pid, its start time and the fix, `cfo register`.
+   ![Stale registration as one state](cfo-native-board/register-2-stale-registration-one-state-with-fix.png)
+3. Restarting the example CFO in its pane re-registered pid 35048 within seconds; the next supervisor check cleared the banner, and Reconnect showed the live screen.
+   ![Re-registered CFO terminal](cfo-native-board/register-3-re-registered-cfo-reconnected.png)
+
+The CFO card still read Active after its harness was killed without a SessionEnd event; that belongs to the status work that follows.
+Every fixture process was stopped by pid, the fixture Herdr session was stopped and deleted by name, and the browser session was stopped by name.
