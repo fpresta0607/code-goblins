@@ -1,4 +1,5 @@
-import type { BoardActivity, Snapshot } from "./types.ts";
+import { ownsTaskSession } from "./lineageTree.ts";
+import type { BoardActivity, Session, Snapshot, Task } from "./types.ts";
 
 interface ActivityState { instance:string; connected:boolean; seen:Set<string>; effects:BoardActivity[] }
 export function activityTransition(prior:ActivityState|null,snapshot:Snapshot,connected:boolean,now:number):ActivityState {
@@ -61,10 +62,11 @@ export function safePresentationURL(raw:string):boolean {
   } catch { return false; }
 }
 
-// A goblin's pane-proven presentation names no session, so it belongs to the
-// card of its task; one that names a session belongs to that session's card.
-export function presentationShownOn(presentation:BoardActivity,session:string|undefined,task:string|undefined):boolean {
-  return presentation.target?presentation.target===session:!!task&&presentation.task_id===task;
+// A goblin's pane-proven presentation names no session, so it belongs to its
+// task's own card: the session that owns the task, or the task card when no
+// session does. One that names a session belongs to that session's card.
+export function presentationShownOn(presentation:BoardActivity,session:Session|undefined,task:Task|undefined):boolean {
+  return presentation.target?presentation.target===session?.id:!!task&&presentation.task_id===task.id&&ownsTaskSession(session,task);
 }
 
 export function livePresentations(snapshot:Snapshot,now:number):BoardActivity[] {
