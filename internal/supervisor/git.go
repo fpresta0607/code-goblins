@@ -254,11 +254,8 @@ func (g Git) Diff(ctx context.Context, dir, revision, path string) (result FileD
 	return d, nil
 }
 
-// readPreview refuses any link on the way to the file: Lstat reports a symlink
-// as ModeSymlink and a junction or other reparse point as ModeIrregular, so
-// every parent must be a plain directory and the file a regular one. The open
-// itself goes through an os.Root on the canonical task root, so a component
-// swapped for a link after these checks still cannot resolve outside it.
+// readPreview reads a changed file for the code preview through an os.Root on
+// the canonical task root.
 func readPreview(dir, path string) (string, error) {
 	canonical, err := fsx.Canonical(dir)
 	if err != nil {
@@ -269,26 +266,11 @@ func readPreview(dir, path string) (string, error) {
 		return "", err
 	}
 	defer root.Close()
-	name := filepath.FromSlash(path)
-	parts := strings.Split(name, string(filepath.Separator))
-	for i := range parts {
-		info, err := root.Lstat(filepath.Join(parts[:i+1]...))
-		if err != nil {
-			return "", err
-		}
-		if i < len(parts)-1 && info.Mode().Type() != fs.ModeDir || i == len(parts)-1 && !info.Mode().IsRegular() {
-			return "", errors.New("symlink and junction file previews are not supported")
-		}
-	}
-	f, err := root.Open(name)
+	f, err := openRegular(root, filepath.FromSlash(path))
 	if err != nil {
 		return "", err
 	}
 	defer f.Close()
-	info, err := f.Stat()
-	if err != nil || !info.Mode().IsRegular() {
-		return "", errors.New("preview requires a regular file")
-	}
 	data, err := io.ReadAll(io.LimitReader(f, (256<<10)+1))
 	if err != nil {
 		return "", err
@@ -297,6 +279,33 @@ func readPreview(dir, path string) (string, error) {
 		return "", errors.New("file exceeds the 256 KiB code preview limit")
 	}
 	return string(data), nil
+}
+
+// openRegular opens name under root only through plain directories to a
+// regular file. Lstat reports a symlink as ModeSymlink and a junction or other
+// reparse point as ModeIrregular, so neither is followed, and the open itself
+// goes through root, so a component swapped for a link after these checks
+// still cannot resolve outside it.
+func openRegular(root *os.Root, name string) (*os.File, error) {
+	parts := strings.Split(name, string(filepath.Separator))
+	for i := range parts {
+		info, err := root.Lstat(filepath.Join(parts[:i+1]...))
+		if err != nil {
+			return nil, err
+		}
+		if i < len(parts)-1 && info.Mode().Type() != fs.ModeDir || i == len(parts)-1 && !info.Mode().IsRegular() {
+			return nil, errors.New("only a regular file reached through plain directories can be opened")
+		}
+	}
+	f, err := root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
+		f.Close()
+		return nil, errors.New("only a regular file reached through plain directories can be opened")
+	}
+	return f, nil
 }
 
 func (g Git) History(ctx context.Context, dir string) ([]Commit, error) {
