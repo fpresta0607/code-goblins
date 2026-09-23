@@ -1,31 +1,27 @@
-# Bundled skills
+# Skills this repository owns
 
-These skills ship with the repo so a clone carries the full fleet workflow.
-They are synced from the operator's user scope (`%USERPROFILE%\.agents\skills`); edit them there, then refresh the copies here.
-The exception is `lavish`, which is owned by this repo because it carries the CFO's presentation-only rules around the third-party `lavish-axi` CLI; edit it here, never sync it down over a user-scope copy.
+This directory holds the skills Code Goblins itself provides, each tracked once, here and nowhere else.
 
-## Which harness discovers what
+- `lavish` - the CFO's review surface over the third-party `lavish-axi` CLI.
+  It is owned here because it carries the CFO's presentation-only rules; edit it here.
 
-- **kimi** and **pi** read `.agents/skills/` in the project root directly - these directories work as-is.
-- **claude** reads `.claude/skills/` and **codex** reads `.codex/skills/`.
-  `install.ps1 -Bootstrap` creates those as directory junctions pointing at `.agents/skills/` (one source of truth, no duplicate copies in git).
+## Which harness reads this directory
 
-If you skip `install.ps1`, create the junctions by hand from the repo root:
+- **Codex, Pi and Kimi** read `.agents/skills/` in the project directly.
+- **Claude Code** reads `.claude/skills/`, which `install.ps1 -Bootstrap` makes a directory junction to this directory.
+  Without `install.ps1`, create it from the repository root: `cmd /c mklink /J .claude\skills .agents\skills`.
 
-```powershell
-cmd /c mklink /J .claude\skills .agents\skills
-cmd /c mklink /J .codex\skills .agents\skills
-```
+A skill with the same name at user scope competes with the copy here: Claude Code uses the user copy, Codex lists both, and Pi and Kimi use this one.
+Keep one copy of each name per machine.
+[docs/load-map.md](../../docs/load-map.md) has the full load order for every harness.
 
-Junctions are the robust Windows choice here.
-Git can track symlinks, but checking them out on Windows needs developer mode.
-A junction is a reparse point created at clone time instead, so the repo stays a plain, tracked directory tree.
+## Third-party skills
 
-## Refresh command
-
-After updating a skill in user scope, copy it back into the repo:
+The tools the fleet drives publish their own skills.
+Install them once at user scope from their owners instead of copying them here:
 
 ```powershell
-$skills = "no-mistakes","gh-axi","chrome-devtools-axi","maintaining-project-memory","gnhf","supabase","supabase-postgres-best-practices"
-foreach ($s in $skills) { Copy-Item -Recurse -Force "$env:USERPROFILE\.agents\skills\$s" ".agents\skills\$s" }
+npx skills add kunchenguid/gh-axi --skill gh-axi -g
+npx skills add kunchenguid/chrome-devtools-axi --skill chrome-devtools-axi -g
+npx skills add kunchenguid/no-mistakes --skill no-mistakes -g
 ```

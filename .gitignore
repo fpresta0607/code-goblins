@@ -18,9 +18,12 @@ config/
 /cfo.exe
 /frontend/node_modules/
 
-# Harness skill junctions created by install.ps1 -Bootstrap (point at .agents/skills).
+# The skill junction install.ps1 -Bootstrap creates (points at .agents/skills);
+# /.codex/skills/ is the one earlier bootstraps also made.
 /.claude/skills/
 /.codex/skills/
+# Machine-local Claude permissions; never publish them.
+/.claude/settings.json
 
 # goblin worktrees live beside the checkout they came from
 .worktrees/
