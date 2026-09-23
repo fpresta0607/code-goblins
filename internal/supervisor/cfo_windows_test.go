@@ -7,10 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -119,4 +122,138 @@ func primaryFixture(t *testing.T, store *Store) (primaryRegistration, string, *c
 	}
 	runner := &cfoRunner{t: t, pid: os.Getpid()}
 	return primary, identity, runner, &CFOConnection{State: store.Home.State, Herdr: &herdr.Client{Commands: runner}}
+}
+
+// registerFixture is a home with no registration and a fake Herdr in which
+// this test process is the foreground harness of pane w1:p1.
+func registerFixture(t *testing.T) (*Store, *cfoRunner, *CFOConnection) {
+	t.Helper()
+	store, _ := testStore(t)
+	t.Setenv("HERDR_PANE_ID", "w1:p1")
+	runner := &cfoRunner{t: t, pid: os.Getpid()}
+	return store, runner, &CFOConnection{State: store.Home.State, Herdr: &herdr.Client{Commands: runner, Session: "isolated"}}
+}
+
+func registrationExists(t *testing.T, store *Store) bool {
+	t.Helper()
+	_, err := os.Stat(filepath.Join(store.Home.State, "primary.json"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	return err == nil
+}
+
+// The live fleet's primary.json named a CFO process from six days earlier,
+// and nothing could replace it: every delivery path failed with a generic
+// error. Register replaces it with the live harness, and the board's own
+// verification accepts the result.
+func TestRegisterReplacesAStaleRegistrationWithOneTheBoardVerifies(t *testing.T) {
+	store, _, cfo := registerFixture(t)
+	hostname, _ := os.Hostname()
+	stale := primaryRegistration{Target: herdr.Target{Session: "isolated", Pane: "w0:p0"}, Workspace: "w0", Tab: "w0:t0", Agent: "claude", Terminal: "old-terminal", Process: lock.Info{PID: 37680, OwnerPID: 37680, Start: time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC), Hostname: hostname}}
+	data, _ := json.Marshal(stale)
+	if err := os.WriteFile(filepath.Join(store.Home.State, "primary.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	var problem registrationProblem
+	if err := cfo.check(ctx); !errors.As(err, &problem) || !strings.Contains(err.Error(), "pid 37680, started 2026-09-15 09:00 UTC, is no longer running; run cfo register in the CFO session") {
+		t.Fatalf("stale registration reads as %v, want one registration problem naming the fix", err)
+	}
+
+	described, err := Register(ctx, store.Home.State, cfo.Herdr, "", "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "codex pid " + strconv.Itoa(os.Getpid()) + " in Herdr pane isolated:w1:p1"; described != want {
+		t.Errorf("described %q, want %q", described, want)
+	}
+	if err := cfo.check(ctx); err != nil {
+		t.Fatalf("the board cannot verify the new registration: %v", err)
+	}
+	if !lock.HeldBy(store.Home.State, os.Getpid()) {
+		t.Error("registering a free home did not take its session lock")
+	}
+}
+
+func TestRegisterRefusesWhatItCannotProve(t *testing.T) {
+	for _, c := range []struct {
+		name, want string
+		arrange    func(*testing.T, *Store, *cfoRunner)
+	}{
+		{"outside Herdr", "not running in a Herdr pane", func(t *testing.T, _ *Store, _ *cfoRunner) {
+			t.Setenv("HERDR_PANE_ID", "")
+		}},
+		// The System process is live and never the ancestor of a test, so an
+		// inherited HERDR_PANE_ID cannot register another session's pane.
+		{"a pane this process does not run under", "does not run under it", func(_ *testing.T, _ *Store, runner *cfoRunner) {
+			runner.pid = 4
+		}},
+		{"a shell in the foreground", "no harness in its foreground", func(_ *testing.T, _ *Store, runner *cfoRunner) {
+			runner.pid = 1
+		}},
+		{"another live session holding the home", "another live session holds this home", func(t *testing.T, store *Store, _ *cfoRunner) {
+			other := exec.Command("cmd", "/c", "ping -n 30 127.0.0.1 >NUL")
+			if err := other.Start(); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = other.Process.Kill(); _, _ = other.Process.Wait() })
+			if _, err := lock.AcquireOwner(store.Home.State, other.Process.Pid, "other"); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"a different agent than the hook names", "Herdr detects codex in pane w1:p1, not pi", nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			store, runner, cfo := registerFixture(t)
+			harness := ""
+			if c.arrange != nil {
+				c.arrange(t, store, runner)
+			} else {
+				harness = "pi"
+			}
+			_, err := Register(context.Background(), store.Home.State, cfo.Herdr, harness, "")
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("Register: %v, want a refusal containing %q", err, c.want)
+			}
+			if registrationExists(t, store) {
+				t.Fatal("a refused registration wrote primary.json")
+			}
+		})
+	}
+}
+
+func TestBoardShowsTheRegistrationAsOneStateWithItsFix(t *testing.T) {
+	store, _, cfo := registerFixture(t)
+	service := &Service{Store: store, Options: Options{CFO: cfo}}
+	ctx := context.Background()
+	service.checkRegistration(ctx)
+	snapshot, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Registration != "The CFO is not registered; run cfo register in the CFO session" {
+		t.Fatalf("unregistered board shows %q", snapshot.Registration)
+	}
+	if _, err := Register(ctx, store.Home.State, cfo.Herdr, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	service.checkRegistration(ctx)
+	if snapshot, _ = service.Snapshot(); snapshot.Registration != "" {
+		t.Fatalf("registered board still shows %q", snapshot.Registration)
+	}
+}
+
+func TestCFOTerminalReportsAStaleRegistrationAsItsOwnState(t *testing.T) {
+	_, server, _, runner := terminalHTTPFixture(t, newTestTerminal())
+	runner.terminal = "replacement-terminal"
+	response := terminalPost(t, server, "/api/terminal/stream", `{"cols":80,"rows":24}`)
+	defer response.Body.Close()
+	var failure struct{ Error, Code string }
+	if err := json.NewDecoder(response.Body).Decode(&failure); err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != 409 || failure.Code != "registration_stale" || !strings.HasSuffix(failure.Error, "run cfo register in the CFO session") {
+		t.Fatalf("stale CFO terminal: %d %+v", response.StatusCode, failure)
+	}
 }
