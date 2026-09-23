@@ -178,6 +178,20 @@ The `cfo session-start` digest prints the first queued rows of `data/backlog.md`
 Apart from the shipped lane table, `data/routing.json`, `data/` is the operator's private fleet state and never part of this repository.
 A Claude CFO also loads its auto-memory index for this checkout.
 
+## Third-party skills
+
+The tools the fleet drives publish their own skills, and this repository does not copy them.
+Install each once at user scope with `-g`, so Codex, Pi and Kimi find it in `~/.agents/skills` and Claude Code in `~/.claude/skills`:
+
+```powershell
+npx skills add kunchenguid/gh-axi --skill gh-axi -g
+npx skills add kunchenguid/chrome-devtools-axi --skill chrome-devtools-axi -g
+npx skills add kunchenguid/no-mistakes --skill no-mistakes -g
+```
+
+A copy inside this repository would reach only sessions opened in this checkout, never a goblin working on another project, and would compete with the user copy under the collision rules above.
+`cfo doctor` checks that these tools are installed but not yet that their skills are; checking for each skill at user scope is a natural next addition to it.
+
 ## Keeping it clean
 
 - One skill, one directory: a skill this repository owns lives in `.agents/skills/` and nowhere else, and a third-party skill is installed once at user scope from its owner.
