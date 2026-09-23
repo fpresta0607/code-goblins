@@ -68,7 +68,9 @@ Every invocation runs the whole pass, even when the session produced no new find
    ```
 
    Add the harness memory index when there is one.
-   The budget is **10,000 estimated tokens** across the governed homes combined, about 5% of a 200k context paid by every CFO session before it does anything.
+   The budget is **10,000 estimated tokens** across the always-loaded memory files combined: `data/overlord.md`, `data/learnings.md` and the harness memory index.
+   The backlog does not count, because the digest prints only its first queued rows and `tasks-axi` owns its size.
+   That is about 5% of a 200k context paid by every CFO session before it does anything.
 2. **Read every governed file completely** before planning a write.
    An absent file is absent, not an invitation to manufacture content.
 3. **Sweep the session** for uncaptured durable knowledge: a directive or preference the Overlord stated, an operating fact, a gotcha, a standing decision, and undone next steps.
@@ -92,7 +94,8 @@ Every invocation runs the whole pass, even when the session produced no new find
 8. **Over budget after consolidation**, first total what this pass may not archive: `pinned` entries and entries still in their grace cycle.
    Neither is ever archived or moved for budget.
    When that floor alone exceeds the budget, archive nothing for budget reasons, name the floor and the shortfall in the receipt, and ask the Overlord whether to raise the budget or approve named moves.
-   Otherwise reduce in this order: archive every eligible stale, superseded or low-value entry; consolidate tighter; propose moving conditional entries (true, but relevant only in a nameable situation, such as one project) to an on-demand owner such as that project's `AGENTS.md` or a skill; then archive eligible `aging` entries oldest-reinforced first.
+   Otherwise reduce in this order: archive every eligible stale, superseded or low-value entry; consolidate tighter; propose moving conditional entries (true, but relevant only in a nameable situation, such as one project) to an on-demand owner such as that project's `AGENTS.md` or a skill; then archive the remaining `aging` and `perishable` entries oldest-reinforced first.
+   Every entry is either in the floor or archivable, so this ladder always reaches the budget or the floor question.
    A proposal is not relief: the pass ends within budget or with the floor question open, never with an accepted overrun.
 9. **Measure again** and write the receipt.
 
