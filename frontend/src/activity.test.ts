@@ -85,14 +85,19 @@ test("a Lavish tailnet link opens as returned, and plain http elsewhere stays re
   for (const raw of ["http://192.0.2.10:4387/session/f26e","http://100.128.0.1:4387/session/f26e","http://100.64.evil.example/review","http://[::ffff:100.64.0.1]/review","http://example.com/review","javascript:alert(1)"]) assert.equal(safePresentationURL(raw),false,raw);
 });
 
-test("a presentation naming a session shows on that session's card, and a pane-proven one on its task's card", () => {
-  const presentation={id:"task-2-review",kind:"review",task_id:"work",generation:"g7",source:"",target:"",state:"active",url:"http://127.0.0.1:4387/session/abc",at:"",until:""};
-  assert.equal(presentationShownOn(presentation,"s1","work"),true);
-  assert.equal(presentationShownOn(presentation,undefined,"work"),true);
-  assert.equal(presentationShownOn(presentation,"s1","other"),false);
-  assert.equal(presentationShownOn(presentation,undefined,undefined),false);
-  const named={...presentation,target:"s1"};
-  assert.equal(presentationShownOn(named,"s1","other"),true);
-  assert.equal(presentationShownOn(named,"s2","work"),false);
-  assert.equal(presentationShownOn(named,undefined,"work"),false);
+test("a presentation naming a session marks only that card, and a pane-proven one only its task's own card", () => {
+  const snapshot=parseSnapshot({healthy:true,tasks:[{id:"work",generation:"g7",session:"g",verified:false},{id:"quiet",generation:"g1",verified:false}],
+    sessions:[{id:"g",role:"goblin",task_id:"work",generation:"g7"},{id:"child",role:"goblin",parent:"g",task_id:"work",generation:"g7"},{id:"old",role:"goblin",task_id:"work",generation:"g6"}]});
+  const [work,quiet]=snapshot.tasks, [owner,child,old]=snapshot.sessions;
+  const paneProven={id:"task-2-review",kind:"review",task_id:"work",generation:"g7",source:"",target:"",state:"active",url:"http://127.0.0.1:4387/session/abc",at:"",until:""};
+  assert.equal(presentationShownOn(paneProven,owner,work),true);
+  assert.equal(presentationShownOn(paneProven,undefined,work),true);
+  assert.equal(presentationShownOn(paneProven,child,work),false);
+  assert.equal(presentationShownOn(paneProven,old,work),false);
+  assert.equal(presentationShownOn(paneProven,undefined,quiet),false);
+  assert.equal(presentationShownOn(paneProven,undefined,undefined),false);
+  const named={...paneProven,target:"child"};
+  assert.equal(presentationShownOn(named,child,work),true);
+  assert.equal(presentationShownOn(named,owner,work),false);
+  assert.equal(presentationShownOn(named,undefined,work),false);
 });
