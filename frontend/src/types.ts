@@ -78,7 +78,7 @@ export interface Snapshot {
   reconciled: string;
   healthy: boolean;
   error: string;
-  registration?: string;
+  registration: string;
   inbox: number;
   tasks: Task[];
   sessions: Session[];
@@ -201,6 +201,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     healthy: boolean(v.healthy),
     example: v.example === undefined ? false : boolean(v.example),
     error: string(v.error),
+    registration: v.registration === undefined ? "" : string(v.registration),
     inbox: number(v.inbox),
     retired: strings(v.retired),
     issues: strings(v.issues),
