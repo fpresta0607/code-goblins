@@ -208,6 +208,9 @@ func writeWakeQueue(stateDir string, ew *werr) {
 // stays short relative to upstream's equivalent.
 func writeSupervisionInstructions(ew *werr) {
 	ew.println("== SUPERVISION OPERATING INSTRUCTIONS ==")
+	ew.println("For an explicit user decision, the registered primary CFO uses cfo question --id <stable-id> --text <question> --option <choice> --recommend <exact-choice>. Repeat --option for real choices; omit --recommend unless you recommend one. Other always permits a written answer.")
+	ew.println("This contract applies to Claude Code, Codex and Pi: publish from this primary session's shell, then continue independent work or end the turn awaiting the answer. The durable answer returns to the same CFO as a normal message; it does NOT answer a pending native prompt tool. Do not open a native prompt for the same decision or promote worker wake diagnostics into user questions.")
+	ew.println("For a nonblocking presentation, use Lavish --no-open and cfo present --id <stable-id> --kind review --url <returned-safe-url> from this registered primary; workers add --task and --generation. Report only a successful tool result, refresh only while live and finish with --state ended. Do not wait for a viewing choice or claim URL opening mirrors browser control; see docs/native-board.md.")
 	ew.println("The Stop-owned auto-arm hook owns watcher continuity: it hosts the watcher in-process across every turn for up to 8 hours.")
 	ew.println("Never run \"cfo watch\" from the agent shell. The watcher is armed and supervised by that hook alone; running it manually bypasses supervision.")
 	ew.println("Wakes arrive as rewake turns: a Stop hook exit 2 reopens the turn with an operational reason (a signal, a stale sweep, or a heartbeat), not a fresh session.")

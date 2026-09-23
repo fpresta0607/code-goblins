@@ -1,0 +1,34 @@
+{
+    "path":  "C:\\Users\\fpres\\AppData\\Local\\Temp\\cfo-native-board-final.exe",
+    "sha256":  "E6F1230945414BFB14F60009224058C236FCE2ED7351BEE223B6068E4585B90D",
+    "size_bytes":  13577728,
+    "scan_id":  "{99DE9B93-784D-4AF3-8C3E-7B4CD76DDF82}",
+    "scan_started":  "2026-09-22T10:50:32.5888781-05:00",
+    "scan_finished":  "2026-09-22T10:50:32.7421418-05:00",
+    "detection_count":  0,
+    "detections":  [
+
+                   ],
+    "build_info":  [
+                       "C:\\Users\\fpres\\AppData\\Local\\Temp\\cfo-native-board-final.exe: go1.26.5",
+                       "\tpath\tgithub.com/fpresta0607/code-goblins/cmd/cfo",
+                       "\tmod\tgithub.com/fpresta0607/code-goblins\tv0.0.0-20260919220855-27ce7eecb877+dirty\t",
+                       "\tdep\tgopkg.in/yaml.v3\tv3.0.1\th1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=",
+                       "\tbuild\t-buildmode=exe",
+                       "\tbuild\t-compiler=gc",
+                       "\tbuild\tCGO_ENABLED=0",
+                       "\tbuild\tGOARCH=amd64",
+                       "\tbuild\tGOOS=windows",
+                       "\tbuild\tGOAMD64=v1",
+                       "\tbuild\tvcs=git",
+                       "\tbuild\tvcs.revision=27ce7eecb87718442d8285f682b688f7914fbe5a",
+                       "\tbuild\tvcs.time=2026-09-19T22:08:55Z",
+                       "\tbuild\tvcs.modified=true"
+                   ],
+    "protection":  {
+                       "AMEngineVersion":  "1.1.26080.3",
+                       "AntivirusSignatureVersion":  "1.459.332.0",
+                       "AntivirusSignatureLastUpdated":  "\/Date(1790046825000)\/",
+                       "RealTimeProtectionEnabled":  true
+                   }
+}

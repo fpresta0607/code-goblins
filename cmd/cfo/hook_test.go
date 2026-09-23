@@ -1238,7 +1238,7 @@ func TestRunHookSessionStartResumeNoMarkerFallsThrough(t *testing.T) {
 	}
 }
 
-const sessionStartNudge = "CFO: operational input may be waiting; run cfo drain if supervision was active.\n"
+const sessionStartNudge = "CFO: operational input may be waiting; run cfo drain if supervision was active. For an explicit user decision, publish cfo question --id <stable-id> --text <question> [--option <choice>] [--recommend <exact-choice>] from the registered primary shell. Answers return as normal messages to the same CFO, not native prompt-tool responses.\n"
 
 // TestRunHookSessionStartRouting pins the owner pid via CFO_TEST_ANCESTOR_PID
 // to a live foreign process (the ping-child pattern; the ambient

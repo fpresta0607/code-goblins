@@ -1,0 +1,32 @@
+[
+    {
+        "Id":  1001,
+        "TimeCreated":  "\/Date(1790091067622)\/",
+        "Message":  "Microsoft Defender Antivirus scan has finished.\r\n \tScan ID: {BFBE6CFA-D68C-4D6E-9677-EDC1A8C22854}\r\n \tScan Type: Antimalware\r\n \tScan Parameters: Custom Scan\r\n \tUser: NT AUTHORITY\\LOCAL SERVICE\r\n \tScan Time: 0:00:00"
+    },
+    {
+        "Id":  1000,
+        "TimeCreated":  "\/Date(1790091067549)\/",
+        "Message":  "Microsoft Defender Antivirus scan has started.\r\n \tScan ID: {BFBE6CFA-D68C-4D6E-9677-EDC1A8C22854}\r\n \tScan Type: Antimalware\r\n \tScan Parameters: Custom Scan\r\n \tScan Resources: file:_C:\\Users\\fpres\\AppData\\Local\\Temp\\cfo-native-board-review.exe\r\n  \tUser: NT AUTHORITY\\LOCAL SERVICE\r\n \tScan Trigger: On demand\r\n \tScan Only If Idle: Enabled\r\n \tLow CPU Priority for Scans: Disabled\r\n \tThread Priority: 7"
+    },
+    {
+        "Id":  1001,
+        "TimeCreated":  "\/Date(1790090787784)\/",
+        "Message":  "Microsoft Defender Antivirus scan has finished.\r\n \tScan ID: {45AB69E3-35D5-4B25-B1DC-98DEDD476C8B}\r\n \tScan Type: Antimalware\r\n \tScan Parameters: Custom Scan\r\n \tUser: NT AUTHORITY\\LOCAL SERVICE\r\n \tScan Time: 0:00:00"
+    },
+    {
+        "Id":  1000,
+        "TimeCreated":  "\/Date(1790090787543)\/",
+        "Message":  "Microsoft Defender Antivirus scan has started.\r\n \tScan ID: {45AB69E3-35D5-4B25-B1DC-98DEDD476C8B}\r\n \tScan Type: Antimalware\r\n \tScan Parameters: Custom Scan\r\n \tScan Resources: file:_C:\\Users\\fpres\\AppData\\Local\\Temp\\cfo-board-windows-33eb9388f1e6449b8070a73a12dfd69f\\bin\\codex.exe\r\n  \tUser: NT AUTHORITY\\LOCAL SERVICE\r\n \tScan Trigger: On demand\r\n \tScan Only If Idle: Enabled\r\n \tLow CPU Priority for Scans: Disabled\r\n \tThread Priority: 7"
+    },
+    {
+        "Id":  1001,
+        "TimeCreated":  "\/Date(1790090154396)\/",
+        "Message":  "Microsoft Defender Antivirus scan has finished.\r\n \tScan ID: {C501B5F1-FF90-49EC-80DB-3E422143797D}\r\n \tScan Type: Antimalware\r\n \tScan Parameters: Custom Scan\r\n \tUser: NT AUTHORITY\\LOCAL SERVICE\r\n \tScan Time: 0:00:00"
+    },
+    {
+        "Id":  1000,
+        "TimeCreated":  "\/Date(1790090154333)\/",
+        "Message":  "Microsoft Defender Antivirus scan has started.\r\n \tScan ID: {C501B5F1-FF90-49EC-80DB-3E422143797D}\r\n \tScan Type: Antimalware\r\n \tScan Parameters: Custom Scan\r\n \tScan Resources: file:_C:\\Users\\fpres\\AppData\\Local\\Temp\\cfo-native-board-v2.exe\r\n  \tUser: NT AUTHORITY\\LOCAL SERVICE\r\n \tScan Trigger: On demand\r\n \tScan Only If Idle: Enabled\r\n \tLow CPU Priority for Scans: Disabled\r\n \tThread Priority: 7"
+    }
+]

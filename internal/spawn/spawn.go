@@ -321,6 +321,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// builds against the fleet's single store. They are not secrets, so they
 	// ride the launch environment rather than the restricted credentials file.
 	mergeProvisionEnv(launch.Env, preflight.Caches)
+	nativeEnvironment(launch.Env, result.Meta)
 	// Every goblin is told to report its outcome through cfo notify, so the
 	// CFO is woken with the actual PR URL, question, or failure reason instead
 	// of the watcher guessing from pane text.
@@ -520,17 +521,14 @@ func (s Service) startHarness(ctx context.Context, client *herdr.Client, target 
 		if err := s.confirmHarnessDialogs(ctx, client, target, launch); err != nil {
 			return true, err
 		}
-		// A resumed typed launch carries no positional instruction, because a
-		// resume subcommand binds its first positional to a session
-		// identifier. Submit it as a prompt the way the native path below
-		// does, or the resumed goblin starts with nothing to do.
-		if launch.Resumed {
-			if err := s.sleep(ctx, launchSettle); err != nil {
-				return true, fmt.Errorf("spawn: wait before resumed brief prompt: %w", err)
-			}
-			if err := s.deliverVerifiedInstruction(ctx, client, target, launch.PromptInstruction()); err != nil {
-				return true, err
-			}
+		if err := s.sleep(ctx, launchSettle); err != nil {
+			return true, fmt.Errorf("spawn: wait before brief prompt: %w", err)
+		}
+		if _, err := s.reportUndetectedHarness(ctx, client, target, plan); err != nil {
+			return true, err
+		}
+		if err := s.deliverVerifiedInstruction(ctx, client, target, launch.PromptInstruction()); err != nil {
+			return true, err
 		}
 		if err := s.confirmLaunch(ctx, client, target, plan); err != nil {
 			return true, err
@@ -1044,7 +1042,8 @@ func notifyInstruction(id string) string {
 	if err != nil {
 		exe = "cfo"
 	}
-	return " Report outcomes to the CFO: on completion with a PR run: " + exe + " notify " + id + " --done --pr <url>. When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\"; when the question has a fixed set of choices, name them after one literal options: marker separated by |, as in \"<question> options: a | b | c\", and cfo drain renders those as the decision's options. On failure run: " + exe + " notify " + id + " --failed \"<reason>\"."
+	return " Report outcomes to the CFO: on completion with a PR run: " + exe + " notify " + id + " --done --pr <url>. When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\"; when the question has a fixed set of choices, name them after one literal options: marker separated by |, as in \"<question> options: a | b | c\", and cfo drain renders those as the decision's options. On failure run: " + exe + " notify " + id + " --failed \"<reason>\"." +
+		" For a successful browser walkthrough or Lavish presentation, use Lavish --no-open and report its safe URL with cfo present --id <stable-id> --task " + id + " --generation <CFO_SPAWN_GEN> --kind browser|review --url <safe-url>. Refresh only while live and report --state ended when finished. A viewing choice never pauses your work. See docs/native-board.md; do not publish secrets, query parameters or browser history."
 }
 
 // containsMarker matches against whitespace-normalized text: pane captures

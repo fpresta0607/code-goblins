@@ -1,0 +1,26 @@
+[
+    {
+        "role":  "supervisor",
+        "pid":  37504,
+        "elapsed_s":  14.52,
+        "cpu_seconds":  0.3438,
+        "working_set_mb":  59.27,
+        "private_mb":  53.43
+    },
+    {
+        "role":  "fixture harness",
+        "pid":  39176,
+        "elapsed_s":  14.56,
+        "cpu_seconds":  0.1094,
+        "working_set_mb":  8.71,
+        "private_mb":  13.86
+    },
+    {
+        "role":  "Herdr",
+        "pid":  35864,
+        "elapsed_s":  14.57,
+        "cpu_seconds":  1.2344,
+        "working_set_mb":  29.28,
+        "private_mb":  13.81
+    }
+]

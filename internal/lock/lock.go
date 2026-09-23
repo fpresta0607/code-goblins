@@ -69,6 +69,18 @@ func (i *Info) Alive() bool {
 	return diff > -time.Second && diff < time.Second
 }
 
+// VerifiedAlive is the positive identity proof needed before routing input.
+// Unlike custody's Alive, inaccessible or foreign processes are not evidence.
+func (i *Info) VerifiedAlive() bool {
+	hostname, err := os.Hostname()
+	if err != nil || i.Hostname != hostname || i.PID <= 0 || i.Start.IsZero() {
+		return false
+	}
+	start, status := processStart(i.PID)
+	diff := start.Sub(i.Start)
+	return status == statusAlive && diff > -time.Second && diff < time.Second
+}
+
 // ownerInfo builds the Info record for pid, the process taking custody of
 // the lock (the harness ancestor for a hook-driven acquire, or the calling
 // process itself for a plain Acquire), with session recorded verbatim. The

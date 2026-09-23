@@ -1,0 +1,133 @@
+{
+    "instance":  "efc606d72674f8c51d41bc7d05fdc0e2",
+    "revision":  22,
+    "started":  "2026-09-22T15:10:02.9244175Z",
+    "at":  "2026-09-22T15:25:11.8670398Z",
+    "reconciled":  "2026-09-22T15:25:03.2417549Z",
+    "healthy":  true,
+    "error":  "",
+    "inbox":  0,
+    "tasks":  [
+                  {
+                      "id":  "board-fixture",
+                      "title":  "Native event recovery and code review",
+                      "project":  "project",
+                      "harness":  "codex",
+                      "model":  "fixture (no model calls)",
+                      "effort":  "max",
+                      "mode":  "local-only",
+                      "generation":  "fixture-1",
+                      "session":  "codex/board-worker",
+                      "dependencies":  [
+
+                                       ],
+                      "runtime":  {
+                                      "state":  "busy",
+                                      "reason":  "Herdr reports busy",
+                                      "at":  "2026-09-22T15:25:02.9432691Z"
+                                  },
+                      "phase":  "working",
+                      "reason":  "Native activity and Herdr runtime evidence agree",
+                      "verified":  false,
+                      "at":  "2026-09-22T15:15:24.3594903Z"
+                  },
+                  {
+                      "id":  "follow-up",
+                      "title":  "Verify landed content",
+                      "project":  "fixture",
+                      "harness":  "",
+                      "model":  "",
+                      "effort":  "",
+                      "mode":  "",
+                      "generation":  "",
+                      "session":  "",
+                      "dependencies":  [
+                                           "board-fixture"
+                                       ],
+                      "runtime":  {
+                                      "state":  "",
+                                      "reason":  "",
+                                      "at":  "0001-01-01T00:00:00Z"
+                                  },
+                      "phase":  "queued",
+                      "reason":  "",
+                      "verified":  false,
+                      "at":  "0001-01-01T00:00:00Z"
+                  }
+              ],
+    "sessions":  [
+                     {
+                         "id":  "claude/board-cfo",
+                         "native_id":  "board-cfo",
+                         "harness":  "claude",
+                         "role":  "cfo",
+                         "model":  "fixture supervisor",
+                         "phase":  "started",
+                         "last_event_id":  "14ac4757ca9a27f3b7ce3914c8086992a759cdcf4a483cf6926479a0b932f0bc",
+                         "updated_at":  "2026-09-22T15:01:22.5302572Z",
+                         "runtime":  {
+                                         "state":  "",
+                                         "reason":  "",
+                                         "at":  "0001-01-01T00:00:00Z"
+                                     }
+                     },
+                     {
+                         "id":  "codex/board-worker",
+                         "native_id":  "board-worker",
+                         "harness":  "codex",
+                         "role":  "goblin",
+                         "task_id":  "board-fixture",
+                         "generation":  "fixture-1",
+                         "parent":  "claude/board-cfo",
+                         "reported_root":  "board-cfo",
+                         "relation":  "spawned",
+                         "model":  "fixture (no model calls)",
+                         "phase":  "active",
+                         "turn_id":  "0",
+                         "last_event_id":  "e0efae19c4556f26e8b3e78580ca1bfdef0668b1eac21c660cbef4f711c3df0e",
+                         "updated_at":  "2026-09-22T15:15:24.3594903Z",
+                         "runtime":  {
+                                         "state":  "busy",
+                                         "reason":  "Herdr reports busy",
+                                         "at":  "2026-09-22T15:25:02.9432691Z"
+                                     }
+                     }
+                 ],
+    "retired":  null,
+    "actions":  [
+                    {
+                        "id":  "65d30c6c-a748-400a-954e-eb508fbbce55",
+                        "kind":  "feedback",
+                        "task_id":  "board-fixture",
+                        "generation":  "fixture-1",
+                        "text":  "UI lost-response fixture instruction - keep exactly one delivery.",
+                        "status":  "uncertain",
+                        "message":  "fleet: submit text for cfo-board-test-d06265d5bf4b:w1:p2: herdr: agent prompt for cfo-board-test-d06265d5bf4b:w1:p2 exited with code 1: {\"error\":{\"code\":\"agent_not_ready\",\"message\":\"agent w1:p2 is no longer the pane foreground process\"},\"id\":\"cli:agent:prompt\"}",
+                        "created_at":  "2026-09-22T15:11:42.6114578Z",
+                        "updated_at":  "2026-09-22T15:11:42.8618567Z"
+                    },
+                    {
+                        "id":  "a3d0fab0-8c51-4205-a830-4c15eaeaf692",
+                        "kind":  "feedback",
+                        "task_id":  "board-fixture",
+                        "generation":  "fixture-1",
+                        "text":  "UI lost-response verification - deliver this instruction once.",
+                        "status":  "uncertain",
+                        "message":  "fleet: text delivery to cfo-board-test-d06265d5bf4b:w1:p2 is unconfirmed: pending",
+                        "created_at":  "2026-09-22T15:18:06.1460744Z",
+                        "updated_at":  "2026-09-22T15:18:12.4841381Z"
+                    }
+                ],
+    "decisions":  [
+                      {
+                          "seq":  1,
+                          "time":  "2026-09-22T15:01:24.0965871Z",
+                          "kind":  "orphan",
+                          "key":  "orphans",
+                          "detail":  "1 orphan_process; still running: 1 orphan_process; run cfo reap to see them, cfo reap --apply to retire everything else, and cfo reap --force \u003cpid\u003e --apply to end one of these, because a kill is authorised only by naming its pid"
+                      }
+                  ],
+    "issues":  [
+
+               ]
+}
