@@ -154,14 +154,18 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .connections-details li span, .connections-details p { color: var(--muted); }
 .connections-details p { font-size: .9375rem; margin: 18px 0; }
 .connections-details h4 { margin: 20px 0 10px; font-size: 1rem; }
-.native-terminal-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.native-terminal-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; }
 .native-terminal-pane .panel-header > div { min-width: 0; }
-.terminal-toolbar { padding: 12px 18px; display: flex; gap: 12px; align-items: center; justify-content: space-between; font-size: .8125rem; color: var(--muted); }
+.terminal-workspace { grid-column: 1 / -1; min-width: 0; border-top: 1px solid var(--border); }
+.terminal-workspace > summary { padding: 10px 0; font-size: 1rem; }
+.terminal-workspace .workspace-details { border: 0; margin: 0; padding-top: 8px; }
+.terminal-workspace .workspace-details > h3 { display: none; }
+.terminal-toolbar { padding: 12px 18px; display: flex; flex: none; gap: 12px; align-items: center; justify-content: space-between; font-size: .8125rem; color: var(--muted); }
 .terminal-toolbar button { padding: 7px 12px; min-height: 38px; flex-shrink: 0; }
-.terminal-surface { flex: 1; min-height: 220px; min-width: 0; overflow: auto; margin: 0 14px; padding: 10px; border: 1px solid #203331; border-radius: 10px; background: #071015; }
+.terminal-surface { flex: 1; min-height: 160px; min-width: 0; overflow: auto; margin: 0 14px; padding: 10px; border: 1px solid #203331; border-radius: 10px; background: #071015; }
 .terminal-surface .xterm { height: 100%; }
 .terminal-surface .xterm-viewport { overflow: hidden !important; }
-.terminal-caption { padding: 12px 18px; font-size: .75rem; color: var(--muted); }
+.terminal-caption { flex: none; padding: 12px 18px; font-size: .75rem; color: var(--muted); }
 .native-terminal-pane > .error-box { margin: 0 14px 14px; font-size: .875rem; }
 /* The Command Center uses the approved generated modal, with real data only. */
 .question-modal { position: relative; color: #eef3f1; background: #171f23; border: 1px solid #3b4647; border-radius: 28px; padding: 40px; width: min(700px, calc(100vw - 28px)); max-height: 92dvh; box-shadow: 0 28px 90px #0009; }
@@ -213,7 +217,8 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 .panel-header { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 12px 20px; padding: 26px 30px 0; border-bottom: 1px solid var(--border); flex: none; }
 .panel-header .goblin-avatar { width: 96px; height: 96px; }
 .panel-header .project-label { font-size: 1.0625rem; margin-top: 7px; }
-.native-terminal-pane .panel-header { max-height: 55dvh; overflow: auto; padding-bottom: 10px; }
+.native-terminal-pane .panel-header { grid-template-columns: 64px minmax(0, 1fr); gap: 10px 14px; padding: 12px 18px 0; }
+.native-terminal-pane .panel-header .goblin-avatar { width: 64px; height: 64px; }
 .panel-header .muted { color: var(--muted); font-size: .9375rem; margin-top: 2px; }
 .details-panel { min-height: 0; overflow: auto; flex: 1; }
 .panel-header > div { min-width: 0; }
@@ -408,7 +413,7 @@ button.line-number { min-height: 32px; }
 .node-enter { animation: entered .5s ease-out; }
 @keyframes entered { from { opacity: .3; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
-.terminal-options { margin: 0 18px 12px; color: var(--muted); font-size: .875rem; }
+.terminal-options { flex: none; margin: 0 18px 12px; color: var(--muted); font-size: .875rem; }
 .terminal-options summary { cursor: pointer; }
 .terminal-options label { display: flex; align-items: center; gap: 12px; }
 .terminal-options p { margin-top: 6px; }
