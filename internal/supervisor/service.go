@@ -187,10 +187,12 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		s.publish(err)
 		return
 	}
-	var reconcileErr error
+	// Question failures cannot stop native events or independent progression.
+	reconcileErr := s.Store.ingestQuestions()
+	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
 	if recover {
 		if s.Options.Reconcile != nil {
-			reconcileErr = s.Options.Reconcile(ctx)
+			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
 		}
 		s.mu.Lock()
 		s.reconciled = time.Now().UTC()
@@ -268,11 +270,24 @@ func (s *Service) process(ctx context.Context) {
 }
 
 func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
-	if a.Kind == "cfo_message" {
+	if a.Kind == "cfo_message" || a.Kind == "cfo_answer" {
 		if s.Options.CFO == nil {
 			return Evaluation{}, fmt.Errorf("%w: CFO message transport is unavailable", ErrRejected)
 		}
-		return s.Options.CFO.Send(ctx, a.Generation, a.Text)
+		text := a.Text
+		if a.Kind == "cfo_answer" {
+			found := false
+			for _, q := range s.Store.Snapshot().Questions {
+				if q.ID == a.QuestionID && q.Identity == a.Generation && q.AnswerID == a.ID {
+					text = fmt.Sprintf("User answer to CFO question %s\nQuestion: %s\nAnswer: %s", q.ID, q.Text, a.Text)
+					found = true
+				}
+			}
+			if !found {
+				return Evaluation{}, fmt.Errorf("%w: user question context changed", ErrRejected)
+			}
+		}
+		return s.Options.CFO.Send(ctx, a.Generation, text)
 	}
 	meta, err := state.ReadTaskMeta(s.Store.Home.State, a.TaskID)
 	if err != nil {
@@ -484,6 +499,7 @@ type Snapshot struct {
 	Actions    []Action      `json:"actions"`
 	Decisions  []wake.Record `json:"decisions"`
 	Issues     []string      `json:"issues"`
+	Questions  []Question    `json:"questions"`
 }
 
 func (s *Service) Snapshot() (Snapshot, error) {
@@ -491,6 +507,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	s.mu.Lock()
 	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
 	s.mu.Unlock()
+	out.Questions = d.Questions
 	out.Healthy = supervise.WatcherHealthy(s.Store.Home.State, 30*time.Second)
 	for _, node := range d.Sessions {
 		if node.Role == "goblin" && d.TaskSessions[node.TaskID] == node.ID {

@@ -191,3 +191,41 @@ Shared gate policy remains held for the owning CFO.
 - Committed the approved UI and evidence as `a45e2cd`.
   The external clean-checkout build exposed mixed HTML line endings and modified generated script/style status under Windows checkout conversion; pinning the template and generated HTML/JavaScript/CSS to LF addresses both checks.
   A follow-up build correction commit precedes the final executable; no generated file was hand edited.
+
+### Native terminal and focused review revision
+
+The September 23 brief supersedes the shared conversation/task panel.
+Keep Board focused on inline diff annotations, activity and history, and Orchestration focused on the selected native terminal.
+Use the installed Herdr NDJSON observer for browsing and an explicitly requested controller for input, with exact terminal/process identity, custody checks and no takeover or uncertain-input replay.
+The isolated Windows observer produced a real ANSI full frame; the exact installed source confirms input, resize, scroll and release support.
+This transport does not expose Kitty keyboard/graphics negotiation or historical PTY bytes.
+
+1. Implement and test bounded native streams and identity/custody enforcement, including disconnect and replacement.
+2. Add deliberate CFO-owned question publication and durable answers, independent of worker wake notifications.
+3. Separate Board review from Orchestration terminal, add scoped Workspace details and project labels, and refine keyboard-only focus and centered chevrons.
+4. Verify isolated keys/paste/scroll, inline reviews, modal answers and stale/duplicate paths, then the coordinated two-message live CFO test using observation and normal message submission only.
+5. Run frontend and Go checks, record screenshots and transport limits, commit, build/scan the exact clean artifact, and attempt the managed gate on the new commit.
+
+The parent confirmed the task migration to v2 with the high-risk three-cycle budget preserved.
+Shared configuration, credentials, unrelated sessions and merge authority remain untouched.
+
+- Native stream and CFO question regressions passed, including blocked stdin teardown, frame gaps, ownership refusal, changed terminal/process, stable binding across delivery metadata, durable conflict rejection, poison/capacity isolation, CFO replacement, duplicate/crash handling and scoped metadata redaction.
+  The focused supervisor run passed in 5.260 seconds with production home/state overrides cleared.
+- Frontend typecheck, ESLint, eleven behavior tests and the split Vite build passed.
+  The terminal library loads only in Orchestration; Board retains inline CFO review annotations and no hidden alternate message composer.
+  Real browser typing, paste, modal and layout acceptance is next.
+- The question rollover regression reproduced lost deferred records against the pre-fix implementation through a Go source overlay, including equal timestamps.
+  The corrected supervisor suite passed in 47.574 seconds and Herdr tests in 1.559 seconds with production home/state overrides cleared.
+  Admission now follows the bounded inbox's timestamp order and keeps the retirement cutoff below same-time pending records.
+- Final frontend typecheck, lint, eleven tests and production build passed; `git diff --check` is clean.
+  Board columns now respond to their container width and Workspace details expands inside the pane.
+  These layout fixes and the final xterm style nonce adapter await browser acceptance on the final artifact.
+- Candidate v2 at :63790 accepted fixture typing/Enter and a complete multiline paste, rejected an oversized Unicode paste locally while keeping the session usable, and released input/focus through Shift+Escape.
+  Seventeen typing requests measured 80.2 ms median and 169.8 ms maximum with no failed responses; this short sample is not the outstanding sustained typing/live-model acceptance.
+  Its screenshot and root review are explicitly v2 evidence, not proof of the subsequent CSS/CSP corrections.
+- Automatic approval review rejected both a task-owned candidate restart and a fresh isolated preview launch with only `blocked by policy` as the stated reason.
+  No rejected command ran; exact commands are in the fleet task's `preview-approval-block.md`.
+  Per the owning CFO, freeze and commit this source with honest pending acceptance, build/scan the exact clean artifact outside the worktree, then let the CFO coordinate approval and real-session tests before the managed gate.
+- Scoped Go vet passed for supervisor, Herdr and cmd/cfo; the production npm dependency audit reports zero vulnerabilities.
+  Xterm and fit-addon license notices are included in the generated delivery assets.
+  The owning CFO will run full Go tests/vet against the frozen clean checkout, avoiding a concurrent Vite rebuild replacing embedded filenames.

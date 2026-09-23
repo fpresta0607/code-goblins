@@ -10,8 +10,27 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 )
+
+func TestTerminalStyleNonceIsUniqueAndDoesNotRelaxScripts(t *testing.T) {
+	store, _ := testStore(t)
+	h := NewHTTP(&Service{Store: store}, "board.local", fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html><head></head><body></body></html>")}})
+	seen := map[string]bool{}
+	for i := 0; i < 2; i++ {
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local/", nil))
+		policy := response.Header().Get("Content-Security-Policy")
+		if !strings.Contains(policy, "script-src 'self';") || strings.Contains(policy, "unsafe-inline") || !strings.Contains(policy, "style-src 'self' 'nonce-") {
+			t.Fatal("unexpected CSP", policy)
+		}
+		if seen[response.Body.String()] || !strings.Contains(response.Body.String(), "cfo-style-nonce") {
+			t.Fatal("style nonce missing or reused")
+		}
+		seen[response.Body.String()] = true
+	}
+}
 
 func TestNativeCaptureRequestsAreBoundedAcrossRecipients(t *testing.T) {
 	store, _ := testStore(t)

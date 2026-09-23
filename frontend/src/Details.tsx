@@ -1,21 +1,17 @@
 import { useState, type ReactNode } from "react";
-import type { Session, Snapshot, Task } from "./types";
+import type { Snapshot, Task } from "./types";
 import {
-  parseAction,
   parseDiff,
   parseFiles,
   parseHistory,
-  parseTerminal,
   strings,
-  decisionText,
 } from "./types";
-import { message, request, useNativeOutput, useResource } from "./api";
+import { useResource } from "./api";
 import { age } from "./presentation";
 import { Avatar } from "./Avatar";
-import { nativeStatus, nodeStatus, personaFor, taskColumn } from "./workflow";
-import { MessageComposer, type MessageControls } from "./Messages";
+import { nodeStatus, personaFor } from "./workflow";
 import { DiffView } from "./DiffView";
-import { ownsTaskSession, sessionModel, sessionRole, sessionTitle } from "./lineageTree";
+import { WorkspaceDetails } from "./WorkspaceDetails";
 import type { ReviewControls } from "./review";
 
 function ErrorBox({ error, retry }: { error: string; retry?: () => void }) {
@@ -122,17 +118,6 @@ function History({
   );
 }
 
-function Terminal({ task, connected, visible, messages }: { task: Task; connected: boolean; visible: boolean; messages: MessageControls }) {
-  const terminal = useNativeOutput(visible && connected ? `/api/tasks/${encodeURIComponent(task.id)}/terminal` : null, parseTerminal);
-  return <section className="worker-terminal" aria-label="Task terminal">
-    <div className="native-output-heading"><h3>Native session</h3><button disabled={terminal.loading || !connected} onClick={terminal.reload}>Refresh</button></div>
-    {terminal.error && <ErrorBox error={terminal.error} retry={terminal.reload} />}
-    {terminal.data === undefined ? <p className="loading" role="status">{connected ? "Reading native output…" : "Disconnected from the supervisor."}</p>
-      : <pre className="native-session-output" tabIndex={0}>{terminal.data || "No terminal output reported."}</pre>}
-    <p className="transport-note">Captured native output · submitted messages</p>
-    <MessageComposer messages={messages} channel={"task:" + task.id} recipient={{ kind: "feedback", task_id: task.id, generation: task.generation }} connected={connected} disabled={!!terminal.error} />
-  </section>;
-}
 // Native disclosure styling and load-on-open behavior adapted from SIQshift
 // settings-group and shared ShiftGroups. Closing releases preview resources;
 // feedback stays mounted separately so an ambiguous submission keeps its ID.
@@ -147,6 +132,8 @@ function Disclosure({ title, children, defaultOpen = false, kind = "" }: { title
 function Activity({ task, snapshot }: { task?: Task; snapshot: Snapshot }) {
   const activity = useResource(task?.generation ? "/api/tasks/" + encodeURIComponent(task.id) + "/activity" : null, strings);
   const actions = snapshot.actions.filter((action) => action.task_id === task?.id).slice(-20).reverse();
+  const actionLabel = (kind: string) => ({ review: "Review comment", feedback: "Task instruction", evaluate: "Progress check", cfo_message: "CFO message", cfo_answer: "Question answer" })[kind] || "Action";
+  const outcomeLabel = (status: string, kind: string) => status === "succeeded" ? (kind === "review" || kind.startsWith("cfo_") ? "Sent to CFO" : "Completed") : ({ queued: "Queued", running: "Sending", failed: "Could not deliver", uncertain: "Delivery unconfirmed" })[status] || "Awaiting evidence";
   return <>
     {activity.error ? <ErrorBox error={activity.error} retry={activity.reload} /> :
       activity.data?.length ? <ol className="activity-list">
@@ -155,7 +142,7 @@ function Activity({ task, snapshot }: { task?: Task; snapshot: Snapshot }) {
     {actions.length > 0 && <section className="action-history">
       <h3>Action delivery</h3>
       <ol className="action-list">{actions.map((action) => <li key={action.id}>
-        <div><strong>{action.kind}</strong><span className={"action-state " + action.status}>{action.status}</span><time>{age(action.updated_at)}</time></div>
+        <div><strong>{actionLabel(action.kind)}</strong><span className={"action-state " + action.status}>{outcomeLabel(action.status, action.kind)}</span><time>{age(action.updated_at)}</time></div>
         <p>{action.message || "Waiting for execution"}</p>
         {action.status === "uncertain" && <p className="warning-text">Inspect {action.kind === "review" ? "the CFO queue" : "the terminal"} before sending again. This action will not be replayed automatically.</p>}
       </li>)}</ol>
@@ -163,84 +150,21 @@ function Activity({ task, snapshot }: { task?: Task; snapshot: Snapshot }) {
   </>;
 }
 
-export function Details({ task, node, missingSession, snapshot, connected, visible, reviews, messages, onSelectTask }: {
-  task?: Task;
-  node?: Session;
-  missingSession: boolean;
-  snapshot: Snapshot;
-  connected: boolean;
-  visible: boolean;
-  reviews: ReviewControls;
-  messages: MessageControls;
-  onSelectTask: (id: string, source: HTMLElement) => void;
+export function Details({ task, snapshot, connected, reviews }: {
+  task?: Task; snapshot: Snapshot; connected: boolean; reviews: ReviewControls;
 }) {
-  const [actionError, setActionError] = useState("");
-  const [evaluating, setEvaluating] = useState(false);
-  const canUseTask = !!task?.generation;
-  const taskOwner = ownsTaskSession(node, task);
-  const completed = !!task && taskColumn(task) === "Completed";
-  const runtime = node?.runtime || (taskOwner ? task?.runtime : undefined);
-  const decisions = snapshot.decisions.filter((decision) => decision.key === task?.id && decision.kind !== "heartbeat");
-  const refreshEvidence = async () => {
-    if (!task || evaluating) return;
-    setEvaluating(true);
-    setActionError("");
-    try {
-      parseAction(await request("/api/actions", undefined, {
-        method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance },
-        body: JSON.stringify({ id: crypto.randomUUID(), kind: "evaluate", task_id: task.id, generation: task.generation }),
-      }));
-    } catch (error: unknown) { setActionError(message(error)); }
-    finally { setEvaluating(false); }
-  };
+  if (!task) return <section className="review-placeholder"><Avatar persona="reviewer" /><h2>Review the work</h2><p>Select a task to explore its changes and activity.</p></section>;
   return <section className="details-panel" aria-labelledby="details-title">
-    <header className="panel-header">
-      <Avatar persona={personaFor(task, node)} small />
-      <div><p className="muted">{node ? sessionRole(node) : "Goblin"}</p>
-        <h2 id="details-title">{node ? sessionTitle(node, task) : task?.title || "Session unavailable"}</h2>
-        <p className="panel-status">{nodeStatus({ id: node?.id || task?.id || "", title: "", task, session: node, relation: "" })}</p>
-      </div>
-    </header>
+    <header className="panel-header"><Avatar persona={personaFor(task)} small /><div>
+      <h2 id="details-title">{task.title || task.id}</h2>
+      {task.project && <p className="project-label">{task.project}</p>}
+      <p className="panel-status">{nodeStatus({ id: task.id, title: task.title, task, relation: "" })}</p>
+    </div><WorkspaceDetails task={task} /></header>
     <div className="panel-content">
-      {missingSession && <p className="warning-text">This session is no longer in the active store. Its parent may be retained as a retired reference.</p>}
-      {!taskOwner && task && <p className="task-context">Task: <button onClick={(event) => onSelectTask(task.id, event.currentTarget)}>{task.title || task.id}</button></p>}
-      {canUseTask && <Disclosure title="Changes" defaultOpen={completed} kind="changes-section"><Changes task={task} reviews={reviews} connected={connected} /></Disclosure>}
-      {canUseTask && taskOwner && <Disclosure title="Terminal" defaultOpen={!completed} kind="terminal-section"><Terminal task={task} connected={connected} visible={visible} messages={messages} /></Disclosure>}
-      {(!canUseTask || !taskOwner) && <p className="muted padded">{node && !taskOwner ? "This child has no separately reported native terminal." + (task ? " Its owning task is linked above." : "") : "Native terminal transport is not reported for this session."}</p>}
-      {decisions.length > 0 && <details className="task-decisions disclosure" aria-label="Task decisions">
-        <summary>{decisions.length} {decisions.length === 1 ? "item" : "items"} awaiting CFO</summary>
-        {decisions.slice().reverse().map((decision) => <article className="decision" key={decision.seq}><p>{decisionText(decision.detail)}</p><time>{age(decision.time)}</time></article>)}
-      </details>}
+      {task.pr && /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/.test(task.pr) && <a className="review-pr" href={task.pr} target="_blank" rel="noreferrer">Open pull request</a>}
+      {task.generation ? <Disclosure title="Changes" defaultOpen kind="changes-section"><Changes task={task} reviews={reviews} connected={connected} /></Disclosure> : <p className="muted padded">Changes will appear when this task starts.</p>}
       <Disclosure title="Activity"><Activity task={task} snapshot={snapshot} /></Disclosure>
-      {canUseTask && <Disclosure title="History"><History task={task} reviews={reviews} connected={connected} /></Disclosure>}
-      <Disclosure title="Session evidence">
-        <p className="panel-reason">{taskOwner ? task?.reason || "Awaiting task evidence." : "Native session evidence. Task completion is evaluated separately."}</p>
-        <dl className="summary-facts">
-          <div><dt>Harness</dt><dd>{node?.harness || (taskOwner ? task?.harness : "") || "Unreported"}</dd></div>
-          <div><dt>Model</dt><dd>{sessionModel(node, task)}{taskOwner && task?.effort && <span className="effort"> · {task.effort} effort</span>}</dd></div>
-          {runtime?.state && <div><dt>Runtime</dt><dd>{nativeStatus(runtime.state)}<p className="muted">{runtime.reason}</p></dd></div>}
-          <div><dt>Evidence</dt><dd>{age(node?.updated_at || task?.at || "")}{runtime && <p className="muted">Runtime checked {age(runtime.at)}</p>}</dd></div>
-        </dl>
-        <dl className="evidence-facts">
-          <div><dt>Native session</dt><dd>{node?.native_id || task?.session || "Unknown / unlinked"}</dd></div>
-          <div><dt>Parent relationship</dt><dd>{node?.parent
-            ? (snapshot.retired.includes(node.parent) ? "Retired parent" : snapshot.sessions.some((parent) => parent.id === node.parent) ? node.relation || "Reported child" : "Unreported parent") + " · " + node.parent
-            : node?.role === "cfo" ? "Reported supervisor" : "Unknown / unlinked"}</dd></div>
-          <div><dt>Reported root</dt><dd>{node?.reported_root || "Not reported"}</dd></div>
-          {node && <div><dt>Native phase</dt><dd>{nativeStatus(node.phase)}</dd></div>}
-          {task?.head && <div><dt>Evaluated commit</dt><dd className="mono">{task.head}</dd></div>}
-          {task?.pr && <div><dt>Pull request</dt><dd>{/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/.test(task.pr)
-            ? <a href={task.pr} target="_blank" rel="noreferrer">Open pull request ↗</a> : task.pr}</dd></div>}
-        </dl>
-        {task && task.dependencies.length > 0 && <section className="task-dependencies" aria-label="Task dependencies"><h3>Depends on</h3>
-          {task.dependencies.map((id) => {
-            const dependency = snapshot.tasks.find((other) => other.id === id);
-            return dependency ? <button key={id} onClick={(event) => onSelectTask(id, event.currentTarget)}>{dependency.title || id}</button> : <p key={id}>Unreported task: {id}</p>;
-          })}
-        </section>}
-        {canUseTask && <button disabled={!connected || evaluating} onClick={() => { void refreshEvidence(); }}>{evaluating ? "Queuing…" : "Refresh evidence"}</button>}
-        {actionError && <ErrorBox error={actionError} />}
-      </Disclosure>
+      {task.generation && <Disclosure title="History"><History task={task} reviews={reviews} connected={connected} /></Disclosure>}
     </div>
   </section>;
 }

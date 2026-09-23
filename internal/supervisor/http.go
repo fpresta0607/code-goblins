@@ -2,6 +2,8 @@ package supervisor
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -23,18 +26,21 @@ type cachedResponse struct {
 	at   time.Time
 }
 type HTTP struct {
-	Service  *Service
-	Host     string
-	Assets   fs.FS
-	mu       sync.Mutex
-	cache    map[string]cachedResponse
-	gitSlots chan struct{}
-	captures chan struct{}
-	streams  chan struct{}
+	Service       *Service
+	Host          string
+	Assets        fs.FS
+	mu            sync.Mutex
+	cache         map[string]cachedResponse
+	gitSlots      chan struct{}
+	captures      chan struct{}
+	streams       chan struct{}
+	terminalSlots chan struct{}
+	terminals     map[string]*terminalLease
+	openTerminal  func(context.Context, string, string, bool, int, int) (herdr.TerminalStream, error)
 }
 
 func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
-	return &HTTP{Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), captures: make(chan struct{}, 1), streams: make(chan struct{}, 8)}
+	return &HTTP{Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), captures: make(chan struct{}, 1), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 4), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal}
 }
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -70,6 +76,19 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, snapshot)
 	case r.URL.Path == "/api/events" && r.Method == "GET":
 		h.stream(w, r)
+	case r.URL.Path == "/api/terminal/stream" && r.Method == "POST":
+		h.terminalStream(w, r)
+	case r.URL.Path == "/api/terminal/input" && r.Method == "POST":
+		h.terminalInput(w, r)
+	case r.URL.Path == "/api/workspace" && r.Method == "GET":
+		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		defer cancel()
+		value, err := h.Service.workspaceDetail(ctx, r.URL.Query().Get("task"), r.URL.Query().Get("generation"))
+		if err != nil {
+			apiError(w, 409, err.Error())
+			return
+		}
+		respond(w, 200, value)
 	case r.URL.Path == "/api/cfo" && r.Method == "GET":
 		if !h.captureSlot(w) {
 			return
@@ -91,6 +110,25 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case (r.Method == "GET" || r.Method == "HEAD") && h.Assets != nil:
 		if r.URL.Path != "/" && !strings.HasPrefix(r.URL.Path, "/assets/") && r.URL.Path != "/favicon.svg" {
 			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Path == "/" {
+			data, err := fs.ReadFile(h.Assets, "index.html")
+			if err != nil {
+				http.Error(w, "Board assets unavailable", 503)
+				return
+			}
+			var nonceBytes [24]byte
+			if _, err := rand.Read(nonceBytes[:]); err != nil {
+				http.Error(w, "Board could not start", 500)
+				return
+			}
+			nonce := base64.RawStdEncoding.EncodeToString(nonceBytes[:])
+			w.Header().Set("Content-Security-Policy", strings.Replace(w.Header().Get("Content-Security-Policy"), "style-src 'self'", "style-src 'self' 'nonce-"+nonce+"'", 1))
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if r.Method == "GET" {
+				_, _ = io.WriteString(w, strings.Replace(string(data), "<head>", `<head><meta name="cfo-style-nonce" content="`+nonce+`">`, 1))
+			}
 			return
 		}
 		http.FileServer(http.FS(h.Assets)).ServeHTTP(w, r)
@@ -190,6 +228,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 		Head       string `json:"head"`
 		Revision   string `json:"revision"`
 		DiffID     string `json:"diff_id"`
+		QuestionID string `json:"question_id"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 24<<10))
 	decoder.DisallowUnknownFields()
@@ -210,7 +249,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 400, "Unsafe file path")
 		return
 	}
-	a, err := h.Service.Store.Queue(Action{ID: input.ID, Kind: input.Kind, TaskID: input.TaskID, Generation: input.Generation, Text: input.Text, File: input.File, Line: input.Line, EndLine: input.EndLine, Side: input.Side, Head: input.Head, Revision: input.Revision, DiffID: input.DiffID})
+	a, err := h.Service.Store.Queue(Action{ID: input.ID, Kind: input.Kind, TaskID: input.TaskID, Generation: input.Generation, Text: input.Text, File: input.File, Line: input.Line, EndLine: input.EndLine, Side: input.Side, Head: input.Head, Revision: input.Revision, DiffID: input.DiffID, QuestionID: input.QuestionID})
 	if err != nil {
 		apiError(w, 409, err.Error())
 		return

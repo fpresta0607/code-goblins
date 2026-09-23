@@ -78,6 +78,10 @@ export interface Snapshot {
   actions: Action[];
   decisions: Decision[];
   issues: string[];
+  questions?: Question[];
+}
+export interface Question {
+  id: string; identity: string; text: string; options: string[]; created_at: string; answer_id: string; status: string; message: string;
 }
 export interface ChangedFile {
   path: string;
@@ -109,20 +113,6 @@ export interface ReviewSelection {
   head: string;
   revision: string;
   diff_id: string;
-}
-
-export interface CFOOutput {
-  identity: string;
-  harness: string;
-  available: boolean;
-  reason: string;
-  text: string;
-  at: string;
-}
-
-export function parseCFO(value: unknown): CFOOutput {
-  const v = object(value);
-  return { identity: string(v.identity), harness: string(v.harness), available: boolean(v.available), reason: string(v.reason), text: string(v.text), at: string(v.at) };
 }
 
 export function decisionText(detail: string): string {
@@ -204,6 +194,10 @@ export function parseSnapshot(value: unknown): Snapshot {
     inbox: number(v.inbox),
     retired: strings(v.retired),
     issues: strings(v.issues),
+    questions: array(v.questions).map((value) => {
+      const q = object(value);
+      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message) };
+    }),
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
       return {
@@ -290,5 +284,3 @@ export function parseHistory(value: unknown): Commit[] {
     };
   });
 }
-export const parseTerminal = (value: unknown): string =>
-  string(object(value).text);

@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Session, Snapshot, Task } from "./types";
 import { nodeStatus } from "./workflow";
 import { Avatar } from "./Avatar";
+import { Chevron } from "./Chevron";
 import { personaFor } from "./workflow";
 import { lineageRoots, ownsTaskSession, projectSessions, sessionRole, sessionTitle, tasksWithoutSession } from "./lineageTree";
 
@@ -50,7 +51,7 @@ export function Lineage({ snapshot, project, selected, onSelect }: {
           <button className="node-select" aria-pressed={selected?.session === node.id}
             onClick={(event) => onSelect({ session: node.id }, event.currentTarget)}>
             <Avatar persona={personaFor(task, node)} small /><span className="node-role">{sessionRole(node)}</span>
-            <strong>{title}</strong>
+            <strong>{title}</strong>{task?.project && <span className="project-label">{task.project}</span>}
             {!owner && node.role !== "cfo" && task?.title && <span className="node-task">Task: {task.title}</span>}
             <span className="node-status">{nodeStatus({ id: node.id, title, task, session: node, relation })}
               {owner && needsDecision(task) && <span className="decision-indicator">Decision waiting</span>}
@@ -58,7 +59,7 @@ export function Lineage({ snapshot, project, selected, onSelect }: {
           </button>
           {descendants.length > 0 && <button className="node-disclosure" aria-expanded={!isCollapsed}
             aria-label={(isCollapsed ? "Expand" : "Collapse") + " children of " + title} onClick={() => toggle(node.id)}>
-            <span aria-hidden="true">{isCollapsed ? "›" : "⌄"}</span>
+            <Chevron collapsed={isCollapsed} />
           </button>}
         </div>
       </div>
@@ -79,7 +80,7 @@ export function Lineage({ snapshot, project, selected, onSelect }: {
           <div className={"workflow-node" + (selected?.task === task.id ? " selected" : "")}>
             <button className="node-select" aria-pressed={selected?.task === task.id}
               onClick={(event) => onSelect({ task: task.id }, event.currentTarget)}>
-              <span className="node-role">Task</span><strong>{task.title || task.id}</strong>
+              <span className="node-role">Task</span><strong>{task.title || task.id}</strong>{task.project && <span className="project-label">{task.project}</span>}
               <span className="node-status">{nodeStatus({ id: task.id, title: task.title, task, relation: "" })}
                 {needsDecision(task) && <span className="decision-indicator">Decision waiting</span>}
               </span>

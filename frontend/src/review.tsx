@@ -62,6 +62,7 @@ export function ReviewComment({ diff, reviews, connected }: { diff: FileDiff; re
   const key = reviews.keyFor(diff), draft = reviews.drafts[key];
   if (!draft || draft.hidden) return null;
   const action = reviews.outcome(draft);
+  const outcomeLabel = action && ({ succeeded: "Sent to CFO", queued: "Queued", running: "Sending", failed: "Could not deliver", uncertain: "Delivery unconfirmed" })[action.status];
   const selection = draft.selection;
   const valid = reviewRange(parsePatchToRows(diff.patch), selection.line, selection.end_line, selection.side);
   const stale = selection.head !== diff.head || selection.diff_id !== diff.fingerprint;
@@ -85,7 +86,7 @@ export function ReviewComment({ diff, reviews, connected }: { diff: FileDiff; re
       </button>
     </div>
     {draft.error && !action && <p className="error-box" role="alert">{draft.error} An unchanged retry uses the same request ID.</p>}
-    {action && <p className={"action-result " + action.status} role="status">{action.status}: {action.message || "Queued for CFO review."}</p>}
+    {action && <p className={"action-result " + action.status} role="status">{outcomeLabel || "Awaiting evidence"}: {action.message || "Queued for CFO review."}</p>}
     {action && <button className="new-instruction" onClick={() => reviews.change(key, { text: "", submission: null, receipt: undefined, error: "" })}>Start a new comment</button>}
   </section>;
 }
