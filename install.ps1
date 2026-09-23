@@ -63,10 +63,11 @@ Write-Host ""
 # and existence checks instead.
 $ErrorActionPreference = "Continue"
 
-# Ship the bundled skills to the harnesses that read a different project
-# directory: claude reads .claude/skills and codex reads .codex/skills, while
-# kimi and pi read .agents/skills directly. A junction keeps one copy tracked
-# in git (no duplicate files, no developer-mode symlinks).
+# Claude reads project skills only from .claude/skills, so a junction points it
+# at .agents/skills; codex, pi and kimi read .agents/skills directly, and a
+# .codex/skills link would only give codex a second route to the same skills,
+# so one an earlier bootstrap made is removed.
+# A junction keeps one copy tracked in git (no developer-mode symlinks).
 function Ensure-SkillJunctions {
     param([string]$Root)
     $source = Join-Path $Root ".agents\skills"
@@ -74,7 +75,7 @@ function Ensure-SkillJunctions {
         Write-Host "WARN     skills           .agents\skills not found; skipping skill junctions"
         return
     }
-    foreach ($rel in @(".claude\skills", ".codex\skills")) {
+    foreach ($rel in @(".claude\skills")) {
         $link = Join-Path $Root $rel
         if (Test-Path $link) {
             $item = Get-Item $link -Force
@@ -96,6 +97,23 @@ function Ensure-SkillJunctions {
         }
         else {
             Write-Host ("WARN     {0,-20} could not create skill junction ({1}); run: cmd /c mklink /J {0} .agents\skills" -f $rel, ($mklinkOut -join "; "))
+        }
+    }
+    $rel = ".codex\skills"
+    $link = Join-Path $Root $rel
+    if (Test-Path $link) {
+        $item = Get-Item $link -Force
+        if ($item.LinkType -eq "Junction" -and [IO.Path]::GetFullPath(@($item.Target)[0]).TrimEnd("\") -eq [IO.Path]::GetFullPath($source).TrimEnd("\")) {
+            $rmdirOut = cmd /c rmdir `"$link`" 2>&1
+            if (Test-Path $link) {
+                Write-Host ("WARN     {0,-20} could not remove stale skill junction ({1}); run: cmd /c rmdir {0}" -f $rel, ($rmdirOut -join "; "))
+            }
+            else {
+                Write-Host ("ok       {0,-20} stale skill junction removed" -f $rel)
+            }
+        }
+        else {
+            Write-Host ("WARN     {0,-20} exists and is not a junction to .agents\skills; leaving it alone" -f $rel)
         }
     }
 }
@@ -188,7 +206,7 @@ if ($Bootstrap -and $installedAny) {
     $env:Path = ($parts | Where-Object { $_ -ne "" } | Select-Object -Unique) -join ';'
 }
 
-# Wire the bundled skills into the harness project-scope directories.
+# Point Claude Code's project skills directory at .agents/skills.
 if ($Bootstrap) {
     Write-Host ""
     Ensure-SkillJunctions -Root $InstallDir
