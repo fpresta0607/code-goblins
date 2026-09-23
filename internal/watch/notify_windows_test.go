@@ -156,6 +156,11 @@ func TestRunUsesNoLegacyBeatMarker(t *testing.T) {
 	if cfg.WaitEvent == nil {
 		t.Fatalf("ConfigFromEnv did not wire a real waiter on an existing state dir; this test requires the real notification path to be exercised")
 	}
+	// The orphan sweep inventories this machine's live Herdr session and
+	// process table on the first cycle. Under a loaded full-suite run that
+	// outlasted the steal window below, and it has nothing to do with the
+	// heartbeat marker this test checks.
+	cfg.Reap = nil
 
 	// A genuinely alive, foreign PID is needed to simulate a successor
 	// stealing the singleton later, exactly as
