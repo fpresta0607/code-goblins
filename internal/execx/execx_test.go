@@ -23,8 +23,6 @@ func TestOSRunnerHelper(t *testing.T) {
 		os.Exit(7)
 	case "sleep":
 		time.Sleep(10 * time.Second)
-	case "short-sleep":
-		time.Sleep(200 * time.Millisecond)
 	case "orphan-stdout":
 		// Like an npm .cmd shim: the direct child starts a grandchild that
 		// inherits its stdout, so killing the direct child leaves the pipe open.
@@ -218,19 +216,34 @@ func TestOSRunnerReturnsAfterCancellationWhileAGrandchildHoldsStdout(t *testing.
 	}
 }
 
+// The child holds until this test releases it, so Start returning while the
+// child is still held proves Start did not wait for it to exit, however slowly
+// a loaded machine spawns processes; a fixed time limit could not tell the two
+// apart.
 func TestOSRunnerStartsWithoutWaitingForChildExit(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	marker := filepath.Join(t.TempDir(), "child")
 
-	started := time.Now()
-	err := (OSRunner{}).Start(ctx, helperRequest(t.TempDir(), []string{"EXECX_HELPER=1", "EXECX_MODE=short-sleep"}))
+	err := (OSRunner{}).Start(ctx, helperRequest(t.TempDir(), []string{"EXECX_HELPER=1", "EXECX_MODE=hold-stdout", "EXECX_MARKER=" + marker}))
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	if elapsed := time.Since(started); elapsed > time.Second {
-		t.Fatalf("Start blocked for %s, want non-blocking child launch", elapsed)
+	if _, err := os.Stat(marker + ".released"); !os.IsNotExist(err) {
+		t.Fatalf("the child had already finished when Start returned (%v), want a non-blocking launch", err)
 	}
-	time.Sleep(300 * time.Millisecond)
+	// Release the child and let it exit before go test removes the Windows
+	// test executable.
+	if err := os.WriteFile(marker+".release", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if _, err := os.Stat(marker + ".released"); err == nil {
+			time.Sleep(100 * time.Millisecond)
+			return
+		}
+	}
+	t.Fatal("the released child never finished")
 }
 
 func TestOSRunnerStartSurvivesRequestContextCancellation(t *testing.T) {
