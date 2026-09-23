@@ -620,7 +620,8 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 	}
 	for _, done := range history {
-		if strings.HasPrefix(done.ID, "merged:") && slices.ContainsFunc(out.Tasks, func(t Task) bool { return t.PR == done.PR }) {
+		if live := slices.IndexFunc(out.Tasks, func(t Task) bool { return t.PR == done.PR }); live >= 0 && strings.HasPrefix(done.ID, "merged:") {
+			out.Tasks[live].Merged = true
 			continue
 		}
 		out.Tasks = append(out.Tasks, done)

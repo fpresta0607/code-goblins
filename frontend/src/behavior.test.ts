@@ -193,6 +193,11 @@ test("completed history and fleet statuses read the way the fleet reports them",
   assert.equal(taskColumn(merged), "Completed");
   assert.equal(nodeStatus({id:"m", title:"x", task:merged, relation:""}), "PR merged");
   assert.equal(taskColumn(queued), "Tasks");
+  const landed = {...live, phase:"ready", merged:true};
+  assert.equal(taskColumn(landed), "Completed");
+  assert.equal(nodeStatus({id:"l", title:"work", task:landed, relation:""}), "PR merged");
+  assert.equal(taskColumn({...landed, merged:false}), "In progress");
+  assert.equal(nodeStatus({id:"l", title:"work", task:{...landed, merged:false}, relation:""}), "Checks passed");
   assert.equal(parseSnapshot({healthy:true, tasks:[{id:"older-server", verified:false}]}).tasks[0].archived, false);
 });
 
