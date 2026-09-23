@@ -80,7 +80,9 @@
       "id": 6,
       "name": "on the running packaged board a settled current-generation goblin card shows Awaiting review, not Awaiting evidence",
       "result": "pass",
-      "observed": ["card and panel read Awaiting review after the fixture-2 Stop"]
+      "observed": [
+        "card and panel read Awaiting review after the fixture-2 Stop"
+      ]
     }
   ],
   "deliveries": {
@@ -90,5 +92,10 @@
   },
   "console": "no CSP violations; only connection resets during deliberate restarts and the intended 422 and 409 refusals",
   "finding": "an absolutely positioned .sr-only label inside the scrolled review panel extends the document to 1700 px at a 900 px viewport after long diffs are expanded; .details-panel has no positioned ancestor for it",
-  "cleanup": "stopped by pid: boards 19764, 48496, 37284 and 18796, fixture harnesses 3688 and 52788, Herdr test server 39064; closed test tabs w1:t2 and w1:t3; stopped axi session cfo-native-board-live; cfo reap no longer lists the fixture processes"
+  "cleanup": "stopped by pid: boards 19764, 48496, 37284 and 18796, fixture harnesses 3688 and 52788, Herdr test server 39064; closed test tabs w1:t2 and w1:t3; stopped axi session cfo-native-board-live; cfo reap no longer lists the fixture processes",
+  "finding_fix": {
+    "commit": "d7c9701",
+    "change": ".details-panel position: relative, embedded assets rebuilt",
+    "check": "four diffs expanded (two 300-line files, 21193 px of panel content) at 1440x900: document 900 px with the fix, 11397 px with the panel switched to static in the same page, 900 px restored; Orchestration 900x1440"
+  }
 }
