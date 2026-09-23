@@ -532,7 +532,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 	}
 	s.mu.Unlock()
-	out.Questions = d.Questions
+	// The board sees how many images a question has, never where they are.
+	out.Questions = make([]Question, len(d.Questions))
+	for i, q := range d.Questions {
+		q.ImageCount, q.Images = len(q.Images), nil
+		out.Questions[i] = q
+	}
 	out.Activity = d.Activity
 	out.Healthy = supervise.WatcherHealthy(s.Store.Home.State, 30*time.Second)
 	for _, node := range d.Sessions {

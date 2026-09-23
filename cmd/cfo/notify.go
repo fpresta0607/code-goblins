@@ -22,6 +22,7 @@ import (
 //
 //	cfo notify <task-id> --done --pr <url>
 //	cfo notify <task-id> --blocked "<question>"
+//	cfo notify <task-id> --blocked "<question> options: a | b" --image a.png --image b.png
 //	cfo notify <task-id> --failed "<reason>"
 func runNotify(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
@@ -40,6 +41,11 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	pr := fs.String("pr", "", "PR URL, required with --done")
 	blocked := fs.String("blocked", "", "report a question the goblin is blocked on")
 	failed := fs.String("failed", "", "report a failure reason")
+	var images []string
+	fs.Func("image", "a review image for a --blocked question's choice; repeat it once for each choice, in order", func(v string) error {
+		images = append(images, v)
+		return nil
+	})
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -70,8 +76,21 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-
 	line := verb + ": " + state.NormalizeStatusDetail(detail)
+	// Images are checked before anything is recorded, so a bad path fails the
+	// whole notify instead of waking the CFO with a question the Overlord
+	// cannot see.
+	if len(images) > 0 {
+		_, options, _ := wake.Question(wake.Record{Kind: "notify", Detail: line})
+		if verb != "blocked" || len(images) != len(options) {
+			fmt.Fprintf(stderr, "cfo notify: --image needs a --blocked question with choices, one image for each choice in order (%d images, %d choices)\n", len(images), len(options))
+			return 2
+		}
+		if images, err = supervisor.ReviewImages(h, id, images); err != nil {
+			fmt.Fprintln(stderr, "cfo notify: "+err.Error())
+			return 1
+		}
+	}
 	if err := state.AppendStatus(h.State, id, line); err != nil {
 		fmt.Fprintln(stderr, "cfo notify: record status: "+err.Error())
 		return 1
@@ -89,7 +108,7 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	// to the Overlord, so its failure is reported and never fails the notify.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := supervisor.SurfaceNotify(ctx, h.State, &herdr.Client{Commands: execx.OSRunner{}}, id, record); err != nil {
+	if err := supervisor.SurfaceNotify(ctx, h.State, &herdr.Client{Commands: execx.OSRunner{}}, id, record, images); err != nil {
 		fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this question, the CFO still has it: "+err.Error())
 	}
 	fmt.Fprintf(stdout, "notified %s %s\n", id, line)
