@@ -165,3 +165,9 @@ test("child sessions never borrow the owning goblin model or effort", () => {
     "child-native-model",
   );
 });
+
+test("the board keeps the CFO registration state the supervisor reports", () => {
+  const stale = "The CFO is not registered; run cfo register in the CFO session";
+  assert.equal(parseSnapshot({healthy:true, registration:stale}).registration, stale);
+  assert.equal(parseSnapshot({healthy:true}).registration, "");
+});

@@ -49,6 +49,7 @@ type Service struct {
 	reconciled           time.Time
 	presentationChecked  time.Time
 	presentationIdentity string
+	registration         string
 	revision             uint64
 	subscribers          map[chan struct{}]struct{}
 	done                 chan struct{}
@@ -196,6 +197,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		if s.Options.Reconcile != nil {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
 		}
+		s.checkRegistration(ctx)
 		s.mu.Lock()
 		s.reconciled = time.Now().UTC()
 		s.mu.Unlock()
@@ -208,6 +210,24 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	if recover || before != s.Store.Snapshot().Revision {
 		s.publish(reconcileErr)
 	}
+}
+
+// checkRegistration runs on the once-a-minute recovery cycle, so a CFO that
+// exited or moved shows as one state on the board before anyone tries to
+// deliver to it.
+func (s *Service) checkRegistration(ctx context.Context) {
+	if s.Options.CFO == nil {
+		return
+	}
+	check, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	problem := ""
+	if err := s.Options.CFO.check(check); err != nil {
+		problem = err.Error()
+	}
+	s.mu.Lock()
+	s.registration = problem
+	s.mu.Unlock()
 }
 
 func (s *Service) reconcileTasks(now time.Time) error {
@@ -441,12 +461,16 @@ type Snapshot struct {
 	Issues     []string        `json:"issues"`
 	Questions  []Question      `json:"questions"`
 	Activity   []BoardActivity `json:"activity"`
+
+	// Registration says why the board cannot reach the primary CFO, with
+	// the fix, and is empty while it can.
+	Registration string `json:"registration"`
 }
 
 func (s *Service) Snapshot() (Snapshot, error) {
 	d := s.Store.Snapshot()
 	s.mu.Lock()
-	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
+	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Registration: s.registration, Tasks: []Task{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
 	for i := range d.Activity {
 		if d.Activity[i].CFOIdentity != "" {
 			d.Activity[i].Live = d.Activity[i].CFOIdentity == s.presentationIdentity && out.At.Sub(s.presentationChecked) < 2*time.Minute
