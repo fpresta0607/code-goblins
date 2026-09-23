@@ -18,10 +18,4 @@ Keep one copy of each name per machine.
 ## Third-party skills
 
 The tools the fleet drives publish their own skills.
-Install them once at user scope from their owners instead of copying them here:
-
-```powershell
-npx skills add kunchenguid/gh-axi --skill gh-axi -g
-npx skills add kunchenguid/chrome-devtools-axi --skill chrome-devtools-axi -g
-npx skills add kunchenguid/no-mistakes --skill no-mistakes -g
-```
+Install them once at user scope from their owners instead of copying them here; the commands are in the [README's Quick start](../../README.md#quick-start).
