@@ -128,7 +128,7 @@ func Register(ctx context.Context, stateDir string, client *herdr.Client, harnes
 		}
 	}
 	if primary.Agent == "" {
-		return "", fmt.Errorf("Herdr has not detected the agent in pane %s yet; name it with --harness", pane)
+		return "", fmt.Errorf("Herdr has not detected the agent in pane %s yet; retry once it has", pane)
 	}
 	// Custody is taken last, so a refused registration changes nothing.
 	if !slices.ContainsFunc(ancestry[:harnessAt+1], func(entry proc.Entry) bool { return lock.HeldBy(stateDir, entry.PID) }) {

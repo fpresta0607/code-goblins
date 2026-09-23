@@ -21,14 +21,7 @@ import (
 func runRegister(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	f := flag.NewFlagSet("register", flag.ContinueOnError)
 	f.SetOutput(stderr)
-	agent := f.String("harness", "", "claude, codex or pi, only when Herdr has not detected the agent in this pane yet")
 	if err := f.Parse(args); err != nil || f.NArg() != 0 {
-		return 2
-	}
-	switch *agent {
-	case "", "claude", "codex", "pi":
-	default:
-		fmt.Fprintln(stderr, "cfo register: --harness must be claude, codex or pi")
 		return 2
 	}
 	if os.Getenv(harness.RoleVariable) == harness.RoleGoblin {
@@ -42,7 +35,7 @@ func runRegister(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	described, err := supervisor.Register(ctx, h.State, &herdr.Client{Commands: execx.OSRunner{}}, *agent, "")
+	described, err := supervisor.Register(ctx, h.State, &herdr.Client{Commands: execx.OSRunner{}}, "", "")
 	if err != nil {
 		fmt.Fprintln(stderr, "cfo register:", err)
 		return 1

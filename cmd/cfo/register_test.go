@@ -87,26 +87,14 @@ func TestSessionStartNeverRegistersAReadOnlySession(t *testing.T) {
 	}
 }
 
-func TestRegisterCommandRefusals(t *testing.T) {
-	for _, c := range []struct {
-		name, role string
-		args       []string
-		exit       int
-		want       string
-	}{
-		{"a goblin", harness.RoleGoblin, nil, 1, "a goblin is never the primary CFO"},
-		{"an unknown harness", "", []string{"--harness", "kimi"}, 2, "--harness must be claude, codex or pi"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Setenv(harness.RoleVariable, c.role)
-			runtime := commandRuntime{resolveHome: func() (home.Home, error) {
-				t.Fatal("a refused registration resolved the home")
-				return home.Home{}, nil
-			}}
-			var stdout, stderr bytes.Buffer
-			if exit := runRegister(c.args, &stdout, &stderr, runtime); exit != c.exit || !strings.Contains(stderr.String(), c.want) {
-				t.Fatalf("exit %d stderr %q, want %d and %q", exit, stderr.String(), c.exit, c.want)
-			}
-		})
+func TestRegisterCommandRefusesAGoblin(t *testing.T) {
+	t.Setenv(harness.RoleVariable, harness.RoleGoblin)
+	runtime := commandRuntime{resolveHome: func() (home.Home, error) {
+		t.Fatal("a refused registration resolved the home")
+		return home.Home{}, nil
+	}}
+	var stdout, stderr bytes.Buffer
+	if exit := runRegister(nil, &stdout, &stderr, runtime); exit != 1 || !strings.Contains(stderr.String(), "a goblin is never the primary CFO") {
+		t.Fatalf("exit %d stderr %q, want 1 and the goblin refusal", exit, stderr.String())
 	}
 }
