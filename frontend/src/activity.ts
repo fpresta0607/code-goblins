@@ -41,6 +41,12 @@ export function mergeActivityEffects(prior:ActivityEffect[], incoming:BoardActiv
   return [...prior.filter(event=>event.expires>now&&!incoming.some(next=>next.target===event.target)),...incoming.map(event=>({...event,expires:now+3200}))];
 }
 
+export function activityDisplay(effects:BoardActivity[],target:string,parent:string) {
+  const received=effects.find(event=>event.target===target);
+  const communication=parent?effects.find(event=>event.source===parent&&event.target===target):undefined;
+  return {received,communication,created:received?.kind==="created"};
+}
+
 export function safePresentationURL(raw:string):boolean {
   try {
     const url=new URL(raw);

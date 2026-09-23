@@ -59,8 +59,8 @@ The board shows runtime unavailability separately and continues evaluating indep
 Silence, a vanished process, a Stop, and a prior `notify --done` are never substitutes for delivery evidence.
 
 Review, tests, lint, documentation, push, PR, and CI must agree with the task's exact HEAD under its frozen policy.
-Unrecovered pipeline custody blocks feedback even if a run is failed or cancelled.
-The browser can request evaluation or send contextual feedback through verified Herdr delivery; it cannot approve gates, drag a task to done, or merge.
+Unrecovered pipeline custody blocks native worker terminal input even if a run is failed or cancelled.
+The browser can request evaluation or send contextual review comments to the verified CFO; it cannot approve gates, drag a task to done, or merge.
 An explicitly connected terminal sends ordinary terminal input to that existing session, subject to the identity and custody boundaries below.
 
 For a ship task, a merged PR remains **merged-awaiting-verification** until the supervisor verifies landed main content.
@@ -85,7 +85,7 @@ The inbox admits 4,096 small records, each at most 64 KiB.
 Ingestion sorts its bounded read window by event time before its 256-record consumption batch, retries records awaiting start/metadata evidence, and rotates the window if concurrent writers briefly exceed admission capacity.
 Transient persistence failures retain the inbox record and roll memory back to the last durable state.
 Malformed records leave a bounded diagnostic and do not wedge subsequent valid work.
-An interrupted evaluation is safe to replay; an interrupted feedback delivery becomes uncertain and is not resent automatically.
+An interrupted evaluation is safe to replay; an interrupted external delivery becomes uncertain and is not resent automatically.
 Uncertain actions remain visible for operator inspection and can eventually exhaust action capacity if left unresolved.
 
 ## Board and orchestration
@@ -124,7 +124,7 @@ The server validates those coordinates and derives bounded selected code; it nev
 Admission separately pins the registered primary CFO fingerprint; retries preserve it even if the primary changes.
 New annotations use only the verified CFO normal native message channel, and success requires transport acceptance.
 They do not append a second actionable wake record; existing historical wake records remain untouched and old unpinned reviews are not adopted or replayed.
-Review remains available during gate custody, while actual worker steering retains the custody checks.
+Review remains available during gate custody, while native worker terminal input retains the custody checks.
 Drafts bind the task session identity at selection and survive view, file and recipient changes without silently moving to a restarted task.
 An unchanged submitted payload keeps its request ID after an ambiguous HTTP failure; an SSE outcome is displayed instead of dispatching it again.
 An interrupted external delivery becomes uncertain and is not replayed automatically.
@@ -209,7 +209,6 @@ Host and Origin checks, cross-site rejection, a per-instance mutation token, str
 These are local browser boundaries, not authentication against another process already running as the same Windows user.
 Git previews refuse unsafe revisions, traversal, symlinks/junctions, and common credential-bearing paths.
 Git output, timeouts, cache entries, concurrent previews, and event streams are bounded.
-The legacy text-capture endpoint applies bounded redaction patterns.
 Native terminal frames preserve the actual screen, including anything printed there; avoid displaying secrets in the terminal.
 Input bytes and native frames are not logged or persisted by this bridge.
 Per-page CSP nonces permit the terminal's generated stylesheets while inline scripts remain blocked.

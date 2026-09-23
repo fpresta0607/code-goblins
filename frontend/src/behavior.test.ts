@@ -4,7 +4,7 @@ import { parsePatchToRows, splitRows, reviewRange } from "./diff.ts";
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
-import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus } from "./workflow.ts";
+import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText } from "./workflow.ts";
 
 test("board completion and semantic personas require the corresponding evidence", () => {
   const task = parseSnapshot({healthy:true, tasks:[{id:"work",title:"Test keyboard access",phase:"done",generation:"new",verified:false}]}).tasks[0];
@@ -17,6 +17,8 @@ test("board completion and semantic personas require the corresponding evidence"
   assert.equal(nativeStatus("busy"), "Working");
   assert.equal(nativeStatus("done"), "Native turn finished");
   assert.equal(nodeStatus({id:"t",title:"",task,relation:""}), "Delivery unverified");
+  assert.equal(statusText("blocked"), "Blocked");
+  assert.equal(statusText("failed"), "Failed");
 });
 
 test("arrangement preserves five-level lineage and never invents an orphan parent", () => {

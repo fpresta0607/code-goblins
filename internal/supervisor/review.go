@@ -10,8 +10,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// A review asks the CFO to direct work. It never steers a worker or borrows
-// pipeline custody; that remains the separate feedback action's responsibility.
+// A review asks the CFO to direct work without borrowing pipeline custody.
 func (s *Service) deliverReview(ctx context.Context, meta state.TaskMeta, a Action) (Evaluation, error) {
 	diff, err := s.previewGit(meta).Diff(ctx, meta.Worktree, a.Revision, a.File)
 	if err != nil {

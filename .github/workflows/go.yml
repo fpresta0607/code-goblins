@@ -47,5 +47,9 @@ jobs:
           }
           sqlite3 --version
       - run: go vet ./...
-      - run: go test ./... -count=1
+      - name: Run Go tests with isolated CFO state
+        run: go test ./... -count=1
+        env:
+          CFO_HOME: ${{ runner.temp }}\cfo-go-tests
+          CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
       - run: go build ./cmd/cfo

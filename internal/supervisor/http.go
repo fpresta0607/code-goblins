@@ -34,7 +34,6 @@ type HTTP struct {
 	mu            sync.Mutex
 	cache         map[string]cachedResponse
 	gitSlots      chan struct{}
-	captures      chan struct{}
 	streams       chan struct{}
 	terminalSlots chan struct{}
 	terminals     map[string]*terminalLease
@@ -44,7 +43,7 @@ type HTTP struct {
 }
 
 func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
-	return &HTTP{Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), captures: make(chan struct{}, 1), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 4), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, editor: execx.OSRunner{}, editorLookup: exec.LookPath}
+	return &HTTP{Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 4), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, editor: execx.OSRunner{}, editorLookup: exec.LookPath}
 }
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -95,18 +94,6 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, value)
 	case r.URL.Path == "/api/workspace/open" && r.Method == "POST":
 		h.openWorkspace(w, r)
-	case r.URL.Path == "/api/cfo" && r.Method == "GET":
-		if !h.captureSlot(w) {
-			return
-		}
-		defer func() { <-h.captures }()
-		if h.Service.Options.CFO == nil {
-			respond(w, 200, CFOView{Reason: "Primary CFO transport is unavailable."})
-			return
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
-		defer cancel()
-		respond(w, 200, h.Service.Options.CFO.Read(ctx))
 	case r.URL.Path == "/api/actions" && r.Method == "POST":
 		h.action(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/tasks/") && r.Method == "GET":
@@ -140,18 +127,6 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.FileServer(http.FS(h.Assets)).ServeHTTP(w, r)
 	default:
 		http.NotFound(w, r)
-	}
-}
-
-// A slow native capture never fans out into overlapping Herdr snapshots,
-// including requests from multiple tabs or an interrupted pane switch.
-func (h *HTTP) captureSlot(w http.ResponseWriter) bool {
-	select {
-	case h.captures <- struct{}{}:
-		return true
-	default:
-		apiError(w, 503, "Native output is being read; retry shortly")
-		return false
 	}
 }
 
@@ -283,28 +258,6 @@ func (h *HTTP) task(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respond(w, 200, lines)
-		return
-	}
-	if parts[1] == "terminal" {
-		if !h.captureSlot(w) {
-			return
-		}
-		defer func() { <-h.captures }()
-		if h.Service.Options.Peek == nil {
-			apiError(w, 503, "Herdr terminal capture is unavailable")
-			return
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
-		defer cancel()
-		text, err := h.Service.Options.Peek(ctx, meta.ID, 120)
-		if err != nil {
-			apiError(w, 503, "Herdr could not read this task's terminal; inspect cfo peek")
-			return
-		}
-		respond(w, 200, struct {
-			Text string `json:"text"`
-			Mode string `json:"mode"`
-		}{redact(bounded(text, 64<<10)), "Herdr on-demand text capture"})
 		return
 	}
 	if parts[1] != "files" && parts[1] != "diff" && parts[1] != "history" {
