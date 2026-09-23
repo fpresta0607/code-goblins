@@ -74,9 +74,12 @@ $deadline = (Get-Date).AddSeconds(20)
 while (!(Test-Path "$root\cfo-harness.pid") -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
 if (!(Test-Path "$root\cfo-harness.pid")) { throw "Example CFO did not start. Inspect $root" }
 $cfoProcess = Get-Process -Id ([int](Get-Content "$root\cfo-harness.pid"))
-$cfoPane = (Checked 'herdr' @('--session',$session,'pane','get',$cfoConfig.pane) | ConvertFrom-Json).result.pane
-$primary = @{ target=@{Session=$session;Pane=$cfoConfig.pane};workspace=$workspace.workspace.workspace_id;tab=$cfoTab.tab.tab_id;agent='codex';terminal=$cfoPane.terminal_id;process=@{pid=$cfoProcess.Id;owner_pid=$cfoProcess.Id;session='';start=$cfoProcess.StartTime.ToUniversalTime().ToString('o');hostname=[System.Net.Dns]::GetHostName();acquired=(Get-Date).ToUniversalTime().ToString('o')} }
-Write-UTF8 "$fixtureHome\state\primary.json" ($primary | ConvertTo-Json -Depth 5)
+# The example CFO registers itself from its own SessionStart hook, exactly as
+# a real primary CFO does; nothing here writes primary.json for it.
+$deadline = (Get-Date).AddSeconds(20)
+while (!(Test-Path "$fixtureHome\state\primary.json") -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
+$registered = Get-Content -LiteralPath "$fixtureHome\state\primary.json" -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+if (!$registered -or $registered.process.pid -ne $cfoProcess.Id -or $registered.target.Pane -ne $cfoConfig.pane) { throw "The example CFO did not register itself. Inspect $root" }
 $line = "& '" + $harness.Replace("'","''") + "' '" + "$root\fixture.json".Replace("'","''") + "'"
 Checked 'herdr' @('--session',$session,'pane','run',$pane,$line) | Out-Null
 $deadline = (Get-Date).AddSeconds(15)
