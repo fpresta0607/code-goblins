@@ -1535,3 +1535,34 @@ func TestActionableReasonPatternCoversEveryWatchRunReason(t *testing.T) {
 		}
 	}
 }
+
+// The 2026-09-23 incident end to end: goblins' blocked notifies from 16:53Z
+// sat unread until 18:55Z because, with cfo serve supervising, stop-autoarm
+// returned without waiting. A goblin's own cfo notify under serve must
+// rewake the CFO with its question.
+func TestGoblinBlockedNotifyRewakesTheCFOWhileServeSupervises(t *testing.T) {
+	dir := newPrimaryHome(t)
+	setAncestorPID(t, os.Getpid())
+	setTinyAutoarmIntervals(t)
+	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "30")
+	state := filepath.Join(dir, "state")
+	writeMetaFixture(t, state, "g1.meta")
+	servingWatcher(t, state)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		time.Sleep(1500 * time.Millisecond)
+		var stdout, stderr bytes.Buffer
+		if exit := runNotify([]string{"g1", "--blocked", "Merge or hold? options: merge | hold"}, &stdout, &stderr); exit != 0 {
+			t.Errorf("notify exit=%d stderr=%s", exit, stderr.String())
+		}
+	}()
+	defer func() { <-done }()
+
+	exit, stderr, _ := runAutoarm(t)
+	if exit != 2 || !strings.Contains(stderr, "notify:g1") {
+		t.Fatalf("exit=%d stderr=%q, want the CFO rewoken for the goblin's question", exit, stderr)
+	}
+	assertEpochOutcome(t, state, "rewake")
+}
