@@ -293,3 +293,25 @@ The replacement executable is built once from the clean follow-up commit outside
 The owning CFO still needs to confirm the compiled layout and actual Codex computed colors on that executable.
 The authorized actual-Codex question test uses only this worker's existing process and a separate temporary primary registration, then waits for the owning CFO's modal answer.
 Its result is recorded outside tracked source, and the managed gate remains parent-owned.
+
+## Round-three review repairs and README, September 23 UTC
+
+Managed run `01M36AGCJJK8XS6M6FBFDDAGVT` stopped in its third and last review repair round when its Codex fixer could no longer run.
+Its two committed repair rounds (`2cffbfb`, `ded12c5`) were recovered onto the branch, and the four round-three findings were then repaired by hand.
+
+- `preview-symlink-escape`: the old check compared two canonicalized spellings of the same path, so an innocently named symlink returned a file outside the worktree. Every parent must now be a plain directory and the file a regular one, and the read goes through `os.Root` on the canonical task root.
+- `delivery-ignores-file-mode`: landed-content proof compared file bytes, so a mode-only or type-only change counted as landed while main kept the old entry. It now compares each changed path's full tree entry through a literal pathspec.
+- `review-admission-does-not-verify-cfo`: a stale `primary.json` answered 202 Queued and failed only at delivery. Admission now runs the existing CFO verifier outside the store lock while holding the registration open, and an identical retry answers from its durable record without a new probe.
+- `empty-untracked-file-invents-line`: a zero-byte untracked file produced a one-line hunk, so the board offered line 1 and the server could deliver it. It now has no hunk, and a newline-only file keeps its one empty line.
+
+The tree-entry, zero-byte diff, zero-byte delivery and stale-CFO endpoint regressions failed against a source snapshot of `ded12c5` and pass after the repairs.
+The junction subtest passes on both, because Go 1.26 `filepath.EvalSymlinks` fails through a junction and the old check therefore refused junctions only by accident.
+The file and parent-directory symlink subtests need symlink privilege, which this workstation account lacks, so they skipped here and run on the elevated Windows CI runner.
+`go vet ./...` and `go test -p 2 ./... -count=1` passed with `CFO_HOME` and `CFO_STATE_OVERRIDE` set to an isolated temporary home.
+No frontend source changed, so the embedded assets were not rebuilt.
+
+The README board section uses two screenshots of scanned `3309a5b` example-workspace previews that still match the current UI: the Board review panel and the Command Center modal.
+Later frontend commits changed the Orchestration terminal pane and compact tree, diff line-number columns, link hover underlines and activity effects.
+The Board screenshot shows none of those, and the modal screenshot shows older diff rows only dimmed behind the dialog.
+No existing screenshot shows the current Orchestration pane or an annotation with native CFO delivery, and the preview execution hold prevented new captures, so those views are described in text.
+No compiled preview, browser acceptance or managed gate ran for this head.
