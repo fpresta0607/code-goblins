@@ -366,8 +366,9 @@ func TestHistoryKeepsHealthyMergesWhenARepositoryFails(t *testing.T) {
 	}
 }
 
-func TestSnapshotDoesNotRepeatAMergeALiveTaskCarries(t *testing.T) {
+func TestSnapshotCarriesAMergeOntoTheLiveTaskThatReportedIt(t *testing.T) {
 	store, h := testStore(t)
+	store.db.Tasks["task-1"] = Evaluation{Phase: "ready", Generation: "g1", At: time.Now()}
 	if err := state.AppendStatus(h.State, "task-1", "done: PR https://github.com/o/r/pull/31"); err != nil {
 		t.Fatal(err)
 	}
@@ -385,5 +386,11 @@ func TestSnapshotDoesNotRepeatAMergeALiveTaskCarries(t *testing.T) {
 	}
 	if !slices.Equal(ids, []string{"task-1", "merged:https://github.com/o/r/pull/32"}) {
 		t.Fatalf("tasks = %v, want the live task once and only the merge no live task carries", ids)
+	}
+	if got := view.Tasks[0]; !got.Merged || got.Phase != "ready" {
+		t.Fatalf("live task = merged %v phase %q, want the merge the gate missed carried onto it", got.Merged, got.Phase)
+	}
+	if !view.Tasks[1].Merged {
+		t.Fatalf("history = %+v, want its own merge", view.Tasks[1])
 	}
 }

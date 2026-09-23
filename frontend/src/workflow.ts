@@ -9,7 +9,7 @@ export const NODE_WIDTH = 292;
 export const NODE_HEIGHT = 132;
 
 export function taskColumn(task: Task): "Tasks" | "In progress" | "Completed" {
-  if (task.archived) return "Completed";
+  if (task.archived || task.merged) return "Completed";
   if (task.phase === "queued") return "Tasks";
   return task.phase === "done" && task.verified ? "Completed" : "In progress";
 }
@@ -85,7 +85,8 @@ export function nativeStatus(phase: string): string {
 
 export function nodeStatus(node: WorkflowNode): string {
   if (node.status) return node.status;
-  if (node.task?.archived) return node.task.merged ? "PR merged" : "Finished";
+  if (node.task?.merged) return "PR merged";
+  if (node.task?.archived) return "Finished";
   if (node.task && ownsTaskSession(node.session, node.task)) {
     return node.task.phase === "done" && !node.task.verified ? "Delivery unverified" : statusText(node.task.phase);
   }
