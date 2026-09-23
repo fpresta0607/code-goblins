@@ -341,6 +341,11 @@ An answered question did not reopen after a restart.
 The pass found one layout defect outside the six scenarios.
 After long diffs are expanded, a hidden `.sr-only` label, absolutely positioned inside the scrolling review panel, extends the document to 1700 px at a 900 px viewport, so the page can scroll into empty space.
 `.details-panel` gives it no positioned ancestor.
+Commit `d7c9701` makes `.details-panel` `position: relative`, the containing block for those labels, and rebuilds the embedded assets.
+On an exact clean build of that commit (SHA256 `BC06D4F516188167B1C52E78A81938D3030E451A39E6B8BFB0D83521AA75D95D`, `vcs.modified=false`, MpCmdRun found no threats) in a fresh isolated fixture, four diffs were expanded, two of them 300-line files, filling 21,193 px of panel content.
+The document stayed at 900 px at a 900 px viewport.
+Switching the panel back to static in the same page regrew the document to 11,397 px, and restoring the declaration returned it to 900 px.
+Orchestration also stayed at 900 by 1440 px with no horizontal overflow.
 
 Every fixture process was stopped by pid, the test tabs were closed, and the browser session was stopped by name.
 `cfo reap` no longer lists the fixture processes.
