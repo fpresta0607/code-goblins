@@ -2,13 +2,18 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -167,5 +172,60 @@ func TestNotifyNormalizesControlCharactersInTheDetail(t *testing.T) {
 	}
 	if len(records) != 1 || records[0].Detail != "blocked: Should I merge this?" {
 		t.Fatalf("wake records = %+v, want one normalized notify detail", records)
+	}
+}
+
+// On 2026-09-23 the CFO took three goblins' blocked questions as lost while
+// cfo serve ran the board. Each had reached the wake queue the second its
+// notify ran; only the CFO's rewake was missing. A blocked notify is in the
+// queue when cfo notify returns, and on serve's board, whether or not serve
+// holds the home.
+func TestBlockedNotifyIsQueuedAtOnceWithAndWithoutServe(t *testing.T) {
+	for _, serving := range []bool{false, true} {
+		t.Run(map[bool]string{false: "without serve", true: "with serve"}[serving], func(t *testing.T) {
+			dir := t.TempDir()
+			h := home.Home{Root: dir, State: filepath.Join(dir, "state"), Data: filepath.Join(dir, "data")}
+			if err := os.Mkdir(h.State, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("CFO_HOME", dir)
+			t.Setenv("CFO_STATE_OVERRIDE", "")
+			var board *supervisor.Service
+			if serving {
+				s, err := supervisor.Start(context.Background(), h, supervisor.Options{Example: true})
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(s.Close)
+				board = s
+			}
+
+			var stdout, stderr bytes.Buffer
+			start := time.Now()
+			if exit := runNotify([]string{"g1", "--blocked", "Which store? options: Postgres | SQLite"}, &stdout, &stderr); exit != 0 {
+				t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
+			}
+			if elapsed := time.Since(start); elapsed > 5*time.Second {
+				t.Errorf("cfo notify took %v, want it back at once", elapsed)
+			}
+
+			want := "blocked: Which store? options: Postgres | SQLite"
+			records, err := wake.Pending(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(records) != 1 || records[0].Kind != "notify" || records[0].Key != "g1" || records[0].Detail != want || records[0].Time.Before(start.Add(-time.Second)) {
+				t.Fatalf("wake records = %+v, want the question queued by the time notify returned", records)
+			}
+			if board != nil {
+				snapshot, err := board.Snapshot()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !slices.ContainsFunc(snapshot.Decisions, func(r wake.Record) bool { return r.Seq == records[0].Seq && r.Detail == want }) {
+					t.Fatalf("board decisions = %+v, want serve to show the queued question", snapshot.Decisions)
+				}
+			}
+		})
 	}
 }
