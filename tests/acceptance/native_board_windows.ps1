@@ -58,7 +58,7 @@ Write-UTF8 "$fixtureHome\state\board-fixture.meta" (@(
     'spawn_gen=fixture-1', 'model=example (no model calls)', 'effort=max', 'backend=herdr',
     "herdr_session=$session", "herdr_workspace_id=$($workspace.workspace.workspace_id)", "herdr_tab_id=$($tab.tab.tab_id)", "herdr_pane_id=$pane"
 ) -join "`n")
-Write-UTF8 "$fixtureHome\state\board-fixture.status" ((Get-Date).ToUniversalTime().ToString('o') + ' working: Build review panel')
+Write-UTF8 "$fixtureHome\state\board-fixture.status" ((Get-Date).ToUniversalTime().ToString('o') + ' working: Build review panel' + "`n")
 Write-UTF8 "$fixtureHome\data\backlog.md" "## Queued`n- [ ] board-fixture - Build review panel (repo: example)`n- [ ] follow-up - Polish settings (repo: example)`n"
 $config = @{ root=$root; home=$fixtureHome; project=$project; session=$session; pane=$pane; hook="$root\codex\cfo-native-hook.ps1"; binary=$cfo; herdr_pid=$server.Id; parentHarness='codex' }
 Write-UTF8 "$root\fixture.json" ($config | ConvertTo-Json)
@@ -68,7 +68,7 @@ $cfoConfig.pane = $cfoTab.root_pane.pane_id
 $cfoConfig.role = 'cfo'
 $cfoConfig.nativeID = 'board-cfo'
 Write-UTF8 "$root\cfo.json" ($cfoConfig | ConvertTo-Json)
-$cfoLine = "& '" + $harness.Replace("'","''") + "' '" + "$root\cfo.json".Replace("'","''") + "'"
+$cfoLine = "Clear-Host; & '" + $harness.Replace("'","''") + "' '" + "$root\cfo.json".Replace("'","''") + "'"
 Checked 'herdr' @('--session',$session,'pane','run',$cfoConfig.pane,$cfoLine) | Out-Null
 $deadline = (Get-Date).AddSeconds(20)
 while (!(Test-Path "$root\cfo-harness.pid") -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
@@ -80,7 +80,7 @@ $deadline = (Get-Date).AddSeconds(20)
 while (!(Test-Path "$fixtureHome\state\primary.json") -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
 $registered = Get-Content -LiteralPath "$fixtureHome\state\primary.json" -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
 if (!$registered -or $registered.process.pid -ne $cfoProcess.Id -or $registered.target.Pane -ne $cfoConfig.pane) { throw "The example CFO did not register itself. Inspect $root" }
-$line = "& '" + $harness.Replace("'","''") + "' '" + "$root\fixture.json".Replace("'","''") + "'"
+$line = "Clear-Host; & '" + $harness.Replace("'","''") + "' '" + "$root\fixture.json".Replace("'","''") + "'"
 Checked 'herdr' @('--session',$session,'pane','run',$pane,$line) | Out-Null
 $deadline = (Get-Date).AddSeconds(15)
 while (!(Test-Path "$root\harness.pid") -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
