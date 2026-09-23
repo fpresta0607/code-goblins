@@ -14,7 +14,9 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/code-goblins-crew.jpg" alt="Code Goblins — local multi-agent development crew" width="900" />
+  <img src="docs/images/hero.webp" alt="The Code Goblins board: a queued task and five goblins working, awaiting input or blocked on a question, beside one goblin's diff with a line comment the CFO has accepted" width="900" />
+  <br />
+  <sub>Screenshots show the example workspace, <code>cfo serve --example</code> on an isolated home, staged with demo goblins.</sub>
 </p>
 
 ## Why Code Goblins
@@ -124,7 +126,7 @@ Tell the CFO what outcome you want. It handles the fleet mechanics.
 ## Using the board
 
 <p align="center">
-  <img src="docs/images/board-review.png" alt="Board view: Tasks, In progress and Completed columns beside the selected goblin's review panel with Open in VS Code" width="900" />
+  <img src="docs/images/board-review.webp" alt="Board view: Tasks and In progress columns beside the selected goblin's panel with its status, workspace, Open in VS Code and connections" width="900" />
 </p>
 
 `cfo serve` runs the native supervisor and serves its board, which is compiled into `cfo.exe`, at `http://127.0.0.1:4310`.
@@ -148,13 +150,14 @@ The header switches between two views, one at a time, each with a contextual pan
 - **Orchestration** is the live family tree: the CFO above its goblins and any child sessions they reported. The panel shows the selected session's real native terminal and starts on the CFO. Dragging cards, panning, zooming, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence. A brief pulse along a connector marks a real accepted message.
 
 <p align="center">
-  <img src="docs/images/orchestration.png" alt="Orchestration view: the CFO above its goblin, with the goblin's live native terminal in the right panel" width="900" />
+  <img src="docs/images/orchestration.webp" alt="Orchestration view: the CFO above five goblins in two rows, with the selected goblin's live native terminal in the right panel" width="900" />
 </p>
 
-Each card's goblin is chosen from the task's work, such as builder, reviewer, tester or planner, and the crowned goblin is the CFO:
+Each card's goblin is chosen from the task's work, and the crowned goblin is the CFO.
+The whole crew:
 
 <p align="center">
-  <img src="frontend/public/assets/goblin-personas.png" alt="The CFO, builder, reviewer, tester, planner and finisher goblins" width="560" />
+  <img src="docs/images/goblin-crew.webp" alt="All 18 goblins, each labelled: CFO, Builder, Reviewer, Tester, Planner, Finisher, Debugger, Security, Database, Designer, Documentation, Operations, Researcher, Performance, Integrations, Git, Accessibility and Releases" width="900" />
 </p>
 
 ### The goblin panel
@@ -164,10 +167,14 @@ Clicking a card opens its panel on one continuous surface: the task and its proj
 On Board the panel continues with **Changes**, **Activity** and **History**.
 In Orchestration it holds the native terminal, which stays read-only until you choose **Connect input**; **Shift+Escape** hands the keyboard back.
 
+<p align="center">
+  <img src="docs/images/goblin-panel.webp" alt="The whole goblin panel: status, workspace with Open in VS Code, two configured MCP connections, the supervisor.ts diff with a line comment the CFO accepted, activity and history, then the same goblin's live native terminal from Orchestration" width="600" />
+</p>
+
 ### Sending a diff comment to the CFO
 
 <p align="center">
-  <img src="docs/images/annotation-delivery.png" alt="An inline comment on board.css line 2, sent to the CFO and accepted through Herdr" width="900" />
+  <img src="docs/images/annotation-delivery.webp" alt="An inline comment on supervisor.ts new line 3, sent to the CFO and accepted through Herdr" width="720" />
 </p>
 
 Open **Changes**, expand a file and click a line number; Shift-click extends the selection to a range.
@@ -179,7 +186,7 @@ Retrying an unchanged comment keeps its request ID, so a retry cannot deliver th
 ### Supreme Overlord Command Center
 
 <p align="center">
-  <img src="docs/images/command-center.png" alt="Supreme Overlord Command Center: a CFO question with A, B and C choices, a recommended option and Other" width="700" />
+  <img src="docs/images/command-center.webp" alt="Supreme Overlord Command Center: a CFO question with A, B and C choices, the recommended option marked, and Other" width="700" />
 </p>
 
 When the CFO needs a decision only you can make, it publishes the question with `cfo question` and the Command Center opens as a modal.
