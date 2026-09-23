@@ -4,7 +4,7 @@ import { parsePatchToRows, splitRows, reviewRange } from "./diff.ts";
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
-import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, pullRequestLabel, safePullRequest } from "./workflow.ts";
+import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, pullRequestLabel, safePullRequest, fleetTraffic, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
 
 test("board completion and semantic personas require the corresponding evidence", () => {
   const task = parseSnapshot({healthy:true, tasks:[{id:"work",title:"Test keyboard access",phase:"done",generation:"new",verified:false}]}).tasks[0];
@@ -210,4 +210,44 @@ test("only an https pull request becomes a link, labelled by repository and numb
   for (const unsafe of ["javascript:alert(1)", "http://github.com/o/r/pull/1", "https://x y", ""]) assert.equal(safePullRequest(unsafe), "", unsafe);
   assert.equal(pullRequestLabel("https://github.com/o/code-goblins/pull/29"), "code-goblins #29");
   assert.equal(pullRequestLabel("https://example.invalid/review/3"), "Pull request");
+});
+
+test("dispatched goblins hang under the CFO, and only live work is in the tree", () => {
+  const live = ["a", "b", "c", "d", "e", "f"].map((id) => ({id, phase:"working", verified:false}));
+  const history = [{id:"finished:x", phase:"done", verified:false, archived:true}, {id:"brief", phase:"queued", verified:false}];
+  const drawn = workflowNodes(parseSnapshot({healthy:true, registration:"The CFO is not registered; run cfo register in the CFO session", tasks:[...live, ...history]}));
+  const root = drawn.find((node) => node.id === CFO_ROOT);
+  assert.ok(root?.cfo);
+  assert.equal(nodeStatus(root!), "Registration stale");
+  assert.deepEqual(drawn.filter((node) => node.task).map((node) => [node.task!.id, node.parent, node.relation]), live.map((task) => [task.id, CFO_ROOT, "Dispatched by the CFO"]));
+
+  const reported = workflowNodes(parseSnapshot({healthy:true, sessions:[{id:"cfo", role:"cfo"}, {id:"lost", role:"goblin", parent:"missing"}], tasks:[{id:"a", phase:"working", verified:false}]}));
+  assert.equal(reported.find((node) => node.id === CFO_ROOT), undefined);
+  assert.equal(reported.find((node) => node.id === "task:a")?.parent, "session:cfo");
+  assert.equal(reported.find((node) => node.id === "session:lost")?.parent, undefined);
+  assert.equal(workflowNodes(parseSnapshot({healthy:true, tasks:history})).length, 0);
+});
+
+test("a wide family of goblins wraps into rows that never overlap", () => {
+  const nodes = workflowNodes(parseSnapshot({healthy:true, tasks:["a", "b", "c", "d", "e", "f"].map((id) => ({id, phase:"working", verified:false}))}));
+  const positions = arrange(nodes);
+  const cards = nodes.filter((node) => node.task).map((node) => positions[node.id]);
+  assert.equal(new Set(cards.map((point) => point.y)).size, 2);
+  assert.equal(new Set(cards.map((point) => point.x)).size, 3);
+  for (const [i, one] of cards.entries()) for (const other of cards.slice(i + 1)) {
+    assert.ok(Math.abs(one.x - other.x) >= NODE_WIDTH || Math.abs(one.y - other.y) >= NODE_HEIGHT, JSON.stringify([one, other]));
+  }
+  assert.ok(cards.every((point) => point.y > positions[CFO_ROOT].y));
+});
+
+test("a connector pulses only when a goblin reports something new", () => {
+  const snapshot = (activity: string, decisions: {seq:number,key:string}[] = []) => parseSnapshot({healthy:true,
+    tasks:[{id:"a", phase:"working", verified:false, activity}, {id:"old", phase:"done", verified:false, archived:true, activity}],
+    decisions:decisions.map((d) => ({...d, kind:"notify", detail:"blocked: which?", time:"2026-09-23T00:00:00Z"}))});
+  const first = fleetTraffic(null, snapshot("working: tests"));
+  assert.deepEqual(first.moved, []);
+  assert.deepEqual(fleetTraffic(first.signatures, snapshot("working: tests")).moved, []);
+  assert.deepEqual(fleetTraffic(first.signatures, snapshot("working: gate review")).moved, ["a"]);
+  assert.deepEqual(fleetTraffic(first.signatures, snapshot("working: tests", [{seq:4, key:"a"}])).moved, ["a"]);
+  assert.equal(first.signatures.has("old"), false);
 });

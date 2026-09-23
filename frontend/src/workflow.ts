@@ -84,6 +84,7 @@ export function nativeStatus(phase: string): string {
 }
 
 export function nodeStatus(node: WorkflowNode): string {
+  if (node.status) return node.status;
   if (node.task?.archived) return node.task.merged ? "PR merged" : "Finished";
   if (node.task && ownsTaskSession(node.session, node.task)) {
     return node.task.phase === "done" && !node.task.verified ? "Delivery unverified" : statusText(node.task.phase);
@@ -98,7 +99,13 @@ export interface WorkflowNode {
   session?: Session;
   parent?: string;
   relation: string;
+  // cfo marks the supervisor root drawn when no native CFO session reported,
+  // and status is its fixed label.
+  cfo?: boolean;
+  status?: string;
 }
+
+export const CFO_ROOT = "cfo:primary";
 
 export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
   const ids = new Set(snapshot.sessions.map((node) => node.id));
@@ -113,10 +120,23 @@ export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
             : snapshot.retired.includes(session.parent) ? "Parent retired" : "Parent unreported",
       };
     }),
-    ...tasksWithoutSession(snapshot.tasks, snapshot.sessions).map((task) => ({
+    ...tasksWithoutSession(snapshot.tasks.filter((task) => !task.archived && task.phase !== "queued"), snapshot.sessions).map((task) => ({
       id: "task:" + task.id, title: task.title || task.id, task, relation: "Session unreported",
     })),
   ];
+  // Every live task record was dispatched by the CFO through cfo spawn, so a
+  // task no native hook reported hangs under the CFO: the reported session
+  // when there is one, otherwise the supervisor root drawn for it. Sessions
+  // keep only the parents they reported.
+  const dispatched = nodes.filter((node) => node.id.startsWith("task:"));
+  if (dispatched.length) {
+    let cfo = nodes.find((node) => node.session?.role === "cfo");
+    if (!cfo) {
+      cfo = { id: CFO_ROOT, title: "CFO", relation: "Supervisor", cfo: true, status: snapshot.registration ? "Registration stale" : "Supervising" };
+      nodes.unshift(cfo);
+    }
+    for (const node of dispatched) { node.parent = cfo.id; node.relation = "Dispatched by the CFO"; }
+  }
   const byID = new Map(nodes.map((node) => [node.id, node]));
   const cyclic = new Set<string>();
   for (const node of nodes) {
@@ -137,6 +157,17 @@ export function arrange(nodes: WorkflowNode[]): Record<string, Point> {
   const place = (node: WorkflowNode, depth: number): number => {
     visited.add(node.id);
     const children = nodes.filter((child) => child.parent === node.id && !visited.has(child.id));
+    if (children.length > 3 && children.every((child) => !nodes.some((other) => other.parent === child.id))) {
+      const columns = Math.ceil(Math.sqrt(children.length)), first = leaf;
+      children.forEach((child, i) => {
+        visited.add(child.id);
+        positions[child.id] = { x: 40 + (first + i % columns) * (NODE_WIDTH + 44), y: 72 + (depth + 1 + Math.floor(i / columns)) * 244 };
+      });
+      leaf += columns;
+      const x = 40 + (first + (columns - 1) / 2) * (NODE_WIDTH + 44);
+      positions[node.id] = { x, y: 72 + depth * 244 };
+      return x;
+    }
     const xs = children.filter((child) => !visited.has(child.id)).map((child) => place(child, depth + 1));
     const x = xs.length ? (xs[0] + xs[xs.length - 1]) / 2 : 40 + leaf++ * (NODE_WIDTH + 44);
     positions[node.id] = { x, y: 72 + depth * 244 };
@@ -152,4 +183,16 @@ export function arrange(nodes: WorkflowNode[]): Record<string, Point> {
 export function harnessName(id: string): string {
   const names: Record<string, string> = { codex: "Codex", claude: "Claude Code", pi: "Pi", kimi: "Kimi" };
   return names[id] || id;
+}
+
+// fleetTraffic signs what each live task last reported, its status line and
+// the newest wake record it filed, and names the tasks whose signature moved
+// since the previous snapshot. Those are real reports reaching the CFO.
+export function fleetTraffic(previous: Map<string, string> | null, snapshot: Snapshot): { signatures: Map<string, string>; moved: string[] } {
+  const newest = new Map<string, number>();
+  for (const decision of snapshot.decisions) newest.set(decision.key, Math.max(newest.get(decision.key) || 0, decision.seq));
+  const signatures = new Map(snapshot.tasks.filter((task) => !task.archived && task.phase !== "queued")
+    .map((task) => [task.id, task.activity + "\u0000" + (newest.get(task.id) || 0)]));
+  const moved = previous ? [...signatures].filter(([id, signature]) => previous.has(id) && previous.get(id) !== signature).map(([id]) => id) : [];
+  return { signatures, moved };
 }

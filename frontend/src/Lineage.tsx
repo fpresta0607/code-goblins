@@ -19,7 +19,7 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const sessions = projectSessions(snapshot.sessions, snapshot.tasks, project);
-  const tasks = snapshot.tasks.filter((task) => !project || task.project === project);
+  const tasks = snapshot.tasks.filter((task) => !task.archived && (!project || task.project === project));
   const taskOnly = tasksWithoutSession(tasks, snapshot.sessions);
   const byID = new Map(sessions.map((node) => [node.id, node]));
   const children = new Map<string, Session[]>();
