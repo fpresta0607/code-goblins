@@ -20,9 +20,9 @@ import (
 // failure reason), so the CFO is woken with the real thing instead of the
 // watcher guessing from pane text. Identical for claude, codex, and pi.
 //
-//	 cfo notify <task-id> --done --pr <url>
-//	 cfo notify <task-id> --blocked "<question>"
-//	 cfo notify <task-id> --failed "<reason>"
+//	cfo notify <task-id> --done --pr <url>
+//	cfo notify <task-id> --blocked "<question>"
+//	cfo notify <task-id> --failed "<reason>"
 func runNotify(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "cfo notify: task ID is required")
