@@ -77,6 +77,7 @@ type Action struct {
 	Revision    string    `json:"revision,omitempty"`
 	DiffID      string    `json:"diff_id,omitempty"`
 	QuestionID  string    `json:"question_id,omitempty"`
+	ReviewID    string    `json:"review_id,omitempty"`
 	AnswerKind  string    `json:"answer_kind,omitempty"`
 	CFOIdentity string    `json:"cfo_identity,omitempty"`
 	Status      string    `json:"status"`
@@ -98,6 +99,7 @@ type Database struct {
 	Questions     []Question            `json:"questions"`
 	QuestionFloor time.Time             `json:"question_floor,omitempty"`
 	Activity      []BoardActivity       `json:"activity"`
+	Reviews       []Review              `json:"reviews,omitempty"`
 }
 
 type Store struct {
@@ -206,8 +208,12 @@ func cloneDatabase(d Database) Database {
 	d.Issues = slices.Clone(d.Issues)
 	d.Questions = slices.Clone(d.Questions)
 	d.Activity = slices.Clone(d.Activity)
+	d.Reviews = slices.Clone(d.Reviews)
 	for i := range d.Questions {
 		d.Questions[i].Options = slices.Clone(d.Questions[i].Options)
+	}
+	for i := range d.Reviews {
+		d.Reviews[i].ImageSums = slices.Clone(d.Reviews[i].ImageSums)
 	}
 	return d
 }
@@ -431,7 +437,7 @@ func (s *Store) lookup(a Action) (Action, bool, error) {
 		if generation == "" && (existing.Kind == "evaluate" || existing.Kind == "feedback") {
 			generation = existing.Generation
 		}
-		if existing.Kind != a.Kind || existing.TaskID != a.TaskID || existing.Generation != generation || existing.Session != a.Session || existing.EventID != a.EventID || existing.Text != a.Text || existing.File != a.File || existing.Head != a.Head || existing.Line != a.Line || existing.EndLine != a.EndLine || existing.Side != a.Side || existing.Revision != a.Revision || existing.DiffID != a.DiffID || existing.QuestionID != a.QuestionID || existing.AnswerKind != a.AnswerKind {
+		if existing.Kind != a.Kind || existing.TaskID != a.TaskID || existing.Generation != generation || existing.Session != a.Session || existing.EventID != a.EventID || existing.Text != a.Text || existing.File != a.File || existing.Head != a.Head || existing.Line != a.Line || existing.EndLine != a.EndLine || existing.Side != a.Side || existing.Revision != a.Revision || existing.DiffID != a.DiffID || existing.QuestionID != a.QuestionID || existing.ReviewID != a.ReviewID || existing.AnswerKind != a.AnswerKind {
 			return Action{}, false, errors.New("request ID was already used for another action")
 		}
 		return existing, true, nil
@@ -444,14 +450,18 @@ func (s *Store) queue(a Action) (Action, error) {
 		return existing, err
 	}
 	answer := a.Kind == "cfo_answer" || a.Kind == "goblin_answer"
+	clear := a.Kind == "review_clear" || a.Kind == "question_clear"
 	if !answer && a.AnswerKind != "" {
 		return Action{}, errors.New("answer kind is only valid for a question")
 	}
-	if a.Kind != "evaluate" && a.Kind != "review" && !answer {
+	if a.Kind != "evaluate" && a.Kind != "review" && !answer && !clear {
 		return Action{}, errors.New("unsupported action; task lifecycle cannot be dragged or assigned")
 	}
 	if len(a.Text) > 16000 || len(a.File) > 4096 {
 		return Action{}, errors.New("action exceeds size limit")
+	}
+	if clear {
+		return s.queueClear(a)
 	}
 	if a.Kind != "evaluate" && strings.TrimSpace(a.Text) == "" {
 		return Action{}, errors.New("comment is empty")
@@ -521,6 +531,37 @@ func (s *Store) queue(a Action) (Action, error) {
 			}
 		}
 	}
+	return a, nil
+}
+
+// queueClear admits the Overlord clearing one Command Center item: an open
+// review, or a question that closed without an answer. A pending question
+// cannot be cleared, so an unanswered decision is never hidden.
+func (s *Store) queueClear(a Action) (Action, error) {
+	if a.Generation == "" || a.Text != "" || a.TaskID != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || (a.Kind == "review_clear") != (a.ReviewID != "") || (a.Kind == "question_clear") != (a.QuestionID != "") {
+		return Action{}, errors.New("a clear names only its item and that item's identity")
+	}
+	if a.Kind == "review_clear" && !slices.ContainsFunc(s.db.Reviews, func(r Review) bool {
+		return r.ID == a.ReviewID && r.Identity == a.Generation && r.State == "open"
+	}) {
+		return Action{}, errors.New("that review is not open; refresh the board")
+	}
+	if a.Kind == "question_clear" && !slices.ContainsFunc(s.db.Questions, func(q Question) bool {
+		return q.ID == a.QuestionID && q.Identity == a.Generation && (q.Status == "superseded" || q.Status == "failed")
+	}) {
+		return Action{}, errors.New("only a question that closed without an answer can be cleared; refresh the board")
+	}
+	if len(s.db.Actions) >= maxActions {
+		remove := slices.IndexFunc(s.db.Actions, func(old Action) bool { return old.Status == "succeeded" || old.Status == "failed" })
+		if remove < 0 {
+			return Action{}, errors.New("action queue is full; resolve pending actions")
+		}
+		s.db.Actions = slices.Delete(s.db.Actions, remove, remove+1)
+	}
+	a.Status = "queued"
+	a.CreatedAt = time.Now().UTC()
+	a.UpdatedAt = a.CreatedAt
+	s.db.Actions = append(s.db.Actions, a)
 	return a, nil
 }
 

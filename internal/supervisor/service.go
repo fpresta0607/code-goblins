@@ -196,6 +196,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	// Question failures cannot stop native events or independent progression.
 	reconcileErr := s.Store.ingestQuestions()
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
+	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
 	s.reconcilePresentations(ctx)
 	if recover {
@@ -204,6 +205,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		}
 		s.checkRegistration(ctx)
 		reconcileErr = errors.Join(reconcileErr, s.refreshHistory(ctx))
+		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
 		s.mu.Lock()
 		s.reconciled = time.Now().UTC()
 		s.mu.Unlock()
@@ -340,8 +342,14 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	if a.Kind == "feedback" || a.Kind == "cfo_message" {
 		return Evaluation{}, fmt.Errorf("%w: obsolete action kind %q is not accepted", ErrRejected, a.Kind)
 	}
-	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" {
+	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" {
 		return Evaluation{}, fmt.Errorf("%w: unsupported action kind %q", ErrRejected, a.Kind)
+	}
+	if a.Kind == "review_clear" {
+		return s.Store.clearReview(a.ReviewID, a.Generation)
+	}
+	if a.Kind == "question_clear" {
+		return s.Store.clearQuestion(a.QuestionID, a.Generation)
 	}
 	if a.Kind == "goblin_answer" {
 		return s.answerGoblin(ctx, a)
@@ -515,6 +523,7 @@ type Snapshot struct {
 	Issues     []string        `json:"issues"`
 	Questions  []Question      `json:"questions"`
 	Activity   []BoardActivity `json:"activity"`
+	Reviews    []Review        `json:"reviews"`
 
 	// Registration says why the board cannot reach the primary CFO, with
 	// the fix, and is empty while it can.
@@ -539,6 +548,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		out.Questions[i] = q
 	}
 	out.Activity = d.Activity
+	// The board sees how many images a review has, never their digests.
+	out.Reviews = make([]Review, len(d.Reviews))
+	for i, r := range d.Reviews {
+		r.ImageCount, r.ImageSums = len(r.ImageSums), nil
+		out.Reviews[i] = r
+	}
 	out.Healthy = supervise.WatcherHealthy(s.Store.Home.State, 30*time.Second)
 	for _, node := range d.Sessions {
 		if node.Role == "goblin" && d.TaskSessions[node.TaskID] == node.ID {

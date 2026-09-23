@@ -99,6 +99,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.action(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/questions/") && r.Method == "GET":
 		h.questionImage(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/reviews/") && r.Method == "GET":
+		h.reviewImage(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/tasks/") && r.Method == "GET":
 		h.task(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/"):
@@ -213,6 +215,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 		Revision   string `json:"revision"`
 		DiffID     string `json:"diff_id"`
 		QuestionID string `json:"question_id"`
+		ReviewID   string `json:"review_id"`
 		AnswerKind string `json:"answer_kind"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 24<<10))
@@ -234,7 +237,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 400, "Unsafe file path")
 		return
 	}
-	a := Action{ID: input.ID, Kind: input.Kind, TaskID: input.TaskID, Generation: input.Generation, Text: input.Text, File: input.File, Line: input.Line, EndLine: input.EndLine, Side: input.Side, Head: input.Head, Revision: input.Revision, DiffID: input.DiffID, QuestionID: input.QuestionID, AnswerKind: input.AnswerKind}
+	a := Action{ID: input.ID, Kind: input.Kind, TaskID: input.TaskID, Generation: input.Generation, Text: input.Text, File: input.File, Line: input.Line, EndLine: input.EndLine, Side: input.Side, Head: input.Head, Revision: input.Revision, DiffID: input.DiffID, QuestionID: input.QuestionID, ReviewID: input.ReviewID, AnswerKind: input.AnswerKind}
 	var err error
 	if a.Kind == "review" {
 		a, err = h.Service.Store.QueueReview(r.Context(), a, h.Service.Options.CFO)
