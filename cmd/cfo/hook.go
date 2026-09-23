@@ -1,15 +1,19 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
 	"github.com/fpresta0607/code-goblins/internal/digest"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/guard"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -367,6 +371,71 @@ const (
 	autoarmSession  = "autoarm"
 )
 
+// autoarmWaitSeconds bounds a wait on a watcher this hook does not host. It
+// sits five minutes under the 28800s timeout install.Hooks registers, so the
+// wait ends with a recorded clean outcome instead of being killed.
+const autoarmWaitSeconds = 28500
+
+// rewokenFile holds the highest wake sequence a rewake has already covered.
+const rewokenFile = ".claude-autoarm-rewoken"
+
+// awaitQueuedWake waits until deadline for a queued wake that no rewake has
+// covered yet. Every queued record needs the CFO, because wake.Append admits
+// no other kind, so none is filtered out. It returns false early once the
+// watcher it relies on stops being healthy.
+func awaitQueuedWake(state string, grace time.Duration, deadline time.Time) (string, bool, error) {
+	poll := max(claudehook.Seconds("CFO_POLL", 15), time.Second)
+	for {
+		records, err := wake.Pending(state)
+		if err != nil {
+			return "", false, err
+		}
+		rewoken, err := readRewoken(state)
+		if err != nil {
+			return "", false, err
+		}
+		var fresh []wake.Record
+		for _, record := range records {
+			if record.Seq > rewoken {
+				fresh = append(fresh, record)
+			}
+		}
+		if len(fresh) > 0 {
+			reason := fresh[0].Kind + ":" + fresh[0].Key
+			if len(fresh) > 1 {
+				reason += fmt.Sprintf(" and %d more queued wake(s)", len(fresh)-1)
+			}
+			return reason, true, nil
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 || !supervise.WatcherHealthy(state, grace) {
+			return "", false, nil
+		}
+		time.Sleep(min(poll, remaining))
+	}
+}
+
+func readRewoken(state string) (int, error) {
+	data, err := os.ReadFile(filepath.Join(state, rewokenFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(string(data)))
+}
+
+// markRewoken records every record queued now as covered: the rewake sends
+// the CFO to cfo drain, which shows all of them.
+func markRewoken(state string) error {
+	records, err := wake.Pending(state)
+	if err != nil || len(records) == 0 {
+		return err
+	}
+	return fsx.AtomicWriteFile(filepath.Join(state, rewokenFile), []byte(strconv.Itoa(records[len(records)-1].Seq)+"\n"))
+}
+
 // actionableReasonPattern matches the watch.Run reasons that mean a real
 // supervision event needs a handling turn: a status/turn-ended signal, a
 // monitor stale or heartbeat event, an orphan sweep finding, or a check.sh
@@ -427,7 +496,9 @@ func resolveAncestorPID() (int, bool) {
 // hookStopAutoarm hosts the watcher in-process for up to eight hours: Claude
 // fires this hook on every Stop with asyncRewake:true and an 8h timeout,
 // undeduplicated, and this process IS the watcher host - its eventual exit 2
-// stderr is what rewakes the idle agent. Steps below are commented against
+// stderr is what rewakes the idle agent. When cfo serve already holds a
+// healthy watcher, this process waits on that watcher's wake queue instead
+// and exits the same way. Steps below are commented against
 // the plan brief's numbering (upstream analogue:
 // bin/fm-claude-stop-autoarm.sh). The stdin/home/IsPrimary prologue lives in
 // runHook's dispatch switch, shared with every other hook in this file.
@@ -506,18 +577,38 @@ func hookStopAutoarmWithConfig(h home.Home, payload claudehook.Payload, stdout, 
 	// watcher-down episode is NOT published per-attempt here: see the
 	// genuine-failure outcome arm below for why the publish has to happen
 	// after the outcome is settled, not inside this loop.
-	for i := 0; i < attempts; i++ {
-		attemptsRun = i + 1
-		reason, lastErr = watch.Run(newConfig(h))
-		if lastErr == nil && actionableReasonPattern.MatchString(reason) {
-			actionable = true
+	//
+	// A healthy watcher this hook does not host, cfo serve, queues wakes
+	// but has no way to rewake this session, so the hook waits on the queue
+	// itself and hosts the watcher again if that one stops being healthy.
+	deadline := time.Now().Add(claudehook.Seconds("CFO_CLAUDE_AUTOARM_WAIT", autoarmWaitSeconds))
+	for {
+		healthy = false
+		for i := 0; i < attempts; i++ {
+			attemptsRun = i + 1
+			reason, lastErr = watch.Run(newConfig(h))
+			if lastErr == nil && actionableReasonPattern.MatchString(reason) {
+				actionable = true
+				break
+			}
+			if supervise.WatcherHealthy(state, guardGrace) {
+				healthy = true
+				break
+			}
+			// Strike; continue to the next attempt.
+		}
+		if !healthy {
 			break
 		}
-		if supervise.WatcherHealthy(state, guardGrace) {
-			healthy = true
+		var err error
+		reason, actionable, err = awaitQueuedWake(state, guardGrace, deadline)
+		if err != nil {
+			healthy, lastErr = false, err
 			break
 		}
-		// Strike; continue to the next attempt.
+		if actionable || !time.Now().Before(deadline) {
+			break
+		}
 	}
 
 	// Step 7, need-vanished check first: it wins over whatever the loop
@@ -530,16 +621,26 @@ func hookStopAutoarmWithConfig(h home.Home, payload claudehook.Payload, stdout, 
 		return 0
 	}
 
-	if healthy {
-		_ = supervise.ResetBudget(state)
-		recordOutcome("clean")
-		return 0
+	// A rewake records the queue it covers, so a record still waiting on an
+	// answer never rewakes the session a second time. Without that record the
+	// next Stop would rewake for the same wake forever, so failing to write it
+	// is a supervision failure, not a rewake.
+	if actionable {
+		if err := markRewoken(state); err != nil {
+			actionable, healthy, lastErr = false, false, fmt.Errorf("record the rewake: %w", err)
+		}
 	}
 
 	if actionable {
 		_ = supervise.ResetBudget(state)
 		recordOutcome("rewake")
 		return claudehook.BlockStop(stderr, fmt.Sprintf(rewakeBannerFmt, reason))
+	}
+
+	if healthy {
+		_ = supervise.ResetBudget(state)
+		recordOutcome("clean")
+		return 0
 	}
 
 	// Genuine failure: neither actionable nor healthy, and the need has

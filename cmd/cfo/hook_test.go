@@ -742,13 +742,15 @@ func setAncestorPID(t *testing.T, pid int) {
 // clamp to 1s regardless (watch.ConfigFromEnv floors every interval at 1s),
 // so "tiny" here means fast relative to the multi-minute production
 // defaults, not literally sub-second. CFO_CLAUDE_AUTOARM_ATTEMPTS=1 keeps
-// the attempt loop to a single watch.Run call per firing.
+// the attempt loop to a single watch.Run call per firing, and
+// CFO_CLAUDE_AUTOARM_WAIT=1 caps a wait on a foreign healthy watcher.
 func setTinyAutoarmIntervals(t *testing.T) {
 	t.Helper()
 	t.Setenv("CFO_POLL", "1")
 	t.Setenv("CFO_SIGNAL_GRACE", "1")
 	t.Setenv("CFO_HEARTBEAT", "1")
 	t.Setenv("CFO_CLAUDE_AUTOARM_ATTEMPTS", "1")
+	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "1")
 }
 
 // startLiveForeignProcess spawns a throwaway child process that stays alive
@@ -1058,6 +1060,154 @@ func TestAutoarmHealthyAfterSteal(t *testing.T) {
 	}
 	if supervise.NotifiedOnce(state) {
 		t.Error("notified marker created on a HEALTHY outcome")
+	}
+}
+
+// servingWatcher stands in for cfo serve: a live foreign process holds
+// .watch.lock and the heartbeat is fresh, which is everything
+// supervise.WatcherHealthy reads.
+func servingWatcher(t *testing.T, state string) *exec.Cmd {
+	t.Helper()
+	serve := startLiveForeignProcess(t)
+	if _, err := lock.AcquireNamedOwner(state, ".watch.lock", serve.Process.Pid, "watch"); err != nil {
+		t.Fatal(err)
+	}
+	writeHeartbeatFixture(t, state, time.Now())
+	return serve
+}
+
+func runAutoarm(t *testing.T) (int, string, time.Duration) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	start := time.Now()
+	exit := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
+	if stdout.Len() != 0 {
+		t.Errorf("stdout = %q, want empty", stdout.String())
+	}
+	return exit, stderr.String(), time.Since(start)
+}
+
+func assertEpochOutcome(t *testing.T, state, want string) {
+	t.Helper()
+	epoch, err := supervise.ReadEpoch(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if epoch.Outcome != want {
+		t.Errorf("epoch outcome = %q, want %q", epoch.Outcome, want)
+	}
+}
+
+func TestAutoarmRewakesForAWakeQueuedWhileServeSupervises(t *testing.T) {
+	dir := newPrimaryHome(t)
+	setAncestorPID(t, os.Getpid())
+	setTinyAutoarmIntervals(t)
+	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "30")
+	state := filepath.Join(dir, "state")
+	writeMetaFixture(t, state, "g1.meta")
+	servingWatcher(t, state)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		time.Sleep(1500 * time.Millisecond)
+		if _, err := wake.Append(state, "notify", "g1", "blocked: Should I merge this?"); err != nil {
+			t.Error(err)
+		}
+	}()
+	defer func() { <-done }()
+
+	exit, stderr, elapsed := runAutoarm(t)
+	if exit != 2 || !strings.Contains(stderr, "cfo watcher wake") || !strings.Contains(stderr, "notify:g1") {
+		t.Fatalf("exit=%d stderr=%q, want the rewake banner naming notify:g1", exit, stderr)
+	}
+	if elapsed < time.Second {
+		t.Errorf("elapsed = %v, want the hook to have waited for the question queued at 1.5s", elapsed)
+	}
+	assertEpochOutcome(t, state, "rewake")
+}
+
+func TestAutoarmReturnsCleanAtItsWaitLimitWhileServeSupervisesAnIdleQueue(t *testing.T) {
+	dir := newPrimaryHome(t)
+	setAncestorPID(t, os.Getpid())
+	setTinyAutoarmIntervals(t)
+	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "2")
+	state := filepath.Join(dir, "state")
+	writeMetaFixture(t, state, "g1.meta")
+	servingWatcher(t, state)
+
+	exit, stderr, elapsed := runAutoarm(t)
+	if exit != 0 || stderr != "" {
+		t.Fatalf("exit=%d stderr=%q, want a silent clean return", exit, stderr)
+	}
+	if elapsed < 2*time.Second {
+		t.Errorf("elapsed = %v, want the hook to wait out its 2s limit before returning", elapsed)
+	}
+	assertEpochOutcome(t, state, "clean")
+}
+
+func TestAutoarmRewakesOncePerQueuedWakeWhileServeSupervises(t *testing.T) {
+	dir := newPrimaryHome(t)
+	setAncestorPID(t, os.Getpid())
+	setTinyAutoarmIntervals(t)
+	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "2")
+	state := filepath.Join(dir, "state")
+	writeMetaFixture(t, state, "g1.meta")
+	servingWatcher(t, state)
+	if _, err := wake.Append(state, "notify", "g1", "blocked: Should I merge this?"); err != nil {
+		t.Fatal(err)
+	}
+
+	if exit, stderr, _ := runAutoarm(t); exit != 2 || !strings.Contains(stderr, "notify:g1") {
+		t.Fatalf("first firing exit=%d stderr=%q, want a rewake for the queued question", exit, stderr)
+	}
+	// Still unanswered and unacked, the same record must not rewake again.
+	if exit, stderr, elapsed := runAutoarm(t); exit != 0 || stderr != "" || elapsed < 2*time.Second {
+		t.Fatalf("second firing exit=%d stderr=%q elapsed=%v, want a silent clean return after the full wait", exit, stderr, elapsed)
+	}
+	assertEpochOutcome(t, state, "clean")
+
+	if _, err := wake.Append(state, "stale", "g1", "awaiting-decision: still unanswered (re-ask 1)"); err != nil {
+		t.Fatal(err)
+	}
+	if exit, stderr, _ := runAutoarm(t); exit != 2 || !strings.Contains(stderr, "stale:g1") {
+		t.Fatalf("third firing exit=%d stderr=%q, want a rewake for the new re-ask", exit, stderr)
+	}
+}
+
+func TestAutoarmHostsTheWatcherWhenServeStopsMidWait(t *testing.T) {
+	dir := newPrimaryHome(t)
+	setAncestorPID(t, os.Getpid())
+	setTinyAutoarmIntervals(t)
+	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "60")
+	state := filepath.Join(dir, "state")
+	writeMetaFixture(t, state, "g1.meta")
+	serve := servingWatcher(t, state)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		time.Sleep(500 * time.Millisecond)
+		_ = serve.Process.Kill()
+		_, _ = serve.Process.Wait()
+		_ = os.WriteFile(filepath.Join(state, "g1.status"), []byte("needs-decision: done\n"), 0o644)
+	}()
+	defer func() { <-done }()
+
+	var stdout, stderr bytes.Buffer
+	start := time.Now()
+	exit := hookStopAutoarmWithConfig(home.Home{Root: dir, State: state}, claudehook.Payload{SessionID: "s1"}, &stdout, &stderr, func(h home.Home) watch.Config {
+		cfg := watch.ConfigFromEnv(h)
+		// The status-file signal is this scenario's only event source.
+		cfg.Monitor = nil
+		cfg.Reap = nil
+		return cfg
+	})
+	if exit != 2 || !strings.Contains(stderr.String(), "signal:") {
+		t.Fatalf("exit=%d stderr=%q, want the hook to host the watcher itself and rewake on the signal", exit, stderr.String())
+	}
+	if elapsed := time.Since(start); elapsed > 30*time.Second {
+		t.Errorf("elapsed = %v, want the takeover well before the 60s wait limit", elapsed)
 	}
 }
 
