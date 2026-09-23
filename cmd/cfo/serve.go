@@ -76,10 +76,12 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	gate := pipeline.Reader{Root: root, Commands: execx.OSRunner{}}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
 		Example:        *example,
 		CFO:            &supervisor.CFOConnection{State: h.State, Herdr: &herdr.Client{Commands: execx.OSRunner{}}},
-		Gate:           pipeline.Reader{Root: root, Commands: execx.OSRunner{}},
+		Gate:           gate,
+		MergedPRs:      gate.Merged,
 		Reconcile:      func(ctx context.Context) error { return watch.Reconcile(ctx, config) },
 		VerifyDelivery: (supervisor.Git{}).VerifyDelivery,
 	})

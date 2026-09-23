@@ -9,13 +9,14 @@ export const NODE_WIDTH = 292;
 export const NODE_HEIGHT = 132;
 
 export function taskColumn(task: Task): "Tasks" | "In progress" | "Completed" {
+  if (task.archived) return "Completed";
   if (task.phase === "queued") return "Tasks";
   return task.phase === "done" && task.verified ? "Completed" : "In progress";
 }
 
 export function personaFor(task?: Task, node?: Session): Persona {
   if (node?.role === "cfo") return "cfo";
-  if (task && ownsTaskSession(node, task) && taskColumn(task) === "Completed") return "finisher";
+  if (task?.archived || task && ownsTaskSession(node, task) && taskColumn(task) === "Completed") return "finisher";
   const meaning = (node?.agent_type || task?.title || "").toLowerCase();
   const specialists: [RegExp, Persona][] = [
     [/\b(debug|debugger|crash|bug|regression)\b/, "debugger"],
@@ -38,13 +39,34 @@ export function personaFor(task?: Task, node?: Session): Persona {
   if (/\b(review|reviewer|audit|diff)\b/.test(meaning)) return "reviewer";
   if (/\b(plan|planner|planning|design|research)\b/.test(meaning)) return "planner";
   if (/\b(build|builder|implement|fix|repair|develop)\b/.test(meaning)) return "builder";
+  // No keyword matched: a stable choice per task keeps concurrent goblins
+  // apart on the board. It says nothing about the work itself.
+  if (task?.id) {
+    let hash = 0;
+    for (const character of task.id) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+    return stablePersonas[hash % stablePersonas.length];
+  }
   return "general";
+}
+
+const stablePersonas: Persona[] = ["builder", "reviewer", "tester", "planner", "debugger", "security", "database", "designer",
+  "documentation", "operations", "researcher", "performance", "integrations", "git", "accessibility", "releases"];
+
+// pullRequestLabel names a pull request the way a person would say it.
+export function pullRequestLabel(url: string): string {
+  const match = /\/([^/]+)\/pull\/(\d+)/.exec(url);
+  return match ? match[1] + " #" + match[2] : "Pull request";
+}
+
+// A goblin writes the status line a pull request link comes from.
+export function safePullRequest(url: string): string {
+  return /^https:\/\/[^\s]+$/.test(url) ? url : "";
 }
 
 export function statusText(phase: string): string {
   const labels: Record<string, string> = {
     queued: "Ready to start", working: "Working", active: "Active", started: "Session started",
-    review: "Awaiting review", ready: "Checks passed", done: "Verified delivery", merged: "Verify landed content",
+    review: "Awaiting review", ready: "Checks passed", done: "Verified delivery", merged: "Verify landed content", idle: "Awaiting input",
     blocked: "Blocked", failed: "Failed", unavailable: "Evidence unavailable",
     stale: "Evidence is stale", interrupted: "Interrupted", settled: "Turn settled", ended: "Session ended",
   };
@@ -62,6 +84,7 @@ export function nativeStatus(phase: string): string {
 }
 
 export function nodeStatus(node: WorkflowNode): string {
+  if (node.task?.archived) return node.task.merged ? "PR merged" : "Finished";
   if (node.task && ownsTaskSession(node.session, node.task)) {
     return node.task.phase === "done" && !node.task.verified ? "Delivery unverified" : statusText(node.task.phase);
   }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -36,6 +37,9 @@ type Options struct {
 	Gate           ProgressReader
 	Reconcile      func(context.Context) error
 	VerifyDelivery func(context.Context, state.TaskMeta, string, string, string) (string, error)
+	// MergedPRs lists, newest first, at most limit pull requests the gate
+	// saw merged since a time.
+	MergedPRs func(ctx context.Context, since time.Time, limit int) ([]pipeline.MergedPR, error)
 }
 
 type Service struct {
@@ -50,6 +54,7 @@ type Service struct {
 	presentationChecked  time.Time
 	presentationIdentity string
 	registration         string
+	history              []Task
 	revision             uint64
 	subscribers          map[chan struct{}]struct{}
 	done                 chan struct{}
@@ -198,6 +203,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
 		}
 		s.checkRegistration(ctx)
+		reconcileErr = errors.Join(reconcileErr, s.refreshHistory(ctx))
 		s.mu.Lock()
 		s.reconciled = time.Now().UTC()
 		s.mu.Unlock()
@@ -210,6 +216,24 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	if recover || before != s.Store.Snapshot().Revision {
 		s.publish(reconcileErr)
 	}
+}
+
+// refreshHistory rebuilds the Completed column on the once-a-minute recovery
+// cycle: finished tasks, and the pull requests the gate saw merged.
+func (s *Service) refreshHistory(ctx context.Context) error {
+	now := time.Now().UTC()
+	history := finishedTasks(s.Store.Home.State, now)
+	var err error
+	if s.Options.MergedPRs != nil {
+		var merged []pipeline.MergedPR
+		if merged, err = s.Options.MergedPRs(ctx, now.Add(-historyWindow), historyLimit); err == nil {
+			history = withMergedPRs(history, merged)
+		}
+	}
+	s.mu.Lock()
+	s.history = history
+	s.mu.Unlock()
+	return err
 }
 
 // checkRegistration runs on the once-a-minute recovery cycle, so a CFO that
@@ -250,21 +274,43 @@ func (s *Service) reconcileTasks(now time.Time) error {
 		if (node.Phase == "active" || node.Phase == "started") && s.runtimeEvidence(meta, node, now).working() {
 			continue
 		}
-		pending := false
-		for _, a := range d.Actions {
-			if a.TaskID == task && a.Kind == "evaluate" && (a.Status == "queued" || a.Status == "running") {
-				pending = true
-				break
-			}
-		}
-		if pending {
+		if evaluationPending(d.Actions, task) {
 			continue
 		}
 		if _, err := s.Store.Queue(Action{ID: fmt.Sprintf("reconcile-%s-%d", task, now.Unix()/60), Kind: "evaluate", TaskID: task, Session: id, EventID: node.LastEventID, Generation: meta.SpawnGen}); err != nil {
 			return err
 		}
 	}
+	// A task no native hook has reported is evaluated from its worktree and
+	// gate alone, so its status and pull request come from the fleet instead
+	// of waiting on hooks that may never be installed.
+	entries, err := os.ReadDir(s.Store.Home.State)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		task, ok := strings.CutSuffix(entry.Name(), ".meta")
+		if !ok || entry.IsDir() || d.TaskSessions[task] != "" {
+			continue
+		}
+		meta, err := state.ReadTaskMeta(s.Store.Home.State, task)
+		if err != nil {
+			continue
+		}
+		if prior := d.Tasks[task]; prior.Generation == meta.SpawnGen && prior.Phase == "done" || evaluationPending(d.Actions, task) {
+			continue
+		}
+		if _, err := s.Store.Queue(Action{ID: fmt.Sprintf("reconcile-%s-%d", task, now.Unix()/60), Kind: "evaluate", TaskID: task, Generation: meta.SpawnGen}); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func evaluationPending(actions []Action, task string) bool {
+	return slices.ContainsFunc(actions, func(a Action) bool {
+		return a.TaskID == task && a.Kind == "evaluate" && (a.Status == "queued" || a.Status == "running")
+	})
 }
 
 func (s *Service) process(ctx context.Context) {
@@ -440,6 +486,12 @@ type Task struct {
 	Session      string          `json:"session"`
 	Dependencies []string        `json:"dependencies"`
 	Runtime      RuntimeEvidence `json:"runtime"`
+	// Activity is the task's own latest status line.
+	Activity string `json:"activity"`
+	// Archived marks completed history rather than a live task, and Merged
+	// that the gate saw its pull request merged.
+	Archived bool `json:"archived"`
+	Merged   bool `json:"merged"`
 	Evaluation
 }
 
@@ -471,6 +523,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	d := s.Store.Snapshot()
 	s.mu.Lock()
 	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Registration: s.registration, Tasks: []Task{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
+	history := append([]Task(nil), s.history...)
 	for i := range d.Activity {
 		if d.Activity[i].CFOIdentity != "" {
 			d.Activity[i].Live = d.Activity[i].CFOIdentity == s.presentationIdentity && out.At.Sub(s.presentationChecked) < 2*time.Minute
@@ -489,6 +542,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		out.Sessions = append(out.Sessions, node)
 	}
 	sort.Slice(out.Sessions, func(i, j int) bool { return out.Sessions[i].UpdatedAt.Before(out.Sessions[j].UpdatedAt) })
+	var err error
+	out.Decisions, err = wake.Pending(s.Store.Home.State)
+	if err != nil {
+		return out, err
+	}
 	entries, err := os.ReadDir(s.Store.Home.State)
 	if err != nil {
 		return out, err
@@ -508,7 +566,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if evaluation.Generation != meta.SpawnGen {
 			evaluation = Evaluation{}
 		}
-		if (linked && node.Generation != meta.SpawnGen) || (!linked && evaluation.Phase == "") {
+		if !linked {
+			evaluation = fleetEvaluation(evaluation, meta, runtime, out.Decisions)
+		} else if node.Generation != meta.SpawnGen {
 			evaluation = Evaluation{Phase: "unknown", Reason: "Native session evidence has not been reported"}
 		}
 		if linked && (node.Phase == "active" || node.Phase == "started") && node.UpdatedAt.After(evaluation.At) {
@@ -521,7 +581,15 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if evaluation.Phase == "" {
 			evaluation = Evaluation{Phase: "review", Reason: "Session settled; evaluation is queued", At: node.UpdatedAt}
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: id, Project: filepath.Base(meta.Project), Harness: meta.Harness, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Evaluation: evaluation})
+		lines, _ := state.TailStatus(s.Store.Home.State, id, 200)
+		activity, pr := statusActivity(lines)
+		if _, detail, ok := waitingQuestion(out.Decisions, id); ok {
+			activity = detail
+		}
+		if evaluation.PR == "" {
+			evaluation.PR = pr
+		}
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: id, Project: filepath.Base(meta.Project), Harness: meta.Harness, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
@@ -547,10 +615,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			out.Tasks = append(out.Tasks, Task{ID: row.ID, Title: row.Title, Project: row.Repo, Dependencies: row.BlockedByIDs, Evaluation: Evaluation{Phase: "queued", Reason: row.BlockedReason}})
 		}
 	}
-	out.Decisions, err = wake.Pending(s.Store.Home.State)
-	if err != nil {
-		return out, err
+	for _, brief := range queuedBriefs(s.Store.Home) {
+		if len(out.Tasks) < maxSessions && !slices.ContainsFunc(out.Tasks, func(t Task) bool { return t.ID == brief.ID }) {
+			out.Tasks = append(out.Tasks, brief)
+		}
 	}
+	out.Tasks = append(out.Tasks, history...)
 	if len(out.Decisions) > 100 {
 		out.Decisions = out.Decisions[len(out.Decisions)-100:]
 	}

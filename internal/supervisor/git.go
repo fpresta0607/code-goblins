@@ -59,7 +59,9 @@ func (Git) run(ctx context.Context, dir string, args ...string) (string, error) 
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", append([]string{"--no-pager", "-c", "core.quotepath=false"}, args...)...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=Never")
+	// Optional locks are what let git status rewrite the index, and these
+	// reads run every minute inside worktrees a goblin is using.
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=Never", "GIT_OPTIONAL_LOCKS=0")
 	cmd.WaitDelay = 2 * time.Second
 	out := &limitedBuffer{limit: 1 << 20}
 	errout := &limitedBuffer{limit: 8192}
