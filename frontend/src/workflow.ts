@@ -45,7 +45,7 @@ export function statusText(phase: string): string {
   const labels: Record<string, string> = {
     queued: "Ready to start", working: "Working", active: "Active", started: "Session started",
     review: "Awaiting review", ready: "Checks passed", done: "Verified delivery", merged: "Verify landed content",
-    blocked: "Needs attention", failed: "Needs attention", unavailable: "Evidence unavailable",
+    blocked: "Blocked", failed: "Failed", unavailable: "Evidence unavailable",
     stale: "Evidence is stale", interrupted: "Interrupted", settled: "Turn settled", ended: "Session ended",
   };
   return labels[phase] || "Awaiting evidence";

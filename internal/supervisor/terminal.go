@@ -73,7 +73,7 @@ func (s *Service) resolveTerminal(ctx context.Context, selected terminalSelectio
 		return b, unavailableTerminal("This child has no separate terminal. Its owning task has its own terminal.")
 	}
 	if write {
-		if err := s.validateFeedback(ctx, meta, Action{}); err != nil {
+		if err := s.validateTerminalControl(ctx, meta); err != nil {
 			return b, err
 		}
 	}

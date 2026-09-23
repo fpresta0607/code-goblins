@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ActivityBuffer, activityTransition, livePresentations, mergeActivityEffects } from "./activity.ts";
+import { ActivityBuffer, activityDisplay, activityTransition, livePresentations, mergeActivityEffects } from "./activity.ts";
 import { parseSnapshot } from "./types.ts";
 
 test("live receipts animate once on actual recursive links, never initial load or reconnect", () => {
@@ -41,6 +41,16 @@ test("new receipts never extend another card or connector deadline",()=>{
  assert.equal(effects.some(event=>event.id===a.id),false);
  assert.equal(effects.length,1);
  assert.equal(effects[0].expires,7200);
+});
+
+test("compact activity displays only truthful connector motion and created entrances",()=>{
+ const effects=[
+  {id:"message",kind:"message",task_id:"work",generation:"g1",source:"parent",target:"child",state:"accepted",at:"",url:"",until:""},
+  {id:"created",kind:"created",task_id:"work",generation:"g1",source:"child",target:"nested",state:"accepted",at:"",url:"",until:""},
+ ];
+ assert.deepEqual(activityDisplay(effects,"child","parent"),{received:effects[0],communication:effects[0],created:false});
+ assert.deepEqual(activityDisplay(effects,"nested","child"),{received:effects[1],communication:effects[1],created:true});
+ assert.equal(activityDisplay(effects,"child","different").communication,undefined);
 });
 
 test("verified primary presentation needs no task and disappears with native evidence",()=>{

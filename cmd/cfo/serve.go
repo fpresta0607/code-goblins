@@ -77,13 +77,9 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		return 1
 	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
-		Example: *example,
-		CFO:     &supervisor.CFOConnection{State: h.State, Herdr: &herdr.Client{Commands: execx.OSRunner{}}},
-		Gate:    pipeline.Reader{Root: root, Commands: execx.OSRunner{}},
-		Send:    func(ctx context.Context, id, text string) error { return runtime.sendText(ctx, h, id, text) },
-		Peek: func(ctx context.Context, id string, lines int) (string, error) {
-			return runtime.peek(ctx, h, id, lines)
-		},
+		Example:        *example,
+		CFO:            &supervisor.CFOConnection{State: h.State, Herdr: &herdr.Client{Commands: execx.OSRunner{}}},
+		Gate:           pipeline.Reader{Root: root, Commands: execx.OSRunner{}},
 		Reconcile:      func(ctx context.Context) error { return watch.Reconcile(ctx, config) },
 		VerifyDelivery: (supervisor.Git{}).VerifyDelivery,
 	})

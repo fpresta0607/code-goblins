@@ -142,19 +142,23 @@ func TestReconciliationAfterSessionEndAndReadyUntilTerminal(t *testing.T) {
 	}
 	p.Steps = p.Steps[:len(p.Steps)-1]
 	p.PRState = "merged"
-	p.TerminalVerified = 1
+	deliveryChecks := 0
+	s.Options.VerifyDelivery = func(context.Context, state.TaskMeta, string, string, string) (string, error) {
+		deliveryChecks++
+		return "verified-main", nil
+	}
 	s.Options.Gate = fakeProgress{value: p}
 	s.reconcileTasks(time.Now().Add(3 * time.Minute))
 	s.process(context.Background())
-	if store.Snapshot().Tasks["task-1"].Phase != "merged" {
-		t.Fatal("merge/branch-head evidence substituted for landed content")
+	merged := store.Snapshot().Tasks["task-1"]
+	if merged.Phase != "merged" || merged.Verified || deliveryChecks != 0 {
+		t.Fatalf("merged task bypassed terminal verification: %+v checks=%d", merged, deliveryChecks)
 	}
-	s.Options.VerifyDelivery = func(context.Context, state.TaskMeta, string, string, string) (string, error) {
-		return "verified-main", nil
-	}
+	p.TerminalVerified = 1
+	s.Options.Gate = fakeProgress{value: p}
 	s.reconcileTasks(time.Now().Add(4 * time.Minute))
 	s.process(context.Background())
-	if store.Snapshot().Tasks["task-1"].Phase != "done" {
+	if store.Snapshot().Tasks["task-1"].Phase != "done" || deliveryChecks != 1 {
 		t.Fatal("verified landed content did not complete task")
 	}
 	count := len(store.Snapshot().Actions)
@@ -219,24 +223,20 @@ func TestSupervisorProcessesWithoutBrowserAndRestarts(t *testing.T) {
 	t.Fatal("original completed evaluation not recovered")
 }
 
-func TestFeedbackRespectsPipelineCustodyAndDiffCoordinates(t *testing.T) {
+func TestTerminalControlRespectsPipelineCustody(t *testing.T) {
 	store, h := testStore(t)
 	meta, _ := state.ReadTaskMeta(h.State, "task-1")
 	gitFixture(t, meta.Worktree)
 	s := &Service{Store: store, Options: Options{Gate: fakeProgress{value: pipeline.Progress{Status: "running"}}}}
-	a := Action{Text: "please fix"}
-	if err := s.validateFeedback(context.Background(), meta, a); err == nil {
+	if err := s.validateTerminalControl(context.Background(), meta); err == nil {
 		t.Fatal("steered task under gate custody")
 	}
 	s.Options.Gate = fakeProgress{err: errors.New("db unreadable")}
-	if err := s.validateFeedback(context.Background(), meta, a); err == nil {
+	if err := s.validateTerminalControl(context.Background(), meta); err == nil {
 		t.Fatal("unknown custody allowed")
 	}
 	s.Options.Gate = fakeProgress{err: pipeline.ErrNoProgress}
-	if err := s.validateFeedback(context.Background(), meta, a); err != nil {
+	if err := s.validateTerminalControl(context.Background(), meta); err != nil {
 		t.Fatal(err)
-	}
-	if diffHasLine("@@ -3,2 +3,2 @@\n-old\n+new\n context\n", 4, "added") || !diffHasLine("@@ -3,2 +3,2 @@\n-old\n+new\n context\n", 3, "removed") {
-		t.Fatal("line coordinate validation failed")
 	}
 }

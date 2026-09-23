@@ -390,7 +390,7 @@ func (s *Store) queue(a Action) (Action, error) {
 	if a.ID == "" || len(a.ID) > 128 || strings.ContainsAny(a.ID, "\x00\r\n") {
 		return Action{}, errors.New("action requires a bounded request ID")
 	}
-	if a.Kind != "evaluate" && a.Kind != "feedback" && a.Kind != "review" && a.Kind != "cfo_message" && a.Kind != "cfo_answer" {
+	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" {
 		return Action{}, errors.New("unsupported action; task lifecycle cannot be dragged or assigned")
 	}
 	if len(a.Text) > 16000 || len(a.File) > 4096 {
@@ -402,11 +402,11 @@ func (s *Store) queue(a Action) (Action, error) {
 	if a.Kind == "review" && a.Generation == "" {
 		return Action{}, errors.New("task generation is required; refresh the board")
 	}
-	if a.Kind == "cfo_message" || a.Kind == "cfo_answer" {
+	if a.Kind == "cfo_answer" {
 		if a.Generation == "" || a.TaskID != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" {
-			return Action{}, errors.New("CFO message requires only its registered recipient identity and text")
+			return Action{}, errors.New("CFO answer requires only its registered recipient identity and text")
 		}
-		if (a.Kind == "cfo_message" && a.QuestionID != "") || (a.Kind == "cfo_answer" && a.QuestionID == "") {
+		if a.QuestionID == "" {
 			return Action{}, errors.New("invalid user question context")
 		}
 	} else {
@@ -444,7 +444,7 @@ func (s *Store) queue(a Action) (Action, error) {
 		}
 		a.CFOIdentity = identity
 	}
-	if a.Kind == "cfo_message" || a.Kind == "cfo_answer" {
+	if a.Kind == "cfo_answer" {
 		file, err := openPrimary(filepath.Join(s.Home.State, "primary.json"))
 		if err != nil {
 			return Action{}, errors.New("primary CFO registration is unavailable")
@@ -485,7 +485,7 @@ func (s *Store) queue(a Action) (Action, error) {
 }
 
 // ProcessOne commits intent before executing it. Only read-only evaluation is
-// safe to replay after a crash; feedback/review have explicit uncertain outcomes.
+// safe to replay after a crash; external deliveries have uncertain outcomes.
 func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Action) (Evaluation, error)) error {
 	s.mu.Lock()
 	i := -1

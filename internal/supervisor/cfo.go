@@ -11,7 +11,6 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -26,15 +25,6 @@ type primaryRegistration struct {
 	Agent     string       `json:"agent"`
 	Terminal  string       `json:"terminal"`
 	Process   lock.Info    `json:"process"`
-}
-
-type CFOView struct {
-	Identity  string    `json:"identity"`
-	Harness   string    `json:"harness"`
-	Available bool      `json:"available"`
-	Reason    string    `json:"reason"`
-	Text      string    `json:"text"`
-	At        time.Time `json:"at"`
 }
 
 // CFOConnection uses the existing operator-owned primary.json registration.
@@ -100,38 +90,6 @@ func (c *CFOConnection) verify(ctx context.Context, primary primaryRegistration)
 		return errors.New("the registered CFO process no longer owns its pane")
 	}
 	return nil
-}
-
-func (c *CFOConnection) Read(ctx context.Context) CFOView {
-	out := CFOView{At: time.Now().UTC()}
-	file, err := openPrimary(filepath.Join(c.State, "primary.json"))
-	if err != nil {
-		out.Reason = "Primary CFO registration is unavailable."
-		return out
-	}
-	defer file.Close()
-	primary, identity, err := decodePrimary(file)
-	if err != nil {
-		out.Reason = err.Error()
-		return out
-	}
-	out.Identity, out.Harness = identity, primary.Agent
-	if err := c.verify(ctx, primary); err != nil {
-		out.Reason = err.Error()
-		return out
-	}
-	text, err := c.Herdr.Capture(ctx, primary.Target, 120, false)
-	if err != nil {
-		out.Reason = "Native CFO output could not be read."
-		return out
-	}
-	if err := c.verify(ctx, primary); err != nil {
-		out.Reason = err.Error()
-		return out
-	}
-	out.Available, out.Text = true, redact(bounded(text, 64<<10))
-	out.Reason = "Native session output and verified message submission"
-	return out
 }
 
 type primaryResolver struct {

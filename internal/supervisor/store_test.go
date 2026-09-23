@@ -110,9 +110,11 @@ func TestRetentionAdmitsNewSessionsAndPreservesRetiredParent(t *testing.T) {
 	}
 }
 
-func TestCompletionWriteFailureNeverResendsFeedbackAfterRestart(t *testing.T) {
+func TestCompletionWriteFailureNeverResendsExternalDeliveryAfterRestart(t *testing.T) {
 	s, h := testStore(t)
-	if _, err := s.Queue(Action{ID: "external", Kind: "feedback", TaskID: "task-1", Text: "hello"}); err != nil {
+	now := time.Now().UTC()
+	s.db.Actions = append(s.db.Actions, Action{ID: "external", Kind: "review", TaskID: "task-1", Generation: "g1", Text: "hello", Status: "queued", CreatedAt: now, UpdatedAt: now})
+	if err := s.save(); err != nil {
 		t.Fatal(err)
 	}
 	var restore func()
@@ -132,7 +134,7 @@ func TestCompletionWriteFailureNeverResendsFeedbackAfterRestart(t *testing.T) {
 		t.Fatal("ambiguous delivery not parked")
 	}
 	if err := reopened.ProcessOne(context.Background(), func(context.Context, Action) (Evaluation, error) {
-		t.Fatal("feedback was resent")
+		t.Fatal("external delivery was resent")
 		return Evaluation{}, nil
 	}); err != nil {
 		t.Fatal(err)
@@ -207,7 +209,7 @@ func TestFailedAcceptAndQueueRollBackMemoryAndRetryDurably(t *testing.T) {
 		t.Fatal(err)
 	}
 	restore = blockStoreWrites(t, s)
-	a := Action{ID: "retry-action", Kind: "feedback", TaskID: "task-1", Text: "test"}
+	a := Action{ID: "retry-action", Kind: "evaluate", TaskID: "task-1"}
 	if _, err := s.Queue(a); err == nil {
 		t.Fatal("queue write unexpectedly succeeded")
 	}
@@ -437,19 +439,10 @@ func TestLineageIsPersistedAndCannotCycleOrReparent(t *testing.T) {
 
 func TestInterruptedExternalActionIsNeverAutomaticallyResent(t *testing.T) {
 	s, h := testStore(t)
-	a, err := s.Queue(Action{ID: "request-1", Kind: "feedback", TaskID: "task-1", Text: "Review line 4"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.Queue(a); err != nil {
-		t.Fatal(err)
-	}
-	if len(s.Snapshot().Actions) != 1 {
-		t.Fatal("duplicate request")
-	}
+	now := time.Now().UTC()
 	s.mu.Lock()
-	s.db.Actions[0].Status = "running"
-	err = s.save()
+	s.db.Actions = append(s.db.Actions, Action{ID: "request-1", Kind: "review", TaskID: "task-1", Generation: "g1", Text: "Review line 4", Status: "running", CreatedAt: now, UpdatedAt: now})
+	err := s.save()
 	s.mu.Unlock()
 	if err != nil {
 		t.Fatal(err)
@@ -463,7 +456,45 @@ func TestInterruptedExternalActionIsNeverAutomaticallyResent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if calls != 0 || r.Snapshot().Actions[0].Status != "uncertain" {
-		t.Fatal("interrupted feedback was replayed")
+		t.Fatal("interrupted external action was replayed")
+	}
+}
+
+func TestObsoleteActionsAreRejectedWithoutReplayingHistoricalRecords(t *testing.T) {
+	s, h := testStore(t)
+	for _, kind := range []string{"feedback", "cfo_message"} {
+		if _, err := s.Queue(Action{ID: "new-" + kind, Kind: kind, TaskID: "task-1", Text: "obsolete"}); err == nil {
+			t.Fatalf("new %s action was admitted", kind)
+		}
+	}
+	now := time.Now().UTC()
+	s.db.Actions = append(s.db.Actions,
+		Action{ID: "historical", Kind: "cfo_message", Text: "recorded", Status: "succeeded", Message: "recorded outcome", CreatedAt: now, UpdatedAt: now},
+		Action{ID: "queued-feedback", Kind: "feedback", TaskID: "task-1", Generation: "g1", Text: "obsolete", Status: "queued", CreatedAt: now, UpdatedAt: now},
+		Action{ID: "queued-message", Kind: "cfo_message", Text: "obsolete", Status: "queued", CreatedAt: now, UpdatedAt: now},
+	)
+	if err := s.save(); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: s}
+	if err := s.ProcessOne(context.Background(), service.execute); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ProcessOne(context.Background(), service.execute); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions := reopened.Snapshot().Actions
+	if actions[0].Status != "succeeded" || actions[0].Message != "recorded outcome" {
+		t.Fatalf("historical outcome changed: %+v", actions[0])
+	}
+	for _, action := range actions[1:] {
+		if action.Status != "failed" || !strings.Contains(action.Message, "obsolete") {
+			t.Fatalf("queued obsolete action did not fail explicitly: %+v", action)
+		}
 	}
 }
 

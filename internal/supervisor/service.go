@@ -34,8 +34,6 @@ type Options struct {
 	Example        bool
 	CFO            *CFOConnection
 	Gate           ProgressReader
-	Send           func(context.Context, string, string) error
-	Peek           func(context.Context, string, int) (string, error)
 	Reconcile      func(context.Context) error
 	VerifyDelivery func(context.Context, state.TaskMeta, string, string, string) (string, error)
 }
@@ -274,25 +272,29 @@ func (s *Service) process(ctx context.Context) {
 }
 
 func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
-	if a.Kind == "cfo_message" || a.Kind == "cfo_answer" {
+	if a.Kind == "feedback" || a.Kind == "cfo_message" {
+		return Evaluation{}, fmt.Errorf("%w: obsolete action kind %q is not accepted", ErrRejected, a.Kind)
+	}
+	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" {
+		return Evaluation{}, fmt.Errorf("%w: unsupported action kind %q", ErrRejected, a.Kind)
+	}
+	if a.Kind == "cfo_answer" {
 		if s.Options.CFO == nil {
 			return Evaluation{}, fmt.Errorf("%w: CFO message transport is unavailable", ErrRejected)
 		}
 		text := a.Text
-		if a.Kind == "cfo_answer" {
-			found := false
-			for _, q := range s.Store.Snapshot().Questions {
-				if q.ID == a.QuestionID && q.Identity == a.Generation && q.AnswerID == a.ID {
-					text = fmt.Sprintf("User answer to CFO question %s\nQuestion: %s\nAnswer: %s", q.ID, q.Text, a.Text)
-					if a.AnswerKind == "other" {
-						text = fmt.Sprintf("User answer to CFO question %s\nQuestion: %s\nAnswer (Other): %s", q.ID, q.Text, a.Text)
-					}
-					found = true
+		found := false
+		for _, q := range s.Store.Snapshot().Questions {
+			if q.ID == a.QuestionID && q.Identity == a.Generation && q.AnswerID == a.ID {
+				text = fmt.Sprintf("User answer to CFO question %s\nQuestion: %s\nAnswer: %s", q.ID, q.Text, a.Text)
+				if a.AnswerKind == "other" {
+					text = fmt.Sprintf("User answer to CFO question %s\nQuestion: %s\nAnswer (Other): %s", q.ID, q.Text, a.Text)
 				}
+				found = true
 			}
-			if !found {
-				return Evaluation{}, fmt.Errorf("%w: user question context changed", ErrRejected)
-			}
+		}
+		if !found {
+			return Evaluation{}, fmt.Errorf("%w: user question context changed", ErrRejected)
 		}
 		return s.Options.CFO.Send(ctx, a.Generation, text)
 	}
@@ -305,22 +307,6 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	}
 	if a.Kind == "review" {
 		return s.deliverReview(ctx, meta, a)
-	}
-	if a.Kind == "feedback" {
-		if err := s.validateFeedback(ctx, meta, a); err != nil {
-			return Evaluation{}, fmt.Errorf("%w: %v", ErrRejected, err)
-		}
-		if s.Options.Send == nil {
-			return Evaluation{}, fmt.Errorf("%w: Herdr steering is unavailable", ErrRejected)
-		}
-		message := a.Text
-		if a.File != "" {
-			message = fmt.Sprintf("Review feedback for %s:%d (%s, HEAD %s)\n> %s", a.File, a.Line, a.Side, a.Head, strings.ReplaceAll(a.Text, "\n", "\n> "))
-		}
-		if err := s.Options.Send(ctx, a.TaskID, message); err != nil {
-			return Evaluation{}, err
-		}
-		return Evaluation{Reason: "Feedback accepted by the task agent"}, nil
 	}
 	head, err := s.Git.Head(ctx, meta.Worktree)
 	if err != nil {
@@ -369,14 +355,14 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		}
 	}
 	if p.Ready(head) {
-		result.Phase = "ready"
-		result.Verified = true
-		result.Reason = "Review, tests, lint, documentation, push and PR checks verified for this HEAD; merge requires operator authority"
-		if strings.EqualFold(p.PRState, "merged") && p.TerminalVerified > 0 {
+		if strings.EqualFold(p.PRState, "merged") {
 			result.Phase = "merged"
 			result.Verified = false
-			result.Reason = "PR merged; landed content still requires verification"
-			if s.Options.VerifyDelivery != nil {
+			result.Reason = "PR merged; terminal and landed-content verification are pending"
+			if p.TerminalVerified > 0 {
+				result.Reason = "PR merged; landed content still requires verification"
+			}
+			if p.TerminalVerified > 0 && s.Options.VerifyDelivery != nil {
 				mainHead, err := s.Options.VerifyDelivery(ctx, meta, base, head, p.PR)
 				if err == nil {
 					result.Phase = "done"
@@ -386,6 +372,10 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 					result.Reason = "PR merged; " + err.Error()
 				}
 			}
+		} else {
+			result.Phase = "ready"
+			result.Verified = true
+			result.Reason = "Review, tests, lint, documentation, push and PR checks verified for this HEAD; merge requires operator authority"
 		}
 	} else {
 		result.Reason = "Pipeline evidence is incomplete or belongs to a different HEAD"
@@ -393,10 +383,7 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	return result, nil
 }
 
-func (s *Service) validateFeedback(ctx context.Context, meta state.TaskMeta, a Action) error {
-	if strings.HasPrefix(strings.TrimSpace(a.Text), "/") {
-		return errors.New("feedback cannot execute harness slash commands")
-	}
+func (s *Service) validateTerminalControl(ctx context.Context, meta state.TaskMeta) error {
 	if meta.Mode == "no-mistakes" {
 		branch, err := s.Git.Branch(ctx, meta.Worktree)
 		if err != nil {
@@ -409,24 +396,6 @@ func (s *Service) validateFeedback(ctx context.Context, meta state.TaskMeta, a A
 			return err
 		}
 	}
-	if a.File != "" {
-		if a.Line < 1 || (a.Side != "added" && a.Side != "removed" && a.Side != "context") {
-			return errors.New("feedback requires a valid diff line")
-		}
-		diff, err := s.previewGit(meta).Diff(ctx, meta.Worktree, a.Revision, a.File)
-		if err != nil {
-			return err
-		}
-		if a.Head == "" || diff.Head != a.Head {
-			return errors.New("HEAD changed; refresh the diff before submitting feedback")
-		}
-		if a.DiffID == "" || a.DiffID != diff.Fingerprint {
-			return errors.New("diff changed; refresh before submitting feedback")
-		}
-		if !diffHasLine(diff.Patch, a.Line, a.Side) {
-			return errors.New("feedback line is no longer present; refresh the diff")
-		}
-	}
 	return nil
 }
 
@@ -437,42 +406,6 @@ func (s *Service) previewGit(meta state.TaskMeta) Git {
 		preview.Base = prior.Base
 	}
 	return preview
-}
-
-func diffHasLine(patch string, wanted int, side string) bool {
-	old, newLine := 0, 0
-	for _, line := range strings.Split(patch, "\n") {
-		if strings.HasPrefix(line, "@@ ") {
-			fields := strings.Fields(line)
-			if len(fields) >= 3 {
-				fmt.Sscanf(strings.Split(fields[1], ",")[0], "-%d", &old)
-				fmt.Sscanf(strings.Split(fields[2], ",")[0], "+%d", &newLine)
-			}
-			continue
-		}
-		if old == 0 && newLine == 0 || len(line) == 0 {
-			continue
-		}
-		switch line[0] {
-		case '+':
-			if side == "added" && newLine == wanted {
-				return true
-			}
-			newLine++
-		case '-':
-			if side == "removed" && old == wanted {
-				return true
-			}
-			old++
-		case ' ':
-			if side == "context" && newLine == wanted {
-				return true
-			}
-			old++
-			newLine++
-		}
-	}
-	return false
 }
 
 type Task struct {

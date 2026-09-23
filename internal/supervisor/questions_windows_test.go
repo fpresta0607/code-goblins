@@ -123,7 +123,7 @@ func TestQuestionAnswerDeliveredOnlyOnceToCFOAndCrashUncertain(t *testing.T) {
 	if _, err := store.Queue(a); err != nil {
 		t.Fatal(err)
 	}
-	s := &Service{Store: store, Options: Options{CFO: cfo, Send: func(context.Context, string, string) error { t.Fatal("answer reached worker"); return nil }}}
+	s := &Service{Store: store, Options: Options{CFO: cfo}}
 	if err := store.ProcessOne(context.Background(), s.execute); err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestQuestionRecommendationAndOtherAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Service{Store: reopened, Options: Options{CFO: cfo, Send: func(context.Context, string, string) error { t.Fatal("answer reached worker"); return nil }}}
+	s := &Service{Store: reopened, Options: Options{CFO: cfo}}
 	if err := reopened.ProcessOne(context.Background(), s.execute); err != nil {
 		t.Fatal(err)
 	}

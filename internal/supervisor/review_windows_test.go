@@ -108,7 +108,7 @@ func TestReviewKeepsPinnedPrimaryAcrossRetryAndPreservesHistoricalWake(t *testin
 	primary, identity, runner, cfo := primaryFixture(t, store)
 	meta, _ := state.ReadTaskMeta(h.State, "task-1")
 	gitFixture(t, meta.Worktree)
-	service := &Service{Store: store, Options: Options{CFO: cfo, Send: func(context.Context, string, string) error { t.Fatal("review sent to worker"); return nil }}}
+	service := &Service{Store: store, Options: Options{CFO: cfo}}
 	old, err := wake.Append(h.State, "notify", "unrelated", "blocked: retained historical wake")
 	if err != nil {
 		t.Fatal(err)
@@ -169,7 +169,7 @@ func TestReviewUsesRequiredNativeChannelAcrossHarnesses(t *testing.T) {
 			}
 			meta, _ := state.ReadTaskMeta(h.State, "task-1")
 			gitFixture(t, meta.Worktree)
-			service := &Service{Store: store, Options: Options{CFO: cfo, Send: func(context.Context, string, string) error { t.Fatal("worker send"); return nil }}}
+			service := &Service{Store: store, Options: Options{CFO: cfo}}
 			if _, err := store.Queue(reviewAction(t, service, meta, "harness-review", "main.go", 2, 2)); err != nil {
 				t.Fatal(err)
 			}
@@ -229,11 +229,9 @@ func TestReviewTwoFilesReachNativeCFOWithoutWorkerSteering(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	sends := 0
 	service := &Service{Store: store, Options: Options{
 		CFO:  cfo,
 		Gate: fakeProgress{value: pipeline.Progress{Status: "running"}},
-		Send: func(context.Context, string, string) error { sends++; return nil },
 	}}
 	for i, path := range []string{"main.go", "extra.go"} {
 		last := 4
@@ -254,9 +252,6 @@ func TestReviewTwoFilesReachNativeCFOWithoutWorkerSteering(t *testing.T) {
 		if got.Status != "succeeded" || !strings.Contains(got.Message, "CFO") {
 			t.Fatalf("review outcome: %+v", got)
 		}
-	}
-	if sends != 0 {
-		t.Fatal("review was silently sent to worker")
 	}
 	records, err := wake.Pending(h.State)
 	if err != nil || len(records) != 0 || len(runner.prompts) != 2 {
@@ -302,7 +297,7 @@ func TestReviewTwoFilesReachNativeCFOWithoutWorkerSteering(t *testing.T) {
 		t.Fatal(err)
 	}
 	records, _ = wake.Pending(h.State)
-	if len(records) != 0 || sends != 0 || len(runner.prompts) != 2 {
+	if len(records) != 0 || len(runner.prompts) != 2 {
 		t.Fatal("completed review replayed after restart")
 	}
 }

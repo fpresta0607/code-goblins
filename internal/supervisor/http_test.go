@@ -62,42 +62,15 @@ func TestTerminalCSPAllowsColorAttributesWithoutRelaxingScriptsOrStyleElements(t
 	}
 }
 
-func TestNativeCaptureRequestsAreBoundedAcrossRecipients(t *testing.T) {
+func TestRetiredTextCaptureEndpointsAreNotExposed(t *testing.T) {
 	store, _ := testStore(t)
-	entered, release := make(chan struct{}), make(chan struct{})
-	service := &Service{Store: store, Options: Options{Peek: func(ctx context.Context, _ string, _ int) (string, error) {
-		deadline, ok := ctx.Deadline()
-		if !ok || time.Until(deadline) > 8*time.Second {
-			return "", fmt.Errorf("capture has no bounded deadline")
-		}
-		close(entered)
-		<-release
-		return "Native output\nSecond line", nil
-	}}}
-	handler := NewHTTP(service, "board.local", nil)
-	completed := make(chan *httptest.ResponseRecorder, 1)
-	go func() {
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local/api/tasks/task-1/terminal", nil))
-		completed <- response
-	}()
-	select {
-	case <-entered:
-	case <-time.After(3 * time.Second):
-		close(release)
-		t.Fatal("capture did not begin")
-	}
+	handler := NewHTTP(&Service{Store: store}, "board.local", nil)
 	for _, path := range []string{"/api/cfo", "/api/tasks/task-1/terminal"} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local"+path, nil))
-		if response.Code != 503 {
-			close(release)
-			t.Fatalf("overlapping capture admitted: %d", response.Code)
+		if response.Code != 404 {
+			t.Fatalf("retired capture endpoint %s returned %d", path, response.Code)
 		}
-	}
-	close(release)
-	if response := <-completed; response.Code != 200 || !strings.Contains(response.Body.String(), `Native output\nSecond line`) {
-		t.Fatalf("native capture failed: %d %s", response.Code, response.Body.String())
 	}
 }
 
@@ -107,8 +80,7 @@ func TestAPIOriginIdempotencySafePathsAndReconnect(t *testing.T) {
 	gitFixture(t, meta.Worktree)
 	meta.Mode = "local-only"
 	_ = state.WriteTaskMeta(h.State, meta)
-	sent := make(chan string, 2)
-	s, err := Start(context.Background(), h, Options{Send: func(_ context.Context, _ string, text string) error { sent <- text; return nil }})
+	s, err := Start(context.Background(), h, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +106,7 @@ func TestAPIOriginIdempotencySafePathsAndReconnect(t *testing.T) {
 		data, _ := io.ReadAll(response.Body)
 		return response.StatusCode, data
 	}
-	body := `{"id":"request-1","task_id":"task-1","generation":"g1","kind":"feedback","text":"please inspect the test"}`
+	body := `{"id":"request-1","task_id":"task-1","generation":"g1","kind":"evaluate"}`
 	for _, origin := range []string{"", "https://evil.invalid"} {
 		code, _ := request("POST", "/api/actions", body, origin, s.Instance, "")
 		if code != 403 {
@@ -144,21 +116,27 @@ func TestAPIOriginIdempotencySafePathsAndReconnect(t *testing.T) {
 	if code, _ := request("GET", "/api/snapshot", "", "", "", "evil.invalid"); code != 403 {
 		t.Fatal("rebound host allowed")
 	}
+	for _, obsolete := range []string{
+		`{"id":"obsolete-feedback","task_id":"task-1","generation":"g1","kind":"feedback","text":"please inspect"}`,
+		`{"id":"obsolete-message","generation":"g1","kind":"cfo_message","text":"hello"}`,
+	} {
+		code, _ := request("POST", "/api/actions", obsolete, server.URL, s.Instance, "")
+		if code != 409 {
+			t.Fatalf("obsolete public action admitted: %d", code)
+		}
+	}
 	for i := 0; i < 2; i++ {
 		code, data := request("POST", "/api/actions", body, server.URL, s.Instance, "")
 		if code != 202 {
 			t.Fatalf("%d %s", code, data)
 		}
 	}
-	select {
-	case <-sent:
-	case <-time.After(5 * time.Second):
-		t.Fatal("feedback not delivered")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && (len(s.Store.Snapshot().Actions) != 1 || s.Store.Snapshot().Actions[0].Status != "succeeded") {
+		time.Sleep(10 * time.Millisecond)
 	}
-	select {
-	case <-sent:
-		t.Fatal("replayed feedback was sent twice")
-	case <-time.After(100 * time.Millisecond):
+	if actions := s.Store.Snapshot().Actions; len(actions) != 1 || actions[0].Status != "succeeded" {
+		t.Fatalf("idempotent evaluation was not processed once: %+v", actions)
 	}
 	if code, _ := request("GET", "/api/tasks/task-1/diff?path=../.env", "", "", "", ""); code != 422 {
 		t.Fatal("unsafe preview admitted")
