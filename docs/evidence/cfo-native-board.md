@@ -367,3 +367,24 @@ Both fixture binaries were built from the clean branch and passed a targeted Def
 
 The CFO card still read Active after its harness was killed without a SessionEnd event; that belongs to the status work that follows.
 Every fixture process was stopped by pid, the fixture Herdr session was stopped and deleted by name, and the browser session was stopped by name.
+
+## Fleet evidence pass on a replica of the live fleet
+
+Dogfooding the merged board on the live fleet showed every working goblin as Awaiting evidence, no CFO root or connectors, identical avatars, and empty Tasks and Completed columns.
+The root cause was that no native hooks are installed on the fleet machine, and the board trusted only native session events.
+The live home was not served for this pass, because the installed `cfo.exe` predates the stop-autoarm wake fix and a live board would still silence the CFO.
+Instead the Defender-scanned candidate served a replica home in the temporary directory, holding copies of the live fleet's non-secret state: task records, status logs, the wake queue, monitor observations, the stale registration, archive status files, placeholder briefs and the backlog, never `state/tasktmp`.
+It read Herdr, git with optional locks off, and the local repositories strictly read-only, and it never took the live watcher lock or wrote the live home.
+
+1. The board shows the stale registration once, the one unstarted brief in Tasks, and each live goblin's status from the fleet with its own latest status line and pull request.
+   ![Board with fleet statuses](cfo-native-board/fleet-1-board-fleet-evidence.png)
+2. Completed lists the week's merged pull requests and finished tasks, including code-goblins #29 to #32, siqstack-cms #21 and verification-research.
+   The first pass showed that the gate database misses merges its CI monitor did not watch, so merges now come from each repository's merge commits.
+   ![Completed history](cfo-native-board/fleet-2-board-completed-history.png)
+3. Orchestration draws the six goblins as one family under the CFO root, fitted with no overflow.
+   The first capture ran second-row connectors behind first-row cards, which read as a goblin being another goblin's child; the second row is now offset so each connector drops through a gap.
+   ![Family tree under the CFO](cfo-native-board/fleet-3-orchestration-family-tree.png)
+4. A status line appended to the replica pulsed that goblin's connector on the board's next publish.
+   ![Traffic pulse](cfo-native-board/fleet-4-orchestration-traffic-pulse.png)
+
+The board and browser session were stopped by pid and name, and the replica was removed.
