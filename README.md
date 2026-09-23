@@ -1,6 +1,6 @@
 <h1 align="center">Code Goblins</h1>
 
-<p align="center"><strong>Talk to one agent. Ship with a crew.</strong></p>
+<p align="center"><strong>Talk to one agent. Ship with a team.</strong></p>
 
 <p align="center">
   A Windows-native control plane for autonomous coding agents.<br/>
