@@ -498,6 +498,59 @@ func TestObsoleteActionsAreRejectedWithoutReplayingHistoricalRecords(t *testing.
 	}
 }
 
+func TestHistoricalObsoleteActionRetriesReturnStoredOutcome(t *testing.T) {
+	s, h := testStore(t)
+	now := time.Now().UTC()
+	historical := []Action{
+		{ID: "restarted-feedback", Kind: "feedback", TaskID: "task-1", Generation: "g1", Text: "recorded feedback", Status: "succeeded", Message: "feedback outcome", CreatedAt: now, UpdatedAt: now},
+		{ID: "removed-feedback", Kind: "feedback", TaskID: "task-1", Generation: "g1", Text: "removed recipient", Status: "failed", Message: "recorded failure", CreatedAt: now, UpdatedAt: now},
+		{ID: "historical-message", Kind: "cfo_message", Generation: "primary-old", Text: "recorded message", Status: "succeeded", Message: "message outcome", CreatedAt: now, UpdatedAt: now},
+	}
+	s.db.Actions = append(s.db.Actions, historical...)
+	if err := s.save(); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := state.ReadTaskMeta(h.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.SpawnGen = "g2"
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Queue(Action{ID: "restarted-feedback", Kind: "feedback", TaskID: "task-1", Text: "recorded feedback"})
+	if err != nil || got.Message != "feedback outcome" {
+		t.Fatalf("restarted recipient retry lost its outcome: action=%+v err=%v", got, err)
+	}
+	if err := os.Remove(filepath.Join(h.State, "task-1.meta")); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.Queue(Action{ID: "removed-feedback", Kind: "feedback", TaskID: "task-1", Text: "removed recipient"})
+	if err != nil || got.Message != "recorded failure" {
+		t.Fatalf("removed recipient retry lost its outcome: action=%+v err=%v", got, err)
+	}
+	got, err = s.Queue(Action{ID: "historical-message", Kind: "cfo_message", Generation: "primary-old", Text: "recorded message"})
+	if err != nil || got.Message != "message outcome" {
+		t.Fatalf("historical CFO retry lost its outcome: action=%+v err=%v", got, err)
+	}
+	if _, err := s.Queue(Action{ID: "historical-message", Kind: "cfo_message", Generation: "primary-old", Text: "changed"}); err == nil {
+		t.Fatal("conflicting historical retry was accepted")
+	}
+	if len(s.Snapshot().Actions) != len(historical) {
+		t.Fatal("historical retry created another action")
+	}
+	deliveries := 0
+	if err := s.ProcessOne(context.Background(), func(context.Context, Action) (Evaluation, error) {
+		deliveries++
+		return Evaluation{}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if deliveries != 0 {
+		t.Fatal("historical retry triggered another delivery")
+	}
+}
+
 func TestIngestQuarantinesMalformedWithoutLosingValidEvents(t *testing.T) {
 	s, h := testStore(t)
 	if err := nativehook.Spool(h.State, event(t, h, "SessionStart", "s1", "", time.Now())); err != nil {

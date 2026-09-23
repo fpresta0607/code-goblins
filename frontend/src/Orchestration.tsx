@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import type { BoardActivity, Snapshot } from "./types";
 import { Avatar } from "./Avatar";
+import { activityDisplay } from "./activity";
 import { Chevron } from "./Chevron";
 import { ownsTaskSession } from "./lineageTree";
 import { arrange, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, workflowNodes, type Point, type WorkflowNode } from "./workflow";
@@ -130,20 +131,21 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
               const ex = to.x + NODE_WIDTH / 2, ey = to.y;
               const mid = (sy + ey) / 2;
               const path = `M${sx},${sy} C${sx},${mid} ${ex},${mid} ${ex},${ey}`;
-              const communication = connected && effects.find(event=>event.source === byID.get(node.parent || "")?.session?.id && event.target===node.session?.id);
-              return <g key={node.id + ":" + (communication ? communication.id : "")} className={"connection-line " + (communication ? "communicating" : "") + " relation-" + node.relation}>
+              const activity = activityDisplay(connected ? effects : [],node.session?.id || "",byID.get(node.parent || "")?.session?.id || "");
+              return <g key={node.id + ":" + (activity.communication?.id || activity.creation?.id || "")} className={"connection-line " + (activity.communication ? "communicating " : "") + (activity.creation ? "creating " : "") + "relation-" + node.relation}>
                 <path d={path} /><circle cx={sx} cy={sy} r={4} /><circle cx={ex} cy={ey} r={4} />
-                {communication && <><path className="communication-pulse" d={path} /></>}
+                {activity.communication && <path className="communication-pulse" d={path} />}
               </g>;
             })}
           </svg>
           {visible.map((node) => {
-            const effect = connected ? effects.find(event=>event.target===node.session?.id) : undefined;
+            const parent = node.parent ? byID.get(node.parent) : undefined;
+            const activity = activityDisplay(connected ? effects : [],node.session?.id || "",parent?.session?.id || "");
+            const effect = activity.received || activity.created;
             const p = point(node.id), owner = ownsTaskSession(node.session, node.task);
             const phase = owner ? node.task?.phase : node.session?.runtime?.state || node.session?.phase;
             const children = nodes.some((child) => child.parent === node.id);
-            const parent = node.parent ? byID.get(node.parent) : undefined;
-            return <article key={node.id} className={"flow-node" + (effect?.kind === "created" ? " node-enter" : "") + (selected === node.id ? " selected" : "")} style={{ left: p.x, top: p.y, width: NODE_WIDTH, height: NODE_HEIGHT }}>
+            return <article key={node.id} className={"flow-node" + (activity.created ? " node-enter" : "") + (selected === node.id ? " selected" : "")} style={{ left: p.x, top: p.y, width: NODE_WIDTH, height: NODE_HEIGHT }}>
               {effect && <span key={effect.id} className="activity-glow" aria-hidden="true" />}
               <button className="flow-node-main" onPointerDown={(event) => startDrag(event, node)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
                 onKeyDown={(event) => {

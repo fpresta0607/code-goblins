@@ -49,10 +49,11 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
       : node.role === "cfo" ? "" : "Parent unknown / unlinked";
     return <li key={node.id} className="workflow-branch">
       {activity.communication && <span key={activity.communication.id} className="compact-communication-pulse" aria-hidden="true" />}
+      {activity.creation && <span key={activity.creation.id} className="compact-creation-highlight" aria-hidden="true" />}
       <div className="node-group">
         {relation && <p className="node-relation">{relation}{ancestors.size >= 3 && parent && " · Parent: " + sessionTitle(parent, snapshot.tasks.find((task) => task.id === parent.task_id))}</p>}
         <div className={"workflow-node role-" + node.role + (activity.created ? " node-enter" : "") + (selected?.session === node.id ? " selected" : "")}>
-          {activity.received && <span key={activity.received.id} className="activity-glow" aria-hidden="true" />}
+          {(activity.received || activity.created) && <span key={(activity.received || activity.created)?.id} className="activity-glow" aria-hidden="true" />}
           <button className="node-select" aria-pressed={selected?.session === node.id}
             onClick={(event) => onSelect({ session: node.id }, event.currentTarget)}>
             <Avatar persona={personaFor(task, node)} small /><span className="node-role">{sessionRole(node)}</span>

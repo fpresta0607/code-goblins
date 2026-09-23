@@ -481,7 +481,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		evaluation := d.Tasks[id]
 		node, linked := d.Sessions[d.TaskSessions[id]]
 		runtime := s.runtimeEvidence(meta, node, out.At)
-		if (linked && node.Generation != meta.SpawnGen) || (!linked && evaluation.Generation != meta.SpawnGen) {
+		if evaluation.Generation != meta.SpawnGen || (linked && node.Generation != meta.SpawnGen) {
 			evaluation = Evaluation{Phase: "unknown", Reason: "Native session evidence has not been reported"}
 		}
 		if linked && (node.Phase == "active" || node.Phase == "started") && node.UpdatedAt.After(evaluation.At) {
