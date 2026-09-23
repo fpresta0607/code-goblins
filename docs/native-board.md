@@ -7,6 +7,7 @@ Docker remains an optional project environment managed by the existing worktree 
 
 The service takes the existing `.watch.lock` before opening recovery state.
 An existing watcher must finish before `serve` can acquire that singleton; starting the board never kills a watcher or worker.
+While `serve` holds it, the Claude CFO's `stop-autoarm` hook still rewakes the idle CFO: it waits on the wake queue, rewakes once for each record no earlier rewake covered, and hosts the watcher itself again if `serve` stops.
 Closing the browser disconnects a view, while Ctrl-C in the supervisor terminal stops that process.
 Restarting with the same CFO home recovers durable events, evaluations, actions, and lineage.
 
