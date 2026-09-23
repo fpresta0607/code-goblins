@@ -232,12 +232,19 @@ test("a wide family of goblins wraps into rows that never overlap", () => {
   const nodes = workflowNodes(parseSnapshot({healthy:true, tasks:["a", "b", "c", "d", "e", "f"].map((id) => ({id, phase:"working", verified:false}))}));
   const positions = arrange(nodes);
   const cards = nodes.filter((node) => node.task).map((node) => positions[node.id]);
-  assert.equal(new Set(cards.map((point) => point.y)).size, 2);
-  assert.equal(new Set(cards.map((point) => point.x)).size, 3);
+  const rows = [...new Set(cards.map((point) => point.y))].sort((a, b) => a - b);
+  assert.equal(rows.length, 2);
   for (const [i, one] of cards.entries()) for (const other of cards.slice(i + 1)) {
     assert.ok(Math.abs(one.x - other.x) >= NODE_WIDTH || Math.abs(one.y - other.y) >= NODE_HEIGHT, JSON.stringify([one, other]));
   }
   assert.ok(cards.every((point) => point.y > positions[CFO_ROOT].y));
+  // A second-row card's connector drops through a gap in the first row, never
+  // behind a first-row card that would then look like its parent.
+  const first = cards.filter((point) => point.y === rows[0]);
+  for (const card of cards.filter((point) => point.y === rows[1])) {
+    const center = card.x + NODE_WIDTH / 2;
+    assert.ok(first.every((above) => center < above.x || center > above.x + NODE_WIDTH), JSON.stringify({ card, first }));
+  }
 });
 
 test("a connector pulses only when a goblin reports something new", () => {

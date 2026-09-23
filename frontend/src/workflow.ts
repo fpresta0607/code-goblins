@@ -157,14 +157,18 @@ export function arrange(nodes: WorkflowNode[]): Record<string, Point> {
   const place = (node: WorkflowNode, depth: number): number => {
     visited.add(node.id);
     const children = nodes.filter((child) => child.parent === node.id && !visited.has(child.id));
+    // Two rows, the second offset by half a card so each of its cards sits
+    // under a gap in the first: its connector drops through that gap instead
+    // of behind a sibling, which would read as the wrong parent.
     if (children.length > 3 && children.every((child) => !nodes.some((other) => other.parent === child.id))) {
-      const columns = Math.ceil(Math.sqrt(children.length)), first = leaf;
+      const columns = Math.ceil(children.length / 2), first = leaf;
       children.forEach((child, i) => {
+        const row = Math.floor(i / columns);
         visited.add(child.id);
-        positions[child.id] = { x: 40 + (first + i % columns) * (NODE_WIDTH + 44), y: 72 + (depth + 1 + Math.floor(i / columns)) * 244 };
+        positions[child.id] = { x: 40 + (first + i % columns + row / 2) * (NODE_WIDTH + 44), y: 72 + (depth + 1 + row) * 244 };
       });
-      leaf += columns;
-      const x = 40 + (first + (columns - 1) / 2) * (NODE_WIDTH + 44);
+      leaf += columns + 1;
+      const x = 40 + (first + (columns - 1) / 2 + .25) * (NODE_WIDTH + 44);
       positions[node.id] = { x, y: 72 + depth * 244 };
       return x;
     }
