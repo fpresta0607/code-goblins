@@ -242,6 +242,8 @@ Unit integration tests cover two distinct files, exact server-derived ranges, re
 These tests use controlled Herdr adapters; actual native-process and model/browser receipts for this candidate remain acceptance work.
 
 Explicit bounded `cfo present` receipts support task and verified primary presentations without opening a page or gating work.
+Primary presentation targets stay `primary-cfo` when native session discovery arrives later, so the same report can still refresh and end.
+The late-discovery regression failed with `activity ID already used` before this correction and passed afterward.
 Pending same-ID records preserve identity, chronology and terminal end state before ingestion.
 Accepted send and creation effects require exact native parent evidence for a connector; otherwise only the destination is highlighted.
 Independent deadlines prevent unrelated traffic from extending an old effect, and hidden-tab, reconnect and instance boundaries suppress replay.
@@ -253,6 +255,7 @@ Screen reader output is an explicit saved xterm option; default Unicode InsertTe
 | Broad Go sweep | Every package except `cmd/cfo` passed; supervisor completed in 90.253 s |
 | Command regression | The sweep found an obsolete exact nudge string in three resumed-session cases; after updating that assertion, the full `cmd/cfo` package passed in 141.474 s |
 | Go vet | `go vet -p 2 ./...` passed |
+| Final primary-target correction | Focused primary presentation, send receipt and activity tests passed in 2.696 s; supervisor vet passed |
 | Editor behavior | Genuine linked worktree, literal spaces/non-ASCII arguments, primary/nested/missing-path rejection, local origin/token and Electron flag sanitation passed without launching an editor |
 | External evidence | `command-center-go-test.log`, `command-center-cfo-recheck.log`, `command-center-go-vet.log` and `command-center-milestones.json` under the fleet task directory |
 
