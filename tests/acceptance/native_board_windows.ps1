@@ -68,7 +68,7 @@ $cfoConfig.pane = $cfoTab.root_pane.pane_id
 $cfoConfig.role = 'cfo'
 $cfoConfig.nativeID = 'board-cfo'
 Write-UTF8 "$root\cfo.json" ($cfoConfig | ConvertTo-Json)
-$cfoLine = "& '" + $harness.Replace("'","''") + "' '" + "$root\cfo.json".Replace("'","''") + "'"
+$cfoLine = "Clear-Host; & '" + $harness.Replace("'","''") + "' '" + "$root\cfo.json".Replace("'","''") + "'"
 Checked 'herdr' @('--session',$session,'pane','run',$cfoConfig.pane,$cfoLine) | Out-Null
 $deadline = (Get-Date).AddSeconds(20)
 while (!(Test-Path "$root\cfo-harness.pid") -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
@@ -80,7 +80,7 @@ $deadline = (Get-Date).AddSeconds(20)
 while (!(Test-Path "$fixtureHome\state\primary.json") -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
 $registered = Get-Content -LiteralPath "$fixtureHome\state\primary.json" -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
 if (!$registered -or $registered.process.pid -ne $cfoProcess.Id -or $registered.target.Pane -ne $cfoConfig.pane) { throw "The example CFO did not register itself. Inspect $root" }
-$line = "& '" + $harness.Replace("'","''") + "' '" + "$root\fixture.json".Replace("'","''") + "'"
+$line = "Clear-Host; & '" + $harness.Replace("'","''") + "' '" + "$root\fixture.json".Replace("'","''") + "'"
 Checked 'herdr' @('--session',$session,'pane','run',$pane,$line) | Out-Null
 $deadline = (Get-Date).AddSeconds(15)
 while (!(Test-Path "$root\harness.pid") -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
