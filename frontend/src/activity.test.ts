@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ActivityBuffer, activityDisplay, activityTransition, livePresentations, mergeActivityEffects, safePresentationURL } from "./activity.ts";
+import { ActivityBuffer, activityDisplay, activityTransition, livePresentations, mergeActivityEffects, presentationShownOn, safePresentationURL } from "./activity.ts";
 import { parseSnapshot } from "./types.ts";
 
 test("live receipts animate once on actual recursive links, never initial load or reconnect", () => {
@@ -82,5 +82,17 @@ test("a goblin's pane-proven presentation names no session and lives on its task
 
 test("a Lavish tailnet link opens as returned, and plain http elsewhere stays refused", () => {
   for (const raw of ["http://sermon.tailcc4238.ts.net:4387/session/f26e","http://100.122.0.50:4387/session/f26e","http://127.0.0.1:4387/session/f26e","https://example.com/review"]) assert.equal(safePresentationURL(raw),true,raw);
-  for (const raw of ["http://192.0.2.10:4387/session/f26e","http://100.128.0.1:4387/session/f26e","http://example.com/review","javascript:alert(1)"]) assert.equal(safePresentationURL(raw),false,raw);
+  for (const raw of ["http://192.0.2.10:4387/session/f26e","http://100.128.0.1:4387/session/f26e","http://100.64.evil.example/review","http://[::ffff:100.64.0.1]/review","http://example.com/review","javascript:alert(1)"]) assert.equal(safePresentationURL(raw),false,raw);
+});
+
+test("a presentation naming a session shows on that session's card, and a pane-proven one on its task's card", () => {
+  const presentation={id:"task-2-review",kind:"review",task_id:"work",generation:"g7",source:"",target:"",state:"active",url:"http://127.0.0.1:4387/session/abc",at:"",until:""};
+  assert.equal(presentationShownOn(presentation,"s1","work"),true);
+  assert.equal(presentationShownOn(presentation,undefined,"work"),true);
+  assert.equal(presentationShownOn(presentation,"s1","other"),false);
+  assert.equal(presentationShownOn(presentation,undefined,undefined),false);
+  const named={...presentation,target:"s1"};
+  assert.equal(presentationShownOn(named,"s1","other"),true);
+  assert.equal(presentationShownOn(named,"s2","work"),false);
+  assert.equal(presentationShownOn(named,undefined,"work"),false);
 });

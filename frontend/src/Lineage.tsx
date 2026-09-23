@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { BoardActivity, Session, Snapshot } from "./types";
-import { activityDisplay } from "./activity";
+import { activityDisplay, presentationShownOn } from "./activity";
 import { nodeStatus } from "./workflow";
 import { Avatar } from "./Avatar";
 import { Chevron } from "./Chevron";
@@ -57,7 +57,7 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
           <button className="node-select" aria-pressed={selected?.session === node.id}
             onClick={(event) => onSelect({ session: node.id }, event.currentTarget)}>
             <Avatar persona={personaFor(task, node)} small /><span className="node-role">{sessionRole(node)}</span>
-            <strong>{title}</strong>{presentations.some(a=>a.target===node.id)&&<span className="browser-indicator">Browser active</span>}{task?.project && <span className="project-label">{task.project}</span>}
+            <strong>{title}</strong>{presentations.some(a=>presentationShownOn(a,node.id,node.task_id))&&<span className="browser-indicator">Browser active</span>}{task?.project && <span className="project-label">{task.project}</span>}
             {!owner && node.role !== "cfo" && task?.title && <span className="node-task">Task: {task.title}</span>}
             <span className="node-status">{nodeStatus({ id: node.id, title, task, session: node, relation })}</span>
           </button>

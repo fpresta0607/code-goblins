@@ -131,6 +131,8 @@ func TestPresentationURLNamesTheRuleAndKeepsTailnetLinks(t *testing.T) {
 	for raw, rule := range map[string]string{
 		"http://192.0.2.10:4387/session/f26e":  "plain http",
 		"http://100.128.0.1:4387/session/f26e": "plain http",
+		"http://100.64.evil.example/review":    "plain http",
+		"http://[::ffff:100.64.0.1]/review":    "plain http",
 		"http://example.com/review":            "plain http",
 		"https://user:pass@example.com/review": "credentials",
 		"https://example.com/review?x=1":       "query",

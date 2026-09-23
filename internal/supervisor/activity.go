@@ -65,7 +65,7 @@ func presentationURLProblem(raw string) string {
 	}
 	host := strings.ToLower(u.Hostname())
 	tailnet := strings.HasSuffix(host, ".ts.net")
-	if ip := net.ParseIP(host).To4(); ip != nil {
+	if ip := net.ParseIP(host).To4(); ip != nil && !strings.Contains(host, ":") {
 		tailnet = ip[0] == 100 && ip[1]&0xc0 == 64
 	}
 	if u.Scheme != "https" && !(u.Scheme == "http" && (host == "127.0.0.1" || host == "localhost" || host == "::1" || tailnet)) {
