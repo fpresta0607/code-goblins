@@ -60,7 +60,8 @@ func ReviewImages(h home.Home, taskID string, images []string) ([]string, error)
 // openReviewImage opens path only when it is a regular image file inside one
 // of roots, reached through plain directories, and within the size cap. It
 // returns the file at its start with its sniffed type. The path is never
-// resolved through links: it must already be spelled under a root.
+// resolved through links: it must already be spelled under a root, either as
+// the task records it or in its canonical form.
 func openReviewImage(roots []string, path string) (*os.File, string, error) {
 	abs, err := fsx.AbsClean(path)
 	if err != nil {
@@ -71,8 +72,15 @@ func openReviewImage(roots []string, path string) (*os.File, string, error) {
 		if err != nil {
 			continue
 		}
-		rel, err := filepath.Rel(canonical, abs)
-		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		rel := ""
+		for _, spelling := range []string{filepath.Clean(dir), canonical} {
+			r, err := filepath.Rel(spelling, abs)
+			if err == nil && r != "." && r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator)) && !filepath.IsAbs(r) {
+				rel = r
+				break
+			}
+		}
+		if rel == "" {
 			continue
 		}
 		root, err := os.OpenRoot(canonical)
