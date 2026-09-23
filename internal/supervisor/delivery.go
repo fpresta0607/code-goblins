@@ -64,10 +64,12 @@ func (g Git) remoteMain(ctx context.Context, project string) (string, string, er
 	return head, ref, nil
 }
 
-// Read the actual changed file contents from main. A merge status, commit
-// ancestry, or terminal_head_verified_at timestamp cannot satisfy this proof.
-// The baseline was retained before delivery, so later origin/HEAD movement
-// cannot erase earlier commits from the set being verified.
+// Compare the exact tree entry main holds for every changed path: mode, type
+// and object ID, so a mode-only or type-only change with equal bytes is not
+// mistaken for landed content. A merge status, commit ancestry, or
+// terminal_head_verified_at timestamp cannot satisfy this proof. The baseline
+// was retained before delivery, so later origin/HEAD movement cannot erase
+// earlier commits from the set being verified.
 func (g Git) verifyLandedContent(ctx context.Context, project, worktree, base, head, mainHead string) error {
 	if !commitID.MatchString(base) || !commitID.MatchString(head) || !commitID.MatchString(mainHead) {
 		return errors.New("retained task baseline is unavailable for landed-content verification")
@@ -82,24 +84,38 @@ func (g Git) verifyLandedContent(ctx context.Context, project, worktree, base, h
 	}
 	for i := 0; i < len(parts); i += 2 {
 		status, path := parts[i], parts[i+1]
+		landed, err := g.treeEntry(ctx, project, mainHead, path)
+		if err != nil {
+			return fmt.Errorf("main content could not be read: %s", path)
+		}
 		if status == "D" {
-			present, err := g.run(ctx, project, "ls-tree", "-z", mainHead, "--", path)
-			if err != nil || present != "" {
+			if landed != "" {
 				return fmt.Errorf("deletion is not verified on main: %s", path)
 			}
 			continue
 		}
-		want, err := g.run(ctx, worktree, "show", head+":"+path)
-		if err != nil {
+		want, err := g.treeEntry(ctx, worktree, head, path)
+		if err != nil || want == "" {
 			return errors.New("task content could not be read within verification bounds")
 		}
-		landed, err := g.run(ctx, project, "show", mainHead+":"+path)
-		if err != nil {
-			return fmt.Errorf("main content could not be read: %s", path)
-		}
 		if want != landed {
-			return fmt.Errorf("main content differs for %s", path)
+			return fmt.Errorf("main content, mode or type differs for %s", path)
 		}
 	}
 	return nil
+}
+
+// treeEntry returns "<mode> <type> <object>" for path in commit, or "" when
+// the commit has no such entry. The literal pathspec keeps a path that looks
+// like pathspec magic from naming a different entry.
+func (g Git) treeEntry(ctx context.Context, dir, commit, path string) (string, error) {
+	output, err := g.run(ctx, dir, "ls-tree", "-z", commit, "--", ":(literal)"+path)
+	if err != nil || output == "" {
+		return "", err
+	}
+	entry, name, found := strings.Cut(strings.TrimSuffix(output, "\x00"), "\t")
+	if !found || name != path {
+		return "", fmt.Errorf("unexpected tree entry for %s", path)
+	}
+	return entry, nil
 }

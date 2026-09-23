@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -52,9 +53,15 @@ type cfoRunner struct {
 	terminal     string
 	workerTree   string
 	harness      string
+	calls        int
+	offline      bool
 }
 
 func (r *cfoRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
+	r.calls++
+	if r.offline {
+		return execx.Result{}, errors.New("Herdr is not running")
+	}
 	a := req.Args
 	var body string
 	switch {

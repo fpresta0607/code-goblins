@@ -64,7 +64,8 @@ The browser can request evaluation or send contextual review comments to the ver
 An explicitly connected terminal sends ordinary terminal input to that existing session, subject to the identity and custody boundaries below.
 
 For a ship task, a merged PR remains **merged-awaiting-verification** until the supervisor verifies landed main content.
-It checks repository identity, current remote default-branch HEAD, matching locally available main objects, and the contents or absence of every task-changed file on main, then rechecks the remote head.
+It checks repository identity, current remote default-branch HEAD, matching locally available main objects, and the exact tree entry (mode, type and object) or absence of every task-changed path on main, then rechecks the remote head.
+A mode-only or type-only change with identical bytes therefore stays unverified until main holds the same entry.
 Missing local objects produce an explicit verification-pending reason; the supervisor does not fetch or modify the worktree to hide missing evidence.
 The pipeline's `terminal_head_verified_at` proves its terminal worktree head, not that the task's content was read on main.
 Manual task modes retain their existing review/delivery authority and are not automatically marked done by native hooks.
@@ -122,7 +123,9 @@ Reduced motion uses a short static outline instead of movement.
 Changes presents stacked file disclosures with lazy syntax-highlighted unified, split and code previews.
 Select a visible old/new line or contiguous range, including unchanged context, and Send to CFO queues a durable review record containing the exact file, side, range, revision, HEAD and diff fingerprint.
 The server validates those coordinates and derives bounded selected code; it never sends a review comment to the worker.
-Admission separately pins the registered primary CFO fingerprint; retries preserve it even if the primary changes.
+Admission first proves the registered primary CFO live with the same process, pane, agent and terminal checks as delivery, then pins its fingerprint; a stale registration is refused and nothing is queued.
+An identical retry answers from its durable record without a new probe and keeps its pinned recipient even if the primary changes.
+An empty untracked file has no selectable line, while a newline-only file has one empty line.
 New annotations use only the verified CFO normal native message channel, and success requires transport acceptance.
 They do not append a second actionable wake record; existing historical wake records remain untouched and old unpinned reviews are not adopted or replayed.
 Review remains available during gate custody, while native worker terminal input retains the custody checks.
@@ -208,7 +211,8 @@ This is an explicit reporting integration, not interception of every browser too
 The listener requires a numeric loopback address.
 Host and Origin checks, cross-site rejection, a per-instance mutation token, strict request schemas, and bounded request bodies protect the local control API.
 These are local browser boundaries, not authentication against another process already running as the same Windows user.
-Git previews refuse unsafe revisions, traversal, symlinks/junctions, and common credential-bearing paths.
+Git previews refuse unsafe revisions, traversal, a symlink, junction or other reparse point anywhere on the file's path, and common credential-bearing paths.
+The file itself is opened beneath the task root through `os.Root`, so a link swapped in after those checks still cannot resolve outside it.
 Git output, timeouts, cache entries, concurrent previews, and event streams are bounded.
 Native terminal frames preserve the actual screen, including anything printed there; avoid displaying secrets in the terminal.
 Input bytes and native frames are not logged or persisted by this bridge.

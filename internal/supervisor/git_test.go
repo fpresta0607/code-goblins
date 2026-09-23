@@ -2,9 +2,13 @@ package supervisor
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -122,5 +126,98 @@ func TestGitDiffHistoryAndSafeFilePreview(t *testing.T) {
 	}
 	if _, err := g.Files(ctx, dir, "--output=bad"); err == nil {
 		t.Fatal("accepted option as revision")
+	}
+}
+
+// A task can plant an innocently named link to a file outside its worktree.
+// The preview refuses every link on the path instead of following it.
+func TestPreviewRefusesLinksOutOfTheWorktree(t *testing.T) {
+	dir := gitFixture(t)
+	outside := t.TempDir()
+	const secret = "outside the worktree\n"
+	if err := os.WriteFile(filepath.Join(outside, "notes.txt"), []byte(secret), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "nested"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	g, ctx := Git{}, context.Background()
+	for _, path := range []string{"plain.txt", "nested/plain.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(path)), []byte("inside\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if diff, err := g.Diff(ctx, dir, "", path); err != nil || diff.Code != "inside\n" {
+			t.Fatalf("regular file preview %s: %+v %v", path, diff, err)
+		}
+	}
+	for _, c := range []struct {
+		name, path string
+		listed     bool // Git itself offers the linked path as untracked task work.
+		link       func() error
+	}{
+		{"file symlink", "notes.txt", true, func() error {
+			return os.Symlink(filepath.Join(outside, "notes.txt"), filepath.Join(dir, "notes.txt"))
+		}},
+		{"parent directory symlink", "linked/notes.txt", false, func() error {
+			return os.Symlink(outside, filepath.Join(dir, "linked"))
+		}},
+		{"parent directory junction", "junction/notes.txt", true, func() error {
+			if runtime.GOOS != "windows" {
+				return errors.New("junctions exist only on Windows")
+			}
+			if out, err := exec.Command("cmd", "/c", "mklink", "/J", filepath.Join(dir, "junction"), outside).CombinedOutput(); err != nil {
+				return fmt.Errorf("%v: %s", err, out)
+			}
+			return nil
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if err := c.link(); err != nil {
+				t.Skipf("this link cannot be created here: %v", err)
+			}
+			if data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(c.path))); err != nil || string(data) != secret {
+				t.Fatalf("premise: the link does not reach the outside file: %q %v", data, err)
+			}
+			files, err := g.Files(ctx, dir, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.listed && !slices.ContainsFunc(files, func(f ChangedFile) bool { return f.Path == c.path }) {
+				t.Fatalf("premise: the change set does not offer %s: %+v", c.path, files)
+			}
+			if code, err := readPreview(dir, c.path); err == nil || code != "" {
+				t.Fatalf("preview followed the link: %q %v", code, err)
+			}
+			if diff, err := g.Diff(ctx, dir, "", c.path); err == nil || strings.Contains(diff.Code+diff.Patch, "outside") {
+				t.Fatalf("public diff followed the link: %+v %v", diff, err)
+			}
+		})
+	}
+}
+
+// A zero-byte untracked file has no line 1, while a lone newline is one
+// empty line, so only the latter may yield a selectable range.
+func TestUntrackedZeroByteFileHasNoSelectableLine(t *testing.T) {
+	dir := gitFixture(t)
+	g, ctx := Git{}, context.Background()
+	for _, c := range []struct {
+		path, content, lineOne string
+		hasLine                bool
+	}{
+		{"empty.txt", "", "", false},
+		{"newline.txt", "\n", "\n", true},
+		{"text.txt", "first\nsecond\n", "first\n", true},
+	} {
+		if err := os.WriteFile(filepath.Join(dir, c.path), []byte(c.content), 0600); err != nil {
+			t.Fatal(err)
+		}
+		diff, err := g.Diff(ctx, dir, "", c.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		code, err := diffRangeContext(diff.Patch, 1, 1, "new")
+		if c.hasLine != (err == nil) || code != c.lineOne {
+			t.Errorf("%s: line 1 = %q, %v; patch %q", c.path, code, err, diff.Patch)
+		}
 	}
 }
