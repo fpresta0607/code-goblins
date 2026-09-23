@@ -50,7 +50,6 @@ textarea { resize: vertical; line-height: 1.6; }
 ::placeholder { color: #869da9; }
 ::selection { background: #185440; }
 a { color: var(--mint); text-decoration: none; }
-a:hover { text-decoration: underline; }
 code, pre, .mono { font-family: "Cascadia Mono", Consolas, monospace; }
 h1, h2, h3, p { margin: 0; }
 h2 { font-size: 1.5rem; line-height: 1.3; font-weight: 600; letter-spacing: -.025em; }
@@ -63,7 +62,6 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .app-shell { display: flex; flex-direction: column; height: 100dvh; padding: 12px; gap: 10px; }
 .topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 20px; min-height: 72px; flex: none; padding: 10px 24px; border: 1px solid var(--border); border-radius: 16px; background: #0b1319; }
 .brand { display: flex; align-items: center; gap: 12px; min-width: 0; color: #edf4f3; }
-.brand:hover { text-decoration: none; }
 .brand img { object-fit: contain; flex: none; }
 .brand h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -.03em; white-space: nowrap; }
 .example-label { color: var(--muted); font-size: .6875rem; max-width: 4.5rem; }
@@ -115,6 +113,8 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .connection-line.relation-delegated path { stroke-dasharray: 7 4; }
 .connection-line.communicating path { stroke: #57e5bf; }
 .connection-line.communicating circle { fill: #86ffe0; }
+.connection-line.creating path { stroke: #70bfa9; stroke-width: 3; }
+.connection-line.creating circle { fill: #9adbc9; }
 .connection-line text { fill: #bcffe9; font-size: 13px; }
 .connection-line .communication-pulse { stroke-width: 5; stroke-dasharray: 14 230; animation: guidance 2.5s linear 1; }
 @keyframes guidance { to { stroke-dashoffset: -210; } }
@@ -338,6 +338,7 @@ button.line-number { min-height: 32px; }
 .workflow-space .workflow-children { display: grid; gap: 20px; margin: 20px 0 0 10px; padding-left: 16px; border-left: 1px solid #3b6257; }
 .compact-communication-pulse { position: absolute; left: -17px; top: -20px; width: 2px; height: 40px; overflow: hidden; background: #57e5bf55; }
 .compact-communication-pulse::after { content: ""; position: absolute; left: -2px; top: -8px; width: 6px; height: 12px; border-radius: 999px; background: #86ffe0; animation: compact-guidance 1.2s ease-out 1; }
+.compact-creation-highlight { position: absolute; left: -18px; top: -20px; width: 3px; height: 40px; background: #70bfa9; box-shadow: 0 0 8px #67e8b744; }
 @keyframes compact-guidance { to { transform: translateY(48px); } }
 .workflow-children .workflow-children { margin-left: 0; }
 .workflow-children .workflow-children .workflow-children { padding-left: 0; border-left: 0; }

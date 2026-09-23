@@ -240,3 +240,44 @@ func TestTerminalControlRespectsPipelineCustody(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSnapshotKeepsEvaluationWithinCurrentGeneration(t *testing.T) {
+	tests := []struct {
+		name                 string
+		evaluationGeneration string
+		linked               bool
+		phase                string
+		wantPhase            string
+		wantVerified         bool
+	}{
+		{name: "settled current session rejects completed prior generation", evaluationGeneration: "g1", linked: true, phase: "settled", wantPhase: "unknown"},
+		{name: "ended current session rejects completed prior generation", evaluationGeneration: "g1", linked: true, phase: "ended", wantPhase: "unknown"},
+		{name: "unlinked task rejects completed prior generation", evaluationGeneration: "g1", wantPhase: "unknown"},
+		{name: "matching generation retains completed evaluation", evaluationGeneration: "g2", linked: true, phase: "settled", wantPhase: "done", wantVerified: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store, h := testStore(t)
+			meta, err := state.ReadTaskMeta(h.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta.SpawnGen = "g2"
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			store.db.Tasks[meta.ID] = Evaluation{Phase: "done", Reason: "prior delivery", Generation: tt.evaluationGeneration, Verified: true, At: time.Now().Add(-time.Minute)}
+			if tt.linked {
+				store.db.TaskSessions[meta.ID] = "codex/current"
+				store.db.Sessions["codex/current"] = Session{ID: "codex/current", TaskID: meta.ID, Generation: meta.SpawnGen, Role: "goblin", Phase: tt.phase, UpdatedAt: time.Now()}
+			}
+			view, err := (&Service{Store: store}).Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(view.Tasks) != 1 || view.Tasks[0].Phase != tt.wantPhase || view.Tasks[0].Verified != tt.wantVerified {
+				t.Fatalf("snapshot reused the wrong generation: %+v", view.Tasks)
+			}
+		})
+	}
+}

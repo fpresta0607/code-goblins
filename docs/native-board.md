@@ -112,7 +112,8 @@ The canvas starts at no less than 80% scale, with scroll/pan for extra roots; ex
 Arrange resets positions, and storage failures remain visible.
 Narrow screens use a collapsible nested list that names the actual parent when indentation is capped.
 A child without its own reported native transport explains that limitation without borrowing its owning task's terminal or model.
-Bounded accepted-send and native-creation receipts produce a brief receiving-card glow and, where exact caller native identity proves the reported parent, a pulse on that connector.
+Bounded accepted-message receipts produce a brief travelling connector pulse and receiving-card glow where exact caller native identity proves the reported parent.
+Native-creation receipts instead produce a quiet birth highlight on that proven parent branch plus the child-card glow and entrance; creation is never rendered as a message receipt.
 The caller convention is `CFO_SESSION_ID` plus `CFO_SESSION_HARNESS`, with native `CODEX_THREAD_ID` fallback; same-harness or directory/time resemblance never establishes a sender.
 When sender identity is unavailable, only target evidence is shown.
 Each effect expires independently; initial load, reconnect, hidden-tab return, instance replacement and replayed receipts never fabricate new activity.

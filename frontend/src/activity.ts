@@ -42,9 +42,11 @@ export function mergeActivityEffects(prior:ActivityEffect[], incoming:BoardActiv
 }
 
 export function activityDisplay(effects:BoardActivity[],target:string,parent:string) {
-  const received=effects.find(event=>event.target===target);
-  const communication=parent?effects.find(event=>event.source===parent&&event.target===target):undefined;
-  return {received,communication,created:received?.kind==="created"};
+  const received=effects.find(event=>event.kind==="message"&&event.target===target);
+  const created=effects.find(event=>event.kind==="created"&&event.target===target);
+  const communication=parent?effects.find(event=>event.kind==="message"&&event.source===parent&&event.target===target):undefined;
+  const creation=parent?effects.find(event=>event.kind==="created"&&event.source===parent&&event.target===target):undefined;
+  return {received,communication,created,creation};
 }
 
 export function safePresentationURL(raw:string):boolean {

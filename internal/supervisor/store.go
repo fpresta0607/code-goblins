@@ -384,11 +384,24 @@ func (s *Store) Queue(a Action) (Action, error) {
 }
 
 func (s *Store) queue(a Action) (Action, error) {
-	if a.Kind != "cfo_answer" && a.AnswerKind != "" {
-		return Action{}, errors.New("answer kind is only valid for a CFO question")
-	}
 	if a.ID == "" || len(a.ID) > 128 || strings.ContainsAny(a.ID, "\x00\r\n") {
 		return Action{}, errors.New("action requires a bounded request ID")
+	}
+	for _, existing := range s.db.Actions {
+		if existing.ID != a.ID {
+			continue
+		}
+		generation := a.Generation
+		if generation == "" && (existing.Kind == "evaluate" || existing.Kind == "feedback") {
+			generation = existing.Generation
+		}
+		if existing.Kind != a.Kind || existing.TaskID != a.TaskID || existing.Generation != generation || existing.Session != a.Session || existing.EventID != a.EventID || existing.Text != a.Text || existing.File != a.File || existing.Head != a.Head || existing.Line != a.Line || existing.EndLine != a.EndLine || existing.Side != a.Side || existing.Revision != a.Revision || existing.DiffID != a.DiffID || existing.QuestionID != a.QuestionID || existing.AnswerKind != a.AnswerKind {
+			return Action{}, errors.New("request ID was already used for another action")
+		}
+		return existing, nil
+	}
+	if a.Kind != "cfo_answer" && a.AnswerKind != "" {
+		return Action{}, errors.New("answer kind is only valid for a CFO question")
 	}
 	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" {
 		return Action{}, errors.New("unsupported action; task lifecycle cannot be dragged or assigned")
@@ -418,14 +431,6 @@ func (s *Store) queue(a Action) (Action, error) {
 			return Action{}, errors.New("task restarted or was replaced; refresh the board")
 		}
 		a.Generation = meta.SpawnGen
-	}
-	for _, existing := range s.db.Actions {
-		if existing.ID == a.ID {
-			if existing.Kind != a.Kind || existing.TaskID != a.TaskID || existing.Generation != a.Generation || existing.Text != a.Text || existing.File != a.File || existing.Head != a.Head || existing.Line != a.Line || existing.EndLine != a.EndLine || existing.Side != a.Side || existing.Revision != a.Revision || existing.DiffID != a.DiffID || existing.QuestionID != a.QuestionID || existing.AnswerKind != a.AnswerKind {
-				return Action{}, errors.New("request ID was already used for another action")
-			}
-			return existing, nil
-		}
 	}
 	if a.Kind == "cfo_answer" {
 		if err := s.questionAnswer(a); err != nil {

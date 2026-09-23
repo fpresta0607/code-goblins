@@ -48,9 +48,12 @@ test("compact activity displays only truthful connector motion and created entra
   {id:"message",kind:"message",task_id:"work",generation:"g1",source:"parent",target:"child",state:"accepted",at:"",url:"",until:""},
   {id:"created",kind:"created",task_id:"work",generation:"g1",source:"child",target:"nested",state:"accepted",at:"",url:"",until:""},
  ];
- assert.deepEqual(activityDisplay(effects,"child","parent"),{received:effects[0],communication:effects[0],created:false});
- assert.deepEqual(activityDisplay(effects,"nested","child"),{received:effects[1],communication:effects[1],created:true});
- assert.equal(activityDisplay(effects,"child","different").communication,undefined);
+ assert.deepEqual(activityDisplay(effects,"child","parent"),{received:effects[0],communication:effects[0],created:undefined,creation:undefined});
+ assert.deepEqual(activityDisplay(effects,"nested","child"),{received:undefined,communication:undefined,created:effects[1],creation:effects[1]});
+ const unlinked=activityDisplay(effects,"nested","different");
+ assert.equal(unlinked.communication,undefined);
+ assert.equal(unlinked.creation,undefined);
+ assert.equal(unlinked.created,effects[1]);
 });
 
 test("verified primary presentation needs no task and disappears with native evidence",()=>{
