@@ -141,6 +141,19 @@ func Register(ctx context.Context, stateDir string, client *herdr.Client, harnes
 		return "", err
 	}
 	process := ancestry[harnessAt]
+	described := fmt.Sprintf("%s pid %d in Herdr pane %s:%s", primary.Agent, process.PID, target.Session, pane)
+	// primary.json's hash is the identity questions, reviews and answers are
+	// bound to, so the same process in the same pane keeps its bytes.
+	if file, err := openPrimary(filepath.Join(stateDir, "primary.json")); err == nil {
+		current, _, err := decodePrimary(file)
+		_ = file.Close()
+		drift := current.Process.Start.Sub(process.Start)
+		sameProcess := current.Process.PID == process.PID && current.Process.Hostname == hostname && drift > -time.Second && drift < time.Second
+		current.Process = lock.Info{}
+		if err == nil && sameProcess && current == primary {
+			return described, nil
+		}
+	}
 	primary.Process = lock.Info{PID: process.PID, OwnerPID: process.PID, Session: session, Start: process.Start, Hostname: hostname, Acquired: time.Now().UTC()}
 	data, err := json.Marshal(primary)
 	if err != nil {
@@ -154,7 +167,7 @@ func Register(ctx context.Context, stateDir string, client *herdr.Client, harnes
 	if err := fsx.AtomicWriteFile(filepath.Join(stateDir, "primary.json"), data); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s pid %d in Herdr pane %s:%s", primary.Agent, process.PID, target.Session, pane), nil
+	return described, nil
 }
 
 func (c *CFOConnection) verify(ctx context.Context, primary primaryRegistration) error {
