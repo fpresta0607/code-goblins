@@ -200,3 +200,16 @@ export function fleetTraffic(previous: Map<string, string> | null, snapshot: Sna
   const moved = previous ? [...signatures].filter(([id, signature]) => previous.has(id) && previous.get(id) !== signature).map(([id]) => id) : [];
   return { signatures, moved };
 }
+
+// A connector pulses for PULSE_MS after its goblin reports. Each pulse is
+// keyed by the time of its report, so it expires on its own schedule however
+// many snapshots follow, and a newer report outlives an older one's expiry.
+export const PULSE_MS = 6000;
+
+export function reportTraffic(traffic: Record<string, number>, moved: string[], at: number): Record<string, number> {
+  return { ...traffic, ...Object.fromEntries(moved.map((id) => [id, at])) };
+}
+
+export function expireTraffic(traffic: Record<string, number>, moved: string[], at: number): Record<string, number> {
+  return Object.fromEntries(Object.entries(traffic).filter(([id, when]) => !(moved.includes(id) && when === at)));
+}

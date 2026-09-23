@@ -81,9 +81,15 @@ func GitMergedPRs(repos []string) func(context.Context, time.Time, int) ([]Merge
 			if err != nil || match == nil {
 				continue // Only a GitHub remote gives a pull request a link.
 			}
-			ref := "origin/main"
-			if head, err := (Git{}).run(ctx, repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil && strings.TrimSpace(head) != "" {
-				ref = strings.TrimSpace(head)
+			ref := ""
+			for _, candidate := range []string{"origin/HEAD", "origin/main", "origin/master"} {
+				if _, err := (Git{}).run(ctx, repo, "rev-parse", "--verify", "--quiet", "refs/remotes/"+candidate); err == nil {
+					ref = candidate
+					break
+				}
+			}
+			if ref == "" {
+				continue
 			}
 			out, err := (Git{}).run(ctx, repo, "log", ref, "--merges", "--since="+since.UTC().Format(time.RFC3339), "--format=%ct%x09%s")
 			if err != nil {
@@ -145,11 +151,16 @@ func waitingQuestion(records []wake.Record, id string) (string, string, bool) {
 }
 
 // statusActivity is a task's own latest status line, the one-line answer to
-// what it is doing now, and the pull request it last reported done.
-func statusActivity(lines []string) (string, string) {
+// what it is doing now, and the pull request it last reported done. A known
+// spawn time limits both to lines its own generation wrote, because a reused
+// task id appends to the log its earlier generation left.
+func statusActivity(lines []string, spawned time.Time) (string, string) {
 	activity, pr := "", ""
 	for i := len(lines) - 1; i >= 0; i-- {
-		_, event := state.SplitStatus(lines[i])
+		stamp, event := state.SplitStatus(lines[i])
+		if !spawned.IsZero() && stamp.Before(spawned.Truncate(time.Second)) {
+			break
+		}
 		event = strings.TrimSpace(event)
 		if activity == "" {
 			activity = event
@@ -220,7 +231,7 @@ func finishedTasks(stateDir string, now time.Time) []Task {
 		if err != nil {
 			continue
 		}
-		_, pr := statusActivity(lines)
+		_, pr := statusActivity(lines, time.Time{})
 		tasks = append(tasks, Task{ID: "finished:" + id, Title: id, Dependencies: []string{}, Archived: true, Evaluation: Evaluation{Phase: "done", PR: pr, Reason: "Finished and cleaned up", At: f.at}})
 	}
 	return newestHistory(tasks)
@@ -242,6 +253,17 @@ func withMergedPRs(history []Task, merged []MergedPR) []Task {
 		}
 	}
 	return newestHistory(history)
+}
+
+// spawnTime is when a task generation started, which its spawn generation
+// records as s followed by Unix nanoseconds; zero when it does not.
+func spawnTime(generation string) time.Time {
+	digits, ok := strings.CutPrefix(generation, "s")
+	nanos, err := strconv.ParseInt(digits, 10, 64)
+	if !ok || err != nil {
+		return time.Time{}
+	}
+	return time.Unix(0, nanos).UTC()
 }
 
 func newestHistory(tasks []Task) []Task {
