@@ -147,6 +147,10 @@ The header switches between two views, one at a time, each with a contextual pan
 - **Board** is task review. Real tasks sit in **Tasks**, **In progress** and **Completed**. Only verified delivery reaches Completed; failed work and work awaiting review stay in progress with a plain status. Selecting a card opens its changes, activity and commit history.
 - **Orchestration** is the live family tree: the CFO above its goblins and any child sessions they reported. The panel shows the selected session's real native terminal and starts on the CFO. Dragging cards, panning, zooming, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence. A brief pulse along a connector marks a real accepted message.
 
+<p align="center">
+  <img src="docs/images/orchestration.png" alt="Orchestration view: the CFO above its goblin, with the goblin's live native terminal in the right panel" width="900" />
+</p>
+
 Each card's goblin is chosen from the task's work, such as builder, reviewer, tester or planner, and the crowned goblin is the CFO:
 
 <p align="center">
@@ -161,6 +165,10 @@ On Board the panel continues with **Changes**, **Activity** and **History**.
 In Orchestration it holds the native terminal, which stays read-only until you choose **Connect input**; **Shift+Escape** hands the keyboard back.
 
 ### Sending a diff comment to the CFO
+
+<p align="center">
+  <img src="docs/images/annotation-delivery.png" alt="An inline comment on board.css line 2, sent to the CFO and accepted through Herdr" width="900" />
+</p>
 
 Open **Changes**, expand a file and click a line number; Shift-click extends the selection to a range.
 Write your comment in the form that opens beside the selection and choose **Send to CFO**.
