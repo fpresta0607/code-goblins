@@ -62,25 +62,27 @@ type Evaluation struct {
 }
 
 type Action struct {
-	ID         string    `json:"id"`
-	Kind       string    `json:"kind"`
-	TaskID     string    `json:"task_id"`
-	Generation string    `json:"generation,omitempty"`
-	Session    string    `json:"session,omitempty"`
-	EventID    string    `json:"event_id,omitempty"`
-	Text       string    `json:"text,omitempty"`
-	File       string    `json:"file,omitempty"`
-	Line       int       `json:"line,omitempty"`
-	EndLine    int       `json:"end_line,omitempty"`
-	Side       string    `json:"side,omitempty"`
-	Head       string    `json:"head,omitempty"`
-	Revision   string    `json:"revision,omitempty"`
-	DiffID     string    `json:"diff_id,omitempty"`
-	QuestionID string    `json:"question_id,omitempty"`
-	Status     string    `json:"status"`
-	Message    string    `json:"message,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID          string    `json:"id"`
+	Kind        string    `json:"kind"`
+	TaskID      string    `json:"task_id"`
+	Generation  string    `json:"generation,omitempty"`
+	Session     string    `json:"session,omitempty"`
+	EventID     string    `json:"event_id,omitempty"`
+	Text        string    `json:"text,omitempty"`
+	File        string    `json:"file,omitempty"`
+	Line        int       `json:"line,omitempty"`
+	EndLine     int       `json:"end_line,omitempty"`
+	Side        string    `json:"side,omitempty"`
+	Head        string    `json:"head,omitempty"`
+	Revision    string    `json:"revision,omitempty"`
+	DiffID      string    `json:"diff_id,omitempty"`
+	QuestionID  string    `json:"question_id,omitempty"`
+	AnswerKind  string    `json:"answer_kind,omitempty"`
+	CFOIdentity string    `json:"cfo_identity,omitempty"`
+	Status      string    `json:"status"`
+	Message     string    `json:"message,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type Database struct {
@@ -95,6 +97,7 @@ type Database struct {
 	Issues        []string              `json:"issues"`
 	Questions     []Question            `json:"questions"`
 	QuestionFloor time.Time             `json:"question_floor,omitempty"`
+	Activity      []BoardActivity       `json:"activity"`
 }
 
 type Store struct {
@@ -202,6 +205,7 @@ func cloneDatabase(d Database) Database {
 	d.Seen = slices.Clone(d.Seen)
 	d.Issues = slices.Clone(d.Issues)
 	d.Questions = slices.Clone(d.Questions)
+	d.Activity = slices.Clone(d.Activity)
 	for i := range d.Questions {
 		d.Questions[i].Options = slices.Clone(d.Questions[i].Options)
 	}
@@ -353,6 +357,15 @@ func (s *Store) Accept(e nativehook.Event) (err error) {
 	if e.Role == "goblin" {
 		s.db.TaskSessions[e.TaskID] = key
 	}
+	if !known || prior.Generation != e.Generation {
+		source := parent
+		if s.db.Sessions[source].ID == "" {
+			source = ""
+		}
+		if err := s.retainActivity(BoardActivity{ID: "start-" + e.ID, Kind: "created", TaskID: e.TaskID, Generation: e.Generation, Source: source, Target: key, State: "accepted", At: e.OccurredAt}); err != nil {
+			return err
+		}
+	}
 	s.db.Seen = append(s.db.Seen, e.ID)
 	if len(s.db.Seen) > maxSeen {
 		s.db.Seen = s.db.Seen[len(s.db.Seen)-maxSeen:]
@@ -371,6 +384,9 @@ func (s *Store) Queue(a Action) (Action, error) {
 }
 
 func (s *Store) queue(a Action) (Action, error) {
+	if a.Kind != "cfo_answer" && a.AnswerKind != "" {
+		return Action{}, errors.New("answer kind is only valid for a CFO question")
+	}
 	if a.ID == "" || len(a.ID) > 128 || strings.ContainsAny(a.ID, "\x00\r\n") {
 		return Action{}, errors.New("action requires a bounded request ID")
 	}
@@ -405,7 +421,7 @@ func (s *Store) queue(a Action) (Action, error) {
 	}
 	for _, existing := range s.db.Actions {
 		if existing.ID == a.ID {
-			if existing.Kind != a.Kind || existing.TaskID != a.TaskID || existing.Generation != a.Generation || existing.Text != a.Text || existing.File != a.File || existing.Head != a.Head || existing.Line != a.Line || existing.EndLine != a.EndLine || existing.Side != a.Side || existing.Revision != a.Revision || existing.DiffID != a.DiffID || existing.QuestionID != a.QuestionID {
+			if existing.Kind != a.Kind || existing.TaskID != a.TaskID || existing.Generation != a.Generation || existing.Text != a.Text || existing.File != a.File || existing.Head != a.Head || existing.Line != a.Line || existing.EndLine != a.EndLine || existing.Side != a.Side || existing.Revision != a.Revision || existing.DiffID != a.DiffID || existing.QuestionID != a.QuestionID || existing.AnswerKind != a.AnswerKind {
 				return Action{}, errors.New("request ID was already used for another action")
 			}
 			return existing, nil
@@ -415,6 +431,18 @@ func (s *Store) queue(a Action) (Action, error) {
 		if err := s.questionAnswer(a); err != nil {
 			return Action{}, err
 		}
+	}
+	if a.Kind == "review" {
+		file, err := openPrimary(filepath.Join(s.Home.State, "primary.json"))
+		if err != nil {
+			return Action{}, errors.New("Primary CFO registration is unavailable. No review was queued.")
+		}
+		_, identity, err := decodePrimary(file)
+		_ = file.Close()
+		if err != nil {
+			return Action{}, err
+		}
+		a.CFOIdentity = identity
 	}
 	if a.Kind == "cfo_message" || a.Kind == "cfo_answer" {
 		file, err := openPrimary(filepath.Join(s.Home.State, "primary.json"))
@@ -449,6 +477,7 @@ func (s *Store) queue(a Action) (Action, error) {
 		for i := range s.db.Questions {
 			if s.db.Questions[i].ID == a.QuestionID {
 				s.db.Questions[i].AnswerID, s.db.Questions[i].Status = a.ID, "queued"
+				s.db.Questions[i].Answer, s.db.Questions[i].AnswerKind = a.Text, a.AnswerKind
 			}
 		}
 	}

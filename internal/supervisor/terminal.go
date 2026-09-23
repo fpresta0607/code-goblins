@@ -27,6 +27,10 @@ type terminalSelection struct {
 	Generation string `json:"generation"`
 }
 
+type unavailableTerminal string
+
+func (e unavailableTerminal) Error() string { return string(e) }
+
 type terminalBinding struct {
 	Selection terminalSelection
 	Target    herdr.Target
@@ -59,14 +63,14 @@ func (s *Service) resolveTerminal(ctx context.Context, selected terminalSelectio
 		return b, nil
 	}
 	if state.ValidTaskID(selected.Task) != nil || selected.Generation == "" {
-		return b, errors.New("This session has no separately reported native terminal.")
+		return b, unavailableTerminal("This session has no separately reported native terminal.")
 	}
 	meta, err := state.ReadTaskMeta(s.Store.Home.State, selected.Task)
 	if err != nil || meta.SpawnGen != selected.Generation {
 		return b, errors.New("This task restarted or was replaced. Select its current session.")
 	}
 	if selected.Session != "" && s.Store.Snapshot().TaskSessions[meta.ID] != selected.Session {
-		return b, errors.New("This child has no separately reported native terminal. Open its owning task to inspect that task's terminal.")
+		return b, unavailableTerminal("This child has no separate terminal. Its owning task has its own terminal.")
 	}
 	if write {
 		if err := s.validateFeedback(ctx, meta, Action{}); err != nil {
@@ -74,7 +78,7 @@ func (s *Service) resolveTerminal(ctx context.Context, selected terminalSelectio
 		}
 	}
 	if meta.HerdrSession == "" || meta.HerdrPaneID == "" || meta.HerdrTabID == "" || meta.HerdrWorkspaceID == "" {
-		return b, errors.New("This task has no native terminal registration.")
+		return b, unavailableTerminal("No native terminal is registered for this task.")
 	}
 	client := *c.Herdr
 	client.Session = meta.HerdrSession
@@ -249,6 +253,14 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 	b, err := h.Service.resolveTerminal(check, input.terminalSelection, input.Control)
 	stop()
 	if err != nil {
+		var unavailable unavailableTerminal
+		if errors.As(err, &unavailable) {
+			respond(w, 409, struct {
+				Error string `json:"error"`
+				Code  string `json:"code"`
+			}{err.Error(), "terminal_unavailable"})
+			return
+		}
 		apiError(w, 409, err.Error())
 		return
 	}

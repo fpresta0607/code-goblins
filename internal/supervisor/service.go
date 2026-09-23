@@ -41,19 +41,21 @@ type Options struct {
 }
 
 type Service struct {
-	Store       *Store
-	Options     Options
-	Git         Git
-	Instance    string
-	Started     time.Time
-	mu          sync.Mutex
-	lastError   string
-	reconciled  time.Time
-	revision    uint64
-	subscribers map[chan struct{}]struct{}
-	done        chan struct{}
-	work        chan struct{}
-	cancel      context.CancelFunc
+	Store                *Store
+	Options              Options
+	Git                  Git
+	Instance             string
+	Started              time.Time
+	mu                   sync.Mutex
+	lastError            string
+	reconciled           time.Time
+	presentationChecked  time.Time
+	presentationIdentity string
+	revision             uint64
+	subscribers          map[chan struct{}]struct{}
+	done                 chan struct{}
+	work                 chan struct{}
+	cancel               context.CancelFunc
 }
 
 // Start acquires the same singleton as legacy watch BEFORE opening recovery
@@ -189,7 +191,9 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	}
 	// Question failures cannot stop native events or independent progression.
 	reconcileErr := s.Store.ingestQuestions()
+	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
+	s.reconcilePresentations(ctx)
 	if recover {
 		if s.Options.Reconcile != nil {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
@@ -280,6 +284,9 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 			for _, q := range s.Store.Snapshot().Questions {
 				if q.ID == a.QuestionID && q.Identity == a.Generation && q.AnswerID == a.ID {
 					text = fmt.Sprintf("User answer to CFO question %s\nQuestion: %s\nAnswer: %s", q.ID, q.Text, a.Text)
+					if a.AnswerKind == "other" {
+						text = fmt.Sprintf("User answer to CFO question %s\nQuestion: %s\nAnswer (Other): %s", q.ID, q.Text, a.Text)
+					}
 					found = true
 				}
 			}
@@ -484,30 +491,37 @@ type Task struct {
 }
 
 type Snapshot struct {
-	Example    bool          `json:"example"`
-	Instance   string        `json:"instance"`
-	Revision   uint64        `json:"revision"`
-	Started    time.Time     `json:"started"`
-	At         time.Time     `json:"at"`
-	Reconciled time.Time     `json:"reconciled"`
-	Healthy    bool          `json:"healthy"`
-	Error      string        `json:"error"`
-	Inbox      int           `json:"inbox"`
-	Tasks      []Task        `json:"tasks"`
-	Sessions   []Session     `json:"sessions"`
-	Retired    []string      `json:"retired"`
-	Actions    []Action      `json:"actions"`
-	Decisions  []wake.Record `json:"decisions"`
-	Issues     []string      `json:"issues"`
-	Questions  []Question    `json:"questions"`
+	Example    bool            `json:"example"`
+	Instance   string          `json:"instance"`
+	Revision   uint64          `json:"revision"`
+	Started    time.Time       `json:"started"`
+	At         time.Time       `json:"at"`
+	Reconciled time.Time       `json:"reconciled"`
+	Healthy    bool            `json:"healthy"`
+	Error      string          `json:"error"`
+	Inbox      int             `json:"inbox"`
+	Tasks      []Task          `json:"tasks"`
+	Sessions   []Session       `json:"sessions"`
+	Retired    []string        `json:"retired"`
+	Actions    []Action        `json:"actions"`
+	Decisions  []wake.Record   `json:"decisions"`
+	Issues     []string        `json:"issues"`
+	Questions  []Question      `json:"questions"`
+	Activity   []BoardActivity `json:"activity"`
 }
 
 func (s *Service) Snapshot() (Snapshot, error) {
 	d := s.Store.Snapshot()
 	s.mu.Lock()
 	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
+	for i := range d.Activity {
+		if d.Activity[i].CFOIdentity != "" {
+			d.Activity[i].Live = d.Activity[i].CFOIdentity == s.presentationIdentity && out.At.Sub(s.presentationChecked) < 2*time.Minute
+		}
+	}
 	s.mu.Unlock()
 	out.Questions = d.Questions
+	out.Activity = d.Activity
 	out.Healthy = supervise.WatcherHealthy(s.Store.Home.State, 30*time.Second)
 	for _, node := range d.Sessions {
 		if node.Role == "goblin" && d.TaskSessions[node.TaskID] == node.ID {

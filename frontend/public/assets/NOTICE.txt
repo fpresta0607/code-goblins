@@ -28,3 +28,5 @@ Bundled PrismJS license: /assets/prism-LICENSE.txt
 Bundled xterm.js 6.0.0 license: /assets/xterm-LICENSE.txt
 Bundled xterm.js fit addon 0.11.0 license: /assets/xterm-fit-LICENSE.txt
 The terminal renderer and fit addon load only for the Orchestration native terminal view.
+
+The goblin workshop canvas background was generated for this project and approved by the user on 2026-09-23.

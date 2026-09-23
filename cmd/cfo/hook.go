@@ -608,7 +608,7 @@ func hookStopAutoarmWithConfig(h home.Home, payload claudehook.Payload, stdout, 
 // stdout for a resume/reload/fork whose completion marker already names the
 // CURRENT custody's owner: printing a full digest again would just repeat
 // what an earlier SessionStart under the same lock already showed.
-const sessionStartNudgeLine = "CFO: operational input may be waiting; run cfo drain if supervision was active."
+const sessionStartNudgeLine = "CFO: operational input may be waiting; run cfo drain if supervision was active. For an explicit user decision, publish cfo question --id <stable-id> --text <question> [--option <choice>] [--recommend <exact-choice>] from the registered primary shell. Answers return as normal messages to the same CFO, not native prompt-tool responses."
 
 // resolveSessionOwnerPID identifies the process taking custody of the
 // session lock for a SessionStart digest: the harness ancestor

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -21,14 +20,17 @@ import (
 const maxQuestions = 128
 
 type Question struct {
-	ID        string    `json:"id"`
-	Identity  string    `json:"identity"`
-	Text      string    `json:"text"`
-	Options   []string  `json:"options"`
-	CreatedAt time.Time `json:"created_at"`
-	AnswerID  string    `json:"answer_id,omitempty"`
-	Status    string    `json:"status"`
-	Message   string    `json:"message,omitempty"`
+	ID          string    `json:"id"`
+	Identity    string    `json:"identity"`
+	Text        string    `json:"text"`
+	Options     []string  `json:"options"`
+	Recommended string    `json:"recommended,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	AnswerID    string    `json:"answer_id,omitempty"`
+	Answer      string    `json:"answer,omitempty"`
+	AnswerKind  string    `json:"answer_kind,omitempty"`
+	Status      string    `json:"status"`
+	Message     string    `json:"message,omitempty"`
 }
 
 func validQuestion(q Question) error {
@@ -42,13 +44,16 @@ func validQuestion(q Question) error {
 		}
 		seen[option] = true
 	}
+	if q.Recommended != "" && !slices.Contains(q.Options, q.Recommended) {
+		return errors.New("recommendation must name one of the supplied choices exactly")
+	}
 	return nil
 }
 
 // PublishQuestion is deliberately a local CFO operation, not a browser or
 // worker-alert endpoint. The caller must descend from the registered primary
 // process, including its creation time, and its native identity must be live.
-func (c *CFOConnection) PublishQuestion(ctx context.Context, id, text string, options []string) error {
+func (c *CFOConnection) PublishQuestion(ctx context.Context, id, text string, options []string, recommended string) error {
 	file, err := openPrimary(filepath.Join(c.State, "primary.json"))
 	if err != nil {
 		return errors.New("primary CFO registration is unavailable")
@@ -74,7 +79,7 @@ func (c *CFOConnection) PublishQuestion(ctx context.Context, id, text string, op
 	if err := c.verify(ctx, p); err != nil {
 		return err
 	}
-	q := Question{ID: id, Identity: identity, Text: text, Options: options, CreatedAt: time.Now().UTC(), Status: "pending"}
+	q := Question{ID: id, Identity: identity, Text: text, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending"}
 	if err := validQuestion(q); err != nil {
 		return err
 	}
@@ -98,7 +103,7 @@ func (c *CFOConnection) PublishQuestion(ctx context.Context, id, text string, op
 		}
 		for _, prior := range db.Questions {
 			if prior.ID == id {
-				if prior.Identity != identity || prior.Text != text || !reflect.DeepEqual(prior.Options, options) {
+				if prior.Identity != identity || prior.Text != text || !slices.Equal(prior.Options, options) || prior.Recommended != recommended {
 					return errors.New("question ID already used")
 				}
 				return nil
@@ -115,19 +120,19 @@ func (c *CFOConnection) PublishQuestion(ctx context.Context, id, text string, op
 	if err != nil {
 		return err
 	}
-	if len(entriesOnDisk) >= maxQuestions {
-		return errors.New("user question inbox is full")
-	}
 	sum := sha256.Sum256([]byte(id))
 	path := filepath.Join(dir, hex.EncodeToString(sum[:])+".json")
 	if data, err := os.ReadFile(path); err == nil {
 		var prior Question
-		if json.Unmarshal(data, &prior) != nil || prior.Identity != identity || prior.Text != text || !reflect.DeepEqual(prior.Options, options) {
+		if json.Unmarshal(data, &prior) != nil || prior.Identity != identity || prior.Text != text || !slices.Equal(prior.Options, options) || prior.Recommended != recommended {
 			return errors.New("question ID already used")
 		}
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
+	}
+	if len(entriesOnDisk) >= maxQuestions {
+		return errors.New("user question inbox is full")
 	}
 	data, err := json.Marshal(q)
 	if err != nil {
@@ -144,7 +149,7 @@ func (s *Store) acceptQuestion(q Question) error {
 	}
 	for _, prior := range s.db.Questions {
 		if prior.ID == q.ID {
-			if prior.Identity != q.Identity || prior.Text != q.Text || !reflect.DeepEqual(prior.Options, q.Options) {
+			if prior.Identity != q.Identity || prior.Text != q.Text || !slices.Equal(prior.Options, q.Options) || prior.Recommended != q.Recommended {
 				return errors.New("question ID already used")
 			}
 			return nil
@@ -174,6 +179,7 @@ func (s *Store) acceptQuestion(q Question) error {
 		s.db.Questions = slices.Delete(s.db.Questions, index, index+1)
 	}
 	q.Status, q.AnswerID, q.Message = "pending", "", ""
+	q.Answer, q.AnswerKind = "", ""
 	q.Options = slices.Clone(q.Options)
 	s.db.Questions = append(s.db.Questions, q)
 	return s.save()
@@ -294,7 +300,10 @@ func (s *Store) questionAnswer(a Action) error {
 		if q.AnswerID != "" || q.Status != "pending" {
 			return errors.New("an answer is already recorded for this question; inspect its outcome")
 		}
-		if len(q.Options) > 0 && !slices.Contains(q.Options, a.Text) {
+		if a.AnswerKind != "" && a.AnswerKind != "option" && a.AnswerKind != "other" {
+			return errors.New("answer kind must be option or other")
+		}
+		if a.AnswerKind != "other" && (len(q.Options) > 0 || a.AnswerKind == "option") && !slices.Contains(q.Options, a.Text) {
 			return errors.New("select one of the CFO's supplied choices")
 		}
 		return nil

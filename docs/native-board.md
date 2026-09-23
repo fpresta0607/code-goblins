@@ -94,7 +94,10 @@ The header switches between Board and Orchestration, with one main view visible 
 Board groups actual tasks into Tasks, In progress and Completed; only verified delivery enters Completed.
 Every Board card opens its changes, activity and commit history; Board has no terminal or standalone message composer.
 Orchestration opens the selected native terminal and defaults to the registered CFO.
-Cards show their reported project name, and a compact Workspace details disclosure provides scoped configuration.
+Cards show their reported project name, and the spacious contextual panel provides repository, branch and working-folder context on one continuous surface.
+Open in VS Code and Open folder require a deliberate click and resolve the selected goblin's fresh, isolated Git worktree.
+The API accepts task identity and an editor enum, never a browser-provided path or command; it starts Code.exe directly with literal arguments and removes Electron Node/development flags from its inherited environment.
+Successful launch means the application was requested, not that a window was observed.
 Queued tasks show their known project and Not started yet, without querying nonexistent task metadata.
 Operational wake records remain intact; only explicitly escalated CFO questions open a modal.
 Task-semantic goblin avatars are presentation choices, not inferred native role evidence.
@@ -109,11 +112,18 @@ The canvas starts at no less than 80% scale, with scroll/pan for extra roots; ex
 Arrange resets positions, and storage failures remain visible.
 Narrow screens use a collapsible nested list that names the actual parent when indentation is capped.
 A child without its own reported native transport explains that limitation without borrowing its owning task's terminal or model.
-Communication pulses last at most ten seconds and require a recent successful targeted worker instruction, matching task identity, and a connected stream.
+Bounded accepted-send and native-creation receipts produce a brief receiving-card glow and, where exact caller native identity proves the reported parent, a pulse on that connector.
+The caller convention is `CFO_SESSION_ID` plus `CFO_SESSION_HARNESS`, with native `CODEX_THREAD_ID` fallback; same-harness or directory/time resemblance never establishes a sender.
+When sender identity is unavailable, only target evidence is shown.
+Each effect expires independently; initial load, reconnect, hidden-tab return, instance replacement and replayed receipts never fabricate new activity.
+Reduced motion uses a short static outline instead of movement.
 
 Changes presents stacked file disclosures with lazy syntax-highlighted unified, split and code previews.
 Select a visible old/new line or contiguous range, including unchanged context, and Send to CFO queues a durable review record containing the exact file, side, range, revision, HEAD and diff fingerprint.
-The server validates those coordinates and derives the selected code; it never sends a review comment to the worker.
+The server validates those coordinates and derives bounded selected code; it never sends a review comment to the worker.
+Admission separately pins the registered primary CFO fingerprint; retries preserve it even if the primary changes.
+New annotations use only the verified CFO normal native message channel, and success requires transport acceptance.
+They do not append a second actionable wake record; existing historical wake records remain untouched and old unpinned reviews are not adopted or replayed.
 Review remains available during gate custody, while actual worker steering retains the custody checks.
 Drafts bind the task session identity at selection and survive view, file and recipient changes without silently moving to a restarted task.
 An unchanged submitted payload keeps its request ID after an ambiguous HTTP failure; an SSE outcome is displayed instead of dispatching it again.
@@ -128,6 +138,9 @@ Shift+Escape releases input and restores keyboard access to its control; ordinar
 Ctrl+Shift+C copies a selected terminal region.
 Closing, switching, disconnecting or restarting invalidates the input lease; reconnection starts with observation and a full screen frame, never replayed input.
 At most four native streams are open, writes have an eight-second cancellation bound, frame gaps disconnect, and oversized UTF-8 paste is rejected before sending.
+Adjacent queued printable text coalesces into bounded ordered writes; control keys, paste wrappers, scroll and resize remain barriers, and custody is still checked for every native write.
+Screen reader support is an explicit saved preference under Terminal options and changes in place without reconnecting.
+The default xterm input mode accepts InsertText/IME Unicode; its optional screen-reader mode has an upstream InsertText limitation, while paste remains supported.
 There is no second model session or generated reply.
 The native interface exposes rendered screen updates rather than original historical PTY bytes, and omits Kitty keyboard negotiation, graphics and host mouse notifications.
 
@@ -151,19 +164,43 @@ Worker `cfo notify --blocked` records and natural-language questions do not auto
 The registered CFO must deliberately publish a decision from its own process ancestry:
 
 ```powershell
-cfo question --id layout-choice-001 --text "Which layout should I use?" --option "Compact" --option "Spacious"
+cfo question --id layout-choice-001 --text "Which layout should I use?" --option "Compact" --option "Spacious" --option "Keep current" --recommend "Spacious"
 ```
 
 Omit `--option` when the question needs a written answer.
+`--recommend` must exactly match a supplied option, which the modal shows first with its real recommendation; omit the flag when no option is recommended.
+The Supreme Overlord Command Center labels supplied choices A/B/C and always offers Other for a written answer.
+No choice is preselected and written text is sent only when Other is selected.
 Use a new stable ID for a new question, and keep the same ID/content for an uncertain publication retry.
 The publisher walks up to 32 process ancestors and verifies the registered CFO PID, creation time and live native identity; a worker cannot escalate on the CFO's behalf.
-The UI serializes questions, provides radio choices without automatic selection/submission, preserves drafts through reconnects, and supports Escape/Later plus Questions to revisit.
+The UI serializes questions, preserves drafts through reconnects, and supports Escape/Later plus Command Center to revisit.
+Once submitted, every tab displays the durable answer rather than an unsent local draft.
 Answers retain their question and CFO identity and enter the durable native CFO message queue, never a worker send or gate approval.
+Claude Code, Codex and Pi primary-context guidance routes explicit user decisions through this command.
+Publish from the same registered primary shell, continue independent work or finish the turn awaiting the reply, and do not also open a native prompt tool: a normal message cannot answer a correlated native Codex/Pi prompt.
 Duplicate HTTP/SSE outcomes cannot cause a second delivery; interrupted delivery becomes uncertain.
 A replaced CFO's pending questions become superseded instead of reopening unanswerable modals.
 The store bounds question history at 128 records, retires answered/superseded history, and defers overflow when all questions remain unresolved.
 The bounded publication inbox is admitted in timestamp order, not hash-filename order, and rollover keeps its cutoff below the incoming timestamp so deferred and same-time questions are not discarded.
 Conflicting, corrupt or oversized inbox records leave bounded diagnostics and cannot stop unrelated native events.
+
+## Nonblocking presentation notices
+
+After a presentation tool succeeds, its registered native owner may report the returned safe URL explicitly:
+
+```powershell
+cfo present --id browser-walkthrough-001 --task task-id --generation current-spawn-gen --kind browser --url http://127.0.0.1:5173/ --ttl 5m
+```
+
+Use `--kind review` for a review surface, and omit task/generation only from the verified primary CFO's own process ancestry.
+For Lavish, use `lavish-axi <file> --no-open`, then report the actual successful session URL; do not republish a user-ended session.
+Refresh the same ID only while the activity remains live, and report `--state ended` with the same identity/URL on completion.
+IDs cannot change recipient or URL, and an ended pending record cannot be reopened by a later refresh.
+The store and inbox retain at most 128 receipts, URLs exclude credentials/query/fragment and known sensitive paths, and expiry is limited to thirty minutes.
+Only declared safe presentation links belong here, not raw tool arguments or arbitrary browser history.
+Task indicators require current generation and fresh runtime evidence; primary notices use their exact verified registration, checked on the existing supervisor cycle at most once per minute.
+Command Center offers Open page/Open review and Keep in background without redirecting, opening a modal, controlling the native browser, or pausing work.
+This is an explicit reporting integration, not interception of every browser tool or a live browser-mirroring stream.
 
 ## Local endpoint boundaries
 
