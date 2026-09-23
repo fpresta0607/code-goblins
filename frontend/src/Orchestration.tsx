@@ -140,8 +140,11 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
               if (parent) return null;
               const sx = from.x + NODE_WIDTH / 2, sy = from.y + NODE_HEIGHT;
               const ex = to.x + NODE_WIDTH / 2, ey = to.y;
-              const mid = (sy + ey) / 2;
-              const path = `M${sx},${sy} C${sx},${mid} ${ex},${mid} ${ex},${ey}`;
+              // Travel sideways just below the parent, then drop straight
+              // down, so a connector to a second row passes through a gap in
+              // the first. For the next row this is the plain S curve.
+              const drop = Math.min((ey - sy) / 2, 56);
+              const path = `M${sx},${sy} C${sx},${sy + drop} ${ex},${sy + drop} ${ex},${sy + 2 * drop} L${ex},${ey}`;
               const activity = activityDisplay(connected ? effects : [],node.session?.id || "",byID.get(node.parent || "")?.session?.id || "");
               const report = connected && node.task ? traffic[node.task.id] : undefined;
               const communicating = activity.communication || report;
