@@ -142,7 +142,7 @@ func (c *CFOConnection) SendGoblin(ctx context.Context, taskID, identity, text s
 	}
 	guard := func(_ context.Context, target herdr.Target, _ herdr.AgentDetail) error { return current(target) }
 	sender := fleet.Sender{Herdr: c.Herdr, Resolve: fleet.Resolver{StateDir: c.State}, Guard: guard}
-	if err := sender.Text(ctx, taskID, text); err != nil {
+	if err := sender.Text(ctx, taskID, oneLine(text)); err != nil {
 		return Evaluation{}, err
 	}
 	return Evaluation{Reason: "Accepted by the goblin through Herdr."}, nil
@@ -173,7 +173,7 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 	if a.AnswerKind == "other" {
 		label = "Answer (Other)"
 	}
-	result, err := s.Options.CFO.SendGoblin(ctx, q.Task, q.Identity, fmt.Sprintf("The Overlord answered your question on the board\nQuestion: %s\n%s: %s", q.Text, label, a.Text))
+	result, err := s.Options.CFO.SendGoblin(ctx, q.Task, q.Identity, fmt.Sprintf("The Overlord answered your question on the board. Question: %s %s: %s", q.Text, label, a.Text))
 	if err != nil {
 		return result, err
 	}

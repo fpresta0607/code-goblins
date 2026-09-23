@@ -47,7 +47,7 @@ func (s *Service) deliverReview(ctx context.Context, meta state.TaskMeta, a Acti
 	// Running intent and the recipient fingerprint are already durable. Native
 	// acceptance is the only delivery transport; no second actionable wake is
 	// appended. A crash or unknown send remains uncertain and is never replayed.
-	return s.Options.CFO.Send(ctx, a.CFOIdentity, "Review request for CFO\n"+string(detail))
+	return s.Options.CFO.Send(ctx, a.CFOIdentity, "Review request for CFO: "+string(detail))
 }
 
 func diffRangeContext(patch string, first, last int, side string) (string, error) {
