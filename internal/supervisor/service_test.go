@@ -293,3 +293,26 @@ func TestSnapshotKeepsEvaluationWithinCurrentGeneration(t *testing.T) {
 		})
 	}
 }
+
+// A task in its gate names the step the gate is on, so the board can say
+// In review gate: tests, including a step parked for a decision.
+func TestEvaluationNamesTheGateStep(t *testing.T) {
+	store, h := testStore(t)
+	meta, _ := state.ReadTaskMeta(h.State, "task-1")
+	gitFixture(t, meta.Worktree)
+	for name, c := range map[string]struct {
+		steps []pipeline.ProgressStep
+		want  string
+	}{
+		"test running":  {[]pipeline.ProgressStep{{Name: "review", Status: "completed"}, {Name: "test", Status: "running"}, {Name: "lint", Status: "pending"}}, "test"},
+		"review parked": {[]pipeline.ProgressStep{{Name: "review", Status: "awaiting_approval"}, {Name: "test", Status: "pending"}}, "review"},
+		"not started":   {[]pipeline.ProgressStep{{Name: "review", Status: "pending"}}, ""},
+		"all done":      {[]pipeline.ProgressStep{{Name: "review", Status: "completed"}, {Name: "ci", Status: "skipped"}}, ""},
+	} {
+		s := &Service{Store: store, Options: Options{Gate: fakeProgress{value: pipeline.Progress{Status: "running", Steps: c.steps}}}}
+		got, err := s.execute(context.Background(), Action{Kind: "evaluate", TaskID: meta.ID, Generation: meta.SpawnGen})
+		if err != nil || got.GateStep != c.want {
+			t.Errorf("%s: gate step = %q (%v), want %q", name, got.GateStep, err, c.want)
+		}
+	}
+}

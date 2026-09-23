@@ -426,6 +426,11 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		return result, nil
 	}
 	result.PR = p.PR
+	if i := slices.IndexFunc(p.Steps, func(step pipeline.ProgressStep) bool {
+		return step.Status != "completed" && step.Status != "skipped" && step.Status != "pending"
+	}); i >= 0 {
+		result.GateStep = p.Steps[i].Name
+	}
 	for _, step := range p.Steps {
 		if step.Status == "awaiting_approval" || step.Status == "fix_review" || step.Status == "failed" {
 			result.Phase = "blocked"

@@ -59,6 +59,8 @@ type Evaluation struct {
 	PR         string    `json:"pr,omitempty"`
 	Verified   bool      `json:"verified"`
 	At         time.Time `json:"at"`
+	// GateStep is the no-mistakes step the task's gate is on, such as test.
+	GateStep string `json:"gate_step,omitempty"`
 }
 
 type Action struct {
