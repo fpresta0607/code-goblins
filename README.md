@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/hero.webp" alt="The Code Goblins board: a queued task, five goblins working, awaiting input or blocked on a question, and merged pull requests, beside one goblin's diff with a line comment the CFO has accepted" width="900" />
+  <img src="docs/images/hero.webp" alt="The Code Goblins board: a queued task and five goblins working, awaiting input or blocked on a question, beside one goblin's diff with a line comment the CFO has accepted" width="900" />
   <br />
   <sub>Screenshots show the example workspace, <code>cfo serve --example</code> on an isolated home, staged with demo goblins.</sub>
 </p>
