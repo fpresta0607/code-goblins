@@ -2,7 +2,7 @@ import type { Action, Question } from "./types.ts";
 
 export function questionSelection(question: Question, draft?: {selection:string; written:string}, receipt?: Action) {
   if (question.answer_id) return { selection: question.answer_kind === "other" ? "other" : "option:"+question.answer, written: question.answer_kind === "other" ? question.answer : "" };
-  if (receipt?.kind === "cfo_answer" && receipt.question_id === question.id && receipt.generation === question.identity) return { selection: receipt.answer_kind === "other" ? "other" : "option:"+receipt.text, written: receipt.answer_kind === "other" ? receipt.text : "" };
+  if ((receipt?.kind === "cfo_answer" || receipt?.kind === "goblin_answer") && receipt.question_id === question.id && receipt.generation === question.identity) return { selection: receipt.answer_kind === "other" ? "other" : "option:"+receipt.text, written: receipt.answer_kind === "other" ? receipt.text : "" };
   return question.status === "pending" && draft ? draft : { selection:"", written:"" };
 }
 
@@ -17,5 +17,5 @@ export function questionAnswer(question: Question, selection: string, written: s
   const other = selection === "other";
   const text = other ? written : selection.startsWith("option:") ? selection.slice(7) : "";
   if (!text.trim() || (!other && !question.options.includes(text))) return null;
-  return { kind: "cfo_answer", question_id: question.id, generation: question.identity, answer_kind: other ? "other" : "option", text };
+  return { kind: question.task ? "goblin_answer" : "cfo_answer", question_id: question.id, generation: question.identity, answer_kind: other ? "other" : "option", text };
 }

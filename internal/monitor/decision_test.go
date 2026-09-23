@@ -577,3 +577,36 @@ func TestScanStopsReAskingTheWaitingPromptOnceItIsAcked(t *testing.T) {
 		}
 	}
 }
+
+// A question the Overlord answered on the board is owed nothing more: the
+// goblin has its answer, so the monitor stops re-asking while the record
+// waits for the CFO's ordinary ack.
+func TestScanStopsReAskingAQuestionAnsweredOnTheBoard(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	service := decisionService(stateDir, probe, &now)
+
+	park(t, service, stateDir, "g1", "merge or hold? options: merge | hold")
+	if len(cycle(t, service, &now, 30)) == 0 {
+		t.Fatal("no re-ask before the answer, so the answer proves nothing")
+	}
+	records, err := wake.Pending(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range records {
+		if _, ok := wake.BlockingNotify(record); ok && record.Key == "g1" {
+			if err := wake.MarkAnswered(stateDir, record.Seq, "hold"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for _, event := range cycle(t, service, &now, 60) {
+		if strings.Contains(event.Detail, "still unanswered") {
+			t.Fatalf("re-asked after the board answer: %+v", event)
+		}
+	}
+}

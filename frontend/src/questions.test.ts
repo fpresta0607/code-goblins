@@ -25,3 +25,14 @@ test("a durable answer from another tab replaces every unsent or edited draft", 
   assert.deepEqual(questionSelection(pending,draft),draft);
   assert.deepEqual(questionSelection({...pending,status:"superseded"},draft),{selection:"",written:""});
 });
+
+test("a goblin's question is answered back to that goblin, never through the CFO", () => {
+  const q = parseSnapshot({ healthy:true, questions: [{id:"notify-gb-x-7", identity:"goblin-1", task:"gb-x", options:["Postgres", "SQLite"]}] }).questions![0];
+  assert.equal(q.task, "gb-x");
+  assert.deepEqual(questionAnswer(q, "option:SQLite", ""), {kind:"goblin_answer",question_id:"notify-gb-x-7",generation:"goblin-1",answer_kind:"option",text:"SQLite"});
+  const cfo = parseSnapshot({ healthy:true, questions: [{id:"question-1", identity:"cfo-1", options:["Yes"]}] }).questions![0];
+  assert.equal(cfo.task, "");
+  assert.equal(questionAnswer(cfo, "option:Yes", "")?.kind, "cfo_answer");
+  const receipt = parseAction({id:"answer-1",kind:"goblin_answer",question_id:q.id,generation:q.identity,text:"SQLite",answer_kind:"option"});
+  assert.deepEqual(questionSelection({...q, status:"pending"}, {selection:"other",written:"Wait"}, receipt), {selection:"option:SQLite",written:""});
+});

@@ -58,6 +58,10 @@ type Record struct {
 	Kind   string    `json:"kind"`
 	Key    string    `json:"key"`
 	Detail string    `json:"detail"`
+	// Answered is the answer the Overlord gave this blocking notify on the
+	// board. Pending attaches it from its own marker; it is never written
+	// into the queue.
+	Answered string `json:"answered,omitempty"`
 }
 
 // ackFile persists the highest acknowledged sequence so acked sequences stay
@@ -162,9 +166,14 @@ func Append(dir, kind, key, detail string) (Record, error) {
 	return rec, err
 }
 
-// Pending returns every unacknowledged record in sequence order.
+// Pending returns every unacknowledged record in sequence order, each with
+// the answer the Overlord gave it on the board, if any.
 func Pending(dir string) ([]Record, error) {
-	return readAll(dir)
+	records, err := readAll(dir)
+	if err != nil {
+		return nil, err
+	}
+	return attachAnswers(dir, records)
 }
 
 // ackSequence returns the sequence a reader may safely acknowledge after
@@ -221,7 +230,11 @@ func AckThrough(dir string, seq int) error {
 				return err
 			}
 		}
-		return writeQueue(dir, kept)
+		if err := writeQueue(dir, kept); err != nil {
+			return err
+		}
+		pruneAnswers(dir, floor)
+		return nil
 	})
 }
 
@@ -379,6 +392,12 @@ func AwaitingAnswerStall(rec Record, id string) bool {
 	return rec.Kind == "stale" && rec.Key == id && strings.HasPrefix(rec.Detail, stallAwaitingAnswer)
 }
 
+// Question is a blocking notify's question and the options it offered.
+func Question(rec Record) (string, []string, bool) {
+	_, question, options, ok := decision(rec)
+	return question, options, ok
+}
+
 // decision splits a blocking notify into the verb that parked it, the question
 // it asked, and the options it offered.
 //
@@ -425,6 +444,10 @@ func renderDecision(w io.Writer, rec Record, verb, question string, options []st
 		return err
 	}
 	if _, err := fmt.Fprintf(w, "       question: %s\n", terminalText(question)); err != nil {
+		return err
+	}
+	if rec.Answered != "" {
+		_, err := fmt.Fprintf(w, "       answered: the Overlord answered on the board: %s; the goblin has it, so ack it normally\n", terminalText(rec.Answered))
 		return err
 	}
 	if len(options) == 0 {
