@@ -96,6 +96,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.openWorkspace(w, r)
 	case r.URL.Path == "/api/actions" && r.Method == "POST":
 		h.action(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/questions/") && r.Method == "GET":
+		h.questionImage(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/tasks/") && r.Method == "GET":
 		h.task(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/"):

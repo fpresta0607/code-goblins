@@ -338,6 +338,7 @@ Run publication from the registered primary session's shell and reuse the same I
 The board sends the durable answer to that same verified CFO as an ordinary message, so continue independent supervision or finish the turn while waiting.
 Do not also invoke a native question tool for this decision: an ordinary Herdr message cannot answer a correlated Codex or Pi native prompt.
 A goblin's `cfo notify --blocked "<question> options: a (Recommended) | b"` also reaches the board, labelled with the goblin and with the choice it ends with `(Recommended)` marked, and the Overlord's answer goes straight to that goblin's pane once.
+When the choice is visual, such as mockups, brief the goblin to add `--image <path>` once for each choice, in order, so the Overlord picks by picture; the images must be PNG, JPEG, GIF or WebP files inside the goblin's worktree, task scratch or data directory.
 `cfo drain` then shows that notify as answered on the board and acks it without `--ack-blocking`; answer a goblin in one place, and ack a question you answered with `cfo send` promptly so the board retires its copy.
 Other worker alerts stay in the CFO wake queue until the CFO deliberately escalates a real user decision.
 For a nonblocking walkthrough or review, prefer Lavish `--no-open`, then report the returned safe URL with `cfo present --id <stable-id> --kind browser|review --url <safe-url>` from verified primary context.
@@ -353,6 +354,12 @@ Talk in outcomes, not mechanics. Reach the Supreme Overlord immediately for: wor
 ## Cut from this build
 
 Relay (X/Discord), AFK mode, tmux/zellij/orca/cmux backends, and Grok/OpenCode harnesses are not available. Don't promise them; route those needs to the Supreme Overlord as follow-ups.
+
+## Memory
+
+The session-start digest prints the CFO's standing memory in full every session, so what it holds is paid for in every session.
+`data/overlord.md` holds the Supreme Overlord's standing directives, each with its date and the Overlord's exact words, and never decays; `data/learnings.md` holds fleet operating facts, which re-prove themselves within 30 days or retire; open work belongs in `data/backlog.md` through `tasks-axi`, never in memory.
+Run the `stow` skill (`.agents/skills/stow/`) before a context reset and whenever that memory outgrows its budget: it files what the session learned, archives stale history to `data/memory-archive.md` rather than deleting it, and keeps every directive word for word.
 
 ## Restart is a non-event
 

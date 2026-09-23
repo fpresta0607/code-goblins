@@ -209,6 +209,9 @@ Conflicting, corrupt or oversized inbox records leave bounded diagnostics and ca
 ## Goblin questions
 
 A goblin's `cfo notify <id> --blocked "<question> options: a (Recommended) | b"` also opens the modal, labelled with the goblin and its artwork; the first choice that ends with `(Recommended)` is shown first and marked, like a CFO recommendation, and the mark is stripped from every choice.
+A goblin can attach one review image to each choice with `--image <path>`, repeated in the order of the choices, so the Overlord picks by picture: each choice shows its image, with an icon button that opens it full size.
+An image must be a PNG, JPEG, GIF or WebP of at most 10 MiB inside the task's worktree, task scratch or data directory, reached without a symlink or junction, and `cfo notify` refuses a wrong count or a bad image before anything is recorded.
+The board never sees an image's path: it serves image n of a question at `/api/questions/<id>/images/<n>`, checks the file again on every request, and stops serving once the task restarts or ends.
 A blocked notify without an `options:` marker, and every other worker alert, stays in the CFO wake queue only.
 Only a process running under the task's own Herdr pane can surface its notify, by the same foreground-harness proof `cfo register` uses.
 A notify that fails that proof or offers more than eight choices still wakes the CFO, and `cfo notify` prints why the board could not show it.
