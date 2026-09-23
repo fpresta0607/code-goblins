@@ -6,15 +6,20 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 const maxQuestions = 128
@@ -31,6 +36,12 @@ type Question struct {
 	AnswerKind  string    `json:"answer_kind,omitempty"`
 	Status      string    `json:"status"`
 	Message     string    `json:"message,omitempty"`
+	// Task and Generation name the goblin that asked, and Seq the blocked
+	// notify that told the CFO; all three are empty for the CFO's own
+	// question.
+	Task       string `json:"task,omitempty"`
+	Generation string `json:"generation,omitempty"`
+	Seq        int    `json:"seq,omitempty"`
 }
 
 func validQuestion(q Question) error {
@@ -47,7 +58,129 @@ func validQuestion(q Question) error {
 	if q.Recommended != "" && !slices.Contains(q.Options, q.Recommended) {
 		return errors.New("recommendation must name one of the supplied choices exactly")
 	}
+	if q.Task != "" && (state.ValidTaskID(q.Task) != nil || q.Generation == "" || q.Seq <= 0) {
+		return errors.New("a goblin's question names its task, generation and blocked notify")
+	}
 	return nil
+}
+
+func sameQuestion(a, b Question) bool {
+	return a.Identity == b.Identity && a.Text == b.Text && slices.Equal(a.Options, b.Options) && a.Recommended == b.Recommended && a.Task == b.Task
+}
+
+// goblinIdentity binds a goblin's question to the task generation and pane
+// that asked, so a restarted or moved task never receives an answer meant
+// for its predecessor.
+func goblinIdentity(meta state.TaskMeta) string {
+	sum := sha256.Sum256([]byte("goblin\x00" + meta.ID + "\x00" + meta.SpawnGen + "\x00" + meta.HerdrSession + "\x00" + meta.HerdrPaneID))
+	return hex.EncodeToString(sum[:])
+}
+
+// goblinAsker proves the calling process runs under the task's own pane, the
+// same proof registration uses for the CFO, so no other process can ask in
+// a goblin's name.
+func goblinAsker(ctx context.Context, stateDir string, client *herdr.Client, taskID string) (state.TaskMeta, error) {
+	meta, err := state.ReadTaskMeta(stateDir, taskID)
+	if err != nil {
+		return meta, fmt.Errorf("task %s has no live record: %w", taskID, err)
+	}
+	if meta.Backend != "herdr" || meta.HerdrSession == "" || meta.HerdrPaneID == "" {
+		return meta, fmt.Errorf("task %s has no Herdr pane to answer", taskID)
+	}
+	if _, _, err := paneHarness(ctx, client, herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}); err != nil {
+		return meta, err
+	}
+	return meta, nil
+}
+
+// SurfaceNotify shows a goblin's blocking notify in the Command Center when
+// it offers choices, labelled with the goblin, and the Overlord's answer
+// returns to the goblin's pane once. A notify without choices is prose for
+// the CFO and never opens the modal, and neither does a failed notify.
+func SurfaceNotify(ctx context.Context, stateDir string, client *herdr.Client, taskID string, record wake.Record) error {
+	question, options, ok := wake.Question(record)
+	if !ok || len(options) == 0 {
+		return nil
+	}
+	// A goblin marks the choice it recommends the way AskUserQuestion does,
+	// by ending it with "(Recommended)".
+	recommended := ""
+	for i, option := range options {
+		if choice, marked := strings.CutSuffix(option, "(Recommended)"); marked {
+			options[i] = strings.TrimSpace(choice)
+			if recommended == "" {
+				recommended = options[i]
+			}
+		}
+	}
+	meta, err := goblinAsker(ctx, stateDir, client, taskID)
+	if err != nil {
+		return err
+	}
+	q := Question{ID: fmt.Sprintf("notify-%s-%d", taskID, record.Seq), Identity: goblinIdentity(meta), Text: question, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending", Task: taskID, Generation: meta.SpawnGen, Seq: record.Seq}
+	if err := validQuestion(q); err != nil {
+		return err
+	}
+	return publish(stateDir, q)
+}
+
+// SendGoblin delivers text to the goblin a question named, through the same
+// Herdr connection the board uses for the CFO. The delivery is pinned to the
+// task generation and pane that asked, so a restarted or moved task never
+// receives an answer meant for its predecessor.
+func (c *CFOConnection) SendGoblin(ctx context.Context, taskID, identity, text string) (Evaluation, error) {
+	current := func(target herdr.Target) error {
+		meta, err := state.ReadTaskMeta(c.State, taskID)
+		if err != nil || goblinIdentity(meta) != identity || target != (herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}) {
+			return errors.New("the goblin's task restarted or ended")
+		}
+		return nil
+	}
+	meta, err := state.ReadTaskMeta(c.State, taskID)
+	if err != nil || current(herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}) != nil {
+		return Evaluation{}, fmt.Errorf("%w: the goblin's task restarted or ended; nothing was sent", ErrRejected)
+	}
+	guard := func(_ context.Context, target herdr.Target, _ herdr.AgentDetail) error { return current(target) }
+	sender := fleet.Sender{Herdr: c.Herdr, Resolve: fleet.Resolver{StateDir: c.State}, Guard: guard}
+	if err := sender.Text(ctx, taskID, text); err != nil {
+		return Evaluation{}, err
+	}
+	return Evaluation{Reason: "Accepted by the goblin through Herdr."}, nil
+}
+
+// answerGoblin returns the Overlord's board answer to the goblin that asked.
+// The goblin's blocked notify then reads answered, so neither the monitor
+// nor the CFO asks it again; retiring it is still the CFO's ordinary ack.
+func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error) {
+	if s.Options.CFO == nil {
+		return Evaluation{}, fmt.Errorf("%w: Herdr message transport is unavailable", ErrRejected)
+	}
+	i := slices.IndexFunc(s.Store.Snapshot().Questions, func(q Question) bool {
+		return q.ID == a.QuestionID && q.Identity == a.Generation && q.AnswerID == a.ID && q.Task != ""
+	})
+	if i < 0 {
+		return Evaluation{}, fmt.Errorf("%w: user question context changed", ErrRejected)
+	}
+	q := s.Store.Snapshot().Questions[i]
+	pending, err := wake.Pending(s.Store.Home.State)
+	if err != nil {
+		return Evaluation{}, fmt.Errorf("%w: read the wake queue: %v; nothing was sent", ErrRejected, err)
+	}
+	if !slices.ContainsFunc(pending, func(r wake.Record) bool { return r.Seq == q.Seq && r.Answered == "" }) {
+		return Evaluation{}, fmt.Errorf("%w: the CFO already handled this question; nothing was sent", ErrRejected)
+	}
+	label := "Answer"
+	if a.AnswerKind == "other" {
+		label = "Answer (Other)"
+	}
+	result, err := s.Options.CFO.SendGoblin(ctx, q.Task, q.Identity, fmt.Sprintf("The Overlord answered your question on the board\nQuestion: %s\n%s: %s", q.Text, label, a.Text))
+	if err != nil {
+		return result, err
+	}
+	if err := wake.MarkAnswered(s.Store.Home.State, q.Seq, a.Text); err != nil {
+		result.Reason += " The CFO's notify still reads unanswered: " + err.Error()
+	}
+	return result, nil
 }
 
 // PublishQuestion is deliberately a local CFO operation, not a browser or
@@ -83,17 +216,26 @@ func (c *CFOConnection) PublishQuestion(ctx context.Context, id, text string, op
 	if err := validQuestion(q); err != nil {
 		return err
 	}
-	if _, err := lock.AcquireExclusiveNamed(c.State, ".question-publish.lock"); err != nil {
+	return publish(c.State, q)
+}
+
+// publish writes a validated question into the inbox the supervisor
+// ingests. A retry with the same ID and content changes nothing and the same
+// ID with other content is refused, whether the question still waits in the
+// inbox or was already ingested.
+func publish(stateDir string, q Question) error {
+	if _, err := lock.AcquireExclusiveNamed(stateDir, ".question-publish.lock"); err != nil {
 		return err
 	}
-	defer lock.ReleaseExclusiveNamed(c.State, ".question-publish.lock")
+	defer lock.ReleaseExclusiveNamed(stateDir, ".question-publish.lock")
+	id := q.ID
 	// Read only. Opening a Store here would perform crash recovery while the
 	// supervisor is live and overwrite its single-writer transaction state.
-	if info, err := os.Stat(filepath.Join(c.State, ".supervisor.json")); err == nil {
+	if info, err := os.Stat(filepath.Join(stateDir, ".supervisor.json")); err == nil {
 		if info.Size() > maxStateBytes {
 			return errors.New("supervisor state exceeds its bound")
 		}
-		data, err := os.ReadFile(filepath.Join(c.State, ".supervisor.json"))
+		data, err := os.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
 		if err != nil {
 			return err
 		}
@@ -103,7 +245,7 @@ func (c *CFOConnection) PublishQuestion(ctx context.Context, id, text string, op
 		}
 		for _, prior := range db.Questions {
 			if prior.ID == id {
-				if prior.Identity != identity || prior.Text != text || !slices.Equal(prior.Options, options) || prior.Recommended != recommended {
+				if !sameQuestion(prior, q) {
 					return errors.New("question ID already used")
 				}
 				return nil
@@ -112,7 +254,7 @@ func (c *CFOConnection) PublishQuestion(ctx context.Context, id, text string, op
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	dir := filepath.Join(c.State, "questions-inbox")
+	dir := filepath.Join(stateDir, "questions-inbox")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
@@ -124,7 +266,7 @@ func (c *CFOConnection) PublishQuestion(ctx context.Context, id, text string, op
 	path := filepath.Join(dir, hex.EncodeToString(sum[:])+".json")
 	if data, err := os.ReadFile(path); err == nil {
 		var prior Question
-		if json.Unmarshal(data, &prior) != nil || prior.Identity != identity || prior.Text != text || !slices.Equal(prior.Options, options) || prior.Recommended != recommended {
+		if json.Unmarshal(data, &prior) != nil || !sameQuestion(prior, q) {
 			return errors.New("question ID already used")
 		}
 		return nil
@@ -149,7 +291,7 @@ func (s *Store) acceptQuestion(q Question) error {
 	}
 	for _, prior := range s.db.Questions {
 		if prior.ID == q.ID {
-			if prior.Identity != q.Identity || prior.Text != q.Text || !slices.Equal(prior.Options, q.Options) || prior.Recommended != q.Recommended {
+			if !sameQuestion(prior, q) {
 				return errors.New("question ID already used")
 			}
 			return nil
@@ -263,23 +405,40 @@ func (s *Store) ingestQuestions() error {
 }
 
 func (s *Store) supersedeQuestions() error {
-	file, err := openPrimary(filepath.Join(s.Home.State, "primary.json"))
-	if err != nil {
-		return nil
-	} // Missing evidence cannot establish replacement.
-	_, identity, err := decodePrimary(file)
-	_ = file.Close()
-	if err != nil {
-		return nil
+	// Missing evidence cannot establish replacement: an unreadable
+	// registration leaves the CFO's questions alone, and an unreadable queue
+	// leaves the goblins' questions alone.
+	identity := ""
+	if file, err := openPrimary(filepath.Join(s.Home.State, "primary.json")); err == nil {
+		_, current, err := decodePrimary(file)
+		_ = file.Close()
+		if err == nil {
+			identity = current
+		}
 	}
+	pending, pendingErr := wake.Pending(s.Home.State)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	changed := false
 	for i := range s.db.Questions {
 		q := &s.db.Questions[i]
-		if q.Status == "pending" && q.Identity != identity {
-			q.Status = "superseded"
-			q.Message = "The CFO session changed. Ask the current CFO to reissue this question."
+		if q.Status != "pending" {
+			continue
+		}
+		if q.Task == "" {
+			if identity != "" && q.Identity != identity {
+				q.Status, q.Message = "superseded", "The CFO session changed. Ask the current CFO to reissue this question."
+				changed = true
+			}
+			continue
+		}
+		meta, err := state.ReadTaskMeta(s.Home.State, q.Task)
+		switch {
+		case errors.Is(err, os.ErrNotExist) || err == nil && goblinIdentity(meta) != q.Identity:
+			q.Status, q.Message = "superseded", "The goblin's task restarted or ended, so its question no longer applies."
+			changed = true
+		case pendingErr == nil && !slices.ContainsFunc(pending, func(r wake.Record) bool { return r.Seq == q.Seq }):
+			q.Status, q.Message = "superseded", "The CFO already handled this question."
 			changed = true
 		}
 	}
@@ -293,6 +452,14 @@ func (s *Store) questionAnswer(a Action) error {
 	for _, q := range s.db.Questions {
 		if q.ID != a.QuestionID {
 			continue
+		}
+		if (a.Kind == "goblin_answer") != (q.Task != "") {
+			return errors.New("answer this question through the recipient it names")
+		}
+		if q.Task != "" {
+			if meta, err := state.ReadTaskMeta(s.Home.State, q.Task); err != nil || goblinIdentity(meta) != q.Identity {
+				return errors.New("the goblin's task restarted or ended, so this answer has no recipient")
+			}
 		}
 		if q.Identity != a.Generation {
 			return errors.New("this question belongs to a previous CFO session")

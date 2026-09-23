@@ -35,6 +35,7 @@ func TestFleetEvaluationPrefersAWaitingQuestionThenTheGateThenHerdr(t *testing.T
 	}{
 		{"a waiting question outranks the gate and the pane", ready, busy, question, "blocked", "Waiting on the CFO: Which schema? options: a | b"},
 		{"another task's question does not block this one", ready, busy, []wake.Record{{Kind: "notify", Key: "g2", Detail: "blocked: other"}}, "ready", ""},
+		{"a question answered on the board no longer blocks", ready, busy, []wake.Record{{Seq: 3, Kind: "notify", Key: "g1", Detail: "blocked: Which schema? options: a | b", Answered: "b"}}, "ready", ""},
 		{"a done notify is not a question", Evaluation{}, busy, []wake.Record{{Kind: "notify", Key: "g1", Detail: "done: PR https://example/pr/1"}}, "working", "Herdr reports busy"},
 		{"the gate outranks the pane", ready, busy, nil, "ready", ""},
 		{"a busy pane is working", Evaluation{Phase: "review", Generation: "gen2"}, busy, nil, "working", "Herdr reports busy"},

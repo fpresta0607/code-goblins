@@ -91,20 +91,9 @@ func Register(ctx context.Context, stateDir string, client *herdr.Client, harnes
 		scoped.Session = os.Getenv("HERDR_SESSION")
 	}
 	target := herdr.Target{Session: scoped.EffectiveSession(), Pane: pane}
-	info, err := scoped.PaneProcessInfo(ctx, target)
-	if err != nil {
-		return "", fmt.Errorf("Herdr cannot describe pane %s: %w", pane, err)
-	}
-	if info.ForegroundProcessGroupID == info.ShellPID {
-		return "", fmt.Errorf("pane %s has no harness in its foreground", pane)
-	}
-	ancestry, err := proc.Ancestry(os.Getpid(), 32)
+	ancestry, harnessAt, err := paneHarness(ctx, &scoped, target)
 	if err != nil {
 		return "", err
-	}
-	harnessAt := slices.IndexFunc(ancestry, func(entry proc.Entry) bool { return entry.PID == info.ForegroundProcessGroupID })
-	if harnessAt < 0 {
-		return "", fmt.Errorf("pane %s runs pid %d in its foreground, and this command does not run under it", pane, info.ForegroundProcessGroupID)
 	}
 	snapshot, err := scoped.Snapshot(ctx)
 	if err != nil {
@@ -132,7 +121,7 @@ func Register(ctx context.Context, stateDir string, client *herdr.Client, harnes
 	}
 	// Custody is taken last, so a refused registration changes nothing.
 	if !slices.ContainsFunc(ancestry[:harnessAt+1], func(entry proc.Entry) bool { return lock.HeldBy(stateDir, entry.PID) }) {
-		if _, err := lock.AcquireOwner(stateDir, info.ForegroundProcessGroupID, session); err != nil {
+		if _, err := lock.AcquireOwner(stateDir, ancestry[harnessAt].PID, session); err != nil {
 			return "", fmt.Errorf("another live session holds this home, so this one is not the primary CFO: %w", err)
 		}
 	}
@@ -168,6 +157,29 @@ func Register(ctx context.Context, stateDir string, client *herdr.Client, harnes
 		return "", err
 	}
 	return described, nil
+}
+
+// paneHarness proves the calling process runs under the harness Herdr shows
+// in the foreground of target, so a pane variable a process merely inherited
+// never passes. It returns this process's ancestry and the harness's place in
+// it.
+func paneHarness(ctx context.Context, client *herdr.Client, target herdr.Target) ([]proc.Entry, int, error) {
+	info, err := client.PaneProcessInfo(ctx, target)
+	if err != nil {
+		return nil, 0, fmt.Errorf("Herdr cannot describe pane %s: %w", target.Pane, err)
+	}
+	if info.ForegroundProcessGroupID == info.ShellPID {
+		return nil, 0, fmt.Errorf("pane %s has no harness in its foreground", target.Pane)
+	}
+	ancestry, err := proc.Ancestry(os.Getpid(), 32)
+	if err != nil {
+		return nil, 0, err
+	}
+	at := slices.IndexFunc(ancestry, func(entry proc.Entry) bool { return entry.PID == info.ForegroundProcessGroupID })
+	if at < 0 {
+		return nil, 0, fmt.Errorf("pane %s runs pid %d in its foreground, and this command does not run under it", target.Pane, info.ForegroundProcessGroupID)
+	}
+	return ancestry, at, nil
 }
 
 func (c *CFOConnection) verify(ctx context.Context, primary primaryRegistration) error {

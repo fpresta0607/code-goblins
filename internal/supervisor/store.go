@@ -443,10 +443,11 @@ func (s *Store) queue(a Action) (Action, error) {
 	if existing, found, err := s.lookup(a); err != nil || found {
 		return existing, err
 	}
-	if a.Kind != "cfo_answer" && a.AnswerKind != "" {
-		return Action{}, errors.New("answer kind is only valid for a CFO question")
+	answer := a.Kind == "cfo_answer" || a.Kind == "goblin_answer"
+	if !answer && a.AnswerKind != "" {
+		return Action{}, errors.New("answer kind is only valid for a question")
 	}
-	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" {
+	if a.Kind != "evaluate" && a.Kind != "review" && !answer {
 		return Action{}, errors.New("unsupported action; task lifecycle cannot be dragged or assigned")
 	}
 	if len(a.Text) > 16000 || len(a.File) > 4096 {
@@ -458,9 +459,9 @@ func (s *Store) queue(a Action) (Action, error) {
 	if a.Kind == "review" && a.Generation == "" {
 		return Action{}, errors.New("task generation is required; refresh the board")
 	}
-	if a.Kind == "cfo_answer" {
+	if answer {
 		if a.Generation == "" || a.TaskID != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" {
-			return Action{}, errors.New("CFO answer requires only its registered recipient identity and text")
+			return Action{}, errors.New("an answer requires only its recipient identity and text")
 		}
 		if a.QuestionID == "" {
 			return Action{}, errors.New("invalid user question context")
@@ -475,7 +476,7 @@ func (s *Store) queue(a Action) (Action, error) {
 		}
 		a.Generation = meta.SpawnGen
 	}
-	if a.Kind == "cfo_answer" {
+	if answer {
 		if err := s.questionAnswer(a); err != nil {
 			return Action{}, err
 		}
@@ -512,7 +513,7 @@ func (s *Store) queue(a Action) (Action, error) {
 	a.CreatedAt = time.Now().UTC()
 	a.UpdatedAt = a.CreatedAt
 	s.db.Actions = append(s.db.Actions, a)
-	if a.Kind == "cfo_answer" {
+	if answer {
 		for i := range s.db.Questions {
 			if s.db.Questions[i].ID == a.QuestionID {
 				s.db.Questions[i].AnswerID, s.db.Questions[i].Status = a.ID, "queued"
@@ -589,7 +590,7 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 func (s *Store) updateQuestionOutcomes() {
 	for i := range s.db.Questions {
 		for _, a := range s.db.Actions {
-			if a.Kind == "cfo_answer" && a.ID == s.db.Questions[i].AnswerID {
+			if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && a.ID == s.db.Questions[i].AnswerID {
 				s.db.Questions[i].Status, s.db.Questions[i].Message = a.Status, a.Message
 			}
 		}

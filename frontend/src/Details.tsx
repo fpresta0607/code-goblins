@@ -132,7 +132,7 @@ function Disclosure({ title, children, defaultOpen = false, kind = "" }: { title
 function Activity({ task, snapshot }: { task?: Task; snapshot: Snapshot }) {
   const activity = useResource(task?.generation ? "/api/tasks/" + encodeURIComponent(task.id) + "/activity" : null, strings);
   const actions = snapshot.actions.filter((action) => action.task_id === task?.id).slice(-20).reverse();
-  const actionLabel = (kind: string) => ({ review: "Review comment", feedback: "Task instruction", evaluate: "Progress check", cfo_message: "CFO message", cfo_answer: "Question answer" })[kind] || "Action";
+  const actionLabel = (kind: string) => ({ review: "Review comment", feedback: "Task instruction", evaluate: "Progress check", cfo_message: "CFO message", cfo_answer: "Question answer", goblin_answer: "Question answer" })[kind] || "Action";
   const outcomeLabel = (status: string, kind: string) => status === "succeeded" ? (kind === "review" || kind.startsWith("cfo_") ? "Sent to CFO" : "Completed") : ({ queued: "Queued", running: "Sending", failed: "Could not deliver", uncertain: "Delivery unconfirmed" })[status] || "Awaiting evidence";
   return <>
     {activity.error ? <ErrorBox error={activity.error} retry={activity.reload} /> :

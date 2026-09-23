@@ -141,10 +141,11 @@ func fleetEvaluation(evaluation Evaluation, meta state.TaskMeta, runtime Runtime
 	return evaluation
 }
 
-// waitingQuestion is the blocked or failed notify a task is still waiting on.
+// waitingQuestion is the blocked or failed notify a task is still waiting on;
+// one the Overlord answered on the board no longer holds the goblin.
 func waitingQuestion(records []wake.Record, id string) (string, string, bool) {
 	for i := len(records) - 1; i >= 0; i-- {
-		if verb, ok := wake.BlockingNotify(records[i]); ok && records[i].Key == id {
+		if verb, ok := wake.BlockingNotify(records[i]); ok && records[i].Key == id && records[i].Answered == "" {
 			return verb, strings.TrimSpace(strings.TrimPrefix(records[i].Detail, verb+":")), true
 		}
 	}

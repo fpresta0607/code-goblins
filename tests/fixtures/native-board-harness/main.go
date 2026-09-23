@@ -27,7 +27,7 @@ func run() error {
 	if len(os.Args) != 2 {
 		return fmt.Errorf("fixture configuration required")
 	}
-	var c struct{ Root, Home, Project, Session, Pane, Hook, Role, NativeID, ParentHarness string }
+	var c struct{ Root, Home, Project, Session, Pane, Hook, Role, NativeID, ParentHarness, Binary string }
 	data, err := os.ReadFile(os.Args[1])
 	if err != nil {
 		return err
@@ -146,6 +146,12 @@ func run() error {
 			return err
 		}
 		fmt.Printf("Accepted message %d in the %s process:\n%s\n", turn, c.Role, text)
+		// A goblin asks the way a real one does: cfo notify from inside its
+		// own pane, so the board's pane proof sees this process as the asker.
+		if _, question, ok := strings.Cut(text, "fixture:ask "); ok && c.Role == "goblin" {
+			output, err := exec.Command(c.Binary, "notify", "board-fixture", "--blocked", question).CombinedOutput()
+			fmt.Printf("cfo notify: %s (error: %v)\n", strings.TrimSpace(string(output)), err)
+		}
 		if strings.Contains(text, "fixture:crash-ready") {
 			continue
 		}

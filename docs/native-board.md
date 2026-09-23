@@ -109,7 +109,7 @@ Open in VS Code and Open folder require a deliberate click and resolve the selec
 The API accepts task identity and an editor enum, never a browser-provided path or command; it starts Code.exe directly with literal arguments and removes Electron Node/development flags from its inherited environment.
 Successful launch means the application was requested, not that a window was observed.
 Queued tasks show their known project and Not started yet, without querying nonexistent task metadata.
-Operational wake records remain intact; only explicitly escalated CFO questions open a modal.
+Operational wake records remain intact; only a deliberate CFO question or a goblin's blocked notify that offers choices opens a modal.
 Task-semantic goblin avatars are presentation choices, not inferred native role evidence; a task no keyword classifies gets a stable artwork of its own instead of the shared app icon.
 
 Orchestration nodes use explicit native parent/root IDs and the launch environment's reported relationships.
@@ -182,7 +182,7 @@ Environment values, full process environments, dotenv, auth scripts, MCP command
 
 ## Deliberate CFO questions
 
-Worker `cfo notify --blocked` records and natural-language questions do not automatically become user modals.
+Worker alerts and natural-language questions do not automatically become user modals; a goblin's blocked notify that offers choices is the one exception, described under Goblin questions.
 The registered CFO must deliberately publish a decision from its own process ancestry:
 
 ```powershell
@@ -205,6 +205,19 @@ A replaced CFO's pending questions become superseded instead of reopening unansw
 The store bounds question history at 128 records, retires answered/superseded history, and defers overflow when all questions remain unresolved.
 The bounded publication inbox is admitted in timestamp order, not hash-filename order, and rollover keeps its cutoff below the incoming timestamp so deferred and same-time questions are not discarded.
 Conflicting, corrupt or oversized inbox records leave bounded diagnostics and cannot stop unrelated native events.
+
+## Goblin questions
+
+A goblin's `cfo notify <id> --blocked "<question> options: a (Recommended) | b"` also opens the modal, labelled with the goblin and its artwork; the first choice that ends with `(Recommended)` is shown first and marked, like a CFO recommendation, and the mark is stripped from every choice.
+A blocked notify without an `options:` marker, and every other worker alert, stays in the CFO wake queue only.
+Only a process running under the task's own Herdr pane can surface its notify, by the same foreground-harness proof `cfo register` uses.
+A notify that fails that proof or offers more than eight choices still wakes the CFO, and `cfo notify` prints why the board could not show it.
+The question is bound to the task generation and pane that asked.
+The Overlord's answer goes to that goblin's pane through Herdr exactly once, never through the CFO and never to a respawned or moved successor.
+The notify then reads answered: `cfo drain` prints the board's answer and acks the record without `--ack-blocking`, and the monitor stops re-asking it.
+The CFO still acks it in the ordinary way.
+Once the CFO acks a notify it handled itself, the board retires its copy, and an answer queued before that ack is refused with nothing sent.
+One window stays open: if the CFO answers with `cfo send` and the Overlord answers on the board before the CFO acks, the goblin receives both, each labelled with its sender.
 
 ## Nonblocking presentation notices
 
