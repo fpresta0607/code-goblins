@@ -54,17 +54,19 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	// Claude registers from its own SessionStart hook, after the digest has
-	// settled custody. Codex and Pi have only this one, and a failure here
-	// shows on the board as the registration state rather than in the reply.
-	if e.Kind == "started" && e.Role == "cfo" && e.TaskID == "" && (e.Harness == "codex" || e.Harness == "pi") && os.Getenv("HERDR_PANE_ID") != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		_, _ = supervisor.Register(ctx, *dir, &herdr.Client{Commands: execx.OSRunner{}}, e.Harness, e.SessionID)
-		cancel()
-	}
 	// Codex Stop requires a JSON reply. This is also accepted by Claude and
 	// ignored by the Pi notification extension. It never blocks continuation.
 	fmt.Fprintln(stdout, "{}")
+	// Claude registers from its own SessionStart hook, after the digest has
+	// settled custody. Codex and Pi have only this one, and a failure here
+	// shows on the board as the registration state rather than in the reply.
+	// One second keeps the whole hook inside the Codex 3 s and Pi 2.5 s hook
+	// timeouts.
+	if e.Kind == "started" && e.Role == "cfo" && e.TaskID == "" && (e.Harness == "codex" || e.Harness == "pi") && os.Getenv("HERDR_PANE_ID") != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_, _ = supervisor.Register(ctx, *dir, &herdr.Client{Commands: execx.OSRunner{}}, e.Harness, e.SessionID)
+		cancel()
+	}
 	return 0
 }
 
