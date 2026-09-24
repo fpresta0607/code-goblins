@@ -510,7 +510,9 @@ type Leftover struct {
 
 // leftoverPolls is how many more looks a stopped harness's processes get
 // before they count as left behind: its own children can take a moment to
-// follow it out.
+// follow it out. A failed listing gets the same looks, because a job that
+// empties mid-check can close its handle under the reader; only one that
+// still fails on the last look refuses.
 const leftoverPolls = 4
 
 // leftoversOf lists the processes a pane's shell is still waiting on.
