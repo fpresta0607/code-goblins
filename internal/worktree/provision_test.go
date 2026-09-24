@@ -60,7 +60,7 @@ func unignoredScript(gitDir string, names ...string) []scriptedResult {
 
 func TestProvisionNoOpsOnABareProject(t *testing.T) {
 	project, worktreePath, taskTmp, runner := provisionFixture(t)
-	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil, nil)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestProvisionHardlinksConfigFiles(t *testing.T) {
 	gitDir := filepath.Join(project, ".git")
 	runner.results = unignoredScript(gitDir, ".env")
 
-	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil, nil)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestProvisionRespectsExistingIgnoreRules(t *testing.T) {
 	}
 	runner.results = ignoredScript(1)
 
-	if _, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil); err != nil {
+	if _, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil, nil); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	if len(runner.calls) != 1 {
@@ -143,7 +143,7 @@ func TestProvisionInstallsFromTheLockfile(t *testing.T) {
 	gitDir := filepath.Join(project, ".git")
 	runner.results = append(unignoredScript(gitDir, "node_modules"), scriptedResult{})
 
-	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil, nil)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestProvisionInstallsAgainstTheSharedCaches(t *testing.T) {
 	}
 
 	if _, err := (Service{Commands: runner, DataDir: dataDir}).
-		Provision(context.Background(), project, worktreePath, taskTmp, caches); err != nil {
+		Provision(context.Background(), project, worktreePath, taskTmp, caches, nil); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 
@@ -228,7 +228,7 @@ func TestProvisionPinsEveryDetectedInstallerToItsLockfile(t *testing.T) {
 			writeFileLine(t, filepath.Join(worktreePath, test.lockfile), "lock")
 			runner.results = []scriptedResult{{}, {}}
 
-			result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+			result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil, nil)
 			if err != nil {
 				t.Fatalf("Provision: %v", err)
 			}
@@ -253,7 +253,7 @@ func TestProvisionManifestOverridesTheInstallCommands(t *testing.T) {
 	gitDir := filepath.Join(project, ".git")
 	runner.results = append(unignoredScript(gitDir, ".venv"), scriptedResult{}, scriptedResult{})
 
-	result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil, nil)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestProvisionLinksDeclaredDependencyDirectories(t *testing.T) {
 	}
 	runner.results = append(ignoredScript(1), scriptedResult{})
 
-	result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil, nil)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -306,7 +306,7 @@ func TestProvisionRefusesToLinkAMissingDependencyPath(t *testing.T) {
 		Project:      "demo",
 		Dependencies: Dependencies{Strategy: StrategyLink, Paths: []string{"node_modules"}},
 	})
-	_, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	_, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "does not exist") {
 		t.Fatalf("Provision error = %v, want a missing-path refusal", err)
 	}
@@ -319,7 +319,7 @@ func TestProvisionRefusesAnUnknownStrategy(t *testing.T) {
 		Project:      "demo",
 		Dependencies: Dependencies{Strategy: "teleport"},
 	})
-	_, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	_, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "unknown dependency strategy") {
 		t.Fatalf("Provision error = %v, want an unknown-strategy refusal", err)
 	}
@@ -340,7 +340,7 @@ func TestProvisionRefusesToShareTheProjectMCPConfig(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			_, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+			_, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil, nil)
 			if err == nil || !strings.Contains(err.Error(), "token-authenticated subset") {
 				t.Fatalf("Provision error = %v, want a refusal naming the MCP filter", err)
 			}
@@ -369,7 +369,7 @@ func TestProvisionReportsAnOccupiedWorktreeMCPPath(t *testing.T) {
 	}
 	runner.results = untrackedScript()
 
-	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil, everyVariableSet)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -395,7 +395,7 @@ func TestProvisionSurfacesEnvRedirects(t *testing.T) {
 		Project: "demo",
 		Env:     map[string]string{"PLAYWRIGHT_BROWSERS_PATH": `C:\cache\ms-playwright`},
 	})
-	result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil, nil)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -438,7 +438,7 @@ func TestProvisionMaterializesTheTokenAuthenticatedMCPSubset(t *testing.T) {
 	}
 	runner.results = append(untrackedScript(), ignoredScript(1)...)
 
-	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil, everyVariableSet)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -480,7 +480,7 @@ func TestProvisionLeavesATrackedMCPConfigUntouched(t *testing.T) {
 	}
 	runner.results = []scriptedResult{{}}
 
-	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil, everyVariableSet)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -519,7 +519,7 @@ func TestProvisionRefusesWhenTheTrackednessProbeCannotAnswer(t *testing.T) {
 	// Reading an unanswerable probe as "untracked" would overwrite the
 	// operator's committed file and leave the worktree permanently dirty,
 	// which is the exact outcome this probe exists to prevent.
-	_, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	_, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil, everyVariableSet)
 	if err == nil || !strings.Contains(err.Error(), "is tracked") {
 		t.Fatalf("Provision error = %v, want the unreadable trackedness probe surfaced", err)
 	}
@@ -537,7 +537,7 @@ func TestProvisionWritesNoMCPConfigWhenNothingQualifies(t *testing.T) {
 	}
 	runner.results = untrackedScript()
 
-	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil, nil)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -577,7 +577,7 @@ func TestProvisionDisclosesATrackedProjectConfigWhenNothingQualifies(t *testing.
 	}
 	runner.results = []scriptedResult{{}}
 
-	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil, nil)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -608,7 +608,7 @@ func TestProvisionReportsAFailedInstallWithoutFailingTheDispatch(t *testing.T) {
 
 	// A drifted lockfile must not abort the dispatch: the goblin can run the
 	// installer itself, and repairing it may be the task it was sent to do.
-	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil, nil)
 	if err != nil {
 		t.Fatalf("Provision: %v, want a reported install failure rather than an error", err)
 	}
@@ -641,7 +641,7 @@ func TestProvisionAbandonsTheChainAfterAFailedInstallCommand(t *testing.T) {
 		{result: execx.Result{ExitCode: 1, Stderr: []byte("uv: no interpreter found")}},
 	}
 
-	result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil, nil)
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -665,7 +665,7 @@ func TestProvisionSurfacesAnUnstartableInstaller(t *testing.T) {
 
 	// A runner that cannot start the process at all is the runner failing,
 	// not the project, so it stays an error.
-	_, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	_, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "install dependencies") {
 		t.Fatalf("Provision error = %v, want the unstartable installer surfaced", err)
 	}
@@ -687,7 +687,7 @@ func TestProvisionSkipsADefaultLinkWhoseDestinationExists(t *testing.T) {
 	writeFileLine(t, filepath.Join(project, ".env"), "K=primary")
 	writeFileLine(t, filepath.Join(worktreePath, ".env"), "K=checked-out")
 
-	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	result, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, taskTmp, nil, nil)
 	if err != nil {
 		t.Fatalf("Provision: %v, want the occupied default entry skipped rather than fatal", err)
 	}
@@ -719,7 +719,7 @@ func TestProvisionRefusesADeclaredLinkWhoseDestinationExists(t *testing.T) {
 	writeFileLine(t, filepath.Join(project, ".env"), "K=primary")
 	writeFileLine(t, filepath.Join(worktreePath, ".env"), "K=checked-out")
 
-	result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil)
+	result, err := (Service{Commands: runner, DataDir: dataDir}).Provision(context.Background(), project, worktreePath, taskTmp, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "already exists in the worktree") {
 		t.Fatalf("Provision error = %v, want a refusal naming the occupied declared entry", err)
 	}
@@ -762,7 +762,7 @@ func TestResolveAcceptsAValidEnvName(t *testing.T) {
 
 func TestProvisionRefusesWithoutATaskTemporaryDirectory(t *testing.T) {
 	project, worktreePath, _, runner := provisionFixture(t)
-	_, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, "", nil)
+	_, err := (Service{Commands: runner, DataDir: t.TempDir()}).Provision(context.Background(), project, worktreePath, "", nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "task temporary directory") {
 		t.Fatalf("Provision error = %v, want a missing task temporary directory refusal", err)
 	}

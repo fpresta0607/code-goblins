@@ -2,6 +2,7 @@ package spawn
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -318,5 +319,75 @@ func TestSpawnCarriesTheSharedCachesInThePaneEnvironmentNotTheSecretsFile(t *tes
 	}
 	if strings.Contains(string(script), "UV_CACHE_DIR") {
 		t.Errorf("a cache path was written into the restricted secrets file:\n%s", script)
+	}
+}
+
+// A server that authenticates by bearerTokenEnvVar is handed to the goblin
+// only when that variable will be set in its pane: a declared project
+// credential, or one the pane inherits from the environment cfo runs in. A
+// harness billing key never counts, because the credentials script strips it
+// from the pane. A kept server's token reaches the file Claude reads as a
+// reference Claude expands, never as its value, and a withheld server is
+// named with its variable on the spawned line.
+func TestSpawnHandsATokenServerToTheGoblinOnlyWhenItsVariableIsSet(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		variable   string
+		value      string
+		isDeclared bool
+		isKept     bool
+	}{
+		{name: "declared as a project credential", variable: "NEON_API_KEY", value: "declared-token", isDeclared: true, isKept: true},
+		{name: "inherited from the environment", variable: "NEON_API_KEY", value: "inherited-token", isKept: true},
+		{name: "a harness billing key", variable: "OPENAI_API_KEY", value: "inherited-token"},
+		{name: "set nowhere", variable: "NEON_API_KEY"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			preflight := &stubPreflight{}
+			if test.isDeclared {
+				t.Setenv(test.variable, "")
+				preflight.result.Env = map[string]string{test.variable: test.value}
+			} else {
+				t.Setenv(test.variable, test.value)
+			}
+			fixture := newFixture(t)
+			fixture.service.Auth = preflight
+			writeFile(t, filepath.Join(fixture.project, ".mcp.json"), `{"mcpServers":{"neon":{"url":"https://mcp.neon.tech/mcp","bearerTokenEnvVar":"`+test.variable+`"}}}`)
+
+			result, err := fixture.service.Spawn(context.Background(), fixture.request)
+			if err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+			withheld := "withheld servers whose token variable is not set for the goblin: neon (" + test.variable + ")"
+			if got := strings.Contains(result.Output, withheld); got == test.isKept {
+				t.Errorf("output names neon withheld = %v, want %v:\n%s", got, !test.isKept, result.Output)
+			}
+			handed := fixture.specs[len(fixture.specs)-1].MCPConfig
+			if !test.isKept {
+				if handed != "" {
+					t.Errorf("MCPConfig = %q, want none once neon is withheld", handed)
+				}
+				return
+			}
+			data, err := os.ReadFile(handed)
+			if err != nil {
+				t.Fatalf("read the handed MCP config: %v", err)
+			}
+			var document struct {
+				Servers map[string]struct {
+					Type    string            `json:"type"`
+					Headers map[string]string `json:"headers"`
+				} `json:"mcpServers"`
+			}
+			if err := json.Unmarshal(data, &document); err != nil {
+				t.Fatalf("parse %s: %v", handed, err)
+			}
+			if neon := document.Servers["neon"]; neon.Type != "http" || neon.Headers["Authorization"] != "Bearer ${"+test.variable+"}" {
+				t.Errorf("neon = %+v, want type http with the Authorization header Bearer ${%s}", neon, test.variable)
+			}
+			if strings.Contains(string(data), test.value) {
+				t.Errorf("%s holds the token's value, want only the reference", handed)
+			}
+		})
 	}
 }

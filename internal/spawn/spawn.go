@@ -305,8 +305,18 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// The worktree starts as tracked files only; provisioning is what makes it
 	// runnable as if it were the project - shared config, dependencies
 	// installed against the shared package cache, and the token-authenticated
-	// subset of the project's MCP servers.
-	provision, err := s.Worktrees.Provision(ctx, project, wt.Path, taskTmp, preflight.Caches)
+	// subset of the project's MCP servers. A server that authenticates by
+	// bearerTokenEnvVar reaches the goblin only when that variable will be set
+	// in its pane: a declared project credential, or one the pane inherits,
+	// which cfo's own environment stands in for. The credentials script
+	// strips every harness billing key from the pane whatever its source.
+	hasVariable := func(name string) bool {
+		if auth.IsHarnessBillingKey(name) {
+			return false
+		}
+		return preflight.Env[name] != "" || os.Getenv(name) != ""
+	}
+	provision, err := s.Worktrees.Provision(ctx, project, wt.Path, taskTmp, preflight.Caches, hasVariable)
 	if err != nil {
 		return fail(result, fmt.Errorf("spawn: provision worktree environment: %w", err))
 	}
@@ -365,10 +375,13 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if len(provision.MCPDropped) > 0 {
 		result.Output += "\nmcp: withheld OAuth-only servers from the goblin: " + strings.Join(provision.MCPDropped, ", ") + " (declare a token-authenticated form in the project .mcp.json to reach goblins)"
 	}
+	if len(provision.MCPTokenUnset) > 0 {
+		result.Output += "\nmcp: withheld servers whose token variable is not set for the goblin: " + strings.Join(provision.MCPTokenUnset, ", ") + " (declare the variable as a project credential to reach goblins)"
+	}
 	if provision.MCPWorktreeOccupied {
 		result.Output += "\nmcp: the worktree already held a .mcp.json this spawn did not write, so it was left alone; a harness that reads its working directory sees that file, not the filtered configuration"
 	}
-	if provision.MCPProjectTracked && len(provision.MCPDropped) > 0 {
+	if provision.MCPProjectTracked && len(provision.MCPDropped)+len(provision.MCPTokenUnset) > 0 {
 		// Only worth saying when something was actually withheld: if nothing
 		// was dropped, a working-directory-reading harness sees exactly the
 		// servers the filtered config would have given it.

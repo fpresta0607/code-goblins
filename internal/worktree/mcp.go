@@ -25,19 +25,22 @@ type mcpServerShape struct {
 // only when it carries a static bearer token (bearerTokenEnvVar or an
 // Authorization header); anything else is an OAuth connector, which prints an
 // authentication prompt a goblin can never satisfy, so it is dropped and named
-// in dropped. The filtered config is returned re-marshaled with each kept
-// server intact; it is nil when nothing qualifies. kept and dropped are
-// sorted, because they are read out to the operator and a map's iteration
-// order is not.
-func FilterMCPServers(config []byte) (filtered []byte, kept, dropped []string, err error) {
+// in dropped. A server whose only token is a bearerTokenEnvVar that
+// hasVariable does not report in the goblin's environment is withheld too and
+// named in unset as "server (VARIABLE)": kept without its token, it could only
+// fail or ask for that same authentication. The filtered config is returned
+// re-marshaled with each kept server intact; it is nil when nothing
+// qualifies. kept, dropped and unset are sorted, because they are read out to
+// the operator and a map's iteration order is not.
+func FilterMCPServers(config []byte, hasVariable func(name string) bool) (filtered []byte, kept, dropped, unset []string, err error) {
 	var document struct {
 		Servers map[string]json.RawMessage `json:"mcpServers"`
 	}
 	if err := json.Unmarshal(config, &document); err != nil {
-		return nil, nil, nil, fmt.Errorf("worktree: parse .mcp.json: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("worktree: parse .mcp.json: %w", err)
 	}
 	if len(document.Servers) == 0 {
-		return nil, nil, nil, nil
+		return nil, nil, nil, nil, nil
 	}
 	remaining := map[string]json.RawMessage{}
 	for name, raw := range document.Servers {
@@ -47,9 +50,15 @@ func FilterMCPServers(config []byte) (filtered []byte, kept, dropped []string, e
 			continue
 		}
 		if qualifiesForGoblin(shape) {
-			if strings.TrimSpace(shape.Command) == "" && shape.Type == "" {
+			isURLServer := strings.TrimSpace(shape.Command) == ""
+			token := strings.TrimSpace(shape.BearerTokenEnvVar)
+			if isURLServer && !hasAuthorization(shape.Headers) && !hasVariable(token) {
+				unset = append(unset, name+" ("+token+")")
+				continue
+			}
+			if isURLServer && shape.Type == "" {
 				if raw, err = typedForClaude(raw, shape); err != nil {
-					return nil, nil, nil, fmt.Errorf("worktree: type MCP server %q: %w", name, err)
+					return nil, nil, nil, nil, fmt.Errorf("worktree: type MCP server %q: %w", name, err)
 				}
 			}
 			remaining[name] = raw
@@ -60,14 +69,15 @@ func FilterMCPServers(config []byte) (filtered []byte, kept, dropped []string, e
 	}
 	slices.Sort(kept)
 	slices.Sort(dropped)
+	slices.Sort(unset)
 	if len(remaining) == 0 {
-		return nil, kept, dropped, nil
+		return nil, kept, dropped, unset, nil
 	}
 	filtered, err = json.Marshal(map[string]any{"mcpServers": remaining})
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("worktree: marshal filtered .mcp.json: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("worktree: marshal filtered .mcp.json: %w", err)
 	}
-	return filtered, kept, dropped, nil
+	return filtered, kept, dropped, unset, nil
 }
 
 // typedForClaude gives a URL server with no type the type Claude needs, sse
@@ -75,7 +85,8 @@ func FilterMCPServers(config []byte) (filtered []byte, kept, dropped []string, e
 // as stdio and skips it with a warning on every start. Claude also does not
 // read bearerTokenEnvVar, so a server that authenticates only that way gets
 // the same token as the Authorization header Claude expands from the
-// injected environment. Every other field is kept.
+// injected environment. The header holds the variable reference, never its
+// value. Every other field is kept.
 func typedForClaude(raw json.RawMessage, shape mcpServerShape) (json.RawMessage, error) {
 	var entry map[string]any
 	if err := json.Unmarshal(raw, &entry); err != nil {
@@ -85,14 +96,11 @@ func typedForClaude(raw json.RawMessage, shape mcpServerShape) (json.RawMessage,
 	if strings.HasSuffix(strings.TrimRight(strings.TrimSpace(shape.URL), "/"), "/sse") {
 		entry["type"] = "sse"
 	}
-	hasAuthorization := false
-	headers := map[string]string{}
-	for header, value := range shape.Headers {
-		headers[header] = value
-		hasAuthorization = hasAuthorization || strings.EqualFold(strings.TrimSpace(header), "authorization")
-	}
-	if token := strings.TrimSpace(shape.BearerTokenEnvVar); token != "" && !hasAuthorization {
-		headers["Authorization"] = "Bearer ${" + token + "}"
+	if token := strings.TrimSpace(shape.BearerTokenEnvVar); token != "" && !hasAuthorization(shape.Headers) {
+		headers := map[string]string{"Authorization": "Bearer ${" + token + "}"}
+		for header, value := range shape.Headers {
+			headers[header] = value
+		}
 		entry["headers"] = headers
 	}
 	return json.Marshal(entry)
@@ -108,10 +116,11 @@ func qualifiesForGoblin(shape mcpServerShape) bool {
 	if strings.TrimSpace(shape.URL) == "" {
 		return false
 	}
-	if strings.TrimSpace(shape.BearerTokenEnvVar) != "" {
-		return true
-	}
-	for name := range shape.Headers {
+	return strings.TrimSpace(shape.BearerTokenEnvVar) != "" || hasAuthorization(shape.Headers)
+}
+
+func hasAuthorization(headers map[string]string) bool {
+	for name := range headers {
 		if strings.EqualFold(strings.TrimSpace(name), "authorization") {
 			return true
 		}
