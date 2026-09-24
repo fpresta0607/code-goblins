@@ -30,7 +30,9 @@ export function questionOutcome(question: Question): QuestionOutcome {
 export function answeredLabel(question: Question): string {
   switch (questionOutcome(question)) {
     case "pending": return "Waiting on you";
-    case "superseded": return "Superseded; the asker was replaced";
+    // Superseded covers a replaced asker and a question the CFO retired with
+    // cfo send --ack-blocking; the backend's message tells them apart.
+    case "superseded": return question.message || "Superseded; the asker was replaced";
     case "cleared": return "Closed without an answer";
     case "failed": return "Your answer did not reach " + (question.task ? "the goblin" : "the CFO");
     case "uncertain": return "Delivery unconfirmed";
