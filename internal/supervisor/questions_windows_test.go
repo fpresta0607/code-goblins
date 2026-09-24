@@ -670,3 +670,58 @@ func TestBoardAnswerWaitsForAnInFlightCFOAnswer(t *testing.T) {
 		t.Fatalf("board answer = %+v, want refused with nothing sent", action)
 	}
 }
+
+// Answers to different goblins never wait on each other: while the CFO's
+// answer to goblin A is still being delivered, holding A's question, the
+// Overlord's board answer to goblin B goes straight through, and both goblins
+// receive their decision.
+func TestCFOAndBoardAnswersToDifferentGoblinsBothDeliver(t *testing.T) {
+	store, h := testStore(t)
+	primaryFixture(t, store)
+	metaA, recordA, runnerA, connectionA := goblinFixture(t, store)
+	metaB := metaA
+	metaB.ID, metaB.HerdrSession = "task-2", "isolated-b"
+	if err := state.WriteTaskMeta(h.State, metaB); err != nil {
+		t.Fatal(err)
+	}
+	recordB, err := wake.Append(h.State, "notify", metaB.ID, "blocked: Which cache? options: Redis | Memcached")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runnerB := &cfoRunner{t: t, pid: os.Getpid()}
+	connectionB := &CFOConnection{State: h.State, Herdr: &herdr.Client{Commands: runnerB}}
+	if err := SurfaceNotify(context.Background(), h.State, connectionA.Herdr, metaA.ID, recordA, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := SurfaceNotify(context.Background(), h.State, connectionB.Herdr, metaB.ID, recordB, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestQuestions(); err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(store.Snapshot().Questions, func(q Question) bool { return q.Task == metaB.ID })
+	if i < 0 {
+		t.Fatalf("questions = %+v, want goblin B's", store.Snapshot().Questions)
+	}
+	questionB := store.Snapshot().Questions[i]
+
+	service := &Service{Store: store, Options: Options{CFO: connectionB}}
+	var boardErr error
+	runnerA.beforePrompt = func() {
+		runnerA.beforePrompt = nil
+		if _, err := store.Queue(Action{ID: "board-b", Kind: "goblin_answer", Generation: questionB.Identity, QuestionID: questionB.ID, Text: "Redis"}); err != nil {
+			t.Fatal(err)
+		}
+		boardErr = store.ProcessOne(context.Background(), service.execute)
+	}
+	if _, err := connectionA.AnswerGoblin(context.Background(), fmt.Sprint(recordA.Seq), "SQLite", ""); err != nil {
+		t.Fatal(err)
+	}
+	if boardErr != nil {
+		t.Fatal(boardErr)
+	}
+	i = slices.IndexFunc(store.Snapshot().Questions, func(q Question) bool { return q.ID == questionB.ID })
+	if got := store.Snapshot().Questions[i]; got.Status != "succeeded" || len(runnerA.prompts) != 1 || len(runnerB.prompts) != 1 {
+		t.Fatalf("goblin B's board answer, given while the CFO's answer to goblin A was in flight, = %s (%s); goblin A got %q and goblin B %q, want one decision each", got.Status, got.Message, runnerA.prompts, runnerB.prompts)
+	}
+}
