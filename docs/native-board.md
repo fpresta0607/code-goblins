@@ -221,7 +221,8 @@ No choice is preselected and written text is sent only when Other is selected.
 Use a new stable ID for a new question, and keep the same ID/content for an uncertain publication retry.
 The publisher walks up to 32 process ancestors and verifies the registered CFO PID, creation time and live native identity; a worker cannot escalate on the CFO's behalf.
 The Command Center shows one question at a time as a stack, the CFO's own questions first and then goblins by longest wait, with its position, Back and Next buttons and a horizontal swipe on touch screens.
-Each card sends only its own answer; an answered card keeps its place showing its delivery marks until the Overlord moves on, and Later moves to the next question without answering.
+Each card sends only its own answer, and Later moves to the next question without answering.
+A card answered while on screen, from the card or from elsewhere such as `cfo answer`, keeps its place until the Overlord moves on: it shows its delivery marks, or once closed a check on the chosen option, the other options dimmed and Answered by you or Answered by the CFO with the time.
 Drafts survive closing, reconnecting and moving between cards, and the header button's inbox lists what waits on the Overlord, the live pages (review pages and browser walkthroughs) and what he already answered.
 A goblin panel whose goblin is waiting on the Overlord offers Answer, which opens the stack at that goblin's question.
 Once submitted, every tab displays the durable answer rather than an unsent local draft.
