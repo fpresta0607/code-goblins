@@ -3,10 +3,11 @@ import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { asksOverlord, nodeStatus, personaFor, pullRequestLabel, safePullRequest, taskColumn, waitingTarget } from "./workflow";
 
-export function Board({ snapshot, selected, onSelect, presentations }: {
+export function Board({ snapshot, selected, onSelect, onTerminal, presentations }: {
   presentations:BoardActivity[];
   snapshot: Snapshot; selected?: string;
   onSelect: (task: Task, source: HTMLElement) => void;
+  onTerminal: (task: Task, source: HTMLElement) => void;
 }) {
   return <section className="task-board" aria-label="Task board">
     {(["Tasks", "In progress", "Completed"] as const).map((column) => {
@@ -31,6 +32,7 @@ export function Board({ snapshot, selected, onSelect, presentations }: {
             return <div key={task.id} className={"task-card-shell" + (pr || awaited ? " has-pr" : "")}>
               <button className={"task-card" + (selected === task.id ? " selected" : "")}
                 aria-pressed={selected === task.id} onClick={(event) => onSelect(task, event.currentTarget)}>{content}</button>
+              {!!task.generation && <button className="icon-button raised card-terminal" aria-label={"Open the terminal of " + (task.title || task.id)} data-tip="Terminal" data-tip-align="end" onClick={(event) => onTerminal(task, event.currentTarget)}><Icon name="terminal" /></button>}
               {awaited && <button className="card-waiting" aria-label={"Open " + (awaited.title || awaited.id) + ", which this goblin is waiting on"} data-tip={"Open " + (awaited.title || awaited.id)} data-tip-align="start" onClick={(event) => onSelect(awaited, event.currentTarget)}><Icon name="next" />{awaited.id}</button>}
               {pr && <a className="card-pr" href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)}><Icon name="pull-request" />{pullRequestLabel(pr)}</a>}
             </div>;
