@@ -50,13 +50,18 @@ type Review struct {
 	// ImageSums are the SHA-256 of each copied image in order. They make a
 	// republish with the same ID and content change nothing and refuse other
 	// content, and the board only ever sees ImageCount.
-	ImageSums  []string  `json:"image_sums,omitempty"`
-	ImageCount int       `json:"image_count,omitempty"`
-	Lavish     string    `json:"lavish,omitempty"`
-	State      string    `json:"state"`
-	Reason     string    `json:"reason,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ImageSums  []string `json:"image_sums,omitempty"`
+	ImageCount int      `json:"image_count,omitempty"`
+	Lavish     string   `json:"lavish,omitempty"`
+	State      string   `json:"state"`
+	Answer     string   `json:"answer,omitempty"`
+	AnswerID   string   `json:"answer_id,omitempty"`
+	// Delivered says the answer reached the reporter itself; an answer for
+	// a goblin that restarted or ended goes to the CFO and stays false.
+	Delivered bool      `json:"delivered,omitempty"`
+	Reason    string    `json:"reason,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func validReview(r Review) error {
@@ -425,7 +430,7 @@ func (s *Store) acceptReview(r Review) error {
 			return nil
 		}
 		if len(s.db.Reviews) >= maxReviews {
-			closed := slices.IndexFunc(s.db.Reviews, func(old Review) bool { return old.State != "open" })
+			closed := slices.IndexFunc(s.db.Reviews, func(old Review) bool { return old.State != "open" && !s.answering(old) })
 			if closed < 0 {
 				return ErrDeferred
 			}
@@ -434,7 +439,7 @@ func (s *Store) acceptReview(r Review) error {
 			}
 			s.db.Reviews = slices.Delete(s.db.Reviews, closed, closed+1)
 		}
-		r.ImageCount, r.Reason = 0, ""
+		r.ImageCount, r.Reason, r.Answer, r.AnswerID, r.Delivered = 0, "", "", "", false
 		s.db.Reviews = append(s.db.Reviews, r)
 	case "withdrawn":
 		if i < 0 {
@@ -458,15 +463,24 @@ func (s *Store) acceptReview(r Review) error {
 	return s.save()
 }
 
+// answering reports whether an item's answer is still queued or running; the
+// item keeps its place until the answer is delivered or refused.
+func (s *Store) answering(r Review) bool {
+	return r.AnswerID != "" && slices.ContainsFunc(s.db.Actions, func(a Action) bool {
+		return a.ID == r.AnswerID && (a.Status == "queued" || a.Status == "running")
+	})
+}
+
 // pruneReviews drops closed items, with their copied images, a set time after
-// they closed. Open items are never pruned.
+// they closed. Open items and items whose answer is on its way are never
+// pruned.
 func (s *Store) pruneReviews(now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	kept := make([]Review, 0, len(s.db.Reviews))
 	var removed []Review
 	for _, r := range s.db.Reviews {
-		if r.State != "open" && now.Sub(r.UpdatedAt) > closedReviewRetention {
+		if r.State != "open" && !s.answering(r) && now.Sub(r.UpdatedAt) > closedReviewRetention {
 			removed = append(removed, r)
 			continue
 		}
@@ -505,6 +519,68 @@ func (s *Store) clearReview(id, identity string) (Evaluation, error) {
 		return Evaluation{}, err
 	}
 	return Evaluation{Reason: "Cleared from the Command Center."}, nil
+}
+
+// answerReview delivers the Overlord's answer once to the item's reporter:
+// the goblin's own pane while it is the same task generation, or the CFO that
+// reported it. An answer for a goblin that restarted or ended goes to the
+// current CFO instead, and the item stays undelivered.
+func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error) {
+	if s.Options.CFO == nil {
+		return Evaluation{}, fmt.Errorf("%w: Herdr message transport is unavailable", ErrRejected)
+	}
+	reviews := s.Store.Snapshot().Reviews
+	i := slices.IndexFunc(reviews, func(r Review) bool { return r.ID == a.ReviewID && r.Identity == a.Generation && r.AnswerID == a.ID })
+	if i < 0 {
+		return Evaluation{}, fmt.Errorf("%w: the review changed; nothing was sent", ErrRejected)
+	}
+	r := reviews[i]
+	var result Evaluation
+	var err error
+	if r.Task == "" {
+		result, err = s.Options.CFO.Send(ctx, r.Identity, fmt.Sprintf("Answer to your review item %s (%s): %s", r.ID, r.Title, a.Text))
+	} else {
+		result, err = s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, fmt.Sprintf("The Overlord answered your review item %s (%s): %s", r.ID, r.Title, a.Text))
+		if errors.Is(err, ErrRejected) {
+			return s.answerReviewToCFO(ctx, r, a.Text)
+		}
+	}
+	if err != nil {
+		return result, err
+	}
+	return result, s.Store.markReviewDelivered(r.ID, a.ID)
+}
+
+// answerReviewToCFO hands an answer whose goblin is gone to the current CFO.
+func (s *Service) answerReviewToCFO(ctx context.Context, r Review, answer string) (Evaluation, error) {
+	file, err := openPrimary(filepath.Join(s.Store.Home.State, "primary.json"))
+	if err != nil {
+		return Evaluation{}, fmt.Errorf("%w: %s restarted or ended and no CFO is registered; the answer is kept on the item", ErrRejected, r.Task)
+	}
+	_, identity, err := decodePrimary(file)
+	_ = file.Close()
+	if err != nil {
+		return Evaluation{}, fmt.Errorf("%w: %s restarted or ended and the CFO registration is unreadable; the answer is kept on the item", ErrRejected, r.Task)
+	}
+	result, err := s.Options.CFO.Send(ctx, identity, fmt.Sprintf("Answer to %s's review item %s (%s), which came to you because %s restarted or ended: %s", r.Task, r.ID, r.Title, r.Task, answer))
+	if err != nil {
+		return result, err
+	}
+	return Evaluation{Reason: r.Task + " had restarted or ended, so the CFO received the answer."}, nil
+}
+
+// markReviewDelivered records that an answer reached the item's reporter. An
+// item cannot close or be pruned while its answer is on its way, so it is
+// always found.
+func (s *Store) markReviewDelivered(id, answerID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == id && r.AnswerID == answerID })
+	if i < 0 {
+		return fmt.Errorf("the answered review %s is gone", id)
+	}
+	s.db.Reviews[i].Delivered = true
+	return s.save()
 }
 
 // reviewImage serves image n of a review at /api/reviews/<id>/images/<n>,

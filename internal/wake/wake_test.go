@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -282,7 +283,7 @@ func TestMarkAnsweredRidesAlongUntilTheAck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := MarkAnswered(dir, question.Seq, "SQLite"); err != nil {
+	if err := MarkAnswered(dir, question.Seq, AnsweredByOverlord, "SQLite"); err != nil {
 		t.Fatal(err)
 	}
 	pending, err := Pending(dir)
@@ -315,5 +316,48 @@ func TestMarkAnsweredRidesAlongUntilTheAck(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("answer markers left after the ack: %d", len(entries))
+	}
+}
+
+// Drain names who answered a question: the Overlord on the board or the CFO
+// with cfo answer. A marker holding only the answer, as the previous build
+// wrote it, is the Overlord's.
+func TestAnsweredNotifyNamesWhoAnswered(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		marker func(dir string, seq int) error
+		wantBy string
+		want   string
+	}{
+		{"the Overlord", func(dir string, seq int) error { return MarkAnswered(dir, seq, AnsweredByOverlord, "SQLite") }, AnsweredByOverlord, "answered: the Overlord answered on the board: SQLite;"},
+		{"the CFO", func(dir string, seq int) error { return MarkAnswered(dir, seq, AnsweredByCFO, "SQLite") }, AnsweredByCFO, "answered: the CFO answered with cfo answer: SQLite;"},
+		{"a marker from the previous build", func(dir string, seq int) error {
+			if err := os.MkdirAll(filepath.Join(dir, answeredDir), 0o755); err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(dir, answeredDir, strconv.Itoa(seq)), []byte("SQLite"), 0o600)
+		}, AnsweredByOverlord, "answered: the Overlord answered on the board: SQLite;"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			question, err := Append(dir, "notify", "g1", "blocked: which store? options: Postgres | SQLite")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := c.marker(dir, question.Seq); err != nil {
+				t.Fatal(err)
+			}
+			pending, err := Pending(dir)
+			if err != nil || len(pending) != 1 || pending[0].Answered != "SQLite" || pending[0].AnsweredBy != c.wantBy {
+				t.Fatalf("pending = %+v (%v), want SQLite answered by %s", pending, err, c.wantBy)
+			}
+			var out bytes.Buffer
+			if err := Render(&out, pending, Episode{}, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out.String(), c.want) {
+				t.Fatalf("drain rendering does not say %q:\n%s", c.want, out.String())
+			}
+		})
 	}
 }

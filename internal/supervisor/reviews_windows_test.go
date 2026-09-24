@@ -220,3 +220,116 @@ func TestReviewRefusedByAFullInboxLeavesNoCopies(t *testing.T) {
 		t.Fatalf("a refused publication left %d image copies: %v", len(entries), err)
 	}
 }
+
+// The Overlord's answer reaches the item's reporter once: a live goblin in its
+// own pane, or the CFO that reported it. An answer for a goblin that restarted
+// goes to the CFO instead, and the item reads undelivered.
+func TestReviewAnswerReachesItsReporterOnceOrElseTheCFO(t *testing.T) {
+	for _, c := range []struct {
+		name         string
+		goblin       bool
+		respawn      bool
+		wantText     string
+		wantDelivery bool
+	}{
+		{"a live goblin", true, false, "The Overlord answered your review item plan-review-1 (Read the plan): Go with the grid", true},
+		{"a respawned goblin", true, true, "which came to you because task-1 restarted or ended: Go with the grid", false},
+		{"the CFO", false, false, "Answer to your review item plan-review-1 (Read the plan): Go with the grid", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			store, h := testStore(t)
+			_, _, runner, cfo := primaryFixture(t, store)
+			meta, _, _, _ := goblinFixture(t, store)
+			t.Setenv("CFO_SESSION_ID", "actual-primary")
+			t.Setenv("CFO_SESSION_HARNESS", "codex")
+			task := ""
+			if c.goblin {
+				task = meta.ID
+			}
+			ctx := context.Background()
+			if err := PublishReview(ctx, h, cfo.Herdr, task, "plan-review-1", "Read the plan", "", nil); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ingestReviews(); err != nil {
+				t.Fatal(err)
+			}
+			r := store.Snapshot().Reviews[0]
+			a := Action{ID: "answer-review-1", Kind: "review_answer", ReviewID: r.ID, Generation: r.Identity, Text: "Go with the grid"}
+			for i := 0; i < 2; i++ {
+				if _, err := store.Queue(a); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if c.respawn {
+				meta.SpawnGen = "g2"
+				if err := state.WriteTaskMeta(h.State, meta); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s := &Service{Store: store, Options: Options{CFO: cfo}}
+			if err := store.ProcessOne(ctx, s.execute); err != nil {
+				t.Fatal(err)
+			}
+			got := store.Snapshot()
+			if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], c.wantText) {
+				t.Fatalf("prompts = %q, want exactly one carrying %q", runner.prompts, c.wantText)
+			}
+			if review := got.Reviews[0]; review.State != "answered" || review.Answer != "Go with the grid" || review.AnswerID != a.ID || review.Delivered != c.wantDelivery {
+				t.Fatalf("review = %+v, want answered with delivered=%v", review, c.wantDelivery)
+			}
+			if action := got.Actions[len(got.Actions)-1]; action.Status != "succeeded" {
+				t.Fatalf("answer action = %+v, want succeeded", action)
+			}
+			if _, err := store.Queue(Action{ID: "answer-review-2", Kind: "review_answer", ReviewID: r.ID, Generation: r.Identity, Text: "Actually the list"}); err == nil {
+				t.Fatal("an answered review took a second answer")
+			}
+		})
+	}
+}
+
+// With the list full and a publication waiting, an item the Overlord just
+// answered keeps its place until its answer is delivered, and only then makes
+// room for the waiting one.
+func TestAnsweredReviewSurvivesAFullListUntilDelivered(t *testing.T) {
+	store, h := testStore(t)
+	_, _, runner, cfo := primaryFixture(t, store)
+	t.Setenv("CFO_SESSION_ID", "actual-primary")
+	t.Setenv("CFO_SESSION_HARNESS", "codex")
+	ctx := context.Background()
+	if err := PublishReview(ctx, h, cfo.Herdr, "", "plan-review-1", "Read the plan", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i < maxReviews; i++ {
+		if err := store.acceptReview(openReview(fmt.Sprintf("bulk-review-%03d", i), "task-1")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := spoolReview(h.State, openReview("waiting-review", "task-1")); err != nil {
+		t.Fatal(err)
+	}
+	r := store.Snapshot().Reviews[0]
+	if _, err := store.Queue(Action{ID: "answer-review-1", Kind: "review_answer", ReviewID: r.ID, Generation: r.Identity, Text: "Go with the grid"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Reviews; got[0].ID != r.ID || got[0].State != "answered" || got[len(got)-1].ID == "waiting-review" {
+		t.Fatalf("reviews start with %s and end with %s; want the answered item kept and the publication still waiting", got[0].ID, got[len(got)-1].ID)
+	}
+	if err := store.ProcessOne(ctx, (&Service{Store: store, Options: Options{CFO: cfo}}).execute); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Reviews[0]; len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], "Go with the grid") || got.ID != r.ID || !got.Delivered {
+		t.Fatalf("prompts = %q and review = %+v, want the answer delivered once", runner.prompts, got)
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Reviews; got[0].ID == r.ID || got[len(got)-1].ID != "waiting-review" {
+		t.Fatalf("reviews start with %s and end with %s; want the delivered item to make room for the waiting one", got[0].ID, got[len(got)-1].ID)
+	}
+}

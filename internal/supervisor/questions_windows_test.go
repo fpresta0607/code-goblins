@@ -372,8 +372,8 @@ func TestGoblinQuestionAnsweredOnceInItsOwnPane(t *testing.T) {
 	if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], "Question: Which store?") || !strings.Contains(runner.prompts[0], "Answer: SQLite") || strings.ContainsAny(runner.prompts[0], "\r\n") {
 		t.Fatalf("goblin prompts = %q, want the answer delivered once", runner.prompts)
 	}
-	if got := store.Snapshot().Questions[0]; got.Status != "succeeded" || got.Answer != "SQLite" {
-		t.Fatalf("question = %+v", got)
+	if got := store.Snapshot().Questions[0]; got.Status != "succeeded" || got.Answer != "SQLite" || got.AnsweredOption != "SQLite" || got.AnsweredBy != "overlord" || got.AnsweredAt == nil {
+		t.Fatalf("question = %+v, want it answered on the board by the Overlord with SQLite", got)
 	}
 	if got := store.Snapshot().Questions[1]; got.Status != "pending" || got.AnswerID != "" {
 		t.Fatalf("the CFO's question = %+v, want it untouched", got)
@@ -382,7 +382,7 @@ func TestGoblinQuestionAnsweredOnceInItsOwnPane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pending) != 1 || pending[0].Answered != "SQLite" {
+	if len(pending) != 1 || pending[0].Answered != "SQLite" || pending[0].AnsweredBy != wake.AnsweredByOverlord {
 		t.Fatalf("notify = %+v, want it marked answered on the board", pending)
 	}
 }
@@ -479,5 +479,194 @@ func TestSurfaceNotifyNeedsChoicesAndTheGoblinsOwnPane(t *testing.T) {
 	}
 	if got := store.Snapshot().Questions; len(got) != 0 {
 		t.Fatalf("questions = %+v, want none", got)
+	}
+}
+
+// The CFO answers a goblin's question with cfo answer: the choice reaches the
+// goblin once, the way cfo send types, its notify reads answered, and the
+// board records the choice, that the CFO gave it and when, even when the CFO
+// drains the notify before the supervisor takes the answer.
+func TestCFOAnswerDeliversOnceAndTheBoardRecordsIt(t *testing.T) {
+	store, h := testStore(t)
+	primaryFixture(t, store)
+	meta, record, runner, connection := goblinFixture(t, store)
+	q := surfaced(t, store, meta, record, connection)
+	chosen, err := connection.AnswerGoblin(context.Background(), fmt.Sprint(record.Seq), "sqlite", "keep it local")
+	if err != nil || chosen != "SQLite" {
+		t.Fatalf("answer = %q, %v; want SQLite, chosen by its first word", chosen, err)
+	}
+	want := fmt.Sprintf("CFO: decision %d: SQLite. keep it local", record.Seq)
+	if len(runner.prompts) != 1 || runner.prompts[0] != want {
+		t.Fatalf("goblin prompts = %q, want %q once", runner.prompts, want)
+	}
+	if _, err := connection.AnswerGoblin(context.Background(), q.ID, "Postgres", ""); err == nil || len(runner.prompts) != 1 {
+		t.Fatalf("a second answer = %v with %d prompts, want refused and nothing sent", err, len(runner.prompts))
+	}
+	pending, err := wake.Pending(h.State)
+	if err != nil || len(pending) != 1 || pending[0].Answered != "SQLite. keep it local" || pending[0].AnsweredBy != wake.AnsweredByCFO {
+		t.Fatalf("notify = %+v (%v), want it marked answered", pending, err)
+	}
+	if err := wake.AckThrough(h.State, record.Seq); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.supersedeQuestions(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(nativehook.SpoolDir(h.State), 0700); err != nil {
+		t.Fatal(err)
+	}
+	(&Service{Store: store, work: make(chan struct{}, 1)}).cycle(context.Background(), false)
+	got := store.Snapshot().Questions[0]
+	if got.Status != "succeeded" || got.Answer != "SQLite. keep it local" || got.AnsweredOption != "SQLite" || got.AnsweredBy != "cfo" || got.AnsweredAt == nil {
+		t.Fatalf("question = %+v, want it closed as answered by the CFO with SQLite", got)
+	}
+	data, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var board map[string]any
+	if err := json.Unmarshal(data, &board); err != nil {
+		t.Fatal(err)
+	}
+	if board["answered_option"] != "SQLite" || board["answered_by"] != "cfo" || board["answered_at"] == nil {
+		t.Fatalf("board question = %v, want answered_option, answered_by and answered_at", board)
+	}
+}
+
+// cfo answer refuses, sending nothing and leaving nothing for the board, a
+// caller that is not the registered CFO, a choice the question does not
+// offer, a label that names two choices, a notify with no choices, one the
+// CFO already handled, and a goblin that restarted since it asked.
+func TestCFOAnswerRefusesBeforeSendingAnything(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		register bool
+		notify   string
+		option   string
+		before   func(t *testing.T, store *Store, meta state.TaskMeta, record wake.Record)
+		refusal  string
+	}{
+		{name: "a caller that is not the registered CFO", option: "SQLite", refusal: "not registered"},
+		{name: "a choice the question does not offer", register: true, option: "Redis", refusal: "is not one of the choices"},
+		{name: "a label that names two choices", register: true, notify: "blocked: Which plan? options: a keep it | a drop it", option: "a", refusal: "names more than one choice"},
+		{name: "a notify with no choices", register: true, notify: "blocked: What next?", option: "a", refusal: "answer it with cfo send"},
+		{name: "a notify the CFO already handled", register: true, option: "SQLite", refusal: "is not waiting", before: func(t *testing.T, store *Store, _ state.TaskMeta, record wake.Record) {
+			if err := wake.AckThrough(store.Home.State, record.Seq); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "a goblin that restarted", register: true, option: "SQLite", refusal: "restarted or ended", before: func(t *testing.T, store *Store, meta state.TaskMeta, _ wake.Record) {
+			meta.SpawnGen = "g2"
+			if err := state.WriteTaskMeta(store.Home.State, meta); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "a question the Overlord is answering on the board", register: true, option: "SQLite", refusal: "the Overlord is answering", before: func(t *testing.T, store *Store, _ state.TaskMeta, _ wake.Record) {
+			q := store.Snapshot().Questions[0]
+			if _, err := store.Queue(Action{ID: "board-answer", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "Postgres"}); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			store, h := testStore(t)
+			if c.register {
+				primaryFixture(t, store)
+			}
+			meta, record, runner, connection := goblinFixture(t, store)
+			if c.notify != "" {
+				var err error
+				if record, err = wake.Append(h.State, "notify", meta.ID, c.notify); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if c.notify == "" || strings.Contains(c.notify, "options:") {
+				surfaced(t, store, meta, record, connection)
+			}
+			if c.before != nil {
+				c.before(t, store, meta, record)
+			}
+			_, err := connection.AnswerGoblin(context.Background(), fmt.Sprint(record.Seq), c.option, "")
+			if err == nil || !strings.Contains(err.Error(), c.refusal) || len(runner.prompts) != 0 {
+				t.Fatalf("answer = %v with %d prompts, want refused (%q) with nothing sent", err, len(runner.prompts), c.refusal)
+			}
+			if entries, err := os.ReadDir(filepath.Join(h.State, answersInbox)); !os.IsNotExist(err) && len(entries) != 0 {
+				t.Fatalf("a refused answer left %d records for the board", len(entries))
+			}
+		})
+	}
+}
+
+// The CFO answers first and the Overlord's board answer, queued before the
+// supervisor took the CFO's, is refused with nothing sent. In the service's
+// own order, a pass that finds the board answer still queued keeps the CFO's
+// answer, and the question then shows the choice the goblin received from
+// the CFO, never the refused one, and keeps it after a reload.
+func TestCFOAnswerStandsWhenTheBoardAnswerIsRefused(t *testing.T) {
+	store, h := testStore(t)
+	primaryFixture(t, store)
+	meta, record, runner, connection := goblinFixture(t, store)
+	q := surfaced(t, store, meta, record, connection)
+	if err := os.MkdirAll(nativehook.SpoolDir(h.State), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connection.AnswerGoblin(context.Background(), q.ID, "SQLite", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Queue(Action{ID: "board-answer", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "Postgres"}); err != nil {
+		t.Fatal(err)
+	}
+	(&Service{Store: store, work: make(chan struct{}, 1)}).cycle(context.Background(), false)
+	if err := store.ProcessOne(context.Background(), (&Service{Store: store, Options: Options{CFO: connection}}).execute); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.prompts) != 1 {
+		t.Fatalf("goblin prompts = %q, want only the CFO's answer", runner.prompts)
+	}
+	if got := store.Snapshot().Questions[0]; got.Status != "failed" || got.AnsweredBy != "" || got.AnsweredOption != "" || got.AnsweredAt != nil {
+		t.Fatalf("question = %+v, want the refused board answer to record no answerer", got)
+	}
+	(&Service{Store: store, work: make(chan struct{}, 1)}).cycle(context.Background(), false)
+	reopened, err := Open(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, got := range map[string]Question{"after the pass": store.Snapshot().Questions[0], "after a reload": reopened.Snapshot().Questions[0]} {
+		if got.Status != "succeeded" || got.AnsweredBy != "cfo" || got.AnsweredOption != "SQLite" || got.Answer != "SQLite" || got.AnsweredAt == nil {
+			t.Fatalf("%s, question = %+v, want it answered by the CFO with SQLite", name, got)
+		}
+	}
+}
+
+// A board answer that reaches the goblin's pane while cfo answer is still
+// delivering waits for it, then sees the CFO's answer and is refused with
+// nothing sent, so the goblin receives one decision.
+func TestBoardAnswerWaitsForAnInFlightCFOAnswer(t *testing.T) {
+	store, h := testStore(t)
+	primaryFixture(t, store)
+	meta, record, runner, connection := goblinFixture(t, store)
+	q := surfaced(t, store, meta, record, connection)
+	board := &cfoRunner{t: t, pid: os.Getpid()}
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Herdr: &herdr.Client{Commands: board}}}}
+	done := make(chan error, 1)
+	runner.beforePrompt = func() {
+		runner.beforePrompt = nil
+		if _, err := store.Queue(Action{ID: "board-answer", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "Postgres"}); err != nil {
+			t.Fatal(err)
+		}
+		go func() { done <- store.ProcessOne(context.Background(), service.execute) }()
+		time.Sleep(500 * time.Millisecond)
+	}
+	if _, err := connection.AnswerGoblin(context.Background(), q.ID, "SQLite", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.prompts) != 1 || len(board.prompts) != 0 {
+		t.Fatalf("the CFO sent %q and the board sent %q; want only the CFO's decision", runner.prompts, board.prompts)
+	}
+	if action := store.Snapshot().Actions[len(store.Snapshot().Actions)-1]; action.Status != "failed" || !strings.Contains(action.Message, "nothing was sent") {
+		t.Fatalf("board answer = %+v, want refused with nothing sent", action)
 	}
 }

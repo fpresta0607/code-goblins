@@ -74,6 +74,7 @@ commands:
   cfo reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]   find orphaned harness processes, stale dev servers, worktrees, task records and status logs; --apply retires the worktrees, records and logs, and ending a process needs its pid named with --force
   cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>"   a goblin reports its outcome straight into the wake queue
   cfo question --id <stable-id> --text "<user question>" [--option "<choice>"]... [--recommend "<exact-choice>"]   registered CFO opens a user decision modal with Other; the answer returns as one normal native message, not a native prompt-tool response
+  cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]   registered CFO answers a goblin's blocked question: delivered like cfo send, the notify retired, and the choice, who and when recorded for the board
   cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url>] | --id <stable-id> --withdraw "<reason>" [--task <id>]   report an item that stays in the Command Center until the Overlord answers or clears it, or withdraw your own
   cfo present --id <stable-id> --kind browser|review --url <safe-url> [--task <id> [--generation <spawn-gen>]] [--state active|ended] [--ttl 5m]   report a successful presentation without opening a browser or waiting; omit task only from verified primary CFO context
   hook <name>  claude code hook entry points (session-start, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm)
@@ -270,6 +271,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runNotify(args[1:], stdout, stderr)
 	case "question":
 		return runQuestion(args[1:], stdout, stderr, runtime)
+	case "answer":
+		return runAnswer(args[1:], stdout, stderr, runtime)
 	case "register":
 		return runRegister(args[1:], stdout, stderr, runtime)
 	case "present":

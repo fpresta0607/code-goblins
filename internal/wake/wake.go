@@ -58,10 +58,12 @@ type Record struct {
 	Kind   string    `json:"kind"`
 	Key    string    `json:"key"`
 	Detail string    `json:"detail"`
-	// Answered is the answer the Overlord gave this blocking notify on the
-	// board. Pending attaches it from its own marker; it is never written
-	// into the queue.
-	Answered string `json:"answered,omitempty"`
+	// Answered is the answer this blocking notify received outside the
+	// queue, and AnsweredBy who gave it: AnsweredByOverlord on the board or
+	// AnsweredByCFO with cfo answer. Pending attaches both from their own
+	// marker; they are never written into the queue.
+	Answered   string `json:"answered,omitempty"`
+	AnsweredBy string `json:"answered_by,omitempty"`
 }
 
 // ackFile persists the highest acknowledged sequence so acked sequences stay
@@ -448,7 +450,11 @@ func renderDecision(w io.Writer, rec Record, verb, question string, options []st
 		return err
 	}
 	if rec.Answered != "" {
-		_, err := fmt.Fprintf(w, "       answered: the Overlord answered on the board: %s; the goblin has it, so ack it normally\n", terminalText(rec.Answered))
+		who := "the Overlord answered on the board"
+		if rec.AnsweredBy == AnsweredByCFO {
+			who = "the CFO answered with cfo answer"
+		}
+		_, err := fmt.Fprintf(w, "       answered: %s: %s; the goblin has it, so ack it normally\n", who, terminalText(rec.Answered))
 		return err
 	}
 	if len(options) == 0 {

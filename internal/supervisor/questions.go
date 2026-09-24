@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,6 +48,12 @@ type Question struct {
 	// checks them again whenever it serves one, and only ever sees ImageCount.
 	Images     []string `json:"images,omitempty"`
 	ImageCount int      `json:"image_count,omitempty"`
+	// AnsweredOption, AnsweredBy and AnsweredAt record which choice closed
+	// the question (empty for a written answer), who gave it (cfo or
+	// overlord) and when, so a closed question shows its answer.
+	AnsweredOption string     `json:"answered_option,omitempty"`
+	AnsweredBy     string     `json:"answered_by,omitempty"`
+	AnsweredAt     *time.Time `json:"answered_at,omitempty"`
 }
 
 func validQuestion(q Question) error {
@@ -117,17 +124,7 @@ func SurfaceNotify(ctx context.Context, stateDir string, client *herdr.Client, t
 	if !ok || len(options) == 0 {
 		return nil
 	}
-	// A goblin marks the choice it recommends the way AskUserQuestion does,
-	// by ending it with "(Recommended)".
-	recommended := ""
-	for i, option := range options {
-		if choice, marked := strings.CutSuffix(option, "(Recommended)"); marked {
-			options[i] = strings.TrimSpace(choice)
-			if recommended == "" {
-				recommended = options[i]
-			}
-		}
-	}
+	options, recommended := questionChoices(options)
 	meta, err := goblinAsker(ctx, stateDir, client, taskID)
 	if err != nil {
 		return err
@@ -137,6 +134,23 @@ func SurfaceNotify(ctx context.Context, stateDir string, client *herdr.Client, t
 		return err
 	}
 	return publish(stateDir, q)
+}
+
+// questionChoices is a notify's choices as the Command Center shows them: a
+// goblin marks the one it recommends the way AskUserQuestion does, by ending
+// it with "(Recommended)".
+func questionChoices(options []string) ([]string, string) {
+	choices := slices.Clone(options)
+	recommended := ""
+	for i, option := range choices {
+		if choice, marked := strings.CutSuffix(option, "(Recommended)"); marked {
+			choices[i] = strings.TrimSpace(choice)
+			if recommended == "" {
+				recommended = choices[i]
+			}
+		}
+	}
+	return choices, recommended
 }
 
 // SendGoblin delivers text to the goblin a question named, through the same
@@ -177,6 +191,11 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 		return Evaluation{}, fmt.Errorf("%w: user question context changed", ErrRejected)
 	}
 	q := s.Store.Snapshot().Questions[i]
+	unlock, err := answerLock(s.Store.Home.State)
+	if err != nil {
+		return Evaluation{}, fmt.Errorf("%w: the CFO is answering this question with cfo answer (%v); nothing was sent", ErrRejected, err)
+	}
+	defer unlock()
 	pending, err := wake.Pending(s.Store.Home.State)
 	if err != nil {
 		return Evaluation{}, fmt.Errorf("%w: read the wake queue: %v; nothing was sent", ErrRejected, err)
@@ -192,10 +211,259 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 	if err != nil {
 		return result, err
 	}
-	if err := wake.MarkAnswered(s.Store.Home.State, q.Seq, a.Text); err != nil {
+	if err := wake.MarkAnswered(s.Store.Home.State, q.Seq, wake.AnsweredByOverlord, a.Text); err != nil {
 		result.Reason += " The CFO's notify still reads unanswered: " + err.Error()
 	}
 	return result, nil
+}
+
+// answersInbox holds the answers cfo answer spooled for the supervisor to
+// record on their questions, one file per question named like its inbox file.
+const answersInbox = "answers-inbox"
+
+// cfoAnswer is one answer the CFO gave with cfo answer.
+type cfoAnswer struct {
+	QuestionID string    `json:"question_id"`
+	Option     string    `json:"option"`
+	Answer     string    `json:"answer"`
+	At         time.Time `json:"at"`
+}
+
+// AnswerGoblin answers a goblin's blocked question as the CFO, the structured
+// counterpart of cfo send: ref is the question's ID or its notify's wake
+// sequence, and option names one of its choices in full or by its first word
+// (the a | b labels goblins give their options). The goblin receives the
+// choice the way cfo send types, its notify reads answered so cfo drain
+// retires it without --ack-blocking, and the supervisor records which choice
+// closed the question, that the CFO gave it, and when. Only the registered
+// primary CFO may answer. It returns the choice it delivered.
+func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note string) (string, error) {
+	_, release, err := c.callerIdentity(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer release()
+	unlock, err := answerLock(c.State)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+	seq, err := strconv.Atoi(ref)
+	if i := strings.LastIndexByte(ref, '-'); err != nil && strings.HasPrefix(ref, "notify-") && i > 0 {
+		seq, err = strconv.Atoi(ref[i+1:])
+	}
+	if err != nil || seq <= 0 {
+		return "", fmt.Errorf("%s names neither a goblin question nor its notify's wake sequence", ref)
+	}
+	pending, err := wake.Pending(c.State)
+	if err != nil {
+		return "", fmt.Errorf("read the wake queue: %w", err)
+	}
+	i := slices.IndexFunc(pending, func(r wake.Record) bool { return r.Seq == seq })
+	if i < 0 {
+		return "", fmt.Errorf("notify %d is not waiting: it was never raised or the CFO already handled it", seq)
+	}
+	record := pending[i]
+	if record.Answered != "" {
+		return "", fmt.Errorf("notify %d was already answered: %s", seq, record.Answered)
+	}
+	_, options, ok := wake.Question(record)
+	if !ok || len(options) == 0 {
+		return "", fmt.Errorf("notify %d asks no multiple-choice question; answer it with cfo send", seq)
+	}
+	choices, _ := questionChoices(options)
+	chosen, err := pickChoice(choices, option)
+	if err != nil {
+		return "", err
+	}
+	id := fmt.Sprintf("notify-%s-%d", record.Key, seq)
+	if ref != strconv.Itoa(seq) && ref != id {
+		return "", fmt.Errorf("%s is not the question of notify %d, which is %s", ref, seq, id)
+	}
+	q, err := readQuestion(c.State, id)
+	if err != nil {
+		return "", fmt.Errorf("question %s has not reached the board yet (%v); try again in a moment", id, err)
+	}
+	if q.AnswerID != "" && q.Status != "failed" {
+		return "", fmt.Errorf("the Overlord is answering %s on the board (its answer is %s); nothing was sent", id, q.Status)
+	}
+	answer := chosen
+	if note = strings.TrimSpace(note); note != "" {
+		answer += ". " + note
+	}
+	if _, err := c.SendGoblin(ctx, q.Task, q.Identity, fmt.Sprintf("decision %d: %s", seq, answer)); err != nil {
+		return "", err
+	}
+	var unrecorded []error
+	if err := spoolAnswer(c.State, cfoAnswer{QuestionID: id, Option: chosen, Answer: answer, At: time.Now().UTC()}); err != nil {
+		unrecorded = append(unrecorded, fmt.Errorf("the board could not record it: %w", err))
+	}
+	if err := wake.MarkAnswered(c.State, seq, wake.AnsweredByCFO, answer); err != nil {
+		unrecorded = append(unrecorded, fmt.Errorf("notify %d still reads unanswered: %w", seq, err))
+	}
+	if err := errors.Join(unrecorded...); err != nil {
+		return chosen, fmt.Errorf("delivered to %s; do not send it again, but %w", q.Task, err)
+	}
+	return chosen, nil
+}
+
+// answerLock serializes the two ways a goblin's question is answered, cfo
+// answer and the board, so whichever comes second sees the other's answer;
+// it waits briefly for the other one.
+func answerLock(stateDir string) (func(), error) {
+	_, err := lock.AcquireExclusiveNamed(stateDir, ".answer.lock")
+	for deadline := time.Now().Add(5 * time.Second); err != nil && time.Now().Before(deadline); {
+		time.Sleep(25 * time.Millisecond)
+		_, err = lock.AcquireExclusiveNamed(stateDir, ".answer.lock")
+	}
+	if err != nil {
+		return nil, err
+	}
+	return func() { _ = lock.ReleaseExclusiveNamed(stateDir, ".answer.lock") }, nil
+}
+
+// pickChoice matches an answer to one choice: exactly, or by its first word
+// when that names a single choice.
+func pickChoice(choices []string, option string) (string, error) {
+	option = strings.TrimSpace(option)
+	if slices.Contains(choices, option) {
+		return option, nil
+	}
+	chosen := ""
+	for _, choice := range choices {
+		if first, _, _ := strings.Cut(choice, " "); strings.EqualFold(first, option) {
+			if chosen != "" {
+				return "", fmt.Errorf("%q names more than one choice; give the choice in full: %s", option, strings.Join(choices, " | "))
+			}
+			chosen = choice
+		}
+	}
+	if chosen == "" {
+		return "", fmt.Errorf("%q is not one of the choices: %s", option, strings.Join(choices, " | "))
+	}
+	return chosen, nil
+}
+
+// readQuestion finds a question the supervisor holds or has yet to ingest,
+// reading its files without opening a Store, as publish does.
+func readQuestion(stateDir, id string) (Question, error) {
+	if info, err := os.Stat(filepath.Join(stateDir, ".supervisor.json")); err == nil {
+		if info.Size() > maxStateBytes {
+			return Question{}, errors.New("supervisor state exceeds its bound")
+		}
+		data, err := os.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+		if err != nil {
+			return Question{}, err
+		}
+		var db Database
+		if err := json.Unmarshal(data, &db); err != nil {
+			return Question{}, errors.New("supervisor question history is unreadable")
+		}
+		if i := slices.IndexFunc(db.Questions, func(q Question) bool { return q.ID == id }); i >= 0 {
+			return db.Questions[i], nil
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Question{}, err
+	}
+	sum := sha256.Sum256([]byte(id))
+	data, err := os.ReadFile(filepath.Join(stateDir, "questions-inbox", hex.EncodeToString(sum[:])+".json"))
+	if err != nil {
+		return Question{}, err
+	}
+	var q Question
+	if err := json.Unmarshal(data, &q); err != nil {
+		return Question{}, errors.New("the question waiting in the inbox is unreadable")
+	}
+	return q, nil
+}
+
+// spoolAnswer leaves a delivered CFO answer for the supervisor to record.
+func spoolAnswer(stateDir string, a cfoAnswer) error {
+	dir := filepath.Join(stateDir, answersInbox)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	if len(entries) >= maxQuestions {
+		return errors.New("the answer inbox is full")
+	}
+	data, err := json.Marshal(a)
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256([]byte(a.QuestionID))
+	return fsx.AtomicWriteFile(filepath.Join(dir, hex.EncodeToString(sum[:])+".json"), data)
+}
+
+// ingestAnswers records the answers cfo answer spooled: which choice closed
+// the question, that the CFO gave it, and when. A question still pending
+// takes its answer, and so does one superseded because the CFO drained its
+// notify before this pass or one whose board answer was refused because the
+// CFO had just answered; one still waiting in the question inbox, or whose
+// board answer is still on its way, keeps its answer for a later pass.
+func (s *Store) ingestAnswers() error {
+	dir := filepath.Join(s.Home.State, answersInbox)
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries[:min(len(entries), maxQuestions)] {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		var a cfoAnswer
+		reject := ""
+		if len(data) > 12<<10 || json.Unmarshal(data, &a) != nil {
+			reject = "the answer is unreadable"
+		}
+		if _, err := os.Stat(filepath.Join(s.Home.State, "questions-inbox", entry.Name())); reject == "" && err == nil {
+			continue
+		}
+		s.mu.Lock()
+		i := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.ID == a.QuestionID })
+		if reject == "" && i >= 0 && s.db.Questions[i].Status == "queued" {
+			s.mu.Unlock()
+			continue
+		}
+		switch {
+		case reject != "":
+		case i < 0:
+			reject = "its question is gone"
+		case !slices.Contains([]string{"pending", "superseded", "failed"}, s.db.Questions[i].Status):
+			reject = "its question already closed as " + s.db.Questions[i].Status
+		default:
+			q, at := &s.db.Questions[i], a.At
+			q.Status, q.Message, q.AnswerID = "succeeded", "Answered by the CFO.", ""
+			q.Answer, q.AnswerKind = a.Answer, "option"
+			q.AnsweredOption, q.AnsweredBy, q.AnsweredAt = a.Option, "cfo", &at
+		}
+		if reject != "" {
+			s.db.Issues = append(s.db.Issues, "CFO answer rejected: "+reject)
+			if len(s.db.Issues) > 20 {
+				s.db.Issues = s.db.Issues[len(s.db.Issues)-20:]
+			}
+		}
+		err = s.save()
+		s.mu.Unlock()
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // callerIdentity proves this process descends from the registered primary

@@ -195,6 +195,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	}
 	// Question failures cannot stop native events or independent progression.
 	reconcileErr := s.Store.ingestQuestions()
+	reconcileErr = errors.Join(reconcileErr, s.Store.ingestAnswers())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
@@ -342,8 +343,11 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	if a.Kind == "feedback" || a.Kind == "cfo_message" {
 		return Evaluation{}, fmt.Errorf("%w: obsolete action kind %q is not accepted", ErrRejected, a.Kind)
 	}
-	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" {
+	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "review_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" {
 		return Evaluation{}, fmt.Errorf("%w: unsupported action kind %q", ErrRejected, a.Kind)
+	}
+	if a.Kind == "review_answer" {
+		return s.answerReview(ctx, a)
 	}
 	if a.Kind == "review_clear" {
 		return s.Store.clearReview(a.ReviewID, a.Generation)
@@ -423,6 +427,11 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		return result, nil
 	}
 	result.PR = p.PR
+	if i := slices.IndexFunc(p.Steps, func(step pipeline.ProgressStep) bool {
+		return step.Status != "completed" && step.Status != "skipped" && step.Status != "pending"
+	}); i >= 0 {
+		result.GateStep = p.Steps[i].Name
+	}
 	for _, step := range p.Steps {
 		if step.Status == "awaiting_approval" || step.Status == "fix_review" || step.Status == "failed" {
 			result.Phase = "blocked"
