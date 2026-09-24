@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -263,7 +264,9 @@ FROM step_results s JOIN latest ON latest.id=s.run_id WHERE s.status IN ('awaiti
 	return rows[0], nil
 }
 
-type Response struct{ Action, Findings, Instructions string }
+// Response is one answer to a parked gate. Accept names the open ask-user and
+// auto-fix findings the CFO takes as they stand, with approve only.
+type Response struct{ Action, Findings, Instructions, Accept string }
 type finding struct {
 	ID     string `json:"id"`
 	Action string `json:"action"`
@@ -290,7 +293,8 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 	}
 	emptyActionFixable := gate.Step != "review" && gate.AutoFixLimit != nil && *gate.AutoFixLimit > 0
 	actions := map[string]string{}
-	unresolved := false
+	var open []string
+	unresolved, blank := false, false
 	for _, f := range *report.Findings {
 		if _, exists := actions[f.ID]; f.ID == "" || exists {
 			return nil, errors.New("pipeline: invalid or duplicate finding ID")
@@ -299,11 +303,12 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 		case "no-op":
 		case "auto-fix", "ask-user":
 			unresolved = true
+			open = append(open, f.ID)
 		case "":
 			if !emptyActionFixable {
 				return nil, ErrUnresolved
 			}
-			unresolved = true
+			unresolved, blank = true, true
 		default:
 			return nil, ErrUnresolved
 		}
@@ -312,13 +317,30 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 	args := []string{"axi", "respond", "--step", gate.Step, "--action", response.Action}
 	switch response.Action {
 	case "approve":
-		if unresolved {
+		if response.Accept != "" {
+			// The CFO takes the open findings as they stand only by naming
+			// every one of them; a finding with no action still needs its fix.
+			named := strings.Split(response.Accept, ",")
+			slices.Sort(named)
+			slices.Sort(open)
+			switch {
+			case len(open) == 0:
+				return nil, errors.New("pipeline: no open ask-user or auto-fix finding to accept; approve without --accept")
+			case !slices.Equal(named, open):
+				return nil, fmt.Errorf("pipeline: --accept must name exactly the open ask-user and auto-fix findings: %s", strings.Join(open, ","))
+			case blank:
+				return nil, ErrUnresolved
+			}
+		} else if unresolved {
 			return nil, ErrUnresolved
 		}
 		if response.Findings != "" || response.Instructions != "" {
 			return nil, errors.New("pipeline: approve does not accept fix arguments")
 		}
 	case "fix":
+		if response.Accept != "" {
+			return nil, errors.New("pipeline: --accept goes with approve, never with fix")
+		}
 		if gate.Step == "review" && gate.Round-1 >= s.ReviewCycles {
 			return nil, ErrUnresolved
 		}

@@ -134,3 +134,54 @@ func TestIdleLockIsReleasedOnUnreadableDatabase(t *testing.T) {
 		t.Fatal("missing database accepted as idle")
 	}
 }
+
+// The CFO takes a gate's open findings as they stand only with approve and by
+// naming exactly the open ask-user and auto-fix findings; every other shape
+// is refused for its own reason or stays unresolved.
+func TestApproveAcceptsExactlyTheOpenFindings(t *testing.T) {
+	selection, err := testPolicy(t).Select("ordinary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	limit := 1
+	review := Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 3, Findings: `{"findings":[{"id":"ask","action":"ask-user"},{"id":"bug","action":"auto-fix"},{"id":"note","action":"no-op"}]}`}
+	blank := Gate{RunID: "run", StepID: "step", Step: "rebase", Status: "awaiting_approval", Round: 1, AutoFixLimit: &limit, Findings: `{"findings":[{"id":"ask","action":"ask-user"},{"id":"conflict","action":""}]}`}
+	quiet := Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 3, Findings: `{"findings":[{"id":"note","action":"no-op"}]}`}
+	for _, c := range []struct {
+		name     string
+		gate     Gate
+		response Response
+		// refusal is the rule a refused answer must name; unresolved means it
+		// stays a decision instead.
+		refusal    string
+		unresolved bool
+	}{
+		{"every open finding, in any order", review, Response{Action: "approve", Accept: "bug,ask"}, "", false},
+		{"an open finding left out", review, Response{Action: "approve", Accept: "ask"}, "exactly the open ask-user and auto-fix findings: ask,bug", false},
+		{"a no-op finding named", review, Response{Action: "approve", Accept: "ask,bug,note"}, "exactly the open ask-user and auto-fix findings: ask,bug", false},
+		{"an absent finding named", review, Response{Action: "approve", Accept: "ask,bug,other"}, "exactly the open ask-user and auto-fix findings: ask,bug", false},
+		{"a finding named twice", review, Response{Action: "approve", Accept: "ask,bug,bug"}, "exactly the open ask-user and auto-fix findings: ask,bug", false},
+		{"accept with fix", review, Response{Action: "fix", Findings: "bug", Accept: "ask,bug"}, "never with fix", false},
+		{"nothing open to accept", quiet, Response{Action: "approve", Accept: "note"}, "no open ask-user or auto-fix finding", false},
+		{"approve without accept", review, Response{Action: "approve"}, "", true},
+		{"a finding with no action still needs its fix", blank, Response{Action: "approve", Accept: "ask"}, "", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			args, err := ResponseArgs(selection, c.gate, c.response)
+			switch {
+			case c.unresolved:
+				if !errors.Is(err, ErrUnresolved) {
+					t.Fatalf("got %v %q, want it unresolved", err, args)
+				}
+			case c.refusal != "":
+				if err == nil || errors.Is(err, ErrUnresolved) || !strings.Contains(err.Error(), c.refusal) {
+					t.Fatalf("got %v %q, want a refusal naming %q", err, args, c.refusal)
+				}
+			default:
+				if err != nil || strings.Join(args, " ") != "axi respond --step review --action approve" {
+					t.Fatalf("got %v %q, want the gate approved", err, args)
+				}
+			}
+		})
+	}
+}

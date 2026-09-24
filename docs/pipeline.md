@@ -102,6 +102,10 @@ An explicitly selected finding with an empty action is actionable only when the 
 Review remains fail-closed for empty or unknown actions.
 Fix responses name concrete actionable finding IDs; selecting an `ask-user` finding is an explicit decision, never automatic consent.
 Approval is accepted only when every finding is explicitly `no-op`, or the findings list is empty.
+The one exception is the CFO's own decision: `respond <id> --action approve --accept <ids>` takes the open findings as they stand.
+It is honoured only from the registered primary CFO process, proven as `cfo question` proves it, and a goblin running it on its own gate is refused before anything is recorded.
+The IDs must be exactly the gate's open `ask-user` and `auto-fix` findings, no more and no fewer; a finding with an empty action still needs its fix.
+The task's status log records `pipeline-findings-accepted` with the step, run, round and IDs before approve reaches the gate.
 Unsupported or malformed evidence fails closed.
 The command returns exit 3 for unresolved work requiring a CFO decision, without advancing the gate.
 Other refusals return exit 1.

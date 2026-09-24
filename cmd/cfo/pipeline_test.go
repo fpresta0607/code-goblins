@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -30,6 +31,9 @@ type pipelineRunner struct {
 	native     []execx.Request
 	worktree   string
 	activeRuns int
+	// cfo is the pid Herdr reports in the registered CFO's pane w1:p1; zero
+	// means no Herdr call is expected.
+	cfo int
 }
 
 type pipelineStartRunner struct {
@@ -191,6 +195,14 @@ func (r *pipelineRunner) Run(_ context.Context, q execx.Request) (execx.Result, 
 	case "no-mistakes":
 		r.native = append(r.native, q)
 		return execx.Result{Stdout: []byte("native decision output\n")}, nil
+	case "herdr":
+		switch {
+		case r.cfo == 0:
+		case q.Args[0] == "api" && q.Args[1] == "snapshot":
+			return execx.Result{Stdout: []byte(`{"result":{"type":"session_snapshot","snapshot":{"protocol":1,"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","terminal_id":"t-1"}],"agents":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","agent":"codex","agent_status":"idle"}]}}}`)}, nil
+		case q.Args[0] == "pane" && q.Args[1] == "process-info":
+			return execx.Result{Stdout: []byte(fmt.Sprintf(`{"result":{"process_info":{"shell_pid":1,"foreground_process_group_id":%d}}}`, r.cfo))}, nil
+		}
 	}
 	return execx.Result{}, errors.New("unexpected command")
 }
@@ -1135,5 +1147,102 @@ func TestPipelineConfigDriftDoesNotWriteOrExposeValues(t *testing.T) {
 	after, err := os.ReadFile(path)
 	if err != nil || string(after) != before {
 		t.Fatalf("drift wrote config: %s %v", after, err)
+	}
+}
+
+// Taking a gate's open findings as they stand is the CFO's decision alone. A
+// goblin that tries it on its own gate is refused before anything is recorded
+// or sent, even while the registered CFO is live in its pane; the CFO's
+// acceptance reaches the task's status log before approve reaches the gate.
+func TestPipelineAcceptIsHonouredOnlyFromTheRegisteredCFO(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	p, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := p.Select("ordinary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, caller := range []string{"goblin", "cfo"} {
+		t.Run(caller, func(t *testing.T) {
+			root := t.TempDir()
+			h := home.Home{Root: root, State: filepath.Join(root, "state")}
+			nm := filepath.Join(root, "nm")
+			tmp := filepath.Join(h.State, "tasktmp", "task")
+			project := filepath.Join(root, "project")
+			wt := filepath.Join(project, ".worktrees", "gb-task")
+			for _, path := range []string{nm, tmp, wt} {
+				if err := os.MkdirAll(path, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := selection.Save(filepath.Join(tmp, "pipeline.json")); err != nil {
+				t.Fatal(err)
+			}
+			meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: wt, Project: project, TaskTmp: tmp, PipelineClass: selection.Class, PipelineHash: selection.Hash}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			config, _, err := pipeline.Render([]byte("{}"), p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(nm, "config.yaml"), config, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0600); err != nil {
+				t.Fatal(err)
+			}
+			// The registered CFO is this test process, or for the goblin a
+			// separate live process this one does not run under.
+			var registered *lock.Info
+			if caller == "cfo" {
+				registered, err = lock.Acquire(h.State)
+				t.Cleanup(func() { _ = lock.Release(h.State) })
+			} else {
+				other := exec.Command("cmd", "/c", "ping -n 30 127.0.0.1 >NUL")
+				if err := other.Start(); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = other.Process.Kill(); _, _ = other.Process.Wait() })
+				registered, err = lock.AcquireOwner(h.State, other.Process.Pid, "other")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := json.Marshal(struct {
+				Target    herdr.Target `json:"target"`
+				Workspace string       `json:"workspace"`
+				Tab       string       `json:"tab"`
+				Agent     string       `json:"agent"`
+				Terminal  string       `json:"terminal"`
+				Process   lock.Info    `json:"process"`
+			}{herdr.Target{Session: "isolated", Pane: "w1:p1"}, "w1", "w1:t1", "codex", "t-1", *registered})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.State, "primary.json"), data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			runner := &pipelineRunner{worktree: wt, cfo: registered.PID, gate: pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 3, Findings: `{"findings":[{"id":"ask","action":"ask-user"},{"id":"bug","action":"auto-fix"},{"id":"note","action":"no-op"}]}`}}
+			var out bytes.Buffer
+			err = pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "approve", "--accept", "bug,ask"}, &out)
+			lines, _ := state.TailStatus(h.State, "task", 10)
+			if caller == "goblin" {
+				if err == nil || !strings.Contains(err.Error(), "does not run under the registered CFO") || len(runner.native) != 0 || len(lines) != 0 {
+					t.Fatalf("a goblin accepting its own findings: %v, %d native calls, status %q; want it refused with nothing recorded or sent", err, len(runner.native), lines)
+				}
+				return
+			}
+			if err != nil || len(runner.native) != 1 || strings.Join(runner.native[0].Args, " ") != "axi respond --step review --action approve" {
+				t.Fatalf("the CFO accepting: %v %+v, want one approve", err, runner.native)
+			}
+			if len(lines) != 1 || !strings.HasSuffix(lines[0], "pipeline-findings-accepted: step=review run=run round=3 findings=bug,ask by=cfo") {
+				t.Fatalf("status log %q, want the acceptance audited", lines)
+			}
+		})
 	}
 }
