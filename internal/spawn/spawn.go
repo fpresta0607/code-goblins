@@ -98,6 +98,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := validateRequestLineValues(req); err != nil {
 		return Result{}, err
 	}
+	if req.Model == "" {
+		req.Model = harness.DefaultModel(req.Harness)
+	}
 	project, err := s.project(req)
 	if err != nil {
 		return Result{}, err

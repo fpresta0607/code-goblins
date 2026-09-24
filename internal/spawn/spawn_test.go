@@ -2147,3 +2147,38 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 		}
 	}
 }
+
+// Every Claude goblin runs Opus 5.5 unless a model is named (the Supreme
+// Overlord's directive of 2026-09-23), whether --harness claude came alone or
+// a lane named claude without a model. A named model still wins, and another
+// harness keeps its own default. The model the goblin runs is the one its
+// task records.
+func TestSpawnRunsAClaudeGoblinWithNoNamedModelOnOpus55(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		kind  harness.Kind
+		model string
+		want  string
+	}{
+		{"claude with no model", harness.Claude, "", "claude-opus-5-5"},
+		{"claude with a named model", harness.Claude, "claude-sonnet-5", "claude-sonnet-5"},
+		{"another harness with no model", harness.Kimi, "", "default"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fixture := newFixture(t)
+			fixture.service.Harness.Adapters[harness.Kimi] = fixtureAdapter{events: &fixture.events, specs: &fixture.specs}
+			fixture.request.Harness, fixture.request.Model = c.kind, c.model
+			if _, err := fixture.service.Spawn(context.Background(), fixture.request); err != nil {
+				t.Fatal(err)
+			}
+			meta, err := state.ReadTaskMeta(fixture.stateDir, fixture.request.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			launched := fixture.specs[len(fixture.specs)-1].Model
+			if meta.Model != c.want || valueOrDefault(launched) != c.want {
+				t.Fatalf("recorded model %q, launched %q; want %q", meta.Model, launched, c.want)
+			}
+		})
+	}
+}

@@ -197,6 +197,16 @@ func hasValue(value string) bool {
 	return value != "" && value != "default"
 }
 
+// DefaultModel is the model a harness runs when no model is named. Every
+// Claude goblin runs Opus 5.5, per the Supreme Overlord's directive of
+// 2026-09-23; the other harnesses keep their own default.
+func DefaultModel(kind Kind) string {
+	if kind == Claude {
+		return "claude-opus-5-5"
+	}
+	return ""
+}
+
 func validSharedEffort(effort string) bool {
 	switch effort {
 	case "low", "medium", "high", "xhigh", "max":
