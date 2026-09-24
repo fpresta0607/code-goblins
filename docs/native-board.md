@@ -251,7 +251,7 @@ A `--lavish` link follows the presentation URL rule below, and a refusal names t
 An item stays open until the Overlord clears it (`review_clear`) or its reporter withdraws it with a reason; nothing expires it, a `cfo serve` restart keeps it, and a respawned or retired goblin leaves it listed.
 The Overlord can instead answer it (`review_answer`): his text goes once to the reporter, the goblin's own pane while it is the same task generation or the CFO that reported it, and the item closes as answered; an answer for a goblin that restarted or ended goes to the current CFO instead, and the item reads `delivered: false`.
 The board sees each item in `snapshot.reviews` with an image count, never a path or a digest, and fetches image n at `/api/reviews/<id>/images/<n>`, checked again on every request.
-Closed items and their copies are pruned a week after they close; open items are never dropped, and a new item waits in the inbox while 128 are open.
+Closed items and their copies are pruned a week after they close; open items and answered items whose answer is still on its way are never dropped, and a new item waits in the inbox while all 128 held items are one or the other.
 The API contract for the board is `data/board-ui/api-contract.md`.
 
 ## Nonblocking presentation notices
