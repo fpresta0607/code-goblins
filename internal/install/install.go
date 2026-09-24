@@ -3,6 +3,7 @@ package install
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,8 +30,9 @@ const ProjectsRootVariable = "CFO_PROJECTS_ROOT"
 // default, because the file it merges into is someone's personal Claude Code
 // setup and losing their hooks to our installer is the worst failure here.
 type Service struct {
-	// Root is the resolved code-goblins checkout: the value CFO_HOME gets,
-	// the directory added to PATH, and the directory holding cfo.exe.
+	// Root is the CFO home: a code-goblins checkout, or a home set up outside
+	// one. It is the value CFO_HOME gets, the directory added to PATH, and the
+	// directory holding cfo.exe.
 	Root string
 	// UserSettings is the Claude Code user settings file, normally
 	// ~/.claude/settings.json.
@@ -43,6 +45,12 @@ type Service struct {
 	// ProjectsRoot is the folder to record as the projects root. Empty leaves
 	// whatever is recorded alone, so a plain re-install never forgets it.
 	ProjectsRoot string
+	// Contract and Policy are what a home outside a checkout gets from the
+	// binary, and Binary is the running executable, copied into it. All three
+	// are unset for a checkout, which carries its own.
+	Contract fs.FS
+	Policy   fs.FS
+	Binary   string
 }
 
 // Install wires the CFO into the machine and reports every change and every
@@ -56,7 +64,8 @@ func (s Service) Install(out io.Writer) error {
 	// with the machine untouched. The settings files then go before the
 	// environment writes: they are the step that can refuse on content - a
 	// hooks block this package cannot understand is not something to guess
-	// at - and refusing there still leaves the environment as it was.
+	// at - and refusing there still leaves the environment as it was. A home
+	// outside a checkout is written after them, for the same reason.
 	if _, _, err := s.Env.Get(homeVariable); err != nil {
 		return err
 	}
@@ -65,11 +74,21 @@ func (s Service) Install(out io.Writer) error {
 			return fmt.Errorf("install: --projects-root %s is not a directory; name the folder that holds your checkouts", s.ProjectsRoot)
 		}
 	}
+	if s.Contract != nil {
+		if err := s.refuseAnotherHome(); err != nil {
+			return err
+		}
+	}
 	if err := s.writeUserHooks(report); err != nil {
 		return err
 	}
 	if err := s.clearRepoHooks(report); err != nil {
 		return err
+	}
+	if s.Contract != nil {
+		if err := s.writeHome(report); err != nil {
+			return err
+		}
 	}
 	if err := s.setHome(report); err != nil {
 		return err
@@ -96,6 +115,11 @@ func (s Service) Uninstall(out io.Writer) error {
 	if _, _, err := s.Env.Get(homeVariable); err != nil {
 		return err
 	}
+	if s.Contract != nil {
+		if err := s.refuseAnotherHome(); err != nil {
+			return err
+		}
+	}
 	if err := s.removeUserHooks(report); err != nil {
 		return err
 	}
@@ -107,6 +131,9 @@ func (s Service) Uninstall(out io.Writer) error {
 	}
 	if err := s.unsetProjectsRoot(report); err != nil {
 		return err
+	}
+	if s.Contract != nil {
+		report.same("home", "kept "+s.Root+" with its state and data; delete the folder to remove them")
 	}
 	return s.finish(report, "cfo install --uninstall: nothing to remove")
 }

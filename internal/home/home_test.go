@@ -99,6 +99,12 @@ func TestIsPrimaryFalseInLinkedWorktree(t *testing.T) {
 	if IsPrimary(h) {
 		t.Error("a linked worktree must never be primary")
 	}
+	if err := os.WriteFile(filepath.Join(wt, InstalledMarker), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if IsPrimary(h) {
+		t.Error("a linked worktree carrying the installed marker must never be primary")
+	}
 }
 
 func TestGitPathsUseTheSameCanonicalIdentityAsPrimaryCheck(t *testing.T) {
@@ -114,7 +120,7 @@ func TestGitPathsUseTheSameCanonicalIdentityAsPrimaryCheck(t *testing.T) {
 	}
 }
 
-func TestIsPrimaryFalseOutsideGit(t *testing.T) {
+func TestIsPrimaryOutsideGitNeedsTheInstalledMarker(t *testing.T) {
 	// GOTMPDIR can put the test's temp directory inside a git checkout (an
 	// operator's own TMP is wherever they put it), so "outside git"
 	// has to be established rather than assumed: git stops its upward search
@@ -131,8 +137,17 @@ func TestIsPrimaryFalseOutsideGit(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, "state"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if IsPrimary(Home{Root: dir, State: filepath.Join(dir, "state")}) {
+	h := Home{Root: dir, State: filepath.Join(dir, "state")}
+	if IsPrimary(h) {
 		t.Error("primary outside a git checkout")
+	}
+	// A home cfo install set up outside a checkout carries the marker, and is
+	// primary by it alone.
+	if err := os.WriteFile(filepath.Join(dir, InstalledMarker), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !IsPrimary(h) {
+		t.Error("not primary outside git with AGENTS.md, state/ and the installed marker")
 	}
 }
 

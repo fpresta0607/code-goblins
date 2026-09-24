@@ -107,6 +107,7 @@ cfo doctor
 ```
 
 `install.ps1 -Bootstrap` installs or builds the Code Goblins binary and scriptable dependencies. `cfo install` wires the CFO into your user environment so a supervisor opened from another project can still manage the fleet.
+Run outside a checkout, `cfo install` needs no clone: it sets up a per-user CFO home at `%LOCALAPPDATA%\CodeGoblins` from the binary itself, with the CFO's contract, skills and default policy, and `cfo.exe` and `goblins.exe` on your PATH.
 
 The CFO and its goblins drive `gh-axi`, `chrome-devtools-axi` and `no-mistakes` through the skills those tools publish. Install the skills once at user scope, so every harness and every project sees them:
 

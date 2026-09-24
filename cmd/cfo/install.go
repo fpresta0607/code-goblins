@@ -7,13 +7,15 @@ import (
 	"os"
 	"path/filepath"
 
+	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/install"
 )
 
-// runInstall wires this checkout into the machine so a Claude Code session
-// opened in any repository is supervised by it.
+// runInstall wires a CFO home into the machine so a Claude Code session
+// opened in any repository is supervised by it: this checkout, or outside
+// one a per-user home the binary sets up itself.
 //
 // It is deliberately separate from `cfo doctor`: doctor reports, install
 // repairs, and a command that silently changes a machine while claiming to
@@ -39,7 +41,7 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	root, err := installRoot()
+	root, checkout, err := installRoot()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -54,6 +56,13 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		UserSettings: settings,
 		RepoSettings: filepath.Join(root, ".claude", "settings.json"),
 		Env:          install.NewEnvStore(execx.OSRunner{}),
+	}
+	if !checkout {
+		service.Contract, service.Policy = codegoblins.Contract, codegoblins.Policy
+		if service.Binary, err = os.Executable(); err != nil {
+			fmt.Fprintf(stderr, "cfo install: find the running binary: %v\n", err)
+			return 1
+		}
 	}
 	if *projectsRoot != "" {
 		if service.ProjectsRoot, err = fsx.AbsClean(*projectsRoot); err != nil {
@@ -81,27 +90,36 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// installRoot is the checkout install wires in: the working directory, not
-// whatever CFO_HOME already says. An adopter runs this from the clone they
-// want to use, and honoring a stale CFO_HOME here would make the one command
-// that is supposed to repair the machine quietly confirm the broken value.
-//
-// It refuses anything that is not recognisably a code-goblins checkout,
-// because the failure it prevents - CFO_HOME pointed at a directory with no
-// fleet in it - is silent, and every hook downstream would just go inert.
-func installRoot() (string, error) {
+// installRoot is the home install wires in, decided by the working
+// directory and never by whatever CFO_HOME already says: honoring a stale
+// CFO_HOME here would make the one command that is supposed to repair the
+// machine quietly confirm the broken value. Run from a code-goblins checkout
+// it is that checkout; run anywhere else it is the per-user home under
+// LOCALAPPDATA, which install sets up in full, so CFO_HOME never names a
+// directory with no fleet in it and the hooks never go silently inert.
+func installRoot() (root string, checkout bool, err error) {
 	wd, err := os.Getwd()
 	if err != nil {
-		return "", fmt.Errorf("cfo install: resolve the working directory: %w", err)
+		return "", false, fmt.Errorf("cfo install: resolve the working directory: %w", err)
 	}
-	root, err := fsx.AbsClean(wd)
-	if err != nil {
-		return "", fmt.Errorf("cfo install: resolve the working directory: %w", err)
+	if root, err = fsx.AbsClean(wd); err != nil {
+		return "", false, fmt.Errorf("cfo install: resolve the working directory: %w", err)
 	}
+	checkout = true
 	for _, marker := range []string{"AGENTS.md", filepath.Join("cmd", "cfo")} {
 		if _, err := os.Stat(filepath.Join(root, marker)); err != nil {
-			return "", fmt.Errorf("cfo install: %s is not a code-goblins checkout (no %s); run it from your clone", root, marker)
+			checkout = false
 		}
 	}
-	return root, nil
+	if checkout {
+		return root, true, nil
+	}
+	local := os.Getenv("LOCALAPPDATA")
+	if local == "" {
+		return "", false, fmt.Errorf("cfo install: %s is not a code-goblins checkout and LOCALAPPDATA is not set, so there is no per-user folder for a CFO home", root)
+	}
+	if root, err = fsx.AbsClean(filepath.Join(local, "CodeGoblins")); err != nil {
+		return "", false, fmt.Errorf("cfo install: resolve the per-user home: %w", err)
+	}
+	return root, false, nil
 }

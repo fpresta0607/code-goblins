@@ -98,9 +98,17 @@ func resolve() (Home, error) {
 	return h, nil
 }
 
+// InstalledMarker is the file `cfo install` writes into a home it sets up
+// outside a checkout. Such a home is in no git repository, so the checkout
+// test cannot vouch for it and the marker does instead. The repository never
+// tracks one, so no checkout or worktree carries it.
+const InstalledMarker = ".cfo-home"
+
 // IsPrimary reports whether h is a genuine primary home: AGENTS.md present,
-// state/ present, and a plain (non-worktree) git checkout. It never creates
-// anything; any failure to confirm is false, never an error.
+// state/ present, and either a plain (non-worktree) git checkout or, where
+// git places the root in no repository, a home `cfo install` set up. A linked
+// worktree is never primary, marker or not. It never creates anything; any
+// failure to confirm is false, never an error.
 func IsPrimary(h Home) bool {
 	if fi, err := os.Stat(filepath.Join(h.Root, "AGENTS.md")); err != nil || !fi.Mode().IsRegular() {
 		return false
@@ -110,7 +118,8 @@ func IsPrimary(h Home) bool {
 	}
 	gitDir, commonDir, err := gitPaths(h.Root)
 	if err != nil {
-		return false
+		fi, err := os.Stat(filepath.Join(h.Root, InstalledMarker))
+		return err == nil && fi.Mode().IsRegular()
 	}
 	return fsx.SamePath(gitDir, commonDir)
 }
