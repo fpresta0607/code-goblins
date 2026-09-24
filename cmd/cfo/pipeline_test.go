@@ -108,6 +108,11 @@ func (r *pipelineSwitchRunner) Run(ctx context.Context, q execx.Request) (execx.
 		if len(q.Args) >= 3 && q.Args[0] == "pane" && q.Args[1] == "get" {
 			return execx.Result{Stdout: []byte(`{"result":{"pane":{"pane_id":"pane-1"}}}`)}, nil
 		}
+		// The pane's shell is this test process, which waits on nothing, so a
+		// switch finds nothing left over from the stopped harness.
+		if len(q.Args) >= 2 && q.Args[0] == "pane" && q.Args[1] == "process-info" {
+			return execx.Result{Stdout: []byte(fmt.Sprintf(`{"result":{"process_info":{"shell_pid":%d,"foreground_process_group_id":%d}}}`, os.Getpid(), os.Getpid()))}, nil
+		}
 		if len(q.Args) >= 3 && q.Args[0] == "agent" && q.Args[1] == "get" {
 			if r.alive {
 				return execx.Result{Stdout: []byte(fmt.Sprintf(`{"result":{"agent":{"agent":"kimi","agent_status":"working","interactive_ready":false,"state_change_seq":%d,"revision":%d}}}`, r.prompts+1, r.prompts+1))}, nil

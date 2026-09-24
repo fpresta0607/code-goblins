@@ -1357,6 +1357,9 @@ type fixtureAdapter struct {
 	specs       *[]harness.LaunchSpec
 	buildErr    error
 	confirmKeys []string
+	// control replaces the fixture's stop and resume control, for a test
+	// that needs a real harness's.
+	control *harness.Control
 }
 
 type typedFixtureAdapter struct {
@@ -1394,6 +1397,9 @@ func (a typedFixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, err
 }
 
 func (a fixtureAdapter) Control() harness.Control {
+	if a.control != nil {
+		return *a.control
+	}
 	return harness.Control{
 		StopKeys:      []string{"escape"},
 		StopCommand:   "/exit",

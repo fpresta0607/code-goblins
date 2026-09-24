@@ -84,6 +84,10 @@ type Service struct {
 	Sleep       func(context.Context, time.Duration) error
 	ReleaseLock func(string, string) error
 	PolicyPath  string
+	// Leftovers lists the processes a pane's shell is still waiting on
+	// after a switch stops its harness. Nil reads Herdr and the jobs the
+	// shell holds.
+	Leftovers func(context.Context, *herdr.Client, herdr.Target) ([]Leftover, error)
 }
 
 // Spawn creates and launches exactly one local ship or scout task.

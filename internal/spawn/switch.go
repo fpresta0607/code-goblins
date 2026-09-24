@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -208,13 +210,40 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err := s.stopHarness(ctx, &herdrClient, paneTarget, current.Control()); err != nil {
 		return SwitchResult{}, err
 	}
+	from := describe(meta.Harness, meta.Model, meta.Effort)
+	// The pane's shell waits until every process the harness started has
+	// exited, so one left alive would hold a relaunch in the shell's input, to
+	// start later with no registered agent. Switch refuses over them instead.
+	if leftovers, err := s.leftoversOf(ctx, &herdrClient, paneTarget); err != nil || len(leftovers) > 0 {
+		rerun := "cfo switch " + req.ID + " --harness " + string(target.Harness)
+		if target.Model != "" {
+			rerun += " --model " + target.Model
+		}
+		if target.Effort != "" {
+			rerun += " --effort " + target.Effort
+		}
+		if req.ForceDirty {
+			rerun += " --force-dirty"
+		}
+		refusal := fmt.Errorf("switch: %s exited, but what pane %s's shell is waiting on could not be checked (%v), so no harness was started; check the pane, then run:\n  %s", from, paneTarget.Pane, err, rerun)
+		if err == nil {
+			var named strings.Builder
+			for _, leftover := range leftovers {
+				fmt.Fprintf(&named, "\n  %s pid %d: %s", leftover.Executable, leftover.PID, leftover.CommandLine)
+			}
+			refusal = fmt.Errorf("switch: %s exited, but processes it started are still running and keep pane %s's shell waiting, so no harness was started:%s\nStop them (a shared server is restarted detached, not only stopped), then run:\n  %s", from, paneTarget.Pane, named.String(), rerun)
+		}
+		if appendErr := state.AppendStatus(s.StateDir, req.ID, "failed: "+bounded(state.NormalizeStatusDetail(refusal.Error()), 1000)); appendErr != nil {
+			refusal = errors.Join(refusal, appendErr)
+		}
+		return SwitchResult{}, refusal
+	}
 
 	briefPath := meta.Brief
 	if briefPath == "" {
 		briefPath = req.BriefPath
 	}
 
-	from := describe(meta.Harness, meta.Model, meta.Effort)
 	launchMeta := meta
 	// Publish the replacement generation before its first native hook can run.
 	if err := s.publishSwitch(&meta, target); err != nil {
@@ -442,6 +471,22 @@ func (s Service) stopHarness(ctx context.Context, client *herdr.Client, target h
 	if stopped, err := s.waitForStop(ctx, client, target, stopTries/2); err != nil || stopped {
 		return err
 	}
+	// A stop command can open a dialog instead of exiting. It is answered
+	// with the harness's own keys before any interrupt, which would leave the
+	// work it asks about running.
+	if len(control.ExitMarkers) > 0 {
+		tail, err := client.Capture(ctx, target, 40, false)
+		if err == nil && slices.ContainsFunc(control.ExitMarkers, func(marker string) bool { return strings.Contains(tail, marker) }) {
+			for _, key := range control.ExitKeys {
+				if err := client.SendKey(ctx, target, key); err != nil {
+					return fmt.Errorf("switch: answer the harness's exit dialog: %w", err)
+				}
+			}
+			if stopped, err := s.waitForStop(ctx, client, target, stopTries); err != nil || stopped {
+				return err
+			}
+		}
+	}
 	if err := client.SendKey(ctx, target, "Ctrl-C"); err != nil {
 		return fmt.Errorf("switch: interrupt the harness after it ignored %q: %w", control.StopCommand, err)
 	}
@@ -453,6 +498,60 @@ func (s Service) stopHarness(ctx context.Context, client *herdr.Client, target h
 		return fmt.Errorf("switch: harness on pane %s is still running after %q and an interrupt; refusing to start a second one beside it", target.Pane, control.StopCommand)
 	}
 	return nil
+}
+
+// Leftover is a process a stopped harness left running, named by
+// executable, command line and pid.
+type Leftover struct {
+	PID         int
+	Executable  string
+	CommandLine string
+}
+
+// leftoverPolls is how many more looks a stopped harness's processes get
+// before they count as left behind: its own children can take a moment to
+// follow it out. A failed listing gets the same looks, because a job that
+// empties mid-check can close its handle under the reader; only one that
+// still fails on the last look refuses.
+const leftoverPolls = 4
+
+// leftoversOf lists the processes a pane's shell is still waiting on.
+func (s Service) leftoversOf(ctx context.Context, client *herdr.Client, target herdr.Target) ([]Leftover, error) {
+	list := s.Leftovers
+	if list == nil {
+		list = paneLeftovers
+	}
+	for attempt := 0; ; attempt++ {
+		leftovers, err := list(ctx, client, target)
+		if (err == nil && len(leftovers) == 0) || attempt == leftoverPolls {
+			return leftovers, err
+		}
+		if err := s.sleep(ctx, stopPoll); err != nil {
+			return nil, err
+		}
+	}
+}
+
+// paneLeftovers lists what a pane's shell is waiting on: the processes in
+// the job objects it holds open, named by executable, command line and pid.
+func paneLeftovers(ctx context.Context, client *herdr.Client, target herdr.Target) ([]Leftover, error) {
+	info, err := client.PaneProcessInfo(ctx, target)
+	if err != nil {
+		return nil, err
+	}
+	jobbed, err := proc.JobProcesses(info.ShellPID)
+	if err != nil {
+		return nil, err
+	}
+	leftovers := make([]Leftover, 0, len(jobbed))
+	for _, entry := range jobbed {
+		line, err := proc.CommandLine(entry.PID)
+		if err != nil {
+			line = "(" + err.Error() + ")"
+		}
+		leftovers = append(leftovers, Leftover{PID: entry.PID, Executable: entry.ExeBase, CommandLine: line})
+	}
+	return leftovers, nil
 }
 
 func (s Service) waitForStop(ctx context.Context, client *herdr.Client, target herdr.Target, tries int) (bool, error) {

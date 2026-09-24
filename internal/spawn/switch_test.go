@@ -13,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -30,6 +31,7 @@ type switchRunner struct {
 	agentGets    int
 	neverStops   bool
 	gitCalls     []execx.Request
+	herdrCalls   []execx.Request
 	resumeDialog string // pane text shown after the relaunch until an Enter lands
 	resumeReplay string // replayed conversation prepended to every post-relaunch read
 	statusReady  chan struct{}
@@ -41,6 +43,13 @@ type switchRunner struct {
 	// agentGoneAfterStart empties the pane only once the relaunch has run, so
 	// the stop sequence beforehand still runs against a live harness.
 	agentGoneAfterStart bool
+	// exitMenu makes /exit open claude's background-work menu: the harness
+	// stays up until an Enter answers it, and an interrupt does nothing.
+	exitMenu     bool
+	exitPending  bool
+	menuShowing  bool
+	menuAnswered bool
+	interrupted  bool
 }
 
 func (r *switchRunner) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
@@ -63,12 +72,36 @@ func (r *switchRunner) Run(ctx context.Context, req execx.Request) (execx.Result
 		}
 		return execx.Result{}, nil
 	}
+	if req.Name == "herdr" {
+		r.herdrCalls = append(r.herdrCalls, req)
+		// CFO registering an undetected replacement also gives the pane an
+		// agent again.
+		if len(req.Args) >= 2 && req.Args[0] == "pane" && req.Args[1] == "report-agent" {
+			r.restarted = true
+		}
+	}
 	// A typed slash command is the harness being told to exit, so the fake
 	// agent becomes stoppable again - otherwise a second switch in one test
 	// would find an agent that can never die.
 	if req.Name == "herdr" && len(req.Args) >= 4 && req.Args[0] == "pane" && req.Args[1] == "send-text" && strings.HasPrefix(req.Args[3], "/") {
 		r.restarted = false
 		r.agentGets = 0
+		r.exitPending = r.exitMenu && !r.menuAnswered
+	}
+	// The Enter that submits /exit opens the menu; only a later Enter answers
+	// it.
+	if req.Name == "herdr" && len(req.Args) >= 4 && req.Args[0] == "pane" && req.Args[1] == "send-keys" {
+		switch {
+		case r.exitPending && req.Args[3] == "enter":
+			r.exitPending, r.menuShowing, r.neverStops = false, true, true
+		case r.menuShowing && req.Args[3] == "enter":
+			r.menuShowing, r.menuAnswered, r.neverStops, r.agentGets = false, true, false, r.stopAfter
+		case r.menuShowing && req.Args[3] == "ctrl+c":
+			r.interrupted = true
+		}
+	}
+	if r.menuShowing && req.Name == "herdr" && len(req.Args) >= 3 && req.Args[0] == "pane" && req.Args[1] == "read" {
+		return execx.Result{Stdout: []byte("Background work is running\nThe following will stop when you exit:\n  npm run dev (shell 1)\n> 1. Exit and stop tasks\n  2. Move to background and exit\n  3. Stay\n")}, nil
 	}
 	// A resume dialog exists only once the new harness is up: it covers the
 	// pane until an Enter lands, exactly like claude's resume-from-summary
@@ -155,6 +188,8 @@ func newSwitchFixture(t *testing.T) *switchFixture {
 		harness.Claude: fixtureAdapter{events: &base.events, specs: &base.specs},
 		harness.Kimi:   fixtureAdapter{events: &base.events, specs: &base.specs},
 	}}
+	// The stopped harness leaves nothing for the pane's shell to wait on.
+	service.Leftovers = func(context.Context, *herdr.Client, herdr.Target) ([]Leftover, error) { return nil, nil }
 
 	return &switchFixture{
 		service:  service,
@@ -987,4 +1022,162 @@ func launchLiteral(t *testing.T, literals []string) string {
 		t.Fatalf("literals = %q, want at least one harness launch line", literals)
 	}
 	return literals[last]
+}
+
+// /exit on a Claude goblin with background work opens Claude's "Background
+// work is running" menu instead of exiting, and switch used to interrupt and
+// then refuse. It now answers with Claude's own exit keys, which pick Exit
+// and stop tasks, and never interrupts the menu.
+func TestSwitchAnswersClaudesBackgroundWorkMenu(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	claude, err := harness.DefaultRegistry().Get(harness.Claude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	control := claude.Control()
+	fixture.service.Harness.Adapters[harness.Claude] = fixtureAdapter{events: &fixture.base.events, specs: &fixture.base.specs, control: &control}
+	fixture.runner.exitMenu = true
+
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"}); err != nil {
+		t.Fatalf("Switch over the background-work menu: %v", err)
+	}
+	if !fixture.runner.menuAnswered || fixture.runner.interrupted {
+		t.Fatalf("menu answered %v, interrupted %v; want it answered and never interrupted", fixture.runner.menuAnswered, fixture.runner.interrupted)
+	}
+}
+
+// A goblin's Claude session left a Lavish review server and a
+// chrome-devtools-axi bridge running when it exited on 2026-09-23. The
+// pane's shell waits for both, so the relaunch sat in its input and later
+// started with no registered agent. Switch now refuses before relaunching,
+// naming each leftover with the line to rerun, refuses again on a rerun while
+// they live, and relaunches once they are gone.
+func TestSwitchRefusesToRelaunchOverTheOldSessionsLeftovers(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	tonight := []Leftover{
+		{PID: 38804, Executable: "node.exe", CommandLine: `"C:\Program Files\nodejs\node.exe" C:\Users\fpres\AppData\Roaming\npm\node_modules\lavish-axi\dist\cli.mjs server --port 4387`},
+		{PID: 41276, Executable: "node.exe", CommandLine: `"C:\Program Files\nodejs\node.exe" C:\Users\fpres\AppData\Roaming\npm\node_modules\chrome-devtools-axi\dist\bridge.mjs --session gb-steward-ui`},
+	}
+	alive := tonight
+	fixture.service.Leftovers = func(_ context.Context, _ *herdr.Client, target herdr.Target) ([]Leftover, error) {
+		if target.Pane != fixture.meta.HerdrPaneID {
+			t.Errorf("leftovers asked about pane %q, want the goblin's %q", target.Pane, fixture.meta.HerdrPaneID)
+		}
+		return alive, nil
+	}
+	request := SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Model: "kimi-k2", Effort: "high", ForceDirty: true, Session: "fleet"}
+	rerun := "cfo switch " + fixture.meta.ID + " --harness kimi --model kimi-k2 --effort high --force-dirty"
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		_, err := fixture.service.Switch(context.Background(), request)
+		if err == nil {
+			t.Fatalf("attempt %d relaunched over the leftovers", attempt)
+		}
+		for _, want := range []string{"node.exe pid 38804: " + tonight[0].CommandLine, "node.exe pid 41276: " + tonight[1].CommandLine, rerun} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("attempt %d refusal %q does not name %q", attempt, err, want)
+			}
+		}
+		after, err := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines, _ := state.TailStatus(fixture.stateDir, fixture.meta.ID, 1)
+		if fixture.runner.restarted || after.Harness != fixture.meta.Harness || after.SpawnGen != fixture.meta.SpawnGen || len(lines) != 1 || !strings.Contains(lines[0], "failed: switch:") {
+			t.Fatalf("attempt %d: restarted %v, meta %+v, status %q; want no harness, the task unchanged and the refusal on the board", attempt, fixture.runner.restarted, after, lines)
+		}
+	}
+
+	alive = nil
+	fixture.runner.herdrCalls = nil
+	if _, err := fixture.service.Switch(context.Background(), request); err != nil {
+		t.Fatalf("switch once the leftovers are stopped: %v", err)
+	}
+	if !fixture.runner.restarted {
+		t.Fatal("no harness started once the leftovers were stopped")
+	}
+	started := slices.ContainsFunc(fixture.runner.herdrCalls, func(call execx.Request) bool {
+		return len(call.Args) >= 3 && call.Args[0] == "agent" && call.Args[1] == "start" && call.Args[2] == "gb-"+fixture.meta.ID
+	})
+	if !started {
+		t.Fatalf("relaunch did not start agent %q; herdr calls %v", "gb-"+fixture.meta.ID, fixture.runner.herdrCalls)
+	}
+}
+
+// A relaunched harness Herdr cannot detect is registered by CFO itself, under
+// the goblin's gb- name, so deliveries to it still confirm.
+func TestSwitchRegistersAnUndetectedRelaunchUnderTheGoblinsName(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	fixture.service.Harness.Adapters[harness.Pi] = typedFixtureAdapter{events: &fixture.base.events, kind: harness.Pi}
+	fixture.service.Leftovers = func(context.Context, *herdr.Client, herdr.Target) ([]Leftover, error) {
+		fixture.base.runner.agentNotFound = true
+		fixture.base.runner.harnessRunning = true
+		return nil, nil
+	}
+
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Pi, Session: "fleet"}); err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	reported := fixture.base.runner.reportedAgent
+	if index := slices.Index(reported, "--agent-session-id"); index < 0 || index+1 >= len(reported) || reported[index+1] != "gb-"+fixture.meta.ID {
+		t.Fatalf("reported agent %v, want it registered as %q", reported, "gb-"+fixture.meta.ID)
+	}
+}
+
+// A job handle the shell closes mid-check makes one listing fail; the grace
+// keeps looking, so a shell that turns out free still gets its harness.
+func TestSwitchLooksAgainWhenALeftoverListingFailsOnce(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	looks := 0
+	fixture.service.Leftovers = func(context.Context, *herdr.Client, herdr.Target) ([]Leftover, error) {
+		looks++
+		if looks == 1 {
+			return nil, errors.New("duplicate job handle: the handle is invalid")
+		}
+		return nil, nil
+	}
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"}); err != nil {
+		t.Fatalf("one failed listing stopped the switch: %v", err)
+	}
+	if !fixture.runner.restarted {
+		t.Fatal("no harness started")
+	}
+}
+
+// A listing that fails through the whole grace cannot prove the shell free,
+// so switch refuses and starts nothing.
+func TestSwitchRefusesWhenTheLeftoverListingKeepsFailing(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	looks := 0
+	fixture.service.Leftovers = func(context.Context, *herdr.Client, herdr.Target) ([]Leftover, error) {
+		looks++
+		return nil, errors.New("duplicate job handle: access is denied")
+	}
+	_, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"})
+	if err == nil || !strings.Contains(err.Error(), "could not be checked (duplicate job handle: access is denied)") {
+		t.Fatalf("Switch error %v, want the could-not-be-checked refusal", err)
+	}
+	if fixture.runner.restarted || looks != leftoverPolls+1 {
+		t.Fatalf("restarted %v after %d looks; want no harness after %d", fixture.runner.restarted, looks, leftoverPolls+1)
+	}
+}
+
+// A harness's own children can take a moment to follow it out, so processes
+// gone within a few looks do not stop a switch.
+func TestSwitchLetsAHarnessesChildrenFollowItOut(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	looks := 0
+	fixture.service.Leftovers = func(context.Context, *herdr.Client, herdr.Target) ([]Leftover, error) {
+		looks++
+		if looks == 1 {
+			return []Leftover{{PID: 5120, Executable: "bash.exe", CommandLine: "bash -c 'npm run dev'"}}, nil
+		}
+		return nil, nil
+	}
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"}); err != nil {
+		t.Fatalf("a child on its way out stopped the switch: %v", err)
+	}
+	if !fixture.runner.restarted {
+		t.Fatal("no harness started")
+	}
 }

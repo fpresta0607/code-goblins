@@ -117,6 +117,12 @@ type Control struct {
 	// session). While one is on screen, the relaunch clears it with the
 	// launch's ConfirmKeys, exactly like a startup dialog.
 	ResumeMarkers []string
+	// ExitMarkers mark a dialog StopCommand can open instead of exiting
+	// (claude asks what to do with background work still running). While
+	// one is on screen, switch answers it with ExitKeys rather than
+	// interrupting, which would leave that work running.
+	ExitMarkers []string
+	ExitKeys    []string
 }
 
 // RoleVariable names the pane role every launch stamps, and RoleGoblin is

@@ -15,22 +15,24 @@ const (
 
 // Offsets into the 64-bit process structures walked below. They are fixed by
 // the Windows ABI and unchanged since Vista; a build that ever reads a 32-bit
-// target instead gets a short or failed read and reports no directory rather
+// target instead gets a short or failed read and reports no value rather
 // than a wrong one.
 const (
 	// pebOffsetProcessParameters is PEB.ProcessParameters.
 	pebOffsetProcessParameters = 0x20
 	// paramsOffsetCurrentDirectory is
-	// RTL_USER_PROCESS_PARAMETERS.CurrentDirectory.DosPath, a UNICODE_STRING
-	// whose Length is at +0x00 and whose Buffer pointer is at +0x08.
+	// RTL_USER_PROCESS_PARAMETERS.CurrentDirectory.DosPath and
+	// paramsOffsetCommandLine its CommandLine, each a UNICODE_STRING whose
+	// Length is at +0x00 and whose Buffer pointer is at +0x08.
 	paramsOffsetCurrentDirectory = 0x38
+	paramsOffsetCommandLine      = 0x70
 	unicodeStringBufferOffset    = 0x08
 )
 
-// maxDirectoryBytes bounds the UTF-16 copy taken out of the target process.
-// A working directory is a path, and no path reaches this length; the bound
-// exists so a garbage Length field cannot turn into a huge allocation.
-const maxDirectoryBytes = 64 * 1024
+// maxParameterBytes bounds the UTF-16 copy taken out of the target process.
+// A path or a command line (at most 32767 characters) fits; the bound exists
+// so a garbage Length field cannot turn into a huge allocation.
+const maxParameterBytes = 64 * 1024
 
 var (
 	ntdll                     = syscall.NewLazyDLL("ntdll.dll")
@@ -45,6 +47,10 @@ var (
 // it, because a listening port with an unknown directory is still a finding.
 var ErrDirectoryUnreadable = errors.New("proc: working directory is unreadable")
 
+// ErrCommandLineUnreadable reports that a process's command line could not
+// be read, for the same reasons as its working directory.
+var ErrCommandLineUnreadable = errors.New("proc: command line is unreadable")
+
 // WorkingDirectory returns the directory pid is currently running in.
 //
 // It exists for the one question a command line cannot answer. A dev server
@@ -56,9 +62,30 @@ var ErrDirectoryUnreadable = errors.New("proc: working directory is unreadable")
 //
 // Nothing is written and no handle outlives the call.
 func WorkingDirectory(pid int) (string, error) {
+	directory, err := parameterString(pid, paramsOffsetCurrentDirectory)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrDirectoryUnreadable, err)
+	}
+	return directory, nil
+}
+
+// CommandLine returns the command line pid was started with, from the same
+// parameter block, so a process can be named by what it runs and not only
+// by its executable.
+func CommandLine(pid int) (string, error) {
+	line, err := parameterString(pid, paramsOffsetCommandLine)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrCommandLineUnreadable, err)
+	}
+	return line, nil
+}
+
+// parameterString reads the UNICODE_STRING at offset in pid's process
+// parameter block.
+func parameterString(pid int, offset uintptr) (string, error) {
 	handle, err := syscall.OpenProcess(processQueryInformation|processVMRead, false, uint32(pid))
 	if err != nil {
-		return "", fmt.Errorf("%w: open process %d: %v", ErrDirectoryUnreadable, pid, err)
+		return "", fmt.Errorf("open process %d: %v", pid, err)
 	}
 	defer syscall.CloseHandle(handle)
 
@@ -71,20 +98,20 @@ func WorkingDirectory(pid int) (string, error) {
 		return "", err
 	}
 	if parameters == 0 {
-		return "", fmt.Errorf("%w: process %d has no parameter block", ErrDirectoryUnreadable, pid)
+		return "", fmt.Errorf("process %d has no parameter block", pid)
 	}
 
 	descriptor := make([]byte, 16)
-	if err := readMemory(handle, parameters+paramsOffsetCurrentDirectory, descriptor); err != nil {
+	if err := readMemory(handle, parameters+offset, descriptor); err != nil {
 		return "", err
 	}
 	length := int(*(*uint16)(unsafe.Pointer(&descriptor[0])))
 	buffer := uintptr(*(*uint64)(unsafe.Pointer(&descriptor[unicodeStringBufferOffset])))
 	if length == 0 || buffer == 0 {
-		return "", fmt.Errorf("%w: process %d reports no working directory", ErrDirectoryUnreadable, pid)
+		return "", fmt.Errorf("process %d reports an empty value", pid)
 	}
-	if length%2 != 0 || length > maxDirectoryBytes {
-		return "", fmt.Errorf("%w: process %d reports a %d byte directory", ErrDirectoryUnreadable, pid, length)
+	if length%2 != 0 || length > maxParameterBytes {
+		return "", fmt.Errorf("process %d reports a %d byte value", pid, length)
 	}
 
 	raw := make([]byte, length)
@@ -108,11 +135,11 @@ func processEnvironmentBlock(handle syscall.Handle) (uintptr, error) {
 		uintptr(unsafe.Pointer(&returned)),
 	)
 	if status != 0 {
-		return 0, fmt.Errorf("%w: NtQueryInformationProcess returned 0x%x", ErrDirectoryUnreadable, status)
+		return 0, fmt.Errorf("NtQueryInformationProcess returned 0x%x", status)
 	}
 	peb := uintptr(*(*uint64)(unsafe.Pointer(&information[8])))
 	if peb == 0 {
-		return 0, fmt.Errorf("%w: process reports no environment block", ErrDirectoryUnreadable)
+		return 0, errors.New("process reports no environment block")
 	}
 	return peb, nil
 }
@@ -138,10 +165,10 @@ func readMemory(handle syscall.Handle, address uintptr, buffer []byte) error {
 		uintptr(unsafe.Pointer(&read)),
 	)
 	if ok == 0 {
-		return fmt.Errorf("%w: read %d bytes at 0x%x: %v", ErrDirectoryUnreadable, len(buffer), address, err)
+		return fmt.Errorf("read %d bytes at 0x%x: %v", len(buffer), address, err)
 	}
 	if int(read) != len(buffer) {
-		return fmt.Errorf("%w: read %d of %d bytes at 0x%x", ErrDirectoryUnreadable, read, len(buffer), address)
+		return fmt.Errorf("read %d of %d bytes at 0x%x", read, len(buffer), address)
 	}
 	return nil
 }
