@@ -31,6 +31,7 @@ type switchRunner struct {
 	agentGets    int
 	neverStops   bool
 	gitCalls     []execx.Request
+	herdrCalls   []execx.Request
 	resumeDialog string // pane text shown after the relaunch until an Enter lands
 	resumeReplay string // replayed conversation prepended to every post-relaunch read
 	statusReady  chan struct{}
@@ -70,6 +71,14 @@ func (r *switchRunner) Run(ctx context.Context, req execx.Request) (execx.Result
 			return execx.Result{Stdout: []byte(r.gitLog)}, nil
 		}
 		return execx.Result{}, nil
+	}
+	if req.Name == "herdr" {
+		r.herdrCalls = append(r.herdrCalls, req)
+		// CFO registering an undetected replacement also gives the pane an
+		// agent again.
+		if len(req.Args) >= 2 && req.Args[0] == "pane" && req.Args[1] == "report-agent" {
+			r.restarted = true
+		}
 	}
 	// A typed slash command is the harness being told to exit, so the fake
 	// agent becomes stoppable again - otherwise a second switch in one test
@@ -1080,11 +1089,76 @@ func TestSwitchRefusesToRelaunchOverTheOldSessionsLeftovers(t *testing.T) {
 	}
 
 	alive = nil
+	fixture.runner.herdrCalls = nil
 	if _, err := fixture.service.Switch(context.Background(), request); err != nil {
 		t.Fatalf("switch once the leftovers are stopped: %v", err)
 	}
 	if !fixture.runner.restarted {
 		t.Fatal("no harness started once the leftovers were stopped")
+	}
+	started := slices.ContainsFunc(fixture.runner.herdrCalls, func(call execx.Request) bool {
+		return len(call.Args) >= 3 && call.Args[0] == "agent" && call.Args[1] == "start" && call.Args[2] == "gb-"+fixture.meta.ID
+	})
+	if !started {
+		t.Fatalf("relaunch did not start agent %q; herdr calls %v", "gb-"+fixture.meta.ID, fixture.runner.herdrCalls)
+	}
+}
+
+// A relaunched harness Herdr cannot detect is registered by CFO itself, under
+// the goblin's gb- name, so deliveries to it still confirm.
+func TestSwitchRegistersAnUndetectedRelaunchUnderTheGoblinsName(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	fixture.service.Harness.Adapters[harness.Pi] = typedFixtureAdapter{events: &fixture.base.events, kind: harness.Pi}
+	fixture.service.Leftovers = func(context.Context, *herdr.Client, herdr.Target) ([]Leftover, error) {
+		fixture.base.runner.agentNotFound = true
+		fixture.base.runner.harnessRunning = true
+		return nil, nil
+	}
+
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Pi, Session: "fleet"}); err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	reported := fixture.base.runner.reportedAgent
+	if index := slices.Index(reported, "--agent-session-id"); index < 0 || index+1 >= len(reported) || reported[index+1] != "gb-"+fixture.meta.ID {
+		t.Fatalf("reported agent %v, want it registered as %q", reported, "gb-"+fixture.meta.ID)
+	}
+}
+
+// A job handle the shell closes mid-check makes one listing fail; the grace
+// keeps looking, so a shell that turns out free still gets its harness.
+func TestSwitchLooksAgainWhenALeftoverListingFailsOnce(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	looks := 0
+	fixture.service.Leftovers = func(context.Context, *herdr.Client, herdr.Target) ([]Leftover, error) {
+		looks++
+		if looks == 1 {
+			return nil, errors.New("duplicate job handle: the handle is invalid")
+		}
+		return nil, nil
+	}
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"}); err != nil {
+		t.Fatalf("one failed listing stopped the switch: %v", err)
+	}
+	if !fixture.runner.restarted {
+		t.Fatal("no harness started")
+	}
+}
+
+// A listing that fails through the whole grace cannot prove the shell free,
+// so switch refuses and starts nothing.
+func TestSwitchRefusesWhenTheLeftoverListingKeepsFailing(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	looks := 0
+	fixture.service.Leftovers = func(context.Context, *herdr.Client, herdr.Target) ([]Leftover, error) {
+		looks++
+		return nil, errors.New("duplicate job handle: access is denied")
+	}
+	_, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"})
+	if err == nil || !strings.Contains(err.Error(), "could not be checked (duplicate job handle: access is denied)") {
+		t.Fatalf("Switch error %v, want the could-not-be-checked refusal", err)
+	}
+	if fixture.runner.restarted || looks != leftoverPolls+1 {
+		t.Fatalf("restarted %v after %d looks; want no harness after %d", fixture.runner.restarted, looks, leftoverPolls+1)
 	}
 }
 

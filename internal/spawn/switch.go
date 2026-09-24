@@ -521,7 +521,7 @@ func (s Service) leftoversOf(ctx context.Context, client *herdr.Client, target h
 	}
 	for attempt := 0; ; attempt++ {
 		leftovers, err := list(ctx, client, target)
-		if err != nil || len(leftovers) == 0 || attempt == leftoverPolls {
+		if (err == nil && len(leftovers) == 0) || attempt == leftoverPolls {
 			return leftovers, err
 		}
 		if err := s.sleep(ctx, stopPoll); err != nil {
