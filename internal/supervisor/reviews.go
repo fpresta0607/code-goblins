@@ -610,10 +610,16 @@ func (h *HTTP) reviewImage(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, io.LimitReader(f, maxReviewImage))
 }
 
+// PublishWait puts a goblin's wait on the Overlord in the Command Center as an
+// item for him until he answers or clears it, or the goblin reports again. It
+// names the item waiting-<task>-<wake sequence>, which retireWaits relies on.
+func PublishWait(ctx context.Context, h home.Home, client *herdr.Client, taskID string, seq int, why string) error {
+	return PublishReview(ctx, h, client, taskID, fmt.Sprintf("waiting-%s-%d", taskID, seq), "Waiting on you: "+why, "", nil)
+}
+
 // retireWaits withdraws a goblin's wait on the Overlord once its task reports
 // anything newer than that wait, or is gone, so the Command Center never keeps
-// a request nobody is waiting on. cfo notify names each wait's item
-// waiting-<task>-<wake sequence>.
+// a request nobody is waiting on.
 func (s *Store) retireWaits() error {
 	for _, r := range s.Snapshot().Reviews {
 		if r.State != "open" || r.Task == "" || !strings.HasPrefix(r.ID, "waiting-"+r.Task+"-") {

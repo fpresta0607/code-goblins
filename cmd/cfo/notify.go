@@ -137,9 +137,7 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	defer cancel()
 	client := &herdr.Client{Commands: execx.OSRunner{}}
 	if verb == "waiting on overlord" {
-		// A wait on the Overlord is an item for him until he answers or
-		// clears it, or the goblin reports again.
-		if err := supervisor.PublishReview(ctx, h, client, id, fmt.Sprintf("waiting-%s-%d", id, record.Seq), "Waiting on you: "+state.NormalizeStatusDetail(detail), "", nil); err != nil {
+		if err := supervisor.PublishWait(ctx, h, client, id, record.Seq, state.NormalizeStatusDetail(detail)); err != nil {
 			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this wait, the CFO still has it: "+err.Error())
 		}
 	} else if err := supervisor.SurfaceNotify(ctx, h.State, client, id, record, images); err != nil {
