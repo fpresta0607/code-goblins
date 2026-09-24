@@ -61,6 +61,9 @@ type Evaluation struct {
 	At         time.Time `json:"at"`
 	// GateStep is the no-mistakes step the task's gate is on, such as test.
 	GateStep string `json:"gate_step,omitempty"`
+	// WaitingOn is what a waiting task waits on: another task's ID,
+	// overlord, ci or deploy.
+	WaitingOn string `json:"waiting_on,omitempty"`
 }
 
 type Action struct {

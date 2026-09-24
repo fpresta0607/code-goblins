@@ -287,3 +287,57 @@ func TestNotifyImagesAreCheckedBeforeAnythingIsRecorded(t *testing.T) {
 		t.Fatalf("wake records = %+v %v, want the question", records, err)
 	}
 }
+
+// Working, and waiting on another task, CI or a deploy, are status for the
+// board and wake nobody; waiting on the Overlord wakes the CFO like a
+// question, and a wait needs a valid target and a reason.
+func TestNotifyWorkingAndWaitingOnWakeOnlyForTheOverlord(t *testing.T) {
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	if err := os.Mkdir(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_HOME", dir)
+	for name, c := range map[string]struct {
+		args []string
+		exit int
+	}{
+		"waiting on itself":    {[]string{"g1", "--waiting-on", "g1", "on me"}, 2},
+		"waiting on a bad ID":  {[]string{"g1", "--waiting-on", "not/a/task", "why"}, 2},
+		"waiting without why":  {[]string{"g1", "--waiting-on", "ci"}, 2},
+		"working and done":     {[]string{"g1", "--working", "lint", "--done", "--pr", "https://example.com/pr/1"}, 2},
+		"working with a stray": {[]string{"g1", "--working", "lint", "extra"}, 2},
+	} {
+		var stdout, stderr bytes.Buffer
+		if exit := runNotify(c.args, &stdout, &stderr); exit != c.exit {
+			t.Errorf("%s: exit=%d stderr=%q, want %d", name, exit, stderr.String(), c.exit)
+		}
+	}
+	for _, c := range []struct {
+		args []string
+		line string
+	}{
+		{[]string{"g1", "--working", "fixing the lint step"}, "working: fixing the lint step"},
+		{[]string{"g1", "--waiting-on", "ci", "PR 45 checks"}, "waiting on ci: PR 45 checks"},
+		{[]string{"g1", "--waiting-on", "board-ui", "its API contract"}, "waiting on board-ui: its API contract"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if exit := runNotify(c.args, &stdout, &stderr); exit != 0 {
+			t.Fatalf("%v: exit=%d stderr=%q", c.args, exit, stderr.String())
+		}
+		lines, err := state.TailStatus(stateDir, "g1", 1)
+		if _, event := state.SplitStatus(lines[0]); err != nil || event != c.line {
+			t.Fatalf("status = %q %v, want %q", lines, err, c.line)
+		}
+	}
+	if records, err := wake.Pending(stateDir); err != nil || len(records) != 0 {
+		t.Fatalf("wake records = %+v %v, want none for working or a wait on a task or CI", records, err)
+	}
+	var stdout, stderr bytes.Buffer
+	if exit := runNotify([]string{"g1", "--waiting-on", "overlord", "log in to Stripe"}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("exit=%d stderr=%q", exit, stderr.String())
+	}
+	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != "waiting on overlord: log in to Stripe" {
+		t.Fatalf("wake records = %+v %v, want the wait on the Overlord", records, err)
+	}
+}

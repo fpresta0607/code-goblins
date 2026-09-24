@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 func openReview(id, task string, sums ...string) Review {
@@ -225,5 +228,118 @@ func TestFullQuestionListDropsOnlyTheOldestSuperseded(t *testing.T) {
 	}
 	if err := store.acceptQuestion(question(2 * maxQuestions)); err != ErrDeferred {
 		t.Fatalf("a question past 128 pending ones = %v, want deferred", err)
+	}
+}
+
+// A goblin's newer report says what it is doing: back at work after a
+// question, or waiting on something. A newer question still wins, and a wait
+// on another task clears once that task reports done.
+func TestSnapshotReadsWorkingAndWaitingOnReports(t *testing.T) {
+	store, h := testStore(t)
+	s := &Service{Store: store}
+	task := func() Task {
+		t.Helper()
+		snapshot, err := s.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, candidate := range snapshot.Tasks {
+			if candidate.ID == "task-1" {
+				return candidate
+			}
+		}
+		t.Fatal("task-1 missing from the snapshot")
+		return Task{}
+	}
+	report := func(id, line string) {
+		t.Helper()
+		if err := state.AppendStatus(h.State, id, line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := wake.Append(h.State, "notify", "task-1", "blocked: Which store?"); err != nil {
+		t.Fatal(err)
+	}
+	report("task-1", "blocked: Which store?")
+	if got := task(); got.Phase != "blocked" {
+		t.Fatalf("a task holding a question = %+v, want blocked", got.Evaluation)
+	}
+	report("task-1", "working: wiring the store")
+	if got := task(); got.Phase != "working" || got.Reason != "wiring the store" || got.Activity != "working: wiring the store" {
+		t.Fatalf("a task back at work = %+v activity %q, want working", got.Evaluation, got.Activity)
+	}
+	report("task-1", "waiting on ci: PR 45 checks")
+	if got := task(); got.Phase != "waiting" || got.WaitingOn != "ci" || got.Reason != "PR 45 checks" {
+		t.Fatalf("a task waiting on CI = %+v, want waiting on ci", got.Evaluation)
+	}
+	report("task-1", "waiting on task-2: its API contract")
+	if got := task(); got.Phase != "waiting" || got.WaitingOn != "task-2" {
+		t.Fatalf("a task waiting on another = %+v, want waiting on task-2", got.Evaluation)
+	}
+	report("task-2", "done: PR https://github.com/example/repo/pull/7")
+	if got := task(); got.Phase == "waiting" || got.WaitingOn != "" {
+		t.Fatalf("a wait on a task that finished = %+v, want it cleared", got.Evaluation)
+	}
+	store.mu.Lock()
+	store.db.Tasks["task-1"] = Evaluation{Phase: "blocked", Reason: "Pipeline decision required at review", Generation: "g1"}
+	store.mu.Unlock()
+	report("task-1", "working: polishing docs")
+	if got := task(); got.Phase != "blocked" {
+		t.Fatalf("a report under a gate parked for a decision = %+v, want the gate's blocked", got.Evaluation)
+	}
+	store.mu.Lock()
+	delete(store.db.Tasks, "task-1")
+	store.mu.Unlock()
+	if _, err := wake.Append(h.State, "notify", "task-1", "blocked: Which port?"); err != nil {
+		t.Fatal(err)
+	}
+	report("task-1", "blocked: Which port?")
+	if got := task(); got.Phase != "blocked" {
+		t.Fatalf("a newer question = %+v, want blocked", got.Evaluation)
+	}
+	// Done is per pull request: a goblin that asks about one PR and then
+	// reports another done still owes the answer.
+	report("task-1", "done: PR https://github.com/example/repo/pull/8")
+	if got := task(); got.Phase != "blocked" || got.Reason != "Waiting on the CFO: Which port?" {
+		t.Fatalf("a question followed by a done report = %+v, want blocked on it", got.Evaluation)
+	}
+	// A report older than a pending question never replaces it, even as the
+	// last status line: the CFO's release can land between a goblin's status
+	// line and its wake.
+	older := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339) + " working: released by the CFO\n"
+	if err := os.WriteFile(filepath.Join(h.State, "task-1.status"), []byte(older), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := task(); got.Phase != "blocked" || got.Reason != "Waiting on the CFO: Which port?" {
+		t.Fatalf("a question newer than the latest report = %+v, want blocked on it", got.Evaluation)
+	}
+}
+
+// A wait on the Overlord stays in the Command Center while it is the goblin's
+// latest report, and is withdrawn once the goblin reports anything newer.
+func TestWaitOnTheOverlordRetiresWhenTheGoblinReportsAgain(t *testing.T) {
+	store, h := testStore(t)
+	if err := state.AppendStatus(h.State, "task-1", "waiting on overlord: log in to Stripe"); err != nil {
+		t.Fatal(err)
+	}
+	wait := openReview("waiting-task-1-7", "task-1")
+	wait.Title = "Waiting on you: log in to Stripe"
+	if err := store.acceptReview(wait); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.retireWaits(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Reviews[0]; got.State != "open" {
+		t.Fatalf("a current wait = %+v, want it open", got)
+	}
+	if err := state.AppendStatus(h.State, "task-1", "working: charging the card"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.retireWaits(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" || got.Reason != "task-1 reported again: working: charging the card" {
+		t.Fatalf("a wait the goblin moved past = %+v, want it withdrawn with the new report", got)
 	}
 }

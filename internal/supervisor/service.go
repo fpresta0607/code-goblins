@@ -198,6 +198,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestAnswers())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
+	reconcileErr = errors.Join(reconcileErr, s.Store.retireWaits())
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
 	s.reconcilePresentations(ctx)
 	if recover {
@@ -597,8 +598,16 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if evaluation.Generation != meta.SpawnGen {
 			evaluation = Evaluation{}
 		}
+		lines, _ := state.TailStatus(s.Store.Home.State, id, 200)
+		reportedAt, report := latestReport(lines, spawnTime(meta.SpawnGen))
+		decisions := out.Decisions
+		if supersedesQuestion(report) {
+			decisions = slices.DeleteFunc(slices.Clone(out.Decisions), func(r wake.Record) bool {
+				return r.Key == id && !r.Time.Truncate(time.Second).After(reportedAt)
+			})
+		}
 		if !linked {
-			evaluation = fleetEvaluation(evaluation, meta, runtime, out.Decisions)
+			evaluation = fleetEvaluation(evaluation, meta, runtime, decisions)
 		} else if node.Generation != meta.SpawnGen {
 			evaluation = Evaluation{Phase: "unknown", Reason: "Native session evidence has not been reported"}
 		}
@@ -612,9 +621,13 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if evaluation.Phase == "" {
 			evaluation = Evaluation{Phase: "review", Reason: "Session settled; evaluation is queued", At: node.UpdatedAt}
 		}
-		lines, _ := state.TailStatus(s.Store.Home.State, id, 200)
+		// A goblin's own newer report says what it is doing, unless a question
+		// or the gate holds it or its work already merged.
+		if phase, reason, target, ok := reportedProgress(s.Store.Home.State, reportedAt, report); ok && evaluation.Phase != "blocked" && evaluation.Phase != "failed" && evaluation.Phase != "merged" && evaluation.Phase != "done" {
+			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = phase, reason, target
+		}
 		activity, pr := statusActivity(lines, spawnTime(meta.SpawnGen))
-		if _, detail, ok := waitingQuestion(out.Decisions, id); ok {
+		if _, detail, ok := waitingQuestion(decisions, id); ok {
 			activity = detail
 		}
 		if evaluation.PR == "" {

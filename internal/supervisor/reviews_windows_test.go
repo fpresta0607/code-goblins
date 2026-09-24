@@ -333,3 +333,34 @@ func TestAnsweredReviewSurvivesAFullListUntilDelivered(t *testing.T) {
 		t.Fatalf("reviews start with %s and end with %s; want the delivered item to make room for the waiting one", got[0].ID, got[len(got)-1].ID)
 	}
 }
+
+// A wait on the Overlord reaches the Command Center as the item the goblin's
+// next report withdraws.
+func TestWaitOnTheOverlordIsTheItemItsNextReportWithdraws(t *testing.T) {
+	store, h := testStore(t)
+	meta, _, _, connection := goblinFixture(t, store)
+	if err := state.AppendStatus(h.State, meta.ID, "waiting on overlord: log in to Stripe"); err != nil {
+		t.Fatal(err)
+	}
+	if err := PublishWait(context.Background(), h, connection.Herdr, meta.ID, 7, "log in to Stripe"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.retireWaits(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Reviews; len(got) != 1 || got[0].ID != "waiting-task-1-7" || got[0].Title != "Waiting on you: log in to Stripe" || got[0].Task != meta.ID || got[0].State != "open" {
+		t.Fatalf("reviews = %+v, want the open item waiting-task-1-7 for the current wait", got)
+	}
+	if err := state.AppendStatus(h.State, meta.ID, "working: charging the card"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.retireWaits(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" {
+		t.Fatalf("the wait after the goblin reported again = %+v, want it withdrawn", got)
+	}
+}

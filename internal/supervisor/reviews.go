@@ -609,3 +609,48 @@ func (h *HTTP) reviewImage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", "inline")
 	_, _ = io.Copy(w, io.LimitReader(f, maxReviewImage))
 }
+
+// PublishWait puts a goblin's wait on the Overlord in the Command Center as an
+// item for him until he answers or clears it, or the goblin reports again. It
+// names the item waiting-<task>-<wake sequence>, which retireWaits relies on.
+func PublishWait(ctx context.Context, h home.Home, client *herdr.Client, taskID string, seq int, why string) error {
+	return PublishReview(ctx, h, client, taskID, fmt.Sprintf("waiting-%s-%d", taskID, seq), "Waiting on you: "+why, "", nil)
+}
+
+// retireWaits withdraws a goblin's wait on the Overlord once its task reports
+// anything newer than that wait, or is gone, so the Command Center never keeps
+// a request nobody is waiting on.
+func (s *Store) retireWaits() error {
+	for _, r := range s.Snapshot().Reviews {
+		if r.State != "open" || r.Task == "" || !strings.HasPrefix(r.ID, "waiting-"+r.Task+"-") {
+			continue
+		}
+		lines, err := state.TailStatus(s.Home.State, r.Task, 50)
+		if err != nil {
+			return err
+		}
+		reportedAt, report := latestReport(lines, time.Time{})
+		if strings.HasPrefix(report, "waiting on overlord: ") && !reportedAt.After(r.CreatedAt) {
+			continue
+		}
+		reason := r.Task + " reported again: " + report
+		if report == "" {
+			reason = r.Task + " is gone"
+		}
+		if err := s.withdrawReview(r.ID, bounded(reason, 2000)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) withdrawReview(id, reason string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == id && r.State == "open" })
+	if i < 0 {
+		return nil
+	}
+	s.db.Reviews[i].State, s.db.Reviews[i].Reason, s.db.Reviews[i].UpdatedAt = "withdrawn", reason, time.Now().UTC()
+	return s.save()
+}

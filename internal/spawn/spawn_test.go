@@ -2123,3 +2123,21 @@ func TestFreshTypedLaunchDeliversQuotedInstructionOnceThroughHerdr(t *testing.T)
 		}
 	}
 }
+
+func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	instruction := notifyInstruction("task-7")
+
+	for _, want := range []string{
+		exe + " notify task-7 --working \"<what>\"",
+		exe + " notify task-7 --waiting-on <task-id|overlord|ci|deploy> \"<why>\"",
+	} {
+		if !strings.Contains(instruction, want) {
+			t.Errorf("instruction = %q, want %q", instruction, want)
+		}
+	}
+}
