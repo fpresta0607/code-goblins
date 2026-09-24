@@ -188,6 +188,7 @@ The Terminal view is the goblin's live Herdr pane, edge to edge: type straight i
 </p>
 
 Open **Changes**, expand a file and click a line number, where a comment icon appears on hover; Shift-click extends the selection to a range.
+Dragging across diff lines opens the same comment box for the lines it covers, and a double-click or triple-click still just selects text to copy.
 A comment box floats beside the selection: type, press **Enter** to send (**Shift+Enter** for a new line, **Escape** to cancel), and it shrinks to a chip whose two check marks mean the CFO accepted it.
 The comment reaches the verified CFO session with its exact file, side, lines, HEAD and diff fingerprint, and the CFO decides how to direct the goblin; the board never sends it to the goblin itself.
 If the registered CFO session is not live, the comment is refused and nothing is queued.

@@ -366,6 +366,16 @@ test("a drag across diff rows comments on the lines it covers", () => {
   assert.equal(dragRange(rows.filter((row) => row.variant === "hunk")), null);
 });
 
+test("a split drag outside both columns covers both sides, new lines first and old as the fallback", () => {
+  const bothSides = (patch: string) => splitRows(parsePatchToRows(patch)).flatMap((pair) => [pair.left, pair.right])
+    .flatMap((row) => row && row.variant !== "hunk" ? [row] : []);
+  const cases: [string, string, ReturnType<typeof dragRange>][] = [
+    ["a removed-only block", "@@ -4,3 +3,0 @@\n-one\n-two\n-three", { side: "old", line: 4, end: 6 }],
+    ["mixed removed and added pairs", "@@ -1,3 +1,3 @@\n context\n-removed\n+added\n tail", { side: "new", line: 1, end: 3 }],
+  ];
+  for (const [name, patch, expected] of cases) assert.deepEqual(dragRange(bothSides(patch)), expected, name);
+});
+
 test("only a single-click press that moves more than 4 px counts as a drag", () => {
   const cases: [string, number, { x: number; y: number }, boolean][] = [
     ["a click without movement", 1, { x: 10, y: 10 }, false],

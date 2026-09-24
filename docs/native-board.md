@@ -140,6 +140,7 @@ Reduced motion uses a short static outline instead of movement.
 
 Changes presents stacked file disclosures with lazy syntax-highlighted unified, split and code previews.
 Select a visible old/new line or contiguous range, including unchanged context, by its line number, which shows a comment icon on hover and focus.
+Dragging across diff lines opens the same comment box for the lines it covers, and a double-click or triple-click still just selects text to copy.
 A comment box floats beside the selection without moving the diff; Enter sends it, Shift+Enter starts a new line and Escape cancels.
 Sending queues a durable review record containing the exact file, side, range, revision, HEAD and diff fingerprint, and the box shrinks to a chip whose check marks show delivery.
 The server validates those coordinates and derives bounded selected code; it never sends a review comment to the worker.

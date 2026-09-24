@@ -37,7 +37,7 @@ export function DiffView({ diff, reviews, connected }: {
     const column = anchor?.closest<HTMLElement>("[data-side]")?.dataset.side;
     const prefer = column === "old" || column === "new" ? column : undefined;
     const covered = mode === "split"
-      ? pairs.slice(first, last + 1).flatMap((pair) => { const row = prefer === "old" ? pair.left : pair.right; return row ? [row] : []; })
+      ? pairs.slice(first, last + 1).flatMap((pair) => (prefer === "old" ? [pair.left] : prefer === "new" ? [pair.right] : [pair.left, pair.right]).flatMap((row) => row ? [row] : []))
       : visible.slice(first, last + 1);
     const picked = dragRange(covered, prefer);
     if (!picked) return;

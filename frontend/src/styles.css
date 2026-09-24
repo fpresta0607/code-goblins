@@ -513,12 +513,12 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 }
 .panel-content > .workspace-details { border-top: 0; margin-top: 0; padding-top: 20px; }
 
-/* The comment affordance is an icon centred by its grid cell, never a font
-   glyph, shown on hover and focus of a line number (faintly on touch). */
+/* The comment affordance is a speech-bubble icon, never a font glyph,
+   positioned on the first line of its row. */
 .comment-mark { position: absolute; left: 3px; top: 15px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #176b4d; color: #d6ffe9; opacity: 0; transform: translateY(-50%); transition: opacity .12s ease; }
 .comment-mark .icon { width: 14px; height: 14px; stroke-width: 2; }
-/* The speech bubble shows only on the hovered line or keyboard focus, so it
-   never reads as an added or removed marker. */
+/* The speech bubble shows only on the hovered row, on keyboard focus and on
+   selected lines, so it never reads as an added or removed marker. */
 .diff-row:hover .comment-mark, .split-cell:hover .comment-mark, .line-number:focus-visible .comment-mark, .line-number[aria-pressed="true"] .comment-mark { opacity: 1; }
 .comment-mark[data-tip]::after { top: auto; bottom: calc(100% + 6px); transform: translateY(4px); }
 .comment-mark[data-tip]:hover::after { transform: none; }
