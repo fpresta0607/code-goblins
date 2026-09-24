@@ -465,7 +465,7 @@ button.line-number { min-height: 32px; }
 .presentation-notices p { color: var(--muted); margin: 8px 0 12px; }
 .presentation-notices article > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .presentation-notices button { font-size: .9375rem; }
-.presentation-notices small { display: block; color: var(--muted); line-height: 1.5; margin-top: 20px; }
+.presentation-notices small { display: block; font-size: .9375rem; color: var(--muted); line-height: 1.5; margin-top: 20px; }
 .browser-indicator { font-size: .9375rem; color: #91dfc2; }
 .activity-glow { pointer-events: none; position: absolute; inset: -2px; border: 2px solid #81edc0; border-radius: inherit; box-shadow: 0 0 16px #67e8b755; animation: received 3s ease-out both; }
 @keyframes received { from { opacity: 1; } to { opacity: 0; } }
