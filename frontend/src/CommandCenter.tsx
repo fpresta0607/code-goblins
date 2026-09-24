@@ -5,7 +5,7 @@ import { submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { answeredLabel, settledQuestions, waitingQuestions } from "./commandQueue";
+import { answeredLabel, outcomeIcon, questionOutcome, settledQuestions, waitingQuestions } from "./commandQueue";
 import { questionAnswer, questionChoices } from "./questionChoices";
 import { personaFor } from "./workflow";
 import { EMPTY_DRAFT, QuestionCard, type Draft } from "./QuestionCard";
@@ -110,10 +110,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
           </li>)}</ul>
         </section>}
         {settled.length > 0 && <Disclosure kind="inbox-history" title={<>Answered <span className="column-count">{settled.length}</span></>}>
-          <ul className="inbox-list">{settled.map((candidate) => <li key={candidate.id}>
-            <span className="delivery succeeded"><Icon name={candidate.status === "superseded" ? "close" : "check-double"} /></span>
+          <ul className="inbox-list">{settled.map((candidate) => { const outcome = questionOutcome(candidate); return <li key={candidate.id}>
+            <span className={"delivery " + (outcome === "answered" ? "succeeded" : outcome)}><Icon name={outcomeIcon(outcome)} /></span>
             <span className="inbox-text"><strong>{askerOf(candidate)}</strong>{candidate.text}<small>{answeredLabel(candidate)}</small></span>
-          </li>)}</ul>
+          </li>; })}</ul>
         </Disclosure>}
         <p className="muted">Questions stay here until you answer them. Opening a page never pauses work.</p>
       </div>
@@ -128,7 +128,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
           <button type="button" className="icon-button question-close" aria-label="Close the Command Center" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
         </header>
         {gallery !== null && images.length > 0
-          ? <ImageGallery images={images} index={Math.min(gallery, images.length - 1)} onIndex={setGallery} onClose={() => setGallery(null)}
+          ? <ImageGallery images={images} index={Math.min(gallery, images.length - 1)} review={reviewFor(question)} onIndex={setGallery} onClose={() => setGallery(null)}
             onChoose={question.status === "pending" ? (value) => { update(question.id, { selection: "option:" + value, error: "", receipt: undefined }); setGallery(null); } : undefined} />
           : <div className={"card-stage" + (stack.length > 1 ? " stacked" : "")}
             onPointerDown={(event) => { if (event.pointerType !== "mouse") swipe.current = { x: event.clientX, y: event.clientY }; }}

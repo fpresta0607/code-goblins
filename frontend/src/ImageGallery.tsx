@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+import type { BoardActivity } from "./types";
 import { Icon } from "./Icon";
 
 export interface GalleryImage { src: string; label: string; value: string }
 
 // A question's images one at a time at full size: swipe, arrow keys or the
 // side buttons move between them, and a click or tap zooms in and out.
-export function ImageGallery({ images, index, onIndex, onClose, onChoose }: {
-  images: GalleryImage[]; index: number; onIndex: (index: number) => void; onClose: () => void; onChoose?: (value: string) => void;
+export function ImageGallery({ images, index, review, onIndex, onClose, onChoose }: {
+  images: GalleryImage[]; index: number; review?: BoardActivity; onIndex: (index: number) => void; onClose: () => void; onChoose?: (value: string) => void;
 }) {
   const [zoomed, setZoomed] = useState(false);
   const [missing, setMissing] = useState<Set<string>>(new Set());
@@ -24,6 +25,7 @@ export function ImageGallery({ images, index, onIndex, onClose, onChoose }: {
     <div className="gallery-top">
       <span className="count-pill">{index + 1} of {images.length}</span>
       <strong>{image.label}. {image.value}</strong>
+      {review && <a className="icon-button raised pill-link" href={review.url} target="_blank" rel="noreferrer" aria-label="Annotate in Lavish" data-tip="Annotate in Lavish"><Icon name="external" /><span>Lavish</span></a>}
       <button type="button" className="icon-button raised" aria-label={zoomed ? "Zoom out" : "Zoom in"} data-tip={zoomed ? "Zoom out" : "Zoom in"} onClick={() => setZoomed(!zoomed)}><Icon name={zoomed ? "minus" : "plus"} /></button>
       <button type="button" className="icon-button raised" aria-label="Back to the question" data-tip="Back to the question" data-tip-align="end" onClick={onClose}><Icon name="close" /></button>
     </div>
