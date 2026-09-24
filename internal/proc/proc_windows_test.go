@@ -3,7 +3,9 @@ package proc
 import (
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestAncestryIncludesSelfAndParent(t *testing.T) {
@@ -58,5 +60,46 @@ func TestAncestryOfChildProcessSeesUs(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("test process missing from child ancestry: %+v", entries)
+	}
+}
+
+// Windows PowerShell's Start-Process -Wait waits for every process in the job
+// it puts the started process in, including one whose parent has already
+// exited, the way a harness leaves a server behind. JobProcesses lists
+// exactly those for the waiting shell, and they can be named by their
+// command line. The cmd waits a second before starting its background ping,
+// because the shell adds it to the job only just after starting it.
+func TestJobProcessesListsWhatStartProcessWaitIsWaitingOn(t *testing.T) {
+	shell := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Start-Process -FilePath cmd.exe -ArgumentList '/c ping -n 2 127.0.0.1 >NUL & start /b ping -n 30 127.0.0.1 >NUL' -Wait -NoNewWindow")
+	if err := shell.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = shell.Process.Kill(); _, _ = shell.Process.Wait() })
+
+	var ping Entry
+	for deadline := time.Now().Add(20 * time.Second); ping.PID == 0 && time.Now().Before(deadline); {
+		time.Sleep(250 * time.Millisecond)
+		jobbed, err := JobProcesses(shell.Process.Pid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range jobbed {
+			if strings.EqualFold(entry.ExeBase, "PING.EXE") && entry.Start.After(time.Now().Add(-time.Minute)) {
+				if line, err := CommandLine(entry.PID); err == nil && strings.Contains(line, "-n 30 127.0.0.1") {
+					ping = entry
+				}
+			}
+		}
+	}
+	if ping.PID == 0 {
+		t.Fatal("the waiting shell's job never listed the ping its exited cmd left running")
+	}
+	t.Cleanup(func() {
+		if process, err := os.FindProcess(ping.PID); err == nil {
+			_ = process.Kill()
+		}
+	})
+	if jobbed, err := JobProcesses(os.Getpid()); err != nil || len(jobbed) != 0 {
+		t.Fatalf("a process with no wait of its own = %+v, %v; want nothing", jobbed, err)
 	}
 }
