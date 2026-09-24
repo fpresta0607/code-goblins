@@ -11,6 +11,7 @@ import (
 // goblin can use it unattended. Every other field is preserved verbatim when
 // the server is kept.
 type mcpServerShape struct {
+	Type              string            `json:"type"`
 	Command           string            `json:"command"`
 	URL               string            `json:"url"`
 	BearerTokenEnvVar string            `json:"bearerTokenEnvVar"`
@@ -46,6 +47,11 @@ func FilterMCPServers(config []byte) (filtered []byte, kept, dropped []string, e
 			continue
 		}
 		if qualifiesForGoblin(shape) {
+			if strings.TrimSpace(shape.Command) == "" && shape.Type == "" {
+				if raw, err = typedForClaude(raw, shape); err != nil {
+					return nil, nil, nil, fmt.Errorf("worktree: type MCP server %q: %w", name, err)
+				}
+			}
 			remaining[name] = raw
 			kept = append(kept, name)
 		} else {
@@ -62,6 +68,34 @@ func FilterMCPServers(config []byte) (filtered []byte, kept, dropped []string, e
 		return nil, nil, nil, fmt.Errorf("worktree: marshal filtered .mcp.json: %w", err)
 	}
 	return filtered, kept, dropped, nil
+}
+
+// typedForClaude gives a URL server with no type the type Claude needs, sse
+// for an /sse endpoint and http otherwise: Claude reads a server without one
+// as stdio and skips it with a warning on every start. Claude also does not
+// read bearerTokenEnvVar, so a server that authenticates only that way gets
+// the same token as the Authorization header Claude expands from the
+// injected environment. Every other field is kept.
+func typedForClaude(raw json.RawMessage, shape mcpServerShape) (json.RawMessage, error) {
+	var entry map[string]any
+	if err := json.Unmarshal(raw, &entry); err != nil {
+		return nil, err
+	}
+	entry["type"] = "http"
+	if strings.HasSuffix(strings.TrimRight(strings.TrimSpace(shape.URL), "/"), "/sse") {
+		entry["type"] = "sse"
+	}
+	hasAuthorization := false
+	headers := map[string]string{}
+	for header, value := range shape.Headers {
+		headers[header] = value
+		hasAuthorization = hasAuthorization || strings.EqualFold(strings.TrimSpace(header), "authorization")
+	}
+	if token := strings.TrimSpace(shape.BearerTokenEnvVar); token != "" && !hasAuthorization {
+		headers["Authorization"] = "Bearer ${" + token + "}"
+		entry["headers"] = headers
+	}
+	return json.Marshal(entry)
 }
 
 // qualifiesForGoblin reports whether one server can authenticate without a

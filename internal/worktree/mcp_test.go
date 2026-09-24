@@ -108,3 +108,39 @@ func TestFilterMCPServersRejectsMalformedJSON(t *testing.T) {
 		t.Fatal("FilterMCPServers accepted malformed JSON")
 	}
 }
+
+// SIQshift's neon server is declared {url, bearerTokenEnvVar} with no type,
+// and Claude reads a server without one as stdio and skips it with a warning
+// on every start. A kept URL server now carries the type Claude needs, and a
+// bearerTokenEnvVar, which Claude does not read, becomes the Authorization
+// header Claude expands from the injected environment.
+func TestFilterMCPServersTypesURLServersForClaude(t *testing.T) {
+	config := []byte(`{
+		"mcpServers": {
+			"neon": {"url": "https://mcp.neon.tech/mcp", "bearerTokenEnvVar": "NEON_API_KEY"},
+			"events": {"url": "https://example.com/sse/", "headers": {"Authorization": "Bearer ${EVENTS_TOKEN}"}},
+			"typed": {"type": "sse", "url": "https://example.com/mcp", "bearerTokenEnvVar": "TYPED_TOKEN"},
+			"stdio": {"command": "npx", "args": ["-y", "server"]}
+		}
+	}`)
+	filtered, kept, _, err := FilterMCPServers(config)
+	if err != nil || len(kept) != 4 {
+		t.Fatalf("FilterMCPServers = kept %v, %v; want all four kept", kept, err)
+	}
+	var document struct {
+		Servers map[string]map[string]any `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(filtered, &document); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]map[string]any{
+		"neon":   {"type": "http", "url": "https://mcp.neon.tech/mcp", "bearerTokenEnvVar": "NEON_API_KEY", "headers": map[string]any{"Authorization": "Bearer ${NEON_API_KEY}"}},
+		"events": {"type": "sse", "url": "https://example.com/sse/", "headers": map[string]any{"Authorization": "Bearer ${EVENTS_TOKEN}"}},
+		"typed":  {"type": "sse", "url": "https://example.com/mcp", "bearerTokenEnvVar": "TYPED_TOKEN"},
+		"stdio":  {"command": "npx", "args": []any{"-y", "server"}},
+	} {
+		if got := document.Servers[name]; !reflect.DeepEqual(got, want) {
+			t.Errorf("%s = %v, want %v", name, got, want)
+		}
+	}
+}
