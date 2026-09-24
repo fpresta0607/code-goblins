@@ -334,18 +334,48 @@ func TestLivePaneViewTypesIntoItsOwnVerifiedPane(t *testing.T) {
 	if status := send(1, `{"type":"terminal.input","text":"echo hi\r"}`); status != 200 {
 		t.Fatalf("typing = %d, want 200", status)
 	}
-	if want := [][]string{{"pane", "send-text", "w1:p1", "echo hi\r", "--session", "isolated"}}; !reflect.DeepEqual(runner.typed, want) {
+	// Herdr 0.9 types dash-leading text literally, and a -- separator would be typed too.
+	if status := send(2, `{"type":"terminal.input","text":"--help"}`); status != 200 {
+		t.Fatalf("typing --help = %d, want 200", status)
+	}
+	if want := [][]string{{"pane", "send-text", "w1:p1", "echo hi\r", "--session", "isolated"}, {"pane", "send-text", "w1:p1", "--help", "--session", "isolated"}}; !reflect.DeepEqual(runner.typed, want) {
 		t.Fatalf("typed %q, want %q", runner.typed, want)
 	}
-	if status := send(2, `{"type":"terminal.resize","cols":100,"rows":30}`); status != 409 {
+	if status := send(3, `{"type":"terminal.resize","cols":100,"rows":30}`); status != 409 {
 		t.Fatalf("resizing a live view = %d, want 409", status)
 	}
 	runner.terminal = "replacement"
-	if status := send(2, `{"type":"terminal.input","text":"x"}`); status != 409 || len(runner.typed) != 1 {
+	if status := send(3, `{"type":"terminal.input","text":"x"}`); status != 409 || len(runner.typed) != 2 {
 		t.Fatalf("typing after the terminal changed = %d with %d typed, want 409 and nothing more typed", status, len(runner.typed))
 	}
 	if len(native.writes) != 0 {
 		t.Fatalf("typing went through the observer: %v", native.writes)
+	}
+}
+
+// A live view is opened at the pane's size, so a pane that grows afterwards
+// would again show only its old top-left corner; the view ends instead, and
+// the board reconnects at the new size.
+func TestLivePaneViewEndsWhenThePaneIsResized(t *testing.T) {
+	native := newTestTerminal()
+	h, server, _, runner := terminalHTTPFixture(t, native)
+	h.terminalTick = 10 * time.Millisecond
+	native.frames <- fullFrame(1)
+	response := terminalPost(t, server, "/api/terminal/stream", `{}`)
+	defer response.Body.Close()
+	scanner := bufio.NewScanner(response.Body)
+	var frame herdr.TerminalFrame
+	for frames := 0; frame.Type != "terminal.closed"; frames++ {
+		if frames > 100 {
+			t.Fatal("the view went on after its pane was resized")
+		}
+		if !scanner.Scan() || json.Unmarshal(scanner.Bytes(), &frame) != nil {
+			t.Fatalf("view ended without a reason: %s", scanner.Text())
+		}
+		runner.resized.Store(true)
+	}
+	if native.cols != 132 || native.rows != 43 || frame.Reason != "The pane was resized. Reconnect to see it whole at its new size." {
+		t.Fatalf("opened %dx%d and ended with %q, want 132x43 ended as resized", native.cols, native.rows, frame.Reason)
 	}
 }
 

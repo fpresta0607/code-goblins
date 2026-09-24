@@ -38,12 +38,13 @@ type HTTP struct {
 	terminalSlots chan struct{}
 	terminals     map[string]*terminalLease
 	openTerminal  func(context.Context, string, string, bool, int, int) (herdr.TerminalStream, error)
+	terminalTick  time.Duration
 	editor        execx.Starter
 	editorLookup  func(string) (string, error)
 }
 
 func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
-	return &HTTP{Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 4), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, editor: execx.OSRunner{}, editorLookup: exec.LookPath}
+	return &HTTP{Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 4), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, editor: execx.OSRunner{}, editorLookup: exec.LookPath}
 }
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {

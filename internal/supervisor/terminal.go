@@ -208,6 +208,26 @@ func (h *HTTP) verifyTerminal(ctx context.Context, b terminalBinding, write bool
 	return nil
 }
 
+// paneSize is the size Herdr lays the pane out at, clamped to what an observer
+// accepts.
+func (h *HTTP) paneSize(ctx context.Context, target herdr.Target) (int, int, error) {
+	client := *h.Service.Options.CFO.Herdr
+	client.Session = target.Session
+	check, stop := context.WithTimeout(ctx, 8*time.Second)
+	defer stop()
+	snapshot, err := client.Snapshot(check)
+	if err == nil {
+		for _, layout := range snapshot.Layouts {
+			for _, pane := range layout.Panes {
+				if pane.ID == target.Pane {
+					return min(max(pane.Rect.Width, 20), 400), min(max(pane.Rect.Height, 5), 160), nil
+				}
+			}
+		}
+	}
+	return 0, 0, errors.New("Herdr did not report this pane's size, so its screen cannot be shown whole.")
+}
+
 func decodeBody(w http.ResponseWriter, r *http.Request, value interface{}, limit int64) error {
 	if r.Header.Get("Content-Type") != "application/json" {
 		return errors.New("JSON required")
@@ -308,21 +328,8 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 		// An observer sees only the part of the screen its size covers and
 		// hears of no change outside it, so a view smaller than the pane is a
 		// frozen top-left corner. Observe the pane at its own size.
-		client := *h.Service.Options.CFO.Herdr
-		client.Session = b.Target.Session
-		check, stop := context.WithTimeout(ctx, 8*time.Second)
-		snapshot, err := client.Snapshot(check)
-		stop()
-		cols, rows = 0, 0
-		for _, layout := range snapshot.Layouts {
-			for _, pane := range layout.Panes {
-				if pane.ID == b.Target.Pane {
-					cols, rows = min(max(pane.Rect.Width, 20), 400), min(max(pane.Rect.Height, 5), 160)
-				}
-			}
-		}
-		if err != nil || cols == 0 {
-			apiError(w, 409, "Herdr did not report this pane's size, so its screen cannot be shown whole.")
+		if cols, rows, err = h.paneSize(ctx, b.Target); err != nil {
+			apiError(w, 409, err.Error())
 			return
 		}
 	}
@@ -384,7 +391,7 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 	}
 	first := time.NewTimer(8 * time.Second)
 	defer first.Stop()
-	tick := time.NewTicker(5 * time.Second)
+	tick := time.NewTicker(h.terminalTick)
 	defer tick.Stop()
 	full := false
 	var seq uint64
@@ -405,6 +412,17 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				closed(err.Error())
 				return
+			}
+			if !input.Control {
+				paneCols, paneRows, err := h.paneSize(ctx, b.Target)
+				if err != nil {
+					closed(err.Error())
+					return
+				}
+				if paneCols != cols || paneRows != rows {
+					closed("The pane was resized. Reconnect to see it whole at its new size.")
+					return
+				}
 			}
 			if err := write(struct {
 				Type string `json:"type"`

@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -59,10 +60,11 @@ type cfoRunner struct {
 	calls        int
 	offline      bool
 	// typing lets a live terminal view type into the pane, recorded in typed;
-	// sizeless leaves the pane's size out of the snapshot.
+	// sizeless leaves the pane's size out of the snapshot and resized grows it.
 	typing   bool
 	typed    [][]string
 	sizeless bool
+	resized  atomic.Bool
 }
 
 func (r *cfoRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -77,6 +79,9 @@ func (r *cfoRunner) Run(_ context.Context, req execx.Request) (execx.Result, err
 		body = `{"result":{"type":"session_snapshot","snapshot":{"protocol":1,"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","terminal_id":"test-terminal"}],"agents":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","agent":"codex","agent_status":"idle"}],"layouts":[{"tab_id":"w1:t1","panes":[{"pane_id":"w1:p1","rect":{"x":0,"y":0,"width":132,"height":43}}]}]}}}`
 		if r.sizeless {
 			body = strings.Replace(body, `"layouts"`, `"unsized"`, 1)
+		}
+		if r.resized.Load() {
+			body = strings.Replace(body, `"width":132,"height":43`, `"width":180,"height":50`, 1)
 		}
 		if r.terminal != "" {
 			body = strings.ReplaceAll(body, "test-terminal", r.terminal)
