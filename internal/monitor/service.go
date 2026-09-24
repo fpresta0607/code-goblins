@@ -253,9 +253,9 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	}
 	digest := fmt.Sprintf("%x", sha256.Sum256(sample.Capture))
 
-	// A harness being refused by its provider is checked first: the pane
-	// carries the provider's error framing (429, rate limit, auth), which is a
-	// reliable signal, not a pane-text heuristic.
+	// A harness being refused by its provider is checked first. It is read
+	// from pane text, so routing.Detect takes a rate limit only on a line
+	// shaped like the provider's refusal, never from a goblin's own prose.
 	if fault, detail, found := routing.Detect(string(sample.Capture)); found {
 		return erroringObservation(observation, digest, fault, detail, now)
 	}
@@ -596,11 +596,19 @@ func (s Service) pauseObservation(observation Observation, now time.Time) Observ
 	return observation
 }
 
+// faultEpisodeGap is how long a pane must go without showing any fault before
+// the same fault line counts as a new episode and wakes again.
+const faultEpisodeGap = 30 * time.Minute
+
 // erroringObservation records a pane whose harness is being refused by its
 // provider. It raises a wake event once per episode - the fault does not
-// resolve itself, so repeating it every cycle would be noise - and demands
-// deep inspection, because the fix is a decision (switch, wait, or top up)
-// rather than another poll.
+// resolve itself, so repeating it every cycle would be noise - and only for a
+// fault line other than the last one raised, or the same line after
+// faultEpisodeGap with no fault seen. A pane flips between erroring and
+// healthy as its capture shifts, and a switch that resumes the session
+// re-renders the old refusal; neither is a new fault. It demands deep
+// inspection, because the fix is a decision (switch, wait, or top up) rather
+// than another poll.
 func erroringObservation(observation Observation, digest string, fault routing.Fault, detail string, now time.Time) Observation {
 	first := observation.Health != HealthErroring
 	observation.Digest = digest
@@ -616,11 +624,16 @@ func erroringObservation(observation Observation, digest string, fault routing.F
 	observation.NextPauseResurface = nil
 	observation.Escalation = 0
 	observation.DemandDeepInspection = true
-	if first && observation.PendingEvent == nil {
-		event := taskEvent(observation.TaskID, HarnessError, string(fault)+": "+detail)
+	line := string(fault) + ": " + detail
+	key := fmt.Sprintf("%x", sha256.Sum256([]byte(line)))
+	episodeOver := observation.FaultSeen == nil || now.Sub(*observation.FaultSeen) >= faultEpisodeGap
+	if first && observation.PendingEvent == nil && (key != observation.FaultDigest || episodeOver) {
+		event := taskEvent(observation.TaskID, HarnessError, line)
 		event.Fault = fault
 		observation.PendingEvent = &event
+		observation.FaultDigest = key
 	}
+	observation.FaultSeen = timePointer(now)
 	return observation
 }
 

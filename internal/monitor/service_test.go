@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -752,7 +753,7 @@ func TestScanRaisesOneEventPerErroringEpisode(t *testing.T) {
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
 	probe := &fakeProber{samples: map[string]EndpointSample{
-		"g1": sampleFor(meta, herdr.BusyWorking, "quota exceeded for this organization"),
+		"g1": sampleFor(meta, herdr.BusyWorking, "API error: 403 quota exceeded for this organization"),
 	}}
 	service := testService(stateDir, probe, &now)
 
@@ -1399,5 +1400,82 @@ func TestScanHoldsQuietAnIndeterminateUnknownAgent(t *testing.T) {
 	obs := result.Observations[0]
 	if obs.Health == HealthUnknown || obs.Reason == EndpointUnknown || obs.EndpointVerdict != ProbePresent {
 		t.Fatalf("observation = %+v, want a present, held-quiet endpoint", obs)
+	}
+}
+
+// A goblin's pane flipped between erroring and healthy as its scan window
+// shifted, and every flip raised the same harness_error wake again. The same
+// matched line coming back into the window is not a new fault; a different
+// line after the pane recovered is.
+func TestScanRaisesAFaultLineOnceAcrossPaneFlips(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 9, 23, 21, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{}}
+	service := testService(stateDir, probe, &now)
+	scan := func(capture string) *Event {
+		t.Helper()
+		probe.samples["g1"] = sampleFor(meta, herdr.BusyWorking, capture)
+		now = now.Add(3 * time.Minute)
+		result, err := service.Scan(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Event != nil {
+			if _, err := service.Publish(*result.Event); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return result.Event
+	}
+	fault := "Error: 429 rate limit reached for model opus"
+	if scan("building the parser\n"+fault) == nil {
+		t.Fatal("the first sight of the fault raised no event")
+	}
+	if event := scan("running tests, 42 passed"); event != nil {
+		t.Fatalf("a healthy pane raised %+v", event)
+	}
+	if event := scan("more output\n" + fault); event != nil {
+		t.Fatalf("the same fault line scrolling back in raised %+v", event)
+	}
+	if event := scan("running tests, 43 passed"); event != nil {
+		t.Fatalf("a healthy pane raised %+v", event)
+	}
+	if scan("Error: 429 rate limit reached for model sonnet") == nil {
+		t.Fatal("a different fault line after recovery raised no event")
+	}
+}
+
+// The same refusal line wakes again only once the pane has shown no fault
+// for faultEpisodeGap: a switch that resumes the session and re-renders the
+// old refusal inside that window is not a new fault, but the identical
+// refusal after a long healthy stretch is a new episode the CFO must hear.
+func TestErroringObservationEndsAFaultEpisodeInTime(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		between   Health
+		after     time.Duration
+		wantEvent bool
+	}{
+		{"a switch re-rendering the old refusal", HealthUnknown, 10 * time.Minute, false},
+		{"the same refusal after a healthy stretch", HealthActive, faultEpisodeGap, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			raisedAt := time.Date(2026, 9, 23, 21, 0, 0, 0, time.UTC)
+			detail := `API Error: 429 {"type":"error","error":{"type":"rate_limit_error"}}`
+			observation := erroringObservation(Observation{TaskID: "g1"}, "d1", routing.RateLimit, detail, raisedAt)
+			if observation.PendingEvent == nil {
+				t.Fatal("the first sight of the fault raised no event")
+			}
+			observation.PendingEvent = nil
+			observation.Health = c.between
+
+			observation = erroringObservation(observation, "d2", routing.RateLimit, detail, raisedAt.Add(c.after))
+
+			if (observation.PendingEvent != nil) != c.wantEvent {
+				t.Fatalf("pending event = %+v after %s, want an event %v", observation.PendingEvent, c.after, c.wantEvent)
+			}
+		})
 	}
 }

@@ -15,7 +15,7 @@ func TestDetectClassifiesTheProviderFailuresGoblinsActuallyHit(t *testing.T) {
 	}{
 		{"kimi quota 403", "API error: 403 quota exceeded for this organization", RateLimit},
 		{"anthropic 429", "Error: 429 Too Many Requests - rate limit reached", RateLimit},
-		{"usage limit prose", "You have hit your usage limit. Try again later.", RateLimit},
+		{"usage limit with a retry time", "You have hit your usage limit. Try again in 3 hours.", RateLimit},
 		{"rejected key", "401 Unauthorized: invalid api key", Auth},
 		{"anthropic auth shape", `{"type":"authentication_error"}`, Auth},
 		{"provider outage", "Error: 503 Service Unavailable", Provider},
@@ -201,5 +201,55 @@ func TestThirdPartyFaultNeverMatchesAPolicyRule(t *testing.T) {
 	policy = Policy{Rules: []Rule{providerRule}}
 	if rule, matched := policy.Match("claude", Provider); !matched || rule.Switch.Harness != "codex" {
 		t.Errorf("a model-provider outage did not match its rule: rule=%+v matched=%v", rule, matched)
+	}
+}
+
+// Healthy goblins read as rate-limited from their own prose about a dozen
+// times on 2026-09-23, and Claude Code's resume dialog reads the same way. A
+// rate-limit phrase is a fault only on a line shaped like a provider's own
+// refusal: a status code, a provider error type, an API error, or a retry or
+// reset time.
+func TestDetectNeedsTheShapeOfARefusalForARateLimit(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		tail string
+		want bool
+	}{
+		{"a goblin listing API doc topics", "Sections: authentication, pagination, errors, and rate limits.", false},
+		{"a goblin reporting a past limit", "the account hit its usage limit", false},
+		{"a goblin not retrying", "failed again with the same usage limit ... not retrying", false},
+		{"Claude Code's resume dialog", "Resuming the full session will consume a substantial portion of your usage limits.", false},
+		{"a setting's name", "RATE_LIMIT_PER_WINDOW=100 in the example env", false},
+		{"a goblin listing API error doc topics", "Sections: authentication, pagination, API errors, and rate limits.", false},
+		{"a goblin advising a later retry", "the docs say a rate limit means you should try again later", false},
+		{"a goblin planning a retry", "I will retry after the rate limit clears", false},
+		{"a goblin recounting a limit", "the rate limit reached its ceiling earlier today", false},
+		{"a goblin naming the Retry-After header", "Added rate limit handling that honours the Retry-After header.", false},
+		{"a goblin expecting a reset", "the rate limit will reset tomorrow", false},
+		{"a goblin retrying in a later step", "I am retrying in the next step after the rate limit", false},
+		{"a goblin quoting retry advice", "the docs say to try again in a minute when rate limited", false},
+		{"Claude Code's stopped-session banner", "Usage limit reached", true},
+		{"Claude Code's auto-continue banner", "Usage limit reached · continuing automatically at 3pm · esc or type to cancel", true},
+		{"Claude Code's wrap-up banner", "Usage limit reached · wrapping up", true},
+		{"Claude Code's spend banner", "spend limit reached", true},
+		{"a retry delay", "rate limited, retry after 30 seconds", true},
+		{"a retry-after header with a value", "429 rate limited, retry-after: 30", true},
+		{"a retry-after header without a status code", "rate limited, retry-after: 30", true},
+		{"Codex's same-day retry time", "You've hit your usage limit. Upgrade to Plus to continue using Codex, or try again at 3:04 PM.", true},
+		{"Codex's other-day retry time", "You've hit your usage limit. Upgrade to Plus to continue using Codex, or try again at Sep 26th, 2026 3:04 PM.", true},
+		{"a status code", "Error: 429 Too Many Requests - rate limit reached", true},
+		{"a provider error type", `API Error: 429 {"type":"error","error":{"type":"rate_limit_error"}}`, true},
+		{"a reset time", "Claude usage limit reached. Your limit will reset at 5pm (America/Chicago).", true},
+		{"a retry time", "You've hit your usage limit. Upgrade to Pro or try again in 4 days 1 hour.", true},
+		{"a quota 403", "kimi: request failed with 403: quota exceeded", true},
+		{"prose above a real refusal", "Sections: errors, and rate limits.\nError: 429 rate limit reached", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fault, evidence, found := Detect(c.tail)
+			last := c.tail[strings.LastIndex(c.tail, "\n")+1:]
+			if found != c.want || c.want && (fault != RateLimit || evidence != last) {
+				t.Fatalf("Detect = (%q, %q, %v), want a rate limit %v quoting %q", fault, evidence, found, c.want, last)
+			}
+		})
 	}
 }

@@ -250,7 +250,7 @@ func (erroringProbe) Inspect(_ context.Context, meta state.TaskMeta) (monitor.En
 		TabLabel: "gb-" + meta.ID,
 		Agent:    herdr.AgentAlive,
 		Busy:     herdr.BusyWorking,
-		Capture:  []byte("quota exceeded for this organization\n"),
+		Capture:  []byte("API error: 403 quota exceeded for this organization\n"),
 	}, nil
 }
 

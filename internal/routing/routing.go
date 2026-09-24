@@ -45,13 +45,11 @@ const (
 // code: "429" alone matches "line 429 of parser.go" and would report a
 // healthy goblin as rate-limited.
 //
-// ponytail: substring matching over a pane tail, which cannot tell a
-// provider's error from a project that happens to discuss one - a repo with
-// RATE_LIMIT_PER_WINDOW in its output can trip the rate-limit rule. The bare
-// "rate limit" phrase is the one pattern prone to conversational false wakes,
-// so Detect requires error framing on its line (see errorFramed); the
-// remaining patterns keep the bounded substring ceiling (a wake carrying a
-// recommendation).
+// ponytail: substring matching over a pane tail. Every rate-limit phrase also
+// turns up in a goblin's prose, in a harness's own dialogs and in settings
+// names, so Detect takes one only on a line shaped like a provider's refusal
+// (see errorShaped); the auth and provider patterns keep the bounded
+// substring ceiling (a wake carrying a recommendation).
 var faultPatterns = []struct {
 	fault    Fault
 	patterns []string
@@ -59,7 +57,7 @@ var faultPatterns = []struct {
 	{RateLimit, []string{
 		"rate limit", "rate_limit", "ratelimit_error", "too many requests",
 		"quota exceeded", "insufficient quota", "over quota", "out of quota",
-		"usage limit",
+		"usage limit", "spend limit",
 	}},
 	{Auth, []string{
 		"401 unauthorized", "invalid api key", "invalid_api_key",
@@ -98,18 +96,14 @@ func Detect(paneTail string) (Fault, string, bool) {
 	}
 	for _, group := range faultPatterns {
 		for _, pattern := range group.patterns {
-			index := strings.Index(lowered, pattern)
-			if index < 0 {
-				continue
+			// Every occurrence is weighed, so prose above a real refusal
+			// cannot hide it.
+			for _, index := range allMatches(lowered, pattern) {
+				if group.fault == RateLimit && !errorShaped(lineAt(lowered, index)) {
+					continue
+				}
+				return group.fault, evidence(paneTail, index), true
 			}
-			// A bare "rate limit" phrase also appears in prose (for example a
-			// CFO steer saying "not a model rate limit"); require the matched
-			// line to carry error framing so a conversational mention never
-			// reads as a provider refusal.
-			if pattern == "rate limit" && !errorFramed(lowered, index) {
-				continue
-			}
-			return group.fault, evidence(paneTail, index), true
 		}
 	}
 	return "", "", false
@@ -278,22 +272,28 @@ func thirdPartyErrorWord(line, keyword string) bool {
 	return false
 }
 
-// errorFramed reports whether the line a match landed on also carries a
-// provider error signal (a status code or an error word), so a keyword alone
-// in a conversational line is not a fault.
-func errorFramed(lowered string, index int) bool {
-	line := lineAt(lowered, index)
+// retryOrResetTime is a retry or reset time written as one, "retry after 30s"
+// or "try again at Sep 26th", not a goblin saying it will retry after something
+// clears or honours the Retry-After header.
+var retryOrResetTime = regexp.MustCompile(`(?:retry-after|retry after|retrying in|try again in|will reset in|resets in)\W{0,3}\d|(?:try again|will reset|resets) at\W{0,3}(?:\d|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.? \d)`)
+
+// errorShaped reports whether a line is shaped like a provider's own refusal
+// rather than prose about one: a 429 or 403 status, a provider's error type,
+// a harness's "API Error:", a retry or reset time, or Claude Code's own usage
+// and spend limit banners. An error word is not a shape: "API errors, and
+// rate limits" is a goblin listing doc topics.
+func errorShaped(line string) bool {
 	for _, code := range []string{"429", "403"} {
 		if hasStatusCode(line, code) {
 			return true
 		}
 	}
-	for _, signal := range []string{"error", "refused", "failed", "quota", "exceeded", "reached"} {
-		if strings.Contains(line, signal) {
+	for _, shape := range []string{"rate_limit_error", "ratelimit_error", "insufficient_quota", "resource_exhausted", "api error:", "usage limit reached · continuing automatically", "usage limit reached · wrapping up", "spend limit reached"} {
+		if strings.Contains(line, shape) {
 			return true
 		}
 	}
-	return false
+	return retryOrResetTime.MatchString(line) || strings.TrimSpace(strings.TrimLeft(line, " \t⎿●✻◐⏺❯›>│")) == "usage limit reached"
 }
 
 // lineAt returns the single line of text containing index.
