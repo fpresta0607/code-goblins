@@ -153,7 +153,8 @@ The browser renders its real ANSI screen frames using xterm, loaded only in Orch
 Observation does not claim ownership, resize the native runtime, or resume an agent.
 An observer sees only the part of the screen its size covers and hears of no change outside it, so a view without control always observes the pane at the size Herdr lays it out, whatever size the browser asked for.
 A view is refused when Herdr reports no size for the pane, and ends with a reconnect request when Herdr lays the pane out at a new size.
-A view without control also takes typing, with no Connect step: every input is verified against the same binding again and typed into that pane with Herdr's `pane send-text`, as `cfo send` types into a pane, never through the observer.
+A view without control also takes typing, with no Connect step: each input is typed into that pane with Herdr's `pane send-text`, as `cfo send` types into a pane, never through the observer.
+The view proves its pane, terminal, process and gate custody in full when it opens and on every five-second tick; an input starts no process to prove it again, and only rereads the task's record (or the CFO's registration) and checks that the verified process is alive, so a changed generation, pane or registration or an exited process is refused on the next key and anything else on the next tick.
 A long paste is typed in order, in pieces a Windows command line can carry.
 A piece Herdr refuses ends the view with an unknown outcome instead of typing the rest; a view refuses resize, scroll and a NUL key such as Ctrl+Space, which no command line can carry.
 Connect input explicitly claims the single native controller, which can resize the runtime and resume a pending agent; another controller is refused without takeover.
@@ -162,7 +163,7 @@ Shift+Escape releases input and restores keyboard access to its control; ordinar
 Ctrl+Shift+C copies a selected terminal region.
 Closing, switching, disconnecting or restarting invalidates the input lease; reconnection starts with observation and a full screen frame, never replayed input.
 At most four native streams are open, writes have an eight-second cancellation bound, frame gaps disconnect, and oversized UTF-8 paste is rejected before sending.
-Adjacent queued printable text coalesces into bounded ordered writes; control keys, paste wrappers, scroll and resize remain barriers, and custody is still checked for every native write.
+Adjacent queued printable text coalesces into bounded ordered writes; control keys, paste wrappers, scroll and resize remain barriers, and every native write passes the same binding and custody checks as typing.
 Screen reader support is an explicit saved preference under Terminal options and changes in place without reconnecting.
 The default xterm input mode accepts InsertText/IME Unicode; its optional screen-reader mode has an upstream InsertText limitation, while paste remains supported.
 There is no second model session or generated reply.
@@ -177,7 +178,7 @@ A missing or stale registration shows on the board as one banner, and in the CFO
 On Windows normal message delivery holds that registration against replacement and validates the live process/start time, foreground process group, registered agent, pane, workspace, tab and terminal ID before using a required-agent sender.
 Missing or changed identity is refused, never passed to the explicit-pane shell fallback.
 Herdr acceptance counters establish accepted delivery; the current native contract cannot prove a model response or provide an atomic process-identity compare-and-send operation.
-Terminal input pins the exact terminal ID and task generation, checks current process ownership and pipeline custody before every write, and consumes ordered input identities once.
+Terminal input pins the exact terminal ID and task generation, checks process ownership and pipeline custody on the schedule above, and consumes ordered input identities once.
 Writing native stdin does not acknowledge application acceptance.
 Herdr cannot atomically compare the foreground process while writing: if an agent exits after the check, bytes may reach the same PowerShell terminal.
 Known exited/replaced sessions are refused, but the board does not claim to eliminate that native check-then-write race.
