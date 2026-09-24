@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -136,7 +137,14 @@ type terminalLease struct {
 	seq     uint64
 	closed  bool
 	cancel  context.CancelFunc
+	// typist types into a pane the way cfo send does, for a lease that only
+	// observes.
+	typist func(context.Context, herdr.Target, string) error
 }
+
+// typedPiece is the most runes one pane send-text carries: a Windows command
+// line holds 32767 UTF-16 units, and escaping can double an argument.
+const typedPiece = 4096
 
 // A lease exists only while its one output stream is open. Sequence numbers
 // are consumed before a write, never persisted with secret-bearing key data.
@@ -144,8 +152,14 @@ type terminalLease struct {
 func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.TerminalCommand, verify func(context.Context, terminalBinding, bool) error) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.closed || !l.control {
-		return errors.New("Terminal is read-only or disconnected. Connect input explicitly.")
+	if l.closed {
+		return errors.New("Terminal is disconnected. Reconnect for a fresh screen; input was not replayed.")
+	}
+	if !l.control && command.Type != "terminal.input" {
+		return errors.New("A live pane view keeps the pane's own size and screen, so it sends only typing.")
+	}
+	if !l.control && strings.ContainsRune(command.Text, 0) {
+		return errors.New("A NUL key such as Ctrl+Space cannot be typed into a live pane view. Nothing was sent.")
 	}
 	if seq != l.seq+1 {
 		return errors.New("Terminal input is out of order or already submitted. It will not be replayed.")
@@ -158,6 +172,19 @@ func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.Ter
 		l.closed = true
 		l.cancel()
 		return err
+	}
+	if !l.control {
+		// Typing goes into the verified pane itself, never through the
+		// observer, in order and in pieces a command line can carry.
+		runes := []rune(command.Text)
+		for start := 0; start < len(runes); start += typedPiece {
+			if err := l.typist(ctx, l.binding.Target, string(runes[start:min(start+typedPiece, len(runes))])); err != nil {
+				l.closed = true
+				l.cancel()
+				return errors.New("Input outcome is unknown. Inspect the native screen before typing again; input was not retried.")
+			}
+		}
+		return nil
 	}
 	stop := context.AfterFunc(ctx, func() { l.cancel(); _ = l.stream.Close() })
 	err := l.stream.Send(command)
@@ -179,6 +206,26 @@ func (h *HTTP) verifyTerminal(ctx context.Context, b terminalBinding, write bool
 		return errors.New("Native terminal identity changed. Select the current session; input was discarded.")
 	}
 	return nil
+}
+
+// paneSize is the size Herdr lays the pane out at, clamped to what an observer
+// accepts.
+func (h *HTTP) paneSize(ctx context.Context, target herdr.Target) (int, int, error) {
+	client := *h.Service.Options.CFO.Herdr
+	client.Session = target.Session
+	check, stop := context.WithTimeout(ctx, 8*time.Second)
+	defer stop()
+	snapshot, err := client.Snapshot(check)
+	if err == nil {
+		for _, layout := range snapshot.Layouts {
+			for _, pane := range layout.Panes {
+				if pane.ID == target.Pane {
+					return min(max(pane.Rect.Width, 20), 400), min(max(pane.Rect.Height, 5), 160), nil
+				}
+			}
+		}
+	}
+	return 0, 0, errors.New("Herdr did not report this pane's size, so its screen cannot be shown whole.")
 }
 
 func decodeBody(w http.ResponseWriter, r *http.Request, value interface{}, limit int64) error {
@@ -236,7 +283,7 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 400, err.Error())
 		return
 	}
-	if err := (herdr.TerminalCommand{Type: "terminal.resize", Cols: input.Cols, Rows: input.Rows}).Validate(); err != nil {
+	if err := (herdr.TerminalCommand{Type: "terminal.resize", Cols: input.Cols, Rows: input.Rows}).Validate(); input.Control && err != nil {
 		apiError(w, 400, err.Error())
 		return
 	}
@@ -276,8 +323,18 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 409, "Recipient changed. Observe the current terminal before connecting input.")
 		return
 	}
+	cols, rows := input.Cols, input.Rows
+	if !input.Control {
+		// An observer sees only the part of the screen its size covers and
+		// hears of no change outside it, so a view smaller than the pane is a
+		// frozen top-left corner. Observe the pane at its own size.
+		if cols, rows, err = h.paneSize(ctx, b.Target); err != nil {
+			apiError(w, 409, err.Error())
+			return
+		}
+	}
 	open := h.openTerminal
-	stream, err := open(ctx, b.Target.Session, b.Terminal, input.Control, input.Cols, input.Rows)
+	stream, err := open(ctx, b.Target.Session, b.Terminal, input.Control, cols, rows)
 	if err != nil {
 		apiError(w, 503, "Native terminal attachment is unavailable.")
 		return
@@ -289,18 +346,22 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := hex.EncodeToString(id[:])
-	lease := &terminalLease{binding: b, stream: stream, control: input.Control, cancel: cancel}
+	lease := &terminalLease{binding: b, stream: stream, control: input.Control, cancel: cancel, typist: h.Service.Options.CFO.Herdr.SendLiteral}
 	h.mu.Lock()
 	h.terminals[key] = lease
 	h.mu.Unlock()
-	defer func() {
-		// Close the pipe before acquiring the input mutex: a native stdin write
-		// may be holding it while the output side disconnects.
-		cancel()
-		_ = stream.Close()
+	unregister := func() {
 		h.mu.Lock()
 		delete(h.terminals, key)
 		h.mu.Unlock()
+	}
+	defer func() {
+		// Refuse new input before waiting for the observer to exit, and close
+		// the pipe before acquiring the input mutex: a native stdin write may be
+		// holding it while the output side disconnects.
+		unregister()
+		cancel()
+		_ = stream.Close()
 		lease.mu.Lock()
 		lease.closed = true
 		lease.mu.Unlock()
@@ -334,11 +395,14 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 	}
 	first := time.NewTimer(8 * time.Second)
 	defer first.Stop()
-	tick := time.NewTicker(5 * time.Second)
+	tick := time.NewTicker(h.terminalTick)
 	defer tick.Stop()
 	full := false
 	var seq uint64
-	closed := func(reason string) { _ = write(herdr.TerminalFrame{Type: "terminal.closed", Reason: reason}) }
+	closed := func(reason string) {
+		unregister()
+		_ = write(herdr.TerminalFrame{Type: "terminal.closed", Reason: reason})
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -355,6 +419,17 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				closed(err.Error())
 				return
+			}
+			if !input.Control {
+				paneCols, paneRows, err := h.paneSize(ctx, b.Target)
+				if err != nil {
+					closed(err.Error())
+					return
+				}
+				if paneCols != cols || paneRows != rows {
+					closed("The pane was resized. Reconnect to see it whole at its new size.")
+					return
+				}
 			}
 			if err := write(struct {
 				Type string `json:"type"`

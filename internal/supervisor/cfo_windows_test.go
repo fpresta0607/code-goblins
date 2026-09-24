@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -58,6 +59,12 @@ type cfoRunner struct {
 	harness      string
 	calls        int
 	offline      bool
+	// typing lets a live terminal view type into the pane, recorded in typed;
+	// sizeless leaves the pane's size out of the snapshot and resized grows it.
+	typing   bool
+	typed    [][]string
+	sizeless bool
+	resized  atomic.Bool
 }
 
 func (r *cfoRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -69,7 +76,13 @@ func (r *cfoRunner) Run(_ context.Context, req execx.Request) (execx.Result, err
 	var body string
 	switch {
 	case len(a) >= 2 && a[0] == "api" && a[1] == "snapshot":
-		body = `{"result":{"type":"session_snapshot","snapshot":{"protocol":1,"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","terminal_id":"test-terminal"}],"agents":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","agent":"codex","agent_status":"idle"}]}}}`
+		body = `{"result":{"type":"session_snapshot","snapshot":{"protocol":1,"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","terminal_id":"test-terminal"}],"agents":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","agent":"codex","agent_status":"idle"}],"layouts":[{"tab_id":"w1:t1","panes":[{"pane_id":"w1:p1","rect":{"x":0,"y":0,"width":132,"height":43}}]}]}}}`
+		if r.sizeless {
+			body = strings.Replace(body, `"layouts"`, `"unsized"`, 1)
+		}
+		if r.resized.Load() {
+			body = strings.Replace(body, `"width":132,"height":43`, `"width":180,"height":50`, 1)
+		}
 		if r.terminal != "" {
 			body = strings.ReplaceAll(body, "test-terminal", r.terminal)
 		}
@@ -94,7 +107,11 @@ func (r *cfoRunner) Run(_ context.Context, req execx.Request) (execx.Result, err
 		r.prompts = append(r.prompts, a[3])
 		body = `{"result":{}}`
 	case len(a) >= 2 && a[0] == "pane" && (a[1] == "send-text" || a[1] == "send-keys"):
-		r.t.Fatal("CFO message reached raw pane typing")
+		if !r.typing {
+			r.t.Fatal("CFO message reached raw pane typing")
+		}
+		r.typed = append(r.typed, a)
+		body = `{"result":{}}`
 	default:
 		return execx.Result{}, fmt.Errorf("unexpected Herdr operation: %v", a)
 	}
