@@ -297,7 +297,9 @@ cfo run-request --id fix-acl-1 --title "Grant the service account access" --shel
 `cfo run-request` hands the item to the supervisor over its named pipe, and the supervisor itself proves the sending process runs under the registered primary CFO, the proof `cfo question` uses: it walks up from that process to the CFO, each ancestor created before its child, since Windows reuses PIDs.
 The sending process must also have started before it connected, so a process that later took its PID proves nothing.
 The supervisor drops a client that sends nothing within 10 seconds and gives each request 20 seconds for its proof, and `cfo run-request` waits 30 seconds for the answer.
-A goblin or any other process is refused before anything is written, and nothing written straight into the state directory ever reaches the board; a request needs the supervisor (`cfo serve`) running.
+The supervisor thus proves the sending process descends from the process `state/primary.json` names: a request from a process outside the CFO's tree is refused before anything is written, and an item planted in the state directory never reaches the board; a request needs the supervisor (`cfo serve`) running.
+Processes of one Windows user are peers, though, and a same-user process that rewrites `state/primary.json` or starts a process with a spoofed parent can still pass the check, so it is not a boundary between processes of the same user.
+The Overlord reading the exact command before Run, and Windows UAC for an admin item, remain the final check.
 The command file is read once: the supervisor stores its text as `state/runs/<digest>/command.ps1` or `command.sh`, which is what runs, so quoting cannot change it, and the item runs in the CFO home unless `--cwd` names a folder.
 The ID follows the review item rule: republishing it with the same text changes nothing while the item waits, and republishing it with other text, or once the item has run or expired, is refused.
 The board sees each item in `snapshot.runs` with its exact command, shell, folder and whether it needs administrator rights, and Run sends only the item's ID through the board's action checks (exact Host and Origin plus the per-session token), never command text.
@@ -309,7 +311,7 @@ When the command finishes, its exit code and the last 64 KiB of its output are o
 Every run appends a line to `state/runs.audit`: the time, the item's ID, the SHA-256 of exactly the script file that ran, and its exit code, or none when it did not finish.
 Finished and expired items are pruned a week after they end; a waiting or running item is never dropped, and a new request is refused while all 64 held items are one or the other.
 Output is stored on the board, so the CFO never puts a secret in a run command or requests one that prints a secret.
-Known limit: the question and review inboxes (`state/questions-inbox`, `state/reviews-inbox`) still trust any process running as the same user, which run items no longer do; moving them onto a verified channel is queued.
+Known limit: the question and review inboxes (`state/questions-inbox`, `state/reviews-inbox`) take any well-formed file a process running as the same user writes there, with no check of the sender at all, where run items at least prove the sender descends from the registered CFO; moving them onto a verified channel is queued.
 
 ## Nonblocking presentation notices
 
