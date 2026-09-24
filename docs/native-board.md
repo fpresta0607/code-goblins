@@ -184,7 +184,7 @@ Herdr cannot atomically compare the foreground process while writing: if an agen
 Known exited/replaced sessions are refused, but the board does not claim to eliminate that native check-then-write race.
 
 Workspace details read only declared project/provisioning metadata and configured MCP names.
-Configured is not connected; one shared note explains unavailable live connection and environment evidence.
+Configured is not connected; each configured entry is marked configured, never connected, and one shared note says so.
 Matching-generation native model evidence takes precedence; otherwise the model is explicitly labeled configured, including a configured default.
 Environment values, full process environments, dotenv, auth scripts, MCP commands and headers are never exposed.
 
