@@ -430,7 +430,7 @@ func (s *Store) acceptReview(r Review) error {
 			return nil
 		}
 		if len(s.db.Reviews) >= maxReviews {
-			closed := slices.IndexFunc(s.db.Reviews, func(old Review) bool { return old.State != "open" })
+			closed := slices.IndexFunc(s.db.Reviews, func(old Review) bool { return old.State != "open" && !s.answering(old) })
 			if closed < 0 {
 				return ErrDeferred
 			}
@@ -463,15 +463,24 @@ func (s *Store) acceptReview(r Review) error {
 	return s.save()
 }
 
+// answering reports whether an item's answer is still queued or running; the
+// item keeps its place until the answer is delivered or refused.
+func (s *Store) answering(r Review) bool {
+	return r.AnswerID != "" && slices.ContainsFunc(s.db.Actions, func(a Action) bool {
+		return a.ID == r.AnswerID && (a.Status == "queued" || a.Status == "running")
+	})
+}
+
 // pruneReviews drops closed items, with their copied images, a set time after
-// they closed. Open items are never pruned.
+// they closed. Open items and items whose answer is on its way are never
+// pruned.
 func (s *Store) pruneReviews(now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	kept := make([]Review, 0, len(s.db.Reviews))
 	var removed []Review
 	for _, r := range s.db.Reviews {
-		if r.State != "open" && now.Sub(r.UpdatedAt) > closedReviewRetention {
+		if r.State != "open" && !s.answering(r) && now.Sub(r.UpdatedAt) > closedReviewRetention {
 			removed = append(removed, r)
 			continue
 		}

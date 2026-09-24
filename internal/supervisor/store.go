@@ -530,11 +530,6 @@ func (s *Store) queue(a Action) (Action, error) {
 			if s.db.Questions[i].ID == a.QuestionID {
 				s.db.Questions[i].AnswerID, s.db.Questions[i].Status = a.ID, "queued"
 				s.db.Questions[i].Answer, s.db.Questions[i].AnswerKind = a.Text, a.AnswerKind
-				at := a.CreatedAt
-				s.db.Questions[i].AnsweredBy, s.db.Questions[i].AnsweredAt = "overlord", &at
-				if a.AnswerKind != "other" && slices.Contains(s.db.Questions[i].Options, a.Text) {
-					s.db.Questions[i].AnsweredOption = a.Text
-				}
 			}
 		}
 	}
@@ -650,7 +645,15 @@ func (s *Store) updateQuestionOutcomes() {
 		}
 		for _, a := range s.db.Actions {
 			if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && a.ID == s.db.Questions[i].AnswerID {
-				s.db.Questions[i].Status, s.db.Questions[i].Message = a.Status, a.Message
+				q := &s.db.Questions[i]
+				q.Status, q.Message = a.Status, a.Message
+				if a.Status == "succeeded" {
+					at := a.UpdatedAt
+					q.AnsweredBy, q.AnsweredAt = "overlord", &at
+					if a.AnswerKind != "other" && slices.Contains(q.Options, a.Text) {
+						q.AnsweredOption = a.Text
+					}
+				}
 			}
 		}
 	}

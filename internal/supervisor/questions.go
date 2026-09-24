@@ -206,7 +206,7 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 	if err != nil {
 		return result, err
 	}
-	if err := wake.MarkAnswered(s.Store.Home.State, q.Seq, a.Text); err != nil {
+	if err := wake.MarkAnswered(s.Store.Home.State, q.Seq, wake.AnsweredByOverlord, a.Text); err != nil {
 		result.Reason += " The CFO's notify still reads unanswered: " + err.Error()
 	}
 	return result, nil
@@ -278,6 +278,9 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	if err != nil {
 		return "", fmt.Errorf("question %s has not reached the board yet (%v); try again in a moment", id, err)
 	}
+	if q.AnswerID != "" && q.Status != "failed" {
+		return "", fmt.Errorf("the Overlord is answering %s on the board (its answer is %s); nothing was sent", id, q.Status)
+	}
 	answer := chosen
 	if note = strings.TrimSpace(note); note != "" {
 		answer += ". " + note
@@ -289,7 +292,7 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	if err := spoolAnswer(c.State, cfoAnswer{QuestionID: id, Option: chosen, Answer: answer, At: time.Now().UTC()}); err != nil {
 		unrecorded = append(unrecorded, fmt.Errorf("the board could not record it: %w", err))
 	}
-	if err := wake.MarkAnswered(c.State, seq, answer); err != nil {
+	if err := wake.MarkAnswered(c.State, seq, wake.AnsweredByCFO, answer); err != nil {
 		unrecorded = append(unrecorded, fmt.Errorf("notify %d still reads unanswered: %w", seq, err))
 	}
 	if err := errors.Join(unrecorded...); err != nil {
@@ -377,7 +380,8 @@ func spoolAnswer(stateDir string, a cfoAnswer) error {
 // ingestAnswers records the answers cfo answer spooled: which choice closed
 // the question, that the CFO gave it, and when. A question still pending
 // takes its answer, and so does one superseded because the CFO drained its
-// notify before this pass; one still waiting in the question inbox keeps its
+// notify before this pass or one whose board answer was refused because the
+// CFO had just answered; one still waiting in the question inbox keeps its
 // answer for the next pass.
 func (s *Store) ingestAnswers() error {
 	dir := filepath.Join(s.Home.State, answersInbox)
@@ -411,11 +415,11 @@ func (s *Store) ingestAnswers() error {
 		case reject != "":
 		case i < 0:
 			reject = "its question is gone"
-		case s.db.Questions[i].Status != "pending" && s.db.Questions[i].Status != "superseded":
+		case !slices.Contains([]string{"pending", "superseded", "failed"}, s.db.Questions[i].Status):
 			reject = "its question already closed as " + s.db.Questions[i].Status
 		default:
 			q, at := &s.db.Questions[i], a.At
-			q.Status, q.Message = "succeeded", "Answered by the CFO."
+			q.Status, q.Message, q.AnswerID = "succeeded", "Answered by the CFO.", ""
 			q.Answer, q.AnswerKind = a.Answer, "option"
 			q.AnsweredOption, q.AnsweredBy, q.AnsweredAt = a.Option, "cfo", &at
 		}

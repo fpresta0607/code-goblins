@@ -599,7 +599,7 @@ func TestScanStopsReAskingAQuestionAnsweredOnTheBoard(t *testing.T) {
 	}
 	for _, record := range records {
 		if _, ok := wake.BlockingNotify(record); ok && record.Key == "g1" {
-			if err := wake.MarkAnswered(stateDir, record.Seq, "hold"); err != nil {
+			if err := wake.MarkAnswered(stateDir, record.Seq, wake.AnsweredByOverlord, "hold"); err != nil {
 				t.Fatal(err)
 			}
 		}

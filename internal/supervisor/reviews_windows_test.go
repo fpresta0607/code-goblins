@@ -286,3 +286,50 @@ func TestReviewAnswerReachesItsReporterOnceOrElseTheCFO(t *testing.T) {
 		})
 	}
 }
+
+// With the list full and a publication waiting, an item the Overlord just
+// answered keeps its place until its answer is delivered, and only then makes
+// room for the waiting one.
+func TestAnsweredReviewSurvivesAFullListUntilDelivered(t *testing.T) {
+	store, h := testStore(t)
+	_, _, runner, cfo := primaryFixture(t, store)
+	t.Setenv("CFO_SESSION_ID", "actual-primary")
+	t.Setenv("CFO_SESSION_HARNESS", "codex")
+	ctx := context.Background()
+	if err := PublishReview(ctx, h, cfo.Herdr, "", "plan-review-1", "Read the plan", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i < maxReviews; i++ {
+		if err := store.acceptReview(openReview(fmt.Sprintf("bulk-review-%03d", i), "task-1")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := spoolReview(h.State, openReview("waiting-review", "task-1")); err != nil {
+		t.Fatal(err)
+	}
+	r := store.Snapshot().Reviews[0]
+	if _, err := store.Queue(Action{ID: "answer-review-1", Kind: "review_answer", ReviewID: r.ID, Generation: r.Identity, Text: "Go with the grid"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Reviews; got[0].ID != r.ID || got[0].State != "answered" || got[len(got)-1].ID == "waiting-review" {
+		t.Fatalf("reviews start with %s and end with %s; want the answered item kept and the publication still waiting", got[0].ID, got[len(got)-1].ID)
+	}
+	if err := store.ProcessOne(ctx, (&Service{Store: store, Options: Options{CFO: cfo}}).execute); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Reviews[0]; len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], "Go with the grid") || got.ID != r.ID || !got.Delivered {
+		t.Fatalf("prompts = %q and review = %+v, want the answer delivered once", runner.prompts, got)
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Reviews; got[0].ID == r.ID || got[len(got)-1].ID != "waiting-review" {
+		t.Fatalf("reviews start with %s and end with %s; want the delivered item to make room for the waiting one", got[0].ID, got[len(got)-1].ID)
+	}
+}

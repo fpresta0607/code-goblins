@@ -493,35 +493,45 @@ func TestRunDrainRefusesASupersededBlockWithoutFlag(t *testing.T) {
 	}
 }
 
-// A question the Overlord answered on the board no longer holds the ack: the
-// goblin has its answer, and drain says so instead of listing a goblin as
-// still waiting.
-func TestRunDrainAcksAQuestionAnsweredOnTheBoard(t *testing.T) {
-	h := buildDrainFixture(t)
-	rec, err := wake.Append(h.State, "notify", "gb-x", "blocked: which remedy? options: a | b")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := wake.MarkAnswered(h.State, rec.Seq, "b"); err != nil {
-		t.Fatal(err)
-	}
-	var stdout, stderr bytes.Buffer
-	if exit := runDrain(h, nil, &stdout, &stderr); exit != 0 {
-		t.Fatalf("exit = %d; stderr=%s", exit, stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "answered on the board: b") {
-		t.Fatalf("drain does not say the question was answered:\n%s", stdout.String())
-	}
-	stdout.Reset()
-	stderr.Reset()
-	if exit := runDrain(h, []string{"--ack-through", strconv.Itoa(rec.Seq)}, &stdout, &stderr); exit != 0 {
-		t.Fatalf("exit = %d, want the answered question acked without --ack-blocking; stderr=%s", exit, stderr.String())
-	}
-	pending, err := wake.Pending(h.State)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(pending) != 0 {
-		t.Fatalf("pending after the ack = %+v", pending)
+// A question the Overlord answered on the board or the CFO answered with cfo
+// answer no longer holds the ack: the goblin has its answer, and drain says
+// who gave it instead of listing a goblin as still waiting.
+func TestRunDrainAcksAnAnsweredQuestion(t *testing.T) {
+	for _, c := range []struct {
+		by   string
+		want string
+	}{
+		{wake.AnsweredByOverlord, "the Overlord answered on the board: b"},
+		{wake.AnsweredByCFO, "the CFO answered with cfo answer: b"},
+	} {
+		t.Run(c.by, func(t *testing.T) {
+			h := buildDrainFixture(t)
+			rec, err := wake.Append(h.State, "notify", "gb-x", "blocked: which remedy? options: a | b")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := wake.MarkAnswered(h.State, rec.Seq, c.by, "b"); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+			if exit := runDrain(h, nil, &stdout, &stderr); exit != 0 {
+				t.Fatalf("exit = %d; stderr=%s", exit, stderr.String())
+			}
+			if !strings.Contains(stdout.String(), c.want) {
+				t.Fatalf("drain does not say %q:\n%s", c.want, stdout.String())
+			}
+			stdout.Reset()
+			stderr.Reset()
+			if exit := runDrain(h, []string{"--ack-through", strconv.Itoa(rec.Seq)}, &stdout, &stderr); exit != 0 {
+				t.Fatalf("exit = %d, want the answered question acked without --ack-blocking; stderr=%s", exit, stderr.String())
+			}
+			pending, err := wake.Pending(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(pending) != 0 {
+				t.Fatalf("pending after the ack = %+v", pending)
+			}
+		})
 	}
 }
