@@ -293,7 +293,7 @@ cfo run-request --id fix-acl-1 --title "Grant the service account access" --shel
 
 Only the registered primary CFO can create one, proven the way `cfo question` proves it; a goblin or any other process is refused before anything is written.
 The command file is read once: its text is stored as `state/runs/<digest>/command.ps1` or `command.sh`, which is what runs, so quoting cannot change it, and the item runs in the CFO home unless `--cwd` names a folder.
-The ID follows the review item rule, and republishing it with other text is refused.
+The ID follows the review item rule: republishing it with the same text changes nothing while the item waits, and republishing it with other text, or once the item has run or expired, is refused.
 The board sees each item in `snapshot.runs` with its exact command, shell, folder and whether it needs administrator rights, and Run sends only the item's ID through the board's action checks (exact Host and Origin plus the per-session token), never command text.
 An item runs once and expires 24 hours after it was created; running it again needs a new item.
 Run opens a visible console window of exactly the shell the item names: Windows PowerShell 5.1, PowerShell 7 (`pwsh` on `PATH`) or Git Bash (the `bash.exe` beside Git for Windows' `git.exe`, never the WSL `bash.exe`); a shell that is not installed fails the item with the reason.
