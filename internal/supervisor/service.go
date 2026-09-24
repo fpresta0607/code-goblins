@@ -195,6 +195,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	}
 	// Question failures cannot stop native events or independent progression.
 	reconcileErr := s.Store.ingestQuestions()
+	reconcileErr = errors.Join(reconcileErr, s.Store.ingestAnswers())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())

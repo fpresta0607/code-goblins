@@ -530,6 +530,11 @@ func (s *Store) queue(a Action) (Action, error) {
 			if s.db.Questions[i].ID == a.QuestionID {
 				s.db.Questions[i].AnswerID, s.db.Questions[i].Status = a.ID, "queued"
 				s.db.Questions[i].Answer, s.db.Questions[i].AnswerKind = a.Text, a.AnswerKind
+				at := a.CreatedAt
+				s.db.Questions[i].AnsweredBy, s.db.Questions[i].AnsweredAt = "overlord", &at
+				if a.AnswerKind != "other" && slices.Contains(s.db.Questions[i].Options, a.Text) {
+					s.db.Questions[i].AnsweredOption = a.Text
+				}
 			}
 		}
 	}
