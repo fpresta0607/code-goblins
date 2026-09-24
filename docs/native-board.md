@@ -242,6 +242,7 @@ cfo review --id mockups-review-1 --task task-id --withdraw "Replaced by mockups-
 A goblin runs it from its own pane, proven the way its questions are; the registered primary CFO omits `--task`, and only a goblin's item takes images.
 The ID is 8 to 128 letters, digits, dots, dashes or underscores; republishing the same ID with the same content changes nothing, and other content under that ID is refused.
 Up to twelve images, each a PNG, JPEG, GIF or WebP of at most 10 MiB inside the task's worktree, task scratch or data directory, are checked like a question's and copied under `state/reviews`, so the item outlives the worktree and the goblin; `data/` is never used, because it is pushed.
+A `--lavish` link follows the presentation URL rule below, and a refusal names the rule it broke.
 An item stays open until the Overlord clears it (`review_clear`) or its reporter withdraws it with a reason; nothing expires it, a `cfo serve` restart keeps it, and a respawned or retired goblin leaves it listed.
 The board sees each item in `snapshot.reviews` with an image count, never a path or a digest, and fetches image n at `/api/reviews/<id>/images/<n>`, checked again on every request.
 Closed items and their copies are pruned a week after they close; open items are never dropped, and a new item waits in the inbox while 128 are open.
