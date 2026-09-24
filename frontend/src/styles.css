@@ -523,8 +523,8 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .comment-mark[data-tip]::after { top: auto; bottom: calc(100% + 6px); transform: translateY(4px); }
 .comment-mark[data-tip]:hover::after { transform: none; }
 /* The comment floats over the rows after the selection. The anchor has no
-   height, stays at the left edge while code scrolls sideways, and the diff
-   keeps room at its end so a comment on the last lines is never clipped. */
+   height, and the diff keeps room at its end so a comment on the last lines
+   is never clipped. */
 .comment-anchor { position: sticky; left: 0; height: 0; z-index: 4; }
 .diff-scroll:has(.comment-anchor) { padding-bottom: 240px; }
 .comment-overlay { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 16px; background: var(--level-3); box-shadow: var(--shadow-3); color: #edf4f3; font-family: var(--font-body); font-size: 1rem; line-height: 1.5; white-space: normal; }
