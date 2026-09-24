@@ -297,6 +297,16 @@ func TestSnapshotReadsWorkingAndWaitingOnReports(t *testing.T) {
 	if got := task(); got.Phase != "blocked" {
 		t.Fatalf("a newer question = %+v, want blocked", got.Evaluation)
 	}
+	// A report older than a pending question never replaces it, even as the
+	// last status line: the CFO's release can land between a goblin's status
+	// line and its wake.
+	older := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339) + " working: released by the CFO\n"
+	if err := os.WriteFile(filepath.Join(h.State, "task-1.status"), []byte(older), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := task(); got.Phase != "blocked" || got.Reason != "Waiting on the CFO: Which port?" {
+		t.Fatalf("a question newer than the latest report = %+v, want blocked on it", got.Evaluation)
+	}
 }
 
 // A wait on the Overlord stays in the Command Center while it is the goblin's
