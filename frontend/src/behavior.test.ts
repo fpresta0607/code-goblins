@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parsePatchToRows, splitRows, reviewRange } from "./diff.ts";
+import { dragRange, parsePatchToRows, splitRows, reviewRange } from "./diff.ts";
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, deliveryMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
@@ -351,4 +351,17 @@ test("the orchestration graph fills the canvas, capped so cards never get huge",
   for (const [graphWidth, graphHeight, canvasWidth, canvasHeight, scale] of cases) {
     assert.equal(fitScale({ width: graphWidth, height: graphHeight }, { width: canvasWidth, height: canvasHeight }), scale, graphWidth + "x" + graphHeight + " in " + canvasWidth + "x" + canvasHeight);
   }
+});
+
+test("a drag across diff rows comments on the lines it covers", () => {
+  const rows = parsePatchToRows("@@ -1,3 +1,4 @@\n context\n-removed\n+added one\n+added two\n tail");
+  const lines = rows.filter((row) => row.variant !== "hunk");
+  const cases: [string, number, number, "old" | "new" | undefined, ReturnType<typeof dragRange>][] = [
+    ["context through the added lines", 0, 3, undefined, { side: "new", line: 1, end: 3 }],
+    ["only the removed line", 1, 1, undefined, { side: "old", line: 2, end: 2 }],
+    ["removed then added, split view started in the old column", 1, 2, "old", { side: "old", line: 2, end: 2 }],
+    ["one added line", 3, 3, undefined, { side: "new", line: 3, end: 3 }],
+  ];
+  for (const [name, first, last, prefer, expected] of cases) assert.deepEqual(dragRange(lines.slice(first, last + 1), prefer), expected, name);
+  assert.equal(dragRange(rows.filter((row) => row.variant === "hunk")), null);
 });

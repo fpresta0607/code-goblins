@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { message, request } from "./api";
-import { alreadyKnown, submissionFor, type Submission } from "./feedback";
+import { alreadyKnown, deliveryMark, submissionFor, type Submission } from "./feedback";
+import { Icon } from "./Icon";
 import { parseAction, type Action, type FileDiff, type ReviewSelection, type Snapshot, type Task } from "./types";
 import { parsePatchToRows, reviewRange } from "./diff";
 
@@ -58,35 +59,47 @@ export function useReview(task: Task | undefined, snapshot: Snapshot | null) {
 
 export type ReviewControls = ReturnType<typeof useReview>;
 
-export function ReviewComment({ diff, reviews, connected }: { diff: FileDiff; reviews: ReviewControls; connected: boolean }) {
+// The comment floats beside the selected lines instead of pushing the diff
+// apart. Enter sends, Shift+Enter breaks a line, Escape cancels; once sent it
+// shrinks to a chip whose check marks show delivery.
+export function ReviewComment({ diff, reviews, connected, floating }: { diff: FileDiff; reviews: ReviewControls; connected: boolean; floating: boolean }) {
   const key = reviews.keyFor(diff), draft = reviews.drafts[key];
   if (!draft || draft.hidden) return null;
   const action = reviews.outcome(draft);
-  const outcomeLabel = action && ({ succeeded: "Sent to CFO", queued: "Queued", running: "Sending", failed: "Could not deliver", uncertain: "Delivery unconfirmed" })[action.status];
   const selection = draft.selection;
+  const range = (selection.side === "old" ? "Old" : "New") + " " + (selection.line === selection.end_line ? "line " + selection.line : "lines " + selection.line + "–" + selection.end_line);
   const valid = reviewRange(parsePatchToRows(diff.patch), selection.line, selection.end_line, selection.side);
   const stale = selection.head !== diff.head || selection.diff_id !== diff.fingerprint;
   const staleGeneration = selection.generation !== reviews.generation;
-  return <section className="inline-review" aria-label={"Review comment for " + diff.path}>
-    <div className="review-context">
-      <strong>{selection.side === "old" ? "Old" : "New"} {selection.line === selection.end_line ? "line " + selection.line : "lines " + selection.line + "–" + selection.end_line}</strong>
-      <button disabled={draft.sending} onClick={() => reviews.change(key, { hidden: true })}>Cancel selection</button>
-    </div>
-    <p className="muted review-revision">{diff.path} · HEAD {selection.head.slice(0, 8)}{selection.revision && " · Commit " + selection.revision.slice(0, 8)}</p>
-    <label className="review-label">Comment to CFO
-      <textarea aria-label={"Comment to CFO for " + diff.path} rows={3} maxLength={16000} value={draft.text} disabled={draft.sending}
-        placeholder="Describe the change you want…" onChange={(event) => reviews.change(key, { text: event.target.value, error: "" })} />
-    </label>
+  const blocked = !connected || draft.sending || !draft.text.trim() || !!action || !valid || stale || staleGeneration;
+  const cancel = () => { if (!draft.sending) reviews.change(key, { hidden: true }); };
+  const kind = "comment-overlay" + (floating ? " floating" : "");
+  if (action) {
+    const mark = deliveryMark(action);
+    return <div className={kind + " sent"} role="status" aria-label={"Comment on " + range + ". " + mark.label}>
+      <span className={"delivery " + action.status} aria-hidden="true"><Icon name={mark.icon} /></span>
+      <p className="comment-sent-text"><strong>{range}</strong> {draft.text}</p>
+      <button className="icon-button" aria-label="New comment on these lines" data-tip="New comment" data-tip-align="end" onClick={() => reviews.change(key, { text: "", submission: null, receipt: undefined, error: "" })}><Icon name="comment" /></button>
+      <button className="icon-button" aria-label="Close" data-tip="Close" data-tip-align="end" onClick={cancel}><Icon name="close" /></button>
+      {mark.trouble && <p className="warning-text">{mark.label}{action.message && " " + action.message}</p>}
+    </div>;
+  }
+  return <section className={kind} aria-label={"Comment to the CFO on " + range + " of " + diff.path}>
+    <header><strong>{range}</strong><span className="muted">{diff.path} · HEAD {selection.head.slice(0, 8)}{selection.revision && " · Commit " + selection.revision.slice(0, 8)}</span></header>
+    <textarea aria-label={"Comment to the CFO on " + range} rows={3} maxLength={16000} value={draft.text} disabled={draft.sending}
+      placeholder="Describe the change you want..." onChange={(event) => reviews.change(key, { text: event.target.value, error: "" })}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancel(); }
+        if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!blocked) void reviews.send(diff); }
+      }} />
     {!valid && <p className="warning-text">Select up to 200 contiguous visible diff lines.</p>}
     {stale && <p className="warning-text">This diff changed. Select the current lines before sending.</p>}
     {staleGeneration && <p className="warning-text" role="alert">This task restarted or was replaced. This comment belongs to its previous session. Reselect the current lines to review the new session.</p>}
-    <div className="review-submit"><span className="muted">The CFO receives this request and directs the work.</span>
-      <button className="primary" disabled={!connected || draft.sending || !draft.text.trim() || !!action || !valid || stale || staleGeneration} onClick={() => { void reviews.send(diff); }}>
-        {draft.sending ? "Sending…" : action ? "Submission recorded" : "Send to CFO"}
-      </button>
-    </div>
-    {draft.error && !action && <p className="error-box" role="alert">{draft.error} An unchanged retry uses the same request ID.</p>}
-    {action && <p className={"action-result " + action.status} role="status">{outcomeLabel || "Awaiting evidence"}: {action.message || "Queued for CFO review."}</p>}
-    {action && <button className="new-instruction" onClick={() => reviews.change(key, { text: "", submission: null, receipt: undefined, error: "" })}>Start a new comment</button>}
+    {draft.error && <p className="warning-text" role="alert">{draft.error} An unchanged retry keeps its request ID.</p>}
+    <footer>
+      <span className="muted">Enter sends · Shift+Enter new line · Esc cancels</span>
+      <button className="icon-button send" disabled={blocked} aria-label="Send to the CFO" data-tip="Send to the CFO" data-tip-align="end" onClick={() => void reviews.send(diff)}><Icon name={draft.sending ? "clock" : "send"} /></button>
+      <button className="icon-button" disabled={draft.sending} aria-label="Cancel comment" data-tip="Cancel" data-tip-align="end" onClick={cancel}><Icon name="close" /></button>
+    </footer>
   </section>;
 }

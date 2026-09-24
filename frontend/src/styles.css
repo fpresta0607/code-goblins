@@ -264,10 +264,8 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 .icon, .brand-icon { display: block; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .panel-reason { color: #bfd1d9; line-height: 1.65; overflow-wrap: anywhere; margin-bottom: 22px; }
 .primary { background: #68f1cb; border-color: #68f1cb; color: #06231a; font-weight: 600; }
-.action-result { margin-top: 12px; font-size: .9375rem; overflow-wrap: anywhere; }
 .icon-button.raised { border-color: var(--edge); border-top-color: var(--edge-lit); background: var(--level-3); box-shadow: var(--shadow-1); color: #dff7ee; transition: transform .16s ease, box-shadow .16s ease; }
 .icon-button.raised:hover:not(:disabled) { transform: var(--lift); box-shadow: var(--shadow-2); background: var(--level-3); }
-.new-instruction { margin-top: 12px; font-size: .9375rem; }
 .empty-state { display: grid; align-content: center; gap: 14px; min-height: 350px; padding: 24px; text-align: center; color: var(--muted); max-width: 36rem; margin: 0 auto; }
 .empty-state h2 { color: #edf4f3; }
 .connection-banner, .error-box { border: 1px solid #735338; border-radius: var(--radius); background: #292116; color: #f1c598; padding: 14px; margin-bottom: 18px; overflow-wrap: anywhere; font-size: .9375rem; }
@@ -300,7 +298,7 @@ summary { cursor: pointer; }
 .status-D { color: var(--red); }
 .file-review > .disclosure-content { padding: 0; }
 .file-review .diff-view { border: 0; border-top: 1px solid var(--border); border-radius: 0 0 var(--radius) var(--radius); }
-.diff-view { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; min-width: 0; }
+.diff-view { border: 1px solid var(--border); border-radius: var(--radius); overflow: clip; min-width: 0; }
 .diff-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px; background: #141e28; border-bottom: 1px solid var(--border); }
 .diff-stats { display: flex; gap: 8px; font-family: var(--font-mono); font-size: .9375rem; }
 .diff-stats b { color: #90e1b3; font-weight: 400; }
@@ -309,33 +307,26 @@ summary { cursor: pointer; }
 .selection-hint { color: var(--muted); font-size: .9375rem; margin-left: auto; }
 .selected-line { box-shadow: inset 3px 0 var(--accent); background: #24473e; }
 .line-number[aria-pressed="true"] { background: #195c42; color: #dbffed; }
-.inline-review { position: sticky; left: 0; padding: 18px; border-top: 1px solid #3c6c59; border-bottom: 1px solid #3c6c59; background: #13271f; font-family: var(--font-body); font-size: 1rem; line-height: 1.5; white-space: normal; }
-.review-context, .review-submit { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
-.review-context button { background: transparent; font-size: .9375rem; }
-.review-revision { font-size: .9375rem; overflow-wrap: anywhere; margin: 6px 0 14px; }
-.review-label { display: grid; gap: 8px; }
-.review-label textarea { width: 100%; min-width: 0; max-height: 240px; background: #0a1712; }
-.review-submit { margin-top: 14px; }
-.review-submit > span { flex: 1 1 14rem; font-size: .9375rem; }
 .diff-scroll, .code-preview { overflow-x: auto; background: #090f16; font-family: var(--font-mono); font-size: .9375rem; line-height: 2; }
-.diff-row { display: grid; grid-template-columns: 52px 52px 20px 1fr; min-width: 100%; width: max-content; white-space: pre; }
-.line-number { font-family: var(--font-mono); font-size: .9375rem; font-variant-numeric: tabular-nums; text-align: right; padding: 0 6px 0 18px; color: #93adbd; user-select: none; border: 0; border-radius: 0; border-right: 1px solid #263b4766; background: #060b1230; line-height: inherit; min-height: 0; position: relative; }
-button.line-number { min-height: 32px; }
-.comment-plus { position: absolute; left: 2px; top: 50%; width: 12px; height: 12px; border-radius: 50%; transform: translateY(-50%); text-align: center; line-height: 11px; font-size: .9375rem; background: #176b4d; color: #c5ffe1; }
-.diff-row code, .split-cell code, .code-line code { white-space: pre; padding-right: 16px; }
+.diff-row { display: grid; grid-template-columns: 62px 62px 22px minmax(0, 1fr); }
+.line-number { font-family: var(--font-mono); font-size: .9375rem; font-variant-numeric: tabular-nums; text-align: right; padding: 0 8px 0 28px; color: #93adbd; user-select: none; border: 0; border-radius: 0; border-right: 1px solid #263b4766; background: #060b1230; line-height: inherit; min-height: 0; position: relative; }
+button.line-number { min-height: 32px; display: flex; align-items: flex-start; justify-content: flex-end; }
+/* Long lines soft-wrap; continuation lines indent by two characters so a
+   wrapped line never reads as a new one. */
+.diff-row code, .split-cell code, .code-line code { display: block; white-space: pre-wrap; overflow-wrap: anywhere; padding-left: 2ch; text-indent: -2ch; padding-right: 16px; }
 .diff-sign { text-align: center; user-select: none; color: #a3b3c2; }
 .added { background: #143829; }
 .removed { background: #40242b; }
 .added .diff-sign { color: #93e3b3; }
 .removed .diff-sign { color: #ffadad; }
-.hunk { background: #192b3a; color: #a5c9e8; font-size: .9375rem; padding: 8px 12px; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.hunk { background: #192b3a; color: #a5c9e8; font-size: .9375rem; padding: 8px 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .split-head { display: grid; grid-template-columns: 1fr 1fr; background: #152331; font-size: .9375rem; color: #aac5d9; }
 .split-head span { padding: 6px 12px; border-right: 1px solid var(--border); }
 .split-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-.split-cell { display: grid; grid-template-columns: 52px 18px 1fr; overflow-x: auto; min-width: 0; border-right: 1px solid var(--border); }
+.split-cell { display: grid; grid-template-columns: 62px 22px minmax(0, 1fr); min-width: 0; border-right: 1px solid var(--border); }
 .split-cell.blank { background: #10171f; }
-.code-line { display: grid; grid-template-columns: 45px 1fr; min-width: 100%; width: max-content; }
-.code-line code { padding-left: 12px; }
+.code-line { display: grid; grid-template-columns: 45px minmax(0, 1fr); }
+.code-line code { padding-left: calc(12px + 2ch); }
 .load-more { display: block; margin: 12px auto; font-size: .9375rem; }
 .token.comment, .token.prolog { color: #a5b8ac; }
 .token.keyword, .token.tag { color: #cbb1fa; }
@@ -356,7 +347,6 @@ button.line-number { min-height: 32px; }
 .action-list li > div { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .action-list time { margin-left: auto; color: var(--muted); font-size: .9375rem; }
 .action-list p { margin-top: 8px; overflow-wrap: anywhere; color: var(--muted); }
-.action-result.succeeded { color: #91e3b8; }
 .warning-text { color: var(--amber); }
 .delivery { display: inline-grid; place-items: center; color: var(--muted); }
 .delivery .icon { width: 20px; height: 20px; }
@@ -522,3 +512,35 @@ button.line-number { min-height: 32px; }
   .panel-header.compact .panel-actions { grid-column: 1 / -1; }
 }
 .panel-content > .workspace-details { border-top: 0; margin-top: 0; padding-top: 20px; }
+
+/* The comment affordance is an icon centred by its grid cell, never a font
+   glyph, shown on hover and focus of a line number (faintly on touch). */
+.comment-mark { position: absolute; left: 3px; top: 15px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #176b4d; color: #d6ffe9; opacity: 0; transform: translateY(-50%); transition: opacity .12s ease; }
+.comment-mark .icon { width: 14px; height: 14px; stroke-width: 2; }
+/* The speech bubble shows only on the hovered line or keyboard focus, so it
+   never reads as an added or removed marker. */
+.diff-row:hover .comment-mark, .split-cell:hover .comment-mark, .line-number:focus-visible .comment-mark, .line-number[aria-pressed="true"] .comment-mark { opacity: 1; }
+@media (hover: none) { .comment-mark { opacity: .45; } }
+.comment-mark[data-tip]::after { top: auto; bottom: calc(100% + 6px); transform: translateY(4px); }
+.comment-mark[data-tip]:hover::after { transform: none; }
+/* The comment floats over the rows after the selection. The anchor has no
+   height, stays at the left edge while code scrolls sideways, and the diff
+   keeps room at its end so a comment on the last lines is never clipped. */
+.comment-anchor { position: sticky; left: 0; height: 0; z-index: 4; }
+.diff-scroll:has(.comment-anchor) { padding-bottom: 240px; }
+.comment-overlay { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 16px; background: var(--level-3); box-shadow: var(--shadow-3); color: #edf4f3; font-family: var(--font-body); font-size: 1rem; line-height: 1.5; white-space: normal; }
+.comment-overlay.floating { position: absolute; top: 8px; left: clamp(12px, 12%, 148px); width: min(460px, calc(100% - 24px)); }
+.comment-overlay.floating::before { content: ""; position: absolute; top: -7px; left: 24px; width: 12px; height: 12px; border-left: 1px solid var(--edge-lit); border-top: 1px solid var(--edge-lit); background: var(--level-3); transform: rotate(45deg); }
+.comment-overlay:not(.floating) { margin: 12px; }
+.comment-overlay header { display: grid; gap: 2px; min-width: 0; }
+.comment-overlay header strong { font-weight: 800; font-size: 1.0625rem; }
+.comment-overlay header .muted { overflow-wrap: anywhere; }
+.comment-overlay textarea { width: 100%; min-height: 84px; max-height: 240px; background: #0b141b; }
+.comment-overlay .warning-text { margin: 0; overflow-wrap: anywhere; }
+.comment-overlay footer { display: flex; align-items: center; gap: 6px; }
+.comment-overlay footer .muted { flex: 1; font-size: .9375rem; }
+.comment-overlay .send:not(:disabled) { background: var(--accent); color: #05261a; }
+.comment-overlay.sent { grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 6px 8px 6px 14px; }
+.comment-sent-text { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.comment-overlay.sent .warning-text { grid-column: 1 / -1; }
+@media (max-width: 50rem) { .comment-overlay.floating { left: 8px; width: calc(100% - 16px); } }

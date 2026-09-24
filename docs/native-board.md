@@ -139,7 +139,9 @@ Each effect expires independently; initial load, reconnect, hidden-tab return, i
 Reduced motion uses a short static outline instead of movement.
 
 Changes presents stacked file disclosures with lazy syntax-highlighted unified, split and code previews.
-Select a visible old/new line or contiguous range, including unchanged context, and Send to CFO queues a durable review record containing the exact file, side, range, revision, HEAD and diff fingerprint.
+Select a visible old/new line or contiguous range, including unchanged context, by its line number, which shows a comment icon on hover and focus.
+A comment box floats beside the selection without moving the diff; Enter sends it, Shift+Enter starts a new line and Escape cancels.
+Sending queues a durable review record containing the exact file, side, range, revision, HEAD and diff fingerprint, and the box shrinks to a chip whose check marks show delivery.
 The server validates those coordinates and derives bounded selected code; it never sends a review comment to the worker.
 Admission first proves the registered primary CFO live with the same process, pane, agent and terminal checks as delivery, then pins its fingerprint; a stale registration is refused and nothing is queued.
 An identical retry answers from its durable record without a new probe and keeps its pinned recipient even if the primary changes.
