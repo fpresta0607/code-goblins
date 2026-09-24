@@ -5,14 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -25,6 +28,9 @@ type testTerminal struct {
 	block   bool
 	once    sync.Once
 	writes  []herdr.TerminalCommand
+	// control, cols and rows are how the board opened it.
+	control    bool
+	cols, rows int
 }
 
 func (s *testTerminal) Next() (herdr.TerminalFrame, error) {
@@ -91,10 +97,11 @@ func terminalHTTPFixture(t *testing.T, native *testTerminal) (*HTTP, *httptest.S
 	_, identity, runner, cfo := primaryFixture(t, store)
 	s := &Service{Store: store, Options: Options{CFO: cfo}, Instance: "instance", done: make(chan struct{})}
 	h := NewHTTP(s, "", nil)
-	h.openTerminal = func(_ context.Context, session, id string, _ bool, _, _ int) (herdr.TerminalStream, error) {
+	h.openTerminal = func(_ context.Context, session, id string, control bool, cols, rows int) (herdr.TerminalStream, error) {
 		if session != "isolated" || id != "test-terminal" {
 			t.Error("wrong native terminal", session, id)
 		}
+		native.control, native.cols, native.rows = control, cols, rows
 		return native, nil
 	}
 	server := httptest.NewServer(h)
@@ -262,5 +269,126 @@ func TestMissingTerminalRegistrationIsNotATransientConnection(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	if w.Code != 409 || !strings.Contains(w.Body.String(), `"code":"terminal_unavailable"`) {
 		t.Fatal("missing registration offered retry", w.Code, w.Body.String())
+	}
+}
+
+// The board observed a pane at the browser's size, and Herdr shows an observer
+// only the top-left corner its size covers and nothing that changes below it,
+// so a goblin's terminal looked frozen. A view without control observes the
+// pane whole, at the size Herdr lays it out.
+func TestLivePaneViewShowsThePaneWholeAtItsOwnSize(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		body       string
+		sizeless   bool
+		status     int
+		control    bool
+		cols, rows int
+	}{
+		{"a view observes the pane at its own size", `{"cols":80,"rows":24}`, false, 200, false, 132, 43},
+		{"a view needs no size of its own", `{}`, false, 200, false, 132, 43},
+		{"control keeps the size it asked for", `{"cols":80,"rows":24,"control":true,"identity":"IDENTITY"}`, false, 200, true, 80, 24},
+		{"a pane with no reported size is refused", `{"cols":80,"rows":24}`, true, 409, false, 0, 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			native := newTestTerminal()
+			_, server, identity, runner := terminalHTTPFixture(t, native)
+			runner.sizeless = c.sizeless
+			native.frames <- fullFrame(1)
+			close(native.frames)
+			response := terminalPost(t, server, "/api/terminal/stream", strings.ReplaceAll(c.body, "IDENTITY", identity))
+			defer response.Body.Close()
+			data, _ := io.ReadAll(response.Body)
+			if response.StatusCode != c.status || native.control != c.control || native.cols != c.cols || native.rows != c.rows {
+				t.Fatalf("status %d, opened control=%v %dx%d (%s), want status %d, control=%v %dx%d", response.StatusCode, native.control, native.cols, native.rows, data, c.status, c.control, c.cols, c.rows)
+			}
+		})
+	}
+}
+
+// The Overlord types straight into a live view with no Connect step: each
+// input is verified again and typed into that same pane with Herdr's pane
+// send-text, as cfo send types into a pane, and nothing reaches a pane whose
+// terminal changed.
+func TestLivePaneViewTypesIntoItsOwnVerifiedPane(t *testing.T) {
+	native := newTestTerminal()
+	_, server, _, runner := terminalHTTPFixture(t, native)
+	runner.typing = true
+	native.frames <- fullFrame(1)
+	response := terminalPost(t, server, "/api/terminal/stream", `{}`)
+	defer response.Body.Close()
+	scanner := bufio.NewScanner(response.Body)
+	var ready struct {
+		Lease   string `json:"lease"`
+		Control bool   `json:"control"`
+	}
+	if !scanner.Scan() || json.Unmarshal(scanner.Bytes(), &ready) != nil || ready.Lease == "" || ready.Control {
+		t.Fatalf("no live view lease: %s", scanner.Text())
+	}
+	send := func(seq int, command string) int {
+		t.Helper()
+		reply := terminalPost(t, server, "/api/terminal/input", fmt.Sprintf(`{"lease":%q,"seq":%d,"command":%s}`, ready.Lease, seq, command))
+		defer reply.Body.Close()
+		return reply.StatusCode
+	}
+	if status := send(1, `{"type":"terminal.input","text":"echo hi\r"}`); status != 200 {
+		t.Fatalf("typing = %d, want 200", status)
+	}
+	if want := [][]string{{"pane", "send-text", "w1:p1", "echo hi\r", "--session", "isolated"}}; !reflect.DeepEqual(runner.typed, want) {
+		t.Fatalf("typed %q, want %q", runner.typed, want)
+	}
+	if status := send(2, `{"type":"terminal.resize","cols":100,"rows":30}`); status != 409 {
+		t.Fatalf("resizing a live view = %d, want 409", status)
+	}
+	runner.terminal = "replacement"
+	if status := send(2, `{"type":"terminal.input","text":"x"}`); status != 409 || len(runner.typed) != 1 {
+		t.Fatalf("typing after the terminal changed = %d with %d typed, want 409 and nothing more typed", status, len(runner.typed))
+	}
+	if len(native.writes) != 0 {
+		t.Fatalf("typing went through the observer: %v", native.writes)
+	}
+}
+
+// A paste longer than one command line can carry is typed in order, in
+// pieces; a piece Herdr refuses ends the view instead of typing the rest, and
+// a NUL key, which no command line can carry, is refused before anything.
+func TestLivePaneViewTypesALargePasteInOrderedPieces(t *testing.T) {
+	var pieces []string
+	typist := func(_ context.Context, _ herdr.Target, piece string) error {
+		pieces = append(pieces, piece)
+		return nil
+	}
+	allow := func(context.Context, terminalBinding, bool) error { return nil }
+	text := strings.Repeat("ab日", 3000)
+	lease := &terminalLease{typist: typist, cancel: func() {}}
+	if err := lease.input(context.Background(), 1, herdr.TerminalCommand{Type: "terminal.input", Text: text}, allow); err != nil {
+		t.Fatal(err)
+	}
+	if len(pieces) != 3 || strings.Join(pieces, "") != text {
+		t.Fatalf("typed %d pieces, want the paste whole and in order in 3", len(pieces))
+	}
+	for _, piece := range pieces {
+		if utf8.RuneCountInString(piece) > typedPiece {
+			t.Fatalf("a piece of %d runes is longer than a command line carries", utf8.RuneCountInString(piece))
+		}
+	}
+	if err := lease.input(context.Background(), 2, herdr.TerminalCommand{Type: "terminal.input", Text: "a\x00"}, allow); err == nil || len(pieces) != 3 {
+		t.Fatalf("a NUL key = %v with %d pieces, want it refused and nothing typed", err, len(pieces))
+	}
+
+	attempts := 0
+	refusedOnce := func(context.Context, herdr.Target, string) error {
+		attempts++
+		if attempts == 1 {
+			return errors.New("pane busy")
+		}
+		return nil
+	}
+	refused := &terminalLease{typist: refusedOnce, cancel: func() {}}
+	if err := refused.input(context.Background(), 1, herdr.TerminalCommand{Type: "terminal.input", Text: "x"}, allow); err == nil || !strings.Contains(err.Error(), "outcome is unknown") {
+		t.Fatalf("a refused piece = %v, want an unknown outcome", err)
+	}
+	if err := refused.input(context.Background(), 2, herdr.TerminalCommand{Type: "terminal.input", Text: "y"}, allow); err == nil || attempts != 1 {
+		t.Fatalf("after a piece with an unknown outcome = %v with %d attempts, want the view closed and nothing more typed", err, attempts)
 	}
 }

@@ -14,6 +14,19 @@ type SessionSnapshot struct {
 	Tabs       []SnapshotTab
 	Panes      []SnapshotPane
 	Agents     []SnapshotAgent
+	Layouts    []SnapshotLayout
+}
+
+// SnapshotLayout is one tab's layout: the size of each of its panes.
+type SnapshotLayout struct {
+	TabID string `json:"tab_id"`
+	Panes []struct {
+		ID   string `json:"pane_id"`
+		Rect struct {
+			Width  int `json:"width"`
+			Height int `json:"height"`
+		} `json:"rect"`
+	} `json:"panes"`
 }
 
 // SnapshotWorkspace is the workspace identity CFO validates against.
@@ -68,6 +81,7 @@ func (c *Client) Snapshot(ctx context.Context) (SessionSnapshot, error) {
 			Tabs       []SnapshotTab       `json:"tabs"`
 			Panes      []SnapshotPane      `json:"panes"`
 			Agents     []SnapshotAgent     `json:"agents"`
+			Layouts    []SnapshotLayout    `json:"layouts"`
 		} `json:"snapshot"`
 	}
 	if err := decodeResult(result.Stdout, &response); err != nil {
@@ -86,6 +100,7 @@ func (c *Client) Snapshot(ctx context.Context) (SessionSnapshot, error) {
 		Tabs:       response.Snapshot.Tabs,
 		Panes:      response.Snapshot.Panes,
 		Agents:     response.Snapshot.Agents,
+		Layouts:    response.Snapshot.Layouts,
 	}, nil
 }
 
