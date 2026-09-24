@@ -96,7 +96,17 @@ Projects declare the services they need. `cfo auth` probes them before dispatch,
 
 ## Quick start
 
-Code Goblins is a standalone repository. Clone this repository directly; no upstream checkout or synchronization step is required.
+Install Code Goblins with one line in any PowerShell window; it needs no clone and no Go:
+
+```powershell
+irm https://raw.githubusercontent.com/fpresta0607/code-goblins/main/install.ps1 | iex
+```
+
+It downloads the latest release and refuses it unless it matches the release's `SHA256SUMS`.
+It then sets up the CFO home at `%LOCALAPPDATA%\CodeGoblins` with `cfo` and `goblins` on your PATH, asks once for the folder that holds your projects, installs the tools, skills and hooks the fleet needs, and ends with `goblins doctor`.
+Run it again at any time to update; it keeps your projects folder and any policy you tuned.
+
+To work on Code Goblins itself, clone it instead. Code Goblins is a standalone repository; no upstream checkout or synchronization step is required.
 
 ```powershell
 git clone https://github.com/fpresta0607/code-goblins.git
@@ -109,7 +119,7 @@ cfo doctor
 `install.ps1 -Bootstrap` installs or builds the Code Goblins binary and scriptable dependencies. `cfo install` wires the CFO into your user environment so a supervisor opened from another project can still manage the fleet.
 Run outside a checkout, `cfo install` needs no clone: it sets up a per-user CFO home at `%LOCALAPPDATA%\CodeGoblins` from the binary itself, with the CFO's contract, skills and default policy, and `cfo.exe` and `goblins.exe` on your PATH.
 
-The CFO and its goblins drive `gh-axi`, `chrome-devtools-axi` and `no-mistakes` through the skills those tools publish. Install the skills once at user scope, so every harness and every project sees them:
+The CFO and its goblins drive `gh-axi`, `chrome-devtools-axi` and `no-mistakes` through the skills those tools publish. The one-line install adds them for you; from a clone, install the skills once at user scope, so every harness and every project sees them:
 
 ```powershell
 npx skills add kunchenguid/gh-axi --skill gh-axi -g
@@ -141,7 +151,7 @@ Tell the CFO what outcome you want. It handles the fleet mechanics.
 </p>
 
 `cfo serve` runs the native supervisor and serves its board, which is compiled into `cfo.exe`, at `http://127.0.0.1:4310`.
-Install the native lifecycle hooks once for each harness you use, then start the supervisor in its own terminal and open the URL it prints:
+Install the native lifecycle hooks once for each harness you use (the one-line install does this for every harness it finds), then start the supervisor in its own terminal and open the URL it prints:
 
 ```powershell
 cfo hooks install claude   # repeat for codex or pi
