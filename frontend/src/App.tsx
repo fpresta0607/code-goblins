@@ -3,7 +3,7 @@ import { useRuntimeStream } from "./stream";
 import { Lineage, type Selection } from "./Lineage";
 import { Board } from "./Board";
 import { Orchestration } from "./Orchestration";
-import { Questions } from "./Questions";
+import { CommandCenter, type CommandFocus } from "./CommandCenter";
 import { useActivity } from "./useActivity";
 import { livePresentations } from "./activity";
 import { useReview } from "./review";
@@ -17,6 +17,7 @@ export function App() {
   const [view, setView] = useState<"Board" | "Orchestration">("Board");
   // Board opens a goblin on its task view, Orchestration on its terminal.
   const [panelView, setPanelView] = useState<PanelView>("task");
+  const [commandFocus, setCommandFocus] = useState<CommandFocus | null>(null);
   const [selected, setSelected] = useState<Selection | null>(null);
   const [selectionEpoch, setSelectionEpoch] = useState(0);
   const [paneOpen, setPaneOpen] = useState(true);
@@ -68,7 +69,7 @@ export function App() {
         {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={view === name} onClick={() => { setView(name); setPanelView(name === "Board" ? "task" : "terminal"); }}>{name}</button>)}
       </div>
       <div className="topbar-controls">
-        {snapshot && <Questions snapshot={snapshot} connected={connected} presentations={presentations} />}
+        {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} />}
         <div className="connection" role="status">
           <span className={"live-dot " + (!connected ? "offline" : "")} />{connection}
         </div>
@@ -91,7 +92,7 @@ export function App() {
             <section className="review-placeholder"><Avatar persona="reviewer" /><h2>Review the work</h2><p>Select a task to see what it is doing and what changed.</p></section></>
           : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "")}
             task={selected ? task : undefined} node={selected ? selectedSession : undefined} snapshot={snapshot} connected={connected} reviews={reviews}
-            view={panelView} onView={setPanelView} trailing={closeButton}
+            view={panelView} onView={setPanelView} trailing={closeButton} onAnswer={(id) => setCommandFocus({ id, at: Date.now() })}
             onOpenTask={(next) => select({ task: next.id }, pane.current || document.body)}
             leading={view === "Orchestration" && selected ? <button className="icon-button" aria-label="Back to CFO" data-tip="Back to CFO" data-tip-align="start" onClick={() => setSelected(null)}><Icon name="back" /></button> : undefined}
             onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />)}
