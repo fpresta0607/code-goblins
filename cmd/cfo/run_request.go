@@ -1,14 +1,10 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"io"
-	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/execx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
@@ -38,9 +34,7 @@ func runRunRequest(args []string, stdout, stderr io.Writer, runtime commandRunti
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	if err := supervisor.PublishRun(ctx, h, &herdr.Client{Commands: execx.OSRunner{}}, req); err != nil {
+	if err := supervisor.PublishRun(h, req); err != nil {
 		fmt.Fprintln(stderr, "cfo run-request: "+err.Error())
 		return 1
 	}

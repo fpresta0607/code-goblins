@@ -95,16 +95,15 @@ func commandFile(t *testing.T, command string) string {
 // Only the registered primary CFO creates a run item; any other process is
 // refused before anything is written.
 func TestRunRequestRefusesAProcessThatIsNotTheCFO(t *testing.T) {
-	_, h := testStore(t)
+	store, h := testStore(t)
+	runPipe(t, &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Herdr: &herdr.Client{Commands: &cfoRunner{t: t, pid: os.Getpid()}}}}})
 	file := commandFile(t, "Write-Output hello\n")
-	err := PublishRun(context.Background(), h, &herdr.Client{Commands: &cfoRunner{t: t, pid: os.Getpid()}}, RunRequest{ID: "install-tool", Title: "Install the tool", Shell: "powershell", CommandFile: file})
+	err := PublishRun(h, RunRequest{ID: "install-tool", Title: "Install the tool", Shell: "powershell", CommandFile: file})
 	if err == nil || !strings.Contains(err.Error(), "not registered") {
 		t.Fatalf("a run request from a process that is not the CFO = %v, want it refused", err)
 	}
-	for _, dir := range []string{"runs-inbox", "runs"} {
-		if entries, _ := os.ReadDir(filepath.Join(h.State, dir)); len(entries) != 0 {
-			t.Fatalf("%s holds %d entries after a refused request, want none", dir, len(entries))
-		}
+	if entries, _ := os.ReadDir(filepath.Join(h.State, "runs")); len(entries) != 0 || len(store.Snapshot().Runs) != 0 {
+		t.Fatalf("a refused request left %d script folders and runs %+v, want none", len(entries), store.Snapshot().Runs)
 	}
 }
 
@@ -123,17 +122,14 @@ func TestRunRequestStoresTheCommandAsTheScriptItRuns(t *testing.T) {
 	} {
 		t.Run(test.shell, func(t *testing.T) {
 			store, h := testStore(t)
-			_, identity, runner, _ := primaryFixture(t, store)
-			client := &herdr.Client{Commands: runner}
+			_, identity, _, connection := primaryFixture(t, store)
+			runPipe(t, &Service{Store: store, Options: Options{CFO: connection}})
 			file := commandFile(t, command)
 			req := RunRequest{ID: "fix-path-" + test.shell, Title: "Put Go on PATH", Shell: test.shell, CommandFile: file}
-			if err := PublishRun(context.Background(), h, client, req); err != nil {
+			if err := PublishRun(h, req); err != nil {
 				t.Fatal(err)
 			}
 			if err := os.WriteFile(file, []byte("Remove-Item -Recurse C:\\\n"), 0600); err != nil {
-				t.Fatal(err)
-			}
-			if err := store.ingestRuns(); err != nil {
 				t.Fatal(err)
 			}
 			runs := store.Snapshot().Runs
@@ -152,7 +148,7 @@ func TestRunRequestStoresTheCommandAsTheScriptItRuns(t *testing.T) {
 			if err != nil || !bytes.Equal(data, want) || runDigest(data) != r.ScriptSum {
 				t.Fatalf("script = %q %v, want exactly %q with its digest recorded", data, err, want)
 			}
-			if err := PublishRun(context.Background(), h, client, req); err == nil || !strings.Contains(err.Error(), "already used") {
+			if err := PublishRun(h, req); err == nil || !strings.Contains(err.Error(), "already used") {
 				t.Fatalf("republishing the ID with other text = %v, want it refused", err)
 			}
 		})
@@ -442,27 +438,21 @@ func TestRunRequestRefusesTheIDOfAnItemThatEnded(t *testing.T) {
 	} {
 		t.Run(test.state, func(t *testing.T) {
 			store, h := testStore(t)
-			_, _, runner, connection := primaryFixture(t, store)
-			client := &herdr.Client{Commands: runner}
+			_, _, _, connection := primaryFixture(t, store)
 			s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
+			runPipe(t, s)
 			req := RunRequest{ID: "install-tool", Title: "Install the tool", Shell: "powershell", CommandFile: commandFile(t, "Write-Output hello\n")}
-			if err := PublishRun(context.Background(), h, client, req); err != nil {
+			if err := PublishRun(h, req); err != nil {
 				t.Fatal(err)
 			}
-			if err := PublishRun(context.Background(), h, client, req); err != nil {
-				t.Fatalf("republishing an item waiting in the inbox = %v, want an idempotent success", err)
-			}
-			if err := store.ingestRuns(); err != nil {
-				t.Fatal(err)
-			}
-			if err := PublishRun(context.Background(), h, client, req); err != nil {
+			if err := PublishRun(h, req); err != nil {
 				t.Fatalf("republishing a ready item = %v, want an idempotent success", err)
 			}
 			test.end(t, s, store.Snapshot().Runs[0])
 			if got := store.Snapshot().Runs[0]; got.State != test.state {
 				t.Fatalf("run = %+v, want it %s", got, test.state)
 			}
-			if err := PublishRun(context.Background(), h, client, req); err == nil || !strings.Contains(err.Error(), "a re-run needs a new ID") {
+			if err := PublishRun(h, req); err == nil || !strings.Contains(err.Error(), "a re-run needs a new ID") {
 				t.Fatalf("republishing the ID of the %s item = %v, want it refused", test.state, err)
 			}
 		})

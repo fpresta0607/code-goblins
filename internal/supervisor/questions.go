@@ -474,6 +474,12 @@ func (s *Store) ingestAnswers() error {
 // returns that identity. The registration stays open, so it cannot change,
 // until release is called.
 func (c *CFOConnection) CallerIdentity(ctx context.Context) (string, func(), error) {
+	return c.identityOf(ctx, os.Getpid())
+}
+
+// identityOf is CallerIdentity for any process, such as a client of the
+// supervisor's run request pipe.
+func (c *CFOConnection) identityOf(ctx context.Context, pid int) (string, func(), error) {
 	file, err := openPrimary(filepath.Join(c.State, "primary.json"))
 	if err != nil {
 		return "", nil, errNotRegistered
@@ -484,12 +490,12 @@ func (c *CFOConnection) CallerIdentity(ctx context.Context) (string, func(), err
 		release()
 		return "", nil, err
 	}
-	entries, err := proc.Ancestry(os.Getpid(), 32)
+	entries, err := proc.Ancestry(pid, 32)
 	if err != nil {
 		release()
 		return "", nil, err
 	}
-	if !slices.ContainsFunc(entries, func(entry proc.Entry) bool { return entry.PID == p.Process.PID && entry.Start.Equal(p.Process.Start) }) {
+	if !descendsFrom(entries, p.Process) {
 		release()
 		return "", nil, errors.New("this process does not run under the registered CFO")
 	}
@@ -498,6 +504,22 @@ func (c *CFOConnection) CallerIdentity(ctx context.Context) (string, func(), err
 		return "", nil, err
 	}
 	return identity, release, nil
+}
+
+// descendsFrom reports whether an ancestry, the process itself first, reaches
+// the registered CFO process, each ancestor created no later than its child:
+// Windows reuses PIDs, so a parent created after its child is another process
+// that took a dead parent's PID, and the chain ends there.
+func descendsFrom(entries []proc.Entry, cfo lock.Info) bool {
+	for i, entry := range entries {
+		if i > 0 && entry.Start.After(entries[i-1].Start) {
+			return false
+		}
+		if entry.PID == cfo.PID && entry.Start.Equal(cfo.Start) {
+			return true
+		}
+	}
+	return false
 }
 
 // PublishQuestion is deliberately a local CFO operation, not a browser or

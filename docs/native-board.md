@@ -294,8 +294,9 @@ cfo run-request --id install-tool-1 --title "Install the tool the build needs" -
 cfo run-request --id fix-acl-1 --title "Grant the service account access" --shell powershell --admin --command-file C:\temp\acl.ps1
 ```
 
-Only the registered primary CFO can create one, proven the way `cfo question` proves it; a goblin or any other process is refused before anything is written.
-The command file is read once: its text is stored as `state/runs/<digest>/command.ps1` or `command.sh`, which is what runs, so quoting cannot change it, and the item runs in the CFO home unless `--cwd` names a folder.
+`cfo run-request` hands the item to the supervisor over its named pipe, and the supervisor itself proves the sending process runs under the registered primary CFO, the proof `cfo question` uses: it walks up from that process to the CFO, each ancestor created before its child, since Windows reuses PIDs.
+A goblin or any other process is refused before anything is written, and nothing written straight into the state directory ever reaches the board; a request needs the supervisor (`cfo serve`) running.
+The command file is read once: the supervisor stores its text as `state/runs/<digest>/command.ps1` or `command.sh`, which is what runs, so quoting cannot change it, and the item runs in the CFO home unless `--cwd` names a folder.
 The ID follows the review item rule: republishing it with the same text changes nothing while the item waits, and republishing it with other text, or once the item has run or expired, is refused.
 The board sees each item in `snapshot.runs` with its exact command, shell, folder and whether it needs administrator rights, and Run sends only the item's ID through the board's action checks (exact Host and Origin plus the per-session token), never command text.
 An item runs once and expires 24 hours after it was created; running it again needs a new item.
@@ -304,8 +305,9 @@ An admin item launches through `Start-Process -Verb RunAs`, so Windows itself as
 The window stays open after the command finishes, showing its exit code, until he closes it; a window closed before the command finishes ends the item failed.
 When the command finishes, its exit code and the last 64 KiB of its output are on the item, and the CFO receives the result as the Overlord's answer, with the end of the output.
 Every run appends a line to `state/runs.audit`: the time, the item's ID, the SHA-256 of exactly the script file that ran, and its exit code, or none when it did not finish.
-Finished and expired items are pruned a week after they end; a waiting or running item is never dropped, and a new one waits in the inbox while all 64 held items are one or the other.
+Finished and expired items are pruned a week after they end; a waiting or running item is never dropped, and a new request is refused while all 64 held items are one or the other.
 Output is stored on the board, so the CFO never puts a secret in a run command or requests one that prints a secret.
+Known limit: the question and review inboxes (`state/questions-inbox`, `state/reviews-inbox`) still trust any process running as the same user, which run items no longer do; moving them onto a verified channel is queued.
 
 ## Nonblocking presentation notices
 
