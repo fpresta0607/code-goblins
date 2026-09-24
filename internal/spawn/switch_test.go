@@ -1181,3 +1181,31 @@ func TestSwitchLetsAHarnessesChildrenFollowItOut(t *testing.T) {
 		t.Fatal("no harness started")
 	}
 }
+
+// A switch to Claude that names no model runs Opus 5.5, while a switch that
+// keeps a Claude goblin's named model keeps it.
+func TestSwitchToClaudeWithNoNamedModelRunsOpus55(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"}); err != nil {
+		t.Fatalf("switch to kimi: %v", err)
+	}
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Claude, Session: "fleet"}); err != nil {
+		t.Fatalf("switch back to claude: %v", err)
+	}
+	after, err := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if launched := fixture.base.specs[len(fixture.base.specs)-1].Model; after.Model != "claude-opus-5-5" || launched != "claude-opus-5-5" {
+		t.Fatalf("recorded model %q, launched %q; want claude-opus-5-5", after.Model, launched)
+	}
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Model: "claude-sonnet-5", Session: "fleet"}); err != nil {
+		t.Fatalf("name a model: %v", err)
+	}
+	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Effort: "max", Session: "fleet"}); err != nil {
+		t.Fatalf("change only the effort: %v", err)
+	}
+	if after, err = state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID); err != nil || after.Model != "claude-sonnet-5" {
+		t.Fatalf("an effort-only switch changed the named model to %q (%v)", after.Model, err)
+	}
+}

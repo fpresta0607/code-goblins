@@ -410,6 +410,9 @@ func requestedTarget(meta state.TaskMeta, req SwitchRequest) switchTarget {
 	if target.Effort == "" && target.Harness == harness.Kind(meta.Harness) {
 		target.Effort = meta.Effort
 	}
+	if model := harness.DefaultModel(target.Harness); model != "" && req.Model == "" && (target.Model == "" || target.Model == "default") {
+		target.Model = model
+	}
 	return target
 }
 
