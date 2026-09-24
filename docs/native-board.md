@@ -102,10 +102,9 @@ A history card is its pull request link, since it has no live worktree to review
 A task no native hook has reported takes its status from the fleet's own records: a question it is still waiting on in the wake queue, then what its gate proved, then what Herdr sees in its pane, and it is evaluated once a minute like any other.
 Each card shows the task's own latest status line and its pull request, linked only when the reported value is an https URL.
 Both come from the current generation's lines only, so a respawned task id shows neither its earlier generation's activity nor its pull request until it reports again.
-Cards state progress in plain words, never engine words: Not started, Working, In review gate (with its step, such as In review gate: tests), Waiting on the CFO, Waiting on you, Waiting on a goblin by name, Waiting on CI, Waiting on deploy, Checks passed, Delivered and No fresh evidence.
+Cards state progress in plain words, never engine words: Not started, Working, In review gate (with its step, such as In review gate: tests), Waiting on the CFO, Waiting on you, Waiting on a goblin by its id, Waiting on CI, Waiting on deploy, Checks passed, Delivered and No fresh evidence.
 A goblin waiting on another goblin links to it: a chip on its card and a button beside its status in the panel open the goblin it waits on, and Orchestration draws a dashed line from the waiting card to that goblin's card, apart from the family tree.
-Only a wait on the Overlord reads as Waiting on you; a wait on a goblin, CI or a deploy is shown in a calmer sand colour.
-Waiting on you shows while the goblin has an open question to the Overlord, ahead of its phase.
+Waiting on you shows, ahead of its phase, only while the goblin waits on the Overlord or has an open question to the Overlord; a wait on a goblin, CI or a deploy is shown in a calmer sand colour.
 Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Task view and a Terminal view one tap apart on a pill at its top.
 The Task view header also shows the goblin's own latest status line; the Terminal view header is compact, showing only the goblin, its status and the icon buttons, since the live screen shows the latest output.
 The Task view holds the workspace, connections, changes, activity and commit history; the Terminal view is that goblin's live native terminal, edge to edge.
