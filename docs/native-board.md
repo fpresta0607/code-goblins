@@ -235,6 +235,21 @@ The goblin receives `CFO: decision <seq>: <choice>. <note>` the way `cfo send` t
 Every answer, on the board or through `cfo answer`, is recorded on its question as `answered_option` (the choice; empty for a written answer), `answered_by` (`cfo` or `overlord`) and `answered_at`, so a closed question shows which option was chosen.
 A question that closed without an answer, because its goblin restarted or ended or the CFO handled it, stays listed with its reason until the Overlord clears it (`question_clear`), or until 128 questions are held and it is the oldest superseded one, which makes room for a new question; a pending question cannot be cleared or dropped, so an unanswered decision is never hidden.
 
+## Working and waiting reports
+
+A goblin that resumes, or waits on something, says so without asking anything:
+
+```powershell
+cfo notify <id> --working "wiring the store"
+cfo notify <id> --waiting-on <task-id|overlord|ci|deploy> "<why>"
+```
+
+Both write a status line only, so they wake nobody, and a newer one of them, or a done line, replaces an older blocked or failed reading on the board while the question itself stays in the CFO's queue.
+The task reads `working` with the reason, or `waiting` with the reason and `waiting_on` naming the target, unless a newer question, the gate's own decision, or a merge says otherwise.
+A wait on another task clears itself once that task reports done, and a wait on CI or a deploy lasts until the goblin reports again; the CFO releases any wait with a `--working` line of its own.
+Waiting on the Overlord is the one wait that wakes the CFO: it also opens a review item for him, named `waiting-<task>-<wake sequence>`, which he can answer or clear, and which is withdrawn once the goblin reports anything newer.
+An actual question still uses `--blocked` with options.
+
 ## Review items
 
 A review item is something that needs the Overlord's attention without blocking anyone, such as a page of mockups, a report or before and after screenshots:

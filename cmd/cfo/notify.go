@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -24,6 +25,11 @@ import (
 //	cfo notify <task-id> --blocked "<question>"
 //	cfo notify <task-id> --blocked "<question> options: a | b" --image a.png --image b.png
 //	cfo notify <task-id> --failed "<reason>"
+//	cfo notify <task-id> --working "<what>"
+//	cfo notify <task-id> --waiting-on <task-id|overlord|ci|deploy> "<why>"
+//
+// Only a question and a wait on the Overlord wake the CFO: working, and a
+// wait on another task, CI or a deploy, are status for the board.
 func runNotify(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "cfo notify: task ID is required")
@@ -41,6 +47,8 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	pr := fs.String("pr", "", "PR URL, required with --done")
 	blocked := fs.String("blocked", "", "report a question the goblin is blocked on")
 	failed := fs.String("failed", "", "report a failure reason")
+	working := fs.String("working", "", "report what you are working on now")
+	waitingOn := fs.String("waiting-on", "", "report what you wait on, another task's ID, overlord, ci or deploy, followed by why")
 	var images []string
 	fs.Func("image", "a review image for a --blocked question's choice; repeat it once for each choice, in order", func(v string) error {
 		images = append(images, v)
@@ -49,26 +57,41 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
-	if fs.NArg() != 0 {
+	if fs.NArg() != 0 && (*waitingOn == "" || fs.NArg() != 1) {
 		fmt.Fprintln(stderr, "cfo notify: unexpected arguments")
 		return 2
+	}
+	outcomes := 0
+	for _, set := range []bool{*done, *blocked != "", *failed != "", *working != "", *waitingOn != ""} {
+		if set {
+			outcomes++
+		}
 	}
 
 	var verb, detail string
 	switch {
-	case *done && *blocked == "" && *failed == "":
+	case outcomes != 1:
+		fmt.Fprintln(stderr, "cfo notify: exactly one of --done, --blocked, --failed, --working or --waiting-on is required")
+		return 2
+	case *done:
 		if *pr == "" {
 			fmt.Fprintln(stderr, "cfo notify: --done requires --pr <url>")
 			return 2
 		}
 		verb, detail = "done", "PR "+*pr
-	case !*done && *blocked != "" && *failed == "":
+	case *blocked != "":
 		verb, detail = "blocked", *blocked
-	case !*done && *blocked == "" && *failed != "":
+	case *failed != "":
 		verb, detail = "failed", *failed
+	case *working != "":
+		verb, detail = "working", *working
 	default:
-		fmt.Fprintln(stderr, "cfo notify: exactly one of --done, --blocked, or --failed is required")
-		return 2
+		target := *waitingOn
+		if fs.NArg() != 1 || strings.TrimSpace(fs.Arg(0)) == "" || target != "overlord" && target != "ci" && target != "deploy" && (state.ValidTaskID(target) != nil || target == id) {
+			fmt.Fprintln(stderr, "cfo notify: --waiting-on takes another task's ID, overlord, ci or deploy, then why: --waiting-on <task-id|overlord|ci|deploy> \"<why>\"")
+			return 2
+		}
+		verb, detail = "waiting on "+target, fs.Arg(0)
 	}
 
 	h, err := home.Resolve()
@@ -95,6 +118,10 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cfo notify: record status: "+err.Error())
 		return 1
 	}
+	if verb == "working" || strings.HasPrefix(verb, "waiting on ") && verb != "waiting on overlord" {
+		fmt.Fprintf(stdout, "notified %s %s\n", id, line)
+		return 0
+	}
 	record, err := wake.Append(h.State, "notify", id, line)
 	if err != nil {
 		fmt.Fprintln(stderr, "cfo notify: wake the CFO: "+err.Error())
@@ -108,7 +135,14 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	// to the Overlord, so its failure is reported and never fails the notify.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := supervisor.SurfaceNotify(ctx, h.State, &herdr.Client{Commands: execx.OSRunner{}}, id, record, images); err != nil {
+	client := &herdr.Client{Commands: execx.OSRunner{}}
+	if verb == "waiting on overlord" {
+		// A wait on the Overlord is an item for him until he answers or
+		// clears it, or the goblin reports again.
+		if err := supervisor.PublishReview(ctx, h, client, id, fmt.Sprintf("waiting-%s-%d", id, record.Seq), "Waiting on you: "+state.NormalizeStatusDetail(detail), "", nil); err != nil {
+			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this wait, the CFO still has it: "+err.Error())
+		}
+	} else if err := supervisor.SurfaceNotify(ctx, h.State, client, id, record, images); err != nil {
 		fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this question, the CFO still has it: "+err.Error())
 	}
 	fmt.Fprintf(stdout, "notified %s %s\n", id, line)

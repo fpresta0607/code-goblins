@@ -77,6 +77,10 @@ func TestSnapshotShowsWhatTheFleetKnowsForATaskNoHookReported(t *testing.T) {
 	if got := view.Tasks[0]; got.Phase != "working" || got.Activity != "working: gate test step" || got.PR != "https://example/pr/7" {
 		t.Fatalf("task = phase %q activity %q pr %q, want working with its own status line and PR", got.Phase, got.Activity, got.PR)
 	}
+	// cfo notify writes the status line before the wake record, as here.
+	if err := state.AppendStatus(h.State, "task-1", "blocked: Which schema?"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := wake.Append(h.State, "notify", "task-1", "blocked: Which schema?"); err != nil {
 		t.Fatal(err)
 	}

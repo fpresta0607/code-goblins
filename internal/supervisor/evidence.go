@@ -152,6 +152,57 @@ func waitingQuestion(records []wake.Record, id string) (string, string, bool) {
 	return "", "", false
 }
 
+// latestReport is the last line a task's current generation wrote to its
+// status log, with when it was written.
+func latestReport(lines []string, spawned time.Time) (time.Time, string) {
+	for i := len(lines) - 1; i >= 0; i-- {
+		stamp, event := state.SplitStatus(lines[i])
+		if !spawned.IsZero() && stamp.Before(spawned.Truncate(time.Second)) {
+			break
+		}
+		if event = strings.TrimSpace(event); event != "" {
+			return stamp, event
+		}
+	}
+	return time.Time{}, ""
+}
+
+// supersedesQuestion says a report is newer news than a question the task
+// asked before it: the goblin went back to work, waits on something, or
+// finished. The question stays in the CFO's queue; only the board's reading
+// of the task changes.
+func supersedesQuestion(report string) bool {
+	return strings.HasPrefix(report, "working: ") || strings.HasPrefix(report, "waiting on ") || strings.HasPrefix(report, "done: ")
+}
+
+// reportedProgress is what a goblin last said it is doing: working on
+// something, or waiting on another task, the Overlord, CI or a deploy. A wait
+// on another task clears itself once that task reports done; any other wait
+// lasts until the goblin reports again.
+func reportedProgress(stateDir string, reportedAt time.Time, report string) (phase, reason, waitingOn string, ok bool) {
+	if what, found := strings.CutPrefix(report, "working: "); found {
+		return "working", what, "", true
+	}
+	rest, found := strings.CutPrefix(report, "waiting on ")
+	target, why, separated := strings.Cut(rest, ": ")
+	if !found || !separated {
+		return "", "", "", false
+	}
+	if target != "overlord" && target != "ci" && target != "deploy" {
+		lines, _ := state.TailStatus(stateDir, target, 200)
+		for i := len(lines) - 1; i >= 0; i-- {
+			stamp, event := state.SplitStatus(lines[i])
+			if stamp.Before(reportedAt) {
+				break
+			}
+			if strings.HasPrefix(strings.TrimSpace(event), "done: ") {
+				return "", "", "", false
+			}
+		}
+	}
+	return "waiting", why, target, true
+}
+
 // statusActivity is a task's own latest status line, the one-line answer to
 // what it is doing now, and the pull request it last reported done. A known
 // spawn time limits both to lines its own generation wrote, because a reused
