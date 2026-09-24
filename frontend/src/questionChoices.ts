@@ -1,7 +1,8 @@
 import type { Action, Question } from "./types.ts";
+import { chosenOption, questionOutcome } from "./commandQueue.ts";
 
 export function questionSelection(question: Question, draft?: {selection:string; written:string}, receipt?: Action) {
-  if (question.answer_id) return { selection: question.answer_kind === "other" ? "other" : "option:"+question.answer, written: question.answer_kind === "other" ? question.answer : "" };
+  if (questionOutcome(question) === "answered") return { selection: question.answer_kind === "other" ? "other" : "option:"+chosenOption(question), written: question.answer_kind === "other" ? question.answer : "" };
   if ((receipt?.kind === "cfo_answer" || receipt?.kind === "goblin_answer") && receipt.question_id === question.id && receipt.generation === question.identity) return { selection: receipt.answer_kind === "other" ? "other" : "option:"+receipt.text, written: receipt.answer_kind === "other" ? receipt.text : "" };
   return question.status === "pending" && draft ? draft : { selection:"", written:"" };
 }

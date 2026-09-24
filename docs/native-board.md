@@ -220,7 +220,11 @@ The Supreme Overlord Command Center labels supplied choices A/B/C and always off
 No choice is preselected and written text is sent only when Other is selected.
 Use a new stable ID for a new question, and keep the same ID/content for an uncertain publication retry.
 The publisher walks up to 32 process ancestors and verifies the registered CFO PID, creation time and live native identity; a worker cannot escalate on the CFO's behalf.
-The UI serializes questions, preserves drafts through reconnects, and supports Escape/Later plus Command Center to revisit.
+The Command Center shows one question at a time as a stack, the CFO's own questions first and then goblins by longest wait, with its position, Back and Next buttons and a horizontal swipe on touch screens.
+Each card sends only its own answer, and Later moves to the next question without answering.
+A card answered while on screen, from the card or from elsewhere such as `cfo answer`, keeps its place until the Overlord moves on: it shows its delivery marks, or once closed a check on the chosen option, the other options dimmed and Answered by you or Answered by the CFO with the time.
+Drafts survive closing, reconnecting and moving between cards, and the header button's inbox lists what waits on the Overlord, the live pages (review pages and browser walkthroughs) and what he already answered.
+A goblin panel whose goblin is waiting on the Overlord offers Answer, which opens the stack at that goblin's question.
 Once submitted, every tab displays the durable answer rather than an unsent local draft.
 Answers retain their question and CFO identity and enter the durable native CFO message queue, never a worker send or gate approval.
 Claude Code, Codex and Pi primary-context guidance routes explicit user decisions through this command.
@@ -234,7 +238,9 @@ Conflicting, corrupt or oversized inbox records leave bounded diagnostics and ca
 ## Goblin questions
 
 A goblin's `cfo notify <id> --blocked "<question> options: a (Recommended) | b"` also opens the modal, labelled with the goblin and its artwork; the first choice that ends with `(Recommended)` is shown first and marked, like a CFO recommendation, and the mark is stripped from every choice.
-A goblin can attach one review image to each choice with `--image <path>`, repeated in the order of the choices, so the Overlord picks by picture: each choice shows its image, with an icon button that opens it full size.
+A goblin can attach one review image to each choice with `--image <path>`, repeated in the order of the choices, so the Overlord picks by picture: the card shows a thumbnail for each choice, and any thumbnail opens a full-size gallery with its position, side buttons, arrow keys, swipe, click-to-zoom and a Choose button for that image's choice.
+While the gallery is open it replaces the card, so a strip of the question's thumbnails under the image jumps straight to any other image.
+When the asking goblin has a review page live, the card and its gallery link it for annotation in Lavish.
 An image must be a PNG, JPEG, GIF or WebP of at most 10 MiB inside the task's worktree, task scratch or data directory, reached without a symlink or junction, and `cfo notify` refuses a wrong count or a bad image before anything is recorded.
 The board never sees an image's path: it serves image n of a question at `/api/questions/<id>/images/<n>`, checks the file again on every request, and stops serving once the task restarts or ends.
 A blocked notify without an `options:` marker, and every other worker alert, stays in the CFO wake queue only.
