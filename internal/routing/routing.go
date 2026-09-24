@@ -272,9 +272,10 @@ func thirdPartyErrorWord(line, keyword string) bool {
 	return false
 }
 
-// retryAfterTime is a retry delay written as one, "retry after 30s", not a
-// goblin saying it will retry after something clears.
-var retryAfterTime = regexp.MustCompile(`retry after \d`)
+// retryOrResetTime is a retry or reset time written as one, "retry after 30s"
+// or "will reset at 5pm", not a goblin saying it will retry after something
+// clears or honours the Retry-After header.
+var retryOrResetTime = regexp.MustCompile(`(?:retry-after|retry after|retrying in|try again (?:in|at)|will reset (?:at|in)|resets (?:at|in))\W{0,3}\d`)
 
 // errorShaped reports whether a line is shaped like a provider's own refusal
 // rather than prose about one: a 429 or 403 status, a provider's error type,
@@ -287,12 +288,12 @@ func errorShaped(line string) bool {
 			return true
 		}
 	}
-	for _, shape := range []string{"rate_limit_error", "ratelimit_error", "insufficient_quota", "resource_exhausted", "api error:", "retry-after", "retrying in", "try again in", "try again at", "will reset", "resets at", "resets in", "usage limit reached · continuing automatically", "usage limit reached · wrapping up", "spend limit reached"} {
+	for _, shape := range []string{"rate_limit_error", "ratelimit_error", "insufficient_quota", "resource_exhausted", "api error:", "usage limit reached · continuing automatically", "usage limit reached · wrapping up", "spend limit reached"} {
 		if strings.Contains(line, shape) {
 			return true
 		}
 	}
-	return retryAfterTime.MatchString(line) || strings.TrimSpace(strings.TrimLeft(line, " \t⎿●✻◐⏺❯›>│")) == "usage limit reached"
+	return retryOrResetTime.MatchString(line) || strings.TrimSpace(strings.TrimLeft(line, " \t⎿●✻◐⏺❯›>│")) == "usage limit reached"
 }
 
 // lineAt returns the single line of text containing index.
