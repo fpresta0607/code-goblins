@@ -520,7 +520,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 /* The speech bubble shows only on the hovered line or keyboard focus, so it
    never reads as an added or removed marker. */
 .diff-row:hover .comment-mark, .split-cell:hover .comment-mark, .line-number:focus-visible .comment-mark, .line-number[aria-pressed="true"] .comment-mark { opacity: 1; }
-@media (hover: none) { .comment-mark { opacity: .45; } }
 .comment-mark[data-tip]::after { top: auto; bottom: calc(100% + 6px); transform: translateY(4px); }
 .comment-mark[data-tip]:hover::after { transform: none; }
 /* The comment floats over the rows after the selection. The anchor has no

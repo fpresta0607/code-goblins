@@ -29,6 +29,11 @@ export function dragRange(rows: DiffRow[], prefer?: "old" | "new"): { side: "old
   }
   return null;
 }
+// Only a single-click press that moved more than 4 px is a drag, so a click,
+// double-click or triple-click keeps its text selection for copying.
+export function isDrag(detail: number, from: { x: number; y: number }, to: { x: number; y: number }) {
+  return detail === 1 && Math.hypot(to.x - from.x, to.y - from.y) > 4;
+}
 export function parsePatchToRows(patch: string): DiffRow[] {
   const rows: DiffRow[] = [];
   let old = 0,

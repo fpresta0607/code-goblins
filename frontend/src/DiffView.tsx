@@ -1,6 +1,6 @@
-import { Fragment, useMemo, useState, type KeyboardEvent } from "react";
+import { Fragment, useMemo, useState, type KeyboardEvent, type MouseEvent } from "react";
 import type { FileDiff } from "./types";
-import { dragRange, parsePatchToRows, splitRows, type DiffRow } from "./diff";
+import { dragRange, isDrag, parsePatchToRows, splitRows, type DiffRow } from "./diff";
 import { CodePreview, SyntaxLine } from "./syntax";
 import { ReviewComment, type ReviewControls } from "./review";
 import { Icon } from "./Icon";
@@ -23,18 +23,18 @@ export function DiffView({ diff, reviews, connected }: {
   };
   const end = (row?: DiffRow) => row && selection &&
     (selection.side === "old" ? row.old : row.next) === selection.end_line;
-  const pairs = useMemo(() => splitRows(visible), [visible]);
+  const pairs = mode === "split" ? splitRows(visible) : [];
   const openComment = (view: Element | null) => requestAnimationFrame(() => view?.querySelector<HTMLTextAreaElement>(".comment-overlay textarea")?.focus({ preventScroll: true }));
   // Dragging across diff text opens the comment box for the lines it covers,
   // the same as clicking and Shift-clicking line numbers.
   const dragSelect = (container: HTMLElement) => {
     const text = window.getSelection();
-    if (!text || text.isCollapsed || !text.anchorNode || !text.focusNode) return;
-    const elementOf = (node: Node) => node instanceof Element ? node : node.parentElement;
-    const from = elementOf(text.anchorNode)?.closest<HTMLElement>("[data-row]"), to = elementOf(text.focusNode)?.closest<HTMLElement>("[data-row]");
-    if (!from || !to || !container.contains(from) || !container.contains(to)) return;
-    const first = Math.min(Number(from.dataset.row), Number(to.dataset.row)), last = Math.max(Number(from.dataset.row), Number(to.dataset.row));
-    const column = elementOf(text.anchorNode)?.closest<HTMLElement>("[data-side]")?.dataset.side;
+    if (!text || text.isCollapsed || !text.anchorNode) return;
+    const covers = Array.from(container.querySelectorAll<HTMLElement>("[data-row]")).filter((row) => text.containsNode(row, true));
+    if (!covers.length) return;
+    const first = Number(covers[0].dataset.row), last = Number(covers[covers.length - 1].dataset.row);
+    const anchor = text.anchorNode instanceof Element ? text.anchorNode : text.anchorNode.parentElement;
+    const column = anchor?.closest<HTMLElement>("[data-side]")?.dataset.side;
     const prefer = column === "old" || column === "new" ? column : undefined;
     const covered = mode === "split"
       ? pairs.slice(first, last + 1).flatMap((pair) => { const row = prefer === "old" ? pair.left : pair.right; return row ? [row] : []; })
@@ -45,6 +45,13 @@ export function DiffView({ diff, reviews, connected }: {
     reviews.select(diff, picked.line, picked.side, false);
     if (picked.end !== picked.line) reviews.select(diff, picked.end, picked.side, true);
     openComment(container.closest(".diff-view"));
+  };
+  const dragStart = (event: MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const container = event.currentTarget, detail = event.detail, from = { x: event.clientX, y: event.clientY };
+    document.addEventListener("mouseup", (up) => {
+      if (isDrag(detail, from, { x: up.clientX, y: up.clientY })) dragSelect(container);
+    }, { once: true });
   };
   const comment = (floating: boolean) => <ReviewComment diff={diff} reviews={reviews} connected={connected} floating={floating} />;
   // A zero-height anchor after the selected row lets the comment float over
@@ -96,14 +103,14 @@ export function DiffView({ diff, reviews, connected }: {
     </div>
     {diff.binary ? <div className="padded">Binary file changed. Text preview is unavailable.</div> :
       mode === "code" ? <CodePreview code={diff.code} path={diff.path} limit={limit} /> :
-        mode === "split" ? <div className="diff-scroll" onMouseUp={(event) => dragSelect(event.currentTarget)}>
+        mode === "split" ? <div className="diff-scroll" onMouseDown={dragStart}>
           <div className="split-head"><span>Before</span><span>After</span></div>
           {pairs.map((pair, index) => <Fragment key={pair.key}>
             {pair.left?.variant === "hunk" ? <div className="hunk">{pair.left.text}</div> :
               <div className="split-row" data-row={index}>{cell(pair.left, "old")}{cell(pair.right, "new")}</div>}
             {(selection?.side === "old" ? end(pair.left) : end(pair.right)) && anchored}
           </Fragment>)}
-        </div> : <div className="diff-scroll" onMouseUp={(event) => dragSelect(event.currentTarget)}>
+        </div> : <div className="diff-scroll" onMouseDown={dragStart}>
           {visible.map((row, index) => <Fragment key={row.key}>
             {row.variant === "hunk" ? <div className="hunk">{row.text}</div> :
               <div data-row={index} className={"diff-row " + row.variant + (selected(row) ? " selected-line" : "")}>

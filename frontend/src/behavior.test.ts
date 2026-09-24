@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { dragRange, parsePatchToRows, splitRows, reviewRange } from "./diff.ts";
+import { dragRange, isDrag, parsePatchToRows, splitRows, reviewRange } from "./diff.ts";
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, deliveryMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
@@ -364,4 +364,16 @@ test("a drag across diff rows comments on the lines it covers", () => {
   ];
   for (const [name, first, last, prefer, expected] of cases) assert.deepEqual(dragRange(lines.slice(first, last + 1), prefer), expected, name);
   assert.equal(dragRange(rows.filter((row) => row.variant === "hunk")), null);
+});
+
+test("only a single-click press that moves more than 4 px counts as a drag", () => {
+  const cases: [string, number, { x: number; y: number }, boolean][] = [
+    ["a click without movement", 1, { x: 10, y: 10 }, false],
+    ["a click that jitters 4 px", 1, { x: 14, y: 10 }, false],
+    ["a drag down three lines", 1, { x: 10, y: 70 }, true],
+    ["a drag across one line", 1, { x: 15, y: 10 }, true],
+    ["a double-click word selection", 2, { x: 10, y: 70 }, false],
+    ["a triple-click line selection", 3, { x: 10, y: 70 }, false],
+  ];
+  for (const [name, detail, to, expected] of cases) assert.equal(isDrag(detail, { x: 10, y: 10 }, to), expected, name);
 });
