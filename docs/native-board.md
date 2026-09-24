@@ -295,6 +295,8 @@ cfo run-request --id fix-acl-1 --title "Grant the service account access" --shel
 ```
 
 `cfo run-request` hands the item to the supervisor over its named pipe, and the supervisor itself proves the sending process runs under the registered primary CFO, the proof `cfo question` uses: it walks up from that process to the CFO, each ancestor created before its child, since Windows reuses PIDs.
+The sending process must also have started before it connected, so a process that later took its PID proves nothing.
+The supervisor drops a client that sends nothing within 10 seconds and gives each request 20 seconds for its proof, and `cfo run-request` waits 30 seconds for the answer.
 A goblin or any other process is refused before anything is written, and nothing written straight into the state directory ever reaches the board; a request needs the supervisor (`cfo serve`) running.
 The command file is read once: the supervisor stores its text as `state/runs/<digest>/command.ps1` or `command.sh`, which is what runs, so quoting cannot change it, and the item runs in the CFO home unless `--cwd` names a folder.
 The ID follows the review item rule: republishing it with the same text changes nothing while the item waits, and republishing it with other text, or once the item has run or expired, is refused.

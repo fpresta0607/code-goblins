@@ -21,7 +21,7 @@ import (
 )
 
 // maxRuns bounds the run list. An item still waiting or running is never
-// dropped to make room: a new one waits in the inbox.
+// dropped to make room: a new one is refused.
 const maxRuns = 64
 
 // runLifetime is how long an item waits for the Overlord to run it.
@@ -171,14 +171,15 @@ type runPipeRequest struct {
 }
 
 // acceptRunRequest records a run item that came over the pipe from process
-// pid, once that process is proven to run under the registered primary CFO.
+// pid, connected at connected, once that process is proven to run under the
+// registered primary CFO.
 // Republishing an ID with the same content while its item still waits changes
 // nothing; any other reuse of the ID is refused.
-func (s *Service) acceptRunRequest(ctx context.Context, pid int, req runPipeRequest) error {
+func (s *Service) acceptRunRequest(ctx context.Context, pid int, connected time.Time, req runPipeRequest) error {
 	if s.Options.CFO == nil {
 		return errors.New("this supervisor cannot verify the CFO")
 	}
-	identity, release, err := s.Options.CFO.identityOf(ctx, pid)
+	identity, release, err := s.Options.CFO.identityOf(ctx, pid, connected)
 	if err != nil {
 		return err
 	}

@@ -474,12 +474,13 @@ func (s *Store) ingestAnswers() error {
 // returns that identity. The registration stays open, so it cannot change,
 // until release is called.
 func (c *CFOConnection) CallerIdentity(ctx context.Context) (string, func(), error) {
-	return c.identityOf(ctx, os.Getpid())
+	return c.identityOf(ctx, os.Getpid(), time.Now())
 }
 
-// identityOf is CallerIdentity for any process, such as a client of the
-// supervisor's run request pipe.
-func (c *CFOConnection) identityOf(ctx context.Context, pid int) (string, func(), error) {
+// identityOf is CallerIdentity for any process that was running at connected,
+// such as a client of the supervisor's run request pipe: a process that
+// started later took the PID of the one that connected, and proves nothing.
+func (c *CFOConnection) identityOf(ctx context.Context, pid int, connected time.Time) (string, func(), error) {
 	file, err := openPrimary(filepath.Join(c.State, "primary.json"))
 	if err != nil {
 		return "", nil, errNotRegistered
@@ -495,7 +496,7 @@ func (c *CFOConnection) identityOf(ctx context.Context, pid int) (string, func()
 		release()
 		return "", nil, err
 	}
-	if !descendsFrom(entries, p.Process) {
+	if !descendsFrom(entries, p.Process) || entries[0].Start.After(connected) {
 		release()
 		return "", nil, errors.New("this process does not run under the registered CFO")
 	}

@@ -118,3 +118,85 @@ func TestDescendsFromNeedsEachAncestorOlderThanItsChild(t *testing.T) {
 		}
 	}
 }
+
+// dialRunPipe connects to the run request pipe for state as a client that
+// sends nothing of its own.
+func dialRunPipe(t *testing.T, state string) *os.File {
+	t.Helper()
+	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(25 * time.Millisecond) {
+		conn, err := os.OpenFile(runPipeName(state), os.O_RDWR, 0)
+		if err == nil {
+			return conn
+		}
+		if time.Now().After(deadline) {
+			t.Fatal(err)
+		}
+	}
+}
+
+// A process proves nothing for a connection made before it started: that
+// connection was another process's, whose PID it took.
+func TestRunRequestFromAProcessStartedAfterItsConnectionIsRefused(t *testing.T) {
+	store, _ := testStore(t)
+	_, _, _, connection := primaryFixture(t, store)
+	s := &Service{Store: store, Options: Options{CFO: connection}}
+	entries, err := proc.Ancestry(os.Getpid(), 1)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("this process's start time: %v %v", entries, err)
+	}
+	req := runPipeRequest{ID: "install-tool", Title: "Install the tool", Shell: "powershell", Command: "Write-Output hello\n"}
+	err = s.acceptRunRequest(context.Background(), os.Getpid(), entries[0].Start.Add(-time.Second), req)
+	if err == nil || !strings.Contains(err.Error(), "does not run under the registered CFO") {
+		t.Fatalf("a request connected before its process started = %v, want it refused", err)
+	}
+	if runs := store.Snapshot().Runs; len(runs) != 0 {
+		t.Fatalf("runs = %+v after a refused request, want none", runs)
+	}
+	if err := s.acceptRunRequest(context.Background(), os.Getpid(), time.Now(), req); err != nil {
+		t.Fatalf("the request from a process running when it connected = %v, want it taken", err)
+	}
+}
+
+// A client that connects and sends nothing is disconnected once its time to
+// send has passed, so it holds no pipe instance.
+func TestRunPipeDropsAClientThatSendsNothing(t *testing.T) {
+	store, h := testStore(t)
+	runPipe(t, &Service{Store: store})
+	conn := dialRunPipe(t, h.State)
+	defer conn.Close()
+	read := make(chan error, 1)
+	go func() {
+		_, err := conn.Read(make([]byte, 1))
+		read <- err
+	}()
+	select {
+	case err := <-read:
+		if err == nil {
+			t.Fatal("a client that sent nothing got a reply, want it disconnected")
+		}
+	case <-time.After(runReadTimeout + 5*time.Second):
+		t.Fatal("a client that sent nothing is still connected, want it disconnected")
+	}
+}
+
+// The listener stops promptly when its context ends right after a client
+// connected, before the next pipe instance may exist.
+func TestRunPipeStopsPromptlyRightAfterAClientConnects(t *testing.T) {
+	store, h := testStore(t)
+	for range 50 {
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			(&Service{Store: store}).serveRunRequests(ctx)
+		}()
+		conn := dialRunPipe(t, h.State)
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the run request listener did not stop after its context ended")
+		}
+		_ = conn.Close()
+	}
+}
