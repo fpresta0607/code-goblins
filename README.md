@@ -173,7 +173,7 @@ The whole crew:
 ### The goblin panel
 
 Clicking a card opens its panel on one continuous surface: the task and its project, then **Workspace** with the repository, branch and exact working folder.
-**Connections** lists the MCP servers the task is configured with; configured is not the same as connected, and no secret values are shown.
+**Connectors** lists the harness, the model and the MCP servers and credentials the task is configured with, each beside its mark; configured is not the same as connected, and no secret values are shown.
 On Board the panel continues with **Changes**, **Activity** and **History**.
 In Orchestration it holds the native terminal, which stays read-only until you choose **Connect input**; **Shift+Escape** hands the keyboard back.
 

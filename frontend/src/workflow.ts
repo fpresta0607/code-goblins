@@ -8,6 +8,13 @@ export type Point = { x: number; y: number };
 export const NODE_WIDTH = 292;
 export const NODE_HEIGHT = 132;
 
+// The orchestration graph grows to fill the visible canvas and centers there,
+// capped at 1.25x so cards never get huge and never below 0.35x.
+export function fitScale(graph: { width: number; height: number }, canvas: { width: number; height: number }): number {
+  if (graph.width <= 0 || graph.height <= 0 || canvas.width <= 0 || canvas.height <= 0) return 1;
+  return Math.max(.35, Math.min(1.25, (canvas.width - 48) / graph.width, (canvas.height - 48) / graph.height));
+}
+
 export function taskColumn(task: Task): "Tasks" | "In progress" | "Completed" {
   if (task.archived) return "Completed";
   if (task.phase === "queued") return "Tasks";

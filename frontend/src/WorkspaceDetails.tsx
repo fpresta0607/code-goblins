@@ -3,12 +3,28 @@ import { message, request, useResource } from "./api";
 import { array, object, string, strings, type Session, type Task } from "./types";
 import { harnessName } from "./workflow";
 import { ownsTaskSession, sessionModel } from "./lineageTree";
+import { connectorMark, harnessMark, modelMark } from "./connectors";
+import { ConnectorMark } from "./ConnectorMark";
+import { Icon, type IconName } from "./Icon";
 
 function parse(value: unknown) {
   const v = object(value);
   const entries = (value: unknown) => array(value).map((value) => { const e = object(value); return { name: string(e.name), status: string(e.status), source: string(e.source) }; });
   return { project: string(v.project), repository: string(v.repository), root: string(v.root), branch: string(v.branch), harness: string(v.harness), model: string(v.model), mcp: entries(v.mcp), environment: entries(v.environment), notes: strings(v.notes) };
 }
+
+// The supervisor labels a model "Reported: x" or "Configured: x".
+function splitModel(model: string): { name: string; basis: string } {
+  const [basis, name] = model.split(/: (.*)/s);
+  return name === undefined ? { name: model, basis: "" } : { name, basis };
+}
+
+function Status({ status }: { status: string }) {
+  const shown: Record<string, [IconName, string]> = { Configured: ["key", "declared"], Empty: ["warning", "empty"] };
+  const [icon, tone] = shown[status] || ["clock", "declared"];
+  return <span className={"connection-status " + tone}><Icon name={icon} />{status.toLowerCase()}</span>;
+}
+
 export function WorkspaceDetails({ task, node, instance }: { task?: Task; node?: Session; instance: string }) {
   const [opening, setOpening] = useState(false);
   const [outcome, setOutcome] = useState("");
@@ -27,18 +43,30 @@ export function WorkspaceDetails({ task, node, instance }: { task?: Task; node?:
     } catch (error: unknown) { setOutcome(message(error) + " Nothing is retried automatically."); }
     finally { setOpening(false); }
   };
+  const harness = details ? harnessName(child ? node.harness : details.harness) : "";
+  const model = details ? splitModel(child ? sessionModel(node, task) : details.model) : { name: "", basis: "" };
+  const provider = modelMark(model.name);
   return <section className="workspace-details" aria-label="Workspace">
     <h3>Workspace</h3>
     {unlinked ? <p className="muted">No working folder was reported for this session.</p> : queued ? <><p className="workspace-project">{task.project || "Project not specified"}</p><p className="muted">Not started yet.</p></> : resource.error ? <p role="alert">{resource.error}</p> : !details ? <p role="status">Reading workspace...</p> : <>
       <dl>{[["Repository", details.repository], ["Branch", details.branch], [child ? "Owning task folder" : task ? "Working folder" : "CFO project root", details.root]].filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
-      {task && !child && <div className="workspace-actions"><button disabled={opening || !instance} onClick={() => void open("vscode")}>Open in VS Code</button><button disabled={opening || !instance} onClick={() => void open("folder")}>Open folder</button></div>}
+      {task && !child && <div className="workspace-actions">
+        <button className="icon-button raised" disabled={opening || !instance} aria-label="Open in VS Code" data-tip="Open in VS Code" data-tip-align="start" onClick={() => void open("vscode")}><Icon name="code-editor" /></button>
+        <button className="icon-button raised" disabled={opening || !instance} aria-label="Open folder" data-tip="Open folder" onClick={() => void open("folder")}><Icon name="folder" /></button>
+      </div>}
       {outcome && <p className="workspace-outcome" role="status">{outcome}</p>}
-      <details className="connections-details"><summary>Connections<span>{child ? "" : details.mcp.length + " configured"}</span></summary><div>
-        <dl>{[["Harness", harnessName(child ? node.harness : details.harness)], ["Model", child ? sessionModel(node, task) : details.model]].filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+      <details className="connections-details"><summary>Connectors{!child && <span className="column-count">{details.mcp.length + details.environment.length}</span>}<Icon name="chevron-down" /></summary><div>
+        <ul className="connection-list" aria-label="Harness and model">
+          {harness && <li><ConnectorMark mark={harnessMark(child ? node.harness : details.harness)} label={harness} /><span className="connection-name">{harness}<span className="chip">Harness</span></span></li>}
+          {model.name && <li><ConnectorMark mark={provider.mark} label={provider.provider} /><span className="connection-name">{model.name}<span className="chip">{model.basis ? model.basis + " model" : "Model"}</span></span></li>}
+        </ul>
         {child ? <p>No separate connection configuration was reported for this child.</p> : <>
-          <p>Configured names only. Live connection and environment state is unavailable.</p>
-          {details.mcp.length > 0 && <ul>{details.mcp.map((entry) => <li key={entry.name}><strong>{entry.name}</strong><span>{entry.status}</span></li>)}</ul>}
-          {details.environment.length > 0 && <><h4>Environment</h4><ul>{details.environment.map((entry) => <li key={entry.name + entry.source}><strong>{entry.name}</strong><span>{entry.status}</span></li>)}</ul></>}
+          {details.mcp.length + details.environment.length > 0 && <ul className="connection-list" aria-label="Connectors">
+            {details.mcp.map((entry) => <li key={"mcp:" + entry.name}><ConnectorMark mark={connectorMark(entry.name, "mcp")} label={entry.name} /><span className="connection-name">{entry.name}<span className="chip">MCP server</span></span><Status status={entry.status} /></li>)}
+            {details.environment.map((entry) => <li key={"env:" + entry.name + entry.source}><ConnectorMark mark={connectorMark(entry.name, "credential")} label={entry.name} /><span className="connection-name mono">{entry.name}<span className="chip">Credential</span></span><Status status={entry.status} /></li>)}
+          </ul>}
+          {details.notes.map((note) => <p key={note}>{note}</p>)}
+          <p>Configured is not connected. No secret values are shown.</p>
         </>}
       </div></details>
     </>}

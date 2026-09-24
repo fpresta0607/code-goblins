@@ -3,8 +3,9 @@ import type { BoardActivity, Snapshot } from "./types";
 import { Avatar } from "./Avatar";
 import { activityDisplay, presentationShownOn } from "./activity";
 import { Chevron } from "./Chevron";
+import { Icon } from "./Icon";
 import { ownsTaskSession } from "./lineageTree";
-import { arrange, asksOverlord, expireTraffic, fleetTraffic, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, workflowNodes, type Point, type WorkflowNode } from "./workflow";
+import { arrange, asksOverlord, expireTraffic, fitScale, fleetTraffic, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, workflowNodes, type Point, type WorkflowNode } from "./workflow";
 
 const layoutKey = "cfo-orchestration-layout-v1";
 
@@ -34,13 +35,16 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   const automatic = useMemo(() => arrange(nodes), [nodes]);
   const [layout, setLayout] = useState(readLayout);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [scale, setScale] = useState(1);
+  // The graph fills the visible canvas, centered, until a zoom or a pan by
+  // hand takes over; Fit hands it back. A dragged card holds the frame still.
+  const [canvas, setCanvas] = useState({ width: 0, height: 0 });
+  const [manual, setManual] = useState<number | null>(null);
+  const [held, setHeld] = useState<{ scale: number; left: number; top: number; width: number; height: number } | null>(null);
 
   const viewport = useRef<HTMLDivElement>(null);
   const ignoreClick = useRef(false);
   const drag = useRef<{ id: string; pointer: Point; start: Point } | null>(null);
   const pan = useRef<{ pointer: Point; scroll: Point } | null>(null);
-  const initialized = useRef(false);
   const signatures = useRef<Map<string, string> | null>(null);
   const [traffic, setTraffic] = useState<Record<string, number>>({});
   const pulses = useRef(new Set<ReturnType<typeof setTimeout>>());
@@ -73,23 +77,21 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   };
   const visible = nodes.filter((node) => !hidden(node));
   const point = (id: string) => layout.positions[id] || automatic[id];
-  const width = Math.max(640, ...visible.map((node) => point(node.id).x + NODE_WIDTH + 40));
-  const height = Math.max(480, ...visible.map((node) => point(node.id).y + NODE_HEIGHT + 80));
-  const fit = () => {
-    const canvas = viewport.current;
-    if (!canvas) return;
-    setScale(Math.max(.35, Math.min(1, (canvas.clientWidth - 24) / width, (canvas.clientHeight - 24) / height)));
-    canvas.scrollTo(0, 0);
-  };
+  const xs = visible.map((node) => point(node.id).x), ys = visible.map((node) => point(node.id).y);
+  const fitLeft = xs.length ? Math.max(0, Math.min(...xs) - 40) : 0;
+  const fitTop = ys.length ? Math.max(0, Math.min(...ys) - 40) : 0;
+  const fitWidth = Math.max(1, ...xs.map((x) => x + NODE_WIDTH + 40)) - fitLeft;
+  const fitHeight = Math.max(1, ...ys.map((y) => y + NODE_HEIGHT + 80)) - fitTop;
+  const { scale, left, top, width, height } = held ?? { scale: manual ?? fitScale({ width: fitWidth, height: fitHeight }, canvas), left: fitLeft, top: fitTop, width: fitWidth, height: fitHeight };
+  const zoom = (next: number) => setManual(Math.max(.35, Math.min(1.5, next)));
+  const fit = () => { setManual(null); viewport.current?.scrollTo(0, 0); };
   useEffect(() => {
-    if (initialized.current || !nodes.length || !viewport.current) return;
-    const canvas = viewport.current;
-    const frame = requestAnimationFrame(() => {
-      initialized.current = true;
-      setScale(Math.max(.35, Math.min(1, (canvas.clientWidth - 24) / width, (canvas.clientHeight - 24) / height)));
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [nodes.length, width, height]);
+    const element = viewport.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => setCanvas({ width: element.clientWidth, height: element.clientHeight }));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   const move = (id: string, next: Point) => setLayout((prior) => ({ ...prior, positions: {
     ...prior.positions, [id]: { x: Math.max(0, Math.min(50000, next.x)), y: Math.max(0, Math.min(50000, next.y)) },
   } }));
@@ -104,6 +106,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
     drag.current = { id: node.id, pointer: { x: event.clientX, y: event.clientY }, start: point(node.id) };
+    setHeld({ scale, left, top, width, height });
     ignoreClick.current = false;
   };
   const moveDrag = (event: PointerEvent<HTMLButtonElement>) => {
@@ -114,14 +117,14 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
     ignoreClick.current = true;
     move(id, { x: start.x + dx / scale, y: start.y + dy / scale });
   };
-  const endDrag = () => { if (drag.current) save(); drag.current = null; };
+  const endDrag = () => { if (drag.current) save(); drag.current = null; setHeld(null); };
   return <section className="orchestration" aria-label="Orchestration">
     <p className="sr-only" id="canvas-help">Drag a card to reposition it. With a card focused, Alt and arrow keys move it, Shift moves farther. On the canvas, plus and minus zoom, zero fits. Moving cards never changes parent relationships.</p>
     <div ref={viewport} className="flow-canvas" tabIndex={0} aria-label="Connected family tree" aria-describedby="canvas-help"
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return;
-        if (event.key === "+" || event.key === "=") { event.preventDefault(); setScale(Math.min(1.5, scale + .1)); }
-        if (event.key === "-") { event.preventDefault(); setScale(Math.max(.35, scale - .1)); }
+        if (event.key === "+" || event.key === "=") { event.preventDefault(); zoom(scale + .1); }
+        if (event.key === "-") { event.preventDefault(); zoom(scale - .1); }
         if (event.key === "0") { event.preventDefault(); fit(); }
       }}
       onPointerDown={(event) => {
@@ -130,13 +133,18 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
         pan.current = { pointer: { x: event.clientX, y: event.clientY }, scroll: { x: viewport.current.scrollLeft, y: viewport.current.scrollTop } };
       }}
       onPointerMove={(event) => {
-        if (pan.current && viewport.current) viewport.current.scrollTo(pan.current.scroll.x - event.clientX + pan.current.pointer.x, pan.current.scroll.y - event.clientY + pan.current.pointer.y);
+        const element = viewport.current;
+        if (!pan.current || !element) return;
+        const before = element.scrollLeft + element.scrollTop;
+        element.scrollTo(pan.current.scroll.x - event.clientX + pan.current.pointer.x, pan.current.scroll.y - event.clientY + pan.current.pointer.y);
+        // Only a pan that actually moved the view takes over from auto-fit.
+        if (manual === null && element.scrollLeft + element.scrollTop !== before) setManual(scale);
       }}
       onPointerUp={() => { pan.current = null; }} onPointerCancel={() => { pan.current = null; }}>
       {!nodes.length && <div className="empty-state"><h2>No sessions reported yet</h2><p>Native parent relationships will appear here as work starts.</p></div>}
       <div className="flow-space" style={{ width: width * scale, height: height * scale }}>
-        <div className="flow-world" style={{ width, height, transform: `scale(${scale})` }}>
-          <svg className="flow-connections" width={width} height={height} aria-hidden="true">
+        <div className="flow-world" style={{ width, height, transform: `scale(${scale}) translate(${-left}px, ${-top}px)` }}>
+          <svg className="flow-connections" width={left + width} height={top + height} aria-hidden="true">
             {visible.map((node) => {
               if (!node.parent || !visible.some((other) => other.id === node.parent)) return null;
               const from = point(node.parent), to = point(node.id);
@@ -197,8 +205,8 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
         setLayout({ positions: {}, error: "" }); setCollapsed(new Set());
         try { localStorage.removeItem(layoutKey); }
         catch { setLayout({ positions: {}, error: "Layout could not be cleared in this browser." }); }
-      }}>⠿ <span>Arrange</span></button>
-      <div><button aria-label="Zoom out" onClick={() => setScale(Math.max(.35, scale - .1))}>−</button><output aria-label="Zoom">{Math.round(scale * 100)}%</output><button aria-label="Zoom in" onClick={() => setScale(Math.min(1.5, scale + .1))}>+</button><button aria-label="Fit canvas" onClick={fit}>⛶</button></div>
+      }} className="icon-button" aria-label="Arrange" data-tip="Arrange" data-tip-align="start"><Icon name="arrange" /></button>
+      <div><button className="icon-button" aria-label="Zoom out" data-tip="Zoom out" onClick={() => zoom(scale - .1)}><Icon name="minus" /></button><output aria-label="Zoom">{Math.round(scale * 100)}%</output><button className="icon-button" aria-label="Zoom in" data-tip="Zoom in" onClick={() => zoom(scale + .1)}><Icon name="plus" /></button><button className="icon-button" aria-label="Fit canvas" data-tip="Fit" data-tip-align="end" onClick={fit}><Icon name="fit" /></button></div>
     </div>
     {layout.error && <p className="layout-notice" role="status">{layout.error}</p>}
   </section>;

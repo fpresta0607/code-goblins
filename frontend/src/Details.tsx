@@ -9,16 +9,18 @@ import {
 import { useResource } from "./api";
 import { age } from "./presentation";
 import { Avatar } from "./Avatar";
-import { asksOverlord, nodeStatus, personaFor } from "./workflow";
+import { asksOverlord, nodeStatus, personaFor, pullRequestLabel } from "./workflow";
 import { DiffView } from "./DiffView";
 import { WorkspaceDetails } from "./WorkspaceDetails";
+import { Icon } from "./Icon";
+import { deliveryMark } from "./feedback";
 import type { ReviewControls } from "./review";
 
 function ErrorBox({ error, retry }: { error: string; retry?: () => void }) {
   return (
     <div className="error-box" role="alert">
       {error}
-      {retry && <button onClick={retry}>Retry</button>}
+      {retry && <button className="icon-button raised" aria-label="Retry" data-tip="Retry" data-tip-align="start" onClick={retry}><Icon name="refresh" /></button>}
     </div>
   );
 }
@@ -42,7 +44,7 @@ function Changes({ task, revision = "", reviews, connected }: {
   const [version, setVersion] = useState(0);
   return <div className="changes">
     <div className="section-toolbar"><p className="muted">{revision ? "Commit " + revision.slice(0, 8) : "Full task changes"} · {files.data?.length ?? "…"} files</p>
-      <button onClick={() => { files.reload(); setVersion((prior) => prior + 1); }}>Refresh changes</button>
+      <button className="icon-button raised" aria-label="Refresh changes" data-tip="Refresh changes" data-tip-align="end" onClick={() => { files.reload(); setVersion((prior) => prior + 1); }}><Icon name="refresh" /></button>
     </div>
     {files.error ? <ErrorBox error={files.error} retry={files.reload} /> :
       !files.data ? <p className="loading" role="status">Reading the change set…</p> :
@@ -124,7 +126,7 @@ function History({
 function Disclosure({ title, children, defaultOpen = false, kind = "" }: { title: ReactNode; children: ReactNode; defaultOpen?: boolean; kind?: string }) {
   const [open, setOpen] = useState(defaultOpen);
   return <details className={"disclosure " + kind} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary>{title}</summary>
+    <summary>{title}<Icon name="chevron-down" /></summary>
     {open && <div className="disclosure-content">{children}</div>}
   </details>;
 }
@@ -133,7 +135,6 @@ function Activity({ task, snapshot }: { task?: Task; snapshot: Snapshot }) {
   const activity = useResource(task?.generation ? "/api/tasks/" + encodeURIComponent(task.id) + "/activity" : null, strings);
   const actions = snapshot.actions.filter((action) => action.task_id === task?.id).slice(-20).reverse();
   const actionLabel = (kind: string) => ({ review: "Review comment", feedback: "Task instruction", evaluate: "Progress check", cfo_message: "CFO message", cfo_answer: "Question answer", goblin_answer: "Question answer" })[kind] || "Action";
-  const outcomeLabel = (status: string, kind: string) => status === "succeeded" ? (kind === "review" || kind.startsWith("cfo_") ? "Sent to CFO" : "Completed") : ({ queued: "Queued", running: "Sending", failed: "Could not deliver", uncertain: "Delivery unconfirmed" })[status] || "Awaiting evidence";
   return <>
     {activity.error ? <ErrorBox error={activity.error} retry={activity.reload} /> :
       activity.data?.length ? <ol className="activity-list">
@@ -141,11 +142,14 @@ function Activity({ task, snapshot }: { task?: Task; snapshot: Snapshot }) {
       </ol> : <p className="muted">{task?.generation && !activity.data ? "Loading activity…" : "No task status records yet."}</p>}
     {actions.length > 0 && <section className="action-history">
       <h3>Action delivery</h3>
-      <ol className="action-list">{actions.map((action) => <li key={action.id}>
-        <div><strong>{actionLabel(action.kind)}</strong><span className={"action-state " + action.status}>{outcomeLabel(action.status, action.kind)}</span><time>{age(action.updated_at)}</time></div>
-        <p>{action.message || "Waiting for execution"}</p>
-        {action.status === "uncertain" && <p className="warning-text">Inspect {action.kind === "review" ? "the CFO queue" : "the terminal"} before sending again. This action will not be replayed automatically.</p>}
-      </li>)}</ol>
+      <ol className="action-list">{actions.map((action) => {
+        const delivery = deliveryMark(action);
+        return <li key={action.id}>
+          <div><strong>{actionLabel(action.kind)}</strong><span className={"delivery " + action.status} role="img" aria-label={delivery.label} data-tip={delivery.label}><Icon name={delivery.icon} /></span><time>{age(action.updated_at)}</time></div>
+          {action.text && <p className="action-text">{action.text}</p>}
+          {delivery.trouble && <p className="warning-text">{delivery.label}{action.message && " " + action.message}</p>}
+        </li>;
+      })}</ol>
     </section>}
   </>;
 }
@@ -161,7 +165,7 @@ export function Details({ task, snapshot, connected, reviews }: {
       <p className={"panel-status plain-status phase-" + task.phase + (asksOverlord(snapshot, task.id) ? " asking" : "")}><span className="status-dot" />{nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asksOverlord(snapshot, task.id))}</p>
     </div><WorkspaceDetails task={task} instance={snapshot.instance} /></header>
     <div className="panel-content">
-      {task.pr && /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/.test(task.pr) && <a className="review-pr" href={task.pr} target="_blank" rel="noreferrer">Open pull request</a>}
+      {task.pr && /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/.test(task.pr) && <a className="review-pr" href={task.pr} target="_blank" rel="noreferrer" data-tip="Open pull request"><Icon name="pull-request" />{pullRequestLabel(task.pr)}</a>}
       {task.generation ? <Disclosure title="Changes" defaultOpen kind="changes-section"><Changes task={task} reviews={reviews} connected={connected} /></Disclosure> : <p className="muted padded">Changes will appear when this task starts.</p>}
       <Disclosure title="Activity"><Activity task={task} snapshot={snapshot} /></Disclosure>
       {task.generation && <Disclosure title="History"><History task={task} reviews={reviews} connected={connected} /></Disclosure>}
