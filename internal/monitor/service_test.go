@@ -1111,6 +1111,47 @@ func TestScanHoldsQuietADoneAgentWithFreshParkedVerb(t *testing.T) {
 	}
 }
 
+func TestScanNeverWakesForAGoblinWaitingWithItsTurnEnded(t *testing.T) {
+	for _, statusLine := range []string{
+		"waiting on g2: needs the schema from g2",
+		"waiting on ci: PR 45 checks",
+		"waiting on deploy: staging rollout",
+		"waiting on overlord: which region to launch in",
+	} {
+		t.Run(statusLine, func(t *testing.T) {
+			stateDir := t.TempDir()
+			now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+			meta := metaFor("g1")
+			writeTask(t, stateDir, meta)
+			if err := state.AppendStatus(stateDir, "g1", statusLine); err != nil {
+				t.Fatal(err)
+			}
+			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, herdr.AgentDone, "turn ended")}}
+			service := testService(stateDir, probe, &now)
+
+			events := cycle(t, service, &now, 60)
+
+			if len(events) != 0 {
+				t.Fatalf("events = %+v, want no wake for a waiting goblin", events)
+			}
+			records, err := wake.Pending(stateDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(records) != 0 {
+				t.Fatalf("wake records = %+v, want none for a waiting goblin", records)
+			}
+			observation, err := ReadObservation(stateDir, "g1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if observation.Health != HealthParked {
+				t.Fatalf("observation = %+v, want parked", observation)
+			}
+		})
+	}
+}
+
 func TestScanWakesDoneAgentWithStaleParkedVerbAfterCountersAdvance(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)

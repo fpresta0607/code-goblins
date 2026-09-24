@@ -731,6 +731,9 @@ func (s Service) latestStatusVerb(id string) (string, int64, bool) {
 // parkedDecisionVerb reports whether a status verb parks the goblin awaiting
 // the CFO's decision. needs-decision and checks-passed wake through the
 // watcher's decision signal; blocked wakes through cfo notify's own record.
+// waiting (on another task, the Overlord, CI or a deploy) is held the same
+// way while it is the latest report: a wait on the Overlord already woke the
+// CFO through cfo notify, and any other wait must never wake the CFO at all.
 // The monitor must not re-wake any of them as a genuine stall.
 //
 // A failed goblin is terminal here whatever its wake record says. Health is
@@ -740,7 +743,7 @@ func (s Service) latestStatusVerb(id string) (string, int64, bool) {
 // that arm is gone and the ledger keeps asking on its own.
 func parkedDecisionVerb(verb string) bool {
 	switch verb {
-	case "blocked", "needs-decision", "checks-passed", "checks_passed":
+	case "blocked", "waiting", "needs-decision", "checks-passed", "checks_passed":
 		return true
 	}
 	return false
