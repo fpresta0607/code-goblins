@@ -5,11 +5,11 @@ import { Avatar } from "./Avatar";
 import { BRAND_MARKS } from "./brandMarks";
 import { Icon } from "./Icon";
 import { ownsTaskSession, sessionTitle } from "./lineageTree";
-import { asksOverlord, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest } from "./workflow";
+import { asksOverlord, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
 
 // Who the goblin is, what it is doing now and what the Overlord can do about
 // it. The CFO drawn without a task has no worktree to open.
-export function PanelHeader({ task, node, snapshot, compact }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean }) {
+export function PanelHeader({ task, node, snapshot, compact, onOpenTask }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; onOpenTask: (task: Task) => void }) {
   const [opening, setOpening] = useState(false);
   const [outcome, setOutcome] = useState("");
   const cfo = !task && !node;
@@ -23,6 +23,7 @@ export function PanelHeader({ task, node, snapshot, compact }: { task?: Task; no
   const phase = cfo ? (snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working") : owner ? task.phase : node?.runtime?.state || node?.phase || "";
   const pr = owner ? safePullRequest(task.pr) : "";
   const badge = pullRequestBadge(pr);
+  const awaited = owner ? waitingTarget(snapshot, task) : undefined;
   const open = async (target: "vscode" | "folder") => {
     if (!task || opening) return;
     setOpening(true); setOutcome("");
@@ -37,7 +38,7 @@ export function PanelHeader({ task, node, snapshot, compact }: { task?: Task; no
     <div className="panel-identity">
       <h2 id="panel-title">{title}</h2>
       {!compact && task?.project && <p className="project-label">{task.project}</p>}
-      <p className={"panel-status plain-status phase-" + phase + (asking ? " asking" : "")}><span className="status-dot" />{status}</p>
+      <p className={"panel-status plain-status phase-" + phase + (asking ? " asking" : "")}><span className="status-dot" />{status}{awaited && <button className="status-link" aria-label={"Open " + (awaited.title || awaited.id) + ", which this goblin is waiting on"} data-tip={"Open " + (awaited.title || awaited.id)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>}</p>
       {!compact && !owner && node && task && <p className="muted">Part of {task.title || task.id}</p>}
       {!compact && owner && task.activity && <p className="panel-activity">{task.activity}</p>}
     </div>

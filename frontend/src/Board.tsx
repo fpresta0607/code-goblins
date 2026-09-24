@@ -1,7 +1,7 @@
 import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
-import { asksOverlord, nodeStatus, personaFor, pullRequestLabel, safePullRequest, taskColumn } from "./workflow";
+import { asksOverlord, nodeStatus, personaFor, pullRequestLabel, safePullRequest, taskColumn, waitingTarget } from "./workflow";
 
 export function Board({ snapshot, selected, onSelect, presentations }: {
   presentations:BoardActivity[];
@@ -15,7 +15,7 @@ export function Board({ snapshot, selected, onSelect, presentations }: {
         <h2>{column}<span className="column-count">{tasks.length}</span></h2>
         <div className="task-cards">
           {tasks.map((task) => {
-            const pr = safePullRequest(task.pr), asking = asksOverlord(snapshot, task.id);
+            const pr = safePullRequest(task.pr), asking = asksOverlord(snapshot, task.id), awaited = waitingTarget(snapshot, task);
             const content = <>
               <Avatar persona={personaFor(task)} />
               <span className="card-copy">{presentations.some(event=>event.task_id===task.id) && <span className="browser-indicator">Browser active</span>}<strong>{task.title || task.id}</strong>{task.project && <span className="project-label">{task.project}</span>}
@@ -28,9 +28,10 @@ export function Board({ snapshot, selected, onSelect, presentations }: {
             if (task.archived) return pr
               ? <a key={task.id} className="task-card history" href={pr} target="_blank" rel="noreferrer">{content}<span className="card-pr"><Icon name="pull-request" />{pullRequestLabel(pr)}</span></a>
               : <div key={task.id} className="task-card history">{content}</div>;
-            return <div key={task.id} className={"task-card-shell" + (pr ? " has-pr" : "")}>
+            return <div key={task.id} className={"task-card-shell" + (pr || awaited ? " has-pr" : "")}>
               <button className={"task-card" + (selected === task.id ? " selected" : "")}
                 aria-pressed={selected === task.id} onClick={(event) => onSelect(task, event.currentTarget)}>{content}</button>
+              {awaited && <button className="card-waiting" aria-label={"Open " + (awaited.title || awaited.id) + ", which this goblin is waiting on"} data-tip={"Open " + (awaited.title || awaited.id)} data-tip-align="start" onClick={(event) => onSelect(awaited, event.currentTarget)}><Icon name="next" />{awaited.id}</button>}
               {pr && <a className="card-pr" href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)}><Icon name="pull-request" />{pullRequestLabel(pr)}</a>}
             </div>;
           })}

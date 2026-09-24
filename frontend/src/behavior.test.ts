@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { dragRange, isDrag, parsePatchToRows, splitRows, reviewRange } from "./diff.ts";
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, deliveryMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
-import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, asksOverlord, pullRequestBadge, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
+import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
 
 test("board completion and semantic personas require the corresponding evidence", () => {
   const task = parseSnapshot({healthy:true, tasks:[{id:"work",title:"Test keyboard access",phase:"done",generation:"new",verified:false}]}).tasks[0];
@@ -386,4 +387,43 @@ test("only a single-click press that moves more than 4 px counts as a drag", () 
     ["a triple-click line selection", 3, { x: 10, y: 70 }, false],
   ];
   for (const [name, detail, to, expected] of cases) assert.equal(isDrag(detail, { x: 10, y: 10 }, to), expected, name);
+});
+
+// Main's frontend before this change read phase waiting as No evidence yet,
+// so every waiting goblin on the live board lost its status.
+test("a waiting goblin says what it waits on, and only a wait on the Overlord reads as his", () => {
+  const snapshot = parseSnapshot({ healthy: true, tasks: [
+    { id: "billing", phase: "waiting", waiting_on: "board-ui", reason: "needs the new panel", verified: false },
+    { id: "board-ui", phase: "working", verified: false },
+    { id: "ship", phase: "waiting", waiting_on: "ci", verified: false },
+    { id: "deploy", phase: "waiting", waiting_on: "deploy", verified: false },
+    { id: "ask", phase: "waiting", waiting_on: "overlord", verified: false },
+    { id: "gone", phase: "waiting", waiting_on: "retired-task", verified: false },
+    { id: "gate", phase: "review", gate_step: "test", verified: false },
+    { id: "gate-ci", phase: "review", gate_step: "ci", verified: false },
+    { id: "gate-unknown", phase: "review", verified: false },
+    { id: "older", phase: "working", verified: false, waiting_on: undefined },
+  ] });
+  const status = (id: string) => { const task = snapshot.tasks.find((candidate) => candidate.id === id)!; return nodeStatus({ id, title: "", task, relation: "" }, asksOverlord(snapshot, id)); };
+  const cases: [string, string][] = [["billing", "Waiting on board-ui"], ["ship", "Waiting on CI"], ["deploy", "Waiting on deploy"], ["ask", "Waiting on you"],
+    ["gone", "Waiting on retired-task"], ["gate", "In review gate: tests"], ["gate-ci", "In review gate: CI"], ["gate-unknown", "In review gate"], ["older", "Working"]];
+  for (const [id, label] of cases) assert.equal(status(id), label, id);
+  assert.equal(asksOverlord(snapshot, "ask"), true);
+  for (const id of ["billing", "ship", "deploy", "gone"]) assert.equal(asksOverlord(snapshot, id), false, id);
+  assert.equal(waitingTarget(snapshot, snapshot.tasks[0])?.id, "board-ui");
+  for (const id of ["ship", "deploy", "ask", "gone", "board-ui"]) assert.equal(waitingTarget(snapshot, snapshot.tasks.find((task) => task.id === id)!), undefined, id);
+  assert.equal(statusText("waiting"), "Waiting");
+});
+
+// The review panel never scrolls sideways: every line that wraps indents its
+// continuation by two characters so a wrapped line never reads as a new one.
+test("wrapped diff, code and hunk lines indent their continuation by two characters", () => {
+  const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+  for (const selector of [".diff-row code, .split-cell code, .code-line code {", ".hunk {"]) {
+    const start = css.indexOf(selector);
+    assert.ok(start >= 0, selector);
+    const rule = css.slice(start, css.indexOf("}", start));
+    assert.match(rule, /white-space: pre-wrap/, selector);
+    assert.match(rule, /text-indent: -2ch/, selector);
+  }
 });

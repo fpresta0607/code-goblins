@@ -319,7 +319,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .removed { background: #40242b; }
 .added .diff-sign { color: #93e3b3; }
 .removed .diff-sign { color: #ffadad; }
-.hunk { background: #192b3a; color: #a5c9e8; font-size: .9375rem; padding: 8px 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.hunk { background: #192b3a; color: #a5c9e8; font-size: .9375rem; padding: 8px 12px 8px calc(12px + 2ch); text-indent: -2ch; white-space: pre-wrap; overflow-wrap: anywhere; }
 .split-head { display: grid; grid-template-columns: 1fr 1fr; background: #152331; font-size: .9375rem; color: #aac5d9; }
 .split-head span { padding: 6px 12px; border-right: 1px solid var(--border); }
 .split-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
@@ -543,3 +543,13 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .comment-sent-text { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .comment-overlay.sent .warning-text { grid-column: 1 / -1; }
 @media (max-width: 50rem) { .comment-overlay.floating { left: 8px; width: calc(100% - 16px); } }
+/* Waiting: on the Overlord it is amber like any question; on a goblin, CI or a
+   deploy it is a calmer sand, and a wait on a goblin links to it. */
+.phase-waiting .status-dot { background: #d9b76a; }
+.phase-waiting.plain-status { color: #e7d3a3; }
+.card-waiting { position: absolute; left: 120px; bottom: 10px; display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 2px 12px 2px 8px; border: 1px solid var(--edge); border-radius: 999px; background: var(--level-3); color: #e7d3a3; font-weight: 800; }
+.card-waiting .icon { width: 16px; height: 16px; }
+.status-link { display: inline-grid; place-items: center; width: 30px; height: 30px; min-height: 30px; padding: 0; border-radius: 50%; border-color: var(--edge); background: var(--level-3); color: #e7d3a3; }
+.status-link .icon { width: 16px; height: 16px; }
+.dependency-line path { fill: none; stroke: #d9b76a; stroke-width: 2.5; stroke-dasharray: 8 6; }
+.dependency-line circle { fill: #d9b76a; }

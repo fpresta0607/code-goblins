@@ -24,6 +24,10 @@ export interface Task extends Evaluation {
   session: string;
   dependencies: string[];
   activity: string;
+  // waiting_on names what a waiting task waits on: another task's id,
+  // overlord, ci or deploy; gate_step is the gate step of a task in review.
+  waiting_on: string;
+  gate_step: string;
   archived: boolean;
   merged: boolean;
 }
@@ -232,6 +236,8 @@ export function parseSnapshot(value: unknown): Snapshot {
         session: string(t.session),
         dependencies: strings(t.dependencies),
         activity: t.activity === undefined ? "" : string(t.activity),
+        waiting_on: t.waiting_on === undefined ? "" : string(t.waiting_on),
+        gate_step: t.gate_step === undefined ? "" : string(t.gate_step),
         archived: t.archived === undefined ? false : boolean(t.archived),
         merged: t.merged === undefined ? false : boolean(t.merged),
         phase: string(t.phase),

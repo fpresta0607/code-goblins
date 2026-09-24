@@ -5,7 +5,7 @@ import { activityDisplay, presentationShownOn } from "./activity";
 import { Chevron } from "./Chevron";
 import { Icon } from "./Icon";
 import { ownsTaskSession } from "./lineageTree";
-import { arrange, asksOverlord, expireTraffic, fitScale, fleetTraffic, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, workflowNodes, type Point, type WorkflowNode } from "./workflow";
+import { arrange, asksOverlord, waitingTarget, expireTraffic, fitScale, fleetTraffic, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, workflowNodes, type Point, type WorkflowNode } from "./workflow";
 
 const layoutKey = "cfo-orchestration-layout-v1";
 
@@ -168,6 +168,28 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
                 <path d={path} /><circle cx={sx} cy={sy} r={4} /><circle cx={ex} cy={ey} r={4} />
                 {communicating && <path className="communication-pulse" d={path} />}
               </g>;
+            })}
+            {/* A goblin waiting on another goblin: a dashed line from the
+                waiting card to the one it waits on, apart from the family tree. */}
+            {visible.flatMap((node) => {
+              const awaited = node.task && ownsTaskSession(node.session, node.task) ? waitingTarget(snapshot, node.task) : undefined;
+              const target = awaited && visible.find((other) => other.task?.id === awaited.id && ownsTaskSession(other.session, other.task));
+              if (!target) return [];
+              const from = point(node.id), to = point(target.id);
+              let path: string, ex: number, ey: number;
+              if (Math.abs(to.y - from.y) < NODE_HEIGHT) {
+                // Same row: an arc under both cards, clear of the tree above.
+                const sx = from.x + NODE_WIDTH / 2, sy = from.y + NODE_HEIGHT, dip = Math.max(from.y, to.y) + NODE_HEIGHT + 56;
+                ex = to.x + NODE_WIDTH / 2; ey = to.y + NODE_HEIGHT;
+                path = `M${sx},${sy} C${sx},${dip} ${ex},${dip} ${ex},${ey}`;
+              } else {
+                const right = to.x > from.x;
+                const sx = from.x + (right ? NODE_WIDTH : 0), sy = from.y + NODE_HEIGHT / 2;
+                ex = to.x + (right ? 0 : NODE_WIDTH); ey = to.y + NODE_HEIGHT / 2;
+                const bend = Math.max(60, Math.abs(ex - sx) / 2) * (right ? 1 : -1);
+                path = `M${sx},${sy} C${sx + bend},${sy} ${ex - bend},${ey} ${ex},${ey}`;
+              }
+              return [<g key={"wait:" + node.id} className="dependency-line"><path d={path} /><circle cx={ex} cy={ey} r={5} /></g>];
             })}
           </svg>
           {visible.map((node) => {
