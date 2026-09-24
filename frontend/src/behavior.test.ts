@@ -4,7 +4,7 @@ import { dragRange, isDrag, parsePatchToRows, splitRows, reviewRange } from "./d
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, deliveryMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
-import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, asksOverlord, pullRequestBadge, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
+import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
 
 test("board completion and semantic personas require the corresponding evidence", () => {
   const task = parseSnapshot({healthy:true, tasks:[{id:"work",title:"Test keyboard access",phase:"done",generation:"new",verified:false}]}).tasks[0];
@@ -387,3 +387,36 @@ test("only a single-click press that moves more than 4 px counts as a drag", () 
   ];
   for (const [name, detail, to, expected] of cases) assert.equal(isDrag(detail, { x: 10, y: 10 }, to), expected, name);
 });
+
+// Main's frontend before this change read phase waiting as No evidence yet,
+// so every waiting goblin on the live board lost its status.
+test("a waiting goblin says what it waits on, and only a wait on the Overlord reads as his", () => {
+  const snapshot = parseSnapshot({ healthy: true, tasks: [
+    { id: "billing", phase: "waiting", waiting_on: "board-ui", reason: "needs the new panel", verified: false },
+    { id: "board-ui", phase: "working", verified: false },
+    { id: "ship", phase: "waiting", waiting_on: "ci", verified: false },
+    { id: "release", phase: "waiting", waiting_on: "deploy", verified: false },
+    { id: "deploy", phase: "waiting", waiting_on: "deploy", verified: false },
+    { id: "ask", phase: "waiting", waiting_on: "overlord", verified: false },
+    { id: "gone", phase: "waiting", waiting_on: "retired-task", verified: false },
+    { id: "gate", phase: "review", gate_step: "test", verified: false },
+    { id: "gate-ci", phase: "review", gate_step: "ci", verified: false },
+    { id: "gate-review", phase: "review", gate_step: "review", verified: false },
+    { id: "gate-lint", phase: "review", gate_step: "lint", verified: false },
+    { id: "gate-push", phase: "review", gate_step: "push", verified: false },
+    { id: "gate-new", phase: "review", gate_step: "canary", verified: false },
+    { id: "gate-unknown", phase: "review", verified: false },
+    { id: "older", phase: "working", verified: false, waiting_on: undefined },
+  ] });
+  const status = (id: string) => { const task = snapshot.tasks.find((candidate) => candidate.id === id)!; return nodeStatus({ id, title: "", task, relation: "" }, asksOverlord(snapshot, id)); };
+  const cases: [string, string][] = [["billing", "Waiting on board-ui"], ["ship", "Waiting on CI"], ["release", "Waiting on deploy"], ["deploy", "Waiting on deploy"], ["ask", "Waiting on you"],
+    ["gone", "Waiting on retired-task"], ["gate", "In review gate: tests"], ["gate-ci", "In review gate: CI"],
+    ["gate-review", "In review gate: code review"], ["gate-lint", "In review gate: lint"], ["gate-push", "In review gate: push"], ["gate-new", "In review gate"], ["gate-unknown", "In review gate"], ["older", "Working"]];
+  for (const [id, label] of cases) assert.equal(status(id), label, id);
+  assert.equal(asksOverlord(snapshot, "ask"), true);
+  for (const id of ["billing", "ship", "release", "deploy", "gone"]) assert.equal(asksOverlord(snapshot, id), false, id);
+  assert.equal(waitingTarget(snapshot, snapshot.tasks[0])?.id, "board-ui");
+  for (const id of ["ship", "release", "deploy", "ask", "gone", "board-ui"]) assert.equal(waitingTarget(snapshot, snapshot.tasks.find((task) => task.id === id)!), undefined, id);
+  assert.equal(statusText("waiting"), "Waiting");
+});
+
