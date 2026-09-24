@@ -201,6 +201,7 @@ Recurring tool actions (open in VS Code, open folder, open pull request, refresh
 Decisions and one-off commands keep a short word, for example Send decision, Later or Show the next 300 lines.
 Every connector, MCP server, credential, harness and model provider shows a mark beside its name: the brand's mark from Simple Icons where one exists, a plain glyph where the owner withholds its mark, the Model Context Protocol mark for an unknown MCP server and a key for an unknown credential.
 Delivery reads as a mark: one check once the supervisor accepted it, two checks once delivered; only a failed or unconfirmed delivery is spelled out, with what to check before sending again.
+A review answer's own action keeps one check, because it succeeds whether the answer reached the goblin or went to the CFO; only its review item says which.
 Status words say what is happening in plain words, such as Working, In review gate, Waiting on you, Waiting on the CFO or Merged, verifying, never the evidence the supervisor holds.
 Text is never smaller than 15 px.
 Surfaces sit on three elevation levels, each lighter and more shadowed than the one below, so what floats reads as floating.
@@ -292,12 +293,19 @@ The board sees each item in `snapshot.reviews` with an image count, never a path
 A new review item waits in the Command Center inbox under the badge instead of opening the stack.
 Its card shows the title, its images as thumbnails that open the same full-size gallery as a question's, and the item's own Lavish link when it has one, then takes a written answer with Send answer or closes with Clear.
 A closed item moves to the inbox history as You wrote: <answer>, Cleared or Withdrawn: <reason>; an answer still on its way reads not yet delivered, and one whose `review_answer` action failed or became uncertain carries the same warning marks as a question.
+Only `delivered` earns two checks: an answer the CFO took over because its goblin was replaced reads Sent to the CFO: <answer>, and an undelivered answer whose action has aged out of the snapshot reads delivery no longer recorded instead of being assumed delivered.
 Closed items and their copies are pruned a week after they close; open items and answered items whose answer is still on its way are never dropped, and a new item waits in the inbox while all 128 held items are one or the other.
 The API contract for the board is `data/board-ui/api-contract.md`.
 
 ## Run items
 
 A run item is a command the CFO needs the Overlord to run, such as a PowerShell or Git Bash script or a step that needs administrator rights; he runs it with one click from the Command Center instead of copying and pasting it:
+
+On the board a run item is a card in the Command Center stack, counted in the header badge while it is ready or running.
+The card shows why the CFO needs it, the shell with its mark (the GNU Bash mark for Git Bash, a terminal glyph for either PowerShell, since Simple Icons carries no PowerShell mark), an Admin badge with a shield when it runs elevated, the exact command in a monospace block that wraps and has a copy button, and the folder it runs in.
+One button runs it: **Run**, or **Run as administrator** with a note that Windows will ask to confirm; the browser sends only the item's id and identity, never command text.
+The card then says Running, and Finished or Failed with the exit code, or Expired, and the captured output sits under a disclosure; a finished item moves to the inbox's history with the same words.
+
 
 ```powershell
 cfo run-request --id install-tool-1 --title "Install the tool the build needs" --shell powershell --command-file C:\temp\install.ps1

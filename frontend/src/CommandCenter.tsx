@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { message, request } from "./api";
-import { parseAction, type BoardActivity, type Question, type Review, type Snapshot } from "./types";
+import { parseAction, type BoardActivity, type Question, type Review, type Run, type Snapshot } from "./types";
 import { submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { isOpen, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { RunCard } from "./RunCard";
 import { questionAnswer, questionChoices } from "./questionChoices";
 import { personaFor } from "./workflow";
 import { EMPTY_DRAFT, QuestionCard, type Draft } from "./QuestionCard";
@@ -61,7 +62,6 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
     }
     if (!showing && element.open) { element.close(); returnFocus.current?.focus(); }
   }, [showing]);
-  const isOpen = (candidate: Item) => candidate.kind === "question" ? candidate.question.status === "pending" : candidate.review.state === "open";
   const close = () => { setOpen(false); setKept(new Set()); setGallery(null); };
   const show = (key: string) => { setCurrent(key); setGallery(null); };
   const move = (step: number) => { const next = stack[index + step]; if (next) show(next.key); };
@@ -89,16 +89,18 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
     if (target.kind === "question") {
       const payload = questionAnswer(target.question, draft.selection, draft.written);
       if (payload) void post(target.key, payload);
-    } else if (draft.written.trim()) void post(target.key, { kind: "review_answer", review_id: target.review.id, generation: target.review.identity, text: draft.written });
+    } else if (target.kind === "review" && draft.written.trim()) void post(target.key, { kind: "review_answer", review_id: target.review.id, generation: target.review.identity, text: draft.written });
   };
+  // Run names the stored item; the browser never sends command text.
+  const run = (target: Run) => { if (target.state === "ready") void post("run:" + target.id, { kind: "run", run_id: target.id, generation: target.identity }); };
   const clear = (target: Review) => void post("review:" + target.id, { kind: "review_clear", review_id: target.id, generation: target.identity });
-  const taskOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.task : candidate.review.task;
+  const taskOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.task : candidate.kind === "review" ? candidate.review.task : "";
   const askerOf = (candidate: Item) => taskOf(candidate) ? snapshot.tasks.find((task) => task.id === taskOf(candidate))?.title || taskOf(candidate) : "The CFO";
-  const textOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.text : candidate.review.title;
-  const created = (candidate: Item) => candidate.kind === "question" ? candidate.question.created_at : candidate.review.created_at;
-  const iconOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.image_count ? "images" : "question" : candidate.review.image_count ? "images" : "comment";
+  const textOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.text : candidate.kind === "review" ? candidate.review.title : candidate.run.title;
+  const created = (candidate: Item) => candidate.kind === "question" ? candidate.question.created_at : candidate.kind === "review" ? candidate.review.created_at : candidate.run.created_at;
+  const iconOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.image_count ? "images" : "question" : candidate.kind === "review" ? candidate.review.image_count ? "images" : "comment" : "play";
   const pageFor = (candidate: Question) => presentations.find((event) => event.kind === "review" && (candidate.task ? event.task_id === candidate.task : !!event.cfo_identity));
-  const images = !item ? [] : item.kind === "question"
+  const images = !item || item.kind === "run" ? [] : item.kind === "question"
     ? questionChoices(item.question).filter((choice) => choice.image).map((choice) => ({ src: choice.image, label: choice.label, value: choice.value }))
     : reviewImages(item.review).map((src, n) => ({ src, label: String(n + 1), value: "Image " + (n + 1) }));
   const notices = presentations.filter((event) => !background.has(event.id)).slice(-4).reverse();
@@ -126,7 +128,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
             <button className="icon-button" aria-label="Keep in background" data-tip="Keep in background" data-tip-align="end" onClick={() => setBackground((prior) => new Set([...prior, event.id]))}><Icon name="minus" /></button>
           </li>)}</ul>
         </section>}
-        {settled.length > 0 && <Disclosure kind="inbox-history" title={<>Answered <span className="column-count">{settled.length}</span></>}>
+        {settled.length > 0 && <Disclosure kind="inbox-history" title={<>History <span className="column-count">{settled.length}</span></>}>
           <ul className="inbox-list">{settled.map((candidate) => {
             const mark = settledIcon(candidate, snapshot.actions);
             return <li key={candidate.key}>
@@ -148,7 +150,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
           <button type="button" className="icon-button question-close" aria-label="Close the Command Center" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
         </header>
         {gallery !== null && images.length > 0
-          ? <ImageGallery images={images} index={Math.min(gallery, images.length - 1)} lavish={item.kind === "question" ? pageFor(item.question)?.url : item.review.lavish} onIndex={setGallery} onClose={() => setGallery(null)}
+          ? <ImageGallery images={images} index={Math.min(gallery, images.length - 1)} lavish={item.kind === "question" ? pageFor(item.question)?.url : item.kind === "review" ? item.review.lavish : undefined} onIndex={setGallery} onClose={() => setGallery(null)}
             onChoose={item.kind === "question" && item.question.status === "pending" ? (value) => { update(item.key, { selection: "option:" + value, error: "", receipt: undefined }); setGallery(null); } : undefined} />
           : <div className={"card-stage" + (stack.length > 1 ? " stacked" : "")}
             onPointerDown={(event) => { if (event.pointerType !== "mouse") swipe.current = { x: event.clientX, y: event.clientY }; }}
@@ -162,6 +164,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
             {item.kind === "question"
               ? <QuestionCard key={item.key} question={item.question} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT} review={pageFor(item.question)}
                 onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onImage={setGallery} />
+              : item.kind === "run"
+              ? <RunCard key={item.key} run={item.run} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} />
               : <ReviewCard key={item.key} review={item.review} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT}
                 onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onClear={() => clear(item.review)} onImage={setGallery} />}
           </div>}

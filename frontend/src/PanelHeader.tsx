@@ -6,7 +6,7 @@ import { BRAND_MARKS } from "./brandMarks";
 import { Icon } from "./Icon";
 import { ownsTaskSession, sessionTitle } from "./lineageTree";
 import { asksOverlord, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
-import { waitingItems } from "./commandQueue";
+import { waitingItems, type Item } from "./commandQueue";
 
 // Who the goblin is, what it is doing now and what the Overlord can do about
 // it. The CFO drawn without a task has no worktree to open.
@@ -26,7 +26,8 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
   const badge = pullRequestBadge(pr);
   const awaited = owner ? waitingTarget(snapshot, task) : undefined;
   // What this goblin waits on the Overlord for: a question or a review item.
-  const waiting = owner ? waitingItems(snapshot).find((item) => (item.kind === "question" ? item.question.task : item.review.task) === task.id) : undefined;
+  // Runs are the CFO's own and never wait on a goblin's panel.
+  const waiting = owner ? waitingItems(snapshot).find((item): item is Exclude<Item, { kind: "run" }> => item.kind !== "run" && (item.kind === "question" ? item.question.task : item.review.task) === task.id) : undefined;
   const open = async (target: "vscode" | "folder") => {
     if (!task || opening) return;
     setOpening(true); setOutcome("");

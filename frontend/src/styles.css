@@ -606,3 +606,21 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .task-card-shell:has(.card-terminal) .task-card { padding-right: 58px; }
 .card-terminal { position: absolute; right: 10px; top: 10px; width: 40px; height: 40px; min-height: 40px; }
 .card-terminal .icon { width: 19px; height: 19px; }
+/* Run items: a command the CFO needs run, shown verbatim before it runs. */
+.run-card { display: grid; gap: 14px; padding: 22px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; background: var(--level-2); box-shadow: var(--shadow-2); }
+.run-card h3 { margin: 0; }
+.run-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.run-head .run-state { margin-left: auto; }
+.run-state { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; }
+.chip.admin { display: inline-flex; align-items: center; gap: 6px; color: #f6d79e; border-color: #735338; }
+.chip.admin .icon { width: 16px; height: 16px; }
+.run-command { position: relative; }
+.run-command pre, .run-output { margin: 0; border: 1px solid var(--edge); border-radius: 14px; background: #071015; font-family: var(--font-mono); font-size: .9375rem; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; }
+.run-command pre { padding: 14px 56px 14px 16px; max-height: 14rem; }
+.run-command .icon-button { position: absolute; top: 6px; right: 6px; }
+.run-output { padding: 12px 14px; max-height: 18rem; }
+.run-cwd { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: .9375rem; overflow-wrap: anywhere; }
+.run-cwd .icon { width: 18px; height: 18px; flex: none; }
+.run-card .card-actions { flex-wrap: wrap; }
+.run-button { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.run-button .icon { width: 18px; height: 18px; fill: currentColor; }

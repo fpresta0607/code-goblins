@@ -33,6 +33,16 @@ const SERVICES: [RegExp, Mark][] = [
   [/database|^db/, { glyph: "database" }],
 ];
 
+// The shell a run item uses. Git Bash wears the GNU Bash mark; Simple Icons
+// carries no PowerShell mark, so both PowerShells use the terminal glyph.
+export function shellMark(shell: string): Mark {
+  return shell === "bash" ? { brand: "bash" } : { glyph: "terminal" };
+}
+
+export function shellLabel(shell: string): string {
+  return ({ powershell: "Windows PowerShell", pwsh: "PowerShell 7", bash: "Git Bash" } as Record<string, string>)[shell] || shell;
+}
+
 export function connectorMark(name: string, kind: "mcp" | "credential"): Mark {
   const key = name.toLowerCase().replace(/[^a-z0-9]/g, "");
   return SERVICES.find(([pattern]) => key && pattern.test(key))?.[1] || (kind === "mcp" ? { brand: "mcp" } : { glyph: "key" });
