@@ -191,7 +191,7 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 		return Evaluation{}, fmt.Errorf("%w: user question context changed", ErrRejected)
 	}
 	q := s.Store.Snapshot().Questions[i]
-	unlock, err := answerLock(s.Store.Home.State)
+	unlock, err := answerLock(s.Store.Home.State, q.Seq)
 	if err != nil {
 		return Evaluation{}, fmt.Errorf("%w: the CFO is answering this question with cfo answer (%v); nothing was sent", ErrRejected, err)
 	}
@@ -243,11 +243,6 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 		return "", err
 	}
 	defer release()
-	unlock, err := answerLock(c.State)
-	if err != nil {
-		return "", err
-	}
-	defer unlock()
 	seq, err := strconv.Atoi(ref)
 	if i := strings.LastIndexByte(ref, '-'); err != nil && strings.HasPrefix(ref, "notify-") && i > 0 {
 		seq, err = strconv.Atoi(ref[i+1:])
@@ -255,6 +250,11 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	if err != nil || seq <= 0 {
 		return "", fmt.Errorf("%s names neither a goblin question nor its notify's wake sequence", ref)
 	}
+	unlock, err := answerLock(c.State, seq)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
 	pending, err := wake.Pending(c.State)
 	if err != nil {
 		return "", fmt.Errorf("read the wake queue: %w", err)
@@ -307,19 +307,22 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	return chosen, nil
 }
 
-// answerLock serializes the two ways a goblin's question is answered, cfo
+// answerLock serializes the two ways one goblin question is answered, cfo
 // answer and the board, so whichever comes second sees the other's answer;
-// it waits briefly for the other one.
-func answerLock(stateDir string) (func(), error) {
-	_, err := lock.AcquireExclusiveNamed(stateDir, ".answer.lock")
+// it waits briefly for the other one. The lock is the question's own, named
+// by its notify's wake sequence, so answers to different goblins never wait
+// on each other.
+func answerLock(stateDir string, seq int) (func(), error) {
+	name := fmt.Sprintf(".answer-%d.lock", seq)
+	_, err := lock.AcquireExclusiveNamed(stateDir, name)
 	for deadline := time.Now().Add(5 * time.Second); err != nil && time.Now().Before(deadline); {
 		time.Sleep(25 * time.Millisecond)
-		_, err = lock.AcquireExclusiveNamed(stateDir, ".answer.lock")
+		_, err = lock.AcquireExclusiveNamed(stateDir, name)
 	}
 	if err != nil {
 		return nil, err
 	}
-	return func() { _ = lock.ReleaseExclusiveNamed(stateDir, ".answer.lock") }, nil
+	return func() { _ = lock.ReleaseExclusiveNamed(stateDir, name) }, nil
 }
 
 // pickChoice matches an answer to one choice: exactly, or by its first word
