@@ -187,8 +187,9 @@ The Terminal view is the goblin's live Herdr pane, edge to edge: type straight i
   <img src="docs/images/annotation-delivery.webp" alt="An inline comment on supervisor.ts new line 3, sent to the CFO and accepted through Herdr" width="720" />
 </p>
 
-Open **Changes**, expand a file and click a line number; Shift-click extends the selection to a range.
-Write your comment in the form that opens beside the selection and choose **Send to CFO**.
+Open **Changes**, expand a file and click a line number, where a comment icon appears on hover; Shift-click extends the selection to a range.
+Dragging across diff lines opens the same comment box for the lines it covers, and a double-click or triple-click still just selects text to copy.
+A comment box floats beside the selection: type, press **Enter** to send (**Shift+Enter** for a new line, **Escape** to cancel), and it shrinks to a chip whose two check marks mean the CFO accepted it.
 The comment reaches the verified CFO session with its exact file, side, lines, HEAD and diff fingerprint, and the CFO decides how to direct the goblin; the board never sends it to the goblin itself.
 If the registered CFO session is not live, the comment is refused and nothing is queued.
 Retrying an unchanged comment keeps its request ID, so a retry cannot deliver the same comment twice.

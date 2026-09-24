@@ -18,6 +18,22 @@ export function reviewRange(rows: DiffRow[], first: number, last: number, side: 
   });
   return selected.length === last - first + 1 && selected.every((row, index) => (side === "old" ? row.old : row.next) === first + index);
 }
+// A drag across diff rows comments on the lines it covers: on the new side
+// when any covered row has a new line, otherwise on the old side. In split
+// view the column the drag began in is preferred.
+export function dragRange(rows: DiffRow[], prefer?: "old" | "new"): { side: "old" | "new"; line: number; end: number } | null {
+  const order: ("old" | "new")[] = prefer === "old" ? ["old", "new"] : ["new", "old"];
+  for (const side of order) {
+    const lines = rows.flatMap((row) => { const line = side === "old" ? row.old : row.next; return line === null ? [] : [line]; });
+    if (lines.length) return { side, line: Math.min(...lines), end: Math.max(...lines) };
+  }
+  return null;
+}
+// Only a single-click press that moved more than 4 px is a drag, so a click,
+// double-click or triple-click keeps its text selection for copying.
+export function isDrag(detail: number, from: { x: number; y: number }, to: { x: number; y: number }) {
+  return detail === 1 && Math.hypot(to.x - from.x, to.y - from.y) > 4;
+}
 export function parsePatchToRows(patch: string): DiffRow[] {
   const rows: DiffRow[] = [];
   let old = 0,

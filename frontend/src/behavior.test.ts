@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parsePatchToRows, splitRows, reviewRange } from "./diff.ts";
+import { dragRange, isDrag, parsePatchToRows, splitRows, reviewRange } from "./diff.ts";
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, deliveryMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
@@ -351,4 +351,39 @@ test("the orchestration graph fills the canvas, capped so cards never get huge",
   for (const [graphWidth, graphHeight, canvasWidth, canvasHeight, scale] of cases) {
     assert.equal(fitScale({ width: graphWidth, height: graphHeight }, { width: canvasWidth, height: canvasHeight }), scale, graphWidth + "x" + graphHeight + " in " + canvasWidth + "x" + canvasHeight);
   }
+});
+
+test("a drag across diff rows comments on the lines it covers", () => {
+  const rows = parsePatchToRows("@@ -1,3 +1,4 @@\n context\n-removed\n+added one\n+added two\n tail");
+  const lines = rows.filter((row) => row.variant !== "hunk");
+  const cases: [string, number, number, "old" | "new" | undefined, ReturnType<typeof dragRange>][] = [
+    ["context through the added lines", 0, 3, undefined, { side: "new", line: 1, end: 3 }],
+    ["only the removed line", 1, 1, undefined, { side: "old", line: 2, end: 2 }],
+    ["removed then added, split view started in the old column", 1, 2, "old", { side: "old", line: 2, end: 2 }],
+    ["one added line", 3, 3, undefined, { side: "new", line: 3, end: 3 }],
+  ];
+  for (const [name, first, last, prefer, expected] of cases) assert.deepEqual(dragRange(lines.slice(first, last + 1), prefer), expected, name);
+  assert.equal(dragRange(rows.filter((row) => row.variant === "hunk")), null);
+});
+
+test("a split drag outside both columns covers both sides, new lines first and old as the fallback", () => {
+  const bothSides = (patch: string) => splitRows(parsePatchToRows(patch)).flatMap((pair) => [pair.left, pair.right])
+    .flatMap((row) => row && row.variant !== "hunk" ? [row] : []);
+  const cases: [string, string, ReturnType<typeof dragRange>][] = [
+    ["a removed-only block", "@@ -4,3 +3,0 @@\n-one\n-two\n-three", { side: "old", line: 4, end: 6 }],
+    ["mixed removed and added pairs", "@@ -1,3 +1,3 @@\n context\n-removed\n+added\n tail", { side: "new", line: 1, end: 3 }],
+  ];
+  for (const [name, patch, expected] of cases) assert.deepEqual(dragRange(bothSides(patch)), expected, name);
+});
+
+test("only a single-click press that moves more than 4 px counts as a drag", () => {
+  const cases: [string, number, { x: number; y: number }, boolean][] = [
+    ["a click without movement", 1, { x: 10, y: 10 }, false],
+    ["a click that jitters 4 px", 1, { x: 14, y: 10 }, false],
+    ["a drag down three lines", 1, { x: 10, y: 70 }, true],
+    ["a drag across one line", 1, { x: 15, y: 10 }, true],
+    ["a double-click word selection", 2, { x: 10, y: 70 }, false],
+    ["a triple-click line selection", 3, { x: 10, y: 70 }, false],
+  ];
+  for (const [name, detail, to, expected] of cases) assert.equal(isDrag(detail, { x: 10, y: 10 }, to), expected, name);
 });
