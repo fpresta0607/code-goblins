@@ -312,6 +312,8 @@ func TestSpawnUsesRequestedHerdrSession(t *testing.T) {
 
 func TestSpawnDisclosesATrackedMCPConfigOnlyWhenSomethingWasWithheld(t *testing.T) {
 	const disclosure = "the project tracks .mcp.json"
+	t.Setenv("STRIPE_KEY", "stripe-token")
+	t.Setenv("MISSING_TOKEN", "")
 	for _, test := range []struct {
 		name      string
 		config    string
@@ -320,6 +322,11 @@ func TestSpawnDisclosesATrackedMCPConfigOnlyWhenSomethingWasWithheld(t *testing.
 		{
 			name:      "an OAuth connector is withheld",
 			config:    `{"mcpServers":{"neon":{"command":"npx"},"supabase":{"url":"https://mcp.supabase.com/mcp"}}}`,
+			disclosed: true,
+		},
+		{
+			name:      "a server whose token is not set is withheld",
+			config:    `{"mcpServers":{"neon":{"command":"npx"},"stripe":{"url":"https://mcp.stripe.com/","bearerTokenEnvVar":"MISSING_TOKEN"}}}`,
 			disclosed: true,
 		},
 		{

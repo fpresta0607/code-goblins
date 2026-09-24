@@ -222,6 +222,8 @@ A project can declare how that worktree becomes runnable in `data/projects/<name
   `cfo peek` is the confirmation either way.
 - The goblin receives the token-authenticated subset of the project's `.mcp.json`: stdio servers and HTTP servers with a bearer token qualify; OAuth-only connectors are withheld and named on the `spawned` line, because a goblin can never complete their browser flow.
   That filtered configuration is materialized under the task's temporary directory, outside the checkout, and it is the only file a harness is handed through `--mcp-config`.
+  A kept URL server with no `type` gets the one Claude needs (`sse` for an `/sse` endpoint, otherwise `http`), and an explicit `type` is kept; for any kept URL server without its own `Authorization` header, typed or not, a `bearerTokenEnvVar`, which Claude does not read, becomes its `Authorization` header as an unexpanded `${VARIABLE}` reference.
+  A server whose only token is a `bearerTokenEnvVar` set neither as a declared project credential nor in the environment cfo runs in is withheld and named with its variable on the `spawned` line, because Claude would send the reference unexpanded and the server could only fail or ask for authentication.
   A copy is also written to the worktree root for harnesses that read the project-scoped `.mcp.json` from their working directory, but only when that path is free and untracked.
   A project that commits `.mcp.json` keeps its file exactly as committed, and the `spawned` line says so: a working-directory-reading harness then still sees every server declared there, withheld ones included.
 

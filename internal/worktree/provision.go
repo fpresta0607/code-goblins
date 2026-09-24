@@ -39,6 +39,10 @@ type ProvisionResult struct {
 	MCPWorktreeOccupied bool
 	// MCPDropped names the OAuth-only servers withheld from the goblin.
 	MCPDropped []string
+	// MCPTokenUnset names, as "server (VARIABLE)", the servers withheld
+	// because the bearerTokenEnvVar they authenticate with is not in the
+	// goblin's environment.
+	MCPTokenUnset []string
 	// Linked names the config entries shared from the primary checkout.
 	Linked []string
 	// LinkSkipped names the default link entries whose destination the
@@ -64,7 +68,10 @@ type ProvisionResult struct {
 // worktree is first registered in the clone's info/exclude when the project
 // does not already ignore it, so the goblin's git status stays clean and
 // cleanup's dirty-worktree refusal keeps meaning uncommitted goblin work.
-func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp string, caches map[string]string) (ProvisionResult, error) {
+// hasVariable reports whether a variable will be set in the goblin's
+// environment, which decides whether a server that authenticates by
+// bearerTokenEnvVar can be handed to it.
+func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp string, caches map[string]string, hasVariable func(name string) bool) (ProvisionResult, error) {
 	if s.Commands == nil {
 		return ProvisionResult{}, errors.New("worktree: command runner is required for provisioning")
 	}
@@ -117,11 +124,12 @@ func (s Service) Provision(ctx context.Context, project, worktreePath, taskTmp s
 		result.InstallOutput = install.output
 	}
 
-	mcp, err := s.materializeMCP(ctx, git, project, worktreePath, taskTmp)
+	mcp, err := s.materializeMCP(ctx, git, project, worktreePath, taskTmp, hasVariable)
 	result.MCPConfig = mcp.config
 	result.MCPProjectTracked = mcp.projectTracked
 	result.MCPWorktreeOccupied = mcp.worktreeOccupied
 	result.MCPDropped = mcp.dropped
+	result.MCPTokenUnset = mcp.unset
 	if err != nil {
 		return result, err
 	}
@@ -365,6 +373,9 @@ type mcpResult struct {
 	worktreeOccupied bool
 	// dropped names the OAuth-only servers withheld from the goblin.
 	dropped []string
+	// unset names the servers withheld because their token variable is not
+	// in the goblin's environment.
+	unset []string
 }
 
 // materializeMCP writes the token-authenticated subset of the project's
@@ -391,7 +402,7 @@ type mcpResult struct {
 // project whose committed .mcp.json is entirely OAuth connectors materializes
 // no filtered config at all, and that is exactly when a cwd-reading harness
 // sees the most withheld servers.
-func (s Service) materializeMCP(ctx context.Context, git RunnerGit, project, worktreePath, taskTmp string) (mcpResult, error) {
+func (s Service) materializeMCP(ctx context.Context, git RunnerGit, project, worktreePath, taskTmp string, hasVariable func(string) bool) (mcpResult, error) {
 	data, err := os.ReadFile(filepath.Join(project, ".mcp.json"))
 	if errors.Is(err, os.ErrNotExist) {
 		return mcpResult{}, nil
@@ -399,11 +410,11 @@ func (s Service) materializeMCP(ctx context.Context, git RunnerGit, project, wor
 	if err != nil {
 		return mcpResult{}, fmt.Errorf("worktree: read project .mcp.json: %w", err)
 	}
-	filtered, _, dropped, err := FilterMCPServers(data)
+	filtered, _, dropped, unset, err := FilterMCPServers(data, hasVariable)
 	if err != nil {
 		return mcpResult{}, err
 	}
-	result := mcpResult{dropped: dropped}
+	result := mcpResult{dropped: dropped, unset: unset}
 	tracked, err := s.tracked(ctx, worktreePath, ".mcp.json")
 	if err != nil {
 		return result, err
