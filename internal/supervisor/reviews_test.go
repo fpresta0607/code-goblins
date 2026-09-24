@@ -297,6 +297,12 @@ func TestSnapshotReadsWorkingAndWaitingOnReports(t *testing.T) {
 	if got := task(); got.Phase != "blocked" {
 		t.Fatalf("a newer question = %+v, want blocked", got.Evaluation)
 	}
+	// Done is per pull request: a goblin that asks about one PR and then
+	// reports another done still owes the answer.
+	report("task-1", "done: PR https://github.com/example/repo/pull/8")
+	if got := task(); got.Phase != "blocked" || got.Reason != "Waiting on the CFO: Which port?" {
+		t.Fatalf("a question followed by a done report = %+v, want blocked on it", got.Evaluation)
+	}
 	// A report older than a pending question never replaces it, even as the
 	// last status line: the CFO's release can land between a goblin's status
 	// line and its wake.

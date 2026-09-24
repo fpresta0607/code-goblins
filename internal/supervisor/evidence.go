@@ -168,11 +168,11 @@ func latestReport(lines []string, spawned time.Time) (time.Time, string) {
 }
 
 // supersedesQuestion says a report is newer news than a question the task
-// asked before it: the goblin went back to work, waits on something, or
-// finished. The question stays in the CFO's queue; only the board's reading
-// of the task changes.
+// asked before it: the goblin went back to work or waits on something. The
+// question stays in the CFO's queue; only the board's reading of the task
+// changes.
 func supersedesQuestion(report string) bool {
-	return strings.HasPrefix(report, "working: ") || strings.HasPrefix(report, "waiting on ") || strings.HasPrefix(report, "done: ")
+	return strings.HasPrefix(report, "working: ") || strings.HasPrefix(report, "waiting on ")
 }
 
 // reportedProgress is what a goblin last said it is doing: working on

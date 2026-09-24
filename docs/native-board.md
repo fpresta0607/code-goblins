@@ -244,7 +244,7 @@ cfo notify <id> --working "wiring the store"
 cfo notify <id> --waiting-on <task-id|overlord|ci|deploy> "<why>"
 ```
 
-Both write a status line only, so they wake nobody, and a newer one of them, or a done line, replaces an older blocked or failed reading on the board while the question itself stays in the CFO's queue.
+Both write a status line only, so they wake nobody, and a newer one of them replaces an older blocked or failed reading on the board while the question itself stays in the CFO's queue.
 The task reads `working` with the reason, or `waiting` with the reason and `waiting_on` naming the target, unless a newer question, the gate's own decision, or a merge says otherwise.
 A wait on another task clears itself once that task reports done, and a wait on CI or a deploy lasts until the goblin reports again; the CFO releases any wait with a `--working` line of its own.
 Waiting on the Overlord is the one wait that wakes the CFO: it also opens a review item for him, named `waiting-<task>-<wake sequence>`, which he can answer or clear, and which is withdrawn once the goblin reports anything newer.
