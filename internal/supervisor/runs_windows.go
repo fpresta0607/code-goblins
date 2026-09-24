@@ -87,13 +87,32 @@ func runnerScript(l RunLaunch, shell string) ([]byte, []string) {
 	runner := filepath.Join(l.Dir, "runner.ps1")
 	return []byte("\xef\xbb\xbf" +
 		"$ErrorActionPreference = 'Stop'\r\n" +
-		"Set-Location -LiteralPath " + quote(l.Cwd) + "\r\n" +
-		"$ErrorActionPreference = 'Continue'\r\n" +
-		"$lines = [System.Collections.Generic.List[string]]::new()\r\n" +
-		"& " + quote(shell) + " -NoProfile -ExecutionPolicy Bypass -File " + quote(l.Script) + " 2>&1 | ForEach-Object { $line = \"$_\"; Write-Host $line; $lines.Add($line) }\r\n" +
-		"$code = if ($null -eq $LASTEXITCODE) { 1 } else { $LASTEXITCODE }\r\n" +
+		"$start = [System.Diagnostics.ProcessStartInfo]::new(" + quote(shell) + ", " + quote(`-NoProfile -ExecutionPolicy Bypass -File "`+l.Script+`"`) + ")\r\n" +
+		"$start.WorkingDirectory = " + quote(l.Cwd) + "\r\n" +
+		"$start.UseShellExecute = $false\r\n" +
+		"$start.RedirectStandardOutput = $true\r\n" +
+		"$start.RedirectStandardError = $true\r\n" +
 		"$utf8 = [System.Text.UTF8Encoding]::new($false)\r\n" +
-		"[System.IO.File]::WriteAllText(" + quote(output) + ", ($lines -join \"`n\"), $utf8)\r\n" +
+		"$log = [System.IO.StreamWriter]::new(" + quote(output) + ", $false, $utf8)\r\n" +
+		"$log.AutoFlush = $true\r\n" +
+		"$process = [System.Diagnostics.Process]::Start($start)\r\n" +
+		"$readers = @($process.StandardOutput, $process.StandardError)\r\n" +
+		"$buffers = @([char[]]::new(4096), [char[]]::new(4096))\r\n" +
+		"$reads = @($readers[0].ReadAsync($buffers[0], 0, 4096), $readers[1].ReadAsync($buffers[1], 0, 4096))\r\n" +
+		"while ($reads[0] -or $reads[1]) {\r\n" +
+		"  foreach ($i in 0, 1) {\r\n" +
+		"    if (-not $reads[$i] -or -not $reads[$i].Wait(20)) { continue }\r\n" +
+		"    $count = $reads[$i].Result\r\n" +
+		"    if ($count -eq 0) { $reads[$i] = $null; continue }\r\n" +
+		"    $text = [string]::new($buffers[$i], 0, $count)\r\n" +
+		"    [Console]::Write($text)\r\n" +
+		"    $log.Write($text)\r\n" +
+		"    $reads[$i] = $readers[$i].ReadAsync($buffers[$i], 0, 4096)\r\n" +
+		"  }\r\n" +
+		"}\r\n" +
+		"$process.WaitForExit()\r\n" +
+		"$code = $process.ExitCode\r\n" +
+		"$log.Dispose()\r\n" +
 		"[System.IO.File]::WriteAllText(" + quote(exit) + ", \"$code\", $utf8)\r\n" +
 		"Write-Host ''\r\n" +
 		"Write-Host \"Finished with exit code $code. Press Enter to close this window.\"\r\n" +

@@ -445,7 +445,7 @@ func (s *Store) lookup(a Action) (Action, bool, error) {
 		if generation == "" && (existing.Kind == "evaluate" || existing.Kind == "feedback") {
 			generation = existing.Generation
 		}
-		if existing.Kind != a.Kind || existing.TaskID != a.TaskID || existing.Generation != generation || existing.Session != a.Session || existing.EventID != a.EventID || existing.Text != a.Text || existing.File != a.File || existing.Head != a.Head || existing.Line != a.Line || existing.EndLine != a.EndLine || existing.Side != a.Side || existing.Revision != a.Revision || existing.DiffID != a.DiffID || existing.QuestionID != a.QuestionID || existing.ReviewID != a.ReviewID || existing.AnswerKind != a.AnswerKind {
+		if existing.Kind != a.Kind || existing.TaskID != a.TaskID || existing.Generation != generation || existing.Session != a.Session || existing.EventID != a.EventID || existing.Text != a.Text || existing.File != a.File || existing.Head != a.Head || existing.Line != a.Line || existing.EndLine != a.EndLine || existing.Side != a.Side || existing.Revision != a.Revision || existing.DiffID != a.DiffID || existing.QuestionID != a.QuestionID || existing.ReviewID != a.ReviewID || existing.RunID != a.RunID || existing.AnswerKind != a.AnswerKind {
 			return Action{}, false, errors.New("request ID was already used for another action")
 		}
 		return existing, true, nil

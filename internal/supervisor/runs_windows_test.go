@@ -5,14 +5,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -411,5 +414,167 @@ func TestRunThatCannotStartEndsTheItem(t *testing.T) {
 				t.Fatalf("%d launches, want %d", n, test.launchN)
 			}
 		})
+	}
+}
+
+// Republishing an item's ID is an idempotent retry only while the item still
+// waits; once it ran or expired, the request is refused, since a re-run needs
+// a new ID.
+func TestRunRequestRefusesTheIDOfAnItemThatEnded(t *testing.T) {
+	for _, test := range []struct {
+		state string
+		end   func(*testing.T, *Service, Run)
+	}{
+		{state: "expired", end: func(t *testing.T, s *Service, _ Run) {
+			if err := s.Store.expireRuns(time.Now().Add(25 * time.Hour)); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{state: "succeeded", end: func(t *testing.T, s *Service, r Run) {
+			pressRun(t, s, r, "press-tool")
+			if err := os.WriteFile(filepath.Join(runDir(s.Store.Home.State, r), "exit.txt"), []byte("0"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.finishRuns(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(test.state, func(t *testing.T) {
+			store, h := testStore(t)
+			_, _, runner, connection := primaryFixture(t, store)
+			client := &herdr.Client{Commands: runner}
+			s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
+			req := RunRequest{ID: "install-tool", Title: "Install the tool", Shell: "powershell", CommandFile: commandFile(t, "Write-Output hello\n")}
+			if err := PublishRun(context.Background(), h, client, req); err != nil {
+				t.Fatal(err)
+			}
+			if err := PublishRun(context.Background(), h, client, req); err != nil {
+				t.Fatalf("republishing an item waiting in the inbox = %v, want an idempotent success", err)
+			}
+			if err := store.ingestRuns(); err != nil {
+				t.Fatal(err)
+			}
+			if err := PublishRun(context.Background(), h, client, req); err != nil {
+				t.Fatalf("republishing a ready item = %v, want an idempotent success", err)
+			}
+			test.end(t, s, store.Snapshot().Runs[0])
+			if got := store.Snapshot().Runs[0]; got.State != test.state {
+				t.Fatalf("run = %+v, want it %s", got, test.state)
+			}
+			if err := PublishRun(context.Background(), h, client, req); err == nil || !strings.Contains(err.Error(), "a re-run needs a new ID") {
+				t.Fatalf("republishing the ID of the %s item = %v, want it refused", test.state, err)
+			}
+		})
+	}
+}
+
+// A Run action ID reused for another item is refused, not answered with the
+// earlier Run, so the other item stays ready.
+func TestRunActionIDReusedForAnotherItemIsRefused(t *testing.T) {
+	store, _ := testStore(t)
+	identity := strings.Repeat("c", 64)
+	first := readyRun(t, store, identity, "install-node", "powershell", false, time.Now().UTC())
+	second := readyRun(t, store, identity, "install-go", "powershell", false, time.Now().UTC())
+	if _, err := store.Queue(Action{ID: "press-1", Kind: "run", RunID: first.ID, Generation: identity}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Queue(Action{ID: "press-1", Kind: "run", RunID: second.ID, Generation: identity}); err == nil || !strings.Contains(err.Error(), "already used for another action") {
+		t.Fatalf("reusing a Run's action ID for another item = %v, want it refused", err)
+	}
+	got := store.Snapshot()
+	if i := slices.IndexFunc(got.Runs, func(r Run) bool { return r.ID == second.ID }); got.Runs[i].State != "ready" || len(got.Actions) != 1 {
+		t.Fatalf("runs %+v with actions %+v, want the other item ready and one action", got.Runs, got.Actions)
+	}
+}
+
+// The PowerShell runner shows a prompt with no line ending as soon as it is
+// written, takes the answer typed in the window, and keeps the output, stderr
+// included, and the exit code. It runs the generated runner for real, in a
+// console with no window, its input and output connected to this test.
+func TestPowerShellRunnerShowsAPromptBeforeItIsAnswered(t *testing.T) {
+	exists := func(path string) bool {
+		info, err := os.Stat(path)
+		return err == nil && !info.IsDir()
+	}
+	shell, err := runShellPath("powershell", exec.LookPath, exists, os.Getenv("SystemRoot"))
+	if err != nil {
+		t.Skip(err)
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "command.ps1")
+	command := "\xef\xbb\xbf[Console]::Out.Write('Your name: ')\r\n$name = [Console]::In.ReadLine()\r\nWrite-Output \"hello $name\"\r\n[Console]::Error.WriteLine('careful')\r\nexit 7\r\n"
+	if err := os.WriteFile(script, []byte(command), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runner, args := runnerScript(RunLaunch{Shell: "powershell", Script: script, Dir: dir, Cwd: dir}, shell)
+	if err := os.WriteFile(args[len(args)-1], runner, 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(shell, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = stdin.Close()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	chunks := make(chan string, 256)
+	go func() {
+		defer close(chunks)
+		buffer := make([]byte, 4096)
+		for {
+			n, err := stdout.Read(buffer)
+			if n > 0 {
+				chunks <- string(buffer[:n])
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	var shown strings.Builder
+	waitFor := func(text string) {
+		t.Helper()
+		deadline := time.After(30 * time.Second)
+		for !strings.Contains(shown.String(), text) {
+			select {
+			case chunk, ok := <-chunks:
+				if !ok {
+					t.Fatalf("the runner ended showing %q, want %q", shown.String(), text)
+				}
+				shown.WriteString(chunk)
+			case <-deadline:
+				t.Fatalf("the window shows %q, want %q before anything is typed", shown.String(), text)
+			}
+		}
+	}
+	waitFor("Your name: ")
+	if _, err := io.WriteString(stdin, "Overlord\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor("Press Enter")
+	if _, err := io.WriteString(stdin, "\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("runner = %v, want it to end once Enter is pressed", err)
+	}
+	output := readRunOutput(dir)
+	if !strings.Contains(output, "hello Overlord") || !strings.Contains(output, "careful") {
+		t.Fatalf("output.log = %q, want the answered prompt's output and stderr", output)
+	}
+	if code, ok := readRunExit(dir); !ok || code != 7 {
+		t.Fatalf("exit.txt = %d %v, want 7", code, ok)
 	}
 }

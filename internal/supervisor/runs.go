@@ -191,6 +191,9 @@ func PublishRun(ctx context.Context, h home.Home, client *herdr.Client, req RunR
 		if !sameRun(prior, r) {
 			return errors.New("run ID already used")
 		}
+		if prior.State != "ready" || !now.Before(prior.ExpiresAt) {
+			return errors.New("run ID already used; a re-run needs a new ID")
+		}
 		return nil
 	}
 	dir := runDir(h.State, r)
