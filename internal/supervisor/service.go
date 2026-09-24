@@ -40,6 +40,8 @@ type Options struct {
 	// MergedPRs lists, newest first, at most limit pull requests merged since
 	// a time.
 	MergedPRs func(ctx context.Context, since time.Time, limit int) ([]MergedPR, error)
+	// Runs opens run items' windows; without it no item can run.
+	Runs RunLauncher
 }
 
 type Service struct {
@@ -198,6 +200,9 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestAnswers())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
+	reconcileErr = errors.Join(reconcileErr, s.Store.ingestRuns())
+	reconcileErr = errors.Join(reconcileErr, s.Store.expireRuns(time.Now()))
+	reconcileErr = errors.Join(reconcileErr, s.finishRuns(ctx))
 	reconcileErr = errors.Join(reconcileErr, s.Store.retireWaits())
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
 	s.reconcilePresentations(ctx)
@@ -208,6 +213,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		s.checkRegistration(ctx)
 		reconcileErr = errors.Join(reconcileErr, s.refreshHistory(ctx))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
+		reconcileErr = errors.Join(reconcileErr, s.Store.pruneRuns(time.Now()))
 		s.mu.Lock()
 		s.reconciled = time.Now().UTC()
 		s.mu.Unlock()
@@ -344,8 +350,11 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	if a.Kind == "feedback" || a.Kind == "cfo_message" {
 		return Evaluation{}, fmt.Errorf("%w: obsolete action kind %q is not accepted", ErrRejected, a.Kind)
 	}
-	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "review_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" {
+	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "review_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" && a.Kind != "run" {
 		return Evaluation{}, fmt.Errorf("%w: unsupported action kind %q", ErrRejected, a.Kind)
+	}
+	if a.Kind == "run" {
+		return s.startRun(ctx, a)
 	}
 	if a.Kind == "review_answer" {
 		return s.answerReview(ctx, a)
@@ -534,6 +543,7 @@ type Snapshot struct {
 	Questions  []Question      `json:"questions"`
 	Activity   []BoardActivity `json:"activity"`
 	Reviews    []Review        `json:"reviews"`
+	Runs       []Run           `json:"runs"`
 
 	// Registration says why the board cannot reach the primary CFO, with
 	// the fix, and is empty while it can.
@@ -563,6 +573,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	for i, r := range d.Reviews {
 		r.ImageCount, r.ImageSums = len(r.ImageSums), nil
 		out.Reviews[i] = r
+	}
+	// The board sees what runs and how it went, never the process or digest.
+	out.Runs = make([]Run, len(d.Runs))
+	for i, r := range d.Runs {
+		r.ScriptSum, r.RunAction, r.PID, r.Started = "", "", 0, nil
+		out.Runs[i] = r
 	}
 	out.Healthy = supervise.WatcherHealthy(s.Store.Home.State, 30*time.Second)
 	for _, node := range d.Sessions {

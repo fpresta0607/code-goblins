@@ -86,6 +86,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		MergedPRs:      supervisor.GitMergedPRs(supervisor.FleetRepos(h, projects)),
 		Reconcile:      func(ctx context.Context) error { return watch.Reconcile(ctx, config) },
 		VerifyDelivery: (supervisor.Git{}).VerifyDelivery,
+		Runs:           supervisor.OSRunLauncher{},
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)

@@ -282,6 +282,28 @@ The board sees each item in `snapshot.reviews` with an image count, never a path
 Closed items and their copies are pruned a week after they close; open items and answered items whose answer is still on its way are never dropped, and a new item waits in the inbox while all 128 held items are one or the other.
 The API contract for the board is `data/board-ui/api-contract.md`.
 
+## Run items
+
+A run item is a command the CFO needs the Overlord to run, such as a PowerShell or Git Bash script or a step that needs administrator rights; he runs it with one click from the Command Center instead of copying and pasting it:
+
+```powershell
+cfo run-request --id install-tool-1 --title "Install the tool the build needs" --shell powershell --command-file C:\temp\install.ps1
+cfo run-request --id fix-acl-1 --title "Grant the service account access" --shell powershell --admin --command-file C:\temp\acl.ps1
+```
+
+Only the registered primary CFO can create one, proven the way `cfo question` proves it; a goblin or any other process is refused before anything is written.
+The command file is read once: its text is stored as `state/runs/<digest>/command.ps1` or `command.sh`, which is what runs, so quoting cannot change it, and the item runs in the CFO home unless `--cwd` names a folder.
+The ID follows the review item rule, and republishing it with other text is refused.
+The board sees each item in `snapshot.runs` with its exact command, shell, folder and whether it needs administrator rights, and Run sends only the item's ID through the board's action checks (exact Host and Origin plus the per-session token), never command text.
+An item runs once and expires 24 hours after it was created; running it again needs a new item.
+Run opens a visible console window of exactly the shell the item names: Windows PowerShell 5.1, PowerShell 7 (`pwsh` on `PATH`) or Git Bash (the `bash.exe` beside Git for Windows' `git.exe`, never the WSL `bash.exe`); a shell that is not installed fails the item with the reason.
+An admin item launches through `Start-Process -Verb RunAs`, so Windows itself asks the Overlord to confirm, and a declined prompt ends the item failed with that reason.
+The window stays open after the command finishes, showing its exit code, until he closes it; a window closed before the command finishes ends the item failed.
+When the command finishes, its exit code and the last 64 KiB of its output are on the item, and the CFO receives the result as the Overlord's answer, with the end of the output.
+Every run appends a line to `state/runs.audit`: the time, the item's ID, the SHA-256 of exactly the script file that ran, and its exit code, or none when it did not finish.
+Finished and expired items are pruned a week after they end; a waiting or running item is never dropped, and a new one waits in the inbox while all 64 held items are one or the other.
+Output is stored on the board, so the CFO never puts a secret in a run command or requests one that prints a secret.
+
 ## Nonblocking presentation notices
 
 After a presentation tool succeeds, the goblin that ran it reports the returned safe URL explicitly, from its own pane:

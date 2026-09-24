@@ -83,6 +83,7 @@ type Action struct {
 	DiffID      string    `json:"diff_id,omitempty"`
 	QuestionID  string    `json:"question_id,omitempty"`
 	ReviewID    string    `json:"review_id,omitempty"`
+	RunID       string    `json:"run_id,omitempty"`
 	AnswerKind  string    `json:"answer_kind,omitempty"`
 	CFOIdentity string    `json:"cfo_identity,omitempty"`
 	Status      string    `json:"status"`
@@ -105,6 +106,7 @@ type Database struct {
 	QuestionFloor time.Time             `json:"question_floor,omitempty"`
 	Activity      []BoardActivity       `json:"activity"`
 	Reviews       []Review              `json:"reviews,omitempty"`
+	Runs          []Run                 `json:"runs,omitempty"`
 }
 
 type Store struct {
@@ -214,6 +216,7 @@ func cloneDatabase(d Database) Database {
 	d.Questions = slices.Clone(d.Questions)
 	d.Activity = slices.Clone(d.Activity)
 	d.Reviews = slices.Clone(d.Reviews)
+	d.Runs = slices.Clone(d.Runs)
 	for i := range d.Questions {
 		d.Questions[i].Options = slices.Clone(d.Questions[i].Options)
 	}
@@ -455,7 +458,10 @@ func (s *Store) queue(a Action) (Action, error) {
 		return existing, err
 	}
 	answer := a.Kind == "cfo_answer" || a.Kind == "goblin_answer"
-	item := a.Kind == "review_answer" || a.Kind == "review_clear" || a.Kind == "question_clear"
+	item := a.Kind == "review_answer" || a.Kind == "review_clear" || a.Kind == "question_clear" || a.Kind == "run"
+	if !item && a.RunID != "" {
+		return Action{}, errors.New("only a run action names a run item")
+	}
 	if !answer && a.AnswerKind != "" {
 		return Action{}, errors.New("answer kind is only valid for a question")
 	}
@@ -545,7 +551,7 @@ func (s *Store) queue(a Action) (Action, error) {
 // hidden.
 func (s *Store) queueItemAction(a Action) (Action, error) {
 	answer := a.Kind == "review_answer"
-	if a.Generation == "" || answer && strings.TrimSpace(a.Text) == "" || !answer && a.Text != "" || a.TaskID != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || (a.Kind == "question_clear") != (a.QuestionID != "") || (a.Kind != "question_clear") != (a.ReviewID != "") {
+	if a.Generation == "" || answer && strings.TrimSpace(a.Text) == "" || !answer && a.Text != "" || a.TaskID != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || (a.Kind == "question_clear") != (a.QuestionID != "") || (a.Kind == "review_answer" || a.Kind == "review_clear") != (a.ReviewID != "") || (a.Kind == "run") != (a.RunID != "") {
 		return Action{}, errors.New("an item action names only its item, that item's identity and, for an answer, its text")
 	}
 	review := -1
@@ -559,6 +565,19 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 		return q.ID == a.QuestionID && q.Identity == a.Generation && (q.Status == "superseded" || q.Status == "failed")
 	}) {
 		return Action{}, errors.New("only a question that closed without an answer can be cleared; refresh the board")
+	}
+	// A run item runs once: the action claims it here, under the store lock.
+	run := -1
+	if a.Kind == "run" {
+		run = slices.IndexFunc(s.db.Runs, func(r Run) bool { return r.ID == a.RunID && r.Identity == a.Generation })
+		switch {
+		case run < 0:
+			return Action{}, errors.New("that run item is not on the board; refresh the board")
+		case s.db.Runs[run].State == "expired" || s.db.Runs[run].State == "ready" && !time.Now().Before(s.db.Runs[run].ExpiresAt):
+			return Action{}, errors.New("that run item expired; running it again needs a new item from the CFO")
+		case s.db.Runs[run].State != "ready":
+			return Action{}, errors.New("that run item already ran; running it again needs a new item from the CFO")
+		}
 	}
 	if len(s.db.Actions) >= maxActions {
 		remove := slices.IndexFunc(s.db.Actions, func(old Action) bool { return old.Status == "succeeded" || old.Status == "failed" })
@@ -574,6 +593,11 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 	if answer {
 		r := &s.db.Reviews[review]
 		r.State, r.Answer, r.AnswerID, r.Delivered, r.UpdatedAt = "answered", a.Text, a.ID, false, a.CreatedAt
+	}
+	if run >= 0 {
+		ran := a.CreatedAt
+		r := &s.db.Runs[run]
+		r.State, r.RunAction, r.RanAt = "running", a.ID, &ran
 	}
 	return a, nil
 }
