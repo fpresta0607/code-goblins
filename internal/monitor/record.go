@@ -154,9 +154,10 @@ type Observation struct {
 	Escalation           int        `json:"escalation"`
 	DemandDeepInspection bool       `json:"demand_deep_inspection"`
 	PendingEvent         *Event     `json:"pending_event,omitempty"`
-	// FaultDigest is the digest of the fault line that last raised a
-	// harness_error wake. It outlives the erroring episode, so the same line
-	// scrolling out of the pane's capture and back in raises nothing new.
+	// FaultDigest is the digest of the spawn generation and fault line that
+	// last raised a harness_error wake. It outlives the erroring episode, so
+	// the same line scrolling out of the pane's capture and back in raises
+	// nothing new, while a switch or respawn re-arms the wake.
 	FaultDigest string `json:"fault_digest,omitempty"`
 }
 

@@ -257,7 +257,7 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	// from pane text, so routing.Detect takes a rate limit only on a line
 	// shaped like the provider's refusal, never from a goblin's own prose.
 	if fault, detail, found := routing.Detect(string(sample.Capture)); found {
-		return erroringObservation(observation, digest, fault, detail, now)
+		return erroringObservation(observation, meta.SpawnGen, digest, fault, detail, now)
 	}
 
 	observation.Digest = digest
@@ -599,11 +599,12 @@ func (s Service) pauseObservation(observation Observation, now time.Time) Observ
 // erroringObservation records a pane whose harness is being refused by its
 // provider. It raises a wake event once per episode - the fault does not
 // resolve itself, so repeating it every cycle would be noise - and only for a
-// fault line other than the last one raised, since a pane flips between
-// erroring and healthy as its capture shifts. It demands deep inspection,
-// because the fix is a decision (switch, wait, or top up) rather than
-// another poll.
-func erroringObservation(observation Observation, digest string, fault routing.Fault, detail string, now time.Time) Observation {
+// fault line other than the last one raised in this spawn generation, since
+// a pane flips between erroring and healthy as its capture shifts while a
+// switch or respawn is a new agent that can hit the same refusal again. It
+// demands deep inspection, because the fix is a decision (switch, wait, or
+// top up) rather than another poll.
+func erroringObservation(observation Observation, spawnGen, digest string, fault routing.Fault, detail string, now time.Time) Observation {
 	first := observation.Health != HealthErroring
 	observation.Digest = digest
 	observation.LastObserved = now
@@ -619,7 +620,7 @@ func erroringObservation(observation Observation, digest string, fault routing.F
 	observation.Escalation = 0
 	observation.DemandDeepInspection = true
 	line := string(fault) + ": " + detail
-	key := fmt.Sprintf("%x", sha256.Sum256([]byte(line)))
+	key := fmt.Sprintf("%x", sha256.Sum256([]byte(spawnGen+"\n"+line)))
 	if first && key != observation.FaultDigest && observation.PendingEvent == nil {
 		event := taskEvent(observation.TaskID, HarnessError, line)
 		event.Fault = fault

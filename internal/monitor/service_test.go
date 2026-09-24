@@ -1445,3 +1445,43 @@ func TestScanRaisesAFaultLineOnceAcrossPaneFlips(t *testing.T) {
 		t.Fatal("a different fault line after recovery raised no event")
 	}
 }
+
+// A goblin raised a 429, the CFO switched it away, and it later came back and
+// hit the identical refusal. The switch published a new spawn generation, so
+// the same line is a new fault for the new agent and must wake again.
+func TestScanRaisesTheSameFaultLineAgainUnderANewSpawnGeneration(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 9, 23, 21, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	meta.SpawnGen = "s1"
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{}}
+	service := testService(stateDir, probe, &now)
+	scan := func(capture string) *Event {
+		t.Helper()
+		probe.samples["g1"] = sampleFor(meta, herdr.BusyWorking, capture)
+		now = now.Add(3 * time.Minute)
+		result, err := service.Scan(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Event != nil {
+			if _, err := service.Publish(*result.Event); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return result.Event
+	}
+	fault := `API Error: 429 {"type":"error","error":{"type":"rate_limit_error"}}`
+	if scan(fault) == nil {
+		t.Fatal("the first sight of the fault raised no event")
+	}
+	meta.SpawnGen = "s2"
+	writeTask(t, stateDir, meta)
+	if event := scan("running tests, 42 passed"); event != nil {
+		t.Fatalf("a healthy pane raised %+v", event)
+	}
+	if scan(fault) == nil {
+		t.Fatal("the same fault line under a new spawn generation raised no event")
+	}
+}

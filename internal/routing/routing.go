@@ -57,7 +57,7 @@ var faultPatterns = []struct {
 	{RateLimit, []string{
 		"rate limit", "rate_limit", "ratelimit_error", "too many requests",
 		"quota exceeded", "insufficient quota", "over quota", "out of quota",
-		"usage limit",
+		"usage limit", "spend limit",
 	}},
 	{Auth, []string{
 		"401 unauthorized", "invalid api key", "invalid_api_key",
@@ -272,22 +272,27 @@ func thirdPartyErrorWord(line, keyword string) bool {
 	return false
 }
 
+// retryAfterTime is a retry delay written as one, "retry after 30s", not a
+// goblin saying it will retry after something clears.
+var retryAfterTime = regexp.MustCompile(`retry after \d`)
+
 // errorShaped reports whether a line is shaped like a provider's own refusal
 // rather than prose about one: a 429 or 403 status, a provider's error type,
-// a harness's API error, or a retry or reset time. An error word is not a
-// shape: "errors, and rate limits" is a goblin listing doc topics.
+// a harness's "API Error:", a retry or reset time, or Claude Code's own usage
+// and spend limit banners. An error word is not a shape: "API errors, and
+// rate limits" is a goblin listing doc topics.
 func errorShaped(line string) bool {
 	for _, code := range []string{"429", "403"} {
 		if hasStatusCode(line, code) {
 			return true
 		}
 	}
-	for _, shape := range []string{"rate_limit_error", "ratelimit_error", "insufficient_quota", "resource_exhausted", "api error", "retry-after", "retry after", "retrying in", "try again in", "try again at", "try again later", "will reset", "resets at", "resets in", "limit reached"} {
+	for _, shape := range []string{"rate_limit_error", "ratelimit_error", "insufficient_quota", "resource_exhausted", "api error:", "retry-after", "retrying in", "try again in", "try again at", "will reset", "resets at", "resets in", "usage limit reached · continuing automatically", "usage limit reached · wrapping up", "spend limit reached"} {
 		if strings.Contains(line, shape) {
 			return true
 		}
 	}
-	return false
+	return retryAfterTime.MatchString(line) || strings.TrimSpace(strings.TrimLeft(line, " \t⎿●✻◐⏺❯›>│")) == "usage limit reached"
 }
 
 // lineAt returns the single line of text containing index.
