@@ -27,6 +27,6 @@ export function fittedFontSize(width: number, cols: number): number {
 
 // Why an input was refused, in the Overlord's words.
 export function typingHeldReason(raw: string): string {
-  if (/pipeline owns this task|pipeline custody/i.test(raw)) return "The review gate owns this goblin's work right now, so typing is paused. Reconnect to watch the screen.";
+  if (/pipeline owns this task|pipeline custody has not been returned/i.test(raw)) return "The review gate owns this goblin's work right now, so typing is paused. Reconnect to watch the screen.";
   return raw;
 }

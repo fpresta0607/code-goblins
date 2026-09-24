@@ -43,6 +43,7 @@ export function App() {
     // An empty selection is the supervisor root drawn for the CFO.
     const cfo = !next.session && !next.task || snapshot?.sessions.find((session) => session.id === next.session)?.role === "cfo";
     setSelected(cfo ? null : next);
+    setPanelView(view === "Board" ? "task" : "terminal");
     setSelectionEpoch((epoch) => epoch + 1);
     setPaneOpen(true);
     requestAnimationFrame(() => {

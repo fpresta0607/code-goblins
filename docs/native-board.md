@@ -104,7 +104,8 @@ Each card shows the task's own latest status line and its pull request, linked o
 Both come from the current generation's lines only, so a respawned task id shows neither its earlier generation's activity nor its pull request until it reports again.
 Cards state progress in plain words, never engine words: Not started, Working, In review gate, Waiting on the CFO, Waiting on you, Checks passed, Delivered and No fresh evidence.
 Waiting on you shows while the goblin has an open question to the Overlord, ahead of its phase.
-Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status, its own latest status line and icon actions, then a Task view and a Terminal view one tap apart on a pill at its top.
+Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Task view and a Terminal view one tap apart on a pill at its top.
+The Task view header also shows the goblin's own latest status line; the Terminal view header is compact, showing only the goblin, its status and the icon buttons, since the live screen shows the latest output.
 The Task view holds the workspace, connections, changes, activity and commit history; the Terminal view is that goblin's live native terminal, edge to edge.
 Board opens a goblin on its Task view and Orchestration on its Terminal view, which defaults to the registered CFO; once opened, both views stay mounted, so switching keeps scroll position and selection.
 There is still no standalone message composer: typing happens in the terminal itself.

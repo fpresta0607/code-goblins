@@ -5,7 +5,7 @@ import { Avatar } from "./Avatar";
 import { BRAND_MARKS } from "./brandMarks";
 import { Icon } from "./Icon";
 import { ownsTaskSession, sessionTitle } from "./lineageTree";
-import { asksOverlord, nodeStatus, personaFor, pullRequestLabel, safePullRequest } from "./workflow";
+import { asksOverlord, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest } from "./workflow";
 
 // Who the goblin is, what it is doing now and what the Overlord can do about
 // it. The CFO drawn without a task has no worktree to open.
@@ -22,6 +22,7 @@ export function PanelHeader({ task, node, snapshot, compact }: { task?: Task; no
     : nodeStatus({ id: title, title, task, session: node, relation: "" }, asking);
   const phase = cfo ? (snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working") : owner ? task.phase : node?.runtime?.state || node?.phase || "";
   const pr = owner ? safePullRequest(task.pr) : "";
+  const badge = pullRequestBadge(pr);
   const open = async (target: "vscode" | "folder") => {
     if (!task || opening) return;
     setOpening(true); setOutcome("");
@@ -43,7 +44,7 @@ export function PanelHeader({ task, node, snapshot, compact }: { task?: Task; no
     {owner && !!task.generation && <div className="panel-actions">
       <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" data-tip="Open in VS Code" data-tip-align="start" onClick={() => void open("vscode")}><img className="brand-icon" src="/assets/vscode.svg" alt="" /></button>
       <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open folder" data-tip="Open folder" onClick={() => void open("folder")}><Icon name="folder" /></button>
-      {pr && <a className="icon-button raised pill-link" href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)} data-tip="Open pull request"><svg className="icon brand-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={BRAND_MARKS.github.path} /></svg><span>{pullRequestLabel(pr).replace(/^.* /, "")}</span></a>}
+      {pr && <a className="icon-button raised pill-link" href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)} data-tip="Open pull request">{badge.github ? <svg className="icon brand-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={BRAND_MARKS.github.path} /></svg> : <Icon name="pull-request" />}<span>{badge.label}</span></a>}
     </div>}
     {outcome && <p className="workspace-outcome" role="status">{outcome}</p>}
   </header>;

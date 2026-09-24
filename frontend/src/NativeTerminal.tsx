@@ -151,7 +151,13 @@ export function NativeTerminal({ task, node, instance, visible, shown, onOwner }
             const frame = object(JSON.parse(buffer.slice(0, end))); buffer = buffer.slice(end + 1);
             if (frame.type === "terminal.closed") {
               // Herdr laid the pane out at a new size: open it again, whole, at that size.
-              if (/pane was resized/i.test(string(frame.reason))) { setAttempt((prior) => prior + 1); return; }
+              if (/pane was resized/i.test(string(frame.reason))) {
+                lease = "";
+                term.options.disableStdin = true;
+                if (flushing || queue.length) { stop("The pane was resized while input was being sent, so that input's outcome is unknown and nothing was resent. Reconnect for a fresh screen."); return; }
+                setAttempt((prior) => prior + 1);
+                return;
+              }
               throw new Error(string(frame.reason));
             }
             if (frame.type === "terminal.ready") { lease = string(frame.lease); continue; }

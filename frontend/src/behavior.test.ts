@@ -4,7 +4,7 @@ import { parsePatchToRows, splitRows, reviewRange } from "./diff.ts";
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, deliveryMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
-import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, asksOverlord, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
+import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, asksOverlord, pullRequestBadge, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
 
 test("board completion and semantic personas require the corresponding evidence", () => {
   const task = parseSnapshot({healthy:true, tasks:[{id:"work",title:"Test keyboard access",phase:"done",generation:"new",verified:false}]}).tasks[0];
@@ -215,6 +215,15 @@ test("only an https pull request becomes a link, labelled by repository and numb
   for (const unsafe of ["javascript:alert(1)", "http://github.com/o/r/pull/1", "https://x y", ""]) assert.equal(safePullRequest(unsafe), "", unsafe);
   assert.equal(pullRequestLabel("https://github.com/o/code-goblins/pull/29"), "code-goblins #29");
   assert.equal(pullRequestLabel("https://example.invalid/review/3"), "Pull request");
+});
+
+test("only a GitHub pull request wears the GitHub mark and its bare number", () => {
+  const cases: [string, { github: boolean; label: string }][] = [
+    ["https://github.com/o/code-goblins/pull/29", { github: true, label: "#29" }],
+    ["https://gitlab.com/o/code-goblins/-/merge_requests/7", { github: false, label: "Pull request" }],
+    ["https://example.invalid/review/3", { github: false, label: "Pull request" }],
+  ];
+  for (const [url, badge] of cases) assert.deepEqual(pullRequestBadge(url), badge, url);
 });
 
 test("dispatched goblins hang under the CFO, and only live work is in the tree", () => {

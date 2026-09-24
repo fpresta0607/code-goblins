@@ -36,7 +36,7 @@ test("a refused input explains itself in plain words", () => {
   const cases: [string, string][] = [
     ["pipeline owns this task; use cfo pipeline respond or inspect its delivery evidence", "The review gate owns this goblin's work right now, so typing is paused. Reconnect to watch the screen."],
     ["pipeline custody has not been returned; use cfo pipeline recover", "The review gate owns this goblin's work right now, so typing is paused. Reconnect to watch the screen."],
-    ["cannot verify pipeline custody", "The review gate owns this goblin's work right now, so typing is paused. Reconnect to watch the screen."],
+    ["cannot verify pipeline custody", "cannot verify pipeline custody"],
     ["Native terminal identity changed. Select the current session; input was discarded.", "Native terminal identity changed. Select the current session; input was discarded."],
   ];
   for (const [raw, plain] of cases) assert.equal(typingHeldReason(raw), plain, raw);
