@@ -4,7 +4,7 @@ import { Avatar } from "./Avatar";
 import { activityDisplay, presentationShownOn } from "./activity";
 import { Chevron } from "./Chevron";
 import { ownsTaskSession } from "./lineageTree";
-import { arrange, expireTraffic, fleetTraffic, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, workflowNodes, type Point, type WorkflowNode } from "./workflow";
+import { arrange, asksOverlord, expireTraffic, fleetTraffic, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, workflowNodes, type Point, type WorkflowNode } from "./workflow";
 
 const layoutKey = "cfo-orchestration-layout-v1";
 
@@ -169,6 +169,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
             const p = point(node.id), owner = ownsTaskSession(node.session, node.task);
             const phase = owner ? node.task?.phase : node.session?.runtime?.state || node.session?.phase;
             const children = nodes.some((child) => child.parent === node.id);
+            const asking = owner && asksOverlord(snapshot, node.task?.id || ""), status = nodeStatus(node, asking);
             return <article key={node.id} className={"flow-node" + (activity.created ? " node-enter" : "") + (selected === node.id ? " selected" : "")} style={{ left: p.x, top: p.y, width: NODE_WIDTH, height: NODE_HEIGHT }}>
               {effect && <span key={effect.id} className="activity-glow" aria-hidden="true" />}
               <button className="flow-node-main" onPointerDown={(event) => startDrag(event, node)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
@@ -179,9 +180,9 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
                   move(node.id, { x: p.x + (event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0), y: p.y + (event.key === "ArrowDown" ? step : event.key === "ArrowUp" ? -step : 0) });
                 }} onKeyUp={(event) => { if (event.key.startsWith("Arrow")) save(); }}
                 onClick={(event) => { if (ignoreClick.current) { ignoreClick.current = false; return; } onSelect(node, event.currentTarget); }} aria-pressed={selected === node.id}
-                aria-label={node.title + ". " + nodeStatus(node) + ". " + (parent ? "Parent: " + parent.title : node.relation)} aria-describedby="canvas-help">
+                aria-label={node.title + ". " + status + ". " + (parent ? "Parent: " + parent.title : node.relation)} aria-describedby="canvas-help">
                 <Avatar persona={node.cfo ? "cfo" : personaFor(node.task, node.session)} />
-                <span className="card-copy"><strong>{node.title}</strong>{presentations.some(a=>presentationShownOn(a,node.session,node.task))&&<span className="browser-indicator">Browser active</span>}{node.task?.project && <span className="project-label">{node.task.project}</span>}<span className={"plain-status phase-" + phase}><span className="status-dot" />{nodeStatus(node)}</span>
+                <span className="card-copy"><strong>{node.title}</strong>{presentations.some(a=>presentationShownOn(a,node.session,node.task))&&<span className="browser-indicator">Browser active</span>}{node.task?.project && <span className="project-label">{node.task.project}</span>}<span className={"plain-status phase-" + phase + (asking ? " asking" : "")}><span className="status-dot" />{status}</span>
                   {!node.parent && node.session?.role !== "cfo" && !node.cfo && <small>{node.relation}</small>}
                 </span>
               </button>

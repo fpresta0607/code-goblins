@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { BoardActivity, Session, Snapshot } from "./types";
 import { activityDisplay, presentationShownOn } from "./activity";
-import { nodeStatus } from "./workflow";
+import { asksOverlord, nodeStatus } from "./workflow";
 import { Avatar } from "./Avatar";
 import { Chevron } from "./Chevron";
 import { personaFor } from "./workflow";
@@ -59,7 +59,7 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
             <Avatar persona={personaFor(task, node)} small /><span className="node-role">{sessionRole(node)}</span>
             <strong>{title}</strong>{presentations.some(a=>presentationShownOn(a,node,task))&&<span className="browser-indicator">Browser active</span>}{task?.project && <span className="project-label">{task.project}</span>}
             {!owner && node.role !== "cfo" && task?.title && <span className="node-task">Task: {task.title}</span>}
-            <span className="node-status">{nodeStatus({ id: node.id, title, task, session: node, relation })}</span>
+            <span className="node-status">{nodeStatus({ id: node.id, title, task, session: node, relation }, owner && asksOverlord(snapshot, task?.id || ""))}</span>
           </button>
           {descendants.length > 0 && <button className="node-disclosure" aria-expanded={!isCollapsed}
             aria-label={(isCollapsed ? "Expand" : "Collapse") + " children of " + title} onClick={() => toggle(node.id)}>
@@ -85,7 +85,7 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
             <button className="node-select" aria-pressed={selected?.task === task.id}
               onClick={(event) => onSelect({ task: task.id }, event.currentTarget)}>
               <span className="node-role">Task</span><strong>{task.title || task.id}</strong>{presentations.some(a=>presentationShownOn(a,undefined,task))&&<span className="browser-indicator">Browser active</span>}{task.project && <span className="project-label">{task.project}</span>}
-              <span className="node-status">{nodeStatus({ id: task.id, title: task.title, task, relation: "" })}</span>
+              <span className="node-status">{nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asksOverlord(snapshot, task.id))}</span>
             </button>
           </div>
         </div>

@@ -299,5 +299,7 @@ Native contracts were checked against installed versions and the primary [Codex 
 The pinned [Cline Kanban source](https://github.com/cline/kanban/tree/abd4912c27ce6b7f18b5a8106c145fd838e90cc4) supplied adapted board, diff, history, and runtime-stream behavior.
 Its Apache-2.0 license, copyright, file links, and modification notes are retained in `frontend/public/assets/NOTICE.txt` and the bundled license files; no upstream NOTICE file was present at that revision.
 SIQshift's shared brand stylesheet, desktop/web controls, and shared ShiftGroups supplied inspected card/ghost/focus, native-select and disclosure primitives.
-The user-approved generated mockups supplied the final dark/mint two-view composition, large system typography and terminal-goblin artwork.
+The user-approved generated mockups supplied the final dark/mint two-view composition and terminal-goblin artwork.
+The board self-hosts three OFL faces, so it renders the same offline: Pixelify Sans for headings at weight 400 only, because heavier weights close its C and G into O; Nunito for body text, never below 15 px; and JetBrains Mono for code.
+Their licenses sit beside the font files under `/assets/fonts/`.
 The supplied code/workflow references informed review and lineage presentation without adding a graph dependency or an automation editor.

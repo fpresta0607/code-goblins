@@ -63,31 +63,42 @@ export function safePullRequest(url: string): string {
   return /^https:\/\/[^\s]+$/.test(url) ? url : "";
 }
 
+// Status words say what is happening in the Overlord's words, not which
+// evidence the supervisor holds.
 export function statusText(phase: string): string {
   const labels: Record<string, string> = {
-    queued: "Ready to start", working: "Working", active: "Active", started: "Session started",
-    review: "Awaiting review", ready: "Checks passed", done: "Verified delivery", merged: "Verify landed content", idle: "Awaiting input",
-    blocked: "Blocked", failed: "Failed", unavailable: "Evidence unavailable",
-    stale: "Evidence is stale", interrupted: "Interrupted", settled: "Turn settled", ended: "Session ended",
+    queued: "Not started", working: "Working", active: "Working", started: "Starting",
+    review: "In review gate", ready: "Checks passed", done: "Delivered", merged: "Merged, verifying", idle: "Waiting for input",
+    blocked: "Blocked", failed: "Failed", unavailable: "No fresh evidence",
+    stale: "No fresh evidence", interrupted: "Interrupted", settled: "Turn finished", ended: "Session ended",
   };
-  return labels[phase] || "Awaiting evidence";
+  return labels[phase] || "No evidence yet";
 }
 
 export function nativeStatus(phase: string): string {
   const labels: Record<string, string> = {
-    busy: "Working", working: "Working", active: "Active", started: "Session started",
-    idle: "Awaiting input", done: "Native turn finished", settled: "Turn settled",
-    ended: "Session ended", interrupted: "Interrupted", stale: "Evidence is stale",
-    unavailable: "Evidence unavailable", unknown: "Awaiting evidence",
+    busy: "Working", working: "Working", active: "Working", started: "Starting",
+    idle: "Waiting for input", done: "Turn finished", settled: "Turn finished",
+    ended: "Session ended", interrupted: "Interrupted", stale: "No fresh evidence",
+    unavailable: "No fresh evidence",
   };
-  return labels[phase] || "Awaiting evidence";
+  return labels[phase] || "No evidence yet";
 }
 
-export function nodeStatus(node: WorkflowNode): string {
+// asksOverlord is whether a goblin's question is on the board waiting for the
+// Overlord's answer; the CFO's own questions name no task.
+export function asksOverlord(snapshot: Snapshot, taskID: string): boolean {
+  return !!taskID && (snapshot.questions || []).some((question) => question.task === taskID && question.status === "pending");
+}
+
+export function nodeStatus(node: WorkflowNode, asking = false): string {
   if (node.status) return node.status;
-  if (node.task?.archived) return node.task.merged ? "PR merged" : "Finished";
+  if (node.task?.archived) return node.task.merged ? "Merged" : "Finished";
   if (node.task && ownsTaskSession(node.session, node.task)) {
-    return node.task.phase === "done" && !node.task.verified ? "Delivery unverified" : statusText(node.task.phase);
+    const { phase, reason, verified } = node.task;
+    if (asking) return "Waiting on you";
+    if ((phase === "blocked" || phase === "failed") && reason.startsWith("Waiting on the CFO")) return "Waiting on the CFO";
+    return phase === "done" && !verified ? "Done, verifying" : statusText(phase);
   }
   return nativeStatus(node.session?.runtime?.state || node.session?.phase || "");
 }

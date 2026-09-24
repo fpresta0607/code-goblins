@@ -7,13 +7,3 @@ export function age(timestamp: string): string {
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
   return `${Math.floor(seconds / 86400)}d ago`;
 }
-
-export function Badge({ phase }: { phase: string }) {
-  const labels: Record<string, string> = {
-    working: "In progress",
-    ready: "Checks passed",
-    merged: "Verify landed content",
-    done: "Delivered",
-  };
-  return <span className={`badge phase-${phase}`}>{labels[phase] || phase || "Unknown"}</span>;
-}
