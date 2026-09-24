@@ -240,3 +240,60 @@ func TestUninstallOutsideACheckoutUnwiresTheHomeAndKeepsIt(t *testing.T) {
 		t.Errorf("the output does not say the home was kept:\n%s", output)
 	}
 }
+
+// A newer binary that no longer ships a skill removes both copies of the
+// files an older one wrote, and leaves a skill the operator added.
+func TestReinstallOutsideACheckoutRemovesFilesTheBinaryNoLongerShips(t *testing.T) {
+	f := installedFixture(t, nil,
+		fstest.MapFS{"AGENTS.md": {Data: []byte("contract")}, ".agents/skills/stow/SKILL.md": {Data: []byte("stow")}, ".agents/skills/stash/SKILL.md": {Data: []byte("stash")}},
+		fstest.MapFS{})
+	f.install()
+	writeFile(t, filepath.Join(f.root, ".agents", "skills", "mine", "SKILL.md"), "operator")
+	f.service.Contract = fstest.MapFS{"AGENTS.md": {Data: []byte("contract")}, ".agents/skills/stash/SKILL.md": {Data: []byte("stash")}}
+
+	output := f.install()
+
+	for _, gone := range []string{".agents/skills/stow/SKILL.md", ".claude/skills/stow/SKILL.md"} {
+		if _, err := os.Stat(filepath.Join(f.root, filepath.FromSlash(gone))); !os.IsNotExist(err) {
+			t.Errorf("%s survived an install whose binary no longer ships it", gone)
+		}
+	}
+	for path, want := range map[string]string{
+		".agents/skills/stash/SKILL.md": "stash",
+		".claude/skills/stash/SKILL.md": "stash",
+		".agents/skills/mine/SKILL.md":  "operator",
+	} {
+		if got := readFile(t, filepath.Join(f.root, filepath.FromSlash(path))); got != want {
+			t.Errorf("%s = %q, want %q", path, got, want)
+		}
+	}
+	if !strings.Contains(output, "removed 2 files the binary no longer ships") {
+		t.Errorf("the output does not report the removals:\n%s", output)
+	}
+	if !primary(f.root) {
+		t.Error("the home is not primary after the upgrade")
+	}
+
+	output = f.install()
+
+	if !strings.Contains(output, "already installed - nothing changed") {
+		t.Errorf("a re-run with nothing stale reported a change:\n%s", output)
+	}
+}
+
+// The marker is read from disk, so a line naming a path outside the home is
+// never acted on.
+func TestReinstallOutsideACheckoutNeverRemovesAPathOutsideTheHome(t *testing.T) {
+	f := installedFixture(t, nil, fstest.MapFS{"AGENTS.md": {Data: []byte("contract")}}, fstest.MapFS{})
+	f.install()
+	outside := filepath.Join(filepath.Dir(f.root), "outside.txt")
+	writeFile(t, outside, "not the home's")
+	marker := filepath.Join(f.root, home.InstalledMarker)
+	writeFile(t, marker, readFile(t, marker)+"../outside.txt\r\n"+outside+"\r\n")
+
+	f.install()
+
+	if got := readFile(t, outside); got != "not the home's" {
+		t.Errorf("the file beside the home = %q, want it untouched", got)
+	}
+}

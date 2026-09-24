@@ -21,9 +21,14 @@ const (
 	claudeSkills = ".claude/skills/"
 )
 
-// markerText explains home.InstalledMarker to whoever finds it.
+// markerText explains home.InstalledMarker to whoever finds it. After it,
+// following a blank line, the marker lists the contract files the install
+// wrote, one slash-separated path per line, so the next install can remove
+// those its binary no longer ships.
 const markerText = "This folder is a Code Goblins CFO home that cfo install set up.\r\n" +
-	"The CFO hooks act here only while this file exists, so leave it in place.\r\n"
+	"The CFO hooks act here only while this file exists, so leave it in place.\r\n" +
+	"Below are the contract files it wrote; the next install removes any its binary no longer ships.\r\n" +
+	"\r\n"
 
 // refuseAnotherHome keeps an install outside a checkout from taking the
 // machine from a home still in use. CFO_HOME naming another primary home
@@ -45,6 +50,11 @@ func (s Service) refuseAnotherHome() error {
 // its names, and last the marker, so a home that failed partway is never
 // taken for a primary one.
 func (s Service) writeHome(report *reporter) error {
+	markerPath := filepath.Join(s.Root, home.InstalledMarker)
+	previous, hadMarker, err := readManifest(markerPath)
+	if err != nil {
+		return fmt.Errorf("install: read %s: %w", markerPath, err)
+	}
 	var created []string
 	for _, dir := range []string{"state", "data"} {
 		path := filepath.Join(s.Root, dir)
@@ -56,7 +66,8 @@ func (s Service) writeHome(report *reporter) error {
 		}
 		created = append(created, dir)
 	}
-	if err := s.writeContract(report); err != nil {
+	manifest, written, err := s.writeContract()
+	if err != nil {
 		return err
 	}
 	if err := s.seedPolicy(report); err != nil {
@@ -65,14 +76,29 @@ func (s Service) writeHome(report *reporter) error {
 	if err := s.copyBinary(report); err != nil {
 		return err
 	}
-	marked, err := writeIfDifferent(filepath.Join(s.Root, home.InstalledMarker), []byte(markerText))
+	removed, err := s.removeUnshipped(previous, manifest)
 	if err != nil {
+		return err
+	}
+	var done []string
+	if written > 0 {
+		done = append(done, fmt.Sprintf("wrote %d of %d files into %s", written, len(manifest), s.Root))
+	}
+	if removed > 0 {
+		done = append(done, fmt.Sprintf("removed %d files the binary no longer ships", removed))
+	}
+	if len(done) > 0 {
+		report.change("contract", strings.Join(done, "; "))
+	} else {
+		report.same("contract", fmt.Sprintf("all %d files already current in %s", len(manifest), s.Root))
+	}
+	if _, err := writeIfDifferent(markerPath, []byte(markerText+strings.Join(manifest, "\r\n")+"\r\n")); err != nil {
 		return fmt.Errorf("install: mark %s as a CFO home: %w", s.Root, err)
 	}
 	switch {
 	case len(created) > 0:
 		report.change("home", fmt.Sprintf("set up %s with %s", s.Root, strings.Join(created, " and ")))
-	case marked:
+	case !hadMarker:
 		report.change("home", "marked "+s.Root+" as a CFO home again")
 	default:
 		report.same("home", s.Root+" is set up")
@@ -80,8 +106,11 @@ func (s Service) writeHome(report *reporter) error {
 	return nil
 }
 
-func (s Service) writeContract(report *reporter) error {
-	written, total := 0, 0
+// writeContract writes the contract into the home and returns every file it
+// covers, slash-separated, and how many of them it had to write.
+func (s Service) writeContract() ([]string, int, error) {
+	var manifest []string
+	written := 0
 	err := fs.WalkDir(s.Contract, ".", func(name string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() {
 			return err
@@ -99,7 +128,7 @@ func (s Service) writeContract(report *reporter) error {
 			if err != nil {
 				return err
 			}
-			total++
+			manifest = append(manifest, target)
 			if changed {
 				written++
 			}
@@ -107,14 +136,57 @@ func (s Service) writeContract(report *reporter) error {
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("install: write the CFO contract into %s: %w", s.Root, err)
+		return nil, 0, fmt.Errorf("install: write the CFO contract into %s: %w", s.Root, err)
 	}
-	if written == 0 {
-		report.same("contract", fmt.Sprintf("all %d files already current in %s", total, s.Root))
-		return nil
+	return manifest, written, nil
+}
+
+// readManifest reads the contract files a previous install listed in its
+// marker, and whether there was a marker at all.
+func readManifest(path string) ([]string, bool, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, false, nil
 	}
-	report.change("contract", fmt.Sprintf("wrote %d of %d files into %s", written, total, s.Root))
-	return nil
+	if err != nil {
+		return nil, false, err
+	}
+	_, list, _ := strings.Cut(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n\n")
+	var names []string
+	for _, line := range strings.Split(list, "\n") {
+		if line != "" {
+			names = append(names, line)
+		}
+	}
+	return names, true, nil
+}
+
+// removeUnshipped removes each file a previous install listed that the
+// running binary no longer ships. Only listed paths are touched, so a file the
+// operator added stays, and only those inside the home, since the list is read
+// from disk. Paths are compared without case, as Windows resolves them, so a
+// skill renamed only in case is not removed from under its new name.
+func (s Service) removeUnshipped(previous, manifest []string) (int, error) {
+	shipped := make(map[string]bool, len(manifest))
+	for _, name := range manifest {
+		shipped[strings.ToLower(name)] = true
+	}
+	removed := 0
+	for _, name := range previous {
+		local := filepath.FromSlash(name)
+		if shipped[strings.ToLower(name)] || !filepath.IsLocal(local) {
+			continue
+		}
+		err := os.Remove(filepath.Join(s.Root, local))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return removed, fmt.Errorf("install: remove %s, which the binary no longer ships: %w", name, err)
+		}
+		removed++
+	}
+	return removed, nil
 }
 
 func (s Service) seedPolicy(report *reporter) error {
