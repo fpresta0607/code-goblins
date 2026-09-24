@@ -139,7 +139,7 @@ func TestFilterMCPServersTypesURLServersForClaude(t *testing.T) {
 	for name, want := range map[string]map[string]any{
 		"neon":   {"type": "http", "url": "https://mcp.neon.tech/mcp", "bearerTokenEnvVar": "NEON_API_KEY", "headers": map[string]any{"Authorization": "Bearer ${NEON_API_KEY}"}},
 		"events": {"type": "sse", "url": "https://example.com/sse/", "headers": map[string]any{"Authorization": "Bearer ${EVENTS_TOKEN}"}},
-		"typed":  {"type": "sse", "url": "https://example.com/mcp", "bearerTokenEnvVar": "TYPED_TOKEN"},
+		"typed":  {"type": "sse", "url": "https://example.com/mcp", "bearerTokenEnvVar": "TYPED_TOKEN", "headers": map[string]any{"Authorization": "Bearer ${TYPED_TOKEN}"}},
 		"stdio":  {"command": "npx", "args": []any{"-y", "server"}},
 	} {
 		if got := document.Servers[name]; !reflect.DeepEqual(got, want) {

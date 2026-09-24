@@ -56,9 +56,9 @@ func FilterMCPServers(config []byte, hasVariable func(name string) bool) (filter
 				unset = append(unset, name+" ("+token+")")
 				continue
 			}
-			if isURLServer && shape.Type == "" {
-				if raw, err = typedForClaude(raw, shape); err != nil {
-					return nil, nil, nil, nil, fmt.Errorf("worktree: type MCP server %q: %w", name, err)
+			if isURLServer && (shape.Type == "" || !hasAuthorization(shape.Headers)) {
+				if raw, err = readyForClaude(raw, shape); err != nil {
+					return nil, nil, nil, nil, fmt.Errorf("worktree: prepare MCP server %q: %w", name, err)
 				}
 			}
 			remaining[name] = raw
@@ -80,21 +80,24 @@ func FilterMCPServers(config []byte, hasVariable func(name string) bool) (filter
 	return filtered, kept, dropped, unset, nil
 }
 
-// typedForClaude gives a URL server with no type the type Claude needs, sse
+// readyForClaude gives a URL server with no type the type Claude needs, sse
 // for an /sse endpoint and http otherwise: Claude reads a server without one
-// as stdio and skips it with a warning on every start. Claude also does not
-// read bearerTokenEnvVar, so a server that authenticates only that way gets
-// the same token as the Authorization header Claude expands from the
-// injected environment. The header holds the variable reference, never its
-// value. Every other field is kept.
-func typedForClaude(raw json.RawMessage, shape mcpServerShape) (json.RawMessage, error) {
+// as stdio and skips it with a warning on every start. An explicit type is
+// kept. Claude also does not read bearerTokenEnvVar, so a server that
+// authenticates only that way, typed or not, gets the same token as the
+// Authorization header Claude expands from the injected environment. The
+// header holds the variable reference, never its value. Every other field is
+// kept.
+func readyForClaude(raw json.RawMessage, shape mcpServerShape) (json.RawMessage, error) {
 	var entry map[string]any
 	if err := json.Unmarshal(raw, &entry); err != nil {
 		return nil, err
 	}
-	entry["type"] = "http"
-	if strings.HasSuffix(strings.TrimRight(strings.TrimSpace(shape.URL), "/"), "/sse") {
-		entry["type"] = "sse"
+	if shape.Type == "" {
+		entry["type"] = "http"
+		if strings.HasSuffix(strings.TrimRight(strings.TrimSpace(shape.URL), "/"), "/sse") {
+			entry["type"] = "sse"
+		}
 	}
 	if token := strings.TrimSpace(shape.BearerTokenEnvVar); token != "" && !hasAuthorization(shape.Headers) {
 		headers := map[string]string{"Authorization": "Bearer ${" + token + "}"}
