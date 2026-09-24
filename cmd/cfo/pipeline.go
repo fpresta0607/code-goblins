@@ -14,10 +14,12 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -101,6 +103,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		flags.StringVar(&response.Action, "action", "", "fix or approve")
 		flags.StringVar(&response.Findings, "findings", "", "comma-separated finding IDs")
 		flags.StringVar(&response.Instructions, "instructions", "", "guidance for selected findings")
+		flags.StringVar(&response.Accept, "accept", "", "with approve: every open ask-user and auto-fix finding the CFO accepts as it stands")
 	}
 	if err := flags.Parse(args[2:]); err != nil {
 		return err
@@ -110,6 +113,16 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	}
 	if args[0] == "run" && strings.TrimSpace(intent) == "" {
 		return errors.New("pipeline: --intent is required")
+	}
+	if response.Accept != "" {
+		// Taking open findings as they stand is the CFO's decision, never a
+		// goblin's about its own gate.
+		cfo := supervisor.CFOConnection{State: h.State, Herdr: &herdr.Client{Commands: commands}}
+		_, release, err := cfo.CallerIdentity(ctx)
+		if err != nil {
+			return fmt.Errorf("pipeline: --accept is honoured only from the registered primary CFO: %w", err)
+		}
+		release()
 	}
 	// This is a pipeline-specific operation lock, not the event/decision
 	// ownership ledger. It prevents two CFO commands accepting the same round
@@ -193,6 +206,11 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		nativeArgs, err = pipeline.ResponseArgs(selection, gate, response)
 		if err != nil {
 			return err
+		}
+		if response.Accept != "" {
+			if err := state.AppendStatus(h.State, id, fmt.Sprintf("pipeline-findings-accepted: step=%s run=%s round=%d findings=%s by=cfo", gate.Step, gate.RunID, gate.Round, response.Accept)); err != nil {
+				return err
+			}
 		}
 	} else {
 		if err := reader.CheckStart(ctx, meta.Project, meta.Worktree, branch, selection.Policy); err != nil {

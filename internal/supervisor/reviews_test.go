@@ -343,3 +343,58 @@ func TestWaitOnTheOverlordRetiresWhenTheGoblinReportsAgain(t *testing.T) {
 		t.Fatalf("a wait the goblin moved past = %+v, want it withdrawn with the new report", got)
 	}
 }
+
+// A CFO audit record in a task's status log is the CFO's word: the board
+// still reads the goblin's own latest report, and a wait on the Overlord
+// stays open.
+func TestCFOAuditLinesNeverCountAsTheGoblinsReport(t *testing.T) {
+	for _, audit := range []string{
+		"pipeline-findings-accepted: step=review run=r1 round=2 findings=ask,bug by=cfo",
+		"pipeline-policy-migrated: class=ordinary review_cycles=3 old=aaa new=bbb",
+	} {
+		t.Run(audit, func(t *testing.T) {
+			store, h := testStore(t)
+			s := &Service{Store: store}
+			task := func() Task {
+				t.Helper()
+				snapshot, err := s.Snapshot()
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, candidate := range snapshot.Tasks {
+					if candidate.ID == "task-1" {
+						return candidate
+					}
+				}
+				t.Fatal("task-1 missing from the snapshot")
+				return Task{}
+			}
+			report := func(line string) {
+				t.Helper()
+				if err := state.AppendStatus(h.State, "task-1", line); err != nil {
+					t.Fatal(err)
+				}
+			}
+			report("working: wiring the store")
+			report(audit)
+			if got := task(); got.Phase != "working" || got.Reason != "wiring the store" || got.Activity != "working: wiring the store" {
+				t.Fatalf("a working report under an audit line = %+v activity %q, want working", got.Evaluation, got.Activity)
+			}
+			report("waiting on overlord: log in to Stripe")
+			wait := openReview("waiting-task-1-7", "task-1")
+			if err := store.acceptReview(wait); err != nil {
+				t.Fatal(err)
+			}
+			report(audit)
+			if got := task(); got.Phase != "waiting" || got.WaitingOn != "overlord" || got.Reason != "log in to Stripe" {
+				t.Fatalf("a wait under an audit line = %+v, want waiting on the overlord", got.Evaluation)
+			}
+			if err := store.retireWaits(); err != nil {
+				t.Fatal(err)
+			}
+			if got := store.Snapshot().Reviews[0]; got.State != "open" {
+				t.Fatalf("a wait under an audit line = %+v, want it open", got)
+			}
+		})
+	}
+}

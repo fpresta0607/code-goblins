@@ -720,7 +720,7 @@ func (s Service) latestStatusVerb(id string) (string, int64, bool) {
 	}
 	for i := len(lines) - 1; i >= 0; i-- {
 		verb, _, ok := crewstate.ParseStatusLine(lines[i])
-		if !ok {
+		if !ok || crewstate.IsCFOAudit(lines[i]) {
 			continue
 		}
 		return verb, int64(i + 1), true

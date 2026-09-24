@@ -110,7 +110,7 @@ func reviewReporter(ctx context.Context, h home.Home, client *herdr.Client, task
 		}
 		return goblinIdentity(meta), func() {}, nil
 	}
-	return (&CFOConnection{State: h.State, Herdr: client}).callerIdentity(ctx)
+	return (&CFOConnection{State: h.State, Herdr: client}).CallerIdentity(ctx)
 }
 
 // PublishReview reports an item for the Overlord from the reporter's own

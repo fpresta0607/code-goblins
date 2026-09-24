@@ -238,7 +238,7 @@ type cfoAnswer struct {
 // closed the question, that the CFO gave it, and when. Only the registered
 // primary CFO may answer. It returns the choice it delivered.
 func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note string) (string, error) {
-	_, release, err := c.callerIdentity(ctx)
+	_, release, err := c.CallerIdentity(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -469,11 +469,11 @@ func (s *Store) ingestAnswers() error {
 	return nil
 }
 
-// callerIdentity proves this process descends from the registered primary
+// CallerIdentity proves this process descends from the registered primary
 // CFO, including its creation time, and that its native identity is live, and
 // returns that identity. The registration stays open, so it cannot change,
 // until release is called.
-func (c *CFOConnection) callerIdentity(ctx context.Context) (string, func(), error) {
+func (c *CFOConnection) CallerIdentity(ctx context.Context) (string, func(), error) {
 	file, err := openPrimary(filepath.Join(c.State, "primary.json"))
 	if err != nil {
 		return "", nil, errNotRegistered
@@ -491,7 +491,7 @@ func (c *CFOConnection) callerIdentity(ctx context.Context) (string, func(), err
 	}
 	if !slices.ContainsFunc(entries, func(entry proc.Entry) bool { return entry.PID == p.Process.PID && entry.Start.Equal(p.Process.Start) }) {
 		release()
-		return "", nil, errors.New("only the registered CFO process may report to the Overlord")
+		return "", nil, errors.New("this process does not run under the registered CFO")
 	}
 	if err := c.verify(ctx, p); err != nil {
 		release()
@@ -504,7 +504,7 @@ func (c *CFOConnection) callerIdentity(ctx context.Context) (string, func(), err
 // worker-alert endpoint. The caller must descend from the registered primary
 // process, including its creation time, and its native identity must be live.
 func (c *CFOConnection) PublishQuestion(ctx context.Context, id, text string, options []string, recommended string) error {
-	identity, release, err := c.callerIdentity(ctx)
+	identity, release, err := c.CallerIdentity(ctx)
 	if err != nil {
 		return err
 	}

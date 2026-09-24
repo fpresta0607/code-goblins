@@ -211,3 +211,41 @@ func TestParseStatusLineReadsStampedAndUnstampedEvents(t *testing.T) {
 		})
 	}
 }
+
+// A CFO audit record is the CFO's word, never the goblin's, so the goblin's
+// own latest report still decides its state after one.
+func TestLatestReportSkipsCFOAuditLines(t *testing.T) {
+	ctx := context.Background()
+	for _, audit := range []string{
+		"pipeline-findings-accepted: step=review run=r1 round=2 findings=ask,bug by=cfo",
+		"pipeline-policy-migrated: class=ordinary review_cycles=3 old=aaa new=bbb",
+	} {
+		t.Run(audit, func(t *testing.T) {
+			dir := t.TempDir()
+			worktree := filepath.Join(dir, "worktree")
+			if err := os.Mkdir(worktree, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeMeta(t, dir, "g1", worktree)
+			for _, line := range []string{"needs-decision: pick a name", audit} {
+				if err := state.AppendStatus(dir, "g1", line); err != nil {
+					t.Fatal(err)
+				}
+			}
+			lines, err := state.TailStatus(dir, "g1", 200)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			verb, ok := LatestVerb(lines)
+			got, err := Resolve(ctx, dir, "g1", fakeEndpoint{exists: true, busy: herdr.BusyIdle, structural: true})
+
+			if !ok || verb != "needs-decision" {
+				t.Errorf("LatestVerb = %q, %v; want the goblin's needs-decision", verb, ok)
+			}
+			if err != nil || got.State != Parked || got.Detail != "pick a name" {
+				t.Errorf("Resolve = %+v, %v; want parked on the goblin's decision", got, err)
+			}
+		})
+	}
+}
