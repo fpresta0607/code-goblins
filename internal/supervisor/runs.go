@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,14 +16,12 @@ import (
 	"unicode/utf8"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
-	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // maxRuns bounds the run list. An item still waiting or running is never
-// dropped to make room: a new one waits in the inbox.
+// dropped to make room: a new one is refused.
 const maxRuns = 64
 
 // runLifetime is how long an item waits for the Overlord to run it.
@@ -150,53 +147,63 @@ func runDigest(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// PublishRun records a command for the Overlord to run, from the registered
-// primary CFO process only. It reads the command file once and writes that
-// text to the script file Run executes, so no quoting can change it.
-func PublishRun(ctx context.Context, h home.Home, client *herdr.Client, req RunRequest) error {
-	identity, release, err := (&CFOConnection{State: h.State, Herdr: client}).CallerIdentity(ctx)
-	if err != nil {
-		return err
-	}
-	defer release()
+// PublishRun hands a command for the Overlord to run to the supervisor over
+// its named pipe. It reads the command file once. The supervisor proves the
+// calling process runs under the registered primary CFO and writes the script
+// file Run executes itself, so nothing written straight into the state
+// directory ever reaches the board.
+func PublishRun(h home.Home, req RunRequest) error {
 	command, err := readRunCommand(req.CommandFile)
 	if err != nil {
 		return err
 	}
+	return sendRunRequest(h.State, runPipeRequest{ID: req.ID, Title: req.Title, Shell: req.Shell, Admin: req.Admin, Cwd: req.Cwd, Command: command})
+}
+
+// runPipeRequest is one run item as cfo run-request sends it over the pipe.
+type runPipeRequest struct {
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Shell   string `json:"shell"`
+	Admin   bool   `json:"admin"`
+	Cwd     string `json:"cwd"`
+	Command string `json:"command"`
+}
+
+// acceptRunRequest records a run item that came over the pipe from process
+// pid, connected at connected, once that process is proven to run under the
+// registered primary CFO.
+// Republishing an ID with the same content while its item still waits changes
+// nothing; any other reuse of the ID is refused.
+func (s *Service) acceptRunRequest(ctx context.Context, pid int, connected time.Time, req runPipeRequest) error {
+	if s.Options.CFO == nil {
+		return errors.New("this supervisor cannot verify the CFO")
+	}
+	identity, release, err := s.Options.CFO.identityOf(ctx, pid, connected)
+	if err != nil {
+		return err
+	}
+	defer release()
 	cwd := req.Cwd
 	if cwd == "" {
-		cwd = h.Root
+		cwd = s.Store.Home.Root
 	}
 	if info, err := os.Stat(cwd); err != nil || !info.IsDir() {
 		return fmt.Errorf("the run's folder %s is not a directory", cwd)
 	}
 	now := time.Now().UTC()
-	r := Run{ID: req.ID, Identity: identity, Title: req.Title, Shell: req.Shell, Admin: req.Admin, Command: command, Cwd: cwd, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime)}
+	r := Run{ID: req.ID, Identity: identity, Title: req.Title, Shell: req.Shell, Admin: req.Admin, Command: req.Command, Cwd: cwd, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime)}
 	if err := validRun(r); err != nil {
 		return err
 	}
-	unlock, err := runPublishLock(h.State)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	if err := runInboxRoom(h.State); err != nil {
-		return err
-	}
-	prior, found, err := reportedRun(h.State, r.ID)
-	if err != nil {
-		return err
-	}
-	if found {
-		if !sameRun(prior, r) {
-			return errors.New("run ID already used")
+	runs := s.Store.Snapshot().Runs
+	if i := slices.IndexFunc(runs, func(prior Run) bool { return prior.ID == r.ID }); i >= 0 {
+		if prior := runs[i]; sameRun(prior, r) && prior.State == "ready" && now.Before(prior.ExpiresAt) {
+			return nil
 		}
-		if prior.State != "ready" || !now.Before(prior.ExpiresAt) {
-			return errors.New("run ID already used; a re-run needs a new ID")
-		}
-		return nil
+		return errors.New("run ID already used; a re-run needs a new ID")
 	}
-	dir := runDir(h.State, r)
+	dir := runDir(s.Store.Home.State, r)
 	name, script := runScript(r)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -205,7 +212,10 @@ func PublishRun(ctx context.Context, h home.Home, client *herdr.Client, req RunR
 		return errors.Join(err, os.RemoveAll(dir))
 	}
 	r.ScriptSum = runDigest(script)
-	if err := spoolRun(h.State, r); err != nil {
+	if err := s.Store.acceptRun(r); err != nil {
+		if errors.Is(err, ErrDeferred) {
+			err = fmt.Errorf("the board already holds %d run items waiting or running", maxRuns)
+		}
 		return errors.Join(err, os.RemoveAll(dir))
 	}
 	return nil
@@ -225,143 +235,6 @@ func readRunCommand(path string) (string, error) {
 		return "", fmt.Errorf("the command file is over %d KiB", maxRunCommand>>10)
 	}
 	return string(data), nil
-}
-
-// runPublishLock serializes publications, waiting briefly for another one.
-func runPublishLock(stateDir string) (func(), error) {
-	_, err := lock.AcquireExclusiveNamed(stateDir, ".run-publish.lock")
-	for deadline := time.Now().Add(2 * time.Second); err != nil && time.Now().Before(deadline); {
-		time.Sleep(25 * time.Millisecond)
-		_, err = lock.AcquireExclusiveNamed(stateDir, ".run-publish.lock")
-	}
-	if err != nil {
-		return nil, err
-	}
-	return func() { _ = lock.ReleaseExclusiveNamed(stateDir, ".run-publish.lock") }, nil
-}
-
-// reportedRun finds an item waiting in the inbox or already recorded, reading
-// the inbox first because ingest records an item before it removes the inbox
-// copy. It only reads: opening a Store here would run crash recovery under a
-// live supervisor.
-func reportedRun(stateDir, id string) (Run, bool, error) {
-	data, err := os.ReadFile(runInboxPath(stateDir, id))
-	if err == nil {
-		var prior Run
-		if err := json.Unmarshal(data, &prior); err != nil {
-			return Run{}, false, errors.New("run ID already used")
-		}
-		return prior, true, nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return Run{}, false, err
-	}
-	info, err := os.Stat(filepath.Join(stateDir, ".supervisor.json"))
-	if errors.Is(err, os.ErrNotExist) {
-		return Run{}, false, nil
-	}
-	if err != nil {
-		return Run{}, false, err
-	}
-	if info.Size() > maxStateBytes {
-		return Run{}, false, errors.New("supervisor state exceeds its bound")
-	}
-	data, err = os.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
-	if err != nil {
-		return Run{}, false, err
-	}
-	var db Database
-	if err := json.Unmarshal(data, &db); err != nil {
-		return Run{}, false, errors.New("supervisor run history is unreadable")
-	}
-	if i := slices.IndexFunc(db.Runs, func(r Run) bool { return r.ID == id }); i >= 0 {
-		return db.Runs[i], true, nil
-	}
-	return Run{}, false, nil
-}
-
-func runInboxPath(stateDir, id string) string {
-	sum := sha256.Sum256([]byte(id))
-	return filepath.Join(stateDir, "runs-inbox", hex.EncodeToString(sum[:])+".json")
-}
-
-// runInboxRoom refuses a publication while the inbox is full.
-func runInboxRoom(stateDir string) error {
-	dir := filepath.Join(stateDir, "runs-inbox")
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	if len(entries) >= maxRuns {
-		return errors.New("the run inbox is full")
-	}
-	return nil
-}
-
-func spoolRun(stateDir string, r Run) error {
-	data, err := json.Marshal(r)
-	if err != nil {
-		return err
-	}
-	return fsx.AtomicWriteFile(runInboxPath(stateDir, r.ID), data)
-}
-
-func (s *Store) ingestRuns() error {
-	dir := filepath.Join(s.Home.State, "runs-inbox")
-	entries, err := os.ReadDir(dir)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries[:min(len(entries), maxRuns)] {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		path := filepath.Join(dir, entry.Name())
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		var r Run
-		invalid := error(nil)
-		if info.Size() > 2*maxRunCommand {
-			invalid = errors.New("run item exceeds its size limit")
-		} else if data, err := os.ReadFile(path); err != nil {
-			return err
-		} else if json.Unmarshal(data, &r) != nil {
-			invalid = errors.New("invalid run item JSON")
-		}
-		if invalid == nil {
-			invalid = s.acceptRun(r)
-		}
-		if errors.Is(invalid, ErrStorage) {
-			return invalid
-		}
-		if errors.Is(invalid, ErrDeferred) {
-			continue
-		}
-		if invalid != nil {
-			s.mu.Lock()
-			s.db.Issues = append(s.db.Issues, "Run item rejected: "+bounded(invalid.Error(), 300))
-			if len(s.db.Issues) > 20 {
-				s.db.Issues = s.db.Issues[len(s.db.Issues)-20:]
-			}
-			err := s.save()
-			s.mu.Unlock()
-			if err != nil {
-				return err
-			}
-		}
-		if err := os.Remove(path); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (s *Store) acceptRun(r Run) error {

@@ -59,9 +59,12 @@ type Service struct {
 	history              []Task
 	revision             uint64
 	subscribers          map[chan struct{}]struct{}
-	done                 chan struct{}
-	work                 chan struct{}
-	cancel               context.CancelFunc
+	// runRequests takes one run request at a time, so two with one ID never
+	// both write a script.
+	runRequests sync.Mutex
+	done        chan struct{}
+	work        chan struct{}
+	cancel      context.CancelFunc
 }
 
 // Start acquires the same singleton as legacy watch BEFORE opening recovery
@@ -135,6 +138,12 @@ func (s *Service) run(ctx context.Context) {
 		}
 	}()
 	defer func() { s.cancel(); <-workerDone }()
+	pipeDone := make(chan struct{})
+	go func() {
+		defer close(pipeDone)
+		s.serveRunRequests(ctx)
+	}()
+	defer func() { s.cancel(); <-pipeDone }()
 	// A single inbox watcher, independent of task count. A timeout also
 	// recovers notifications lost during atomic renames or an AV filter fault.
 	notified := make(chan struct{}, 1)
@@ -200,7 +209,6 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestAnswers())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
-	reconcileErr = errors.Join(reconcileErr, s.Store.ingestRuns())
 	reconcileErr = errors.Join(reconcileErr, s.Store.expireRuns(time.Now()))
 	reconcileErr = errors.Join(reconcileErr, s.finishRuns(ctx))
 	reconcileErr = errors.Join(reconcileErr, s.Store.retireWaits())

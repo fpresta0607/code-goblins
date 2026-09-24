@@ -10,8 +10,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
-// cfo run-request needs a command file, and a request from a process that is
-// not the registered CFO records nothing.
+// cfo run-request needs a command file, and a request that no supervisor is
+// there to take records nothing; the supervisor proves the CFO itself.
 func TestRunRequestCommandRefusesBeforeRecordingAnything(t *testing.T) {
 	dir := t.TempDir()
 	h := home.Home{Root: dir, State: filepath.Join(dir, "state"), Data: filepath.Join(dir, "data")}
@@ -30,7 +30,7 @@ func TestRunRequestCommandRefusesBeforeRecordingAnything(t *testing.T) {
 	}{
 		"no command file":  {[]string{"--id", "install-tool", "--title", "Install it", "--shell", "powershell"}, 2, "--command-file is required"},
 		"a stray argument": {[]string{"--id", "install-tool", "--title", "Install it", "--shell", "powershell", "--command-file", command, "extra"}, 2, ""},
-		"not the CFO":      {[]string{"--id", "install-tool", "--title", "Install it", "--shell", "powershell", "--command-file", command}, 1, "not registered"},
+		"no supervisor":    {[]string{"--id", "install-tool", "--title", "Install it", "--shell", "powershell", "--command-file", command}, 1, "the supervisor is not running"},
 	} {
 		var stdout, stderr bytes.Buffer
 		if exit := runRunRequest(c.args, &stdout, &stderr, runtime); exit != c.exit || !strings.Contains(stderr.String(), c.says) {
