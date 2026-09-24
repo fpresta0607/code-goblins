@@ -191,6 +191,11 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 		return Evaluation{}, fmt.Errorf("%w: user question context changed", ErrRejected)
 	}
 	q := s.Store.Snapshot().Questions[i]
+	unlock, err := answerLock(s.Store.Home.State)
+	if err != nil {
+		return Evaluation{}, fmt.Errorf("%w: the CFO is answering this question with cfo answer (%v); nothing was sent", ErrRejected, err)
+	}
+	defer unlock()
 	pending, err := wake.Pending(s.Store.Home.State)
 	if err != nil {
 		return Evaluation{}, fmt.Errorf("%w: read the wake queue: %v; nothing was sent", ErrRejected, err)
@@ -238,10 +243,11 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 		return "", err
 	}
 	defer release()
-	if _, err := lock.AcquireExclusiveNamed(c.State, ".answer.lock"); err != nil {
+	unlock, err := answerLock(c.State)
+	if err != nil {
 		return "", err
 	}
-	defer lock.ReleaseExclusiveNamed(c.State, ".answer.lock")
+	defer unlock()
 	seq, err := strconv.Atoi(ref)
 	if i := strings.LastIndexByte(ref, '-'); err != nil && strings.HasPrefix(ref, "notify-") && i > 0 {
 		seq, err = strconv.Atoi(ref[i+1:])
@@ -299,6 +305,21 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 		return chosen, fmt.Errorf("delivered to %s; do not send it again, but %w", q.Task, err)
 	}
 	return chosen, nil
+}
+
+// answerLock serializes the two ways a goblin's question is answered, cfo
+// answer and the board, so whichever comes second sees the other's answer;
+// it waits briefly for the other one.
+func answerLock(stateDir string) (func(), error) {
+	_, err := lock.AcquireExclusiveNamed(stateDir, ".answer.lock")
+	for deadline := time.Now().Add(5 * time.Second); err != nil && time.Now().Before(deadline); {
+		time.Sleep(25 * time.Millisecond)
+		_, err = lock.AcquireExclusiveNamed(stateDir, ".answer.lock")
+	}
+	if err != nil {
+		return nil, err
+	}
+	return func() { _ = lock.ReleaseExclusiveNamed(stateDir, ".answer.lock") }, nil
 }
 
 // pickChoice matches an answer to one choice: exactly, or by its first word
@@ -381,8 +402,8 @@ func spoolAnswer(stateDir string, a cfoAnswer) error {
 // the question, that the CFO gave it, and when. A question still pending
 // takes its answer, and so does one superseded because the CFO drained its
 // notify before this pass or one whose board answer was refused because the
-// CFO had just answered; one still waiting in the question inbox keeps its
-// answer for the next pass.
+// CFO had just answered; one still waiting in the question inbox, or whose
+// board answer is still on its way, keeps its answer for a later pass.
 func (s *Store) ingestAnswers() error {
 	dir := filepath.Join(s.Home.State, answersInbox)
 	entries, err := os.ReadDir(dir)
@@ -411,6 +432,10 @@ func (s *Store) ingestAnswers() error {
 		}
 		s.mu.Lock()
 		i := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.ID == a.QuestionID })
+		if reject == "" && i >= 0 && s.db.Questions[i].Status == "queued" {
+			s.mu.Unlock()
+			continue
+		}
 		switch {
 		case reject != "":
 		case i < 0:
