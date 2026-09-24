@@ -1,21 +1,22 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRuntimeStream } from "./stream";
 import { Lineage, type Selection } from "./Lineage";
 import { Board } from "./Board";
 import { Orchestration } from "./Orchestration";
-import { Details } from "./Details";
 import { Questions } from "./Questions";
 import { useActivity } from "./useActivity";
 import { livePresentations } from "./activity";
 import { useReview } from "./review";
 import { ownsTaskSession } from "./lineageTree";
 import { Icon } from "./Icon";
-
-const NativeTerminal = lazy(() => import("./NativeTerminal").then((module) => ({ default: module.NativeTerminal })));
+import { Avatar } from "./Avatar";
+import { GoblinPanel, type PanelView } from "./GoblinPanel";
 
 export function App() {
   const { snapshot, connection, error } = useRuntimeStream();
   const [view, setView] = useState<"Board" | "Orchestration">("Board");
+  // Board opens a goblin on its task view, Orchestration on its terminal.
+  const [panelView, setPanelView] = useState<PanelView>("task");
   const [selected, setSelected] = useState<Selection | null>(null);
   const [selectionEpoch, setSelectionEpoch] = useState(0);
   const [paneOpen, setPaneOpen] = useState(true);
@@ -42,6 +43,7 @@ export function App() {
     // An empty selection is the supervisor root drawn for the CFO.
     const cfo = !next.session && !next.task || snapshot?.sessions.find((session) => session.id === next.session)?.role === "cfo";
     setSelected(cfo ? null : next);
+    setPanelView(view === "Board" ? "task" : "terminal");
     setSelectionEpoch((epoch) => epoch + 1);
     setPaneOpen(true);
     requestAnimationFrame(() => {
@@ -53,6 +55,7 @@ export function App() {
     setPaneOpen(false);
     requestAnimationFrame(() => returnFocus.current?.isConnected && returnFocus.current.focus());
   };
+  const closeButton = <button className="icon-button" aria-label="Close panel" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>;
   return <div className="app-shell" onKeyDown={(event) => {
     if (event.key === "Escape" && paneOpen && !event.defaultPrevented) { event.preventDefault(); close(); }
   }}>
@@ -62,7 +65,7 @@ export function App() {
         {snapshot?.example && <span className="example-label">Example workspace</span>}
       </a>
       <div className="view-switch" role="group" aria-label="Workspace view">
-        {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={view === name} onClick={() => setView(name)}>{name}</button>)}
+        {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={view === name} onClick={() => { setView(name); setPanelView(name === "Board" ? "task" : "terminal"); }}>{name}</button>)}
       </div>
       <div className="topbar-controls">
         {snapshot && <Questions snapshot={snapshot} connected={connected} presentations={presentations} />}
@@ -82,14 +85,15 @@ export function App() {
               : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} connected={connected} selected={selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
                 onSelect={(node, source) => select(node.session ? { session: node.session.id } : node.task ? { task: node.task.id } : {}, source)} />}
       </main>
-      <aside ref={pane} className="context-pane" hidden={!paneOpen} tabIndex={-1} aria-label={view === "Board" ? "Task review" : "Native terminal"}>
-        <div className="pane-controls">
-          {view === "Orchestration" && selected ? <button className="return-cfo" onClick={() => setSelected(null)}>Back to CFO</button> : <span className="muted">{view === "Board" ? "Review" : "CFO terminal"}</span>}
-          <button className="icon-button" aria-label="Close contextual pane" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
-        </div>
-        {snapshot && (view === "Board"
-          ? <Details key={selectionEpoch} task={task} snapshot={snapshot} connected={connected} reviews={reviews} />
-          : paneOpen && <Suspense fallback={<p className="loading">Opening native terminal...</p>}><NativeTerminal key={(selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "")} task={selected ? task : undefined} node={selected ? selectedSession : undefined} instance={snapshot.instance} visible={connected} onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} /></Suspense>)}
+      <aside ref={pane} className="context-pane" hidden={!paneOpen} tabIndex={-1} aria-label={view === "Board" ? "Task review" : "Goblin panel"}>
+        {snapshot && paneOpen && (view === "Board" && !task
+          ? <><div className="panel-top"><div className="panel-top-side" /><div /><div className="panel-top-side end">{closeButton}</div></div>
+            <section className="review-placeholder"><Avatar persona="reviewer" /><h2>Review the work</h2><p>Select a task to see what it is doing and what changed.</p></section></>
+          : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "")}
+            task={selected ? task : undefined} node={selected ? selectedSession : undefined} snapshot={snapshot} connected={connected} reviews={reviews}
+            view={panelView} onView={setPanelView} trailing={closeButton}
+            leading={view === "Orchestration" && selected ? <button className="icon-button" aria-label="Back to CFO" data-tip="Back to CFO" data-tip-align="start" onClick={() => setSelected(null)}><Icon name="back" /></button> : undefined}
+            onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />)}
       </aside>
     </div>
   </div>;

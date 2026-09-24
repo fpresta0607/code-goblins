@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import type { Snapshot, Task } from "./types";
 import {
   parseDiff,
@@ -8,10 +8,9 @@ import {
 } from "./types";
 import { useResource } from "./api";
 import { age } from "./presentation";
-import { Avatar } from "./Avatar";
-import { asksOverlord, nodeStatus, personaFor, pullRequestLabel } from "./workflow";
 import { DiffView } from "./DiffView";
 import { WorkspaceDetails } from "./WorkspaceDetails";
+import { Disclosure } from "./Disclosure";
 import { Icon } from "./Icon";
 import { deliveryMark } from "./feedback";
 import type { ReviewControls } from "./review";
@@ -120,16 +119,6 @@ function History({
   );
 }
 
-// Native disclosure styling and load-on-open behavior adapted from SIQshift
-// settings-group and shared ShiftGroups. Closing releases preview resources;
-// feedback stays mounted separately so an ambiguous submission keeps its ID.
-function Disclosure({ title, children, defaultOpen = false, kind = "" }: { title: ReactNode; children: ReactNode; defaultOpen?: boolean; kind?: string }) {
-  const [open, setOpen] = useState(defaultOpen);
-  return <details className={"disclosure " + kind} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary>{title}<Icon name="chevron-down" /></summary>
-    {open && <div className="disclosure-content">{children}</div>}
-  </details>;
-}
 
 function Activity({ task, snapshot }: { task?: Task; snapshot: Snapshot }) {
   const activity = useResource(task?.generation ? "/api/tasks/" + encodeURIComponent(task.id) + "/activity" : null, strings);
@@ -154,21 +143,15 @@ function Activity({ task, snapshot }: { task?: Task; snapshot: Snapshot }) {
   </>;
 }
 
-export function Details({ task, snapshot, connected, reviews }: {
-  task?: Task; snapshot: Snapshot; connected: boolean; reviews: ReviewControls;
+// The task view of the goblin panel: where the work lives, what changed and
+// what happened, below the panel header.
+export function TaskView({ task, snapshot, connected, reviews }: {
+  task: Task; snapshot: Snapshot; connected: boolean; reviews: ReviewControls;
 }) {
-  if (!task) return <section className="review-placeholder"><Avatar persona="reviewer" /><h2>Review the work</h2><p>Select a task to explore its changes and activity.</p></section>;
-  return <section className="details-panel" aria-labelledby="details-title">
-    <header className="panel-header"><Avatar persona={personaFor(task)} small /><div>
-      <h2 id="details-title">{task.title || task.id}</h2>
-      {task.project && <p className="project-label">{task.project}</p>}
-      <p className={"panel-status plain-status phase-" + task.phase + (asksOverlord(snapshot, task.id) ? " asking" : "")}><span className="status-dot" />{nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asksOverlord(snapshot, task.id))}</p>
-    </div><WorkspaceDetails task={task} instance={snapshot.instance} /></header>
-    <div className="panel-content">
-      {task.pr && /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/.test(task.pr) && <a className="review-pr" href={task.pr} target="_blank" rel="noreferrer" data-tip="Open pull request"><Icon name="pull-request" />{pullRequestLabel(task.pr)}</a>}
+  return <div className="panel-content">
+      <WorkspaceDetails task={task} />
       {task.generation ? <Disclosure title="Changes" defaultOpen kind="changes-section"><Changes task={task} reviews={reviews} connected={connected} /></Disclosure> : <p className="muted padded">Changes will appear when this task starts.</p>}
       <Disclosure title="Activity"><Activity task={task} snapshot={snapshot} /></Disclosure>
       {task.generation && <Disclosure title="History"><History task={task} reviews={reviews} connected={connected} /></Disclosure>}
-    </div>
-  </section>;
+    </div>;
 }

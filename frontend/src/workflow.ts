@@ -65,6 +65,13 @@ export function pullRequestLabel(url: string): string {
   return match ? match[1] + " #" + match[2] : "Pull request";
 }
 
+// Only a real GitHub pull request wears the GitHub mark and its bare number;
+// any other link keeps its full label.
+export function pullRequestBadge(url: string): { github: boolean; label: string } {
+  const github = /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/(\d+)$/.exec(url);
+  return github ? { github: true, label: "#" + github[1] } : { github: false, label: pullRequestLabel(url) };
+}
+
 // A goblin writes the status line a pull request link comes from.
 export function safePullRequest(url: string): string {
   return /^https:\/\/[^\s]+$/.test(url) ? url : "";

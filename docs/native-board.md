@@ -104,9 +104,11 @@ Each card shows the task's own latest status line and its pull request, linked o
 Both come from the current generation's lines only, so a respawned task id shows neither its earlier generation's activity nor its pull request until it reports again.
 Cards state progress in plain words, never engine words: Not started, Working, In review gate, Waiting on the CFO, Waiting on you, Checks passed, Delivered and No fresh evidence.
 Waiting on you shows while the goblin has an open question to the Overlord, ahead of its phase.
-Every Board card opens its changes, activity and commit history; Board has no terminal or standalone message composer.
-Orchestration opens the selected native terminal and defaults to the registered CFO.
-Cards show their reported project name, and the spacious contextual panel provides repository, branch and working-folder context on one continuous surface.
+Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Task view and a Terminal view one tap apart on a pill at its top.
+The Task view header also shows the goblin's own latest status line; the Terminal view header is compact, showing only the goblin, its status and the icon buttons, since the live screen shows the latest output.
+The Task view holds the workspace, connections, changes, activity and commit history; the Terminal view is that goblin's live native terminal, edge to edge.
+Board opens a goblin on its Task view and Orchestration on its Terminal view, which defaults to the registered CFO; once opened, both views stay mounted, so switching keeps scroll position and selection.
+There is still no standalone message composer: typing happens in the terminal itself.
 Open in VS Code and Open folder require a deliberate click and resolve the selected goblin's fresh, isolated Git worktree.
 The API accepts task identity and an editor enum, never a browser-provided path or command; it starts Code.exe directly with literal arguments and removes Electron Node/development flags from its inherited environment.
 Successful launch means the application was requested, not that a window was observed.
@@ -150,22 +152,21 @@ An unchanged submitted payload keeps its request ID after an ambiguous HTTP fail
 An interrupted external delivery becomes uncertain and is not replayed automatically.
 
 The installed Herdr build `0.9.0-preview.2026-09-08-62431dbd033b` exposes `terminal session observe` and `terminal session control` over NDJSON.
-The browser renders its real ANSI screen frames using xterm, loaded only in Orchestration.
-Observation does not claim ownership, resize the native runtime, or resume an agent.
-An observer sees only the part of the screen its size covers and hears of no change outside it, so a view without control always observes the pane at the size Herdr lays it out, whatever size the browser asked for.
-A view is refused when Herdr reports no size for the pane, and ends with a reconnect request when Herdr lays the pane out at a new size.
-A view without control also takes typing, with no Connect step: each input is typed into that pane with Herdr's `pane send-text`, as `cfo send` types into a pane, never through the observer.
+The browser renders its real ANSI screen frames using xterm, loaded the first time a panel shows its Terminal view.
+A goblin panel's Terminal view is a live view of the pane: it never claims the native controller, never resizes the pane and never resumes an agent.
+Frames arrive at the pane's own size as Herdr lays it out; the view shrinks its font to fit the pane's columns across the panel, never below 12 px, and a wider or taller pane scrolls inside the panel rather than being cropped.
+A view is refused when Herdr reports no size for the pane; when Herdr lays the pane out at a new size the view ends, and the panel reconnects on its own to show it whole.
+Typing needs no separate step: the view's lease takes keys, escape sequences and one bracketed paste at a time, in order, each typed into that exact pane by Herdr.
 The view proves its pane, terminal, process and gate custody in full when it opens and on every five-second tick; an input starts no process to prove it again, and only rereads the task's record (or the CFO's registration) and checks that the verified process is alive, so a changed generation, pane or registration or an exited process is refused on the next key and anything else on the next tick.
-A long paste is typed in order, in pieces a Windows command line can carry.
-A piece Herdr refuses ends the view with an unknown outcome instead of typing the rest; a view refuses resize, scroll and a NUL key such as Ctrl+Space, which no command line can carry.
-Connect input explicitly claims the single native controller, which can resize the runtime and resume a pending agent; another controller is refused without takeover.
-Keyboard input, one complete bracketed paste and native scrollback commands use that connection.
-Shift+Escape releases input and restores keyboard access to its control; ordinary Escape stays with the connected agent.
-Ctrl+Shift+C copies a selected terminal region.
-Closing, switching, disconnecting or restarting invalidates the input lease; reconnection starts with observation and a full screen frame, never replayed input.
-At most four native streams are open, writes have an eight-second cancellation bound, frame gaps disconnect, and oversized UTF-8 paste is rejected before sending.
-Adjacent queued printable text coalesces into bounded ordered writes; control keys, paste wrappers, scroll and resize remain barriers, and every native write passes the same binding and custody checks as typing.
-Screen reader support is an explicit saved preference under Terminal options and changes in place without reconnecting.
+A long paste is typed in order, in pieces a Windows command line can carry; a piece Herdr refuses ends the view with an unknown outcome instead of typing the rest.
+A refused input, or one whose outcome is unknown, ends the view with the reason in plain words; nothing is resent, and reconnecting starts from a fresh full screen.
+The view sends no resize or scroll: the mouse wheel scrolls the panel, and a NUL key such as Ctrl+Space is dropped before sending.
+Shift+Escape moves keyboard focus out of the terminal to the panel's pill; ordinary Escape stays with the pane.
+Releasing a drag selection copies it to the clipboard, the way Herdr does, and Ctrl+Shift+C copies the current selection.
+Closing, switching, disconnecting or restarting invalidates the lease; reconnection starts with a full screen frame, never replayed input.
+At most four views are open, frame gaps disconnect, and oversized UTF-8 paste is rejected before sending.
+Adjacent printable keystrokes coalesce into bounded ordered inputs; control keys and paste wrappers stay inputs of their own.
+Screen reader support is an explicit saved preference in the terminal options menu and changes in place without reconnecting.
 The default xterm input mode accepts InsertText/IME Unicode; its optional screen-reader mode has an upstream InsertText limitation, while paste remains supported.
 There is no second model session or generated reply.
 The native interface exposes rendered screen updates rather than original historical PTY bytes, and omits Kitty keyboard negotiation, graphics and host mouse notifications.
@@ -339,6 +340,11 @@ The HTML input and embedded HTML/JavaScript/CSS outputs are pinned to LF in `.gi
 Both Windows CI and release workflows install from the lockfile, check the frontend, regenerate assets, and fail if the committed bundle differs before compiling Go.
 The runtime executable embeds those assets and requires no Node process.
 For frontend development, `npm run dev` listens at `127.0.0.1:5173` and proxies API calls to a supervisor on `127.0.0.1:4310`, translating only that explicit local development origin.
+`BOARD_DEV_PORT` sets the port the dev server listens on; it defaults to `5173`, and the translated origin follows it.
+`BOARD_SUPERVISOR` sets the supervisor the dev server proxies API calls to, such as an example fixture; it defaults to `http://127.0.0.1:4310`.
+Setting neither keeps the defaults, so nothing changes for a developer who does not need them.
+Both are permanent developer tooling: on machines where Docker, WSL or another proxy already owns port 5173, a dev server pinned to 5173 can silently serve or test the wrong build.
+On such a machine, set `BOARD_DEV_PORT` to a free port and `BOARD_SUPERVISOR` to the running board you want to develop against.
 
 Before any test step invokes `cfo` or `go test`, clear `CFO_HOME` and `CFO_STATE_OVERRIDE` or point both to an isolated temporary home.
 For bounded local checks, use `GOMAXPROCS=2`, `go vet -p 1 ./...`, and `go test -p 1 ./...`.

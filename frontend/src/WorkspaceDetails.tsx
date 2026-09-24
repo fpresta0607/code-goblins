@@ -1,11 +1,11 @@
-import { useState } from "react";
-import { message, request, useResource } from "./api";
+import { useResource } from "./api";
 import { array, object, string, strings, type Session, type Task } from "./types";
 import { harnessName } from "./workflow";
 import { ownsTaskSession, sessionModel } from "./lineageTree";
 import { connectorMark, harnessMark, modelMark } from "./connectors";
 import { ConnectorMark } from "./ConnectorMark";
 import { Icon, type IconName } from "./Icon";
+import { Disclosure } from "./Disclosure";
 
 function parse(value: unknown) {
   const v = object(value);
@@ -25,24 +25,13 @@ function Status({ status }: { status: string }) {
   return <span className={"connection-status " + tone}><Icon name={icon} />{status.toLowerCase()}</span>;
 }
 
-export function WorkspaceDetails({ task, node, instance }: { task?: Task; node?: Session; instance: string }) {
-  const [opening, setOpening] = useState(false);
-  const [outcome, setOutcome] = useState("");
+export function WorkspaceDetails({ task, node }: { task?: Task; node?: Session }) {
   const child = !!node && !ownsTaskSession(node, task);
   const queued = !!task && !task.generation;
   const path = "/api/workspace" + (task ? "?task=" + encodeURIComponent(task.id) + "&generation=" + encodeURIComponent(task.generation) : "");
   const unlinked = !!node && !task;
   const resource = useResource(!queued && !unlinked ? path : null, parse);
   const details = resource.data;
-  const open = async (target: "vscode" | "folder") => {
-    if (!task || opening) return;
-    setOpening(true); setOutcome("");
-    try {
-      const result = object(await request("/api/workspace/open", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ task: task.id, generation: task.generation, target }) }));
-      setOutcome(string(result.message));
-    } catch (error: unknown) { setOutcome(message(error) + " Nothing is retried automatically."); }
-    finally { setOpening(false); }
-  };
   const harness = details ? harnessName(child ? node.harness : details.harness) : "";
   const model = details ? splitModel(child ? sessionModel(node, task) : details.model) : { name: "", basis: "" };
   const provider = modelMark(model.name);
@@ -50,12 +39,7 @@ export function WorkspaceDetails({ task, node, instance }: { task?: Task; node?:
     <h3>Workspace</h3>
     {unlinked ? <p className="muted">No working folder was reported for this session.</p> : queued ? <><p className="workspace-project">{task.project || "Project not specified"}</p><p className="muted">Not started yet.</p></> : resource.error ? <p role="alert">{resource.error}</p> : !details ? <p role="status">Reading workspace...</p> : <>
       <dl>{[["Repository", details.repository], ["Branch", details.branch], [child ? "Owning task folder" : task ? "Working folder" : "CFO project root", details.root]].filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
-      {task && !child && <div className="workspace-actions">
-        <button className="icon-button raised" disabled={opening || !instance} aria-label="Open in VS Code" data-tip="Open in VS Code" data-tip-align="start" onClick={() => void open("vscode")}><Icon name="code-editor" /></button>
-        <button className="icon-button raised" disabled={opening || !instance} aria-label="Open folder" data-tip="Open folder" onClick={() => void open("folder")}><Icon name="folder" /></button>
-      </div>}
-      {outcome && <p className="workspace-outcome" role="status">{outcome}</p>}
-      <details className="connections-details"><summary>Connectors{!child && <span className="column-count">{details.mcp.length + details.environment.length}</span>}<Icon name="chevron-down" /></summary><div>
+      <Disclosure kind="connections" title={<>Connectors{!child && <span className="column-count">{details.mcp.length + details.environment.length}</span>}</>}>
         <ul className="connection-list" aria-label="Harness and model">
           {harness && <li><ConnectorMark mark={harnessMark(child ? node.harness : details.harness)} label={harness} /><span className="connection-name">{harness}<span className="chip">Harness</span></span></li>}
           {model.name && <li><ConnectorMark mark={provider.mark} label={provider.provider} /><span className="connection-name">{model.name}<span className="chip">{model.basis ? model.basis + " model" : "Model"}</span></span></li>}
@@ -68,7 +52,7 @@ export function WorkspaceDetails({ task, node, instance }: { task?: Task; node?:
           {details.notes.map((note) => <p key={note}>{note}</p>)}
           <p>Configured is not connected. No secret values are shown.</p>
         </>}
-      </div></details>
+      </Disclosure>
     </>}
   </section>;
 }
