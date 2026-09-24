@@ -201,7 +201,7 @@ Retrying an unchanged comment keeps its request ID, so a retry cannot deliver th
 
 When the CFO needs a decision only you can make, it publishes the question with `cfo question` and the Command Center opens as a modal.
 Choices are labelled A, B and C with the CFO's recommendation marked, and **Other** takes a written answer.
-Nothing is preselected, **Later** keeps the question and your draft, and the **Command Center** menu in the header brings the question back.
+Nothing is preselected, **Later** keeps the question and your draft, and the **Command Center** icon in the header, whose badge counts questions waiting on you, brings the question back.
 Your answer goes to the same verified CFO session, never to a goblin, and it never approves a gate or merges anything.
 The same menu carries nonblocking notices, such as a review ready in Lavish, with **Open review** and **Keep in background**; neither pauses work.
 
