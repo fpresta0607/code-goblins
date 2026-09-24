@@ -15,25 +15,26 @@ The pinned upstream tree contains LICENSE and no NOTICE file.
 
 Design tokens and card/ghost/focus primitives are adapted from the inspected local SIQshift packages/shared/styles/brand.css.
 Rounded rectangle controls, the native select chevron/skin, and native details/summary styling are adapted from SIQshift apps/desktop/src/styles.css and the matching apps/web/src/styles.css controls.
-Details.tsx adapts load-on-open and release-on-close disclosure behavior from packages/shared/src/ui.tsx ShiftGroups, using the existing CFO resource hook with stale-response cancellation.
+Disclosure.tsx adapts load-on-open and release-on-close disclosure behavior from packages/shared/src/ui.tsx ShiftGroups, using the existing CFO resource hook with stale-response cancellation.
 CFO uses its own self-hosted typography, layered card surfaces, mutually exclusive Board/Orchestration views and one contextual pane; SIQshift reporting labels, charts, WebGL and API contracts are not included.
 The app icon and three transparent goblin sprite atlases were generated with the built-in image generation tool for this project and approved by the user on 2026-09-22.
 They were copied unchanged from the approved production assets; role-specific artwork is chosen deterministically from reported role or task wording, never presented as inferred runtime telemetry.
-Runtime dependencies: React and React DOM (MIT), PrismJS (MIT), xterm.js and its fit addon (MIT).
+Runtime dependencies: React and React DOM (MIT), PrismJS (MIT), xterm.js (MIT).
 React: https://github.com/facebook/react/blob/main/LICENSE
 Prism: https://github.com/PrismJS/prism/blob/master/LICENSE
 
 Bundled React and React DOM license: /assets/react-LICENSE.txt
 Bundled PrismJS license: /assets/prism-LICENSE.txt
 Bundled xterm.js 6.0.0 license: /assets/xterm-LICENSE.txt
-Bundled xterm.js fit addon 0.11.0 license: /assets/xterm-fit-LICENSE.txt
 
 Service and provider marks: path data from Simple Icons 16.32.0 (https://simpleicons.org), CC0 1.0. Each mark remains its owner's trademark and is used only to name that service.
+The Visual Studio Code icon is Microsoft's official stable icon (https://code.visualstudio.com/brand), bundled unmodified and shown only on the button that opens a workspace in VS Code.
+Visual Studio Code, VS Code and the Visual Studio Code icon are trademarks of Microsoft Corporation.
 
 Fonts, self-hosted as unmodified latin subsets under the SIL Open Font License 1.1:
 Pixelify Sans, Copyright 2021 The Pixelify Sans Project Authors (https://github.com/eifetx/Pixelify-Sans). License: /assets/fonts/pixelify-sans-OFL.txt
 Nunito, Copyright 2014 The Nunito Project Authors (https://github.com/googlefonts/nunito). License: /assets/fonts/nunito-OFL.txt
 JetBrains Mono, Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono). License: /assets/fonts/jetbrains-mono-OFL.txt
-The terminal renderer and fit addon load only for the Orchestration native terminal view.
+The terminal renderer loads only when a goblin panel first shows its Terminal view.
 
 The goblin workshop canvas background was generated for this project and approved by the user on 2026-09-23.

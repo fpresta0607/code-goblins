@@ -172,10 +172,10 @@ The whole crew:
 
 ### The goblin panel
 
-Clicking a card opens its panel on one continuous surface: the task and its project, then **Workspace** with the repository, branch and exact working folder.
-**Connectors** lists the harness, the model and the MCP servers and credentials the task is configured with, each beside its mark; configured is not the same as connected, and no secret values are shown.
-On Board the panel continues with **Changes**, **Activity** and **History**.
-In Orchestration it holds the native terminal, which stays read-only until you choose **Connect input**; **Shift+Escape** hands the keyboard back.
+Clicking a card or a node opens the same goblin panel from either view: who the goblin is, what it is doing in plain words, its own latest status line, and icon buttons to open its worktree in VS Code or File Explorer and to open its pull request.
+A pill at the top switches between the **Task** view and the **Terminal** view in one tap.
+The Task view shows **Workspace** with the repository, branch and exact working folder, **Connectors** with a mark for every harness, model provider, MCP server and credential (configured is not the same as connected, and no secret values are shown), then **Changes**, **Activity** and **History**.
+The Terminal view is the goblin's live Herdr pane, edge to edge: type straight into it, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
 
 <p align="center">
   <img src="docs/images/goblin-panel.webp" alt="The whole goblin panel: status, workspace with Open in VS Code, two configured MCP connections, the supervisor.ts diff with a line comment the CFO accepted, activity and history, then the same goblin's live native terminal from Orchestration" width="600" />
