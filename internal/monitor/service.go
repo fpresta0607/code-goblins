@@ -253,9 +253,9 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	}
 	digest := fmt.Sprintf("%x", sha256.Sum256(sample.Capture))
 
-	// A harness being refused by its provider is checked first: the pane
-	// carries the provider's error framing (429, rate limit, auth), which is a
-	// reliable signal, not a pane-text heuristic.
+	// A harness being refused by its provider is checked first. It is read
+	// from pane text, so routing.Detect takes a rate limit only on a line
+	// shaped like the provider's refusal, never from a goblin's own prose.
 	if fault, detail, found := routing.Detect(string(sample.Capture)); found {
 		return erroringObservation(observation, digest, fault, detail, now)
 	}
@@ -598,9 +598,11 @@ func (s Service) pauseObservation(observation Observation, now time.Time) Observ
 
 // erroringObservation records a pane whose harness is being refused by its
 // provider. It raises a wake event once per episode - the fault does not
-// resolve itself, so repeating it every cycle would be noise - and demands
-// deep inspection, because the fix is a decision (switch, wait, or top up)
-// rather than another poll.
+// resolve itself, so repeating it every cycle would be noise - and only for a
+// fault line other than the last one raised, since a pane flips between
+// erroring and healthy as its capture shifts. It demands deep inspection,
+// because the fix is a decision (switch, wait, or top up) rather than
+// another poll.
 func erroringObservation(observation Observation, digest string, fault routing.Fault, detail string, now time.Time) Observation {
 	first := observation.Health != HealthErroring
 	observation.Digest = digest
@@ -616,10 +618,13 @@ func erroringObservation(observation Observation, digest string, fault routing.F
 	observation.NextPauseResurface = nil
 	observation.Escalation = 0
 	observation.DemandDeepInspection = true
-	if first && observation.PendingEvent == nil {
-		event := taskEvent(observation.TaskID, HarnessError, string(fault)+": "+detail)
+	line := string(fault) + ": " + detail
+	key := fmt.Sprintf("%x", sha256.Sum256([]byte(line)))
+	if first && key != observation.FaultDigest && observation.PendingEvent == nil {
+		event := taskEvent(observation.TaskID, HarnessError, line)
 		event.Fault = fault
 		observation.PendingEvent = &event
+		observation.FaultDigest = key
 	}
 	return observation
 }

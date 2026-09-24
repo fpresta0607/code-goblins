@@ -752,7 +752,7 @@ func TestScanRaisesOneEventPerErroringEpisode(t *testing.T) {
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
 	probe := &fakeProber{samples: map[string]EndpointSample{
-		"g1": sampleFor(meta, herdr.BusyWorking, "quota exceeded for this organization"),
+		"g1": sampleFor(meta, herdr.BusyWorking, "API error: 403 quota exceeded for this organization"),
 	}}
 	service := testService(stateDir, probe, &now)
 
@@ -1399,5 +1399,49 @@ func TestScanHoldsQuietAnIndeterminateUnknownAgent(t *testing.T) {
 	obs := result.Observations[0]
 	if obs.Health == HealthUnknown || obs.Reason == EndpointUnknown || obs.EndpointVerdict != ProbePresent {
 		t.Fatalf("observation = %+v, want a present, held-quiet endpoint", obs)
+	}
+}
+
+// A goblin's pane flipped between erroring and healthy as its scan window
+// shifted, and every flip raised the same harness_error wake again. The same
+// matched line coming back into the window is not a new fault; a different
+// line after the pane recovered is.
+func TestScanRaisesAFaultLineOnceAcrossPaneFlips(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 9, 23, 21, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{}}
+	service := testService(stateDir, probe, &now)
+	scan := func(capture string) *Event {
+		t.Helper()
+		probe.samples["g1"] = sampleFor(meta, herdr.BusyWorking, capture)
+		now = now.Add(3 * time.Minute)
+		result, err := service.Scan(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Event != nil {
+			if _, err := service.Publish(*result.Event); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return result.Event
+	}
+	fault := "Error: 429 rate limit reached for model opus"
+	if scan("building the parser\n"+fault) == nil {
+		t.Fatal("the first sight of the fault raised no event")
+	}
+	if event := scan("running tests, 42 passed"); event != nil {
+		t.Fatalf("a healthy pane raised %+v", event)
+	}
+	if event := scan("more output\n" + fault); event != nil {
+		t.Fatalf("the same fault line scrolling back in raised %+v", event)
+	}
+	if event := scan("running tests, 43 passed"); event != nil {
+		t.Fatalf("a healthy pane raised %+v", event)
+	}
+	if scan("Error: 429 rate limit reached for model sonnet") == nil {
+		t.Fatal("a different fault line after recovery raised no event")
 	}
 }

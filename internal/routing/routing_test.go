@@ -203,3 +203,36 @@ func TestThirdPartyFaultNeverMatchesAPolicyRule(t *testing.T) {
 		t.Errorf("a model-provider outage did not match its rule: rule=%+v matched=%v", rule, matched)
 	}
 }
+
+// Healthy goblins read as rate-limited from their own prose about a dozen
+// times on 2026-09-23, and Claude Code's resume dialog reads the same way. A
+// rate-limit phrase is a fault only on a line shaped like a provider's own
+// refusal: a status code, a provider error type, an API error, or a retry or
+// reset time.
+func TestDetectNeedsTheShapeOfARefusalForARateLimit(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		tail string
+		want bool
+	}{
+		{"a goblin listing API doc topics", "Sections: authentication, pagination, errors, and rate limits.", false},
+		{"a goblin reporting a past limit", "the account hit its usage limit", false},
+		{"a goblin not retrying", "failed again with the same usage limit ... not retrying", false},
+		{"Claude Code's resume dialog", "Resuming the full session will consume a substantial portion of your usage limits.", false},
+		{"a setting's name", "RATE_LIMIT_PER_WINDOW=100 in the example env", false},
+		{"a status code", "Error: 429 Too Many Requests - rate limit reached", true},
+		{"a provider error type", `API Error: 429 {"type":"error","error":{"type":"rate_limit_error"}}`, true},
+		{"a reset time", "Claude usage limit reached. Your limit will reset at 5pm (America/Chicago).", true},
+		{"a retry time", "You've hit your usage limit. Upgrade to Pro or try again in 4 days 1 hour.", true},
+		{"a quota 403", "kimi: request failed with 403: quota exceeded", true},
+		{"prose above a real refusal", "Sections: errors, and rate limits.\nError: 429 rate limit reached", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fault, evidence, found := Detect(c.tail)
+			last := c.tail[strings.LastIndex(c.tail, "\n")+1:]
+			if found != c.want || c.want && (fault != RateLimit || evidence != last) {
+				t.Fatalf("Detect = (%q, %q, %v), want a rate limit %v quoting %q", fault, evidence, found, c.want, last)
+			}
+		})
+	}
+}
