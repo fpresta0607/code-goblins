@@ -72,7 +72,7 @@ commands:
   cfo merge-local <id>
   cfo cleanup <id>
   cfo reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]   find orphaned harness processes, stale dev servers, worktrees, task records and status logs; --apply retires the worktrees, records and logs, and ending a process needs its pid named with --force
-  cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>"   a goblin reports its outcome straight into the wake queue
+  cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy> "<why>"   a goblin reports its outcome straight into the wake queue, or what it is working on or waiting on
   cfo question --id <stable-id> --text "<user question>" [--option "<choice>"]... [--recommend "<exact-choice>"]   registered CFO opens a user decision modal with Other; the answer returns as one normal native message, not a native prompt-tool response
   cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]   registered CFO answers a goblin's blocked question: delivered like cfo send, the notify retired, and the choice, who and when recorded for the board
   cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url>] | --id <stable-id> --withdraw "<reason>" [--task <id>]   report an item that stays in the Command Center until the Overlord answers or clears it, or withdraw your own
