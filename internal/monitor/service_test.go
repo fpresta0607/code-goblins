@@ -1520,3 +1520,37 @@ func TestErroringObservationEndsAFaultEpisodeInTime(t *testing.T) {
 		})
 	}
 }
+
+func TestScanKeepsAWaitingGoblinParkedAfterACFOAuditLine(t *testing.T) {
+	for _, audit := range []string{
+		"pipeline-findings-accepted: step=review run=r1 round=2 findings=ask,bug by=cfo",
+		"pipeline-policy-migrated: class=ordinary review_cycles=3 old=aaa new=bbb",
+	} {
+		t.Run(audit, func(t *testing.T) {
+			stateDir := t.TempDir()
+			now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+			meta := metaFor("g1")
+			writeTask(t, stateDir, meta)
+			for _, line := range []string{"waiting on overlord: which region to launch in", audit} {
+				if err := state.AppendStatus(stateDir, "g1", line); err != nil {
+					t.Fatal(err)
+				}
+			}
+			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, herdr.AgentDone, "turn ended")}}
+			service := testService(stateDir, probe, &now)
+
+			events := cycle(t, service, &now, 60)
+
+			if len(events) != 0 {
+				t.Fatalf("events = %+v, want no wake for a waiting goblin", events)
+			}
+			observation, err := ReadObservation(stateDir, "g1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if observation.Health != HealthParked {
+				t.Fatalf("observation = %+v, want parked", observation)
+			}
+		})
+	}
+}

@@ -146,6 +146,7 @@ func TestApproveAcceptsExactlyTheOpenFindings(t *testing.T) {
 	limit := 1
 	review := Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 3, Findings: `{"findings":[{"id":"ask","action":"ask-user"},{"id":"bug","action":"auto-fix"},{"id":"note","action":"no-op"}]}`}
 	blank := Gate{RunID: "run", StepID: "step", Step: "rebase", Status: "awaiting_approval", Round: 1, AutoFixLimit: &limit, Findings: `{"findings":[{"id":"ask","action":"ask-user"},{"id":"conflict","action":""}]}`}
+	blankOnly := Gate{RunID: "run", StepID: "step", Step: "rebase", Status: "awaiting_approval", Round: 1, AutoFixLimit: &limit, Findings: `{"findings":[{"id":"conflict","action":""}]}`}
 	quiet := Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 3, Findings: `{"findings":[{"id":"note","action":"no-op"}]}`}
 	for _, c := range []struct {
 		name     string
@@ -165,6 +166,7 @@ func TestApproveAcceptsExactlyTheOpenFindings(t *testing.T) {
 		{"nothing open to accept", quiet, Response{Action: "approve", Accept: "note"}, "no open ask-user or auto-fix finding", false},
 		{"approve without accept", review, Response{Action: "approve"}, "", true},
 		{"a finding with no action still needs its fix", blank, Response{Action: "approve", Accept: "ask"}, "", true},
+		{"only a finding with no action still needs its fix", blankOnly, Response{Action: "approve", Accept: "conflict"}, "", true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			args, err := ResponseArgs(selection, c.gate, c.response)

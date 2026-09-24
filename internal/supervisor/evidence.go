@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
@@ -160,7 +161,7 @@ func latestReport(lines []string, spawned time.Time) (time.Time, string) {
 		if !spawned.IsZero() && stamp.Before(spawned.Truncate(time.Second)) {
 			break
 		}
-		if event = strings.TrimSpace(event); event != "" {
+		if event = strings.TrimSpace(event); event != "" && !crewstate.IsCFOAudit(event) {
 			return stamp, event
 		}
 	}
@@ -215,7 +216,7 @@ func statusActivity(lines []string, spawned time.Time) (string, string) {
 			break
 		}
 		event = strings.TrimSpace(event)
-		if activity == "" {
+		if activity == "" && !crewstate.IsCFOAudit(event) {
 			activity = event
 		}
 		// Only an https link is a pull request; the line is goblin-written.

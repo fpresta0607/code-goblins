@@ -324,12 +324,12 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 			slices.Sort(named)
 			slices.Sort(open)
 			switch {
+			case blank:
+				return nil, ErrUnresolved
 			case len(open) == 0:
 				return nil, errors.New("pipeline: no open ask-user or auto-fix finding to accept; approve without --accept")
 			case !slices.Equal(named, open):
 				return nil, fmt.Errorf("pipeline: --accept must name exactly the open ask-user and auto-fix findings: %s", strings.Join(open, ","))
-			case blank:
-				return nil, ErrUnresolved
 			}
 		} else if unresolved {
 			return nil, ErrUnresolved

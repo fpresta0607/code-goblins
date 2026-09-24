@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -104,7 +105,7 @@ func Resolve(ctx context.Context, stateDir, id string, endpoint Endpoint) (Curre
 	}
 	for i := len(lines) - 1; i >= 0; i-- {
 		verb, detail, ok := ParseStatusLine(lines[i])
-		if !ok {
+		if !ok || slices.Contains(cfoAuditVerbs, verb) {
 			continue
 		}
 		return Current{State: mapVerb(verb), Source: SourceStatus, Detail: detail}, nil
@@ -113,19 +114,31 @@ func Resolve(ctx context.Context, stateDir, id string, endpoint Endpoint) (Curre
 }
 
 // LatestVerb scans status lines newest-first and returns the first parseable
-// verb, so a trailing unparseable or noise line never hides the goblin's real
-// state. The watcher and the monitor must share this scan, or a decision line
+// verb the task reported itself, so a trailing unparseable or noise line or a
+// CFO audit record never hides the goblin's real state. The watcher and the monitor must share this scan, or a decision line
 // followed by a trailing noise line would be committed silently by one and
 // parked as delivered by the other.
 func LatestVerb(lines []string) (string, bool) {
 	for i := len(lines) - 1; i >= 0; i-- {
 		verb, _, ok := ParseStatusLine(lines[i])
-		if !ok {
+		if !ok || slices.Contains(cfoAuditVerbs, verb) {
 			continue
 		}
 		return verb, true
 	}
 	return "", false
+}
+
+// cfoAuditVerbs are the records the CFO itself writes into a task's status
+// log. They are the CFO's word, never the task's own report, so every scan
+// for a task's latest report skips them.
+var cfoAuditVerbs = []string{"pipeline-findings-accepted", "pipeline-policy-migrated"}
+
+// IsCFOAudit reports whether a status line is a CFO audit record rather than
+// something the task reported.
+func IsCFOAudit(line string) bool {
+	verb, _, ok := ParseStatusLine(line)
+	return ok && slices.Contains(cfoAuditVerbs, verb)
 }
 
 // ParseStatusLine parses one colon-delimited status event, accepting the
