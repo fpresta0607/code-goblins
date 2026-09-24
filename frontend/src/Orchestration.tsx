@@ -36,10 +36,10 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   const [layout, setLayout] = useState(readLayout);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // The graph fills the visible canvas, centered, until a zoom or a pan by
-  // hand takes over; Fit hands it back. A dragged card holds the scale still.
+  // hand takes over; Fit hands it back. A dragged card holds the frame still.
   const [canvas, setCanvas] = useState({ width: 0, height: 0 });
   const [manual, setManual] = useState<number | null>(null);
-  const [held, setHeld] = useState<number | null>(null);
+  const [held, setHeld] = useState<{ scale: number; left: number; top: number; width: number; height: number } | null>(null);
 
   const viewport = useRef<HTMLDivElement>(null);
   const ignoreClick = useRef(false);
@@ -78,11 +78,11 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   const visible = nodes.filter((node) => !hidden(node));
   const point = (id: string) => layout.positions[id] || automatic[id];
   const xs = visible.map((node) => point(node.id).x), ys = visible.map((node) => point(node.id).y);
-  const left = xs.length ? Math.max(0, Math.min(...xs) - 40) : 0;
-  const top = ys.length ? Math.max(0, Math.min(...ys) - 40) : 0;
-  const width = Math.max(1, ...xs.map((x) => x + NODE_WIDTH + 40)) - left;
-  const height = Math.max(1, ...ys.map((y) => y + NODE_HEIGHT + 80)) - top;
-  const scale = manual ?? held ?? fitScale({ width, height }, canvas);
+  const fitLeft = xs.length ? Math.max(0, Math.min(...xs) - 40) : 0;
+  const fitTop = ys.length ? Math.max(0, Math.min(...ys) - 40) : 0;
+  const fitWidth = Math.max(1, ...xs.map((x) => x + NODE_WIDTH + 40)) - fitLeft;
+  const fitHeight = Math.max(1, ...ys.map((y) => y + NODE_HEIGHT + 80)) - fitTop;
+  const { scale, left, top, width, height } = held ?? { scale: manual ?? fitScale({ width: fitWidth, height: fitHeight }, canvas), left: fitLeft, top: fitTop, width: fitWidth, height: fitHeight };
   const zoom = (next: number) => setManual(Math.max(.35, Math.min(1.5, next)));
   const fit = () => { setManual(null); viewport.current?.scrollTo(0, 0); };
   useEffect(() => {
@@ -106,7 +106,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
     drag.current = { id: node.id, pointer: { x: event.clientX, y: event.clientY }, start: point(node.id) };
-    setHeld(scale);
+    setHeld({ scale, left, top, width, height });
     ignoreClick.current = false;
   };
   const moveDrag = (event: PointerEvent<HTMLButtonElement>) => {

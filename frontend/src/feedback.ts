@@ -23,15 +23,15 @@ export function alreadyKnown(
     : undefined;
 }
 
-// deliveryMark shows an action's delivery as a mark: one check while it is
-// sent, two once accepted. Only trouble spells itself out in words.
+// deliveryMark shows an action's delivery as a mark: one check once the
+// supervisor accepted it, two once delivered. Only trouble spells itself out.
 export function deliveryMark(action: Action): { icon: IconName; label: string; trouble: boolean } {
   const cfo = action.kind === "review" || action.kind.startsWith("cfo_");
   switch (action.status) {
     case "succeeded": return { icon: "check-double", label: cfo ? "Accepted by the CFO" : action.kind === "goblin_answer" ? "Delivered to the goblin" : "Done", trouble: false };
-    case "running": return { icon: "check", label: "Sending", trouble: false };
     case "failed": return { icon: "close", label: "Could not deliver", trouble: true };
     case "uncertain": return { icon: "warning", label: "Delivery unconfirmed. Inspect " + (cfo ? "the CFO queue" : "the terminal") + " before sending again.", trouble: true };
-    default: return { icon: "clock", label: "Queued", trouble: false };
+    case "running": return { icon: "check", label: "Sending", trouble: false };
+    default: return { icon: "check", label: "Queued", trouble: false };
   }
 }

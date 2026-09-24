@@ -142,11 +142,14 @@ function Activity({ task, snapshot }: { task?: Task; snapshot: Snapshot }) {
       </ol> : <p className="muted">{task?.generation && !activity.data ? "Loading activity…" : "No task status records yet."}</p>}
     {actions.length > 0 && <section className="action-history">
       <h3>Action delivery</h3>
-      <ol className="action-list">{actions.map((action) => <li key={action.id}>
-        <div><strong>{actionLabel(action.kind)}</strong>{(({ icon, label }) => <span className={"delivery " + action.status} role="img" aria-label={label} data-tip={label}><Icon name={icon} /></span>)(deliveryMark(action))}<time>{age(action.updated_at)}</time></div>
-        {action.text && <p className="action-text">{action.text}</p>}
-        {deliveryMark(action).trouble && <p className="warning-text">{deliveryMark(action).label}{action.message && " " + action.message}</p>}
-      </li>)}</ol>
+      <ol className="action-list">{actions.map((action) => {
+        const delivery = deliveryMark(action);
+        return <li key={action.id}>
+          <div><strong>{actionLabel(action.kind)}</strong><span className={"delivery " + action.status} role="img" aria-label={delivery.label} data-tip={delivery.label}><Icon name={delivery.icon} /></span><time>{age(action.updated_at)}</time></div>
+          {action.text && <p className="action-text">{action.text}</p>}
+          {delivery.trouble && <p className="warning-text">{delivery.label}{action.message && " " + action.message}</p>}
+        </li>;
+      })}</ol>
     </section>}
   </>;
 }

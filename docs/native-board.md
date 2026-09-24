@@ -191,9 +191,10 @@ Environment values, full process environments, dotenv, auth scripts, MCP command
 ### Interface rules
 
 These rules hold for every board surface, and new work follows them.
-Actions are icon buttons, never typed-out words; each names itself with an accessible label and a tooltip on hover and keyboard focus.
+Recurring tool actions (open in VS Code, open folder, open pull request, refresh, zoom, fit, arrange, close, reconnect) are icon buttons, each naming itself with an accessible label and a tooltip on hover and keyboard focus.
+Decisions and one-off commands keep a short word, for example Send decision, Later or Show the next 300 lines.
 Every connector, MCP server, credential, harness and model provider shows a mark beside its name: the brand's mark from Simple Icons where one exists, a plain glyph where the owner withholds its mark, the Model Context Protocol mark for an unknown MCP server and a key for an unknown credential.
-Delivery reads as a mark: a clock while queued, one check while sending, two checks once accepted; only a failed or unconfirmed delivery is spelled out, with what to check before sending again.
+Delivery reads as a mark: one check once the supervisor accepted it, two checks once delivered; only a failed or unconfirmed delivery is spelled out, with what to check before sending again.
 Status words say what is happening in plain words, such as Working, In review gate, Waiting on you, Waiting on the CFO or Merged, verifying, never the evidence the supervisor holds.
 Text is never smaller than 15 px.
 Surfaces sit on three elevation levels, each lighter and more shadowed than the one below, so what floats reads as floating.

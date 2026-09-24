@@ -20,7 +20,7 @@ function splitModel(model: string): { name: string; basis: string } {
 }
 
 function Status({ status }: { status: string }) {
-  const shown: Record<string, [IconName, string]> = { Configured: ["check", "ok"], Empty: ["warning", "empty"] };
+  const shown: Record<string, [IconName, string]> = { Configured: ["key", "declared"], Empty: ["warning", "empty"] };
   const [icon, tone] = shown[status] || ["clock", "declared"];
   return <span className={"connection-status " + tone}><Icon name={icon} />{status.toLowerCase()}</span>;
 }
