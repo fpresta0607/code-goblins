@@ -76,9 +76,12 @@ export function livePresentations(snapshot:Snapshot,now:number):BoardActivity[] 
     // A goblin proves its presentation by its own pane and names no native
     // session, so the task's own runtime evidence decides whether it is live.
     const task=snapshot.tasks.find(t=>t.id===event.task_id),node=event.target?snapshot.sessions.find(n=>n.id===event.target):undefined;
+    // A goblin parked on a question to the Overlord goes stale by design, and
+    // its pending question is the proof it still waits on that page.
     const runtime=event.target?node?.runtime:task?.runtime;
+    const asking=!event.target&&(snapshot.questions||[]).some(q=>q.task===event.task_id&&q.status==="pending");
     return !!task&&task.generation===event.generation&&(!event.target||!!node&&node.generation===event.generation&&node.phase!=="ended")
-      &&!!runtime&&["active","busy","idle","working","done"].includes(runtime.state)
-      &&now-Date.parse(runtime.at)<120000;
+      &&(asking||!!runtime&&["active","busy","idle","working","done"].includes(runtime.state)
+      &&now-Date.parse(runtime.at)<120000);
   });
 }
