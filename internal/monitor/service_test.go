@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -1446,42 +1447,35 @@ func TestScanRaisesAFaultLineOnceAcrossPaneFlips(t *testing.T) {
 	}
 }
 
-// A goblin raised a 429, the CFO switched it away, and it later came back and
-// hit the identical refusal. The switch published a new spawn generation, so
-// the same line is a new fault for the new agent and must wake again.
-func TestScanRaisesTheSameFaultLineAgainUnderANewSpawnGeneration(t *testing.T) {
-	stateDir := t.TempDir()
-	now := time.Date(2026, 9, 23, 21, 0, 0, 0, time.UTC)
-	meta := metaFor("g1")
-	meta.SpawnGen = "s1"
-	writeTask(t, stateDir, meta)
-	probe := &fakeProber{samples: map[string]EndpointSample{}}
-	service := testService(stateDir, probe, &now)
-	scan := func(capture string) *Event {
-		t.Helper()
-		probe.samples["g1"] = sampleFor(meta, herdr.BusyWorking, capture)
-		now = now.Add(3 * time.Minute)
-		result, err := service.Scan(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if result.Event != nil {
-			if _, err := service.Publish(*result.Event); err != nil {
-				t.Fatal(err)
+// The same refusal line wakes again only once the pane has shown no fault
+// for faultEpisodeGap: a switch that resumes the session and re-renders the
+// old refusal inside that window is not a new fault, but the identical
+// refusal after a long healthy stretch is a new episode the CFO must hear.
+func TestErroringObservationEndsAFaultEpisodeInTime(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		between   Health
+		after     time.Duration
+		wantEvent bool
+	}{
+		{"a switch re-rendering the old refusal", HealthUnknown, 10 * time.Minute, false},
+		{"the same refusal after a healthy stretch", HealthActive, faultEpisodeGap, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			raisedAt := time.Date(2026, 9, 23, 21, 0, 0, 0, time.UTC)
+			detail := `API Error: 429 {"type":"error","error":{"type":"rate_limit_error"}}`
+			observation := erroringObservation(Observation{TaskID: "g1"}, "d1", routing.RateLimit, detail, raisedAt)
+			if observation.PendingEvent == nil {
+				t.Fatal("the first sight of the fault raised no event")
 			}
-		}
-		return result.Event
-	}
-	fault := `API Error: 429 {"type":"error","error":{"type":"rate_limit_error"}}`
-	if scan(fault) == nil {
-		t.Fatal("the first sight of the fault raised no event")
-	}
-	meta.SpawnGen = "s2"
-	writeTask(t, stateDir, meta)
-	if event := scan("running tests, 42 passed"); event != nil {
-		t.Fatalf("a healthy pane raised %+v", event)
-	}
-	if scan(fault) == nil {
-		t.Fatal("the same fault line under a new spawn generation raised no event")
+			observation.PendingEvent = nil
+			observation.Health = c.between
+
+			observation = erroringObservation(observation, "d2", routing.RateLimit, detail, raisedAt.Add(c.after))
+
+			if (observation.PendingEvent != nil) != c.wantEvent {
+				t.Fatalf("pending event = %+v after %s, want an event %v", observation.PendingEvent, c.after, c.wantEvent)
+			}
+		})
 	}
 }
