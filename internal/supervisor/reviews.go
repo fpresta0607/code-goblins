@@ -86,9 +86,11 @@ func sameReview(a, b Review) bool {
 	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Lavish == b.Lavish && slices.Equal(a.ImageSums, b.ImageSums)
 }
 
-// reviewImageDir holds a review's copied images, named by position.
-func reviewImageDir(stateDir, id string) string {
-	sum := sha256.Sum256([]byte(id))
+// reviewImageDir holds one publication's copied images, named by position.
+// Its name is that publication's own digest, so no other record, not even a
+// republish of the same ID, ever names it.
+func reviewImageDir(stateDir string, r Review) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{r.ID, r.Identity, strconv.FormatInt(r.CreatedAt.UnixNano(), 10), strings.Join(r.ImageSums, ",")}, "\n")))
 	return filepath.Join(stateDir, "reviews", hex.EncodeToString(sum[:]))
 }
 
@@ -128,7 +130,10 @@ func PublishReview(ctx context.Context, h home.Home, client *herdr.Client, taskI
 		return err
 	}
 	defer unlock()
-	staged := reviewImageDir(h.State, id) + ".staged"
+	if err := reviewInboxRoom(h.State); err != nil {
+		return err
+	}
+	staged := filepath.Join(h.State, "reviews", ".staged")
 	if err := os.RemoveAll(staged); err != nil {
 		return err
 	}
@@ -146,17 +151,17 @@ func PublishReview(ctx context.Context, h home.Home, client *herdr.Client, taskI
 		}
 		return nil
 	}
-	if len(images) > 0 {
-		// A copy left by an interrupted publish is replaced; no record names it.
-		final := reviewImageDir(h.State, id)
-		if err := os.RemoveAll(final); err != nil {
-			return err
-		}
-		if err := os.Rename(staged, final); err != nil {
-			return err
-		}
+	if len(images) == 0 {
+		return spoolReview(h.State, r)
 	}
-	return spoolReview(h.State, r)
+	final := reviewImageDir(h.State, r)
+	if err := os.Rename(staged, final); err != nil {
+		return err
+	}
+	if err := spoolReview(h.State, r); err != nil {
+		return errors.Join(err, os.RemoveAll(final))
+	}
+	return nil
 }
 
 // WithdrawReview closes the reporter's own open item with its reason.
@@ -174,6 +179,19 @@ func WithdrawReview(ctx context.Context, h home.Home, client *herdr.Client, task
 		return err
 	}
 	defer unlock()
+	prior, found, err := reportedReview(h.State, id)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return errors.New("no review with that ID to withdraw")
+	}
+	if prior.Identity != identity {
+		return errors.New("only the reporter that published a review can withdraw it")
+	}
+	if prior.State != "open" {
+		return errors.New("the review is already " + prior.State)
+	}
 	return spoolReview(h.State, Review{ID: id, Identity: identity, Task: taskID, State: "withdrawn", Reason: reason, UpdatedAt: time.Now().UTC()})
 }
 
@@ -233,10 +251,22 @@ func copyReviewImage(source io.Reader, path string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-// reportedReview finds a review already recorded or waiting in the inbox. It
+// reportedReview finds a review waiting in the inbox or already recorded. It
 // only reads: opening a Store here would run crash recovery under a live
-// supervisor.
+// supervisor. The inbox is read first because ingest records an item before it
+// removes the inbox copy, so one of the two reads always sees it.
 func reportedReview(stateDir, id string) (Review, bool, error) {
+	data, err := os.ReadFile(reviewInboxPath(stateDir, id, "open"))
+	if err == nil {
+		var prior Review
+		if err := json.Unmarshal(data, &prior); err != nil {
+			return Review{}, false, errors.New("review ID already used")
+		}
+		return prior, true, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return Review{}, false, err
+	}
 	if info, err := os.Stat(filepath.Join(stateDir, ".supervisor.json")); err == nil {
 		if info.Size() > maxStateBytes {
 			return Review{}, false, errors.New("supervisor state exceeds its bound")
@@ -255,18 +285,7 @@ func reportedReview(stateDir, id string) (Review, bool, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return Review{}, false, err
 	}
-	data, err := os.ReadFile(reviewInboxPath(stateDir, id, "open"))
-	if errors.Is(err, os.ErrNotExist) {
-		return Review{}, false, nil
-	}
-	if err != nil {
-		return Review{}, false, err
-	}
-	var prior Review
-	if err := json.Unmarshal(data, &prior); err != nil {
-		return Review{}, false, errors.New("review ID already used")
-	}
-	return prior, true, nil
+	return Review{}, false, nil
 }
 
 // A publication and a withdrawal of one item wait in the inbox side by side,
@@ -276,7 +295,10 @@ func reviewInboxPath(stateDir, id, reviewState string) string {
 	return filepath.Join(stateDir, "reviews-inbox", hex.EncodeToString(sum[:])+"."+reviewState+".json")
 }
 
-func spoolReview(stateDir string, r Review) error {
+// reviewInboxRoom refuses a report while the inbox is full. Reporters hold the
+// publish lock and ingest only removes records, so the answer holds until the
+// report is spooled.
+func reviewInboxRoom(stateDir string) error {
 	dir := filepath.Join(stateDir, "reviews-inbox")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -287,6 +309,13 @@ func spoolReview(stateDir string, r Review) error {
 	}
 	if len(entries) >= 2*maxReviews {
 		return errors.New("the review inbox is full")
+	}
+	return nil
+}
+
+func spoolReview(stateDir string, r Review) error {
+	if err := reviewInboxRoom(stateDir); err != nil {
+		return err
 	}
 	data, err := json.Marshal(r)
 	if err != nil {
@@ -384,6 +413,12 @@ func (s *Store) acceptReview(r Review) error {
 			return err
 		}
 		if i >= 0 {
+			// A publication that raced one already recorded leaves nothing.
+			if dir := reviewImageDir(s.Home.State, r); dir != reviewImageDir(s.Home.State, s.db.Reviews[i]) {
+				if err := os.RemoveAll(dir); err != nil {
+					return err
+				}
+			}
 			if !sameReview(s.db.Reviews[i], r) {
 				return errors.New("review ID already used")
 			}
@@ -394,7 +429,7 @@ func (s *Store) acceptReview(r Review) error {
 			if closed < 0 {
 				return ErrDeferred
 			}
-			if err := os.RemoveAll(reviewImageDir(s.Home.State, s.db.Reviews[closed].ID)); err != nil {
+			if err := os.RemoveAll(reviewImageDir(s.Home.State, s.db.Reviews[closed])); err != nil {
 				return err
 			}
 			s.db.Reviews = slices.Delete(s.db.Reviews, closed, closed+1)
@@ -403,6 +438,10 @@ func (s *Store) acceptReview(r Review) error {
 		s.db.Reviews = append(s.db.Reviews, r)
 	case "withdrawn":
 		if i < 0 {
+			// Its publication still waits in the inbox while 128 are open.
+			if _, err := os.Stat(reviewInboxPath(s.Home.State, r.ID, "open")); err == nil {
+				return ErrDeferred
+			}
 			return errors.New("no review with that ID to withdraw")
 		}
 		prior := &s.db.Reviews[i]
@@ -425,10 +464,10 @@ func (s *Store) pruneReviews(now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	kept := make([]Review, 0, len(s.db.Reviews))
-	var removed []string
+	var removed []Review
 	for _, r := range s.db.Reviews {
 		if r.State != "open" && now.Sub(r.UpdatedAt) > closedReviewRetention {
-			removed = append(removed, r.ID)
+			removed = append(removed, r)
 			continue
 		}
 		kept = append(kept, r)
@@ -443,8 +482,8 @@ func (s *Store) pruneReviews(now time.Time) error {
 	// Removed only after the list no longer names them; a failure leaves
 	// unreferenced files, never a listed item without its images.
 	var err error
-	for _, id := range removed {
-		err = errors.Join(err, os.RemoveAll(reviewImageDir(s.Home.State, id)))
+	for _, r := range removed {
+		err = errors.Join(err, os.RemoveAll(reviewImageDir(s.Home.State, r)))
 	}
 	return err
 }
@@ -483,7 +522,7 @@ func (h *HTTP) reviewImage(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 404, "Unknown review image")
 		return
 	}
-	dir := reviewImageDir(h.Service.Store.Home.State, reviews[i].ID)
+	dir := reviewImageDir(h.Service.Store.Home.State, reviews[i])
 	f, kind, err := openReviewImage([]string{dir}, filepath.Join(dir, strconv.Itoa(n)))
 	if err != nil {
 		apiError(w, 403, "The review image is no longer available")

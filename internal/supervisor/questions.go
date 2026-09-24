@@ -328,7 +328,9 @@ func (s *Store) acceptQuestion(q Question) error {
 	}
 	if len(s.db.Questions) >= maxQuestions {
 		// A question that closed without an answer stays listed until the
-		// Overlord clears it, so it goes only when nothing else can.
+		// Overlord clears it, or until it is the oldest superseded one while
+		// 128 are held: a new question is never refused because closed ones
+		// were not cleared. A pending question is never dropped.
 		index := slices.IndexFunc(s.db.Questions, func(old Question) bool {
 			return old.Status == "cleared" || old.Status == "succeeded" || old.Status == "failed"
 		})

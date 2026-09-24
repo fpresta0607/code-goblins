@@ -630,6 +630,9 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 
 func (s *Store) updateQuestionOutcomes() {
 	for i := range s.db.Questions {
+		if s.db.Questions[i].Status == "cleared" {
+			continue
+		}
 		for _, a := range s.db.Actions {
 			if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && a.ID == s.db.Questions[i].AnswerID {
 				s.db.Questions[i].Status, s.db.Questions[i].Message = a.Status, a.Message

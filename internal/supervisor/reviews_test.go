@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -104,7 +105,7 @@ func TestReviewsPruneClosedItemsAndNeverDropOpenOnes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	dir := reviewImageDir(h.State, closed.ID)
+	dir := reviewImageDir(h.State, closed)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -129,5 +130,100 @@ func TestReviewsPruneClosedItemsAndNeverDropOpenOnes(t *testing.T) {
 	}
 	if err := store.acceptReview(openReview("one-too-many", "task-1")); err != ErrDeferred {
 		t.Fatalf("a review past a full list of open ones = %v, want deferred", err)
+	}
+}
+
+// A withdrawal of a publication still waiting in the inbox waits with it
+// instead of being rejected.
+func TestReviewWithdrawalWaitsForItsDeferredPublication(t *testing.T) {
+	store, h := testStore(t)
+	for i := 0; i < maxReviews; i++ {
+		if err := store.acceptReview(openReview(fmt.Sprintf("bulk-review-%03d", i), "task-1")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waiting := openReview("waiting-review", "task-1")
+	for _, r := range []Review{waiting, {ID: waiting.ID, Identity: waiting.Identity, Task: "task-1", State: "withdrawn", Reason: "Replaced", UpdatedAt: time.Now().UTC()}} {
+		if err := spoolReview(h.State, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Join(h.State, "reviews-inbox"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot(); len(entries) != 2 || len(got.Issues) != 0 {
+		t.Fatalf("inbox holds %d records and issues are %q; want the publication and its withdrawal both waiting", len(entries), got.Issues)
+	}
+}
+
+// A board answer that ended failed stays cleared once the Overlord clears it,
+// in the same step and after a reload.
+func TestClearedFailedQuestionStaysCleared(t *testing.T) {
+	store, h := testStore(t)
+	identity := strings.Repeat("c", 64)
+	q := Question{ID: "question-failed", Identity: identity, Text: "Ship it?", Options: []string{"Yes", "No"}, CreatedAt: time.Now().UTC()}
+	if err := store.acceptQuestion(q); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.db.Actions = append(store.db.Actions, Action{ID: "answer-failed", Kind: "goblin_answer", Generation: identity, QuestionID: q.ID, Text: "Yes", Status: "failed", Message: "the goblin is gone"})
+	store.db.Questions[0].AnswerID, store.db.Questions[0].Status = "answer-failed", "failed"
+	err := store.save()
+	store.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Queue(Action{ID: "clear-failed", Kind: "question_clear", QuestionID: q.ID, Generation: identity}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ProcessOne(context.Background(), (&Service{Store: store}).execute); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Questions[0].Status; got != "cleared" {
+		t.Fatalf("after clearing, the question is %q, want cleared", got)
+	}
+	reopened, err := Open(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reopened.Snapshot().Questions[0].Status; got != "cleared" {
+		t.Fatalf("after a reload, the question is %q, want cleared", got)
+	}
+}
+
+// With 128 questions held and none cleared or answered, a new question takes
+// the oldest superseded one's place; a pending question is never dropped.
+func TestFullQuestionListDropsOnlyTheOldestSuperseded(t *testing.T) {
+	store, _ := testStore(t)
+	start := time.Now().UTC().Add(-time.Hour)
+	question := func(i int) Question {
+		return Question{ID: fmt.Sprintf("question-%03d", i), Identity: strings.Repeat("c", 64), Text: "Ship it?", Options: []string{"Yes", "No"}, CreatedAt: start.Add(time.Duration(i) * time.Second)}
+	}
+	for i := 0; i < maxQuestions; i++ {
+		if err := store.acceptQuestion(question(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store.mu.Lock()
+	store.db.Questions[1].Status, store.db.Questions[2].Status = "superseded", "superseded"
+	store.mu.Unlock()
+	for n, dropped := range []string{"question-001", "question-002"} {
+		if err := store.acceptQuestion(question(maxQuestions + n)); err != nil {
+			t.Fatal(err)
+		}
+		if slices.ContainsFunc(store.Snapshot().Questions, func(q Question) bool { return q.ID == dropped }) {
+			t.Fatalf("%s was kept; want the oldest superseded question dropped", dropped)
+		}
+	}
+	got := store.Snapshot().Questions
+	if len(got) != maxQuestions || got[0].ID != "question-000" || got[0].Status != "pending" {
+		t.Fatalf("held %d questions, first %+v; want 128 with the oldest pending one kept", len(got), got[0])
+	}
+	if err := store.acceptQuestion(question(2 * maxQuestions)); err != ErrDeferred {
+		t.Fatalf("a question past 128 pending ones = %v, want deferred", err)
 	}
 }
