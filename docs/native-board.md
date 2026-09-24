@@ -163,7 +163,7 @@ Shift+Escape releases input and restores keyboard access to its control; ordinar
 Ctrl+Shift+C copies a selected terminal region.
 Closing, switching, disconnecting or restarting invalidates the input lease; reconnection starts with observation and a full screen frame, never replayed input.
 At most four native streams are open, writes have an eight-second cancellation bound, frame gaps disconnect, and oversized UTF-8 paste is rejected before sending.
-Adjacent queued printable text coalesces into bounded ordered writes; control keys, paste wrappers, scroll and resize remain barriers, and custody is still checked for every native write.
+Adjacent queued printable text coalesces into bounded ordered writes; control keys, paste wrappers, scroll and resize remain barriers, and every native write passes the same binding and custody checks as typing.
 Screen reader support is an explicit saved preference under Terminal options and changes in place without reconnecting.
 The default xterm input mode accepts InsertText/IME Unicode; its optional screen-reader mode has an upstream InsertText limitation, while paste remains supported.
 There is no second model session or generated reply.
@@ -178,7 +178,7 @@ A missing or stale registration shows on the board as one banner, and in the CFO
 On Windows normal message delivery holds that registration against replacement and validates the live process/start time, foreground process group, registered agent, pane, workspace, tab and terminal ID before using a required-agent sender.
 Missing or changed identity is refused, never passed to the explicit-pane shell fallback.
 Herdr acceptance counters establish accepted delivery; the current native contract cannot prove a model response or provide an atomic process-identity compare-and-send operation.
-Terminal input pins the exact terminal ID and task generation, checks current process ownership and pipeline custody before every write, and consumes ordered input identities once.
+Terminal input pins the exact terminal ID and task generation, checks process ownership and pipeline custody on the schedule above, and consumes ordered input identities once.
 Writing native stdin does not acknowledge application acceptance.
 Herdr cannot atomically compare the foreground process while writing: if an agent exits after the check, bytes may reach the same PowerShell terminal.
 Known exited/replaced sessions are refused, but the board does not claim to eliminate that native check-then-write race.

@@ -116,7 +116,8 @@ func (s *Service) resolveTerminal(ctx context.Context, selected terminalSelectio
 	}
 	b.Process = lock.Info{PID: entries[0].PID, Start: entries[0].Start, Hostname: hostname}
 	// Delivery/PR/policy metadata is not recipient identity. Custody is checked
-	// independently for each write, even when this stable binding is unchanged.
+	// independently when a view opens and on every tick, even when this stable
+	// binding is unchanged.
 	data, err := json.Marshal(struct {
 		Task, Generation, Worktree, Harness, Session, Workspace, Tab, Pane, Terminal string
 		Process                                                                      lock.Info
