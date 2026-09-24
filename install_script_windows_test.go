@@ -119,17 +119,23 @@ func TestOneLineInstallRefusesADownloadThatDoesNotMatchTheReleaseChecksum(t *tes
 // further than being run.
 func TestOneLineInstallRunsADownloadThatMatchesTheReleaseChecksum(t *testing.T) {
 	binary := []byte("not a program")
+	sum := sha256.Sum256(binary)
 	for _, shell := range oneLineShells(t) {
-		t.Run(filepath.Base(shell), func(t *testing.T) {
-			output, local, temp, err := runOneLineInstall(t, shell, serveRelease(t, binary, fmt.Sprintf("%X *cfo.exe\n", sha256.Sum256(binary))))
+		for name, sums := range map[string]string{
+			"as release.yml writes it": fmt.Sprintf("%x  cfo.exe\n", sum),
+			"in binary mode":           fmt.Sprintf("%X *cfo.exe\n", sum),
+		} {
+			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
+				output, local, temp, err := runOneLineInstall(t, shell, serveRelease(t, binary, sums))
 
-			if !strings.Contains(output, "Verified cfo.exe against the release's SHA256SUMS") || strings.Contains(output, "does not match") {
-				t.Fatalf("install = %v, want the download verified and run:\n%s", err, output)
-			}
-			if err == nil {
-				t.Fatalf("install succeeded with a stand-in binary that cannot run:\n%s", output)
-			}
-			assertNothingInstalled(t, local, temp)
-		})
+				if !strings.Contains(output, "Verified cfo.exe against the release's SHA256SUMS") || strings.Contains(output, "does not match") {
+					t.Fatalf("install = %v, want the download verified and run:\n%s", err, output)
+				}
+				if err == nil {
+					t.Fatalf("install succeeded with a stand-in binary that cannot run:\n%s", output)
+				}
+				assertNothingInstalled(t, local, temp)
+			})
+		}
 	}
 }
