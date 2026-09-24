@@ -85,7 +85,7 @@ export function App() {
       <aside ref={pane} className="context-pane" hidden={!paneOpen} tabIndex={-1} aria-label={view === "Board" ? "Task review" : "Native terminal"}>
         <div className="pane-controls">
           {view === "Orchestration" && selected ? <button className="return-cfo" onClick={() => setSelected(null)}>Back to CFO</button> : <span className="muted">{view === "Board" ? "Review" : "CFO terminal"}</span>}
-          <button className="icon-button" aria-label="Close contextual pane" title="Close" onClick={close}><Icon name="close" /></button>
+          <button className="icon-button" aria-label="Close contextual pane" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
         </div>
         {snapshot && (view === "Board"
           ? <Details key={selectionEpoch} task={task} snapshot={snapshot} connected={connected} reviews={reviews} />

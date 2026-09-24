@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parsePatchToRows, splitRows, reviewRange } from "./diff.ts";
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
-import { alreadyKnown, submissionFor } from "./feedback.ts";
+import { alreadyKnown, deliveryMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
-import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, asksOverlord, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
+import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, asksOverlord, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
 
 test("board completion and semantic personas require the corresponding evidence", () => {
   const task = parseSnapshot({healthy:true, tasks:[{id:"work",title:"Test keyboard access",phase:"done",generation:"new",verified:false}]}).tasks[0];
@@ -315,4 +315,31 @@ test("a goblin waiting on a question says who it is waiting on", () => {
   assert.equal(nodeStatus({id:"a", title:"", task:asks, relation:""}, true), "Waiting on you");
   assert.equal(nodeStatus({id:"c", title:"", task:cfo, relation:""}), "Waiting on the CFO");
   assert.equal(nodeStatus({id:"s", title:"", task:stuck, relation:""}), "Failed");
+});
+
+test("delivery reads as a mark, and only trouble spells itself out", () => {
+  const mark = (status: string, kind: string) => deliveryMark(parseAction({ id: "a", kind, status }));
+  assert.deepEqual(mark("succeeded", "review"), { icon: "check-double", label: "Accepted by the CFO", trouble: false });
+  assert.deepEqual(mark("succeeded", "cfo_answer"), { icon: "check-double", label: "Accepted by the CFO", trouble: false });
+  assert.deepEqual(mark("succeeded", "goblin_answer"), { icon: "check-double", label: "Delivered to the goblin", trouble: false });
+  assert.deepEqual(mark("succeeded", "evaluate"), { icon: "check-double", label: "Done", trouble: false });
+  assert.deepEqual(mark("running", "review"), { icon: "check", label: "Sending", trouble: false });
+  assert.deepEqual(mark("queued", "review"), { icon: "clock", label: "Queued", trouble: false });
+  assert.deepEqual(mark("failed", "review"), { icon: "close", label: "Could not deliver", trouble: true });
+  assert.deepEqual(mark("uncertain", "review"), { icon: "warning", label: "Delivery unconfirmed. Inspect the CFO queue before sending again.", trouble: true });
+  assert.deepEqual(mark("uncertain", "feedback"), { icon: "warning", label: "Delivery unconfirmed. Inspect the terminal before sending again.", trouble: true });
+  assert.deepEqual(mark("", "review"), { icon: "clock", label: "Queued", trouble: false });
+});
+
+test("the orchestration graph fills the canvas, capped so cards never get huge", () => {
+  const cases: [number, number, number, number, number][] = [
+    [600, 400, 1448, 948, 1.25],
+    [1400, 500, 748, 948, .5],
+    [700, 900, 1448, 498, .5],
+    [5000, 5000, 548, 548, .35],
+    [800, 600, 0, 0, 1],
+  ];
+  for (const [graphWidth, graphHeight, canvasWidth, canvasHeight, scale] of cases) {
+    assert.equal(fitScale({ width: graphWidth, height: graphHeight }, { width: canvasWidth, height: canvasHeight }), scale, graphWidth + "x" + graphHeight + " in " + canvasWidth + "x" + canvasHeight);
+  }
 });

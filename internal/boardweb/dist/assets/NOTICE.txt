@@ -28,6 +28,8 @@ Bundled PrismJS license: /assets/prism-LICENSE.txt
 Bundled xterm.js 6.0.0 license: /assets/xterm-LICENSE.txt
 Bundled xterm.js fit addon 0.11.0 license: /assets/xterm-fit-LICENSE.txt
 
+Service and provider marks: path data from Simple Icons 16.32.0 (https://simpleicons.org), CC0 1.0. Each mark remains its owner's trademark and is used only to name that service.
+
 Fonts, self-hosted as unmodified latin subsets under the SIL Open Font License 1.1:
 Pixelify Sans, Copyright 2021 The Pixelify Sans Project Authors (https://github.com/eifetx/Pixelify-Sans). License: /assets/fonts/pixelify-sans-OFL.txt
 Nunito, Copyright 2014 The Nunito Project Authors (https://github.com/googlefonts/nunito). License: /assets/fonts/nunito-OFL.txt

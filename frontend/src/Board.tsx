@@ -1,5 +1,6 @@
 import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
+import { Icon } from "./Icon";
 import { asksOverlord, nodeStatus, personaFor, pullRequestLabel, safePullRequest, taskColumn } from "./workflow";
 
 export function Board({ snapshot, selected, onSelect, presentations }: {
@@ -25,12 +26,12 @@ export function Board({ snapshot, selected, onSelect, presentations }: {
             // Completed history has no live worktree to review, so its card is
             // its pull request.
             if (task.archived) return pr
-              ? <a key={task.id} className="task-card history" href={pr} target="_blank" rel="noreferrer">{content}<span className="card-pr">{pullRequestLabel(pr)}</span></a>
+              ? <a key={task.id} className="task-card history" href={pr} target="_blank" rel="noreferrer">{content}<span className="card-pr"><Icon name="pull-request" />{pullRequestLabel(pr)}</span></a>
               : <div key={task.id} className="task-card history">{content}</div>;
             return <div key={task.id} className={"task-card-shell" + (pr ? " has-pr" : "")}>
               <button className={"task-card" + (selected === task.id ? " selected" : "")}
                 aria-pressed={selected === task.id} onClick={(event) => onSelect(task, event.currentTarget)}>{content}</button>
-              {pr && <a className="card-pr" href={pr} target="_blank" rel="noreferrer">{pullRequestLabel(pr)}</a>}
+              {pr && <a className="card-pr" href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)}><Icon name="pull-request" />{pullRequestLabel(pr)}</a>}
             </div>;
           })}
           {!tasks.length && <p className="column-empty">{column === "Tasks" ? "Nothing queued" : column === "Completed" ? "Verified work will appear here" : "No work in progress"}</p>}

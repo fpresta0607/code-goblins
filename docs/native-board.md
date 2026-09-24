@@ -122,7 +122,8 @@ Replayed, stale, reparenting, or cyclic input cannot silently change the tree.
 Unknown and retired parents remain visible, and task dependencies are rendered separately from spawned/delegated links.
 Unreported child models remain unreported even when their owning task declares a model and effort.
 Dragging a card or using Alt plus an arrow key changes only its saved browser position; connectors retain their reported parent identity.
-The first render fits the whole tree, down to 35%, and explicit Fit does the same later.
+The tree fits and centers itself in the visible canvas, scaled up to fill it but never past 125% and never below 35%, and refits whenever the panel opens or closes, the window resizes, a goblin appears or leaves, or a dragged card is dropped.
+Zooming, or panning a view that actually scrolls, stops the automatic fit until Fit is pressed, which restores it.
 A family of more than three leaf goblins wraps into two rows, the second offset by half a card so its connectors drop through gaps in the first instead of behind a sibling.
 A connector pulses for a few seconds when its goblin reports a new status line or files a wake record.
 Arrange resets positions, and storage failures remain visible.
@@ -186,6 +187,16 @@ Workspace details read only declared project/provisioning metadata and configure
 Configured is not connected; one shared note explains unavailable live connection and environment evidence.
 Matching-generation native model evidence takes precedence; otherwise the model is explicitly labeled configured, including a configured default.
 Environment values, full process environments, dotenv, auth scripts, MCP commands and headers are never exposed.
+
+### Interface rules
+
+These rules hold for every board surface, and new work follows them.
+Actions are icon buttons, never typed-out words; each names itself with an accessible label and a tooltip on hover and keyboard focus.
+Every connector, MCP server, credential, harness and model provider shows a mark beside its name: the brand's mark from Simple Icons where one exists, a plain glyph where the owner withholds its mark, the Model Context Protocol mark for an unknown MCP server and a key for an unknown credential.
+Delivery reads as a mark: a clock while queued, one check while sending, two checks once accepted; only a failed or unconfirmed delivery is spelled out, with what to check before sending again.
+Status words say what is happening in plain words, such as Working, In review gate, Waiting on you, Waiting on the CFO or Merged, verifying, never the evidence the supervisor holds.
+Text is never smaller than 15 px.
+Surfaces sit on three elevation levels, each lighter and more shadowed than the one below, so what floats reads as floating.
 
 ## Deliberate CFO questions
 
