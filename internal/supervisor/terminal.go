@@ -140,6 +140,10 @@ type terminalLease struct {
 	// typist types into a pane the way cfo send does, for a lease that only
 	// observes.
 	typist func(context.Context, herdr.Target, string) error
+	// custody is whether a no-mistakes gate lets the Overlord type into the
+	// pane, checked when the view opens and on every tick rather than per key;
+	// nil lets input through.
+	custody error
 }
 
 // typedPiece is the most runes one pane send-text carries: a Windows command
@@ -168,6 +172,11 @@ func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.Ter
 		return err
 	}
 	l.seq = seq
+	if l.custody != nil {
+		l.closed = true
+		l.cancel()
+		return l.custody
+	}
 	if err := verify(ctx, l.binding, true); err != nil {
 		l.closed = true
 		l.cancel()
@@ -195,6 +204,52 @@ func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.Ter
 		return errors.New("Input outcome is unknown. Inspect the native screen before reconnecting; input was not retried.")
 	}
 	return nil
+}
+
+// stillBound is the check each input makes before it is typed, and it starts
+// no process: it rereads the task's record, or the CFO's registration, to see
+// that the view's pane and generation are unchanged and that the process
+// verified when the view opened is still alive. Only a change pays for the
+// full verification, which refuses a changed recipient; the view is verified
+// in full, custody included, when it opens and on every tick.
+func (h *HTTP) stillBound(ctx context.Context, b terminalBinding, write bool) error {
+	if b.Process.VerifiedAlive() && h.Service.sameBinding(b) {
+		return nil
+	}
+	return h.verifyTerminal(ctx, b, write)
+}
+
+// sameBinding reports from local files alone that nothing a view is bound to
+// was replaced: the CFO's registration, or the task's generation, session and
+// pane.
+func (s *Service) sameBinding(b terminalBinding) bool {
+	if b.Selection.Task == "" {
+		file, err := openPrimary(filepath.Join(s.Options.CFO.State, "primary.json"))
+		if err != nil {
+			return false
+		}
+		defer file.Close()
+		_, identity, err := decodePrimary(file)
+		return err == nil && identity == b.Identity
+	}
+	if b.Selection.Session != "" && s.Store.Snapshot().TaskSessions[b.Selection.Task] != b.Selection.Session {
+		return false
+	}
+	meta, err := state.ReadTaskMeta(s.Store.Home.State, b.Selection.Task)
+	return err == nil && meta.SpawnGen == b.Selection.Generation && (herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}) == b.Target
+}
+
+// terminalCustody is whether a no-mistakes gate lets the Overlord type into a
+// goblin's pane now; the CFO's own terminal has no gate.
+func (s *Service) terminalCustody(ctx context.Context, b terminalBinding) error {
+	if b.Selection.Task == "" {
+		return nil
+	}
+	meta, err := state.ReadTaskMeta(s.Store.Home.State, b.Selection.Task)
+	if err != nil {
+		return err
+	}
+	return s.validateTerminalControl(ctx, meta)
 }
 
 func (h *HTTP) verifyTerminal(ctx context.Context, b terminalBinding, write bool) error {
@@ -262,7 +317,7 @@ func (h *HTTP) terminalInput(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
-	if err := lease.input(ctx, input.Seq, input.Command, h.verifyTerminal); err != nil {
+	if err := lease.input(ctx, input.Seq, input.Command, h.stillBound); err != nil {
 		apiError(w, 409, err.Error())
 		return
 	}
@@ -346,7 +401,10 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := hex.EncodeToString(id[:])
-	lease := &terminalLease{binding: b, stream: stream, control: input.Control, cancel: cancel, typist: h.Service.Options.CFO.Herdr.SendLiteral}
+	ask, asked := context.WithTimeout(ctx, 8*time.Second)
+	custody := h.Service.terminalCustody(ask, b)
+	asked()
+	lease := &terminalLease{binding: b, stream: stream, control: input.Control, cancel: cancel, typist: h.Service.Options.CFO.Herdr.SendLiteral, custody: custody}
 	h.mu.Lock()
 	h.terminals[key] = lease
 	h.mu.Unlock()
@@ -415,11 +473,18 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 		case <-tick.C:
 			check, stop := context.WithTimeout(ctx, 8*time.Second)
 			err := h.verifyTerminal(check, b, false)
+			var custody error
+			if err == nil {
+				custody = h.Service.terminalCustody(check, b)
+			}
 			stop()
 			if err != nil {
 				closed(err.Error())
 				return
 			}
+			lease.mu.Lock()
+			lease.custody = custody
+			lease.mu.Unlock()
 			if !input.Control {
 				paneCols, paneRows, err := h.paneSize(ctx, b.Target)
 				if err != nil {

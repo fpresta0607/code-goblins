@@ -9,15 +9,18 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unicode/utf8"
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -321,7 +324,7 @@ func TestLivePaneViewShowsThePaneWholeAtItsOwnSize(t *testing.T) {
 // terminal changed.
 func TestLivePaneViewTypesIntoItsOwnVerifiedPane(t *testing.T) {
 	native := newTestTerminal()
-	_, server, _, runner := terminalHTTPFixture(t, native)
+	h, server, _, runner := terminalHTTPFixture(t, native)
 	runner.typing = true
 	native.frames <- fullFrame(1)
 	response := terminalPost(t, server, "/api/terminal/stream", `{}`)
@@ -353,9 +356,11 @@ func TestLivePaneViewTypesIntoItsOwnVerifiedPane(t *testing.T) {
 	if status := send(3, `{"type":"terminal.resize","cols":100,"rows":30}`); status != 409 {
 		t.Fatalf("resizing a live view = %d, want 409", status)
 	}
-	runner.terminal = "replacement"
+	// A re-registered CFO is a changed recipient, and the next key sees it in
+	// the registration file without asking Herdr.
+	reregister(t, h.Service.Store.Home.State)
 	if status := send(3, `{"type":"terminal.input","text":"x"}`); status != 409 || len(runner.typed) != 2 {
-		t.Fatalf("typing after the terminal changed = %d with %d typed, want 409 and nothing more typed", status, len(runner.typed))
+		t.Fatalf("typing after the CFO re-registered = %d with %d typed, want 409 and nothing more typed", status, len(runner.typed))
 	}
 	if len(native.writes) != 0 {
 		t.Fatalf("typing went through the observer: %v", native.writes)
@@ -461,5 +466,206 @@ func TestLivePaneViewTypesALargePasteInOrderedPieces(t *testing.T) {
 	}
 	if err := refused.input(context.Background(), 2, herdr.TerminalCommand{Type: "terminal.input", Text: "y"}, allow); err == nil || attempts != 1 {
 		t.Fatalf("after a piece with an unknown outcome = %v with %d attempts, want the view closed and nothing more typed", err, attempts)
+	}
+}
+
+// Each key is typed without starting a process to prove the pane again: the
+// view proved it when it opened, and a key only rereads local files, so fifty
+// keys make the fifty send-text calls and nothing else.
+func TestLivePaneViewStartsNoVerificationPerKey(t *testing.T) {
+	native := newTestTerminal()
+	_, server, _, runner := terminalHTTPFixture(t, native)
+	runner.typing = true
+	native.frames <- fullFrame(1)
+	response := terminalPost(t, server, "/api/terminal/stream", `{}`)
+	defer response.Body.Close()
+	lease := readyLease(t, bufio.NewScanner(response.Body))
+	opened := runner.calls
+	for seq := 1; seq <= 50; seq++ {
+		if status := typeKey(t, server, lease, seq, "x"); status != 200 {
+			t.Fatalf("key %d = %d, want 200", seq, status)
+		}
+	}
+	if calls, typed := runner.calls-opened, len(runner.typed); calls != 50 || typed != 50 {
+		t.Fatalf("fifty keys made %d Herdr calls and typed %d, want the fifty send-text calls and nothing else", calls, typed)
+	}
+}
+
+// A key rereads only local state, so an unchanged binding costs no Herdr call,
+// while an exited process, a restarted task and a re-registered CFO each fall
+// through to the full verification, which refuses them.
+func TestEachKeyVerifiesInFullOnlyWhenItsBindingChanged(t *testing.T) {
+	native := newTestTerminal()
+	h, _, _, runner := terminalHTTPFixture(t, native)
+	ctx := context.Background()
+	primary, err := h.Service.resolveTerminal(ctx, terminalSelection{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := runner.calls
+	if err := h.stillBound(ctx, primary, true); err != nil || runner.calls != before {
+		t.Fatalf("an unchanged binding = %v after %d Herdr calls, want accepted without any", err, runner.calls-before)
+	}
+	exited := primary
+	exited.Process.PID = 1
+	if h.stillBound(ctx, exited, true) == nil {
+		t.Fatal("a key for an exited process was accepted")
+	}
+
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Mode = "local-only"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	runner.workerTree = meta.Worktree
+	task, err := h.Service.resolveTerminal(ctx, terminalSelection{Task: meta.ID, Generation: meta.SpawnGen}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before = runner.calls
+	if err := h.stillBound(ctx, task, true); err != nil || runner.calls != before {
+		t.Fatalf("an unchanged task binding = %v after %d Herdr calls, want accepted without any", err, runner.calls-before)
+	}
+	path := filepath.Join(h.Service.Store.Home.State, "task-1.meta")
+	data, err := state.ReadMeta(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data["spawn_gen"] = "replacement"
+	if err := state.WriteMeta(path, data); err != nil {
+		t.Fatal(err)
+	}
+	if h.stillBound(ctx, task, true) == nil {
+		t.Fatal("a key for a restarted task was accepted")
+	}
+
+	reregister(t, h.Service.Store.Home.State)
+	if h.stillBound(ctx, primary, true) == nil {
+		t.Fatal("a key for a re-registered CFO was accepted")
+	}
+}
+
+// Custody is proved when a view opens rather than per key: a live view of a
+// goblin whose gate owns the pane still opens, and a key is refused with
+// nothing typed.
+func TestLivePaneViewRefusesTypingWhileAGateOwnsThePane(t *testing.T) {
+	native := newTestTerminal()
+	h, server, _, runner := terminalHTTPFixture(t, native)
+	runner.typing = true
+	body := goblinView(t, h, runner)
+	h.Service.Options.Gate = fakeProgress{value: pipeline.Progress{Status: "running"}}
+	native.frames <- fullFrame(1)
+	response := terminalPost(t, server, "/api/terminal/stream", body)
+	defer response.Body.Close()
+	lease := readyLease(t, bufio.NewScanner(response.Body))
+	if status := typeKey(t, server, lease, 1, "x"); status != 409 || len(runner.typed) != 0 {
+		t.Fatalf("typing under a gate = %d with %d typed, want 409 and nothing typed", status, len(runner.typed))
+	}
+}
+
+// Custody is proved again on every tick, so a gate that takes a goblin over
+// after its view opened refuses the next key once a tick has seen it.
+func TestLivePaneViewNoticesAGateTakingOverOnItsTick(t *testing.T) {
+	native := newTestTerminal()
+	h, server, _, runner := terminalHTTPFixture(t, native)
+	runner.typing = true
+	body := goblinView(t, h, runner)
+	taken := &atomic.Bool{}
+	h.Service.Options.Gate = gateTakesOver{taken: taken}
+	h.terminalTick = 10 * time.Millisecond
+	native.frames <- fullFrame(1)
+	response := terminalPost(t, server, "/api/terminal/stream", body)
+	defer response.Body.Close()
+	scanner := bufio.NewScanner(response.Body)
+	lease := readyLease(t, scanner)
+	if status := typeKey(t, server, lease, 1, "x"); status != 200 {
+		t.Fatalf("typing before the gate = %d, want 200", status)
+	}
+	taken.Store(true)
+	for alive := 0; alive < 2; {
+		if !scanner.Scan() {
+			t.Fatal("the view ended before a tick saw the gate")
+		}
+		if strings.Contains(scanner.Text(), `"terminal.alive"`) {
+			alive++
+		}
+	}
+	if status := typeKey(t, server, lease, 2, "y"); status != 409 || len(runner.typed) != 1 {
+		t.Fatalf("typing after the gate took over = %d with %d typed, want 409 and nothing more typed", status, len(runner.typed))
+	}
+}
+
+// gateTakesOver has no run for the branch until taken is set, and then owns
+// the task, as a gate a goblin starts while the Overlord watches its pane.
+type gateTakesOver struct{ taken *atomic.Bool }
+
+func (g gateTakesOver) Progress(context.Context, string, string) (pipeline.Progress, error) {
+	return pipeline.Progress{}, pipeline.ErrNoProgress
+}
+
+func (g gateTakesOver) CanSteer(context.Context, string, string, string) error {
+	if g.taken.Load() {
+		return errors.New("pipeline owns this task; use cfo pipeline respond or inspect its delivery evidence")
+	}
+	return nil
+}
+
+// goblinView gives task-1 a git worktree the custody check can read and a pane
+// the fake Herdr shows, and returns the body that opens its live view.
+func goblinView(t *testing.T, h *HTTP, runner *cfoRunner) string {
+	t.Helper()
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.HerdrSession = "isolated"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	gitFixture(t, meta.Worktree)
+	runner.workerTree = meta.Worktree
+	return fmt.Sprintf(`{"task":%q,"generation":%q}`, meta.ID, meta.SpawnGen)
+}
+
+func readyLease(t *testing.T, scanner *bufio.Scanner) string {
+	t.Helper()
+	var ready struct {
+		Lease string `json:"lease"`
+	}
+	if !scanner.Scan() || json.Unmarshal(scanner.Bytes(), &ready) != nil || ready.Lease == "" {
+		t.Fatalf("no live view lease: %s", scanner.Text())
+	}
+	return ready.Lease
+}
+
+func typeKey(t *testing.T, server *httptest.Server, lease string, seq int, text string) int {
+	t.Helper()
+	reply := terminalPost(t, server, "/api/terminal/input", fmt.Sprintf(`{"lease":%q,"seq":%d,"command":{"type":"terminal.input","text":%q}}`, lease, seq, text))
+	defer reply.Body.Close()
+	return reply.StatusCode
+}
+
+// reregister rewrites the CFO's registration as a new registration in another
+// tab would, which changes its identity.
+func reregister(t *testing.T, stateDir string) {
+	t.Helper()
+	path := filepath.Join(stateDir, "primary.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var primary primaryRegistration
+	if err := json.Unmarshal(data, &primary); err != nil {
+		t.Fatal(err)
+	}
+	primary.Tab = "w1:t2"
+	if data, err = json.Marshal(primary); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

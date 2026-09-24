@@ -153,7 +153,8 @@ The browser renders its real ANSI screen frames using xterm, loaded only in Orch
 Observation does not claim ownership, resize the native runtime, or resume an agent.
 An observer sees only the part of the screen its size covers and hears of no change outside it, so a view without control always observes the pane at the size Herdr lays it out, whatever size the browser asked for.
 A view is refused when Herdr reports no size for the pane, and ends with a reconnect request when Herdr lays the pane out at a new size.
-A view without control also takes typing, with no Connect step: every input is verified against the same binding again and typed into that pane with Herdr's `pane send-text`, as `cfo send` types into a pane, never through the observer.
+A view without control also takes typing, with no Connect step: each input is typed into that pane with Herdr's `pane send-text`, as `cfo send` types into a pane, never through the observer.
+The view proves its pane, terminal, process and gate custody in full when it opens and on every five-second tick; an input starts no process to prove it again, and only rereads the task's record (or the CFO's registration) and checks that the verified process is alive, so a changed generation, pane or registration or an exited process is refused on the next key and anything else on the next tick.
 A long paste is typed in order, in pieces a Windows command line can carry.
 A piece Herdr refuses ends the view with an unknown outcome instead of typing the rest; a view refuses resize, scroll and a NUL key such as Ctrl+Space, which no command line can carry.
 Connect input explicitly claims the single native controller, which can resize the runtime and resume a pending agent; another controller is refused without takeover.
