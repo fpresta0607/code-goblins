@@ -4,7 +4,7 @@
    See public/assets/NOTICE.txt for source and modification notes. */
 /* Self-hosted OFL faces (licenses beside the files), so the board renders the
    same offline. Latin subsets; other scripts fall back to the system face. */
-@font-face { font-family: "Pixelify Sans"; src: url("/assets/fonts/pixelify-sans.woff2") format("woff2"); font-weight: 400 700; font-display: swap; }
+@font-face { font-family: "Pixelify Sans"; src: url("/assets/fonts/pixelify-sans.woff2") format("woff2"); font-weight: 400; font-display: swap; }
 @font-face { font-family: "Nunito"; src: url("/assets/fonts/nunito.woff2") format("woff2"); font-weight: 400 800; font-display: swap; }
 @font-face { font-family: "JetBrains Mono"; src: url("/assets/fonts/jetbrains-mono.woff2") format("woff2"); font-weight: 400 700; font-display: swap; }
 :root {
