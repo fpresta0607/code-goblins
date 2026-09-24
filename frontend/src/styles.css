@@ -135,10 +135,12 @@ button.task-card:active, .workflow-node:active { transform: none; box-shadow: va
 .phase-blocked .status-dot { background: var(--amber); }
 .phase-failed .status-dot { background: var(--red); }
 .phase-review .status-dot { background: var(--purple); }
+.phase-waiting .status-dot { background: #d9b76a; }
 .phase-working.plain-status, .phase-busy.plain-status, .phase-active.plain-status { color: #9ccdff; }
 .phase-blocked.plain-status { color: #f6d79e; }
 .phase-failed.plain-status { color: #f5b1a8; }
 .phase-review.plain-status { color: #cfc0f3; }
+.phase-waiting.plain-status { color: #e7d3a3; }
 /* Waiting on the Overlord outranks whatever phase the task is in. */
 .plain-status.asking { color: #f6d79e; }
 .plain-status.asking .status-dot { background: var(--amber); animation: none; }
@@ -545,8 +547,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 @media (max-width: 50rem) { .comment-overlay.floating { left: 8px; width: calc(100% - 16px); } }
 /* Waiting: on the Overlord it is amber like any question; on a goblin, CI or a
    deploy it is a calmer sand, and a wait on a goblin links to it. */
-.phase-waiting .status-dot { background: #d9b76a; }
-.phase-waiting.plain-status { color: #e7d3a3; }
 .card-waiting { position: absolute; left: 120px; bottom: 10px; display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 2px 12px 2px 8px; border: 1px solid var(--edge); border-radius: 999px; background: var(--level-3); color: #e7d3a3; font-weight: 800; }
 .card-waiting .icon { width: 16px; height: 16px; }
 .status-link { display: inline-grid; place-items: center; width: 30px; height: 30px; min-height: 30px; padding: 0; border-radius: 50%; border-color: var(--edge); background: var(--level-3); color: #e7d3a3; }

@@ -111,11 +111,12 @@ export function asksOverlord(snapshot: Snapshot, taskID: string): boolean {
 // waitingTarget is the goblin a waiting task waits on, when it is one the
 // board shows; a wait on the Overlord, CI or a deploy names no goblin.
 export function waitingTarget(snapshot: Snapshot, task: Task): Task | undefined {
-  return task.phase === "waiting" ? snapshot.tasks.find((candidate) => candidate.id === task.waiting_on && candidate.id !== task.id) : undefined;
+  if (task.phase !== "waiting" || Object.hasOwn(WAITS, task.waiting_on)) return undefined;
+  return snapshot.tasks.find((candidate) => candidate.id === task.waiting_on && candidate.id !== task.id);
 }
 
 const WAITS: Record<string, string> = { overlord: "you", ci: "CI", deploy: "deploy" };
-const GATE_STEPS: Record<string, string> = { test: "tests", ci: "CI", pr: "PR", document: "docs" };
+const GATE_STEPS: Record<string, string> = { review: "code review", lint: "lint", push: "push", test: "tests", ci: "CI", pr: "PR", document: "docs" };
 
 export function nodeStatus(node: WorkflowNode, asking = false): string {
   if (node.status) return node.status;
@@ -125,7 +126,7 @@ export function nodeStatus(node: WorkflowNode, asking = false): string {
     if (asking) return "Waiting on you";
     if ((phase === "blocked" || phase === "failed") && reason.startsWith("Waiting on the CFO")) return "Waiting on the CFO";
     if (phase === "waiting" && node.task.waiting_on) return "Waiting on " + (WAITS[node.task.waiting_on] || node.task.waiting_on);
-    if (phase === "review" && node.task.gate_step) return "In review gate: " + (GATE_STEPS[node.task.gate_step] || node.task.gate_step);
+    if (phase === "review" && Object.hasOwn(GATE_STEPS, node.task.gate_step)) return "In review gate: " + GATE_STEPS[node.task.gate_step];
     return phase === "done" && !verified ? "Done, verifying" : statusText(phase);
   }
   return nativeStatus(node.session?.runtime?.state || node.session?.phase || "");
