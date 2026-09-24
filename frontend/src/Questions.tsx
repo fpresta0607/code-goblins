@@ -4,6 +4,7 @@ import { parseAction, type Action, type BoardActivity, type Snapshot } from "./t
 import { submissionFor, type Submission } from "./feedback";
 import { PresentationNotices } from "./PresentationNotices";
 import { Avatar } from "./Avatar";
+import { Icon } from "./Icon";
 import { questionAnswer, questionChoices, questionSelection } from "./questionChoices";
 import { personaFor } from "./workflow";
 
@@ -42,14 +43,14 @@ export function Questions({ snapshot, connected, presentations }: { snapshot: Sn
   const waiting = questions.filter((q) => q.status === "pending").length;
   const asker = question?.task || "the CFO";
   return <>
-    <details className="command-center-menu"><summary>Command Center{waiting > 0 && " (" + waiting + ")"}</summary><div className="command-center-updates">
+    <details className="command-center-menu"><summary className="icon-button" title="Command Center" aria-label={"Command Center" + (waiting ? ", " + waiting + " waiting on you" : "")}><Icon name="command-center" />{waiting > 0 && <span className="count-badge" aria-hidden="true">{waiting}</span>}</summary><div className="command-center-updates">
       <h2>Supreme Overlord Command Center</h2>
       {questions.length > 0 && <button onClick={() => setSelected(questions.find(q=>q.status==="pending")?.id || questions[questions.length-1].id)}>{waiting ? "Answer pending question" : "View last decision"}</button>}
       <PresentationNotices snapshot={snapshot} presentations={presentations} />
     </div></details>
     <dialog ref={dialog} className="question-modal" aria-labelledby="command-center-heading" aria-describedby="question-heading" onCancel={(event) => { event.preventDefault(); dismiss(); }} onKeyDown={(event) => event.stopPropagation()}>
       {question && <form onSubmit={(event) => { event.preventDefault(); void send(); }}>
-        <button type="button" className="question-close icon-button" aria-label="Dismiss question for now" onClick={dismiss}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button>
+        <button type="button" className="question-close icon-button" aria-label="Dismiss question for now" title="Later" onClick={dismiss}><Icon name="close" /></button>
         <header className="command-center-heading"><Avatar persona={question.task ? personaFor(snapshot.tasks.find((task) => task.id === question.task)) : "cfo"} /><div><h2 id="command-center-heading">Supreme Overlord<span>Command Center</span></h2><p><span className="status-dot" />{pending ? (question.task || "CFO") + " needs your decision" : question.answer_id || outcome ? "Your decision" : "Question closed"}</p></div></header>
         <h3 id="question-heading">{question.text}</h3>
         <fieldset disabled={!pending || draft?.sending}><legend className="sr-only">Choose your answer</legend>

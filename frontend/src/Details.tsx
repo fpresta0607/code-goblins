@@ -9,7 +9,7 @@ import {
 import { useResource } from "./api";
 import { age } from "./presentation";
 import { Avatar } from "./Avatar";
-import { nodeStatus, personaFor } from "./workflow";
+import { asksOverlord, nodeStatus, personaFor } from "./workflow";
 import { DiffView } from "./DiffView";
 import { WorkspaceDetails } from "./WorkspaceDetails";
 import type { ReviewControls } from "./review";
@@ -158,7 +158,7 @@ export function Details({ task, snapshot, connected, reviews }: {
     <header className="panel-header"><Avatar persona={personaFor(task)} small /><div>
       <h2 id="details-title">{task.title || task.id}</h2>
       {task.project && <p className="project-label">{task.project}</p>}
-      <p className="panel-status">{nodeStatus({ id: task.id, title: task.title, task, relation: "" })}</p>
+      <p className={"panel-status plain-status phase-" + task.phase + (asksOverlord(snapshot, task.id) ? " asking" : "")}><span className="status-dot" />{nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asksOverlord(snapshot, task.id))}</p>
     </div><WorkspaceDetails task={task} instance={snapshot.instance} /></header>
     <div className="panel-content">
       {task.pr && /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/.test(task.pr) && <a className="review-pr" href={task.pr} target="_blank" rel="noreferrer">Open pull request</a>}

@@ -4,7 +4,7 @@ import { parsePatchToRows, splitRows, reviewRange } from "./diff.ts";
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
-import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
+import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, asksOverlord, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
 
 test("board completion and semantic personas require the corresponding evidence", () => {
   const task = parseSnapshot({healthy:true, tasks:[{id:"work",title:"Test keyboard access",phase:"done",generation:"new",verified:false}]}).tasks[0];
@@ -21,8 +21,8 @@ test("board completion and semantic personas require the corresponding evidence"
   assert.equal(personaFor({...task,title:"Build review panel"}), "builder");
   assert.equal(personaFor({...task,title:"Review the authentication changes"}), "reviewer");
   assert.equal(nativeStatus("busy"), "Working");
-  assert.equal(nativeStatus("done"), "Native turn finished");
-  assert.equal(nodeStatus({id:"t",title:"",task,relation:""}), "Delivery unverified");
+  assert.equal(nativeStatus("done"), "Turn finished");
+  assert.equal(nodeStatus({id:"t",title:"",task,relation:""}), "Done, verifying");
   assert.equal(statusText("blocked"), "Blocked");
   assert.equal(statusText("failed"), "Failed");
 });
@@ -187,13 +187,13 @@ test("completed history and fleet statuses read the way the fleet reports them",
   ]}).tasks;
   assert.equal(live.activity, "working: gate test step");
   assert.equal(taskColumn(live), "In progress");
-  assert.equal(statusText(live.phase), "Awaiting input");
+  assert.equal(statusText(live.phase), "Waiting for input");
   assert.equal(taskColumn(finished), "Completed");
   assert.equal(nodeStatus({id:"f", title:"old", task:finished, relation:""}), "Finished");
   assert.equal(taskColumn(merged), "Completed");
-  assert.equal(nodeStatus({id:"m", title:"x", task:merged, relation:""}), "PR merged");
+  assert.equal(nodeStatus({id:"m", title:"x", task:merged, relation:""}), "Merged");
   assert.equal(taskColumn(queued), "Tasks");
-  for (const [phase, label] of [["merged", "Verify landed content"], ["blocked", "Blocked"], ["ready", "Checks passed"]]) {
+  for (const [phase, label] of [["merged", "Merged, verifying"], ["blocked", "Blocked"], ["ready", "Checks passed"]]) {
     const landed = {...live, phase, merged:true};
     assert.equal(taskColumn(landed), "In progress");
     assert.equal(nodeStatus({id:"l", title:"work", task:landed, relation:""}), label);
@@ -283,4 +283,36 @@ test("a pulse ends with its own report however many snapshots follow", () => {
   report("working: push", 3000);
   traffic = expireTraffic(traffic, older, 2000);
   assert.deepEqual(traffic, {a:3000});
+});
+
+test("every status reads as plain words, never the old evidence jargon", () => {
+  const words: [string, string][] = [["queued","Not started"],["working","Working"],["active","Working"],["started","Starting"],["review","In review gate"],["ready","Checks passed"],
+    ["done","Delivered"],["merged","Merged, verifying"],["idle","Waiting for input"],["blocked","Blocked"],["failed","Failed"],["unavailable","No fresh evidence"],
+    ["stale","No fresh evidence"],["interrupted","Interrupted"],["settled","Turn finished"],["ended","Session ended"],["unknown","No evidence yet"],["","No evidence yet"]];
+  for (const [phase, label] of words) assert.equal(statusText(phase), label, phase);
+  for (const [phase, label] of [["busy","Working"],["idle","Waiting for input"],["unknown","No evidence yet"],["stale","No fresh evidence"]]) assert.equal(nativeStatus(phase), label, phase);
+  const retired = /Ready to start|Awaiting|Evidence|evidence is stale|Native turn|Verify landed|Delivery unverified|PR merged/;
+  for (const phase of [...words.map(([phase]) => phase), "busy", "done", "bogus"]) {
+    assert.doesNotMatch(statusText(phase), retired, phase);
+    assert.doesNotMatch(nativeStatus(phase), retired, phase);
+  }
+});
+
+test("a goblin waiting on a question says who it is waiting on", () => {
+  const snapshot = parseSnapshot({healthy:true, tasks:[
+    {id:"asks", phase:"blocked", verified:false, reason:"Waiting on the CFO: which rule?"},
+    {id:"cfo", phase:"blocked", verified:false, reason:"Waiting on the CFO: rebase?"},
+    {id:"stuck", phase:"failed", verified:false, reason:"gate died"},
+  ], questions:[
+    {id:"notify-asks-1", identity:"g", task:"asks", status:"pending", options:["A","B"]},
+    {id:"notify-stuck-1", identity:"g", task:"stuck", status:"queued", options:["A"]},
+    {id:"cfo-question", identity:"c", task:"", status:"pending", options:["A"]},
+  ]});
+  const [asks, cfo, stuck] = snapshot.tasks;
+  assert.equal(asksOverlord(snapshot, "asks"), true);
+  assert.equal(asksOverlord(snapshot, "stuck"), false, "an answered question no longer waits on the Overlord");
+  assert.equal(asksOverlord(snapshot, ""), false, "the CFO's own question belongs to no goblin");
+  assert.equal(nodeStatus({id:"a", title:"", task:asks, relation:""}, true), "Waiting on you");
+  assert.equal(nodeStatus({id:"c", title:"", task:cfo, relation:""}), "Waiting on the CFO");
+  assert.equal(nodeStatus({id:"s", title:"", task:stuck, relation:""}), "Failed");
 });

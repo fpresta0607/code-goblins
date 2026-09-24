@@ -102,6 +102,8 @@ A history card is its pull request link, since it has no live worktree to review
 A task no native hook has reported takes its status from the fleet's own records: a question it is still waiting on in the wake queue, then what its gate proved, then what Herdr sees in its pane, and it is evaluated once a minute like any other.
 Each card shows the task's own latest status line and its pull request, linked only when the reported value is an https URL.
 Both come from the current generation's lines only, so a respawned task id shows neither its earlier generation's activity nor its pull request until it reports again.
+Cards state progress in plain words, never engine words: Not started, Working, In review gate, Waiting on the CFO, Waiting on you, Checks passed, Delivered and No fresh evidence.
+Waiting on you shows while the goblin has an open question to the Overlord, ahead of its phase.
 Every Board card opens its changes, activity and commit history; Board has no terminal or standalone message composer.
 Orchestration opens the selected native terminal and defaults to the registered CFO.
 Cards show their reported project name, and the spacious contextual panel provides repository, branch and working-folder context on one continuous surface.
@@ -304,5 +306,7 @@ Native contracts were checked against installed versions and the primary [Codex 
 The pinned [Cline Kanban source](https://github.com/cline/kanban/tree/abd4912c27ce6b7f18b5a8106c145fd838e90cc4) supplied adapted board, diff, history, and runtime-stream behavior.
 Its Apache-2.0 license, copyright, file links, and modification notes are retained in `frontend/public/assets/NOTICE.txt` and the bundled license files; no upstream NOTICE file was present at that revision.
 SIQshift's shared brand stylesheet, desktop/web controls, and shared ShiftGroups supplied inspected card/ghost/focus, native-select and disclosure primitives.
-The user-approved generated mockups supplied the final dark/mint two-view composition, large system typography and terminal-goblin artwork.
+The user-approved generated mockups supplied the final dark/mint two-view composition and terminal-goblin artwork.
+The board self-hosts three OFL faces, so it renders the same offline: Pixelify Sans for headings at weight 400 only, because heavier weights close its C and G into O; Nunito for body text, never below 15 px; and JetBrains Mono for code.
+Their licenses sit beside the font files under `/assets/fonts/`.
 The supplied code/workflow references informed review and lineage presentation without adding a graph dependency or an automation editor.

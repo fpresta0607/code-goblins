@@ -9,6 +9,7 @@ import { useActivity } from "./useActivity";
 import { livePresentations } from "./activity";
 import { useReview } from "./review";
 import { ownsTaskSession } from "./lineageTree";
+import { Icon } from "./Icon";
 
 const NativeTerminal = lazy(() => import("./NativeTerminal").then((module) => ({ default: module.NativeTerminal })));
 
@@ -84,7 +85,7 @@ export function App() {
       <aside ref={pane} className="context-pane" hidden={!paneOpen} tabIndex={-1} aria-label={view === "Board" ? "Task review" : "Native terminal"}>
         <div className="pane-controls">
           {view === "Orchestration" && selected ? <button className="return-cfo" onClick={() => setSelected(null)}>Back to CFO</button> : <span className="muted">{view === "Board" ? "Review" : "CFO terminal"}</span>}
-          <button className="icon-button" aria-label="Close contextual pane" onClick={close}>×</button>
+          <button className="icon-button" aria-label="Close contextual pane" title="Close" onClick={close}><Icon name="close" /></button>
         </div>
         {snapshot && (view === "Board"
           ? <Details key={selectionEpoch} task={task} snapshot={snapshot} connected={connected} reviews={reviews} />
