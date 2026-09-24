@@ -338,6 +338,9 @@ test("delivery reads as a mark, and only trouble spells itself out", () => {
   assert.deepEqual(mark("uncertain", "review"), { icon: "warning", label: "Delivery unconfirmed. Inspect the CFO queue before sending again.", trouble: true });
   assert.deepEqual(mark("uncertain", "feedback"), { icon: "warning", label: "Delivery unconfirmed. Inspect the terminal before sending again.", trouble: true });
   assert.deepEqual(mark("", "review"), { icon: "check", label: "Queued", trouble: false });
+  assert.deepEqual(mark("succeeded", "review_answer"), { icon: "check-double", label: "Delivered", trouble: false });
+  assert.deepEqual(mark("succeeded", "review_clear"), { icon: "check", label: "Cleared", trouble: false });
+  assert.deepEqual(mark("succeeded", "question_clear"), { icon: "check", label: "Cleared", trouble: false });
 });
 
 test("the orchestration graph fills the canvas, capped so cards never get huge", () => {

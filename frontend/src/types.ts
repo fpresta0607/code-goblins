@@ -94,6 +94,7 @@ export interface Snapshot {
   decisions: Decision[];
   issues: string[];
   questions?: Question[];
+  reviews?: Review[];
 }
 export interface Question {
   id: string; identity: string; text: string; options: string[]; recommended: string; answer: string; answer_kind: string; created_at: string; answer_id: string; status: string; message: string;
@@ -103,6 +104,12 @@ export interface Question {
   task: string;
   // image_count is how many review images the goblin attached, one for each choice in order.
   image_count: number;
+}
+// A review item waits on the Overlord until he answers or clears it, or its
+// reporter withdraws it: an image review, a Lavish page, or a wait on him.
+export interface Review {
+  id: string; identity: string; task: string; title: string; image_count: number; lavish: string;
+  state: string; answer: string; answer_id: string; delivered: boolean; reason: string; created_at: string; updated_at: string;
 }
 export interface ChangedFile {
   path: string;
@@ -222,6 +229,12 @@ export function parseSnapshot(value: unknown): Snapshot {
     questions: array(v.questions).map((value) => {
       const q = object(value);
       return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count) };
+    }),
+    reviews: array(v.reviews).map((value) => {
+      const r = object(value);
+      return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish),
+        state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
+        created_at: string(r.created_at), updated_at: string(r.updated_at) };
     }),
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
