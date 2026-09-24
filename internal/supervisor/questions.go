@@ -198,35 +198,46 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 	return result, nil
 }
 
+// callerIdentity proves this process descends from the registered primary
+// CFO, including its creation time, and that its native identity is live, and
+// returns that identity. The registration stays open, so it cannot change,
+// until release is called.
+func (c *CFOConnection) callerIdentity(ctx context.Context) (string, func(), error) {
+	file, err := openPrimary(filepath.Join(c.State, "primary.json"))
+	if err != nil {
+		return "", nil, errNotRegistered
+	}
+	release := func() { _ = file.Close() }
+	p, identity, err := decodePrimary(file)
+	if err != nil {
+		release()
+		return "", nil, err
+	}
+	entries, err := proc.Ancestry(os.Getpid(), 32)
+	if err != nil {
+		release()
+		return "", nil, err
+	}
+	if !slices.ContainsFunc(entries, func(entry proc.Entry) bool { return entry.PID == p.Process.PID && entry.Start.Equal(p.Process.Start) }) {
+		release()
+		return "", nil, errors.New("only the registered CFO process may report to the Overlord")
+	}
+	if err := c.verify(ctx, p); err != nil {
+		release()
+		return "", nil, err
+	}
+	return identity, release, nil
+}
+
 // PublishQuestion is deliberately a local CFO operation, not a browser or
 // worker-alert endpoint. The caller must descend from the registered primary
 // process, including its creation time, and its native identity must be live.
 func (c *CFOConnection) PublishQuestion(ctx context.Context, id, text string, options []string, recommended string) error {
-	file, err := openPrimary(filepath.Join(c.State, "primary.json"))
-	if err != nil {
-		return errNotRegistered
-	}
-	defer file.Close()
-	p, identity, err := decodePrimary(file)
+	identity, release, err := c.callerIdentity(ctx)
 	if err != nil {
 		return err
 	}
-	entries, err := proc.Ancestry(os.Getpid(), 32)
-	if err != nil {
-		return err
-	}
-	owner := false
-	for _, entry := range entries {
-		if entry.PID == p.Process.PID && entry.Start.Equal(p.Process.Start) {
-			owner = true
-		}
-	}
-	if !owner {
-		return errors.New("only the registered CFO process may escalate a question to the user")
-	}
-	if err := c.verify(ctx, p); err != nil {
-		return err
-	}
+	defer release()
 	q := Question{ID: id, Identity: identity, Text: text, Options: options, Recommended: recommended, CreatedAt: time.Now().UTC(), Status: "pending"}
 	if err := validQuestion(q); err != nil {
 		return err
@@ -316,9 +327,16 @@ func (s *Store) acceptQuestion(q Question) error {
 		return nil
 	}
 	if len(s.db.Questions) >= maxQuestions {
+		// A question that closed without an answer stays listed until the
+		// Overlord clears it, or until it is the oldest superseded one while
+		// 128 are held: a new question is never refused because closed ones
+		// were not cleared. A pending question is never dropped.
 		index := slices.IndexFunc(s.db.Questions, func(old Question) bool {
-			return old.Status == "succeeded" || old.Status == "failed" || old.Status == "superseded"
+			return old.Status == "cleared" || old.Status == "succeeded" || old.Status == "failed"
 		})
+		if index < 0 {
+			index = slices.IndexFunc(s.db.Questions, func(old Question) bool { return old.Status == "superseded" })
+		}
 		if index < 0 {
 			return ErrDeferred
 		}
@@ -491,4 +509,26 @@ func (s *Store) questionAnswer(a Action) error {
 		return nil
 	}
 	return errors.New("this user question is unavailable")
+}
+
+// clearQuestion closes a question the Overlord cleared after it closed without
+// an answer. Clearing one already cleared changes nothing.
+func (s *Store) clearQuestion(id, identity string) (Evaluation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.ID == id && q.Identity == identity })
+	if i < 0 {
+		return Evaluation{}, fmt.Errorf("%w: the question is gone; nothing was cleared", ErrRejected)
+	}
+	if s.db.Questions[i].Status == "cleared" {
+		return Evaluation{Reason: "The question was already cleared."}, nil
+	}
+	if s.db.Questions[i].Status != "superseded" && s.db.Questions[i].Status != "failed" {
+		return Evaluation{}, fmt.Errorf("%w: the question is %s; only one that closed without an answer can be cleared", ErrRejected, s.db.Questions[i].Status)
+	}
+	s.db.Questions[i].Status = "cleared"
+	if err := s.save(); err != nil {
+		return Evaluation{}, err
+	}
+	return Evaluation{Reason: "Cleared from the Command Center."}, nil
 }
