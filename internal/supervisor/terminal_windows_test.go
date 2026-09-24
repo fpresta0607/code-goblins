@@ -31,6 +31,9 @@ type testTerminal struct {
 	// control, cols and rows are how the board opened it.
 	control    bool
 	cols, rows int
+	// exited, when set, holds Close until it closes, as a Herdr observer
+	// process takes time to exit.
+	exited chan struct{}
 }
 
 func (s *testTerminal) Next() (herdr.TerminalFrame, error) {
@@ -55,7 +58,13 @@ func (s *testTerminal) Send(c herdr.TerminalCommand) error {
 	s.writes = append(s.writes, c)
 	return nil
 }
-func (s *testTerminal) Close() error { s.once.Do(func() { close(s.closed) }); return nil }
+func (s *testTerminal) Close() error {
+	s.once.Do(func() { close(s.closed) })
+	if s.exited != nil {
+		<-s.exited
+	}
+	return nil
+}
 func newTestTerminal() *testTerminal {
 	return &testTerminal{frames: make(chan herdr.TerminalFrame, 8), closed: make(chan struct{})}
 }
@@ -376,6 +385,38 @@ func TestLivePaneViewEndsWhenThePaneIsResized(t *testing.T) {
 	}
 	if native.cols != 132 || native.rows != 43 || frame.Reason != "The pane was resized. Reconnect to see it whole at its new size." {
 		t.Fatalf("opened %dx%d and ended with %q, want 132x43 ended as resized", native.cols, native.rows, frame.Reason)
+	}
+}
+
+// Once a view reports terminal.closed, typing into it is refused even while
+// its observer process is still exiting.
+func TestLivePaneViewRefusesTypingOnceItReportsClosed(t *testing.T) {
+	native := newTestTerminal()
+	native.exited = make(chan struct{})
+	defer close(native.exited)
+	h, server, _, runner := terminalHTTPFixture(t, native)
+	runner.typing = true
+	h.terminalTick = 10 * time.Millisecond
+	native.frames <- fullFrame(1)
+	response := terminalPost(t, server, "/api/terminal/stream", `{}`)
+	defer response.Body.Close()
+	scanner := bufio.NewScanner(response.Body)
+	var ready struct {
+		Lease string `json:"lease"`
+	}
+	if !scanner.Scan() || json.Unmarshal(scanner.Bytes(), &ready) != nil || ready.Lease == "" {
+		t.Fatalf("no live view lease: %s", scanner.Text())
+	}
+	runner.resized.Store(true)
+	for frame := (herdr.TerminalFrame{}); frame.Type != "terminal.closed"; {
+		if !scanner.Scan() || json.Unmarshal(scanner.Bytes(), &frame) != nil {
+			t.Fatalf("view ended without a reason: %s", scanner.Text())
+		}
+	}
+	reply := terminalPost(t, server, "/api/terminal/input", fmt.Sprintf(`{"lease":%q,"seq":1,"command":{"type":"terminal.input","text":"x"}}`, ready.Lease))
+	defer reply.Body.Close()
+	if reply.StatusCode != 409 || len(runner.typed) != 0 {
+		t.Fatalf("typing after terminal.closed = %d with %q typed, want 409 and nothing typed", reply.StatusCode, runner.typed)
 	}
 }
 

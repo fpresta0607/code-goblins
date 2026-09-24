@@ -350,14 +350,18 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	h.terminals[key] = lease
 	h.mu.Unlock()
-	defer func() {
-		// Close the pipe before acquiring the input mutex: a native stdin write
-		// may be holding it while the output side disconnects.
-		cancel()
-		_ = stream.Close()
+	unregister := func() {
 		h.mu.Lock()
 		delete(h.terminals, key)
 		h.mu.Unlock()
+	}
+	defer func() {
+		// Refuse new input before waiting for the observer to exit, and close
+		// the pipe before acquiring the input mutex: a native stdin write may be
+		// holding it while the output side disconnects.
+		unregister()
+		cancel()
+		_ = stream.Close()
 		lease.mu.Lock()
 		lease.closed = true
 		lease.mu.Unlock()
@@ -395,7 +399,10 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 	defer tick.Stop()
 	full := false
 	var seq uint64
-	closed := func(reason string) { _ = write(herdr.TerminalFrame{Type: "terminal.closed", Reason: reason}) }
+	closed := func(reason string) {
+		unregister()
+		_ = write(herdr.TerminalFrame{Type: "terminal.closed", Reason: reason})
+	}
 	for {
 		select {
 		case <-ctx.Done():
