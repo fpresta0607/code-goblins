@@ -150,6 +150,7 @@ The installed Herdr build `0.9.0-preview.2026-09-08-62431dbd033b` exposes `termi
 The browser renders its real ANSI screen frames using xterm, loaded only in Orchestration.
 Observation does not claim ownership, resize the native runtime, or resume an agent.
 An observer sees only the part of the screen its size covers and hears of no change outside it, so a view without control always observes the pane at the size Herdr lays it out, whatever size the browser asked for.
+A view is refused when Herdr reports no size for the pane, and ends with a reconnect request when Herdr lays the pane out at a new size.
 A view without control also takes typing, with no Connect step: every input is verified against the same binding again and typed into that pane with Herdr's `pane send-text`, as `cfo send` types into a pane, never through the observer.
 A long paste is typed in order, in pieces a Windows command line can carry.
 A piece Herdr refuses ends the view with an unknown outcome instead of typing the rest; a view refuses resize, scroll and a NUL key such as Ctrl+Space, which no command line can carry.
