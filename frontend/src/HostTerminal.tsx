@@ -32,6 +32,13 @@ export function HostTerminal({ task, instance, visible, shown }: { task: Task; i
   const [reason, setReason] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [copied, setCopied] = useState(false);
+  // While the board is disconnected the view is covered, and it attaches
+  // again covered when the board returns.
+  const [wasVisible, setWasVisible] = useState(visible);
+  if (visible !== wasVisible) {
+    setWasVisible(visible);
+    setPhase("connecting");
+  }
   const retries = useRef(0);
   const shownValue = useRef(shown);
   const claimSize = useRef<() => void>(() => {});
@@ -169,7 +176,7 @@ export function HostTerminal({ task, instance, visible, shown }: { task: Task; i
   return <section className="native-terminal host-terminal" aria-label="Goblin terminal">
     <div className="terminal-surface" ref={surface} />
     {phase === "connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div>}
-    {phase === "closed" && <div className="terminal-closed" role="status"><Icon name="terminal" /><p>{reason}</p><button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setPhase("connecting"); setAttempt((prior) => prior + 1); }}>Reconnect</button></div>}
+    {phase === "closed" && <div className="terminal-closed" role="status"><Icon name="terminal" /><p>{reason}</p><button className="primary" onClick={() => { retries.current = 0; setPhase("connecting"); setAttempt((prior) => prior + 1); }}>Reconnect</button></div>}
     {copied && <span className="terminal-state terminal-copied" role="status">Copied</span>}
   </section>;
 }
