@@ -10,6 +10,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 func runPresent(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
@@ -35,7 +36,7 @@ func runPresent(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 	a.Until = a.At.Add(*ttl)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := supervisor.PublishPresentation(ctx, h, &herdr.Client{Commands: execx.OSRunner{}}, a); err != nil {
+	if err := supervisor.PublishPresentation(ctx, h, terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}}), a); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}

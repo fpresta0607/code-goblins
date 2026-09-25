@@ -21,6 +21,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 type primaryRegistration struct {
@@ -47,7 +48,8 @@ const errNotRegistered = registrationProblem("The CFO is not registered")
 // Reading it grants no permission to guess a different pane or register one.
 type CFOConnection struct {
 	State string
-	Herdr *herdr.Client
+	// Terminals opens the terminal backend the CFO and its goblins run in.
+	Terminals terminal.Opener
 }
 
 func decodePrimary(reader io.Reader) (primaryRegistration, string, error) {
@@ -79,23 +81,21 @@ func decodePrimary(reader io.Reader) (primaryRegistration, string, error) {
 // register someone else's pane. That harness must also hold the home's
 // session lock, taking it when nobody live does, because the primary CFO is
 // whoever holds the home. harness names the agent when Herdr has not
-// detected one in the pane yet.
-func Register(ctx context.Context, stateDir string, client *herdr.Client, harness, session string) (string, error) {
+// detected one in the pane yet. terminals opens the backend in its own
+// session, which the caller reads from HERDR_SESSION the way spawn and the
+// watcher do.
+func Register(ctx context.Context, stateDir string, terminals terminal.Opener, harness, session string) (string, error) {
 	pane := os.Getenv("HERDR_PANE_ID")
 	if pane == "" {
 		return "", errors.New("this session is not running in a Herdr pane, so the board cannot reach it")
 	}
-	// HERDR_SESSION names the session the way spawn and the watcher read it.
-	scoped := *client
-	if scoped.Session == "" {
-		scoped.Session = os.Getenv("HERDR_SESSION")
-	}
-	target := herdr.Target{Session: scoped.EffectiveSession(), Pane: pane}
-	ancestry, harnessAt, err := paneHarness(ctx, &scoped, target)
+	backend := terminals("")
+	target := herdr.Target{Session: backend.EffectiveSession(), Pane: pane}
+	ancestry, harnessAt, err := paneHarness(ctx, backend, target)
 	if err != nil {
 		return "", err
 	}
-	snapshot, err := scoped.Snapshot(ctx)
+	snapshot, err := backend.Snapshot(ctx)
 	if err != nil {
 		return "", fmt.Errorf("Herdr snapshot: %w", err)
 	}
@@ -163,7 +163,7 @@ func Register(ctx context.Context, stateDir string, client *herdr.Client, harnes
 // in the foreground of target, so a pane variable a process merely inherited
 // never passes. It returns this process's ancestry and the harness's place in
 // it.
-func paneHarness(ctx context.Context, client *herdr.Client, target herdr.Target) ([]proc.Entry, int, error) {
+func paneHarness(ctx context.Context, client terminal.Backend, target herdr.Target) ([]proc.Entry, int, error) {
 	info, err := client.PaneProcessInfo(ctx, target)
 	if err != nil {
 		return nil, 0, fmt.Errorf("Herdr cannot describe pane %s: %w", target.Pane, err)
@@ -183,14 +183,13 @@ func paneHarness(ctx context.Context, client *herdr.Client, target herdr.Target)
 }
 
 func (c *CFOConnection) verify(ctx context.Context, primary primaryRegistration) error {
-	if c.Herdr == nil {
+	if c.Terminals == nil {
 		return errors.New("Native CFO transport is unavailable")
 	}
 	if !primary.Process.VerifiedAlive() {
 		return registrationProblem(fmt.Sprintf("The registered CFO process is unavailable: pid %d, started %s, is no longer running", primary.Process.PID, primary.Process.Start.UTC().Format("2006-01-02 15:04 UTC")))
 	}
-	client := *c.Herdr
-	client.Session = primary.Target.Session
+	client := c.Terminals(primary.Target.Session)
 	snapshot, err := client.Snapshot(ctx)
 	if err != nil {
 		return errors.New("Herdr cannot verify the registered CFO")
@@ -291,7 +290,7 @@ func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evalua
 		}
 		return c.verify(ctx, primary)
 	}
-	sender := fleet.Sender{Terminal: c.Herdr, Resolve: primaryResolver{c, primary}, Guard: guard}
+	sender := fleet.Sender{Terminal: c.Terminals(""), Resolve: primaryResolver{c, primary}, Guard: guard}
 	if err := sender.Text(ctx, "primary-cfo", oneLine("Overlord: "+text)); err != nil {
 		return Evaluation{}, err
 	}

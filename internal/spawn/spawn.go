@@ -77,7 +77,7 @@ type AuthPreflight interface {
 type Service struct {
 	// Terminals opens the terminal backend in a session: the request's for a
 	// spawn, the task's for a switch.
-	Terminals   func(session string) terminal.Backend
+	Terminals   terminal.Opener
 	Worktrees   worktree.Service
 	Harness     harness.Registry
 	Auth        AuthPreflight

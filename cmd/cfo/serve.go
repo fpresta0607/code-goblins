@@ -21,6 +21,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
 
@@ -82,7 +83,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	projects, _ := install.MachineProjectsRoot()
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
 		Example:        *example,
-		CFO:            &supervisor.CFOConnection{State: h.State, Herdr: &herdr.Client{Commands: execx.OSRunner{}}},
+		CFO:            &supervisor.CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}})},
 		Gate:           pipeline.Reader{Root: root, Commands: execx.OSRunner{}},
 		MergedPRs:      supervisor.GitMergedPRs(supervisor.FleetRepos(h, projects)),
 		Reconcile:      func(ctx context.Context) error { return watch.Reconcile(ctx, config) },

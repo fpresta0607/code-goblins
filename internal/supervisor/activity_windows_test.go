@@ -11,6 +11,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 func TestPrimaryPresentationUsesVerifiedContextWithoutBorrowingTask(t *testing.T) {
@@ -23,7 +24,7 @@ func TestPrimaryPresentationUsesVerifiedContextWithoutBorrowingTask(t *testing.T
 	t.Setenv("CFO_SESSION_HARNESS", "codex")
 	now := time.Now().UTC()
 	a := BoardActivity{ID: "primary-review", Kind: "review", State: "active", URL: "http://127.0.0.1:4387/session/review", At: now, Until: now.Add(time.Minute)}
-	if err := PublishPresentation(context.Background(), h, cfo.Herdr, a); err != nil {
+	if err := PublishPresentation(context.Background(), h, cfo.Terminals, a); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestActivity(); err != nil {
@@ -52,7 +53,7 @@ func TestPrimaryPresentationUsesVerifiedContextWithoutBorrowingTask(t *testing.T
 	if snap.Activity[0].Live {
 		t.Fatal("unavailable primary presentation stayed live")
 	}
-	if err := PublishPresentation(context.Background(), h, cfo.Herdr, a); err == nil {
+	if err := PublishPresentation(context.Background(), h, cfo.Terminals, a); err == nil {
 		t.Fatal("unverified primary published")
 	}
 }
@@ -74,7 +75,7 @@ func TestSendReceiptNeverBorrowsSameHarnessParent(t *testing.T) {
 	}
 	t.Setenv("CFO_SESSION_ID", "actual-primary")
 	t.Setenv("CFO_SESSION_HARNESS", "codex")
-	if err := PrepareSendActivity(context.Background(), h, cfo.Herdr, "task-1")(); err != nil {
+	if err := PrepareSendActivity(context.Background(), h, cfo.Terminals, "task-1")(); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestActivity(); err != nil {
@@ -91,7 +92,7 @@ func TestSendReceiptNeverBorrowsSameHarnessParent(t *testing.T) {
 	if err := store.save(); err != nil {
 		t.Fatal(err)
 	}
-	if err := PrepareSendActivity(context.Background(), h, cfo.Herdr, "task-1")(); err != nil {
+	if err := PrepareSendActivity(context.Background(), h, cfo.Terminals, "task-1")(); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestActivity(); err != nil {
@@ -113,7 +114,7 @@ func TestPrimaryPresentationLateSessionDiscoveryKeepsReportIdentity(t *testing.T
 	t.Setenv("CFO_SESSION_HARNESS", "codex")
 	now := time.Now().UTC()
 	a := BoardActivity{ID: "late-primary-report", Kind: "review", State: "active", URL: "http://127.0.0.1:4387/session/review", At: now, Until: now.Add(time.Minute)}
-	if err := PublishPresentation(context.Background(), h, cfo.Herdr, a); err != nil {
+	if err := PublishPresentation(context.Background(), h, cfo.Terminals, a); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestActivity(); err != nil {
@@ -127,7 +128,7 @@ func TestPrimaryPresentationLateSessionDiscoveryKeepsReportIdentity(t *testing.T
 	for i, status := range []string{"active", "ended"} {
 		a.State = status
 		a.At = now.Add(time.Duration(i+1) * time.Second)
-		if err := PublishPresentation(context.Background(), h, cfo.Herdr, a); err != nil {
+		if err := PublishPresentation(context.Background(), h, cfo.Terminals, a); err != nil {
 			t.Fatal("late native discovery rejected update", status, err)
 		}
 		if err := store.ingestActivity(); err != nil {
@@ -161,7 +162,7 @@ func TestGoblinSpawnedWhileServeRunsPresentsFromItsOwnPane(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &cfoRunner{t: t, pid: os.Getpid()}
-	client := &herdr.Client{Commands: runner}
+	client := terminal.HerdrSessions(&herdr.Client{Commands: runner})
 	now := time.Now().UTC()
 	a := BoardActivity{ID: "task-2-review", Kind: "review", TaskID: "task-2", State: "active", URL: "http://127.0.0.1:4387/session/f26e1c33babf6415", At: now, Until: now.Add(10 * time.Minute)}
 	if err := PublishPresentation(context.Background(), h, client, a); err != nil {

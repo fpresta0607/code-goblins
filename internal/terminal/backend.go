@@ -22,6 +22,9 @@ type Backend interface {
 	EnsureServer(ctx context.Context) error
 	// Preflight refuses a backend whose protocol this build cannot drive.
 	Preflight(ctx context.Context) error
+	// CheckSchema refuses a backend whose own schema lacks the version,
+	// protocol or any method the fleet uses.
+	CheckSchema(ctx context.Context) error
 	// AgentKinds reports which harness kinds AgentStart can start.
 	AgentKinds(ctx context.Context) (map[string]bool, error)
 	// EnsureContainer returns the space task terminals are created in.
@@ -32,6 +35,15 @@ type Backend interface {
 	CloseTab(ctx context.Context, session, tabID string) error
 	// Snapshot reads the whole session's structure: its terminals and agents.
 	Snapshot(ctx context.Context) (herdr.SessionSnapshot, error)
+	// AgentList reads every registered agent's state and counters.
+	AgentList(ctx context.Context) ([]herdr.AgentRecord, error)
+	// CFOTab returns the CFO's terminal in container and whether an agent
+	// already runs in it. With none running it creates a fresh one in cwd and
+	// retires any old one that holds no agent.
+	CFOTab(ctx context.Context, container herdr.Container, cwd string) (herdr.Endpoint, bool, error)
+	// Focus brings the endpoint's terminal to the front for the next client
+	// that attaches.
+	Focus(ctx context.Context, endpoint herdr.Endpoint) error
 
 	// SendLiteral types text into the terminal without submitting it.
 	SendLiteral(ctx context.Context, target herdr.Target, text string) error
@@ -39,6 +51,9 @@ type Backend interface {
 	SendKey(ctx context.Context, target herdr.Target, key string) error
 	// Capture returns the last lines of the terminal's screen.
 	Capture(ctx context.Context, target herdr.Target, lines int, ansi bool) (string, error)
+	// CaptureEvidence reads the bounded recent terminal text the monitor reads
+	// a task's state from.
+	CaptureEvidence(ctx context.Context, target herdr.Target) ([]byte, error)
 
 	// AgentStart starts a harness agent under name in a terminal at its shell
 	// prompt, with args passed through to the harness.
@@ -73,9 +88,13 @@ type Backend interface {
 
 var _ Backend = (*herdr.Client)(nil)
 
+// Opener opens the terminal backend in a session; an empty session is the
+// backend's own.
+type Opener func(session string) Backend
+
 // HerdrSessions opens client in a session: a named one replaces the client's
 // own, and an empty one keeps it.
-func HerdrSessions(client *herdr.Client) func(session string) Backend {
+func HerdrSessions(client *herdr.Client) Opener {
 	return func(session string) Backend {
 		scoped := *client
 		if session != "" {

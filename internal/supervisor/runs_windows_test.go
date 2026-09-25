@@ -21,6 +21,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 // fakeRunLauncher records each launch in place of opening a window.
@@ -96,7 +97,7 @@ func commandFile(t *testing.T, command string) string {
 // refused before anything is written.
 func TestRunRequestRefusesAProcessThatIsNotTheCFO(t *testing.T) {
 	store, h := testStore(t)
-	runPipe(t, &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Herdr: &herdr.Client{Commands: &cfoRunner{t: t, pid: os.Getpid()}}}}})
+	runPipe(t, &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: &cfoRunner{t: t, pid: os.Getpid()}})}}})
 	file := commandFile(t, "Write-Output hello\n")
 	err := PublishRun(h, RunRequest{ID: "install-tool", Title: "Install the tool", Shell: "powershell", CommandFile: file})
 	if err == nil || !strings.Contains(err.Error(), "not registered") {

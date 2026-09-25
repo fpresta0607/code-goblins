@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 func TestObsoleteCFOMessageRejectionPreservesFullActionHistory(t *testing.T) {
@@ -138,7 +139,7 @@ func primaryFixture(t *testing.T, store *Store) (primaryRegistration, string, *c
 		t.Fatal(err)
 	}
 	runner := &cfoRunner{t: t, pid: os.Getpid()}
-	return primary, identity, runner, &CFOConnection{State: store.Home.State, Herdr: &herdr.Client{Commands: runner}}
+	return primary, identity, runner, &CFOConnection{State: store.Home.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: runner})}
 }
 
 // registerFixture is a home with no registration and a fake Herdr in which
@@ -148,7 +149,7 @@ func registerFixture(t *testing.T) (*Store, *cfoRunner, *CFOConnection) {
 	store, _ := testStore(t)
 	t.Setenv("HERDR_PANE_ID", "w1:p1")
 	runner := &cfoRunner{t: t, pid: os.Getpid()}
-	return store, runner, &CFOConnection{State: store.Home.State, Herdr: &herdr.Client{Commands: runner, Session: "isolated"}}
+	return store, runner, &CFOConnection{State: store.Home.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: runner, Session: "isolated"})}
 }
 
 func registrationExists(t *testing.T, store *Store) bool {
@@ -178,7 +179,7 @@ func TestRegisterReplacesAStaleRegistrationWithOneTheBoardVerifies(t *testing.T)
 		t.Fatalf("stale registration reads as %v, want one registration problem naming the fix", err)
 	}
 
-	described, err := Register(ctx, store.Home.State, cfo.Herdr, "", "session-1")
+	described, err := Register(ctx, store.Home.State, cfo.Terminals, "", "session-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +200,7 @@ func TestRegisterReplacesAStaleRegistrationWithOneTheBoardVerifies(t *testing.T)
 func TestRegisterKeepsTheIdentityOfTheSameProcess(t *testing.T) {
 	store, _, cfo := registerFixture(t)
 	ctx := context.Background()
-	if _, err := Register(ctx, store.Home.State, cfo.Herdr, "", "session-1"); err != nil {
+	if _, err := Register(ctx, store.Home.State, cfo.Terminals, "", "session-1"); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(store.Home.State, "primary.json")
@@ -213,7 +214,7 @@ func TestRegisterKeepsTheIdentityOfTheSameProcess(t *testing.T) {
 	if err := store.ingestQuestions(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Register(ctx, store.Home.State, cfo.Herdr, "", "session-2"); err != nil {
+	if _, err := Register(ctx, store.Home.State, cfo.Terminals, "", "session-2"); err != nil {
 		t.Fatal(err)
 	}
 	after, err := os.ReadFile(path)
@@ -238,7 +239,7 @@ func TestRegisterKeepsTheIdentityOfTheSameProcess(t *testing.T) {
 func TestRegisterReplacesARegistrationOfAnotherProcessWithTheSamePID(t *testing.T) {
 	store, _, cfo := registerFixture(t)
 	ctx := context.Background()
-	if _, err := Register(ctx, store.Home.State, cfo.Herdr, "", ""); err != nil {
+	if _, err := Register(ctx, store.Home.State, cfo.Terminals, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(store.Home.State, "primary.json")
@@ -255,7 +256,7 @@ func TestRegisterReplacesARegistrationOfAnotherProcessWithTheSamePID(t *testing.
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Register(ctx, store.Home.State, cfo.Herdr, "", ""); err != nil {
+	if _, err := Register(ctx, store.Home.State, cfo.Terminals, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := cfo.check(ctx); err != nil {
@@ -299,7 +300,7 @@ func TestRegisterRefusesWhatItCannotProve(t *testing.T) {
 			} else {
 				harness = "pi"
 			}
-			_, err := Register(context.Background(), store.Home.State, cfo.Herdr, harness, "")
+			_, err := Register(context.Background(), store.Home.State, cfo.Terminals, harness, "")
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("Register: %v, want a refusal containing %q", err, c.want)
 			}
@@ -322,7 +323,7 @@ func TestBoardShowsTheRegistrationAsOneStateWithItsFix(t *testing.T) {
 	if snapshot.Registration != "The CFO is not registered; run cfo register in the CFO session" {
 		t.Fatalf("unregistered board shows %q", snapshot.Registration)
 	}
-	if _, err := Register(ctx, store.Home.State, cfo.Herdr, "", ""); err != nil {
+	if _, err := Register(ctx, store.Home.State, cfo.Terminals, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	service.checkRegistration(ctx)
