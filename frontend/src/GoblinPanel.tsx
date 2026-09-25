@@ -7,7 +7,10 @@ import { WorkspaceDetails } from "./WorkspaceDetails";
 import { ownsTaskSession } from "./lineageTree";
 import type { ReviewControls } from "./review";
 
+// A task in a native terminal is drawn from its host's own byte stream; the
+// CFO and a task still in Herdr keep Herdr's screen view until native is proven.
 const NativeTerminal = lazy(() => import("./NativeTerminal").then((module) => ({ default: module.NativeTerminal })));
+const HostTerminal = lazy(() => import("./HostTerminal").then((module) => ({ default: module.HostTerminal })));
 
 export type PanelView = "task" | "terminal";
 
@@ -35,8 +38,10 @@ export function GoblinPanel({ task, node, snapshot, connected, reviews, view, on
       {owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} /> : <div className="panel-content"><WorkspaceDetails task={task} node={node} /></div>}
     </div>
     {terminalOpened && <div className="panel-terminal" hidden={view !== "terminal"}>
-      <Suspense fallback={<p className="loading">Opening the terminal...</p>}>
-        <NativeTerminal task={task} node={node} instance={snapshot.instance} visible={connected} shown={view === "terminal"} onOwner={onOwner} />
+      <Suspense fallback={<div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div>}>
+        {task?.backend === "native" && task.generation && (!node || owner)
+          ? <HostTerminal task={task} instance={snapshot.instance} visible={connected} shown={view === "terminal"} />
+          : <NativeTerminal task={task} node={node} instance={snapshot.instance} visible={connected} shown={view === "terminal"} onOwner={onOwner} />}
       </Suspense>
     </div>}
   </section>;

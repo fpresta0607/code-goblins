@@ -490,6 +490,17 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .terminal-options-panel input { min-height: 0; width: 20px; height: 20px; accent-color: var(--mint); }
 .terminal-empty { display: grid; place-items: center; align-content: center; gap: 16px; flex: 1; padding: 32px; color: var(--muted); text-align: center; }
 .terminal-empty > .icon { width: 36px; height: 36px; }
+/* A native terminal owns its scrollback and is sized to the panel, so the
+   panel never scrolls around it; until its screen is whole a full-pane state
+   covers it. */
+.host-terminal .terminal-surface { overflow: hidden; padding: 6px 0 0 10px; }
+.terminal-cover { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; align-content: center; gap: 14px; padding: 24px; background: #071015; color: var(--muted); text-align: center; }
+.terminal-cover p { margin: 0; max-width: 46ch; overflow-wrap: anywhere; }
+.terminal-cover > .icon { width: 36px; height: 36px; }
+.terminal-spinner { width: 30px; height: 30px; border-radius: 50%; border: 3px solid #1d3a32; border-top-color: var(--mint); animation: terminal-spin .8s linear infinite; }
+@keyframes terminal-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .terminal-spinner { animation-duration: 2.4s; } }
+.terminal-copied { position: absolute; top: 10px; right: 12px; z-index: 2; color: var(--mint); }
 @media (max-width: 50rem) {
   .panel-header { padding: 16px 18px 18px; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; }
   .panel-header .goblin-avatar { width: 64px; height: 64px; }
