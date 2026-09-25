@@ -90,7 +90,10 @@ test("an answered review item is marked by whether its answer reached the asker"
   const action = (status: string) => ({ id: "z", kind: "review_answer", status });
   const cases: [string, Record<string, unknown>, Record<string, unknown>[], string, string, string][] = [
     ["delivered to the goblin", { delivered: true }, [action("succeeded")], "You wrote: Go with B", "check-double", "succeeded"],
-    ["not yet delivered to the goblin", { delivered: false }, [action("queued")], "You wrote: Go with B (not yet delivered to the goblin)", "check", "queued"],
+    ["an answer whose action was pruned", { delivered: false }, [], "You wrote: Go with B", "check-double", "succeeded"],
+    ["queued for the goblin", { delivered: false }, [action("queued")], "You wrote: Go with B (not yet delivered to the goblin)", "check", "queued"],
+    ["on its way to the goblin", { delivered: false }, [action("running")], "You wrote: Go with B (not yet delivered to the goblin)", "check", "queued"],
+    ["an unconfirmed delivery", { delivered: false }, [action("uncertain")], "Delivery unconfirmed: inspect the goblin's pane before answering again", "warning", "uncertain"],
     ["handed to the CFO after the goblin restarted", { delivered: false }, [action("succeeded")], "You wrote: Go with B (not yet delivered to the goblin)", "check", "queued"],
     ["refused with no CFO to take it", { delivered: false }, [action("failed")], "Your answer did not reach the goblin", "warning", "failed"],
     ["the CFO's own item, not yet delivered", { task: "", delivered: false }, [action("running")], "You wrote: Go with B (not yet delivered to the CFO)", "check", "queued"],

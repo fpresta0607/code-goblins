@@ -63,15 +63,26 @@ export function outcomeIcon(outcome: QuestionOutcome): IconName {
 
 // What became of an item, in plain words and as its mark: a question by its
 // outcome, a review item by its state. The backend marks a review answered as
-// soon as it queues the answer, so only delivered means it reached its asker.
+// soon as it queues the answer, so its answer action says whether it reached
+// its asker; an answer whose action was pruned had long settled.
+function answerOutcome(review: Review, actions: Action[]): "delivered" | "pending" | "failed" | "uncertain" {
+  const status = actions.find((action) => action.id === review.answer_id)?.status;
+  if (review.delivered || !status) return "delivered";
+  return status === "failed" || status === "uncertain" ? status : "pending";
+}
+
 export function settledLabel(item: Item, actions: Action[]): string {
   if (item.kind === "question") return answeredLabel(item.question);
-  const { state, answer, reason, task, delivered, answer_id } = item.review;
+  const { state, answer, reason, task } = item.review;
   const asker = task ? "the goblin" : "the CFO";
   if (state === "withdrawn") return "Withdrawn: " + reason;
   if (state !== "answered") return "Cleared";
-  if (answerFailed(answer_id, actions)) return "Your answer did not reach " + asker;
-  return "You wrote: " + answer + (delivered ? "" : " (not yet delivered to " + asker + ")");
+  switch (answerOutcome(item.review, actions)) {
+    case "failed": return "Your answer did not reach " + asker;
+    case "uncertain": return "Delivery unconfirmed: inspect " + asker + "'s pane before answering again";
+    case "pending": return "You wrote: " + answer + " (not yet delivered to " + asker + ")";
+    case "delivered": return "You wrote: " + answer;
+  }
 }
 
 export function settledIcon(item: Item, actions: Action[]): { icon: IconName; tone: string } {
@@ -79,13 +90,11 @@ export function settledIcon(item: Item, actions: Action[]): { icon: IconName; to
     const outcome = questionOutcome(item.question);
     return { icon: outcomeIcon(outcome), tone: outcome === "answered" ? "succeeded" : outcome };
   }
-  const { state, delivered, answer_id } = item.review;
-  if (state !== "answered") return { icon: "close", tone: state };
-  if (answerFailed(answer_id, actions)) return { icon: "warning", tone: "failed" };
-  return delivered ? { icon: "check-double", tone: "succeeded" } : { icon: "check", tone: "queued" };
+  if (item.review.state !== "answered") return { icon: "close", tone: item.review.state };
+  const outcome = answerOutcome(item.review, actions);
+  if (outcome === "failed" || outcome === "uncertain") return { icon: "warning", tone: outcome };
+  return outcome === "delivered" ? { icon: "check-double", tone: "succeeded" } : { icon: "check", tone: "queued" };
 }
-
-const answerFailed = (answerID: string, actions: Action[]) => actions.some((action) => action.id === answerID && action.status === "failed");
 
 // The choice that closed a question: the backend's answered_option, or the
 // recorded answer for a question closed before that field existed.
