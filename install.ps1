@@ -82,7 +82,10 @@
             }
             $actual = (Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash
             if (-not $expected -or $actual -ne $expected) {
-                throw "The downloaded cfo.exe (SHA256 $actual) does not match the release's SHA256SUMS (expected '$expected'), so it was not installed."
+                # The hashes go on a line of their own: PowerShell 7 wraps a
+                # long error across its error view.
+                Write-Host "SHA256 of the download: $actual; the release's SHA256SUMS lists: '$expected'"
+                throw "The downloaded cfo.exe does not match the release's SHA256SUMS, so it was not installed."
             }
             Move-Item -LiteralPath $download -Destination $Path -Force
             Write-Host "Verified cfo.exe against the release's SHA256SUMS ($actual)."
