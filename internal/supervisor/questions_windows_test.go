@@ -324,7 +324,7 @@ func goblinFixture(t *testing.T, store *Store) (state.TaskMeta, wake.Record, *cf
 // question the supervisor ingested.
 func surfaced(t *testing.T, store *Store, meta state.TaskMeta, record wake.Record, connection *CFOConnection) Question {
 	t.Helper()
-	if err := SurfaceNotify(context.Background(), store.Home.State, connection.Terminals, meta.ID, record, nil); err != nil {
+	if err := SurfaceNotify(context.Background(), store.Home.State, connection.Terminals, meta.ID, record, record.Detail, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {
@@ -343,7 +343,7 @@ func surfaced(t *testing.T, store *Store, meta state.TaskMeta, record wake.Recor
 func TestGoblinQuestionAnsweredOnceInItsOwnPane(t *testing.T) {
 	store, h := testStore(t)
 	meta, record, runner, connection := goblinFixture(t, store)
-	if err := SurfaceNotify(context.Background(), h.State, connection.Terminals, meta.ID, record, nil); err != nil {
+	if err := SurfaceNotify(context.Background(), h.State, connection.Terminals, meta.ID, record, record.Detail, nil); err != nil {
 		t.Fatal(err)
 	}
 	q := surfaced(t, store, meta, record, connection)
@@ -385,6 +385,46 @@ func TestGoblinQuestionAnsweredOnceInItsOwnPane(t *testing.T) {
 	}
 	if len(pending) != 1 || pending[0].Answered != "SQLite" || pending[0].AnsweredBy != wake.AnsweredByOverlord {
 		t.Fatalf("notify = %+v, want it marked answered on the board", pending)
+	}
+}
+
+// A goblin's question keeps its own line breaks on the board, so its bullets
+// read as bullets, while the answer it gets back still reaches its pane as one
+// line, since a line break there would submit the prompt early.
+func TestGoblinQuestionKeepsItsLinesOnTheBoardAndItsAnswerIsOneLine(t *testing.T) {
+	store, h := testStore(t)
+	meta, _, runner, connection := goblinFixture(t, store)
+	asked := "blocked: Ship the report?\n- **Verdict:** not yet\n- one blocking defect options: Ship now | Hold (Recommended)"
+	// The queue holds the one-line form cfo notify records.
+	record, err := wake.Append(h.State, "notify", meta.ID, state.NormalizeStatusDetail(asked))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SurfaceNotify(context.Background(), h.State, connection.Terminals, meta.ID, record, asked, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestQuestions(); err != nil {
+		t.Fatal(err)
+	}
+	questions := store.Snapshot().Questions
+	if len(questions) != 1 {
+		t.Fatalf("questions = %+v, want the goblin's one question", questions)
+	}
+	q := questions[0]
+	a := Action{ID: "answer-lines", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "Hold"}
+	if _, err := store.Queue(a); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ProcessOne(context.Background(), (&Service{Store: store, Options: Options{CFO: connection}}).execute); err != nil {
+		t.Fatal(err)
+	}
+
+	if q.Text != "Ship the report?\n- **Verdict:** not yet\n- one blocking defect" || !slices.Equal(q.Options, []string{"Ship now", "Hold"}) || q.Recommended != "Hold" {
+		t.Fatalf("surfaced question = %+v, want its lines and choices as asked", q)
+	}
+	if len(runner.prompts) != 1 || strings.ContainsAny(runner.prompts[0], "\r\n") || !strings.Contains(runner.prompts[0], "Question: Ship the report? - **Verdict:** not yet - one blocking defect Answer: Hold") {
+		t.Fatalf("goblin prompts = %q, want the answer on one line with the question flattened", runner.prompts)
 	}
 }
 
@@ -461,18 +501,18 @@ func TestSurfaceNotifyNeedsChoicesAndTheGoblinsOwnPane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SurfaceNotify(context.Background(), h.State, connection.Terminals, meta.ID, plain, nil); err != nil {
+	if err := SurfaceNotify(context.Background(), h.State, connection.Terminals, meta.ID, plain, plain.Detail, nil); err != nil {
 		t.Fatal(err)
 	}
 	failed, err := wake.Append(h.State, "notify", meta.ID, "failed: Tests fail. options: Retry (Recommended) | Abandon")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SurfaceNotify(context.Background(), h.State, connection.Terminals, meta.ID, failed, nil); err != nil {
+	if err := SurfaceNotify(context.Background(), h.State, connection.Terminals, meta.ID, failed, failed.Detail, nil); err != nil {
 		t.Fatal(err)
 	}
 	runner.pid = 2147483647
-	if err := SurfaceNotify(context.Background(), h.State, connection.Terminals, meta.ID, record, nil); err == nil {
+	if err := SurfaceNotify(context.Background(), h.State, connection.Terminals, meta.ID, record, record.Detail, nil); err == nil {
 		t.Fatal("a process outside the goblin's pane surfaced its question")
 	}
 	if err := store.ingestQuestions(); err != nil {
@@ -691,10 +731,10 @@ func TestCFOAndBoardAnswersToDifferentGoblinsBothDeliver(t *testing.T) {
 	}
 	runnerB := &cfoRunner{t: t, pid: os.Getpid()}
 	connectionB := &CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: runnerB})}
-	if err := SurfaceNotify(context.Background(), h.State, connectionA.Terminals, metaA.ID, recordA, nil); err != nil {
+	if err := SurfaceNotify(context.Background(), h.State, connectionA.Terminals, metaA.ID, recordA, recordA.Detail, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := SurfaceNotify(context.Background(), h.State, connectionB.Terminals, metaB.ID, recordB, nil); err != nil {
+	if err := SurfaceNotify(context.Background(), h.State, connectionB.Terminals, metaB.ID, recordB, recordB.Detail, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {

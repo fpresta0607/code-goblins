@@ -53,7 +53,7 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	done := fs.Bool("done", false, "report completion")
 	pr := fs.String("pr", "", "PR URL, required with --done")
-	blocked := fs.String("blocked", "", "report a question the goblin is blocked on")
+	blocked := fs.String("blocked", "", "report a question the goblin is blocked on: one short sentence that is the question, details on lines starting with \"- \", and **bold** only on the verdict or the blocking item")
 	failed := fs.String("failed", "", "report a failure reason")
 	working := fs.String("working", "", "report what you are working on now")
 	waitingOn := fs.String("waiting-on", "", "report what you wait on, another task's ID, overlord, ci or deploy, followed by why")
@@ -185,7 +185,7 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 			}
 			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this wait, the CFO still has it: "+err.Error())
 		}
-	} else if err := supervisor.SurfaceNotify(ctx, h.State, terminals, id, record, images); err != nil {
+	} else if err := supervisor.SurfaceNotify(ctx, h.State, terminals, id, record, verb+": "+strings.TrimSpace(detail), images); err != nil {
 		fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this question, the CFO still has it: "+err.Error())
 	}
 	fmt.Fprintf(stdout, "notified %s %s\n", id, line)

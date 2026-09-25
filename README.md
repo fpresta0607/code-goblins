@@ -257,6 +257,7 @@ Retrying an unchanged comment keeps its request ID, so a retry cannot deliver th
 </p>
 
 When the CFO needs a decision only you can make, it publishes the question with `cfo question` and the Command Center opens as a modal.
+The question reads as plain body text across a wide card: its first sentence is the question, details follow as bullets, and only what the asker marked, such as the verdict or the blocking item, is bold.
 Choices are labelled A, B and C with the CFO's recommendation marked, and **Other** takes a written answer.
 Review items share the stack: a goblin's image review, a Lavish page, or a goblin waiting on you, each answered in writing with **Send answer** or closed with **Clear**.
 Several items stack up one card at a time, the CFO's first and then goblins by longest wait, with **Back**, **Next** and swipe; each card sends its own answer, and **Later** moves on without answering.

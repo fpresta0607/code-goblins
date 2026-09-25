@@ -120,8 +120,12 @@ func goblinAsker(ctx context.Context, stateDir string, terminals terminal.Opener
 // the CFO and never opens the modal, and neither does a failed notify.
 // images, one for each choice in order, must already have passed
 // ReviewImages: SurfaceNotify records them without checking the files.
-func SurfaceNotify(ctx context.Context, stateDir string, terminals terminal.Opener, taskID string, record wake.Record, images []string) error {
-	question, options, ok := wake.Question(record)
+// detail is the notify as the goblin wrote it: the queue holds record's
+// one-line form, and the board shows the question with its own line breaks.
+func SurfaceNotify(ctx context.Context, stateDir string, terminals terminal.Opener, taskID string, record wake.Record, detail string, images []string) error {
+	asked := record
+	asked.Detail = detail
+	question, options, ok := wake.Question(asked)
 	if !ok || len(options) == 0 {
 		return nil
 	}
