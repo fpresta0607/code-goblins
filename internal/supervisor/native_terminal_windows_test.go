@@ -3,6 +3,7 @@ package supervisor
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -411,6 +412,51 @@ func TestANativeTerminalCarriesAThousandKeysInOrderAndStartsNoProcess(t *testing
 	}
 	if after := started(); after != before {
 		t.Errorf("typing started %d processes, want none", after-before)
+	}
+}
+
+// A view is told first how many bytes of what follows are the replayed
+// history, so it can stay out of sight until the live repaint after it.
+func TestANativeViewIsToldWhereTheHistoryEnds(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	terminal := hostTask(t, h)
+	early := openNativeView(t, server, viewQuery)
+	early.waitFor(t, "program ready")
+	terminal.typeLine(t, "before the view")
+	// The host keeps output in its history before any view sees it.
+	early.waitFor(t, "before the view")
+	conn, _, err := dialNative(server, viewQuery, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.CloseNow() })
+	conn.SetReadLimit(1 << 20)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	kind, first, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var header struct {
+		Type  string `json:"type"`
+		Bytes int    `json:"bytes"`
+	}
+	if kind != websocket.MessageText || json.Unmarshal(first, &header) != nil || header.Type != "history" {
+		t.Fatalf("the view's first message is %v %q, want the history's length", kind, first)
+	}
+	var replay []byte
+	for len(replay) < header.Bytes {
+		kind, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if kind == websocket.MessageBinary {
+			replay = append(replay, data...)
+		}
+	}
+	if !strings.Contains(string(replay[:header.Bytes]), "program ready") || !strings.Contains(string(replay[:header.Bytes]), "before the view") {
+		t.Errorf("the %d history bytes are %q, want the terminal's output so far", header.Bytes, replay[:header.Bytes])
 	}
 }
 
