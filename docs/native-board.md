@@ -221,10 +221,10 @@ The Supreme Overlord Command Center labels supplied choices A/B/C and always off
 No choice is preselected and written text is sent only when Other is selected.
 Use a new stable ID for a new question, and keep the same ID/content for an uncertain publication retry.
 The publisher walks up to 32 process ancestors and verifies the registered CFO PID, creation time and live native identity; a worker cannot escalate on the CFO's behalf.
-The Command Center shows one item at a time as a stack, a question or a review item, the CFO's own items first and then goblins by longest wait, with its position, Back and Next buttons and a horizontal swipe on touch screens.
+The Command Center shows one item at a time as a stack, a question, a review item or a run item, the CFO's own items first and then goblins by longest wait, with its position, Back and Next buttons and a horizontal swipe on touch screens.
 Each card sends only its own answer, and Later moves to the next item without answering.
 A card answered while on screen, from the card or from elsewhere such as `cfo answer`, keeps its place until the Overlord moves on: it shows its delivery marks, or once closed a check on the chosen option, the other options dimmed and Answered by you or Answered by the CFO with the time.
-Drafts survive closing, reconnecting and moving between cards, and the header button, whose badge counts what waits on the Overlord, opens an inbox of those items, the live pages (review pages and browser walkthroughs) and a history of what he answered or cleared, newest first by when each closed.
+Drafts survive closing, reconnecting and moving between cards, and the header button, whose badge counts what waits on the Overlord, opens an inbox of those items, the live pages (review pages and browser walkthroughs) and a history of what he answered, cleared or ran, newest first by when each closed.
 A goblin panel whose goblin is waiting on the Overlord offers Answer, which opens the stack at that goblin's question or review item.
 Once submitted, every tab displays the durable answer rather than an unsent local draft.
 Answers retain their question and CFO identity and enter the durable native CFO message queue, never a worker send or gate approval.
@@ -301,12 +301,6 @@ The API contract for the board is `data/board-ui/api-contract.md`.
 
 A run item is a command the CFO needs the Overlord to run, such as a PowerShell or Git Bash script or a step that needs administrator rights; he runs it with one click from the Command Center instead of copying and pasting it:
 
-On the board a run item is a card in the Command Center stack, counted in the header badge while it is ready or running.
-The card shows why the CFO needs it, the shell with its mark (the GNU Bash mark for Git Bash, a terminal glyph for either PowerShell, since Simple Icons carries no PowerShell mark), an Admin badge with a shield when it runs elevated, the exact command in a monospace block that wraps and has a copy button, and the folder it runs in.
-One button runs it: **Run**, or **Run as administrator** with a note that Windows will ask to confirm; the browser sends only the item's id and identity, never command text.
-The card then says Running, and Finished or Failed with the exit code, or Expired, and the captured output sits under a disclosure; a finished item moves to the inbox's history with the same words.
-
-
 ```powershell
 cfo run-request --id install-tool-1 --title "Install the tool the build needs" --shell powershell --command-file C:\temp\install.ps1
 cfo run-request --id fix-acl-1 --title "Grant the service account access" --shell powershell --admin --command-file C:\temp\acl.ps1
@@ -320,7 +314,11 @@ Processes of one Windows user are peers, though, and a same-user process that re
 The Overlord reading the exact command before Run, and Windows UAC for an admin item, remain the final check.
 The command file is read once: the supervisor stores its text as `state/runs/<digest>/command.ps1` or `command.sh`, which is what runs, so quoting cannot change it, and the item runs in the CFO home unless `--cwd` names a folder.
 The ID follows the review item rule: republishing it with the same text changes nothing while the item waits, and republishing it with other text, or once the item has run or expired, is refused.
-The board sees each item in `snapshot.runs` with its exact command, shell, folder and whether it needs administrator rights, and Run sends only the item's ID through the board's action checks (exact Host and Origin plus the per-session token), never command text.
+The board sees each item in `snapshot.runs` with its exact command, shell, folder and whether it needs administrator rights, and Run sends only the item's ID and identity through the board's action checks (exact Host and Origin plus the per-session token), never command text.
+On the board a run item is a card in the Command Center stack, counted in the header badge while it is ready or running.
+The card shows why the CFO needs it, the shell with its mark (the GNU Bash mark for Git Bash, a terminal glyph for either PowerShell, since Simple Icons carries no PowerShell mark), an Admin badge with a shield when it runs elevated, the exact command in a monospace block that wraps and has a copy button, and the folder it runs in.
+One button runs it, enabled only while the item is ready and the board is connected: **Run**, or **Run as administrator** with a note that Windows will ask to confirm.
+The card then says Running, and Finished or Failed with the exit code, or Expired, and the captured output sits under a disclosure; a finished item moves to the inbox's history with the same words.
 An item runs once and expires 24 hours after it was created; running it again needs a new item.
 Run opens a visible console window of exactly the shell the item names: Windows PowerShell 5.1, PowerShell 7 (`pwsh` on `PATH`) or Git Bash (the `bash.exe` beside Git for Windows' `git.exe`, never the WSL `bash.exe`); a shell that is not installed fails the item with the reason.
 An admin item launches through `Start-Process -Verb RunAs`, so Windows itself asks the Overlord to confirm, and a declined prompt ends the item failed with that reason.
