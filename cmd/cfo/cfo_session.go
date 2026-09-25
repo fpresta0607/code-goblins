@@ -14,6 +14,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 // startCFOSession brings the CFO's session to the front. A CFO whose
@@ -135,7 +136,7 @@ func focusCFOInHerdr(ctx context.Context, endpoint herdr.Endpoint) error {
 // fleet workspace or creates a fresh one in project, starts Claude Code there
 // as the CFO unless an agent already runs in it, and brings the tab to the
 // front. It reports whether it started a CFO.
-func startCFOWith(ctx context.Context, client *herdr.Client, project string) (bool, error) {
+func startCFOWith(ctx context.Context, client terminal.Backend, project string) (bool, error) {
 	if err := client.EnsureServer(ctx); err != nil {
 		return false, err
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 // runPipe serves run requests for s's home until the test ends.
@@ -55,7 +56,7 @@ func TestRunRequestFromOutsideTheCFOTreeNeverReachesTheBoard(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(h.State, "primary.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	runPipe(t, &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Herdr: &herdr.Client{Commands: &cfoRunner{t: t, pid: os.Getpid()}}}}})
+	runPipe(t, &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: &cfoRunner{t: t, pid: os.Getpid()}})}}})
 	err = PublishRun(h, RunRequest{ID: "install-driver", Title: "Install the driver", Shell: "powershell", Admin: true, CommandFile: commandFile(t, "Write-Output driver\n")})
 	if err == nil || !strings.Contains(err.Error(), "does not run under the registered CFO") {
 		t.Fatalf("a run request from outside the CFO's tree = %v, want it refused", err)

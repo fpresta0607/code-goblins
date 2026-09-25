@@ -29,10 +29,15 @@ type Fake struct {
 	Screen   string
 	// Structure is what Snapshot returns.
 	Structure herdr.SessionSnapshot
-	Process   herdr.PaneProcessInfo
-	Running   bool
-	Dead      bool
-	Fail      map[string]error
+	Agents    []herdr.AgentRecord
+	Evidence  []byte
+	// CFO is what CFOTab returns, and CFORunning whether an agent runs in it.
+	CFO        herdr.Endpoint
+	CFORunning bool
+	Process    herdr.PaneProcessInfo
+	Running    bool
+	Dead       bool
+	Fail       map[string]error
 
 	mu      sync.Mutex
 	calls   []string
@@ -115,6 +120,22 @@ func (f *Fake) Snapshot(context.Context) (herdr.SessionSnapshot, error) {
 	return f.Structure, f.record("Snapshot")
 }
 
+func (f *Fake) CheckSchema(context.Context) error {
+	return f.record("CheckSchema")
+}
+
+func (f *Fake) AgentList(context.Context) ([]herdr.AgentRecord, error) {
+	return f.Agents, f.record("AgentList")
+}
+
+func (f *Fake) CFOTab(_ context.Context, _ herdr.Container, cwd string) (herdr.Endpoint, bool, error) {
+	return f.CFO, f.CFORunning, f.record("CFOTab", cwd)
+}
+
+func (f *Fake) Focus(_ context.Context, endpoint herdr.Endpoint) error {
+	return f.record("Focus", endpoint.WorkspaceID, endpoint.TabID)
+}
+
 func (f *Fake) SendLiteral(_ context.Context, target herdr.Target, text string) error {
 	return f.record("SendLiteral", target.String(), text)
 }
@@ -125,6 +146,10 @@ func (f *Fake) SendKey(_ context.Context, target herdr.Target, key string) error
 
 func (f *Fake) Capture(_ context.Context, target herdr.Target, lines int, _ bool) (string, error) {
 	return f.Screen, f.record("Capture", target.String(), strconv.Itoa(lines))
+}
+
+func (f *Fake) CaptureEvidence(_ context.Context, target herdr.Target) ([]byte, error) {
+	return f.Evidence, f.record("CaptureEvidence", target.String())
 }
 
 func (f *Fake) AgentStart(_ context.Context, target herdr.Target, name, kind string, _ []string) error {

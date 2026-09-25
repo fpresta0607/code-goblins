@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -99,7 +100,7 @@ func goblinIdentity(meta state.TaskMeta) string {
 // goblinAsker proves the calling process runs under the task's own pane, the
 // same proof registration uses for the CFO, so no other process can ask in
 // a goblin's name.
-func goblinAsker(ctx context.Context, stateDir string, client *herdr.Client, taskID string) (state.TaskMeta, error) {
+func goblinAsker(ctx context.Context, stateDir string, terminals terminal.Opener, taskID string) (state.TaskMeta, error) {
 	meta, err := state.ReadTaskMeta(stateDir, taskID)
 	if err != nil {
 		return meta, fmt.Errorf("task %s has no live record: %w", taskID, err)
@@ -107,7 +108,7 @@ func goblinAsker(ctx context.Context, stateDir string, client *herdr.Client, tas
 	if meta.Backend != "herdr" || meta.HerdrSession == "" || meta.HerdrPaneID == "" {
 		return meta, fmt.Errorf("task %s has no Herdr pane to answer", taskID)
 	}
-	if _, _, err := paneHarness(ctx, client, herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}); err != nil {
+	if _, _, err := paneHarness(ctx, terminals(meta.HerdrSession), herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}); err != nil {
 		return meta, err
 	}
 	return meta, nil
@@ -119,13 +120,13 @@ func goblinAsker(ctx context.Context, stateDir string, client *herdr.Client, tas
 // the CFO and never opens the modal, and neither does a failed notify.
 // images, one for each choice in order, must already have passed
 // ReviewImages: SurfaceNotify records them without checking the files.
-func SurfaceNotify(ctx context.Context, stateDir string, client *herdr.Client, taskID string, record wake.Record, images []string) error {
+func SurfaceNotify(ctx context.Context, stateDir string, terminals terminal.Opener, taskID string, record wake.Record, images []string) error {
 	question, options, ok := wake.Question(record)
 	if !ok || len(options) == 0 {
 		return nil
 	}
 	options, recommended := questionChoices(options)
-	meta, err := goblinAsker(ctx, stateDir, client, taskID)
+	meta, err := goblinAsker(ctx, stateDir, terminals, taskID)
 	if err != nil {
 		return err
 	}
@@ -170,7 +171,7 @@ func (c *CFOConnection) SendGoblin(ctx context.Context, taskID, identity, text s
 		return Evaluation{}, fmt.Errorf("%w: the goblin's task restarted or ended; nothing was sent", ErrRejected)
 	}
 	guard := func(_ context.Context, target herdr.Target, _ herdr.AgentDetail) error { return current(target) }
-	sender := fleet.Sender{Terminal: c.Herdr, Resolve: fleet.Resolver{StateDir: c.State}, Guard: guard}
+	sender := fleet.Sender{Terminal: c.Terminals(""), Resolve: fleet.Resolver{StateDir: c.State}, Guard: guard}
 	if err := sender.Text(ctx, taskID, oneLine(text)); err != nil {
 		return Evaluation{}, err
 	}

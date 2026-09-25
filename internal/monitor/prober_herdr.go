@@ -8,16 +8,17 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 // HerdrProber is the read-only structural prober. One monitoring cycle takes
 // one session snapshot, validates every task's recorded identity against that
 // single topology, and adds at most one bounded terminal capture per valid
-// task. It has no send, close, restart, return, or delete capability: its only
-// dependency is the read-only Herdr client surface. Unreadable evidence always
-// becomes an unknown sample, never invented liveness.
+// task. It never sends, closes, restarts, returns or deletes: it calls only
+// the terminal backend's read operations. Unreadable evidence always becomes an
+// unknown sample, never invented liveness.
 type HerdrProber struct {
-	Client *herdr.Client
+	Client terminal.Backend
 
 	mu            sync.Mutex
 	schemaChecked bool
@@ -30,8 +31,8 @@ type HerdrProber struct {
 }
 
 // NewHerdrProber binds the structural prober to one Herdr session through the
-// given client.
-func NewHerdrProber(client *herdr.Client) *HerdrProber {
+// given terminal backend.
+func NewHerdrProber(client terminal.Backend) *HerdrProber {
 	return &HerdrProber{Client: client}
 }
 

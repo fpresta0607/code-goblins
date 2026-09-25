@@ -43,7 +43,7 @@ type terminalBinding struct {
 func (s *Service) resolveTerminal(ctx context.Context, selected terminalSelection, write bool) (terminalBinding, error) {
 	var b terminalBinding
 	c := s.Options.CFO
-	if c == nil || c.Herdr == nil {
+	if c == nil || c.Terminals == nil {
 		return b, errors.New("Native terminal transport is unavailable.")
 	}
 	b.Selection = selected
@@ -81,8 +81,7 @@ func (s *Service) resolveTerminal(ctx context.Context, selected terminalSelectio
 	if meta.HerdrSession == "" || meta.HerdrPaneID == "" || meta.HerdrTabID == "" || meta.HerdrWorkspaceID == "" {
 		return b, unavailableTerminal("No native terminal is registered for this task.")
 	}
-	client := *c.Herdr
-	client.Session = meta.HerdrSession
+	client := c.Terminals(meta.HerdrSession)
 	snapshot, err := client.Snapshot(ctx)
 	if err != nil {
 		return b, errors.New("Herdr is unavailable. Reconnect when its session is running.")
@@ -267,8 +266,7 @@ func (h *HTTP) verifyTerminal(ctx context.Context, b terminalBinding, write bool
 // paneSize is the size Herdr lays the pane out at, clamped to what an observer
 // accepts.
 func (h *HTTP) paneSize(ctx context.Context, target herdr.Target) (int, int, error) {
-	client := *h.Service.Options.CFO.Herdr
-	client.Session = target.Session
+	client := h.Service.Options.CFO.Terminals(target.Session)
 	check, stop := context.WithTimeout(ctx, 8*time.Second)
 	defer stop()
 	snapshot, err := client.Snapshot(check)
@@ -405,7 +403,7 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 	ask, asked := context.WithTimeout(ctx, 8*time.Second)
 	custody := h.Service.terminalCustody(ask, b)
 	asked()
-	lease := &terminalLease{binding: b, stream: stream, control: input.Control, cancel: cancel, typist: h.Service.Options.CFO.Herdr.SendLiteral, custody: custody}
+	lease := &terminalLease{binding: b, stream: stream, control: input.Control, cancel: cancel, typist: h.Service.Options.CFO.Terminals("").SendLiteral, custody: custody}
 	h.mu.Lock()
 	h.terminals[key] = lease
 	h.mu.Unlock()
