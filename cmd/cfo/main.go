@@ -42,6 +42,7 @@ Run as goblins with no command, it finds the supervisor or starts one in the bac
 commands:
   version   print the cfo version
   serve     run the persistent native supervisor and embedded browser board on loopback
+  host      run one goblin terminal in a process of its own; cfo starts it, not you
   status    whether the supervisor runs: its board, what the fleet is doing and its pid; exits 1 when none runs
   stop      ask the supervisor to stop and wait until it has; --force ends its process tree instead
   hooks     check|install <claude|codex|pi> native lifecycle hooks
@@ -257,6 +258,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runStop(args[1:], stdout, stderr, runtime)
 	case "serve":
 		return runServe(args[1:], stdout, stderr, runtime)
+	case "host":
+		return runHost(args[1:], stderr)
 	case "native-hook":
 		return runNativeHook(args[1:], os.Stdin, stdout, stderr, runtime)
 	case "hooks":
