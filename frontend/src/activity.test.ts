@@ -80,6 +80,15 @@ test("a goblin's pane-proven presentation names no session and lives on its task
   assert.equal(livePresentations(snapshot,now+120001).length,0);
 });
 
+test("a goblin's review page stays live while its question waits on the Overlord", () => {
+  const now=Date.now();
+  const snapshot=parseSnapshot({healthy:true,activity:[{id:"task-2-review",kind:"review",task_id:"work",generation:"g7",target:"",state:"active",url:"http://127.0.0.1:4387/session/abc",at:new Date(now).toISOString(),until:new Date(now+60000).toISOString()}],tasks:[{id:"work",generation:"g7",verified:false,runtime:{state:"stale",reason:"Herdr monitor: awaiting_answer",at:new Date(now).toISOString()}}],sessions:[],questions:[{id:"notify-work-1",identity:"x",text:"Which layout?",options:["A","B"],task:"work",status:"pending",created_at:new Date(now).toISOString()}]});
+  assert.equal(livePresentations(snapshot,now).length,1);
+  assert.equal(livePresentations({...snapshot,questions:[{...snapshot.questions![0],status:"succeeded"}]},now).length,0);
+  assert.equal(livePresentations({...snapshot,questions:[{...snapshot.questions![0],task:"other"}]},now).length,0);
+  assert.equal(livePresentations(snapshot,now+60001).length,0);
+});
+
 test("a Lavish tailnet link opens as returned, and plain http elsewhere stays refused", () => {
   for (const raw of ["http://sermon.tailcc4238.ts.net:4387/session/f26e","http://100.122.0.50:4387/session/f26e","http://127.0.0.1:4387/session/f26e","https://example.com/review"]) assert.equal(safePresentationURL(raw),true,raw);
   for (const raw of ["http://192.0.2.10:4387/session/f26e","http://100.128.0.1:4387/session/f26e","http://100.64.evil.example/review","http://[::ffff:100.64.0.1]/review","http://example.com/review","javascript:alert(1)"]) assert.equal(safePresentationURL(raw),false,raw);

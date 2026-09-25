@@ -30,6 +30,8 @@ test("a durable answer from another tab replaces every unsent or edited draft", 
   assert.deepEqual(questionSelection(pending,draft,receipt),{selection:"option:Proceed",written:""});
   assert.deepEqual(questionSelection(pending,draft),draft);
   assert.deepEqual(questionSelection({...pending,status:"superseded"},draft),{selection:"",written:""});
+  assert.deepEqual(questionSelection({...pending,status:"succeeded",answer:"Proceed. Ship it",answered_option:"Proceed",answered_by:"cfo"},draft),{selection:"option:Proceed",written:""});
+  assert.deepEqual(questionSelection({...question,status:"failed"},draft),{selection:"",written:""});
 });
 
 test("a goblin's question is answered back to that goblin, never through the CFO", () => {
