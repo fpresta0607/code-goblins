@@ -340,6 +340,7 @@ The core is intentionally local-first:
 - `internal/spawn/` — task dispatch and worktree preparation.
 - `internal/herdr/` — terminal/session integration.
 - `internal/terminal/` - the terminal backend that spawn, switch, send, peek and cleanup drive; Herdr is the only one today, and `terminaltest` holds an in-memory one for tests.
+- `internal/conpty/` - runs one process in a Windows pseudo console, inside a job object that ends its whole tree, for the native terminal host.
 - `internal/fleet/` — fleet truth, targeting, steering and inspection.
 - `internal/supervise/` / `internal/watch/` — unattended supervision and recovery.
 - `internal/pipeline/` — durable validation policy and decision gates.
