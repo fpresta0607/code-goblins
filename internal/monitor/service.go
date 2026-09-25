@@ -36,7 +36,10 @@ type Service struct {
 	Probe    Prober
 	// Gate is consulted only once a goblin has read working for longer than
 	// BusyTurnMax; nil disables the gate probe but not the budget itself.
-	Gate                  GateProber
+	Gate GateProber
+	// Polls lists the lavish-axi polls goblins run themselves, each flagged
+	// to the CFO once; nil disables the check.
+	Polls                 PollProber
 	Now                   func() time.Time
 	StaleEscalateAfter    time.Duration
 	StallAfter            time.Duration
@@ -82,6 +85,10 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 	result := ScanResult{Heartbeat: heartbeat}
 	if heartbeat.PendingEvent != nil {
 		result.Event = cloneEvent(heartbeat.PendingEvent)
+	}
+	polls := readPollRecord(s.StateDir)
+	if result.Event == nil && polls.PendingEvent != nil {
+		result.Event = cloneEvent(polls.PendingEvent)
 	}
 
 	entries, err := os.ReadDir(s.StateDir)
@@ -186,6 +193,9 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 			heartbeat.NoChangeStreak++
 		}
 		heartbeat.NextDue = now.Add(s.backoff(heartbeat.NoChangeStreak))
+	}
+	if err := s.flagPrivatePoll(ctx, &polls, &result, entries); err != nil {
+		return ScanResult{}, err
 	}
 	if !heartbeatCorrupt {
 		if err := WriteHeartbeat(s.StateDir, heartbeat); err != nil {
@@ -786,6 +796,13 @@ func (s Service) busyReference(id string) time.Time {
 }
 
 func (s Service) clearPending(event Event) error {
+	if event.Kind == "review" {
+		polls := readPollRecord(s.StateDir)
+		if sameEvent(polls.PendingEvent, event) {
+			polls.PendingEvent = nil
+			return writePollRecord(s.StateDir, polls)
+		}
+	}
 	if event.TaskID != "" {
 		observation, err := ReadObservation(s.StateDir, event.TaskID)
 		if err == nil && sameEvent(observation.PendingEvent, event) {

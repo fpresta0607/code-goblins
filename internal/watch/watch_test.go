@@ -641,6 +641,9 @@ func TestConfigFromEnvInstallsStructuralProber(t *testing.T) {
 	if cfg.Monitor.Heartbeat != cfg.Heartbeat || cfg.Monitor.HeartbeatMax != cfg.HeartbeatMax {
 		t.Errorf("monitor cadence = %v/%v, want the watcher's %v/%v", cfg.Monitor.Heartbeat, cfg.Monitor.HeartbeatMax, cfg.Heartbeat, cfg.HeartbeatMax)
 	}
+	if _, ok := cfg.Monitor.Polls.(monitor.ProcessPolls); !ok {
+		t.Errorf("ConfigFromEnv Polls = %T, want monitor.ProcessPolls so a goblin's private page poll reaches the CFO", cfg.Monitor.Polls)
+	}
 }
 
 func TestConfigFromEnvProberFollowsSpawnSessionSource(t *testing.T) {

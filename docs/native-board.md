@@ -287,6 +287,13 @@ The page's link goes into the wait's line, so the CFO's wake carries it, and ont
 Whatever becomes of the page reaches the CFO as a `review` wake, retried until the queue takes it, and then the item closes: his feedback, saved whole under `state/reviews/feedback/` for the CFO to read and relay; the review ended; the review window disconnected; or a page that cannot be polled three times running.
 Only the item gets the page polled, so when it cannot be published the notify says nothing watches the page and fails, telling the goblin to ask in text with `--blocked`; the wait's line is already recorded and still reaches the CFO.
 
+The monitor watches for the mistake this rule prevents.
+A `lavish-axi poll` that runs in a goblin's worktree, or under a process that does, such as its harness, and that `cfo` did not start wakes the CFO once, as a `review` wake, for as long as that poll runs.
+A live goblin's wake says to have it stop the poll and wait with `cfo notify --waiting-on overlord --lavish`.
+A retired goblin's, known by the status log `cfo cleanup` keeps, says to read the page's open questions, put them to the Overlord and stop the poll.
+A poll in a worktree whose goblin the home never had is somebody else's and is left alone.
+The check reads the command lines of `node` and `lavish-axi` processes, and the folders of a poll and of the processes above it, once per monitor scan.
+
 ## Review items
 
 A review item is something that needs the Overlord's attention without blocking anyone, such as a page of mockups, a report or before and after screenshots:

@@ -80,6 +80,30 @@ func CommandLine(pid int) (string, error) {
 	return line, nil
 }
 
+// Arguments returns the arguments pid was started with, split by Windows'
+// own CommandLineToArgvW, the rule the program itself read them by.
+func Arguments(pid int) ([]string, error) {
+	line, err := CommandLine(pid)
+	if err != nil {
+		return nil, err
+	}
+	pointer, err := syscall.UTF16PtrFromString(line)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrCommandLineUnreadable, err)
+	}
+	var count int32
+	argv, err := syscall.CommandLineToArgv(pointer, &count)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrCommandLineUnreadable, err)
+	}
+	defer syscall.LocalFree(syscall.Handle(uintptr(unsafe.Pointer(argv))))
+	args := make([]string, count)
+	for index := range args {
+		args[index] = syscall.UTF16ToString(argv[index][:])
+	}
+	return args, nil
+}
+
 // parameterString reads the UNICODE_STRING at offset in pid's process
 // parameter block.
 func parameterString(pid int, offset uintptr) (string, error) {
