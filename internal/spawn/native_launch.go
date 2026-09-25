@@ -47,28 +47,29 @@ const maxDialogMoves = 8
 // task's id, and delivers its instruction. It reads the terminal's screen
 // throughout: it answers a startup dialog only once it recognizes it, types
 // the instruction only at the harness's composer, and submits it only once the
-// composer shows it.
-func (s Service) startNativeHarness(ctx context.Context, id string, kind harness.Kind, launch harness.Launch, credentials map[string]string) error {
+// composer shows it. It returns the record of the host it launched, even when
+// it fails afterwards, and the zero record when it launched none.
+func (s Service) startNativeHarness(ctx context.Context, id string, kind harness.Kind, launch harness.Launch, credentials map[string]string) (host.Record, error) {
 	screens, ok := harness.NativeScreens(kind)
 	if !ok {
-		return fmt.Errorf("spawn: %s cannot run in a native terminal yet", kind)
+		return host.Record{}, fmt.Errorf("spawn: %s cannot run in a native terminal yet", kind)
 	}
 	program, err := nativeProgram(kind, launch)
 	if err != nil {
-		return err
+		return host.Record{}, err
 	}
 	if len(s.HostCommand) == 0 {
-		return errors.New("spawn: the command that runs a native terminal's host is required")
+		return host.Record{}, errors.New("spawn: the command that runs a native terminal's host is required")
 	}
 	env := s.nativeHostEnvironment(launch, credentials)
 	record, err := host.Launch(s.StateDir, s.HostCommand, env, host.Spec{ID: id, Args: program, Dir: launch.Dir, Cols: nativeCols, Rows: nativeRows})
 	if err != nil {
-		return fmt.Errorf("spawn: start native terminal %s: %w", id, err)
+		return host.Record{}, fmt.Errorf("spawn: start native terminal %s: %w", id, err)
 	}
 	if err := s.awaitNativeReady(ctx, record, screens); err != nil {
-		return err
+		return record, err
 	}
-	return s.deliverNativeInstruction(ctx, record, screens, launch.PromptInstruction())
+	return record, s.deliverNativeInstruction(ctx, record, screens, launch.PromptInstruction())
 }
 
 // awaitNativeReady reads the terminal's screen until the harness's composer
@@ -309,33 +310,40 @@ func inheritedSession(name string) bool {
 	return false
 }
 
-// closeNativeTerminal ends task id's native terminal, the harness and
-// everything it started, and waits for its host to end. A terminal whose host
-// never recorded itself, or has ended, has nothing left to close; a running
-// host that does not answer, as one under load can be busy, is dialed again
-// for at most nativeCloseWait.
-func closeNativeTerminal(stateDir, id string) error {
-	record, err := host.ReadRecord(stateDir, id)
-	if errors.Is(err, os.ErrNotExist) {
+// closeNativeTerminal ends the native terminal whose host launched is, the
+// harness and everything it started, and waits for its host to end. It closes
+// only that host: a terminal its id names that another host runs is left
+// alone. A zero record launched nothing, and a host that has ended has
+// nothing left to close; a running host that does not answer, as one under
+// load can be busy, is dialed again for at most nativeCloseWait.
+func closeNativeTerminal(stateDir string, launched host.Record) error {
+	if launched.HostPID == 0 {
 		return nil
 	}
-	if err != nil {
+	recorded := func() (bool, error) {
+		record, err := host.ReadRecord(stateDir, launched.ID)
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return err == nil && record.HostPID == launched.HostPID, err
+	}
+	if still, err := recorded(); err != nil || !still {
 		return err
 	}
 	deadline := time.Now().Add(nativeCloseWait)
-	client, err := host.Dial(record)
+	client, err := host.Dial(launched)
 	for err != nil {
-		if !processRunning(record.HostPID) {
+		if !processRunning(launched.HostPID) {
 			return nil
 		}
-		if _, readErr := host.ReadRecord(stateDir, id); errors.Is(readErr, os.ErrNotExist) {
+		if still, readErr := recorded(); readErr == nil && !still {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("the host of native terminal %s, pid %d, does not answer, so its harness may still be running: %w", id, record.HostPID, err)
+			return fmt.Errorf("the host of native terminal %s, pid %d, does not answer, so its harness may still be running: %w", launched.ID, launched.HostPID, err)
 		}
 		time.Sleep(100 * time.Millisecond)
-		client, err = host.Dial(record)
+		client, err = host.Dial(launched)
 	}
 	closeErr := client.CloseTerminal()
 	_ = client.Close()
@@ -343,11 +351,11 @@ func closeNativeTerminal(stateDir, id string) error {
 		return closeErr
 	}
 	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
-		if _, err := host.ReadRecord(stateDir, id); errors.Is(err, os.ErrNotExist) {
+		if still, err := recorded(); err == nil && !still {
 			return nil
 		}
 	}
-	return fmt.Errorf("the host of native terminal %s did not end", id)
+	return fmt.Errorf("the host of native terminal %s did not end", launched.ID)
 }
 
 // processRunning reports whether pid may still run: only a process Windows

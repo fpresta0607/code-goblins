@@ -350,11 +350,13 @@ func newNativeFixture(t *testing.T, kind harness.Kind, mode string) *nativeFixtu
 	// Everything the spawn started ends before the fake's folder goes.
 	t.Cleanup(func() {
 		stop()
-		if err := closeNativeTerminal(f.stateDir, "task-7"); err != nil {
-			t.Errorf("close the native terminal: %v", err)
-		}
-		if terminal, found := native.terminal(); found && !ended(terminal.HostPID) {
-			t.Errorf("host pid %d is still running", terminal.HostPID)
+		if terminal, found := native.terminal(); found {
+			if err := closeNativeTerminal(f.stateDir, terminal); err != nil {
+				t.Errorf("close the native terminal: %v", err)
+			}
+			if !ended(terminal.HostPID) {
+				t.Errorf("host pid %d is still running", terminal.HostPID)
+			}
 		}
 		if data, err := os.ReadFile(record); err == nil {
 			var first codexEvent
@@ -497,6 +499,53 @@ func TestANativeSpawnStopsAtAPromptItMayNotAnswer(t *testing.T) {
 	}
 }
 
+// A failed native spawn closes only a terminal it launched: one that already
+// runs under the task's id refuses the spawn's host, and the spawn's teardown
+// leaves it running while it returns the worktree and retires the task.
+func TestAFailedNativeSpawnLeavesATerminalItDidNotStartRunning(t *testing.T) {
+	f := newNativeFixture(t, harness.Codex, "")
+	fake, err := exec.LookPath(string(harness.Codex))
+	if err != nil {
+		t.Fatal(err)
+	}
+	existing, err := host.Launch(f.stateDir, f.service.HostCommand, append(os.Environ(), fakeCodexMode+"=silent"), host.Spec{ID: "task-7", Args: []string{fake}, Dir: t.TempDir(), Cols: nativeCols, Rows: nativeRows})
+	if err != nil {
+		t.Fatalf("start the terminal that already runs: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := closeNativeTerminal(f.stateDir, existing); err != nil {
+			t.Errorf("close the terminal that already ran: %v", err)
+			if process, err := os.FindProcess(existing.HostPID); err == nil {
+				_ = process.Kill()
+			}
+		}
+	})
+
+	_, err = f.service.Spawn(context.Background(), f.request)
+
+	if err == nil || !strings.Contains(err.Error(), "native terminal task-7") {
+		t.Fatalf("Spawn error = %v, want native terminal task-7 refused", err)
+	}
+	if log, _ := os.ReadFile(filepath.Join(f.stateDir, "hosts", "task-7.log")); !strings.Contains(string(log), fmt.Sprintf("terminal task-7 already runs in host pid %d", existing.HostPID)) {
+		t.Errorf("host log = %q, want the terminal that already runs named", log)
+	}
+	if record, err := host.ReadRecord(f.stateDir, "task-7"); err != nil || record.HostPID != existing.HostPID {
+		t.Fatalf("record = %+v, %v; want the terminal that already ran, host pid %d", record, err, existing.HostPID)
+	}
+	if _, err := host.ReadScreen(existing); err != nil {
+		t.Errorf("read the terminal that already ran: %v", err)
+	}
+	if blind := named(f.events(t), "typed blind"); len(blind) != 0 {
+		t.Errorf("keys typed into the terminal that already ran: %+v", blind)
+	}
+	if _, err := os.Stat(filepath.Join(f.stateDir, "task-7.meta")); !os.IsNotExist(err) {
+		t.Errorf("the task record is still there: %v", err)
+	}
+	if f.git.returned != 1 {
+		t.Errorf("worktree returned %d times, want once", f.git.returned)
+	}
+}
+
 // A native terminal whose host runs but does not answer the close stops the
 // teardown, since its harness may still run: the error names the terminal,
 // and the worktree and task record stay, so the task can still be reached. A
@@ -518,7 +567,8 @@ func TestATeardownKeepsANativeTaskWhoseHostMayStillRun(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
-			record, err := json.Marshal(host.Record{ID: "task-7", Pipe: `\\.\pipe\spawn-test-nobody-serves-this`, Token: "t0ken", Version: host.Version, HostPID: test.hostPID})
+			launched := host.Record{ID: "task-7", Pipe: `\\.\pipe\spawn-test-nobody-serves-this`, Token: "t0ken", Version: host.Version, HostPID: test.hostPID}
+			record, err := json.Marshal(launched)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -526,7 +576,7 @@ func TestATeardownKeepsANativeTaskWhoseHostMayStillRun(t *testing.T) {
 			meta := filepath.Join(f.stateDir, "task-7.meta")
 			writeFile(t, meta, "{}")
 
-			err = f.service.teardownLaunch(context.Background(), nil, herdr.Endpoint{}, f.project, f.worktree, "task-7")
+			err = f.service.teardownLaunch(context.Background(), nil, herdr.Endpoint{}, launched, f.project, f.worktree, "task-7")
 
 			_, metaErr := os.Stat(meta)
 			if test.isKeptInPlace {

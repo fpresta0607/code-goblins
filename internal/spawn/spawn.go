@@ -273,10 +273,13 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		result.Meta.PipelineClass = selection.Class
 		result.Meta.PipelineHash = selection.Hash
 	}
+	// nativeHost is the host this spawn launched, the only native terminal its
+	// teardown may close.
+	var nativeHost host.Record
 	if err := state.WriteTaskMeta(s.StateDir, result.Meta); err != nil {
 		return Result{}, errors.Join(
 			fmt.Errorf("spawn: publish task metadata: %w", err),
-			s.teardownLaunch(ctx, terminals, endpoint, project, wt.Path, result.Meta.ID),
+			s.teardownLaunch(ctx, terminals, endpoint, nativeHost, project, wt.Path, result.Meta.ID),
 		)
 	}
 
@@ -288,7 +291,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		if err := state.AppendStatus(s.StateDir, result.Meta.ID, line); err != nil {
 			cause = errors.Join(cause, fmt.Errorf("spawn: record launch failure: %w", err))
 		}
-		if err := s.teardownLaunch(ctx, terminals, endpoint, project, wt.Path, result.Meta.ID); err != nil {
+		if err := s.teardownLaunch(ctx, terminals, endpoint, nativeHost, project, wt.Path, result.Meta.ID); err != nil {
 			cause = errors.Join(cause, err)
 		}
 		return result, cause
@@ -367,7 +370,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		launch.Instruction += selection.Instruction(req.ID, filepath.Join(taskTmp, "pipeline.json"))
 	}
 	if native {
-		if err := s.startNativeHarness(ctx, req.ID, req.Harness, launch, preflight.Env); err != nil {
+		if nativeHost, err = s.startNativeHarness(ctx, req.ID, req.Harness, launch, preflight.Env); err != nil {
 			return fail(result, err)
 		}
 	} else {
@@ -1037,13 +1040,14 @@ func (s Service) deliverVerifiedInstruction(ctx context.Context, client terminal
 // worktree, removes the Go temporary directory and the task temporary
 // directory, and retires the task metadata. It is the clean-failure path:
 // every step is attempted and their failures joined, so one stuck teardown
-// step never leaves the rest undone. A native task has no terminal backend,
-// and a native terminal that does not close stops the teardown: the task stays
+// step never leaves the rest undone. A native task has no terminal backend:
+// its teardown closes only nativeHost, the host its spawn launched, and a
+// native terminal that does not close stops the teardown: the task stays
 // addressable, and nothing is removed from under a harness that may still run.
-func (s Service) teardownLaunch(ctx context.Context, client terminal.Backend, endpoint herdr.Endpoint, project, worktree, id string) error {
+func (s Service) teardownLaunch(ctx context.Context, client terminal.Backend, endpoint herdr.Endpoint, nativeHost host.Record, project, worktree, id string) error {
 	var errs error
 	if client == nil {
-		if err := closeNativeTerminal(s.StateDir, id); err != nil {
+		if err := closeNativeTerminal(s.StateDir, nativeHost); err != nil {
 			return fmt.Errorf("spawn: close native terminal: %w; its worktree, temporary directories and task record are left in place", err)
 		}
 	} else if err := client.CloseTab(ctx, endpoint.Target.Session, endpoint.TabID); err != nil {

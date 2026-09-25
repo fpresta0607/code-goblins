@@ -227,7 +227,7 @@ A startup dialog it knows is answered only once it shows, by moving the focus do
 A prompt a spawn may not answer, such as Codex's hook review, or a screen it does not recognize within the startup budget, stops the spawn with the terminal named and its screen quoted.
 The instruction is typed into the composer, submitted once the composer shows it, and the spawn succeeds only once the harness shows it working.
 Codex's composer and working texts are its known ones, not yet seen in a capture here, and the first live native Codex spawn checks them.
-A native spawn that fails closes its terminal, which ends the harness and everything it started, and retires the task as a Herdr spawn does.
+A native spawn that fails closes the terminal it started, which ends the harness and everything it started, and retires the task as a Herdr spawn does; a terminal that already ran under the task's id refuses the spawn's host and is left running.
 If the terminal's host still runs but does not answer the close, the spawn's error says so, and the worktree and task record stay, so the task can still be reached.
 `cfo cleanup` does not take a native task yet; its terminal ends when its harness exits, which `cfo attach <id>` can ask of it.
 A missing or stale registration shows on the board as one banner, and in the CFO terminal as its own state, naming what went stale and the fix, `cfo register` in the CFO session.
