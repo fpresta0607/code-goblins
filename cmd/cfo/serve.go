@@ -95,6 +95,13 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		return 1
 	}
 	defer s.Close()
+	// goblins finds the board through this record; the supervisor holds the
+	// singleton by now, so no other one can be writing it.
+	if err := writeBoardRecord(h.State, boardRecord{PID: os.Getpid(), URL: "http://" + listener.Addr().String()}); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer removeBoardRecord(h.State, os.Getpid())
 	server := &http.Server{Handler: supervisor.NewHTTP(s, listener.Addr().String(), assets), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
 	go func() {
 		select {

@@ -9,6 +9,9 @@ The service takes the existing `.watch.lock` before opening recovery state.
 An existing watcher must finish before `serve` can acquire that singleton; starting the board never kills a watcher or worker.
 While `serve` holds it, the Claude CFO's `stop-autoarm` hook still rewakes the idle CFO: it waits on the wake queue, rewakes once for each record no earlier rewake covered, and hosts the watcher itself again if `serve` stops.
 Closing the browser disconnects a view, while Ctrl-C in the supervisor terminal stops that process.
+Once it holds the singleton and listens, `serve` records its pid and the board's address in `state/board.json`, and removes the record when it exits.
+`goblins` with no command reads that record: when the address answers it prints the board's link and a status line from the snapshot, and otherwise it starts `serve` detached from its terminal, with no console window and its output appended to `state/serve.log`, waits up to 30 seconds for the board to answer, and opens it in the browser once.
+A record whose address does not answer, left by a supervisor that ended without removing it, is replaced by the next start, and a record naming anything but a plain loopback board address is ignored.
 Restarting with the same CFO home recovers durable events, evaluations, actions, and lineage.
 
 ## Native hook setup
