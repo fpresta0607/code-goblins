@@ -117,18 +117,9 @@ func runNativeSetup(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return 0
 	}
 	if *dir == "" {
-		user, err := os.UserHomeDir()
-		if err != nil {
+		if *dir, err = harnessConfigDir(name); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
-		}
-		switch name {
-		case "codex":
-			*dir = filepath.Join(user, ".codex")
-		case "claude":
-			*dir = filepath.Join(user, ".claude")
-		case "pi":
-			*dir = filepath.Join(user, ".pi", "agent")
 		}
 	}
 	h, err := runtime.resolveHome()
@@ -151,4 +142,20 @@ func runNativeSetup(args []string, stdout, stderr io.Writer, runtime commandRunt
 		fmt.Fprintln(stdout, "Review these exact hook definitions in Codex /hooks before they can run. Hook trust is unchanged.")
 	}
 	return 0
+}
+
+// harnessConfigDir is where `cfo hooks install` writes a harness's native
+// hooks unless --config-dir says otherwise, and so where an uninstall looks.
+func harnessConfigDir(name string) (string, error) {
+	user, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	switch name {
+	case "codex":
+		return filepath.Join(user, ".codex"), nil
+	case "claude":
+		return filepath.Join(user, ".claude"), nil
+	}
+	return filepath.Join(user, ".pi", "agent"), nil
 }

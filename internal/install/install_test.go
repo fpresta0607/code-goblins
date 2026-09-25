@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/nativehook"
 )
 
 // adopterSettings is a stand-in for a real ~/.claude/settings.json: unrelated
@@ -327,6 +329,36 @@ func TestUninstallTwiceIsANoOp(t *testing.T) {
 	output := f.uninstall()
 	if !strings.Contains(output, "nothing to remove") {
 		t.Errorf("a second uninstall did not report itself as a no-op:\n%s", output)
+	}
+}
+
+// Uninstall also takes out the board's native hooks, which `cfo hooks
+// install` wrote into each harness's own configuration.
+func TestUninstallRemovesTheBoardNativeHooks(t *testing.T) {
+	f := newFixture(t, adopterSettings, nil)
+	claude, codex, pi := t.TempDir(), t.TempDir(), t.TempDir()
+	for harness, dir := range map[string]string{"claude": claude, "pi": pi} {
+		if _, err := nativehook.Install(nativehook.InstallConfig{Harness: harness, ConfigDir: dir, Executable: filepath.Join(dir, "cfo.exe"), Home: f.root, State: filepath.Join(f.root, "state")}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.service.HarnessDirs = map[string]string{"claude": claude, "codex": codex, "pi": pi}
+	f.install()
+
+	output := f.uninstall()
+
+	for _, want := range []string{"removed the board's claude hooks from " + claude, "removed the board's pi hooks from " + pi, "no board hooks for codex in " + codex} {
+		if !strings.Contains(output, want) {
+			t.Errorf("the uninstall output is missing %q:\n%s", want, output)
+		}
+	}
+	for _, left := range []string{filepath.Join(claude, "cfo-native-hook.ps1"), filepath.Join(pi, "extensions", "cfo-native.ts")} {
+		if _, err := os.Stat(left); !os.IsNotExist(err) {
+			t.Errorf("%s survived the uninstall: %v", left, err)
+		}
+	}
+	if output := f.uninstall(); !strings.Contains(output, "nothing to remove") {
+		t.Errorf("a second uninstall found more to remove:\n%s", output)
 	}
 }
 

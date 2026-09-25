@@ -98,3 +98,19 @@ jobs:
             if ($count -ne 1) { throw "after a second install SessionStart holds $count hooks matching $hook, want 1" }
           }
           $global:LASTEXITCODE = 0
+      - name: Uninstall
+        shell: ${{ matrix.shell }}
+        run: |
+          $cfoHome = Join-Path $env:LOCALAPPDATA "CodeGoblins"
+          # From a neutral folder, as a user would: inside a checkout,
+          # uninstall unwires that checkout instead.
+          Set-Location $env:RUNNER_TEMP
+          & (Join-Path $cfoHome "goblins.exe") uninstall
+          if ($LASTEXITCODE -ne 0) { throw "goblins uninstall exited with code $LASTEXITCODE" }
+          if ([Environment]::GetEnvironmentVariable("CFO_HOME", "User")) { throw "CFO_HOME survived the uninstall" }
+          if (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $cfoHome) { throw "$cfoHome is still on the user PATH" }
+          $settings = Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json
+          $left = @(@($settings.hooks.PSObject.Properties.Value.hooks.command) -match "cfo\.exe hook |cfo-native-hook\.ps1")
+          if ($left.Count -gt 0) { throw "hooks survived the uninstall: $($left -join '; ')" }
+          if (-not (Test-Path -LiteralPath (Join-Path $cfoHome "state"))) { throw "the uninstall removed the home's state" }
+          $global:LASTEXITCODE = 0
