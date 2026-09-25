@@ -119,13 +119,8 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		var err error
-		if page, err = filepath.Abs(*lavish); err != nil {
-			fmt.Fprintf(stderr, "cfo notify: resolve --lavish %s: %v\n", *lavish, err)
-			return 2
-		}
-		extension := strings.ToLower(filepath.Ext(page))
-		if info, err := os.Stat(page); err != nil || !info.Mode().IsRegular() || extension != ".html" && extension != ".htm" {
-			fmt.Fprintf(stderr, "cfo notify: --lavish %s is not an HTML file\n", page)
+		if page, err = lavishPageFile(*lavish); err != nil {
+			fmt.Fprintf(stderr, "cfo notify: --lavish %v\n", err)
 			return 2
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -194,4 +189,18 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "notified %s %s\n", id, line)
 	return 0
+}
+
+// lavishPageFile returns the absolute path of a Lavish page the supervisor can
+// poll: an existing HTML file.
+func lavishPageFile(file string) (string, error) {
+	page, err := filepath.Abs(file)
+	if err != nil {
+		return "", fmt.Errorf("%s cannot be resolved: %w", file, err)
+	}
+	extension := strings.ToLower(filepath.Ext(page))
+	if info, err := os.Stat(page); err != nil || !info.Mode().IsRegular() || extension != ".html" && extension != ".htm" {
+		return "", fmt.Errorf("%s is not an HTML file", page)
+	}
+	return page, nil
 }

@@ -1,6 +1,6 @@
 ---
 name: lavish
-description: Review surface for the CFO. Build an HTML artifact and open it with the third-party `lavish-axi` CLI so the Supreme Overlord reads it in the browser, annotates elements or selected text, queues prompts, and sends it all back through `lavish-axi poll`. Use when several options, a structured report, a plan, a comparison, or a diagram is easier to judge visually than as prose. Not for a yes-or-no decision, and never a blocker: when lavish-axi is unavailable, deliver the same content as plain text.
+description: Review surface for the CFO. Build an HTML artifact and open it with the third-party `lavish-axi` CLI so the Supreme Overlord reads it in the browser, annotates elements or selected text, queues prompts, and sends it all back to the CFO through the supervisor's poll. Use when several options, a structured report, a plan, a comparison, or a diagram is easier to judge visually than as prose. Not for a yes-or-no decision, and never a blocker: when lavish-axi is unavailable, deliver the same content as plain text.
 argument-hint: <what the artifact should show>
 ---
 
@@ -30,28 +30,25 @@ If it is empty, infer what to show from the conversation.
 1. Write the artifact as HTML under `.lavish/` in the working directory (for example `.lavish/dispatch-options.html`).
    Run `lavish-axi playbook` to list the playbooks, `lavish-axi playbook <id>` for the one that matches the content, and `lavish-axi design` for the design direction before writing.
    Keep every referenced asset beside the HTML and reference it with a relative path; a root-absolute path will not resolve.
-2. Run `lavish-axi <file>` to open or resume the session.
-3. Run `lavish-axi poll <file>` and leave it in the foreground until it returns.
-4. Apply every queued prompt, refresh the artifact, and poll again to keep the loop going.
+2. Publish it with `cfo review --id <stable-id> --title "<what to look at>" --lavish <file>`, adding `--task <your id>` from a goblin's pane: the command opens the page without a browser and puts its link in the Command Center.
+3. Keep working or end the turn: the supervisor polls the page, and what the Overlord sends reaches the CFO as a `review` wake, his feedback saved whole under `state/reviews/feedback/`.
+   Never run `lavish-axi poll` yourself.
+4. Apply every queued prompt, refresh the artifact, and publish it again under a new ID to keep the loop going.
 5. Run `lavish-axi end <file>` when the review is done, or `lavish-axi export <file> [--out <path>]` for a portable single-file copy.
 
 ## A goblin's page
 
-A goblin never polls: the poll takes the Overlord's feedback where only that goblin sees it, and nobody else learns that a question is waiting.
+Nobody polls a page themselves, and a goblin least of all: the poll takes the Overlord's feedback where only that goblin sees it, and nobody else learns that a question is waiting.
 When a goblin needs his answer on a page, it opens the page with `lavish-axi <file> --no-open` and registers the wait with `cfo notify <id> --waiting-on overlord "<why>" --lavish <file>`.
 The page's link goes on the wait's Command Center item, the supervisor polls the page, and his feedback reaches the CFO as a `review` wake with the whole reply saved under `state/reviews/feedback/`; relay it to the goblin with `cfo send`.
 A goblin's page that needs no answer is reported with `cfo present` instead.
 
-## Poll discipline
+## The supervisor's poll
 
-- The poll stays silent until feedback arrives, then prints one JSON payload and exits.
-  Leave it running; never kill it.
-- Keep it in the foreground.
-  A background poll is allowed only through a harness-native tracked background facility whose completion is guaranteed to resume or notify you - never `nohup`, shell `&`, `disown`, or a detached terminal.
-  This matters more for the CFO than for anyone else: a turn that ends while a detached poll holds the Overlord's feedback is feedback nobody reads.
-- If the poll is killed or times out, re-run it. Queued feedback is not lost.
-- `Send & End` in the browser ends the session and its final feedback is delivered once.
-  After that payload, do not poll again and do not reopen the session uninvited; `--reopen` is for when the Overlord asks for another look.
+- `cfo serve` runs one bounded `lavish-axi poll` at a time for each open item that names a page, for as long as the item is open, and stops it when the item closes.
+- A poll's feedback is delivered once, so nobody else may poll the page: a second poll would take the Overlord's answer where no wake reaches it.
+- `Send & End` in the browser ends the session, and its final feedback reaches the CFO the same way.
+  After that, do not reopen the session uninvited; `--reopen` is for when the Overlord asks for another look.
 
 ## Sharing
 

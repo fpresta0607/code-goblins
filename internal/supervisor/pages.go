@@ -97,18 +97,23 @@ func (s *Service) watchPage(ctx context.Context, r Review) {
 }
 
 // handPageToCFO wakes the CFO with what became of an item's page and closes
-// the item: the CFO relays the answer, and the goblin opens a new wait if it
-// needs another look. The poll consumed the page's feedback, so the wake is
-// retried until the CFO has it, and the item stays open until then.
+// the item: the CFO relays a goblin's answer, and whoever needs another look
+// opens a new item. The poll consumed the page's feedback, so the wake is
+// retried until the CFO has it, and the item stays open until then. The CFO's
+// own page has no goblin to key or relay to, so its wake is keyed by the item.
 func (s *Service) handPageToCFO(ctx context.Context, r Review, poll axi.PagePoll, pollErr error) {
 	var detail, reason string
+	relay, key := "relay it to the goblin", r.Task
+	if r.Task == "" {
+		relay, key = "act on it", r.ID
+	}
 	switch {
 	case pollErr != nil:
 		detail = fmt.Sprintf("the supervisor cannot poll the page %s (%v); the Overlord's answer on it reaches nobody, so ask him in text", r.LavishPage, pollErr)
 		reason = "The page could not be polled; the CFO was told."
 	case poll.Status == "feedback":
 		if saved, err := savePageFeedback(s.Store.Home.State, r, poll.Output); err == nil {
-			detail = "the Overlord answered on the page " + r.LavishPage + "; his feedback is in " + saved + ", relay it to the goblin"
+			detail = "the Overlord answered on the page " + r.LavishPage + "; his feedback is in " + saved + ", " + relay
 		} else {
 			s.publish(err)
 			output := poll.Output
@@ -119,7 +124,7 @@ func (s *Service) handPageToCFO(ctx context.Context, r Review, poll axi.PagePoll
 				}
 				output = "(cut to its end) ..." + output[cut:]
 			}
-			detail = fmt.Sprintf("the Overlord answered on the page %s, but his feedback could not be saved (%v); relay it to the goblin: %s", r.LavishPage, err, output)
+			detail = fmt.Sprintf("the Overlord answered on the page %s, but his feedback could not be saved (%v); %s: %s", r.LavishPage, err, relay, output)
 		}
 		if poll.Ended {
 			detail += "; he ended the review"
@@ -136,7 +141,7 @@ func (s *Service) handPageToCFO(ctx context.Context, r Review, poll axi.PagePoll
 		reason = "The page's session changed; the CFO was told."
 	}
 	for {
-		_, err := wake.Append(s.Store.Home.State, "review", r.Task, detail)
+		_, err := wake.Append(s.Store.Home.State, "review", key, detail)
 		if err == nil {
 			break
 		}
