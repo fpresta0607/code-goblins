@@ -110,6 +110,7 @@ func TestCFOTabRenamesABusyCFOTabWithNoAgentToShell(t *testing.T) {
 func TestCFOTabCreatesTheCFOsTabInTheProject(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{
 		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-g1","label":"gb-g1"}]}}`),
+		jsonReply(`{"result":{"panes":[{"pane_id":"pane-g1","tab_id":"tab-g1"}]}}`),
 		jsonReply(`{"result":{"tab":{"tab_id":"tab-cfo"},"root_pane":{"pane_id":"pane-cfo"}}}`),
 	}}
 	var sleeps []time.Duration
@@ -124,8 +125,87 @@ func TestCFOTabCreatesTheCFOsTabInTheProject(t *testing.T) {
 	}
 	assertRequests(t, runner.Requests(), []execx.Request{
 		command("herdr", "tab", "list", "--workspace", "ws-1", "--session", "fleet"),
+		command("herdr", "pane", "list", "--workspace", "ws-1", "--session", "fleet"),
 		command("herdr", "tab", "create", "--workspace", "ws-1", "--cwd", `C:\repo`, "--label", "cfo", "--no-focus", "--session", "fleet"),
 	})
+}
+
+// splitCFOTabReplies are the replies for a cfo tab split into a root pane and
+// a second pane, the root holding no agent and the split holding splitAgent.
+func splitCFOTabReplies(splitAgent runnerReply) []runnerReply {
+	return []runnerReply{
+		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-old","label":"cfo"}]}}`),
+		jsonReply(`{"result":{"panes":[{"pane_id":"pane-root","tab_id":"tab-old"},{"pane_id":"pane-split","tab_id":"tab-old"}]}}`),
+		jsonReply(`{"result":{"pane":{"pane_id":"pane-root"}}}`),
+		{result: execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`), ExitCode: 1}},
+		jsonReply(`{"result":{"pane":{"pane_id":"pane-split"}}}`),
+		splitAgent,
+	}
+}
+
+var splitCFOTabRequests = []execx.Request{
+	command("herdr", "tab", "list", "--workspace", "ws-1", "--session", "fleet"),
+	command("herdr", "pane", "list", "--workspace", "ws-1", "--session", "fleet"),
+	command("herdr", "pane", "get", "pane-root", "--session", "fleet"),
+	command("herdr", "agent", "get", "pane-root", "--session", "fleet"),
+	command("herdr", "pane", "get", "pane-split", "--session", "fleet"),
+	command("herdr", "agent", "get", "pane-split", "--session", "fleet"),
+}
+
+// An agent in any pane of the cfo tab is the CFO running, even when the root
+// pane holds none: its pane is returned and nothing is created, closed or
+// renamed.
+func TestCFOTabFindsTheCFORunningInASplitPane(t *testing.T) {
+	runner := &fakeRunner{replies: splitCFOTabReplies(jsonReply(`{"result":{"agent":{"agent_status":"working"}}}`))}
+	var sleeps []time.Duration
+
+	endpoint, running, err := newTestClient(runner, &sleeps).CFOTab(context.Background(), cfoContainer, `C:\repo`)
+
+	want := Endpoint{Target: Target{Session: "fleet", Pane: "pane-split"}, WorkspaceID: "ws-1", TabID: "tab-old", PaneID: "pane-split"}
+	if err != nil || !running || endpoint != want {
+		t.Fatalf("CFOTab = %+v, %v, %v; want the running CFO %+v", endpoint, running, err, want)
+	}
+	assertRequests(t, runner.Requests(), splitCFOTabRequests)
+}
+
+// A stale cfo tab is closed only when every one of its panes sits at its
+// shell prompt; a split running anything else keeps the tab, renamed to shell.
+func TestCFOTabClosesAStaleSplitTabOnlyWhenEveryPaneIsIdle(t *testing.T) {
+	for name, c := range map[string]struct {
+		splitProcess runnerReply
+		retire       execx.Request
+	}{
+		"every pane idle": {
+			jsonReply(`{"result":{"process_info":{"foreground_process_group_id":50,"shell_pid":50}}}`),
+			command("herdr", "tab", "close", "tab-old", "--session", "fleet"),
+		},
+		"a dev server in the split": {
+			jsonReply(`{"result":{"process_info":{"foreground_process_group_id":51,"shell_pid":50}}}`),
+			command("herdr", "tab", "rename", "tab-old", "shell", "--session", "fleet"),
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			runner := &fakeRunner{replies: append(splitCFOTabReplies(runnerReply{result: execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`), ExitCode: 1}}),
+				jsonReply(`{"result":{"tab":{"tab_id":"tab-new"},"root_pane":{"pane_id":"pane-new"}}}`),
+				jsonReply(`{"result":{"process_info":{"foreground_process_group_id":40,"shell_pid":40}}}`),
+				c.splitProcess,
+				jsonReply(`{"result":{}}`),
+			)}
+			var sleeps []time.Duration
+
+			endpoint, running, err := newTestClient(runner, &sleeps).CFOTab(context.Background(), cfoContainer, `C:\repo`)
+
+			if err != nil || running || endpoint != freshCFOTab {
+				t.Fatalf("CFOTab = %+v, %v, %v; want the fresh tab %+v", endpoint, running, err, freshCFOTab)
+			}
+			assertRequests(t, runner.Requests(), append(append([]execx.Request{}, splitCFOTabRequests...),
+				command("herdr", "tab", "create", "--workspace", "ws-1", "--cwd", `C:\repo`, "--label", "cfo", "--no-focus", "--session", "fleet"),
+				command("herdr", "pane", "process-info", "--pane", "pane-root", "--session", "fleet"),
+				command("herdr", "pane", "process-info", "--pane", "pane-split", "--session", "fleet"),
+				c.retire,
+			))
+		})
+	}
 }
 
 // Focus brings the CFO's workspace and tab to the front for the next client.

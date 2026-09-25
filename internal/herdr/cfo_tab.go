@@ -12,12 +12,14 @@ import (
 const cfoTabLabel = "cfo"
 
 // CFOTab returns the pane of the CFO's tab in container, and whether an agent
-// already runs in it, which is a CFO session the launcher must not start a
-// second time. Herdr starts an agent in its pane's own directory, so a cfo
-// tab with no agent is never reused: a fresh cfo tab is created in cwd first,
-// so the workspace never loses its last tab, and then each old one is closed
-// when its pane sits at its shell prompt or renamed to shell otherwise, since
-// whatever runs there, goblins itself among them, is never closed.
+// already runs in any of its panes, which is a CFO session the launcher must
+// not start a second time. Every pane of every cfo tab is checked. Herdr
+// starts an agent in its pane's own directory, so a cfo tab with no agent in
+// any pane is never reused: a fresh cfo tab is created in cwd first, so the
+// workspace never loses its last tab, and then each old one is closed when
+// every one of its panes sits at its shell prompt or renamed to shell
+// otherwise, since whatever runs there, goblins itself among them, is never
+// closed.
 func (c *Client) CFOTab(ctx context.Context, container Container, cwd string) (Endpoint, bool, error) {
 	if container.Session == "" || container.WorkspaceID == "" {
 		return Endpoint{}, false, errors.New("herdr: the CFO tab needs a session and workspace_id")
@@ -26,7 +28,15 @@ func (c *Client) CFOTab(ctx context.Context, container Container, cwd string) (E
 	if err != nil {
 		return Endpoint{}, false, err
 	}
-	var stale []Endpoint
+	panes, err := c.panes(ctx, container.Session, container.WorkspaceID)
+	if err != nil {
+		return Endpoint{}, false, err
+	}
+	type staleTab struct {
+		id      string
+		targets []Target
+	}
+	var stale []staleTab
 	for _, tab := range tabs {
 		if tab.Label != cfoTabLabel {
 			continue
@@ -34,24 +44,25 @@ func (c *Client) CFOTab(ctx context.Context, container Container, cwd string) (E
 		if tab.ID == "" {
 			return Endpoint{}, false, errors.New("herdr: the cfo tab has no tab_id")
 		}
-		panes, err := c.panes(ctx, container.Session, container.WorkspaceID)
-		if err != nil {
-			return Endpoint{}, false, err
+		old := staleTab{id: tab.ID}
+		for _, pane := range panes {
+			if pane.TabID != tab.ID || pane.ID == "" {
+				continue
+			}
+			target := Target{Session: container.Session, Pane: pane.ID}
+			status, err := c.AgentStatus(ctx, target)
+			if err != nil {
+				return Endpoint{}, false, err
+			}
+			if status != AgentMissing && status != AgentDead {
+				return Endpoint{Target: target, WorkspaceID: container.WorkspaceID, TabID: tab.ID, PaneID: pane.ID}, true, nil
+			}
+			old.targets = append(old.targets, target)
 		}
-		at := slices.IndexFunc(panes, func(pane paneRecord) bool { return pane.TabID == tab.ID && pane.ID != "" })
-		if at < 0 {
+		if len(old.targets) == 0 {
 			return Endpoint{}, false, fmt.Errorf("herdr: the cfo tab %s has no pane", tab.ID)
 		}
-		target := Target{Session: container.Session, Pane: panes[at].ID}
-		endpoint := Endpoint{Target: target, WorkspaceID: container.WorkspaceID, TabID: tab.ID, PaneID: target.Pane}
-		status, err := c.AgentStatus(ctx, target)
-		if err != nil {
-			return Endpoint{}, false, err
-		}
-		if status != AgentMissing && status != AgentDead {
-			return endpoint, true, nil
-		}
-		stale = append(stale, endpoint)
+		stale = append(stale, old)
 	}
 
 	result, err := c.required(ctx, container.Session, Target{}, "tab create", "tab", "create", "--workspace", container.WorkspaceID, "--cwd", cwd, "--label", cfoTabLabel, "--no-focus")
@@ -73,13 +84,17 @@ func (c *Client) CFOTab(ctx context.Context, container Container, cwd string) (E
 		return Endpoint{}, false, errors.New("herdr: tab create response is missing tab_id or root pane_id")
 	}
 	for _, old := range stale {
-		if info, err := c.PaneProcessInfo(ctx, old.Target); err == nil && info.ForegroundProcessGroupID == info.ShellPID {
-			if err := c.CloseTab(ctx, container.Session, old.TabID); err != nil {
+		idle := slices.IndexFunc(old.targets, func(target Target) bool {
+			info, err := c.PaneProcessInfo(ctx, target)
+			return err != nil || info.ForegroundProcessGroupID != info.ShellPID
+		}) < 0
+		if idle {
+			if err := c.CloseTab(ctx, container.Session, old.id); err != nil {
 				return Endpoint{}, false, err
 			}
 			continue
 		}
-		if _, err := c.required(ctx, container.Session, Target{}, "tab rename", "tab", "rename", old.TabID, "shell"); err != nil {
+		if _, err := c.required(ctx, container.Session, Target{}, "tab rename", "tab", "rename", old.id, "shell"); err != nil {
 			return Endpoint{}, false, err
 		}
 	}

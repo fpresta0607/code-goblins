@@ -95,8 +95,24 @@ func TestGoblinsStartsTheCFOWhenTheRegisteredOneHasEnded(t *testing.T) {
 	if len(f.attached) != 1 || f.attached[0] != "fixture-fleet" {
 		t.Errorf("attached %q, want the fleet's session", f.attached)
 	}
-	if !strings.Contains(stdout, "The CFO starts in "+f.project+".") {
+	if !strings.Contains(stdout, "The CFO starts in "+f.project+".") || strings.Contains(stdout, "already running") {
 		t.Errorf("stdout = %q, want it to say where the CFO starts", stdout)
+	}
+}
+
+// An unregistered CFO already running in the cfo tab keeps running where it
+// is, so goblins does not claim it starts in the project picked.
+func TestGoblinsSaysACFOInTheCFOTabIsAlreadyRunning(t *testing.T) {
+	f := newSessionFixture(t)
+	f.runtime.startCFO = func(context.Context, string) (bool, error) { return false, nil }
+
+	exit, stdout, stderr := f.launch()
+
+	if exit != 0 || len(f.attached) != 1 {
+		t.Fatalf("exit=%d attached=%q stderr=%q, want an attach", exit, f.attached, stderr)
+	}
+	if !strings.Contains(stdout, "The CFO is already running in Herdr's cfo tab.") || strings.Contains(stdout, "The CFO starts in") {
+		t.Errorf("stdout = %q, want the CFO already running and no start in the project", stdout)
 	}
 }
 
@@ -187,7 +203,7 @@ func TestGoblinsInsideHerdrOnlyBringsTheCFOToTheFront(t *testing.T) {
 // A CFO that cannot be started is reported, and nothing is attached.
 func TestGoblinsReportsACFOThatCannotStart(t *testing.T) {
 	f := newSessionFixture(t)
-	f.runtime.startCFO = func(context.Context, string) error { return errors.New("herdr is not installed") }
+	f.runtime.startCFO = func(context.Context, string) (bool, error) { return false, errors.New("herdr is not installed") }
 
 	exit, _, stderr := f.launch()
 
@@ -257,13 +273,14 @@ func TestStartingTheCFOStartsClaudeOnlyWhereNoAgentRuns(t *testing.T) {
 			}}
 			client := &herdr.Client{Commands: script, Session: "fleet"}
 
-			if err := startCFOWith(context.Background(), client, `C:\dev\app`); err != nil {
+			reported, err := startCFOWith(context.Background(), client, `C:\dev\app`)
+			if err != nil {
 				t.Fatalf("startCFOWith: %v (commands %q)", err, script.commands)
 			}
 
 			started := script.asked("agent start cfo --kind claude --pane " + c.pane)
-			if wantStart := strings.HasPrefix(c.agent, "exit1:"); started != wantStart {
-				t.Errorf("agent start in %s asked=%v, want %v (commands %q)", c.pane, started, wantStart, script.commands)
+			if wantStart := strings.HasPrefix(c.agent, "exit1:"); started != wantStart || reported != wantStart {
+				t.Errorf("agent start in %s asked=%v reported=%v, want %v (commands %q)", c.pane, started, reported, wantStart, script.commands)
 			}
 			if !script.asked("workspace focus ws-1") || !script.asked("tab focus "+c.tab) {
 				t.Errorf("the CFO's tab %s was not brought to the front: %q", c.tab, script.commands)

@@ -82,9 +82,9 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 		},
 		gitTop: func(context.Context) (string, error) { return f.project, nil },
 		stdin:  strings.NewReader(""),
-		startCFO: func(_ context.Context, project string) error {
+		startCFO: func(_ context.Context, project string) (bool, error) {
 			f.cfoStarts = append(f.cfoStarts, project)
-			return nil
+			return true, nil
 		},
 		attachHerdr: func(session string) int {
 			f.attached = append(f.attached, session)

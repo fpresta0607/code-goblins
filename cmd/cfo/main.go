@@ -125,7 +125,7 @@ type commandRuntime struct {
 	focusCFO    func(context.Context, herdr.Endpoint) error
 	gitTop      func(context.Context) (string, error)
 	stdin       io.Reader
-	startCFO    func(context.Context, string) error
+	startCFO    func(context.Context, string) (bool, error)
 	attachHerdr func(string) int
 	// projectsRoot reads the machine's projects root. A runtime without one
 	// (a test's) has no root, so a bare project name stays what it was before

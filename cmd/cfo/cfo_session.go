@@ -36,11 +36,16 @@ func startCFOSession(ctx context.Context, runtime commandRuntime, stateDir strin
 			fmt.Fprintf(stderr, "goblins: %v\n", err)
 			return 1
 		}
-		if err := runtime.startCFO(ctx, project); err != nil {
+		started, err := runtime.startCFO(ctx, project)
+		if err != nil {
 			fmt.Fprintf(stderr, "goblins: the CFO session could not be started in Herdr: %v\n", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "\nThe CFO starts in %s.\n", project)
+		if started {
+			fmt.Fprintf(stdout, "\nThe CFO starts in %s.\n", project)
+		} else {
+			fmt.Fprintln(stdout, "\nThe CFO is already running in Herdr's cfo tab.")
+		}
 	}
 	if os.Getenv("HERDR_PANE_ID") != "" {
 		fmt.Fprintln(stdout, "The CFO is in front in Herdr.")
@@ -114,8 +119,9 @@ func gitTop(ctx context.Context) (string, error) {
 	return filepath.Clean(strings.TrimSpace(string(result.Stdout))), nil
 }
 
-// startCFOInHerdr starts the CFO in the fleet's own Herdr session.
-func startCFOInHerdr(ctx context.Context, project string) error {
+// startCFOInHerdr starts the CFO in the fleet's own Herdr session, and
+// reports whether it started one.
+func startCFOInHerdr(ctx context.Context, project string) (bool, error) {
 	return startCFOWith(ctx, &herdr.Client{Commands: execx.OSRunner{}, Session: herdrSession()}, project)
 }
 
@@ -128,25 +134,25 @@ func focusCFOInHerdr(ctx context.Context, endpoint herdr.Endpoint) error {
 // startCFOWith makes sure Herdr's server runs, finds the CFO's tab in the
 // fleet workspace or creates a fresh one in project, starts Claude Code there
 // as the CFO unless an agent already runs in it, and brings the tab to the
-// front.
-func startCFOWith(ctx context.Context, client *herdr.Client, project string) error {
+// front. It reports whether it started a CFO.
+func startCFOWith(ctx context.Context, client *herdr.Client, project string) (bool, error) {
 	if err := client.EnsureServer(ctx); err != nil {
-		return err
+		return false, err
 	}
 	container, err := client.EnsureContainer(ctx, project)
 	if err != nil {
-		return err
+		return false, err
 	}
 	endpoint, running, err := client.CFOTab(ctx, container, project)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !running {
 		if err := client.AgentStart(ctx, endpoint.Target, "cfo", "claude", nil); err != nil {
-			return err
+			return false, err
 		}
 	}
-	return client.Focus(ctx, endpoint)
+	return !running, client.Focus(ctx, endpoint)
 }
 
 // attachHerdr hands this terminal to herdr, which attaches to session, and
