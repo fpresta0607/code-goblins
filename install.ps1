@@ -13,22 +13,35 @@
 # In a clone, it downloads (verified the same way) or builds cfo.exe into the
 # clone instead:
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Bootstrap
+#   powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 [-InstallDir <dir>] [-Bootstrap]
 #
 # Without -Bootstrap a clone install detects each tool `cfo doctor` checks and
 # prints the exact install command for anything missing; with it, and always
-# in the one-line install, it runs those installs. Every step is idempotent and
-# safe to rerun.
-param(
-    [string]$InstallDir = "",
-    [switch]$Bootstrap
-)
+# in the one-line install, it runs those installs. -InstallDir puts cfo.exe
+# somewhere other than the clone. Every step is idempotent and safe to rerun.
 
 # The body runs in a scope of its own: the one-line install runs inside the
 # caller's session, which keeps its own variables and preferences and must
-# never be closed by an exit.
+# never be closed by an exit. So the script has no param block, which would
+# bind in that session; the block reads the script's arguments itself.
 & {
     $ErrorActionPreference = "Stop"
+    $InstallDir = ""
+    $Bootstrap = $false
+    $arguments = @($args[0])
+    for ($i = 0; $i -lt $arguments.Count; $i++) {
+        if ($arguments[$i] -eq "-Bootstrap") {
+            $Bootstrap = $true
+        }
+        elseif ($arguments[$i] -eq "-InstallDir" -and $i + 1 -lt $arguments.Count) {
+            $i++
+            $InstallDir = $arguments[$i]
+        }
+        else {
+            throw "Unknown argument '$($arguments[$i])'. Usage: install.ps1 [-InstallDir <dir>] [-Bootstrap]"
+        }
+    }
+
     $repo = "fpresta0607/code-goblins"
 
     # Windows PowerShell 5.1 may not offer TLS 1.2 unless asked, and its
@@ -402,4 +415,4 @@ param(
     }
     Write-Host ""
     Write-Host "Code Goblins is installed in $InstallDir. Open a new terminal so cfo and goblins are on your PATH."
-}
+} $args

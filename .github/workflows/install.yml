@@ -59,11 +59,15 @@ jobs:
         run: |
           Get-Content -Raw install.ps1 | Invoke-Expression
           # The install ends with goblins doctor, whose verdict the next step
-          # reads line by line: kimi has no scriptable installer.
+          # reads line by line: kimi has no scriptable installer, so its spawn
+          # probe is broken on a clean runner.
           $global:LASTEXITCODE = 0
       - name: Check the installed home
         shell: ${{ matrix.shell }}
         run: |
+          # A new terminal, as the install tells the user to open, sees the PATH
+          # the installers wrote to the registry; a new step does not.
+          $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
           $cfoHome = Join-Path $env:LOCALAPPDATA "CodeGoblins"
           foreach ($file in "cfo.exe", "goblins.exe", ".cfo-home", "AGENTS.md", "CLAUDE.md", ".agents\skills\lavish\SKILL.md", ".claude\skills\lavish\SKILL.md", "config\pipeline.json", "data\routing.json", "state") {
             if (-not (Test-Path -LiteralPath (Join-Path $cfoHome $file))) { throw "the one-line install left no $file in $cfoHome" }
@@ -74,7 +78,7 @@ jobs:
           if (-not (@($settings.hooks.SessionStart.hooks.command) -match "cfo\.exe hook session-start")) { throw "the CFO hooks are not in the Claude Code user settings" }
           $doctor = & (Join-Path $cfoHome "goblins.exe") doctor
           $doctor | Write-Host
-          $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" -and $_ -notmatch "^MISSING\s+kimi\s" })
+          $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" -and $_ -notmatch "^(MISSING\s+kimi\s|broken\s+kimi\s+harness spawn probe: not found on PATH)" })
           if ($failing.Count -gt 0) { throw "goblins doctor reports more than kimi missing: $($failing -join '; ')" }
           $global:LASTEXITCODE = 0
       - name: Install again
@@ -82,6 +86,9 @@ jobs:
         env:
           CODE_GOBLINS_RELEASE_BASE: http://127.0.0.1:8765
         run: |
+          # A new terminal, as the install tells the user to open, sees the PATH
+          # the installers wrote to the registry; a new step does not.
+          $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
           Get-Content -Raw install.ps1 | Invoke-Expression
           $settings = Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json
           $commands = @($settings.hooks.SessionStart.hooks.command)

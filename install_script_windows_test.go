@@ -24,18 +24,30 @@ func oneLineShells(t *testing.T) []string {
 }
 
 // runOneLineInstall runs install.ps1 the way the one-line command does, as
-// text through Invoke-Expression, against the release served at base. The
-// child gets folders of its own for every per-user location and a PATH with
-// only Windows on it, so nothing it could reach installs onto this machine.
+// text through Invoke-Expression, against the release served at base.
 func runOneLineInstall(t *testing.T, shell, base string) (output, local, temp string, err error) {
+	t.Helper()
+	return runStrippedPowerShell(t, shell, base, "-Command", "Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression")
+}
+
+func installScript(t *testing.T) string {
 	t.Helper()
 	script, err := filepath.Abs("install.ps1")
 	if err != nil {
 		t.Fatal(err)
 	}
+	return script
+}
+
+// runStrippedPowerShell runs shell with args against the release served at
+// base. The child gets folders of its own for every per-user location and a
+// PATH with only Windows on it, so nothing it could reach installs onto this
+// machine.
+func runStrippedPowerShell(t *testing.T, shell, base string, args ...string) (output, local, temp string, err error) {
+	t.Helper()
 	local, temp, profile := t.TempDir(), t.TempDir(), t.TempDir()
 	system := os.Getenv("SystemRoot")
-	cmd := exec.Command(shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression")
+	cmd := exec.Command(shell, append([]string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass"}, args...)...)
 	cmd.Dir = temp
 	cmd.Env = []string{
 		"SystemRoot=" + system,
@@ -137,5 +149,57 @@ func TestOneLineInstallRunsADownloadThatMatchesTheReleaseChecksum(t *testing.T) 
 				assertNothingInstalled(t, local, temp)
 			})
 		}
+	}
+}
+
+// The one-line install runs in the caller's own session and leaves it exactly
+// as it was, even when it is refused.
+func TestOneLineInstallLeavesTheCallersSessionAsItWas(t *testing.T) {
+	for _, shell := range oneLineShells(t) {
+		t.Run(filepath.Base(shell), func(t *testing.T) {
+			caller := "$InstallDir = 'mine'; $Bootstrap = 'mine'; $ErrorActionPreference = 'SilentlyContinue'\n" +
+				"try { Get-Content -Raw -LiteralPath '" + installScript(t) + "' | Invoke-Expression } catch { Write-Output \"refused: $($_.Exception.Message)\" }\n" +
+				"Write-Output \"InstallDir=[$InstallDir] Bootstrap=[$Bootstrap] ErrorActionPreference=[$ErrorActionPreference]\""
+
+			output, _, _, err := runStrippedPowerShell(t, shell, serveRelease(t, nil, ""), "-Command", caller)
+
+			if err != nil || !strings.Contains(output, "refused: Code Goblins was not installed") {
+				t.Fatalf("install = %v, want it refused and caught by the caller:\n%s", err, output)
+			}
+			if want := "InstallDir=[mine] Bootstrap=[mine] ErrorActionPreference=[SilentlyContinue]"; !strings.Contains(output, want) {
+				t.Fatalf("the caller's session changed, want %q:\n%s", want, output)
+			}
+		})
+	}
+}
+
+// Run as a file from a checkout, the script still takes -InstallDir and puts
+// the verified download there as cfo.exe.
+func TestCloneInstallPutsTheVerifiedDownloadInTheInstallDir(t *testing.T) {
+	binary := []byte("not a program")
+	sums := fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary))
+	source, err := os.ReadFile(installScript(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, shell := range oneLineShells(t) {
+		t.Run(filepath.Base(shell), func(t *testing.T) {
+			checkout, installDir := t.TempDir(), t.TempDir()
+			if err := os.MkdirAll(filepath.Join(checkout, "cmd", "cfo"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for name, content := range map[string][]byte{"AGENTS.md": nil, "install.ps1": source} {
+				if err := os.WriteFile(filepath.Join(checkout, name), content, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			output, _, _, _ := runStrippedPowerShell(t, shell, serveRelease(t, binary, sums), "-File", filepath.Join(checkout, "install.ps1"), "-InstallDir", installDir)
+
+			installed, err := os.ReadFile(filepath.Join(installDir, "cfo.exe"))
+			if err != nil || string(installed) != string(binary) {
+				t.Fatalf("cfo.exe in %s = %q (%v), want the verified download:\n%s", installDir, installed, err, output)
+			}
+		})
 	}
 }
