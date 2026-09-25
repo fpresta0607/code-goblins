@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { dragRange, isDrag, parsePatchToRows, splitRows, reviewRange } from "./diff.ts";
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
-import { alreadyKnown, deliveryMark, submissionFor } from "./feedback.ts";
+import { alreadyKnown, deliveryMark, runMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
 import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
 
@@ -332,6 +332,9 @@ test("delivery reads as a mark, and only trouble spells itself out", () => {
   assert.deepEqual(mark("succeeded", "cfo_answer"), { icon: "check-double", label: "Accepted by the CFO", trouble: false });
   assert.deepEqual(mark("succeeded", "goblin_answer"), { icon: "check-double", label: "Delivered to the goblin", trouble: false });
   assert.deepEqual(mark("succeeded", "evaluate"), { icon: "check-double", label: "Done", trouble: false });
+  // A review answer's action succeeds whether it reached the goblin or was
+  // handed to the CFO, so only the review item's delivered flag earns two checks.
+  assert.deepEqual(mark("succeeded", "review_answer"), { icon: "check", label: "Sent to the goblin or the CFO", trouble: false });
   assert.deepEqual(mark("running", "review"), { icon: "check", label: "Sending", trouble: false });
   assert.deepEqual(mark("queued", "review"), { icon: "check", label: "Queued", trouble: false });
   assert.deepEqual(mark("failed", "review"), { icon: "close", label: "Could not deliver", trouble: true });
@@ -421,3 +424,19 @@ test("a waiting goblin says what it waits on, and only a wait on the Overlord re
   assert.equal(statusText("waiting"), "Waiting");
 });
 
+test("a run item states its progress in plain words with its exit code", () => {
+  const snapshot = parseSnapshot({ healthy: true, runs: [
+    { id: "a", identity: "cfo-1", title: "Rebuild the index", shell: "pwsh", admin: false, command: "Get-Date", cwd: "C:\\work", state: "ready" },
+    { id: "b", state: "running" },
+    { id: "c", state: "succeeded", exit_code: 0 },
+    { id: "d", state: "failed", exit_code: 2, reason: "The command exited with 2." },
+    { id: "e", state: "failed", reason: "Windows asked to confirm and it was declined." },
+    { id: "f", state: "expired", reason: "It waited more than 24 hours." },
+  ] });
+  const runs = snapshot.runs ?? [];
+  assert.equal(runs[0].command, "Get-Date");
+  assert.equal(runs[0].exit_code, null);
+  const cases: [string, string, boolean][] = [["Ready to run", "play", false], ["Running", "clock", false], ["Finished · exit 0", "check", false],
+    ["Failed · exit 2", "warning", true], ["Failed", "warning", true], ["Expired", "close", false]];
+  cases.forEach(([label, icon, trouble], index) => assert.deepEqual(runMark(runs[index]), { icon, label, trouble }, runs[index].id));
+});

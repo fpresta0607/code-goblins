@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { connectorMark, harnessMark, modelMark } from "./connectors.ts";
+import { connectorMark, harnessMark, modelMark, shellLabel, shellMark } from "./connectors.ts";
 
 test("every connector name the fleet declares resolves to its service mark", () => {
   const cases: [string, "mcp" | "credential", object][] = [
@@ -37,4 +37,16 @@ test("harnesses and model providers each carry their own mark", () => {
     ["kimi-k2", { brand: "moonshot" }, "Moonshot AI"], ["gemini-3-pro", { brand: "gemini" }, "Google"], ["example (no model calls)", { glyph: "sparkle" }, "Model"],
   ];
   for (const [model, mark, provider] of models) assert.deepEqual(modelMark(model), { mark, provider }, model);
+});
+
+test("a run's shell shows its mark and full name", () => {
+  const cases: [string, ReturnType<typeof shellMark>, string][] = [
+    ["bash", { brand: "bash" }, "Git Bash"],
+    ["powershell", { glyph: "terminal" }, "Windows PowerShell"],
+    ["pwsh", { glyph: "terminal" }, "PowerShell 7"],
+  ];
+  for (const [shell, mark, label] of cases) {
+    assert.deepEqual(shellMark(shell), mark, shell);
+    assert.equal(shellLabel(shell), label, shell);
+  }
 });

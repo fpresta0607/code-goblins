@@ -90,11 +90,12 @@ test("an answered review item is marked by whether its answer reached the asker"
   const action = (status: string) => ({ id: "z", kind: "review_answer", status });
   const cases: [string, Record<string, unknown>, Record<string, unknown>[], string, string, string][] = [
     ["delivered to the goblin", { delivered: true }, [action("succeeded")], "You wrote: Go with B", "check-double", "succeeded"],
-    ["an answer whose action was pruned", { delivered: false }, [], "You wrote: Go with B", "check-double", "succeeded"],
+    ["an undelivered answer whose action aged out", { delivered: false }, [], "You wrote: Go with B (delivery no longer recorded)", "check", "queued"],
+    ["a delivered answer whose action aged out", { delivered: true }, [], "You wrote: Go with B", "check-double", "succeeded"],
     ["queued for the goblin", { delivered: false }, [action("queued")], "You wrote: Go with B (not yet delivered to the goblin)", "check", "queued"],
     ["on its way to the goblin", { delivered: false }, [action("running")], "You wrote: Go with B (not yet delivered to the goblin)", "check", "queued"],
     ["an unconfirmed delivery", { delivered: false }, [action("uncertain")], "Delivery unconfirmed: inspect the goblin's pane before answering again", "warning", "uncertain"],
-    ["handed to the CFO after the goblin restarted", { delivered: false }, [action("succeeded")], "You wrote: Go with B (not yet delivered to the goblin)", "check", "queued"],
+    ["handed to the CFO after the goblin was replaced", { delivered: false }, [action("succeeded")], "Sent to the CFO: Go with B", "check", "succeeded"],
     ["refused with no CFO to take it", { delivered: false }, [action("failed")], "Your answer did not reach the goblin", "warning", "failed"],
     ["the CFO's own item, not yet delivered", { task: "", delivered: false }, [action("running")], "You wrote: Go with B (not yet delivered to the CFO)", "check", "queued"],
   ];
@@ -103,5 +104,23 @@ test("an answered review item is marked by whether its answer reached the asker"
     const item = itemFor(snapshot, "review:r")!;
     assert.equal(settledLabel(item, snapshot.actions), label, name);
     assert.deepEqual(settledIcon(item, snapshot.actions), { icon, tone }, name);
+  }
+});
+
+test("a run item waits in the stack while ready or running and settles with its exit code", () => {
+  const run = (id: string, state: string, extra: Record<string, unknown> = {}) => ({ id, identity: "cfo-1", title: "Run " + id, shell: "powershell", command: "Get-Date", state, created_at: "2026-09-24T00:0" + id.length + ":00Z", ...extra });
+  const snapshot = parseSnapshot({ healthy: true,
+    questions: [question("g", "billing", "2026-09-24T00:00:30Z")],
+    runs: [run("r", "ready"), run("rr", "running", { ran_at: "2026-09-24T00:10:00Z" }), run("rrr", "succeeded", { exit_code: 0, finished_at: "2026-09-24T00:20:00Z" }),
+      run("rrrr", "failed", { exit_code: 3, reason: "The command exited with 3.", finished_at: "2026-09-24T00:30:00Z" }), run("rrrrr", "expired", { reason: "Nobody ran it within 24 hours.", finished_at: "2026-09-24T00:40:00Z" })],
+  });
+  assert.deepEqual(waitingItems(snapshot).map((item) => item.key), ["run:r", "run:rr", "question:g"], "the CFO's runs come before a goblin's question");
+  const settled = settledItems(snapshot).filter((item) => item.kind === "run");
+  assert.deepEqual(settled.map((item) => item.key), ["run:rrrrr", "run:rrrr", "run:rrr"]);
+  const cases: [string, string, string][] = [["run:rrr", "Finished · exit 0", "check"], ["run:rrrr", "Failed · exit 3: The command exited with 3.", "warning"], ["run:rrrrr", "Expired: Nobody ran it within 24 hours.", "close"]];
+  for (const [key, label, icon] of cases) {
+    const item = itemFor(snapshot, key)!;
+    assert.equal(settledLabel(item, snapshot.actions), label, key);
+    assert.equal(settledIcon(item, snapshot.actions).icon, icon, key);
   }
 });
