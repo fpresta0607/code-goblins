@@ -13,6 +13,10 @@ Once it holds the singleton and listens, `serve` records its pid and the board's
 `goblins` with no command reads that record: when the address answers at all it prints the board's link and a status line from the snapshot, or says the board could not read the fleet's state when the snapshot fails, and starts and opens nothing.
 Otherwise it starts `serve` detached from its terminal, in a hidden console of its own that the programs `serve` runs share, so no console window opens, with its output appended to `state/serve.log`, waits up to 30 seconds for the board to answer, and opens it in the browser once.
 A record whose address does not answer, left by a supervisor that ended without removing it, is replaced by the next start, and a record naming anything but a plain loopback board address is ignored.
+Then `goblins` brings the Overlord to the CFO.
+When the snapshot says the board reaches no live CFO, it picks the project (the git checkout its terminal is in, else the only checkout under the projects root, else the one the Overlord picks by number), makes sure Herdr's server runs, reuses the `cfo` tab in the fleet workspace when its pane holds no agent or creates it in the project, starts Claude Code there as the CFO with `herdr agent start`, and brings that tab to the front.
+It then hands its terminal to `herdr`, which attaches to the fleet's session.
+A CFO the board already reaches, or one it cannot tell about because the snapshot failed, is never started a second time, and run inside a Herdr pane `goblins` only says where the CFO is.
 Restarting with the same CFO home recovers durable events, evaluations, actions, and lineage.
 
 ## Native hook setup
