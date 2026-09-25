@@ -78,6 +78,15 @@ jobs:
           if (-not (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $cfoHome)) { throw "$cfoHome is not on the user PATH" }
           $settings = Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json
           if (-not (@($settings.hooks.SessionStart.hooks.command) -match "cfo\.exe hook session-start")) { throw "the CFO hooks are not in the Claude Code user settings" }
+          # Each harness gets its own copy of each skill: a symlink needs a
+          # right an ordinary Windows user may not have.
+          foreach ($skill in "gh-axi", "chrome-devtools-axi", "no-mistakes") {
+            foreach ($folders in @(".claude\skills"), @(".pi\agent\skills"), @(".codex\skills", ".agents\skills")) {
+              $found = @($folders | ForEach-Object { Join-Path $env:USERPROFILE "$_\$skill" } | Where-Object { Test-Path -LiteralPath (Join-Path $_ "SKILL.md") })
+              if ($found.Count -eq 0) { throw "the one-line install left the $skill skill in none of $($folders -join ', ')" }
+              if ((Get-Item -LiteralPath $found[0]).LinkType) { throw "$($found[0]) is a link, want a copy" }
+            }
+          }
           $doctor = & (Join-Path $cfoHome "goblins.exe") doctor
           $doctor | Write-Host
           $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" -and $_ -notmatch "^(MISSING\s+kimi\s|broken\s+kimi\s+harness spawn probe: not found on PATH)" })
@@ -99,7 +108,6 @@ jobs:
           }
           $global:LASTEXITCODE = 0
       - name: Uninstall
-        shell: ${{ matrix.shell }}
         run: |
           $cfoHome = Join-Path $env:LOCALAPPDATA "CodeGoblins"
           # From a neutral folder, as a user would: inside a checkout,
