@@ -1,0 +1,100 @@
+name: install
+
+# Proves the one-line install on a clean Windows user profile, which a
+# GitHub-hosted runner is by construction: this commit's own build is served
+# as the release, installed exactly as `irm ... | iex` would, and checked.
+on:
+  pull_request:
+    paths:
+      - install.ps1
+      - home_files.go
+      - cmd/cfo/install.go
+      - internal/home/**
+      - internal/install/**
+      - .github/workflows/install.yml
+      - .github/workflows/release.yml
+  push:
+    branches: [main]
+    paths:
+      - install.ps1
+      - home_files.go
+      - cmd/cfo/install.go
+      - internal/home/**
+      - internal/install/**
+      - .github/workflows/install.yml
+      - .github/workflows/release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  one-line:
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [powershell, pwsh]
+    runs-on: windows-latest
+    # The bootstrap runs third-party installers; one that waits for input
+    # fails the job instead of holding the runner for hours.
+    timeout-minutes: 30
+    # A step's own shell cannot read the matrix; the job's run default can.
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Serve this commit as the release
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory release | Out-Null
+          go build -o release/cfo.exe ./cmd/cfo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $hash = (Get-FileHash release/cfo.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("$PWD/release/SHA256SUMS", "$hash  cfo.exe`n")
+          Start-Process python -ArgumentList "-m", "http.server", "8765", "--bind", "127.0.0.1", "--directory", "release" -WindowStyle Hidden
+      - name: Install with the one-line command
+        env:
+          CODE_GOBLINS_RELEASE_BASE: http://127.0.0.1:8765
+        run: |
+          Get-Content -Raw install.ps1 | Invoke-Expression
+          # The install ends with goblins doctor, whose verdict the next step
+          # reads line by line: kimi has no scriptable installer, so its spawn
+          # probe is broken on a clean runner.
+          $global:LASTEXITCODE = 0
+      - name: Check the installed home
+        run: |
+          # A new terminal, as the install tells the user to open, sees the PATH
+          # the installers wrote to the registry; a new step does not.
+          $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
+          $cfoHome = Join-Path $env:LOCALAPPDATA "CodeGoblins"
+          foreach ($file in "cfo.exe", "goblins.exe", ".cfo-home", "AGENTS.md", "CLAUDE.md", ".agents\skills\lavish\SKILL.md", ".claude\skills\lavish\SKILL.md", "config\pipeline.json", "data\routing.json", "state") {
+            if (-not (Test-Path -LiteralPath (Join-Path $cfoHome $file))) { throw "the one-line install left no $file in $cfoHome" }
+          }
+          if ([Environment]::GetEnvironmentVariable("CFO_HOME", "User") -ne $cfoHome) { throw "CFO_HOME is not $cfoHome" }
+          if (-not (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $cfoHome)) { throw "$cfoHome is not on the user PATH" }
+          $settings = Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json
+          if (-not (@($settings.hooks.SessionStart.hooks.command) -match "cfo\.exe hook session-start")) { throw "the CFO hooks are not in the Claude Code user settings" }
+          $doctor = & (Join-Path $cfoHome "goblins.exe") doctor
+          $doctor | Write-Host
+          $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" -and $_ -notmatch "^(MISSING\s+kimi\s|broken\s+kimi\s+harness spawn probe: not found on PATH)" })
+          if ($failing.Count -gt 0) { throw "goblins doctor reports more than kimi missing: $($failing -join '; ')" }
+          $global:LASTEXITCODE = 0
+      - name: Install again
+        env:
+          CODE_GOBLINS_RELEASE_BASE: http://127.0.0.1:8765
+        run: |
+          # A new terminal, as the install tells the user to open, sees the PATH
+          # the installers wrote to the registry; a new step does not.
+          $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
+          Get-Content -Raw install.ps1 | Invoke-Expression
+          $settings = Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json
+          $commands = @($settings.hooks.SessionStart.hooks.command)
+          foreach ($hook in "cfo\.exe hook session-start", "cfo-native-hook\.ps1") {
+            $count = @($commands -match $hook).Count
+            if ($count -ne 1) { throw "after a second install SessionStart holds $count hooks matching $hook, want 1" }
+          }
+          $global:LASTEXITCODE = 0

@@ -41,8 +41,15 @@ jobs:
       - name: Build
         run: |
           go build -ldflags "-X main.version=${{ github.ref_name }}" -o cfo.exe ./cmd/cfo
+      # install.ps1 refuses a download that does not match this file.
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash cfo.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("SHA256SUMS", "$hash  cfo.exe`n")
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             cfo.exe
+            SHA256SUMS
