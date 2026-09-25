@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -136,6 +137,41 @@ func TestGoblinsNativeReportsACFOThatCannotStart(t *testing.T) {
 
 	if exit != 1 || !strings.Contains(stderr, "could not be started in a native terminal: claude is not on PATH") || len(f.nativeAttached) != 0 {
 		t.Fatalf("exit=%d stderr=%q nativeAttached=%q, want the failure reported and nothing shown", exit, stderr, f.nativeAttached)
+	}
+}
+
+// With no CFO registered, a CFO already running in native terminal cfo, which
+// may not have registered yet, is shown rather than started a second time,
+// with or without --native.
+func TestGoblinsShowsAnUnregisteredCFOInNativeTerminalCFO(t *testing.T) {
+	for name, args := range map[string][]string{"goblins": nil, "goblins --native": {"--native"}} {
+		t.Run(name, func(t *testing.T) {
+			f := newSessionFixture(t)
+			f.cfoTerminalRuns = true
+
+			exit, stdout, stderr := f.launch(args...)
+
+			if exit != 0 || len(f.nativeStarts) != 0 || len(f.cfoStarts) != 0 || len(f.attached) != 0 {
+				t.Fatalf("exit=%d nativeStarts=%q cfoStarts=%q attached=%q stderr=%q, want nothing started", exit, f.nativeStarts, f.cfoStarts, f.attached, stderr)
+			}
+			if !slices.Equal(f.nativeAttached, []string{nativeCFOTerminal}) || !strings.Contains(stdout, "The CFO is already running in native terminal cfo.") {
+				t.Errorf("native terminals shown = %q, stdout = %q; want cfo shown and said so", f.nativeAttached, stdout)
+			}
+		})
+	}
+}
+
+// A CFO registered in Herdr is brought to the front even while native
+// terminal cfo runs: the registration decides which CFO goblins shows.
+func TestGoblinsPrefersARegisteredHerdrCFOToAnUnregisteredNativeTerminal(t *testing.T) {
+	f := newSessionFixture(t)
+	f.withLiveCFO()
+	f.cfoTerminalRuns = true
+
+	exit, _, stderr := f.launch()
+
+	if exit != 0 || len(f.focused) != 1 || len(f.nativeAttached) != 0 {
+		t.Fatalf("exit=%d focused=%+v nativeAttached=%q stderr=%q, want the Herdr CFO in front and no native terminal shown", exit, f.focused, f.nativeAttached, stderr)
 	}
 }
 

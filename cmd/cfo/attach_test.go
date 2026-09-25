@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,8 +16,10 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/conpty"
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 // The attach test runs this binary as the program in a native terminal, and
@@ -59,8 +62,11 @@ func attachTestProgram() {
 // given, with the test's home in place of the fleet's.
 func attachTestView(stateDir string, args []string) int {
 	runtime := commandRuntime{
-		resolveHome: func() (home.Home, error) { return home.Home{Root: filepath.Dir(stateDir), State: stateDir}, nil },
-		nativeCFO:   liveNativeCFO,
+		resolveHome:        func() (home.Home, error) { return home.Home{Root: filepath.Dir(stateDir), State: stateDir}, nil },
+		nativeCFO:          supervisor.NativeCFO,
+		liveCFO:            supervisor.LiveCFO,
+		nativeTerminalRuns: nativeTerminalRuns,
+		attachNative:       attachNative,
 	}
 	return runAttach(args, os.Stdout, os.Stderr, runtime)
 }
@@ -253,21 +259,22 @@ func TestAttachTakesWindowsKeyEventsAfterTheHistoryIsTrimmed(t *testing.T) {
 	}
 }
 
-// The CFO's native terminal is found whether or not the CFO in it has
-// registered yet, so goblins shows it rather than starting a second one.
-func TestLiveNativeCFOFindsAnUnregisteredCFOTerminalThatAnswers(t *testing.T) {
+// A native terminal whose host answers runs, whether or not a CFO in it has
+// registered.
+func TestANativeTerminalWhoseHostAnswersRuns(t *testing.T) {
 	stateDir := t.TempDir()
 	hostAttachTestTerminal(t, stateDir, nativeCFOTerminal)
 
-	id, live := liveNativeCFO(stateDir)
+	runs := nativeTerminalRuns(stateDir, nativeCFOTerminal)
 
-	if !live || id != nativeCFOTerminal {
-		t.Errorf("liveNativeCFO = %q, %v; want %s, true", id, live, nativeCFOTerminal)
+	if !runs {
+		t.Errorf("nativeTerminalRuns = false, want true for a host that answers")
 	}
 }
 
-// A record of terminal cfo whose host does not answer names no CFO.
-func TestLiveNativeCFOIgnoresACFOTerminalThatDoesNotAnswer(t *testing.T) {
+// A record of a native terminal whose host does not answer names nothing
+// running.
+func TestANativeTerminalWhoseHostDoesNotAnswerDoesNotRun(t *testing.T) {
 	stateDir := t.TempDir()
 	record := host.Record{ID: nativeCFOTerminal, Pipe: fmt.Sprintf(`\\.\pipe\cfo-attach-test-%d`, time.Now().UnixNano()), Token: "token", Version: host.Version, HostPID: os.Getpid()}
 	data, err := json.Marshal(record)
@@ -281,27 +288,60 @@ func TestLiveNativeCFOIgnoresACFOTerminalThatDoesNotAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	id, live := liveNativeCFO(stateDir)
+	runs := nativeTerminalRuns(stateDir, nativeCFOTerminal)
 
-	if live || id != "" {
-		t.Errorf("liveNativeCFO = %q, %v; want no CFO", id, live)
+	if runs {
+		t.Errorf("nativeTerminalRuns = true, want false for a host that does not answer")
 	}
 }
 
-// cfo attach with no terminal named shows the CFO's native terminal, so with
-// no CFO in a native terminal it says so.
-func TestAttachWithNoCFOInANativeTerminalSaysSo(t *testing.T) {
-	stateDir := t.TempDir()
-	var stdout, stderr strings.Builder
-	runtime := commandRuntime{
-		resolveHome: func() (home.Home, error) { return home.Home{Root: filepath.Dir(stateDir), State: stateDir}, nil },
-		nativeCFO:   liveNativeCFO,
-	}
+// cfo attach with no terminal named shows the registered CFO's native
+// terminal. With no CFO registered it shows terminal cfo while its host
+// answers, and a CFO registered in Herdr is never passed over for it.
+func TestAttachWithNoTerminalNamedShowsTheCFOsNativeTerminal(t *testing.T) {
+	for name, test := range map[string]struct {
+		registeredNative string
+		inHerdr          bool
+		cfoRuns          bool
+		shown            string
+		refusal          string
+	}{
+		"a CFO registered in a native terminal":        {registeredNative: "n1", cfoRuns: true, shown: "n1"},
+		"a CFO registered in Herdr, terminal cfo runs": {inHerdr: true, cfoRuns: true, refusal: "the CFO runs in Herdr, not in a native terminal"},
+		"nothing registered, terminal cfo runs":        {cfoRuns: true, shown: nativeCFOTerminal},
+		"nothing registered, nothing runs":             {refusal: "no CFO runs in a native terminal"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			stateDir := t.TempDir()
+			var shown []string
+			var stdout, stderr strings.Builder
+			runtime := commandRuntime{
+				resolveHome: func() (home.Home, error) { return home.Home{Root: filepath.Dir(stateDir), State: stateDir}, nil },
+				nativeCFO: func(string) (string, bool) {
+					return test.registeredNative, test.registeredNative != ""
+				},
+				liveCFO: func(string) (herdr.Endpoint, bool) { return herdr.Endpoint{}, test.inHerdr },
+				nativeTerminalRuns: func(_, id string) bool {
+					return test.cfoRuns && id == nativeCFOTerminal
+				},
+				attachNative: func(_, id string, _, _ io.Writer) int {
+					shown = append(shown, id)
+					return 0
+				},
+			}
 
-	exit := runAttach(nil, &stdout, &stderr, runtime)
+			exit := runAttach(nil, &stdout, &stderr, runtime)
 
-	if exit != 1 || !strings.Contains(stderr.String(), "no CFO runs in a native terminal") {
-		t.Errorf("exit=%d stderr=%q, want the missing native CFO named", exit, stderr.String())
+			if test.refusal != "" {
+				if exit != 1 || !strings.Contains(stderr.String(), test.refusal) || len(shown) != 0 {
+					t.Errorf("exit=%d stderr=%q shown=%q, want %q and nothing shown", exit, stderr.String(), shown, test.refusal)
+				}
+				return
+			}
+			if exit != 0 || !slices.Equal(shown, []string{test.shown}) {
+				t.Errorf("exit=%d stderr=%q shown=%q, want %s shown", exit, stderr.String(), shown, test.shown)
+			}
+		})
 	}
 }
 

@@ -51,7 +51,9 @@ type launcherFixture struct {
 	// nativeAttached the native terminals shown in this terminal.
 	nativeStarts   []string
 	nativeAttached []string
-	runtime        commandRuntime
+	// cfoTerminalRuns is whether native terminal cfo's host answers.
+	cfoTerminalRuns bool
+	runtime         commandRuntime
 }
 
 // newLauncherFixture runs goblins against an isolated home whose supervisor
@@ -106,6 +108,9 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 		attachNative: func(_, id string, _, _ io.Writer) int {
 			f.nativeAttached = append(f.nativeAttached, id)
 			return 0
+		},
+		nativeTerminalRuns: func(_, id string) bool {
+			return f.cfoTerminalRuns && id == nativeCFOTerminal
 		},
 	}
 	f.project = filepath.Join(dir, "project")

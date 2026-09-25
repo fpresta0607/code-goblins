@@ -14,7 +14,6 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/host"
-	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 // nativeCFOTerminal is the native terminal goblins --native starts the CFO in.
@@ -33,7 +32,9 @@ const windowsInputMode = "\x1b[?9001h"
 const terminalReset = "\x1b[?25h\x1b[?2004l\x1b[?1004l"
 
 // runAttach shows a native terminal in this console: the one named, or else
-// the one the CFO runs in.
+// the one the registered CFO runs in. With no CFO registered, that is terminal
+// cfo while its host answers, since the CFO started there may not have
+// registered yet.
 func runAttach(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	f := flag.NewFlagSet("attach", flag.ContinueOnError)
 	f.SetOutput(stderr)
@@ -49,32 +50,35 @@ func runAttach(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	id := f.Arg(0)
 	if id == "" {
 		native, live := runtime.nativeCFO(h.State)
-		if !live {
+		_, inHerdr := runtime.liveCFO(h.State)
+		switch {
+		case live:
+			id = native
+		case inHerdr:
+			fmt.Fprintln(stderr, "cfo attach: the CFO runs in Herdr, not in a native terminal; name the terminal to attach to")
+			return 1
+		case runtime.nativeTerminalRuns(h.State, nativeCFOTerminal):
+			id = nativeCFOTerminal
+		default:
 			fmt.Fprintln(stderr, "cfo attach: no CFO runs in a native terminal; name the terminal to attach to")
 			return 1
 		}
-		id = native
 	}
-	return attachNative(h.State, id, stdout, stderr)
+	return runtime.attachNative(h.State, id, stdout, stderr)
 }
 
-// liveNativeCFO returns the native terminal the CFO runs in: the one the
-// registered CFO runs in, or else terminal cfo while its host answers, since
-// the CFO started there may not have registered yet.
-func liveNativeCFO(stateDir string) (string, bool) {
-	if id, live := supervisor.NativeCFO(stateDir); live {
-		return id, true
-	}
-	record, err := host.ReadRecord(stateDir, nativeCFOTerminal)
+// nativeTerminalRuns reports whether native terminal id's host answers.
+func nativeTerminalRuns(stateDir, id string) bool {
+	record, err := host.ReadRecord(stateDir, id)
 	if err != nil {
-		return "", false
+		return false
 	}
 	client, err := host.Dial(record)
 	if err != nil {
-		return "", false
+		return false
 	}
 	_ = client.Close()
-	return nativeCFOTerminal, true
+	return true
 }
 
 // attachNative shows native terminal id in this console until the terminal

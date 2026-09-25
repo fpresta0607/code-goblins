@@ -19,12 +19,13 @@ import (
 
 // startCFOSession brings the CFO's session to the front. A CFO registered in
 // a native terminal is shown in this terminal. A CFO whose registration names
-// a live process in Herdr is brought to the front where it registered;
-// otherwise Claude Code is started as the CFO, in the project this terminal is
-// in or one the Overlord picks: in a native terminal shown in this one when
-// native is set, or else in Herdr. Then the terminal is handed to herdr, which
-// attaches with the CFO's tab in front. Inside a Herdr pane there is nothing
-// to attach.
+// a live process in Herdr is brought to the front where it registered. With
+// no CFO registered, native terminal cfo is shown while its host answers,
+// since the CFO started there may not have registered yet; otherwise Claude
+// Code is started as the CFO, in the project this terminal is in or one the
+// Overlord picks: in a native terminal shown in this one when native is set,
+// or else in Herdr. Then the terminal is handed to herdr, which attaches with
+// the CFO's tab in front. Inside a Herdr pane there is nothing to attach.
 func startCFOSession(ctx context.Context, runtime commandRuntime, stateDir string, native bool, stdout, stderr io.Writer) int {
 	if id, live := runtime.nativeCFO(stateDir); live {
 		return runtime.attachNative(stateDir, id, stdout, stderr)
@@ -37,6 +38,10 @@ func startCFOSession(ctx context.Context, runtime commandRuntime, stateDir strin
 		}
 		session = endpoint.Target.Session
 	} else {
+		if runtime.nativeTerminalRuns(stateDir, nativeCFOTerminal) {
+			fmt.Fprintf(stdout, "\nThe CFO is already running in native terminal %s.\n", nativeCFOTerminal)
+			return runtime.attachNative(stateDir, nativeCFOTerminal, stdout, stderr)
+		}
 		project, err := pickProject(ctx, runtime, stdout)
 		if err != nil {
 			fmt.Fprintf(stderr, "goblins: %v\n", err)

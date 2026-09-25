@@ -211,7 +211,8 @@ A message for a native CFO is typed into its terminal once, then Enter submits i
 Until native hooks report the CFO's prompts, nothing confirms it took the message, so the board shows the delivery as unconfirmed and never types it again.
 The board's CFO view does not show a native terminal yet.
 `goblins` shows a CFO registered in a native terminal in its own terminal, and `goblins --native` starts a new CFO in native terminal `cfo`, running `claude.exe` itself so the terminal ends with it, without the launcher's `HERDR_PANE_ID`.
-`cfo attach` shows a native terminal in any console: the CFO's, or the one named.
+`cfo attach` shows a native terminal in any console: the registered CFO's, or the one named.
+With no CFO registered, `goblins` and `cfo attach` show native terminal `cfo` while its host answers, since the CFO started there may not have registered yet; a CFO registered in Herdr always comes first.
 Keys pass through raw, the terminal follows the console's size, and Ctrl-] leaves it running, whether the console sends that key as a byte or as a Windows key event.
 A host refuses to start for a terminal that already runs, so a second start never takes over the first one's record.
 A missing or stale registration shows on the board as one banner, and in the CFO terminal as its own state, naming what went stale and the fix, `cfo register` in the CFO session.

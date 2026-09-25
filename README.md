@@ -131,6 +131,7 @@ The board is only a view, so closing the browser stops nothing, and a supervisor
 Then it takes you to the CFO: a CFO whose registration names a live process is brought to the front, and otherwise it starts Claude Code as the CFO in Herdr in a fresh `cfo` tab, in the project this terminal is in or one you pick from your projects folder, closing an idle old `cfo` tab or renaming a busy one to `shell`.
 It then attaches the terminal to Herdr with the CFO in front; run inside Herdr, it only brings the CFO to the front.
 A CFO registered in a native terminal is shown in this terminal instead, and `goblins --native` starts a new CFO that way: Claude Code runs in a native terminal of its own, so closing any window leaves it running, and `goblins attach` shows it again.
+With no CFO registered, a CFO already running in native terminal `cfo`, which may not have registered yet, is shown rather than started again.
 In an attached terminal every key goes to the CFO, Ctrl-C included, and Ctrl-] leaves the terminal running.
 `goblins serve` runs the supervisor in its own terminal instead, where Ctrl-C stops it.
 `goblins status` prints the board's link, the same status line and the supervisor's pid, and exits 1 when no supervisor runs, so a script can test for one.

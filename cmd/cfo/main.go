@@ -123,10 +123,10 @@ type commandRuntime struct {
 	startServe func(home.Home) (<-chan struct{}, error)
 	openURL    func(string) error
 	// nativeCFO, liveCFO, focusCFO, gitTop, stdin, startCFO and attachHerdr
-	// are how the launcher finds a live CFO, in a native terminal or
-	// registered in Herdr, and brings it to the front, finds the project or
-	// asks for one, starts the CFO in Herdr and hands the terminal to herdr
-	// attached to a session.
+	// are how the launcher finds a live registered CFO, in a native terminal
+	// or in Herdr, and brings it to the front, finds the project or asks for
+	// one, starts the CFO in Herdr and hands the terminal to herdr attached to
+	// a session.
 	nativeCFO   func(string) (string, bool)
 	liveCFO     func(string) (herdr.Endpoint, bool)
 	focusCFO    func(context.Context, herdr.Endpoint) error
@@ -139,6 +139,10 @@ type commandRuntime struct {
 	// registered in one.
 	startNativeCFO func(stateDir, project string) error
 	attachNative   func(stateDir, id string, stdout, stderr io.Writer) int
+	// nativeTerminalRuns reports whether a native terminal's host answers,
+	// so a CFO started in terminal cfo is shown before it registers, never
+	// started twice.
+	nativeTerminalRuns func(stateDir, id string) bool
 	// killTree ends a process and everything it started, for goblins stop
 	// --force.
 	killTree func(int) error
@@ -232,7 +236,7 @@ func defaultCommandRuntime() commandRuntime {
 		goblins:      invokedAsGoblins(),
 		startServe:   startDetachedServe,
 		openURL:      openInBrowser,
-		nativeCFO:    liveNativeCFO,
+		nativeCFO:    supervisor.NativeCFO,
 		liveCFO:      supervisor.LiveCFO,
 		focusCFO:     focusCFOInHerdr,
 		gitTop:       gitTop,
@@ -242,8 +246,9 @@ func defaultCommandRuntime() commandRuntime {
 		killTree: func(pid int) error {
 			return killTree(context.Background(), execx.OSRunner{}, pid)
 		},
-		startNativeCFO: startNativeCFO,
-		attachNative:   attachNative,
+		startNativeCFO:     startNativeCFO,
+		attachNative:       attachNative,
+		nativeTerminalRuns: nativeTerminalRuns,
 	}
 }
 
