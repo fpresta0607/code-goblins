@@ -493,10 +493,13 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 /* A native terminal owns its scrollback and is sized to the panel, so the
    panel never scrolls around it; until its screen is whole a full-pane state
    covers it. */
+.host-terminal { flex-direction: column; }
 .host-terminal .terminal-surface { overflow: hidden; padding: 6px 0 0 10px; }
 .terminal-cover { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; align-content: center; gap: 14px; padding: 24px; background: #071015; color: var(--muted); text-align: center; }
 .terminal-cover p { margin: 0; max-width: 46ch; overflow-wrap: anywhere; }
-.terminal-cover > .icon { width: 36px; height: 36px; }
+.terminal-closed { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-top: 1px solid #1d3a32; background: #0b1a20; color: var(--muted); }
+.terminal-closed p { flex: 1; margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.terminal-closed > .icon { flex: none; width: 20px; height: 20px; }
 .terminal-spinner { width: 30px; height: 30px; border-radius: 50%; border: 3px solid #1d3a32; border-top-color: var(--mint); animation: terminal-spin .8s linear infinite; }
 @keyframes terminal-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .terminal-spinner { animation-duration: 2.4s; } }

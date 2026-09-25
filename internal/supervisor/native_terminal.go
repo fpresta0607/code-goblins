@@ -29,8 +29,9 @@ const relayMessage = 256 << 10
 
 // nativeRelay is one view's side of a native terminal: the output read from
 // the host and not yet sent, how much of what was sent the view has
-// acknowledged, and a size to tell it. One goroutine writes to the view, so
-// output and sizes reach it in the order they happened.
+// acknowledged, and a size to tell it. One goroutine writes to the view, and
+// a size goes out before any output still pending, which the pseudo console's
+// repaint at that size follows.
 type nativeRelay struct {
 	mu          sync.Mutex
 	pending     []byte
@@ -48,12 +49,16 @@ func (r *nativeRelay) signal() {
 	}
 }
 
-// announce tells every view of task's terminal the size the terminal took.
-func (h *HTTP) announce(task string, cols, rows int) {
+// announce tells every view of task's terminal but the sender's the size the
+// terminal took.
+func (h *HTTP) announce(task string, sender *nativeRelay, cols, rows int) {
 	message := []byte(fmt.Sprintf(`{"type":"size","cols":%d,"rows":%d}`, cols, rows))
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for relay := range h.relays[task] {
+		if relay == sender {
+			continue
+		}
 		relay.mu.Lock()
 		relay.size = message
 		relay.mu.Unlock()
@@ -66,7 +71,7 @@ func (h *HTTP) announce(task string, cols, rows int) {
 // as binary messages, and a resize or an acknowledgement as a JSON text
 // message. The host's history comes first; a view repaints the screen by
 // sending its size, since the pseudo console redraws its whole window on every
-// resize, and every view is told the size the terminal took. The view is sent
+// resize, and every other view is told the size the terminal took. The view is sent
 // at most terminalWindow bytes it has not acknowledged, and one that falls
 // terminalBacklog bytes behind is closed so it reconnects, so the host never
 // waits on a slow window and no byte is dropped from a view that stays. The
@@ -168,8 +173,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 			size := relay.size
 			relay.size = nil
 			var output []byte
-			if len(relay.pending) > 0 && relay.sent-relay.acked <= int64(h.terminalWindow) {
-				n := min(len(relay.pending), relayMessage)
+			if unacknowledged := relay.sent - relay.acked; len(relay.pending) > 0 && unacknowledged < int64(h.terminalWindow) {
+				n := min(len(relay.pending), relayMessage, h.terminalWindow-int(unacknowledged))
 				output = append([]byte(nil), relay.pending[:n]...)
 				relay.pending = relay.pending[n:]
 				if len(relay.pending) == 0 {
@@ -269,7 +274,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				_ = view.Close(websocket.StatusGoingAway, "The terminal's host stopped answering.")
 				return
 			}
-			h.announce(meta.ID, control.Cols, control.Rows)
+			h.announce(meta.ID, relay, control.Cols, control.Rows)
 			continue
 		}
 		mu.Lock()

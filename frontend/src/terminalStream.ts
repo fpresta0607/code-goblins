@@ -29,7 +29,7 @@ export function inputMessages(bytes: Uint8Array): Uint8Array[] {
 // Ctrl with plus or minus steps the font size, and Ctrl+0 restores it.
 export function fontSizeFor(key: string, current: number): number | null {
   if (key === "=" || key === "+") return Math.min(MAX_FONT_SIZE, current + 1);
-  if (key === "-" || key === "_") return Math.max(MIN_FONT_SIZE, current - 1);
+  if (key === "-") return Math.max(MIN_FONT_SIZE, current - 1);
   if (key === "0") return DEFAULT_FONT_SIZE;
   return null;
 }

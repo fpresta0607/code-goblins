@@ -57,11 +57,14 @@ export function HostTerminal({ task, instance, visible, shown }: { task: Task; i
     let written = 0, consumed = 0, acknowledged = 0, owner = true, repainted = false, painted = false;
     const send = (data: string | Uint8Array) => { if (socket.readyState === WebSocket.OPEN) socket.send(data); };
     // Sizing the terminal to this panel makes this view its owner; the first
-    // size it sends repaints the screen even when it matches.
+    // size it sends repaints the screen even when it matches. A closed view
+    // only fits its last screen to the panel.
     const claim = () => {
-      if (!shownValue.current || socket.readyState !== WebSocket.OPEN) return;
+      if (!shownValue.current) return;
       const size = fit.proposeDimensions();
       if (!size || !usableSize(size.cols, size.rows)) return;
+      if (socket.readyState === WebSocket.CLOSED) { term.resize(size.cols, size.rows); return; }
+      if (socket.readyState !== WebSocket.OPEN) return;
       if (repainted && owner && size.cols === term.cols && size.rows === term.rows) return;
       owner = true;
       repainted = true;
@@ -165,11 +168,8 @@ export function HostTerminal({ task, instance, visible, shown }: { task: Task; i
   }, [task.id, task.generation, instance, visible, attempt]);
   return <section className="native-terminal host-terminal" aria-label="Goblin terminal">
     <div className="terminal-surface" ref={surface} />
-    {phase !== "live" && <div className="terminal-cover" role="status">
-      {phase === "connecting"
-        ? <><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></>
-        : <><Icon name="terminal" /><p>{reason}</p><button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setPhase("connecting"); setAttempt((prior) => prior + 1); }}>Reconnect</button></>}
-    </div>}
+    {phase === "connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div>}
+    {phase === "closed" && <div className="terminal-closed" role="status"><Icon name="terminal" /><p>{reason}</p><button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setPhase("connecting"); setAttempt((prior) => prior + 1); }}>Reconnect</button></div>}
     {copied && <span className="terminal-state terminal-copied" role="status">Copied</span>}
   </section>;
 }

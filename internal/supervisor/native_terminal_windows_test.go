@@ -427,9 +427,10 @@ func TestANativeTerminalResizesTheTerminal(t *testing.T) {
 	v.waitFor(t, "size 100x30")
 }
 
-// A resize from any view reaches every view of the terminal, so a second
-// window draws the output at the size the terminal now has.
-func TestANativeTerminalTellsEveryViewItsNewSize(t *testing.T) {
+// A resize from any view reaches every other view of the terminal, so a second
+// window draws the output at the size the terminal now has, and the view that
+// sent it is never told its own size back as if another view had taken it.
+func TestANativeTerminalTellsEveryOtherViewItsNewSize(t *testing.T) {
 	h, server := nativeBoard(t, "direct")
 	hostTask(t, h)
 	first := openNativeView(t, server, viewQuery)
@@ -440,7 +441,11 @@ func TestANativeTerminalTellsEveryViewItsNewSize(t *testing.T) {
 	first.send(t, websocket.MessageText, `{"type":"resize","cols":100,"rows":30}`)
 
 	second.waitFor(t, `{"type":"size","cols":100,"rows":30}`)
-	first.waitFor(t, `{"type":"size","cols":100,"rows":30}`)
+	first.send(t, websocket.MessageBinary, "size")
+	first.waitFor(t, "size 100x30")
+	if first.shows(`"type":"size"`) {
+		t.Error("the view that sized the terminal was told its own size")
+	}
 }
 
 // A view measured while hidden reports a size no terminal can use; the
@@ -476,6 +481,12 @@ func TestANativeTerminalHoldsOutputAViewHasNotAcknowledged(t *testing.T) {
 
 	if v.shows("size 80x24") {
 		t.Fatal("the view received everything without acknowledging any of it")
+	}
+	v.mu.Lock()
+	output := v.output
+	v.mu.Unlock()
+	if output > int64(h.terminalWindow) {
+		t.Fatalf("the view received %d bytes it had not acknowledged, beyond its %d-byte window", output, h.terminalWindow)
 	}
 	v.ackAll()
 	v.waitFor(t, "size 80x24")

@@ -31,6 +31,7 @@ test("Ctrl with plus, minus or zero sizes the font within bounds, and other keys
   assert.equal(fontSizeFor("-", MIN_FONT_SIZE), MIN_FONT_SIZE);
   assert.equal(fontSizeFor("0", 22), DEFAULT_FONT_SIZE);
   assert.equal(fontSizeFor("c", 16), null);
+  assert.equal(fontSizeFor("_", 16), null);
   assert.equal(DEFAULT_FONT_SIZE, 16);
 });
 
