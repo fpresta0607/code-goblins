@@ -18,11 +18,11 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 const maxBoardActivity = 128
@@ -309,7 +309,7 @@ func callerSession() string {
 
 // PublishPresentation is an explicit report after the browser/presentation
 // command succeeds. It neither invokes that tool nor controls its browser.
-func PublishPresentation(ctx context.Context, h home.Home, client *herdr.Client, a BoardActivity) error {
+func PublishPresentation(ctx context.Context, h home.Home, terminals terminal.Opener, a BoardActivity) error {
 	if a.Kind != "browser" && a.Kind != "review" {
 		return errors.New("presentation kind must be browser or review")
 	}
@@ -321,7 +321,7 @@ func PublishPresentation(ctx context.Context, h home.Home, client *herdr.Client,
 		// A goblin proves itself the way it does for a question: this command
 		// runs under the task's own Herdr pane. That needs no native hook, so
 		// a goblin can present however and whenever it was spawned.
-		meta, err := goblinAsker(ctx, h.State, client, a.TaskID)
+		meta, err := goblinAsker(ctx, h.State, terminals, a.TaskID)
 		if err != nil {
 			return err
 		}
@@ -330,7 +330,7 @@ func PublishPresentation(ctx context.Context, h home.Home, client *herdr.Client,
 		}
 		a.Generation, a.Target = meta.SpawnGen, ""
 	} else {
-		service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Herdr: client}}}
+		service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Terminals: terminals}}}
 		b, err := service.resolveTerminal(ctx, terminalSelection{Generation: a.Generation}, false)
 		if err != nil {
 			return err
@@ -350,7 +350,7 @@ func PublishPresentation(ctx context.Context, h home.Home, client *herdr.Client,
 // PrepareSendActivity pins the observed destination before a send. The caller
 // invokes its returned function only after native acceptance, never on an
 // uncertain submit. Observability failure must not cause a message retry.
-func PrepareSendActivity(ctx context.Context, h home.Home, client *herdr.Client, target string) func() error {
+func PrepareSendActivity(ctx context.Context, h home.Home, terminals terminal.Opener, target string) func() error {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	none := func() error { return nil }
@@ -372,12 +372,12 @@ func PrepareSendActivity(ctx context.Context, h home.Home, client *herdr.Client,
 	if err == nil {
 		p, _, err := decodePrimary(file)
 		_ = file.Close()
-		if err == nil && parent.ID == callerSession() && parent.Phase != "ended" && parent.Role == "cfo" && parent.Harness == p.Agent && callerOwns(p.Process) && (&CFOConnection{State: h.State, Herdr: client}).verify(ctx, p) == nil {
+		if err == nil && parent.ID == callerSession() && parent.Phase != "ended" && parent.Role == "cfo" && parent.Harness == p.Agent && callerOwns(p.Process) && (&CFOConnection{State: h.State, Terminals: terminals}).verify(ctx, p) == nil {
 			source = parent.ID
 		}
 	}
 	if parent.ID != "" && parent.ID == callerSession() && parent.Phase != "ended" && parent.Role != "cfo" && parent.TaskID != "" {
-		service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Herdr: client}}}
+		service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Terminals: terminals}}}
 		binding, err := service.resolveTerminal(ctx, terminalSelection{Task: parent.TaskID, Generation: parent.Generation, Session: parent.ID}, false)
 		if err == nil && callerOwns(binding.Process) {
 			source = parent.ID

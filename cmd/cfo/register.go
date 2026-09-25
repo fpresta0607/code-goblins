@@ -14,6 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 // runRegister makes the calling session the primary CFO the board delivers
@@ -35,7 +36,7 @@ func runRegister(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	described, err := supervisor.Register(ctx, h.State, &herdr.Client{Commands: execx.OSRunner{}}, "", "")
+	described, err := supervisor.Register(ctx, h.State, registerTerminals(), "", "")
 	if err != nil {
 		fmt.Fprintln(stderr, "cfo register:", err)
 		return 1
@@ -44,16 +45,22 @@ func runRegister(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	return 0
 }
 
+// registerTerminals opens Herdr in the session this process runs in, read
+// from HERDR_SESSION the way spawn and the watcher read it.
+func registerTerminals() terminal.Opener {
+	return terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}, Session: herdrSession()})
+}
+
 // registerPrimary refreshes the registration from a SessionStart hook, for
 // the session that holds the home only. A session outside Herdr has nothing
 // the board could reach, so it stays silent.
-func registerPrimary(h home.Home, ownerPID int, agent, session string, client *herdr.Client, stdout io.Writer) {
+func registerPrimary(h home.Home, ownerPID int, agent, session string, terminals terminal.Opener, stdout io.Writer) {
 	if os.Getenv("HERDR_PANE_ID") == "" || !lock.HeldBy(h.State, ownerPID) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	described, err := supervisor.Register(ctx, h.State, client, agent, session)
+	described, err := supervisor.Register(ctx, h.State, terminals, agent, session)
 	if err != nil {
 		fmt.Fprintf(stdout, "CFO REGISTRATION FAILED: %s. The board cannot reach this session until cfo register succeeds from it.\n", err)
 		return

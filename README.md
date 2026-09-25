@@ -339,7 +339,7 @@ The core is intentionally local-first:
 - `cmd/cfo/` — the Windows-native fleet CLI and control plane.
 - `internal/spawn/` — task dispatch and worktree preparation.
 - `internal/herdr/` — terminal/session integration.
-- `internal/terminal/` - the terminal backend that spawn, switch, send, peek and cleanup drive; Herdr is the only one today, and `terminaltest` holds an in-memory one for tests.
+- `internal/terminal/` - the terminal backend that the fleet commands, the board's supervisor, the monitor and the CFO launcher drive; Herdr is the only one today, and `terminaltest` holds an in-memory one for tests.
 - `internal/fleet/` — fleet truth, targeting, steering and inspection.
 - `internal/supervise/` / `internal/watch/` — unattended supervision and recovery.
 - `internal/pipeline/` — durable validation policy and decision gates.

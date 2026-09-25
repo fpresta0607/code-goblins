@@ -32,7 +32,7 @@ func waitOnAPage(t *testing.T, store *Store) (string, string) {
 	if err := state.AppendStatus(store.Home.State, meta.ID, "waiting on overlord: pick a plan"); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishWait(context.Background(), store.Home, connection.Herdr, meta.ID, 7, "pick a plan", pageLink, page); err != nil {
+	if err := PublishWait(context.Background(), store.Home, connection.Terminals, meta.ID, 7, "pick a plan", pageLink, page); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -128,7 +128,7 @@ func TestTheCFOsOwnPageReachesItAsAWakeKeyedByTheItem(t *testing.T) {
 	if err := os.WriteFile(page, []byte("<html></html>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishReview(context.Background(), h, cfo.Herdr, "", "dispatch-review-1", "Pick the dispatch order", pageLink, page, nil); err != nil {
+	if err := PublishReview(context.Background(), h, cfo.Terminals, "", "dispatch-review-1", "Pick the dispatch order", pageLink, page, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {

@@ -28,13 +28,13 @@ func TestReviewItemOutlivesItsSourceTheSupervisorAndTheGoblin(t *testing.T) {
 		data = append(data, writePNG(t, path))
 	}
 	ctx := context.Background()
-	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "mockups-review-1", "Pick a task list layout", "http://127.0.0.1:4387/session/f26e", "", paths); err != nil {
+	if err := PublishReview(ctx, h, connection.Terminals, meta.ID, "mockups-review-1", "Pick a task list layout", "http://127.0.0.1:4387/session/f26e", "", paths); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "mockups-review-1", "Pick a task list layout", "http://127.0.0.1:4387/session/f26e", "", paths); err != nil {
+	if err := PublishReview(ctx, h, connection.Terminals, meta.ID, "mockups-review-1", "Pick a task list layout", "http://127.0.0.1:4387/session/f26e", "", paths); err != nil {
 		t.Fatalf("an unchanged republish was refused: %v", err)
 	}
-	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "mockups-review-1", "Another title", "", "", paths); err == nil || !strings.Contains(err.Error(), "already used") {
+	if err := PublishReview(ctx, h, connection.Terminals, meta.ID, "mockups-review-1", "Another title", "", "", paths); err == nil || !strings.Contains(err.Error(), "already used") {
 		t.Fatalf("a republish with other content = %v, want refused", err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -94,7 +94,7 @@ func TestReviewWithdrawnOnlyByItsReporter(t *testing.T) {
 	store, h := testStore(t)
 	meta, _, _, connection := goblinFixture(t, store)
 	ctx := context.Background()
-	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "plan-review-1", "Read the plan", "", "", nil); err != nil {
+	if err := PublishReview(ctx, h, connection.Terminals, meta.ID, "plan-review-1", "Read the plan", "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := spoolReview(h.State, Review{ID: "plan-review-1", Identity: strings.Repeat("e", 64), State: "withdrawn", Reason: "not mine", UpdatedAt: time.Now().UTC()}); err != nil {
@@ -106,7 +106,7 @@ func TestReviewWithdrawnOnlyByItsReporter(t *testing.T) {
 	if got := store.Snapshot(); got.Reviews[0].State != "open" || !strings.Contains(strings.Join(got.Issues, "\n"), "only the reporter") {
 		t.Fatalf("a stranger's withdrawal = %+v %q, want it refused", got.Reviews[0], got.Issues)
 	}
-	if err := WithdrawReview(ctx, h, connection.Herdr, meta.ID, "plan-review-1", "Replaced by plan-review-2"); err != nil {
+	if err := WithdrawReview(ctx, h, connection.Terminals, meta.ID, "plan-review-1", "Replaced by plan-review-2"); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -123,7 +123,7 @@ func TestReviewWithdrawalRefusedBeforeRecordingAnything(t *testing.T) {
 	store, h := testStore(t)
 	meta, _, _, connection := goblinFixture(t, store)
 	ctx := context.Background()
-	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "closed-review", "Read the plan", "", "", nil); err != nil {
+	if err := PublishReview(ctx, h, connection.Terminals, meta.ID, "closed-review", "Read the plan", "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -140,7 +140,7 @@ func TestReviewWithdrawalRefusedBeforeRecordingAnything(t *testing.T) {
 		"closed-review":   "already cleared",
 		"stranger-review": "only the reporter",
 	} {
-		if err := WithdrawReview(ctx, h, connection.Herdr, meta.ID, id, "Replaced"); err == nil || !strings.Contains(err.Error(), says) {
+		if err := WithdrawReview(ctx, h, connection.Terminals, meta.ID, id, "Replaced"); err == nil || !strings.Contains(err.Error(), says) {
 			t.Errorf("withdrawing %s = %v, want refused naming %q", id, err, says)
 		}
 	}
@@ -160,7 +160,7 @@ func TestReviewRepublishNeverTouchesTheRecordedImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "mockups-review-1", "Pick a layout", "", "", []string{grid}); err != nil {
+	if err := PublishReview(ctx, h, connection.Terminals, meta.ID, "mockups-review-1", "Pick a layout", "", "", []string{grid}); err != nil {
 		t.Fatal(err)
 	}
 	inbox := reviewInboxPath(h.State, "mockups-review-1", "open")
@@ -177,7 +177,7 @@ func TestReviewRepublishNeverTouchesTheRecordedImages(t *testing.T) {
 	if err := os.Remove(inbox); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "mockups-review-1", "Pick a layout", "", "", []string{list}); err != nil {
+	if err := PublishReview(ctx, h, connection.Terminals, meta.ID, "mockups-review-1", "Pick a layout", "", "", []string{list}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.acceptReview(first); err != nil {
@@ -214,7 +214,7 @@ func TestReviewRefusedByAFullInboxLeavesNoCopies(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := PublishReview(context.Background(), h, connection.Herdr, meta.ID, "mockups-review-1", "Pick a layout", "", "", []string{grid}); err == nil || !strings.Contains(err.Error(), "inbox is full") {
+	if err := PublishReview(context.Background(), h, connection.Terminals, meta.ID, "mockups-review-1", "Pick a layout", "", "", []string{grid}); err == nil || !strings.Contains(err.Error(), "inbox is full") {
 		t.Fatalf("a publication into a full inbox = %v, want refused", err)
 	}
 	if entries, err := os.ReadDir(filepath.Join(h.State, "reviews")); !os.IsNotExist(err) && len(entries) != 0 {
@@ -248,7 +248,7 @@ func TestReviewAnswerReachesItsReporterOnceOrElseTheCFO(t *testing.T) {
 				task = meta.ID
 			}
 			ctx := context.Background()
-			if err := PublishReview(ctx, h, cfo.Herdr, task, "plan-review-1", "Read the plan", "", "", nil); err != nil {
+			if err := PublishReview(ctx, h, cfo.Terminals, task, "plan-review-1", "Read the plan", "", "", nil); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.ingestReviews(); err != nil {
@@ -303,7 +303,7 @@ func TestABoardAnswerOnAGoblinsItemAlsoReachesTheCFO(t *testing.T) {
 				task = meta.ID
 			}
 			ctx := context.Background()
-			if err := PublishReview(ctx, h, cfo.Herdr, task, "plan-review-1", "Read the plan", "", "", nil); err != nil {
+			if err := PublishReview(ctx, h, cfo.Terminals, task, "plan-review-1", "Read the plan", "", "", nil); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.ingestReviews(); err != nil {
@@ -350,7 +350,7 @@ func TestAnsweredReviewSurvivesAFullListUntilDelivered(t *testing.T) {
 	t.Setenv("CFO_SESSION_ID", "actual-primary")
 	t.Setenv("CFO_SESSION_HARNESS", "codex")
 	ctx := context.Background()
-	if err := PublishReview(ctx, h, cfo.Herdr, "", "plan-review-1", "Read the plan", "", "", nil); err != nil {
+	if err := PublishReview(ctx, h, cfo.Terminals, "", "plan-review-1", "Read the plan", "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -396,7 +396,7 @@ func TestWaitOnTheOverlordIsTheItemItsNextReportWithdraws(t *testing.T) {
 	if err := state.AppendStatus(h.State, meta.ID, "waiting on overlord: log in to Stripe"); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishWait(context.Background(), h, connection.Herdr, meta.ID, 7, "log in to Stripe", "", ""); err != nil {
+	if err := PublishWait(context.Background(), h, connection.Terminals, meta.ID, 7, "log in to Stripe", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {

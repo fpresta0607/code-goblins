@@ -178,7 +178,7 @@ func defaultCommandRuntime() commandRuntime {
 		},
 		sendText: func(ctx context.Context, h home.Home, target, text string) error {
 			client := &herdr.Client{Commands: execx.OSRunner{}}
-			receipt := supervisor.PrepareSendActivity(ctx, h, client, target)
+			receipt := supervisor.PrepareSendActivity(ctx, h, terminal.HerdrSessions(client), target)
 			if err := (fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Terminal: client}).Text(ctx, target, text); err != nil {
 				return err
 			}

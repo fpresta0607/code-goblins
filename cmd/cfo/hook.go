@@ -13,11 +13,9 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
 	"github.com/fpresta0607/code-goblins/internal/digest"
-	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/guard"
 	"github.com/fpresta0607/code-goblins/internal/harness"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
@@ -745,13 +743,13 @@ func resolveSessionOwnerPID() int {
 // custody does not start blind.
 func hookSessionStart(h home.Home, payload claudehook.Payload, stdout io.Writer) int {
 	ownerPID := resolveSessionOwnerPID()
-	client := &herdr.Client{Commands: execx.OSRunner{}}
+	terminals := registerTerminals()
 
 	switch payload.Source {
 	case "resume", "reload", "fork":
 		if markerPID, ok := digest.ReadCompleteMarker(h.State); ok && markerPID == ownerPID && lock.HeldBy(h.State, ownerPID) {
 			fmt.Fprintln(stdout, sessionStartNudgeLine)
-			registerPrimary(h, ownerPID, "claude", payload.SessionID, client, stdout)
+			registerPrimary(h, ownerPID, "claude", payload.SessionID, terminals, stdout)
 			return 0
 		}
 	}
@@ -759,7 +757,7 @@ func hookSessionStart(h home.Home, payload claudehook.Payload, stdout io.Writer)
 	if err := digest.Compose(h, ownerPID, payload.SessionID, stdout); err != nil {
 		fmt.Fprintf(stdout, "SESSION START DEGRADED: %s\n", err)
 	}
-	registerPrimary(h, ownerPID, "claude", payload.SessionID, client, stdout)
+	registerPrimary(h, ownerPID, "claude", payload.SessionID, terminals, stdout)
 	return 0
 }
 

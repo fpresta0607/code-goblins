@@ -18,10 +18,10 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -113,23 +113,23 @@ func reviewImageDir(stateDir string, r Review) string {
 // reviewReporter proves who is reporting: a goblin from inside its task's own
 // Herdr pane, or the registered primary CFO when taskID is empty. The returned
 // release keeps the CFO's registration from changing until the report is made.
-func reviewReporter(ctx context.Context, h home.Home, client *herdr.Client, taskID string) (string, func(), error) {
+func reviewReporter(ctx context.Context, h home.Home, terminals terminal.Opener, taskID string) (string, func(), error) {
 	if taskID != "" {
-		meta, err := goblinAsker(ctx, h.State, client, taskID)
+		meta, err := goblinAsker(ctx, h.State, terminals, taskID)
 		if err != nil {
 			return "", nil, err
 		}
 		return goblinIdentity(meta), func() {}, nil
 	}
-	return (&CFOConnection{State: h.State, Herdr: client}).CallerIdentity(ctx)
+	return (&CFOConnection{State: h.State, Terminals: terminals}).CallerIdentity(ctx)
 }
 
 // PublishReview reports an item for the Overlord from the reporter's own
 // process. Images are checked the way a question's are and copied under
 // state/reviews before the item is recorded. A page, given only with its
 // link, is polled by the supervisor for his feedback.
-func PublishReview(ctx context.Context, h home.Home, client *herdr.Client, taskID, id, title, lavish, page string, images []string) error {
-	identity, release, err := reviewReporter(ctx, h, client, taskID)
+func PublishReview(ctx context.Context, h home.Home, terminals terminal.Opener, taskID, id, title, lavish, page string, images []string) error {
+	identity, release, err := reviewReporter(ctx, h, terminals, taskID)
 	if err != nil {
 		return err
 	}
@@ -182,8 +182,8 @@ func PublishReview(ctx context.Context, h home.Home, client *herdr.Client, taskI
 }
 
 // WithdrawReview closes the reporter's own open item with its reason.
-func WithdrawReview(ctx context.Context, h home.Home, client *herdr.Client, taskID, id, reason string) error {
-	identity, release, err := reviewReporter(ctx, h, client, taskID)
+func WithdrawReview(ctx context.Context, h home.Home, terminals terminal.Opener, taskID, id, reason string) error {
+	identity, release, err := reviewReporter(ctx, h, terminals, taskID)
 	if err != nil {
 		return err
 	}
@@ -643,8 +643,8 @@ func (h *HTTP) reviewImage(w http.ResponseWriter, r *http.Request) {
 // PublishWait puts a goblin's wait on the Overlord in the Command Center as an
 // item for him until he answers or clears it, or the goblin reports again. It
 // names the item waiting-<task>-<wake sequence>, which retireWaits relies on.
-func PublishWait(ctx context.Context, h home.Home, client *herdr.Client, taskID string, seq int, why, lavish, page string) error {
-	return PublishReview(ctx, h, client, taskID, fmt.Sprintf("waiting-%s-%d", taskID, seq), "Waiting on you: "+why, lavish, page, nil)
+func PublishWait(ctx context.Context, h home.Home, terminals terminal.Opener, taskID string, seq int, why, lavish, page string) error {
+	return PublishReview(ctx, h, terminals, taskID, fmt.Sprintf("waiting-%s-%d", taskID, seq), "Waiting on you: "+why, lavish, page, nil)
 }
 
 // retireWaits withdraws a goblin's wait on the Overlord once its task reports

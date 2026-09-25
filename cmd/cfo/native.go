@@ -11,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/execx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
@@ -64,7 +62,7 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 	// timeouts.
 	if e.Kind == "started" && e.Role == "cfo" && e.TaskID == "" && (e.Harness == "codex" || e.Harness == "pi") && os.Getenv("HERDR_PANE_ID") != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		_, _ = supervisor.Register(ctx, *dir, &herdr.Client{Commands: execx.OSRunner{}}, e.Harness, e.SessionID)
+		_, _ = supervisor.Register(ctx, *dir, registerTerminals(), e.Harness, e.SessionID)
 		cancel()
 	}
 	return 0

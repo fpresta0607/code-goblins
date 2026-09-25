@@ -12,6 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 // reviewPublishTimeout bounds publishing or withdrawing an item, the Herdr
@@ -52,11 +53,11 @@ func runReview(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	client := &herdr.Client{Commands: execx.OSRunner{}}
+	terminals := terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}})
 	if *withdraw != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), reviewPublishTimeout)
 		defer cancel()
-		if err := supervisor.WithdrawReview(ctx, h, client, *task, *id, *withdraw); err != nil {
+		if err := supervisor.WithdrawReview(ctx, h, terminals, *task, *id, *withdraw); err != nil {
 			fmt.Fprintln(stderr, "cfo review: "+err.Error())
 			return 1
 		}
@@ -81,7 +82,7 @@ func runReview(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), reviewPublishTimeout)
 	defer cancel()
-	if err := supervisor.PublishReview(ctx, h, client, *task, *id, *title, *lavish, page, images); err != nil {
+	if err := supervisor.PublishReview(ctx, h, terminals, *task, *id, *title, *lavish, page, images); err != nil {
 		fmt.Fprintln(stderr, "cfo review: "+err.Error())
 		return 1
 	}

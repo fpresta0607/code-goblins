@@ -17,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 // paneRunner is a Herdr in which this test process is the foreground harness
@@ -53,7 +54,7 @@ func TestSessionStartRegistersTheSessionThatHoldsTheHome(t *testing.T) {
 	}
 	runner := &paneRunner{}
 	var stdout bytes.Buffer
-	registerPrimary(h, os.Getpid(), "claude", "s1", &herdr.Client{Commands: runner, Session: "isolated"}, &stdout)
+	registerPrimary(h, os.Getpid(), "claude", "s1", terminal.HerdrSessions(&herdr.Client{Commands: runner, Session: "isolated"}), &stdout)
 	want := "CFO REGISTRATION: claude pid " + strconv.Itoa(os.Getpid()) + " in Herdr pane isolated:w1:p1\n"
 	if stdout.String() != want {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
@@ -78,7 +79,7 @@ func TestSessionStartNeverRegistersAReadOnlySession(t *testing.T) {
 	}
 	runner := &paneRunner{}
 	var stdout bytes.Buffer
-	registerPrimary(h, os.Getpid(), "claude", "s1", &herdr.Client{Commands: runner}, &stdout)
+	registerPrimary(h, os.Getpid(), "claude", "s1", terminal.HerdrSessions(&herdr.Client{Commands: runner}), &stdout)
 	if stdout.Len() != 0 || runner.calls != 0 {
 		t.Fatalf("read-only session: stdout %q, %d Herdr calls; want silence", stdout.String(), runner.calls)
 	}
@@ -96,5 +97,19 @@ func TestRegisterCommandRefusesAGoblin(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if exit := runRegister(nil, &stdout, &stderr, runtime); exit != 1 || !strings.Contains(stderr.String(), "a goblin is never the primary CFO") {
 		t.Fatalf("exit %d stderr %q, want 1 and the goblin refusal", exit, stderr.String())
+	}
+}
+
+// Registration opens Herdr in the session HERDR_SESSION names, the way spawn
+// and the watcher read it, and in Herdr's default session without it.
+func TestRegistrationOpensHerdrInTheSessionThisProcessRunsIn(t *testing.T) {
+	for session, want := range map[string]string{"fleet-7": "fleet-7", "": "default"} {
+		t.Setenv("HERDR_SESSION", session)
+
+		got := registerTerminals()("").EffectiveSession()
+
+		if got != want {
+			t.Errorf("HERDR_SESSION=%q opens %q, want %q", session, got, want)
+		}
 	}
 }
