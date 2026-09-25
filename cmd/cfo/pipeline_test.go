@@ -22,6 +22,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 	"gopkg.in/yaml.v3"
 )
@@ -900,7 +901,7 @@ func TestPipelineMigrationRacingSwitchPreservesBothUpdates(t *testing.T) {
 
 	switchRunner := &pipelineSwitchRunner{statusReady: make(chan struct{}), statusRelease: make(chan struct{})}
 	switchService := spawn.Service{
-		Herdr:     &herdr.Client{Commands: switchRunner, Session: "fleet"},
+		Terminals: terminal.HerdrSessions(&herdr.Client{Commands: switchRunner, Session: "fleet"}),
 		Worktrees: worktree.Service{Commands: switchRunner, Git: pipelineSwitchGit{worktree: wt}, DataDir: h.Data},
 		Harness: harness.Registry{Adapters: map[harness.Kind]harness.Adapter{
 			harness.Claude: pipelineSwitchAdapter{kind: harness.Claude},

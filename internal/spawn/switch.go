@@ -17,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -71,8 +72,8 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	); err != nil {
 		return SwitchResult{}, err
 	}
-	if s.Herdr == nil {
-		return SwitchResult{}, errors.New("switch: Herdr client is required")
+	if s.Terminals == nil {
+		return SwitchResult{}, errors.New("switch: terminal backend is required")
 	}
 	metadataLock := state.MetadataLockName(req.ID)
 	if _, err := lock.AcquireExclusiveNamed(s.StateDir, metadataLock); err != nil {
@@ -117,12 +118,11 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if session == "" {
 		session = req.Session
 	}
-	herdrClient := *s.Herdr
-	herdrClient.Session = session
-	paneTarget := herdr.Target{Session: herdrClient.Session, Pane: meta.HerdrPaneID}
+	terminals := s.Terminals(session)
+	paneTarget := herdr.Target{Session: session, Pane: meta.HerdrPaneID}
 
 	if target.same(meta) {
-		status, err := herdrClient.AgentStatus(ctx, paneTarget)
+		status, err := terminals.AgentStatus(ctx, paneTarget)
 		if err != nil {
 			return SwitchResult{}, fmt.Errorf("switch: read agent status: %w", err)
 		}
@@ -177,7 +177,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		return SwitchResult{}, fmt.Errorf("switch: worktree %q has uncommitted changes; commit them or rerun with --force-dirty:\n%s", worktreePath, dirty)
 	}
 
-	if err := adapter.Validate(ctx, herdrClient.Commands); err != nil {
+	if err := adapter.Validate(ctx, s.commands()); err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: validate harness %s: %w", target.Harness, err)
 	}
 	// The relaunched harness needs the project's declared environment
@@ -207,14 +207,14 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: current harness %q has no adapter: %w", meta.Harness, err)
 	}
-	if err := s.stopHarness(ctx, &herdrClient, paneTarget, current.Control()); err != nil {
+	if err := s.stopHarness(ctx, terminals, paneTarget, current.Control()); err != nil {
 		return SwitchResult{}, err
 	}
 	from := describe(meta.Harness, meta.Model, meta.Effort)
 	// The pane's shell waits until every process the harness started has
 	// exited, so one left alive would hold a relaunch in the shell's input, to
 	// start later with no registered agent. Switch refuses over them instead.
-	if leftovers, err := s.leftoversOf(ctx, &herdrClient, paneTarget); err != nil || len(leftovers) > 0 {
+	if leftovers, err := s.leftoversOf(ctx, terminals, paneTarget); err != nil || len(leftovers) > 0 {
 		rerun := "cfo switch " + req.ID + " --harness " + string(target.Harness)
 		if target.Model != "" {
 			rerun += " --model " + target.Model
@@ -250,7 +250,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		return SwitchResult{}, err
 	}
 	launchMeta.SpawnGen = meta.SpawnGen
-	handoff, resumed, err := s.relaunchHarness(ctx, &herdrClient, paneTarget, launchMeta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, goTmp, manifest.Env)
+	handoff, resumed, err := s.relaunchHarness(ctx, terminals, paneTarget, launchMeta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, goTmp, manifest.Env)
 	if err != nil {
 		// The failure may have come after the new harness was already
 		// running - a rejected instruction read-back, for instance - so the
@@ -261,7 +261,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		// says so rather than guessing in either direction.
 		to := describe(string(target.Harness), target.Model, target.Effort)
 		var recovery string
-		status, statusErr := herdrClient.AgentStatus(ctx, paneTarget)
+		status, statusErr := terminals.AgentStatus(ctx, paneTarget)
 		switch {
 		case statusErr == nil && status == herdr.AgentAlive:
 			recovery = fmt.Sprintf("the pane still holds a live %s agent: it started but the switch did not complete cleanly. Work in %s is untouched. Steer the pane directly or inspect it with `cfo peek %s` - do NOT rerun `cfo switch`, which would stop a running harness.",
@@ -311,7 +311,7 @@ var errBuildLaunch = errors.New("switch: build harness launch")
 // the old harness has stopped lives here, so any failure returns through the
 // same empty-pane recovery. Anything knowable before the stop is resolved by
 // Switch and handed in, redirects included.
-func (s Service) relaunchHarness(ctx context.Context, client *herdr.Client, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id, goTmp string, redirects map[string]string) (handoff string, resumed bool, err error) {
+func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id, goTmp string, redirects map[string]string) (handoff string, resumed bool, err error) {
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath: briefPath,
@@ -437,7 +437,7 @@ func switchLockName(id string) string {
 // Herdr reporting no agent on the pane is the shell prompt being back. A
 // harness that ignores its own exit command is interrupted once rather than
 // left running beside its replacement.
-func (s Service) stopHarness(ctx context.Context, client *herdr.Client, target herdr.Target, control harness.Control) error {
+func (s Service) stopHarness(ctx context.Context, client terminal.Backend, target herdr.Target, control harness.Control) error {
 	status, err := client.AgentStatus(ctx, target)
 	if err != nil {
 		return fmt.Errorf("switch: read agent status: %w", err)
@@ -519,7 +519,7 @@ type Leftover struct {
 const leftoverPolls = 4
 
 // leftoversOf lists the processes a pane's shell is still waiting on.
-func (s Service) leftoversOf(ctx context.Context, client *herdr.Client, target herdr.Target) ([]Leftover, error) {
+func (s Service) leftoversOf(ctx context.Context, client terminal.Backend, target herdr.Target) ([]Leftover, error) {
 	list := s.Leftovers
 	if list == nil {
 		list = paneLeftovers
@@ -537,7 +537,7 @@ func (s Service) leftoversOf(ctx context.Context, client *herdr.Client, target h
 
 // paneLeftovers lists what a pane's shell is waiting on: the processes in
 // the job objects it holds open, named by executable, command line and pid.
-func paneLeftovers(ctx context.Context, client *herdr.Client, target herdr.Target) ([]Leftover, error) {
+func paneLeftovers(ctx context.Context, client terminal.Backend, target herdr.Target) ([]Leftover, error) {
 	info, err := client.PaneProcessInfo(ctx, target)
 	if err != nil {
 		return nil, err
@@ -557,7 +557,7 @@ func paneLeftovers(ctx context.Context, client *herdr.Client, target herdr.Targe
 	return leftovers, nil
 }
 
-func (s Service) waitForStop(ctx context.Context, client *herdr.Client, target herdr.Target, tries int) (bool, error) {
+func (s Service) waitForStop(ctx context.Context, client terminal.Backend, target herdr.Target, tries int) (bool, error) {
 	for attempt := 0; attempt < tries; attempt++ {
 		if err := s.sleep(ctx, stopPoll); err != nil {
 			return false, fmt.Errorf("switch: wait for the harness to exit: %w", err)
@@ -599,9 +599,6 @@ func (s Service) worktreeStatus(ctx context.Context, worktree string) (string, e
 func (s Service) commands() execx.Runner {
 	if s.Commands != nil {
 		return s.Commands
-	}
-	if s.Herdr != nil && s.Herdr.Commands != nil {
-		return s.Herdr.Commands
 	}
 	return s.Worktrees.Commands
 }

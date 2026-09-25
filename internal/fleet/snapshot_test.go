@@ -29,7 +29,7 @@ func TestHerdrEndpointReadsOnlyLiveAgentEvidence(t *testing.T) {
 		jsonReply(`{"result":{"agent":{"agent_status":"working"}}}`),
 	}}
 	var sleeps []time.Duration
-	endpoint := NewHerdrEndpoint(newHerdrClient(runner, &sleeps))
+	endpoint := NewTerminalEndpoint(newHerdrClient(runner, &sleeps))
 	target := herdr.Target{Session: "fleet", Pane: "pane-7"}
 
 	exists, err := endpoint.Exists(context.Background(), target)

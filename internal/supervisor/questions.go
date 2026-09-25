@@ -170,7 +170,7 @@ func (c *CFOConnection) SendGoblin(ctx context.Context, taskID, identity, text s
 		return Evaluation{}, fmt.Errorf("%w: the goblin's task restarted or ended; nothing was sent", ErrRejected)
 	}
 	guard := func(_ context.Context, target herdr.Target, _ herdr.AgentDetail) error { return current(target) }
-	sender := fleet.Sender{Herdr: c.Herdr, Resolve: fleet.Resolver{StateDir: c.State}, Guard: guard}
+	sender := fleet.Sender{Terminal: c.Herdr, Resolve: fleet.Resolver{StateDir: c.State}, Guard: guard}
 	if err := sender.Text(ctx, taskID, oneLine(text)); err != nil {
 		return Evaluation{}, err
 	}

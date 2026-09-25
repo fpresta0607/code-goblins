@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 const (
@@ -13,10 +13,10 @@ const (
 	invalidTailLines = 200
 )
 
-// Peeker returns a bounded terminal tail for a resolved Herdr pane.
+// Peeker returns a bounded terminal tail for a resolved task terminal.
 type Peeker struct {
-	Resolve TargetResolver
-	Herdr   *herdr.Client
+	Resolve  TargetResolver
+	Terminal terminal.Backend
 }
 
 // Tail returns a local tail only. Herdr's client always requests at least 200
@@ -25,8 +25,8 @@ func (p Peeker) Tail(ctx context.Context, raw string, lines int) (string, error)
 	if p.Resolve == nil {
 		return "", errors.New("fleet: target resolver is required")
 	}
-	if p.Herdr == nil {
-		return "", errors.New("fleet: Herdr client is required")
+	if p.Terminal == nil {
+		return "", errors.New("fleet: terminal backend is required")
 	}
 	if lines == 0 {
 		lines = defaultTailLines
@@ -37,7 +37,7 @@ func (p Peeker) Tail(ctx context.Context, raw string, lines int) (string, error)
 	if err != nil {
 		return "", err
 	}
-	output, err := p.Herdr.Capture(ctx, target, lines, false)
+	output, err := p.Terminal.Capture(ctx, target, lines, false)
 	if err != nil {
 		return "", fmt.Errorf("fleet: peek %s: %w", target, err)
 	}

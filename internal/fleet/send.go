@@ -9,6 +9,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/routing"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 const (
@@ -38,12 +39,12 @@ const (
 	completionSettle = 1200 * time.Millisecond
 )
 
-// Sender submits text to one resolved Herdr pane's registered agent, or sends
-// named keys to the pane.
+// Sender submits text to one resolved task terminal's registered agent, or
+// sends named keys to the terminal.
 type Sender struct {
-	Resolve TargetResolver
-	Herdr   *herdr.Client
-	Sleep   func(context.Context, time.Duration) error
+	Resolve  TargetResolver
+	Terminal terminal.Backend
+	Sleep    func(context.Context, time.Duration) error
 	// Guard pins an externally registered recipient through the native submit
 	// and confirmation reads. It cannot enable the explicit-pane fallback.
 	Guard func(context.Context, herdr.Target, herdr.AgentDetail) error
@@ -76,7 +77,7 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 	}
 
 	registration, err := preSubmitRead(ctx, s.sleep, func() (herdr.AgentStatus, error) {
-		return s.Herdr.AgentStatus(ctx, target)
+		return s.Terminal.AgentStatus(ctx, target)
 	})
 	if err != nil {
 		return fmt.Errorf("fleet: read agent registration for %s: %w", target, err)
@@ -99,7 +100,7 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 	// hold, so a guessed baseline would read the first number a long-running
 	// goblin reports as an advance and confirm a message it never took.
 	before, err := preSubmitRead(ctx, s.sleep, func() (herdr.AgentDetail, error) {
-		return s.Herdr.AgentDetail(ctx, target)
+		return s.Terminal.AgentDetail(ctx, target)
 	})
 	if err != nil {
 		return fmt.Errorf("fleet: read agent state for %s before submit, so acceptance could not be proven and nothing was sent: %w", target, err)
@@ -110,7 +111,7 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 		}
 	}
 
-	if err := s.Herdr.AgentPrompt(ctx, target, message); err != nil {
+	if err := s.Terminal.AgentPrompt(ctx, target, message); err != nil {
 		return fmt.Errorf("fleet: submit text for %s: %w", target, err)
 	}
 
@@ -132,7 +133,7 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 		if err := s.sleep(ctx, confirmBudget/confirmPolls); err != nil {
 			return fmt.Errorf("fleet: wait for delivery confirmation for %s: %w", target, err)
 		}
-		after, err := s.Herdr.AgentDetail(ctx, target)
+		after, err := s.Terminal.AgentDetail(ctx, target)
 		if err != nil {
 			if herdr.WaitError(ctx, err) {
 				return fmt.Errorf("fleet: confirm text delivery for %s: %w", target, err)
@@ -141,7 +142,7 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 			// accepting anything, so spending the rest of the budget on it
 			// only delays a certain answer and buries its real cause behind
 			// the decode-shaped refusal an unregistered agent read produces.
-			if s.Herdr.PaneProvablyDead(ctx, target) {
+			if s.Terminal.PaneProvablyDead(ctx, target) {
 				return fmt.Errorf("fleet: %s no longer holds a registered agent, so the text submitted to it cannot be confirmed: %w", target, err)
 			}
 			lastReadErr = err
@@ -226,13 +227,13 @@ func typeSettleFor(message string) time.Duration {
 // defect the agent path exists to remove rather than a fallback this one may
 // reach for.
 func (s Sender) typeIntoPane(ctx context.Context, target herdr.Target, message string) error {
-	if err := s.Herdr.SendLiteral(ctx, target, message); err != nil {
+	if err := s.Terminal.SendLiteral(ctx, target, message); err != nil {
 		return fmt.Errorf("fleet: type text for %s: %w", target, err)
 	}
 	if err := s.sleep(ctx, typeSettleFor(message)); err != nil {
 		return fmt.Errorf("fleet: wait before submit for %s: %w", target, err)
 	}
-	if err := s.Herdr.SendKey(ctx, target, "Enter"); err != nil {
+	if err := s.Terminal.SendKey(ctx, target, "Enter"); err != nil {
 		return fmt.Errorf("fleet: submit text for %s: %w", target, err)
 	}
 	return fmt.Errorf("%w; it was typed into a pane holding no registered agent, so nothing reports whether it was received", unconfirmed(target, herdr.SubmitUnknown))
@@ -249,7 +250,7 @@ func (s Sender) Key(ctx context.Context, raw string, key string) error {
 	if err != nil {
 		return err
 	}
-	if err := s.Herdr.SendKey(ctx, target, normalized); err != nil {
+	if err := s.Terminal.SendKey(ctx, target, normalized); err != nil {
 		return fmt.Errorf("fleet: send key %q to %s: %w", key, target, err)
 	}
 	return nil
@@ -264,8 +265,8 @@ func (s Sender) target(ctx context.Context, raw string) (herdr.Target, bool, err
 	if s.Resolve == nil {
 		return herdr.Target{}, false, errors.New("fleet: target resolver is required")
 	}
-	if s.Herdr == nil {
-		return herdr.Target{}, false, errors.New("fleet: Herdr client is required")
+	if s.Terminal == nil {
+		return herdr.Target{}, false, errors.New("fleet: terminal backend is required")
 	}
 	target, meta, err := s.Resolve.Resolve(ctx, raw)
 	if err != nil {

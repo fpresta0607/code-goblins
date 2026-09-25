@@ -15,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 const snapshotSchema = "fleet-snapshot.v1"
@@ -26,34 +27,34 @@ type EndpointReader interface {
 	crewstate.Endpoint
 }
 
-// NewHerdrEndpoint adapts the supported read-only Herdr client to the
-// endpoint evidence BuildSnapshot needs. It deliberately does not implement
+// NewTerminalEndpoint adapts the terminal backend to the endpoint evidence
+// BuildSnapshot needs. It deliberately does not implement
 // crewstate.StructuralValidator: idle status-log fallback requires workspace,
 // tab, and label proof that an agent status response cannot establish.
-func NewHerdrEndpoint(client *herdr.Client) EndpointReader {
-	return herdrEndpoint{client: client}
+func NewTerminalEndpoint(backend terminal.Backend) EndpointReader {
+	return terminalEndpoint{backend: backend}
 }
 
-type herdrEndpoint struct {
-	client *herdr.Client
+type terminalEndpoint struct {
+	backend terminal.Backend
 }
 
-func (e herdrEndpoint) Exists(ctx context.Context, target herdr.Target) (bool, error) {
-	if e.client == nil {
-		return false, errors.New("fleet: Herdr client is required")
+func (e terminalEndpoint) Exists(ctx context.Context, target herdr.Target) (bool, error) {
+	if e.backend == nil {
+		return false, errors.New("fleet: terminal backend is required")
 	}
-	status, err := e.client.AgentStatus(ctx, target)
+	status, err := e.backend.AgentStatus(ctx, target)
 	if err != nil {
 		return false, err
 	}
 	return status == herdr.AgentAlive, nil
 }
 
-func (e herdrEndpoint) BusyState(ctx context.Context, target herdr.Target) (herdr.BusyState, error) {
-	if e.client == nil {
-		return herdr.BusyUnknown, errors.New("fleet: Herdr client is required")
+func (e terminalEndpoint) BusyState(ctx context.Context, target herdr.Target) (herdr.BusyState, error) {
+	if e.backend == nil {
+		return herdr.BusyUnknown, errors.New("fleet: terminal backend is required")
 	}
-	return e.client.BusyState(ctx, target)
+	return e.backend.BusyState(ctx, target)
 }
 
 // Snapshot is the typed, read-only fleet view shared by JSON and Markdown
