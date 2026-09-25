@@ -106,6 +106,10 @@ func Run(stateDir string, spec Spec) error {
 		}
 	}()
 	closing := make(chan struct{}, 1)
+	// screens is held shared by every screen read and whole to close the
+	// console, which releases the terminal program's process: its pid stays
+	// the program's for as long as a read attaches to it.
+	var screens sync.RWMutex
 	var viewers sync.WaitGroup
 	go func() {
 		for {
@@ -119,7 +123,7 @@ func Run(stateDir string, spec Spec) error {
 			viewers.Add(1)
 			go func() {
 				defer viewers.Done()
-				serve(connection, record.Token, console, output, closing)
+				serve(connection, record.Token, console, output, closing, &screens)
 			}()
 		}
 	}()
@@ -131,7 +135,9 @@ func Run(stateDir string, spec Spec) error {
 	case <-outputEnded:
 	case <-closing:
 	}
+	screens.Lock()
 	closeErr := console.Close()
+	screens.Unlock()
 	farewell := make(chan struct{})
 	go func() {
 		viewers.Wait()
@@ -178,8 +184,9 @@ func announce(stateDir, id string, childPID int) (Record, *listener, error) {
 // serve is one viewer's connection: the handshake, then input, resizes and a
 // close request one way and the history and live output the other, until the
 // terminal ends or the viewer leaves. Input is read from the handshake on, so a
-// viewer that only types never waits on the output it does not read.
-func serve(connection *os.File, token string, console *conpty.Console, output *history, closing chan<- struct{}) {
+// viewer that only types never waits on the output it does not read. A screen
+// request gets the terminal's screen alone.
+func serve(connection *os.File, token string, console *conpty.Console, output *history, closing chan<- struct{}, screens *sync.RWMutex) {
 	defer connection.Close()
 	_ = connection.SetReadDeadline(time.Now().Add(handshakeTimeout))
 	greeting, err := readHello(connection)
@@ -195,6 +202,10 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 		return
 	}
 	_ = connection.SetReadDeadline(time.Time{})
+	if greeting.Screen {
+		serveScreen(connection, console, screens)
+		return
+	}
 	past, feed, detach := output.attach()
 	defer detach()
 	if writeHello(connection, hello{Version: Version}) != nil {

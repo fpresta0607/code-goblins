@@ -6,7 +6,46 @@ import (
 	"io"
 	"strconv"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 )
+
+// peekTerminal is the tail of target's terminal: a native terminal's screen as
+// its console holds it, or else the Herdr pane's tail.
+func peekTerminal(ctx context.Context, h home.Home, target string, lines int) (string, error) {
+	if record, err := host.ReadRecord(h.State, target); err == nil {
+		rows, err := host.ReadScreen(record)
+		if err != nil {
+			return "", err
+		}
+		return screenTail(rows, lines), nil
+	}
+	client := &herdr.Client{Commands: execx.OSRunner{}}
+	return fleet.Peeker{Resolve: fleet.Resolver{StateDir: h.State}, Terminal: client}.Tail(ctx, target, lines)
+}
+
+// screenTail is a screen's last lines rows, or all of them for lines 0 or
+// less, without the trailing blanks of each row or the blank rows below the
+// last one written.
+func screenTail(rows []string, lines int) string {
+	for i := range rows {
+		rows[i] = strings.TrimRight(rows[i], " ")
+	}
+	for len(rows) > 0 && rows[len(rows)-1] == "" {
+		rows = rows[:len(rows)-1]
+	}
+	if lines > 0 && lines < len(rows) {
+		rows = rows[len(rows)-lines:]
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	return strings.Join(rows, "\n") + "\n"
+}
 
 func runPeek(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 {

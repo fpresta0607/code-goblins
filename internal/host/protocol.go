@@ -35,6 +35,9 @@ const (
 	// frameExit tells a client the terminal ended, with its exit code as four
 	// big-endian bytes; the host closes the connection after it.
 	frameExit byte = 'x'
+	// frameScreen answers a screen request with the terminal's screen, as
+	// JSON; the host closes the connection after it.
+	frameScreen byte = 's'
 )
 
 // maxFrame bounds one frame's payload.
@@ -44,7 +47,12 @@ const maxFrame = 8 << 20
 type hello struct {
 	Version int    `json:"version"`
 	Token   string `json:"token,omitempty"`
-	Error   string `json:"error,omitempty"`
+	// Screen, from a client, asks for the terminal's screen alone, with no
+	// history, output or input. It needs no new version: a host that does
+	// not know it answers as to a viewer, and ReadScreen refuses the output
+	// frame that comes first.
+	Screen bool   `json:"screen,omitempty"`
+	Error  string `json:"error,omitempty"`
 }
 
 func writeFrame(w io.Writer, kind byte, payload []byte) error {
