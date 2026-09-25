@@ -318,13 +318,19 @@ func TestABoardAnswerOnAGoblinsItemAlsoReachesTheCFO(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			wakes := reviewWakes(t, h.State, meta.ID)
 			if !goblin {
-				if len(wakes) != 0 {
-					t.Fatalf("review wakes = %+v, want none: the CFO answered its own item", wakes)
+				records, err := wake.Pending(h.State)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, record := range records {
+					if record.Kind == "review" {
+						t.Fatalf("review wake %+v, want none: the CFO answered its own item", record)
+					}
 				}
 				return
 			}
+			wakes := reviewWakes(t, h.State, meta.ID)
 			if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "plan-review-1") || !strings.Contains(wakes[0].Detail, "Go with the grid") {
 				t.Fatalf("review wakes = %+v, want one carrying the item and the answer", wakes)
 			}

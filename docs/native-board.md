@@ -274,6 +274,18 @@ A wait on another task clears itself once that task reports done, and a wait on 
 Waiting on the Overlord is the one wait that wakes the CFO: it also opens a review item for him, named `waiting-<task>-<wake sequence>`, which he can answer or clear, and which is withdrawn once the goblin reports anything newer.
 An actual question still uses `--blocked` with options.
 
+A wait whose answer the Overlord gives on a Lavish page names the page:
+
+```powershell
+lavish-axi .lavish/plan.html --no-open
+cfo notify task-id --waiting-on overlord "pick a plan" --lavish .lavish/plan.html
+```
+
+The notify opens the page without a browser, and refuses, recording nothing, when the file is not an HTML page or `lavish-axi` cannot show it.
+The page's link goes into the wait's line, so the CFO's wake carries it, and onto the wait's review item.
+`cfo serve` then polls the page, one bounded `lavish-axi poll` at a time, for as long as the item is open, and is the only one that does: a poll hands the Overlord's feedback to whoever runs it, so a goblin never polls its own page.
+Whatever becomes of the page reaches the CFO as a `review` wake and the item closes: his feedback, saved whole under `state/reviews/feedback/` for the CFO to read and relay; the review ended; the review window disconnected; or a page that cannot be polled three times running.
+
 ## Review items
 
 A review item is something that needs the Overlord's attention without blocking anyone, such as a page of mockups, a report or before and after screenshots:
@@ -289,6 +301,7 @@ Up to twelve images, each a PNG, JPEG, GIF or WebP of at most 10 MiB inside the 
 A `--lavish` link follows the presentation URL rule below, and a refusal names the rule it broke.
 An item stays open until the Overlord clears it (`review_clear`) or its reporter withdraws it with a reason; nothing expires it, a `cfo serve` restart keeps it, and a respawned or retired goblin leaves it listed.
 The Overlord can instead answer it (`review_answer`): his text goes once to the reporter, the goblin's own pane while it is the same task generation or the CFO that reported it, and the item closes as answered; an answer for a goblin that restarted or ended goes to the current CFO instead, and the item reads `delivered: false`.
+An answer the goblin received also reaches the CFO as a `review` wake that asks nothing, so the CFO sees every answer the Overlord gives.
 The board sees each item in `snapshot.reviews` with an image count, never a path or a digest, and fetches image n at `/api/reviews/<id>/images/<n>`, checked again on every request.
 A new review item waits in the Command Center inbox under the badge instead of opening the stack.
 Its card shows the title, its images as thumbnails that open the same full-size gallery as a question's, and the item's own Lavish link when it has one, then takes a written answer with Send answer or closes with Clear.
