@@ -94,8 +94,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// From here every refusal closes the view with its reason, which a
 	// browser can read where it cannot read a refused upgrade's body.
 	select {
-	case h.terminalSlots <- struct{}{}:
-		defer func() { <-h.terminalSlots }()
+	case h.nativeSlots <- struct{}{}:
+		defer func() { <-h.nativeSlots }()
 	default:
 		_ = view.Close(websocket.StatusTryAgainLater, "Too many terminal views are open.")
 		return

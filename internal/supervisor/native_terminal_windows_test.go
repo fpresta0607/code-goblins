@@ -492,6 +492,31 @@ func TestANativeTerminalHoldsOutputAViewHasNotAcknowledged(t *testing.T) {
 	v.waitFor(t, "size 80x24")
 }
 
+// The board keeps every goblin terminal the Overlord opened live so switching
+// between them is instant, so native views have a limit of their own, far above
+// Herdr's four streams, and never take a Herdr stream's place.
+func TestNativeViewsKeepManyTerminalsLiveWithoutTakingHerdrStreams(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	hostTask(t, h)
+	var views []*nativeView
+	for range 6 {
+		views = append(views, openNativeView(t, server, viewQuery))
+	}
+
+	for _, v := range views {
+		v.waitFor(t, "program ready")
+	}
+	if len(h.terminalSlots) != 0 {
+		t.Errorf("native views hold %d of Herdr's stream slots, want none", len(h.terminalSlots))
+	}
+	h.nativeSlots = make(chan struct{}, 1)
+	h.nativeSlots <- struct{}{}
+	closed := openNativeView(t, server, viewQuery).waitForClose(t)
+	if closed.Code != websocket.StatusTryAgainLater || closed.Reason != "Too many terminal views are open." {
+		t.Errorf("a view past the native limit closed with %d %q, want the limit's reason", closed.Code, closed.Reason)
+	}
+}
+
 // A view that falls further behind than the board holds for it is closed with
 // a reason that tells the browser to reconnect, and no output is dropped from
 // a view that stays open.
