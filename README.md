@@ -96,6 +96,8 @@ Projects declare the services they need. `cfo auth` probes them before dispatch,
 
 ## Quick start
 
+### Install
+
 Install Code Goblins with one line in any PowerShell window; it needs no clone and no Go:
 
 ```powershell
@@ -106,7 +108,37 @@ It downloads the latest release and refuses it unless it matches the release's `
 It then sets up the CFO home at `%LOCALAPPDATA%\CodeGoblins` with `cfo` and `goblins` on your PATH, asks once for the folder that holds your projects, installs the tools, skills and hooks the fleet needs, and ends with `goblins doctor`.
 Run it again at any time to update; it keeps your projects folder and any policy you tuned.
 It installs git and gh with winget, so on a machine that has neither winget nor git and gh it stops before changing anything and names the fix: App Installer from the Microsoft Store.
-`goblins uninstall` reverses it: the hooks, the board's native hooks and the environment it set go, and the home folder stays, with its state and data, until you delete it.
+
+### Everyday commands
+
+`goblins` and `cfo` are one program under two names: `goblins` is the one you type, the CFO and its scripts use `cfo`, and every command works under either.
+
+```powershell
+goblins doctor       # check every tool and harness the fleet needs
+goblins serve        # start the supervisor and its board at http://127.0.0.1:4310
+goblins fleet-view   # every goblin: under way, queued or done
+goblins uninstall    # undo the install; the home folder and its data stay
+```
+
+`goblins serve` runs in its own terminal and prints the board's link; the board is only a view, so closing the browser stops nothing, and Ctrl-C in that terminal stops the supervisor.
+`goblins uninstall` removes the hooks, the board's native hooks and the environment the install set, and keeps the home folder, with its state and data, until you delete it.
+`goblins` on its own, `goblins status` and `goblins stop` are not in this release: they arrive with the launcher.
+
+### Start the CFO
+
+Open the project you actually want to build and start the CFO session in Herdr:
+
+```powershell
+cd <dir>\my-project
+herdr
+claude   # or codex / pi / kimi for the CFO session
+```
+
+Tell the CFO what outcome you want.
+It handles the fleet mechanics.
+When it needs you, it asks on the board: a decision, a page to review, or a command to run with one click; [Using the board](#using-the-board) shows how.
+
+### From a clone
 
 To work on Code Goblins itself, clone it instead. Code Goblins is a standalone repository; no upstream checkout or synchronization step is required.
 
@@ -135,16 +167,6 @@ npx skills add kunchenguid/no-mistakes --skill no-mistakes -g
 It is recorded on your machine as `CFO_PROJECTS_ROOT`, beside `CFO_HOME`, and never in this repository, so every adopter's layout stays their own.
 With it set, `--project` takes a bare name as well as a path: `--project my-project` is `<dir>\my-project`, matched without regard to case, and the fleet works in that one checkout instead of cloning a second copy.
 It is optional: without it every command still takes a path, and `cfo doctor` tells you it is unset.
-
-Then open the project you actually want to build:
-
-```powershell
-cd <dir>\my-project
-herdr
-claude   # or codex / pi / kimi for the CFO session
-```
-
-Tell the CFO what outcome you want. It handles the fleet mechanics.
 
 ## Using the board
 
@@ -257,6 +279,8 @@ cfo doctor
 cfo auth <project> [--check|--fix] [--env]
 cfo install [--projects-root <dir>] [--uninstall]
 cfo uninstall
+cfo serve [--listen <loopback-address>]
+cfo hooks install <claude|codex|pi>
 cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <mode>]
 cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <mode>] [--model <model>] [--effort <level>] [--class <class>] [--yolo]
 cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>]
@@ -273,6 +297,11 @@ cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
 cfo cleanup <id>
 cfo reap [--dry-run|--apply]
 cfo drain
+cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy> "<why>"
+cfo question --id <stable-id> --text "<question>" [--option "<choice>"]... [--recommend "<exact-choice>"]
+cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]
+cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url>]
+cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--cwd <dir>] --command-file <path>
 ```
 
 Run `cfo doctor` after installation for the current dependency and harness health report.
