@@ -203,3 +203,36 @@ func TestCloneInstallPutsTheVerifiedDownloadInTheInstallDir(t *testing.T) {
 		})
 	}
 }
+
+// Run from a checkout, a download that does not match the release's checksum
+// is refused outright: the install stops there instead of falling back to a
+// source build, and leaves no cfo.exe behind.
+func TestCloneInstallRefusesAMismatchedDownloadInsteadOfBuilding(t *testing.T) {
+	sums := fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256([]byte("the build the release published")))
+	source, err := os.ReadFile(installScript(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, shell := range oneLineShells(t) {
+		t.Run(filepath.Base(shell), func(t *testing.T) {
+			checkout, installDir := t.TempDir(), t.TempDir()
+			if err := os.MkdirAll(filepath.Join(checkout, "cmd", "cfo"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for name, content := range map[string][]byte{"AGENTS.md": nil, "install.ps1": source} {
+				if err := os.WriteFile(filepath.Join(checkout, name), content, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			output, _, _, err := runStrippedPowerShell(t, shell, serveRelease(t, []byte("a build the release did not publish"), sums), "-File", filepath.Join(checkout, "install.ps1"), "-InstallDir", installDir)
+
+			if err == nil || !strings.Contains(output, "does not match the release's SHA256SUMS") || strings.Contains(output, "Building from source") {
+				t.Fatalf("install = %v, want it refused without a source build:\n%s", err, output)
+			}
+			if _, err := os.Stat(filepath.Join(installDir, "cfo.exe")); !os.IsNotExist(err) {
+				t.Fatalf("cfo.exe was left in %s (%v), want none", installDir, err)
+			}
+		})
+	}
+}
