@@ -227,10 +227,14 @@ Clicking a card or a node opens the same goblin panel from either view: who the 
 A pill at the top switches between the **Task** view and the **Terminal** view in one tap.
 A live goblin's card also carries a terminal button that opens its panel straight on the Terminal view.
 The Task view shows **Workspace** with the repository, branch and exact working folder, **Connectors** with a mark for every harness, model provider, MCP server and credential (configured is not the same as connected, and no secret values are shown), then **Changes**, **Activity** and **History**.
-The Terminal view is the goblin's live Herdr pane, edge to edge: type straight into it, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
+The Terminal view is the goblin's live terminal, edge to edge.
+A goblin in a native terminal (`cfo spawn --backend native`) is drawn from its terminal's own output at the panel's size, in a readable 16 px font: type straight into it, scroll its history with the wheel, and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size.
+Opening it replays the terminal's history and repaints its screen, so it never opens blank, and a full-pane state shows while it connects.
+A goblin still in Herdr shows its Herdr pane at the pane's own size.
+In both, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
 
 <p align="center">
-  <img src="docs/images/goblin-panel.webp" alt="The goblin panel on its Terminal view: the goblin's live Herdr pane showing a CFO message it accepted, with Open in VS Code and Open folder in the header" width="600" />
+  <img src="docs/images/goblin-panel.webp" alt="The goblin panel on its Terminal view: a goblin's native terminal drawn edge to edge at the panel's size in a 16 px font, with Open in VS Code and Open folder in the header" width="600" />
 </p>
 
 ### Sending a diff comment to the CFO
