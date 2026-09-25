@@ -22,7 +22,7 @@ import (
 // as binary messages, and a resize as a JSON text message. The view is bound
 // to its terminal once, when it connects, by the host's own pipe, so a key
 // costs no check and starts no process; custody and the task's generation are
-// checked again on every tick.
+// checked again on every tick. A resize under custody is ignored.
 func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// A browser cannot send the board's token in a WebSocket header, so it
 	// comes in the query.
@@ -128,7 +128,17 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				Cols int    `json:"cols"`
 				Rows int    `json:"rows"`
 			}
-			if json.Unmarshal(data, &resize) != nil || resize.Type != "resize" || terminal.Resize(resize.Cols, resize.Rows) != nil {
+			if json.Unmarshal(data, &resize) != nil || resize.Type != "resize" {
+				_ = view.Close(websocket.StatusUnsupportedData, "A text message must be a resize.")
+				return
+			}
+			mu.Lock()
+			refused := custody
+			mu.Unlock()
+			if refused != nil {
+				continue
+			}
+			if terminal.Resize(resize.Cols, resize.Rows) != nil {
 				_ = view.Close(websocket.StatusUnsupportedData, "A text message must be a resize.")
 				return
 			}

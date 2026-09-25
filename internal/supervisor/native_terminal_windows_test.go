@@ -486,11 +486,42 @@ func TestANativeTerminalNoticesAGateTakingOverOnItsTick(t *testing.T) {
 	}
 }
 
+// A resize is a control action, so a view of a task whose gate owns it cannot
+// resize the terminal; the resize is dropped, and the first one after custody
+// ends applies.
+func TestANativeTerminalHoldsItsSizeWhileAGateOwnsTheTask(t *testing.T) {
+	h, server := nativeBoard(t, "no-mistakes")
+	gitFixture(t, taskWorktree(t, h))
+	gate := &takingGate{}
+	gate.taken.Store(true)
+	h.Service.Options.Gate = gate
+	h.terminalTick = 10 * time.Millisecond
+	hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+
+	v.send(t, websocket.MessageText, `{"type":"resize","cols":100,"rows":30}`)
+	gate.taken.Store(false)
+	// The first allowance is kept before the next check starts.
+	for deadline := time.Now().Add(10 * time.Second); gate.allowed.Load() < 2; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("no tick checked custody after the gate released the task")
+		}
+	}
+	v.send(t, websocket.MessageBinary, "size\r")
+	v.waitFor(t, "size 80x24")
+
+	v.send(t, websocket.MessageText, `{"type":"resize","cols":100,"rows":30}`)
+	v.send(t, websocket.MessageBinary, "size\r")
+	v.waitFor(t, "size 100x30")
+}
+
 // takingGate has no run for the branch until taken is set, and then owns the
-// task, counting each custody check it refused.
+// task, counting each custody check it refused and each it allowed.
 type takingGate struct {
 	taken   atomic.Bool
 	refused atomic.Int32
+	allowed atomic.Int32
 }
 
 func (g *takingGate) Progress(context.Context, string, string) (pipeline.Progress, error) {
@@ -502,6 +533,7 @@ func (g *takingGate) CanSteer(context.Context, string, string, string) error {
 		g.refused.Add(1)
 		return errors.New("pipeline owns this task")
 	}
+	g.allowed.Add(1)
 	return nil
 }
 
