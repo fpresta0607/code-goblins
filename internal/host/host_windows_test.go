@@ -3,10 +3,12 @@ package host
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
@@ -42,14 +44,50 @@ func TestMain(m *testing.M) {
 
 // echoChild answers one typed line at a time: the terminal its host says it
 // runs in, its terminal's size, a grandchild it starts, an exit code, a flood
-// of output before an exit code, a spill of output it keeps running after, or
-// the line itself.
+// of output before an exit code, a spill of output it keeps running after, its
+// screen as it reads it itself, a screen read attaching to its console, a
+// Ctrl-C, leaving its console, or the line itself.
 func echoChild() {
+	// A Ctrl-C typed to the terminal is reported, not obeyed.
+	interrupts := make(chan os.Signal, 1)
+	signal.Notify(interrupts, os.Interrupt)
 	fmt.Println("ready")
 	lines := bufio.NewScanner(os.Stdin)
 	for lines.Scan() {
 		line := strings.TrimSpace(lines.Text())
 		switch {
+		case strings.HasPrefix(line, "screen "):
+			// Written to a file, so the screen stays as it was read.
+			rows, err := consoleScreen()
+			if err != nil {
+				fmt.Println("screen error", err)
+				continue
+			}
+			data, _ := json.Marshal(rows)
+			path := strings.TrimPrefix(line, "screen ")
+			if os.WriteFile(path+".part", data, 0o600) == nil {
+				_ = os.Rename(path+".part", path)
+			}
+		case line == "wait-attach" || line == "hold-ctrl-c":
+			// A second process on this console is a screen read attached.
+			for deadline := time.Now().Add(15 * time.Second); consoleProcesses() < 2 && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			}
+			fmt.Println("attached", consoleProcesses())
+			if line == "wait-attach" {
+				continue
+			}
+			// Waiting here rather than on input, which a Ctrl-C would end.
+			select {
+			case <-interrupts:
+				fmt.Println("interrupted")
+			case <-time.After(15 * time.Second):
+				fmt.Println("no interrupt")
+			}
+		case strings.HasPrefix(line, "free "):
+			// Nothing reaches this console through this program any more.
+			_, _, _ = kernel32.NewProc("FreeConsole").Call()
+			_ = os.WriteFile(strings.TrimPrefix(line, "free "), nil, 0o600)
+			time.Sleep(time.Minute)
 		case line == "host-id":
 			fmt.Println("host-id", os.Getenv(IDVariable))
 		case line == "size":
@@ -339,7 +377,7 @@ func TestTheHostRefusesAWrongTokenOrVersion(t *testing.T) {
 		"a wrong token":   {Version, strings.Repeat("0", len(record.Token)), "token does not match"},
 		"another version": {Version + 1, record.Token, "protocol"},
 	} {
-		client, err := dial(record, c.version, c.token)
+		client, err := dial(record, hello{Version: c.version, Token: c.token})
 		if err == nil {
 			_ = client.Close()
 		}

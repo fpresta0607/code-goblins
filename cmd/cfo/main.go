@@ -211,10 +211,7 @@ func defaultCommandRuntime() commandRuntime {
 				Panes:    spawn.HerdrLiveness{Client: &herdr.Client{Commands: execx.OSRunner{}}},
 			}
 		},
-		peek: func(ctx context.Context, h home.Home, target string, lines int) (string, error) {
-			client := &herdr.Client{Commands: execx.OSRunner{}}
-			return fleet.Peeker{Resolve: fleet.Resolver{StateDir: h.State}, Terminal: client}.Tail(ctx, target, lines)
-		},
+		peek: peekTerminal,
 		snapshot: func(ctx context.Context, h home.Home) (fleet.Snapshot, error) {
 			return fleet.BuildSnapshot(ctx, h, fleet.NewTerminalEndpoint(&herdr.Client{Commands: execx.OSRunner{}}))
 		},

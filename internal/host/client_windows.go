@@ -28,16 +28,16 @@ type Event struct {
 // Dial connects to the host record names and says hello. The first event it
 // then reads is the terminal's history.
 func Dial(record Record) (*Client, error) {
-	return dial(record, Version, record.Token)
+	return dial(record, hello{Version: Version, Token: record.Token})
 }
 
-func dial(record Record, version int, token string) (*Client, error) {
+func dial(record Record, greeting hello) (*Client, error) {
 	pipe, err := dialPipe(record.Pipe, record.HostPID)
 	if err != nil {
 		return nil, err
 	}
 	_ = pipe.SetDeadline(time.Now().Add(handshakeTimeout))
-	if err := writeHello(pipe, hello{Version: version, Token: token}); err != nil {
+	if err := writeHello(pipe, greeting); err != nil {
 		pipe.Close()
 		return nil, fmt.Errorf("host: say hello: %w", err)
 	}
