@@ -16,7 +16,7 @@ export type PanelView = "task" | "terminal";
 // once opened, so switching keeps scroll position and selection.
 export function GoblinPanel({ task, node, snapshot, connected, reviews, view, onView, onOwner, onAnswer, onOpenTask, leading, trailing }: {
   task?: Task; node?: Session; snapshot: Snapshot; connected: boolean; reviews: ReviewControls;
-  view: PanelView; onView: (view: PanelView) => void; onOwner?: () => void; onAnswer: (question: string) => void; onOpenTask: (task: Task) => void; leading?: ReactNode; trailing: ReactNode;
+  view: PanelView; onView: (view: PanelView) => void; onOwner?: () => void; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; leading?: ReactNode; trailing: ReactNode;
 }) {
   const [terminalOpened, setTerminalOpened] = useState(view === "terminal");
   if (view === "terminal" && !terminalOpened) setTerminalOpened(true);

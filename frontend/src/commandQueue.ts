@@ -1,19 +1,34 @@
 import type { IconName } from "./Icon.tsx";
-import type { Question, Snapshot } from "./types.ts";
+import type { Action, Question, Review, Snapshot } from "./types.ts";
 
-const time = (question: Question) => Date.parse(question.created_at) || Number.MAX_SAFE_INTEGER;
+// Everything the Overlord is asked lives in one queue: a goblin's or the CFO's
+// question, or a review item (images, a Lavish page, or a wait on him).
+export type Item = { kind: "question"; key: string; question: Question } | { kind: "review"; key: string; review: Review };
 
-// The stack the Overlord works through: the CFO's own questions first, then
-// goblins by longest wait. A card answered in this sitting keeps its place, so
-// it can show its outcome instead of vanishing under the pointer.
-export function waitingQuestions(snapshot: Snapshot, kept: ReadonlySet<string> = new Set()): Question[] {
-  return (snapshot.questions || [])
-    .filter((question) => question.status === "pending" || kept.has(question.id))
-    .sort((a, b) => Number(!!a.task) - Number(!!b.task) || time(a) - time(b));
+const asItems = (snapshot: Snapshot): Item[] => [
+  ...(snapshot.questions || []).map((question): Item => ({ kind: "question", key: "question:" + question.id, question })),
+  ...(snapshot.reviews || []).map((review): Item => ({ kind: "review", key: "review:" + review.id, review })),
+];
+const task = (item: Item) => item.kind === "question" ? item.question.task : item.review.task;
+const created = (item: Item) => Date.parse(item.kind === "question" ? item.question.created_at : item.review.created_at) || Number.MAX_SAFE_INTEGER;
+const closed = (item: Item) => Date.parse(item.kind === "question" ? item.question.answered_at || item.question.created_at : item.review.updated_at) || 0;
+const open = (item: Item) => item.kind === "question" ? item.question.status === "pending" : item.review.state === "open";
+
+export function itemFor(snapshot: Snapshot, key: string): Item | undefined {
+  return asItems(snapshot).find((item) => item.key === key);
 }
 
-export function settledQuestions(snapshot: Snapshot): Question[] {
-  return (snapshot.questions || []).filter((question) => question.status !== "pending").sort((a, b) => time(b) - time(a));
+// The stack he works through: the CFO's own items first, then goblins by
+// longest wait. An item answered in this sitting keeps its place, so it can
+// show its outcome instead of vanishing under the pointer.
+export function waitingItems(snapshot: Snapshot, kept: ReadonlySet<string> = new Set()): Item[] {
+  return asItems(snapshot)
+    .filter((item) => open(item) || kept.has(item.key))
+    .sort((a, b) => Number(!!task(a)) - Number(!!task(b)) || created(a) - created(b));
+}
+
+export function settledItems(snapshot: Snapshot): Item[] {
+  return asItems(snapshot).filter((item) => !open(item)).sort((a, b) => closed(b) - closed(a));
 }
 
 export type QuestionOutcome = "pending" | "answered" | "superseded" | "cleared" | "failed" | "uncertain";
@@ -44,6 +59,41 @@ export function answeredLabel(question: Question): string {
 export function outcomeIcon(outcome: QuestionOutcome): IconName {
   if (outcome === "answered") return "check-double";
   return outcome === "failed" || outcome === "uncertain" ? "warning" : "close";
+}
+
+// What became of an item, in plain words and as its mark: a question by its
+// outcome, a review item by its state. The backend marks a review answered as
+// soon as it queues the answer, so its answer action says whether it reached
+// its asker; an answer whose action was pruned had long settled.
+function answerOutcome(review: Review, actions: Action[]): "delivered" | "pending" | "failed" | "uncertain" {
+  const status = actions.find((action) => action.id === review.answer_id)?.status;
+  if (review.delivered || !status) return "delivered";
+  return status === "failed" || status === "uncertain" ? status : "pending";
+}
+
+export function settledLabel(item: Item, actions: Action[]): string {
+  if (item.kind === "question") return answeredLabel(item.question);
+  const { state, answer, reason, task } = item.review;
+  const asker = task ? "the goblin" : "the CFO";
+  if (state === "withdrawn") return "Withdrawn: " + reason;
+  if (state !== "answered") return "Cleared";
+  switch (answerOutcome(item.review, actions)) {
+    case "failed": return "Your answer did not reach " + asker;
+    case "uncertain": return "Delivery unconfirmed: inspect " + asker + "'s pane before answering again";
+    case "pending": return "You wrote: " + answer + " (not yet delivered to " + asker + ")";
+    case "delivered": return "You wrote: " + answer;
+  }
+}
+
+export function settledIcon(item: Item, actions: Action[]): { icon: IconName; tone: string } {
+  if (item.kind === "question") {
+    const outcome = questionOutcome(item.question);
+    return { icon: outcomeIcon(outcome), tone: outcome === "answered" ? "succeeded" : outcome };
+  }
+  if (item.review.state !== "answered") return { icon: "close", tone: item.review.state };
+  const outcome = answerOutcome(item.review, actions);
+  if (outcome === "failed" || outcome === "uncertain") return { icon: "warning", tone: outcome };
+  return outcome === "delivered" ? { icon: "check-double", tone: "succeeded" } : { icon: "check", tone: "queued" };
 }
 
 // The choice that closed a question: the backend's answered_option, or the
