@@ -2,6 +2,7 @@ package codegoblins
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -61,10 +62,19 @@ func runPowerShellWith(t *testing.T, shell, base string, tools []string, args ..
 }
 
 // runPowerShellWithStubs runs shell with args against the release served at
-// base. The child gets folders of its own for every per-user location and a
-// PATH with only Windows and the stand-ins stubs names on it, each a .cmd with
-// the given text, so nothing it could reach installs onto this machine.
+// base, in the stripped environment strippedCommand gives it.
 func runPowerShellWithStubs(t *testing.T, shell, base string, stubs map[string]string, args ...string) (output, local, temp string, err error) {
+	t.Helper()
+	cmd, local, temp := strippedCommand(t, base, stubs, shell, append([]string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass"}, args...)...)
+	out, err := cmd.CombinedOutput()
+	return string(out), local, temp, err
+}
+
+// strippedCommand is name with args against the release served at base. It
+// gets folders of its own for every per-user location and a PATH with only
+// Windows and the stand-ins stubs names on it, each a .cmd with the given
+// text, so nothing it could reach installs onto this machine.
+func strippedCommand(t *testing.T, base string, stubs map[string]string, name string, args ...string) (cmd *exec.Cmd, local, temp string) {
 	t.Helper()
 	local, temp, profile, bin := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
 	for tool, script := range stubs {
@@ -73,7 +83,7 @@ func runPowerShellWithStubs(t *testing.T, shell, base string, stubs map[string]s
 		}
 	}
 	system := os.Getenv("SystemRoot")
-	cmd := exec.Command(shell, append([]string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass"}, args...)...)
+	cmd = exec.Command(name, args...)
 	cmd.Dir = temp
 	cmd.Env = []string{
 		"SystemRoot=" + system,
@@ -91,8 +101,7 @@ func runPowerShellWithStubs(t *testing.T, shell, base string, stubs map[string]s
 		"TMP=" + temp,
 		"CODE_GOBLINS_RELEASE_BASE=" + base,
 	}
-	out, err := cmd.CombinedOutput()
-	return string(out), local, temp, err
+	return cmd, local, temp
 }
 
 // assertNothingInstalled checks that no CFO home was set up and that the
@@ -282,6 +291,38 @@ func TestDevStopsForGoBeforeChangingAnything(t *testing.T) {
 				t.Errorf("the stopped install left %v, want nothing built", left)
 			}
 		})
+	}
+}
+
+// install.cmd runs install.ps1 under an execution policy that refuses to run
+// the script itself, and hands back its exit code.
+func TestInstallCmdRunsTheScriptWhateverTheExecutionPolicy(t *testing.T) {
+	checkout := fakeCheckout(t)
+	wrapper, err := os.ReadFile("install.cmd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(checkout, "install.cmd"), wrapper, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stubs := map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n"}
+	system := os.Getenv("SystemRoot")
+	powershell := filepath.Join(system, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+
+	// The premise: this policy refuses install.ps1 run directly.
+	direct, _, _ := strippedCommand(t, serveRelease(t, nil, ""), stubs, powershell, "-NoProfile", "-NonInteractive", "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
+	direct.Env = append(direct.Env, "PSExecutionPolicyPreference=Restricted")
+	if out, err := direct.CombinedOutput(); err == nil || strings.Contains(string(out), "needs Go") {
+		t.Fatalf("install.ps1 run directly = %v, want the Restricted policy to refuse it:\n%s", err, out)
+	}
+
+	wrapped, _, _ := strippedCommand(t, serveRelease(t, nil, ""), stubs, filepath.Join(system, "System32", "cmd.exe"), "/d", "/c", filepath.Join(checkout, "install.cmd"), "-Dev")
+	wrapped.Env = append(wrapped.Env, "PSExecutionPolicyPreference=Restricted")
+	out, err := wrapped.CombinedOutput()
+
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 || !strings.Contains(string(out), "needs Go") {
+		t.Fatalf("install.cmd -Dev = %v, want install.ps1 run to its stop for Go, exit code 1:\n%s", err, out)
 	}
 }
 

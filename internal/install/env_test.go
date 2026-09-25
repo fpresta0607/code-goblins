@@ -14,6 +14,11 @@ func TestTheUserEnvironmentFileStandsInForTheMachines(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "user-env.json")
 	t.Setenv(UserEnvFileVariable, path)
 	store := NewEnvStore(nil)
+	// Any other store is this machine's own user environment, which the
+	// writes below must never reach.
+	if _, isFile := store.(fileEnvStore); !isFile {
+		t.Fatalf("NewEnvStore = %T with %s set, want the file store", store, UserEnvFileVariable)
+	}
 
 	if value, set, err := store.Get("Path"); err != nil || set {
 		t.Fatalf("Get(Path) before any write = %q, %v, %v; want unset", value, set, err)
