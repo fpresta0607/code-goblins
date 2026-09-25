@@ -347,7 +347,7 @@ The core is intentionally local-first:
 - `internal/pipeline/` — durable validation policy and decision gates.
 - `internal/auth/` — project-scoped credential preflight and injection.
 - `internal/state/` / `internal/wake/` — restart-proof task and event state.
-- `internal/supervisor/` - native event ingestion, durable actions and the local board API behind `cfo serve`.
+- `internal/supervisor/` - native event ingestion, durable actions and the local board API behind `cfo serve`, including the WebSocket that relays a native task's terminal from its host.
 - `frontend/` - the board's React/TypeScript source; Vite compiles it into `internal/boardweb/dist`, which is embedded in `cfo.exe`.
 - `.agents/skills/` - the skills this repository owns, including `lavish`, the CFO's review surface over the third-party `lavish-axi` CLI; [docs/load-map.md](docs/load-map.md) maps every file each harness reads for instructions, skills, hooks and MCP.
 

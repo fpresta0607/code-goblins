@@ -84,6 +84,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.terminalStream(w, r)
 	case r.URL.Path == "/api/terminal/input" && r.Method == "POST":
 		h.terminalInput(w, r)
+	case r.URL.Path == "/api/terminal/native" && r.Method == "GET":
+		h.nativeTerminal(w, r)
 	case r.URL.Path == "/api/workspace" && r.Method == "GET":
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 		defer cancel()

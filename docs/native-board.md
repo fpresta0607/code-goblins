@@ -191,6 +191,14 @@ The default xterm input mode accepts InsertText/IME Unicode; its optional screen
 There is no second model session or generated reply.
 The native interface exposes rendered screen updates rather than original historical PTY bytes, and omits Kitty keyboard negotiation, graphics and host mouse notifications.
 
+A task whose record names the `native` backend runs in a `cfo host` of its own, and `GET /api/terminal/native?task=ID&generation=GEN&token=TOKEN` relays one view of it over a WebSocket; the board does not open it yet.
+The upgrade needs the board's own origin and the board's token in the query, since a browser cannot set a WebSocket header, and anything else is refused with 403.
+Every later refusal closes the socket with its reason, which a browser can read: a replaced generation, a task that runs in Herdr, no running host, a host that did not answer, or four views already open.
+The view is bound to its terminal once, by the host's pipe, whose server process must be the host the record names, so a key costs no check and starts no process.
+Output arrives as binary messages, the host's history first; typing goes back as binary messages, and a resize as the text message `{"type":"resize","cols":C,"rows":R}`.
+Gate custody and the task's generation are checked when the view opens and on every five-second tick; a key sent under custody closes the view with the gate's reason and is not typed, and a resize sent under custody is ignored, so the terminal keeps its size until a resize arrives after custody ends.
+The terminal's end closes the view with its exit code in the reason.
+
 CFO transport reads the `state/primary.json` registration and binds each queued message to its fingerprint.
 The primary CFO writes that registration itself: Claude's SessionStart hook does it after the digest settles custody, and the Codex and Pi native SessionStart hooks do it for a session with no task.
 `cfo register` refreshes it by hand.
