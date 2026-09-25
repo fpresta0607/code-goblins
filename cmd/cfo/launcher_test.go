@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -46,7 +47,11 @@ type launcherFixture struct {
 	focused   []herdr.Endpoint
 	cfoStarts []string
 	attached  []string
-	runtime   commandRuntime
+	// nativeStarts are the projects a CFO was started in natively, and
+	// nativeAttached the native terminals shown in this terminal.
+	nativeStarts   []string
+	nativeAttached []string
+	runtime        commandRuntime
 }
 
 // newLauncherFixture runs goblins against an isolated home whose supervisor
@@ -94,6 +99,14 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 			f.attached = append(f.attached, session)
 			return 0
 		},
+		startNativeCFO: func(_, project string) error {
+			f.nativeStarts = append(f.nativeStarts, project)
+			return nil
+		},
+		attachNative: func(_, id string, _, _ io.Writer) int {
+			f.nativeAttached = append(f.nativeAttached, id)
+			return 0
+		},
 	}
 	f.project = filepath.Join(dir, "project")
 	// A goblin running these tests sits in a Herdr pane itself; each test
@@ -103,10 +116,10 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 	return f
 }
 
-func (f *launcherFixture) launch() (int, string, string) {
+func (f *launcherFixture) launch(args ...string) (int, string, string) {
 	f.t.Helper()
 	var stdout, stderr bytes.Buffer
-	exit := runWithRuntime(nil, &stdout, &stderr, f.runtime)
+	exit := runWithRuntime(args, &stdout, &stderr, f.runtime)
 	return exit, stdout.String(), stderr.String()
 }
 

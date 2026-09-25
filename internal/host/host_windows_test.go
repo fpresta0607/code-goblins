@@ -457,6 +457,21 @@ func TestAClientRefusesAPipeAnotherProcessServes(t *testing.T) {
 	}
 }
 
+// A second host for a terminal that already runs is refused before it starts
+// anything, so the first host's record keeps finding the first host.
+func TestASecondHostForARunningTerminalIsRefused(t *testing.T) {
+	stateDir, record := launch(t)
+
+	err := Run(stateDir, Spec{ID: "g1", Args: []string{os.Args[0], "echo-child"}, Cols: 80, Rows: 25})
+
+	if err == nil || !strings.Contains(err.Error(), "already runs") {
+		t.Fatalf("Run error = %v, want the running terminal named", err)
+	}
+	if again, err := ReadRecord(stateDir, "g1"); err != nil || again.HostPID != record.HostPID {
+		t.Errorf("record after the refusal = %+v, %v; want the first host's", again, err)
+	}
+}
+
 // A pipe name cannot be taken twice, so nothing can create the host's pipe
 // before the host does and wait there for its viewers.
 func TestAPipeNameCannotBeTakenTwice(t *testing.T) {

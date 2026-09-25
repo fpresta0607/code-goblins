@@ -18,18 +18,16 @@ import (
 )
 
 // startCFOSession brings the CFO's session to the front. A CFO registered in
-// a native terminal is left where it runs. A CFO whose registration names a
-// live process in Herdr is brought to the front where it registered;
-// otherwise Claude Code is started as the CFO in Herdr, in the project this
-// terminal is in or one the Overlord picks. Then the terminal is handed to
-// herdr, which attaches with the CFO's tab in front. Inside a Herdr pane
-// there is nothing to attach.
-func startCFOSession(ctx context.Context, runtime commandRuntime, stateDir string, stdout, stderr io.Writer) int {
+// a native terminal is shown in this terminal. A CFO whose registration names
+// a live process in Herdr is brought to the front where it registered;
+// otherwise Claude Code is started as the CFO, in the project this terminal is
+// in or one the Overlord picks: in a native terminal shown in this one when
+// native is set, or else in Herdr. Then the terminal is handed to herdr, which
+// attaches with the CFO's tab in front. Inside a Herdr pane there is nothing
+// to attach.
+func startCFOSession(ctx context.Context, runtime commandRuntime, stateDir string, native bool, stdout, stderr io.Writer) int {
 	if id, live := runtime.nativeCFO(stateDir); live {
-		// ponytail: a native CFO is only reported until cfo attach can hand
-		// this terminal to it.
-		fmt.Fprintf(stdout, "\nThe CFO runs in native terminal %s, which goblins cannot attach to yet.\n", id)
-		return 0
+		return runtime.attachNative(stateDir, id, stdout, stderr)
 	}
 	session := herdrSession()
 	if endpoint, live := runtime.liveCFO(stateDir); live {
@@ -43,6 +41,14 @@ func startCFOSession(ctx context.Context, runtime commandRuntime, stateDir strin
 		if err != nil {
 			fmt.Fprintf(stderr, "goblins: %v\n", err)
 			return 1
+		}
+		if native {
+			if err := runtime.startNativeCFO(stateDir, project); err != nil {
+				fmt.Fprintf(stderr, "goblins: the CFO could not be started in a native terminal: %v\n", err)
+				return 1
+			}
+			fmt.Fprintf(stdout, "\nThe CFO starts in %s, in native terminal %s.\n", project, nativeCFOTerminal)
+			return runtime.attachNative(stateDir, nativeCFOTerminal, stdout, stderr)
 		}
 		started, err := runtime.startCFO(ctx, project)
 		if err != nil {

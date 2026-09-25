@@ -97,6 +97,13 @@ func TestMain(m *testing.M) {
 	if report := os.Getenv(consoleProbeVariable); report != "" {
 		os.Exit(probeConsole(report))
 	}
+	if len(os.Args) > 1 && os.Args[1] == attachTestTerminal {
+		attachTestProgram()
+		os.Exit(0)
+	}
+	if len(os.Args) > 2 && os.Args[1] == attachTestViewer {
+		os.Exit(attachTestView(os.Args[2], os.Args[3:]))
+	}
 	// HERDR_PANE_ID and CFO_HOST_ID are unset too: a hook under test must
 	// never register this machine's real Herdr pane or native terminal as a
 	// test home's CFO.
