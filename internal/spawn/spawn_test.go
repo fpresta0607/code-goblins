@@ -2151,6 +2151,9 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 		exe + " notify task-7 --waiting-on <task-id|overlord|ci|deploy> \"<why>\"",
 		exe + " notify task-7 --waiting-on overlord \"<why>\" --lavish <html-file>",
 		"never run lavish-axi poll yourself",
+		"lead with one short sentence that is the actual question",
+		"lines of their own that start with \"- \"",
+		"mark with **two asterisks** only the verdict or the blocking item",
 	} {
 		if !strings.Contains(instruction, want) {
 			t.Errorf("instruction = %q, want %q", instruction, want)
