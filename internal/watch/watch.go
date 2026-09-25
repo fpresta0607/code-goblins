@@ -124,6 +124,7 @@ func ConfigFromEnv(h home.Home) Config {
 		StateDir:     h.State,
 		Probe:        monitor.NewHerdrProber(&herdr.Client{Commands: execx.OSRunner{}, Session: session}),
 		Gate:         monitor.ExecGateProber{},
+		Polls:        monitor.ProcessPolls{},
 		Heartbeat:    heartbeat,
 		HeartbeatMax: heartbeatMax,
 	}

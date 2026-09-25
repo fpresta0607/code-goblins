@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -85,6 +86,39 @@ func TestWorkingDirectoryRefusesAPIDThatIsNotRunning(t *testing.T) {
 	// A pid far above the live range: the read must fail, never guess.
 	if got, err := WorkingDirectory(0x7FFFFFF0); err == nil {
 		t.Errorf("WorkingDirectory(unused pid) = %q, want an error", got)
+	}
+}
+
+// A quoted argument comes back whole: the split is the one the program
+// itself read its command line by, not a split on spaces.
+func TestArgumentsSplitsACommandLineTheWayTheProgramReadIt(t *testing.T) {
+	command := exec.Command("cmd.exe", "/d", "/k", "rem", "two words")
+	stdin, err := command.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := command.Start(); err != nil {
+		t.Skipf("could not start a child process: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = stdin.Close()
+		_ = command.Process.Kill()
+		_, _ = command.Process.Wait()
+	})
+
+	var args []string
+	for attempt := 0; attempt < 50; attempt++ {
+		if args, err = Arguments(command.Process.Pid); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("Arguments(child): %v", err)
+	}
+	want := []string{"/d", "/k", "rem", "two words"}
+	if len(args) != len(want)+1 || !reflect.DeepEqual(args[1:], want) {
+		t.Errorf("Arguments(child) = %q, want the program and then %q", args, want)
 	}
 }
 

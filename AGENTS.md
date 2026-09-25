@@ -330,6 +330,7 @@ The goblin's branch is its deliverable.
 - Plain chat is the default. A yes-or-no decision, a status answer, or a single recommendation goes in the conversation, never in an artifact.
 - When several options, trade-offs, a structured report, a plan, or a comparison need the Supreme Overlord's eyes, load the `lavish` skill (`.agents/skills/lavish/`) and run the review through `lavish-axi`.
 - `lavish-axi` is presentation-only. Only a goblin's page wait (`cfo notify --lavish`) and the supervisor's polls of those pages use it, so when it is missing or below its floor you say visual review is unavailable once, deliver the same content as text, and keep working; a goblin's page wait is refused and it asks in text. Nothing else waits on it.
+- The monitor watches for a goblin's own `lavish-axi poll`: one running in a goblin's worktree, or under a process that runs in one, that `cfo` did not start, wakes you once per poll with a `review` wake. For a live goblin it says what to tell it: stop the poll and wait with `cfo notify <id> --waiting-on overlord "<why>" --lavish <page>`. For a retired goblin, whose status log is all that is left, read the page's open questions, put them to the Overlord, and stop the poll.
 
 ## User decisions on the board
 

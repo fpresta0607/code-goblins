@@ -60,6 +60,21 @@ func snapshotProcesses() (map[uint32]snapshotEntry, error) {
 	return processes, nil
 }
 
+// Processes lists every running process from one Toolhelp32 snapshot, with
+// its parent and executable. Start is left zero: resolving it opens each
+// process, and a caller needs it for a few entries at most.
+func Processes() ([]Entry, error) {
+	processes, err := snapshotProcesses()
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]Entry, 0, len(processes))
+	for pid, process := range processes {
+		entries = append(entries, Entry{PID: int(pid), ParentPID: int(process.parentPID), ExeBase: process.exeBase})
+	}
+	return entries, nil
+}
+
 // Ancestry walks the parent chain starting at pid (included as the first
 // entry) up to maxHops entries. The walk stops early when a pid is missing
 // from the snapshot, its ParentPID is 0, or the parent's creation time is

@@ -36,7 +36,10 @@ type Service struct {
 	Probe    Prober
 	// Gate is consulted only once a goblin has read working for longer than
 	// BusyTurnMax; nil disables the gate probe but not the budget itself.
-	Gate                  GateProber
+	Gate GateProber
+	// Polls lists the lavish-axi polls goblins run themselves, each flagged
+	// to the CFO once; nil disables the check.
+	Polls                 PollProber
 	Now                   func() time.Time
 	StaleEscalateAfter    time.Duration
 	StallAfter            time.Duration
@@ -188,6 +191,7 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 		heartbeat.NextDue = now.Add(s.backoff(heartbeat.NoChangeStreak))
 	}
 	if !heartbeatCorrupt {
+		s.flagPrivatePoll(ctx, &heartbeat, &result, entries)
 		if err := WriteHeartbeat(s.StateDir, heartbeat); err != nil {
 			return ScanResult{}, err
 		}
