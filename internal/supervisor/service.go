@@ -85,6 +85,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 	if _, err := lock.AcquireExclusiveNamed(h.State, ".watch.lock"); err != nil {
 		return nil, fmt.Errorf("supervisor: existing watch owner must finish before serve: %w", err)
 	}
+	clearStopRequest(h.State)
 	store, err := Open(h)
 	if err != nil {
 		_ = lock.ReleaseExclusiveNamed(h.State, ".watch.lock")
@@ -192,6 +193,11 @@ func (s *Service) run(ctx context.Context) {
 		case <-reconcile.C:
 			s.cycle(ctx, true)
 		case <-notified:
+			// The notification loop wakes at least every two seconds, so a
+			// stop request is honoured within that.
+			if stopRequested(s.Store.Home.State) {
+				return
+			}
 			s.cycle(ctx, false)
 		case <-s.Store.changed:
 			s.cycle(ctx, false)

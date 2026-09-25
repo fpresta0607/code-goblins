@@ -115,6 +115,8 @@ It installs git and gh with winget, so on a machine that has neither winget nor 
 
 ```powershell
 goblins              # start the supervisor if needed, show the board's link and the fleet, then open the CFO
+goblins status       # whether the supervisor runs: the board's link, the fleet and its pid
+goblins stop         # stop the supervisor; --force ends it when it does not stop
 goblins doctor       # check every tool and harness the fleet needs
 goblins serve        # run the supervisor in this terminal instead
 goblins fleet-view   # every goblin: under way, queued or done
@@ -127,8 +129,10 @@ The board is only a view, so closing the browser stops nothing, and a supervisor
 Then it takes you to the CFO: a CFO whose registration names a live process is brought to the front, and otherwise it starts Claude Code as the CFO in Herdr in a fresh `cfo` tab, in the project this terminal is in or one you pick from your projects folder, closing an idle old `cfo` tab or renaming a busy one to `shell`.
 It then attaches the terminal to Herdr with the CFO in front; run inside Herdr, it only brings the CFO to the front.
 `goblins serve` runs the supervisor in its own terminal instead, where Ctrl-C stops it.
+`goblins status` prints the board's link, the same status line and the supervisor's pid, and exits 1 when no supervisor runs, so a script can test for one.
+`goblins stop` asks the supervisor to stop, as Ctrl-C would, whichever way it was started, and waits up to 30 seconds for it to finish.
+`goblins stop --force` ends the supervisor and everything it started instead, for one that does not stop when asked.
 `goblins uninstall` removes the hooks, the board's native hooks and the environment the install set, and keeps the home folder, with its state and data, until you delete it.
-`goblins status` and `goblins stop` arrive with the rest of the launcher.
 
 ### Start the CFO
 
@@ -191,7 +195,7 @@ cfo serve                  # --listen 127.0.0.1:0 picks a free loopback port
 
 The board is a view, not the engine: tasks keep progressing with every browser closed, and restarting `cfo serve` with the same CFO home recovers its events, actions and lineage.
 `cfo serve` takes over from `cfo watch` as the fleet's single supervisor, so a running watcher must finish first.
-It listens on loopback only, and Ctrl-C in its terminal stops it.
+It listens on loopback only, and Ctrl-C in its terminal, or `goblins stop` from any terminal, stops it.
 Hook setup, evidence rules and terminal limits are in [the native board guide](docs/native-board.md).
 
 ### Board and Orchestration
