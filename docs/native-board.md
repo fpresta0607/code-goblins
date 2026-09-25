@@ -220,11 +220,11 @@ The Supreme Overlord Command Center labels supplied choices A/B/C and always off
 No choice is preselected and written text is sent only when Other is selected.
 Use a new stable ID for a new question, and keep the same ID/content for an uncertain publication retry.
 The publisher walks up to 32 process ancestors and verifies the registered CFO PID, creation time and live native identity; a worker cannot escalate on the CFO's behalf.
-The Command Center shows one question at a time as a stack, the CFO's own questions first and then goblins by longest wait, with its position, Back and Next buttons and a horizontal swipe on touch screens.
-Each card sends only its own answer, and Later moves to the next question without answering.
+The Command Center shows one item at a time as a stack, a question or a review item, the CFO's own items first and then goblins by longest wait, with its position, Back and Next buttons and a horizontal swipe on touch screens.
+Each card sends only its own answer, and Later moves to the next item without answering.
 A card answered while on screen, from the card or from elsewhere such as `cfo answer`, keeps its place until the Overlord moves on: it shows its delivery marks, or once closed a check on the chosen option, the other options dimmed and Answered by you or Answered by the CFO with the time.
-Drafts survive closing, reconnecting and moving between cards, and the header button's inbox lists what waits on the Overlord, the live pages (review pages and browser walkthroughs) and what he already answered.
-A goblin panel whose goblin is waiting on the Overlord offers Answer, which opens the stack at that goblin's question.
+Drafts survive closing, reconnecting and moving between cards, and the header button, whose badge counts what waits on the Overlord, opens an inbox of those items, the live pages (review pages and browser walkthroughs) and a history of what he answered or cleared, newest first by when each closed.
+A goblin panel whose goblin is waiting on the Overlord offers Answer, which opens the stack at that goblin's question or review item.
 Once submitted, every tab displays the durable answer rather than an unsent local draft.
 Answers retain their question and CFO identity and enter the durable native CFO message queue, never a worker send or gate approval.
 Claude Code, Codex and Pi primary-context guidance routes explicit user decisions through this command.
@@ -289,6 +289,9 @@ A `--lavish` link follows the presentation URL rule below, and a refusal names t
 An item stays open until the Overlord clears it (`review_clear`) or its reporter withdraws it with a reason; nothing expires it, a `cfo serve` restart keeps it, and a respawned or retired goblin leaves it listed.
 The Overlord can instead answer it (`review_answer`): his text goes once to the reporter, the goblin's own pane while it is the same task generation or the CFO that reported it, and the item closes as answered; an answer for a goblin that restarted or ended goes to the current CFO instead, and the item reads `delivered: false`.
 The board sees each item in `snapshot.reviews` with an image count, never a path or a digest, and fetches image n at `/api/reviews/<id>/images/<n>`, checked again on every request.
+A new review item waits in the Command Center inbox under the badge instead of opening the stack.
+Its card shows the title, its images as thumbnails that open the same full-size gallery as a question's, and the item's own Lavish link when it has one, then takes a written answer with Send answer or closes with Clear.
+A closed item moves to the inbox history as You wrote: <answer>, Cleared or Withdrawn: <reason>; an answer still on its way reads not yet delivered, and one whose `review_answer` action failed or became uncertain carries the same warning marks as a question.
 Closed items and their copies are pruned a week after they close; open items and answered items whose answer is still on its way are never dropped, and a new item waits in the inbox while all 128 held items are one or the other.
 The API contract for the board is `data/board-ui/api-contract.md`.
 
