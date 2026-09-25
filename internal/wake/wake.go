@@ -34,8 +34,9 @@ const queueFile = ".wake-queue"
 const wakeLockName = ".wake-queue.lock"
 
 // kinds is the whitelist Append enforces: upstream's four documented wake
-// kinds, the `notify` kind cfo notify appends, and the `orphan` kind the
-// reaper's sweep appends, and no others.
+// kinds, the `notify` kind cfo notify appends, the `orphan` kind the reaper's
+// sweep appends, and the `review` kind the supervisor appends when the
+// Overlord answers a goblin's item or page, and no others.
 var kinds = map[string]bool{
 	"signal":    true,
 	"stale":     true,
@@ -43,6 +44,7 @@ var kinds = map[string]bool{
 	"heartbeat": true,
 	"notify":    true,
 	"orphan":    true,
+	"review":    true,
 }
 
 // Record is one durable wake. Seq starts at 1 and is never reused; the ack
@@ -140,12 +142,12 @@ func writeQueue(dir string, records []Record) error {
 }
 
 // Append adds one record and returns it with its assigned sequence. kind
-// must be one of signal, stale, check or heartbeat.
+// must be one of the whitelisted kinds.
 // Rewrite the entire queue atomically; O(n) is acceptable for small queue and
 // single-writer, and gains AtomicWriteFile's bounded retry on Windows sharing locks.
 func Append(dir, kind, key, detail string) (Record, error) {
 	if !kinds[kind] {
-		return Record{}, fmt.Errorf("wake: unknown kind %q, want one of signal, stale, check, heartbeat, notify, orphan", kind)
+		return Record{}, fmt.Errorf("wake: unknown kind %q, want one of signal, stale, check, heartbeat, notify, orphan, review", kind)
 	}
 	var rec Record
 	err := withLock(dir, func() error {

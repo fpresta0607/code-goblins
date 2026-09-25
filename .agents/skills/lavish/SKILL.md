@@ -7,7 +7,7 @@ argument-hint: <what the artifact should show>
 # lavish
 
 `lavish-axi` is a presentation-only dependency, exactly as it is for First Mate.
-It is not part of the control plane: no `cfo` command needs it, no goblin is told about it, and nonvisual work never waits for it.
+It is not part of the control plane: only a goblin's page wait uses it (below), and nonvisual work never waits for it.
 `cfo doctor` reports it with its `0.1.71` floor and stays healthy without it, printing `PRESENTATION_UNAVAILABLE`.
 
 ## Request
@@ -34,6 +34,13 @@ If it is empty, infer what to show from the conversation.
 3. Run `lavish-axi poll <file>` and leave it in the foreground until it returns.
 4. Apply every queued prompt, refresh the artifact, and poll again to keep the loop going.
 5. Run `lavish-axi end <file>` when the review is done, or `lavish-axi export <file> [--out <path>]` for a portable single-file copy.
+
+## A goblin's page
+
+A goblin never polls: the poll takes the Overlord's feedback where only that goblin sees it, and nobody else learns that a question is waiting.
+When a goblin needs his answer on a page, it opens the page with `lavish-axi <file> --no-open` and registers the wait with `cfo notify <id> --waiting-on overlord "<why>" --lavish <file>`.
+The page's link goes on the wait's Command Center item, the supervisor polls the page, and his feedback reaches the CFO as a `review` wake with the whole reply saved under `state/reviews/feedback/`; relay it to the goblin with `cfo send`.
+A goblin's page that needs no answer is reported with `cfo present` instead.
 
 ## Poll discipline
 

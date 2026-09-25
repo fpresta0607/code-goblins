@@ -53,7 +53,7 @@ func runReview(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stdout, "Review withdrawn:", *id)
 		return 0
 	}
-	if err := supervisor.PublishReview(ctx, h, client, *task, *id, *title, *lavish, images); err != nil {
+	if err := supervisor.PublishReview(ctx, h, client, *task, *id, *title, *lavish, "", images); err != nil {
 		fmt.Fprintln(stderr, "cfo review: "+err.Error())
 		return 1
 	}

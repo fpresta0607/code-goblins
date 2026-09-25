@@ -22,6 +22,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // maxReviews bounds the review list. An open item is never dropped to make
@@ -53,9 +54,12 @@ type Review struct {
 	ImageSums  []string `json:"image_sums,omitempty"`
 	ImageCount int      `json:"image_count,omitempty"`
 	Lavish     string   `json:"lavish,omitempty"`
-	State      string   `json:"state"`
-	Answer     string   `json:"answer,omitempty"`
-	AnswerID   string   `json:"answer_id,omitempty"`
+	// LavishPage is the HTML file of a goblin's Lavish page, which the
+	// supervisor polls for the Overlord's feedback while the item is open.
+	LavishPage string `json:"lavish_page,omitempty"`
+	State      string `json:"state"`
+	Answer     string `json:"answer,omitempty"`
+	AnswerID   string `json:"answer_id,omitempty"`
 	// Delivered says the answer reached the reporter itself; an answer for
 	// a goblin that restarted or ended goes to the CFO and stays false.
 	Delivered bool      `json:"delivered,omitempty"`
@@ -84,11 +88,17 @@ func validReview(r Review) error {
 			return errors.New("a review's Lavish link " + problem)
 		}
 	}
+	if r.LavishPage != "" {
+		extension := strings.ToLower(filepath.Ext(r.LavishPage))
+		if r.Task == "" || r.Lavish == "" || !filepath.IsAbs(r.LavishPage) || filepath.Clean(r.LavishPage) != r.LavishPage || extension != ".html" && extension != ".htm" {
+			return errors.New("a review's Lavish page must be the absolute path of a goblin's HTML page, beside its link")
+		}
+	}
 	return nil
 }
 
 func sameReview(a, b Review) bool {
-	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Lavish == b.Lavish && slices.Equal(a.ImageSums, b.ImageSums)
+	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Lavish == b.Lavish && a.LavishPage == b.LavishPage && slices.Equal(a.ImageSums, b.ImageSums)
 }
 
 // reviewImageDir holds one publication's copied images, named by position.
@@ -115,8 +125,9 @@ func reviewReporter(ctx context.Context, h home.Home, client *herdr.Client, task
 
 // PublishReview reports an item for the Overlord from the reporter's own
 // process. Images are checked the way a question's are and copied under
-// state/reviews before the item is recorded.
-func PublishReview(ctx context.Context, h home.Home, client *herdr.Client, taskID, id, title, lavish string, images []string) error {
+// state/reviews before the item is recorded. A page, given only with its
+// link, is polled by the supervisor for his feedback.
+func PublishReview(ctx context.Context, h home.Home, client *herdr.Client, taskID, id, title, lavish, page string, images []string) error {
 	identity, release, err := reviewReporter(ctx, h, client, taskID)
 	if err != nil {
 		return err
@@ -126,7 +137,7 @@ func PublishReview(ctx context.Context, h home.Home, client *herdr.Client, taskI
 		return fmt.Errorf("only a goblin's review takes images, at most %d", maxReviewImages)
 	}
 	now := time.Now().UTC()
-	r := Review{ID: id, Identity: identity, Task: taskID, Title: title, Lavish: lavish, State: "open", CreatedAt: now, UpdatedAt: now}
+	r := Review{ID: id, Identity: identity, Task: taskID, Title: title, Lavish: lavish, LavishPage: page, State: "open", CreatedAt: now, UpdatedAt: now}
 	if err := validReview(r); err != nil {
 		return err
 	}
@@ -524,7 +535,8 @@ func (s *Store) clearReview(id, identity string) (Evaluation, error) {
 // answerReview delivers the Overlord's answer once to the item's reporter:
 // the goblin's own pane while it is the same task generation, or the CFO that
 // reported it. An answer for a goblin that restarted or ended goes to the
-// current CFO instead, and the item stays undelivered.
+// current CFO instead, and the item stays undelivered. An answer a goblin
+// received also reaches the CFO, as a notice in its wake queue.
 func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error) {
 	if s.Options.CFO == nil {
 		return Evaluation{}, fmt.Errorf("%w: Herdr message transport is unavailable", ErrRejected)
@@ -548,7 +560,24 @@ func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error
 	if err != nil {
 		return result, err
 	}
+	if r.Task != "" {
+		// The goblin already has the answer, so a notice that cannot be
+		// queued is reported rather than failing, and resending, the answer.
+		if err := noticeAnswerToCFO(s.Store.Home.State, r, a.Text); err != nil {
+			s.publish(err)
+		}
+	}
 	return result, s.Store.markReviewDelivered(r.ID, a.ID)
+}
+
+// noticeAnswerToCFO tells the CFO what the Overlord answered on a goblin's
+// item, without asking it anything.
+func noticeAnswerToCFO(stateDir string, r Review, answer string) error {
+	if _, err := wake.Append(stateDir, "review", r.Task, bounded(fmt.Sprintf("the Overlord answered %s (%s) on the board, and the goblin has it: %s", r.ID, r.Title, answer), 4000)); err != nil {
+		return err
+	}
+	_, err := wake.PublishEpisode(stateDir)
+	return err
 }
 
 // answerReviewToCFO hands an answer whose goblin is gone to the current CFO.
@@ -613,8 +642,8 @@ func (h *HTTP) reviewImage(w http.ResponseWriter, r *http.Request) {
 // PublishWait puts a goblin's wait on the Overlord in the Command Center as an
 // item for him until he answers or clears it, or the goblin reports again. It
 // names the item waiting-<task>-<wake sequence>, which retireWaits relies on.
-func PublishWait(ctx context.Context, h home.Home, client *herdr.Client, taskID string, seq int, why string) error {
-	return PublishReview(ctx, h, client, taskID, fmt.Sprintf("waiting-%s-%d", taskID, seq), "Waiting on you: "+why, "", nil)
+func PublishWait(ctx context.Context, h home.Home, client *herdr.Client, taskID string, seq int, why, lavish, page string) error {
+	return PublishReview(ctx, h, client, taskID, fmt.Sprintf("waiting-%s-%d", taskID, seq), "Waiting on you: "+why, lavish, page, nil)
 }
 
 // retireWaits withdraws a goblin's wait on the Overlord once its task reports
