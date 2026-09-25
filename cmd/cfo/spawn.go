@@ -46,6 +46,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	class := fs.String("class", "ordinary", "ordinary, high-risk, or mechanical pipeline policy")
 	yolo := fs.Bool("yolo", false, "allow the selected delivery posture")
 	auto := fs.Bool("auto", false, "route from the lane table; the default without --harness, kept as an alias")
+	backend := fs.String("backend", "herdr", "herdr, or native for a terminal of the task's own")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -67,6 +68,10 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	if !pipeline.ValidClass(*class) {
 		fmt.Fprintln(stderr, "cfo spawn: --class must be ordinary, high-risk, or mechanical")
+		return 2
+	}
+	if *backend != "herdr" && *backend != "native" {
+		fmt.Fprintln(stderr, "cfo spawn: --backend must be herdr or native")
 		return 2
 	}
 	if runtime.resolveHome == nil || runtime.spawn == nil {
@@ -200,6 +205,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Effort:    *effort,
 		Session:   herdrSession(),
 		Class:     *class,
+		Backend:   *backend,
 		Capsule:   writeCapsule,
 	})
 	if err != nil {
