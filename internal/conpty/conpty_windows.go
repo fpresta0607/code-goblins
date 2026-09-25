@@ -16,7 +16,10 @@ import (
 // Spec is one process to run in a pseudo console.
 type Spec struct {
 	// Args is the command and its arguments, quoted into one Windows command
-	// line.
+	// line. Args[0] is found the way CreateProcess finds a program, so give an
+	// absolute path to an executable. A command that needs PATH lookup through
+	// Env, or a script shim such as an npm .cmd, is resolved by the caller
+	// before Start.
 	Args []string
 	Dir  string
 	// Env is the whole environment, one KEY=value each; nil inherits this
@@ -39,7 +42,6 @@ type Console struct {
 
 	mu     sync.Mutex
 	closed bool
-	once   sync.Once
 }
 
 // Start runs spec.Args in a new pseudo console of spec.Cols by spec.Rows.
@@ -157,22 +159,11 @@ func (c *Console) startProcess(commandLine, dir, env *uint16) error {
 func (c *Console) wait() {
 	windows.WaitForSingleObject(c.process, windows.INFINITE)
 	windows.GetExitCodeProcess(c.process, &c.code)
-	c.closePseudoConsole()
+	c.mu.Lock()
+	c.closed = true
+	c.mu.Unlock()
+	windows.ClosePseudoConsole(c.pc)
 	close(c.done)
-}
-
-func (c *Console) closePseudoConsole() {
-	c.once.Do(func() {
-		c.mu.Lock()
-		c.closed = true
-		c.mu.Unlock()
-		windows.ClosePseudoConsole(c.pc)
-	})
-}
-
-// PID is the process the console was started with.
-func (c *Console) PID() int {
-	return c.pid
 }
 
 // Read reads what the process wrote to its terminal, escape sequences and
@@ -199,12 +190,15 @@ func (c *Console) Resize(cols, rows int) error {
 	return windows.ResizePseudoConsole(c.pc, windows.Coord{X: int16(cols), Y: int16(rows)})
 }
 
-// Done is closed once the process has exited.
+// Done is closed once the process has exited and its output has been read to
+// the end. On older Windows builds, closing the pseudo console waits for its
+// output to drain, so the owner keeps reading, as Close does.
 func (c *Console) Done() <-chan struct{} {
 	return c.done
 }
 
-// ExitCode is the process's exit code, once Done is closed.
+// ExitCode is the process's exit code, once Done is closed, which needs the
+// output read to its end.
 func (c *Console) ExitCode() uint32 {
 	<-c.done
 	return c.code

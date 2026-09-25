@@ -212,7 +212,7 @@ func TestCloseEndsTheWholeProcessTree(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	for _, pid := range []int{console.PID(), grandchild} {
+	for _, pid := range []int{console.pid, grandchild} {
 		if !exited(pid) {
 			t.Errorf("pid %d is still running after Close", pid)
 		}
