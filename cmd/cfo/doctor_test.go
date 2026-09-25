@@ -94,6 +94,31 @@ func fakeDoctorTool(t *testing.T, dir, name string) {
 	}
 }
 
+// Without winget, doctor says how to get it, since the installer stops for
+// it, and stays healthy: cfo itself never runs winget.
+func TestRunDoctorReportsAMissingWingetAndStaysHealthy(t *testing.T) {
+	bin := t.TempDir()
+	for _, name := range []string{
+		"git", "gh", "herdr", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi", "lavish-axi",
+		"claude", "codex", "pi", "kimi",
+	} {
+		fakeDoctorTool(t, bin, name)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("CFO_HOME", t.TempDir())
+
+	var stdout, stderr bytes.Buffer
+	exit := run([]string{"doctor"}, &stdout, &stderr)
+
+	want := "INSTALLER_UNAVAILABLE winget not found on PATH (install: App Installer from the Microsoft Store, https://apps.microsoft.com/detail/9NBLGGH4NNS1) - only install.ps1 needs it, to add git and gh"
+	if !strings.Contains(stdout.String(), want) {
+		t.Errorf("stdout lacks %q\n%s", want, stdout.String())
+	}
+	if exit != 0 {
+		t.Errorf("exit = %d, want 0: a missing winget must not make doctor unhealthy\n%s", exit, stdout.String())
+	}
+}
+
 // TestRunDoctorReportsPresentationUnavailableAndStaysHealthy drives the whole
 // command with every tool but lavish-axi on PATH: doctor's stdout names the
 // PRESENTATION_UNAVAILABLE state and the exit code still reports healthy, so a

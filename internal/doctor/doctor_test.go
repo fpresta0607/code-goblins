@@ -27,11 +27,12 @@ func TestRunAllToolsPresent(t *testing.T) {
 		fakeTool(t, dir, name, name+" version 1.0.0", 0)
 	}
 	fakeTool(t, dir, "lavish-axi", "0.1.71", 0)
+	fakeTool(t, dir, "winget", "v1.9.25200", 0)
 	t.Setenv("PATH", dir)
 	t.Setenv("CFO_HOME", t.TempDir()) // no .claude/settings.json: hook-pairing passes
 	checks := Run()
-	if len(checks) != 10 {
-		t.Fatalf("len = %d, want 10 (9 tools + hook-pairing)", len(checks))
+	if len(checks) != 11 {
+		t.Fatalf("len = %d, want 11 (10 tools + hook-pairing)", len(checks))
 	}
 	if !Healthy(checks) {
 		t.Errorf("Healthy = false with all tools present: %+v", checks)
@@ -48,8 +49,38 @@ func TestRunAllToolsPresent(t *testing.T) {
 	if checks[8].Name != "lavish-axi" || checks[8].Err != "" || checks[8].Floor != "0.1.71" {
 		t.Errorf("checks[8] = %+v, want lavish-axi at its 0.1.71 floor", checks[8])
 	}
-	if checks[9].Name != "hook-pairing" {
-		t.Errorf("checks[9] = %+v, want hook-pairing", checks[9])
+	if checks[9].Name != "winget" || checks[9].Err != "" || !checks[9].Installer {
+		t.Errorf("checks[9] = %+v, want winget as an installer-only check", checks[9])
+	}
+	if checks[10].Name != "hook-pairing" {
+		t.Errorf("checks[10] = %+v, want hook-pairing", checks[10])
+	}
+}
+
+// Without winget the check carries the one-line fix, and the environment is
+// still healthy: only install.ps1 uses winget.
+func TestRunMissingWingetIsInstallerOnly(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"git", "gh", "herdr", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi"} {
+		fakeTool(t, dir, name, name+" ok", 0)
+	}
+	fakeTool(t, dir, "lavish-axi", "0.1.71", 0)
+	t.Setenv("PATH", dir)
+	t.Setenv("CFO_HOME", t.TempDir())
+
+	checks := Run()
+
+	var winget Check
+	for _, check := range checks {
+		if check.Name == "winget" {
+			winget = check
+		}
+	}
+	if !winget.Installer || winget.Err != "not found on PATH" || !strings.Contains(winget.Hint, "https://apps.microsoft.com/detail/9NBLGGH4NNS1") {
+		t.Errorf("winget check = %+v, want an installer-only check missing from PATH with the App Installer link", winget)
+	}
+	if !Healthy(checks) {
+		t.Errorf("Healthy = false; a missing winget must never make doctor unhealthy: %+v", checks)
 	}
 }
 
