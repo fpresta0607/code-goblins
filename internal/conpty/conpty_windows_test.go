@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -55,6 +56,9 @@ func echoChild() {
 		case line == "spawn":
 			grandchild := exec.Command(os.Args[0])
 			grandchild.Env = append(os.Environ(), childMode+"=sleep")
+			// Detached from the console, like a dev server a harness leaves
+			// running: closing the console does not end it, only the job does.
+			grandchild.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS}
 			if err := grandchild.Start(); err != nil {
 				fmt.Println("spawn error", err)
 				continue
@@ -74,6 +78,9 @@ type screen struct {
 	mu    sync.Mutex
 	text  bytes.Buffer
 	ended chan struct{}
+	// closed is set by a test that closes the console itself, since Close
+	// is called once.
+	closed bool
 }
 
 func watch(console *Console) *screen {
@@ -127,7 +134,9 @@ func startChild(t *testing.T, spec Spec) (*Console, *screen) {
 	}
 	s := watch(console)
 	t.Cleanup(func() {
-		_ = console.Close()
+		if !s.closed {
+			_ = console.Close()
+		}
 		<-s.ended
 	})
 	s.waitFor(t, "ready")
@@ -208,11 +217,12 @@ func TestCloseEndsTheWholeProcessTree(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	s.closed = true
 	if err := console.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 
-	for _, pid := range []int{console.pid, grandchild} {
+	for _, pid := range []int{console.PID(), grandchild} {
 		if !exited(pid) {
 			t.Errorf("pid %d is still running after Close", pid)
 		}

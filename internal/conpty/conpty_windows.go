@@ -166,6 +166,11 @@ func (c *Console) wait() {
 	close(c.done)
 }
 
+// PID is the process the console was started with.
+func (c *Console) PID() int {
+	return c.pid
+}
+
 // Read reads what the process wrote to its terminal, escape sequences and
 // all. It returns io.EOF once the process has exited and its output is read.
 func (c *Console) Read(p []byte) (int, error) {
@@ -190,15 +195,16 @@ func (c *Console) Resize(cols, rows int) error {
 	return windows.ResizePseudoConsole(c.pc, windows.Coord{X: int16(cols), Y: int16(rows)})
 }
 
-// Done is closed once the process has exited and its output has been read to
-// the end. On older Windows builds, closing the pseudo console waits for its
-// output to drain, so the owner keeps reading, as Close does.
+// Done is closed once the process has exited and its pseudo console has
+// closed. Before Windows 24H2, closing it waits for the output to drain, so
+// Done fires only while the owner keeps reading; from 24H2 output can still
+// be buffered when it fires. Either way the owner reads until Read returns
+// io.EOF, as Close does.
 func (c *Console) Done() <-chan struct{} {
 	return c.done
 }
 
-// ExitCode is the process's exit code, once Done is closed, which needs the
-// output read to its end.
+// ExitCode is the process's exit code, once Done is closed.
 func (c *Console) ExitCode() uint32 {
 	<-c.done
 	return c.code
