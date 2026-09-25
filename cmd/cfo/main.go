@@ -121,10 +121,12 @@ type commandRuntime struct {
 	goblins    bool
 	startServe func(home.Home) (<-chan struct{}, error)
 	openURL    func(string) error
-	// liveCFO, focusCFO, gitTop, stdin, startCFO and attachHerdr are how the
-	// launcher finds a live registered CFO and brings it to the front, finds
-	// the project or asks for one, starts the CFO in Herdr and hands the
-	// terminal to herdr attached to a session.
+	// nativeCFO, liveCFO, focusCFO, gitTop, stdin, startCFO and attachHerdr
+	// are how the launcher finds a live registered CFO, in a native terminal
+	// or in Herdr, and brings it to the front, finds the project or asks for
+	// one, starts the CFO in Herdr and hands the terminal to herdr attached to
+	// a session.
+	nativeCFO   func(string) (string, bool)
 	liveCFO     func(string) (herdr.Endpoint, bool)
 	focusCFO    func(context.Context, herdr.Endpoint) error
 	gitTop      func(context.Context) (string, error)
@@ -224,6 +226,7 @@ func defaultCommandRuntime() commandRuntime {
 		goblins:      invokedAsGoblins(),
 		startServe:   startDetachedServe,
 		openURL:      openInBrowser,
+		nativeCFO:    supervisor.NativeCFO,
 		liveCFO:      supervisor.LiveCFO,
 		focusCFO:     focusCFOInHerdr,
 		gitTop:       gitTop,

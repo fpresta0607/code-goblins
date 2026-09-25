@@ -12,6 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
@@ -52,10 +53,10 @@ func registerTerminals() terminal.Opener {
 }
 
 // registerPrimary refreshes the registration from a SessionStart hook, for
-// the session that holds the home only. A session outside Herdr has nothing
-// the board could reach, so it stays silent.
+// the session that holds the home only. A session in neither a Herdr pane nor
+// a native terminal has nothing the board could reach, so it stays silent.
 func registerPrimary(h home.Home, ownerPID int, agent, session string, terminals terminal.Opener, stdout io.Writer) {
-	if os.Getenv("HERDR_PANE_ID") == "" || !lock.HeldBy(h.State, ownerPID) {
+	if (os.Getenv("HERDR_PANE_ID") == "" && os.Getenv(host.IDVariable) == "") || !lock.HeldBy(h.State, ownerPID) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

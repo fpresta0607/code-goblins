@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -11,11 +12,13 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
@@ -111,5 +114,36 @@ func TestRegistrationOpensHerdrInTheSessionThisProcessRunsIn(t *testing.T) {
 		if got != want {
 			t.Errorf("HERDR_SESSION=%q opens %q, want %q", session, got, want)
 		}
+	}
+}
+
+// A CFO's SessionStart in a native terminal registers that terminal, where one
+// outside any Herdr pane used to stay silent. Here the terminal's host is
+// gone, so the hook reports the refusal.
+func TestSessionStartRegistersInANativeTerminal(t *testing.T) {
+	h := registerHome(t)
+	t.Setenv("HERDR_PANE_ID", "")
+	t.Setenv(host.IDVariable, "cfo")
+	if _, err := lock.Acquire(h.State); err != nil {
+		t.Fatal(err)
+	}
+	// A killed host's record: it names this process as the terminal's
+	// program, and nothing serves its pipe.
+	data, err := json.Marshal(host.Record{ID: "cfo", Pipe: `\\.\pipe\code-goblins-host-test-` + strconv.Itoa(os.Getpid()), Token: "token", Version: host.Version, HostPID: os.Getpid(), ChildPID: os.Getpid(), Started: time.Now().UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(h.State, "hosts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.State, "hosts", "cfo.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+
+	registerPrimary(h, os.Getpid(), "claude", "s1", nil, &stdout)
+
+	if !strings.Contains(stdout.String(), "CFO REGISTRATION FAILED") || !strings.Contains(stdout.String(), "does not answer") {
+		t.Fatalf("stdout = %q, want the native terminal's registration refused because its host does not answer", stdout.String())
 	}
 }

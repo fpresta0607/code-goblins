@@ -57,6 +57,9 @@ func (s *Service) resolveTerminal(ctx context.Context, selected terminalSelectio
 		if err != nil {
 			return b, err
 		}
+		if p.Host != "" {
+			return b, unavailableTerminal("The CFO runs in a native terminal, which this view cannot show yet.")
+		}
 		if err := c.verify(ctx, p); err != nil {
 			return b, err
 		}

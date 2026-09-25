@@ -80,6 +80,22 @@ func TestGoblinsBringsALiveCFOToTheFrontWithoutStartingAnother(t *testing.T) {
 	}
 }
 
+// A CFO registered in a native terminal is left where it runs: goblins starts
+// no CFO in Herdr beside it, and brings nothing to the front.
+func TestGoblinsLeavesANativeCFOWhereItRuns(t *testing.T) {
+	f := newSessionFixture(t)
+	f.nativeCFO = "cfo"
+
+	exit, stdout, stderr := f.launch()
+
+	if exit != 0 || len(f.cfoStarts) != 0 || len(f.focused) != 0 || len(f.attached) != 0 {
+		t.Fatalf("exit=%d cfoStarts=%q focused=%+v attached=%q stderr=%q, want nothing started, focused or attached", exit, f.cfoStarts, f.focused, f.attached, stderr)
+	}
+	if !strings.Contains(stdout, "The CFO runs in native terminal cfo") {
+		t.Errorf("stdout = %q, want it to say the CFO runs in native terminal cfo", stdout)
+	}
+}
+
 // A cold start: the registered CFO's process has ended and the new board has
 // not checked the registration yet, so its snapshot's is empty. goblins
 // starts the CFO in the checkout the terminal is in and attaches to the

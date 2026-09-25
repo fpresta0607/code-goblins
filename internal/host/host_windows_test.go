@@ -40,15 +40,18 @@ func TestMain(m *testing.M) {
 	}
 }
 
-// echoChild answers one typed line at a time: its terminal's size, a
-// grandchild it starts, an exit code, a flood of output before an exit code,
-// or the line itself.
+// echoChild answers one typed line at a time: the terminal its host says it
+// runs in, its terminal's size, a grandchild it starts, an exit code, a flood
+// of output before an exit code, a spill of output it keeps running after, or
+// the line itself.
 func echoChild() {
 	fmt.Println("ready")
 	lines := bufio.NewScanner(os.Stdin)
 	for lines.Scan() {
 		line := strings.TrimSpace(lines.Text())
 		switch {
+		case line == "host-id":
+			fmt.Println("host-id", os.Getenv(IDVariable))
 		case line == "size":
 			var info windows.ConsoleScreenBufferInfo
 			if err := windows.GetConsoleScreenBufferInfo(windows.Handle(os.Stdout.Fd()), &info); err != nil {
@@ -73,6 +76,11 @@ func echoChild() {
 			}
 			fmt.Println("last words")
 			os.Exit(code)
+		case line == "spill":
+			for i := 0; i < 2000; i++ {
+				fmt.Println(strings.Repeat("s", 100))
+			}
+			fmt.Println("spilled")
 		case strings.HasPrefix(line, "exit "):
 			code, _ := strconv.Atoi(strings.TrimPrefix(line, "exit "))
 			os.Exit(code)
@@ -219,6 +227,19 @@ func typeLine(t *testing.T, v *viewer, line string) {
 	}
 }
 
+// The program in a terminal learns from its host which terminal it runs in,
+// even when the host was launched from another host's terminal.
+func TestTheTerminalKnowsWhichTerminalItIs(t *testing.T) {
+	t.Setenv(IDVariable, "outer")
+	_, record := launch(t)
+	v := connect(t, record)
+	v.waitFor(t, "ready")
+
+	typeLine(t, v, "host-id")
+
+	v.waitFor(t, "host-id g1")
+}
+
 // A viewer types into the terminal the host runs and sees its output.
 func TestAViewerTypesIntoTheTerminalAndSeesItsOutput(t *testing.T) {
 	_, record := launch(t)
@@ -258,6 +279,27 @@ func TestALateViewerSeesTheTerminalsHistory(t *testing.T) {
 	if err != nil || !strings.Contains(string(history.Output), "got before you came") {
 		t.Fatalf("the late viewer's first event = %q, %v; want the history", history.Output, err)
 	}
+}
+
+// A client that types and never reads reaches the terminal, even while the
+// host has more history for it than the pipe holds.
+func TestAClientThatNeverReadsStillTypesIntoTheTerminal(t *testing.T) {
+	_, record := launch(t)
+	v := connect(t, record)
+	v.waitFor(t, "ready")
+	typeLine(t, v, "spill")
+	v.waitFor(t, "spilled")
+
+	typist, err := Dial(record)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	if err := typist.Input([]byte("typed without reading\r")); err != nil {
+		t.Fatalf("Input: %v", err)
+	}
+	_ = typist.Close()
+
+	v.waitFor(t, "got typed without reading")
 }
 
 // A host outlives the process that launched it.

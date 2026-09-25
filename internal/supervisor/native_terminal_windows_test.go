@@ -33,17 +33,36 @@ const viewQuery = "task=task-1&generation=g1&token=instance"
 
 // TestNativeTerminalProgram is not a test but the program a native terminal
 // test runs in its terminal: it records each typed line in the file it is
-// given, prints its terminal's size for "size" and exits for "exit N".
+// given, prints its terminal's size for "size", registers as the CFO of the
+// state directory it is given for "register", recording the outcome, prints
+// more than the host's pipe holds for "spill", recording "spilled" after, and
+// exits for "exit N".
 func TestNativeTerminalProgram(t *testing.T) {
 	args := flag.Args()
-	if len(args) != 2 || args[0] != "native-terminal-program" {
+	if len(args) != 3 || args[0] != "native-terminal-program" {
 		t.Skip("runs only in a native terminal test's terminal")
+	}
+	record := func(text string) {
+		file, err := os.OpenFile(args[1], os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			fmt.Println("record error", err)
+			return
+		}
+		fmt.Fprintln(file, text)
+		file.Close()
 	}
 	fmt.Println("program ready")
 	lines := bufio.NewScanner(os.Stdin)
 	for lines.Scan() {
 		line := lines.Text()
 		switch {
+		case line == "register":
+			described, err := Register(context.Background(), args[2], nil, "claude", "session-1")
+			if err != nil {
+				record("register error: " + err.Error())
+				continue
+			}
+			record("registered " + described)
 		case line == "size":
 			var info windows.ConsoleScreenBufferInfo
 			if err := windows.GetConsoleScreenBufferInfo(windows.Handle(os.Stdout.Fd()), &info); err != nil {
@@ -51,17 +70,16 @@ func TestNativeTerminalProgram(t *testing.T) {
 				continue
 			}
 			fmt.Printf("size %dx%d\n", info.Window.Right-info.Window.Left+1, info.Window.Bottom-info.Window.Top+1)
+		case line == "spill":
+			for i := 0; i < 2000; i++ {
+				fmt.Println(strings.Repeat("s", 100))
+			}
+			record("spilled")
 		case strings.HasPrefix(line, "exit "):
 			code, _ := strconv.Atoi(strings.TrimPrefix(line, "exit "))
 			os.Exit(code)
 		default:
-			record, err := os.OpenFile(args[1], os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-			if err != nil {
-				fmt.Println("record error", err)
-				continue
-			}
-			fmt.Fprintln(record, line)
-			record.Close()
+			record(line)
 		}
 	}
 	os.Exit(0)
@@ -87,31 +105,37 @@ func nativeBoard(t *testing.T, mode string) (*HTTP, *httptest.Server) {
 	return h, server
 }
 
-// hostedTerminal is task-1's terminal, hosted in this test process as cfo
-// host hosts one, running this test binary as TestNativeTerminalProgram.
+// hostedTerminal is a terminal hosted in this test process as cfo host hosts
+// one, running this test binary as TestNativeTerminalProgram.
 type hostedTerminal struct {
+	stateDir, id string
 	// typed is the file where the program records each line typed into it.
 	typed string
 	ended chan struct{}
 }
 
+// hostTask hosts task-1's terminal.
 func hostTask(t *testing.T, h *HTTP) hostedTerminal {
+	t.Helper()
+	return hostTerminal(t, h.Service.Store.Home.State, "task-1")
+}
+
+func hostTerminal(t *testing.T, stateDir, id string) hostedTerminal {
 	t.Helper()
 	program, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	stateDir := h.Service.Store.Home.State
-	terminal := hostedTerminal{typed: filepath.Join(t.TempDir(), "typed.txt"), ended: make(chan struct{})}
+	terminal := hostedTerminal{stateDir: stateDir, id: id, typed: filepath.Join(t.TempDir(), "typed.txt"), ended: make(chan struct{})}
 	go func() {
 		defer close(terminal.ended)
-		err := host.Run(stateDir, host.Spec{ID: "task-1", Args: []string{program, "-test.run=^TestNativeTerminalProgram$", "--", "native-terminal-program", terminal.typed}, Cols: 80, Rows: 24})
+		err := host.Run(stateDir, host.Spec{ID: id, Args: []string{program, "-test.run=^TestNativeTerminalProgram$", "--", "native-terminal-program", terminal.typed, stateDir}, Cols: 80, Rows: 24})
 		if err != nil {
 			t.Errorf("the host ended with %v", err)
 		}
 	}()
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		if _, err := host.ReadRecord(stateDir, "task-1"); err == nil {
+		if _, err := host.ReadRecord(stateDir, id); err == nil {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -119,7 +143,7 @@ func hostTask(t *testing.T, h *HTTP) hostedTerminal {
 		}
 	}
 	t.Cleanup(func() {
-		if record, err := host.ReadRecord(stateDir, "task-1"); err == nil {
+		if record, err := host.ReadRecord(stateDir, id); err == nil {
 			if client, err := host.Dial(record); err == nil {
 				_ = client.CloseTerminal()
 				_ = client.Close()
@@ -134,11 +158,11 @@ func hostTask(t *testing.T, h *HTTP) hostedTerminal {
 	return terminal
 }
 
-// exit ends the terminal by typing into it directly, not through a view, and
-// returns every line the program recorded before it exited.
-func (terminal hostedTerminal) exit(t *testing.T, h *HTTP) []string {
+// typeLine types line and Enter into the terminal directly, not through a
+// view.
+func (terminal hostedTerminal) typeLine(t *testing.T, line string) {
 	t.Helper()
-	record, err := host.ReadRecord(h.Service.Store.Home.State, "task-1")
+	record, err := host.ReadRecord(terminal.stateDir, terminal.id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,9 +171,16 @@ func (terminal hostedTerminal) exit(t *testing.T, h *HTTP) []string {
 		t.Fatal(err)
 	}
 	defer client.Close()
-	if err := client.Input([]byte("exit 0\r")); err != nil {
+	if err := client.Input([]byte(line + "\r")); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// exit ends the terminal by typing into it directly, not through a view, and
+// returns every line the program recorded before it exited.
+func (terminal hostedTerminal) exit(t *testing.T) []string {
+	t.Helper()
+	terminal.typeLine(t, "exit 0")
 	select {
 	case <-terminal.ended:
 	case <-time.After(15 * time.Second):
@@ -449,7 +480,7 @@ func TestANativeTerminalRefusesTypingWhileAGateOwnsTheTask(t *testing.T) {
 	if closed.Code != websocket.StatusPolicyViolation || closed.Reason != "pipeline retains custody" {
 		t.Errorf("the view closed with %d %q, want the gate's reason", closed.Code, closed.Reason)
 	}
-	if typed := terminal.exit(t, h); len(typed) != 0 {
+	if typed := terminal.exit(t); len(typed) != 0 {
 		t.Errorf("the terminal received %q under the gate, want nothing", typed)
 	}
 }
@@ -481,7 +512,7 @@ func TestANativeTerminalNoticesAGateTakingOverOnItsTick(t *testing.T) {
 	if closed.Code != websocket.StatusPolicyViolation || closed.Reason != "pipeline owns this task" {
 		t.Errorf("the view closed with %d %q, want the gate's reason", closed.Code, closed.Reason)
 	}
-	if typed := terminal.exit(t, h); !reflect.DeepEqual(typed, []string{"before"}) {
+	if typed := terminal.exit(t); !reflect.DeepEqual(typed, []string{"before"}) {
 		t.Errorf("the terminal received %q, want only the line typed before the gate", typed)
 	}
 }

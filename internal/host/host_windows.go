@@ -9,6 +9,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +25,10 @@ var (
 	handshakeTimeout = 5 * time.Second
 	farewellTimeout  = 2 * time.Second
 )
+
+// IDVariable tells the program in a host's terminal which terminal it runs
+// in, so it can register as reachable through that host.
+const IDVariable = "CFO_HOST_ID"
 
 // Spec is one terminal for a host to run.
 type Spec struct {
@@ -62,7 +68,7 @@ func Run(stateDir string, spec Spec) error {
 	if err := state.ValidTaskID(spec.ID); err != nil {
 		return err
 	}
-	console, err := conpty.Start(conpty.Spec{Args: spec.Args, Dir: spec.Dir, Cols: spec.Cols, Rows: spec.Rows})
+	console, err := conpty.Start(conpty.Spec{Args: spec.Args, Dir: spec.Dir, Env: terminalEnvironment(spec.ID), Cols: spec.Cols, Rows: spec.Rows})
 	if err != nil {
 		return err
 	}
@@ -130,6 +136,16 @@ func Run(stateDir string, spec Spec) error {
 	return closeErr
 }
 
+// terminalEnvironment is this host's environment with IDVariable naming
+// terminal id, in place of any value inherited from a terminal the host was
+// launched in, since Windows keeps the first of two entries.
+func terminalEnvironment(id string) []string {
+	env := slices.DeleteFunc(os.Environ(), func(entry string) bool {
+		return strings.HasPrefix(strings.ToUpper(entry), IDVariable+"=")
+	})
+	return append(env, IDVariable+"="+id)
+}
+
 // announce opens the host's pipe and records where to find it.
 func announce(stateDir, id string, childPID int) (Record, *listener, error) {
 	name, err := pipeName()
@@ -151,9 +167,10 @@ func announce(stateDir, id string, childPID int) (Record, *listener, error) {
 	return record, pipe, nil
 }
 
-// serve is one viewer's connection: the handshake, the history, then live
-// output one way and input, resizes and a close request the other, until the
-// terminal ends or the viewer leaves.
+// serve is one viewer's connection: the handshake, then input, resizes and a
+// close request one way and the history and live output the other, until the
+// terminal ends or the viewer leaves. Input is read from the handshake on, so a
+// viewer that only types never waits on the output it does not read.
 func serve(connection *os.File, token string, console *conpty.Console, output *history, closing chan<- struct{}) {
 	defer connection.Close()
 	_ = connection.SetReadDeadline(time.Now().Add(handshakeTimeout))
@@ -172,12 +189,14 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 	_ = connection.SetReadDeadline(time.Time{})
 	past, feed, detach := output.attach()
 	defer detach()
-	if writeHello(connection, hello{Version: Version}) != nil || writeFrame(connection, frameOutput, past) != nil {
+	if writeHello(connection, hello{Version: Version}) != nil {
 		return
 	}
+	reading := make(chan struct{})
 	go func() {
 		// A viewer that leaves or sends a broken frame is detached, which
 		// ends the output loop below.
+		defer close(reading)
 		defer detach()
 		for {
 			kind, payload, err := readFrame(connection)
@@ -199,8 +218,15 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 			}
 		}
 	}()
+	// A write fails only once the viewer has left, so the input it sent
+	// before leaving is read to the end before the connection closes.
+	if writeFrame(connection, frameOutput, past) != nil {
+		<-reading
+		return
+	}
 	for chunk := range feed {
 		if writeFrame(connection, frameOutput, chunk) != nil {
+			<-reading
 			return
 		}
 	}
