@@ -1,6 +1,6 @@
 # install.ps1 - install Code Goblins.
 #
-# With no clone and no Go, from any PowerShell window:
+# To use it, from any PowerShell window, with no clone and no Go:
 #
 #   irm https://raw.githubusercontent.com/fpresta0607/code-goblins/main/install.ps1 | iex
 #
@@ -10,15 +10,14 @@
 # your projects, installs the tools, skills and hooks the fleet needs, and
 # ends with goblins doctor.
 #
-# In a clone, it downloads (verified the same way) or builds cfo.exe into the
-# clone instead:
+# To work on it, in a clone:
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 [-InstallDir <dir>] [-Bootstrap]
+#   .\install.cmd -Dev
 #
-# Without -Bootstrap a clone install detects each tool `cfo doctor` checks and
-# prints the exact install command for anything missing; with it, and always
-# in the one-line install, it runs those installs. -InstallDir puts cfo.exe
-# somewhere other than the clone. Every step is idempotent and safe to rerun.
+# builds cfo.exe and goblins.exe from the clone, makes the clone your CFO home
+# with both on your PATH, and does everything else the one-line install does.
+# install.cmd runs this script whatever PowerShell's execution policy is.
+# Every step is idempotent and safe to rerun.
 
 # The body runs in a scope of its own: the one-line install runs inside the
 # caller's session, which keeps its own variables and preferences and must
@@ -26,19 +25,14 @@
 # bind in that session; the block reads the script's arguments itself.
 & {
     $ErrorActionPreference = "Stop"
-    $InstallDir = ""
-    $Bootstrap = $false
+    $Dev = $false
     $arguments = @($args[0])
     for ($i = 0; $i -lt $arguments.Count; $i++) {
-        if ($arguments[$i] -eq "-Bootstrap") {
-            $Bootstrap = $true
-        }
-        elseif ($arguments[$i] -eq "-InstallDir" -and $i + 1 -lt $arguments.Count) {
-            $i++
-            $InstallDir = $arguments[$i]
+        if ($arguments[$i] -eq "-Dev") {
+            $Dev = $true
         }
         else {
-            throw "Unknown argument '$($arguments[$i])'. Usage: install.ps1 [-InstallDir <dir>] [-Bootstrap]"
+            throw "Unknown argument '$($arguments[$i])'. In a clone of Code Goblins, run: .\install.cmd -Dev"
         }
     }
 
@@ -96,6 +90,29 @@
         }
     }
 
+    # Read-ProjectsRoot asks once for the folder that holds the user's
+    # checkouts and returns cfo install's argument for it. A recorded folder is
+    # kept on every rerun.
+    function Read-ProjectsRoot {
+        if ([Environment]::GetEnvironmentVariable("CFO_PROJECTS_ROOT", "User")) {
+            return @()
+        }
+        if ([Console]::IsInputRedirected) {
+            Write-Host "No projects folder recorded; record one later with: goblins install --projects-root <dir>"
+            return @()
+        }
+        while ($true) {
+            $answer = (Read-Host "Folder that holds your project checkouts, so the CFO can find them by name (Enter to skip)").Trim().Trim('"')
+            if (-not $answer) {
+                return @()
+            }
+            if (Test-Path -LiteralPath $answer -PathType Container) {
+                return @("--projects-root", (Resolve-Path -LiteralPath $answer).ProviderPath)
+            }
+            Write-Host "$answer is not a folder."
+        }
+    }
+
     # A clone is the folder this script sits in when it is a code-goblins
     # checkout; the one-line install has no such folder.
     $scriptFolder = ""
@@ -103,11 +120,17 @@
         $scriptFolder = Split-Path -Parent $PSCommandPath
     }
     $fromClone = $scriptFolder -and (Test-Path (Join-Path $scriptFolder "AGENTS.md")) -and (Test-Path (Join-Path $scriptFolder "cmd\cfo"))
+    if ($fromClone -and -not $Dev) {
+        throw "This is a clone of Code Goblins. To build it and make it your CFO home, run: .\install.cmd -Dev"
+    }
+    if ($Dev -and -not $fromClone) {
+        throw "-Dev builds Code Goblins from a clone. Clone it, then run .\install.cmd -Dev in the clone."
+    }
 
     # winget installs git and gh. An install that would need it and cannot
     # have it stops here, before anything is downloaded or changed, with the
     # one fix to make on a line of its own.
-    if (($Bootstrap -or -not $fromClone) -and -not (Get-Command winget -ErrorAction SilentlyContinue)) {
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
         $needed = @("git", "gh" | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) })
         if ($needed.Count -gt 0) {
             Write-Host "Install App Installer from the Microsoft Store (https://apps.microsoft.com/detail/9NBLGGH4NNS1) for winget, then run this again."
@@ -115,11 +138,12 @@
         }
     }
 
-    if ($fromClone) {
-        if (-not $InstallDir) {
-            $InstallDir = $scriptFolder
+    if ($Dev) {
+        $InstallDir = $scriptFolder
+        if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
+            Write-Host "Install Go with: winget install -e --id GoLang.Go, then open a new terminal and run this again."
+            throw "-Dev builds cfo.exe from this clone, which needs Go."
         }
-        $dest = Join-Path $InstallDir "cfo.exe"
 
         # A clone bootstrapped before the Lavish ruling still has the retired review
         # surface binary here, where nothing builds it and nothing ignores it any
@@ -135,24 +159,44 @@
             }
         }
 
-        # Prefer a published release; fall back to building from source (needs Go).
-        if (-not (Save-VerifiedRelease $dest)) {
-            Write-Host "Building from source instead (requires Go) ..."
-            Push-Location $InstallDir
-            try {
-                go build -o $dest ./cmd/cfo
-                if ($LASTEXITCODE -ne 0) { throw "go build failed" }
-            }
-            finally {
-                Pop-Location
-            }
+        Write-Host "Building cfo.exe from $InstallDir ..."
+        $built = Join-Path $InstallDir "cfo.exe.new"
+        Push-Location -LiteralPath $InstallDir
+        try {
+            go build -o $built ./cmd/cfo
+            if ($LASTEXITCODE -ne 0) { throw "go build failed" }
         }
+        finally {
+            Pop-Location
+        }
+        # cfo.exe and goblins.exe are one program under two names. A build
+        # still running from here, such as a supervisor or a terminal's host,
+        # cannot be overwritten but can be renamed, so each old copy moves
+        # aside first and goes once nothing runs it, on this run or the next.
+        foreach ($name in "cfo.exe", "goblins.exe") {
+            $target = Join-Path $InstallDir $name
+            $aside = "$target.old"
+            Remove-Item -LiteralPath $aside -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $target) {
+                Move-Item -LiteralPath $target -Destination $aside -Force
+            }
+            Copy-Item -LiteralPath $built -Destination $target
+            Remove-Item -LiteralPath $aside -Force -ErrorAction SilentlyContinue
+        }
+        Remove-Item -LiteralPath $built -Force
+        $dest = Join-Path $InstallDir "cfo.exe"
+        Write-Host "Built cfo.exe and goblins.exe -> $InstallDir"
 
-        Write-Host ""
-        Write-Host "Installed cfo.exe -> $dest"
-        Write-Host "Next: run cfo install from this checkout to wire CFO_HOME, PATH, and the Claude Code hooks in your user settings."
-        Write-Host "      Add --projects-root <dir> with the folder that holds your checkouts so --project can take a bare name."
-        Write-Host ""
+        # From the clone: run there, cfo install makes the clone the CFO home.
+        $projectsRoot = Read-ProjectsRoot
+        Push-Location -LiteralPath $InstallDir
+        try {
+            & $dest install @projectsRoot
+            if ($LASTEXITCODE -ne 0) { throw "cfo install exited with code $LASTEXITCODE" }
+        }
+        finally {
+            Pop-Location
+        }
     }
     else {
         $download = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-" + [Guid]::NewGuid().ToString("N"))
@@ -163,27 +207,7 @@
                 throw "Code Goblins was not installed: the release could not be downloaded from $releaseBase."
             }
 
-            # Asked once: a recorded projects folder is kept on every rerun.
-            $projectsRoot = @()
-            if (-not [Environment]::GetEnvironmentVariable("CFO_PROJECTS_ROOT", "User")) {
-                if ([Console]::IsInputRedirected) {
-                    Write-Host "No projects folder recorded; record one later with: goblins install --projects-root <dir>"
-                }
-                else {
-                    while ($true) {
-                        $answer = (Read-Host "Folder that holds your project checkouts, so the CFO can find them by name (Enter to skip)").Trim().Trim('"')
-                        if (-not $answer) {
-                            break
-                        }
-                        if (Test-Path -LiteralPath $answer -PathType Container) {
-                            $projectsRoot = @("--projects-root", (Resolve-Path -LiteralPath $answer).ProviderPath)
-                            break
-                        }
-                        Write-Host "$answer is not a folder."
-                    }
-                }
-            }
-
+            $projectsRoot = Read-ProjectsRoot
             # From a neutral folder: run inside a checkout, cfo install would
             # wire that checkout instead of setting up the per-user home.
             Push-Location -LiteralPath $download
@@ -201,21 +225,20 @@
 
         $InstallDir = Join-Path $env:LOCALAPPDATA "CodeGoblins"
         $dest = Join-Path $InstallDir "goblins.exe"
-        # cfo install set both at user scope; this session needs them now.
-        $env:CFO_HOME = $InstallDir
-        $env:Path = "$InstallDir;$env:Path"
-        $Bootstrap = $true
     }
+    # cfo install set both at user scope; this session needs them now.
+    $env:CFO_HOME = $InstallDir
+    $env:Path = "$InstallDir;$env:Path"
 
     # From here on, native stderr (npm progress, installer notes, mklink) must
-    # not abort a bootstrap. Real failures are detected explicitly via exit codes
-    # and existence checks instead.
+    # not abort the install. Real failures are detected explicitly via exit
+    # codes and existence checks instead.
     $ErrorActionPreference = "Continue"
 
     # Claude reads project skills only from .claude/skills, so a junction points it
     # at .agents/skills; codex, pi and kimi read .agents/skills directly, and a
     # .codex/skills link would only give codex a second route to the same skills,
-    # so one an earlier bootstrap made is removed.
+    # so one an earlier install made is removed.
     # A junction keeps one copy tracked in git (no developer-mode symlinks).
     function Ensure-SkillJunctions {
         param([string]$Root)
@@ -275,7 +298,7 @@
     #   winget     - a winget package (needs winget)
     #   npm        - a global npm package (needs npm, i.e. Node.js)
     #   powershell - an official install.ps1, fetched and run in a child shell so
-    #                its own `exit` cannot kill this bootstrap
+    #                its own `exit` cannot kill this install
     #   manual     - no scriptable installer; print the manual step instead
     $tools = @(
         @{ Name = "git";                 Kind = "winget";     Cmd = "winget install -e --id Git.Git --accept-package-agreements --accept-source-agreements" },
@@ -296,7 +319,6 @@
     $npmPresent = [bool](Get-Command npm -ErrorAction SilentlyContinue)
     $wingetPresent = [bool](Get-Command winget -ErrorAction SilentlyContinue)
 
-    $missing = @()
     $manualSteps = @()
     $failedInstalls = @()
     $installedAny = $false
@@ -308,24 +330,16 @@
         }
         if ($tool.Kind -eq "manual") {
             Write-Host ("MANUAL   {0,-20} {1}" -f $tool.Name, $tool.Cmd)
-            $missing += $tool.Name
             $manualSteps += $tool.Name
-            continue
-        }
-        if (-not $Bootstrap) {
-            Write-Host ("MISSING  {0,-20} install: {1}" -f $tool.Name, $tool.Cmd)
-            $missing += $tool.Name
             continue
         }
         if ($tool.Kind -eq "npm" -and -not $npmPresent) {
             Write-Host ("PREREQ   {0,-20} install Node.js first: winget install OpenJS.NodeJS.LTS" -f $tool.Name)
-            $missing += $tool.Name
             $failedInstalls += $tool.Name
             continue
         }
         if ($tool.Kind -eq "winget" -and -not $wingetPresent) {
             Write-Host ("PREREQ   {0,-20} install winget first (ships with Windows App Installer)" -f $tool.Name)
-            $missing += $tool.Name
             $failedInstalls += $tool.Name
             continue
         }
@@ -344,56 +358,52 @@
         }
         catch {
             Write-Host ("WARN     {0,-20} install failed: {1}" -f $tool.Name, $_.Exception.Message)
-            $missing += $tool.Name
             $failedInstalls += $tool.Name
         }
     }
 
     # Installers write PATH entries to the registry; make them visible in this
     # shell (union with the current PATH, so nothing already present is lost).
-    if ($Bootstrap -and $installedAny) {
+    if ($installedAny) {
         Write-Host ""
         Write-Host "Refreshing PATH so newly installed tools are visible in this session ..."
         $parts = @($env:Path -split ';') + @([Environment]::GetEnvironmentVariable("Path", "Machine") -split ';') + @([Environment]::GetEnvironmentVariable("Path", "User") -split ';')
         $env:Path = ($parts | Where-Object { $_ -ne "" } | Select-Object -Unique) -join ';'
     }
 
-    if ($fromClone) {
-        # Point Claude Code's project skills directory at .agents/skills.
-        if ($Bootstrap) {
-            Write-Host ""
-            Ensure-SkillJunctions -Root $InstallDir
+    # Point Claude Code's project skills directory at the clone's .agents/skills.
+    if ($Dev) {
+        Write-Host ""
+        Ensure-SkillJunctions -Root $InstallDir
+    }
+
+    # The tools the fleet drives publish their own skills, installed once at
+    # user scope so every harness and every project sees them.
+    Write-Host ""
+    foreach ($skill in @("gh-axi", "chrome-devtools-axi", "no-mistakes")) {
+        if (-not (Get-Command npx.cmd -ErrorAction SilentlyContinue)) {
+            Write-Host ("PREREQ   {0,-20} skill needs Node.js: winget install OpenJS.NodeJS.LTS" -f $skill)
+            $failedInstalls += "$skill skill"
+            continue
+        }
+        # Only the fleet's harnesses, as copies: a symlink needs a right an
+        # ordinary Windows user may not have.
+        Write-Host ("skill    {0,-20} npx skills add kunchenguid/{0} --skill {0} -g -y -a claude-code -a codex -a pi --copy" -f $skill)
+        & npx.cmd -y skills add "kunchenguid/$skill" --skill $skill -g -y -a claude-code -a codex -a pi --copy
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host ("WARN     {0,-20} skill install exited with code {1}" -f $skill, $LASTEXITCODE)
+            $failedInstalls += "$skill skill"
         }
     }
-    else {
-        # The tools the fleet drives publish their own skills, installed once at
-        # user scope so every harness and every project sees them.
-        Write-Host ""
-        foreach ($skill in @("gh-axi", "chrome-devtools-axi", "no-mistakes")) {
-            if (-not (Get-Command npx.cmd -ErrorAction SilentlyContinue)) {
-                Write-Host ("PREREQ   {0,-20} skill needs Node.js: winget install OpenJS.NodeJS.LTS" -f $skill)
-                $failedInstalls += "$skill skill"
-                continue
-            }
-            # Only the fleet's harnesses, as copies: a symlink needs a right an
-            # ordinary Windows user may not have.
-            Write-Host ("skill    {0,-20} npx skills add kunchenguid/{0} --skill {0} -g -y -a claude-code -a codex -a pi --copy" -f $skill)
-            & npx.cmd -y skills add "kunchenguid/$skill" --skill $skill -g -y -a claude-code -a codex -a pi --copy
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host ("WARN     {0,-20} skill install exited with code {1}" -f $skill, $LASTEXITCODE)
-                $failedInstalls += "$skill skill"
-            }
+    # The board's native lifecycle hooks, for each harness installed here.
+    foreach ($harness in @("claude", "codex", "pi")) {
+        if (-not (Get-Command $harness -ErrorAction SilentlyContinue)) {
+            continue
         }
-        # The board's native lifecycle hooks, for each harness installed here.
-        foreach ($harness in @("claude", "codex", "pi")) {
-            if (-not (Get-Command $harness -ErrorAction SilentlyContinue)) {
-                continue
-            }
-            & $dest hooks install $harness
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host ("WARN     {0,-20} native hooks were not installed; see the line above" -f $harness)
-                $failedInstalls += "$harness hooks"
-            }
+        & $dest hooks install $harness
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host ("WARN     {0,-20} native hooks were not installed; see the line above" -f $harness)
+            $failedInstalls += "$harness hooks"
         }
     }
 
@@ -402,33 +412,26 @@
     & $dest doctor
     $doctorExit = $LASTEXITCODE
 
-    if ($missing.Count -gt 0 -or $failedInstalls.Count -gt 0) {
+    if ($manualSteps.Count -gt 0 -or $failedInstalls.Count -gt 0) {
         Write-Host ""
-        if ($Bootstrap) {
-            if ($manualSteps.Count -gt 0) {
-                Write-Host "Still needs a manual step:"
-                foreach ($m in $manualSteps) {
-                    Write-Host "  - $m"
-                }
-            }
-            if ($failedInstalls.Count -gt 0) {
-                Write-Host "These installs did not complete; see the lines above:"
-                foreach ($m in $failedInstalls) {
-                    Write-Host "  - $m"
-                }
+        if ($manualSteps.Count -gt 0) {
+            Write-Host "Still needs a manual step:"
+            foreach ($m in $manualSteps) {
+                Write-Host "  - $m"
             }
         }
-        else {
-            Write-Host "Run install.ps1 -Bootstrap to install the missing tools, or run the install commands printed above:"
-            foreach ($m in $missing) {
+        if ($failedInstalls.Count -gt 0) {
+            Write-Host "These installs did not complete; see the lines above:"
+            foreach ($m in $failedInstalls) {
                 Write-Host "  - $m"
             }
         }
     }
 
-    if ($fromClone) {
+    Write-Host ""
+    if ($Dev) {
+        Write-Host "Code Goblins is built and installed from $InstallDir, which is your CFO home. Open a new terminal so cfo and goblins are on your PATH."
         exit $doctorExit
     }
-    Write-Host ""
-    Write-Host "Code Goblins is installed in $InstallDir. Open a new terminal so cfo and goblins are on your PATH."
+    Write-Host "Code Goblins is installed in $InstallDir. Type goblins to start; a terminal that was already open finds it once you open a new one."
 } $args

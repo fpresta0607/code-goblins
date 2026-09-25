@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 )
 
@@ -48,15 +49,26 @@ func runStrippedPowerShell(t *testing.T, shell, base string, args ...string) (ou
 	return runPowerShellWith(t, shell, base, []string{"git", "gh"}, args...)
 }
 
-// runPowerShellWith runs shell with args against the release served at base.
-// The child gets folders of its own for every per-user location and a PATH
-// with only Windows and stand-ins for tools on it, so nothing it could reach
-// installs onto this machine.
+// runPowerShellWith runs shell with args against the release served at base,
+// with stand-ins for tools that do nothing and succeed.
 func runPowerShellWith(t *testing.T, shell, base string, tools []string, args ...string) (output, local, temp string, err error) {
 	t.Helper()
-	local, temp, profile, bin := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+	stubs := map[string]string{}
 	for _, tool := range tools {
-		if err := os.WriteFile(filepath.Join(bin, tool+".cmd"), []byte("@exit /b 0\r\n"), 0o700); err != nil {
+		stubs[tool] = "@exit /b 0\r\n"
+	}
+	return runPowerShellWithStubs(t, shell, base, stubs, args...)
+}
+
+// runPowerShellWithStubs runs shell with args against the release served at
+// base. The child gets folders of its own for every per-user location and a
+// PATH with only Windows and the stand-ins stubs names on it, each a .cmd with
+// the given text, so nothing it could reach installs onto this machine.
+func runPowerShellWithStubs(t *testing.T, shell, base string, stubs map[string]string, args ...string) (output, local, temp string, err error) {
+	t.Helper()
+	local, temp, profile, bin := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+	for tool, script := range stubs {
+		if err := os.WriteFile(filepath.Join(bin, tool+".cmd"), []byte(script), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -171,82 +183,150 @@ func TestOneLineInstallRunsADownloadThatMatchesTheReleaseChecksum(t *testing.T) 
 func TestOneLineInstallLeavesTheCallersSessionAsItWas(t *testing.T) {
 	for _, shell := range oneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
-			caller := "$InstallDir = 'mine'; $Bootstrap = 'mine'; $ErrorActionPreference = 'SilentlyContinue'\n" +
+			caller := "$InstallDir = 'mine'; $Dev = 'mine'; $ErrorActionPreference = 'SilentlyContinue'\n" +
 				"try { Get-Content -Raw -LiteralPath '" + installScript(t) + "' | Invoke-Expression } catch { Write-Output \"refused: $($_.Exception.Message)\" }\n" +
-				"Write-Output \"InstallDir=[$InstallDir] Bootstrap=[$Bootstrap] ErrorActionPreference=[$ErrorActionPreference]\""
+				"Write-Output \"InstallDir=[$InstallDir] Dev=[$Dev] ErrorActionPreference=[$ErrorActionPreference]\""
 
 			output, _, _, err := runStrippedPowerShell(t, shell, serveRelease(t, nil, ""), "-Command", caller)
 
 			if err != nil || !strings.Contains(output, "refused: Code Goblins was not installed") {
 				t.Fatalf("install = %v, want it refused and caught by the caller:\n%s", err, output)
 			}
-			if want := "InstallDir=[mine] Bootstrap=[mine] ErrorActionPreference=[SilentlyContinue]"; !strings.Contains(output, want) {
+			if want := "InstallDir=[mine] Dev=[mine] ErrorActionPreference=[SilentlyContinue]"; !strings.Contains(output, want) {
 				t.Fatalf("the caller's session changed, want %q:\n%s", want, output)
 			}
 		})
 	}
 }
 
-// Run as a file from a checkout, the script still takes -InstallDir and puts
-// the verified download there as cfo.exe. Without -Bootstrap it installs no
-// tools, so it goes ahead with neither winget, git nor gh on the machine.
-func TestCloneInstallPutsTheVerifiedDownloadInTheInstallDir(t *testing.T) {
-	binary := []byte("not a program")
-	sums := fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary))
+// fakeCheckout is a folder the script takes for a clone of Code Goblins, with
+// the script itself in it.
+func fakeCheckout(t *testing.T) string {
+	t.Helper()
 	source, err := os.ReadFile(installScript(t))
 	if err != nil {
 		t.Fatal(err)
 	}
+	checkout := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(checkout, "cmd", "cfo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string][]byte{"AGENTS.md": nil, "install.ps1": source} {
+		if err := os.WriteFile(filepath.Join(checkout, name), content, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return checkout
+}
+
+// A clone installs only through -Dev: run without it, the script names the
+// command and changes nothing, and -Dev anywhere but a clone is refused.
+func TestACloneInstallsOnlyThroughDev(t *testing.T) {
 	for _, shell := range oneLineShells(t) {
-		t.Run(filepath.Base(shell), func(t *testing.T) {
-			checkout, installDir := t.TempDir(), t.TempDir()
-			if err := os.MkdirAll(filepath.Join(checkout, "cmd", "cfo"), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			for name, content := range map[string][]byte{"AGENTS.md": nil, "install.ps1": source} {
-				if err := os.WriteFile(filepath.Join(checkout, name), content, 0o644); err != nil {
+		for name, test := range map[string]struct {
+			folder func(t *testing.T) string
+			args   []string
+			want   string
+		}{
+			"a clone without -Dev": {fakeCheckout, nil, `run: .\install.cmd -Dev`},
+			"-Dev outside a clone": {func(t *testing.T) string {
+				folder := t.TempDir()
+				source, err := os.ReadFile(installScript(t))
+				if err != nil {
 					t.Fatal(err)
 				}
+				if err := os.WriteFile(filepath.Join(folder, "install.ps1"), source, 0o644); err != nil {
+					t.Fatal(err)
+				}
+				return folder
+			}, []string{"-Dev"}, "-Dev builds Code Goblins from a clone"},
+		} {
+			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
+				var requests atomic.Int32
+				release := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					requests.Add(1)
+					http.NotFound(w, r)
+				}))
+				defer release.Close()
+				folder := test.folder(t)
+
+				output, _, _, err := runStrippedPowerShell(t, shell, release.URL, append([]string{"-File", filepath.Join(folder, "install.ps1")}, test.args...)...)
+
+				if err == nil || !strings.Contains(output, test.want) {
+					t.Fatalf("install = %v, want it refused with %q:\n%s", err, test.want, output)
+				}
+				if n := requests.Load(); n != 0 {
+					t.Errorf("the refused install made %d download requests, want none", n)
+				}
+				if _, err := os.Stat(filepath.Join(folder, "cfo.exe")); !os.IsNotExist(err) {
+					t.Errorf("cfo.exe was left in %s (%v), want none", folder, err)
+				}
+			})
+		}
+	}
+}
+
+// -Dev builds from source, so without Go it stops before building or changing
+// anything and names the install.
+func TestDevStopsForGoBeforeChangingAnything(t *testing.T) {
+	for _, shell := range oneLineShells(t) {
+		t.Run(filepath.Base(shell), func(t *testing.T) {
+			checkout := fakeCheckout(t)
+
+			output, _, _, err := runStrippedPowerShell(t, shell, serveRelease(t, nil, ""), "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
+
+			if err == nil || !strings.Contains(output, "winget install -e --id GoLang.Go") || !strings.Contains(output, "needs Go") {
+				t.Fatalf("install = %v, want it stopped for Go with its install:\n%s", err, output)
 			}
-
-			output, _, _, _ := runPowerShellWith(t, shell, serveRelease(t, binary, sums), nil, "-File", filepath.Join(checkout, "install.ps1"), "-InstallDir", installDir)
-
-			installed, err := os.ReadFile(filepath.Join(installDir, "cfo.exe"))
-			if err != nil || string(installed) != string(binary) {
-				t.Fatalf("cfo.exe in %s = %q (%v), want the verified download:\n%s", installDir, installed, err, output)
+			if left, _ := filepath.Glob(filepath.Join(checkout, "*.exe*")); len(left) != 0 {
+				t.Errorf("the stopped install left %v, want nothing built", left)
 			}
 		})
 	}
 }
 
-// Run from a checkout, a download that does not match the release's checksum
-// is refused outright: the install stops there instead of falling back to a
-// source build, and leaves no cfo.exe behind.
-func TestCloneInstallRefusesAMismatchedDownloadInsteadOfBuilding(t *testing.T) {
-	sums := fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256([]byte("the build the release published")))
-	source, err := os.ReadFile(installScript(t))
-	if err != nil {
-		t.Fatal(err)
-	}
+// -Dev replaces a cfo.exe that is still running, as a supervisor or a CFO's
+// terminal host keeps it on a working clone: the running copy moves aside,
+// and cfo.exe and goblins.exe both become the new build.
+func TestDevReplacesABuildThatIsStillRunning(t *testing.T) {
 	for _, shell := range oneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
-			checkout, installDir := t.TempDir(), t.TempDir()
-			if err := os.MkdirAll(filepath.Join(checkout, "cmd", "cfo"), 0o755); err != nil {
+			checkout := fakeCheckout(t)
+			newBuild := filepath.Join(t.TempDir(), "built")
+			if err := os.WriteFile(newBuild, []byte("the build from this clone"), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			for name, content := range map[string][]byte{"AGENTS.md": nil, "install.ps1": source} {
-				if err := os.WriteFile(filepath.Join(checkout, name), content, 0o644); err != nil {
-					t.Fatal(err)
+			// A running cfo.exe: ping, copied under that name, runs long
+			// enough and needs no console.
+			running := filepath.Join(checkout, "cfo.exe")
+			ping, err := os.ReadFile(filepath.Join(os.Getenv("SystemRoot"), "System32", "PING.EXE"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(running, ping, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			old := exec.Command(running, "-n", "120", "127.0.0.1")
+			old.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000} // CREATE_NO_WINDOW
+			if err := old.Start(); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				_ = old.Process.Kill()
+				_ = old.Wait()
+			})
+			// go build -o <path> ./cmd/cfo copies the new build to <path>.
+			stubs := map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n", "go": "@copy /y \"" + newBuild + "\" \"%3\" >nul\r\n"}
+
+			output, _, _, _ := runPowerShellWithStubs(t, shell, serveRelease(t, nil, ""), stubs, "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
+
+			for _, name := range []string{"cfo.exe", "goblins.exe"} {
+				if built, err := os.ReadFile(filepath.Join(checkout, name)); err != nil || string(built) != "the build from this clone" {
+					t.Errorf("%s = %q (%v), want the new build:\n%s", name, built, err, output)
 				}
 			}
-
-			output, _, _, err := runStrippedPowerShell(t, shell, serveRelease(t, []byte("a build the release did not publish"), sums), "-File", filepath.Join(checkout, "install.ps1"), "-InstallDir", installDir)
-
-			if err == nil || !strings.Contains(output, "does not match the release's SHA256SUMS") || strings.Contains(output, "Building from source") {
-				t.Fatalf("install = %v, want it refused without a source build:\n%s", err, output)
-			}
-			if _, err := os.Stat(filepath.Join(installDir, "cfo.exe")); !os.IsNotExist(err) {
-				t.Fatalf("cfo.exe was left in %s (%v), want none", installDir, err)
+			if old.ProcessState != nil {
+				t.Errorf("the running cfo.exe was stopped, want it left running under its old name")
 			}
 		})
 	}

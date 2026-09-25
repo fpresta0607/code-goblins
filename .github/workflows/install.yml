@@ -1,12 +1,14 @@
 name: install
 
-# Proves the one-line install on a clean Windows user profile, which a
-# GitHub-hosted runner is by construction: this commit's own build is served
-# as the release, installed exactly as `irm ... | iex` would, and checked.
+# Proves both installs on a clean Windows user profile, which a GitHub-hosted
+# runner is by construction: the one-line install, with this commit's own
+# build served as the release and installed exactly as `irm ... | iex` would,
+# and `.\install.cmd -Dev` from this checkout.
 on:
   pull_request:
     paths:
       - install.ps1
+      - install.cmd
       - home_files.go
       - cmd/cfo/install.go
       - cmd/cfo/native.go
@@ -22,6 +24,7 @@ on:
     branches: [main]
     paths:
       - install.ps1
+      - install.cmd
       - home_files.go
       - cmd/cfo/install.go
       - cmd/cfo/native.go
@@ -147,4 +150,54 @@ jobs:
           $left = @(@($settings.hooks.PSObject.Properties.Value.hooks.command) -match "cfo\.exe hook |cfo-native-hook\.ps1")
           if ($left.Count -gt 0) { throw "hooks survived the uninstall: $($left -join '; ')" }
           if (-not (Test-Path -LiteralPath (Join-Path $cfoHome "state"))) { throw "the uninstall removed the home's state" }
+          $global:LASTEXITCODE = 0
+
+  dev:
+    runs-on: windows-latest
+    # -Dev runs the same third-party installers as the one-line install.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Install from the clone
+        run: |
+          .\install.cmd -Dev
+          # The install ends with goblins doctor, whose verdict the next step
+          # reads line by line, as the one-line job's does.
+          $global:LASTEXITCODE = 0
+      - name: Check the clone is the CFO home
+        run: |
+          # A new terminal, as the install tells the user to open, sees the PATH
+          # the install wrote to the registry; a new step does not.
+          $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
+          $clone = $env:GITHUB_WORKSPACE
+          if ([Environment]::GetEnvironmentVariable("CFO_HOME", "User") -ne $clone) { throw "CFO_HOME is not the clone, $clone" }
+          if (-not (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $clone)) { throw "the clone is not on the user PATH" }
+          foreach ($name in "cfo", "goblins") {
+            $found = (Get-Command $name -ErrorAction Stop).Source
+            if ($found -ne (Join-Path $clone "$name.exe")) { throw "$name resolves to $found, want the clone's $name.exe" }
+          }
+          if ((Get-Item -LiteralPath (Join-Path $clone ".claude\skills") -Force).LinkType -ne "Junction") { throw ".claude\skills is not a junction to .agents\skills" }
+          $commands = @((Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json).hooks.SessionStart.hooks.command)
+          foreach ($hook in "cfo\.exe hook session-start", "cfo-native-hook\.ps1") {
+            if (-not ($commands -match $hook)) { throw "no SessionStart hook in the Claude Code user settings matches $hook" }
+          }
+          foreach ($skill in "gh-axi", "chrome-devtools-axi", "no-mistakes") {
+            if (-not (Test-Path -LiteralPath (Join-Path $env:USERPROFILE ".claude\skills\$skill\SKILL.md"))) { throw "-Dev did not install the $skill skill" }
+          }
+          $doctor = & goblins doctor
+          $doctor | Write-Host
+          $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" -and $_ -notmatch "^(MISSING\s+kimi\s|broken\s+kimi\s+harness spawn probe: not found on PATH)" })
+          if ($failing.Count -gt 0) { throw "goblins doctor reports more than kimi missing: $($failing -join '; ')" }
+          $global:LASTEXITCODE = 0
+      - name: Uninstall
+        run: |
+          # Run in the clone, uninstall unwires the clone and keeps it.
+          & (Join-Path $env:GITHUB_WORKSPACE "goblins.exe") uninstall
+          if ($LASTEXITCODE -ne 0) { throw "goblins uninstall exited with code $LASTEXITCODE" }
+          if ([Environment]::GetEnvironmentVariable("CFO_HOME", "User")) { throw "CFO_HOME survived the uninstall" }
+          if (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $env:GITHUB_WORKSPACE) { throw "the clone is still on the user PATH" }
+          if (-not (Test-Path -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "cfo.exe"))) { throw "the uninstall removed the clone's build" }
           $global:LASTEXITCODE = 0

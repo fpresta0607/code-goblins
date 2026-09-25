@@ -40,7 +40,7 @@ Only Claude reads these directories.
 
 **Skills.**
 Claude lists skills from `~/.claude/skills`, the project's `.claude/skills`, nested `.claude/skills` below the working directory, enabled plugins (namespaced `plugin:skill`) and skills synced from claude.ai.
-It does not read `.agents/skills`; `install.ps1 -Bootstrap` makes `.claude/skills` a junction to `.agents/skills` so the CFO sees this repository's skills.
+It does not read `.agents/skills`; `install.cmd -Dev` makes `.claude/skills` a junction to `.agents/skills` so the CFO sees this repository's skills.
 When a user skill and a project skill share a name, the user copy wins and the listing shows one entry, so a project skill can be silently shadowed.
 `skillOverrides` in settings sets a skill to `on`, `name-only`, `user-invocable-only` or `off`.
 Every listed description is paid for in every session; a skill body loads only when used.
@@ -78,7 +78,7 @@ Until the contract is shorter, run a Codex CFO with `project_doc_max_bytes = 655
 **Skills.**
 Codex scans, in order: the project's `.codex/skills` directories (nearest first), `~/.codex/skills`, `~/.agents/skills`, its system skills, plugins, and the project's `.agents/skills` from the root down to the working directory.
 It removes duplicates by `SKILL.md` path, never by name, so the same skill at two paths is listed twice, and a bare `$name` mention of an ambiguous name is ignored.
-Codex already reads the project's `.agents/skills`, so a `.codex/skills` junction to it only adds a second route to the same skills; `install.ps1 -Bootstrap` no longer creates one and removes the one an earlier bootstrap made.
+Codex already reads the project's `.agents/skills`, so a `.codex/skills` junction to it only adds a second route to the same skills; `install.cmd -Dev` no longer creates one and removes the one an earlier bootstrap made.
 
 **Prompts.**
 Codex 0.154 has no loader for `~/.codex/prompts`; commands reach Codex as skills or plugins.

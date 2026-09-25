@@ -3,3 +3,4 @@ frontend/index.html text eol=lf
 internal/boardweb/dist/index.html text eol=lf
 internal/boardweb/dist/**/*.js text eol=lf
 internal/boardweb/dist/**/*.css text eol=lf
+*.cmd text eol=crlf
