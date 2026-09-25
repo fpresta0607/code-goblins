@@ -198,6 +198,28 @@ func TestADeliveryToANativeCFOIsTypedIntoItsTerminalOnce(t *testing.T) {
 	}
 }
 
+// A delivery to a native CFO whose terminal has shown more than the host's
+// pipe holds is still typed into it and submitted once.
+func TestADeliveryToANativeCFOWithALongHistoryIsTypedIntoItsTerminalOnce(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("HERDR_PANE_ID", "")
+	cfo := hostTerminal(t, stateDir, "cfo")
+	cfo.typeLine(t, "register")
+	cfo.typeLine(t, "spill")
+	if lines := cfo.waitForLines(t, 2); len(lines) != 2 || !strings.HasPrefix(lines[0], "registered ") || lines[1] != "spilled" {
+		t.Fatalf("the program recorded %q, want its registration and then the spill", lines)
+	}
+
+	_, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
+
+	if err == nil || errors.Is(err, ErrRejected) {
+		t.Errorf("Send error = %v, want an unconfirmed delivery, neither refused nor accepted", err)
+	}
+	if typed := cfo.exit(t); len(typed) != 3 || typed[2] != "Overlord: hello" {
+		t.Errorf("the terminal received %q, want its registration, the spill and then the message once", typed)
+	}
+}
+
 // A delivery to a native CFO whose host does not answer is refused with
 // nothing sent, so the board may offer it again.
 func TestADeliveryToANativeCFOWhoseHostDoesNotAnswerIsRefused(t *testing.T) {

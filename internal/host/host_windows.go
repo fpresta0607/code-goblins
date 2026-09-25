@@ -167,9 +167,10 @@ func announce(stateDir, id string, childPID int) (Record, *listener, error) {
 	return record, pipe, nil
 }
 
-// serve is one viewer's connection: the handshake, the history, then live
-// output one way and input, resizes and a close request the other, until the
-// terminal ends or the viewer leaves.
+// serve is one viewer's connection: the handshake, then input, resizes and a
+// close request one way and the history and live output the other, until the
+// terminal ends or the viewer leaves. Input is read from the handshake on, so a
+// viewer that only types never waits on the output it does not read.
 func serve(connection *os.File, token string, console *conpty.Console, output *history, closing chan<- struct{}) {
 	defer connection.Close()
 	_ = connection.SetReadDeadline(time.Now().Add(handshakeTimeout))
@@ -188,12 +189,14 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 	_ = connection.SetReadDeadline(time.Time{})
 	past, feed, detach := output.attach()
 	defer detach()
-	if writeHello(connection, hello{Version: Version}) != nil || writeFrame(connection, frameOutput, past) != nil {
+	if writeHello(connection, hello{Version: Version}) != nil {
 		return
 	}
+	reading := make(chan struct{})
 	go func() {
 		// A viewer that leaves or sends a broken frame is detached, which
 		// ends the output loop below.
+		defer close(reading)
 		defer detach()
 		for {
 			kind, payload, err := readFrame(connection)
@@ -215,8 +218,15 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 			}
 		}
 	}()
+	// A write fails only once the viewer has left, so the input it sent
+	// before leaving is read to the end before the connection closes.
+	if writeFrame(connection, frameOutput, past) != nil {
+		<-reading
+		return
+	}
 	for chunk := range feed {
 		if writeFrame(connection, frameOutput, chunk) != nil {
+			<-reading
 			return
 		}
 	}

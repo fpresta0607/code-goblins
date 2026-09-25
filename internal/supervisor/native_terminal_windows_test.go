@@ -34,7 +34,8 @@ const viewQuery = "task=task-1&generation=g1&token=instance"
 // TestNativeTerminalProgram is not a test but the program a native terminal
 // test runs in its terminal: it records each typed line in the file it is
 // given, prints its terminal's size for "size", registers as the CFO of the
-// state directory it is given for "register", recording the outcome, and
+// state directory it is given for "register", recording the outcome, prints
+// more than the host's pipe holds for "spill", recording "spilled" after, and
 // exits for "exit N".
 func TestNativeTerminalProgram(t *testing.T) {
 	args := flag.Args()
@@ -69,6 +70,11 @@ func TestNativeTerminalProgram(t *testing.T) {
 				continue
 			}
 			fmt.Printf("size %dx%d\n", info.Window.Right-info.Window.Left+1, info.Window.Bottom-info.Window.Top+1)
+		case line == "spill":
+			for i := 0; i < 2000; i++ {
+				fmt.Println(strings.Repeat("s", 100))
+			}
+			record("spilled")
 		case strings.HasPrefix(line, "exit "):
 			code, _ := strconv.Atoi(strings.TrimPrefix(line, "exit "))
 			os.Exit(code)
