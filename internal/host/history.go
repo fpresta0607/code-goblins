@@ -2,7 +2,9 @@ package host
 
 import "sync"
 
-// historyLimit bounds the terminal output a host keeps for a late viewer.
+// historyLimit bounds the terminal output a host replays to a late viewer.
+// The kept output is trimmed back to it in batches, once it doubles, so a
+// write does not copy the whole history.
 // ponytail: raw bytes, so a replay can start inside an escape sequence; a
 // terminal-state snapshot replaces it if a viewer ever renders one wrong.
 const historyLimit = 4 << 20
@@ -26,8 +28,8 @@ func (h *history) write(chunk []byte) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.kept = append(h.kept, chunk...)
-	if len(h.kept) > historyLimit {
-		h.kept = append([]byte(nil), h.kept[len(h.kept)-historyLimit:]...)
+	if len(h.kept) > 2*historyLimit {
+		h.kept = append(h.kept[:0], h.kept[len(h.kept)-historyLimit:]...)
 	}
 	for viewer := range h.viewers {
 		select {
@@ -45,7 +47,7 @@ func (h *history) attach() ([]byte, <-chan []byte, func()) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	feed := make(chan []byte, 1024)
-	past := append([]byte(nil), h.kept...)
+	past := append([]byte(nil), h.kept[max(0, len(h.kept)-historyLimit):]...)
 	if h.closed {
 		close(feed)
 		return past, feed, func() {}

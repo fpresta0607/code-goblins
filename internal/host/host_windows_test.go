@@ -41,7 +41,8 @@ func TestMain(m *testing.M) {
 }
 
 // echoChild answers one typed line at a time: its terminal's size, a
-// grandchild it starts, an exit code, or the line itself.
+// grandchild it starts, an exit code, a flood of output before an exit code,
+// or the line itself.
 func echoChild() {
 	fmt.Println("ready")
 	lines := bufio.NewScanner(os.Stdin)
@@ -65,6 +66,13 @@ func echoChild() {
 				continue
 			}
 			fmt.Printf("grandchild %d\n", grandchild.Process.Pid)
+		case strings.HasPrefix(line, "flood "):
+			code, _ := strconv.Atoi(strings.TrimPrefix(line, "flood "))
+			for i := 0; i < 2000; i++ {
+				fmt.Println(strings.Repeat("f", 100))
+			}
+			fmt.Println("last words")
+			os.Exit(code)
 		case strings.HasPrefix(line, "exit "):
 			code, _ := strconv.Atoi(strings.TrimPrefix(line, "exit "))
 			os.Exit(code)
@@ -363,6 +371,30 @@ func TestTheHostEndsWithItsTerminal(t *testing.T) {
 	}
 	if _, err := ReadRecord(stateDir, "g1"); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the record is still there: %v", err)
+	}
+}
+
+// A viewer sees everything the terminal's process printed before it exited,
+// the pseudo console's closing sequence included, then its exit code.
+func TestTheViewerSeesTheTerminalsLastOutput(t *testing.T) {
+	_, record := launch(t)
+	v := connect(t, record)
+	v.waitFor(t, "ready")
+
+	typeLine(t, v, "flood 4")
+
+	code := v.waitForExit(t)
+	screen := v.screen.String()
+	if !strings.Contains(screen, "last words") {
+		t.Errorf("the screen before the exit ends %q, want the last words", screen[max(0, len(screen)-200):])
+	}
+	// The pseudo console turns win32 input mode off only as it closes; a
+	// viewer that misses it is left with its keyboard garbled.
+	if strings.Contains(screen, "\x1b[?9001h") && !strings.Contains(screen, "\x1b[?9001l") {
+		t.Errorf("the screen before the exit ends %q, want the console's closing sequence", screen[max(0, len(screen)-200):])
+	}
+	if code != 4 {
+		t.Errorf("exit code = %d, want 4", code)
 	}
 }
 

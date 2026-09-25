@@ -74,6 +74,9 @@ func Run(stateDir string, spec Spec) error {
 	defer removeRecord(stateDir, spec.ID, record.HostPID)
 
 	output := newHistory()
+	// outputEnded closes once the terminal's output is read to its end, which
+	// comes only after its process has exited and its pseudo console closed.
+	outputEnded := make(chan struct{})
 	go func() {
 		for {
 			chunk := make([]byte, 32<<10)
@@ -83,6 +86,7 @@ func Run(stateDir string, spec Spec) error {
 			}
 			if err != nil {
 				output.end()
+				close(outputEnded)
 				return
 			}
 		}
@@ -106,8 +110,11 @@ func Run(stateDir string, spec Spec) error {
 		}
 	}()
 
+	// The terminal's last output is read before Close, which ends whatever
+	// the process left running and discards the output of a terminal that is
+	// closed early.
 	select {
-	case <-console.Done():
+	case <-outputEnded:
 	case <-closing:
 	}
 	closeErr := console.Close()

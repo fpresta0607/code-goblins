@@ -72,20 +72,21 @@ func (l *listener) instance(first bool) (windows.Handle, error) {
 }
 
 // accept waits for the next client and returns its connection, then opens a
-// fresh instance for the one after it.
+// fresh instance for the one after it. On any failure the waiting instance
+// is disconnected and kept to wait on again, so it never names a closed
+// handle.
 func (l *listener) accept() (*os.File, error) {
 	connected := l.waiting
-	waitErr := waitForClient(connected)
+	if err := waitForClient(connected); err != nil {
+		windows.DisconnectNamedPipe(connected)
+		return nil, err
+	}
 	next, err := l.instance(false)
 	if err != nil {
-		windows.CloseHandle(connected)
+		windows.DisconnectNamedPipe(connected)
 		return nil, fmt.Errorf("host: open the next pipe instance: %w", err)
 	}
 	l.waiting = next
-	if waitErr != nil {
-		windows.CloseHandle(connected)
-		return nil, waitErr
-	}
 	return os.NewFile(uintptr(connected), "host pipe"), nil
 }
 
