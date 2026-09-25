@@ -72,6 +72,42 @@ func TestRunSpawnDefaultsSessionAndDeliveryMode(t *testing.T) {
 	}
 }
 
+// cfo spawn passes --backend native on, spawns in Herdr without it, and
+// refuses any other backend without calling the spawn service.
+func TestRunSpawnPassesTheBackend(t *testing.T) {
+	for name, test := range map[string]struct {
+		args    []string
+		exit    int
+		backend string
+	}{
+		"native":  {[]string{"--backend", "native"}, 0, "native"},
+		"default": {nil, 0, "herdr"},
+		"unknown": {[]string{"--backend", "tmux"}, 2, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			deps := testCommandRuntime(t)
+			var got *spawn.Request
+			deps.spawn = func(_ context.Context, _ home.Home, request spawn.Request) (spawn.Result, error) {
+				got = &request
+				return spawn.Result{Output: "spawned g4"}, nil
+			}
+
+			var stdout, stderr bytes.Buffer
+			exit := runWithRuntime(append([]string{"spawn", "g4", "--project", `C:\project`, "--brief", briefFile(t), "--harness", "claude"}, test.args...), &stdout, &stderr, deps)
+
+			if exit != test.exit {
+				t.Fatalf("exit = %d, want %d; stderr=%s", exit, test.exit, stderr.String())
+			}
+			switch {
+			case test.backend == "" && got != nil:
+				t.Errorf("an unknown backend reached the spawn service: %+v", *got)
+			case test.backend != "" && (got == nil || got.Backend != test.backend):
+				t.Errorf("request = %+v, want backend %q", got, test.backend)
+			}
+		})
+	}
+}
+
 func TestRunSpawnRejectsInvalidArgumentsWithoutState(t *testing.T) {
 	h := testHome(t)
 	deps := testCommandRuntimeForHome(h)

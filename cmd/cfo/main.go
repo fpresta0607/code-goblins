@@ -69,7 +69,7 @@ commands:
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
   cfo supersede <task-id> --reason <text>
-  cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--yolo]   without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom
+  cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--backend <herdr|native>] [--yolo]   without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom
   cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place
   cfo send <target> [--key <key>] <text...>
   cfo peek <target> [lines]
@@ -165,14 +165,19 @@ func defaultCommandRuntime() commandRuntime {
 		spawn: func(ctx context.Context, h home.Home, request spawn.Request) (spawn.Result, error) {
 			commands := execx.OSRunner{}
 			client := &herdr.Client{Commands: commands, Session: request.Session}
+			self, err := os.Executable()
+			if err != nil {
+				return spawn.Result{}, err
+			}
 			service := spawn.Service{
-				Terminals:  terminal.HerdrSessions(client),
-				Worktrees:  worktree.Service{Commands: commands, DataDir: h.Data},
-				Harness:    harness.DefaultRegistry(),
-				Auth:       auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
-				Commands:   commands,
-				StateDir:   h.State,
-				PolicyPath: filepath.Join(h.Root, "config", "pipeline.json"),
+				Terminals:   terminal.HerdrSessions(client),
+				Worktrees:   worktree.Service{Commands: commands, DataDir: h.Data},
+				Harness:     harness.DefaultRegistry(),
+				Auth:        auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
+				Commands:    commands,
+				StateDir:    h.State,
+				PolicyPath:  filepath.Join(h.Root, "config", "pipeline.json"),
+				HostCommand: []string{self, "host"},
 			}
 			return service.Spawn(ctx, request)
 		},
