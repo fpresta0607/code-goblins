@@ -394,8 +394,7 @@ func clampWaitMillis(d time.Duration) uint32 {
 }
 
 // createEvent and resetEvent go through NewLazyDLL because the stdlib
-// syscall package exports no Windows event APIs (CreateEvent, ResetEvent),
-// and golang.org/x/sys, which does, is banned for this project.
+// syscall package exports no Windows event APIs (CreateEvent, ResetEvent).
 func createEvent() (syscall.Handle, error) {
 	r1, _, e1 := procCreateEventW.Call(0, 1, 0, 0) // manual-reset, initially non-signaled, unnamed
 	if r1 == 0 {
