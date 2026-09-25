@@ -341,3 +341,99 @@ func TestNotifyWorkingAndWaitingOnWakeOnlyForTheOverlord(t *testing.T) {
 		t.Fatalf("wake records = %+v %v, want the wait on the Overlord", records, err)
 	}
 }
+
+// fakeLavish puts a stand-in lavish-axi alone on PATH that opens any page at
+// a fixed address.
+func fakeLavish(t *testing.T) {
+	t.Helper()
+	bin := t.TempDir()
+	script := "@echo off\r\necho session:\r\necho   url: \"http://127.0.0.1:4387/session/f26e\"\r\necho   status: opened\r\n"
+	if err := os.WriteFile(filepath.Join(bin, "lavish-axi.cmd"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+filepath.Join(os.Getenv("SystemRoot"), "System32"))
+}
+
+// A wait on the Overlord can name the Lavish page he answers on: the page is
+// checked and opened before anything is recorded, and its link travels with
+// the wait to the CFO.
+func TestNotifyWaitNamesTheLavishPageTheOverlordAnswersOn(t *testing.T) {
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	if err := os.Mkdir(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_HOME", dir)
+	page := filepath.Join(dir, "plan.html")
+	notes := filepath.Join(dir, "notes.txt")
+	for _, path := range []string{page, notes} {
+		if err := os.WriteFile(path, []byte("<html></html>"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fakeLavish(t)
+	for name, c := range map[string]struct {
+		args []string
+		exit int
+	}{
+		"a page with a question":  {[]string{"g1", "--blocked", "which plan?", "--lavish", page}, 2},
+		"a page with a CI wait":   {[]string{"g1", "--waiting-on", "ci", "checks", "--lavish", page}, 2},
+		"a page that is missing":  {[]string{"g1", "--waiting-on", "overlord", "pick a plan", "--lavish", filepath.Join(dir, "gone.html")}, 2},
+		"a page that is not HTML": {[]string{"g1", "--waiting-on", "overlord", "pick a plan", "--lavish", notes}, 2},
+	} {
+		var stdout, stderr bytes.Buffer
+		if exit := runNotify(c.args, &stdout, &stderr); exit != c.exit {
+			t.Errorf("%s: exit=%d stderr=%q, want %d", name, exit, stderr.String(), c.exit)
+		}
+	}
+	if lines, _ := state.TailStatus(stateDir, "g1", 1); len(lines) != 0 {
+		t.Fatalf("status = %q after refused notifies, want nothing recorded", lines)
+	}
+
+	// g1 is no goblin Herdr knows, so the wait's item cannot be published and
+	// nothing would watch the page: the notify fails loudly, and the CFO still
+	// has the wait.
+	var stdout, stderr bytes.Buffer
+	exit := runNotify([]string{"g1", "--waiting-on", "overlord", "pick a plan", "--lavish", page}, &stdout, &stderr)
+
+	if exit != 1 || !strings.Contains(stderr.String(), "nothing watches the page "+page) || !strings.Contains(stderr.String(), "ask in text with --blocked") {
+		t.Fatalf("exit=%d stderr=%q, want a failure naming the unwatched page and saying to ask in text", exit, stderr.String())
+	}
+	want := "waiting on overlord: pick a plan (page http://127.0.0.1:4387/session/f26e)"
+	lines, err := state.TailStatus(stateDir, "g1", 1)
+	if _, event := state.SplitStatus(lines[0]); err != nil || event != want {
+		t.Fatalf("status = %q %v, want %q", lines, err, want)
+	}
+	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != want {
+		t.Fatalf("wake records = %+v %v, want the wait with its page", records, err)
+	}
+}
+
+// Without lavish-axi the page cannot be shown, so the notify is refused before
+// anything is recorded and the goblin asks in text instead.
+func TestNotifyWaitWithAPageIsRefusedWithoutLavish(t *testing.T) {
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	if err := os.Mkdir(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_HOME", dir)
+	page := filepath.Join(dir, "plan.html")
+	if err := os.WriteFile(page, []byte("<html></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+
+	var stdout, stderr bytes.Buffer
+	exit := runNotify([]string{"g1", "--waiting-on", "overlord", "pick a plan", "--lavish", page}, &stdout, &stderr)
+
+	if exit != 1 || !strings.Contains(stderr.String(), "ask in text with --blocked") {
+		t.Fatalf("exit=%d stderr=%q, want a refusal that says to ask in text", exit, stderr.String())
+	}
+	if lines, _ := state.TailStatus(stateDir, "g1", 1); len(lines) != 0 {
+		t.Fatalf("status = %q, want nothing recorded", lines)
+	}
+	if records, _ := wake.Pending(stateDir); len(records) != 0 {
+		t.Fatalf("wake records = %+v, want none", records)
+	}
+}

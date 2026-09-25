@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // A goblin's review stays open until it is cleared or withdrawn: its images
@@ -27,13 +28,13 @@ func TestReviewItemOutlivesItsSourceTheSupervisorAndTheGoblin(t *testing.T) {
 		data = append(data, writePNG(t, path))
 	}
 	ctx := context.Background()
-	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "mockups-review-1", "Pick a task list layout", "http://127.0.0.1:4387/session/f26e", paths); err != nil {
+	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "mockups-review-1", "Pick a task list layout", "http://127.0.0.1:4387/session/f26e", "", paths); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "mockups-review-1", "Pick a task list layout", "http://127.0.0.1:4387/session/f26e", paths); err != nil {
+	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "mockups-review-1", "Pick a task list layout", "http://127.0.0.1:4387/session/f26e", "", paths); err != nil {
 		t.Fatalf("an unchanged republish was refused: %v", err)
 	}
-	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "mockups-review-1", "Another title", "", paths); err == nil || !strings.Contains(err.Error(), "already used") {
+	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "mockups-review-1", "Another title", "", "", paths); err == nil || !strings.Contains(err.Error(), "already used") {
 		t.Fatalf("a republish with other content = %v, want refused", err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -93,7 +94,7 @@ func TestReviewWithdrawnOnlyByItsReporter(t *testing.T) {
 	store, h := testStore(t)
 	meta, _, _, connection := goblinFixture(t, store)
 	ctx := context.Background()
-	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "plan-review-1", "Read the plan", "", nil); err != nil {
+	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "plan-review-1", "Read the plan", "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := spoolReview(h.State, Review{ID: "plan-review-1", Identity: strings.Repeat("e", 64), State: "withdrawn", Reason: "not mine", UpdatedAt: time.Now().UTC()}); err != nil {
@@ -122,7 +123,7 @@ func TestReviewWithdrawalRefusedBeforeRecordingAnything(t *testing.T) {
 	store, h := testStore(t)
 	meta, _, _, connection := goblinFixture(t, store)
 	ctx := context.Background()
-	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "closed-review", "Read the plan", "", nil); err != nil {
+	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "closed-review", "Read the plan", "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -159,7 +160,7 @@ func TestReviewRepublishNeverTouchesTheRecordedImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "mockups-review-1", "Pick a layout", "", []string{grid}); err != nil {
+	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "mockups-review-1", "Pick a layout", "", "", []string{grid}); err != nil {
 		t.Fatal(err)
 	}
 	inbox := reviewInboxPath(h.State, "mockups-review-1", "open")
@@ -176,7 +177,7 @@ func TestReviewRepublishNeverTouchesTheRecordedImages(t *testing.T) {
 	if err := os.Remove(inbox); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "mockups-review-1", "Pick a layout", "", []string{list}); err != nil {
+	if err := PublishReview(ctx, h, connection.Herdr, meta.ID, "mockups-review-1", "Pick a layout", "", "", []string{list}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.acceptReview(first); err != nil {
@@ -213,7 +214,7 @@ func TestReviewRefusedByAFullInboxLeavesNoCopies(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := PublishReview(context.Background(), h, connection.Herdr, meta.ID, "mockups-review-1", "Pick a layout", "", []string{grid}); err == nil || !strings.Contains(err.Error(), "inbox is full") {
+	if err := PublishReview(context.Background(), h, connection.Herdr, meta.ID, "mockups-review-1", "Pick a layout", "", "", []string{grid}); err == nil || !strings.Contains(err.Error(), "inbox is full") {
 		t.Fatalf("a publication into a full inbox = %v, want refused", err)
 	}
 	if entries, err := os.ReadDir(filepath.Join(h.State, "reviews")); !os.IsNotExist(err) && len(entries) != 0 {
@@ -247,7 +248,7 @@ func TestReviewAnswerReachesItsReporterOnceOrElseTheCFO(t *testing.T) {
 				task = meta.ID
 			}
 			ctx := context.Background()
-			if err := PublishReview(ctx, h, cfo.Herdr, task, "plan-review-1", "Read the plan", "", nil); err != nil {
+			if err := PublishReview(ctx, h, cfo.Herdr, task, "plan-review-1", "Read the plan", "", "", nil); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.ingestReviews(); err != nil {
@@ -287,6 +288,59 @@ func TestReviewAnswerReachesItsReporterOnceOrElseTheCFO(t *testing.T) {
 	}
 }
 
+// The Overlord's board answer on a goblin's item reaches the goblin and, as a
+// notice that asks nothing, the CFO; the CFO's own item needs no notice.
+func TestABoardAnswerOnAGoblinsItemAlsoReachesTheCFO(t *testing.T) {
+	for name, goblin := range map[string]bool{"a goblin's item": true, "the CFO's own item": false} {
+		t.Run(name, func(t *testing.T) {
+			store, h := testStore(t)
+			_, _, _, cfo := primaryFixture(t, store)
+			meta, _, _, _ := goblinFixture(t, store)
+			t.Setenv("CFO_SESSION_ID", "actual-primary")
+			t.Setenv("CFO_SESSION_HARNESS", "codex")
+			task := ""
+			if goblin {
+				task = meta.ID
+			}
+			ctx := context.Background()
+			if err := PublishReview(ctx, h, cfo.Herdr, task, "plan-review-1", "Read the plan", "", "", nil); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ingestReviews(); err != nil {
+				t.Fatal(err)
+			}
+			r := store.Snapshot().Reviews[0]
+			if _, err := store.Queue(Action{ID: "answer-review-1", Kind: "review_answer", ReviewID: r.ID, Generation: r.Identity, Text: "Go with the grid"}); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := store.ProcessOne(ctx, (&Service{Store: store, Options: Options{CFO: cfo}}).execute); err != nil {
+				t.Fatal(err)
+			}
+
+			if !goblin {
+				records, err := wake.Pending(h.State)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, record := range records {
+					if record.Kind == "review" {
+						t.Fatalf("review wake %+v, want none: the CFO answered its own item", record)
+					}
+				}
+				return
+			}
+			wakes := reviewWakes(t, h.State, meta.ID)
+			if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "plan-review-1") || !strings.Contains(wakes[0].Detail, "Go with the grid") {
+				t.Fatalf("review wakes = %+v, want one carrying the item and the answer", wakes)
+			}
+			if _, blocking := wake.BlockingNotify(wakes[0]); blocking {
+				t.Fatalf("the notice %+v blocks the drain, want it to ask nothing", wakes[0])
+			}
+		})
+	}
+}
+
 // With the list full and a publication waiting, an item the Overlord just
 // answered keeps its place until its answer is delivered, and only then makes
 // room for the waiting one.
@@ -296,7 +350,7 @@ func TestAnsweredReviewSurvivesAFullListUntilDelivered(t *testing.T) {
 	t.Setenv("CFO_SESSION_ID", "actual-primary")
 	t.Setenv("CFO_SESSION_HARNESS", "codex")
 	ctx := context.Background()
-	if err := PublishReview(ctx, h, cfo.Herdr, "", "plan-review-1", "Read the plan", "", nil); err != nil {
+	if err := PublishReview(ctx, h, cfo.Herdr, "", "plan-review-1", "Read the plan", "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -342,7 +396,7 @@ func TestWaitOnTheOverlordIsTheItemItsNextReportWithdraws(t *testing.T) {
 	if err := state.AppendStatus(h.State, meta.ID, "waiting on overlord: log in to Stripe"); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishWait(context.Background(), h, connection.Herdr, meta.ID, 7, "log in to Stripe"); err != nil {
+	if err := PublishWait(context.Background(), h, connection.Herdr, meta.ID, 7, "log in to Stripe", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {

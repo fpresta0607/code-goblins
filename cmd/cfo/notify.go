@@ -5,9 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -27,9 +30,13 @@ import (
 //	cfo notify <task-id> --failed "<reason>"
 //	cfo notify <task-id> --working "<what>"
 //	cfo notify <task-id> --waiting-on <task-id|overlord|ci|deploy> "<why>"
+//	cfo notify <task-id> --waiting-on overlord "<why>" --lavish <html-file>
 //
 // Only a question and a wait on the Overlord wake the CFO: working, and a
-// wait on another task, CI or a deploy, are status for the board.
+// wait on another task, CI or a deploy, are status for the board. A wait that
+// names a Lavish page puts the page on its card, and the supervisor polls it:
+// the Overlord's feedback there goes to the CFO, never to a poll of the
+// goblin's own.
 func runNotify(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "cfo notify: task ID is required")
@@ -49,6 +56,7 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	failed := fs.String("failed", "", "report a failure reason")
 	working := fs.String("working", "", "report what you are working on now")
 	waitingOn := fs.String("waiting-on", "", "report what you wait on, another task's ID, overlord, ci or deploy, followed by why")
+	lavish := fs.String("lavish", "", "with --waiting-on overlord, the HTML file of the Lavish page the Overlord answers on")
 	var images []string
 	fs.Func("image", "a review image for a --blocked question's choice; repeat it once for each choice, in order", func(v string) error {
 		images = append(images, v)
@@ -57,7 +65,15 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
-	if fs.NArg() != 0 && (*waitingOn == "" || fs.NArg() != 1) {
+	// A wait's reason is its one plain argument, and flags may follow it.
+	positional := fs.Args()
+	if len(positional) > 0 {
+		if err := fs.Parse(positional[1:]); err != nil {
+			return 2
+		}
+		positional = append([]string{positional[0]}, fs.Args()...)
+	}
+	if len(positional) != 0 && (*waitingOn == "" || len(positional) != 1) {
 		fmt.Fprintln(stderr, "cfo notify: unexpected arguments")
 		return 2
 	}
@@ -87,11 +103,39 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		verb, detail = "working", *working
 	default:
 		target := *waitingOn
-		if fs.NArg() != 1 || strings.TrimSpace(fs.Arg(0)) == "" || target != "overlord" && target != "ci" && target != "deploy" && (state.ValidTaskID(target) != nil || target == id) {
+		if len(positional) != 1 || strings.TrimSpace(positional[0]) == "" || target != "overlord" && target != "ci" && target != "deploy" && (state.ValidTaskID(target) != nil || target == id) {
 			fmt.Fprintln(stderr, "cfo notify: --waiting-on takes another task's ID, overlord, ci or deploy, then why: --waiting-on <task-id|overlord|ci|deploy> \"<why>\"")
 			return 2
 		}
-		verb, detail = "waiting on "+target, fs.Arg(0)
+		verb, detail = "waiting on "+target, positional[0]
+	}
+	// The page is checked and opened before anything is recorded, so a page
+	// that cannot be shown fails the notify instead of leaving a wait on a
+	// card the Overlord cannot answer.
+	var page, pageURL string
+	if *lavish != "" {
+		if verb != "waiting on overlord" {
+			fmt.Fprintln(stderr, "cfo notify: --lavish goes with --waiting-on overlord: it names the page the Overlord answers on")
+			return 2
+		}
+		var err error
+		if page, err = filepath.Abs(*lavish); err != nil {
+			fmt.Fprintf(stderr, "cfo notify: resolve --lavish %s: %v\n", *lavish, err)
+			return 2
+		}
+		extension := strings.ToLower(filepath.Ext(page))
+		if info, err := os.Stat(page); err != nil || !info.Mode().IsRegular() || extension != ".html" && extension != ".htm" {
+			fmt.Fprintf(stderr, "cfo notify: --lavish %s is not an HTML file\n", page)
+			return 2
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		pageURL, err = (axi.Lavish{Commands: execx.OSRunner{}}).Open(ctx, page)
+		cancel()
+		if err != nil {
+			fmt.Fprintf(stderr, "cfo notify: lavish-axi cannot show %s (%v); ask in text with --blocked instead\n", page, err)
+			return 1
+		}
+		detail += " (page " + pageURL + ")"
 	}
 
 	h, err := home.Resolve()
@@ -132,12 +176,17 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	// The CFO is already woken; the Command Center copy is a second route
-	// to the Overlord, so its failure is reported and never fails the notify.
+	// to the Overlord, so its failure is reported and never fails the notify,
+	// except for a page: only its item gets the page polled.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	client := &herdr.Client{Commands: execx.OSRunner{}}
 	if verb == "waiting on overlord" {
-		if err := supervisor.PublishWait(ctx, h, client, id, record.Seq, state.NormalizeStatusDetail(detail)); err != nil {
+		if err := supervisor.PublishWait(ctx, h, client, id, record.Seq, state.NormalizeStatusDetail(detail), pageURL, page); err != nil {
+			if page != "" {
+				fmt.Fprintf(stderr, "cfo notify: the Command Center cannot show this wait (%v), so nothing watches the page %s and the Overlord's answer on it reaches nobody; the CFO has the wait, ask in text with --blocked instead\n", err, page)
+				return 1
+			}
 			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this wait, the CFO still has it: "+err.Error())
 		}
 	} else if err := supervisor.SurfaceNotify(ctx, h.State, client, id, record, images); err != nil {

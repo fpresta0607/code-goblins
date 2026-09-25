@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"runtime"
+	"strconv"
 	"time"
 )
 
@@ -15,6 +17,10 @@ type Request struct {
 	Env  []string
 	Name string
 	Args []string
+	// KillTree makes a cancelled Run end the process and everything it
+	// started, since killing a shim such as an npm .cmd alone leaves its real
+	// child running.
+	KillTree bool
 }
 
 // Result contains the complete, separately captured child output.
@@ -97,6 +103,11 @@ func (OSRunner) Start(ctx context.Context, req Request) error {
 func command(ctx context.Context, req Request) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, req.Name, req.Args...)
 	configure(cmd, req)
+	if req.KillTree && runtime.GOOS == "windows" {
+		cmd.Cancel = func() error {
+			return exec.Command("taskkill", "/PID", strconv.Itoa(cmd.Process.Pid), "/T", "/F").Run()
+		}
+	}
 	return cmd
 }
 

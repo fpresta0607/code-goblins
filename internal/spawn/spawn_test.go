@@ -2148,6 +2148,8 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 	for _, want := range []string{
 		exe + " notify task-7 --working \"<what>\"",
 		exe + " notify task-7 --waiting-on <task-id|overlord|ci|deploy> \"<why>\"",
+		exe + " notify task-7 --waiting-on overlord \"<why>\" --lavish <html-file>",
+		"never run lavish-axi poll yourself",
 	} {
 		if !strings.Contains(instruction, want) {
 			t.Errorf("instruction = %q, want %q", instruction, want)

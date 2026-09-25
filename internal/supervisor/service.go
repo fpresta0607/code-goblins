@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -42,6 +43,9 @@ type Options struct {
 	MergedPRs func(ctx context.Context, since time.Time, limit int) ([]MergedPR, error)
 	// Runs opens run items' windows; without it no item can run.
 	Runs RunLauncher
+	// PollPage waits up to a timeout for the Overlord's feedback on a Lavish
+	// page; without it no page is polled.
+	PollPage func(ctx context.Context, file string, timeout time.Duration) (axi.PagePoll, error)
 }
 
 type Service struct {
@@ -62,9 +66,13 @@ type Service struct {
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
-	done        chan struct{}
-	work        chan struct{}
-	cancel      context.CancelFunc
+	// pages stops each open item's page poller; pageWork waits for them.
+	pagesMu  sync.Mutex
+	pages    map[string]context.CancelFunc
+	pageWork sync.WaitGroup
+	done     chan struct{}
+	work     chan struct{}
+	cancel   context.CancelFunc
 }
 
 // Start acquires the same singleton as legacy watch BEFORE opening recovery
@@ -144,6 +152,7 @@ func (s *Service) run(ctx context.Context) {
 		s.serveRunRequests(ctx)
 	}()
 	defer func() { s.cancel(); <-pipeDone }()
+	defer func() { s.cancel(); s.pageWork.Wait() }()
 	// A single inbox watcher, independent of task count. A timeout also
 	// recovers notifications lost during atomic renames or an AV filter fault.
 	notified := make(chan struct{}, 1)
@@ -214,6 +223,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.retireWaits())
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
 	s.reconcilePresentations(ctx)
+	s.watchPages(ctx)
 	if recover {
 		if s.Options.Reconcile != nil {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))

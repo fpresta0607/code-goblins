@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/boardweb"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -87,6 +88,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Reconcile:      func(ctx context.Context) error { return watch.Reconcile(ctx, config) },
 		VerifyDelivery: (supervisor.Git{}).VerifyDelivery,
 		Runs:           supervisor.OSRunLauncher{},
+		PollPage:       (axi.Lavish{Commands: execx.OSRunner{}}).Poll,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
