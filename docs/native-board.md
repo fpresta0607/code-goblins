@@ -221,12 +221,14 @@ A read that fails is an error naming the terminal, never an empty screen.
 `cfo spawn --backend native` starts a goblin in a native terminal of its own, named by its task id, instead of a Herdr tab; it is opt-in until native becomes the default.
 The harness starts as its own program: claude.exe itself, and codex and pi through `cmd /c`, since their npm shims are scripts, and an argument cmd would read as more than text is refused.
 The terminal's environment is the spawn's own without the harness billing keys, the Herdr pane's variables and the spawning session's own markers, then the project's credentials, then the launch's variables: a native task has no credentials script.
+The session markers are exact names, such as `CLAUDECODE` and `CLAUDE_CODE_ENTRYPOINT`, so Claude Code's own settings, such as `CLAUDE_CODE_GIT_BASH_PATH`, reach a native goblin as they reach a Herdr one.
 The spawn reads the terminal's screen throughout and types only where it recognizes what it reads.
 A startup dialog it knows is answered only once it shows, by moving the focus down and checking each move on the screen before confirming: Claude's trust dialog, which focuses "No, exit" first, and Codex's update prompt (Skip) and trust prompt (Yes).
 A prompt a spawn may not answer, such as Codex's hook review, or a screen it does not recognize within the startup budget, stops the spawn with the terminal named and its screen quoted.
 The instruction is typed into the composer, submitted once the composer shows it, and the spawn succeeds only once the harness shows it working.
 Codex's composer and working texts are its known ones, not yet seen in a capture here, and the first live native Codex spawn checks them.
 A native spawn that fails closes its terminal, which ends the harness and everything it started, and retires the task as a Herdr spawn does.
+If the terminal's host still runs but does not answer the close, the spawn's error says so, and the worktree and task record stay, so the task can still be reached.
 `cfo cleanup` does not take a native task yet; its terminal ends when its harness exits, which `cfo attach <id>` can ask of it.
 A missing or stale registration shows on the board as one banner, and in the CFO terminal as its own state, naming what went stale and the fix, `cfo register` in the CFO session.
 On Windows normal message delivery holds that registration against replacement and validates the live process/start time, foreground process group, registered agent, pane, workspace, tab and terminal ID before using a required-agent sender.

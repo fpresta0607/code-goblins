@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -32,9 +33,11 @@ const nativeSpawnHost = "native-spawn-host"
 // The fake harness records what it sees to the file fakeCodexRecord names, and
 // fakeCodexMode picks what it shows: codex's update prompt, then its trust
 // prompt and composer by default or its hook review prompt ("hooks"), nothing
-// a spawn would recognize ("silent"), or no console at all ("detached"). At
-// its composer, a prompt can open as the typing starts ("late"), or a
-// submitted line can leave it looking idle ("unmoved").
+// a spawn would recognize ("silent"), or no console at all ("detached"). Half
+// drawn ("halfdrawn"), its update prompt shows its header alone at first, and
+// no focus for a moment after a move. At its composer, a prompt can open as
+// the typing starts ("late"), or a submitted line can leave it looking idle
+// ("unmoved").
 const (
 	fakeCodexRecord = "SPAWN_TEST_CODEX_RECORD"
 	fakeCodexMode   = "SPAWN_TEST_CODEX_MODE"
@@ -63,7 +66,7 @@ type codexEvent struct {
 }
 
 // recordedEnv is what the fake codex records of its environment.
-var recordedEnv = []string{"CFO_TASK_ID", "CFO_ROLE", "GOTMPDIR", "CFO_STATE_OVERRIDE", "CFO_HOST_ID", "FIXTURE_TOKEN", "OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE"}
+var recordedEnv = []string{"CFO_TASK_ID", "CFO_ROLE", "GOTMPDIR", "CFO_STATE_OVERRIDE", "CFO_HOST_ID", "FIXTURE_TOKEN", "OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_GIT_BASH_PATH", "CODEX_SANDBOX_NETWORK_DISABLED"}
 
 // fakeHarness shows codex's own startup screens, as captured on this machine,
 // and answers keys the way codex does. It records its environment, every key
@@ -121,7 +124,12 @@ func fakeHarness() {
 		return
 	}
 	// Nothing may be typed before a screen asks for a key.
-	time.Sleep(time.Second)
+	pause := time.Second
+	if mode == "halfdrawn" {
+		draw("", "  ✨ Update available! 0.154.0 -> 0.157.0")
+		pause = 1500 * time.Millisecond
+	}
+	time.Sleep(pause)
 	for waiting := true; waiting; {
 		select {
 		case key := <-keys:
@@ -131,10 +139,17 @@ func fakeHarness() {
 		}
 	}
 	options := []string{"1. Update now (runs `npm install -g @openai/codex`)", "2. Skip", "3. Skip until next version"}
-	chosen := choose(keys, record, func(focus int) {
+	update := func(focus int) {
 		rows := []string{"", "  ✨ Update available! 0.154.0 -> 0.157.0", "", "  Release notes: https://github.com/openai/codex/releases/latest", ""}
 		rows = append(rows, focusRows(options, focus)...)
 		draw(append(rows, "", "  Press enter to continue")...)
+	}
+	chosen := choose(keys, record, func(focus int) {
+		if mode == "halfdrawn" && focus > 0 {
+			update(-1)
+			time.Sleep(1500 * time.Millisecond)
+		}
+		update(focus)
 	})
 	record(codexEvent{Event: "update prompt", Text: options[chosen]})
 	if chosen == 0 {
@@ -393,53 +408,64 @@ func ended(pid int) bool {
 // A native spawn answers codex's update prompt with Skip and its trust prompt
 // with Yes, each only once it shows, then types the instruction once and
 // submits it once codex's composer shows it. The goblin gets its project
-// credentials and the launch's variables, and nothing of the fleet's own:
-// no billing key, no Herdr pane, no Claude Code session marker.
+// credentials, the launch's variables and Claude Code's own settings, and
+// nothing that names the fleet's own session: no billing key, no Herdr pane,
+// no Claude Code or Codex session marker. A prompt still drawing, its options
+// not shown yet or its focus not shown for a moment after a move, is read
+// again until its focus shows, and answered as one drawn at once.
 func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testing.T) {
-	f := newNativeFixture(t, harness.Codex, "")
+	for name, mode := range map[string]string{"drawn at once": "", "half drawn": "halfdrawn"} {
+		t.Run(name, func(t *testing.T) {
+			f := newNativeFixture(t, harness.Codex, mode)
+			t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+			gitBash := filepath.Join(t.TempDir(), "bash.exe")
+			t.Setenv("CLAUDE_CODE_GIT_BASH_PATH", gitBash)
+			t.Setenv("CODEX_SANDBOX_NETWORK_DISABLED", "1")
 
-	result, err := f.service.Spawn(context.Background(), f.request)
+			result, err := f.service.Spawn(context.Background(), f.request)
 
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
-	if err != nil || meta.Backend != "native" || meta.HerdrPaneID != "" || result.Meta.Backend != "native" {
-		t.Fatalf("task record = %+v, %v; want a native task with no Herdr pane", meta, err)
-	}
-	events := f.events(t)
-	if blind := append(named(events, "typed blind"), named(events, "typed into a list")...); len(blind) != 0 {
-		t.Errorf("keys typed where no screen asked for them: %+v", blind)
-	}
-	if update := named(events, "update prompt"); len(update) != 1 || update[0].Text != "2. Skip" {
-		t.Errorf("update prompt answers = %+v, want 2. Skip once", update)
-	}
-	if trust := named(events, "trust prompt"); len(trust) != 1 || trust[0].Text != "1. Yes, continue" {
-		t.Errorf("trust prompt answers = %+v, want 1. Yes, continue once", trust)
-	}
-	instruction := spawnInstruction(f.brief, "task-7")
-	if submitted := named(events, "submitted"); len(submitted) != 1 || submitted[0].Text != instruction {
-		t.Errorf("submitted = %+v, want the instruction once:\n%s", submitted, instruction)
-	}
-	env := named(events, "env")[0].Env
-	want := map[string]string{"CFO_TASK_ID": "task-7", "CFO_ROLE": harness.RoleGoblin, "GOTMPDIR": goTmpDir(t, f.stateDir, "task-7"), "CFO_STATE_OVERRIDE": f.stateDir, "CFO_HOST_ID": "task-7", "FIXTURE_TOKEN": "t0ken"}
-	for name, value := range want {
-		if got := env[name]; got == nil || *got != value {
-			t.Errorf("the goblin's %s = %v, want %q", name, got, value)
-		}
-	}
-	for _, name := range []string{"OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE"} {
-		if got := env[name]; got != nil {
-			t.Errorf("the goblin got %s = %q, want it unset", name, *got)
-		}
-	}
-	terminal, found := f.terminal()
-	if !found {
-		t.Fatal("the spawn's host never recorded itself")
-	}
-	screen, err := host.ReadScreen(terminal)
-	if err != nil || !strings.Contains(host.ScreenTail(screen, 0), "Working") {
-		t.Errorf("screen = %q, %v; want codex working", host.ScreenTail(screen, 0), err)
+			if err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+			meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+			if err != nil || meta.Backend != "native" || meta.HerdrPaneID != "" || result.Meta.Backend != "native" {
+				t.Fatalf("task record = %+v, %v; want a native task with no Herdr pane", meta, err)
+			}
+			events := f.events(t)
+			if blind := append(named(events, "typed blind"), named(events, "typed into a list")...); len(blind) != 0 {
+				t.Errorf("keys typed where no screen asked for them: %+v", blind)
+			}
+			if update := named(events, "update prompt"); len(update) != 1 || update[0].Text != "2. Skip" {
+				t.Errorf("update prompt answers = %+v, want 2. Skip once", update)
+			}
+			if trust := named(events, "trust prompt"); len(trust) != 1 || trust[0].Text != "1. Yes, continue" {
+				t.Errorf("trust prompt answers = %+v, want 1. Yes, continue once", trust)
+			}
+			instruction := spawnInstruction(f.brief, "task-7")
+			if submitted := named(events, "submitted"); len(submitted) != 1 || submitted[0].Text != instruction {
+				t.Errorf("submitted = %+v, want the instruction once:\n%s", submitted, instruction)
+			}
+			env := named(events, "env")[0].Env
+			want := map[string]string{"CFO_TASK_ID": "task-7", "CFO_ROLE": harness.RoleGoblin, "GOTMPDIR": goTmpDir(t, f.stateDir, "task-7"), "CFO_STATE_OVERRIDE": f.stateDir, "CFO_HOST_ID": "task-7", "FIXTURE_TOKEN": "t0ken", "CLAUDE_CODE_GIT_BASH_PATH": gitBash}
+			for name, value := range want {
+				if got := env[name]; got == nil || *got != value {
+					t.Errorf("the goblin's %s = %v, want %q", name, got, value)
+				}
+			}
+			for _, name := range []string{"OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CODEX_SANDBOX_NETWORK_DISABLED"} {
+				if got := env[name]; got != nil {
+					t.Errorf("the goblin got %s = %q, want it unset", name, *got)
+				}
+			}
+			terminal, found := f.terminal()
+			if !found {
+				t.Fatal("the spawn's host never recorded itself")
+			}
+			screen, err := host.ReadScreen(terminal)
+			if err != nil || !strings.Contains(host.ScreenTail(screen, 0), "Working") {
+				t.Errorf("screen = %q, %v; want codex working", host.ScreenTail(screen, 0), err)
+			}
+		})
 	}
 }
 
@@ -468,6 +494,51 @@ func TestANativeSpawnStopsAtAPromptItMayNotAnswer(t *testing.T) {
 	}
 	if f.git.returned != 1 {
 		t.Errorf("worktree returned %d times, want once", f.git.returned)
+	}
+}
+
+// A native terminal whose host runs but does not answer the close stops the
+// teardown, since its harness may still run: the error names the terminal,
+// and the worktree and task record stay, so the task can still be reached. A
+// host that has ended has nothing left to close, and the teardown completes.
+func TestATeardownKeepsANativeTaskWhoseHostMayStillRun(t *testing.T) {
+	previous := nativeCloseWait
+	nativeCloseWait = time.Second
+	t.Cleanup(func() { nativeCloseWait = previous })
+	exited := exec.Command(os.Args[0], "-test.run=^$")
+	if err := exited.Run(); err != nil {
+		t.Fatal(err)
+	}
+	for name, test := range map[string]struct {
+		hostPID       int
+		isKeptInPlace bool
+	}{
+		"its host runs":      {os.Getpid(), true},
+		"its host has ended": {exited.ProcessState.Pid(), false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			record, err := json.Marshal(host.Record{ID: "task-7", Pipe: `\\.\pipe\spawn-test-nobody-serves-this`, Token: "t0ken", Version: host.Version, HostPID: test.hostPID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(makeDir(t, filepath.Join(f.stateDir, "hosts")), "task-7.json"), string(record))
+			meta := filepath.Join(f.stateDir, "task-7.meta")
+			writeFile(t, meta, "{}")
+
+			err = f.service.teardownLaunch(context.Background(), nil, herdr.Endpoint{}, f.project, f.worktree, "task-7")
+
+			_, metaErr := os.Stat(meta)
+			if test.isKeptInPlace {
+				if err == nil || !strings.Contains(err.Error(), "native terminal task-7") || f.git.returned != 0 || metaErr != nil {
+					t.Errorf("teardown = %v, worktree returned %d times, task record %v; want the terminal named and the task kept", err, f.git.returned, metaErr)
+				}
+				return
+			}
+			if err != nil || f.git.returned != 1 || !os.IsNotExist(metaErr) {
+				t.Errorf("teardown = %v, worktree returned %d times, task record %v; want the task retired", err, f.git.returned, metaErr)
+			}
+		})
 	}
 }
 

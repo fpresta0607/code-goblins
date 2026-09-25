@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -35,6 +37,7 @@ var (
 	nativeKeyEffect = 60 * time.Second
 	nativeAccepted  = 90 * time.Second
 	nativeReadGrace = 10 * time.Second
+	nativeCloseWait = 15 * time.Second
 )
 
 // maxDialogMoves bounds the focus moves one dialog takes.
@@ -100,22 +103,29 @@ func (s Service) awaitNativeReady(ctx context.Context, record host.Record, scree
 // answerDialog answers one recognized startup dialog. It moves the focus down
 // until the option to choose has it, and confirms that option with Enter. Each
 // key waits until its effect shows before the next is sent, so a harness slow
-// to redraw is never sent a key twice. A dialog no spawn may answer stops the
-// spawn.
+// to redraw is never sent a key twice, and a dialog still drawing is read
+// again until its focus shows. A dialog no spawn may answer stops the spawn.
 func (s Service) answerDialog(ctx context.Context, record host.Record, dialog harness.Dialog, screen []string) error {
 	if dialog.Accept == "" {
 		return fmt.Errorf("spawn: native terminal %s shows %s, which a spawn never answers; its screen ends:\n%s", record.ID, dialog.Name, host.ScreenTail(screen, 8))
+	}
+	if _, ok := dialog.Focused(screen); !ok {
+		var err error
+		screen, err = s.awaitScreen(ctx, record, nativeKeyEffect, func(screen []string) bool {
+			_, ok := dialog.Focused(screen)
+			return ok || !dialog.Shows(screen)
+		})
+		if err != nil {
+			return fmt.Errorf("spawn: native terminal %s shows %s, but not which option has the focus: %w", record.ID, dialog.Name, err)
+		}
 	}
 	client, err := host.Dial(record)
 	if err != nil {
 		return fmt.Errorf("spawn: type into native terminal %s: %w", record.ID, err)
 	}
 	defer client.Close()
-	for moves := 0; ; moves++ {
-		focused, ok := dialog.Focused(screen)
-		if !ok {
-			return fmt.Errorf("spawn: native terminal %s shows %s, but not which option has the focus; its screen ends:\n%s", record.ID, dialog.Name, host.ScreenTail(screen, 8))
-		}
+	for moves := 0; dialog.Shows(screen); moves++ {
+		focused, _ := dialog.Focused(screen)
 		if dialog.Chosen(focused) {
 			if err := client.Input([]byte("\r")); err != nil {
 				return fmt.Errorf("spawn: answer %s in native terminal %s: %w", dialog.Name, record.ID, err)
@@ -133,15 +143,13 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 		}
 		screen, err = s.awaitScreen(ctx, record, nativeKeyEffect, func(screen []string) bool {
 			next, ok := dialog.Focused(screen)
-			return !dialog.Shows(screen) || !ok || next != focused
+			return !dialog.Shows(screen) || (ok && next != focused)
 		})
 		if err != nil {
 			return fmt.Errorf("spawn: the focus in native terminal %s did not move from %q: %w", record.ID, focused, err)
 		}
-		if !dialog.Shows(screen) {
-			return nil
-		}
 	}
+	return nil
 }
 
 // deliverNativeInstruction types the instruction into the harness's composer
@@ -249,8 +257,9 @@ func nativeProgram(kind harness.Kind, launch harness.Launch) ([]string, error) {
 // inheritedSessionVariables name what this process inherits from the session
 // that runs it and a goblin must not: the harness that runs the CFO marks its
 // own session (Claude Code refuses to start inside another), and a Herdr pane
-// names itself to the hooks that report into it.
-var inheritedSessionVariables = []string{"CLAUDECODE", "CLAUDE_CODE_", "CODEX_THREAD_ID", "CODEX_SANDBOX", "HERDR_", "CFO_SESSION_ID", "CFO_SESSION_HARNESS", host.IDVariable}
+// names itself to the hooks that report into it. Claude Code's own settings,
+// such as CLAUDE_CODE_GIT_BASH_PATH, pass on, as they do to a Herdr goblin.
+var inheritedSessionVariables = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CODEX_THREAD_ID", "CODEX_SANDBOX", "CODEX_SANDBOX_", "HERDR_", "CFO_SESSION_ID", "CFO_SESSION_HARNESS", host.IDVariable}
 
 // nativeHostEnvironment is the whole environment a native task's host and
 // harness run with: this process's own, without the harness billing keys or
@@ -302,7 +311,9 @@ func inheritedSession(name string) bool {
 
 // closeNativeTerminal ends task id's native terminal, the harness and
 // everything it started, and waits for its host to end. A terminal whose host
-// never recorded itself, or no longer answers, has nothing left to close.
+// never recorded itself, or has ended, has nothing left to close; a running
+// host that does not answer, as one under load can be busy, is dialed again
+// for at most nativeCloseWait.
 func closeNativeTerminal(stateDir, id string) error {
 	record, err := host.ReadRecord(stateDir, id)
 	if errors.Is(err, os.ErrNotExist) {
@@ -311,9 +322,20 @@ func closeNativeTerminal(stateDir, id string) error {
 	if err != nil {
 		return err
 	}
+	deadline := time.Now().Add(nativeCloseWait)
 	client, err := host.Dial(record)
-	if err != nil {
-		return nil
+	for err != nil {
+		if !processRunning(record.HostPID) {
+			return nil
+		}
+		if _, readErr := host.ReadRecord(stateDir, id); errors.Is(readErr, os.ErrNotExist) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the host of native terminal %s, pid %d, does not answer, so its harness may still be running: %w", id, record.HostPID, err)
+		}
+		time.Sleep(100 * time.Millisecond)
+		client, err = host.Dial(record)
 	}
 	closeErr := client.CloseTerminal()
 	_ = client.Close()
@@ -327,3 +349,21 @@ func closeNativeTerminal(stateDir, id string) error {
 	}
 	return fmt.Errorf("the host of native terminal %s did not end", id)
 }
+
+// processRunning reports whether pid may still run: only a process Windows
+// shows as ended, or as never started, does not.
+func processRunning(pid int) bool {
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		return !errors.Is(err, windows.ERROR_INVALID_PARAMETER)
+	}
+	defer windows.CloseHandle(handle)
+	var code uint32
+	if err := windows.GetExitCodeProcess(handle, &code); err != nil {
+		return true
+	}
+	return code == stillActive
+}
+
+// stillActive is the exit code Windows reports for a process that runs.
+const stillActive = 259

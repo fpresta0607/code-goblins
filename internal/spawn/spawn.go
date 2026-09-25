@@ -1037,12 +1037,14 @@ func (s Service) deliverVerifiedInstruction(ctx context.Context, client terminal
 // worktree, removes the Go temporary directory and the task temporary
 // directory, and retires the task metadata. It is the clean-failure path:
 // every step is attempted and their failures joined, so one stuck teardown
-// step never leaves the rest undone. A native task has no terminal backend.
+// step never leaves the rest undone. A native task has no terminal backend,
+// and a native terminal that does not close stops the teardown: the task stays
+// addressable, and nothing is removed from under a harness that may still run.
 func (s Service) teardownLaunch(ctx context.Context, client terminal.Backend, endpoint herdr.Endpoint, project, worktree, id string) error {
 	var errs error
 	if client == nil {
 		if err := closeNativeTerminal(s.StateDir, id); err != nil {
-			errs = errors.Join(errs, fmt.Errorf("spawn: close native terminal: %w", err))
+			return fmt.Errorf("spawn: close native terminal: %w; its worktree, temporary directories and task record are left in place", err)
 		}
 	} else if err := client.CloseTab(ctx, endpoint.Target.Session, endpoint.TabID); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("spawn: close task tab: %w", err))
