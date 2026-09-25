@@ -494,7 +494,8 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
    panel never scrolls around it; until its screen is whole a full-pane state
    covers it. */
 .host-terminal { flex-direction: column; }
-.host-terminal .terminal-surface { overflow: hidden; padding: 6px 0 0 10px; }
+.host-terminal .terminal-surface { overflow: hidden; }
+.host-terminal .terminal-surface .xterm { padding: 6px 0 0 10px; }
 .terminal-cover { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; align-content: center; gap: 14px; padding: 24px; background: #071015; color: var(--muted); text-align: center; }
 .terminal-cover p { margin: 0; max-width: 46ch; overflow-wrap: anywhere; }
 .terminal-closed { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-top: 1px solid #1d3a32; background: #0b1a20; color: var(--muted); }
