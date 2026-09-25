@@ -125,10 +125,10 @@ func (s Service) Uninstall(out io.Writer) error {
 			return err
 		}
 	}
-	if err := s.removeNativeHooks(report); err != nil {
+	if err := s.removeUserHooks(report); err != nil {
 		return err
 	}
-	if err := s.removeUserHooks(report); err != nil {
+	if err := s.removeNativeHooks(report); err != nil {
 		return err
 	}
 	if err := s.unsetHome(report); err != nil {
