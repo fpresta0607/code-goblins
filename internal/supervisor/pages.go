@@ -32,7 +32,7 @@ var pagePollPause = 10 * time.Second
 // watchPages keeps one poller for each open item that names a Lavish page,
 // and stops the poller of an item that is no longer open. lavish-axi hands a
 // page's feedback to whichever poll takes it, so the supervisor is the only
-// one that polls: the Overlord's answer on a goblin's page reaches the CFO.
+// one that polls: the Overlord's answer on any page reaches the CFO.
 func (s *Service) watchPages(ctx context.Context) {
 	if s.Options.PollPage == nil {
 		return

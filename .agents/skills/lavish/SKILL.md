@@ -7,7 +7,7 @@ argument-hint: <what the artifact should show>
 # lavish
 
 `lavish-axi` is a presentation-only dependency, exactly as it is for First Mate.
-It is not part of the control plane: only a goblin's page wait uses it (below), and nonvisual work never waits for it.
+It is not part of the control plane: only a page named by its HTML file, a goblin's page wait (below) or a page review, uses it, and nonvisual work never waits for it.
 `cfo doctor` reports it with its `0.1.71` floor and stays healthy without it, printing `PRESENTATION_UNAVAILABLE`.
 
 ## Request
