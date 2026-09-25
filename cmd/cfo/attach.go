@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 // nativeCFOTerminal is the native terminal goblins --native starts the CFO in.
@@ -22,8 +23,17 @@ const nativeCFOTerminal = "cfo"
 // detachKey is Ctrl-], which leaves an attached terminal running.
 const detachKey = 0x1d
 
+// windowsInputMode asks a console for keys as Windows key events.
+const windowsInputMode = "\x1b[?9001h"
+
+// terminalReset undoes what a terminal's program commonly sets and would
+// leave behind in this console: a hidden cursor, bracketed paste and focus
+// reporting. Windows input mode stays, since turning it off could change the
+// input mode of whatever hosts this console.
+const terminalReset = "\x1b[?25h\x1b[?2004l\x1b[?1004l"
+
 // runAttach shows a native terminal in this console: the one named, or else
-// the one the registered CFO runs in.
+// the one the CFO runs in.
 func runAttach(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	f := flag.NewFlagSet("attach", flag.ContinueOnError)
 	f.SetOutput(stderr)
@@ -46,6 +56,25 @@ func runAttach(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		id = native
 	}
 	return attachNative(h.State, id, stdout, stderr)
+}
+
+// liveNativeCFO returns the native terminal the CFO runs in: the one the
+// registered CFO runs in, or else terminal cfo while its host answers, since
+// the CFO started there may not have registered yet.
+func liveNativeCFO(stateDir string) (string, bool) {
+	if id, live := supervisor.NativeCFO(stateDir); live {
+		return id, true
+	}
+	record, err := host.ReadRecord(stateDir, nativeCFOTerminal)
+	if err != nil {
+		return "", false
+	}
+	client, err := host.Dial(record)
+	if err != nil {
+		return "", false
+	}
+	_ = client.Close()
+	return nativeCFOTerminal, true
 }
 
 // attachNative shows native terminal id in this console until the terminal
@@ -71,11 +100,15 @@ func attachNative(stateDir, id string, stdout, stderr io.Writer) int {
 	}
 	defer client.Close()
 	// Keys go to the terminal as a terminal sends them, Ctrl-C included, and
-	// this console draws the terminal's output as a terminal would.
+	// this console draws the terminal's output as a terminal would. Keys are
+	// asked for as Windows key events, which the terminal's pseudo console
+	// always takes, so every key such as Shift+Enter arrives exactly however
+	// little of the terminal's history is left to replay its own request.
 	_ = windows.SetConsoleMode(in, inMode&^(windows.ENABLE_ECHO_INPUT|windows.ENABLE_LINE_INPUT|windows.ENABLE_PROCESSED_INPUT)|windows.ENABLE_VIRTUAL_TERMINAL_INPUT)
 	defer windows.SetConsoleMode(in, inMode)
 	_ = windows.SetConsoleMode(out, outMode|windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING|windows.DISABLE_NEWLINE_AUTO_RETURN)
 	defer windows.SetConsoleMode(out, outMode)
+	_, _ = io.WriteString(stdout, windowsInputMode)
 
 	size := func() (int, int) {
 		var info windows.ConsoleScreenBufferInfo
@@ -135,6 +168,7 @@ func attachNative(stateDir, id string, stdout, stderr io.Writer) int {
 		select {
 		case end := <-ended:
 			fmt.Fprintf(stdout, "\r\n%s\r\n", end.reason)
+			_, _ = io.WriteString(stdout, terminalReset)
 			return end.code
 		case <-tick.C:
 			if c, r := size(); c > 0 && (c != cols || r != rows) {
@@ -146,10 +180,9 @@ func attachNative(stateDir, id string, stdout, stderr io.Writer) int {
 }
 
 // detachAt returns where keys holds Ctrl-] pressed, or -1. A console sends it
-// as the byte itself, or, once the terminal's pseudo console has asked for
-// Windows input mode (which cfo attach passes on, so keys such as Shift+Enter
-// arrive exactly), as a Windows key event: ESC [ Vk;Sc;Uc;Kd;Cs;Rc _, here
-// with the character 0x1d and the key down.
+// as the byte itself, or, in the Windows input mode cfo attach asks for and
+// the terminal's pseudo console asks for too, as a Windows key event:
+// ESC [ Vk;Sc;Uc;Kd;Cs;Rc _, here with the character 0x1d and the key down.
 func detachAt(keys []byte) int {
 	for i := 0; i < len(keys); i++ {
 		if keys[i] == detachKey {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,7 +17,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/conpty"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
-	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 // The attach test runs this binary as the program in a native terminal, and
@@ -27,12 +27,22 @@ const (
 )
 
 // attachTestProgram answers one typed line at a time: its terminal's size for
-// "size", and the line itself otherwise.
+// "size", more output than a host keeps for "spill", and the line itself
+// otherwise. It ends at the end of its input.
 func attachTestProgram() {
 	fmt.Println("ready")
 	lines := bufio.NewScanner(os.Stdin)
 	for lines.Scan() {
-		if lines.Text() != "size" {
+		switch lines.Text() {
+		case "size":
+		case "spill":
+			line := strings.Repeat("s", 100)
+			for range 90000 {
+				fmt.Println(line)
+			}
+			fmt.Println("spilled")
+			continue
+		default:
 			fmt.Println("got", lines.Text())
 			continue
 		}
@@ -50,7 +60,7 @@ func attachTestProgram() {
 func attachTestView(stateDir string, args []string) int {
 	runtime := commandRuntime{
 		resolveHome: func() (home.Home, error) { return home.Home{Root: filepath.Dir(stateDir), State: stateDir}, nil },
-		nativeCFO:   supervisor.NativeCFO,
+		nativeCFO:   liveNativeCFO,
 	}
 	return runAttach(args, os.Stdout, os.Stderr, runtime)
 }
@@ -78,11 +88,10 @@ func (c *console) waitFor(t *testing.T, text string) {
 	}
 }
 
-// cfo attach shows a native terminal in its own console: keys typed there
-// reach the terminal, the terminal's output comes back, the terminal follows
-// the console's size, and Ctrl-] leaves the terminal running.
-func TestAttachShowsANativeTerminalInThisConsole(t *testing.T) {
-	stateDir := t.TempDir()
+// hostAttachTestTerminal hosts native terminal id in this test process,
+// running attachTestProgram, and closes it when the test ends.
+func hostAttachTestTerminal(t *testing.T, stateDir, id string) {
+	t.Helper()
 	program, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -90,10 +99,10 @@ func TestAttachShowsANativeTerminalInThisConsole(t *testing.T) {
 	ended := make(chan struct{})
 	go func() {
 		defer close(ended)
-		_ = host.Run(stateDir, host.Spec{ID: "t1", Args: []string{program, attachTestTerminal}, Cols: 80, Rows: 24})
+		_ = host.Run(stateDir, host.Spec{ID: id, Args: []string{program, attachTestTerminal}, Cols: 80, Rows: 24})
 	}()
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		if _, err := host.ReadRecord(stateDir, "t1"); err == nil {
+		if _, err := host.ReadRecord(stateDir, id); err == nil {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -101,7 +110,7 @@ func TestAttachShowsANativeTerminalInThisConsole(t *testing.T) {
 		}
 	}
 	t.Cleanup(func() {
-		if record, err := host.ReadRecord(stateDir, "t1"); err == nil {
+		if record, err := host.ReadRecord(stateDir, id); err == nil {
 			if client, err := host.Dial(record); err == nil {
 				_ = client.CloseTerminal()
 				_ = client.Close()
@@ -113,7 +122,16 @@ func TestAttachShowsANativeTerminalInThisConsole(t *testing.T) {
 			t.Error("the terminal's host did not end")
 		}
 	})
-	viewer, err := conpty.Start(conpty.Spec{Args: []string{program, attachTestViewer, stateDir, "t1"}, Cols: 100, Rows: 30})
+}
+
+// attachInConsole runs cfo attach id in a 100x30 pseudo console of its own.
+func attachInConsole(t *testing.T, stateDir, id string) *console {
+	t.Helper()
+	program, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewer, err := conpty.Start(conpty.Spec{Args: []string{program, attachTestViewer, stateDir, id}, Cols: 100, Rows: 30})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,6 +149,17 @@ func TestAttachShowsANativeTerminalInThisConsole(t *testing.T) {
 			}
 		}
 	}()
+	return c
+}
+
+// cfo attach shows a native terminal in its own console: keys typed there
+// reach the terminal, the terminal's output comes back, the terminal follows
+// the console's size, and Ctrl-] leaves the terminal running.
+func TestAttachShowsANativeTerminalInThisConsole(t *testing.T) {
+	stateDir := t.TempDir()
+	hostAttachTestTerminal(t, stateDir, "t1")
+	c := attachInConsole(t, stateDir, "t1")
+	viewer := c.Console
 
 	c.waitFor(t, "ready")
 	if _, err := viewer.Write([]byte("hello\r")); err != nil {
@@ -180,14 +209,93 @@ func TestAttachShowsANativeTerminalInThisConsole(t *testing.T) {
 	_ = client.Close()
 }
 
-// cfo attach with no terminal named shows the registered CFO's terminal, so
-// with no CFO in a native terminal it says so.
+// cfo attach asks its console for Windows key events itself, so keys reach
+// the terminal exactly even once the host's history no longer holds the
+// pseudo console's own request for them. Ctrl-Z is one such key: read as a
+// plain byte, it would end cfo attach's own input rather than the terminal's.
+func TestAttachTakesWindowsKeyEventsAfterTheHistoryIsTrimmed(t *testing.T) {
+	stateDir := t.TempDir()
+	hostAttachTestTerminal(t, stateDir, "t1")
+	record, err := host.ReadRecord(stateDir, "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := host.Dial(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Input([]byte("spill\r")); err != nil {
+		t.Fatal(err)
+	}
+	var tail []byte
+	for !strings.Contains(string(tail), "spilled") {
+		event, err := client.Next()
+		if err != nil || event.Exited {
+			t.Fatalf("the terminal ended before it spilled: %+v, %v", event, err)
+		}
+		tail = append(tail[max(0, len(tail)-16):], event.Output...)
+	}
+	_ = client.Close()
+	c := attachInConsole(t, stateDir, "t1")
+	c.waitFor(t, "spilled")
+
+	if _, err := c.Write([]byte{0x1a, '\r'}); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-c.Done():
+	case <-time.After(15 * time.Second):
+		t.Fatalf("cfo attach did not end with the terminal; the console shows %q", c.shown()[max(0, len(c.shown())-600):])
+	}
+	if code := c.ExitCode(); code != 0 {
+		t.Errorf("cfo attach exit code = %d, want 0 for the terminal's end at Ctrl-Z", code)
+	}
+}
+
+// The CFO's native terminal is found whether or not the CFO in it has
+// registered yet, so goblins shows it rather than starting a second one.
+func TestLiveNativeCFOFindsAnUnregisteredCFOTerminalThatAnswers(t *testing.T) {
+	stateDir := t.TempDir()
+	hostAttachTestTerminal(t, stateDir, nativeCFOTerminal)
+
+	id, live := liveNativeCFO(stateDir)
+
+	if !live || id != nativeCFOTerminal {
+		t.Errorf("liveNativeCFO = %q, %v; want %s, true", id, live, nativeCFOTerminal)
+	}
+}
+
+// A record of terminal cfo whose host does not answer names no CFO.
+func TestLiveNativeCFOIgnoresACFOTerminalThatDoesNotAnswer(t *testing.T) {
+	stateDir := t.TempDir()
+	record := host.Record{ID: nativeCFOTerminal, Pipe: fmt.Sprintf(`\\.\pipe\cfo-attach-test-%d`, time.Now().UnixNano()), Token: "token", Version: host.Version, HostPID: os.Getpid()}
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(stateDir, "hosts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "hosts", nativeCFOTerminal+".json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	id, live := liveNativeCFO(stateDir)
+
+	if live || id != "" {
+		t.Errorf("liveNativeCFO = %q, %v; want no CFO", id, live)
+	}
+}
+
+// cfo attach with no terminal named shows the CFO's native terminal, so with
+// no CFO in a native terminal it says so.
 func TestAttachWithNoCFOInANativeTerminalSaysSo(t *testing.T) {
 	stateDir := t.TempDir()
 	var stdout, stderr strings.Builder
 	runtime := commandRuntime{
 		resolveHome: func() (home.Home, error) { return home.Home{Root: filepath.Dir(stateDir), State: stateDir}, nil },
-		nativeCFO:   supervisor.NativeCFO,
+		nativeCFO:   liveNativeCFO,
 	}
 
 	exit := runAttach(nil, &stdout, &stderr, runtime)
