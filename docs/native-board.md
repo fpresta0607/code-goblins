@@ -292,7 +292,7 @@ A `lavish-axi poll` that runs in a goblin's worktree, or under a process that do
 A live goblin's wake says to have it stop the poll and wait with `cfo notify --waiting-on overlord --lavish`.
 A retired goblin's, known by the status log `cfo cleanup` keeps, says to read the page's open questions, put them to the Overlord and stop the poll.
 A poll in a worktree whose goblin the home never had is somebody else's and is left alone.
-The check reads only `node` and `lavish-axi` processes, their command lines and folders, once per monitor scan.
+The check reads the command lines of `node` and `lavish-axi` processes, and the folders of a poll and of the processes above it, once per monitor scan.
 
 ## Review items
 

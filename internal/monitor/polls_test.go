@@ -120,11 +120,7 @@ func reviewRecords(t *testing.T, stateDir string) []wake.Record {
 
 func flaggedPolls(t *testing.T, stateDir string) []Poll {
 	t.Helper()
-	heartbeat, err := ReadHeartbeat(stateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return heartbeat.FlaggedPolls
+	return readPollRecord(stateDir).Flagged
 }
 
 // The incident this exists for: a goblin blocked on its own lavish-axi poll
@@ -299,5 +295,34 @@ func TestScanKeepsItsFlagsWhilePollsCannotBeListed(t *testing.T) {
 	polls.err = nil
 	if event := scanOnce(t, service); event != nil {
 		t.Fatalf("the same poll was flagged again: %+v", event)
+	}
+}
+
+// An older cfo decodes the heartbeat and every observation strictly and knows
+// no review event in either, so a poll's flag and its pending event live in
+// a record of their own that only this build reads.
+func TestAPendingPollFlagLeavesTheRecordsAnOlderBinaryReadsUntouched(t *testing.T) {
+	now := time.Date(2026, 9, 25, 3, 0, 0, 0, time.UTC)
+	polls := &fakePolls{polls: []Poll{{PID: 500, Start: now, Task: "g1", Page: `C:\work\g1\a.html`}}}
+	service := pollScanService(t, &now, polls, "g1")
+
+	event := scanOnce(t, service)
+
+	if event == nil || event.Kind != "review" {
+		t.Fatalf("event = %+v, want the poll flagged", event)
+	}
+	heartbeat, err := ReadHeartbeat(service.StateDir)
+	if err != nil {
+		t.Fatalf("ReadHeartbeat: %v", err)
+	}
+	if heartbeat.PendingEvent != nil {
+		t.Errorf("heartbeat pending event = %+v, want none", heartbeat.PendingEvent)
+	}
+	observation, err := ReadObservation(service.StateDir, "g1")
+	if err != nil {
+		t.Fatalf("ReadObservation: %v", err)
+	}
+	if observation.PendingEvent != nil {
+		t.Errorf("observation pending event = %+v, want none", observation.PendingEvent)
 	}
 }

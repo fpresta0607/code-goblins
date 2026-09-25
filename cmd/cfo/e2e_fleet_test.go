@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"slices"
 	"sort"
@@ -480,7 +479,7 @@ func (f *fleetE2EFixture) AssertHeartbeatPersistsAcrossRestart() {
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	if !reflect.DeepEqual(before, after.Heartbeat) || before.LastCycle.IsZero() || before.NextDue.IsZero() || after.Event != nil {
+	if before != after.Heartbeat || before.LastCycle.IsZero() || before.NextDue.IsZero() || after.Event != nil {
 		f.t.Fatalf("restart heartbeat changed before=%+v after=%+v", before, after)
 	}
 }

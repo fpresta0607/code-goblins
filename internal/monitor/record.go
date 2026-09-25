@@ -170,9 +170,6 @@ type Heartbeat struct {
 	NoChangeStreak int       `json:"no_change_streak"`
 	NextDue        time.Time `json:"next_due"`
 	PendingEvent   *Event    `json:"pending_event,omitempty"`
-	// FlaggedPolls are the private polls already flagged to the CFO, kept
-	// only while they run, so each is flagged once.
-	FlaggedPolls []Poll `json:"flagged_polls,omitempty"`
 }
 
 // ObservationPath returns the only supported persisted task-monitor path.
@@ -440,8 +437,7 @@ func validateEvent(event *Event, taskID string, source EventSource) error {
 	}
 	switch source {
 	case TaskEvent:
-		// review is a goblin's private page poll, flagged from the heartbeat.
-		if event.TaskID != taskID || (event.Kind != "stale" && event.Kind != "review") || event.Key != taskID {
+		if event.TaskID != taskID || event.Kind != "stale" || event.Key != taskID {
 			return errors.New("monitor: task pending event does not match its observation")
 		}
 	case HeartbeatEvent:

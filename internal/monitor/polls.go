@@ -40,8 +40,9 @@ type ProcessPolls struct{}
 const pollAncestry = 8
 
 // Polls lists every lavish-axi poll that runs in a goblin's worktree, or
-// under a process that does. Only node and lavish-axi itself are read, so the
-// check opens a handful of processes rather than every one on the machine.
+// under a process that does. Only the command lines of node and lavish-axi
+// are read, so the check opens a handful of processes rather than every one
+// on the machine.
 func (ProcessPolls) Polls(context.Context) ([]Poll, error) {
 	processes, err := proc.Processes()
 	if err != nil {
@@ -182,54 +183,86 @@ func executableName(exe string) string {
 	return strings.TrimSuffix(strings.ToLower(filepath.Base(exe)), ".exe")
 }
 
+// pollSchema versions the poll record, which only builds that flag polls
+// read. The heartbeat and observations stay as older builds decode them.
+const pollSchema = "cfo-monitor-polls.v1"
+
+// pollRecord holds the polls already flagged, kept only while they run so each
+// is flagged once, and the review event waiting to be published.
+type pollRecord struct {
+	Schema       string `json:"schema"`
+	Flagged      []Poll `json:"flagged,omitempty"`
+	PendingEvent *Event `json:"pending_event,omitempty"`
+}
+
+func pollRecordPath(stateDir string) string {
+	return filepath.Join(stateDir, "monitor", "polls.json")
+}
+
+// readPollRecord reads the poll record. A missing or unreadable one reads as
+// empty and is replaced on the next write, which re-flags the polls still
+// running once.
+func readPollRecord(stateDir string) pollRecord {
+	var record pollRecord
+	if err := readStrictJSON(pollRecordPath(stateDir), &record); err != nil || record.Schema != pollSchema {
+		return pollRecord{}
+	}
+	return record
+}
+
+func writePollRecord(stateDir string, record pollRecord) error {
+	record.Schema = pollSchema
+	return writeJSON(pollRecordPath(stateDir), record)
+}
+
 // flagPrivatePoll raises a review event for the oldest private poll not
 // flagged before, and forgets the flags of polls that have ended. The event
-// waits in the heartbeat's own slot until it is published, as every event
-// does, so a crash cannot lose it, and a poll is flagged once for as long as
-// it runs. Only a goblin this home knows is flagged: live with a task record,
-// or retired with only its status log left.
-func (s Service) flagPrivatePoll(ctx context.Context, heartbeat *Heartbeat, result *ScanResult, entries []os.DirEntry) {
+// waits in the poll record until it is published, so a crash cannot lose it,
+// and a poll is flagged once for as long as it runs. Only a goblin this home
+// knows is flagged: live with a task record, or retired with only its status
+// log left.
+func (s Service) flagPrivatePoll(ctx context.Context, record *pollRecord, result *ScanResult, entries []os.DirEntry) error {
 	if s.Polls == nil {
-		return
+		return nil
 	}
 	polls, err := s.Polls.Polls(ctx)
 	if err != nil {
-		return
+		return nil
 	}
 	running := make(map[string]bool, len(polls))
 	for _, poll := range polls {
 		running[poll.key()] = true
 	}
-	flagged := make(map[string]bool, len(heartbeat.FlaggedPolls))
+	flagged := make(map[string]bool, len(record.Flagged))
 	var kept []Poll
-	for _, poll := range heartbeat.FlaggedPolls {
+	for _, poll := range record.Flagged {
 		if running[poll.key()] {
 			kept = append(kept, poll)
 			flagged[poll.key()] = true
 		}
 	}
-	heartbeat.FlaggedPolls = kept
-	if result.Event != nil {
-		return
-	}
-	goblins := knownGoblins(entries)
-	sort.Slice(polls, func(i, j int) bool {
-		if !polls[i].Start.Equal(polls[j].Start) {
-			return polls[i].Start.Before(polls[j].Start)
+	record.Flagged = kept
+	if result.Event == nil {
+		goblins := knownGoblins(entries)
+		sort.Slice(polls, func(i, j int) bool {
+			if !polls[i].Start.Equal(polls[j].Start) {
+				return polls[i].Start.Before(polls[j].Start)
+			}
+			return polls[i].PID < polls[j].PID
+		})
+		for _, poll := range polls {
+			goblin, known := goblins[strings.ToLower(poll.Task)]
+			if flagged[poll.key()] || !known {
+				continue
+			}
+			event := Event{Source: TaskEvent, TaskID: goblin.id, Kind: "review", Key: goblin.id, Detail: privatePollDetail(poll, goblin.id, goblin.live)}
+			record.PendingEvent = &event
+			record.Flagged = append(record.Flagged, poll)
+			result.Event = cloneEvent(&event)
+			break
 		}
-		return polls[i].PID < polls[j].PID
-	})
-	for _, poll := range polls {
-		goblin, known := goblins[strings.ToLower(poll.Task)]
-		if flagged[poll.key()] || !known {
-			continue
-		}
-		event := Event{Source: TaskEvent, TaskID: goblin.id, Kind: "review", Key: goblin.id, Detail: privatePollDetail(poll, goblin.id, goblin.live)}
-		heartbeat.PendingEvent = &event
-		heartbeat.FlaggedPolls = append(heartbeat.FlaggedPolls, poll)
-		result.Event = cloneEvent(&event)
-		return
 	}
+	return writePollRecord(s.StateDir, *record)
 }
 
 func (p Poll) key() string {

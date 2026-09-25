@@ -86,6 +86,10 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 	if heartbeat.PendingEvent != nil {
 		result.Event = cloneEvent(heartbeat.PendingEvent)
 	}
+	polls := readPollRecord(s.StateDir)
+	if result.Event == nil && polls.PendingEvent != nil {
+		result.Event = cloneEvent(polls.PendingEvent)
+	}
 
 	entries, err := os.ReadDir(s.StateDir)
 	if err != nil {
@@ -190,8 +194,10 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 		}
 		heartbeat.NextDue = now.Add(s.backoff(heartbeat.NoChangeStreak))
 	}
+	if err := s.flagPrivatePoll(ctx, &polls, &result, entries); err != nil {
+		return ScanResult{}, err
+	}
 	if !heartbeatCorrupt {
-		s.flagPrivatePoll(ctx, &heartbeat, &result, entries)
 		if err := WriteHeartbeat(s.StateDir, heartbeat); err != nil {
 			return ScanResult{}, err
 		}
@@ -790,6 +796,13 @@ func (s Service) busyReference(id string) time.Time {
 }
 
 func (s Service) clearPending(event Event) error {
+	if event.Kind == "review" {
+		polls := readPollRecord(s.StateDir)
+		if sameEvent(polls.PendingEvent, event) {
+			polls.PendingEvent = nil
+			return writePollRecord(s.StateDir, polls)
+		}
+	}
 	if event.TaskID != "" {
 		observation, err := ReadObservation(s.StateDir, event.TaskID)
 		if err == nil && sameEvent(observation.PendingEvent, event) {
