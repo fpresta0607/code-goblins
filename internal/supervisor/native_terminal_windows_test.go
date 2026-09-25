@@ -501,6 +501,12 @@ func TestANativeTerminalHoldsItsSizeWhileAGateOwnsTheTask(t *testing.T) {
 	v.waitFor(t, "program ready")
 
 	v.send(t, websocket.MessageText, `{"type":"resize","cols":100,"rows":30}`)
+	// The relay answers a ping only after its loop has handled the resize, so the pong proves it arrived under custody.
+	ping, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := v.conn.Ping(ping); err != nil {
+		t.Fatalf("pinging the view: %v", err)
+	}
 	gate.taken.Store(false)
 	// The first allowance is kept before the next check starts.
 	for deadline := time.Now().Add(10 * time.Second); gate.allowed.Load() < 2; time.Sleep(5 * time.Millisecond) {
