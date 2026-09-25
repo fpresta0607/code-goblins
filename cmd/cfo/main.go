@@ -41,7 +41,7 @@ commands:
   hooks     check|install <claude|codex|pi> native lifecycle hooks
   native-hook <harness>  bounded hook entry point (JSON on stdin)
   register  make this session the primary CFO the board delivers to; the SessionStart hooks do it, run it by hand when the board says the registration is stale
-  install   wire this checkout into the machine (CFO_HOME, PATH, and the Claude Code hooks in your user settings) so a session in any repo is supervised; --projects-root <dir> records the folder that holds your checkouts so --project can take a bare name; --uninstall reverses it
+  install   wire a CFO home into the machine (CFO_HOME, PATH, and the Claude Code hooks in your user settings) so a session in any repo is supervised: run from a checkout it wires that checkout, run anywhere else it sets up %LOCALAPPDATA%\CodeGoblins from this binary (the CFO's contract and skills, the default policy, and the binary as cfo.exe and goblins.exe); --projects-root <dir> records the folder that holds your checkouts so --project can take a bare name; --uninstall reverses the wiring and keeps the home's files
   doctor    check the tools cfo needs (git, gh, claude, herdr, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi)
   pipeline  config-drift | config-apply | migrate <id> | run <id> --intent <text> | respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>] | recover <id>
   drain     print or acknowledge the wake queue and recovery episode
