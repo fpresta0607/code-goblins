@@ -68,6 +68,14 @@ func Run(stateDir string, spec Spec) error {
 	if err := state.ValidTaskID(spec.ID); err != nil {
 		return err
 	}
+	// One live host per terminal: a second would take over the record that
+	// finds the first, and leave the first unreachable.
+	if running, err := ReadRecord(stateDir, spec.ID); err == nil {
+		if client, err := Dial(running); err == nil {
+			_ = client.Close()
+			return fmt.Errorf("host: terminal %s already runs in host pid %d", spec.ID, running.HostPID)
+		}
+	}
 	console, err := conpty.Start(conpty.Spec{Args: spec.Args, Dir: spec.Dir, Env: terminalEnvironment(spec.ID), Cols: spec.Cols, Rows: spec.Rows})
 	if err != nil {
 		return err

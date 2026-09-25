@@ -115,6 +115,8 @@ It installs git and gh with winget, so on a machine that has neither winget nor 
 
 ```powershell
 goblins              # start the supervisor if needed, show the board's link and the fleet, then open the CFO
+goblins --native     # the same, but start a new CFO in a native terminal shown here instead of in Herdr
+goblins attach       # show the CFO's native terminal here, or name another; Ctrl-] leaves it running
 goblins status       # whether the supervisor runs: the board's link, the fleet and its pid
 goblins stop         # stop the supervisor; --force ends it when it does not stop
 goblins doctor       # check every tool and harness the fleet needs
@@ -128,6 +130,9 @@ It prints the banner, the board's link (`http://127.0.0.1:4310`) and one line on
 The board is only a view, so closing the browser stops nothing, and a supervisor started this way keeps running after the terminal closes.
 Then it takes you to the CFO: a CFO whose registration names a live process is brought to the front, and otherwise it starts Claude Code as the CFO in Herdr in a fresh `cfo` tab, in the project this terminal is in or one you pick from your projects folder, closing an idle old `cfo` tab or renaming a busy one to `shell`.
 It then attaches the terminal to Herdr with the CFO in front; run inside Herdr, it only brings the CFO to the front.
+A CFO registered in a native terminal is shown in this terminal instead, and `goblins --native` starts a new CFO that way: Claude Code runs in a native terminal of its own, so closing any window leaves it running, and `goblins attach` shows it again.
+With no CFO registered, a CFO already running in native terminal `cfo`, which may not have registered yet, is shown rather than started again.
+In an attached terminal every key goes to the CFO, Ctrl-C included, and Ctrl-] leaves the terminal running.
 `goblins serve` runs the supervisor in its own terminal instead, where Ctrl-C stops it.
 `goblins status` prints the board's link, the same status line and the supervisor's pid, and exits 1 when no supervisor runs, so a script can test for one.
 `goblins stop` asks the supervisor to stop, as Ctrl-C would, whichever way it was started, and waits up to 30 seconds for it to finish.

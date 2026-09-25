@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -80,19 +81,97 @@ func TestGoblinsBringsALiveCFOToTheFrontWithoutStartingAnother(t *testing.T) {
 	}
 }
 
-// A CFO registered in a native terminal is left where it runs: goblins starts
-// no CFO in Herdr beside it, and brings nothing to the front.
-func TestGoblinsLeavesANativeCFOWhereItRuns(t *testing.T) {
+// A CFO registered in a native terminal is shown in this terminal: goblins
+// starts no CFO beside it and touches nothing in Herdr.
+func TestGoblinsShowsANativeCFOInThisTerminal(t *testing.T) {
 	f := newSessionFixture(t)
 	f.nativeCFO = "cfo"
 
-	exit, stdout, stderr := f.launch()
+	exit, _, stderr := f.launch()
 
-	if exit != 0 || len(f.cfoStarts) != 0 || len(f.focused) != 0 || len(f.attached) != 0 {
-		t.Fatalf("exit=%d cfoStarts=%q focused=%+v attached=%q stderr=%q, want nothing started, focused or attached", exit, f.cfoStarts, f.focused, f.attached, stderr)
+	if exit != 0 || len(f.cfoStarts) != 0 || len(f.nativeStarts) != 0 || len(f.focused) != 0 || len(f.attached) != 0 {
+		t.Fatalf("exit=%d cfoStarts=%q nativeStarts=%q focused=%+v attached=%q stderr=%q, want nothing started and nothing in Herdr", exit, f.cfoStarts, f.nativeStarts, f.focused, f.attached, stderr)
 	}
-	if !strings.Contains(stdout, "The CFO runs in native terminal cfo") {
-		t.Errorf("stdout = %q, want it to say the CFO runs in native terminal cfo", stdout)
+	if len(f.nativeAttached) != 1 || f.nativeAttached[0] != "cfo" {
+		t.Errorf("native terminals shown = %q, want the CFO's, cfo", f.nativeAttached)
+	}
+}
+
+// goblins --native with no live CFO starts one in native terminal cfo, in the
+// project picked, and shows it in this terminal, starting nothing in Herdr.
+func TestGoblinsNativeStartsTheCFOInANativeTerminal(t *testing.T) {
+	f := newSessionFixture(t)
+
+	exit, stdout, stderr := f.launch("--native")
+
+	if exit != 0 || len(f.nativeStarts) != 1 || f.nativeStarts[0] != f.project || len(f.cfoStarts) != 0 || len(f.attached) != 0 {
+		t.Fatalf("exit=%d nativeStarts=%q cfoStarts=%q attached=%q stderr=%q, want the CFO started natively in %s", exit, f.nativeStarts, f.cfoStarts, f.attached, stderr, f.project)
+	}
+	if len(f.nativeAttached) != 1 || f.nativeAttached[0] != nativeCFOTerminal {
+		t.Errorf("native terminals shown = %q, want %s", f.nativeAttached, nativeCFOTerminal)
+	}
+	if !strings.Contains(stdout, "The CFO starts in "+f.project+", in native terminal cfo.") {
+		t.Errorf("stdout = %q, want it to say where the CFO starts", stdout)
+	}
+}
+
+// goblins --native never starts a second CFO beside a live one in Herdr: it
+// brings that one to the front.
+func TestGoblinsNativeBringsALiveHerdrCFOToTheFront(t *testing.T) {
+	f := newSessionFixture(t)
+	f.withLiveCFO()
+
+	exit, _, stderr := f.launch("--native")
+
+	if exit != 0 || len(f.nativeStarts) != 0 || len(f.cfoStarts) != 0 || len(f.focused) != 1 {
+		t.Fatalf("exit=%d nativeStarts=%q cfoStarts=%q focused=%+v stderr=%q, want the live CFO brought to the front and none started", exit, f.nativeStarts, f.cfoStarts, f.focused, stderr)
+	}
+}
+
+// A native CFO that cannot start is reported, and nothing is shown.
+func TestGoblinsNativeReportsACFOThatCannotStart(t *testing.T) {
+	f := newSessionFixture(t)
+	f.runtime.startNativeCFO = func(string, string) error { return errors.New("claude is not on PATH") }
+
+	exit, _, stderr := f.launch("--native")
+
+	if exit != 1 || !strings.Contains(stderr, "could not be started in a native terminal: claude is not on PATH") || len(f.nativeAttached) != 0 {
+		t.Fatalf("exit=%d stderr=%q nativeAttached=%q, want the failure reported and nothing shown", exit, stderr, f.nativeAttached)
+	}
+}
+
+// With no CFO registered, a CFO already running in native terminal cfo, which
+// may not have registered yet, is shown rather than started a second time,
+// with or without --native.
+func TestGoblinsShowsAnUnregisteredCFOInNativeTerminalCFO(t *testing.T) {
+	for name, args := range map[string][]string{"goblins": nil, "goblins --native": {"--native"}} {
+		t.Run(name, func(t *testing.T) {
+			f := newSessionFixture(t)
+			f.cfoTerminalRuns = true
+
+			exit, stdout, stderr := f.launch(args...)
+
+			if exit != 0 || len(f.nativeStarts) != 0 || len(f.cfoStarts) != 0 || len(f.attached) != 0 {
+				t.Fatalf("exit=%d nativeStarts=%q cfoStarts=%q attached=%q stderr=%q, want nothing started", exit, f.nativeStarts, f.cfoStarts, f.attached, stderr)
+			}
+			if !slices.Equal(f.nativeAttached, []string{nativeCFOTerminal}) || !strings.Contains(stdout, "The CFO is already running in native terminal cfo.") {
+				t.Errorf("native terminals shown = %q, stdout = %q; want cfo shown and said so", f.nativeAttached, stdout)
+			}
+		})
+	}
+}
+
+// A CFO registered in Herdr is brought to the front even while native
+// terminal cfo runs: the registration decides which CFO goblins shows.
+func TestGoblinsPrefersARegisteredHerdrCFOToAnUnregisteredNativeTerminal(t *testing.T) {
+	f := newSessionFixture(t)
+	f.withLiveCFO()
+	f.cfoTerminalRuns = true
+
+	exit, _, stderr := f.launch()
+
+	if exit != 0 || len(f.focused) != 1 || len(f.nativeAttached) != 0 {
+		t.Fatalf("exit=%d focused=%+v nativeAttached=%q stderr=%q, want the Herdr CFO in front and no native terminal shown", exit, f.focused, f.nativeAttached, stderr)
 	}
 }
 

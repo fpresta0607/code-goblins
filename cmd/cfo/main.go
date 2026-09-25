@@ -37,12 +37,13 @@ var version = "dev"
 
 const usage = `usage: cfo <command> [args]
 
-Run as goblins with no command, it finds the supervisor or starts one in the background, prints the board's link and what the fleet is doing, opens the board when it started the supervisor, brings the live registered CFO to the front in Herdr or starts one, and attaches the terminal to Herdr.
+Run as goblins with no command, it finds the supervisor or starts one in the background, prints the board's link and what the fleet is doing, opens the board when it started the supervisor, brings the live registered CFO to the front in Herdr or starts one, and attaches the terminal to Herdr. A CFO registered in a native terminal is shown in this terminal instead, and goblins --native starts a new CFO in a native terminal rather than in Herdr.
 
 commands:
   version   print the cfo version
   serve     run the persistent native supervisor and embedded browser board on loopback
   host      run one goblin terminal in a process of its own; cfo starts it, not you
+  attach    show a native terminal in this console, the CFO's unless one is named; Ctrl-] leaves it running
   status    whether the supervisor runs: its board, what the fleet is doing and its pid; exits 1 when none runs
   stop      ask the supervisor to stop and wait until it has; --force ends its process tree instead
   hooks     check|install <claude|codex|pi> native lifecycle hooks
@@ -133,6 +134,15 @@ type commandRuntime struct {
 	stdin       io.Reader
 	startCFO    func(context.Context, string) (bool, error)
 	attachHerdr func(string) int
+	// startNativeCFO and attachNative start the CFO in a native terminal and
+	// show a native terminal in this console, for goblins --native and a CFO
+	// registered in one.
+	startNativeCFO func(stateDir, project string) error
+	attachNative   func(stateDir, id string, stdout, stderr io.Writer) int
+	// nativeTerminalRuns reports whether a native terminal's host answers,
+	// so a CFO started in terminal cfo is shown before it registers, never
+	// started twice.
+	nativeTerminalRuns func(stateDir, id string) bool
 	// killTree ends a process and everything it started, for goblins stop
 	// --force.
 	killTree func(int) error
@@ -236,6 +246,9 @@ func defaultCommandRuntime() commandRuntime {
 		killTree: func(pid int) error {
 			return killTree(context.Background(), execx.OSRunner{}, pid)
 		},
+		startNativeCFO:     startNativeCFO,
+		attachNative:       attachNative,
+		nativeTerminalRuns: nativeTerminalRuns,
 	}
 }
 
@@ -249,12 +262,17 @@ func invokedAsGoblins() bool {
 func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 {
 		if runtime.goblins {
-			return runLauncher(stdout, stderr, runtime)
+			return runLauncher(stdout, stderr, runtime, false)
 		}
 		fmt.Fprint(stderr, usage)
 		return 2
 	}
+	if runtime.goblins && len(args) == 1 && args[0] == "--native" {
+		return runLauncher(stdout, stderr, runtime, true)
+	}
 	switch args[0] {
+	case "attach":
+		return runAttach(args[1:], stdout, stderr, runtime)
 	case "status":
 		return runStatus(args[1:], stdout, stderr, runtime)
 	case "stop":
