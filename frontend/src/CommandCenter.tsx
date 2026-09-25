@@ -8,6 +8,7 @@ import { age } from "./presentation";
 import { isOpen, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
 import { RunCard } from "./RunCard";
 import { questionAnswer, questionChoices } from "./questionChoices";
+import { plainMessage } from "./messageText";
 import { personaFor } from "./workflow";
 import { EMPTY_DRAFT, QuestionCard, type Draft } from "./QuestionCard";
 import { ReviewCard, reviewImages } from "./ReviewCard";
@@ -58,7 +59,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
       returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       element.showModal();
       // Start on the question itself, not the close button.
-      element.querySelector<HTMLElement>(".question-card h3")?.focus();
+      element.querySelector<HTMLElement>(".question-card .question-body, .question-card h3")?.focus();
     }
     if (!showing && element.open) { element.close(); returnFocus.current?.focus(); }
   }, [showing]);
@@ -96,7 +97,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
   const clear = (target: Review) => void post("review:" + target.id, { kind: "review_clear", review_id: target.id, generation: target.identity });
   const taskOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.task : candidate.kind === "review" ? candidate.review.task : "";
   const askerOf = (candidate: Item) => taskOf(candidate) ? snapshot.tasks.find((task) => task.id === taskOf(candidate))?.title || taskOf(candidate) : "The CFO";
-  const textOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.text : candidate.kind === "review" ? candidate.review.title : candidate.run.title;
+  const textOf = (candidate: Item) => candidate.kind === "question" ? plainMessage(candidate.question.text) : candidate.kind === "review" ? candidate.review.title : candidate.run.title;
   const created = (candidate: Item) => candidate.kind === "question" ? candidate.question.created_at : candidate.kind === "review" ? candidate.review.created_at : candidate.run.created_at;
   const iconOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.image_count ? "images" : "question" : candidate.kind === "review" ? candidate.review.image_count ? "images" : "comment" : "play";
   const pageFor = (candidate: Question) => presentations.find((event) => event.kind === "review" && (candidate.task ? event.task_id === candidate.task : !!event.cfo_identity));
@@ -114,7 +115,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
           <h3>Waiting on you <span className="column-count">{waiting.length}</span></h3>
           {waiting.length ? <ul className="inbox-list">{waiting.map((candidate) => <li key={candidate.key}>
             <Avatar persona={taskOf(candidate) ? personaFor(snapshot.tasks.find((task) => task.id === taskOf(candidate))) : "cfo"} small />
-            <span className="inbox-text"><strong>{askerOf(candidate)}</strong>{textOf(candidate)}</span>
+            <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span></span>
             <time>{age(created(candidate))}</time>
             <button className="icon-button raised" aria-label={"Answer " + askerOf(candidate) + ": " + textOf(candidate)} data-tip="Answer" data-tip-align="end" onClick={() => { setInbox(false); setOpen(true); show(candidate.key); }}><Icon name={iconOf(candidate)} /></button>
           </li>)}</ul> : <p className="muted">Nothing is waiting on you.</p>}
@@ -133,7 +134,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
             const mark = settledIcon(candidate, snapshot.actions);
             return <li key={candidate.key}>
               <span className={"delivery " + mark.tone}><Icon name={mark.icon} /></span>
-              <span className="inbox-text"><strong>{askerOf(candidate)}</strong>{textOf(candidate)}<small>{settledLabel(candidate, snapshot.actions)}</small></span>
+              <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span><small>{settledLabel(candidate, snapshot.actions)}</small></span>
             </li>;
           })}</ul>
         </Disclosure>}
