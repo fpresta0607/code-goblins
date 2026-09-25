@@ -41,6 +41,8 @@ Run as goblins with no command, it finds the supervisor or starts one in the bac
 commands:
   version   print the cfo version
   serve     run the persistent native supervisor and embedded browser board on loopback
+  status    whether the supervisor runs: its board, what the fleet is doing and its pid; exits 1 when none runs
+  stop      ask the supervisor to stop and wait until it has; --force ends its process tree instead
   hooks     check|install <claude|codex|pi> native lifecycle hooks
   native-hook <harness>  bounded hook entry point (JSON on stdin)
   register  make this session the primary CFO the board delivers to; the SessionStart hooks do it, run it by hand when the board says the registration is stale
@@ -117,6 +119,9 @@ type commandRuntime struct {
 	goblins    bool
 	startServe func(home.Home) (<-chan struct{}, error)
 	openURL    func(string) error
+	// killTree ends a process and everything it started, for goblins stop
+	// --force.
+	killTree func(int) error
 	// projectsRoot reads the machine's projects root. A runtime without one
 	// (a test's) has no root, so a bare project name stays what it was before
 	// names resolved: refused where a checkout is needed, a literal scope
@@ -207,6 +212,9 @@ func defaultCommandRuntime() commandRuntime {
 		goblins:      invokedAsGoblins(),
 		startServe:   startDetachedServe,
 		openURL:      openInBrowser,
+		killTree: func(pid int) error {
+			return killTree(context.Background(), execx.OSRunner{}, pid)
+		},
 	}
 }
 
@@ -226,6 +234,10 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return 2
 	}
 	switch args[0] {
+	case "status":
+		return runStatus(args[1:], stdout, stderr, runtime)
+	case "stop":
+		return runStop(args[1:], stdout, stderr, runtime)
 	case "serve":
 		return runServe(args[1:], stdout, stderr, runtime)
 	case "native-hook":
