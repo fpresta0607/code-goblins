@@ -294,7 +294,7 @@ func TestAClientThatNeverReadsStillTypesIntoTheTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	if err := typist.Input([]byte("typed without reading")); err != nil {
+	if err := typist.Input([]byte("typed without reading\r")); err != nil {
 		t.Fatalf("Input: %v", err)
 	}
 	_ = typist.Close()
