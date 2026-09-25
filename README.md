@@ -149,7 +149,7 @@ Tell the CFO what outcome you want. It handles the fleet mechanics.
 ## Using the board
 
 <p align="center">
-  <img src="docs/images/board-review.webp" alt="Board view: Tasks and In progress columns beside the selected goblin's panel with its status, workspace, Open in VS Code and connections" width="900" />
+  <img src="docs/images/board-review.webp" alt="Board view: a queued task, four goblins in progress (working or waiting on you) and the selected goblin's panel with its status, workspace, Connectors and Changes" width="900" />
 </p>
 
 `cfo serve` runs the native supervisor and serves its board, which is compiled into `cfo.exe`, at `http://127.0.0.1:4310`.
@@ -173,7 +173,7 @@ The header switches between two views, one at a time, each with a contextual pan
 - **Orchestration** is the live family tree: the CFO above its goblins and any child sessions they reported. The panel shows the selected session's real native terminal and starts on the CFO. Dragging cards, panning, zooming, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence. A brief pulse along a connector marks a real accepted message.
 
 <p align="center">
-  <img src="docs/images/orchestration.webp" alt="Orchestration view: the CFO above five goblins in two rows, with the selected goblin's live native terminal in the right panel" width="900" />
+  <img src="docs/images/orchestration.webp" alt="Orchestration view: the CFO above four goblins, with the selected goblin's live native terminal in the right panel" width="900" />
 </p>
 
 Each card's goblin is chosen from the task's work, and the crowned goblin is the CFO.
@@ -192,13 +192,13 @@ The Task view shows **Workspace** with the repository, branch and exact working 
 The Terminal view is the goblin's live Herdr pane, edge to edge: type straight into it, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
 
 <p align="center">
-  <img src="docs/images/goblin-panel.webp" alt="The whole goblin panel: status, workspace with Open in VS Code, two configured MCP connections, the supervisor.ts diff with a line comment the CFO accepted, activity and history, then the same goblin's live native terminal from Orchestration" width="600" />
+  <img src="docs/images/goblin-panel.webp" alt="The goblin panel on its Terminal view: the goblin's live Herdr pane showing a CFO message it accepted, with Open in VS Code and Open folder in the header" width="600" />
 </p>
 
 ### Sending a diff comment to the CFO
 
 <p align="center">
-  <img src="docs/images/annotation-delivery.webp" alt="An inline comment on supervisor.ts new line 3, sent to the CFO and accepted through Herdr" width="720" />
+  <img src="docs/images/annotation-delivery.webp" alt="An inline comment on supervisor.ts new lines 2 to 3, shrunk to a chip whose two check marks show the CFO accepted it" width="720" />
 </p>
 
 Open **Changes**, expand a file and click a line number, where a comment icon appears on hover; Shift-click extends the selection to a range.
@@ -211,19 +211,23 @@ Retrying an unchanged comment keeps its request ID, so a retry cannot deliver th
 ### Supreme Overlord Command Center
 
 <p align="center">
-  <img src="docs/images/command-center.webp" alt="Supreme Overlord Command Center: a CFO question with A, B and C choices, the recommended option marked, and Other" width="700" />
+  <img src="docs/images/command-center.webp" alt="Supreme Overlord Command Center: card 2 of 7 in the stack, a CFO question with A, B and C choices, the recommended option marked, and Other" width="560" />
 </p>
 
 When the CFO needs a decision only you can make, it publishes the question with `cfo question` and the Command Center opens as a modal.
 Choices are labelled A, B and C with the CFO's recommendation marked, and **Other** takes a written answer.
 Review items share the stack: a goblin's image review or Lavish page, or a goblin waiting on you, each answered in writing with **Send answer** or closed with **Clear**.
 Several items stack up one card at a time, the CFO's first and then goblins by longest wait, with **Back**, **Next** and swipe; each card sends its own answer, and **Later** moves on without answering.
-Nothing is preselected, drafts are kept, and the **Command Center** icon in the header, whose badge counts what is waiting on you, opens an inbox of what is waiting on you, the live pages (review pages and browser walkthroughs) and what you already answered or cleared.
+Nothing is preselected, drafts are kept, and the **Command Center** icon in the header, whose badge counts what is waiting on you, opens an inbox of what is waiting on you, the live pages (review pages and browser walkthroughs) and a History of what you answered, cleared or ran.
 A goblin waiting on you offers **Answer** in its panel, which opens the stack at its item.
 A question with images shows a thumbnail per choice that opens a full-size, swipeable, zoomable gallery.
 An answer to the CFO goes to the same verified CFO session, and an answer to a goblin goes to that goblin's own pane, each exactly once; no answer approves a gate or merges anything.
 Each live page offers **Open review** or **Open page** and **Keep in background**; neither pauses work.
 A command the CFO needs you to run arrives as a run card with its shell, an **Admin** badge when it runs elevated, the exact command with a copy button, and one **Run** button; the card then shows its exit code and output.
+
+<p align="center">
+  <img src="docs/images/run-card.webp" alt="A run card: the Windows PowerShell command the CFO needs run and its folder, then after Run, Finished with exit 0 and the captured output" width="560" />
+</p>
 
 ### Open in VS Code
 
