@@ -17,7 +17,7 @@ Then `goblins` brings the Overlord to the CFO.
 A CFO whose registration in `state/primary.json` names a live process is reused, never started a second time: `goblins` brings its registered workspace and tab to the front and hands its terminal to `herdr`, attached to the session the CFO registered in.
 It decides from the registration alone and asks neither the board nor Herdr, so a supervisor that has not checked the registration yet or a Herdr that cannot answer changes nothing.
 Otherwise it picks the project (the git checkout its terminal is in, else the only checkout under the projects root, else the one the Overlord picks by number), makes sure Herdr's server runs, and starts Claude Code as the CFO with `herdr agent start` in a fresh `cfo` tab it creates in that project, since Herdr starts an agent in its pane's own directory.
-An old `cfo` tab whose pane holds no agent is closed when it sits at its shell prompt, and renamed to `shell` when anything else runs there, `goblins` itself included; a `cfo` tab whose pane holds an agent is left as it is and no second CFO is started in it.
+An old `cfo` tab with no agent in any of its panes is closed when every pane sits at its shell prompt, and renamed to `shell` when anything else runs in one, `goblins` itself included; a `cfo` tab with an agent in any pane is left as it is and no second CFO is started beside it.
 It brings the CFO's tab to the front and hands its terminal to `herdr`, which attaches to the fleet's session.
 Run inside a Herdr pane there is nothing to attach, so `goblins` only brings the CFO to the front.
 Restarting with the same CFO home recovers durable events, evaluations, actions, and lineage.
