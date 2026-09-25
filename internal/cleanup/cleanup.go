@@ -24,6 +24,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -31,7 +32,7 @@ import (
 type Service struct {
 	StateDir  string
 	Commands  execx.Runner
-	Herdr     *herdr.Client
+	Terminal  terminal.Backend
 	Worktrees worktree.Service
 	// ForceArchive retires a task whose worktree can no longer be validated -
 	// a directory pinned by a dead process's handle, or already deleted out
@@ -60,8 +61,8 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if s.Commands == nil {
 		return Result{}, errors.New("cleanup: command runner is required")
 	}
-	if s.Herdr == nil {
-		return Result{}, errors.New("cleanup: Herdr client is required")
+	if s.Terminal == nil {
+		return Result{}, errors.New("cleanup: terminal backend is required")
 	}
 	meta, err := state.ReadTaskMeta(s.StateDir, id)
 	if err != nil {
@@ -125,7 +126,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 
 	// The endpoint is proven agent-free: close the recorded tab so a completed
 	// task leaves no terminal behind, then return the worktree.
-	if err := s.Herdr.CloseTab(ctx, meta.HerdrSession, meta.HerdrTabID); err != nil {
+	if err := s.Terminal.CloseTab(ctx, meta.HerdrSession, meta.HerdrTabID); err != nil {
 		return Result{}, fmt.Errorf("cleanup: close task tab: %w", err)
 	}
 
@@ -171,7 +172,7 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 		return Result{}, err
 	}
 	var notes []string
-	if err := s.Herdr.CloseTab(ctx, meta.HerdrSession, meta.HerdrTabID); err != nil {
+	if err := s.Terminal.CloseTab(ctx, meta.HerdrSession, meta.HerdrTabID); err != nil {
 		notes = append(notes, "tab close skipped: "+err.Error())
 	}
 	if err := state.AppendStatus(s.StateDir, id, "done: force-archived via cfo cleanup --force-archive; worktree "+worktreePath+" left in place"); err != nil {
@@ -304,10 +305,10 @@ func (s Service) requireClean(ctx context.Context, worktree string) error {
 // is sufficient inactive evidence; mismatched identity, duplicate identity,
 // an unreadable snapshot, and a failed Herdr request are all refused.
 func (s Service) requireInactive(ctx context.Context, meta state.TaskMeta) error {
-	if s.Herdr.EffectiveSession() != meta.HerdrSession {
-		return fmt.Errorf("cleanup: recorded session %q does not match the Herdr client session %q", meta.HerdrSession, s.Herdr.EffectiveSession())
+	if s.Terminal.EffectiveSession() != meta.HerdrSession {
+		return fmt.Errorf("cleanup: recorded session %q does not match the Herdr client session %q", meta.HerdrSession, s.Terminal.EffectiveSession())
 	}
-	snapshot, err := s.Herdr.Snapshot(ctx)
+	snapshot, err := s.Terminal.Snapshot(ctx)
 	if err != nil {
 		return fmt.Errorf("cleanup: Herdr endpoint evidence is unreadable: %w", err)
 	}

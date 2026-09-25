@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -1323,11 +1324,11 @@ func newFixture(t *testing.T) *fixture {
 	fixture.runner.taskTmpPath = filepath.Join(stateDir, "tasktmp", "task-7")
 	fixture.git = &worktreeGit{events: &fixture.events, top: worktreeDir}
 	fixture.service = Service{
-		Herdr: &herdr.Client{
+		Terminals: terminal.HerdrSessions(&herdr.Client{
 			Commands: fixture.runner,
 			Session:  "fleet",
 			Sleep:    func(context.Context, time.Duration) error { return nil },
-		},
+		}),
 		Worktrees: worktree.Service{
 			Commands: fixture.runner,
 			Git:      fixture.git,
@@ -2086,7 +2087,7 @@ func TestResumedTypedLaunchDeliversTheInstructionToTheComposer(t *testing.T) {
 		},
 	}
 
-	if _, err := fixture.service.startHarness(context.Background(), fixture.service.Herdr, target, plan); err != nil {
+	if _, err := fixture.service.startHarness(context.Background(), fixture.service.Terminals(""), target, plan); err != nil {
 		t.Fatalf("startHarness: %v", err)
 	}
 
@@ -2121,7 +2122,7 @@ func TestFreshTypedLaunchDeliversQuotedInstructionOnceThroughHerdr(t *testing.T)
 		Args: []string{"--model", "gpt-6-astra", "-c", "model_reasoning_effort=max"},
 		Dir:  fixture.worktree, Env: map[string]string{"GOTMPDIR": t.TempDir()},
 	}}
-	if _, err := fixture.service.startHarness(context.Background(), fixture.service.Herdr, herdr.Target{Session: "fleet", Pane: "pane-1"}, plan); err != nil {
+	if _, err := fixture.service.startHarness(context.Background(), fixture.service.Terminals(""), herdr.Target{Session: "fleet", Pane: "pane-1"}, plan); err != nil {
 		t.Fatal(err)
 	}
 	if fixture.runner.prompt != instruction {

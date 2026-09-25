@@ -171,9 +171,9 @@ func (f *agentFake) typedRequests() (typed bool, submitted bool) {
 
 func senderFor(f *agentFake, resolve TargetResolver) Sender {
 	return Sender{
-		Resolve: resolve,
-		Herdr:   &herdr.Client{Commands: f, Sleep: noSleep},
-		Sleep:   noSleep,
+		Resolve:  resolve,
+		Terminal: &herdr.Client{Commands: f, Sleep: noSleep},
+		Sleep:    noSleep,
 	}
 }
 
@@ -540,7 +540,7 @@ func TestSenderKeyNormalizesOnlySupportedKeys(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			runner := &fakeRunner{replies: []runnerReply{rawReply("")}}
 			var clientSleeps []time.Duration
-			sender := Sender{Resolve: &fakeResolver{target: fakeTarget}, Herdr: newHerdrClient(runner, &clientSleeps)}
+			sender := Sender{Resolve: &fakeResolver{target: fakeTarget}, Terminal: newHerdrClient(runner, &clientSleeps)}
 
 			if err := sender.Key(context.Background(), "task-7", test.key); err != nil {
 				t.Fatalf("Key: %v", err)
@@ -551,7 +551,7 @@ func TestSenderKeyNormalizesOnlySupportedKeys(t *testing.T) {
 
 	runner := &fakeRunner{}
 	var clientSleeps []time.Duration
-	sender := Sender{Resolve: &fakeResolver{target: fakeTarget}, Herdr: newHerdrClient(runner, &clientSleeps)}
+	sender := Sender{Resolve: &fakeResolver{target: fakeTarget}, Terminal: newHerdrClient(runner, &clientSleeps)}
 	assertErrorContains(t, sender.Key(context.Background(), "task-7", "F1"), "unsupported key")
 	if len(runner.requests) != 0 {
 		t.Errorf("unsupported key made Herdr requests: %#v", runner.requests)
@@ -564,5 +564,5 @@ func noSleep(context.Context, time.Duration) error {
 
 func TestSenderRequiresCollaborators(t *testing.T) {
 	assertErrorContains(t, (Sender{}).Text(context.Background(), "task-7", "message"), "resolver")
-	assertErrorContains(t, (Sender{Resolve: &fakeResolver{}}).Text(context.Background(), "task-7", "message"), "Herdr")
+	assertErrorContains(t, (Sender{Resolve: &fakeResolver{}}).Text(context.Background(), "task-7", "message"), "terminal backend")
 }

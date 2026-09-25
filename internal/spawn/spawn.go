@@ -21,6 +21,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -71,10 +72,12 @@ type AuthPreflight interface {
 	Preflight(ctx context.Context, project string) (auth.Result, error)
 }
 
-// Service owns one local Herdr spawn. Its collaborators are injected through
+// Service owns one local spawn. Its collaborators are injected through
 // their established package seams so operation ordering remains deterministic.
 type Service struct {
-	Herdr       *herdr.Client
+	// Terminals opens the terminal backend in a session: the request's for a
+	// spawn, the task's for a switch.
+	Terminals   func(session string) terminal.Backend
 	Worktrees   worktree.Service
 	Harness     harness.Registry
 	Auth        AuthPreflight
@@ -85,9 +88,9 @@ type Service struct {
 	ReleaseLock func(string, string) error
 	PolicyPath  string
 	// Leftovers lists the processes a pane's shell is still waiting on
-	// after a switch stops its harness. Nil reads Herdr and the jobs the
-	// shell holds.
-	Leftovers func(context.Context, *herdr.Client, herdr.Target) ([]Leftover, error)
+	// after a switch stops its harness. Nil reads the terminal backend and
+	// the jobs the shell holds.
+	Leftovers func(context.Context, terminal.Backend, herdr.Target) ([]Leftover, error)
 }
 
 // Spawn creates and launches exactly one local ship or scout task.
@@ -136,15 +139,12 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err != nil {
 		return Result{}, err
 	}
-	if s.Herdr == nil {
-		return Result{}, errors.New("spawn: Herdr client is required")
+	if s.Terminals == nil {
+		return Result{}, errors.New("spawn: terminal backend is required")
 	}
-	herdrClient := *s.Herdr
-	if req.Session != "" {
-		herdrClient.Session = req.Session
-	}
+	terminals := s.Terminals(req.Session)
 	taskTmp := filepath.Join(s.StateDir, "tasktmp", req.ID)
-	if err := validateLineValues("project", project, "herdr session", herdrClient.Session, "tasktmp", taskTmp); err != nil {
+	if err := validateLineValues("project", project, "herdr session", terminals.EffectiveSession(), "tasktmp", taskTmp); err != nil {
 		return Result{}, err
 	}
 
@@ -207,27 +207,27 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return Result{}, fmt.Errorf("spawn: %s", preflight.Refusal)
 	}
 
-	if err := herdrClient.EnsureServer(ctx); err != nil {
+	if err := terminals.EnsureServer(ctx); err != nil {
 		return Result{}, fmt.Errorf("spawn: ensure Herdr server: %w", err)
 	}
-	if err := herdrClient.Preflight(ctx); err != nil {
+	if err := terminals.Preflight(ctx); err != nil {
 		return Result{}, fmt.Errorf("spawn: Herdr compatibility preflight: %w", err)
 	}
-	kinds, err := herdrClient.AgentKinds(ctx)
+	kinds, err := terminals.AgentKinds(ctx)
 	if err != nil {
 		return Result{}, fmt.Errorf("spawn: list Herdr agent kinds: %w", err)
 	}
 	if !kinds[string(req.Harness)] {
 		return Result{}, fmt.Errorf("spawn: installed Herdr does not support harness kind %q", req.Harness)
 	}
-	container, err := herdrClient.EnsureContainer(ctx, project)
+	container, err := terminals.EnsureContainer(ctx, project)
 	if err != nil {
 		return Result{}, fmt.Errorf("spawn: ensure Herdr container: %w", err)
 	}
 	if err := validateContainer(container); err != nil {
 		return Result{}, err
 	}
-	endpoint, err := herdrClient.CreateTask(ctx, container, "gb-"+req.ID, project)
+	endpoint, err := terminals.CreateTask(ctx, container, "gb-"+req.ID, project)
 	if err != nil {
 		return Result{}, fmt.Errorf("spawn: create Herdr task tab: %w", err)
 	}
@@ -256,7 +256,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := state.WriteTaskMeta(s.StateDir, result.Meta); err != nil {
 		return Result{}, errors.Join(
 			fmt.Errorf("spawn: publish task metadata: %w", err),
-			s.teardownLaunch(ctx, &herdrClient, endpoint, project, wt.Path, result.Meta.ID),
+			s.teardownLaunch(ctx, terminals, endpoint, project, wt.Path, result.Meta.ID),
 		)
 	}
 
@@ -268,7 +268,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		if err := state.AppendStatus(s.StateDir, result.Meta.ID, line); err != nil {
 			cause = errors.Join(cause, fmt.Errorf("spawn: record launch failure: %w", err))
 		}
-		if err := s.teardownLaunch(ctx, &herdrClient, endpoint, project, wt.Path, result.Meta.ID); err != nil {
+		if err := s.teardownLaunch(ctx, terminals, endpoint, project, wt.Path, result.Meta.ID); err != nil {
 			cause = errors.Join(cause, err)
 		}
 		return result, cause
@@ -284,7 +284,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return fail(result, fmt.Errorf("spawn: validate task worktree: %w", err))
 	}
 
-	if err := adapter.Validate(ctx, herdrClient.Commands); err != nil {
+	if err := adapter.Validate(ctx, s.commands()); err != nil {
 		return fail(result, fmt.Errorf("spawn: validate harness %s: %w", req.Harness, err))
 	}
 	goTmp, err := state.GoTmpDir(s.StateDir, result.Meta.ID)
@@ -349,7 +349,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := s.injectProjectCredentials(preflight, taskTmp, &launch); err != nil {
 		return fail(result, err)
 	}
-	if _, err := s.startHarness(ctx, &herdrClient, endpoint.Target, launchPlan{
+	if _, err := s.startHarness(ctx, terminals, endpoint.Target, launchPlan{
 		AgentName: "gb-" + req.ID,
 		Harness:   req.Harness,
 		Launch:    launch,
@@ -516,7 +516,7 @@ type launchPlan struct {
 // the plan's instruction once it is ready. The returned submitted flag is now
 // ignored by both callers: spawn tears the whole launch down through
 // teardownLaunch on any error, and switch recovers the empty pane itself.
-func (s Service) startHarness(ctx context.Context, client *herdr.Client, target herdr.Target, plan launchPlan) (submitted bool, err error) {
+func (s Service) startHarness(ctx context.Context, client terminal.Backend, target herdr.Target, plan launchPlan) (submitted bool, err error) {
 	launch := plan.Launch
 	if s.StateDir != "" {
 		if launch.Env == nil {
@@ -774,7 +774,7 @@ func partialResult(req Request, project, taskTmp string, endpoint herdr.Endpoint
 // dialog differently per harness (claude blocked, kimi idle), so marker
 // absence in two consecutive captures is the readiness proof for every
 // harness.
-func (s Service) confirmHarnessDialogs(ctx context.Context, client *herdr.Client, target herdr.Target, launch harness.Launch) error {
+func (s Service) confirmHarnessDialogs(ctx context.Context, client terminal.Backend, target herdr.Target, launch harness.Launch) error {
 	if len(launch.ConfirmMarkers) == 0 {
 		return nil
 	}
@@ -830,7 +830,7 @@ func (s Service) confirmHarnessDialogs(ctx context.Context, client *herdr.Client
 // registers the harness with Herdr itself. Detection is never overridden:
 // CFO reports only a pane Herdr holds no agent for, so a harness with a
 // current manifest keeps its own live working, idle, and blocked transitions.
-func (s Service) confirmLaunch(ctx context.Context, client *herdr.Client, target herdr.Target, plan launchPlan) error {
+func (s Service) confirmLaunch(ctx context.Context, client terminal.Backend, target herdr.Target, plan launchPlan) error {
 	for attempt := 0; attempt < launchConfirmTries; attempt++ {
 		if attempt > 0 {
 			if err := s.sleep(ctx, launchConfirmPoll); err != nil {
@@ -883,7 +883,7 @@ func (s Service) confirmLaunch(ctx context.Context, client *herdr.Client, target
 // A pane Herdr cannot answer for is left alone. Reporting on a maybe would
 // turn this into a launch that always succeeds, which is the one thing the
 // readiness gate exists to prevent.
-func (s Service) reportUndetectedHarness(ctx context.Context, client *herdr.Client, target herdr.Target, plan launchPlan) (bool, error) {
+func (s Service) reportUndetectedHarness(ctx context.Context, client terminal.Backend, target herdr.Target, plan launchPlan) (bool, error) {
 	status, err := client.AgentStatus(ctx, target)
 	if err != nil || status != herdr.AgentDead {
 		return false, nil
@@ -924,7 +924,7 @@ func (s Service) reportUndetectedHarness(ctx context.Context, client *herdr.Clie
 // the lowest value the counters can hold, so a guessed baseline would read the
 // first number a booted agent reports as an advance - a live kimi sat at
 // revision 1 before its prompt - and report a swallowed instruction delivered.
-func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.Client, target herdr.Target, instruction string) error {
+func (s Service) deliverVerifiedInstruction(ctx context.Context, client terminal.Backend, target herdr.Target, instruction string) error {
 	var before herdr.AgentDetail
 	var lastBaselineErr, lastSubmitErr, lastReadErr error
 	baselined := false
@@ -998,7 +998,7 @@ func (s Service) deliverVerifiedInstruction(ctx context.Context, client *herdr.C
 // temporary directory and the task temporary directory, and retires the task
 // metadata. It is the clean-failure path: every step is attempted and their
 // failures joined, so one stuck teardown step never leaves the rest undone.
-func (s Service) teardownLaunch(ctx context.Context, client *herdr.Client, endpoint herdr.Endpoint, project, worktree, id string) error {
+func (s Service) teardownLaunch(ctx context.Context, client terminal.Backend, endpoint herdr.Endpoint, project, worktree, id string) error {
 	var errs error
 	if err := client.CloseTab(ctx, endpoint.Target.Session, endpoint.TabID); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("spawn: close task tab: %w", err))

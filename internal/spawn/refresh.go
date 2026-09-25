@@ -13,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 // PaneLiveness reports whether a task's recorded Herdr pane is still live.
@@ -27,7 +28,7 @@ type PaneLiveness interface {
 // missing agent, or an unreadable Herdr is not live - a notice no pane will
 // receive must never be reported as delivered.
 type HerdrLiveness struct {
-	Client *herdr.Client
+	Client terminal.Backend
 }
 
 // Live implements PaneLiveness.

@@ -158,7 +158,7 @@ func newCleanupFixture(t *testing.T) *cleanupFixture {
 	fixture.service = Service{
 		StateDir:  stateDir,
 		Commands:  runner,
-		Herdr:     &herdr.Client{Commands: runner, Session: "fleet"},
+		Terminal:  &herdr.Client{Commands: runner, Session: "fleet"},
 		Worktrees: worktree.Service{Git: git},
 	}
 	return fixture
@@ -353,7 +353,7 @@ func TestCleanupRefusals(t *testing.T) {
 		{
 			name: "session drift",
 			setup: func(f *cleanupFixture) {
-				f.service.Herdr = &herdr.Client{Commands: f.runner, Session: "other"}
+				f.service.Terminal = &herdr.Client{Commands: f.runner, Session: "other"}
 			},
 			want: "does not match the Herdr client session",
 		},

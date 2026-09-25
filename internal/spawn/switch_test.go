@@ -9,12 +9,14 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -181,7 +183,7 @@ func newSwitchFixture(t *testing.T) *switchFixture {
 		stopAfter:   1,
 	}
 	service := base.service
-	service.Herdr.Commands = runner
+	service.Terminals = terminal.HerdrSessions(&herdr.Client{Commands: runner, Session: "fleet", Sleep: func(context.Context, time.Duration) error { return nil }})
 	service.Worktrees.Commands = runner
 	service.Commands = runner
 	service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{
@@ -189,7 +191,7 @@ func newSwitchFixture(t *testing.T) *switchFixture {
 		harness.Kimi:   fixtureAdapter{events: &base.events, specs: &base.specs},
 	}}
 	// The stopped harness leaves nothing for the pane's shell to wait on.
-	service.Leftovers = func(context.Context, *herdr.Client, herdr.Target) ([]Leftover, error) { return nil, nil }
+	service.Leftovers = func(context.Context, terminal.Backend, herdr.Target) ([]Leftover, error) { return nil, nil }
 
 	return &switchFixture{
 		service:  service,
@@ -1059,7 +1061,7 @@ func TestSwitchRefusesToRelaunchOverTheOldSessionsLeftovers(t *testing.T) {
 		{PID: 41276, Executable: "node.exe", CommandLine: `"C:\Program Files\nodejs\node.exe" C:\Users\fpres\AppData\Roaming\npm\node_modules\chrome-devtools-axi\dist\bridge.mjs --session gb-steward-ui`},
 	}
 	alive := tonight
-	fixture.service.Leftovers = func(_ context.Context, _ *herdr.Client, target herdr.Target) ([]Leftover, error) {
+	fixture.service.Leftovers = func(_ context.Context, _ terminal.Backend, target herdr.Target) ([]Leftover, error) {
 		if target.Pane != fixture.meta.HerdrPaneID {
 			t.Errorf("leftovers asked about pane %q, want the goblin's %q", target.Pane, fixture.meta.HerdrPaneID)
 		}
@@ -1109,7 +1111,7 @@ func TestSwitchRefusesToRelaunchOverTheOldSessionsLeftovers(t *testing.T) {
 func TestSwitchRegistersAnUndetectedRelaunchUnderTheGoblinsName(t *testing.T) {
 	fixture := newSwitchFixture(t)
 	fixture.service.Harness.Adapters[harness.Pi] = typedFixtureAdapter{events: &fixture.base.events, kind: harness.Pi}
-	fixture.service.Leftovers = func(context.Context, *herdr.Client, herdr.Target) ([]Leftover, error) {
+	fixture.service.Leftovers = func(context.Context, terminal.Backend, herdr.Target) ([]Leftover, error) {
 		fixture.base.runner.agentNotFound = true
 		fixture.base.runner.harnessRunning = true
 		return nil, nil
@@ -1129,7 +1131,7 @@ func TestSwitchRegistersAnUndetectedRelaunchUnderTheGoblinsName(t *testing.T) {
 func TestSwitchLooksAgainWhenALeftoverListingFailsOnce(t *testing.T) {
 	fixture := newSwitchFixture(t)
 	looks := 0
-	fixture.service.Leftovers = func(context.Context, *herdr.Client, herdr.Target) ([]Leftover, error) {
+	fixture.service.Leftovers = func(context.Context, terminal.Backend, herdr.Target) ([]Leftover, error) {
 		looks++
 		if looks == 1 {
 			return nil, errors.New("duplicate job handle: the handle is invalid")
@@ -1149,7 +1151,7 @@ func TestSwitchLooksAgainWhenALeftoverListingFailsOnce(t *testing.T) {
 func TestSwitchRefusesWhenTheLeftoverListingKeepsFailing(t *testing.T) {
 	fixture := newSwitchFixture(t)
 	looks := 0
-	fixture.service.Leftovers = func(context.Context, *herdr.Client, herdr.Target) ([]Leftover, error) {
+	fixture.service.Leftovers = func(context.Context, terminal.Backend, herdr.Target) ([]Leftover, error) {
 		looks++
 		return nil, errors.New("duplicate job handle: access is denied")
 	}
@@ -1167,7 +1169,7 @@ func TestSwitchRefusesWhenTheLeftoverListingKeepsFailing(t *testing.T) {
 func TestSwitchLetsAHarnessesChildrenFollowItOut(t *testing.T) {
 	fixture := newSwitchFixture(t)
 	looks := 0
-	fixture.service.Leftovers = func(context.Context, *herdr.Client, herdr.Target) ([]Leftover, error) {
+	fixture.service.Leftovers = func(context.Context, terminal.Backend, herdr.Target) ([]Leftover, error) {
 		looks++
 		if looks == 1 {
 			return []Leftover{{PID: 5120, Executable: "bash.exe", CommandLine: "bash -c 'npm run dev'"}}, nil

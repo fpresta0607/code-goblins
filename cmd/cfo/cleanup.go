@@ -87,7 +87,7 @@ func defaultCleanup(ctx context.Context, h home.Home, id string, forceArchive bo
 	service := cleanup.Service{
 		StateDir:     h.State,
 		Commands:     commands,
-		Herdr:        &herdr.Client{Commands: commands, Session: herdrSession()},
+		Terminal:     &herdr.Client{Commands: commands, Session: herdrSession()},
 		Worktrees:    worktree.Service{Commands: commands},
 		ForceArchive: forceArchive,
 	}

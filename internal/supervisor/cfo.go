@@ -291,7 +291,7 @@ func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evalua
 		}
 		return c.verify(ctx, primary)
 	}
-	sender := fleet.Sender{Herdr: c.Herdr, Resolve: primaryResolver{c, primary}, Guard: guard}
+	sender := fleet.Sender{Terminal: c.Herdr, Resolve: primaryResolver{c, primary}, Guard: guard}
 	if err := sender.Text(ctx, "primary-cfo", oneLine("Overlord: "+text)); err != nil {
 		return Evaluation{}, err
 	}

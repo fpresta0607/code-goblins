@@ -27,6 +27,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -633,7 +634,7 @@ func (f *fleetE2EFixture) AssertVisibleTabsAndNoLifecycleDeletes() {
 
 func (f *fleetE2EFixture) spawn(ctx context.Context, h home.Home, request spawn.Request) (spawn.Result, error) {
 	service := spawn.Service{
-		Herdr: f.client,
+		Terminals: terminal.HerdrSessions(f.client),
 		Worktrees: worktree.Service{
 			Commands: f.runner,
 			Git:      f.git,
@@ -648,18 +649,18 @@ func (f *fleetE2EFixture) spawn(ctx context.Context, h home.Home, request spawn.
 
 func (f *fleetE2EFixture) sendText(ctx context.Context, h home.Home, target, text string) error {
 	return fleet.Sender{
-		Resolve: fleet.Resolver{StateDir: h.State},
-		Herdr:   f.client,
-		Sleep:   noWait,
+		Resolve:  fleet.Resolver{StateDir: h.State},
+		Terminal: f.client,
+		Sleep:    noWait,
 	}.Text(ctx, target, text)
 }
 
 func (f *fleetE2EFixture) sendKey(ctx context.Context, h home.Home, target, key string) error {
-	return fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Herdr: f.client}.Key(ctx, target, key)
+	return fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Terminal: f.client}.Key(ctx, target, key)
 }
 
 func (f *fleetE2EFixture) peek(ctx context.Context, h home.Home, target string, lines int) (string, error) {
-	return fleet.Peeker{Resolve: fleet.Resolver{StateDir: h.State}, Herdr: f.client}.Tail(ctx, target, lines)
+	return fleet.Peeker{Resolve: fleet.Resolver{StateDir: h.State}, Terminal: f.client}.Tail(ctx, target, lines)
 }
 
 func (f *fleetE2EFixture) snapshot(ctx context.Context, h home.Home) (fleet.Snapshot, error) {

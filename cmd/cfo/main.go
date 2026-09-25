@@ -25,6 +25,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -152,7 +153,7 @@ func defaultCommandRuntime() commandRuntime {
 			commands := execx.OSRunner{}
 			client := &herdr.Client{Commands: commands, Session: request.Session}
 			service := spawn.Service{
-				Herdr:      client,
+				Terminals:  terminal.HerdrSessions(client),
 				Worktrees:  worktree.Service{Commands: commands, DataDir: h.Data},
 				Harness:    harness.DefaultRegistry(),
 				Auth:       auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
@@ -166,7 +167,7 @@ func defaultCommandRuntime() commandRuntime {
 			commands := execx.OSRunner{}
 			client := &herdr.Client{Commands: commands, Session: request.Session}
 			service := spawn.Service{
-				Herdr:     client,
+				Terminals: terminal.HerdrSessions(client),
 				Worktrees: worktree.Service{Commands: commands, DataDir: h.Data},
 				Harness:   harness.DefaultRegistry(),
 				Auth:      auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
@@ -178,7 +179,7 @@ func defaultCommandRuntime() commandRuntime {
 		sendText: func(ctx context.Context, h home.Home, target, text string) error {
 			client := &herdr.Client{Commands: execx.OSRunner{}}
 			receipt := supervisor.PrepareSendActivity(ctx, h, client, target)
-			if err := (fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Herdr: client}).Text(ctx, target, text); err != nil {
+			if err := (fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Terminal: client}).Text(ctx, target, text); err != nil {
 				return err
 			}
 			if err := receipt(); err != nil {
@@ -188,7 +189,7 @@ func defaultCommandRuntime() commandRuntime {
 		},
 		sendKey: func(ctx context.Context, h home.Home, target, key string) error {
 			client := &herdr.Client{Commands: execx.OSRunner{}}
-			return fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Herdr: client}.Key(ctx, target, key)
+			return fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Terminal: client}.Key(ctx, target, key)
 		},
 		authRefresher: func(h home.Home) spawn.AuthRefresher {
 			return spawn.AuthRefresher{
@@ -199,10 +200,10 @@ func defaultCommandRuntime() commandRuntime {
 		},
 		peek: func(ctx context.Context, h home.Home, target string, lines int) (string, error) {
 			client := &herdr.Client{Commands: execx.OSRunner{}}
-			return fleet.Peeker{Resolve: fleet.Resolver{StateDir: h.State}, Herdr: client}.Tail(ctx, target, lines)
+			return fleet.Peeker{Resolve: fleet.Resolver{StateDir: h.State}, Terminal: client}.Tail(ctx, target, lines)
 		},
 		snapshot: func(ctx context.Context, h home.Home) (fleet.Snapshot, error) {
-			return fleet.BuildSnapshot(ctx, h, fleet.NewHerdrEndpoint(&herdr.Client{Commands: execx.OSRunner{}}))
+			return fleet.BuildSnapshot(ctx, h, fleet.NewTerminalEndpoint(&herdr.Client{Commands: execx.OSRunner{}}))
 		},
 		localRuntime: func(ctx context.Context, h home.Home) (runtime.Inventory, error) {
 			commands := execx.OSRunner{}

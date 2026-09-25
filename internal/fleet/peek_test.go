@@ -15,8 +15,8 @@ func TestPeekerTailDefaultsToFortyAndUsesHerdrCaptureFloor(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{rawReply(output)}}
 	var clientSleeps []time.Duration
 	peeker := Peeker{
-		Resolve: &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}},
-		Herdr:   newHerdrClient(runner, &clientSleeps),
+		Resolve:  &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}},
+		Terminal: newHerdrClient(runner, &clientSleeps),
 	}
 
 	got, err := peeker.Tail(context.Background(), "task-7", 0)
@@ -34,8 +34,8 @@ func TestPeekerTailFallsBackToTwoHundredForInvalidLineCount(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{rawReply(output)}}
 	var clientSleeps []time.Duration
 	peeker := Peeker{
-		Resolve: &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}},
-		Herdr:   newHerdrClient(runner, &clientSleeps),
+		Resolve:  &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}},
+		Terminal: newHerdrClient(runner, &clientSleeps),
 	}
 
 	got, err := peeker.Tail(context.Background(), "task-7", -1)
@@ -53,8 +53,8 @@ func TestPeekerTailPassesExactLineCountAndReturnsOnlyLocalTail(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{rawReply(output)}}
 	var clientSleeps []time.Duration
 	peeker := Peeker{
-		Resolve: &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}},
-		Herdr:   newHerdrClient(runner, &clientSleeps),
+		Resolve:  &fakeResolver{target: herdr.Target{Session: "fleet", Pane: "pane-7"}},
+		Terminal: newHerdrClient(runner, &clientSleeps),
 	}
 
 	got, err := peeker.Tail(context.Background(), "task-7", 250)
@@ -71,7 +71,7 @@ func TestPeekerRequiresCollaborators(t *testing.T) {
 	_, err := (Peeker{}).Tail(context.Background(), "task-7", 40)
 	assertErrorContains(t, err, "resolver")
 	_, err = (Peeker{Resolve: &fakeResolver{}}).Tail(context.Background(), "task-7", 40)
-	assertErrorContains(t, err, "Herdr")
+	assertErrorContains(t, err, "terminal backend")
 }
 
 func numberedLines(count int) string {
