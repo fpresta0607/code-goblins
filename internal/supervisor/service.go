@@ -532,6 +532,7 @@ type Task struct {
 	Title        string          `json:"title"`
 	Project      string          `json:"project"`
 	Harness      string          `json:"harness"`
+	Backend      string          `json:"backend"` // the terminal it runs in: native or herdr
 	Model        string          `json:"model"`
 	Effort       string          `json:"effort"`
 	Mode         string          `json:"mode"`
@@ -673,7 +674,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if evaluation.PR == "" {
 			evaluation.PR = pr
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: id, Project: filepath.Base(meta.Project), Harness: meta.Harness, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: id, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}

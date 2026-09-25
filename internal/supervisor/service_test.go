@@ -81,6 +81,28 @@ func TestReconcileActiveSessionAfterAbruptHarnessLoss(t *testing.T) {
 	}
 }
 
+// The board learns which terminal a task runs in, so it opens a native
+// terminal's own relay rather than a Herdr view.
+func TestSnapshotNamesEachTasksTerminalBackend(t *testing.T) {
+	store, h := testStore(t)
+	for _, backend := range []string{"native", "herdr"} {
+		meta, err := state.ReadTaskMeta(h.State, "task-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		meta.Backend = backend
+		if err := state.WriteTaskMeta(h.State, meta); err != nil {
+			t.Fatal(err)
+		}
+
+		view, err := (&Service{Store: store}).Snapshot()
+
+		if err != nil || len(view.Tasks) == 0 || view.Tasks[0].Backend != backend {
+			t.Errorf("the snapshot names backend %+v (%v), want %q", view.Tasks, err, backend)
+		}
+	}
+}
+
 type fakeProgress struct {
 	value pipeline.Progress
 	err   error
