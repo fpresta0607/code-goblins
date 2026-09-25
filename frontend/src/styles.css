@@ -601,3 +601,8 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
   .question-footer { flex-wrap: wrap; }
 }
 .question-card h3:focus { outline: none; }
+/* A live goblin's card carries a one-tap way into its terminal in its top
+   right corner; its pull request link keeps the bottom right. */
+.task-card-shell:has(.card-terminal) .task-card { padding-right: 58px; }
+.card-terminal { position: absolute; right: 10px; top: 10px; width: 40px; height: 40px; min-height: 40px; }
+.card-terminal .icon { width: 19px; height: 19px; }

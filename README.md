@@ -175,6 +175,7 @@ The whole crew:
 
 Clicking a card or a node opens the same goblin panel from either view: who the goblin is, what it is doing in plain words, its own latest status line, and icon buttons to open its worktree in VS Code or File Explorer and to open its pull request.
 A pill at the top switches between the **Task** view and the **Terminal** view in one tap.
+A live goblin's card also carries a terminal button that opens its panel straight on the Terminal view.
 The Task view shows **Workspace** with the repository, branch and exact working folder, **Connectors** with a mark for every harness, model provider, MCP server and credential (configured is not the same as connected, and no secret values are shown), then **Changes**, **Activity** and **History**.
 The Terminal view is the goblin's live Herdr pane, edge to edge: type straight into it, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
 
