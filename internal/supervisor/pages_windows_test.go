@@ -149,8 +149,8 @@ func TestTheCFOsOwnPageReachesItAsAWakeKeyedByTheItem(t *testing.T) {
 	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "the Overlord answered on the page "+page) || !strings.HasSuffix(wakes[0].Detail, ", act on it") {
 		t.Fatalf("review wakes = %+v, want one keyed by the item telling the CFO to act on its page's feedback", wakes)
 	}
-	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" {
-		t.Errorf("the CFO's item = %+v, want it closed once the CFO has the feedback", got)
+	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" || got.Reason != "The Overlord answered on the page; the CFO has it." {
+		t.Errorf("the CFO's item = %+v, want it closed saying the CFO has the feedback, with nobody to relay it to", got)
 	}
 }
 

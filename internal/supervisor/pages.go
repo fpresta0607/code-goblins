@@ -103,9 +103,9 @@ func (s *Service) watchPage(ctx context.Context, r Review) {
 // own page has no goblin to key or relay to, so its wake is keyed by the item.
 func (s *Service) handPageToCFO(ctx context.Context, r Review, poll axi.PagePoll, pollErr error) {
 	var detail, reason string
-	relay, key := "relay it to the goblin", r.Task
+	relay, key, answered := "relay it to the goblin", r.Task, "The Overlord answered on the page; the CFO relays it."
 	if r.Task == "" {
-		relay, key = "act on it", r.ID
+		relay, key, answered = "act on it", r.ID, "The Overlord answered on the page; the CFO has it."
 	}
 	switch {
 	case pollErr != nil:
@@ -129,7 +129,7 @@ func (s *Service) handPageToCFO(ctx context.Context, r Review, poll axi.PagePoll
 		if poll.Ended {
 			detail += "; he ended the review"
 		}
-		reason = "The Overlord answered on the page; the CFO relays it."
+		reason = answered
 	case poll.Status == "ended":
 		detail = "the Overlord ended the review of " + r.LavishPage + " with no more feedback"
 		reason = "The Overlord ended the review."

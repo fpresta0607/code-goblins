@@ -123,7 +123,7 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "cfo notify: --lavish %v\n", err)
 			return 2
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), pageOpenTimeout)
 		pageURL, err = (axi.Lavish{Commands: execx.OSRunner{}}).Open(ctx, page)
 		cancel()
 		if err != nil {
@@ -190,6 +190,10 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "notified %s %s\n", id, line)
 	return 0
 }
+
+// pageOpenTimeout bounds opening a Lavish page, which starts lavish-axi's
+// server on its first run, apart from the budget of whatever follows.
+var pageOpenTimeout = 30 * time.Second
 
 // lavishPageFile returns the absolute path of a Lavish page the supervisor can
 // poll: an existing HTML file.

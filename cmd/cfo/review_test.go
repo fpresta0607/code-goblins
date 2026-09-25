@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
@@ -98,5 +99,37 @@ func TestReviewCommandOpensTheLavishPageItIsGiven(t *testing.T) {
 	}
 	if entries, err := os.ReadDir(filepath.Join(h.State, "reviews-inbox")); err == nil && len(entries) != 0 {
 		t.Fatalf("a refused report left %d inbox records", len(entries))
+	}
+}
+
+// Opening a page has its own budget: a lavish-axi slower than the publish
+// budget still opens the page, and publishing then gets its whole budget.
+func TestReviewCommandGivesThePageOpenItsOwnTime(t *testing.T) {
+	defer func(publish time.Duration) { reviewPublishTimeout = publish }(reviewPublishTimeout)
+	reviewPublishTimeout = time.Second
+	dir := t.TempDir()
+	h := home.Home{Root: dir, State: filepath.Join(dir, "state"), Data: filepath.Join(dir, "data")}
+	if err := os.MkdirAll(h.State, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	page := filepath.Join(dir, "plan.html")
+	if err := os.WriteFile(page, []byte("<html></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	script := "@echo off\r\nping -n 3 127.0.0.1 >nul\r\necho session:\r\necho   url: \"http://127.0.0.1:4387/session/f26e\"\r\necho   status: opened\r\n"
+	if err := os.WriteFile(filepath.Join(bin, "lavish-axi.cmd"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+filepath.Join(os.Getenv("SystemRoot"), "System32"))
+	runtime := commandRuntime{resolveHome: func() (home.Home, error) { return h, nil }}
+
+	var stdout, stderr bytes.Buffer
+	exit := runReview([]string{"--id", "plan-review-1", "--task", "g1", "--title", "Pick a plan", "--lavish", page}, &stdout, &stderr, runtime)
+
+	// g1 is no goblin, so publishing refuses it: reaching that refusal means
+	// the slow open finished instead of running out the publish budget.
+	if exit != 1 || !strings.Contains(stderr.String(), "no live record") {
+		t.Fatalf("exit=%d stderr=%q, want the page opened and then g1 refused", exit, stderr.String())
 	}
 }

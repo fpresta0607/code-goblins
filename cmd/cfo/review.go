@@ -14,6 +14,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
+// reviewPublishTimeout bounds publishing or withdrawing an item, the Herdr
+// identity proof included.
+var reviewPublishTimeout = 20 * time.Second
+
 // runReview reports an item that stays in the Command Center until the
 // Overlord answers or clears it, or withdraws the reporter's own item:
 //
@@ -49,9 +53,9 @@ func runReview(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		return 1
 	}
 	client := &herdr.Client{Commands: execx.OSRunner{}}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
 	if *withdraw != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), reviewPublishTimeout)
+		defer cancel()
 		if err := supervisor.WithdrawReview(ctx, h, client, *task, *id, *withdraw); err != nil {
 			fmt.Fprintln(stderr, "cfo review: "+err.Error())
 			return 1
@@ -59,17 +63,24 @@ func runReview(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stdout, "Review withdrawn:", *id)
 		return 0
 	}
+	// Opening the page gets its own budget, so a slow first start of
+	// lavish-axi's server cannot use up the time publishing needs.
 	var page string
 	if *lavish != "" && !strings.Contains(*lavish, "://") {
 		if page, err = lavishPageFile(*lavish); err != nil {
 			fmt.Fprintf(stderr, "cfo review: --lavish takes a link or an HTML page: %v\n", err)
 			return 2
 		}
-		if *lavish, err = (axi.Lavish{Commands: execx.OSRunner{}}).Open(ctx, page); err != nil {
+		openCtx, openCancel := context.WithTimeout(context.Background(), pageOpenTimeout)
+		*lavish, err = (axi.Lavish{Commands: execx.OSRunner{}}).Open(openCtx, page)
+		openCancel()
+		if err != nil {
 			fmt.Fprintf(stderr, "cfo review: lavish-axi cannot show %s (%v)\n", page, err)
 			return 1
 		}
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), reviewPublishTimeout)
+	defer cancel()
 	if err := supervisor.PublishReview(ctx, h, client, *task, *id, *title, *lavish, page, images); err != nil {
 		fmt.Fprintln(stderr, "cfo review: "+err.Error())
 		return 1
