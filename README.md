@@ -114,15 +114,19 @@ It installs git and gh with winget, so on a machine that has neither winget nor 
 `goblins` and `cfo` are one program under two names: `goblins` is the one you type, the CFO and its scripts use `cfo`, and every command works under either.
 
 ```powershell
+goblins              # start the supervisor if it is not running, then show the board's link and the fleet
 goblins doctor       # check every tool and harness the fleet needs
-goblins serve        # start the supervisor and its board at http://127.0.0.1:4310
+goblins serve        # run the supervisor in this terminal instead
 goblins fleet-view   # every goblin: under way, queued or done
 goblins uninstall    # undo the install; the home folder and its data stay
 ```
 
-`goblins serve` runs in its own terminal and prints the board's link; the board is only a view, so closing the browser stops nothing, and Ctrl-C in that terminal stops the supervisor.
+`goblins` on its own finds the supervisor, or starts it in the background with a hidden console of its own when none is running, so no window opens, with its output in `state\serve.log` in the CFO home.
+It prints the banner, the board's link (`http://127.0.0.1:4310`) and one line on what the CFO and the goblins are doing and how much waits on you, and opens the board in your browser the first time.
+The board is only a view, so closing the browser stops nothing, and a supervisor started this way keeps running after the terminal closes.
+`goblins serve` runs the supervisor in its own terminal instead, where Ctrl-C stops it.
 `goblins uninstall` removes the hooks, the board's native hooks and the environment the install set, and keeps the home folder, with its state and data, until you delete it.
-`goblins` on its own, `goblins status` and `goblins stop` are not in this release: they arrive with the launcher.
+Starting the CFO session from `goblins`, `goblins status` and `goblins stop` arrive with the rest of the launcher.
 
 ### Start the CFO
 

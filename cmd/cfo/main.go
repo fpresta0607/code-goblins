@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/digest"
@@ -34,6 +35,8 @@ import (
 var version = "dev"
 
 const usage = `usage: cfo <command> [args]
+
+Run as goblins with no command, it finds the supervisor or starts one in the background, prints the board's link and what the fleet is doing, and opens the board when it started the supervisor.
 
 commands:
   version   print the cfo version
@@ -107,6 +110,13 @@ type commandRuntime struct {
 	reap          func(context.Context, home.Home, reap.Options) (reap.Result, error)
 	speedHint     func(context.Context, string) string
 	quota         func(context.Context) (quota.Report, string)
+	// goblins is true when this binary runs under the name goblins, where no
+	// command means the launcher; cfo alone keeps printing its usage for
+	// scripts. startServe and openURL are the launcher's two effects on the
+	// machine: a detached supervisor and a browser tab.
+	goblins    bool
+	startServe func(home.Home) (<-chan struct{}, error)
+	openURL    func(string) error
 	// projectsRoot reads the machine's projects root. A runtime without one
 	// (a test's) has no root, so a bare project name stays what it was before
 	// names resolved: refused where a checkout is needed, a literal scope
@@ -194,11 +204,24 @@ func defaultCommandRuntime() commandRuntime {
 		},
 		quota:        quota.Reader{Commands: execx.OSRunner{}}.Read,
 		projectsRoot: install.MachineProjectsRoot,
+		goblins:      invokedAsGoblins(),
+		startServe:   startDetachedServe,
+		openURL:      openInBrowser,
 	}
+}
+
+// invokedAsGoblins reports whether this binary is the goblins.exe copy the
+// install puts beside cfo.exe.
+func invokedAsGoblins() bool {
+	executable, err := os.Executable()
+	return err == nil && strings.EqualFold(strings.TrimSuffix(filepath.Base(executable), filepath.Ext(executable)), "goblins")
 }
 
 func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 {
+		if runtime.goblins {
+			return runLauncher(stdout, stderr, runtime)
+		}
 		fmt.Fprint(stderr, usage)
 		return 2
 	}
