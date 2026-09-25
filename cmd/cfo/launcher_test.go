@@ -2,13 +2,16 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
@@ -94,6 +97,33 @@ func TestGoblinsFindsTheRunningSupervisorAndOnlyPrintsItsLink(t *testing.T) {
 		t.Fatalf("exit=%d stderr=%q", exit, stderr)
 	}
 	if want := renderBanner(false, board, "CFO supervising · 2 goblins working · 3 waiting on you"); stdout != want {
+		t.Fatalf("stdout =\n%s\nwant\n%s", stdout, want)
+	}
+	if f.starts != 0 || len(f.opened) != 0 {
+		t.Fatalf("starts=%d opened=%q, want neither", f.starts, f.opened)
+	}
+}
+
+// A supervisor whose board answers but cannot read the fleet's state is still
+// the one supervisor: goblins prints its link, says so, and starts and opens
+// nothing.
+func TestGoblinsFindsASupervisorWhoseSnapshotFails(t *testing.T) {
+	f := newLauncherFixture(t, func(home.Home) (<-chan struct{}, error) {
+		t.Fatal("goblins started a second supervisor")
+		return nil, nil
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "wake record is malformed", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(server.Close)
+	f.record(server.URL)
+
+	exit, stdout, stderr := f.launch()
+
+	if exit != 0 {
+		t.Fatalf("exit=%d stderr=%q", exit, stderr)
+	}
+	if want := renderBanner(false, server.URL, "the board is up but could not read the fleet's state (HTTP 503)"); stdout != want {
 		t.Fatalf("stdout =\n%s\nwant\n%s", stdout, want)
 	}
 	if f.starts != 0 || len(f.opened) != 0 {
@@ -268,5 +298,69 @@ func TestStatusLineSpeaksTheBoardsWords(t *testing.T) {
 		if got := statusLine(c.snapshot); got != c.want {
 			t.Errorf("%s: statusLine = %q, want %q", name, got, c.want)
 		}
+	}
+}
+
+// consoleProbeVariable turns this test binary into a stand-in for cfo serve
+// that reports the console it was given to the file the variable names.
+const consoleProbeVariable = "CFO_TEST_CONSOLE_PROBE"
+
+var (
+	getConsoleProcessList = syscall.NewLazyDLL("kernel32.dll").NewProc("GetConsoleProcessList")
+	getConsoleWindow      = syscall.NewLazyDLL("kernel32.dll").NewProc("GetConsoleWindow")
+	isWindowVisible       = syscall.NewLazyDLL("user32.dll").NewProc("IsWindowVisible")
+)
+
+// probeConsole writes how many processes share this process's console, none
+// when it has no console, and whether that console shows a window.
+func probeConsole(report string) int {
+	processes := make([]uint32, 16)
+	count, _, _ := getConsoleProcessList.Call(uintptr(unsafe.Pointer(&processes[0])), uintptr(len(processes)))
+	window, _, _ := getConsoleWindow.Call()
+	visible := false
+	if window != 0 {
+		shown, _, _ := isWindowVisible.Call(window)
+		visible = shown != 0
+	}
+	if err := os.WriteFile(report, []byte(fmt.Sprintf("processes=%d visible=%t", count, visible)), 0o600); err != nil {
+		return 1
+	}
+	return 0
+}
+
+// The supervisor goblins starts must have a hidden console of its own: with
+// none, every console program it runs would open a window of its own, and
+// with the terminal's, closing the terminal would end it.
+func TestDetachedStartGivesAHiddenConsoleOfItsOwn(t *testing.T) {
+	dir := t.TempDir()
+	report := filepath.Join(dir, "console.txt")
+	t.Setenv(consoleProbeVariable, report)
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	command, err := startDetached(executable, dir, filepath.Join(dir, "probe.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- command.Wait() }()
+	select {
+	case err := <-exited:
+		if err != nil {
+			t.Fatalf("the stand-in failed: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		_ = command.Process.Kill()
+		t.Fatalf("the stand-in, pid %d, did not exit", command.Process.Pid)
+	}
+
+	data, err := os.ReadFile(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(data); got != "processes=1 visible=false" {
+		t.Fatalf("stand-in console: %s, want a hidden console only it is attached to", got)
 	}
 }

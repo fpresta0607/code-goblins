@@ -110,7 +110,7 @@ func runLauncher(stdout, stderr io.Writer, runtime commandRuntime) int {
 		return 1
 	}
 	ctx := context.Background()
-	board, snapshot, running := liveBoard(ctx, h.State)
+	board, status, running := liveBoard(ctx, h.State)
 	started := false
 	if !running {
 		exited, err := runtime.startServe(h)
@@ -118,13 +118,13 @@ func runLauncher(stdout, stderr io.Writer, runtime commandRuntime) int {
 			fmt.Fprintf(stderr, "goblins: the supervisor could not be started: %v\n", err)
 			return 1
 		}
-		if board, snapshot, running = waitForBoard(ctx, h.State, exited); !running {
+		if board, status, running = waitForBoard(ctx, h.State, exited); !running {
 			fmt.Fprintf(stderr, "goblins: the supervisor did not start; the end of %s says:\n%s", serveLogPath(h.State), logTail(serveLogPath(h.State), 12))
 			return 1
 		}
 		started = true
 	}
-	fmt.Fprint(stdout, renderBanner(bannerColor(stdout), board, statusLine(snapshot)))
+	fmt.Fprint(stdout, renderBanner(bannerColor(stdout), board, status))
 	if started {
 		if err := runtime.openURL(board); err != nil {
 			fmt.Fprintf(stderr, "goblins: open the board at %s yourself (%v)\n", board, err)
@@ -134,52 +134,57 @@ func runLauncher(stdout, stderr io.Writer, runtime commandRuntime) int {
 }
 
 // liveBoard returns the board a supervisor serves at the address its record
-// names, with its snapshot. A record whose address does not answer is stale:
-// its supervisor ended without removing it.
-func liveBoard(ctx context.Context, stateDir string) (string, launcherSnapshot, bool) {
+// names, with the status line for its snapshot. Any answer from that address
+// is the supervisor, even one that could not read the fleet's state; a record
+// whose address does not answer is stale: its supervisor ended without
+// removing it.
+func liveBoard(ctx context.Context, stateDir string) (string, string, bool) {
 	record, err := readBoardRecord(stateDir)
 	if err != nil {
-		return "", launcherSnapshot{}, false
+		return "", "", false
 	}
-	snapshot, err := fetchSnapshot(ctx, record.URL)
+	status, err := boardStatus(ctx, record.URL)
 	if err != nil {
-		return "", launcherSnapshot{}, false
+		return "", "", false
 	}
-	return record.URL, snapshot, true
+	return record.URL, status, true
 }
 
-func fetchSnapshot(ctx context.Context, board string) (launcherSnapshot, error) {
+// boardStatus fetches the board's snapshot and returns its status line, or
+// says the board could not read the fleet's state. It fails only when the
+// board does not answer.
+func boardStatus(ctx context.Context, board string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, board+"/api/snapshot", nil)
 	if err != nil {
-		return launcherSnapshot{}, err
+		return "", err
 	}
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return launcherSnapshot{}, err
+		return "", err
 	}
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return launcherSnapshot{}, fmt.Errorf("the board answered %s", response.Status)
-	}
 	var snapshot launcherSnapshot
-	return snapshot, json.NewDecoder(response.Body).Decode(&snapshot)
+	if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&snapshot) != nil {
+		return fmt.Sprintf("the board is up but could not read the fleet's state (HTTP %d)", response.StatusCode), nil
+	}
+	return statusLine(snapshot), nil
 }
 
 // waitForBoard waits for a supervisor this launch started to answer, and
 // gives up when it exits first or the wait runs out.
-func waitForBoard(ctx context.Context, stateDir string, exited <-chan struct{}) (string, launcherSnapshot, bool) {
+func waitForBoard(ctx context.Context, stateDir string, exited <-chan struct{}) (string, string, bool) {
 	deadline := time.After(launcherStartTimeout)
 	for {
-		if board, snapshot, ok := liveBoard(ctx, stateDir); ok {
-			return board, snapshot, true
+		if board, status, ok := liveBoard(ctx, stateDir); ok {
+			return board, status, true
 		}
 		select {
 		case <-exited:
-			return "", launcherSnapshot{}, false
+			return "", "", false
 		case <-deadline:
-			return "", launcherSnapshot{}, false
+			return "", "", false
 		case <-time.After(launcherPoll):
 		}
 	}
@@ -237,38 +242,22 @@ func logTail(path string, lines int) string {
 }
 
 // Windows process creation flags for a supervisor that outlives the terminal
-// that started it: no console, its own process group, and outside the
-// terminal's job where the job allows it.
+// that started it: a console of its own with no window, its own process
+// group, and outside the terminal's job where the job allows it.
 const (
-	detachedProcess        = 0x00000008
+	createNoWindow         = 0x08000000
 	createNewProcessGroup  = 0x00000200
 	createBreakawayFromJob = 0x01000000
 )
 
-// startDetachedServe starts this binary's serve in the home, with no console
-// and its output appended to state/serve.log. A job that forbids breakaway
-// refuses that flag, so the start is retried inside the job rather than not
-// made. The returned channel closes when the supervisor exits.
+// startDetachedServe starts this binary's serve in the home, detached from
+// this terminal. The returned channel closes when the supervisor exits.
 func startDetachedServe(h home.Home) (<-chan struct{}, error) {
 	executable, err := os.Executable()
 	if err != nil {
 		return nil, err
 	}
-	log, err := os.OpenFile(serveLogPath(h.State), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	defer log.Close()
-	var command *exec.Cmd
-	for _, flags := range []uint32{detachedProcess | createNewProcessGroup | createBreakawayFromJob, detachedProcess | createNewProcessGroup} {
-		command = exec.Command(executable, "serve")
-		command.Dir = h.Root
-		command.Stdout, command.Stderr = log, log
-		command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: flags, HideWindow: true}
-		if err = command.Start(); err == nil {
-			break
-		}
-	}
+	command, err := startDetached(executable, h.Root, serveLogPath(h.State), "serve")
 	if err != nil {
 		return nil, errors.Join(errors.New("start cfo serve"), err)
 	}
@@ -278,6 +267,30 @@ func startDetachedServe(h home.Home) (<-chan struct{}, error) {
 		close(exited)
 	}()
 	return exited, nil
+}
+
+// startDetached starts executable in dir with a hidden console of its own,
+// which the console programs it runs inherit instead of each opening a
+// window, and its output appended to logPath. A job that forbids breakaway
+// refuses that flag, so the start is retried inside the job rather than not
+// made.
+func startDetached(executable, dir, logPath string, args ...string) (*exec.Cmd, error) {
+	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	defer log.Close()
+	var command *exec.Cmd
+	for _, flags := range []uint32{createNoWindow | createNewProcessGroup | createBreakawayFromJob, createNoWindow | createNewProcessGroup} {
+		command = exec.Command(executable, args...)
+		command.Dir = dir
+		command.Stdout, command.Stderr = log, log
+		command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: flags, HideWindow: true}
+		if err = command.Start(); err == nil {
+			return command, nil
+		}
+	}
+	return nil, err
 }
 
 // openInBrowser opens url in the default browser through the URL protocol
