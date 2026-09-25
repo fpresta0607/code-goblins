@@ -17,13 +17,20 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
-// startCFOSession brings the CFO's session to the front. A CFO whose
-// registration names a live process is brought to the front where it
-// registered; otherwise Claude Code is started as the CFO in Herdr, in the
-// project this terminal is in or one the Overlord picks. Then the terminal is
-// handed to herdr, which attaches with the CFO's tab in front. Inside a Herdr
-// pane there is nothing to attach.
+// startCFOSession brings the CFO's session to the front. A CFO registered in
+// a native terminal is left where it runs. A CFO whose registration names a
+// live process in Herdr is brought to the front where it registered;
+// otherwise Claude Code is started as the CFO in Herdr, in the project this
+// terminal is in or one the Overlord picks. Then the terminal is handed to
+// herdr, which attaches with the CFO's tab in front. Inside a Herdr pane
+// there is nothing to attach.
 func startCFOSession(ctx context.Context, runtime commandRuntime, stateDir string, stdout, stderr io.Writer) int {
+	if id, live := runtime.nativeCFO(stateDir); live {
+		// ponytail: a native CFO is only reported until cfo attach can hand
+		// this terminal to it.
+		fmt.Fprintf(stdout, "\nThe CFO runs in native terminal %s, which goblins cannot attach to yet.\n", id)
+		return 0
+	}
 	session := herdrSession()
 	if endpoint, live := runtime.liveCFO(stateDir); live {
 		if err := runtime.focusCFO(ctx, endpoint); err != nil {

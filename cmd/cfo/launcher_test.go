@@ -42,6 +42,7 @@ type launcherFixture struct {
 	opened    []string
 	cfo       herdr.Endpoint
 	cfoLive   bool
+	nativeCFO string
 	focused   []herdr.Endpoint
 	cfoStarts []string
 	attached  []string
@@ -69,6 +70,9 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 		openURL: func(target string) error {
 			f.opened = append(f.opened, target)
 			return nil
+		},
+		nativeCFO: func(string) (string, bool) {
+			return f.nativeCFO, f.nativeCFO != ""
 		},
 		liveCFO: func(stateDir string) (herdr.Endpoint, bool) {
 			if stateDir != h.State {

@@ -9,6 +9,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +25,10 @@ var (
 	handshakeTimeout = 5 * time.Second
 	farewellTimeout  = 2 * time.Second
 )
+
+// IDVariable tells the program in a host's terminal which terminal it runs
+// in, so it can register as reachable through that host.
+const IDVariable = "CFO_HOST_ID"
 
 // Spec is one terminal for a host to run.
 type Spec struct {
@@ -62,7 +68,7 @@ func Run(stateDir string, spec Spec) error {
 	if err := state.ValidTaskID(spec.ID); err != nil {
 		return err
 	}
-	console, err := conpty.Start(conpty.Spec{Args: spec.Args, Dir: spec.Dir, Cols: spec.Cols, Rows: spec.Rows})
+	console, err := conpty.Start(conpty.Spec{Args: spec.Args, Dir: spec.Dir, Env: terminalEnvironment(spec.ID), Cols: spec.Cols, Rows: spec.Rows})
 	if err != nil {
 		return err
 	}
@@ -128,6 +134,16 @@ func Run(stateDir string, spec Spec) error {
 	case <-time.After(farewellTimeout):
 	}
 	return closeErr
+}
+
+// terminalEnvironment is this host's environment with IDVariable naming
+// terminal id, in place of any value inherited from a terminal the host was
+// launched in, since Windows keeps the first of two entries.
+func terminalEnvironment(id string) []string {
+	env := slices.DeleteFunc(os.Environ(), func(entry string) bool {
+		return strings.HasPrefix(strings.ToUpper(entry), IDVariable+"=")
+	})
+	return append(env, IDVariable+"="+id)
 }
 
 // announce opens the host's pipe and records where to find it.

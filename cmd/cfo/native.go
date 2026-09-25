@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
@@ -60,7 +61,7 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 	// shows on the board as the registration state rather than in the reply.
 	// One second keeps the whole hook inside the Codex 3 s and Pi 2.5 s hook
 	// timeouts.
-	if e.Kind == "started" && e.Role == "cfo" && e.TaskID == "" && (e.Harness == "codex" || e.Harness == "pi") && os.Getenv("HERDR_PANE_ID") != "" {
+	if e.Kind == "started" && e.Role == "cfo" && e.TaskID == "" && (e.Harness == "codex" || e.Harness == "pi") && (os.Getenv("HERDR_PANE_ID") != "" || os.Getenv(host.IDVariable) != "") {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		_, _ = supervisor.Register(ctx, *dir, registerTerminals(), e.Harness, e.SessionID)
 		cancel()

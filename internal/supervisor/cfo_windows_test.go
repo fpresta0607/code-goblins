@@ -18,6 +18,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
@@ -269,8 +270,9 @@ func TestRegisterRefusesWhatItCannotProve(t *testing.T) {
 		name, want string
 		arrange    func(*testing.T, *Store, *cfoRunner)
 	}{
-		{"outside Herdr", "not running in a Herdr pane", func(t *testing.T, _ *Store, _ *cfoRunner) {
+		{"outside Herdr and native terminals", "neither a Herdr pane nor a native terminal", func(t *testing.T, _ *Store, _ *cfoRunner) {
 			t.Setenv("HERDR_PANE_ID", "")
+			t.Setenv(host.IDVariable, "")
 		}},
 		// The System process is live and never the ancestor of a test, so an
 		// inherited HERDR_PANE_ID cannot register another session's pane.

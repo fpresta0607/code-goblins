@@ -204,6 +204,12 @@ The primary CFO writes that registration itself: Claude's SessionStart hook does
 `cfo register` refreshes it by hand.
 Registering the same process in the same pane again leaves the file byte-identical, so a compact, clear or resume keeps the fingerprint pending questions, reviews and answers are bound to.
 Registration trusts no variable alone: the Herdr pane named by `HERDR_PANE_ID` must have one of the caller's own process ancestors in its foreground, and that harness must hold the home's session lock, taking it only when no live session does.
+A CFO can also run in a native terminal, a `cfo host` that tells the program it starts which terminal it is through `CFO_HOST_ID`.
+Outside a Herdr pane, registration there needs the terminal's program, named by its host's record, to be one of the caller's own ancestors, and the host to answer on its pipe, since a host that was killed leaves its record behind.
+The registration then names that terminal instead of a pane, and it stays valid while the host's record names the registered process as the terminal's program.
+A message for a native CFO is typed into its terminal once, then Enter submits it.
+Until native hooks report the CFO's prompts, nothing confirms it took the message, so the board shows the delivery as unconfirmed and never types it again.
+The board's CFO view does not show a native terminal yet, and `goblins` reports a native CFO rather than starting a second one in Herdr.
 A missing or stale registration shows on the board as one banner, and in the CFO terminal as its own state, naming what went stale and the fix, `cfo register` in the CFO session.
 On Windows normal message delivery holds that registration against replacement and validates the live process/start time, foreground process group, registered agent, pane, workspace, tab and terminal ID before using a required-agent sender.
 Missing or changed identity is refused, never passed to the explicit-pane shell fallback.

@@ -40,15 +40,17 @@ func TestMain(m *testing.M) {
 	}
 }
 
-// echoChild answers one typed line at a time: its terminal's size, a
-// grandchild it starts, an exit code, a flood of output before an exit code,
-// or the line itself.
+// echoChild answers one typed line at a time: the terminal its host says it
+// runs in, its terminal's size, a grandchild it starts, an exit code, a flood
+// of output before an exit code, or the line itself.
 func echoChild() {
 	fmt.Println("ready")
 	lines := bufio.NewScanner(os.Stdin)
 	for lines.Scan() {
 		line := strings.TrimSpace(lines.Text())
 		switch {
+		case line == "host-id":
+			fmt.Println("host-id", os.Getenv(IDVariable))
 		case line == "size":
 			var info windows.ConsoleScreenBufferInfo
 			if err := windows.GetConsoleScreenBufferInfo(windows.Handle(os.Stdout.Fd()), &info); err != nil {
@@ -217,6 +219,19 @@ func typeLine(t *testing.T, v *viewer, line string) {
 	if err := v.Input([]byte(line + "\r")); err != nil {
 		t.Fatalf("Input %q: %v", line, err)
 	}
+}
+
+// The program in a terminal learns from its host which terminal it runs in,
+// even when the host was launched from another host's terminal.
+func TestTheTerminalKnowsWhichTerminalItIs(t *testing.T) {
+	t.Setenv(IDVariable, "outer")
+	_, record := launch(t)
+	v := connect(t, record)
+	v.waitFor(t, "ready")
+
+	typeLine(t, v, "host-id")
+
+	v.waitFor(t, "host-id g1")
 }
 
 // A viewer types into the terminal the host runs and sees its output.
