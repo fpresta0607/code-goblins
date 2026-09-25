@@ -3,7 +3,7 @@ import { Icon } from "./Icon";
 
 export interface GalleryImage { src: string; label: string; value: string }
 
-// A question's images one at a time at full size: swipe, arrow keys or the
+// A question's or review item's images one at a time at full size: swipe, arrow keys or the
 // side buttons move between them, and a click or tap zooms in and out.
 export function ImageGallery({ images, index, lavish, onIndex, onClose, onChoose }: {
   images: GalleryImage[]; index: number; lavish?: string; onIndex: (index: number) => void; onClose: () => void; onChoose?: (value: string) => void;
