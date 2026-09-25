@@ -95,6 +95,7 @@ export interface Snapshot {
   issues: string[];
   questions?: Question[];
   reviews?: Review[];
+  runs?: Run[];
 }
 export interface Question {
   id: string; identity: string; text: string; options: string[]; recommended: string; answer: string; answer_kind: string; created_at: string; answer_id: string; status: string; message: string;
@@ -110,6 +111,13 @@ export interface Question {
 export interface Review {
   id: string; identity: string; task: string; title: string; image_count: number; lavish: string;
   state: string; answer: string; answer_id: string; delivered: boolean; reason: string; created_at: string; updated_at: string;
+}
+// A command the CFO needs the Overlord to run (API8): the stored text is what
+// runs; the board shows it verbatim and names the item when he presses Run.
+export interface Run {
+  id: string; identity: string; title: string; shell: string; admin: boolean; command: string; cwd: string;
+  state: string; exit_code: number | null; output: string; reason: string;
+  created_at: string; expires_at: string; ran_at: string; finished_at: string;
 }
 export interface ChangedFile {
   path: string;
@@ -235,6 +243,12 @@ export function parseSnapshot(value: unknown): Snapshot {
       return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish),
         state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
         created_at: string(r.created_at), updated_at: string(r.updated_at) };
+    }),
+    runs: array(v.runs).map((value) => {
+      const r = object(value);
+      return { id: string(r.id), identity: string(r.identity), title: string(r.title), shell: string(r.shell), admin: r.admin === undefined ? false : boolean(r.admin),
+        command: string(r.command), cwd: string(r.cwd), state: string(r.state), exit_code: r.exit_code === undefined || r.exit_code === null ? null : number(r.exit_code),
+        output: string(r.output), reason: string(r.reason), created_at: string(r.created_at), expires_at: string(r.expires_at), ran_at: string(r.ran_at), finished_at: string(r.finished_at) };
     }),
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
