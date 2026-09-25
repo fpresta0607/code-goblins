@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, fontSizeFor, INPUT_MESSAGE, inputMessages, MAX_FONT_SIZE, MIN_FONT_SIZE, parseSize, reconnects, usableSize } from "./terminalStream.ts";
+import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, fontSizeFor, INPUT_MESSAGE, inputMessages, MAX_FONT_SIZE, MIN_FONT_SIZE, parseHistory, parseSize, reconnects, usableSize } from "./terminalStream.ts";
 
 test("output is acknowledged in steps, and at once when the terminal has caught up", () => {
   const cases: [number, number, number, boolean][] = [
@@ -25,14 +25,14 @@ test("a long paste travels in ordered pieces the relay accepts, and nothing is l
 });
 
 test("Ctrl with plus, minus or zero sizes the font within bounds, and other keys leave it", () => {
-  assert.equal(fontSizeFor("=", 16), 17);
+  assert.equal(fontSizeFor("=", 20), 21);
   assert.equal(fontSizeFor("+", MAX_FONT_SIZE), MAX_FONT_SIZE);
-  assert.equal(fontSizeFor("-", 16), 15);
+  assert.equal(fontSizeFor("-", 20), 19);
   assert.equal(fontSizeFor("-", MIN_FONT_SIZE), MIN_FONT_SIZE);
   assert.equal(fontSizeFor("0", 22), DEFAULT_FONT_SIZE);
   assert.equal(fontSizeFor("c", 16), null);
   assert.equal(fontSizeFor("_", 16), null);
-  assert.equal(DEFAULT_FONT_SIZE, 16);
+  assert.equal(DEFAULT_FONT_SIZE, 20);
 });
 
 test("only the relay's size messages are read as sizes", () => {
@@ -56,4 +56,10 @@ test("a closed view says why in plain words", () => {
   assert.equal(closedReason(1000, "The terminal ended with exit code 0."), "The terminal ended with exit code 0.");
   assert.equal(closedReason(1006, ""), "The connection to the board dropped.");
   assert.equal(closedReason(1008, "pipeline owns this task"), "The review gate owns this goblin's work right now, so typing is paused. Reconnect to watch the screen.");
+});
+
+test("the relay's history header names how many bytes replay the history", () => {
+  assert.equal(parseHistory('{"type":"history","bytes":5208}'), 5208);
+  assert.equal(parseHistory('{"type":"history","bytes":0}'), 0);
+  for (const text of ['{"type":"size","cols":1,"rows":1}', '{"type":"history","bytes":-1}', '{"type":"history","bytes":1.5}', '{"type":"history"}', "nope"]) assert.equal(parseHistory(text), null, text);
 });
