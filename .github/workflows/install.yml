@@ -9,8 +9,13 @@ on:
       - install.ps1
       - home_files.go
       - cmd/cfo/install.go
+      - cmd/cfo/native.go
+      - cmd/cfo/main.go
+      - cmd/cfo/doctor.go
       - internal/home/**
       - internal/install/**
+      - internal/nativehook/**
+      - internal/doctor/**
       - .github/workflows/install.yml
       - .github/workflows/release.yml
   push:
@@ -19,11 +24,21 @@ on:
       - install.ps1
       - home_files.go
       - cmd/cfo/install.go
+      - cmd/cfo/native.go
+      - cmd/cfo/main.go
+      - cmd/cfo/doctor.go
       - internal/home/**
       - internal/install/**
+      - internal/nativehook/**
+      - internal/doctor/**
       - .github/workflows/install.yml
       - .github/workflows/release.yml
   workflow_dispatch:
+    inputs:
+      release:
+        description: Install the latest published release instead of this commit's build
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -48,6 +63,7 @@ jobs:
         with:
           go-version: stable
       - name: Serve this commit as the release
+        if: ${{ !inputs.release }}
         shell: pwsh
         run: |
           New-Item -ItemType Directory release | Out-Null
@@ -58,9 +74,14 @@ jobs:
           Start-Process python -ArgumentList "-m", "http.server", "8765", "--bind", "127.0.0.1", "--directory", "release" -WindowStyle Hidden
       - name: Install with the one-line command
         env:
-          CODE_GOBLINS_RELEASE_BASE: http://127.0.0.1:8765
+          CODE_GOBLINS_RELEASE_BASE: ${{ !inputs.release && 'http://127.0.0.1:8765' || '' }}
+          REAL_RELEASE: ${{ inputs.release }}
         run: |
-          Get-Content -Raw install.ps1 | Invoke-Expression
+          if ($env:REAL_RELEASE -eq "true") {
+            irm https://raw.githubusercontent.com/fpresta0607/code-goblins/main/install.ps1 | iex
+          } else {
+            Get-Content -Raw install.ps1 | Invoke-Expression
+          }
           # The install ends with goblins doctor, whose verdict the next step
           # reads line by line: kimi has no scriptable installer, so its spawn
           # probe is broken on a clean runner.
@@ -94,12 +115,17 @@ jobs:
           $global:LASTEXITCODE = 0
       - name: Install again
         env:
-          CODE_GOBLINS_RELEASE_BASE: http://127.0.0.1:8765
+          CODE_GOBLINS_RELEASE_BASE: ${{ !inputs.release && 'http://127.0.0.1:8765' || '' }}
+          REAL_RELEASE: ${{ inputs.release }}
         run: |
           # A new terminal, as the install tells the user to open, sees the PATH
           # the installers wrote to the registry; a new step does not.
           $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
-          Get-Content -Raw install.ps1 | Invoke-Expression
+          if ($env:REAL_RELEASE -eq "true") {
+            irm https://raw.githubusercontent.com/fpresta0607/code-goblins/main/install.ps1 | iex
+          } else {
+            Get-Content -Raw install.ps1 | Invoke-Expression
+          }
           $settings = Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json
           $commands = @($settings.hooks.SessionStart.hooks.command)
           foreach ($hook in "cfo\.exe hook session-start", "cfo-native-hook\.ps1") {

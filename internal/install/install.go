@@ -125,6 +125,9 @@ func (s Service) Uninstall(out io.Writer) error {
 			return err
 		}
 	}
+	if err := s.removeNativeHooks(report); err != nil {
+		return err
+	}
 	if err := s.removeUserHooks(report); err != nil {
 		return err
 	}
@@ -135,9 +138,6 @@ func (s Service) Uninstall(out io.Writer) error {
 		return err
 	}
 	if err := s.unsetProjectsRoot(report); err != nil {
-		return err
-	}
-	if err := s.removeNativeHooks(report); err != nil {
 		return err
 	}
 	if s.Contract != nil {

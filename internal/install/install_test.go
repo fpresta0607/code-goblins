@@ -362,6 +362,49 @@ func TestUninstallRemovesTheBoardNativeHooks(t *testing.T) {
 	}
 }
 
+func TestUninstallRefusingAMalformedNativeHooksFileLeavesTheEnvironmentForARerun(t *testing.T) {
+	f := newFixture(t, adopterSettings, map[string]string{"Path": `C:\Windows`})
+	codex := t.TempDir()
+	f.service.HarnessDirs = map[string]string{"codex": codex}
+	f.install()
+	installed, err := os.ReadFile(f.user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hooksFile := filepath.Join(codex, "hooks.json")
+	writeFile(t, hooksFile, "{not json")
+	f.env.setCalls = nil
+	broadcasts := f.env.broadcasts
+
+	var out strings.Builder
+	if err := f.service.Uninstall(&out); err == nil {
+		t.Fatalf("uninstall rewrote a malformed Codex hooks.json:\n%s", out.String())
+	}
+
+	if len(f.env.setCalls) != 0 {
+		t.Errorf("the refused uninstall changed the environment: %v", f.env.setCalls)
+	}
+	if after := readFile(t, f.user); after != string(installed) {
+		t.Errorf("the refused uninstall rewrote the user hooks:\n%s", after)
+	}
+	writeFile(t, hooksFile, "{}")
+	f.uninstall()
+	if _, ok := f.env.values["CFO_HOME"]; ok {
+		t.Error("CFO_HOME survived the rerun")
+	}
+	if got := f.env.values["Path"]; got != `C:\Windows` {
+		t.Errorf("PATH = %q after the rerun, want C:\\Windows", got)
+	}
+	for _, command := range hookCommands(t, f.user) {
+		if strings.HasPrefix(command, rootPrefix) {
+			t.Errorf("CFO hook %q survived the rerun", command)
+		}
+	}
+	if f.env.broadcasts != broadcasts+1 {
+		t.Errorf("the rerun broadcast %d times, want 1", f.env.broadcasts-broadcasts)
+	}
+}
+
 func TestUninstallWithNoUserSettingsFileCreatesNothing(t *testing.T) {
 	f := newFixture(t, "", nil)
 	output := f.uninstall()
