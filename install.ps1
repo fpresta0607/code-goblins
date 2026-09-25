@@ -172,16 +172,16 @@
         # cfo.exe and goblins.exe are one program under two names. A build
         # still running from here, such as a supervisor or a terminal's host,
         # cannot be overwritten but can be renamed, so each old copy moves
-        # aside first and goes once nothing runs it, on this run or the next.
+        # aside under a name of its own and goes once nothing runs it, on
+        # this run or a later one.
         foreach ($name in "cfo.exe", "goblins.exe") {
             $target = Join-Path $InstallDir $name
-            $aside = "$target.old"
-            Remove-Item -LiteralPath $aside -Force -ErrorAction SilentlyContinue
+            Get-ChildItem -LiteralPath $InstallDir -Filter "$name.*.old" | Remove-Item -Force -ErrorAction SilentlyContinue
             if (Test-Path -LiteralPath $target) {
-                Move-Item -LiteralPath $target -Destination $aside -Force
+                Move-Item -LiteralPath $target -Destination "$target.$([Guid]::NewGuid().ToString("N")).old"
             }
             Copy-Item -LiteralPath $built -Destination $target
-            Remove-Item -LiteralPath $aside -Force -ErrorAction SilentlyContinue
+            Get-ChildItem -LiteralPath $InstallDir -Filter "$name.*.old" | Remove-Item -Force -ErrorAction SilentlyContinue
         }
         Remove-Item -LiteralPath $built -Force
         $dest = Join-Path $InstallDir "cfo.exe"

@@ -41,7 +41,7 @@ Type it in full: in PowerShell, `.\install -Dev` runs `install.ps1` itself, whic
 `-Dev` does everything the one-line install does, with the clone in place of the download:
 
 - It builds `cfo.exe` from the clone and puts it beside itself as `goblins.exe`.
-  A copy still running, such as a supervisor or a terminal's host, cannot be overwritten, so it moves aside to `cfo.exe.old` or `goblins.exe.old` and is removed once nothing runs it, on this run or the next.
+  A copy still running, such as a supervisor or a terminal's host, cannot be overwritten, so it moves aside to a `cfo.exe.<id>.old` or `goblins.exe.<id>.old` of its own and is removed once nothing runs it, on this run or a later one.
 - The clone becomes the CFO home, on your PATH; open a new terminal to use it, since `install.cmd` runs in a PowerShell of its own.
 - It makes `.claude\skills` a junction to `.agents\skills`, so Claude Code sees this repository's skills; [load-map.md](load-map.md) shows where each harness looks for skills.
 

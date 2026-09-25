@@ -328,15 +328,14 @@ func TestInstallCmdRunsTheScriptWhateverTheExecutionPolicy(t *testing.T) {
 
 // -Dev replaces a cfo.exe that is still running, as a supervisor or a CFO's
 // terminal host keeps it on a working clone: the running copy moves aside,
-// and cfo.exe and goblins.exe both become the new build.
+// and cfo.exe and goblins.exe both become the new build. A rerun after the
+// next pull replaces them again while that copy still runs, and removes
+// every old copy nothing runs.
 func TestDevReplacesABuildThatIsStillRunning(t *testing.T) {
 	for _, shell := range oneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
 			checkout := fakeCheckout(t)
 			newBuild := filepath.Join(t.TempDir(), "built")
-			if err := os.WriteFile(newBuild, []byte("the build from this clone"), 0o644); err != nil {
-				t.Fatal(err)
-			}
 			// A running cfo.exe: ping, copied under that name, runs long
 			// enough and needs no console.
 			running := filepath.Join(checkout, "cfo.exe")
@@ -352,22 +351,48 @@ func TestDevReplacesABuildThatIsStillRunning(t *testing.T) {
 			if err := old.Start(); err != nil {
 				t.Fatal(err)
 			}
+			exited := make(chan struct{})
+			go func() {
+				_ = old.Wait()
+				close(exited)
+			}()
 			t.Cleanup(func() {
 				_ = old.Process.Kill()
-				_ = old.Wait()
+				<-exited
 			})
 			// go build -o <path> ./cmd/cfo copies the new build to <path>.
 			stubs := map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n", "go": "@copy /y \"" + newBuild + "\" \"%3\" >nul\r\n"}
 
-			output, _, _, _ := runPowerShellWithStubs(t, shell, serveRelease(t, nil, ""), stubs, "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
+			for _, build := range []string{"the build from this clone", "the build after the next pull"} {
+				if err := os.WriteFile(newBuild, []byte(build), 0o644); err != nil {
+					t.Fatal(err)
+				}
 
-			for _, name := range []string{"cfo.exe", "goblins.exe"} {
-				if built, err := os.ReadFile(filepath.Join(checkout, name)); err != nil || string(built) != "the build from this clone" {
-					t.Errorf("%s = %q (%v), want the new build:\n%s", name, built, err, output)
+				output, _, _, _ := runPowerShellWithStubs(t, shell, serveRelease(t, nil, ""), stubs, "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
+
+				if !strings.Contains(output, "Built cfo.exe and goblins.exe") {
+					t.Fatalf("install -Dev did not replace the build with %q:\n%s", build, output)
+				}
+				for _, name := range []string{"cfo.exe", "goblins.exe"} {
+					if built, err := os.ReadFile(filepath.Join(checkout, name)); err != nil || string(built) != build {
+						t.Errorf("%s = %q (%v), want %q:\n%s", name, built, err, build, output)
+					}
 				}
 			}
-			if old.ProcessState != nil {
+			select {
+			case <-exited:
 				t.Errorf("the running cfo.exe was stopped, want it left running under its old name")
+			default:
+			}
+			left, err := filepath.Glob(filepath.Join(checkout, "*.exe.*"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(left) != 1 {
+				t.Fatalf("copies left beside the build = %v, want only the one still running", left)
+			}
+			if kept, err := os.ReadFile(left[0]); err != nil || string(kept) != string(ping) {
+				t.Errorf("%s (%v) is not the copy still running", left[0], err)
 			}
 		})
 	}

@@ -19,8 +19,8 @@ config/
 # install.cmd -Dev builds both names and moves a copy still running aside.
 /goblins.exe
 /cfo.exe.new
-/cfo.exe.old
-/goblins.exe.old
+/cfo.exe.*.old
+/goblins.exe.*.old
 /frontend/node_modules/
 
 # The skill junction install.cmd -Dev creates (points at .agents/skills);
