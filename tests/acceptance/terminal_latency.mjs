@@ -21,7 +21,7 @@ for (let i = 2; i < process.argv.length; i += 2) options[process.argv[i].replace
 if (!options.url || !options.title) throw new Error("--url and --title are required");
 const browser = options.browser || "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 const profile = mkdtempSync(join(tmpdir(), "cfo-latency-"));
-const edge = spawn(browser, ["--headless=new", "--disable-gpu", "--no-first-run", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--window-size=1600,1000", "about:blank"], { stdio: "ignore" });
+const edge = spawn(browser, ["--headless=new", "--disable-gpu", "--disable-webgl", "--no-first-run", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--window-size=1600,1000", "about:blank"], { stdio: "ignore" });
 
 // measure runs in the board's page.
 async function measure(title, keys) {
@@ -36,10 +36,14 @@ async function measure(title, keys) {
   const button = await until(() => document.querySelector(`[aria-label="Open the terminal of ${CSS.escape(title)}"]`), 30000, "the task's terminal button");
   const opened = performance.now();
   button.click();
+  // The terminal in sight: a native one once its screen is whole, a Herdr view
+  // once it is live.
   const root = await until(() => {
-    const panel = document.querySelector(".panel-terminal:not([hidden])");
-    const live = panel?.querySelector(".terminal-state.live") || panel?.querySelector(".host-terminal") && !panel.querySelector(".terminal-cover");
-    return live && panel.querySelector(".xterm-rows") ? panel : null;
+    const slot = document.querySelector(".deck-slot:not([hidden])");
+    if (!slot || slot.querySelector(".terminal-cover")) return null;
+    const view = slot.querySelector(".terminal-view:not(.staged)") || slot;
+    const live = slot.querySelector(".host-terminal") || slot.querySelector(".terminal-state.live");
+    return live && view.querySelector(".xterm-rows") ? view : null;
   }, 30000, "a live terminal");
   const attach = performance.now() - opened;
   const textarea = root.querySelector(".xterm-helper-textarea");
