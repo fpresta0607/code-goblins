@@ -35,17 +35,24 @@ func TestHistoryDropsAViewerThatCannotKeepUp(t *testing.T) {
 	}
 }
 
-// Only the latest output up to the limit is kept for late viewers.
+// Only the latest output up to the limit is replayed to late viewers, and
+// the output kept for them is trimmed to its tail once it passes twice the
+// limit.
 func TestHistoryKeepsOnlyTheLatestOutput(t *testing.T) {
 	output := newHistory()
-	output.write(bytes.Repeat([]byte("a"), historyLimit))
+	for _, fill := range []string{"a", "b", "c"} {
+		output.write(bytes.Repeat([]byte(fill), historyLimit))
+	}
 	output.write([]byte("latest"))
 
 	past, _, detach := output.attach()
 	defer detach()
 
-	if len(past) != historyLimit || !strings.HasSuffix(string(past), "latest") {
-		t.Errorf("history is %d bytes ending %q, want the last %d ending with the latest output", len(past), past[len(past)-6:], historyLimit)
+	if len(past) != historyLimit || past[0] != 'c' || !strings.HasSuffix(string(past), "latest") {
+		t.Errorf("history is %d bytes from %q to %q, want the last %d, the third write's then the latest output", len(past), past[0], past[len(past)-6:], historyLimit)
+	}
+	if kept := len(output.kept); kept > 2*historyLimit {
+		t.Errorf("the history keeps %d bytes, want at most %d", kept, 2*historyLimit)
 	}
 }
 
