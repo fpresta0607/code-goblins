@@ -113,6 +113,47 @@ func TestAPageWaitHandsWhatBecameOfThePageToTheCFO(t *testing.T) {
 	}
 }
 
+// The CFO's own page is polled too, so the CFO never holds its turn on a
+// poll: the Overlord's feedback comes back as a wake keyed by the item, since
+// there is no goblin, telling the CFO to act on it rather than relay it.
+func TestTheCFOsOwnPageReachesItAsAWakeKeyedByTheItem(t *testing.T) {
+	store, h := testStore(t)
+	_, _, _, cfo := primaryFixture(t, store)
+	t.Setenv("CFO_SESSION_ID", "actual-primary")
+	t.Setenv("CFO_SESSION_HARNESS", "codex")
+	page := filepath.Join(h.Root, ".lavish", "dispatch-options.html")
+	if err := os.MkdirAll(filepath.Dir(page), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(page, []byte("<html></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := PublishReview(context.Background(), h, cfo.Herdr, "", "dispatch-review-1", "Pick the dispatch order", pageLink, page, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+	answer := "session:\n  status: feedback\nprompts[1]{id,text}:\n  p1,Payments first\n"
+	s := &Service{Store: store, Options: Options{PollPage: func(_ context.Context, file string, _ time.Duration) (axi.PagePoll, error) {
+		if file != page {
+			t.Errorf("polled %s, want the CFO's page %s", file, page)
+		}
+		return axi.PagePoll{Status: "feedback", Output: answer}, nil
+	}}}
+
+	s.watchPages(context.Background())
+	s.pageWork.Wait()
+
+	wakes := reviewWakes(t, h.State, "dispatch-review-1")
+	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "the Overlord answered on the page "+page) || !strings.HasSuffix(wakes[0].Detail, ", act on it") {
+		t.Fatalf("review wakes = %+v, want one keyed by the item telling the CFO to act on its page's feedback", wakes)
+	}
+	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" || got.Reason != "The Overlord answered on the page; the CFO has it." {
+		t.Errorf("the CFO's item = %+v, want it closed saying the CFO has the feedback, with nobody to relay it to", got)
+	}
+}
+
 // A wait that closes stops its poll, and nothing reaches the CFO for it.
 func TestAClosedPageWaitStopsItsPoller(t *testing.T) {
 	store, h := testStore(t)

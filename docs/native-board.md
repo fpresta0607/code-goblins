@@ -287,7 +287,7 @@ cfo notify task-id --waiting-on overlord "pick a plan" --lavish .lavish/plan.htm
 
 The notify opens the page without a browser, and refuses, recording nothing, when the file is not an HTML page or `lavish-axi` cannot show it.
 The page's link goes into the wait's line, so the CFO's wake carries it, and onto the wait's review item.
-`cfo serve` then polls the page, one bounded `lavish-axi poll` at a time, for as long as the item is open, and is the only one that does: a poll hands the Overlord's feedback to whoever runs it, so a goblin never polls its own page.
+`cfo serve` then polls the page, one bounded `lavish-axi poll` at a time, for as long as the item is open, and is the only one that does: a poll hands the Overlord's feedback to whoever runs it, so nobody, goblin or CFO, polls a page themselves.
 Whatever becomes of the page reaches the CFO as a `review` wake, retried until the queue takes it, and then the item closes: his feedback, saved whole under `state/reviews/feedback/` for the CFO to read and relay; the review ended; the review window disconnected; or a page that cannot be polled three times running.
 Only the item gets the page polled, so when it cannot be published the notify says nothing watches the page and fails, telling the goblin to ask in text with `--blocked`; the wait's line is already recorded and still reaches the CFO.
 
@@ -305,12 +305,16 @@ A review item is something that needs the Overlord's attention without blocking 
 ```powershell
 cfo review --id mockups-review-1 --task task-id --title "Pick a task list layout" --image grid.png --image list.png --lavish http://127.0.0.1:4387/session/<id>
 cfo review --id mockups-review-1 --task task-id --withdraw "Replaced by mockups-review-2"
+cfo review --id dispatch-review-1 --title "Pick the dispatch order" --lavish .lavish/dispatch-options.html
 ```
 
 A goblin runs it from its own pane, proven the way its questions are; the registered primary CFO omits `--task`, and only a goblin's item takes images.
 The ID is 8 to 128 letters, digits, dots, dashes or underscores; republishing the same ID with the same content changes nothing, and other content under that ID is refused.
 Up to twelve images, each a PNG, JPEG, GIF or WebP of at most 10 MiB inside the task's worktree, task scratch or data directory, are checked like a question's and copied under `state/reviews`, so the item outlives the worktree and the goblin; `data/` is never used, because it is pushed.
 A `--lavish` link follows the presentation URL rule below, and a refusal names the rule it broke.
+`--lavish` also takes the page's HTML file, from a goblin or from the CFO: the command opens it without a browser, refusing a file that is not an HTML page or that `lavish-axi` cannot show, and the item carries the page's link.
+`cfo serve` then polls that page exactly as it polls a page wait, and whatever becomes of it reaches the CFO as a `review` wake, keyed by the goblin or, on the CFO's own item, by the item's ID, and the item closes.
+For another round, publish the page again under a new ID.
 An item stays open until the Overlord clears it (`review_clear`) or its reporter withdraws it with a reason; nothing expires it, a `cfo serve` restart keeps it, and a respawned or retired goblin leaves it listed.
 The Overlord can instead answer it (`review_answer`): his text goes once to the reporter, the goblin's own pane while it is the same task generation or the CFO that reported it, and the item closes as answered; an answer for a goblin that restarted or ended goes to the current CFO instead, and the item reads `delivered: false`.
 An answer the goblin received also reaches the CFO as a `review` wake that asks nothing, so the CFO sees every answer the Overlord gives.

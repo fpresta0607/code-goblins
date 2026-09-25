@@ -54,8 +54,9 @@ type Review struct {
 	ImageSums  []string `json:"image_sums,omitempty"`
 	ImageCount int      `json:"image_count,omitempty"`
 	Lavish     string   `json:"lavish,omitempty"`
-	// LavishPage is the HTML file of a goblin's Lavish page, which the
-	// supervisor polls for the Overlord's feedback while the item is open.
+	// LavishPage is the HTML file of a Lavish page, a goblin's or the CFO's
+	// own, which the supervisor polls for the Overlord's feedback while the
+	// item is open.
 	LavishPage string `json:"lavish_page,omitempty"`
 	State      string `json:"state"`
 	Answer     string `json:"answer,omitempty"`
@@ -90,8 +91,8 @@ func validReview(r Review) error {
 	}
 	if r.LavishPage != "" {
 		extension := strings.ToLower(filepath.Ext(r.LavishPage))
-		if r.Task == "" || r.Lavish == "" || !filepath.IsAbs(r.LavishPage) || filepath.Clean(r.LavishPage) != r.LavishPage || extension != ".html" && extension != ".htm" {
-			return errors.New("a review's Lavish page must be the absolute path of a goblin's HTML page, beside its link")
+		if r.Lavish == "" || !filepath.IsAbs(r.LavishPage) || filepath.Clean(r.LavishPage) != r.LavishPage || extension != ".html" && extension != ".htm" {
+			return errors.New("a review's Lavish page must be the absolute path of an HTML page, beside its link")
 		}
 	}
 	return nil
