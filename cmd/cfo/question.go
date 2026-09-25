@@ -17,7 +17,7 @@ func runQuestion(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	f := flag.NewFlagSet("question", flag.ContinueOnError)
 	f.SetOutput(stderr)
 	id := f.String("id", "", "stable ID for this CFO question")
-	text := f.String("text", "", "the question deliberately escalated to the user")
+	text := f.String("text", "", "the question deliberately escalated to the user: one short sentence that is the question, details on lines starting with \"- \", and **bold** only on the verdict or the blocking item")
 	recommended := f.String("recommend", "", "exact supplied choice to recommend; omit when there is no recommendation")
 	var options []string
 	f.Func("option", "one real choice; repeat for each choice; omit for written answers", func(value string) error { options = append(options, value); return nil })

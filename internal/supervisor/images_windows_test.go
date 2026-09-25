@@ -55,7 +55,7 @@ func TestReviewImagesAcceptEitherSpellingOfTheRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("an image under the task's own worktree refused: %v", err)
 	}
-	if err := SurfaceNotify(context.Background(), h.State, connection.Terminals, meta.ID, record, images); err != nil {
+	if err := SurfaceNotify(context.Background(), h.State, connection.Terminals, meta.ID, record, record.Detail, images); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {

@@ -6,6 +6,7 @@ import { Icon } from "./Icon";
 import { age } from "./presentation";
 import { answeredBy, answeredLabel, chosenOption, outcomeIcon, questionOutcome } from "./commandQueue";
 import { questionAnswer, questionChoices, questionSelection } from "./questionChoices";
+import { messageElements } from "./messageText";
 import { personaFor } from "./workflow";
 
 export interface Draft { selection: string; written: string; submission: Submission | null; sending: boolean; error: string; receipt?: Action }
@@ -34,7 +35,8 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
   const [missing, setMissing] = useState<Set<string>>(new Set());
   return <form className="question-card" aria-labelledby={"question-" + question.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
     <p className="asker"><Avatar persona={question.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asks · {question.status !== "pending" ? "asked " + age(question.created_at) : "waiting " + age(question.created_at).replace(/ ago$/, "")}</span></p>
-    <h3 id={"question-" + question.id} tabIndex={-1}>{question.text}</h3>
+    {/* The question reads as body text: only what its asker marked is bold. */}
+    <div className="question-body" id={"question-" + question.id} tabIndex={-1}>{messageElements(question.text)}</div>
     {images.length > 0 && <div className="question-thumbs" aria-label="Images for this question">
       {images.map((choice, index) => <button type="button" key={choice.value} aria-label={"View image for option " + choice.label + " full size"} onClick={() => onImage(index)}>
         {missing.has(choice.image) ? <span className="image-missing"><Icon name="images" /></span> : <img src={choice.image} alt="" onError={() => setMissing((prior) => new Set([...prior, choice.image]))} />}<span>{choice.label}</span>

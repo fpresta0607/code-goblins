@@ -336,6 +336,8 @@ The goblin's branch is its deliverable.
 
 The registered primary CFO in any supported harness (Claude Code, Codex, Pi) must publish deliberate user questions with `cfo question --id <stable-id> --text "<question>" --option "<choice>" --recommend "<exact-choice>"`.
 Repeat `--option` for actual choices; omit `--recommend` when no choice is recommended.
+Write every question to the Overlord, the CFO's `--text` and a goblin's `--blocked` alike, to be read rather than scanned: lead with one short sentence that is the actual question, put the details on lines of their own that start with `- ` (a real line break, such as `` `n `` in PowerShell), and wrap only the verdict or the blocking item in `**two asterisks**`, never the whole question.
+The Command Center shows it as body text: a blank line starts a paragraph, a `- ` line is a bullet, `**text**` is bold, and anything else, markup included, is shown exactly as written.
 Other always accepts a written answer, and no answer is selected automatically.
 Run publication from the registered primary session's shell and reuse the same ID/content for an uncertain retry.
 The board sends the durable answer to that same verified CFO as an ordinary message, so continue independent supervision or finish the turn while waiting.
