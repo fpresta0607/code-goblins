@@ -85,6 +85,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 	if _, err := lock.AcquireExclusiveNamed(h.State, ".watch.lock"); err != nil {
 		return nil, fmt.Errorf("supervisor: existing watch owner must finish before serve: %w", err)
 	}
+	clearStopRequest(h.State)
 	store, err := Open(h)
 	if err != nil {
 		_ = lock.ReleaseExclusiveNamed(h.State, ".watch.lock")

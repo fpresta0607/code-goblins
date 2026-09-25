@@ -30,6 +30,14 @@ func RequestStop(stateDir string, pid int) error {
 	return fsx.AtomicWriteFile(stopRequestPath(stateDir), data)
 }
 
+// clearStopRequest removes any request left from before this supervisor
+// started. goblins stop writes one only after reading a pid from the board
+// record, which serve writes after Start, so none can be meant for it yet,
+// whatever pid it reuses.
+func clearStopRequest(stateDir string) {
+	_ = os.Remove(stopRequestPath(stateDir))
+}
+
 // stopRequested reports whether a stop request names this process. A request
 // naming any other pid is left over from a supervisor that already ended,
 // since only one runs at a time, so it is removed.

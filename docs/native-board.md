@@ -16,6 +16,7 @@ A record whose address does not answer, left by a supervisor that ended without 
 `goblins status` reads the same record and prints the board's link, the status line and the supervisor's pid, and exits 1 when no board answers there.
 A supervisor started in the background has no terminal for Ctrl-C to reach, so `goblins stop` writes `state/serve.stop` naming the record's pid and waits up to 30 seconds for the board to stop answering.
 The supervisor checks for that request on its notification tick, which comes at least every two seconds between cycles, and stops as it would on Ctrl-C, removing its record; a request naming any other pid is left over from a supervisor that already ended, so it is removed and stops nothing.
+A supervisor also removes any request left from before it started, so a reused pid cannot stop it.
 `goblins stop --force` ends the recorded pid's process tree with `taskkill /T /F` and removes the record instead, and a record whose address does not answer is removed without stopping anything.
 Restarting with the same CFO home recovers durable events, evaluations, actions, and lineage.
 
