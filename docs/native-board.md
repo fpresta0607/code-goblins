@@ -14,9 +14,12 @@ Once it holds the singleton and listens, `serve` records its pid and the board's
 Otherwise it starts `serve` detached from its terminal, in a hidden console of its own that the programs `serve` runs share, so no console window opens, with its output appended to `state/serve.log`, waits up to 30 seconds for the board to answer, and opens it in the browser once.
 A record whose address does not answer, left by a supervisor that ended without removing it, is replaced by the next start, and a record naming anything but a plain loopback board address is ignored.
 Then `goblins` brings the Overlord to the CFO.
-When the snapshot says the board reaches no live CFO, it picks the project (the git checkout its terminal is in, else the only checkout under the projects root, else the one the Overlord picks by number), makes sure Herdr's server runs, reuses the `cfo` tab in the fleet workspace when its pane holds no agent or creates it in the project, starts Claude Code there as the CFO with `herdr agent start`, and brings that tab to the front.
-It then hands its terminal to `herdr`, which attaches to the fleet's session.
-A CFO the board already reaches, or one it cannot tell about because the snapshot failed, is never started a second time, and run inside a Herdr pane `goblins` only says where the CFO is.
+A CFO whose registration in `state/primary.json` names a live process is reused, never started a second time: `goblins` brings its registered workspace and tab to the front and hands its terminal to `herdr`, attached to the session the CFO registered in.
+It decides from the registration alone and asks neither the board nor Herdr, so a supervisor that has not checked the registration yet or a Herdr that cannot answer changes nothing.
+Otherwise it picks the project (the git checkout its terminal is in, else the only checkout under the projects root, else the one the Overlord picks by number), makes sure Herdr's server runs, and starts Claude Code as the CFO with `herdr agent start` in a fresh `cfo` tab it creates in that project, since Herdr starts an agent in its pane's own directory.
+An old `cfo` tab whose pane holds no agent is closed when it sits at its shell prompt, and renamed to `shell` when anything else runs there, `goblins` itself included; a `cfo` tab whose pane holds an agent is left as it is and no second CFO is started in it.
+It brings the CFO's tab to the front and hands its terminal to `herdr`, which attaches to the fleet's session.
+Run inside a Herdr pane there is nothing to attach, so `goblins` only brings the CFO to the front.
 Restarting with the same CFO home recovers durable events, evaluations, actions, and lineage.
 
 ## Native hook setup

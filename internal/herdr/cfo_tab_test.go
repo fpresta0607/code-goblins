@@ -37,26 +37,72 @@ func TestCFOTabFindsTheCFOAlreadyRunning(t *testing.T) {
 	})
 }
 
-// A cfo tab whose pane holds no agent, such as the factory tab EnsureContainer
-// adopted or a CFO that exited, is reused rather than duplicated.
-func TestCFOTabReusesACFOTabWithNoAgent(t *testing.T) {
-	runner := &fakeRunner{replies: []runnerReply{
-		jsonReply(`{"result":{"tabs":[{"tab_id":"tab-cfo","label":"cfo"}]}}`),
-		jsonReply(`{"result":{"panes":[{"pane_id":"pane-cfo","tab_id":"tab-cfo"}]}}`),
-		jsonReply(`{"result":{"pane":{"pane_id":"pane-cfo"}}}`),
-		{result: execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`), ExitCode: 1}},
-	}}
+// staleCFOTabReplies are the replies for a cfo tab whose pane holds no agent,
+// up to the fresh cfo tab created in the project beside it.
+var staleCFOTabReplies = []runnerReply{
+	jsonReply(`{"result":{"tabs":[{"tab_id":"tab-old","label":"cfo"}]}}`),
+	jsonReply(`{"result":{"panes":[{"pane_id":"pane-old","tab_id":"tab-old"}]}}`),
+	jsonReply(`{"result":{"pane":{"pane_id":"pane-old"}}}`),
+	{result: execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`), ExitCode: 1}},
+	jsonReply(`{"result":{"tab":{"tab_id":"tab-new"},"root_pane":{"pane_id":"pane-new"}}}`),
+}
+
+var staleCFOTabRequests = []execx.Request{
+	command("herdr", "tab", "list", "--workspace", "ws-1", "--session", "fleet"),
+	command("herdr", "pane", "list", "--workspace", "ws-1", "--session", "fleet"),
+	command("herdr", "pane", "get", "pane-old", "--session", "fleet"),
+	command("herdr", "agent", "get", "pane-old", "--session", "fleet"),
+	command("herdr", "tab", "create", "--workspace", "ws-1", "--cwd", `C:\repo`, "--label", "cfo", "--no-focus", "--session", "fleet"),
+	command("herdr", "pane", "process-info", "--pane", "pane-old", "--session", "fleet"),
+}
+
+var freshCFOTab = Endpoint{Target: Target{Session: "fleet", Pane: "pane-new"}, WorkspaceID: "ws-1", TabID: "tab-new", PaneID: "pane-new"}
+
+// A cfo tab with no agent sitting at its shell prompt, such as the factory
+// tab EnsureContainer adopted or one whose CFO exited, is in another
+// directory than the project: a fresh cfo tab is created in the project
+// first, and then the old one is closed.
+func TestCFOTabReplacesAnIdleCFOTabWithOneInTheProject(t *testing.T) {
+	runner := &fakeRunner{replies: append(append([]runnerReply{}, staleCFOTabReplies...),
+		jsonReply(`{"result":{"process_info":{"foreground_process_group_id":40,"shell_pid":40}}}`),
+		jsonReply(`{"result":{}}`),
+	)}
 	var sleeps []time.Duration
 
 	endpoint, running, err := newTestClient(runner, &sleeps).CFOTab(context.Background(), cfoContainer, `C:\repo`)
 
-	if err != nil || running || endpoint.PaneID != "pane-cfo" || endpoint.TabID != "tab-cfo" {
-		t.Fatalf("CFOTab = %+v, %v, %v; want the idle cfo tab reused", endpoint, running, err)
+	if err != nil || running || endpoint != freshCFOTab {
+		t.Fatalf("CFOTab = %+v, %v, %v; want the fresh tab %+v", endpoint, running, err, freshCFOTab)
 	}
-	for _, request := range runner.Requests() {
-		if len(request.Args) >= 2 && request.Args[0] == "tab" && request.Args[1] == "create" {
-			t.Fatalf("CFOTab created a second cfo tab: %q", request.Args)
-		}
+	assertRequests(t, runner.Requests(), append(append([]execx.Request{}, staleCFOTabRequests...),
+		command("herdr", "tab", "close", "tab-old", "--session", "fleet"),
+	))
+}
+
+// A cfo tab with no agent whose pane runs something else, goblins itself
+// among them, or whose process cannot be read, is never closed: it is renamed
+// to shell so the cfo label names only the fresh tab.
+func TestCFOTabRenamesABusyCFOTabWithNoAgentToShell(t *testing.T) {
+	for name, processInfo := range map[string]runnerReply{
+		"a program in the foreground": jsonReply(`{"result":{"process_info":{"foreground_process_group_id":41,"shell_pid":40}}}`),
+		"process info unreadable":     {result: execx.Result{Stdout: []byte(`{"error":{"code":"pane_not_found"}}`), ExitCode: 1}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			runner := &fakeRunner{replies: append(append([]runnerReply{}, staleCFOTabReplies...),
+				processInfo,
+				jsonReply(`{"result":{}}`),
+			)}
+			var sleeps []time.Duration
+
+			endpoint, running, err := newTestClient(runner, &sleeps).CFOTab(context.Background(), cfoContainer, `C:\repo`)
+
+			if err != nil || running || endpoint != freshCFOTab {
+				t.Fatalf("CFOTab = %+v, %v, %v; want the fresh tab %+v", endpoint, running, err, freshCFOTab)
+			}
+			assertRequests(t, runner.Requests(), append(append([]execx.Request{}, staleCFOTabRequests...),
+				command("herdr", "tab", "rename", "tab-old", "shell", "--session", "fleet"),
+			))
+		})
 	}
 }
 

@@ -238,6 +238,23 @@ func (c *CFOConnection) check(ctx context.Context) error {
 	return c.verify(ctx, primary)
 }
 
+// LiveCFO returns the registered CFO's Herdr address when primary.json names
+// a process that is still running. It asks Herdr nothing, so neither a board
+// that has not checked the registration yet nor a Herdr that cannot answer
+// changes whether the launcher starts a CFO: only the registration does.
+func LiveCFO(stateDir string) (herdr.Endpoint, bool) {
+	file, err := openPrimary(filepath.Join(stateDir, "primary.json"))
+	if err != nil {
+		return herdr.Endpoint{}, false
+	}
+	defer file.Close()
+	primary, _, err := decodePrimary(file)
+	if err != nil || !primary.Process.VerifiedAlive() {
+		return herdr.Endpoint{}, false
+	}
+	return herdr.Endpoint{Target: primary.Target, WorkspaceID: primary.Workspace, TabID: primary.Tab, PaneID: primary.Target.Pane}, true
+}
+
 type primaryResolver struct {
 	connection *CFOConnection
 	primary    primaryRegistration

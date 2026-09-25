@@ -110,7 +110,7 @@ func runLauncher(stdout, stderr io.Writer, runtime commandRuntime) int {
 		return 1
 	}
 	ctx := context.Background()
-	board, answer, running := liveBoard(ctx, h.State)
+	board, status, running := liveBoard(ctx, h.State)
 	started := false
 	if !running {
 		exited, err := runtime.startServe(h)
@@ -118,81 +118,73 @@ func runLauncher(stdout, stderr io.Writer, runtime commandRuntime) int {
 			fmt.Fprintf(stderr, "goblins: the supervisor could not be started: %v\n", err)
 			return 1
 		}
-		if board, answer, running = waitForBoard(ctx, h.State, exited); !running {
+		if board, status, running = waitForBoard(ctx, h.State, exited); !running {
 			fmt.Fprintf(stderr, "goblins: the supervisor did not start; the end of %s says:\n%s", serveLogPath(h.State), logTail(serveLogPath(h.State), 12))
 			return 1
 		}
 		started = true
 	}
-	fmt.Fprint(stdout, renderBanner(bannerColor(stdout), board, answer.status))
+	fmt.Fprint(stdout, renderBanner(bannerColor(stdout), board, status))
 	if started {
 		if err := runtime.openURL(board); err != nil {
 			fmt.Fprintf(stderr, "goblins: open the board at %s yourself (%v)\n", board, err)
 		}
 	}
-	return startCFOSession(ctx, runtime, answer.cfoLive, stdout, stderr)
-}
-
-// boardAnswer is what a running supervisor's board said: the status line, and
-// whether the board reaches a live CFO, which a snapshot that could not be
-// read cannot deny, so goblins never starts a second CFO when it cannot tell.
-type boardAnswer struct {
-	status  string
-	cfoLive bool
+	return startCFOSession(ctx, runtime, h.State, stdout, stderr)
 }
 
 // liveBoard returns the board a supervisor serves at the address its record
-// names, with its answer. Any answer from that address
+// names, with the status line for its snapshot. Any answer from that address
 // is the supervisor, even one that could not read the fleet's state; a record
 // whose address does not answer is stale: its supervisor ended without
 // removing it.
-func liveBoard(ctx context.Context, stateDir string) (string, boardAnswer, bool) {
+func liveBoard(ctx context.Context, stateDir string) (string, string, bool) {
 	record, err := readBoardRecord(stateDir)
 	if err != nil {
-		return "", boardAnswer{}, false
+		return "", "", false
 	}
-	answer, err := boardStatus(ctx, record.URL)
+	status, err := boardStatus(ctx, record.URL)
 	if err != nil {
-		return "", boardAnswer{}, false
+		return "", "", false
 	}
-	return record.URL, answer, true
+	return record.URL, status, true
 }
 
 // boardStatus fetches the board's snapshot and returns its status line, or
 // says the board could not read the fleet's state. It fails only when the
 // board does not answer.
-func boardStatus(ctx context.Context, board string) (boardAnswer, error) {
+func boardStatus(ctx context.Context, board string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, board+"/api/snapshot", nil)
 	if err != nil {
-		return boardAnswer{}, err
+		return "", err
 	}
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return boardAnswer{}, err
+		return "", err
 	}
 	defer response.Body.Close()
 	var snapshot launcherSnapshot
 	if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&snapshot) != nil {
-		return boardAnswer{status: fmt.Sprintf("the board is up but could not read the fleet's state (HTTP %d)", response.StatusCode), cfoLive: true}, nil
+		return fmt.Sprintf("the board is up but could not read the fleet's state (HTTP %d)", response.StatusCode), nil
 	}
-	return boardAnswer{status: statusLine(snapshot), cfoLive: snapshot.Registration == ""}, nil
+	return statusLine(snapshot), nil
 }
 
 // waitForBoard waits for a supervisor this launch started to answer, and
 // gives up when it exits first or the wait runs out.
-func waitForBoard(ctx context.Context, stateDir string, exited <-chan struct{}) (string, boardAnswer, bool) {
+func waitForBoard(ctx context.Context, stateDir string, exited <-chan struct{}) (string, string, bool) {
 	deadline := time.After(launcherStartTimeout)
 	for {
-		if board, answer, ok := liveBoard(ctx, stateDir); ok {
-			return board, answer, true
+		if board, status, ok := liveBoard(ctx, stateDir); ok {
+			return board, status, true
 		}
 		select {
 		case <-exited:
-			return "", boardAnswer{}, false
+			return "", "", false
 		case <-deadline:
-			return "", boardAnswer{}, false
+			return "", "", false
 		case <-time.After(launcherPoll):
 		}
 	}

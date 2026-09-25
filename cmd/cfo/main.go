@@ -36,7 +36,7 @@ var version = "dev"
 
 const usage = `usage: cfo <command> [args]
 
-Run as goblins with no command, it finds the supervisor or starts one in the background, prints the board's link and what the fleet is doing, opens the board when it started the supervisor, starts the CFO in Herdr when none is running, and attaches the terminal to Herdr.
+Run as goblins with no command, it finds the supervisor or starts one in the background, prints the board's link and what the fleet is doing, opens the board when it started the supervisor, brings the live registered CFO to the front in Herdr or starts one, and attaches the terminal to Herdr.
 
 commands:
   version   print the cfo version
@@ -117,13 +117,16 @@ type commandRuntime struct {
 	goblins    bool
 	startServe func(home.Home) (<-chan struct{}, error)
 	openURL    func(string) error
-	// gitTop, stdin, startCFO and attachHerdr are how the launcher finds the
-	// project, asks for one, starts the CFO in Herdr and hands the terminal
-	// to herdr.
+	// liveCFO, focusCFO, gitTop, stdin, startCFO and attachHerdr are how the
+	// launcher finds a live registered CFO and brings it to the front, finds
+	// the project or asks for one, starts the CFO in Herdr and hands the
+	// terminal to herdr attached to a session.
+	liveCFO     func(string) (herdr.Endpoint, bool)
+	focusCFO    func(context.Context, herdr.Endpoint) error
 	gitTop      func(context.Context) (string, error)
 	stdin       io.Reader
 	startCFO    func(context.Context, string) error
-	attachHerdr func() int
+	attachHerdr func(string) int
 	// projectsRoot reads the machine's projects root. A runtime without one
 	// (a test's) has no root, so a bare project name stays what it was before
 	// names resolved: refused where a checkout is needed, a literal scope
@@ -214,6 +217,8 @@ func defaultCommandRuntime() commandRuntime {
 		goblins:      invokedAsGoblins(),
 		startServe:   startDetachedServe,
 		openURL:      openInBrowser,
+		liveCFO:      supervisor.LiveCFO,
+		focusCFO:     focusCFOInHerdr,
 		gitTop:       gitTop,
 		stdin:        os.Stdin,
 		startCFO:     startCFOInHerdr,

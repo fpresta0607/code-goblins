@@ -16,13 +16,21 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 )
 
-// startCFOSession brings the CFO's session to the front. When the board
-// reaches no live CFO it starts Claude Code as the CFO in Herdr, in the
-// project this terminal is in or one the Overlord picks, and then hands the
-// terminal to herdr, which attaches with the CFO's tab in front. Inside a
-// Herdr pane there is nothing to attach, so it only says where the CFO is.
-func startCFOSession(ctx context.Context, runtime commandRuntime, cfoLive bool, stdout, stderr io.Writer) int {
-	if !cfoLive {
+// startCFOSession brings the CFO's session to the front. A CFO whose
+// registration names a live process is brought to the front where it
+// registered; otherwise Claude Code is started as the CFO in Herdr, in the
+// project this terminal is in or one the Overlord picks. Then the terminal is
+// handed to herdr, which attaches with the CFO's tab in front. Inside a Herdr
+// pane there is nothing to attach.
+func startCFOSession(ctx context.Context, runtime commandRuntime, stateDir string, stdout, stderr io.Writer) int {
+	session := herdrSession()
+	if endpoint, live := runtime.liveCFO(stateDir); live {
+		if err := runtime.focusCFO(ctx, endpoint); err != nil {
+			fmt.Fprintf(stderr, "goblins: the CFO could not be brought to the front in Herdr: %v\n", err)
+			return 1
+		}
+		session = endpoint.Target.Session
+	} else {
 		project, err := pickProject(ctx, runtime, stdout)
 		if err != nil {
 			fmt.Fprintf(stderr, "goblins: %v\n", err)
@@ -35,10 +43,10 @@ func startCFOSession(ctx context.Context, runtime commandRuntime, cfoLive bool, 
 		fmt.Fprintf(stdout, "\nThe CFO starts in %s.\n", project)
 	}
 	if os.Getenv("HERDR_PANE_ID") != "" {
-		fmt.Fprintln(stdout, "The CFO is in Herdr's cfo tab.")
+		fmt.Fprintln(stdout, "The CFO is in front in Herdr.")
 		return 0
 	}
-	return runtime.attachHerdr()
+	return runtime.attachHerdr(session)
 }
 
 // pickProject is the git checkout this terminal is in, or else one of the
@@ -111,9 +119,16 @@ func startCFOInHerdr(ctx context.Context, project string) error {
 	return startCFOWith(ctx, &herdr.Client{Commands: execx.OSRunner{}, Session: herdrSession()}, project)
 }
 
-// startCFOWith makes sure Herdr's server runs, finds or creates the CFO's tab
-// in the fleet workspace, starts Claude Code there as the CFO unless an agent
-// already runs in it, and brings the tab to the front.
+// focusCFOInHerdr brings a live CFO's workspace and tab to the front in the
+// session it registered in.
+func focusCFOInHerdr(ctx context.Context, endpoint herdr.Endpoint) error {
+	return (&herdr.Client{Commands: execx.OSRunner{}, Session: endpoint.Target.Session}).Focus(ctx, endpoint)
+}
+
+// startCFOWith makes sure Herdr's server runs, finds the CFO's tab in the
+// fleet workspace or creates a fresh one in project, starts Claude Code there
+// as the CFO unless an agent already runs in it, and brings the tab to the
+// front.
 func startCFOWith(ctx context.Context, client *herdr.Client, project string) error {
 	if err := client.EnsureServer(ctx); err != nil {
 		return err
@@ -134,10 +149,10 @@ func startCFOWith(ctx context.Context, client *herdr.Client, project string) err
 	return client.Focus(ctx, endpoint)
 }
 
-// attachHerdr hands this terminal to herdr, which attaches to the fleet's
-// session, and returns its exit code when the Overlord leaves it.
-func attachHerdr() int {
-	command := exec.Command("herdr", "--session", herdrSession())
+// attachHerdr hands this terminal to herdr, which attaches to session, and
+// returns its exit code when the Overlord leaves it.
+func attachHerdr(session string) int {
+	command := exec.Command("herdr", "--session", session)
 	command.Stdin, command.Stdout, command.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := command.Run(); err != nil {
 		var exit *exec.ExitError

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 )
 
 // cfoTabLabel is the CFO's own tab in the fleet workspace: the factory tab
@@ -12,8 +13,11 @@ const cfoTabLabel = "cfo"
 
 // CFOTab returns the pane of the CFO's tab in container, and whether an agent
 // already runs in it, which is a CFO session the launcher must not start a
-// second time. A cfo tab whose pane holds no agent is reused, and with no cfo
-// tab at all one is created in cwd.
+// second time. Herdr starts an agent in its pane's own directory, so a cfo
+// tab with no agent is never reused: a fresh cfo tab is created in cwd first,
+// so the workspace never loses its last tab, and then each old one is closed
+// when its pane sits at its shell prompt or renamed to shell otherwise, since
+// whatever runs there, goblins itself among them, is never closed.
 func (c *Client) CFOTab(ctx context.Context, container Container, cwd string) (Endpoint, bool, error) {
 	if container.Session == "" || container.WorkspaceID == "" {
 		return Endpoint{}, false, errors.New("herdr: the CFO tab needs a session and workspace_id")
@@ -22,6 +26,7 @@ func (c *Client) CFOTab(ctx context.Context, container Container, cwd string) (E
 	if err != nil {
 		return Endpoint{}, false, err
 	}
+	var stale []Endpoint
 	for _, tab := range tabs {
 		if tab.Label != cfoTabLabel {
 			continue
@@ -33,19 +38,20 @@ func (c *Client) CFOTab(ctx context.Context, container Container, cwd string) (E
 		if err != nil {
 			return Endpoint{}, false, err
 		}
-		for _, pane := range panes {
-			if pane.TabID != tab.ID || pane.ID == "" {
-				continue
-			}
-			target := Target{Session: container.Session, Pane: pane.ID}
-			status, err := c.AgentStatus(ctx, target)
-			if err != nil {
-				return Endpoint{}, false, err
-			}
-			endpoint := Endpoint{Target: target, WorkspaceID: container.WorkspaceID, TabID: tab.ID, PaneID: pane.ID}
-			return endpoint, status != AgentMissing && status != AgentDead, nil
+		at := slices.IndexFunc(panes, func(pane paneRecord) bool { return pane.TabID == tab.ID && pane.ID != "" })
+		if at < 0 {
+			return Endpoint{}, false, fmt.Errorf("herdr: the cfo tab %s has no pane", tab.ID)
 		}
-		return Endpoint{}, false, fmt.Errorf("herdr: the cfo tab %s has no pane", tab.ID)
+		target := Target{Session: container.Session, Pane: panes[at].ID}
+		endpoint := Endpoint{Target: target, WorkspaceID: container.WorkspaceID, TabID: tab.ID, PaneID: target.Pane}
+		status, err := c.AgentStatus(ctx, target)
+		if err != nil {
+			return Endpoint{}, false, err
+		}
+		if status != AgentMissing && status != AgentDead {
+			return endpoint, true, nil
+		}
+		stale = append(stale, endpoint)
 	}
 
 	result, err := c.required(ctx, container.Session, Target{}, "tab create", "tab", "create", "--workspace", container.WorkspaceID, "--cwd", cwd, "--label", cfoTabLabel, "--no-focus")
@@ -65,6 +71,17 @@ func (c *Client) CFOTab(ctx context.Context, container Container, cwd string) (E
 	}
 	if create.Tab.ID == "" || create.RootPane.ID == "" {
 		return Endpoint{}, false, errors.New("herdr: tab create response is missing tab_id or root pane_id")
+	}
+	for _, old := range stale {
+		if info, err := c.PaneProcessInfo(ctx, old.Target); err == nil && info.ForegroundProcessGroupID == info.ShellPID {
+			if err := c.CloseTab(ctx, container.Session, old.TabID); err != nil {
+				return Endpoint{}, false, err
+			}
+			continue
+		}
+		if _, err := c.required(ctx, container.Session, Target{}, "tab rename", "tab", "rename", old.TabID, "shell"); err != nil {
+			return Endpoint{}, false, err
+		}
 	}
 	target := Target{Session: container.Session, Pane: create.RootPane.ID}
 	return Endpoint{Target: target, WorkspaceID: container.WorkspaceID, TabID: create.Tab.ID, PaneID: create.RootPane.ID}, false, nil
