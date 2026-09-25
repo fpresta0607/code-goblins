@@ -58,7 +58,7 @@ func TestLavishPollReadsTheSessionStatusAndKeepsTheOutput(t *testing.T) {
 			if err != nil || poll.Status != test.status || poll.Ended != test.ended || poll.Output != test.output {
 				t.Fatalf("Poll = %+v, %v; want status %q, ended %v and the whole output", poll, err, test.status, test.ended)
 			}
-			assertRequest(t, runner, execx.Request{Name: "lavish-axi", Args: []string{"poll", `C:\work\.lavish\plan.html`, "--timeout-ms", "90000"}})
+			assertRequest(t, runner, execx.Request{Name: "lavish-axi", Args: []string{"poll", `C:\work\.lavish\plan.html`, "--timeout-ms", "90000"}, KillTree: true})
 		})
 	}
 }

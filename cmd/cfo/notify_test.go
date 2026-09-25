@@ -390,11 +390,15 @@ func TestNotifyWaitNamesTheLavishPageTheOverlordAnswersOn(t *testing.T) {
 		t.Fatalf("status = %q after refused notifies, want nothing recorded", lines)
 	}
 
+	// g1 is no goblin Herdr knows, so the wait's item cannot be published and
+	// nothing would watch the page: the notify fails loudly, and the CFO still
+	// has the wait.
 	var stdout, stderr bytes.Buffer
-	if exit := runNotify([]string{"g1", "--waiting-on", "overlord", "pick a plan", "--lavish", page}, &stdout, &stderr); exit != 0 {
-		t.Fatalf("exit=%d stderr=%q", exit, stderr.String())
-	}
+	exit := runNotify([]string{"g1", "--waiting-on", "overlord", "pick a plan", "--lavish", page}, &stdout, &stderr)
 
+	if exit != 1 || !strings.Contains(stderr.String(), "nothing watches the page "+page) || !strings.Contains(stderr.String(), "ask in text with --blocked") {
+		t.Fatalf("exit=%d stderr=%q, want a failure naming the unwatched page and saying to ask in text", exit, stderr.String())
+	}
 	want := "waiting on overlord: pick a plan (page http://127.0.0.1:4387/session/f26e)"
 	lines, err := state.TailStatus(stateDir, "g1", 1)
 	if _, event := state.SplitStatus(lines[0]); err != nil || event != want {

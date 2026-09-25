@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -164,5 +165,81 @@ func TestPagesArePolledOncePerOpenWait(t *testing.T) {
 	s.pageWork.Wait()
 	if extra := len(polls); extra != 0 {
 		t.Fatalf("%d more polls started for one wait, want one poller", extra)
+	}
+}
+
+// published counts the errors the service has reported.
+func published(s *Service) uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.revision
+}
+
+// The poll consumed the Overlord's answer, so a wake queue that refuses the
+// CFO's wake for a while only delays it, and the wait stays open until then.
+func TestAPageAnswerReachesTheCFOOnceTheWakeQueueTakesIt(t *testing.T) {
+	defer func(pause time.Duration) { pagePollPause = pause }(pagePollPause)
+	pagePollPause = time.Millisecond
+	store, h := testStore(t)
+	task, _ := waitOnAPage(t, store)
+	ack := filepath.Join(h.State, ".wake-ack")
+	if err := os.Mkdir(ack, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s := &Service{Store: store, Options: Options{PollPage: func(context.Context, string, time.Duration) (axi.PagePoll, error) {
+		return axi.PagePoll{Status: "feedback", Output: "session:\n  status: feedback\n"}, nil
+	}}}
+
+	s.watchPages(context.Background())
+	for deadline := time.Now().Add(10 * time.Second); published(s) < 3; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the wake queue was never asked again after refusing the CFO's wake")
+		}
+	}
+	if got := store.Snapshot().Reviews[0]; got.State != "open" {
+		t.Fatalf("the wait = %+v while the CFO lacks the answer, want it open", got)
+	}
+	if err := os.Remove(ack); err != nil {
+		t.Fatal(err)
+	}
+	s.pageWork.Wait()
+
+	if wakes := reviewWakes(t, h.State, task); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "his feedback is in ") {
+		t.Fatalf("review wakes = %+v, want the answer once the queue takes it", wakes)
+	}
+	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" {
+		t.Errorf("the wait = %+v, want it closed once the CFO has it", got)
+	}
+}
+
+// An answer that cannot be saved still reaches the CFO, carried in the wake
+// itself: its end is kept, and the cut is said.
+func TestAPageAnswerThatCannotBeSavedTravelsInTheWake(t *testing.T) {
+	store, h := testStore(t)
+	task, _ := waitOnAPage(t, store)
+	if err := os.MkdirAll(filepath.Join(h.State, "reviews"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.State, "reviews", "feedback"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	answer := "session:\n  status: feedback\nprompts[1]{id,text}:\n  p1,\"" + strings.Repeat("é", pageFeedbackInline) + " Ship option B\"\n"
+	s := &Service{Store: store, Options: Options{PollPage: func(context.Context, string, time.Duration) (axi.PagePoll, error) {
+		return axi.PagePoll{Status: "feedback", Output: answer}, nil
+	}}}
+
+	s.watchPages(context.Background())
+	s.pageWork.Wait()
+
+	wakes := reviewWakes(t, h.State, task)
+	if len(wakes) != 1 {
+		t.Fatalf("review wakes = %+v, want the answer", wakes)
+	}
+	detail := wakes[0].Detail
+	if !strings.Contains(detail, "could not be saved") || !strings.Contains(detail, "(cut to its end) ...") || !strings.HasSuffix(detail, " Ship option B\"\n") || len(detail) > pageFeedbackInline+500 || !utf8.ValidString(detail) {
+		t.Fatalf("wake detail = %q (%d bytes), want the answer's end inline, bounded, and the cut said", detail, len(detail))
+	}
+	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" {
+		t.Errorf("the wait = %+v, want it closed once the CFO has it", got)
 	}
 }

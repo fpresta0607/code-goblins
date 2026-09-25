@@ -64,10 +64,14 @@ func (q Quota) JSON(ctx context.Context) ([]byte, error) {
 }
 
 func command(ctx context.Context, commands execx.Runner, operation, name string, args ...string) (execx.Result, error) {
+	return run(ctx, commands, operation, execx.Request{Name: name, Args: args})
+}
+
+func run(ctx context.Context, commands execx.Runner, operation string, req execx.Request) (execx.Result, error) {
 	if commands == nil {
 		return execx.Result{}, errors.New("axi: command runner is required")
 	}
-	result, err := commands.Run(ctx, execx.Request{Name: name, Args: args})
+	result, err := commands.Run(ctx, req)
 	if err != nil {
 		return execx.Result{}, commandError(operation, result, err)
 	}

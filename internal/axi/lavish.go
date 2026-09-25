@@ -43,9 +43,14 @@ func (l Lavish) Open(ctx context.Context, file string) (string, error) {
 }
 
 // Poll waits up to timeout for the Overlord's feedback on the page. Delivery
-// consumes the feedback, so a page must have one poller.
+// consumes the feedback, so a page must have one poller: a cancelled poll
+// ends its whole process tree, leaving no poll behind to take the feedback.
 func (l Lavish) Poll(ctx context.Context, file string, timeout time.Duration) (PagePoll, error) {
-	result, err := command(ctx, l.Commands, "lavish-axi poll "+file, "lavish-axi", "poll", file, "--timeout-ms", strconv.FormatInt(timeout.Milliseconds(), 10))
+	result, err := run(ctx, l.Commands, "lavish-axi poll "+file, execx.Request{
+		Name:     "lavish-axi",
+		Args:     []string{"poll", file, "--timeout-ms", strconv.FormatInt(timeout.Milliseconds(), 10)},
+		KillTree: true,
+	})
 	if err != nil {
 		return PagePoll{}, err
 	}

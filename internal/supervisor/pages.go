@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -19,9 +20,13 @@ const (
 	// pagePollAttempts is how many polls in a row may fail before the CFO is
 	// told the page cannot be watched.
 	pagePollAttempts = 3
+	// pageFeedbackInline bounds feedback carried in a wake when it cannot be
+	// saved; its end is kept.
+	pageFeedbackInline = 4000
 )
 
-// pagePollPause separates a failed poll from the next attempt.
+// pagePollPause separates a failed poll, or a wake the queue refused, from
+// the next attempt.
 var pagePollPause = 10 * time.Second
 
 // watchPages keeps one poller for each open item that names a Lavish page,
@@ -86,27 +91,36 @@ func (s *Service) watchPage(ctx context.Context, r Review) {
 				continue
 			}
 		}
-		s.handPageToCFO(r, poll, err)
+		s.handPageToCFO(ctx, r, poll, err)
 		return
 	}
 }
 
 // handPageToCFO wakes the CFO with what became of an item's page and closes
 // the item: the CFO relays the answer, and the goblin opens a new wait if it
-// needs another look.
-func (s *Service) handPageToCFO(r Review, poll axi.PagePoll, pollErr error) {
+// needs another look. The poll consumed the page's feedback, so the wake is
+// retried until the CFO has it, and the item stays open until then.
+func (s *Service) handPageToCFO(ctx context.Context, r Review, poll axi.PagePoll, pollErr error) {
 	var detail, reason string
 	switch {
 	case pollErr != nil:
 		detail = fmt.Sprintf("the supervisor cannot poll the page %s (%v); the Overlord's answer on it reaches nobody, so ask him in text", r.LavishPage, pollErr)
 		reason = "The page could not be polled; the CFO was told."
 	case poll.Status == "feedback":
-		saved, err := savePageFeedback(s.Store.Home.State, r, poll.Output)
-		if err != nil {
+		if saved, err := savePageFeedback(s.Store.Home.State, r, poll.Output); err == nil {
+			detail = "the Overlord answered on the page " + r.LavishPage + "; his feedback is in " + saved + ", relay it to the goblin"
+		} else {
 			s.publish(err)
-			return
+			output := poll.Output
+			if len(output) > pageFeedbackInline {
+				cut := len(output) - pageFeedbackInline
+				for cut < len(output) && !utf8.RuneStart(output[cut]) {
+					cut++
+				}
+				output = "(cut to its end) ..." + output[cut:]
+			}
+			detail = fmt.Sprintf("the Overlord answered on the page %s, but his feedback could not be saved (%v); relay it to the goblin: %s", r.LavishPage, err, output)
 		}
-		detail = "the Overlord answered on the page " + r.LavishPage + "; his feedback is in " + saved + ", relay it to the goblin"
 		if poll.Ended {
 			detail += "; he ended the review"
 		}
@@ -121,9 +135,17 @@ func (s *Service) handPageToCFO(r Review, poll axi.PagePoll, pollErr error) {
 		detail = "lavish-axi reported " + poll.Status + " for the page " + r.LavishPage
 		reason = "The page's session changed; the CFO was told."
 	}
-	if _, err := wake.Append(s.Store.Home.State, "review", r.Task, detail); err != nil {
+	for {
+		_, err := wake.Append(s.Store.Home.State, "review", r.Task, detail)
+		if err == nil {
+			break
+		}
 		s.publish(err)
-		return
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(pagePollPause):
+		}
 	}
 	if _, err := wake.PublishEpisode(s.Store.Home.State); err != nil {
 		s.publish(err)

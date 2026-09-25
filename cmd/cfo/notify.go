@@ -176,12 +176,17 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	// The CFO is already woken; the Command Center copy is a second route
-	// to the Overlord, so its failure is reported and never fails the notify.
+	// to the Overlord, so its failure is reported and never fails the notify,
+	// except for a page: only its item gets the page polled.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	client := &herdr.Client{Commands: execx.OSRunner{}}
 	if verb == "waiting on overlord" {
 		if err := supervisor.PublishWait(ctx, h, client, id, record.Seq, state.NormalizeStatusDetail(detail), pageURL, page); err != nil {
+			if page != "" {
+				fmt.Fprintf(stderr, "cfo notify: the Command Center cannot show this wait (%v), so nothing watches the page %s and the Overlord's answer on it reaches nobody; the CFO has the wait, ask in text with --blocked instead\n", err, page)
+				return 1
+			}
 			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this wait, the CFO still has it: "+err.Error())
 		}
 	} else if err := supervisor.SurfaceNotify(ctx, h.State, client, id, record, images); err != nil {
