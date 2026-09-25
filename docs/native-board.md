@@ -206,7 +206,7 @@ The terminal's end closes the view with its exit code in the reason.
 The board draws a native terminal with xterm at the panel's size: its fit addon measures the columns and rows the panel holds and the view sends them as the resize, so the program and the view agree on the size.
 The font starts at 16 px; Ctrl+Plus and Ctrl+Minus step it between 12 and 28 px and Ctrl+0 restores it, saved in the browser.
 The terminal keeps 5,000 lines of scrollback and the wheel scrolls it; the panel around it never scrolls.
-Until the first output is drawn a full-pane state says the terminal is connecting; a view that fell behind, a restarting board or a dropped connection reconnects on its own up to five times, and any other close keeps the terminal's last screen in view with its reason and Reconnect in a bar across the bottom.
+Until the first output is drawn, and again while the board's own connection is down, a full-pane state says the terminal is connecting; a view that fell behind, a restarting board or a dropped connection reconnects on its own up to five times, and any other close keeps the terminal's last screen in view with its reason and Reconnect in a bar across the bottom.
 A paste goes as it is typed, in pieces of at most 64 KiB, in order.
 Key-to-echo latency, measured with `tests/acceptance/terminal_latency.mjs` against the example fixture on 25 September 2026: the Herdr view on main e6f7ea97 took p50 74 ms and p95 592 ms with 3 of 100 keys unechoed after 5 seconds and 4.6 s to a live screen, and the native view p50 24 ms and p95 34 to 36 ms with none missed and 0.4 s to a live screen.
 
