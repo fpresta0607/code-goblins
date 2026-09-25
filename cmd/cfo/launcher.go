@@ -130,7 +130,7 @@ func runLauncher(stdout, stderr io.Writer, runtime commandRuntime) int {
 			fmt.Fprintf(stderr, "goblins: open the board at %s yourself (%v)\n", board, err)
 		}
 	}
-	return 0
+	return startCFOSession(ctx, runtime, h.State, stdout, stderr)
 }
 
 // liveBoard returns the board a supervisor serves at the address its record

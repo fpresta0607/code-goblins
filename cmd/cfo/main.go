@@ -36,7 +36,7 @@ var version = "dev"
 
 const usage = `usage: cfo <command> [args]
 
-Run as goblins with no command, it finds the supervisor or starts one in the background, prints the board's link and what the fleet is doing, and opens the board when it started the supervisor.
+Run as goblins with no command, it finds the supervisor or starts one in the background, prints the board's link and what the fleet is doing, opens the board when it started the supervisor, brings the live registered CFO to the front in Herdr or starts one, and attaches the terminal to Herdr.
 
 commands:
   version   print the cfo version
@@ -119,6 +119,16 @@ type commandRuntime struct {
 	goblins    bool
 	startServe func(home.Home) (<-chan struct{}, error)
 	openURL    func(string) error
+	// liveCFO, focusCFO, gitTop, stdin, startCFO and attachHerdr are how the
+	// launcher finds a live registered CFO and brings it to the front, finds
+	// the project or asks for one, starts the CFO in Herdr and hands the
+	// terminal to herdr attached to a session.
+	liveCFO     func(string) (herdr.Endpoint, bool)
+	focusCFO    func(context.Context, herdr.Endpoint) error
+	gitTop      func(context.Context) (string, error)
+	stdin       io.Reader
+	startCFO    func(context.Context, string) (bool, error)
+	attachHerdr func(string) int
 	// killTree ends a process and everything it started, for goblins stop
 	// --force.
 	killTree func(int) error
@@ -212,6 +222,12 @@ func defaultCommandRuntime() commandRuntime {
 		goblins:      invokedAsGoblins(),
 		startServe:   startDetachedServe,
 		openURL:      openInBrowser,
+		liveCFO:      supervisor.LiveCFO,
+		focusCFO:     focusCFOInHerdr,
+		gitTop:       gitTop,
+		stdin:        os.Stdin,
+		startCFO:     startCFOInHerdr,
+		attachHerdr:  attachHerdr,
 		killTree: func(pid int) error {
 			return killTree(context.Background(), execx.OSRunner{}, pid)
 		},

@@ -13,7 +13,14 @@ Once it holds the singleton and listens, `serve` records its pid and the board's
 `goblins` with no command reads that record: when the address answers at all it prints the board's link and a status line from the snapshot, or says the board could not read the fleet's state when the snapshot fails, and starts and opens nothing.
 Otherwise it starts `serve` detached from its terminal, in a hidden console of its own that the programs `serve` runs share, so no console window opens, with its output appended to `state/serve.log`, waits up to 30 seconds for the board to answer, and opens it in the browser once.
 A record whose address does not answer, left by a supervisor that ended without removing it, is replaced by the next start, and a record naming anything but a plain loopback board address is ignored.
-`goblins status` reads the same record and prints the board's link, the status line and the supervisor's pid, and exits 1 when no board answers there.
+Then `goblins` brings the Overlord to the CFO.
+A CFO whose registration in `state/primary.json` names a live process is reused, never started a second time: `goblins` brings its registered workspace and tab to the front and hands its terminal to `herdr`, attached to the session the CFO registered in.
+It decides from the registration alone and asks neither the board nor Herdr, so a supervisor that has not checked the registration yet or a Herdr that cannot answer changes nothing.
+Otherwise it picks the project (the git checkout its terminal is in, else the only checkout under the projects root, else the one the Overlord picks by number), makes sure Herdr's server runs, and starts Claude Code as the CFO with `herdr agent start` in a fresh `cfo` tab it creates in that project, since Herdr starts an agent in its pane's own directory.
+An old `cfo` tab with no agent in any of its panes is closed when every pane sits at its shell prompt, and renamed to `shell` when anything else runs in one, `goblins` itself included; a `cfo` tab with an agent in any pane is left as it is and no second CFO is started beside it.
+It brings the CFO's tab to the front and hands its terminal to `herdr`, which attaches to the fleet's session.
+Run inside a Herdr pane there is nothing to attach, so `goblins` only brings the CFO to the front.
+`goblins status` reads the board record and prints the board's link, the status line and the supervisor's pid, and exits 1 when no board answers there.
 A supervisor started in the background has no terminal for Ctrl-C to reach, so `goblins stop` writes `state/serve.stop` naming the record's pid and waits up to 30 seconds for the board to stop answering.
 The supervisor checks for that request on its notification tick, which comes at least every two seconds between cycles, and stops as it would on Ctrl-C, removing its record; a request naming any other pid is left over from a supervisor that already ended, so it is removed and stops nothing.
 A supervisor also removes any request left from before it started, so a reused pid cannot stop it.

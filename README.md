@@ -114,7 +114,7 @@ It installs git and gh with winget, so on a machine that has neither winget nor 
 `goblins` and `cfo` are one program under two names: `goblins` is the one you type, the CFO and its scripts use `cfo`, and every command works under either.
 
 ```powershell
-goblins              # start the supervisor if it is not running, then show the board's link and the fleet
+goblins              # start the supervisor if needed, show the board's link and the fleet, then open the CFO
 goblins status       # whether the supervisor runs: the board's link, the fleet and its pid
 goblins stop         # stop the supervisor; --force ends it when it does not stop
 goblins doctor       # check every tool and harness the fleet needs
@@ -126,16 +126,18 @@ goblins uninstall    # undo the install; the home folder and its data stay
 `goblins` on its own finds the supervisor, or starts it in the background with a hidden console of its own when none is running, so no window opens, with its output in `state\serve.log` in the CFO home.
 It prints the banner, the board's link (`http://127.0.0.1:4310`) and one line on what the CFO and the goblins are doing and how much waits on you, and opens the board in your browser the first time.
 The board is only a view, so closing the browser stops nothing, and a supervisor started this way keeps running after the terminal closes.
+Then it takes you to the CFO: a CFO whose registration names a live process is brought to the front, and otherwise it starts Claude Code as the CFO in Herdr in a fresh `cfo` tab, in the project this terminal is in or one you pick from your projects folder, closing an idle old `cfo` tab or renaming a busy one to `shell`.
+It then attaches the terminal to Herdr with the CFO in front; run inside Herdr, it only brings the CFO to the front.
 `goblins serve` runs the supervisor in its own terminal instead, where Ctrl-C stops it.
 `goblins status` prints the board's link, the same status line and the supervisor's pid, and exits 1 when no supervisor runs, so a script can test for one.
 `goblins stop` asks the supervisor to stop, as Ctrl-C would, whichever way it was started, and waits up to 30 seconds for it to finish.
 `goblins stop --force` ends the supervisor and everything it started instead, for one that does not stop when asked.
 `goblins uninstall` removes the hooks, the board's native hooks and the environment the install set, and keeps the home folder, with its state and data, until you delete it.
-Starting the CFO session from `goblins` arrives with the rest of the launcher.
 
 ### Start the CFO
 
-Open the project you actually want to build and start the CFO session in Herdr:
+Run `goblins` in the project you actually want to build, or anywhere to pick one from your projects folder: it starts the CFO there in Herdr and brings you to it.
+By hand, for a CFO in another harness, the same is:
 
 ```powershell
 cd <dir>\my-project

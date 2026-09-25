@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
@@ -33,11 +35,17 @@ func fakeBoard(t *testing.T, snapshot string) string {
 }
 
 type launcherFixture struct {
-	t       *testing.T
-	home    home.Home
-	starts  int
-	opened  []string
-	runtime commandRuntime
+	t         *testing.T
+	home      home.Home
+	project   string
+	starts    int
+	opened    []string
+	cfo       herdr.Endpoint
+	cfoLive   bool
+	focused   []herdr.Endpoint
+	cfoStarts []string
+	attached  []string
+	runtime   commandRuntime
 }
 
 // newLauncherFixture runs goblins against an isolated home whose supervisor
@@ -49,7 +57,8 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 	if err := os.MkdirAll(h.State, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	f := &launcherFixture{t: t, home: h}
+	// A live CFO by default, so a supervisor test prints only the banner.
+	f := &launcherFixture{t: t, home: h, cfoLive: true}
 	f.runtime = commandRuntime{
 		resolveHome: func() (home.Home, error) { return h, nil },
 		goblins:     true,
@@ -61,7 +70,32 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 			f.opened = append(f.opened, target)
 			return nil
 		},
+		liveCFO: func(stateDir string) (herdr.Endpoint, bool) {
+			if stateDir != h.State {
+				t.Errorf("liveCFO read %s, want the fixture home's state %s", stateDir, h.State)
+			}
+			return f.cfo, f.cfoLive
+		},
+		focusCFO: func(_ context.Context, endpoint herdr.Endpoint) error {
+			f.focused = append(f.focused, endpoint)
+			return nil
+		},
+		gitTop: func(context.Context) (string, error) { return f.project, nil },
+		stdin:  strings.NewReader(""),
+		startCFO: func(_ context.Context, project string) (bool, error) {
+			f.cfoStarts = append(f.cfoStarts, project)
+			return true, nil
+		},
+		attachHerdr: func(session string) int {
+			f.attached = append(f.attached, session)
+			return 0
+		},
 	}
+	f.project = filepath.Join(dir, "project")
+	// A goblin running these tests sits in a Herdr pane itself; each test
+	// says where it is and which session is the fleet's instead.
+	t.Setenv("HERDR_PANE_ID", "")
+	t.Setenv("HERDR_SESSION", "fixture-fleet")
 	return f
 }
 
