@@ -192,6 +192,11 @@ func (s *Service) run(ctx context.Context) {
 		case <-reconcile.C:
 			s.cycle(ctx, true)
 		case <-notified:
+			// The notification loop wakes at least every two seconds, so a
+			// stop request is honoured within that.
+			if stopRequested(s.Store.Home.State) {
+				return
+			}
 			s.cycle(ctx, false)
 		case <-s.Store.changed:
 			s.cycle(ctx, false)
