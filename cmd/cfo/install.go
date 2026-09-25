@@ -72,6 +72,13 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if *uninstall {
+		service.HarnessDirs = map[string]string{}
+		for _, harness := range []string{"claude", "codex", "pi"} {
+			if service.HarnessDirs[harness], err = harnessConfigDir(harness); err != nil {
+				fmt.Fprintf(stderr, "cfo install --uninstall: find the %s configuration: %v\n", harness, err)
+				return 1
+			}
+		}
 		fmt.Fprintf(stdout, "cfo install --uninstall: removing %s from this machine\n", root)
 		if err := service.Uninstall(stdout); err != nil {
 			fmt.Fprintln(stderr, err)

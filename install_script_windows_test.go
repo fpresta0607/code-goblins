@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -40,12 +41,25 @@ func installScript(t *testing.T) string {
 }
 
 // runStrippedPowerShell runs shell with args against the release served at
-// base. The child gets folders of its own for every per-user location and a
-// PATH with only Windows on it, so nothing it could reach installs onto this
-// machine.
+// base, with stand-ins for git and gh, which the install otherwise stops for
+// when winget is missing too.
 func runStrippedPowerShell(t *testing.T, shell, base string, args ...string) (output, local, temp string, err error) {
 	t.Helper()
-	local, temp, profile := t.TempDir(), t.TempDir(), t.TempDir()
+	return runPowerShellWith(t, shell, base, []string{"git", "gh"}, args...)
+}
+
+// runPowerShellWith runs shell with args against the release served at base.
+// The child gets folders of its own for every per-user location and a PATH
+// with only Windows and stand-ins for tools on it, so nothing it could reach
+// installs onto this machine.
+func runPowerShellWith(t *testing.T, shell, base string, tools []string, args ...string) (output, local, temp string, err error) {
+	t.Helper()
+	local, temp, profile, bin := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+	for _, tool := range tools {
+		if err := os.WriteFile(filepath.Join(bin, tool+".cmd"), []byte("@exit /b 0\r\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
 	system := os.Getenv("SystemRoot")
 	cmd := exec.Command(shell, append([]string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass"}, args...)...)
 	cmd.Dir = temp
@@ -57,7 +71,7 @@ func runStrippedPowerShell(t *testing.T, shell, base string, args ...string) (ou
 		"PATHEXT=" + os.Getenv("PATHEXT"),
 		"ProgramFiles=" + os.Getenv("ProgramFiles"),
 		"ProgramData=" + os.Getenv("ProgramData"),
-		"PATH=" + filepath.Join(system, "System32") + ";" + filepath.Join(system, "System32", "WindowsPowerShell", "v1.0"),
+		"PATH=" + bin + ";" + filepath.Join(system, "System32") + ";" + filepath.Join(system, "System32", "WindowsPowerShell", "v1.0"),
 		"USERPROFILE=" + profile,
 		"APPDATA=" + filepath.Join(profile, "Roaming"),
 		"LOCALAPPDATA=" + local,
@@ -174,7 +188,8 @@ func TestOneLineInstallLeavesTheCallersSessionAsItWas(t *testing.T) {
 }
 
 // Run as a file from a checkout, the script still takes -InstallDir and puts
-// the verified download there as cfo.exe.
+// the verified download there as cfo.exe. Without -Bootstrap it installs no
+// tools, so it goes ahead with neither winget, git nor gh on the machine.
 func TestCloneInstallPutsTheVerifiedDownloadInTheInstallDir(t *testing.T) {
 	binary := []byte("not a program")
 	sums := fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary))
@@ -194,7 +209,7 @@ func TestCloneInstallPutsTheVerifiedDownloadInTheInstallDir(t *testing.T) {
 				}
 			}
 
-			output, _, _, _ := runStrippedPowerShell(t, shell, serveRelease(t, binary, sums), "-File", filepath.Join(checkout, "install.ps1"), "-InstallDir", installDir)
+			output, _, _, _ := runPowerShellWith(t, shell, serveRelease(t, binary, sums), nil, "-File", filepath.Join(checkout, "install.ps1"), "-InstallDir", installDir)
 
 			installed, err := os.ReadFile(filepath.Join(installDir, "cfo.exe"))
 			if err != nil || string(installed) != string(binary) {
@@ -234,5 +249,32 @@ func TestCloneInstallRefusesAMismatchedDownloadInsteadOfBuilding(t *testing.T) {
 				t.Fatalf("cfo.exe was left in %s (%v), want none", installDir, err)
 			}
 		})
+	}
+}
+
+// Without winget, an install that needs it for git or gh stops before it
+// downloads or changes anything, and names the one fix.
+func TestInstallStopsForWingetBeforeDownloadingAnything(t *testing.T) {
+	for _, shell := range oneLineShells(t) {
+		for want, tools := range map[string][]string{"git and gh": nil, "gh": {"git"}} {
+			t.Run(filepath.Base(shell)+" needing "+want, func(t *testing.T) {
+				var requests atomic.Int32
+				release := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					requests.Add(1)
+					http.NotFound(w, r)
+				}))
+				defer release.Close()
+
+				output, local, temp, err := runPowerShellWith(t, shell, release.URL, tools, "-Command", "Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression")
+
+				if err == nil || !strings.Contains(output, "https://apps.microsoft.com/detail/9NBLGGH4NNS1") || !strings.Contains(output, "winget is missing, and the install needs it for "+want+".") {
+					t.Fatalf("install = %v, want it stopped for winget with the App Installer fix:\n%s", err, output)
+				}
+				if n := requests.Load(); n != 0 {
+					t.Errorf("the install made %d download requests before stopping, want none", n)
+				}
+				assertNothingInstalled(t, local, temp)
+			})
+		}
 	}
 }

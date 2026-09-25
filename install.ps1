@@ -104,6 +104,17 @@
     }
     $fromClone = $scriptFolder -and (Test-Path (Join-Path $scriptFolder "AGENTS.md")) -and (Test-Path (Join-Path $scriptFolder "cmd\cfo"))
 
+    # winget installs git and gh. An install that would need it and cannot
+    # have it stops here, before anything is downloaded or changed, with the
+    # one fix to make on a line of its own.
+    if (($Bootstrap -or -not $fromClone) -and -not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        $needed = @("git", "gh" | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) })
+        if ($needed.Count -gt 0) {
+            Write-Host "Install App Installer from the Microsoft Store (https://apps.microsoft.com/detail/9NBLGGH4NNS1) for winget, then run this again."
+            throw "winget is missing, and the install needs it for $($needed -join ' and ')."
+        }
+    }
+
     if ($fromClone) {
         if (-not $InstallDir) {
             $InstallDir = $scriptFolder
@@ -364,8 +375,10 @@
                 $failedInstalls += "$skill skill"
                 continue
             }
-            Write-Host ("skill    {0,-20} npx skills add kunchenguid/{0} --skill {0} -g -y" -f $skill)
-            & npx.cmd -y skills add "kunchenguid/$skill" --skill $skill -g -y
+            # Only the fleet's harnesses, as copies: a symlink needs a right an
+            # ordinary Windows user may not have.
+            Write-Host ("skill    {0,-20} npx skills add kunchenguid/{0} --skill {0} -g -y -a claude-code -a codex -a pi --copy" -f $skill)
+            & npx.cmd -y skills add "kunchenguid/$skill" --skill $skill -g -y -a claude-code -a codex -a pi --copy
             if ($LASTEXITCODE -ne 0) {
                 Write-Host ("WARN     {0,-20} skill install exited with code {1}" -f $skill, $LASTEXITCODE)
                 $failedInstalls += "$skill skill"

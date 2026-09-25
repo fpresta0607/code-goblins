@@ -61,63 +61,20 @@ func Install(c InstallConfig) (string, error) {
 		path := filepath.Join(c.ConfigDir, "extensions", "cfo-native.ts")
 		return path, writeOwned(path, piExtension(c))
 	}
-	filename := "hooks.json"
-	if c.Harness == "claude" {
-		filename = "settings.json"
-	}
-	path := filepath.Join(c.ConfigDir, filename)
-	original, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	path := settingsPath(c.Harness, c.ConfigDir)
+	original, doc, hooks, err := readHooks(path)
+	if err != nil {
 		return "", err
 	}
-	doc := map[string]json.RawMessage{}
-	if len(original) > 0 {
-		if err := json.Unmarshal(bytes.TrimPrefix(original, []byte{0xef, 0xbb, 0xbf}), &doc); err != nil || doc == nil {
-			return "", errors.New("native setup: invalid settings JSON")
-		}
-	}
-	hooks := map[string][]json.RawMessage{}
-	if raw, ok := doc["hooks"]; ok {
-		if err := json.Unmarshal(raw, &hooks); err != nil || hooks == nil {
-			return "", errors.New("native setup: invalid hooks object")
-		}
-	}
-	helper := filepath.Join(c.ConfigDir, "cfo-native-hook.ps1")
-	command := `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "` + filepath.ToSlash(helper) + `"`
+	helper, command := helperCommand(c.ConfigDir)
 	events := []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd", "SubagentStart", "SubagentStop"}
 	if c.Harness == "codex" {
 		events = append(events, "Interrupt")
 	}
 	for _, event := range events {
-		kept := make([]json.RawMessage, 0, len(hooks[event])+1)
-		for _, raw := range hooks[event] {
-			var group map[string]json.RawMessage
-			if err := json.Unmarshal(raw, &group); err != nil || group == nil {
-				return "", errors.New("native setup: invalid hook group")
-			}
-			var entries []json.RawMessage
-			if err := json.Unmarshal(group["hooks"], &entries); err != nil {
-				return "", errors.New("native setup: invalid hook handlers")
-			}
-			remaining := make([]json.RawMessage, 0, len(entries))
-			for _, entry := range entries {
-				var handler struct {
-					Command string `json:"command"`
-				}
-				if err := json.Unmarshal(entry, &handler); err != nil {
-					return "", err
-				}
-				if handler.Command != command {
-					remaining = append(remaining, entry)
-				}
-			}
-			if len(remaining) == len(entries) {
-				kept = append(kept, raw)
-			} else if len(remaining) > 0 {
-				group["hooks"], _ = json.Marshal(remaining)
-				updated, _ := json.Marshal(group)
-				kept = append(kept, updated)
-			}
+		kept, _, err := withoutCommand(hooks[event], command)
+		if err != nil {
+			return "", err
 		}
 		entry := struct {
 			Hooks []struct {
@@ -171,7 +128,7 @@ func writeOwned(path, content string) error {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if len(prior) > 0 && !bytes.HasPrefix(prior, []byte(ownedMarker)) && !bytes.HasPrefix(prior, []byte("// CFO native hooks v1")) {
+	if len(prior) > 0 && !owned(prior) {
 		return fmt.Errorf("refusing to replace unowned helper %s", path)
 	}
 	if string(prior) == content {
@@ -181,6 +138,155 @@ func writeOwned(path, content string) error {
 		return err
 	}
 	return fsx.AtomicWriteFile(path, []byte(content))
+}
+
+// owned reports whether a helper file's content is one Install wrote.
+func owned(content []byte) bool {
+	return bytes.HasPrefix(content, []byte(ownedMarker)) || bytes.HasPrefix(content, []byte("// CFO native hooks v1"))
+}
+
+// Uninstall removes what Install wrote for harness under configDir: its hook
+// command from every event, the groups and events that leaves empty, and the
+// helper script or Pi extension while it is still the one Install owns.
+// Everything else in the settings is left as it is. It reports whether it
+// removed anything.
+func Uninstall(harness, configDir string) (bool, error) {
+	switch harness {
+	case "pi":
+		return removeOwned(filepath.Join(configDir, "extensions", "cfo-native.ts"))
+	case "claude", "codex":
+	default:
+		return false, errors.New("unsupported native hook harness")
+	}
+	path := settingsPath(harness, configDir)
+	_, doc, hooks, err := readHooks(path)
+	if err != nil {
+		return false, err
+	}
+	helper, command := helperCommand(configDir)
+	total := 0
+	for event, groups := range hooks {
+		kept, removed, err := withoutCommand(groups, command)
+		if err != nil {
+			return false, err
+		}
+		total += removed
+		switch {
+		case removed == 0:
+		case len(kept) == 0:
+			delete(hooks, event)
+		default:
+			hooks[event] = kept
+		}
+	}
+	if total > 0 {
+		if len(hooks) == 0 {
+			delete(doc, "hooks")
+		} else if doc["hooks"], err = json.Marshal(hooks); err != nil {
+			return false, err
+		}
+		data, err := json.MarshalIndent(doc, "", "  ")
+		if err != nil {
+			return false, err
+		}
+		if err := fsx.AtomicWriteFile(path, append(data, '\n')); err != nil {
+			return false, err
+		}
+	}
+	removedHelper, err := removeOwned(helper)
+	return total > 0 || removedHelper, err
+}
+
+// settingsPath is the file holding harness's hooks under configDir.
+func settingsPath(harness, configDir string) string {
+	if harness == "claude" {
+		return filepath.Join(configDir, "settings.json")
+	}
+	return filepath.Join(configDir, "hooks.json")
+}
+
+// helperCommand is the helper script Install writes under configDir and the
+// exact hook command that runs it, which is how its entries are recognised.
+func helperCommand(configDir string) (helper, command string) {
+	helper = filepath.Join(configDir, "cfo-native-hook.ps1")
+	return helper, `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "` + filepath.ToSlash(helper) + `"`
+}
+
+// readHooks reads a harness settings file: its bytes as found, the document,
+// and its hooks by event. A missing file is an empty document.
+func readHooks(path string) ([]byte, map[string]json.RawMessage, map[string][]json.RawMessage, error) {
+	original, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, nil, nil, err
+	}
+	doc := map[string]json.RawMessage{}
+	if len(original) > 0 {
+		if err := json.Unmarshal(bytes.TrimPrefix(original, []byte{0xef, 0xbb, 0xbf}), &doc); err != nil || doc == nil {
+			return nil, nil, nil, errors.New("native setup: invalid settings JSON")
+		}
+	}
+	hooks := map[string][]json.RawMessage{}
+	if raw, ok := doc["hooks"]; ok {
+		if err := json.Unmarshal(raw, &hooks); err != nil || hooks == nil {
+			return nil, nil, nil, errors.New("native setup: invalid hooks object")
+		}
+	}
+	return original, doc, hooks, nil
+}
+
+// withoutCommand returns an event's matcher groups with every handler that
+// runs command removed, dropping the groups left empty, and how many handlers
+// it removed. Groups it does not touch keep their bytes.
+func withoutCommand(groups []json.RawMessage, command string) ([]json.RawMessage, int, error) {
+	kept := make([]json.RawMessage, 0, len(groups)+1)
+	removed := 0
+	for _, raw := range groups {
+		var group map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &group); err != nil || group == nil {
+			return nil, 0, errors.New("native setup: invalid hook group")
+		}
+		var entries []json.RawMessage
+		if err := json.Unmarshal(group["hooks"], &entries); err != nil {
+			return nil, 0, errors.New("native setup: invalid hook handlers")
+		}
+		remaining := make([]json.RawMessage, 0, len(entries))
+		for _, entry := range entries {
+			var handler struct {
+				Command string `json:"command"`
+			}
+			if err := json.Unmarshal(entry, &handler); err != nil {
+				return nil, 0, err
+			}
+			if handler.Command != command {
+				remaining = append(remaining, entry)
+			}
+		}
+		removed += len(entries) - len(remaining)
+		if len(remaining) == len(entries) {
+			kept = append(kept, raw)
+		} else if len(remaining) > 0 {
+			group["hooks"], _ = json.Marshal(remaining)
+			updated, _ := json.Marshal(group)
+			kept = append(kept, updated)
+		}
+	}
+	return kept, removed, nil
+}
+
+// removeOwned deletes path when it is a file Install wrote, and reports
+// whether it did; a file with other content is left in place.
+func removeOwned(path string) (bool, error) {
+	content, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !owned(content) {
+		return false, nil
+	}
+	return true, os.Remove(path)
 }
 
 func ps(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }

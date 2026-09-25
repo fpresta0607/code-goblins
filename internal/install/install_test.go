@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/nativehook"
 )
 
 // adopterSettings is a stand-in for a real ~/.claude/settings.json: unrelated
@@ -327,6 +329,103 @@ func TestUninstallTwiceIsANoOp(t *testing.T) {
 	output := f.uninstall()
 	if !strings.Contains(output, "nothing to remove") {
 		t.Errorf("a second uninstall did not report itself as a no-op:\n%s", output)
+	}
+}
+
+// Uninstall also takes out the board's native hooks, which `cfo hooks
+// install` wrote into each harness's own configuration.
+func TestUninstallRemovesTheBoardNativeHooks(t *testing.T) {
+	f := newFixture(t, adopterSettings, nil)
+	claude, codex, pi := t.TempDir(), t.TempDir(), t.TempDir()
+	for harness, dir := range map[string]string{"claude": claude, "pi": pi} {
+		if _, err := nativehook.Install(nativehook.InstallConfig{Harness: harness, ConfigDir: dir, Executable: filepath.Join(dir, "cfo.exe"), Home: f.root, State: filepath.Join(f.root, "state")}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.service.HarnessDirs = map[string]string{"claude": claude, "codex": codex, "pi": pi}
+	f.install()
+
+	output := f.uninstall()
+
+	for _, want := range []string{"removed the board's claude hooks from " + claude, "removed the board's pi hooks from " + pi, "no board hooks for codex in " + codex} {
+		if !strings.Contains(output, want) {
+			t.Errorf("the uninstall output is missing %q:\n%s", want, output)
+		}
+	}
+	for _, left := range []string{filepath.Join(claude, "cfo-native-hook.ps1"), filepath.Join(pi, "extensions", "cfo-native.ts")} {
+		if _, err := os.Stat(left); !os.IsNotExist(err) {
+			t.Errorf("%s survived the uninstall: %v", left, err)
+		}
+	}
+	if output := f.uninstall(); !strings.Contains(output, "nothing to remove") {
+		t.Errorf("a second uninstall found more to remove:\n%s", output)
+	}
+}
+
+func TestUninstallRefusingAMalformedNativeHooksFileLeavesTheEnvironmentForARerun(t *testing.T) {
+	f := newFixture(t, adopterSettings, map[string]string{"Path": `C:\Windows`})
+	codex := t.TempDir()
+	f.service.HarnessDirs = map[string]string{"codex": codex}
+	f.install()
+	hooksFile := filepath.Join(codex, "hooks.json")
+	writeFile(t, hooksFile, "{not json")
+	f.env.setCalls = nil
+	broadcasts := f.env.broadcasts
+
+	var out strings.Builder
+	if err := f.service.Uninstall(&out); err == nil {
+		t.Fatalf("uninstall rewrote a malformed Codex hooks.json:\n%s", out.String())
+	}
+
+	if len(f.env.setCalls) != 0 {
+		t.Errorf("the refused uninstall changed the environment: %v", f.env.setCalls)
+	}
+	writeFile(t, hooksFile, "{}")
+	f.uninstall()
+	if _, ok := f.env.values["CFO_HOME"]; ok {
+		t.Error("CFO_HOME survived the rerun")
+	}
+	if got := f.env.values["Path"]; got != `C:\Windows` {
+		t.Errorf("PATH = %q after the rerun, want C:\\Windows", got)
+	}
+	for _, command := range hookCommands(t, f.user) {
+		if strings.HasPrefix(command, rootPrefix) {
+			t.Errorf("CFO hook %q survived the rerun", command)
+		}
+	}
+	if f.env.broadcasts != broadcasts+1 {
+		t.Errorf("the rerun broadcast %d times, want 1", f.env.broadcasts-broadcasts)
+	}
+}
+
+// In production the Claude native hooks live in the same settings.json as
+// the CFO user hooks, so the uninstall backup must still hold that file as
+// it stood before the uninstall touched it.
+func TestUninstallBacksUpTheSharedClaudeSettingsAsTheyWereBeforeIt(t *testing.T) {
+	f := newFixture(t, adopterSettings, nil)
+	claude := filepath.Dir(f.user)
+	f.service.HarnessDirs = map[string]string{"claude": claude}
+	f.install()
+	if _, err := nativehook.Install(nativehook.InstallConfig{Harness: "claude", ConfigDir: claude, Executable: filepath.Join(claude, "cfo.exe"), Home: f.root, State: filepath.Join(f.root, "state")}); err != nil {
+		t.Fatal(err)
+	}
+	before := readFile(t, f.user)
+
+	f.uninstall()
+
+	if backup := readFile(t, f.user+backupSuffix); backup != before {
+		t.Errorf("the uninstall backup is not the file as it stood before the uninstall\nbefore: %s\nbackup: %s", before, backup)
+	}
+	commands := hookCommands(t, f.user)
+	for _, command := range commands {
+		if strings.HasPrefix(command, rootPrefix) || strings.Contains(command, "cfo-native-hook.ps1") {
+			t.Errorf("CFO hook %q survived the uninstall", command)
+		}
+	}
+	for _, foreign := range foreignCommands {
+		if count(commands, foreign) != 1 {
+			t.Errorf("adopter hook %q was not kept (%d occurrences)", foreign, count(commands, foreign))
+		}
 	}
 }
 

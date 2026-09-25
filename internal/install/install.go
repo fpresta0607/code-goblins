@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/nativehook"
 )
 
 // homeVariable is the variable that tells cfo where the fleet lives, and the
@@ -51,6 +52,10 @@ type Service struct {
 	Contract fs.FS
 	Policy   fs.FS
 	Binary   string
+	// HarnessDirs are the configuration folders, by harness name, whose
+	// board native hooks (written by `cfo hooks install`) an uninstall
+	// removes.
+	HarnessDirs map[string]string
 }
 
 // Install wires the CFO into the machine and reports every change and every
@@ -123,6 +128,9 @@ func (s Service) Uninstall(out io.Writer) error {
 	if err := s.removeUserHooks(report); err != nil {
 		return err
 	}
+	if err := s.removeNativeHooks(report); err != nil {
+		return err
+	}
 	if err := s.unsetHome(report); err != nil {
 		return err
 	}
@@ -136,6 +144,27 @@ func (s Service) Uninstall(out io.Writer) error {
 		report.same("home", "kept "+s.Root+" with its state and data; delete the folder to remove them")
 	}
 	return s.finish(report, "cfo install --uninstall: nothing to remove")
+}
+
+// removeNativeHooks removes the board's native lifecycle hooks from each
+// harness's own configuration, leaving everything else there as it is.
+func (s Service) removeNativeHooks(report *reporter) error {
+	for _, harness := range []string{"claude", "codex", "pi"} {
+		dir, ok := s.HarnessDirs[harness]
+		if !ok {
+			continue
+		}
+		removed, err := nativehook.Uninstall(harness, dir)
+		if err != nil {
+			return fmt.Errorf("install: remove the %s native hooks from %s: %w", harness, dir, err)
+		}
+		if removed {
+			report.change("native", "removed the board's "+harness+" hooks from "+dir)
+			continue
+		}
+		report.same("native", "no board hooks for "+harness+" in "+dir)
+	}
+	return nil
 }
 
 // finish publishes the environment change once, at the end, rather than

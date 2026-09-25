@@ -105,6 +105,8 @@ irm https://raw.githubusercontent.com/fpresta0607/code-goblins/main/install.ps1 
 It downloads the latest release and refuses it unless it matches the release's `SHA256SUMS`.
 It then sets up the CFO home at `%LOCALAPPDATA%\CodeGoblins` with `cfo` and `goblins` on your PATH, asks once for the folder that holds your projects, installs the tools, skills and hooks the fleet needs, and ends with `goblins doctor`.
 Run it again at any time to update; it keeps your projects folder and any policy you tuned.
+It installs git and gh with winget, so on a machine that has neither winget nor git and gh it stops before changing anything and names the fix: App Installer from the Microsoft Store.
+`goblins uninstall` reverses it: the hooks, the board's native hooks and the environment it set go, and the home folder stays, with its state and data, until you delete it.
 
 To work on Code Goblins itself, clone it instead. Code Goblins is a standalone repository; no upstream checkout or synchronization step is required.
 
@@ -250,6 +252,7 @@ A missing editor or a folder that no longer exists is reported instead of guesse
 cfo doctor
 cfo auth <project> [--check|--fix] [--env]
 cfo install [--projects-root <dir>] [--uninstall]
+cfo uninstall
 cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <mode>]
 cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <mode>] [--model <model>] [--effort <level>] [--class <class>] [--yolo]
 cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>]

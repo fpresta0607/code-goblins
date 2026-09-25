@@ -19,7 +19,8 @@ import (
 // Check is one tool's verdict. Err empty means usable. Floor is the minimum
 // version when the tool has one. A Presentation check is reported but never
 // makes the environment unhealthy: without it, visual review falls back to
-// plain text and nonvisual work proceeds.
+// plain text and nonvisual work proceeds. An Installer check is reported the
+// same way: only install.ps1 uses the tool, and cfo never does.
 type Check struct {
 	Name         string
 	Version      string
@@ -27,6 +28,7 @@ type Check struct {
 	Hint         string
 	Floor        string
 	Presentation bool
+	Installer    bool
 }
 
 var tools = []struct {
@@ -34,6 +36,7 @@ var tools = []struct {
 	hint         string
 	floor        string
 	presentation bool
+	installer    bool
 }{
 	{name: "git", hint: "winget install Git.Git"},
 	{name: "gh", hint: "winget install GitHub.cli, then gh auth login"},
@@ -44,6 +47,7 @@ var tools = []struct {
 	{name: "gh-axi", hint: "npm install -g gh-axi"},
 	{name: "chrome-devtools-axi", hint: "npm install -g chrome-devtools-axi"},
 	{name: "lavish-axi", hint: "npm install -g lavish-axi@latest", floor: "0.1.71", presentation: true},
+	{name: "winget", hint: "App Installer from the Microsoft Store, https://apps.microsoft.com/detail/9NBLGGH4NNS1", installer: true},
 }
 
 // harnessTools are the interactive harnesses a spawn can select. They are
@@ -64,7 +68,7 @@ var harnessTools = []struct {
 func Run() []Check {
 	checks := make([]Check, 0, len(tools)+1)
 	for _, tool := range tools {
-		check := Check{Name: tool.name, Hint: tool.hint, Floor: tool.floor, Presentation: tool.presentation}
+		check := Check{Name: tool.name, Hint: tool.hint, Floor: tool.floor, Presentation: tool.presentation, Installer: tool.installer}
 		path, err := exec.LookPath(tool.name)
 		if err != nil {
 			check.Err = "not found on PATH"
@@ -265,7 +269,7 @@ func probeHarness(ctx context.Context, name, path string) HarnessProbe {
 // Healthy reports whether every check passed, ignoring presentation checks.
 func Healthy(checks []Check) bool {
 	for _, c := range checks {
-		if c.Err != "" && !c.Presentation {
+		if c.Err != "" && !c.Presentation && !c.Installer {
 			return false
 		}
 	}
