@@ -25,6 +25,7 @@ test("closed items are listed newest first with what became of them", () => {
       question("a", "billing", "2026-09-24T00:10:00Z", "succeeded", { answer_id: "x", answer: "A", answer_kind: "option" }),
       question("b", "", "2026-09-24T00:20:00Z", "queued", { answer_id: "y", answer: "Ship it Friday", answer_kind: "other" }),
       question("c", "steward", "2026-09-24T00:30:00Z", "superseded"),
+      question("e", "notes", "2026-09-24T00:00:00Z", "succeeded", { answer_id: "w", answer: "B", answer_kind: "option", answered_at: "2026-09-24T01:00:00Z" }),
       question("d", "notes", "2026-09-24T00:40:00Z"),
     ],
     reviews: [
@@ -34,14 +35,15 @@ test("closed items are listed newest first with what became of them", () => {
       review("r4", "steward", "2026-09-24T00:18:00Z"),
     ],
   });
-  assert.deepEqual(settledItems(snapshot).map((item) => item.key), ["review:r1", "question:c", "review:r2", "question:b", "review:r3", "question:a"]);
-  const label = (key: string) => settledLabel(itemFor(snapshot, key)!);
+  assert.deepEqual(settledItems(snapshot).map((item) => item.key), ["question:e", "review:r1", "question:c", "review:r2", "question:b", "review:r3", "question:a"],
+    "a question asked first but answered after a review was cleared sorts by when it was answered");
+  const label = (key: string) => settledLabel(itemFor(snapshot, key)!, snapshot.actions);
   const cases: [string, string][] = [["question:a", "You chose A"], ["question:b", "You wrote: Ship it Friday"], ["question:c", "Superseded; the asker was replaced"],
     ["review:r1", "You wrote: Go with B"], ["review:r2", "Withdrawn: the goblin found the answer"], ["review:r3", "Cleared"]];
   for (const [key, text] of cases) assert.equal(label(key), text, key);
   assert.equal(parseSnapshot({ healthy: true }).reviews?.length, 0);
-  assert.deepEqual(settledIcon(itemFor(snapshot, "review:r1")!), { icon: "check-double", tone: "succeeded" });
-  assert.deepEqual(settledIcon(itemFor(snapshot, "question:c")!), { icon: "close", tone: "superseded" });
+  assert.deepEqual(settledIcon(itemFor(snapshot, "review:r1")!, snapshot.actions), { icon: "check-double", tone: "succeeded" });
+  assert.deepEqual(settledIcon(itemFor(snapshot, "question:c")!, snapshot.actions), { icon: "close", tone: "superseded" });
 });
 
 test("a closed question says what was chosen, by whom and when", () => {
@@ -59,7 +61,7 @@ test("a closed question says what was chosen, by whom and when", () => {
   ];
   for (const [candidate, chosen, label, who] of cases) {
     assert.equal(chosenOption(candidate), chosen, candidate.id);
-    assert.equal(settledLabel({ kind: "question", key: "question:" + candidate.id, question: candidate }), label, candidate.id);
+    assert.equal(settledLabel({ kind: "question", key: "question:" + candidate.id, question: candidate }, []), label, candidate.id);
     assert.equal(answeredBy(candidate), who, candidate.id);
   }
 });
@@ -81,5 +83,22 @@ test("only an answer that reached its asker counts as answered", () => {
     assert.equal(questionOutcome(candidate), outcome, name);
     assert.equal(answeredLabel(candidate), label, name);
     assert.equal(outcomeIcon(questionOutcome(candidate)), icon, name);
+  }
+});
+
+test("an answered review item is marked by whether its answer reached the asker", () => {
+  const action = (status: string) => ({ id: "z", kind: "review_answer", status });
+  const cases: [string, Record<string, unknown>, Record<string, unknown>[], string, string, string][] = [
+    ["delivered to the goblin", { delivered: true }, [action("succeeded")], "You wrote: Go with B", "check-double", "succeeded"],
+    ["not yet delivered to the goblin", { delivered: false }, [action("queued")], "You wrote: Go with B (not yet delivered to the goblin)", "check", "queued"],
+    ["handed to the CFO after the goblin restarted", { delivered: false }, [action("succeeded")], "You wrote: Go with B (not yet delivered to the goblin)", "check", "queued"],
+    ["refused with no CFO to take it", { delivered: false }, [action("failed")], "Your answer did not reach the goblin", "warning", "failed"],
+    ["the CFO's own item, not yet delivered", { task: "", delivered: false }, [action("running")], "You wrote: Go with B (not yet delivered to the CFO)", "check", "queued"],
+  ];
+  for (const [name, fields, actions, label, icon, tone] of cases) {
+    const snapshot = parseSnapshot({ healthy: true, actions, reviews: [review("r", "steward", "2026-09-24T00:10:00Z", "answered", { answer: "Go with B", answer_id: "z", ...fields })] });
+    const item = itemFor(snapshot, "review:r")!;
+    assert.equal(settledLabel(item, snapshot.actions), label, name);
+    assert.deepEqual(settledIcon(item, snapshot.actions), { icon, tone }, name);
   }
 });

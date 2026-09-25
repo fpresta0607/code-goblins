@@ -4,7 +4,7 @@ import { deliveryMark } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { settledLabel } from "./commandQueue";
+import { settledIcon, settledLabel, type Item } from "./commandQueue";
 import { personaFor } from "./workflow";
 import type { Draft } from "./QuestionCard";
 
@@ -23,6 +23,8 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
   const asker = review.task ? task?.title || review.task : "The CFO";
   const images = reviewImages(review);
   const mark = outcome ? deliveryMark(outcome) : undefined;
+  const item: Item = { kind: "review", key: "review:" + review.id, review };
+  const settled = settledIcon(item, snapshot.actions);
   return <form className="question-card" aria-labelledby={"review-" + review.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
     <p className="asker"><Avatar persona={review.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asks · waiting {age(review.created_at).replace(/ ago$/, "")}</span></p>
     <h3 id={"review-" + review.id} tabIndex={-1}>{review.title}</h3>
@@ -33,8 +35,8 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
     </div>}
     {pending && <label className="written-answer"><span className="sr-only">Your answer</span><textarea rows={3} maxLength={4000} placeholder={"Tell " + (review.task ? asker : "the CFO") + " what you think..."} value={draft.written} disabled={draft.sending} onChange={(event) => onDraft({ written: event.target.value, error: "", receipt: undefined })} /></label>}
     {draft.error && !outcome && <p className="warning-text" role="alert">{draft.error} An unchanged retry keeps its request identity.</p>}
-    {mark ? <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>
-      : review.state !== "open" && <p className="question-outcome delivery succeeded" role="status"><Icon name={review.state === "answered" ? "check-double" : "close"} />{settledLabel({ kind: "review", key: "review:" + review.id, review })}</p>}
+    {review.state !== "open" ? <p className={"question-outcome delivery " + settled.tone} role="status"><Icon name={settled.icon} />{settledLabel(item, snapshot.actions)}</p>
+      : mark && <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>}
     <div className="card-actions">
       {review.lavish && <a className="icon-button raised pill-link" href={review.lavish} target="_blank" rel="noreferrer" aria-label="Annotate in Lavish" data-tip="Annotate in Lavish"><Icon name="external" /><span>Lavish</span></a>}
       {pending && <button type="button" className="icon-button raised" disabled={!connected || draft.sending} aria-label="Clear this item without answering" data-tip="Clear" onClick={onClear}><Icon name="close" /></button>}

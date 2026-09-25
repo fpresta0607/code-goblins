@@ -1,5 +1,5 @@
 import type { IconName } from "./Icon.tsx";
-import type { Question, Review, Snapshot } from "./types.ts";
+import type { Action, Question, Review, Snapshot } from "./types.ts";
 
 // Everything the Overlord is asked lives in one queue: a goblin's or the CFO's
 // question, or a review item (images, a Lavish page, or a wait on him).
@@ -11,7 +11,7 @@ const asItems = (snapshot: Snapshot): Item[] => [
 ];
 const task = (item: Item) => item.kind === "question" ? item.question.task : item.review.task;
 const created = (item: Item) => Date.parse(item.kind === "question" ? item.question.created_at : item.review.created_at) || Number.MAX_SAFE_INTEGER;
-const closed = (item: Item) => Date.parse(item.kind === "question" ? item.question.created_at : item.review.updated_at) || 0;
+const closed = (item: Item) => Date.parse(item.kind === "question" ? item.question.answered_at || item.question.created_at : item.review.updated_at) || 0;
 const open = (item: Item) => item.kind === "question" ? item.question.status === "pending" : item.review.state === "open";
 
 export function itemFor(snapshot: Snapshot, key: string): Item | undefined {
@@ -61,25 +61,34 @@ export function outcomeIcon(outcome: QuestionOutcome): IconName {
   return outcome === "failed" || outcome === "uncertain" ? "warning" : "close";
 }
 
-// The choice that closed a question: the backend's answered_option, or the
-// recorded answer for a question closed before that field existed.
-
 // What became of an item, in plain words and as its mark: a question by its
-// outcome, a review item by its state.
-export function settledLabel(item: Item): string {
+// outcome, a review item by its state. The backend marks a review answered as
+// soon as it queues the answer, so only delivered means it reached its asker.
+export function settledLabel(item: Item, actions: Action[]): string {
   if (item.kind === "question") return answeredLabel(item.question);
-  const { state, answer, reason } = item.review;
-  return state === "answered" ? "You wrote: " + answer : state === "withdrawn" ? "Withdrawn: " + reason : "Cleared";
+  const { state, answer, reason, task, delivered, answer_id } = item.review;
+  const asker = task ? "the goblin" : "the CFO";
+  if (state === "withdrawn") return "Withdrawn: " + reason;
+  if (state !== "answered") return "Cleared";
+  if (answerFailed(answer_id, actions)) return "Your answer did not reach " + asker;
+  return "You wrote: " + answer + (delivered ? "" : " (not yet delivered to " + asker + ")");
 }
 
-export function settledIcon(item: Item): { icon: IconName; tone: string } {
+export function settledIcon(item: Item, actions: Action[]): { icon: IconName; tone: string } {
   if (item.kind === "question") {
     const outcome = questionOutcome(item.question);
     return { icon: outcomeIcon(outcome), tone: outcome === "answered" ? "succeeded" : outcome };
   }
-  return item.review.state === "answered" ? { icon: "check-double", tone: "succeeded" } : { icon: "close", tone: item.review.state };
+  const { state, delivered, answer_id } = item.review;
+  if (state !== "answered") return { icon: "close", tone: state };
+  if (answerFailed(answer_id, actions)) return { icon: "warning", tone: "failed" };
+  return delivered ? { icon: "check-double", tone: "succeeded" } : { icon: "check", tone: "queued" };
 }
 
+const answerFailed = (answerID: string, actions: Action[]) => actions.some((action) => action.id === answerID && action.status === "failed");
+
+// The choice that closed a question: the backend's answered_option, or the
+// recorded answer for a question closed before that field existed.
 export function chosenOption(question: Question): string {
   return question.answered_option || (question.answer_kind === "other" ? "" : question.answer);
 }

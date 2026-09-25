@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { message, request } from "./api";
-import { parseAction, type BoardActivity, type Snapshot } from "./types";
+import { parseAction, type BoardActivity, type Question, type Review, type Snapshot } from "./types";
 import { submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
@@ -91,15 +91,13 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
       if (payload) void post(target.key, payload);
     } else if (draft.written.trim()) void post(target.key, { kind: "review_answer", review_id: target.review.id, generation: target.review.identity, text: draft.written });
   };
-  const clear = (target: Item) => void post(target.key, target.kind === "review"
-    ? { kind: "review_clear", review_id: target.review.id, generation: target.review.identity }
-    : { kind: "question_clear", question_id: target.question.id, generation: target.question.identity });
+  const clear = (target: Review) => void post("review:" + target.id, { kind: "review_clear", review_id: target.id, generation: target.identity });
   const taskOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.task : candidate.review.task;
   const askerOf = (candidate: Item) => taskOf(candidate) ? snapshot.tasks.find((task) => task.id === taskOf(candidate))?.title || taskOf(candidate) : "The CFO";
   const textOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.text : candidate.review.title;
   const created = (candidate: Item) => candidate.kind === "question" ? candidate.question.created_at : candidate.review.created_at;
   const iconOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.image_count ? "images" : "question" : candidate.review.image_count ? "images" : "comment";
-  const pageFor = (candidate: Item) => presentations.find((event) => event.kind === "review" && (taskOf(candidate) ? event.task_id === taskOf(candidate) : !!event.cfo_identity));
+  const pageFor = (candidate: Question) => presentations.find((event) => event.kind === "review" && (candidate.task ? event.task_id === candidate.task : !!event.cfo_identity));
   const images = !item ? [] : item.kind === "question"
     ? questionChoices(item.question).filter((choice) => choice.image).map((choice) => ({ src: choice.image, label: choice.label, value: choice.value }))
     : reviewImages(item.review).map((src, n) => ({ src, label: String(n + 1), value: "Image " + (n + 1) }));
@@ -130,13 +128,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
         </section>}
         {settled.length > 0 && <Disclosure kind="inbox-history" title={<>Answered <span className="column-count">{settled.length}</span></>}>
           <ul className="inbox-list">{settled.map((candidate) => {
-            const superseded = candidate.kind === "question" && candidate.question.status === "superseded";
-            const mark = settledIcon(candidate);
+            const mark = settledIcon(candidate, snapshot.actions);
             return <li key={candidate.key}>
               <span className={"delivery " + mark.tone}><Icon name={mark.icon} /></span>
-              <span className="inbox-text"><strong>{askerOf(candidate)}</strong>{textOf(candidate)}<small>{settledLabel(candidate)}</small>
-                {drafts[candidate.key]?.error && <small className="warning-text" role="alert">{drafts[candidate.key].error}</small>}</span>
-              {superseded && <button className="icon-button" disabled={!connected || drafts[candidate.key]?.sending} aria-label={"Clear " + textOf(candidate)} data-tip="Clear" data-tip-align="end" onClick={() => clear(candidate)}><Icon name="close" /></button>}
+              <span className="inbox-text"><strong>{askerOf(candidate)}</strong>{textOf(candidate)}<small>{settledLabel(candidate, snapshot.actions)}</small></span>
             </li>;
           })}</ul>
         </Disclosure>}
@@ -153,7 +148,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
           <button type="button" className="icon-button question-close" aria-label="Close the Command Center" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
         </header>
         {gallery !== null && images.length > 0
-          ? <ImageGallery images={images} index={Math.min(gallery, images.length - 1)} review={pageFor(item)} onIndex={setGallery} onClose={() => setGallery(null)}
+          ? <ImageGallery images={images} index={Math.min(gallery, images.length - 1)} lavish={item.kind === "question" ? pageFor(item.question)?.url : item.review.lavish} onIndex={setGallery} onClose={() => setGallery(null)}
             onChoose={item.kind === "question" && item.question.status === "pending" ? (value) => { update(item.key, { selection: "option:" + value, error: "", receipt: undefined }); setGallery(null); } : undefined} />
           : <div className={"card-stage" + (stack.length > 1 ? " stacked" : "")}
             onPointerDown={(event) => { if (event.pointerType !== "mouse") swipe.current = { x: event.clientX, y: event.clientY }; }}
@@ -165,10 +160,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
               if (Math.abs(dx) > 70 && Math.abs(event.clientY - start.y) < 50) move(dx < 0 ? 1 : -1);
             }}>
             {item.kind === "question"
-              ? <QuestionCard key={item.key} question={item.question} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT} review={pageFor(item)}
+              ? <QuestionCard key={item.key} question={item.question} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT} review={pageFor(item.question)}
                 onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onImage={setGallery} />
               : <ReviewCard key={item.key} review={item.review} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT}
-                onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onClear={() => clear(item)} onImage={setGallery} />}
+                onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onClear={() => clear(item.review)} onImage={setGallery} />}
           </div>}
         {gallery === null && <footer className="question-footer">
           <button type="button" className="text-button" onClick={later}>{isOpen(item) ? "Later" : "Next"}</button>
