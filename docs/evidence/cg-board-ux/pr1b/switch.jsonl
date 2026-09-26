@@ -1,0 +1,2 @@
+{"label":"before: PR 1 panel (remounts per switch)","titles":["native-a","native-b"],"when":"2026-09-25T22:56:03.797Z","rounds":30,"switch_p50_ms":43.8,"switch_p95_ms":55.4,"switch_max_ms":70.8,"switch_blank_frames":47,"switch_half_drawn_frames":0,"attach_ms":[291,47],"attach_half_drawn_frames":2}
+{"label":"after: PR 1b deck","titles":["native-a","native-b"],"when":"2026-09-25T23:03:53.963Z","rounds":30,"switch_p50_ms":15.6,"switch_p95_ms":20.7,"switch_max_ms":21.3,"switch_blank_frames":0,"switch_half_drawn_frames":0,"attach_ms":[393,54],"attach_half_drawn_frames":0}

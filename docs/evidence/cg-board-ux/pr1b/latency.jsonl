@@ -1,0 +1,1 @@
+{"label":"after: PR 1b native view, frame writer, 20 px (DOM renderer for measurement)","title":"native-a","when":"2026-09-25T23:03:28.745Z","keys":100,"missed":0,"attach_ms":1328,"p50_ms":27.6,"p95_ms":41.3,"max_ms":52}
