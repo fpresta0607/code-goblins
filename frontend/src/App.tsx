@@ -103,7 +103,7 @@ export function App() {
       if (compact) pane.current?.scrollIntoView({ behavior: "instant", block: "start" });
     });
   };
-  // A switch from the switcher or its keys shows that terminal at once and
+  // A switch, by its keys or from the board, shows that terminal at once and
   // hands it the keyboard.
   const switchTo = (key: string) => {
     if (key === CFO_KEY) { setSelected(null); setCfoOpen(true); } else { setSelected({ task: key }); setCfoOpen(false); }
