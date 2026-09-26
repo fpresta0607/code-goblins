@@ -3,12 +3,15 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -252,6 +255,83 @@ func TestGoblinsGivesUpOnASupervisorThatNeverAnswers(t *testing.T) {
 
 	if exit, _, stderr := f.launch(); exit != 1 || !strings.Contains(stderr, "the supervisor did not start") {
 		t.Fatalf("exit=%d stderr=%q, want a failure once the wait runs out", exit, stderr)
+	}
+}
+
+// goblins --board starts the supervisor when none runs and opens the board,
+// and starts, shows and attaches no CFO, which the board leaves to its own
+// first-run screen; run again, it finds the supervisor and opens the board
+// again, since opening it is what it is run for.
+func TestGoblinsBoardOpensTheBoardAndLeavesTheCFOToIt(t *testing.T) {
+	board := fakeBoard(t, `{"registration":"no CFO has registered yet"}`)
+	f := newLauncherFixture(t, func(h home.Home) (<-chan struct{}, error) {
+		if err := writeBoardRecord(h.State, boardRecord{PID: 4242, URL: board}); err != nil {
+			t.Fatal(err)
+		}
+		return make(chan struct{}), nil
+	})
+	f.cfoLive = false
+
+	exit, stdout, stderr := f.launch("--board")
+
+	if exit != 0 || f.starts != 1 {
+		t.Fatalf("exit=%d starts=%d stderr=%q, want one start", exit, f.starts, stderr)
+	}
+	if !strings.Contains(stdout, "  board   "+board+"\n") {
+		t.Fatalf("stdout = %q, want the board line", stdout)
+	}
+	if !slices.Equal(f.opened, []string{board}) {
+		t.Fatalf("opened %q, want the board once", f.opened)
+	}
+	if len(f.cfoStarts)+len(f.nativeStarts)+len(f.focused)+len(f.attached)+len(f.nativeAttached) != 0 {
+		t.Fatalf("CFO starts=%q native=%q focused=%v attached=%q native attached=%q, want none", f.cfoStarts, f.nativeStarts, f.focused, f.attached, f.nativeAttached)
+	}
+
+	if exit, _, stderr := f.launch("--board"); exit != 0 || f.starts != 1 || !slices.Equal(f.opened, []string{board, board}) {
+		t.Fatalf("second launch: exit=%d starts=%d opened=%q stderr=%q, want the running board opened again", exit, f.starts, f.opened, stderr)
+	}
+}
+
+// goblins --board is run to open the board, so a board it cannot open is a
+// failure that names the link to open by hand.
+func TestGoblinsBoardFailsWhenTheBoardCannotBeOpened(t *testing.T) {
+	f := newLauncherFixture(t, func(home.Home) (<-chan struct{}, error) {
+		t.Fatal("goblins --board started a second supervisor")
+		return nil, nil
+	})
+	board := fakeBoard(t, busySnapshot)
+	f.record(board)
+	f.runtime.openURL = func(string) error { return errors.New("no browser is registered") }
+
+	exit, _, stderr := f.launch("--board")
+
+	if want := "goblins: open the board at " + board + " yourself (no browser is registered)\n"; exit != 1 || stderr != want {
+		t.Fatalf("exit=%d stderr=%q, want 1 and %q", exit, stderr, want)
+	}
+}
+
+// The supervisor goblins starts listens on its usual address, or on a free
+// loopback port when another program already listens there.
+func TestServeArgumentsMoveToAFreePortWhenTheAddressIsTaken(t *testing.T) {
+	taken, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer taken.Close()
+	free, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := free.Addr().String()
+	if err := free.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := serveArguments(taken.Addr().String()), []string{"serve", "--listen", "127.0.0.1:0"}; !slices.Equal(got, want) {
+		t.Errorf("serveArguments(a taken address) = %q, want %q", got, want)
+	}
+	if got, want := serveArguments(address), []string{"serve", "--listen", address}; !slices.Equal(got, want) {
+		t.Errorf("serveArguments(a free address) = %q, want %q", got, want)
 	}
 }
 
