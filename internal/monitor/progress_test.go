@@ -176,6 +176,78 @@ func TestLongTestRunIsJudgedOverAWindowNotOneReading(t *testing.T) {
 	}
 }
 
+// A monitor loop polling for something that never comes - `until gh run view
+// ...; do sleep 30; done` - starts a fresh child every poll and loses it
+// between readings, so the summed processor time of its own processes drops
+// at every other reading, each time to a new low. That churn is no progress,
+// and it must not hold the goblin quiet past the budget and one stall
+// interval, whether it is its foreground command or a job left running after
+// its turn.
+func TestChurningPollLoopStillWakesAfterTheBudgetAndOneStallInterval(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status string
+		reason Reason
+	}{
+		{"working", herdr.AgentWorking, BusyTurnOverAge},
+		{"turn ended", herdr.AgentDone, AwaitingAnswer},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			start := time.Date(2026, 9, 25, 18, 0, 0, 0, time.UTC)
+			now := start
+			service, probe, progress, meta := progressService(t, &now)
+			service.BusyTurnMax = time.Hour
+			service.StallAfter = 10 * time.Minute
+			progress.sample = ProgressSample{TranscriptAt: now, Jobs: []string{"bash.exe (pid 47)"}, JobCPU: 200 * time.Millisecond}
+
+			scanStatus(t, service, probe, meta, tc.status, &now, 0)
+			var woke *Event
+			for reading := range 120 {
+				progress.sample.JobCPU = 200 * time.Millisecond
+				if reading%2 == 1 {
+					progress.sample.JobCPU = 100*time.Millisecond - time.Duration(reading/2)*time.Millisecond
+				}
+				if r := scanStatus(t, service, probe, meta, tc.status, &now, time.Minute); r.Event != nil {
+					woke = r.Event
+					break
+				}
+			}
+			if woke == nil {
+				t.Fatalf("a churning poll loop held the goblin quiet until %s", now.Format(time.Kitchen))
+			}
+			deadline := start.Add(service.BusyTurnMax + service.StallAfter + time.Minute)
+			if now.After(deadline) {
+				t.Fatalf("woke at %s, after the budget and one stall interval (%s)", now.Format(time.Kitchen), deadline.Format(time.Kitchen))
+			}
+			for _, want := range []string{string(tc.reason), "bash.exe (pid 47)"} {
+				if !strings.Contains(woke.Detail, want) {
+					t.Errorf("wake detail %q lacks %q", woke.Detail, want)
+				}
+			}
+		})
+	}
+}
+
+// A burst of real work late in a long quiet stretch is progress: one minute
+// at a full processor is judged against that minute, not diluted across the
+// quiet stretch before it.
+func TestLateBurstOfProcessorUseCountsAsProgress(t *testing.T) {
+	now := time.Date(2026, 9, 25, 18, 0, 0, 0, time.UTC)
+	service, probe, progress, meta := progressService(t, &now)
+	service.BusyTurnMax = time.Hour
+	service.StallAfter = 10 * time.Minute
+	progress.sample = ProgressSample{TranscriptAt: now, Jobs: []string{"go.exe (pid 48)"}, JobCPU: time.Second}
+
+	for range 70 {
+		if now.Equal(time.Date(2026, 9, 25, 18, 45, 0, 0, time.UTC)) {
+			progress.sample.JobCPU += time.Minute
+		}
+		if r := scanStatus(t, service, probe, meta, herdr.AgentDone, &now, time.Minute); r.Event != nil {
+			t.Fatalf("a goblin whose own job used a full processor at 18:46 woke at %s: %+v", now.Format(time.Kitchen), r.Event)
+		}
+	}
+}
+
 // The gate-being-fixed shape: the goblin's gate alternates between a step
 // running and no run at all while the goblin works on its findings. Every flip
 // used to clear the wake and raise a fresh one.

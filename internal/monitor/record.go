@@ -143,10 +143,12 @@ type Observation struct {
 	// EvidenceAt is the latest evidence that the goblin's work is moving: its
 	// harness's last transcript write, or a reading in which the processes
 	// the harness started were using the processor. JobCPU and JobSampledAt
-	// are the reading the next one is measured against.
+	// are the reading the next one is measured against, and JobSampledSince
+	// is when the current run of consecutive readings began.
 	EvidenceAt         *time.Time    `json:"evidence_at,omitempty"`
 	JobCPU             time.Duration `json:"job_cpu,omitempty"`
 	JobSampledAt       *time.Time    `json:"job_sampled_at,omitempty"`
+	JobSampledSince    *time.Time    `json:"job_sampled_since,omitempty"`
 	IdleSince          *time.Time    `json:"idle_since,omitempty"`
 	StaleSince         *time.Time    `json:"stale_since,omitempty"`
 	NextEscalation     *time.Time    `json:"next_escalation,omitempty"`

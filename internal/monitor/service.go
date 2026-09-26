@@ -432,7 +432,7 @@ func (s Service) busyOverAge(ctx context.Context, meta state.TaskMeta, sample En
 	}
 	detail := "working for " + age + " with " + gateDetail + "; " + noProgressFor(now.Sub(last))
 	if len(jobs) > 0 {
-		detail += " and " + stalledJobs(jobs, now.Sub(*observation.JobSampledAt))
+		detail += " and " + stalledJobs(jobs, min(now.Sub(*observation.JobSampledSince), now.Sub(last)))
 	} else {
 		detail += " and no processes of its own running"
 	}
@@ -446,27 +446,26 @@ func noProgressFor(quiet time.Duration) string {
 }
 
 // stalledJobs names a goblin's own processes that used under jobCPUShare of a
-// processor across the window they were measured over.
-func stalledJobs(jobs []string, window time.Duration) string {
-	return "its own processes used under 5% of a processor over the last " + window.Round(time.Minute).String() + " (still running: " + strings.Join(jobs, ", ") + ")"
+// processor at every reading across the span they were read over.
+func stalledJobs(jobs []string, span time.Duration) string {
+	return "its own processes used under 5% of a processor at every reading over the last " + span.Round(time.Minute).String() + " (still running: " + strings.Join(jobs, ", ") + ")"
 }
 
 // jobCPUShare is the share of one processor a goblin's own processes must
-// have used across a measuring window for that window to count as progress.
+// have used since the previous reading for that reading to count as progress.
 // An idle dev server, a sleeping sampler or a monitor loop stays far below it
 // and a build or test run far above it.
 const jobCPUShare = 0.05
 
 // sampleProgress reads the goblin's progress evidence and folds it into the
 // observation: a transcript written since the last evidence, or its own
-// processes using at least jobCPUShare of a processor across the measuring
-// window JobCPU and JobSampledAt open, moves EvidenceAt. A window opens when
-// there is none, when it began before the stretch being judged, or when the
-// processor time went down because the processes changed; one that showed
-// progress closes and a new one opens. It returns the processes still
-// running, and whether their processor use has been measured across a whole
-// stall window without showing progress. An error means the evidence could
-// not be read, and the caller wakes rather than trusting silence.
+// processes using at least jobCPUShare of a processor since the previous
+// reading, moves EvidenceAt. Processor time that went down because a process
+// exited is no progress for that reading and nothing more. It returns the
+// processes still running, and whether their processor use has been read
+// across a whole stall interval of consecutive readings within the stretch
+// being judged, so a lack of it can be concluded. An error means the evidence
+// could not be read, and the caller wakes rather than trusting silence.
 func (s Service) sampleProgress(ctx context.Context, meta state.TaskMeta, sample EndpointSample, observation *Observation, stretch, now time.Time) ([]string, bool, error) {
 	progress, err := s.Progress.InspectProgress(ctx, meta, sample)
 	if err != nil {
@@ -478,22 +477,18 @@ func (s Service) sampleProgress(ctx context.Context, meta state.TaskMeta, sample
 	if len(progress.Jobs) == 0 {
 		observation.JobCPU = 0
 		observation.JobSampledAt = nil
+		observation.JobSampledSince = nil
 		return nil, false, nil
 	}
-	window := observation.JobSampledAt
-	if window == nil || window.Before(stretch) || progress.JobCPU < observation.JobCPU {
-		observation.JobCPU = progress.JobCPU
-		observation.JobSampledAt = timePointer(now)
-		return progress.Jobs, false, nil
-	}
-	elapsed := now.Sub(*window)
-	if elapsed > 0 && float64(progress.JobCPU-observation.JobCPU) >= float64(elapsed)*jobCPUShare {
+	previous := observation.JobSampledAt
+	if previous == nil || observation.JobSampledSince == nil || previous.Before(stretch) {
+		observation.JobSampledSince = timePointer(now)
+	} else if elapsed := now.Sub(*previous); elapsed > 0 && float64(progress.JobCPU-observation.JobCPU) >= float64(elapsed)*jobCPUShare {
 		observation.EvidenceAt = timePointer(now)
-		observation.JobCPU = progress.JobCPU
-		observation.JobSampledAt = timePointer(now)
-		return progress.Jobs, false, nil
 	}
-	return progress.Jobs, elapsed >= s.stallAfter(), nil
+	observation.JobCPU = progress.JobCPU
+	observation.JobSampledAt = timePointer(now)
+	return progress.Jobs, now.Sub(*observation.JobSampledSince) >= s.stallAfter(), nil
 }
 
 // ownWork decides whether a goblin whose turn has ended is waiting on work it
@@ -501,7 +496,7 @@ func (s Service) sampleProgress(ctx context.Context, meta state.TaskMeta, sample
 // harness started after launching is still running and the goblin has shown
 // progress - a transcript write, or those processes using the processor -
 // within the busy budget of its turn ending, or before their processor use
-// has been measured across a whole stall window. Otherwise it is not, and the
+// has been read across a whole stall interval. Otherwise it is not, and the
 // second result says why for the wake: the processes still running, or that
 // the evidence could not be read. Without a progress prober the answer is no.
 func (s Service) ownWork(ctx context.Context, meta state.TaskMeta, sample EndpointSample, observation *Observation, now time.Time) (bool, string) {
@@ -525,7 +520,7 @@ func (s Service) ownWork(ctx context.Context, meta state.TaskMeta, sample Endpoi
 	if now.Sub(last) < s.busyTurnMax() || !measured {
 		return true, ""
 	}
-	return false, noProgressFor(now.Sub(last)) + " and " + stalledJobs(jobs, now.Sub(*observation.JobSampledAt))
+	return false, noProgressFor(now.Sub(last)) + " and " + stalledJobs(jobs, min(now.Sub(*observation.JobSampledSince), now.Sub(last)))
 }
 
 // busyOverAgeObservation wakes once for a wedged working goblin and then
