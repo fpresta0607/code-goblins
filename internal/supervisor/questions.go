@@ -225,8 +225,8 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 	return result, nil
 }
 
-// answersInbox holds the answers cfo answer spooled for the supervisor to
-// record on their questions, one file per question named like its inbox file.
+// answersInbox is where cfo answer once spooled its answers. They now reach
+// the supervisor only over its pipe, so ingest refuses any file found here.
 const answersInbox = "answers-inbox"
 
 // cfoAnswer is one answer the CFO gave with cfo answer.

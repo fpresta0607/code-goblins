@@ -451,6 +451,8 @@ cfo run-request --id fix-acl-1 --title "Grant the service account access" --shel
 `cfo run-request` hands the item to the supervisor over its named pipe, and the supervisor itself proves the sending process runs under the registered primary CFO, the proof `cfo question` uses: it walks up from that process to the CFO, each ancestor created before its child, since Windows reuses PIDs.
 The sending process must also have started before it connected, so a process that later took its PID proves nothing.
 The supervisor drops a client that sends nothing within 10 seconds and gives each request 20 seconds for its proof, and `cfo run-request` waits 30 seconds for the answer.
+The pipe is the supervisor's own: it creates the first instance of its name, waiting up to two seconds for a stopping supervisor to let go, grants the current Windows user alone, and rejects remote clients.
+A supervisor that finds the name still taken serves nothing and lists that among the board's issues, and every command that uses the pipe sends only to the process holding this home's watch lock, so a squatter never receives a request.
 The supervisor thus proves the sending process descends from the process `state/primary.json` names: a request from a process outside the CFO's tree is refused before anything is written, and an item planted in the state directory never reaches the board; a request needs the supervisor (`cfo serve`) running.
 Processes of one Windows user are peers, though, and a same-user process that rewrites `state/primary.json` or starts a process with a spoofed parent can still pass the check, so it is not a boundary between processes of the same user.
 The Overlord reading the exact command before Run, and Windows UAC for an admin item, remain the final check.
