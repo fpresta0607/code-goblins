@@ -17,6 +17,8 @@ export interface Task extends Evaluation {
   title: string;
   project: string;
   harness: string;
+  // backend is the terminal the task runs in: native, herdr, or empty before it starts.
+  backend: string;
   model: string;
   effort: string;
   mode: string;
@@ -258,6 +260,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         title: string(t.title),
         project: string(t.project),
         harness: string(t.harness),
+        backend: string(t.backend),
         model: string(t.model),
         effort: string(t.effort),
         mode: string(t.mode),

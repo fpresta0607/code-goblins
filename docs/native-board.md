@@ -171,9 +171,10 @@ Drafts bind the task session identity at selection and survive view, file and re
 An unchanged submitted payload keeps its request ID after an ambiguous HTTP failure; an SSE outcome is displayed instead of dispatching it again.
 An interrupted external delivery becomes uncertain and is not replayed automatically.
 
+A goblin panel's Terminal view shows a task in a native terminal from its host, as described after this Herdr view, and the CFO and a task in Herdr through Herdr.
 The installed Herdr build `0.9.0-preview.2026-09-08-62431dbd033b` exposes `terminal session observe` and `terminal session control` over NDJSON.
 The browser renders its real ANSI screen frames using xterm, loaded the first time a panel shows its Terminal view.
-A goblin panel's Terminal view is a live view of the pane: it never claims the native controller, never resizes the pane and never resumes an agent.
+A goblin panel's Terminal view of a Herdr pane is a live view of the pane: it never claims the native controller, never resizes the pane and never resumes an agent.
 Frames arrive at the pane's own size as Herdr lays it out; the view shrinks its font to fit the pane's columns across the panel, never below 12 px, and a wider or taller pane scrolls inside the panel rather than being cropped.
 A view is refused when Herdr reports no size for the pane; when Herdr lays the pane out at a new size the view ends, and the panel reconnects on its own to show it whole.
 Typing needs no separate step: the view's lease takes keys, escape sequences and one bracketed paste at a time, in order, each typed into that exact pane by Herdr.
@@ -191,13 +192,23 @@ The default xterm input mode accepts InsertText/IME Unicode; its optional screen
 There is no second model session or generated reply.
 The native interface exposes rendered screen updates rather than original historical PTY bytes, and omits Kitty keyboard negotiation, graphics and host mouse notifications.
 
-A task whose record names the `native` backend runs in a `cfo host` of its own, and `GET /api/terminal/native?task=ID&generation=GEN&token=TOKEN` relays one view of it over a WebSocket; the board does not open it yet.
+A task whose record names the `native` backend runs in a `cfo host` of its own, and `GET /api/terminal/native?task=ID&generation=GEN&token=TOKEN` relays one view of it over a WebSocket; a goblin panel's Terminal view opens it for every such task, and the snapshot names each task's `backend` so the board knows which view to open.
 The upgrade needs the board's own origin and the board's token in the query, since a browser cannot set a WebSocket header, and anything else is refused with 403.
 Every later refusal closes the socket with its reason, which a browser can read: a replaced generation, a task that runs in Herdr, no running host, a host that did not answer, or four views already open.
 The view is bound to its terminal once, by the host's pipe, whose server process must be the host the record names, so a key costs no check and starts no process.
 Output arrives as binary messages, the host's history first; typing goes back as binary messages, and a resize as the text message `{"type":"resize","cols":C,"rows":R}`.
+The pseudo console repaints its whole window on every resize, even to the size it already has, so a view replays the history and then sends its size, and its screen is whole however much of the history the host still keeps; the host starts a replay at the next line or escape sequence past its 4 MiB limit, never inside one.
+Every other view of the terminal is told the size the terminal took as `{"type":"size","cols":C,"rows":R}`, so a second window draws the output at that size until it is typed into, which sizes the terminal to it; a size under 20 columns or 5 rows, measured while a panel was hidden, or over 1000 columns or 500 rows is ignored and announced to nobody.
+A view acknowledges the output it has drawn with `{"type":"ack","bytes":N}`, N counting every output byte so far: the relay sends a view at most 1 MiB beyond what it acknowledged and keeps reading the host, and a view that falls 8 MiB behind is closed with code 1013 and "The view fell behind the terminal's output.", so the host never waits on a slow window and a view that stays open never loses a byte.
 Gate custody and the task's generation are checked when the view opens and on every five-second tick; a key sent under custody closes the view with the gate's reason and is not typed, and a resize sent under custody is ignored, so the terminal keeps its size until a resize arrives after custody ends.
 The terminal's end closes the view with its exit code in the reason.
+
+The board draws a native terminal with xterm at the panel's size: its fit addon measures the columns and rows the panel holds and the view sends them as the resize, so the program and the view agree on the size.
+The font starts at 16 px; Ctrl+Plus and Ctrl+Minus step it between 12 and 28 px and Ctrl+0 restores it, saved in the browser.
+The terminal keeps 5,000 lines of scrollback and the wheel scrolls it; the panel around it never scrolls.
+Until the first output is drawn, and again while the board's own connection is down, a full-pane state says the terminal is connecting; a view that fell behind, a restarting board or a dropped connection reconnects on its own up to five times, and any other close keeps the terminal's last screen in view with its reason and Reconnect in a bar across the bottom.
+A paste goes as it is typed, in pieces of at most 64 KiB, in order.
+Key-to-echo latency, measured with `tests/acceptance/terminal_latency.mjs` against the example fixture on 25 September 2026: the Herdr view on main e6f7ea97 took p50 74 ms and p95 592 ms with 3 of 100 keys unechoed after 5 seconds and 4.6 s to a live screen, and the native view p50 24 ms and p95 34 to 36 ms with none missed and 0.4 s to a live screen.
 
 CFO transport reads the `state/primary.json` registration and binds each queued message to its fingerprint.
 The primary CFO writes that registration itself: Claude's SessionStart hook does it after the digest settles custody, and the Codex and Pi native SessionStart hooks do it for a session with no task.

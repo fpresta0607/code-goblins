@@ -17,12 +17,68 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
+// The sizes a view may give a terminal: a smaller one was measured while the
+// view was hidden, and a larger one is no window.
+const (
+	minTerminalCols, minTerminalRows = 20, 5
+	maxTerminalCols, maxTerminalRows = 1000, 500
+)
+
+// relayMessage bounds one output message to a view.
+const relayMessage = 256 << 10
+
+// nativeRelay is one view's side of a native terminal: the output read from
+// the host and not yet sent, how much of what was sent the view has
+// acknowledged, and a size to tell it. One goroutine writes to the view, and
+// a size goes out before any output still pending, which the pseudo console's
+// repaint at that size follows.
+type nativeRelay struct {
+	mu          sync.Mutex
+	pending     []byte
+	sent, acked int64
+	size        []byte
+	// closing is how the view closes once everything before it is sent.
+	closing *websocket.CloseError
+	wake    chan struct{}
+}
+
+func (r *nativeRelay) signal() {
+	select {
+	case r.wake <- struct{}{}:
+	default:
+	}
+}
+
+// announce tells every view of task's terminal but the sender's the size the
+// terminal took.
+func (h *HTTP) announce(task string, sender *nativeRelay, cols, rows int) {
+	message := []byte(fmt.Sprintf(`{"type":"size","cols":%d,"rows":%d}`, cols, rows))
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for relay := range h.relays[task] {
+		if relay == sender {
+			continue
+		}
+		relay.mu.Lock()
+		relay.size = message
+		relay.mu.Unlock()
+		relay.signal()
+	}
+}
+
 // nativeTerminal relays one view of a native task's terminal over a
 // WebSocket: the host's output goes out as binary messages, typing comes back
-// as binary messages, and a resize as a JSON text message. The view is bound
-// to its terminal once, when it connects, by the host's own pipe, so a key
-// costs no check and starts no process; custody and the task's generation are
-// checked again on every tick. A resize under custody is ignored.
+// as binary messages, and a resize or an acknowledgement as a JSON text
+// message. The host's history comes first; a view repaints the screen by
+// sending its size, since the pseudo console redraws its whole window on every
+// resize, and every other view is told the size the terminal took. The view is sent
+// at most terminalWindow bytes it has not acknowledged, and one that falls
+// terminalBacklog bytes behind is closed so it reconnects, so the host never
+// waits on a slow window and no byte is dropped from a view that stays. The
+// view is bound to its terminal once, when it connects, by the host's own
+// pipe, so a key costs no check and starts no process; custody and the task's
+// generation are checked again on every tick. A resize under custody is
+// ignored.
 func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// A browser cannot send the board's token in a WebSocket header, so it
 	// comes in the query.
@@ -70,23 +126,91 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	custody := h.Service.validateTerminalControl(check, meta)
 	stop()
 
+	relay := &nativeRelay{wake: make(chan struct{}, 1)}
+	h.mu.Lock()
+	if h.relays[meta.ID] == nil {
+		h.relays[meta.ID] = map[*nativeRelay]struct{}{}
+	}
+	h.relays[meta.ID][relay] = struct{}{}
+	h.mu.Unlock()
+	defer func() {
+		h.mu.Lock()
+		delete(h.relays[meta.ID], relay)
+		if len(h.relays[meta.ID]) == 0 {
+			delete(h.relays, meta.ID)
+		}
+		h.mu.Unlock()
+	}()
+
+	go func() {
+		defer relay.signal()
+		for {
+			event, err := terminal.Next()
+			relay.mu.Lock()
+			switch {
+			case err != nil:
+				relay.closing = &websocket.CloseError{Code: websocket.StatusGoingAway, Reason: "The terminal's host stopped answering."}
+			case event.Exited:
+				relay.closing = &websocket.CloseError{Code: websocket.StatusNormalClosure, Reason: fmt.Sprintf("The terminal ended with exit code %d.", event.Code)}
+			case len(relay.pending)+len(event.Output) > h.terminalBacklog:
+				relay.pending = nil
+				relay.closing = &websocket.CloseError{Code: websocket.StatusTryAgainLater, Reason: "The view fell behind the terminal's output."}
+			default:
+				relay.pending = append(relay.pending, event.Output...)
+			}
+			closing := relay.closing != nil
+			relay.mu.Unlock()
+			if closing {
+				return
+			}
+			relay.signal()
+		}
+	}()
 	go func() {
 		defer cancel()
 		for {
-			event, err := terminal.Next()
-			switch {
-			case err != nil:
-				_ = view.Close(websocket.StatusGoingAway, "The terminal's host stopped answering.")
-				return
-			case event.Exited:
-				_ = view.Close(websocket.StatusNormalClosure, fmt.Sprintf("The terminal ended with exit code %d.", event.Code))
+			relay.mu.Lock()
+			size := relay.size
+			relay.size = nil
+			var output []byte
+			if unacknowledged := relay.sent - relay.acked; len(relay.pending) > 0 && unacknowledged < int64(h.terminalWindow) {
+				n := min(len(relay.pending), relayMessage, h.terminalWindow-int(unacknowledged))
+				output = append([]byte(nil), relay.pending[:n]...)
+				relay.pending = relay.pending[n:]
+				if len(relay.pending) == 0 {
+					relay.pending = nil
+				}
+				relay.sent += int64(n)
+			}
+			closing := relay.closing
+			if len(relay.pending) > 0 || output != nil || size != nil {
+				closing = nil
+			}
+			relay.mu.Unlock()
+			for _, message := range []struct {
+				kind websocket.MessageType
+				data []byte
+			}{{websocket.MessageText, size}, {websocket.MessageBinary, output}} {
+				if message.data == nil {
+					continue
+				}
+				write, stop := context.WithTimeout(ctx, 5*time.Second)
+				err := view.Write(write, message.kind, message.data)
+				stop()
+				if err != nil {
+					return
+				}
+			}
+			if closing != nil {
+				_ = view.Close(closing.Code, closing.Reason)
 				return
 			}
-			write, stop := context.WithTimeout(ctx, 5*time.Second)
-			err = view.Write(write, websocket.MessageBinary, event.Output)
-			stop()
-			if err != nil {
-				return
+			if size == nil && output == nil {
+				select {
+				case <-relay.wake:
+				case <-ctx.Done():
+					return
+				}
 			}
 		}
 	}()
@@ -123,25 +247,34 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if kind == websocket.MessageText {
-			var resize struct {
-				Type string `json:"type"`
-				Cols int    `json:"cols"`
-				Rows int    `json:"rows"`
+			var control struct {
+				Type  string `json:"type"`
+				Cols  int    `json:"cols"`
+				Rows  int    `json:"rows"`
+				Bytes int64  `json:"bytes"`
 			}
-			if json.Unmarshal(data, &resize) != nil || resize.Type != "resize" {
-				_ = view.Close(websocket.StatusUnsupportedData, "A text message must be a resize.")
+			if json.Unmarshal(data, &control) != nil || control.Type != "resize" && control.Type != "ack" {
+				_ = view.Close(websocket.StatusUnsupportedData, "A text message must be a resize or an acknowledgement.")
 				return
+			}
+			if control.Type == "ack" {
+				relay.mu.Lock()
+				relay.acked = max(relay.acked, min(control.Bytes, relay.sent))
+				relay.mu.Unlock()
+				relay.signal()
+				continue
 			}
 			mu.Lock()
 			refused := custody
 			mu.Unlock()
-			if refused != nil {
+			if refused != nil || control.Cols < minTerminalCols || control.Rows < minTerminalRows || control.Cols > maxTerminalCols || control.Rows > maxTerminalRows {
 				continue
 			}
-			if terminal.Resize(resize.Cols, resize.Rows) != nil {
-				_ = view.Close(websocket.StatusUnsupportedData, "A text message must be a resize.")
+			if terminal.Resize(control.Cols, control.Rows) != nil {
+				_ = view.Close(websocket.StatusGoingAway, "The terminal's host stopped answering.")
 				return
 			}
+			h.announce(meta.ID, relay, control.Cols, control.Rows)
 			continue
 		}
 		mu.Lock()

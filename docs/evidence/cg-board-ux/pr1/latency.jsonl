@@ -1,0 +1,4 @@
+{"label":"before: main e6f7ea97, Herdr view","title":"Build review panel","when":"2026-09-25T21:15:52.955Z","keys":100,"missed":3,"attach_ms":4643,"p50_ms":74.3,"p95_ms":592.4,"max_ms":1506.3}
+{"label":"after: native view over the host socket","title":"native-fixture","when":"2026-09-25T21:17:04.417Z","keys":100,"missed":0,"attach_ms":398,"p50_ms":23.5,"p95_ms":33.7,"max_ms":43.9}
+{"label":"control: this branch, Herdr view (unchanged path)","title":"Build review panel","when":"2026-09-25T21:18:31.349Z","keys":100,"missed":2,"attach_ms":1365,"p50_ms":249.2,"p95_ms":952.1,"max_ms":2520}
+{"label":"after: native view, second run","title":"native-fixture","when":"2026-09-25T21:19:05.911Z","keys":100,"missed":0,"attach_ms":401,"p50_ms":23.6,"p95_ms":36.2,"max_ms":56.5}

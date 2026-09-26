@@ -220,11 +220,14 @@ func taskWorktree(t *testing.T, h *HTTP) string {
 }
 
 // nativeView is a test's view of a native terminal: everything the terminal
-// showed, and how the view closed.
+// showed, how many bytes of output it received, and how the view closed. Once
+// acking is set it acknowledges each output message as a browser does.
 type nativeView struct {
 	conn   *websocket.Conn
 	mu     sync.Mutex
 	screen strings.Builder
+	output int64
+	acking atomic.Bool
 	closed chan struct{}
 	err    error
 }
@@ -246,11 +249,13 @@ func openNativeView(t *testing.T, server *httptest.Server, query string) *native
 		t.Fatalf("the view did not open: %v", err)
 	}
 	t.Cleanup(func() { _ = conn.CloseNow() })
+	// A browser takes a message of any size; the relay's are at most 256 KiB.
+	conn.SetReadLimit(1 << 20)
 	v := &nativeView{conn: conn, closed: make(chan struct{})}
 	go func() {
 		defer close(v.closed)
 		for {
-			_, data, err := conn.Read(context.Background())
+			kind, data, err := conn.Read(context.Background())
 			v.mu.Lock()
 			if err != nil {
 				v.err = err
@@ -258,10 +263,39 @@ func openNativeView(t *testing.T, server *httptest.Server, query string) *native
 				return
 			}
 			v.screen.Write(data)
+			if kind == websocket.MessageBinary {
+				v.output += int64(len(data))
+			}
+			output := v.output
 			v.mu.Unlock()
+			if kind == websocket.MessageBinary && v.acking.Load() {
+				v.acknowledge(output)
+			}
 		}
 	}()
 	return v
+}
+
+// acknowledge tells the board the view has shown output bytes of output.
+func (v *nativeView) acknowledge(output int64) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = v.conn.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"type":"ack","bytes":%d}`, output)))
+}
+
+// ackAll acknowledges everything received so far and each message after.
+func (v *nativeView) ackAll() {
+	v.acking.Store(true)
+	v.mu.Lock()
+	output := v.output
+	v.mu.Unlock()
+	v.acknowledge(output)
+}
+
+func (v *nativeView) shows(text string) bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return strings.Contains(v.screen.String(), text)
 }
 
 func (v *nativeView) waitFor(t *testing.T, text string) {
@@ -391,6 +425,89 @@ func TestANativeTerminalResizesTheTerminal(t *testing.T) {
 	v.send(t, websocket.MessageBinary, "size\r")
 
 	v.waitFor(t, "size 100x30")
+}
+
+// A resize from any view reaches every other view of the terminal, so a second
+// window draws the output at the size the terminal now has, and the view that
+// sent it is never told its own size back as if another view had taken it.
+func TestANativeTerminalTellsEveryOtherViewItsNewSize(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	hostTask(t, h)
+	first := openNativeView(t, server, viewQuery)
+	second := openNativeView(t, server, viewQuery)
+	first.waitFor(t, "program ready")
+	second.waitFor(t, "program ready")
+
+	first.send(t, websocket.MessageText, `{"type":"resize","cols":100,"rows":30}`)
+
+	second.waitFor(t, `{"type":"size","cols":100,"rows":30}`)
+	first.send(t, websocket.MessageBinary, "size")
+	first.waitFor(t, "size 100x30")
+	if first.shows(`"type":"size"`) {
+		t.Error("the view that sized the terminal was told its own size")
+	}
+}
+
+// A view measured while hidden reports a size no terminal can use; the
+// terminal keeps its size rather than shrinking to it.
+func TestANativeTerminalKeepsItsSizeForAViewTooSmallToUse(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+
+	v.send(t, websocket.MessageText, `{"type":"resize","cols":1,"rows":1}`)
+	v.send(t, websocket.MessageBinary, "size\r")
+
+	v.waitFor(t, "size 80x24")
+	if v.shows(`"type":"size"`) {
+		t.Error("the views were told of a size the terminal never took")
+	}
+}
+
+// The board sends a view no more output than it has acknowledged plus its
+// window, and the rest once it catches up, so a slow window never holds an
+// unbounded queue.
+func TestANativeTerminalHoldsOutputAViewHasNotAcknowledged(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	h.terminalWindow = 2 << 10
+	hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+
+	v.send(t, websocket.MessageBinary, "spill\r")
+	v.send(t, websocket.MessageBinary, "size\r")
+	time.Sleep(time.Second)
+
+	if v.shows("size 80x24") {
+		t.Fatal("the view received everything without acknowledging any of it")
+	}
+	v.mu.Lock()
+	output := v.output
+	v.mu.Unlock()
+	if output > int64(h.terminalWindow) {
+		t.Fatalf("the view received %d bytes it had not acknowledged, beyond its %d-byte window", output, h.terminalWindow)
+	}
+	v.ackAll()
+	v.waitFor(t, "size 80x24")
+}
+
+// A view that falls further behind than the board holds for it is closed with
+// a reason that tells the browser to reconnect, and no output is dropped from
+// a view that stays open.
+func TestANativeViewThatFallsBehindIsToldToReconnect(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	h.terminalWindow, h.terminalBacklog = 1<<10, 16<<10
+	hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+
+	v.send(t, websocket.MessageBinary, "spill\r")
+
+	closed := v.waitForClose(t)
+	if closed.Code != websocket.StatusTryAgainLater || closed.Reason != "The view fell behind the terminal's output." {
+		t.Errorf("the view closed with %d %q, want a try-again close for falling behind", closed.Code, closed.Reason)
+	}
 }
 
 // The terminal's end closes the view with its exit code as the reason.
