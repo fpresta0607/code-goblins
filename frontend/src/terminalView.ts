@@ -19,6 +19,9 @@ export interface ViewEvents {
   closed: (code: number, reason: string) => void;
   copied: () => void;
   font: (size: number) => void;
+  // Dictation sees every key first: false keeps it from the terminal, true
+  // lets it through, and null means it is not dictation's.
+  dictate: (event: KeyboardEvent) => boolean | null;
 }
 
 // TerminalView is one connection to a native terminal and the xterm that
@@ -107,6 +110,12 @@ export class TerminalView {
     this.term.focus();
   }
 
+  // paste types text into the terminal the way a paste does, so a program
+  // that asked for bracketed paste receives it as one.
+  paste(text: string): void {
+    this.term.paste(text);
+  }
+
   setFont(size: number): void {
     if (this.term.options.fontSize === size) return;
     this.term.options.fontSize = size;
@@ -191,6 +200,8 @@ export class TerminalView {
   private key(event: KeyboardEvent): boolean {
     // Escape and every other key belong to the terminal, never the panel.
     event.stopPropagation();
+    const dictated = this.events.dictate(event);
+    if (dictated !== null) return dictated;
     const down = event.type === "keydown";
     if (event.shiftKey && event.key === "Escape") {
       event.preventDefault();

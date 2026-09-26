@@ -479,14 +479,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .terminal-state.live .status-dot { background: var(--accent); }
 .terminal-state.quiet { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .terminal-error { position: absolute; left: 12px; right: 12px; bottom: 70px; z-index: 2; margin: 0; padding: 10px 14px; border: 1px solid #735338; border-radius: 12px; background: #292116f2; color: #f1c598; box-shadow: var(--shadow-2); overflow-wrap: anywhere; }
-.terminal-options { position: absolute; right: 12px; bottom: 12px; z-index: 2; }
-.terminal-options > summary { list-style: none; cursor: pointer; opacity: .5; transition: opacity .12s ease; }
-.terminal-options > summary:hover, .terminal-options > summary:focus-visible, .terminal-options[open] > summary { opacity: 1; }
-.terminal-options > summary::-webkit-details-marker { display: none; }
-.terminal-options > summary[data-tip]::after { top: auto; bottom: calc(100% + 8px); }
-.terminal-options-panel { position: absolute; right: 0; bottom: calc(100% + 10px); width: min(340px, calc(100vw - 48px)); display: grid; gap: 10px; padding: 16px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 16px; background: var(--level-3); box-shadow: var(--shadow-3); color: var(--muted); }
-.terminal-options-panel label { display: flex; align-items: center; gap: 12px; color: #edf4f3; font-weight: 700; }
-.terminal-options-panel input { min-height: 0; width: 20px; height: 20px; accent-color: var(--mint); }
 .terminal-empty { display: grid; place-items: center; align-content: center; gap: 16px; flex: 1; padding: 32px; color: var(--muted); text-align: center; }
 .terminal-empty > .icon { width: 36px; height: 36px; }
 /* A native terminal owns its scrollback and is sized to the panel, so the
@@ -509,6 +501,8 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 @keyframes terminal-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .terminal-spinner { animation-duration: 2.4s; } }
 .terminal-copied { position: absolute; top: 10px; right: 12px; z-index: 2; color: var(--mint); }
+/* Dictation listens while Ctrl+Shift+Space is held. */
+.terminal-listening { position: absolute; left: 50%; bottom: 16px; z-index: 2; transform: translateX(-50%); }
 @media (max-width: 50rem) {
   .panel-header { padding: 16px 18px 18px; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; }
   .panel-header .goblin-avatar { width: 64px; height: 64px; }
