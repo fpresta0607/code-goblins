@@ -204,6 +204,10 @@ func fakeHarness() {
 				late = true
 			case key == "\r":
 				record(codexEvent{Event: "submitted", Text: line.String()})
+				// Like codex, it ends at a submitted /exit.
+				if line.String() == "/exit" {
+					return
+				}
 				// Unmoved, codex takes the line and never shows it working.
 				if mode != "unmoved" {
 					draw("", "› "+line.String(), "", "• Working (0s • esc to interrupt)")
@@ -357,7 +361,7 @@ func newNativeFixture(t *testing.T, kind harness.Kind, mode string) *nativeFixtu
 	t.Cleanup(func() {
 		stop()
 		if terminal, found := native.terminal(); found {
-			if err := closeNativeTerminal(f.stateDir, terminal); err != nil {
+			if err := host.Close(f.stateDir, terminal, nativeCloseWait); err != nil {
 				t.Errorf("close the native terminal: %v", err)
 			}
 			if !ended(terminal.HostPID) {
@@ -519,7 +523,7 @@ func TestAFailedNativeSpawnLeavesATerminalItDidNotStartRunning(t *testing.T) {
 		t.Fatalf("start the terminal that already runs: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := closeNativeTerminal(f.stateDir, existing); err != nil {
+		if err := host.Close(f.stateDir, existing, nativeCloseWait); err != nil {
 			t.Errorf("close the terminal that already ran: %v", err)
 			if process, err := os.FindProcess(existing.HostPID); err == nil {
 				_ = process.Kill()
@@ -573,7 +577,7 @@ func TestATeardownKeepsANativeTaskWhoseHostMayStillRun(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
-			launched := host.Record{ID: "task-7", Pipe: `\\.\pipe\spawn-test-nobody-serves-this`, Token: "t0ken", Version: host.Version, HostPID: test.hostPID}
+			launched := host.Record{ID: "task-7", Pipe: `\\.\pipe\spawn-test-nobody-serves-this`, Token: "t0ken", Version: host.Version, HostPID: test.hostPID, Started: time.Now().UTC()}
 			record, err := json.Marshal(launched)
 			if err != nil {
 				t.Fatal(err)

@@ -197,6 +197,9 @@ func defaultCommandRuntime() commandRuntime {
 			return service.Switch(ctx, request)
 		},
 		sendText: func(ctx context.Context, h home.Home, target, text string) error {
+			if meta, native := nativeTask(h.State, target); native {
+				return spawn.Service{StateDir: h.State}.SendNative(ctx, meta, fleet.Stamp(text))
+			}
 			client := &herdr.Client{Commands: execx.OSRunner{}}
 			receipt := supervisor.PrepareSendActivity(ctx, h, terminal.HerdrSessions(client), target)
 			if err := (fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Terminal: client}).Text(ctx, target, text); err != nil {
@@ -208,6 +211,9 @@ func defaultCommandRuntime() commandRuntime {
 			return nil
 		},
 		sendKey: func(ctx context.Context, h home.Home, target, key string) error {
+			if meta, native := nativeTask(h.State, target); native {
+				return spawn.Service{StateDir: h.State}.SendNativeKey(meta, key)
+			}
 			client := &herdr.Client{Commands: execx.OSRunner{}}
 			return fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Terminal: client}.Key(ctx, target, key)
 		},
