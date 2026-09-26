@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unsafe"
 
 	"golang.org/x/sys/windows"
 
@@ -50,7 +49,7 @@ const maxDialogMoves = 8
 // the instruction only at the harness's composer, and submits it only once the
 // composer shows it. It returns the record of the host it launched, even when
 // it fails afterwards, and the zero record when it launched none.
-func (s Service) startNativeHarness(ctx context.Context, id string, kind harness.Kind, launch harness.Launch, credentials map[string]string) (host.Record, error) {
+func (s Service) startNativeHarness(ctx context.Context, id string, kind harness.Kind, launch harness.Launch, userEnv []string, credentials map[string]string) (host.Record, error) {
 	screens, ok := harness.NativeScreens(kind)
 	if !ok {
 		return host.Record{}, fmt.Errorf("spawn: %s cannot run in a native terminal yet", kind)
@@ -62,11 +61,7 @@ func (s Service) startNativeHarness(ctx context.Context, id string, kind harness
 	if len(s.HostCommand) == 0 {
 		return host.Record{}, errors.New("spawn: the command that runs a native terminal's host is required")
 	}
-	env, err := s.nativeHostEnvironment(launch, credentials)
-	if err != nil {
-		return host.Record{}, fmt.Errorf("spawn: the environment for native terminal %s: %w", id, err)
-	}
-	record, err := host.Launch(s.StateDir, s.HostCommand, env, host.Spec{ID: id, Args: program, Dir: launch.Dir, Cols: nativeCols, Rows: nativeRows})
+	record, err := host.Launch(s.StateDir, s.HostCommand, s.nativeHostEnvironment(userEnv, launch, credentials), host.Spec{ID: id, Args: program, Dir: launch.Dir, Cols: nativeCols, Rows: nativeRows})
 	if err != nil {
 		return host.Record{}, fmt.Errorf("spawn: start native terminal %s: %w", id, err)
 	}
@@ -268,26 +263,23 @@ func nativeProgram(kind harness.Kind, launch harness.Launch) ([]string, error) {
 var inheritedSessionVariables = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_EXECPATH", "CLAUDE_PID", "CODEX_THREAD_ID", "CODEX_SANDBOX", "CODEX_SANDBOX_", "HERDR_", "CFO_SESSION_ID", "CFO_SESSION_HARNESS", host.IDVariable}
 
 // nativeHostEnvironment is the whole environment a native task's host and
-// harness run with, built the way a Herdr goblin's is: the environment
-// Windows gives a new process of this user, never the spawning process's own,
-// so nothing of the session that ran cfo spawn reaches the goblin; without
-// the harness billing keys or any session marker; then the project's
-// credentials, then the launch's variables (CFO_ROLE=goblin and the task's
-// identity among them) and CFO_STATE_OVERRIDE, which win. A native task has
-// no credentials script: this block is how its credentials reach the harness.
+// harness run with, built the way a Herdr goblin's is: userEnv, the
+// environment Windows gives a new process of this user, never the spawning
+// process's own, so nothing of the session that ran cfo spawn reaches the
+// goblin; without the harness billing keys or any session marker; then the
+// project's credentials, then the launch's variables (CFO_ROLE=goblin and the
+// task's identity among them) and CFO_STATE_OVERRIDE, which win. A native
+// task has no credentials script: this block is how its credentials reach the
+// harness.
 // Names compare without case, as Windows compares them.
-func (s Service) nativeHostEnvironment(launch harness.Launch, credentials map[string]string) ([]string, error) {
-	base, err := s.userEnvironment()
-	if err != nil {
-		return nil, err
-	}
+func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, credentials map[string]string) []string {
 	names := map[string]string{}
 	values := map[string]string{}
 	set := func(name, value string) {
 		names[strings.ToUpper(name)] = name
 		values[strings.ToUpper(name)] = value
 	}
-	for _, entry := range base {
+	for _, entry := range userEnv {
 		name, value, found := strings.Cut(entry, "=")
 		if !found || name == "" || auth.IsHarnessBillingKey(name) || inheritedSession(name) {
 			continue
@@ -309,7 +301,18 @@ func (s Service) nativeHostEnvironment(launch harness.Launch, credentials map[st
 		env = append(env, names[upper]+"="+value)
 	}
 	sort.Strings(env)
-	return env, nil
+	return env
+}
+
+// hasNativeVariable reports whether env, a native host environment, sets name
+// to a value. Names compare without case, as Windows compares them.
+func hasNativeVariable(env []string, name string) bool {
+	for _, entry := range env {
+		if entryName, value, _ := strings.Cut(entry, "="); strings.EqualFold(entryName, name) {
+			return value != ""
+		}
+	}
+	return false
 }
 
 // userEnvironment is the environment Windows gives a new process of this
@@ -324,24 +327,7 @@ func (s Service) userEnvironment() ([]string, error) {
 		return nil, err
 	}
 	defer token.Close()
-	var block *uint16
-	if err := windows.CreateEnvironmentBlock(&block, token, false); err != nil {
-		return nil, err
-	}
-	defer windows.DestroyEnvironmentBlock(block)
-	// The block is NUL-terminated entries ending in an empty one.
-	var env []string
-	for entry := unsafe.Pointer(block); ; {
-		length := 0
-		for *(*uint16)(unsafe.Add(entry, 2*length)) != 0 {
-			length++
-		}
-		if length == 0 {
-			return env, nil
-		}
-		env = append(env, windows.UTF16ToString(unsafe.Slice((*uint16)(entry), length)))
-		entry = unsafe.Add(entry, 2*(length+1))
-	}
+	return token.Environ(false)
 }
 
 func inheritedSession(name string) bool {

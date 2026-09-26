@@ -297,7 +297,7 @@ type nativeFixture struct {
 
 // newNativeFixture readies a native spawn of task-7 in the fake harness, as
 // kind, shown mode, with a project credential and fleet variables a goblin
-// must not get.
+// must not get, both in the spawner's environment and in the user's.
 func newNativeFixture(t *testing.T, kind harness.Kind, mode string) *nativeFixture {
 	t.Helper()
 	f := newFixture(t)
@@ -317,7 +317,7 @@ func newNativeFixture(t *testing.T, kind harness.Kind, mode string) *nativeFixtu
 	record := filepath.Join(t.TempDir(), "codex.jsonl")
 	t.Setenv(fakeCodexRecord, record)
 	t.Setenv(fakeCodexMode, mode)
-	userEnv := os.Environ()
+	userEnv := append(os.Environ(), "OPENAI_API_KEY=a user-scope billing key", "ANTHROPIC_API_KEY=a user-scope billing key", "CLAUDECODE=1", "HERDR_SOCKET_PATH=a user-scope herdr socket")
 	t.Setenv("OPENAI_API_KEY", "a billing key of the CFO's")
 	t.Setenv("HERDR_PANE_ID", "w1:p9")
 	t.Setenv("CLAUDECODE", "1")
@@ -460,7 +460,7 @@ func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testin
 					t.Errorf("the goblin's %s = %v, want %q", name, got, value)
 				}
 			}
-			for _, name := range []string{"OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CODEX_SANDBOX_NETWORK_DISABLED"} {
+			for _, name := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "HERDR_PANE_ID", "HERDR_SOCKET_PATH", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CODEX_SANDBOX_NETWORK_DISABLED"} {
 				if got := env[name]; got != nil {
 					t.Errorf("the goblin got %s = %q, want it unset", name, *got)
 				}
@@ -824,5 +824,38 @@ func TestANativeGoblinStartsFromTheUsersEnvironmentNotTheSpawners(t *testing.T) 
 	}
 	if got := env["USERS_OWN_SETTING"]; got == nil || *got != "kept" {
 		t.Errorf("the goblin's USERS_OWN_SETTING = %v, want the user's own setting kept", got)
+	}
+}
+
+// A server that authenticates by bearerTokenEnvVar reaches a native goblin
+// only when the environment its host starts with sets that variable: one set
+// only in the spawning process, as a CFO's session exports it, is withheld,
+// and one the user configured is handed on.
+func TestANativeSpawnHandsATokenServerOnlyWhenTheGoblinStartsWithItsToken(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		isUserScoped bool
+	}{
+		{name: "set only in the spawning process"},
+		{name: "set in the user's environment", isUserScoped: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := newNativeFixture(t, harness.Codex, "")
+			t.Setenv("FIXTURE_MCP_TOKEN", "the-cfos-token")
+			if test.isUserScoped {
+				f.userEnv = append(f.userEnv, "FIXTURE_MCP_TOKEN=the-users-token")
+			}
+			writeFile(t, filepath.Join(f.project, ".mcp.json"), `{"mcpServers":{"neon":{"url":"https://mcp.neon.tech/mcp","bearerTokenEnvVar":"FIXTURE_MCP_TOKEN"}}}`)
+
+			result, err := f.service.Spawn(context.Background(), f.request)
+
+			if err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+			withheld := strings.Contains(result.Output, "withheld servers whose token variable is not set for the goblin: neon (FIXTURE_MCP_TOKEN)")
+			if withheld == test.isUserScoped {
+				t.Errorf("output names neon withheld = %v, want %v:\n%s", withheld, !test.isUserScoped, result.Output)
+			}
+		})
 	}
 }
