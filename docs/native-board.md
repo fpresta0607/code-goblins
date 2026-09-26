@@ -313,9 +313,12 @@ The inbox and history list each question on at most two lines, with the marks dr
 No choice is preselected and written text is sent only when Other is selected.
 Use a new stable ID for a new question, and keep the same ID/content for an uncertain publication retry.
 The publisher walks up to 32 process ancestors and verifies the registered CFO PID, creation time and live native identity; a worker cannot escalate on the CFO's behalf.
-The Command Center shows one item at a time as a stack, a question, a review item or a run item, the CFO's own items first and then goblins by longest wait, with its position, Back and Next buttons and a horizontal swipe on touch screens.
+The Command Center shows one item at a time as a stack, a question, a review item or a run item, the CFO's own items first and then goblins by longest wait, with its position, Back and Next buttons on the left of the footer, Later on the right, and a horizontal swipe on touch screens; the rest of the stack peeks above the card as one clean edge.
 Each card sends only its own answer, and Later moves to the next item without answering.
-A card answered while on screen, from the card or from elsewhere such as `cfo answer`, keeps its place until the Overlord moves on: it shows its delivery marks, or once closed a check on the chosen option, the other options dimmed and Answered by you or Answered by the CFO with the time.
+Once the Overlord sends from a card, an answer, a review answer or a Clear, the card reads Sending until its action is delivered, then a check draws with CFO received, Delivered to <goblin>, Sent to the goblin or the CFO, or Cleared, and about a second later the next open item follows, passing over any sent in this sitting; with nothing left it shows You're all done and the Command Center closes.
+A failed or unconfirmed delivery keeps the card on screen with its warning, and a run card stays to show the command's result.
+A click on the dimmed board outside the card closes the Command Center, and a click anywhere outside the open inbox closes the inbox.
+A card answered elsewhere while on screen, such as with `cfo answer`, keeps its place until the Overlord moves on: it shows its delivery marks, or once closed a check on the chosen option, the other options dimmed and Answered by you or Answered by the CFO with the time.
 Drafts survive closing, reconnecting and moving between cards, and the header button, whose badge counts what waits on the Overlord, opens an inbox of those items, the live pages (review pages and browser walkthroughs) and a history of what he answered, cleared or ran, newest first by when each closed.
 A goblin panel whose goblin is waiting on the Overlord offers Answer, which opens the stack at that goblin's question or review item.
 Once submitted, every tab displays the durable answer rather than an unsent local draft.
@@ -331,6 +334,7 @@ Conflicting, corrupt or oversized inbox records leave bounded diagnostics and ca
 ## Goblin questions
 
 A goblin's `cfo notify <id> --blocked "<question> options: a (Recommended) | b"` also opens the modal, labelled with the goblin and its artwork; the first choice that ends with `(Recommended)` is shown first and marked, like a CFO recommendation, and the mark is stripped from every choice.
+When every choice starts with the goblin's own letter in order, such as `A) `, `b. `, `(c) ` or `D: `, the card drops those letters from what it shows, so each choice carries one letter; the answer is still the goblin's choice word for word.
 A goblin can attach one review image to each choice with `--image <path>`, repeated in the order of the choices, so the Overlord picks by picture: the card shows a thumbnail for each choice, and any thumbnail opens a full-size gallery with its position, side buttons, arrow keys, swipe, click-to-zoom and a Choose button for that image's choice.
 While the gallery is open it replaces the card, so a strip of the question's thumbnails under the image jumps straight to any other image.
 When the asking goblin has a review page live, the card and its gallery link it for annotation in Lavish.
