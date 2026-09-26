@@ -28,6 +28,10 @@ func TestReviewCommandRefusesBeforeRecordingAnything(t *testing.T) {
 		"a withdrawal with a title": {[]string{"--id", "mockups-review-1", "--withdraw", "replaced", "--title", "Look"}, 2, "--withdraw takes only"},
 		"a stray argument":          {[]string{"--id", "mockups-review-1", "--title", "Look", "extra"}, 2, ""},
 		"a task with no goblin":     {[]string{"--id", "mockups-review-1", "--task", "g1", "--title", "Look"}, 1, "no live record"},
+		"a clear with no reason":    {[]string{"--clear", "mockups-review-1"}, 2, "--clear needs --reason"},
+		"a clear with a title":      {[]string{"--clear", "mockups-review-1", "--reason", "decided", "--title", "Look"}, 2, "--clear takes only --reason"},
+		"a reason with no clear":    {[]string{"--id", "mockups-review-1", "--title", "Look", "--reason", "decided"}, 2, "--reason goes with --clear"},
+		"a clear from no CFO":       {[]string{"--clear", "mockups-review-1", "--reason", "decided"}, 1, "not registered"},
 	} {
 		var stdout, stderr bytes.Buffer
 		if exit := runReview(c.args, &stdout, &stderr, runtime); exit != c.exit || !strings.Contains(stderr.String(), c.says) {

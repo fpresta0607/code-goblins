@@ -14,6 +14,10 @@ import { EMPTY_DRAFT, QuestionCard, type Draft } from "./QuestionCard";
 import { ReviewCard, reviewImages } from "./ReviewCard";
 import { ImageGallery } from "./ImageGallery";
 import { Disclosure } from "./Disclosure";
+import { bannerItems, countedTitle } from "./arrivals";
+
+// A banner for a new item stays this long; the item stays under the badge.
+const BANNER_MS = 8000;
 
 export interface CommandFocus { key: string; at: number }
 
@@ -21,7 +25,8 @@ export interface CommandFocus { key: string; at: number }
 // and a stack that shows one item at a time, a question or a review item. Each
 // answer goes to its asker on its own, once; Later keeps an item in the stack;
 // drafts survive closing, reconnecting and moving between cards. A new question
-// opens the stack; a new review item waits in the inbox under the badge.
+// opens the stack; any other new item is announced in a banner and waits in
+// the inbox under the badge, and the tab's title counts what waits.
 export function CommandCenter({ snapshot, connected, presentations, focus }: { snapshot: Snapshot; connected: boolean; presentations: BoardActivity[]; focus: CommandFocus | null }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -42,6 +47,22 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
     setAnnounced(new Set([...announced, ...fresh.map((item) => item.key)]));
     if (!open) { setOpen(true); setCurrent(fresh[0].key); setGallery(null); }
   }
+  const [bannered, setBannered] = useState<Set<string>>(new Set());
+  const [banner, setBanner] = useState<string[]>([]);
+  const arriving = bannerItems(waiting, bannered);
+  if (arriving.length) {
+    setBannered(new Set([...bannered, ...arriving.map((item) => item.key)]));
+    setBanner(arriving.map((item) => item.key));
+  }
+  useEffect(() => {
+    if (!banner.length) return;
+    const timer = setTimeout(() => setBanner([]), BANNER_MS);
+    return () => clearTimeout(timer);
+  }, [banner]);
+  const baseTitle = useRef(document.title);
+  useEffect(() => { document.title = countedTitle(baseTitle.current, waiting.length); }, [waiting.length]);
+  useEffect(() => () => { document.title = baseTitle.current; }, []);
+  const announcedNow = banner.map((key) => waiting.find((candidate) => candidate.key === key)).filter((candidate): candidate is Item => !!candidate);
   if (focus !== lastFocus) {
     setLastFocus(focus);
     if (focus) { setOpen(true); setCurrent(focus.key); setGallery(null); setInbox(false); }
@@ -138,7 +159,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
             </li>;
           })}</ul>
         </Disclosure>}
-        <p className="muted">Everything stays here until you answer or clear it. Opening a page never pauses work.</p>
+        <p className="muted">Everything stays here until you answer or clear it, or the goblin that asked moves past it. Opening a page never pauses work.</p>
       </div>
     </details>
     <dialog ref={dialog} className="question-modal" aria-labelledby="command-center-heading"
@@ -180,5 +201,11 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
         </footer>}
       </>}
     </dialog>
+    {announcedNow.length > 0 && !open && <aside className="arrival-banner" role="status" aria-label="New in the Command Center">
+      <Avatar persona={taskOf(announcedNow[0]) ? personaFor(snapshot.tasks.find((task) => task.id === taskOf(announcedNow[0]))) : "cfo"} small />
+      <span className="inbox-text"><strong>{askerOf(announcedNow[0])}</strong><span className="inbox-summary">{textOf(announcedNow[0])}{announcedNow.length > 1 ? " and " + (announcedNow.length - 1) + " more" : ""}</span></span>
+      <button className="primary" onClick={() => { const key = announcedNow[0].key; setBanner([]); setInbox(false); setOpen(true); show(key); }}>Open</button>
+      <button className="icon-button" aria-label="Dismiss" data-tip="Dismiss" data-tip-align="end" onClick={() => setBanner([])}><Icon name="close" /></button>
+    </aside>}
   </>;
 }

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -212,6 +213,56 @@ func WithdrawReview(ctx context.Context, h home.Home, terminals terminal.Opener,
 	return spoolReview(h.State, Review{ID: id, Identity: identity, Task: taskID, State: "withdrawn", Reason: reason, UpdatedAt: time.Now().UTC()})
 }
 
+// ClearReview closes any open item for the registered primary CFO, such as a
+// retired goblin's item that only its reporter could withdraw. The reason is
+// kept on the item and state/reviews.audit records the clear.
+func ClearReview(ctx context.Context, h home.Home, terminals terminal.Opener, id, reason string) error {
+	identity, release, err := reviewReporter(ctx, h, terminals, "")
+	if err != nil {
+		return err
+	}
+	defer release()
+	if !reviewID.MatchString(id) || strings.TrimSpace(reason) == "" || len(reason) > 1900 {
+		return errors.New("a clear names the review ID and a reason of at most 1900 characters")
+	}
+	return clearReviews(h.State, identity, "Cleared by the CFO: "+strings.TrimSpace(reason), func(r Review) bool { return r.ID == id }, true)
+}
+
+// clearReviews spools the registered CFO's clear of every open item match
+// picks, under the publish lock. With one set, an item that is not open is
+// refused rather than skipped.
+func clearReviews(stateDir, identity, reason string, match func(Review) bool, one bool) error {
+	unlock, err := reviewPublishLock(stateDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	reviews, err := reportedReviews(stateDir)
+	if err != nil {
+		return err
+	}
+	found := false
+	for _, r := range reviews {
+		if !match(r) {
+			continue
+		}
+		found = true
+		if r.State != "open" {
+			if one {
+				return errors.New("the review is already " + r.State)
+			}
+			continue
+		}
+		if err := spoolReview(stateDir, Review{ID: r.ID, Identity: identity, Task: r.Task, State: "cleared", Reason: reason, UpdatedAt: time.Now().UTC()}); err != nil {
+			return err
+		}
+	}
+	if one && !found {
+		return errors.New("no review with that ID to clear")
+	}
+	return nil
+}
+
 // reviewPublishLock serializes reporters, waiting briefly for another one.
 func reviewPublishLock(stateDir string) (func(), error) {
 	_, err := lock.AcquireExclusiveNamed(stateDir, ".review-publish.lock")
@@ -266,6 +317,51 @@ func copyReviewImage(source io.Reader, path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// reportedReviews lists every item reported so far, the way reportedReview
+// finds one: an open publication still in the inbox and the supervisor's
+// record.
+func reportedReviews(stateDir string) ([]Review, error) {
+	var reviews []Review
+	entries, err := os.ReadDir(filepath.Join(stateDir, "reviews-inbox"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".open.json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(stateDir, "reviews-inbox", entry.Name()))
+		if err != nil {
+			return nil, err
+		}
+		var r Review
+		if json.Unmarshal(data, &r) == nil {
+			reviews = append(reviews, r)
+		}
+	}
+	if info, err := os.Stat(filepath.Join(stateDir, ".supervisor.json")); err == nil {
+		if info.Size() > maxStateBytes {
+			return nil, errors.New("supervisor state exceeds its bound")
+		}
+		data, err := os.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+		if err != nil {
+			return nil, err
+		}
+		var db Database
+		if err := json.Unmarshal(data, &db); err != nil {
+			return nil, errors.New("supervisor review history is unreadable")
+		}
+		for _, r := range db.Reviews {
+			if !slices.ContainsFunc(reviews, func(prior Review) bool { return prior.ID == r.ID }) {
+				reviews = append(reviews, r)
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	return reviews, nil
 }
 
 // reportedReview finds a review waiting in the inbox or already recorded. It
@@ -469,10 +565,62 @@ func (s *Store) acceptReview(r Review) error {
 			return nil
 		}
 		prior.State, prior.Reason, prior.UpdatedAt = "withdrawn", bounded(r.Reason, 2000), r.UpdatedAt
+	case "cleared":
+		if i < 0 {
+			if _, err := os.Stat(reviewInboxPath(s.Home.State, r.ID, "open")); err == nil {
+				return ErrDeferred
+			}
+			return errors.New("no review with that ID to clear")
+		}
+		if identity, err := s.primaryIdentity(); err != nil || identity != r.Identity {
+			return errors.New("only the registered CFO can clear another reporter's review")
+		}
+		prior := &s.db.Reviews[i]
+		if prior.State != "open" {
+			return nil
+		}
+		prior.State, prior.Reason, prior.UpdatedAt = "cleared", bounded(r.Reason, 2000), r.UpdatedAt
+		if err := s.save(); err != nil {
+			return err
+		}
+		if err := appendReviewAudit(s.Home.State, *prior); err != nil {
+			s.db.Issues = append(s.db.Issues, prior.ID+" was cleared, but state/reviews.audit was not written: "+bounded(err.Error(), 300))
+			if len(s.db.Issues) > 20 {
+				s.db.Issues = s.db.Issues[len(s.db.Issues)-20:]
+			}
+			return s.save()
+		}
+		return nil
 	default:
-		return errors.New("a review report is open or withdrawn")
+		return errors.New("a review report is open, withdrawn or cleared")
 	}
 	return s.save()
+}
+
+// primaryIdentity is the identity of the CFO primary.json registers now.
+func (s *Store) primaryIdentity() (string, error) {
+	file, err := openPrimary(filepath.Join(s.Home.State, "primary.json"))
+	if err != nil {
+		return "", errNotRegistered
+	}
+	defer file.Close()
+	_, identity, err := decodePrimary(file)
+	return identity, err
+}
+
+// appendReviewAudit records the CFO's clear of an item in state/reviews.audit:
+// when, the item, its goblin and the reason, on one line.
+func appendReviewAudit(stateDir string, r Review) error {
+	task := r.Task
+	if task == "" {
+		task = "-"
+	}
+	f, err := os.OpenFile(filepath.Join(stateDir, "reviews.audit"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	_, werr := fmt.Fprintf(f, "%s %s %s %s\n", r.UpdatedAt.UTC().Format(time.RFC3339), r.ID, task, strings.Join(strings.Fields(r.Reason), " "))
+	return errors.Join(werr, f.Close())
 }
 
 // answering reports whether an item's answer is still queued or running; the
@@ -642,30 +790,48 @@ func (h *HTTP) reviewImage(w http.ResponseWriter, r *http.Request) {
 
 // PublishWait puts a goblin's wait on the Overlord in the Command Center as an
 // item for him until he answers or clears it, or the goblin reports again. It
-// names the item waiting-<task>-<wake sequence>, which retireWaits relies on.
+// names the item waiting-<task>-<wake sequence>, which retireItems relies on.
 func PublishWait(ctx context.Context, h home.Home, terminals terminal.Opener, taskID string, seq int, why, lavish, page string) error {
 	return PublishReview(ctx, h, terminals, taskID, fmt.Sprintf("waiting-%s-%d", taskID, seq), "Waiting on you: "+why, lavish, page, nil)
 }
 
-// retireWaits withdraws a goblin's wait on the Overlord once its task reports
-// anything newer than that wait, or is gone, so the Command Center never keeps
-// a request nobody is waiting on.
-func (s *Store) retireWaits() error {
+// retireItems withdraws a goblin's items nobody waits on any more, so the
+// Command Center never keeps a request the goblin has moved past: a wait on
+// the Overlord once its task reports anything newer than that wait, any other
+// item once its task reports done after publishing it, and every item once
+// its task is gone, since a finished or cleaned-up goblin never acts on the
+// answer. A task is gone once its task record is. A goblin's page or images
+// stay while it keeps working, asks or waits, or has not reported yet, because
+// it still wants the Overlord's look.
+func (s *Store) retireItems() error {
 	for _, r := range s.Snapshot().Reviews {
-		if r.State != "open" || r.Task == "" || !strings.HasPrefix(r.ID, "waiting-"+r.Task+"-") {
+		if r.State != "open" || r.Task == "" {
 			continue
+		}
+		_, metaErr := state.ReadTaskMeta(s.Home.State, r.Task)
+		if metaErr != nil && !errors.Is(metaErr, fs.ErrNotExist) {
+			return metaErr
 		}
 		lines, err := state.TailStatus(s.Home.State, r.Task, 50)
 		if err != nil {
 			return err
 		}
 		reportedAt, report := latestReport(lines, time.Time{})
-		if strings.HasPrefix(report, "waiting on overlord: ") && !reportedAt.After(r.CreatedAt) {
-			continue
-		}
-		reason := r.Task + " reported again: " + report
-		if report == "" {
+		var reason string
+		switch {
+		case metaErr != nil:
 			reason = r.Task + " is gone"
+		case report == "":
+			continue
+		case strings.HasPrefix(r.ID, "waiting-"+r.Task+"-"):
+			if strings.HasPrefix(report, "waiting on overlord: ") && !reportedAt.After(r.CreatedAt) {
+				continue
+			}
+			reason = r.Task + " reported again: " + report
+		case strings.HasPrefix(report, "done: ") && reportedAt.After(r.CreatedAt):
+			reason = r.Task + " finished: " + report
+		default:
+			continue
 		}
 		if err := s.withdrawReview(r.ID, bounded(reason, 2000)); err != nil {
 			return err
