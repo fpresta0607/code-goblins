@@ -25,13 +25,15 @@ func laidOutHome(t *testing.T) home.Home {
 	return h
 }
 
-// finishTask leaves what a cleaned-up task leaves: its data folder and a
-// status log with no metadata beside it.
+// finishTask leaves what a cleaned-up task leaves: its data folder, with a
+// brief written before the task ran, and a status log with no metadata
+// beside it.
 func finishTask(t *testing.T, h home.Home, id string) {
 	t.Helper()
+	brief := filepath.Join(h.Data, id, "brief.md")
 	for path, content := range map[string]string{
-		filepath.Join(h.Data, id, "brief.md"): "# Brief " + id + "\n",
-		filepath.Join(h.State, id+".status"):  "done: PR https://github.com/o/r/pull/1\n",
+		brief:                                "# Brief " + id + "\n",
+		filepath.Join(h.State, id+".status"): "done: PR https://github.com/o/r/pull/1\n",
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
@@ -39,6 +41,10 @@ func finishTask(t *testing.T, h home.Home, id string) {
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+	briefed := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(brief, briefed, briefed); err != nil {
+		t.Fatal(err)
 	}
 }
 
