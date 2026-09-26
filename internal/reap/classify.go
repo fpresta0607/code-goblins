@@ -285,6 +285,9 @@ type Task struct {
 	// the inventory's live host records, and it is what a native goblin,
 	// which has no pane, is alive by.
 	Hosted bool
+	// HostUnreadable says a native task's host record could not be read, so
+	// whether its goblin still runs is unknown.
+	HostUnreadable bool
 }
 
 // NativeHost is the record of one native terminal's host: the terminal it
@@ -374,6 +377,11 @@ type Inventory struct {
 	// has no pane: its harness, and everything the harness starts, runs
 	// under its terminal's host, the way a pane's run under its shell.
 	NativeHosts []NativeHost
+	// UnreadableHosts are the terminal ids whose state/hosts/<id>.json could
+	// not be read, and every native task's id when state/hosts itself could
+	// not be. Such a goblin may be alive or gone, so whatever rests on it
+	// being gone is held.
+	UnreadableHosts []string
 }
 
 // harnessSignatures are the distinctive command-line fragments a CFO-launched
@@ -416,7 +424,9 @@ func Classify(inv Inventory) []Finding {
 	inv.Tasks = slices.Clone(inv.Tasks)
 	for i, task := range inv.Tasks {
 		_, running := hosts[task.ID]
-		inv.Tasks[i].Hosted = running && task.Meta.Backend == "native"
+		native := task.Meta.Backend == "native"
+		inv.Tasks[i].Hosted = running && native
+		inv.Tasks[i].HostUnreadable = native && slices.Contains(inv.UnreadableHosts, task.ID)
 	}
 	supervised := supervisedPIDs(inv, hosts)
 	fleet := descendants(inv.Processes, inv.FleetRootPIDs)
@@ -496,6 +506,10 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				}
 				finding.Detail += fmt.Sprintf(" (a test fixture's: it runs under Herdr server pid %d, of a session other than the fleet's, started in %s, where nothing live works any more)", fixture.PID, where)
 				finding.refuseUntilEstablished(unplacedAgentHold(inv), unplacedAgentKey(inv))
+				if worktree, ok := worktreeHolding(fixture.Cwd, inv.Worktrees); ok {
+					task, known := ownerOf(worktree, tasks, inv.Worktrees, unreadable)
+					finding.refuseUnlessForced(unreadableHostHold(task, known), ownerKey(task, known, worktree))
+				}
 			}
 			if !fleet[process.PID] {
 				finding.refuseUntilEstablished(unidentifiedHold, strconv.Itoa(process.PID))
@@ -540,6 +554,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 			// assigned, so an unrelated pane that could not report its
 			// identity cannot drop it.
 			finding.refuseUnlessForced(unfinishedHold(task, known, unreadableRecord), ownerKey(task, known, worktree))
+			finding.refuseUnlessForced(unreadableHostHold(task, known), ownerKey(task, known, worktree))
 			finding.refuseUnlessForced(killNeedsItsOwnPID, strconv.Itoa(process.PID))
 			findings = append(findings, finding)
 		}
@@ -575,6 +590,7 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 		// as a finished one, so it is reported; it is held because the task
 		// never said it was done, or because nothing can say whether it did.
 		finding.refuseUnlessForced(unfinishedHold(task, known, unreadable[worktree.TaskID]), ownerKey(task, known, worktree))
+		finding.refuseUnlessForced(unreadableHostHold(task, known), ownerKey(task, known, worktree))
 		findings = append(findings, finding)
 	}
 	return findings
@@ -654,6 +670,18 @@ func unfinishedHold(task Task, known, unreadable bool) string {
 	return ""
 }
 
+// unreadableHostHold is why nothing may rest on a native goblin being gone
+// when its terminal's host record could not be read: that record is the only
+// evidence of whether it still runs.
+func unreadableHostHold(task Task, known bool) string {
+	if known && task.HostUnreadable {
+		return unreadableHostText
+	}
+	return ""
+}
+
+const unreadableHostText = "its native terminal's host record could not be read, so whether its goblin still runs is unknown"
+
 // classifyDirectory reports a directory under .worktrees/ that the project
 // does not register as a worktree. It is deliberately not an OrphanWorktree:
 // the premise every worktree question rests on has stopped holding here, and a
@@ -681,6 +709,7 @@ func classifyDirectory(inv Inventory, supervised map[int]bool, dir WorktreeDir, 
 		finding.Detail += "; no command line names it, and a working directory is not readable from a process listing, so if the removal fails a leaked process is holding it open"
 	}
 	finding.refuseUnlessForced(unfinishedHold(task, known, unreadable), ownerKey(task, known, dir))
+	finding.refuseUnlessForced(unreadableHostHold(task, known), ownerKey(task, known, dir))
 	return finding
 }
 
@@ -759,9 +788,13 @@ func classifyMetas(inv Inventory, panes map[string]Pane, supervised, fleet map[i
 			Detail: "no pane, no process, and no directory left on disk; its task " + taskOutcome(task, true, false),
 			Action: "force-archive the task record",
 		}
+		if task.HostUnreadable {
+			finding.Detail = unreadableHostText + "; no pane, no process, and no directory left on disk; its task " + taskOutcome(task, true, false)
+		}
 		if !task.Terminal {
 			finding.refuseUnlessForced("task has not reached a terminal status (latest verb "+verbText(task.Verb)+")", finding.TaskID)
 		}
+		finding.refuseUnlessForced(unreadableHostHold(task, true), finding.TaskID)
 		findings = append(findings, finding)
 	}
 	return findings
@@ -1182,6 +1215,8 @@ func worktreeOf(process Process, worktrees []WorktreeDir) (WorktreeDir, bool) {
 // anything about panes restates the outcome a second time.
 func placementOutcome(inv Inventory, task Task, known, unreadable bool) string {
 	switch {
+	case known && task.HostUnreadable:
+		return "a native terminal whose host record could not be read, so nothing establishes whether its goblin is working there, and its task " + taskOutcome(task, known, unreadable)
 	case len(inv.UnplacedAgents) > 0:
 		return "an agent the sweep could not place, so nothing establishes whether its goblin is working there, and its task " + taskOutcome(task, known, unreadable)
 	case !known && !unreadable:

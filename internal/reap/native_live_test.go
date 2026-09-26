@@ -68,15 +68,52 @@ func TestAnUnreadableHostRecordHoldsItsGoblin(t *testing.T) {
 
 	held := false
 	for _, finding := range classOf(findings, StaleServer) {
-		for _, refusal := range finding.Holds {
-			held = held || (finding.TaskID == "board" && strings.Contains(refusal.Reason, "could not be read"))
-		}
+		held = held || (finding.TaskID == "board" && heldOnHostRecord(finding))
 	}
 	if !held {
-		t.Errorf("the dev server of a goblin whose host record cannot be read is not held as unknown: %v", lines(findings))
+		t.Errorf("the dev server of a goblin whose host record cannot be read is not held on that record: %v", lines(findings))
 	}
 	if !slices.ContainsFunc(notes, func(note string) bool { return strings.Contains(note, `state/hosts/board.json: UNREADABLE`) }) {
 		t.Errorf("notes %q do not name the unreadable host record", notes)
+	}
+}
+
+// heldOnHostRecord reports whether a finding names the unreadable host record,
+// and not the task record, as what it cannot establish.
+func heldOnHostRecord(finding Finding) bool {
+	if !strings.Contains(finding.Detail, "host record could not be read") {
+		return false
+	}
+	for _, refusal := range finding.Holds {
+		if strings.Contains(refusal.Reason, "host record could not be read") && refusal.Key == "board" {
+			return true
+		}
+	}
+	return false
+}
+
+// A task record whose worktree is gone is archived only once nothing could say
+// its goblin still runs. A native goblin's host record is that evidence, so
+// when it cannot be read the record is held on it rather than archived.
+func TestAnUnreadableHostRecordHoldsTheTaskRecord(t *testing.T) {
+	h, worktree := nativeHome(t)
+	if err := os.RemoveAll(worktree); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.State, "hosts", "board.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inv, _, err := Collector{Home: h, Session: "default", Processes: stubProcesses{}}.Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	findings := Classify(inv)
+
+	for _, finding := range classOf(findings, OrphanMeta) {
+		if finding.TaskID == "board" && !heldOnHostRecord(finding) {
+			t.Errorf("the record of a native goblin whose host record cannot be read is not held on that record: %v", lines(findings))
+		}
 	}
 }
 
