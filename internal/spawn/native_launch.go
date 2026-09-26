@@ -152,12 +152,23 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 	return nil
 }
 
-// deliverNativeInstruction types the instruction into the harness's composer
-// and submits it once the composer shows it, since a dialog that opened
-// meanwhile would take the Enter as its answer. It returns once the harness
-// shows it working on the instruction, the native form of the Herdr path's
-// proof that the agent accepted its prompt.
+// deliverNativeInstruction submits the instruction and returns once the
+// harness shows it working on it, the native form of the Herdr path's proof
+// that the agent accepted its prompt.
 func (s Service) deliverNativeInstruction(ctx context.Context, record host.Record, screens harness.Screens, instruction string) error {
+	if err := s.submitNative(ctx, record, screens, instruction, launchSettle); err != nil {
+		return err
+	}
+	if _, err := s.awaitScreen(ctx, record, nativeAccepted, screens.IsWorking); err != nil {
+		return fmt.Errorf("spawn: native terminal %s never showed its harness working on the instruction: %w", record.ID, err)
+	}
+	return nil
+}
+
+// submitNative types the instruction into the harness's composer and submits
+// it settle after the composer shows it, since a dialog that opened meanwhile
+// would take the Enter as its answer.
+func (s Service) submitNative(ctx context.Context, record host.Record, screens harness.Screens, instruction string, settle time.Duration) error {
 	client, err := host.Dial(record)
 	if err != nil {
 		return fmt.Errorf("spawn: type into native terminal %s: %w", record.ID, err)
@@ -169,14 +180,11 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 	if _, err := s.awaitScreen(ctx, record, nativeKeyEffect, func(screen []string) bool { return screens.Shows(screen, instruction) }); err != nil {
 		return fmt.Errorf("spawn: the instruction typed into native terminal %s never showed in its composer, so it was not submitted: %w", record.ID, err)
 	}
-	if err := s.sleep(ctx, launchSettle); err != nil {
+	if err := s.sleep(ctx, settle); err != nil {
 		return err
 	}
 	if err := client.Input([]byte("\r")); err != nil {
 		return fmt.Errorf("spawn: submit the instruction in native terminal %s: %w", record.ID, err)
-	}
-	if _, err := s.awaitScreen(ctx, record, nativeAccepted, screens.IsWorking); err != nil {
-		return fmt.Errorf("spawn: native terminal %s never showed its harness working on the instruction: %w", record.ID, err)
 	}
 	return nil
 }
@@ -339,69 +347,3 @@ func inheritedSession(name string) bool {
 	}
 	return false
 }
-
-// closeNativeTerminal ends the native terminal whose host launched is, the
-// harness and everything it started, and waits for its host to end. It closes
-// only that host: a terminal its id names that another host runs is left
-// alone. A zero record launched nothing, and a host that has ended has
-// nothing left to close; a running host that does not answer, as one under
-// load can be busy, is dialed again for at most nativeCloseWait.
-func closeNativeTerminal(stateDir string, launched host.Record) error {
-	if launched.HostPID == 0 {
-		return nil
-	}
-	recorded := func() (bool, error) {
-		record, err := host.ReadRecord(stateDir, launched.ID)
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
-		return err == nil && record.HostPID == launched.HostPID, err
-	}
-	if still, err := recorded(); err != nil || !still {
-		return err
-	}
-	deadline := time.Now().Add(nativeCloseWait)
-	client, err := host.Dial(launched)
-	for err != nil {
-		if !processRunning(launched.HostPID) {
-			return nil
-		}
-		if still, readErr := recorded(); readErr == nil && !still {
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("the host of native terminal %s, pid %d, does not answer, so its harness may still be running: %w", launched.ID, launched.HostPID, err)
-		}
-		time.Sleep(100 * time.Millisecond)
-		client, err = host.Dial(launched)
-	}
-	closeErr := client.CloseTerminal()
-	_ = client.Close()
-	if closeErr != nil {
-		return closeErr
-	}
-	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
-		if still, err := recorded(); err == nil && !still {
-			return nil
-		}
-	}
-	return fmt.Errorf("the host of native terminal %s did not end", launched.ID)
-}
-
-// processRunning reports whether pid may still run: only a process Windows
-// shows as ended, or as never started, does not.
-func processRunning(pid int) bool {
-	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
-	if err != nil {
-		return !errors.Is(err, windows.ERROR_INVALID_PARAMETER)
-	}
-	defer windows.CloseHandle(handle)
-	var code uint32
-	if err := windows.GetExitCodeProcess(handle, &code); err != nil {
-		return true
-	}
-	return code == stillActive
-}
-
-// stillActive is the exit code Windows reports for a process that runs.
-const stillActive = 259
