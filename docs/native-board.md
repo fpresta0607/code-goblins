@@ -275,7 +275,8 @@ The instruction is typed into the composer, submitted once the composer shows it
 Codex's composer and working texts are its known ones, not yet seen in a capture here, and the first live native Codex spawn checks them.
 A native spawn that fails closes the terminal it started, which ends the harness and everything it started, and retires the task as a Herdr spawn does; a terminal that already ran under the task's id refuses the spawn's host and is left running.
 If the terminal's host still runs but does not answer the close, the spawn's error says so, and the worktree and task record stay, so the task can still be reached.
-`cfo cleanup` does not take a native task yet; its terminal ends when its harness exits, which `cfo attach <id>` can ask of it.
+`cfo send` reaches a native task by its id or `gb-<id>` through its own terminal, never through Herdr: text is typed into the composer, submitted once the composer shows it, and delivered only once the harness shows it working, as the spawn delivers its instruction, and `--key` writes the key straight to the terminal.
+`cfo cleanup` returns a native task once its terminal has ended, which it does when its harness exits; there is no tab to close, and a host that may still run, or a host record that cannot be read, is refused with or without `--force-archive`.
 A missing or stale registration shows on the board as one banner, and in the CFO terminal as its own state, naming what went stale and the fix, `cfo register` in the CFO session.
 On Windows normal message delivery holds that registration against replacement and validates the live process/start time, foreground process group, registered agent, pane, workspace, tab and terminal ID before using a required-agent sender.
 Missing or changed identity is refused, never passed to the explicit-pane shell fallback.

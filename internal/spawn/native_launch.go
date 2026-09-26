@@ -363,7 +363,7 @@ func closeNativeTerminal(stateDir string, launched host.Record) error {
 	deadline := time.Now().Add(nativeCloseWait)
 	client, err := host.Dial(launched)
 	for err != nil {
-		if !processRunning(launched.HostPID) {
+		if !host.Running(launched.HostPID) {
 			return nil
 		}
 		if still, readErr := recorded(); readErr == nil && !still {
@@ -387,21 +387,3 @@ func closeNativeTerminal(stateDir string, launched host.Record) error {
 	}
 	return fmt.Errorf("the host of native terminal %s did not end", launched.ID)
 }
-
-// processRunning reports whether pid may still run: only a process Windows
-// shows as ended, or as never started, does not.
-func processRunning(pid int) bool {
-	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
-	if err != nil {
-		return !errors.Is(err, windows.ERROR_INVALID_PARAMETER)
-	}
-	defer windows.CloseHandle(handle)
-	var code uint32
-	if err := windows.GetExitCodeProcess(handle, &code); err != nil {
-		return true
-	}
-	return code == stillActive
-}
-
-// stillActive is the exit code Windows reports for a process that runs.
-const stillActive = 259

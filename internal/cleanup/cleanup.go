@@ -3,10 +3,11 @@
 // discards changes: the only lifecycle calls it makes are the Herdr tab close
 // of the exact recorded tab (after the endpoint is proven agent-free) and
 // worktree.Service.Return, and only after every guard has proven the exact
-// recorded task safe to release. The one directory it removes outright holds
-// no work - the task's Go temporary directory, retired with the record
-// because it lives outside the state tree the archive rename carries away;
-// see Service.removeGoTmp.
+// recorded task safe to release. A native task has no tab: its terminal ends
+// with its harness, so it is only proven ended. The one directory it removes
+// outright holds no work - the task's Go temporary directory, retired with the
+// record because it lives outside the state tree the archive rename carries
+// away; see Service.removeGoTmp.
 package cleanup
 
 import (
@@ -22,6 +23,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
@@ -126,8 +128,10 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 
 	// The endpoint is proven agent-free: close the recorded tab so a completed
 	// task leaves no terminal behind, then return the worktree.
-	if err := s.Terminal.CloseTab(ctx, meta.HerdrSession, meta.HerdrTabID); err != nil {
-		return Result{}, fmt.Errorf("cleanup: close task tab: %w", err)
+	if meta.Backend == "herdr" {
+		if err := s.Terminal.CloseTab(ctx, meta.HerdrSession, meta.HerdrTabID); err != nil {
+			return Result{}, fmt.Errorf("cleanup: close task tab: %w", err)
+		}
 	}
 
 	if err := s.Worktrees.Return(ctx, project, worktreePath); err != nil {
@@ -172,8 +176,10 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 		return Result{}, err
 	}
 	var notes []string
-	if err := s.Terminal.CloseTab(ctx, meta.HerdrSession, meta.HerdrTabID); err != nil {
-		notes = append(notes, "tab close skipped: "+err.Error())
+	if meta.Backend == "herdr" {
+		if err := s.Terminal.CloseTab(ctx, meta.HerdrSession, meta.HerdrTabID); err != nil {
+			notes = append(notes, "tab close skipped: "+err.Error())
+		}
 	}
 	if err := state.AppendStatus(s.StateDir, id, "done: force-archived via cfo cleanup --force-archive; worktree "+worktreePath+" left in place"); err != nil {
 		return Result{}, fmt.Errorf("cleanup: record force archive: %w", err)
@@ -262,17 +268,18 @@ func archiveStamp() string {
 }
 
 func validateMeta(meta state.TaskMeta) error {
-	if meta.Backend != "herdr" {
-		return fmt.Errorf("cleanup: task %s is not a Herdr task (backend %q)", meta.ID, meta.Backend)
+	required := map[string]string{"project": meta.Project, "worktree": meta.Worktree}
+	switch meta.Backend {
+	case "herdr":
+		required["herdr_session"] = meta.HerdrSession
+		required["herdr_workspace_id"] = meta.HerdrWorkspaceID
+		required["herdr_tab_id"] = meta.HerdrTabID
+		required["herdr_pane_id"] = meta.HerdrPaneID
+	case "native":
+	default:
+		return fmt.Errorf("cleanup: task %s is neither a Herdr nor a native task (backend %q)", meta.ID, meta.Backend)
 	}
-	for name, value := range map[string]string{
-		"herdr_session":      meta.HerdrSession,
-		"herdr_workspace_id": meta.HerdrWorkspaceID,
-		"herdr_tab_id":       meta.HerdrTabID,
-		"herdr_pane_id":      meta.HerdrPaneID,
-		"project":            meta.Project,
-		"worktree":           meta.Worktree,
-	} {
+	for name, value := range required {
 		if value == "" {
 			return fmt.Errorf("cleanup: task %s metadata is missing %s", meta.ID, name)
 		}
@@ -305,6 +312,9 @@ func (s Service) requireClean(ctx context.Context, worktree string) error {
 // is sufficient inactive evidence; mismatched identity, duplicate identity,
 // an unreadable snapshot, and a failed Herdr request are all refused.
 func (s Service) requireInactive(ctx context.Context, meta state.TaskMeta) error {
+	if meta.Backend == "native" {
+		return s.requireNativeEnded(meta)
+	}
 	if s.Terminal.EffectiveSession() != meta.HerdrSession {
 		return fmt.Errorf("cleanup: recorded session %q does not match the Herdr client session %q", meta.HerdrSession, s.Terminal.EffectiveSession())
 	}
@@ -337,6 +347,25 @@ func (s Service) requireInactive(ctx context.Context, meta state.TaskMeta) error
 		if agent.PaneID == meta.HerdrPaneID {
 			return fmt.Errorf("cleanup: pane %s still has agent %q in state %q; refusing to return an active endpoint", agent.PaneID, agent.Agent, agent.Status)
 		}
+	}
+	return nil
+}
+
+// requireNativeEnded proves a native task's terminal has ended. Its host runs
+// exactly as long as the harness and removes its record on the way out, so a
+// missing record, or one whose host Windows shows as ended, is inactive
+// evidence; a host that may still run, or a record that cannot be read, is
+// refused.
+func (s Service) requireNativeEnded(meta state.TaskMeta) error {
+	record, err := host.ReadRecord(s.StateDir, meta.ID)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("cleanup: native terminal evidence is unreadable: %w", err)
+	}
+	if host.Running(record.HostPID) {
+		return fmt.Errorf("cleanup: native terminal %s still runs its harness in host pid %d; refusing to return an active endpoint", meta.ID, record.HostPID)
 	}
 	return nil
 }
