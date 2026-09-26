@@ -5,7 +5,7 @@ import { message, request } from "./api";
 import { object, string, type Session, type Task } from "./types";
 import { ownsTaskSession } from "./lineageTree";
 import { Icon } from "./Icon";
-import { bracketedPaste, ESTIMATED_CELL, fittedFontSize, inputBytes, maxInputBytes, queueInput, typingHeldReason } from "./terminalInput";
+import { bracketedPaste, ESTIMATED_CELL, fittedFontSize, inputBytes, maxInputBytes, queueInput, queueScroll, typingHeldReason, wheelLines, type PaneCommand } from "./terminalInput";
 import { terminalDocument } from "./terminalDocument";
 import { useDictation } from "./useDictation";
 
@@ -13,7 +13,8 @@ const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
 
 // The goblin's live Herdr pane cast into the board: a view stream whose frames
 // arrive at the pane's own size, fitted whole to the panel, and whose lease
-// takes typing straight away. Nothing here resizes or scrolls the real pane.
+// takes typing straight away. Nothing here resizes the real pane; the wheel
+// and Shift+PageUp and PageDown scroll its history through Herdr.
 // An input the supervisor refuses, or whose outcome is unknown, ends the view;
 // it is never resent, and reconnecting starts from a fresh full screen.
 export function NativeTerminal({ task, node, instance, visible, shown, focus = 0, onOwner }: { task?: Task; node?: Session; instance: string; visible: boolean; shown: boolean; focus?: number; onOwner?: () => void }) {
@@ -61,7 +62,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     term.textarea?.setAttribute("aria-label", "Terminal input");
     term.parser.registerOscHandler(52, () => true);
     let lease = "", seq = 0, frameSeq = 0, full = false, flushing = false;
-    const queue: string[] = [];
+    const queue: PaneCommand[] = [];
     let copiedTimer: ReturnType<typeof setTimeout> | undefined;
     // The font is fitted from the cell measured on the screen xterm drew, then
     // checked on the screen it draws next: rows round to whole pixels, which
@@ -94,20 +95,26 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       setStatus("Disconnected");
       setError(typingHeldReason(reason));
     };
-    // Inputs go one at a time in order, each with the lease's next number.
+    // Typing and scrolling go one at a time in order, each with the lease's
+    // next number.
     const flush = async () => {
       if (flushing) return;
       flushing = true;
       while (queue.length && lease && !abort.signal.aborted) {
-        const text = queue.shift()!;
+        const command = queue.shift()!;
         try {
-          await request("/api/terminal/input", abort.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ lease, seq: ++seq, command: { type: "terminal.input", text } }) });
+          await request("/api/terminal/input", abort.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ lease, seq: ++seq, command }) });
         } catch (e: unknown) {
           if (!abort.signal.aborted) stop(message(e));
           break;
         }
       }
       flushing = false;
+    };
+    const scroll = (direction: "up" | "down", lines: number, source: "wheel" | "page_key") => {
+      if (!lease || abort.signal.aborted) return;
+      queueScroll(queue, direction, lines, source);
+      void flush();
     };
     const send = (text: string) => {
       if (!text || !lease || abort.signal.aborted) return;
@@ -152,11 +159,26 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
         if (event.type === "keydown") copy();
         return false;
       }
+      // Shift+PageUp and PageDown scroll the pane's history a screen at a time.
+      if (event.shiftKey && !event.ctrlKey && !event.altKey && (event.key === "PageUp" || event.key === "PageDown")) {
+        event.preventDefault();
+        if (event.type === "keydown") scroll(event.key === "PageUp" ? "up" : "down", Math.max(1, term.rows - 1), "page_key");
+        return false;
+      }
       return !!lease;
     });
-    // The pane's whole screen is in view, and a view never scrolls the real
-    // pane.
-    term.attachCustomWheelEventHandler(() => false);
+    // The pane's whole screen is in view, so the wheel scrolls its history
+    // through Herdr, in whole lines of the screen as drawn.
+    let wheelRest = 0;
+    term.attachCustomWheelEventHandler((event) => {
+      event.preventDefault();
+      const screen = element.querySelector<HTMLElement>(".xterm-screen");
+      const row = screen && term.rows ? screen.offsetHeight / term.rows : 16;
+      const { lines, rest } = wheelLines(wheelRest, event.deltaY, event.deltaMode, row, term.rows);
+      wheelRest = rest;
+      if (lines !== 0) scroll(lines > 0 ? "down" : "up", Math.abs(lines), "wheel");
+      return false;
+    });
     const resize = new ResizeObserver(() => fit());
     resize.observe(element);
     const read = async () => {

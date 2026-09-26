@@ -218,7 +218,8 @@ The terminal fills the panel, and you pick the goblin on the board; every termin
 **Ctrl+Alt+Up** and **Ctrl+Alt+Down** step through the terminals, the CFO first and then each goblin with a terminal, and **Ctrl+Alt+1** to **Ctrl+Alt+9** jump to one, from anywhere on the board; a switch hands the keyboard to the terminal it shows.
 A terminal opened from the board opens maximized, over the whole window, and **Restore** brings the board back beside it; the Task view opens beside the board, and on the Orchestration view the panel opens beside the graph.
 Drag the divider between the board and the panel to size the panel; the width, and whether each view is maximized, are remembered in this browser.
-A goblin still in Herdr shows its whole Herdr pane at the pane's own size, its text scaled to fit the panel with the input line at the bottom and no scroll bars, and the same full-pane state while it connects.
+A goblin still in Herdr shows its whole Herdr pane at the pane's own size, its text scaled to fit the panel with the input line at the bottom and no scroll bars, and the same full-pane state while it connects; the wheel and **Shift+PageUp** and **Shift+PageDown** scroll its history, and typing brings it back to the bottom.
+**Open in terminal** at the panel's top right opens the terminal it shows in a Windows Terminal window beside the board, attached to the same goblin: in Herdr with its pane in front, or through `cfo attach` for a native terminal.
 Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: the browser's own speech recognition listens while the keys are held, and releasing them types what it heard as one line, which **Enter** sends.
 In both, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
 
@@ -347,6 +348,9 @@ It stays local and private: nothing in it is pushed anywhere, and no project rep
 ```
 
 The CFO's memory is kept here rather than inside Claude Code, Codex or Pi, so whichever harness runs the CFO, and whichever project it runs in, it starts from the same memory.
+
+The fleet keeps it tidy on its own: a finished task's folder moves to `archive\finished`, and a brief nobody dispatched for three days moves to `archive\parked` with a row in the backlog's Parked section, so it stops showing as Not started on the board.
+A folder that anything still in use points at, such as a backlog row, your directives, the memory, a live task's brief or an open Command Center item, stays where it is, and every move is listed in `data\archive\filed.md`.
 
 `cfo install` creates this layout in a new home and fills in anything missing later, without overwriting a file.
 A home that already held data before this layout is left exactly as it is.
