@@ -3,6 +3,7 @@ package proc
 import (
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -101,5 +102,29 @@ func TestJobProcessesListsWhatStartProcessWaitIsWaitingOn(t *testing.T) {
 	})
 	if jobbed, err := JobProcesses(os.Getpid()); err != nil || len(jobbed) != 0 {
 		t.Fatalf("a process with no wait of its own = %+v, %v; want nothing", jobbed, err)
+	}
+}
+
+// A processor-time FILETIME is a duration, not a date: read as a date it
+// loses the 1601 epoch offset, and every reading comes back hugely negative.
+// Deltas on one process hid that; a sum across processes does not.
+func TestCPUTimeIsTheProcessorTimeUsedSinceStart(t *testing.T) {
+	start, ok := StartTime(os.Getpid())
+	if !ok {
+		t.Fatal("StartTime of this process failed")
+	}
+	deadline := time.Now().Add(50 * time.Millisecond)
+	for time.Now().Before(deadline) {
+	}
+
+	used, ok := CPUTime(os.Getpid())
+	if !ok {
+		t.Fatal("CPUTime of this process failed")
+	}
+	if used <= 0 {
+		t.Fatalf("CPUTime = %s, want the positive processor time this test just spent", used)
+	}
+	if limit := time.Since(start) * time.Duration(runtime.NumCPU()); used > limit {
+		t.Fatalf("CPUTime = %s, more than %s of processor time since the process started", used, limit)
 	}
 }
