@@ -120,10 +120,17 @@ func ConfigFromEnv(h home.Home) Config {
 	if session == "" {
 		session = "default"
 	}
+	// A home that cannot be read only costs the transcript half of the
+	// progress evidence; the process half still reads.
+	userHome, _ := os.UserHomeDir()
 	cfg.Monitor = &monitor.Service{
-		StateDir:     h.State,
-		Probe:        monitor.NewHerdrProber(&herdr.Client{Commands: execx.OSRunner{}, Session: session}),
-		Gate:         monitor.ExecGateProber{},
+		StateDir: h.State,
+		Probe:    monitor.NewHerdrProber(&herdr.Client{Commands: execx.OSRunner{}, Session: session}),
+		Gate:     monitor.ExecGateProber{},
+		Progress: monitor.HostProgress{
+			Panes: &herdr.Client{Commands: execx.OSRunner{}, Session: session},
+			Home:  userHome,
+		},
 		Polls:        monitor.ProcessPolls{},
 		Heartbeat:    heartbeat,
 		HeartbeatMax: heartbeatMax,

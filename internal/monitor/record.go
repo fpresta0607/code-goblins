@@ -52,6 +52,10 @@ type EndpointSample struct {
 	// from `herdr agent list` and were omitted from the snapshot fallback, so
 	// a zero counter is not a real regression.
 	CountersUnavailable bool
+	// Harness and Session name the agent kind and its own session id, which
+	// together locate the transcript the harness writes as it works.
+	Harness string
+	Session string
 }
 
 type Health string
@@ -135,11 +139,20 @@ type Observation struct {
 	// BusySince is when the agent last began an unbroken working stretch. A
 	// goblin blocked in a foreground shell reads working forever, so this is
 	// the only clock that can tell a long turn from a wedged one.
-	BusySince          *time.Time `json:"busy_since,omitempty"`
-	IdleSince          *time.Time `json:"idle_since,omitempty"`
-	StaleSince         *time.Time `json:"stale_since,omitempty"`
-	NextEscalation     *time.Time `json:"next_escalation,omitempty"`
-	NextPauseResurface *time.Time `json:"next_pause_resurface,omitempty"`
+	BusySince *time.Time `json:"busy_since,omitempty"`
+	// EvidenceAt is the latest evidence that the goblin's work is moving: its
+	// harness's last transcript write, or a reading in which the processes
+	// the harness started were using the processor. JobCPU and JobSampledAt
+	// are the reading the next one is measured against, and JobSampledSince
+	// is when the current run of consecutive readings began.
+	EvidenceAt         *time.Time    `json:"evidence_at,omitempty"`
+	JobCPU             time.Duration `json:"job_cpu,omitempty"`
+	JobSampledAt       *time.Time    `json:"job_sampled_at,omitempty"`
+	JobSampledSince    *time.Time    `json:"job_sampled_since,omitempty"`
+	IdleSince          *time.Time    `json:"idle_since,omitempty"`
+	StaleSince         *time.Time    `json:"stale_since,omitempty"`
+	NextEscalation     *time.Time    `json:"next_escalation,omitempty"`
+	NextPauseResurface *time.Time    `json:"next_pause_resurface,omitempty"`
 	// NextDecisionAsk and DecisionAsks schedule the re-ask of a question the
 	// Overlord still owes an answer to. resurfaceDecision owns them outright:
 	// they stand for exactly as long as the wake ledger holds an

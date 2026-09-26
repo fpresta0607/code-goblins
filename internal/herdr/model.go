@@ -138,6 +138,14 @@ type AgentRecord struct {
 	TabID            string `json:"tab_id"`
 	WorkspaceID      string `json:"workspace_id"`
 	Name             string `json:"name"`
+	// Session is the harness's own session, whose id names the transcript
+	// the harness writes as it works.
+	Session AgentSession `json:"agent_session"`
+}
+
+// AgentSession is the harness session Herdr associates with an agent.
+type AgentSession struct {
+	Value string `json:"value"`
 }
 
 // CommandError preserves failed Herdr operation context without conflating a
