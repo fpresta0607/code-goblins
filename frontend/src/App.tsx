@@ -12,7 +12,7 @@ import { Icon } from "./Icon";
 import { Avatar } from "./Avatar";
 import { GoblinPanel, type PanelView } from "./GoblinPanel";
 import { PaneDivider } from "./PaneDivider";
-import { CFO_KEY, MAXIMIZED_KEYS, maximizedFor, paneTrack, switchOrder } from "./terminalOrder";
+import { CFO_KEY, MAXIMIZED_KEYS, maximizedFor, maximizedView, paneTrack, switchOrder } from "./terminalOrder";
 import { useSwitchKeys } from "./useSwitchKeys";
 import { unsentComment, updateAction } from "./boardUpdate";
 
@@ -120,11 +120,12 @@ export function App() {
   const terminalShown = showsPanel && panelView === "terminal";
   if (terminalShown && !terminalOpened) setTerminalOpened(true);
   useSwitchKeys(snapshot ? switchOrder(snapshot.tasks) : [], cfoShown ? CFO_KEY : task?.id || "", switchTo);
-  const maximized = maximizedFor(panelView, maximizedChoice[panelView]);
+  const maximizeView = maximizedView(view, panelView);
+  const maximized = maximizedFor(maximizeView, maximizedChoice[maximizeView]);
   const panelWide = paneOpen && maximized && !compact;
   const layout: CSSProperties | undefined = panelWide ? { gridTemplateColumns: "minmax(0, 1fr)" } : paneOpen && paneSize && !compact ? { gridTemplateColumns: `minmax(0, 1fr) 10px ${paneTrack(paneSize)}` } : undefined;
   const closeButton = <>
-    {!compact && <button className="icon-button" aria-label={maximized ? "Restore the panel" : "Maximize the panel"} data-tip={maximized ? "Restore" : "Maximize"} data-tip-align="end" onClick={() => { const choice = String(!maximized); setMaximizedChoice((prior) => ({ ...prior, [panelView]: choice })); store(MAXIMIZED_KEYS[panelView], choice); }}><Icon name={maximized ? "restore" : "maximize"} /></button>}
+    {!compact && <button className="icon-button" aria-label={maximized ? "Restore the panel" : "Maximize the panel"} data-tip={maximized ? "Restore" : "Maximize"} data-tip-align="end" onClick={() => { const choice = String(!maximized); setMaximizedChoice((prior) => ({ ...prior, [maximizeView]: choice })); store(MAXIMIZED_KEYS[maximizeView], choice); }}><Icon name={maximized ? "restore" : "maximize"} /></button>}
     <button className="icon-button" aria-label="Close panel" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
   </>;
   return <div className="app-shell" onKeyDown={(event) => {

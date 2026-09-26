@@ -719,7 +719,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 /* The terminal deck below the panel header: every live terminal, one shown
    at a time, filling the panel. */
 .goblin-panel.showing-terminal { flex: none; }
-.terminal-deck { container-type: inline-size; display: flex; flex: 1; min-height: 0; border-top: 1px solid var(--edge); background: #071015; }
+.terminal-deck { display: flex; flex: 1; min-height: 0; border-top: 1px solid var(--edge); background: #071015; }
 .deck-stage { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
 .deck-slot { display: flex; flex: 1; min-width: 0; min-height: 0; }
 /* The handle between the board and the panel. */
