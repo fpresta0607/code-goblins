@@ -10,9 +10,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
@@ -193,6 +195,15 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			return augmented, nil
 		}
 	}
+	// A task dispatched from the backlog keeps its row's short title for the
+	// board. The title only names the task, so a backlog that cannot be read
+	// spawns it without one.
+	title := ""
+	if backlog, err := fleet.ReadBacklog(h); err != nil {
+		fmt.Fprintf(stderr, "cfo spawn: the backlog could not be read for the task's title: %v\n", err)
+	} else if i := slices.IndexFunc(backlog.Queued, func(row fleet.BacklogRow) bool { return row.Structured && row.ID == args[0] }); i >= 0 {
+		title = backlog.Queued[i].Title
+	}
 	result, err := runtime.spawn(context.Background(), h, spawn.Request{
 		ID:        args[0],
 		Project:   *project,
@@ -206,6 +217,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Session:   herdrSession(),
 		Class:     *class,
 		Backend:   *backend,
+		Title:     title,
 		Capsule:   writeCapsule,
 	})
 	if err != nil {

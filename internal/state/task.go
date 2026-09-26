@@ -39,6 +39,9 @@ type TaskMeta struct {
 	HerdrWorkspaceID string
 	HerdrTabID       string
 	HerdrPaneID      string
+	// Title is the short title the task was dispatched under, from its
+	// backlog row; empty when it had none.
+	Title string
 }
 
 // ArchiveDirName holds the scratch directories of finished tasks, one per
@@ -216,6 +219,7 @@ func ReadTaskMeta(stateDir, id string) (TaskMeta, error) {
 		HerdrWorkspaceID: kv["herdr_workspace_id"],
 		HerdrTabID:       kv["herdr_tab_id"],
 		HerdrPaneID:      kv["herdr_pane_id"],
+		Title:            kv["title"],
 	}
 	if meta.Kind == "" {
 		meta.Kind = "ship"
@@ -294,6 +298,7 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 		"herdr_workspace_id": meta.HerdrWorkspaceID,
 		"herdr_tab_id":       meta.HerdrTabID,
 		"herdr_pane_id":      meta.HerdrPaneID,
+		"title":              meta.Title,
 	}
 	if meta.Kind == "ship" {
 		fields["mode"] = meta.Mode
@@ -332,6 +337,7 @@ func validateTaskMetaValues(meta TaskMeta) error {
 		{"herdr_workspace_id", meta.HerdrWorkspaceID},
 		{"herdr_tab_id", meta.HerdrTabID},
 		{"herdr_pane_id", meta.HerdrPaneID},
+		{"title", meta.Title},
 	}
 	for _, field := range fields {
 		if control, found := firstControlCharacter(field.value); found {

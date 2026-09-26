@@ -51,6 +51,9 @@ type Request struct {
 	// Backend is "native" for a task in a native terminal of its own, which
 	// has no Herdr pane at all, and Herdr otherwise.
 	Backend string
+	// Title is the task's short title from its backlog row, kept on the task
+	// so the board names it once the row leaves the queue.
+	Title string
 	// Capsule, when set, writes the task capsule into the task temporary
 	// directory and returns the brief the goblin reads instead of BriefPath.
 	// It runs only once the id is proven free, because the alias check
@@ -755,6 +758,7 @@ func validateRequestLineValues(req Request) error {
 		"request model", req.Model,
 		"request effort", req.Effort,
 		"request session", req.Session,
+		"request title", req.Title,
 	)
 }
 
@@ -798,6 +802,7 @@ func partialResult(req Request, project, taskTmp string, endpoint herdr.Endpoint
 		HerdrWorkspaceID: endpoint.WorkspaceID,
 		HerdrTabID:       endpoint.TabID,
 		HerdrPaneID:      endpoint.PaneID,
+		Title:            req.Title,
 	}
 	if req.Backend == "native" {
 		// Its terminal is the host named by its id, with no Herdr pane.

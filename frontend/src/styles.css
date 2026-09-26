@@ -127,16 +127,15 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .board-column h2 { display: flex; gap: 10px; align-items: center; font-size: 1.375rem; margin: 0 0 20px; }
 .column-count { font-family: var(--font-body); color: var(--muted); font-size: .9375rem; font-weight: 700; padding: 0 9px; border: 1px solid var(--edge); border-radius: 999px; background: #0a1218; }
 .task-cards { display: grid; align-content: start; gap: 16px; }
-.task-card { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; text-align: left; padding: 14px 10px; min-height: 120px; border-radius: 18px; border-color: var(--edge); border-top-color: var(--edge-lit); background: var(--level-2); box-shadow: var(--shadow-2); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
+.task-card { display: flex; align-items: flex-start; gap: 12px; width: 100%; min-width: 0; text-align: left; padding: 12px 14px 12px 12px; min-height: 0; border-radius: 14px; border-color: var(--edge); border-top-color: var(--edge-lit); background: var(--level-2); box-shadow: var(--shadow-2); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
 button.task-card:hover, a.task-card:hover, .flow-node:hover, .workflow-node:hover { transform: var(--lift); box-shadow: var(--shadow-3); }
 button.task-card:active, .workflow-node:active { transform: none; box-shadow: var(--shadow-1); }
-.task-card .goblin-avatar { width: 80px; height: 80px; }
+.task-card .goblin-avatar { width: 44px; height: 44px; }
 .task-card.selected, .flow-node.selected, .workflow-node.selected { border-color: #6bf0cc; box-shadow: 0 0 0 1px #6bf0cc, 0 0 22px #00e59b33, var(--shadow-3); }
 .card-copy { display: grid; gap: 6px; min-width: 0; }
 .card-copy strong { font-size: 1.25rem; line-height: 1.35; font-weight: 800; overflow-wrap: anywhere; }
 .card-copy small { font-size: .9375rem; color: var(--muted); }
 .plain-status { display: flex; align-items: center; gap: 8px; font-size: 1rem; font-weight: 700; line-height: 1.4; background: none; color: #c4d4df; }
-.card-activity { font-size: .9375rem; line-height: 1.4; color: #8ea6b4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-card-shell { position: relative; min-width: 0; }
 .task-card-shell.has-pr .task-card { padding-bottom: 36px; }
 .card-pr { display: inline-flex; align-items: center; gap: 6px; font-size: .9375rem; font-weight: 700; color: #6bf0cc; text-decoration: none; }
@@ -380,9 +379,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 @media (max-width: 90rem) {
   .task-board { gap: 14px; padding: 24px 18px; }
   .board-column { padding: 18px 10px; }
-  .task-card { padding: 12px 8px; gap: 6px; }
-  .task-card .goblin-avatar { width: 66px; height: 66px; }
-  .task-card .card-copy strong { font-size: 1.125rem; }
 }
 @media (max-width: 68rem) {
   .topbar { padding: 10px 16px; gap: 12px; }
@@ -413,7 +409,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
   .brand { gap: 4px; }
   .connection { font-size: .9375rem; }
   .task-cards { grid-template-columns: minmax(0, 1fr); }
-  .task-card { flex-direction: row; align-items: center; gap: 12px; }
 }
 @media (max-width: 40rem) {
   .topbar { grid-template-columns: minmax(0, 1fr); }
@@ -561,7 +556,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 @media (max-width: 50rem) { .comment-overlay.floating { left: 8px; width: calc(100% - 16px); } }
 /* Waiting is a calmer sand, whoever it is on, and a wait on a goblin links to
    it. */
-.card-waiting { position: absolute; left: 120px; bottom: 10px; display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 2px 12px 2px 8px; border: 1px solid var(--edge); border-radius: 999px; background: var(--level-3); color: #e7d3a3; font-weight: 800; }
+.card-waiting { position: absolute; left: 68px; bottom: 10px; display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 2px 12px 2px 8px; border: 1px solid var(--edge); border-radius: 999px; background: var(--level-3); color: #e7d3a3; font-weight: 800; }
 .card-waiting .icon { width: 16px; height: 16px; }
 .status-link { display: inline-grid; place-items: center; width: 30px; height: 30px; min-height: 30px; padding: 0; border-radius: 50%; border-color: var(--edge); background: var(--level-3); color: #e7d3a3; }
 .status-link .icon { width: 16px; height: 16px; }
@@ -682,9 +677,24 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .question-card h3:focus { outline: none; }
 /* A live goblin's card carries a one-tap way into its terminal in its top
    right corner; its pull request link keeps the bottom right. */
-.task-card-shell:has(.card-terminal) .task-card { padding-right: 58px; }
-.card-terminal { position: absolute; right: 10px; top: 10px; width: 40px; height: 40px; min-height: 40px; }
-.card-terminal .icon { width: 19px; height: 19px; }
+.task-card-shell:has(.card-terminal) .task-card { padding-right: 46px; }
+.card-terminal { position: absolute; right: 8px; top: 8px; width: 32px; height: 32px; min-height: 32px; }
+.card-terminal .icon { width: 17px; height: 17px; }
+/* On a screen that can hover, the terminal button shows on hover and focus;
+   the whole card opens the panel. */
+@media (hover: hover) {
+  .card-terminal { opacity: 0; transition: opacity .12s; }
+  .task-card-shell:hover .card-terminal, .task-card-shell:focus-within .card-terminal { opacity: 1; }
+}
+/* A task card: a short title of at most two lines, then one muted line with
+   the repo and the status. */
+.task-card .card-copy { gap: 4px; }
+.task-card .card-title { font-size: 1rem; font-weight: 700; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.card-meta { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; color: var(--muted); font-size: .9375rem; line-height: 1.4; white-space: nowrap; }
+.card-repo { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.card-sep { opacity: .5; }
+.card-meta .plain-status { flex: 0 .01 auto; min-width: 0; overflow: hidden; font-weight: 600; }
+.card-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* Run items: a command the CFO needs run, shown verbatim before it runs. */
 .run-card { display: grid; gap: 14px; padding: 22px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; background: var(--level-2); box-shadow: var(--shadow-2); }
 .run-card h3 { margin: 0; }
