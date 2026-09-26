@@ -8,9 +8,11 @@ import { messageBlocks } from "./messageText.ts";
 // on you.
 
 // A question is named by its lead sentence, its first paragraph or bullet,
-// without the details that follow.
+// without the details that follow. A goblin's wait on the Overlord titles its
+// item Waiting on you, which the bar already says.
 function title(item: Item): string {
-  if (item.kind !== "question") return item.kind === "review" ? item.review.title : item.run.title;
+  if (item.kind === "review") return item.review.title.replace(/^Waiting on you: /, "");
+  if (item.kind === "run") return item.run.title;
   const [lead] = messageBlocks(item.question.text);
   const spans = !lead ? [] : lead.kind === "paragraph" ? lead.spans : lead.items[0];
   return spans.map((span) => span.text).join("").replace(/\s+/g, " ").trim();
