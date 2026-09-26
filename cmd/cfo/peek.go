@@ -22,29 +22,10 @@ func peekTerminal(ctx context.Context, h home.Home, target string, lines int) (s
 		if err != nil {
 			return "", err
 		}
-		return screenTail(rows, lines), nil
+		return host.ScreenTail(rows, lines), nil
 	}
 	client := &herdr.Client{Commands: execx.OSRunner{}}
 	return fleet.Peeker{Resolve: fleet.Resolver{StateDir: h.State}, Terminal: client}.Tail(ctx, target, lines)
-}
-
-// screenTail is a screen's last lines rows, or all of them for lines 0 or
-// less, without the trailing blanks of each row or the blank rows below the
-// last one written.
-func screenTail(rows []string, lines int) string {
-	for i := range rows {
-		rows[i] = strings.TrimRight(rows[i], " ")
-	}
-	for len(rows) > 0 && rows[len(rows)-1] == "" {
-		rows = rows[:len(rows)-1]
-	}
-	if lines > 0 && lines < len(rows) {
-		rows = rows[len(rows)-lines:]
-	}
-	if len(rows) == 0 {
-		return ""
-	}
-	return strings.Join(rows, "\n") + "\n"
 }
 
 func runPeek(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {

@@ -120,8 +120,12 @@ func goblinAsker(ctx context.Context, stateDir string, terminals terminal.Opener
 // the CFO and never opens the modal, and neither does a failed notify.
 // images, one for each choice in order, must already have passed
 // ReviewImages: SurfaceNotify records them without checking the files.
-func SurfaceNotify(ctx context.Context, stateDir string, terminals terminal.Opener, taskID string, record wake.Record, images []string) error {
-	question, options, ok := wake.Question(record)
+// detail is the notify as the goblin wrote it: the queue holds record's
+// one-line form, and the board shows the question with its own line breaks.
+func SurfaceNotify(ctx context.Context, stateDir string, terminals terminal.Opener, taskID string, record wake.Record, detail string, images []string) error {
+	asked := record
+	asked.Detail = detail
+	question, options, ok := wake.Question(asked)
 	if !ok || len(options) == 0 {
 		return nil
 	}
@@ -209,6 +213,9 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 		label = "Answer (Other)"
 	}
 	result, err := s.Options.CFO.SendGoblin(ctx, q.Task, q.Identity, fmt.Sprintf("The Overlord answered your question on the board. Question: %s %s: %s", q.Text, label, a.Text))
+	if errors.Is(err, fleet.ErrQueuedBehindTurn) {
+		result, err = Evaluation{Reason: "Submitted to the goblin through Herdr while it was working; it takes the answer when its current turn ends."}, nil
+	}
 	if err != nil {
 		return result, err
 	}
@@ -239,7 +246,7 @@ type cfoAnswer struct {
 // closed the question, that the CFO gave it, and when. Only the registered
 // primary CFO may answer. It returns the choice it delivered.
 func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note string) (string, error) {
-	_, release, err := c.CallerIdentity(ctx)
+	identity, release, err := c.CallerIdentity(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -301,6 +308,15 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	}
 	if err := wake.MarkAnswered(c.State, seq, wake.AnsweredByCFO, answer); err != nil {
 		unrecorded = append(unrecorded, fmt.Errorf("notify %d still reads unanswered: %w", seq, err))
+	}
+	// The goblin has what it waited for, so its waits on the Overlord up to
+	// this question close; a later one is its own request.
+	waiting := func(r Review) bool {
+		n, err := strconv.Atoi(strings.TrimPrefix(r.ID, "waiting-"+q.Task+"-"))
+		return r.Task == q.Task && strings.HasPrefix(r.ID, "waiting-"+q.Task+"-") && err == nil && n <= seq
+	}
+	if err := clearReviews(c.State, identity, "The CFO answered "+q.Task+"'s question.", waiting, false); err != nil {
+		unrecorded = append(unrecorded, fmt.Errorf("its waits on the Overlord stay open: %w", err))
 	}
 	if err := errors.Join(unrecorded...); err != nil {
 		return chosen, fmt.Errorf("delivered to %s; do not send it again, but %w", q.Task, err)

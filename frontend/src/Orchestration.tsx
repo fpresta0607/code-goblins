@@ -212,7 +212,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
                 onClick={(event) => { if (ignoreClick.current) { ignoreClick.current = false; return; } onSelect(node, event.currentTarget); }} aria-pressed={selected === node.id}
                 aria-label={node.title + ". " + status + ". " + (parent ? "Parent: " + parent.title : node.relation)} aria-describedby="canvas-help">
                 <Avatar persona={node.cfo ? "cfo" : personaFor(node.task, node.session)} />
-                <span className="card-copy"><strong>{node.title}</strong>{presentations.some(a=>presentationShownOn(a,node.session,node.task))&&<span className="browser-indicator">Browser active</span>}{node.task?.project && <span className="project-label">{node.task.project}</span>}<span className={"plain-status phase-" + phase + (asking ? " asking" : "")}><span className="status-dot" />{status}</span>
+                <span className="card-copy"><strong>{node.title}</strong>{presentations.some(a=>presentationShownOn(a,node.session,node.task))&&<span className="browser-indicator">Browser active</span>}{node.task?.project && <span className="project-label">{node.task.project}</span>}<span className={"plain-status phase-" + phase}><span className="status-dot" />{status}</span>
                   {!node.parent && node.session?.role !== "cfo" && !node.cfo && <small>{node.relation}</small>}
                 </span>
               </button>

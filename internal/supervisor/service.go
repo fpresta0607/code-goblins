@@ -226,7 +226,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
 	reconcileErr = errors.Join(reconcileErr, s.Store.expireRuns(time.Now()))
 	reconcileErr = errors.Join(reconcileErr, s.finishRuns(ctx))
-	reconcileErr = errors.Join(reconcileErr, s.Store.retireWaits())
+	reconcileErr = errors.Join(reconcileErr, s.Store.retireItems())
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
 	s.reconcilePresentations(ctx)
 	s.watchPages(ctx)
@@ -384,7 +384,7 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		return s.answerReview(ctx, a)
 	}
 	if a.Kind == "review_clear" {
-		return s.Store.clearReview(a.ReviewID, a.Generation)
+		return s.Store.clearReview(a.ReviewID, a.Generation, a.Text)
 	}
 	if a.Kind == "question_clear" {
 		return s.Store.clearQuestion(a.QuestionID, a.Generation)
@@ -410,7 +410,11 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		if !found {
 			return Evaluation{}, fmt.Errorf("%w: user question context changed", ErrRejected)
 		}
-		return s.Options.CFO.Send(ctx, a.Generation, text)
+		result, err := s.Options.CFO.Send(ctx, a.Generation, text)
+		if errors.Is(err, fleet.ErrQueuedBehindTurn) {
+			return Evaluation{Reason: "Submitted to the registered CFO through Herdr while it was working; it takes the answer when its current turn ends."}, nil
+		}
+		return result, err
 	}
 	meta, err := state.ReadTaskMeta(s.Store.Home.State, a.TaskID)
 	if err != nil {
@@ -532,6 +536,7 @@ type Task struct {
 	Title        string          `json:"title"`
 	Project      string          `json:"project"`
 	Harness      string          `json:"harness"`
+	Backend      string          `json:"backend"` // the terminal it runs in: native or herdr
 	Model        string          `json:"model"`
 	Effort       string          `json:"effort"`
 	Mode         string          `json:"mode"`
@@ -572,6 +577,9 @@ type Snapshot struct {
 	// Registration says why the board cannot reach the primary CFO, with
 	// the fix, and is empty while it can.
 	Registration string `json:"registration"`
+	// CFOTerminal names the native terminal the registered CFO runs in, and is
+	// empty while it runs in Herdr or not at all.
+	CFOTerminal string `json:"cfo_terminal"`
 }
 
 func (s *Service) Snapshot() (Snapshot, error) {
@@ -585,6 +593,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 	}
 	s.mu.Unlock()
+	if id, live := NativeCFO(s.Store.Home.State); live {
+		out.CFOTerminal = id
+	}
 	// The board sees how many images a question has, never where they are.
 	out.Questions = make([]Question, len(d.Questions))
 	for i, q := range d.Questions {
@@ -592,10 +603,16 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		out.Questions[i] = q
 	}
 	out.Activity = d.Activity
-	// The board sees how many images a review has, never their digests.
+	// The board sees how many images a review has and what its document is,
+	// never their digests.
 	out.Reviews = make([]Review, len(d.Reviews))
 	for i, r := range d.Reviews {
 		r.ImageCount, r.ImageSums = len(r.ImageSums), nil
+		if r.Document != nil {
+			document := *r.Document
+			document.Sum = ""
+			r.Document = &document
+		}
 		out.Reviews[i] = r
 	}
 	// The board sees what runs and how it went, never the process or digest.
@@ -673,7 +690,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if evaluation.PR == "" {
 			evaluation.PR = pr
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: id, Project: filepath.Base(meta.Project), Harness: meta.Harness, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, Evaluation: evaluation})
+		title := meta.Title
+		if title == "" {
+			title = id
+		}
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}

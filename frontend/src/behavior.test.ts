@@ -321,26 +321,28 @@ test("a goblin waiting on a question says who it is waiting on", () => {
   assert.equal(asksOverlord(snapshot, "asks"), true);
   assert.equal(asksOverlord(snapshot, "stuck"), false, "an answered question no longer waits on the Overlord");
   assert.equal(asksOverlord(snapshot, ""), false, "the CFO's own question belongs to no goblin");
-  assert.equal(nodeStatus({id:"a", title:"", task:asks, relation:""}, true), "Waiting on you");
+  assert.equal(nodeStatus({id:"a", title:"", task:asks, relation:""}, true), "Waiting on the CFO", "a goblin's question reaches the Overlord through the CFO");
   assert.equal(nodeStatus({id:"c", title:"", task:cfo, relation:""}), "Waiting on the CFO");
   assert.equal(nodeStatus({id:"s", title:"", task:stuck, relation:""}), "Failed");
 });
 
 test("delivery reads as a mark, and only trouble spells itself out", () => {
   const mark = (status: string, kind: string) => deliveryMark(parseAction({ id: "a", kind, status }));
-  assert.deepEqual(mark("succeeded", "review"), { icon: "check-double", label: "Accepted by the CFO", trouble: false });
-  assert.deepEqual(mark("succeeded", "cfo_answer"), { icon: "check-double", label: "Accepted by the CFO", trouble: false });
+  assert.deepEqual(mark("succeeded", "review"), { icon: "check-double", label: "CFO received", trouble: false });
+  assert.deepEqual(mark("succeeded", "cfo_answer"), { icon: "check-double", label: "CFO received", trouble: false });
   assert.deepEqual(mark("succeeded", "goblin_answer"), { icon: "check-double", label: "Delivered to the goblin", trouble: false });
+  assert.deepEqual(deliveryMark(parseAction({ id: "a", kind: "goblin_answer", status: "succeeded" }), "pd-cad-lineage"), { icon: "check-double", label: "Delivered to pd-cad-lineage", trouble: false });
   assert.deepEqual(mark("succeeded", "evaluate"), { icon: "check-double", label: "Done", trouble: false });
   // A review answer's action succeeds whether it reached the goblin or was
   // handed to the CFO, so only the review item's delivered flag earns two checks.
   assert.deepEqual(mark("succeeded", "review_answer"), { icon: "check", label: "Sent to the goblin or the CFO", trouble: false });
   assert.deepEqual(mark("running", "review"), { icon: "check", label: "Sending", trouble: false });
-  assert.deepEqual(mark("queued", "review"), { icon: "check", label: "Queued", trouble: false });
+  // A queued answer is on its way; "Queued" read as stuck.
+  assert.deepEqual(mark("queued", "review"), { icon: "check", label: "Sending", trouble: false });
   assert.deepEqual(mark("failed", "review"), { icon: "close", label: "Could not deliver", trouble: true });
   assert.deepEqual(mark("uncertain", "review"), { icon: "warning", label: "Delivery unconfirmed. Inspect the CFO queue before sending again.", trouble: true });
   assert.deepEqual(mark("uncertain", "feedback"), { icon: "warning", label: "Delivery unconfirmed. Inspect the terminal before sending again.", trouble: true });
-  assert.deepEqual(mark("", "review"), { icon: "check", label: "Queued", trouble: false });
+  assert.deepEqual(mark("", "review"), { icon: "check", label: "Sending", trouble: false });
   assert.deepEqual(mark("succeeded", "review_clear"), { icon: "check", label: "Cleared", trouble: false });
 });
 
@@ -413,10 +415,12 @@ test("a waiting goblin says what it waits on, and only a wait on the Overlord re
     { id: "older", phase: "working", verified: false, waiting_on: undefined },
   ] });
   const status = (id: string) => { const task = snapshot.tasks.find((candidate) => candidate.id === id)!; return nodeStatus({ id, title: "", task, relation: "" }, asksOverlord(snapshot, id)); };
-  const cases: [string, string][] = [["billing", "Waiting on board-ui"], ["ship", "Waiting on CI"], ["release", "Waiting on deploy"], ["deploy", "Waiting on deploy"], ["ask", "Waiting on you"],
+  const cases: [string, string][] = [["billing", "Waiting on board-ui"], ["ship", "Waiting on CI"], ["release", "Waiting on deploy"], ["deploy", "Waiting on deploy"], ["ask", "Waiting on the CFO"],
     ["gone", "Waiting on retired-task"], ["gate", "In review gate: tests"], ["gate-ci", "In review gate: CI"],
     ["gate-review", "In review gate: code review"], ["gate-lint", "In review gate: lint"], ["gate-push", "In review gate: push"], ["gate-new", "In review gate"], ["gate-unknown", "In review gate"], ["older", "Working"]];
   for (const [id, label] of cases) assert.equal(status(id), label, id);
+  const ask = snapshot.tasks.find((task) => task.id === "ask")!;
+  assert.equal(nodeStatus({ id: "ask", title: "", task: ask, relation: "" }), "Waiting on the CFO", "a wait on the Overlord goes through the CFO even when no caller says it asks");
   assert.equal(asksOverlord(snapshot, "ask"), true);
   for (const id of ["billing", "ship", "release", "deploy", "gone"]) assert.equal(asksOverlord(snapshot, id), false, id);
   assert.equal(waitingTarget(snapshot, snapshot.tasks[0])?.id, "board-ui");

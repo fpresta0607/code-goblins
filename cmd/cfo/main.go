@@ -69,7 +69,7 @@ commands:
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
   cfo supersede <task-id> --reason <text>
-  cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--yolo]   without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom
+  cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--backend <herdr|native>] [--yolo]   without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom
   cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place
   cfo send <target> [--key <key>] <text...>
   cfo peek <target> [lines]
@@ -84,7 +84,8 @@ commands:
   cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy> "<why>"   a goblin reports its outcome straight into the wake queue, or what it is working on or waiting on
   cfo question --id <stable-id> --text "<user question>" [--option "<choice>"]... [--recommend "<exact-choice>"]   registered CFO opens a user decision modal with Other; the answer returns as one normal native message, not a native prompt-tool response
   cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]   registered CFO answers a goblin's blocked question: delivered like cfo send, the notify retired, and the choice, who and when recorded for the board
-  cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file>] | --id <stable-id> --withdraw "<reason>" [--task <id>]   report an item that stays in the Command Center until the Overlord answers or clears it, or withdraw your own; a Lavish page named by its HTML file is polled by the supervisor, so the Overlord's feedback on it reaches the CFO as a review wake
+  cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file>] | --id <stable-id> --withdraw "<reason>" [--task <id>] | --clear <stable-id> --reason "<why>"   report an item that stays in the Command Center until the Overlord answers or clears it, or withdraw your own, or as the registered primary CFO clear any open item, audited; a Lavish page named by its HTML file is polled by the supervisor, so the Overlord's feedback on it reaches the CFO as a review wake
+  cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--url <link>] [--task <id>]   hand the Overlord a document as a Command Center item with Open and Download; the file is copied, a goblin's from its own folders, and the item leaves the queue when he opens or downloads it
   cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--cwd <dir>] --command-file <path>   registered CFO asks the Overlord to run a command with one click in the Command Center; the file is read once and runs as a script file, and the output and exit code come back as his answer
   cfo present --id <stable-id> --kind browser|review --url <safe-url> [--task <id> [--generation <spawn-gen>]] [--state active|ended] [--ttl 5m]   report a successful presentation without opening a browser or waiting; omit task only from verified primary CFO context
   hook <name>  claude code hook entry points (session-start, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm)
@@ -165,14 +166,19 @@ func defaultCommandRuntime() commandRuntime {
 		spawn: func(ctx context.Context, h home.Home, request spawn.Request) (spawn.Result, error) {
 			commands := execx.OSRunner{}
 			client := &herdr.Client{Commands: commands, Session: request.Session}
+			self, err := os.Executable()
+			if err != nil {
+				return spawn.Result{}, err
+			}
 			service := spawn.Service{
-				Terminals:  terminal.HerdrSessions(client),
-				Worktrees:  worktree.Service{Commands: commands, DataDir: h.Data},
-				Harness:    harness.DefaultRegistry(),
-				Auth:       auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
-				Commands:   commands,
-				StateDir:   h.State,
-				PolicyPath: filepath.Join(h.Root, "config", "pipeline.json"),
+				Terminals:   terminal.HerdrSessions(client),
+				Worktrees:   worktree.Service{Commands: commands, DataDir: h.Data},
+				Harness:     harness.DefaultRegistry(),
+				Auth:        auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
+				Commands:    commands,
+				StateDir:    h.State,
+				PolicyPath:  filepath.Join(h.Root, "config", "pipeline.json"),
+				HostCommand: []string{self, "host"},
 			}
 			return service.Spawn(ctx, request)
 		},
@@ -356,6 +362,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runPresent(args[1:], stdout, stderr, runtime)
 	case "review":
 		return runReview(args[1:], stdout, stderr, runtime)
+	case "deliver":
+		return runDeliver(args[1:], stdout, stderr, runtime)
 	case "run-request":
 		return runRunRequest(args[1:], stdout, stderr, runtime)
 	case "session-start":

@@ -1,0 +1,121 @@
+import { useEffect, useRef, useState } from "react";
+import "@xterm/xterm/css/xterm.css";
+import { Icon } from "./Icon";
+import { closedReason, DEFAULT_FONT_SIZE, MAX_FONT_SIZE, MIN_FONT_SIZE, reconnects } from "./terminalStream";
+import { TerminalView } from "./terminalView";
+import { useDictation } from "./useDictation";
+
+const FONT_KEY = "cfo-terminal-font-size";
+// A view that keeps dropping stops retrying and says why.
+const MAX_RETRIES = 5;
+
+function storedFontSize(): number {
+  try {
+    const size = Number(localStorage.getItem(FONT_KEY));
+    return size >= MIN_FONT_SIZE && size <= MAX_FONT_SIZE ? size : DEFAULT_FONT_SIZE;
+  } catch { return DEFAULT_FONT_SIZE; }
+}
+
+// A native goblin's terminal: its host's own byte stream drawn by xterm at the
+// panel's size. It stays live while the board is open, shown or not, so
+// switching to it only brings it into sight. A connection is staged out of
+// sight until its screen is whole, and a reconnect keeps the last screen in
+// place until the new one is ready, so the panel is never blank, never
+// cleared and repainted, and never half drawn.
+// query names the terminal to the relay: a task's generation, or the native
+// terminal the CFO runs in.
+export function HostTerminal({ query, label, instance, visible, shown, focus }: { query: string; label: string; instance: string; visible: boolean; shown: boolean; focus: number }) {
+  const surface = useRef<HTMLDivElement>(null);
+  const current = useRef<TerminalView | null>(null);
+  // staged is a connection still replaying out of sight; it is shown and
+  // hidden with the panel too, so one begun while the terminal was hidden
+  // sizes itself and becomes whole once the terminal is shown.
+  const staged = useRef<TerminalView | null>(null);
+  const shownValue = useRef(shown);
+  const retries = useRef(0);
+  const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
+  const [reconnecting, setReconnecting] = useState(false);
+  const [reason, setReason] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  const [copied, setCopied] = useState(false);
+  const [hasScreen, setHasScreen] = useState(false);
+  const dictation = useDictation((text) => current.current?.paste(text));
+  const dictate = dictation.key;
+  useEffect(() => {
+    shownValue.current = shown;
+    for (const view of [current.current, staged.current]) {
+      if (!view) continue;
+      if (shown) view.setFont(storedFontSize());
+      view.show(shown);
+    }
+  }, [shown]);
+  // A switch to this terminal hands it the keyboard, at once or once it is whole.
+  const wantFocus = useRef(false);
+  useEffect(() => {
+    if (!focus) return;
+    if (current.current && shownValue.current) current.current.focus(); else wantFocus.current = true;
+  }, [focus]);
+  useEffect(() => {
+    const container = surface.current;
+    if (!container || !visible) return;
+    let copiedTimer: ReturnType<typeof setTimeout> | undefined, retry: ReturnType<typeof setTimeout> | undefined;
+    const url = new URL("/api/terminal/native", location.href);
+    url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    const params = new URLSearchParams(query);
+    params.set("token", instance);
+    url.search = params.toString();
+    const view: TerminalView = new TerminalView(container, url, storedFontSize(), {
+      ready: () => {
+        const prior = current.current;
+        current.current = view;
+        if (staged.current === view) staged.current = null;
+        view.promote();
+        view.show(shownValue.current);
+        prior?.dispose();
+        retries.current = 0;
+        setHasScreen(true);
+        setReconnecting(false);
+        setPhase("live");
+        if (shownValue.current && (wantFocus.current || container.closest(".context-pane")?.contains(document.activeElement))) view.focus();
+        wantFocus.current = false;
+      },
+      closed: (code, why) => {
+        if (reconnects(code) && retries.current < MAX_RETRIES) {
+          retries.current++;
+          setReconnecting(true);
+          retry = setTimeout(() => setAttempt((prior) => prior + 1), 400 * retries.current);
+          return;
+        }
+        setReason(closedReason(code, why));
+        setReconnecting(false);
+        setPhase("closed");
+      },
+      copied: () => {
+        setCopied(true);
+        clearTimeout(copiedTimer);
+        copiedTimer = setTimeout(() => setCopied(false), 1400);
+      },
+      font: (size) => { try { localStorage.setItem(FONT_KEY, String(size)); } catch { /* the size still applies to this view */ } },
+      dictate,
+    });
+    staged.current = view;
+    view.show(shownValue.current);
+    return () => {
+      clearTimeout(copiedTimer);
+      clearTimeout(retry);
+      if (staged.current === view) staged.current = null;
+      // A view that is on screen stays until its replacement is whole.
+      if (current.current !== view) view.dispose();
+    };
+  }, [query, instance, visible, attempt, dictate]);
+  useEffect(() => () => { current.current?.dispose(); current.current = null; }, []);
+  return <section className="native-terminal host-terminal" aria-label={label}>
+    <div className="terminal-surface" ref={surface} />
+    {phase === "connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div>}
+    {phase === "live" && (reconnecting || !visible) && <span className="terminal-state terminal-reconnecting" role="status"><span className="status-dot" />Reconnecting</span>}
+    {phase === "closed" && <div className={hasScreen ? "terminal-closed" : "terminal-cover"} role="status"><Icon name="terminal" /><p>{reason}</p><button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setPhase(current.current ? "live" : "connecting"); setReconnecting(!!current.current); setAttempt((prior) => prior + 1); }}>Reconnect</button></div>}
+    {copied && <span className="terminal-state terminal-copied" role="status">Copied</span>}
+    {dictation.listening && <span className="terminal-state live terminal-listening" role="status"><Icon name="mic" />Listening</span>}
+    {dictation.note && <p className="terminal-error" role="status">{dictation.note}</p>}
+  </section>;
+}

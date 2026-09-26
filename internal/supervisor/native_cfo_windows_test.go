@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
+
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -178,7 +180,8 @@ func TestAProgramInALiveNativeTerminalRegistersAsTheCFO(t *testing.T) {
 }
 
 // A delivery to a native CFO is typed into its terminal and submitted once,
-// and reported unconfirmed, since nothing yet reports that the CFO took it.
+// and reported delivered once its host confirms it wrote both into the
+// terminal's input.
 func TestADeliveryToANativeCFOIsTypedIntoItsTerminalOnce(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv("HERDR_PANE_ID", "")
@@ -188,10 +191,10 @@ func TestADeliveryToANativeCFOIsTypedIntoItsTerminalOnce(t *testing.T) {
 		t.Fatalf("the program recorded %q, want its registration", lines)
 	}
 
-	_, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
+	result, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
 
-	if err == nil || errors.Is(err, ErrRejected) {
-		t.Errorf("Send error = %v, want an unconfirmed delivery, neither refused nor accepted", err)
+	if err != nil || !strings.Contains(result.Reason, "native terminal took") {
+		t.Errorf("Send = %+v, %v; want it delivered once the host wrote it", result, err)
 	}
 	if typed := cfo.exit(t); len(typed) != 2 || typed[1] != "Overlord: hello" {
 		t.Errorf("the terminal received %q, want its registration and then the message once", typed)
@@ -210,10 +213,10 @@ func TestADeliveryToANativeCFOWithALongHistoryIsTypedIntoItsTerminalOnce(t *test
 		t.Fatalf("the program recorded %q, want its registration and then the spill", lines)
 	}
 
-	_, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
+	result, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
 
-	if err == nil || errors.Is(err, ErrRejected) {
-		t.Errorf("Send error = %v, want an unconfirmed delivery, neither refused nor accepted", err)
+	if err != nil || !strings.Contains(result.Reason, "native terminal took") {
+		t.Errorf("Send = %+v, %v; want it delivered once the host wrote it", result, err)
 	}
 	if typed := cfo.exit(t); len(typed) != 3 || typed[2] != "Overlord: hello" {
 		t.Errorf("the terminal received %q, want its registration, the spill and then the message once", typed)
@@ -278,5 +281,94 @@ func TestALiveNativeCFOIsNotAHerdrCFO(t *testing.T) {
 	}
 	if !nativeLive || id != "cfo" {
 		t.Errorf("NativeCFO = %q, %v; want cfo, true", id, nativeLive)
+	}
+}
+
+// cfoQuery opens the registered CFO's native terminal, cfo, with the board's
+// token.
+const cfoQuery = "cfo=cfo&token=instance"
+
+// The snapshot names the native terminal the registered CFO runs in, so the
+// board opens that terminal for the CFO instead of a Herdr view.
+func TestTheSnapshotNamesTheNativeTerminalTheCFORunsIn(t *testing.T) {
+	h, _ := nativeBoard(t, "direct")
+	before, err := h.Service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nativePrimary(t, h.Service.Store.Home.State)
+
+	after, err := h.Service.Snapshot()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.CFOTerminal != "" || after.CFOTerminal != "cfo" {
+		t.Errorf("CFOTerminal = %q before the CFO registered and %q after, want empty and cfo", before.CFOTerminal, after.CFOTerminal)
+	}
+}
+
+// The board shows the registered native CFO's terminal as it shows a
+// task's: its output reaches the view and typing reaches the CFO.
+func TestTheBoardShowsANativeCFOsTerminalAndTypesIntoIt(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	stateDir := h.Service.Store.Home.State
+	nativePrimary(t, stateDir)
+	terminal := hostTerminal(t, stateDir, "cfo")
+
+	v := openNativeView(t, server, cfoQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "for the cfo\r")
+
+	if lines := terminal.waitForLines(t, 1); len(lines) != 1 || lines[0] != "for the cfo" {
+		t.Errorf("the CFO's terminal got %q, want the line typed in the board", lines)
+	}
+}
+
+// A view of the CFO's terminal is refused while the CFO runs in Herdr or not
+// at all, or in another terminal than the one the view names, rather than
+// showing some other terminal.
+func TestACFOViewIsRefusedUnlessTheCFORunsInTheTerminalItNames(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+
+	closed := openNativeView(t, server, cfoQuery).waitForClose(t)
+
+	if closed.Code != websocket.StatusPolicyViolation || !strings.Contains(closed.Reason, "native terminal") {
+		t.Errorf("with no native CFO the view closed with %d %q, want it refused because the CFO has no native terminal", closed.Code, closed.Reason)
+	}
+	nativePrimary(t, h.Service.Store.Home.State)
+	hostTerminal(t, h.Service.Store.Home.State, "cfo")
+
+	closed = openNativeView(t, server, "cfo=elsewhere&token=instance").waitForClose(t)
+
+	if closed.Code != websocket.StatusPolicyViolation || !strings.Contains(closed.Reason, "another terminal") {
+		t.Errorf("naming another terminal the view closed with %d %q, want it refused because the CFO runs in another terminal", closed.Code, closed.Reason)
+	}
+}
+
+// A view of the CFO's terminal closes once the registration stops naming
+// that terminal, so typing never reaches a terminal the CFO has left.
+func TestACFOViewClosesWhenTheCFOLeavesItsTerminal(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	h.terminalTick = 10 * time.Millisecond
+	stateDir := h.Service.Store.Home.State
+	nativePrimary(t, stateDir)
+	hostTerminal(t, stateDir, "cfo")
+	v := openNativeView(t, server, cfoQuery)
+	v.waitFor(t, "program ready")
+
+	// The relay reads the registration every tick through a handle that
+	// refuses a delete while it is open, so the delete retries the few
+	// microseconds a tick holds it, the way state.RemoveTaskMeta does.
+	deadline := time.Now().Add(2 * time.Second)
+	for err := os.Remove(filepath.Join(stateDir, "primary.json")); err != nil; err = os.Remove(filepath.Join(stateDir, "primary.json")) {
+		if time.Now().After(deadline) {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	if closed := v.waitForClose(t); closed.Code != websocket.StatusPolicyViolation || !strings.Contains(closed.Reason, "CFO") {
+		t.Errorf("the view closed with %d %q, want it closed because the CFO left the terminal", closed.Code, closed.Reason)
 	}
 }

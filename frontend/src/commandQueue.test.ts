@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredBy, answeredLabel, chosenOption, itemFor, outcomeIcon, questionOutcome, settledIcon, settledItems, settledLabel, waitingItems } from "./commandQueue.ts";
-import { parseSnapshot } from "./types.ts";
+import { answeredBy, answeredLabel, chosenOption, documentFacts, itemFor, nextOpenKey, outcomeIcon, questionOutcome, questionPage, settledIcon, settledItems, settledLabel, waitingItems } from "./commandQueue.ts";
+import { parseSnapshot, type BoardActivity } from "./types.ts";
 
 const question = (id: string, task: string, created_at: string, status = "pending", extra: Record<string, unknown> = {}) => ({ id, identity: "i-" + id, task, created_at, status, options: ["A", "B"], ...extra });
 const review = (id: string, task: string, created_at: string, state = "open", extra: Record<string, unknown> = {}) => ({ id, identity: "r-" + id, task, title: "Look at " + id, created_at, updated_at: created_at, state, ...extra });
@@ -33,13 +33,15 @@ test("closed items are listed newest first with what became of them", () => {
       review("r2", "steward", "2026-09-24T00:16:00Z", "withdrawn", { reason: "the goblin found the answer", updated_at: "2026-09-24T00:25:00Z" }),
       review("r3", "", "2026-09-24T00:17:00Z", "cleared", { updated_at: "2026-09-24T00:18:00Z" }),
       review("r4", "steward", "2026-09-24T00:18:00Z"),
+      review("r5", "steward", "2026-09-24T00:12:00Z", "cleared", { reason: "Cleared by the CFO: Decided: grid ships", updated_at: "2026-09-24T00:13:00Z" }),
     ],
   });
-  assert.deepEqual(settledItems(snapshot).map((item) => item.key), ["question:e", "review:r1", "question:c", "review:r2", "question:b", "review:r3", "question:a"],
+  assert.deepEqual(settledItems(snapshot).map((item) => item.key), ["question:e", "review:r1", "question:c", "review:r2", "question:b", "review:r3", "review:r5", "question:a"],
     "a question asked first but answered after a review was cleared sorts by when it was answered");
   const label = (key: string) => settledLabel(itemFor(snapshot, key)!, snapshot.actions);
   const cases: [string, string][] = [["question:a", "You chose A"], ["question:b", "You wrote: Ship it Friday"], ["question:c", "Superseded; the asker was replaced"],
-    ["review:r1", "You wrote: Go with B"], ["review:r2", "Withdrawn: the goblin found the answer"], ["review:r3", "Cleared"]];
+    ["review:r1", "You wrote: Go with B"], ["review:r2", "Withdrawn: the goblin found the answer"], ["review:r3", "Cleared"],
+    ["review:r5", "Cleared by the CFO: Decided: grid ships"]];
   for (const [key, text] of cases) assert.equal(label(key), text, key);
   assert.equal(parseSnapshot({ healthy: true }).reviews?.length, 0);
   assert.deepEqual(settledIcon(itemFor(snapshot, "review:r1")!, snapshot.actions), { icon: "check-double", tone: "succeeded" });
@@ -123,4 +125,60 @@ test("a run item waits in the stack while ready or running and settles with its 
     assert.equal(settledLabel(item, snapshot.actions), label, key);
     assert.equal(settledIcon(item, snapshot.actions).icon, icon, key);
   }
+});
+
+test("after a send the stack moves on to the next open item, wrapping, and ends when nothing is left", () => {
+  const snapshot = parseSnapshot({ healthy: true,
+    questions: [question("a", "", "2026-09-24T00:00:00Z"), question("b", "billing", "2026-09-24T00:01:00Z"), question("c", "notes", "2026-09-24T00:02:00Z", "queued", { answer_id: "z" }), question("d", "steward", "2026-09-24T00:03:00Z")],
+  });
+  const stack = waitingItems(snapshot, new Set(["question:c"]));
+  assert.deepEqual(stack.map((item) => item.key), ["question:a", "question:b", "question:c", "question:d"]);
+  assert.equal(nextOpenKey(stack, "question:b"), "question:d", "an item already answered is passed over");
+  assert.equal(nextOpenKey(stack, "question:d"), "question:a", "past the end it wraps to the first open item");
+  assert.equal(nextOpenKey(stack, "question:d", new Set(["question:a", "question:b"])), null, "items sent in this sitting are done even before the snapshot says so");
+  assert.equal(nextOpenKey(stack, "question:gone"), "question:a", "an item that left the stack starts from the top");
+  assert.equal(nextOpenKey(stack, "question:c", new Set(["question:a", "question:c"])), "question:d", "from a sent card the next open item still shows, passing over a sent one the snapshot has not caught up with");
+  assert.equal(nextOpenKey(waitingItems(parseSnapshot({ healthy: true, questions: [question("a", "", "2026-09-24T00:00:00Z")] })), "question:a"), null, "the only item is never its own next");
+});
+
+test("a question opens only its own asker's latest live review page", () => {
+  const page = (id: string, extra: Partial<BoardActivity>): BoardActivity => ({ id, kind: "review", task_id: "", generation: "", source: "", target: "", state: "active", url: "http://127.0.0.1:4000/" + id, at: "", until: "", ...extra });
+  const presentations = [
+    page("old", { task_id: "billing", generation: "g2" }),
+    page("walkthrough", { kind: "browser", task_id: "billing", generation: "g2" }),
+    page("replaced", { task_id: "billing", generation: "g1" }),
+    page("other-task", { task_id: "notes", generation: "g2" }),
+    page("new", { task_id: "billing", generation: "g2" }),
+    page("cfo-mine", { cfo_identity: "cfo-a" }),
+    page("cfo-replaced", { cfo_identity: "cfo-b" }),
+  ];
+  const snapshot = parseSnapshot({ healthy: true, questions: [question("g", "billing", "2026-09-24T00:00:00Z", "pending", { generation: "g2" }), question("c", "", "2026-09-24T00:00:00Z", "pending", { identity: "cfo-a" })] });
+  const [goblin, cfo] = snapshot.questions!;
+  assert.equal(questionPage(presentations, goblin)?.id, "new", "the newest page of the same goblin session");
+  assert.equal(questionPage(presentations, cfo)?.id, "cfo-mine", "the CFO's page from the registration that asked");
+  assert.equal(questionPage(presentations.filter((event) => event.id !== "new" && event.id !== "old"), goblin), undefined, "never a walkthrough, a replaced session's page or another task's");
+});
+
+test("a review item says whether the supervisor watches its page for his answer", () => {
+  const snapshot = parseSnapshot({ healthy: true, reviews: [
+    review("watched", "steward", "2026-09-24T00:00:00Z", "open", { lavish: "http://127.0.0.1:4000/a", lavish_page: "C:/pages/a.html" }),
+    review("linked", "steward", "2026-09-24T00:00:00Z", "open", { lavish: "http://127.0.0.1:4000/b" }),
+  ] });
+  assert.deepEqual(snapshot.reviews!.map((item) => item.watched), [true, false]);
+});
+
+test("a document item reads as its file: its type, its size and who sent it", () => {
+  const snapshot = parseSnapshot({ healthy: true, reviews: [
+    review("setbacks-doc", "", "2026-09-24T00:00:00Z", "open", { document: { name: "setbacks 1204 Oak St.pdf", size: 2516582, kind: "application/pdf" } }),
+    review("parcels-doc", "steward", "2026-09-24T00:00:00Z", "open", { document: { name: "parcels.CSV", size: 900, link: "https://files.example.com/parcels" } }),
+    review("notes-doc", "steward", "2026-09-24T00:00:00Z", "open", { document: { name: "README", size: 20480 } }),
+    review("mockups", "steward", "2026-09-24T00:00:00Z"),
+  ] });
+  const [pdf, csv, plain, noDocument] = snapshot.reviews!;
+  assert.deepEqual(pdf.document, { name: "setbacks 1204 Oak St.pdf", size: 2516582, kind: "application/pdf", link: "" });
+  assert.equal(csv.document?.link, "https://files.example.com/parcels");
+  assert.equal(noDocument.document, null);
+  assert.equal(documentFacts(pdf.document!, "the CFO"), "PDF · 2.4 MB · from the CFO");
+  assert.equal(documentFacts(csv.document!, "steward"), "CSV · 900 B · from steward");
+  assert.equal(documentFacts(plain.document!, "steward"), "File · 20 KB · from steward");
 });

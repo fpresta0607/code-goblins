@@ -56,6 +56,46 @@ func TestHistoryKeepsOnlyTheLatestOutput(t *testing.T) {
 	}
 }
 
+// A replay cut down to the limit starts at the next line or escape sequence
+// rather than inside one, so a late viewer never begins on half a colour code
+// or half a character; trimming the kept output cuts the same way.
+func TestHistoryReplayStartsOnABoundary(t *testing.T) {
+	colour := "\x1b[38;2;110;231;183m"
+	for name, replay := range map[string]struct {
+		head string
+		// cut is where the limit falls inside head.
+		cut  int
+		want string
+	}{
+		"after a line":        {colour + "\r\n", 5, "bb"},
+		"at an escape":        {colour + "é\x1b[K", 5, "\x1b[Kbb"},
+		"at a character":      {"ééé", 3, "éb"},
+		"on the limit itself": {"a\x1b[K", 1, "\x1b[Kbb"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			output := newHistory()
+			output.write([]byte(replay.head + strings.Repeat("b", historyLimit+replay.cut-len(replay.head))))
+
+			past, _, detach := output.attach()
+			detach()
+
+			if !strings.HasPrefix(string(past), replay.want) || len(past) > historyLimit {
+				t.Errorf("the replay starts %q and holds %d bytes, want it to start %q within the %d-byte limit", past[:min(len(past), 24)], len(past), replay.want, historyLimit)
+			}
+		})
+	}
+	t.Run("trimming", func(t *testing.T) {
+		output := newHistory()
+		// The trim falls five bytes into the colour code.
+		output.write([]byte(strings.Repeat("a", historyLimit) + colour + "\r\n"))
+		output.write([]byte(strings.Repeat("c", historyLimit+5-len(colour)-2)))
+
+		if kept := string(output.kept); !strings.HasPrefix(kept, "c") {
+			t.Errorf("the kept output starts %q, want it trimmed after the line the colour code is on", kept[:min(len(kept), 24)])
+		}
+	})
+}
+
 // A viewer that attaches after the terminal ended gets the history and a
 // closed feed.
 func TestHistoryAfterTheEndStillReplays(t *testing.T) {

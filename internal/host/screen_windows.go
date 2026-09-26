@@ -68,7 +68,7 @@ func ReadScreen(record Record) ([]string, error) {
 }
 
 func requestScreen(record Record) ([]string, error) {
-	client, err := dial(record, hello{Version: Version, Token: record.Token, Screen: true})
+	client, _, err := dial(record, hello{Version: Version, Token: record.Token, Screen: true})
 	if err != nil {
 		return nil, err
 	}
@@ -89,6 +89,26 @@ func requestScreen(record Record) ([]string, error) {
 		return nil, errors.New(answer.Error)
 	}
 	return answer.Rows, nil
+}
+
+// ScreenTail is a screen's last lines rows, or all of them for lines 0 or
+// less, without the trailing blanks of each row or the blank rows below the
+// last one written.
+func ScreenTail(screen []string, lines int) string {
+	rows := make([]string, len(screen))
+	for i, row := range screen {
+		rows[i] = strings.TrimRight(row, " ")
+	}
+	for len(rows) > 0 && rows[len(rows)-1] == "" {
+		rows = rows[:len(rows)-1]
+	}
+	if lines > 0 && lines < len(rows) {
+		rows = rows[len(rows)-lines:]
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	return strings.Join(rows, "\n") + "\n"
 }
 
 // serveScreen answers a screen request once its token is checked: the screen

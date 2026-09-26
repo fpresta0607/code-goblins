@@ -81,6 +81,50 @@ func TestReconcileActiveSessionAfterAbruptHarnessLoss(t *testing.T) {
 	}
 }
 
+// The board learns which terminal a task runs in, so it opens a native
+// terminal's own relay rather than a Herdr view.
+func TestSnapshotNamesEachTasksTerminalBackend(t *testing.T) {
+	store, h := testStore(t)
+	for _, backend := range []string{"native", "herdr"} {
+		meta, err := state.ReadTaskMeta(h.State, "task-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		meta.Backend = backend
+		if err := state.WriteTaskMeta(h.State, meta); err != nil {
+			t.Fatal(err)
+		}
+
+		view, err := (&Service{Store: store}).Snapshot()
+
+		if err != nil || len(view.Tasks) == 0 || view.Tasks[0].Backend != backend {
+			t.Errorf("the snapshot names backend %+v (%v), want %q", view.Tasks, err, backend)
+		}
+	}
+}
+
+// A live task is named by the short title it was dispatched under, and by its
+// ID only when it has none.
+func TestSnapshotNamesALiveTaskByItsTitle(t *testing.T) {
+	store, h := testStore(t)
+	for title, want := range map[string]string{"Install and run on any machine, no setup": "Install and run on any machine, no setup", "": "task-1"} {
+		meta, err := state.ReadTaskMeta(h.State, "task-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		meta.Title = title
+		if err := state.WriteTaskMeta(h.State, meta); err != nil {
+			t.Fatal(err)
+		}
+
+		view, err := (&Service{Store: store}).Snapshot()
+
+		if err != nil || len(view.Tasks) == 0 || view.Tasks[0].Title != want {
+			t.Errorf("the snapshot names the task %+v (%v), want %q", view.Tasks, err, want)
+		}
+	}
+}
+
 type fakeProgress struct {
 	value pipeline.Progress
 	err   error

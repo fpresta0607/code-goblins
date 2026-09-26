@@ -28,30 +28,32 @@ type Event struct {
 // Dial connects to the host record names and says hello. The first event it
 // then reads is the terminal's history.
 func Dial(record Record) (*Client, error) {
-	return dial(record, hello{Version: Version, Token: record.Token})
+	client, _, err := dial(record, hello{Version: Version, Token: record.Token})
+	return client, err
 }
 
-func dial(record Record, greeting hello) (*Client, error) {
+// dial connects and says hello, returning the host's answer with the client.
+func dial(record Record, greeting hello) (*Client, hello, error) {
 	pipe, err := dialPipe(record.Pipe, record.HostPID)
 	if err != nil {
-		return nil, err
+		return nil, hello{}, err
 	}
 	_ = pipe.SetDeadline(time.Now().Add(handshakeTimeout))
 	if err := writeHello(pipe, greeting); err != nil {
 		pipe.Close()
-		return nil, fmt.Errorf("host: say hello: %w", err)
+		return nil, hello{}, fmt.Errorf("host: say hello: %w", err)
 	}
 	answer, err := readHello(pipe)
 	if err != nil {
 		pipe.Close()
-		return nil, fmt.Errorf("host: no answer to the handshake: %w", err)
+		return nil, hello{}, fmt.Errorf("host: no answer to the handshake: %w", err)
 	}
 	if answer.Error != "" {
 		pipe.Close()
-		return nil, fmt.Errorf("host: refused the connection: %s", answer.Error)
+		return nil, hello{}, fmt.Errorf("host: refused the connection: %s", answer.Error)
 	}
 	_ = pipe.SetDeadline(time.Time{})
-	return &Client{pipe: pipe}, nil
+	return &Client{pipe: pipe}, answer, nil
 }
 
 // Next reads the next event.

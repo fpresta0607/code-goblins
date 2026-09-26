@@ -7,6 +7,7 @@ import { ownsTaskSession } from "./lineageTree";
 import { Icon } from "./Icon";
 import { bracketedPaste, fittedFontSize, inputBytes, maxInputBytes, queueInput, typingHeldReason } from "./terminalInput";
 import { terminalDocument } from "./terminalDocument";
+import { useDictation } from "./useDictation";
 
 const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
 
@@ -15,21 +16,28 @@ const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
 // takes typing straight away. Nothing here resizes or scrolls the real pane.
 // An input the supervisor refuses, or whose outcome is unknown, ends the view;
 // it is never resent, and reconnecting starts from a fresh full screen.
-export function NativeTerminal({ task, node, instance, visible, shown, onOwner }: { task?: Task; node?: Session; instance: string; visible: boolean; shown: boolean; onOwner?: () => void }) {
+export function NativeTerminal({ task, node, instance, visible, shown, focus = 0, onOwner }: { task?: Task; node?: Session; instance: string; visible: boolean; shown: boolean; focus?: number; onOwner?: () => void }) {
   const host = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
-  const [readerSupport, setReaderSupport] = useState(() => { try { return localStorage.getItem("cfo-terminal-screen-reader") === "true"; } catch { return false; } });
-  const [preferenceError, setPreferenceError] = useState("");
-  const readerValue = useRef(readerSupport);
-  useEffect(() => { readerValue.current = readerSupport; if (terminal.current) terminal.current.options.screenReaderMode = readerSupport; }, [readerSupport]);
   const shownValue = useRef(shown);
   useEffect(() => { shownValue.current = shown; }, [shown]);
+  // A switch to this terminal hands it the keyboard, at once or on its first
+  // frame.
+  const wantFocus = useRef(false);
+  const liveValue = useRef(false);
+  useEffect(() => {
+    if (!focus) return;
+    if (terminal.current && liveValue.current && shownValue.current) terminal.current.focus(); else wantFocus.current = true;
+  }, [focus]);
   const [live, setLive] = useState(false);
   const [status, setStatus] = useState("Connecting");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const pasteText = useRef<((text: string) => void) | null>(null);
+  const dictation = useDictation((text) => pasteText.current?.(text));
+  const dictate = dictation.key;
   const taskID = task?.id || "", generation = task?.generation || "", session = node?.id || "";
   const cfo = !task && !node;
   const shared = !!node && !ownsTaskSession(node, task);
@@ -40,7 +48,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, onOwner }
     const element = host.current;
     const abort = new AbortController();
     const nonce = document.querySelector<HTMLMetaElement>('meta[name="cfo-style-nonce"]')?.content || "";
-    const term = new Terminal({ documentOverride: terminalDocument(nonce), fontSize: 15, fontFamily: FALLBACK_FONT, lineHeight: 1.2, scrollback: 0, disableStdin: true, cursorBlink: false, screenReaderMode: readerValue.current, theme: { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" }, linkHandler: { activate: () => {} } });
+    const term = new Terminal({ documentOverride: terminalDocument(nonce), fontSize: 15, fontFamily: FALLBACK_FONT, lineHeight: 1.2, scrollback: 0, disableStdin: true, cursorBlink: false, theme: { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" }, linkHandler: { activate: () => {} } });
     term.open(element);
     terminal.current = term;
     // The bundled face measures differently from the fallback, so switch once
@@ -61,6 +69,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, onOwner }
       lease = "";
       term.options.disableStdin = true;
       abort.abort();
+      liveValue.current = false;
       setLive(false);
       setStatus("Disconnected");
       setError(typingHeldReason(reason));
@@ -90,10 +99,12 @@ export function NativeTerminal({ task, node, instance, visible, shown, onOwner }
       void flush();
     };
     term.onData(send);
+    const typePaste = (text: string) => { try { send(bracketedPaste(text)); } catch (e: unknown) { setError(message(e)); } };
+    pasteText.current = typePaste;
     const paste = (event: ClipboardEvent) => {
       event.preventDefault(); event.stopImmediatePropagation();
       const text = event.clipboardData?.getData("text/plain");
-      if (text) { try { send(bracketedPaste(text)); } catch (e: unknown) { setError(message(e)); } }
+      if (text) typePaste(text);
     };
     element.addEventListener("paste", paste, true);
     const copy = () => {
@@ -111,9 +122,11 @@ export function NativeTerminal({ task, node, instance, visible, shown, onOwner }
     term.attachCustomKeyEventHandler((event) => {
       // Escape belongs to the pane, never the surrounding panel.
       event.stopPropagation();
+      const dictated = dictate(event);
+      if (dictated !== null) return dictated;
       if (event.shiftKey && event.key === "Escape") {
         event.preventDefault();
-        if (event.type === "keydown") element.closest(".goblin-panel")?.querySelector<HTMLButtonElement>(".panel-pill button[aria-pressed='true']")?.focus();
+        if (event.type === "keydown") element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-pill button[aria-pressed='true']")?.focus();
         return false;
       }
       if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "c") {
@@ -129,7 +142,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, onOwner }
     const resize = new ResizeObserver(fit);
     resize.observe(element);
     const read = async () => {
-      setLive(false); setError(""); setStatus("Connecting");
+      liveValue.current = false; setLive(false); setError(""); setStatus("Connecting");
       try {
         const response = await fetch("/api/terminal/stream", { signal: abort.signal, method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ task: taskID, session, generation }) });
         if (!response.ok) {
@@ -171,40 +184,32 @@ export function NativeTerminal({ task, node, instance, visible, shown, onOwner }
             if (!full) {
               full = true;
               term.options.disableStdin = false;
+              liveValue.current = true;
               setLive(true);
               setStatus("Live");
-              if (shownValue.current && element.closest(".context-pane")?.contains(document.activeElement)) term.focus();
+              if (shownValue.current && (wantFocus.current || element.closest(".context-pane")?.contains(document.activeElement))) term.focus();
+              wantFocus.current = false;
             }
           }
         }
       } catch (e: unknown) { if (!abort.signal.aborted) stop(message(e)); }
     };
     void read();
-    return () => { lease = ""; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); resize.disconnect(); element.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); window.removeEventListener("pointerup", copy); term.dispose(); terminal.current = null; };
-  }, [taskID, generation, session, instance, visible, attempt, missing]);
+    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); resize.disconnect(); element.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); window.removeEventListener("pointerup", copy); term.dispose(); terminal.current = null; pasteText.current = null; };
+  }, [taskID, generation, session, instance, visible, attempt, missing, dictate]);
   if (missing) return <div className="terminal-empty"><Icon name="terminal" /><p>{queued ? "This task has not started yet." : shared ? "This child has no separate terminal." : error}</p>{onOwner && shared && <button className="primary" onClick={onOwner}>Open owning task</button>}</div>;
   return <section className="native-terminal" aria-label={cfo ? "CFO terminal" : "Goblin terminal"}>
     <div className="terminal-surface" ref={host} />
+    {!live && status === "Connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div>}
     <div className="terminal-overlay">
       {/* A live pane shows nothing over the screen; only a change of state or
-          a copy needs saying. */}
-      <span className={"terminal-state" + (live ? " live" : "") + (live && !copied ? " quiet" : "")} role="status">
+          a copy needs saying, and the cover says it is connecting. */}
+      {(live || status !== "Connecting") && <span className={"terminal-state" + (live ? " live" : "") + (live && !copied ? " quiet" : "")} role="status">
         <span className="status-dot" />{copied ? "Copied" : status}
-      </span>
+      </span>}
       {!live && status !== "Connecting" && <button className="icon-button raised" disabled={!visible} aria-label="Reconnect" data-tip="Reconnect" data-tip-align="end" onClick={() => setAttempt((prior) => prior + 1)}><Icon name="refresh" /></button>}
     </div>
-    {error && <p className="terminal-error" role="alert">{error}</p>}
-    <details className="terminal-options">
-      <summary className="icon-button raised" aria-label="Terminal options" data-tip="Terminal options" data-tip-align="end"><Icon name="tune" /></summary>
-      <div className="terminal-options-panel">
-        <p>Releasing a drag selection copies it. Shift+Escape moves focus out of the terminal.</p>
-        <label><input type="checkbox" checked={readerSupport} onChange={(event) => {
-          const enabled = event.target.checked; setReaderSupport(enabled); setPreferenceError("");
-          try { localStorage.setItem("cfo-terminal-screen-reader", String(enabled)); } catch { setPreferenceError("This preference could not be saved in this browser."); }
-        }} />Screen reader support</label>
-        <p>Some text input methods are unavailable in screen reader mode; paste still works.</p>
-        {preferenceError && <p role="status">{preferenceError}</p>}
-      </div>
-    </details>
+    {dictation.listening && <span className="terminal-state live terminal-listening" role="status"><Icon name="mic" />Listening</span>}
+    {error ? <p className="terminal-error" role="alert">{error}</p> : dictation.note && <p className="terminal-error" role="status">{dictation.note}</p>}
   </section>;
 }

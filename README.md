@@ -181,13 +181,14 @@ Hook setup, evidence rules and terminal limits are in [the native board guide](d
 
 The header switches between two views, one at a time, each with a contextual panel on the right.
 
-- **Board** is task review. Real tasks sit in **Tasks**, **In progress** and **Completed**. Only verified delivery reaches Completed; failed work and work awaiting review stay in progress with a plain status. Selecting a card opens its changes, activity and commit history.
-- **Orchestration** is the live family tree: the CFO above its goblins and any child sessions they reported. The panel shows the selected session's real native terminal and starts on the CFO. Dragging cards, panning, zooming, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence. A brief pulse along a connector marks a real accepted message.
+- **Board** is task review. Real tasks sit in **Tasks**, **In progress** and **Completed**. Only verified delivery reaches Completed; failed work and work awaiting review stay in progress with a plain status. Selecting a card opens its changes, activity and commit history. The CFO is pinned above the columns: its bar says what it needs from you, the first question or review waiting and how many more, or else how many goblins it supervises, and **Open terminal** opens its terminal. A goblin waiting on you says Waiting on the CFO, since the CFO brings every question to you.
+- **Orchestration** is the live family tree: the CFO above its goblins and any child sessions they reported. The panel shows the selected session's real native terminal and starts on the CFO, whose terminal is shown from its host when the CFO runs in a native terminal. Dragging cards, panning, zooming, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence. A brief pulse along a connector marks a real accepted message.
 
 <p align="center">
   <img src="docs/images/orchestration.webp" alt="Orchestration view: the CFO above four goblins, with the selected goblin's live native terminal in the right panel" width="900" />
 </p>
 
+Each card shows the task's short title on at most two lines and one muted line with its repo and status; the goblin's own words are in its panel.
 Each card's goblin is chosen from the task's work, and the crowned goblin is the CFO.
 The whole crew:
 
@@ -199,12 +200,21 @@ The whole crew:
 
 Clicking a card or a node opens the same goblin panel from either view: who the goblin is, what it is doing in plain words, its own latest status line, and icon buttons to open its worktree in VS Code or File Explorer and to open its pull request.
 A pill at the top switches between the **Task** view and the **Terminal** view in one tap.
-A live goblin's card also carries a terminal button that opens its panel straight on the Terminal view.
+A live goblin's card also carries a terminal button, shown on hover or keyboard focus, that opens its panel straight on the Terminal view.
 The Task view shows **Workspace** with the repository, branch and exact working folder, **Connectors** with a mark for every harness, model provider, MCP server and credential (configured is not the same as connected, and no secret values are shown), then **Changes**, **Activity** and **History**.
-The Terminal view is the goblin's live Herdr pane, edge to edge: type straight into it, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
+The Terminal view is the goblin's live terminal, edge to edge.
+A goblin in a native terminal (`cfo spawn --backend native`) is drawn from its terminal's own output at the panel's size, in a 20 px font: type straight into it, scroll its history with the wheel, and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
+Opening it replays the terminal's history out of sight and shows it once its screen is whole, so it never opens blank or half drawn, and a full-pane state shows while it connects.
+A program's redraw appears as one frame, the way a native terminal shows it, and while the board's own connection is down the last screen stays in place with a Reconnecting note.
+Every terminal you open stays live while the board is open, and the list beside the terminal switches between them, the CFO first and then each goblin with a terminal.
+**Ctrl+Alt+Up** and **Ctrl+Alt+Down** step through that list and **Ctrl+Alt+1** to **Ctrl+Alt+9** jump to an entry, from anywhere on the board; a switch hands the keyboard to the terminal it shows, and one you opened before appears at once, already drawn.
+Drag the divider between the board and the panel to size the panel, or use the maximize button to give it the whole window; both are remembered in this browser.
+A goblin still in Herdr shows its Herdr pane at the pane's own size, with the same full-pane state while it connects.
+Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: the browser's own speech recognition listens while the keys are held, and releasing them types what it heard as one line, which **Enter** sends.
+In both, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
 
 <p align="center">
-  <img src="docs/images/goblin-panel.webp" alt="The goblin panel on its Terminal view: the goblin's live Herdr pane showing a CFO message it accepted, with Open in VS Code and Open folder in the header" width="600" />
+  <img src="docs/images/goblin-panel.webp" alt="The goblin panel on its Terminal view beside the board: the switcher lists the CFO, Build review panel, native-a and native-b with their shortcut numbers, and native-a's native terminal is drawn edge to edge in a 20 px font" width="900" />
 </p>
 
 ### Sending a diff comment to the CFO
@@ -227,9 +237,18 @@ Retrying an unchanged comment keeps its request ID, so a retry cannot deliver th
 </p>
 
 When the CFO needs a decision only you can make, it publishes the question with `cfo question` and the Command Center opens as a modal.
-Choices are labelled A, B and C with the CFO's recommendation marked, and **Other** takes a written answer.
-Review items share the stack: a goblin's image review, a Lavish page, or a goblin waiting on you, each answered in writing with **Send answer** or closed with **Clear**.
-Several items stack up one card at a time, the CFO's first and then goblins by longest wait, with **Back**, **Next** and swipe; each card sends its own answer, and **Later** moves on without answering.
+The question reads as plain body text across a wide card: its first sentence is the question, details follow as bullets, and only what the asker marked, such as the verdict or the blocking item, is bold.
+Choices are labelled A, B and C with the CFO's recommendation marked, and **Other** takes a written answer; a goblin's own A), B), C) labels are dropped, so each choice shows one letter.
+Review items share the stack: a goblin's image review, a review page, or a goblin waiting on you.
+A review page shows as a preview you click to open it (**Open review**); a page the board watches is answered on the page itself, and its card finishes when you send or end the review there.
+Other items, a plain link included, are answered in writing with **Send answer**, and any item closes with **Clear**.
+A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Download**, and **Open** when the browser can show it or it has a link; opening or downloading it moves it to History.
+A new review item or command appears in a banner at the bottom right for a few seconds and stays under the badge, and the browser tab's title counts what is waiting on you.
+A goblin's item closes by itself once nobody waits on it: a wait when the goblin reports again or the CFO answers it, any item but a delivered document when its goblin finishes or is cleaned up, and the CFO can clear a stale one with a reason.
+Several items stack up one card at a time, the CFO's first and then goblins by longest wait, with **Back** and **Next** on the left, swipe, and **Later** on the right; each card sends its own answer, and **Later** moves on without answering.
+After you send, the card reads Sending until the answer arrives, then a check draws with **CFO received** or **Delivered to** the goblin, and the next open item follows by itself; the last one ends on **You're all done** and the Command Center closes.
+An answer that could not be delivered stays on its card with what went wrong.
+Clicking outside the Command Center, or outside its inbox, closes it.
 Nothing is preselected, drafts are kept, and the **Command Center** icon in the header, whose badge counts what is waiting on you, opens an inbox of what is waiting on you, the live pages (review pages and browser walkthroughs) and a History of what you answered, cleared or ran.
 A goblin waiting on you offers **Answer** in its panel, which opens the stack at its item.
 A question with images shows a thumbnail per choice that opens a full-size, swipeable, zoomable gallery.
@@ -272,7 +291,7 @@ cfo uninstall
 cfo serve [--listen <loopback-address>]
 cfo hooks install <claude|codex|pi>
 cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <mode>]
-cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <mode>] [--model <model>] [--effort <level>] [--class <class>] [--yolo]
+cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <mode>] [--model <model>] [--effort <level>] [--class <class>] [--backend <herdr|native>] [--yolo]
 cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>]
 cfo send <target> <text...>
 cfo peek <target> [lines]
@@ -291,6 +310,8 @@ cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>"
 cfo question --id <stable-id> --text "<question>" [--option "<choice>"]... [--recommend "<exact-choice>"]
 cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]
 cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file>]
+cfo review --clear <stable-id> --reason "<why>"
+cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--url <link>] [--task <id>]
 cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--cwd <dir>] --command-file <path>
 ```
 

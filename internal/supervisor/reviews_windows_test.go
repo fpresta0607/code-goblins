@@ -129,7 +129,7 @@ func TestReviewWithdrawalRefusedBeforeRecordingAnything(t *testing.T) {
 	if err := store.ingestReviews(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.clearReview("closed-review", goblinIdentity(meta)); err != nil {
+	if _, err := store.clearReview("closed-review", goblinIdentity(meta), ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.acceptReview(openReview("stranger-review", meta.ID)); err != nil {
@@ -402,7 +402,7 @@ func TestWaitOnTheOverlordIsTheItemItsNextReportWithdraws(t *testing.T) {
 	if err := store.ingestReviews(); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.retireWaits(); err != nil {
+	if err := store.retireItems(); err != nil {
 		t.Fatal(err)
 	}
 	if got := store.Snapshot().Reviews; len(got) != 1 || got[0].ID != "waiting-task-1-7" || got[0].Title != "Waiting on you: log in to Stripe" || got[0].Task != meta.ID || got[0].State != "open" {
@@ -411,10 +411,132 @@ func TestWaitOnTheOverlordIsTheItemItsNextReportWithdraws(t *testing.T) {
 	if err := state.AppendStatus(h.State, meta.ID, "working: charging the card"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.retireWaits(); err != nil {
+	if err := store.retireItems(); err != nil {
 		t.Fatal(err)
 	}
 	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" {
 		t.Fatalf("the wait after the goblin reported again = %+v, want it withdrawn", got)
+	}
+}
+
+// The registered CFO clears a goblin's stale item with a reason, which the
+// item keeps and state/reviews.audit records; no other process can, and an
+// item it does not know is refused before anything is recorded.
+func TestTheCFOClearsAStaleItemWithAnAuditedReason(t *testing.T) {
+	store, h := testStore(t)
+	_, _, _, cfo := primaryFixture(t, store)
+	meta, _, _, goblin := goblinFixture(t, store)
+	ctx := context.Background()
+	for _, id := range []string{"plan-review-1", "plan-review-2"} {
+		if err := PublishReview(ctx, h, goblin.Terminals, meta.ID, id, "Read the plan", "", "", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+	if err := spoolReview(h.State, Review{ID: "plan-review-2", Identity: strings.Repeat("e", 64), State: "cleared", Reason: "not the CFO", UpdatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ClearReview(ctx, h, cfo.Terminals, "plan-review-1", "Decided: the plan is approved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ClearReview(ctx, h, cfo.Terminals, "no-such-review", "stale"); err == nil {
+		t.Error("clearing an item nobody published succeeded, want it refused")
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+
+	got := store.Snapshot()
+	if got.Reviews[0].State != "cleared" || got.Reviews[0].Reason != "Cleared by the CFO: Decided: the plan is approved" {
+		t.Errorf("the CFO's clear = %+v, want the item cleared with its reason", got.Reviews[0])
+	}
+	if got.Reviews[1].State != "open" || !strings.Contains(strings.Join(got.Issues, "\n"), "only the registered CFO") {
+		t.Errorf("a stranger's clear = %+v %q, want it refused and the item open", got.Reviews[1], got.Issues)
+	}
+	audit, err := os.ReadFile(filepath.Join(h.State, "reviews.audit"))
+	if err != nil || !strings.Contains(string(audit), " plan-review-1 task-1 Cleared by the CFO: Decided: the plan is approved\n") || strings.Contains(string(audit), "plan-review-2") {
+		t.Errorf("reviews.audit = %q (%v), want the CFO's clear recorded and nothing else", audit, err)
+	}
+}
+
+// A clear the store recorded but could not audit says so, rather than claiming
+// the clear was rejected.
+func TestACFOClearWhoseAuditFailsIsReportedAsCleared(t *testing.T) {
+	store, h := testStore(t)
+	_, _, _, cfo := primaryFixture(t, store)
+	meta, _, _, goblin := goblinFixture(t, store)
+	ctx := context.Background()
+	if err := PublishReview(ctx, h, goblin.Terminals, meta.ID, "plan-review-1", "Read the plan", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(h.State, "reviews.audit"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ClearReview(ctx, h, cfo.Terminals, "plan-review-1", "Decided"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+
+	got := store.Snapshot()
+	if got.Reviews[0].State != "cleared" {
+		t.Errorf("the CFO's clear = %+v, want the item cleared", got.Reviews[0])
+	}
+	if issues := strings.Join(got.Issues, "\n"); !strings.Contains(issues, "plan-review-1 was cleared, but state/reviews.audit was not written") || strings.Contains(issues, "rejected") {
+		t.Errorf("issues = %q, want the clear reported as recorded but unaudited", got.Issues)
+	}
+}
+
+// Answering a goblin's question closes its waits on the Overlord up to that
+// question at once, since the goblin now has what it was waiting for, and the
+// audit says so; a wait it published after the question stays open.
+func TestAnsweringAGoblinClosesItsWaitsOnTheOverlord(t *testing.T) {
+	store, h := testStore(t)
+	primaryFixture(t, store)
+	if err := state.AppendStatus(h.State, "task-1", "waiting on overlord: pick the store"); err != nil {
+		t.Fatal(err)
+	}
+	earlier, err := wake.Append(h.State, "notify", "task-1", "waiting on overlord: pick the store")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, record, _, connection := goblinFixture(t, store)
+	ctx := context.Background()
+	if err := PublishWait(ctx, h, connection.Terminals, meta.ID, earlier.Seq, "pick the store", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := PublishWait(ctx, h, connection.Terminals, meta.ID, record.Seq+1, "log in to Stripe", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+	surfaced(t, store, meta, record, connection)
+
+	if _, err := connection.AnswerGoblin(ctx, fmt.Sprint(record.Seq), "sqlite", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+
+	reviews := store.Snapshot().Reviews
+	if got := reviews[0]; got.State != "cleared" || got.Reason != "The CFO answered task-1's question." {
+		t.Errorf("the goblin's wait after its answer = %+v, want it cleared", got)
+	}
+	if got := reviews[1]; got.State != "open" {
+		t.Errorf("a wait published after the answered question = %+v, want it open", got)
+	}
+	audit, err := os.ReadFile(filepath.Join(h.State, "reviews.audit"))
+	if err != nil || !strings.Contains(string(audit), fmt.Sprintf(" waiting-task-1-%d task-1 The CFO answered task-1's question.\n", earlier.Seq)) || strings.Contains(string(audit), reviews[1].ID) {
+		t.Errorf("reviews.audit = %q (%v), want only the covered wait recorded", audit, err)
 	}
 }

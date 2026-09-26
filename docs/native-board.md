@@ -116,11 +116,14 @@ A merged pull request whose live task already shows the merge, in phase merged o
 Any other merged pull request keeps its Completed card, even when a live task reported it: a task whose gate missed the merge, or that is blocked, failed or waiting on a question, keeps its own proven state on its card.
 A history card is its pull request link, since it has no live worktree to review.
 A task no native hook has reported takes its status from the fleet's own records: a question it is still waiting on in the wake queue, then what its gate proved, then what Herdr sees in its pane, and it is evaluated once a minute like any other.
-Each card shows the task's own latest status line and its pull request, linked only when the reported value is an https URL.
-Both come from the current generation's lines only, so a respawned task id shows neither its earlier generation's activity nor its pull request until it reports again.
-Cards state progress in plain words, never engine words: Not started, Working, In review gate (with its step, such as In review gate: tests), Waiting on the CFO, Waiting on you, Waiting on a goblin by its id, Waiting on CI, Waiting on deploy, Checks passed, Delivered and No fresh evidence.
+Each card shows a short title of at most two lines, then one muted line with the task's repo and status, and its pull request, linked only when the reported value is an https URL; the task's own latest status line is in its panel.
+The title is the backlog row's short title, which `cfo spawn` keeps on the task as `title=` in its metadata so it outlives the row, and the task's id only when it had none.
+The status line and the pull request come from the current generation's lines only, so a respawned task id shows neither its earlier generation's activity nor its pull request until it reports again.
+Cards state progress in plain words, never engine words: Not started, Working, In review gate (with its step, such as In review gate: tests), Waiting on the CFO, Waiting on a goblin by its id, Waiting on CI, Waiting on deploy, Checks passed, Delivered and No fresh evidence.
 A goblin waiting on another goblin links to it: a chip on its card and a button beside its status in the panel open the goblin it waits on, and Orchestration draws a dashed line from the waiting card to that goblin's card, apart from the family tree.
-Waiting on you shows, ahead of its phase, only while the goblin waits on the Overlord or has an open question to the Overlord; a wait on a goblin, CI or a deploy is shown in a calmer sand colour.
+A goblin that waits on the Overlord, or has an open question to him, shows Waiting on the CFO, since the CFO carries every question to him.
+It keeps its phase's colour, without the amber emphasis that belongs to the CFO's bar, so a wait on the Overlord, a goblin, CI or a deploy is shown in the same calmer sand colour.
+The CFO is pinned above the Board's columns, and its bar is the one place on the board that says Waiting on you: it names the first item the Command Center holds for the Overlord, by a question's lead sentence or a review's or command's title, and how many more wait, and otherwise says how many goblins the CFO supervises; its Open terminal button opens the CFO's terminal and hands it the keyboard.
 Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Task view and a Terminal view one tap apart on a pill at its top.
 The Task view header also shows the goblin's own latest status line; the Terminal view header is compact, showing only the goblin, its status and the icon buttons, since the live screen shows the latest output.
 The Task view holds the workspace, connections, changes, activity and commit history; the Terminal view is that goblin's live native terminal, edge to edge.
@@ -171,9 +174,10 @@ Drafts bind the task session identity at selection and survive view, file and re
 An unchanged submitted payload keeps its request ID after an ambiguous HTTP failure; an SSE outcome is displayed instead of dispatching it again.
 An interrupted external delivery becomes uncertain and is not replayed automatically.
 
+A goblin panel's Terminal view shows a task in a native terminal from its host, as described after this Herdr view, and the CFO and a task in Herdr through Herdr.
 The installed Herdr build `0.9.0-preview.2026-09-08-62431dbd033b` exposes `terminal session observe` and `terminal session control` over NDJSON.
 The browser renders its real ANSI screen frames using xterm, loaded the first time a panel shows its Terminal view.
-A goblin panel's Terminal view is a live view of the pane: it never claims the native controller, never resizes the pane and never resumes an agent.
+A goblin panel's Terminal view of a Herdr pane is a live view of the pane: it never claims the native controller, never resizes the pane and never resumes an agent.
 Frames arrive at the pane's own size as Herdr lays it out; the view shrinks its font to fit the pane's columns across the panel, never below 12 px, and a wider or taller pane scrolls inside the panel rather than being cropped.
 A view is refused when Herdr reports no size for the pane; when Herdr lays the pane out at a new size the view ends, and the panel reconnects on its own to show it whole.
 Typing needs no separate step: the view's lease takes keys, escape sequences and one bracketed paste at a time, in order, each typed into that exact pane by Herdr.
@@ -186,18 +190,54 @@ Releasing a drag selection copies it to the clipboard, the way Herdr does, and C
 Closing, switching, disconnecting or restarting invalidates the lease; reconnection starts with a full screen frame, never replayed input.
 At most four views are open, frame gaps disconnect, and oversized UTF-8 paste is rejected before sending.
 Adjacent printable keystrokes coalesce into bounded ordered inputs; control keys and paste wrappers stay inputs of their own.
-Screen reader support is an explicit saved preference in the terminal options menu and changes in place without reconnecting.
-The default xterm input mode accepts InsertText/IME Unicode; its optional screen-reader mode has an upstream InsertText limitation, while paste remains supported.
+Until the first frame is drawn a full-pane state says the terminal is connecting, and a view that has stopped says why in a pill with Reconnect beside it.
+The terminal carries no options menu or help text; xterm's default input mode accepts InsertText and IME Unicode, and paste works.
 There is no second model session or generated reply.
 The native interface exposes rendered screen updates rather than original historical PTY bytes, and omits Kitty keyboard negotiation, graphics and host mouse notifications.
 
-A task whose record names the `native` backend runs in a `cfo host` of its own, and `GET /api/terminal/native?task=ID&generation=GEN&token=TOKEN` relays one view of it over a WebSocket; the board does not open it yet.
+A task whose record names the `native` backend runs in a `cfo host` of its own, and `GET /api/terminal/native?task=ID&generation=GEN&token=TOKEN` relays one view of it over a WebSocket; a goblin panel's Terminal view opens it for every such task, and the snapshot names each task's `backend` so the board knows which view to open.
+A CFO registered in a native terminal is relayed the same way with `?cfo=TERMINAL&token=TOKEN`, and the snapshot's `cfo_terminal` names that terminal, empty while the CFO runs in Herdr, so the CFO's entry in the panel shows the native terminal instead of a Herdr view that cannot show it.
+The view is refused unless the registration names a live CFO in exactly that terminal, and it closes once the registration stops naming it, so typing never reaches a terminal the CFO has left.
 The upgrade needs the board's own origin and the board's token in the query, since a browser cannot set a WebSocket header, and anything else is refused with 403.
-Every later refusal closes the socket with its reason, which a browser can read: a replaced generation, a task that runs in Herdr, no running host, a host that did not answer, or four views already open.
+Every later refusal closes the socket with its reason, which a browser can read: a replaced generation, a task that runs in Herdr, no running host, a host that did not answer, or 32 native views already open, a limit of their own apart from the four Herdr streams.
 The view is bound to its terminal once, by the host's pipe, whose server process must be the host the record names, so a key costs no check and starts no process.
-Output arrives as binary messages, the host's history first; typing goes back as binary messages, and a resize as the text message `{"type":"resize","cols":C,"rows":R}`.
+The first message is the text `{"type":"history","bytes":N}`, the number of output bytes that follow as the host's history, even when it is empty.
+Output arrives as binary messages, the history first; typing goes back as binary messages, and a resize as the text message `{"type":"resize","cols":C,"rows":R}`.
+The pseudo console repaints its whole window on every resize, even to the size it already has, so a view replays the history and then sends its size, and its screen is whole however much of the history the host still keeps; the host starts a replay at the next line or escape sequence past its 4 MiB limit, never inside one.
+Every other view of the terminal is told the size the terminal took as `{"type":"size","cols":C,"rows":R}`, so a second window draws the output at that size until it is typed into, which sizes the terminal to it; a size under 20 columns or 5 rows, measured while a panel was hidden, or over 1000 columns or 500 rows is ignored and announced to nobody.
+A view acknowledges the output it has drawn with `{"type":"ack","bytes":N}`, N counting every output byte so far: the relay sends a view at most 1 MiB beyond what it acknowledged and keeps reading the host, and a view that falls 8 MiB behind is closed with code 1013 and "The view fell behind the terminal's output.", so the host never waits on a slow window and a view that stays open never loses a byte.
 Gate custody and the task's generation are checked when the view opens and on every five-second tick; a key sent under custody closes the view with the gate's reason and is not typed, and a resize sent under custody is ignored, so the terminal keeps its size until a resize arrives after custody ends.
 The terminal's end closes the view with its exit code in the reason.
+
+The board draws a native terminal with xterm at the panel's size: its fit addon measures the columns and rows the panel holds and the view sends them as the resize, so the program and the view agree on the size.
+xterm draws with its WebGL renderer, and with its DOM renderer where WebGL is unavailable or its context is lost.
+The font starts at 20 px; Ctrl+Plus and Ctrl+Minus step it between 12 and 28 px and Ctrl+0 restores it, saved in the browser, and a new font size resizes the pseudo console, so the terminal gains or loses columns instead of shrinking its text.
+The terminal keeps 5,000 lines of scrollback and the wheel scrolls it; the panel around it never scrolls.
+Output is written through xterm's own write queue and never re-renders the page.
+A chunk as large as one host read, 32 KiB, is part of a larger redraw, so the view opens a synchronized update (DECSET 2026) before it and ends it when the redraw's short tail arrives or the stream has been quiet for 8 ms, and xterm paints the redraw as one frame; a smaller chunk, such as an echoed key, is written as it is.
+The update's markers only go where the stream sits between escape sequences and characters and outside any synchronized update the program opened itself, and xterm ends an update left open after one second.
+Each connection draws into its own xterm, kept out of sight until the history, the repaint its size asked for and any open update are drawn, so the panel never shows a blank, cleared or half-drawn screen; until the first one is whole a full-pane state says the terminal is connecting.
+A view that fell behind, a restarting board or a dropped connection reconnects on its own up to five times, keeping the last screen in place with a Reconnecting note until the new connection is whole, and does the same while the board's own connection is down; any other close keeps the last screen in view with its reason and Reconnect in a bar across the bottom.
+A paste goes as it is typed, in pieces of at most 64 KiB, in order.
+
+Every native terminal the Overlord opens stays live while the board is open, one xterm and one socket each, hidden rather than unmounted, so switching only brings another into sight; the three most recent Herdr views stay live the same way, so a fourth window still gets one of Herdr's four streams.
+A list beside the terminal switches between them, the CFO first and then each goblin with a terminal, numbered in that order.
+Ctrl+Alt+Up and Ctrl+Alt+Down step through the list and Ctrl+Alt+1 to Ctrl+Alt+9 jump to an entry, matched by key position; the board catches them before a terminal sees them, except while a dialog such as the Command Center is open, and a switch hands the terminal the keyboard, a Herdr terminal included.
+A key typed with AltGr, which Windows reports as Ctrl+Alt, stays the terminal's, so a layout that types a brace or bracket with AltGr and a digit keeps it.
+A divider between the board and the panel sizes the panel, keeping at least 360 px for the panel and 280 px for the board, and a maximize button gives the panel the whole window; both are saved in the browser, a width saved on a wider window is held to the same bounds, and on a narrow window the board and the panel stack and the divider is hidden.
+
+Holding Ctrl+Shift+Space in a terminal, native or Herdr, dictates into it with the browser's own speech recognition, so nothing is installed.
+It listens in the browser's language while the keys are held, a Listening pill says so, and releasing any of the three keys types the phrases it recognised as one line through the terminal's paste, so nothing is sent until Enter.
+A native terminal's paste follows the program's own bracketed paste mode, and the Herdr view, whose screen is redrawn from frames, always sends a bracketed paste, as its clipboard paste does.
+Releasing the keys anywhere on the page, the window losing focus or the page being hidden also stops listening, so the microphone never stays open once the terminal loses the keys.
+A browser without speech recognition, a blocked or missing microphone, a lost network or silence is explained in a note for six seconds.
+Edge and Chrome recognise speech in their vendors' online services, so the audio leaves the machine while the keys are held.
+
+Key-to-echo latency, measured with `tests/acceptance/terminal_latency.mjs` against the example fixture on 25 September 2026: the Herdr view on main e6f7ea97 took p50 74 ms and p95 592 ms with 3 of 100 keys unechoed after 5 seconds and 4.6 s to a live screen, and the native view p50 24 ms and p95 34 to 36 ms with none missed and 0.4 s to a live screen.
+With synchronized redraws and the 20 px font, measured with the DOM renderer in headless Edge, the native view took p50 28 ms and p95 41 ms with none missed.
+Switching, measured with `tests/acceptance/terminal_switch.mjs` over 30 round trips between two native terminals: when each switch remounted the view it took p50 44 ms and p95 55 ms from the click to the other terminal drawn whole, with 47 blank frames; with every opened terminal kept live it takes p50 16 ms and p95 21 ms with no blank and no half-drawn frame, and a first attach shows no half-drawn frame.
+`docs/evidence/cg-board-ux/pr1b/side-by-side.mp4` records one Claude Code session shown at once in the board and in Windows Terminal through `cfo attach`, while the board switches to another native terminal and back and then to the CFO and back: the Claude Code answer arrives while the board shows the CFO, and is already drawn when the board switches back.
+The CFO in that recording still runs in Herdr, so its first open shows Herdr's connecting state over an empty pane, which is not the native view.
 
 CFO transport reads the `state/primary.json` registration and binds each queued message to its fingerprint.
 The primary CFO writes that registration itself: Claude's SessionStart hook does it after the digest settles custody, and the Codex and Pi native SessionStart hooks do it for a session with no task.
@@ -207,9 +247,9 @@ Registration trusts no variable alone: the Herdr pane named by `HERDR_PANE_ID` m
 A CFO can also run in a native terminal, a `cfo host` that tells the program it starts which terminal it is through `CFO_HOST_ID`.
 Outside a Herdr pane, registration there needs the terminal's program, named by its host's record, to be one of the caller's own ancestors, and the host to answer on its pipe, since a host that was killed leaves its record behind.
 The registration then names that terminal instead of a pane, and it stays valid while the host's record names the registered process as the terminal's program.
-A message for a native CFO is typed into its terminal once, then Enter submits it.
-Until native hooks report the CFO's prompts, nothing confirms it took the message, so the board shows the delivery as unconfirmed and never types it again.
-The board's CFO view does not show a native terminal yet.
+A message for a native CFO is typed into its terminal once, then Enter submits it, over a delivery connection of its own: the host acknowledges each part once it has written it into the terminal's input, and the board shows the message delivered once both are acknowledged, and never types it again.
+A host started by an older cfo cannot acknowledge, so the board refuses anything it sends that CFO with nothing typed until the CFO is started again.
+The board shows a native CFO's terminal in its panel, from the CFO bar and from Orchestration.
 `goblins` shows a CFO registered in a native terminal in its own terminal, and `goblins --native` starts a new CFO in native terminal `cfo`, running `claude.exe` itself so the terminal ends with it, without the launcher's `HERDR_PANE_ID`.
 `cfo attach` shows a native terminal in any console: the registered CFO's, or the one named.
 With no CFO registered, `goblins` and `cfo attach` show native terminal `cfo` while its host answers, since the CFO started there may not have registered yet; a CFO registered in Herdr always comes first.
@@ -218,6 +258,18 @@ A host refuses to start for a terminal that already runs, so a second start neve
 `cfo peek` of a native terminal reads its screen from its console, exactly as the terminal's program would read it, rather than rendering the terminal's output: the rows written, without trailing blanks.
 For each read the host starts a process of its own that attaches to the terminal's console, reads its window and ends, so a Ctrl-C typed to the terminal, or its console closing, during a read can end only that read, never the host.
 A read that fails is an error naming the terminal, never an empty screen.
+`cfo spawn --backend native` starts a goblin in a native terminal of its own, named by its task id, instead of a Herdr tab; it is opt-in until native becomes the default.
+The harness starts as its own program: claude.exe itself, and codex and pi through `cmd /c`, since their npm shims are scripts, and an argument cmd would read as more than text is refused.
+The terminal's environment is the spawn's own without the harness billing keys, the Herdr pane's variables and the spawning session's own markers, then the project's credentials, then the launch's variables: a native task has no credentials script.
+The session markers are exact names, such as `CLAUDECODE` and `CLAUDE_CODE_ENTRYPOINT`, so Claude Code's own settings, such as `CLAUDE_CODE_GIT_BASH_PATH`, reach a native goblin as they reach a Herdr one.
+The spawn reads the terminal's screen throughout and types only where it recognizes what it reads.
+A startup dialog it knows is answered only once it shows, by moving the focus down and checking each move on the screen before confirming: Claude's trust dialog, which focuses "No, exit" first, and Codex's update prompt (Skip) and trust prompt (Yes).
+A prompt a spawn may not answer, such as Codex's hook review, or a screen it does not recognize within the startup budget, stops the spawn with the terminal named and its screen quoted.
+The instruction is typed into the composer, submitted once the composer shows it, and the spawn succeeds only once the harness shows it working.
+Codex's composer and working texts are its known ones, not yet seen in a capture here, and the first live native Codex spawn checks them.
+A native spawn that fails closes the terminal it started, which ends the harness and everything it started, and retires the task as a Herdr spawn does; a terminal that already ran under the task's id refuses the spawn's host and is left running.
+If the terminal's host still runs but does not answer the close, the spawn's error says so, and the worktree and task record stay, so the task can still be reached.
+`cfo cleanup` does not take a native task yet; its terminal ends when its harness exits, which `cfo attach <id>` can ask of it.
 A missing or stale registration shows on the board as one banner, and in the CFO terminal as its own state, naming what went stale and the fix, `cfo register` in the CFO session.
 On Windows normal message delivery holds that registration against replacement and validates the live process/start time, foreground process group, registered agent, pane, workspace, tab and terminal ID before using a required-agent sender.
 Missing or changed identity is refused, never passed to the explicit-pane shell fallback.
@@ -239,6 +291,7 @@ Recurring tool actions (open in VS Code, open folder, open pull request, refresh
 Decisions and one-off commands keep a short word, for example Send decision, Later or Show the next 300 lines.
 Every connector, MCP server, credential, harness and model provider shows a mark beside its name: the brand's mark from Simple Icons where one exists, a plain glyph where the owner withholds its mark, the Model Context Protocol mark for an unknown MCP server and a key for an unknown credential.
 Delivery reads as a mark: one check once the supervisor accepted it, two checks once delivered; only a failed or unconfirmed delivery is spelled out, with what to check before sending again.
+An answer to a goblin or to a CFO in Herdr that is working when it arrives, such as one inside a long tool call, waits in its input until that turn ends, and the turn moves none of Herdr's counters, so the board counts it delivered once Herdr submitted it; anything else sent to a working agent, such as a `cfo send` steer, a `cfo answer`, a run result or a review request, still reads unconfirmed.
 A review answer's own action keeps one check, because it succeeds whether the answer reached the goblin or went to the CFO; only its review item says which.
 Status words say what is happening in plain words, such as Working, In review gate, Waiting on you, Waiting on the CFO or Merged, verifying, never the evidence the supervisor holds.
 Text is never smaller than 15 px.
@@ -256,12 +309,18 @@ cfo question --id layout-choice-001 --text "Which layout should I use?" --option
 Omit `--option` when the question needs a written answer.
 `--recommend` must exactly match a supplied option, which the modal shows first with its real recommendation; omit the flag when no option is recommended.
 The Supreme Overlord Command Center labels supplied choices A/B/C and always offers Other for a written answer.
+A question, the CFO's or a goblin's, is shown as body text at a readable line length rather than as a heading: a blank line starts a paragraph, a line that starts with `- ` is a bullet, text between `**two asterisks**` is bold, and everything else, markup included, is shown exactly as written; no HTML is ever interpreted.
+So a question leads with one short sentence that is the actual question, puts its details on `- ` lines and bolds only the verdict or the blocking item.
+The inbox and history list each question on at most two lines, with the marks dropped.
 No choice is preselected and written text is sent only when Other is selected.
 Use a new stable ID for a new question, and keep the same ID/content for an uncertain publication retry.
 The publisher walks up to 32 process ancestors and verifies the registered CFO PID, creation time and live native identity; a worker cannot escalate on the CFO's behalf.
-The Command Center shows one item at a time as a stack, a question, a review item or a run item, the CFO's own items first and then goblins by longest wait, with its position, Back and Next buttons and a horizontal swipe on touch screens.
+The Command Center shows one item at a time as a stack, a question, a review item or a run item, the CFO's own items first and then goblins by longest wait, with its position, Back and Next buttons on the left of the footer, Later on the right, and a horizontal swipe on touch screens; the rest of the stack peeks above the card as one clean edge.
 Each card sends only its own answer, and Later moves to the next item without answering.
-A card answered while on screen, from the card or from elsewhere such as `cfo answer`, keeps its place until the Overlord moves on: it shows its delivery marks, or once closed a check on the chosen option, the other options dimmed and Answered by you or Answered by the CFO with the time.
+Once the Overlord sends from a card, an answer, a review answer or a Clear, the card reads Sending until its action is delivered, then a check draws with CFO received, Delivered to <goblin>, Sent to the goblin or the CFO, or Cleared, and about a second later the next open item follows, passing over any sent in this sitting; with nothing left it shows You're all done and the Command Center closes.
+A failed or unconfirmed delivery keeps the card on screen with its warning, and a run card stays to show the command's result.
+A click on the dimmed board outside the card closes the Command Center, and a click anywhere outside the open inbox closes the inbox.
+A card answered elsewhere while on screen, such as with `cfo answer`, keeps its place until the Overlord moves on: it shows its delivery marks, or once closed a check on the chosen option, the other options dimmed and Answered by you or Answered by the CFO with the time.
 Drafts survive closing, reconnecting and moving between cards, and the header button, whose badge counts what waits on the Overlord, opens an inbox of those items, the live pages (review pages and browser walkthroughs) and a history of what he answered, cleared or ran, newest first by when each closed.
 A goblin panel whose goblin is waiting on the Overlord offers Answer, which opens the stack at that goblin's question or review item.
 Once submitted, every tab displays the durable answer rather than an unsent local draft.
@@ -277,9 +336,10 @@ Conflicting, corrupt or oversized inbox records leave bounded diagnostics and ca
 ## Goblin questions
 
 A goblin's `cfo notify <id> --blocked "<question> options: a (Recommended) | b"` also opens the modal, labelled with the goblin and its artwork; the first choice that ends with `(Recommended)` is shown first and marked, like a CFO recommendation, and the mark is stripped from every choice.
+When every choice starts with the goblin's own letter in order, such as `A) `, `b. `, `(c) ` or `D: `, the card drops those letters from what it shows, so each choice carries one letter; the answer is still the goblin's choice word for word.
 A goblin can attach one review image to each choice with `--image <path>`, repeated in the order of the choices, so the Overlord picks by picture: the card shows a thumbnail for each choice, and any thumbnail opens a full-size gallery with its position, side buttons, arrow keys, swipe, click-to-zoom and a Choose button for that image's choice.
 While the gallery is open it replaces the card, so a strip of the question's thumbnails under the image jumps straight to any other image.
-When the asking goblin has a review page live, the card and its gallery link it for annotation in Lavish.
+When the asking goblin has a review page live, the card and its gallery offer it with Open review; [Review items](#review-items) says which page.
 An image must be a PNG, JPEG, GIF or WebP of at most 10 MiB inside the task's worktree, task scratch or data directory, reached without a symlink or junction, and `cfo notify` refuses a wrong count or a bad image before anything is recorded.
 The board never sees an image's path: it serves image n of a question at `/api/questions/<id>/images/<n>`, checks the file again on every request, and stops serving once the task restarts or ends.
 A blocked notify without an `options:` marker, and every other worker alert, stays in the CFO wake queue only.
@@ -339,7 +399,9 @@ A review item is something that needs the Overlord's attention without blocking 
 ```powershell
 cfo review --id mockups-review-1 --task task-id --title "Pick a task list layout" --image grid.png --image list.png --lavish http://127.0.0.1:4387/session/<id>
 cfo review --id mockups-review-1 --task task-id --withdraw "Replaced by mockups-review-2"
+cfo review --clear mockups-review-1 --reason "Decided: the grid layout ships"
 cfo review --id dispatch-review-1 --title "Pick the dispatch order" --lavish .lavish/dispatch-options.html
+cfo deliver --id setbacks-1204-oak --title "Setbacks and envelope, 1204 Oak St" --file "$env:USERPROFILE\Desktop\setbacks-1204-oak-st.pdf"
 ```
 
 A goblin runs it from its own pane, proven the way its questions are; the registered primary CFO omits `--task`, and only a goblin's item takes images.
@@ -349,13 +411,24 @@ A `--lavish` link follows the presentation URL rule below, and a refusal names t
 `--lavish` also takes the page's HTML file, from a goblin or from the CFO: the command opens it without a browser, refusing a file that is not an HTML page or that `lavish-axi` cannot show, and the item carries the page's link.
 `cfo serve` then polls that page exactly as it polls a page wait, and whatever becomes of it reaches the CFO as a `review` wake, keyed by the goblin or, on the CFO's own item, by the item's ID, and the item closes.
 For another round, publish the page again under a new ID.
-An item stays open until the Overlord clears it (`review_clear`) or its reporter withdraws it with a reason; nothing expires it, a `cfo serve` restart keeps it, and a respawned or retired goblin leaves it listed.
+An item stays open until the Overlord clears it (`review_clear`), its reporter withdraws it with a reason, or the supervisor retires it; nothing expires it, and a `cfo serve` restart keeps it.
+The supervisor retires a goblin's item nobody waits on any more, on every reconcile: a wait on the Overlord once its task reports anything newer, any other item once its task reports done after publishing it, and every item of a task that is gone, such as one cleaned up; a goblin's page or images stay while it keeps working, asks or waits, because it still wants the Overlord's look, and the item reads Withdrawn: <task> finished: <report> or <task> is gone.
+A delivered document is never retired, because its copy outlives the goblin: it stays until the Overlord opens, downloads or clears it.
+When the CFO answers a goblin's question with `cfo answer`, the goblin's waits on the Overlord raised up to that question close at once, since it has what it was waiting for, and each reads The CFO answered <task>'s question.; a wait it raised after the question stays open.
+The registered primary CFO can clear any open item with `cfo review --clear <id> --reason "<why>"`, such as one a retired goblin left; the item reads Cleared by the CFO: <why>, and `state/reviews.audit` records every clear the CFO makes, with its time, item, goblin and reason, one per line.
 The Overlord can instead answer it (`review_answer`): his text goes once to the reporter, the goblin's own pane while it is the same task generation or the CFO that reported it, and the item closes as answered; an answer for a goblin that restarted or ended goes to the current CFO instead, and the item reads `delivered: false`.
 An answer the goblin received also reaches the CFO as a `review` wake that asks nothing, so the CFO sees every answer the Overlord gives.
 The board sees each item in `snapshot.reviews` with an image count, never a path or a digest, and fetches image n at `/api/reviews/<id>/images/<n>`, checked again on every request.
-A new review item waits in the Command Center inbox under the badge instead of opening the stack.
-Its card shows the title, its images as thumbnails that open the same full-size gallery as a question's, and the item's own Lavish link when it has one, then takes a written answer with Send answer or closes with Clear.
-A closed item moves to the inbox history as You wrote: <answer>, Cleared or Withdrawn: <reason>; an answer still on its way reads not yet delivered, and one whose `review_answer` action failed or became uncertain carries the same warning marks as a question.
+A new review item waits in the Command Center inbox under the badge instead of opening the stack, and a banner at the bottom right names it for eight seconds with Open, so it cannot be missed; a new run item is announced the same way, and the browser tab's title counts everything waiting, so a board in a background tab shows it too.
+Its card shows the title, its images as thumbnails that open the same full-size gallery as a question's, and its own page, when it has one, as a preview that opens the page with Open review.
+An item whose page the supervisor watches (an HTML page given with `--lavish`) is answered on that page, so its card has no text box: it finishes when the Overlord sends or ends the review there, or he closes it with Clear.
+Any other item takes a written answer with Send answer or closes with Clear.
+`cfo deliver` hands the Overlord a document the same way: the registered primary CFO delivers any file it can read, a goblin only one from its worktree, task scratch or data directory, at most 64 MiB, and the file is copied beside the item so it outlives the original.
+`--url` names where Open goes instead of the copy, such as a hosted page, under the same rules as a presentation link (https or plain http on this machine or the tailnet, no query, no credential in the path).
+The card shows the file's type, name, size and sender with Open and Download, Open only when the browser can open the copy or there is a `--url`; the board fetches the copy at `/api/reviews/<id>/document`, in the browser only when it is a PDF or a PNG, JPEG, GIF or WebP image by its content, and as a download for anything else, HTML and SVG included, never sniffed.
+Opening or downloading it clears the item as Opened or Downloaded, which History keeps, so a document leaves the queue once he has it.
+A question's card offers Open review only for its asker's most recent live review page, from the same goblin session or the same CFO registration, so it never opens another task's page or one a replaced asker left behind; page links read Open review, never Lavish.
+A closed item moves to the inbox history as You wrote: <answer>, Cleared, Opened or Downloaded for a document, the CFO's reason when the CFO cleared it, or Withdrawn: <reason>; an answer still on its way reads not yet delivered, and one whose `review_answer` action failed or became uncertain carries the same warning marks as a question.
 Only `delivered` earns two checks: an answer the CFO took over because its goblin was replaced reads Sent to the CFO: <answer>, and an undelivered answer whose action has aged out of the snapshot reads delivery no longer recorded instead of being assumed delivered.
 Closed items and their copies are pruned a week after they close; open items and answered items whose answer is still on its way are never dropped, and a new item waits in the inbox while all 128 held items are one or the other.
 The API contract for the board is `data/board-ui/api-contract.md`.

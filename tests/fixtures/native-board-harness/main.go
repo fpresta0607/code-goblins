@@ -148,10 +148,11 @@ func run() error {
 		fmt.Printf("Accepted message %d in the %s process:\n%s\n", turn, c.Role, text)
 		// A goblin asks the way a real one does: cfo notify from inside its
 		// own pane, so the board's pane proof sees this process as the asker.
-		// Each " --image <path>" after the question attaches a review image.
+		// Each " --image <path>" after the question attaches a review image,
+		// and a typed \n is a line break, since a typed line cannot hold one.
 		if _, ask, ok := strings.Cut(text, "fixture:ask "); ok && c.Role == "goblin" {
 			parts := strings.Split(ask, " --image ")
-			args := []string{"notify", "board-fixture", "--blocked", parts[0]}
+			args := []string{"notify", "board-fixture", "--blocked", strings.ReplaceAll(parts[0], `\n`, "\n")}
 			for _, image := range parts[1:] {
 				args = append(args, "--image", image)
 			}

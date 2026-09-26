@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -47,6 +48,12 @@ type Request struct {
 	Effort    string
 	Session   string
 	Class     string
+	// Backend is "native" for a task in a native terminal of its own, which
+	// has no Herdr pane at all, and Herdr otherwise.
+	Backend string
+	// Title is the task's short title from its backlog row, kept on the task
+	// so the board names it once the row leaves the queue.
+	Title string
 	// Capsule, when set, writes the task capsule into the task temporary
 	// directory and returns the brief the goblin reads instead of BriefPath.
 	// It runs only once the id is proven free, because the alias check
@@ -91,6 +98,12 @@ type Service struct {
 	// after a switch stops its harness. Nil reads the terminal backend and
 	// the jobs the shell holds.
 	Leftovers func(context.Context, terminal.Backend, herdr.Target) ([]Leftover, error)
+	// HostCommand runs a native terminal's host: cfo.exe and "host" in
+	// production.
+	HostCommand []string
+	// ReadScreen reads a native terminal's screen. Nil reads it through its
+	// host.
+	ReadScreen func(host.Record) ([]string, error)
 }
 
 // Spawn creates and launches exactly one local ship or scout task.
@@ -139,12 +152,20 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err != nil {
 		return Result{}, err
 	}
-	if s.Terminals == nil {
-		return Result{}, errors.New("spawn: terminal backend is required")
-	}
-	terminals := s.Terminals(req.Session)
+	native := req.Backend == "native"
 	taskTmp := filepath.Join(s.StateDir, "tasktmp", req.ID)
-	if err := validateLineValues("project", project, "herdr session", terminals.EffectiveSession(), "tasktmp", taskTmp); err != nil {
+	lineValues := []string{"project", project, "tasktmp", taskTmp}
+	// A native task runs in a terminal of its own, so nothing about it touches
+	// Herdr: terminals stays nil for it.
+	var terminals terminal.Backend
+	if !native {
+		if s.Terminals == nil {
+			return Result{}, errors.New("spawn: terminal backend is required")
+		}
+		terminals = s.Terminals(req.Session)
+		lineValues = append(lineValues, "herdr session", terminals.EffectiveSession())
+	}
+	if err := validateLineValues(lineValues...); err != nil {
 		return Result{}, err
 	}
 
@@ -207,32 +228,34 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return Result{}, fmt.Errorf("spawn: %s", preflight.Refusal)
 	}
 
-	if err := terminals.EnsureServer(ctx); err != nil {
-		return Result{}, fmt.Errorf("spawn: ensure Herdr server: %w", err)
-	}
-	if err := terminals.Preflight(ctx); err != nil {
-		return Result{}, fmt.Errorf("spawn: Herdr compatibility preflight: %w", err)
-	}
-	kinds, err := terminals.AgentKinds(ctx)
-	if err != nil {
-		return Result{}, fmt.Errorf("spawn: list Herdr agent kinds: %w", err)
-	}
-	if !kinds[string(req.Harness)] {
-		return Result{}, fmt.Errorf("spawn: installed Herdr does not support harness kind %q", req.Harness)
-	}
-	container, err := terminals.EnsureContainer(ctx, project)
-	if err != nil {
-		return Result{}, fmt.Errorf("spawn: ensure Herdr container: %w", err)
-	}
-	if err := validateContainer(container); err != nil {
-		return Result{}, err
-	}
-	endpoint, err := terminals.CreateTask(ctx, container, "gb-"+req.ID, project)
-	if err != nil {
-		return Result{}, fmt.Errorf("spawn: create Herdr task tab: %w", err)
-	}
-	if err := validateEndpoint(endpoint); err != nil {
-		return Result{}, err
+	var endpoint herdr.Endpoint
+	if !native {
+		if err := terminals.EnsureServer(ctx); err != nil {
+			return Result{}, fmt.Errorf("spawn: ensure Herdr server: %w", err)
+		}
+		if err := terminals.Preflight(ctx); err != nil {
+			return Result{}, fmt.Errorf("spawn: Herdr compatibility preflight: %w", err)
+		}
+		kinds, err := terminals.AgentKinds(ctx)
+		if err != nil {
+			return Result{}, fmt.Errorf("spawn: list Herdr agent kinds: %w", err)
+		}
+		if !kinds[string(req.Harness)] {
+			return Result{}, fmt.Errorf("spawn: installed Herdr does not support harness kind %q", req.Harness)
+		}
+		container, err := terminals.EnsureContainer(ctx, project)
+		if err != nil {
+			return Result{}, fmt.Errorf("spawn: ensure Herdr container: %w", err)
+		}
+		if err := validateContainer(container); err != nil {
+			return Result{}, err
+		}
+		if endpoint, err = terminals.CreateTask(ctx, container, "gb-"+req.ID, project); err != nil {
+			return Result{}, fmt.Errorf("spawn: create Herdr task tab: %w", err)
+		}
+		if err := validateEndpoint(endpoint); err != nil {
+			return Result{}, err
+		}
 	}
 
 	// Asked before the worktree exists, because "the first worktree in this
@@ -253,10 +276,13 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		result.Meta.PipelineClass = selection.Class
 		result.Meta.PipelineHash = selection.Hash
 	}
+	// nativeHost is the host this spawn launched, the only native terminal its
+	// teardown may close.
+	var nativeHost host.Record
 	if err := state.WriteTaskMeta(s.StateDir, result.Meta); err != nil {
 		return Result{}, errors.Join(
 			fmt.Errorf("spawn: publish task metadata: %w", err),
-			s.teardownLaunch(ctx, terminals, endpoint, project, wt.Path, result.Meta.ID),
+			s.teardownLaunch(ctx, terminals, endpoint, nativeHost, project, wt.Path, result.Meta.ID),
 		)
 	}
 
@@ -268,7 +294,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		if err := state.AppendStatus(s.StateDir, result.Meta.ID, line); err != nil {
 			cause = errors.Join(cause, fmt.Errorf("spawn: record launch failure: %w", err))
 		}
-		if err := s.teardownLaunch(ctx, terminals, endpoint, project, wt.Path, result.Meta.ID); err != nil {
+		if err := s.teardownLaunch(ctx, terminals, endpoint, nativeHost, project, wt.Path, result.Meta.ID); err != nil {
 			cause = errors.Join(cause, err)
 		}
 		return result, cause
@@ -346,15 +372,21 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if selection != nil {
 		launch.Instruction += selection.Instruction(req.ID, filepath.Join(taskTmp, "pipeline.json"))
 	}
-	if err := s.injectProjectCredentials(preflight, taskTmp, &launch); err != nil {
-		return fail(result, err)
-	}
-	if _, err := s.startHarness(ctx, terminals, endpoint.Target, launchPlan{
-		AgentName: "gb-" + req.ID,
-		Harness:   req.Harness,
-		Launch:    launch,
-	}); err != nil {
-		return fail(result, err)
+	if native {
+		if nativeHost, err = s.startNativeHarness(ctx, req.ID, req.Harness, launch, preflight.Env); err != nil {
+			return fail(result, err)
+		}
+	} else {
+		if err := s.injectProjectCredentials(preflight, taskTmp, &launch); err != nil {
+			return fail(result, err)
+		}
+		if _, err := s.startHarness(ctx, terminals, endpoint.Target, launchPlan{
+			AgentName: "gb-" + req.ID,
+			Harness:   req.Harness,
+			Launch:    launch,
+		}); err != nil {
+			return fail(result, err)
+		}
 	}
 
 	result.Output = successOutput(result.Meta)
@@ -631,6 +663,15 @@ func validateRequest(req Request) error {
 	default:
 		return fmt.Errorf("spawn: unsupported task kind %q", req.Kind)
 	}
+	switch req.Backend {
+	case "", "herdr":
+	case "native":
+		if _, ok := harness.NativeScreens(req.Harness); !ok {
+			return fmt.Errorf("spawn: %s cannot run in a native terminal yet", req.Harness)
+		}
+	default:
+		return fmt.Errorf("spawn: unsupported backend %q", req.Backend)
+	}
 	return nil
 }
 
@@ -717,6 +758,7 @@ func validateRequestLineValues(req Request) error {
 		"request model", req.Model,
 		"request effort", req.Effort,
 		"request session", req.Session,
+		"request title", req.Title,
 	)
 }
 
@@ -760,6 +802,11 @@ func partialResult(req Request, project, taskTmp string, endpoint herdr.Endpoint
 		HerdrWorkspaceID: endpoint.WorkspaceID,
 		HerdrTabID:       endpoint.TabID,
 		HerdrPaneID:      endpoint.PaneID,
+		Title:            req.Title,
+	}
+	if req.Backend == "native" {
+		// Its terminal is the host named by its id, with no Herdr pane.
+		meta.Window, meta.Backend = "native", "native"
 	}
 	if req.Kind == "ship" {
 		meta.Mode = req.Mode
@@ -994,13 +1041,21 @@ func (s Service) deliverVerifiedInstruction(ctx context.Context, client terminal
 	return fmt.Errorf("spawn: the agent never reported accepting the instruction within %ds", budget)
 }
 
-// teardownLaunch closes the task tab, returns the worktree, removes the Go
-// temporary directory and the task temporary directory, and retires the task
-// metadata. It is the clean-failure path: every step is attempted and their
-// failures joined, so one stuck teardown step never leaves the rest undone.
-func (s Service) teardownLaunch(ctx context.Context, client terminal.Backend, endpoint herdr.Endpoint, project, worktree, id string) error {
+// teardownLaunch closes the task tab, or a native task's terminal, returns the
+// worktree, removes the Go temporary directory and the task temporary
+// directory, and retires the task metadata. It is the clean-failure path:
+// every step is attempted and their failures joined, so one stuck teardown
+// step never leaves the rest undone. A native task has no terminal backend:
+// its teardown closes only nativeHost, the host its spawn launched, and a
+// native terminal that does not close stops the teardown: the task stays
+// addressable, and nothing is removed from under a harness that may still run.
+func (s Service) teardownLaunch(ctx context.Context, client terminal.Backend, endpoint herdr.Endpoint, nativeHost host.Record, project, worktree, id string) error {
 	var errs error
-	if err := client.CloseTab(ctx, endpoint.Target.Session, endpoint.TabID); err != nil {
+	if client == nil {
+		if err := closeNativeTerminal(s.StateDir, nativeHost); err != nil {
+			return fmt.Errorf("spawn: close native terminal: %w; its worktree, temporary directories and task record are left in place", err)
+		}
+	} else if err := client.CloseTab(ctx, endpoint.Target.Session, endpoint.TabID); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("spawn: close task tab: %w", err))
 	}
 	if err := s.Worktrees.Return(ctx, project, worktree); err != nil {
@@ -1062,7 +1117,7 @@ func notifyInstruction(id string) string {
 	if err != nil {
 		exe = "cfo"
 	}
-	return " Report outcomes to the CFO: on completion with a PR run: " + exe + " notify " + id + " --done --pr <url>. When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\"; when the question has a fixed set of choices, name them after one literal options: marker separated by |, as in \"<question> options: a (Recommended) | b | c\", ending the choice you recommend with (Recommended). cfo drain renders those as the decision's options, and the board shows them to the Supreme Overlord, whose answer arrives here as a message. On failure run: " + exe + " notify " + id + " --failed \"<reason>\". To say you are back at work or what you are doing run: " + exe + " notify " + id + " --working \"<what>\"; when you wait on another task, the Overlord, CI or a deploy instead of asking a question run: " + exe + " notify " + id + " --waiting-on <task-id|overlord|ci|deploy> \"<why>\"; an actual question still uses --blocked with options." +
+	return " Report outcomes to the CFO: on completion with a PR run: " + exe + " notify " + id + " --done --pr <url>. When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\"; the Command Center shows it as body text, so lead with one short sentence that is the actual question, put the details on lines of their own that start with \"- \" (a real line break, such as `n in PowerShell), and mark with **two asterisks** only the verdict or the blocking item, never the whole question; when the question has a fixed set of choices, name them after one literal options: marker separated by |, as in \"<question> options: a (Recommended) | b | c\", ending the choice you recommend with (Recommended). cfo drain renders those as the decision's options, and the board shows them to the Supreme Overlord, whose answer arrives here as a message. On failure run: " + exe + " notify " + id + " --failed \"<reason>\". To say you are back at work or what you are doing run: " + exe + " notify " + id + " --working \"<what>\"; when you wait on another task, the Overlord, CI or a deploy instead of asking a question run: " + exe + " notify " + id + " --waiting-on <task-id|overlord|ci|deploy> \"<why>\"; an actual question still uses --blocked with options." +
 		" When the Overlord must answer on a Lavish page, open it with lavish-axi <html-file> --no-open, then run: " + exe + " notify " + id + " --waiting-on overlord \"<why>\" --lavish <html-file>, and never run lavish-axi poll yourself: the supervisor polls the page, and his answer reaches you through the CFO." +
 		" For a successful browser walkthrough or a Lavish presentation that needs no answer, use Lavish --no-open and report its safe URL with cfo present --id <stable-id> --task " + id + " --generation <CFO_SPAWN_GEN> --kind browser|review --url <safe-url>. Refresh only while live and report --state ended when finished. A viewing choice never pauses your work. See docs/native-board.md; do not publish secrets, query parameters or browser history."
 }

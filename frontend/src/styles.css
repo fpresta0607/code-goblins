@@ -107,24 +107,35 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .live-dot, .status-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #68f1cd; flex: none; }
 .live-dot.offline { background: var(--amber); }
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; flex: 1; gap: 10px; }
-.workspace.with-pane { grid-template-columns: minmax(0, 1fr) minmax(420px, 1fr); }
-.workspace.with-pane:has(.changes-section[open]) { grid-template-columns: minmax(290px, .9fr) minmax(0, 1.1fr); }
+.workspace.with-pane { grid-template-columns: minmax(0, 1fr) 10px minmax(420px, 1fr); column-gap: 0; }
+.workspace.with-pane:has(.changes-section[open]) { grid-template-columns: minmax(290px, .9fr) 10px minmax(0, 1.1fr); }
 .canvas-region { container-type: inline-size; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: auto; border: 1px solid var(--edge); border-radius: 18px; box-shadow: inset 0 2px 18px #0009; background: linear-gradient(#07101565, #07101565), url('/assets/goblin-workshop.png') right bottom / cover; position: relative; }
 .task-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; min-height: 100%; padding: 28px 24px; }
+/* The CFO pinned above the columns opens its terminal, and is the one place
+   on the board that says Waiting on you. */
+.task-board:has(> .cfo-pin) { grid-template-rows: auto 1fr; }
+.cfo-pin { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 10px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 16px; background: #0f1820e6; box-shadow: var(--shadow-1); }
+.cfo-pin .goblin-avatar { flex: none; width: 44px; height: 44px; }
+.cfo-pin .pin-copy { display: grid; flex: 1; min-width: 0; }
+.cfo-pin .pin-copy strong { font-weight: 700; }
+.cfo-pin .pin-copy span { overflow: hidden; color: var(--muted); font-size: .9375rem; text-overflow: ellipsis; white-space: nowrap; }
+.cfo-pin.asking { border-left: 3px solid var(--amber); padding-left: 8px; }
+.cfo-pin.asking .pin-copy span { color: #f6d79e; }
+.cfo-pin .open-terminal { display: inline-flex; flex: none; align-items: center; gap: 8px; white-space: nowrap; }
+.cfo-pin .open-terminal .icon { width: 18px; height: 18px; }
 .board-column { min-width: 0; padding: 20px 14px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; background: #0f1820d9; box-shadow: var(--shadow-1); backdrop-filter: blur(6px); }
 .board-column h2 { display: flex; gap: 10px; align-items: center; font-size: 1.375rem; margin: 0 0 20px; }
 .column-count { font-family: var(--font-body); color: var(--muted); font-size: .9375rem; font-weight: 700; padding: 0 9px; border: 1px solid var(--edge); border-radius: 999px; background: #0a1218; }
 .task-cards { display: grid; align-content: start; gap: 16px; }
-.task-card { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; text-align: left; padding: 14px 10px; min-height: 120px; border-radius: 18px; border-color: var(--edge); border-top-color: var(--edge-lit); background: var(--level-2); box-shadow: var(--shadow-2); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
+.task-card { display: flex; align-items: flex-start; gap: 12px; width: 100%; min-width: 0; text-align: left; padding: 12px 14px 12px 12px; min-height: 0; border-radius: 14px; border-color: var(--edge); border-top-color: var(--edge-lit); background: var(--level-2); box-shadow: var(--shadow-2); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
 button.task-card:hover, a.task-card:hover, .flow-node:hover, .workflow-node:hover { transform: var(--lift); box-shadow: var(--shadow-3); }
 button.task-card:active, .workflow-node:active { transform: none; box-shadow: var(--shadow-1); }
-.task-card .goblin-avatar { width: 80px; height: 80px; }
+.task-card .goblin-avatar { width: 44px; height: 44px; }
 .task-card.selected, .flow-node.selected, .workflow-node.selected { border-color: #6bf0cc; box-shadow: 0 0 0 1px #6bf0cc, 0 0 22px #00e59b33, var(--shadow-3); }
 .card-copy { display: grid; gap: 6px; min-width: 0; }
 .card-copy strong { font-size: 1.25rem; line-height: 1.35; font-weight: 800; overflow-wrap: anywhere; }
 .card-copy small { font-size: .9375rem; color: var(--muted); }
 .plain-status { display: flex; align-items: center; gap: 8px; font-size: 1rem; font-weight: 700; line-height: 1.4; background: none; color: #c4d4df; }
-.card-activity { font-size: .9375rem; line-height: 1.4; color: #8ea6b4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-card-shell { position: relative; min-width: 0; }
 .task-card-shell.has-pr .task-card { padding-bottom: 36px; }
 .card-pr { display: inline-flex; align-items: center; gap: 6px; font-size: .9375rem; font-weight: 700; color: #6bf0cc; text-decoration: none; }
@@ -144,9 +155,6 @@ button.task-card:active, .workflow-node:active { transform: none; box-shadow: va
 .phase-failed.plain-status { color: #f5b1a8; }
 .phase-review.plain-status { color: #cfc0f3; }
 .phase-waiting.plain-status { color: #e7d3a3; }
-/* Waiting on the Overlord outranks whatever phase the task is in. */
-.plain-status.asking { color: #f6d79e; }
-.plain-status.asking .status-dot { background: var(--amber); animation: none; }
 @keyframes working { 50% { box-shadow: 0 0 0 5px #4aa3ff22; } }
 .column-empty { color: #8293a1; font-size: .9375rem; padding: 16px 0; }
 .goblin-avatar { display: block; width: 88px; height: 88px; flex: none; background-image: url('/assets/goblin-personas.png'); background-size: 300% 200%; background-repeat: no-repeat; }
@@ -371,9 +379,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 @media (max-width: 90rem) {
   .task-board { gap: 14px; padding: 24px 18px; }
   .board-column { padding: 18px 10px; }
-  .task-card { padding: 12px 8px; gap: 6px; }
-  .task-card .goblin-avatar { width: 66px; height: 66px; }
-  .task-card .card-copy strong { font-size: 1.125rem; }
 }
 @media (max-width: 68rem) {
   .topbar { padding: 10px 16px; gap: 12px; }
@@ -404,7 +409,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
   .brand { gap: 4px; }
   .connection { font-size: .9375rem; }
   .task-cards { grid-template-columns: minmax(0, 1fr); }
-  .task-card { flex-direction: row; align-items: center; gap: 12px; }
 }
 @media (max-width: 40rem) {
   .topbar { grid-template-columns: minmax(0, 1fr); }
@@ -428,6 +432,13 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .command-center-menu > summary:hover { transform: var(--lift); box-shadow: var(--shadow-2); }
 .command-center-menu > summary .icon { width: 26px; height: 26px; }
 .count-badge { position: absolute; top: -6px; right: -6px; display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: var(--amber); color: #2b1d02; font-size: .9375rem; font-weight: 800; line-height: 1; box-shadow: 0 0 0 3px var(--level-2); }
+/* A new item that does not open the Command Center is announced bottom right
+   for a few seconds, and stays under the badge. */
+.arrival-banner { position: fixed; right: 20px; bottom: 20px; z-index: 40; display: flex; align-items: center; gap: 12px; width: min(440px, calc(100vw - 40px)); padding: 12px 12px 12px 14px; border: 1px solid var(--edge); border-left: 3px solid var(--amber); border-radius: 16px; background: #0f1820f2; box-shadow: var(--shadow-1); animation: arrival-in .22s ease-out; }
+.arrival-banner .inbox-text { display: grid; flex: 1; min-width: 0; gap: 2px; }
+.arrival-banner .primary { flex: none; }
+@keyframes arrival-in { from { opacity: 0; transform: translateY(12px); } }
+@media (prefers-reduced-motion: reduce) { .arrival-banner { animation: none; } }
 .command-center-updates { position: absolute; right: 0; top: calc(100% + 12px); width: min(390px, calc(100vw - 40px)); padding: 24px; background: var(--level-3); border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; z-index: 5; box-shadow: var(--shadow-3); }
 .browser-indicator { font-size: .9375rem; color: #91dfc2; }
 .activity-glow { pointer-events: none; position: absolute; inset: -2px; border: 2px solid #81edc0; border-radius: inherit; box-shadow: 0 0 16px #67e8b755; animation: received 3s ease-out both; }
@@ -468,7 +479,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .panel-content > .disclosure > .disclosure-content { padding: 0 0 24px; }
 /* The terminal runs edge to edge like a Herdr pane: no border, no card, no
    caption. State and the few controls float over its corners. */
-.panel-terminal { position: relative; display: flex; flex: 1; min-height: 0; background: #071015; }
 .native-terminal { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
 .terminal-surface { flex: 1; min-width: 0; min-height: 200px; overflow: auto; background: #071015; }
 .terminal-surface .xterm { height: 100%; }
@@ -480,16 +490,30 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .terminal-state.live .status-dot { background: var(--accent); }
 .terminal-state.quiet { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .terminal-error { position: absolute; left: 12px; right: 12px; bottom: 70px; z-index: 2; margin: 0; padding: 10px 14px; border: 1px solid #735338; border-radius: 12px; background: #292116f2; color: #f1c598; box-shadow: var(--shadow-2); overflow-wrap: anywhere; }
-.terminal-options { position: absolute; right: 12px; bottom: 12px; z-index: 2; }
-.terminal-options > summary { list-style: none; cursor: pointer; opacity: .5; transition: opacity .12s ease; }
-.terminal-options > summary:hover, .terminal-options > summary:focus-visible, .terminal-options[open] > summary { opacity: 1; }
-.terminal-options > summary::-webkit-details-marker { display: none; }
-.terminal-options > summary[data-tip]::after { top: auto; bottom: calc(100% + 8px); }
-.terminal-options-panel { position: absolute; right: 0; bottom: calc(100% + 10px); width: min(340px, calc(100vw - 48px)); display: grid; gap: 10px; padding: 16px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 16px; background: var(--level-3); box-shadow: var(--shadow-3); color: var(--muted); }
-.terminal-options-panel label { display: flex; align-items: center; gap: 12px; color: #edf4f3; font-weight: 700; }
-.terminal-options-panel input { min-height: 0; width: 20px; height: 20px; accent-color: var(--mint); }
 .terminal-empty { display: grid; place-items: center; align-content: center; gap: 16px; flex: 1; padding: 32px; color: var(--muted); text-align: center; }
 .terminal-empty > .icon { width: 36px; height: 36px; }
+/* A native terminal owns its scrollback and is sized to the panel, so the
+   panel never scrolls around it; until its screen is whole a full-pane state
+   covers it. */
+.host-terminal { flex-direction: column; }
+.host-terminal .terminal-surface { position: relative; overflow: hidden; }
+/* One connection's xterm: staged out of sight until its screen is whole. */
+.terminal-view { position: absolute; inset: 0; }
+.terminal-view .xterm { height: 100%; padding: 6px 0 0 10px; }
+.terminal-view, .terminal-view .xterm-viewport { background: #071015 !important; }
+.terminal-view.staged { visibility: hidden; }
+.terminal-reconnecting { position: absolute; top: 10px; right: 12px; z-index: 2; }
+.terminal-cover { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; align-content: center; gap: 14px; padding: 24px; background: #071015; color: var(--muted); text-align: center; }
+.terminal-cover p { margin: 0; max-width: 46ch; overflow-wrap: anywhere; }
+.terminal-closed { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-top: 1px solid #1d3a32; background: #0b1a20; color: var(--muted); }
+.terminal-closed p { flex: 1; margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.terminal-closed > .icon { flex: none; width: 20px; height: 20px; }
+.terminal-spinner { width: 30px; height: 30px; border-radius: 50%; border: 3px solid #1d3a32; border-top-color: var(--mint); animation: terminal-spin .8s linear infinite; }
+@keyframes terminal-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .terminal-spinner { animation-duration: 2.4s; } }
+.terminal-copied { position: absolute; top: 10px; right: 12px; z-index: 2; color: var(--mint); }
+/* Dictation listens while Ctrl+Shift+Space is held. */
+.terminal-listening { position: absolute; left: 50%; bottom: 16px; z-index: 2; transform: translateX(-50%); }
 @media (max-width: 50rem) {
   .panel-header { padding: 16px 18px 18px; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; }
   .panel-header .goblin-avatar { width: 64px; height: 64px; }
@@ -530,9 +554,9 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .comment-sent-text { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .comment-overlay.sent .warning-text { grid-column: 1 / -1; }
 @media (max-width: 50rem) { .comment-overlay.floating { left: 8px; width: calc(100% - 16px); } }
-/* Waiting: on the Overlord it is amber like any question; on a goblin, CI or a
-   deploy it is a calmer sand, and a wait on a goblin links to it. */
-.card-waiting { position: absolute; left: 120px; bottom: 10px; display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 2px 12px 2px 8px; border: 1px solid var(--edge); border-radius: 999px; background: var(--level-3); color: #e7d3a3; font-weight: 800; }
+/* Waiting is a calmer sand, whoever it is on, and a wait on a goblin links to
+   it. */
+.card-waiting { position: absolute; left: 68px; bottom: 10px; display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 2px 12px 2px 8px; border: 1px solid var(--edge); border-radius: 999px; background: var(--level-3); color: #e7d3a3; font-weight: 800; }
 .card-waiting .icon { width: 16px; height: 16px; }
 .status-link { display: inline-grid; place-items: center; width: 30px; height: 30px; min-height: 30px; padding: 0; border-radius: 50%; border-color: var(--edge); background: var(--level-3); color: #e7d3a3; }
 .status-link .icon { width: 16px; height: 16px; }
@@ -541,18 +565,48 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 
 /* Command Center: one card at a time, the rest of the deck peeking behind,
    each card sending its own answer. */
-.question-modal { width: min(720px, calc(100vw - 28px)); padding: 28px 32px; overflow-x: hidden; }
+.question-modal { width: min(1040px, calc(100vw - 48px)); padding: 28px 32px; overflow-x: hidden; scrollbar-width: none; }
+.question-modal::-webkit-scrollbar { display: none; }
+/* A question is read, not scanned: body type at a readable line length, with
+   only what its asker marked in bold. */
+.question-body { max-width: 72ch; color: #e3ecef; font: 400 1rem/1.55 var(--font-body); white-space: pre-line; overflow-wrap: anywhere; outline: none; }
+.question-body p, .question-body ul { margin: 0 0 10px; }
+.question-body > :last-child { margin-bottom: 0; }
+.question-body ul { padding-left: 22px; }
+.question-body li + li { margin-top: 4px; }
+.question-body strong { color: #fff; font-weight: 700; }
+.inbox-summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .count-pill { flex: none; padding: 2px 12px; border: 1px solid var(--edge); border-radius: 999px; background: #0b141b; color: #dfe9ef; font-weight: 800; white-space: nowrap; }
 .card-stage { position: relative; }
-.card-stage.stacked { padding-top: 12px; }
-.card-stage.stacked::before, .card-stage.stacked::after { content: ""; position: absolute; left: 22px; right: 22px; top: 0; height: 24px; border: 1px solid var(--edge); border-bottom: 0; border-radius: 18px 18px 0 0; background: var(--level-2); opacity: .7; }
-.card-stage.stacked::after { left: 11px; right: 11px; top: 6px; opacity: .9; }
+/* The rest of the stack is one card peeking above this one: one clean edge. */
+.card-stage.stacked { padding-top: 10px; }
+.card-stage.stacked::before { content: ""; position: absolute; left: 16px; right: 16px; top: 0; height: 30px; border: 1px solid var(--edge); border-bottom: 0; border-radius: 18px 18px 0 0; background: var(--level-1); }
 .question-card { position: relative; display: grid; gap: 16px; padding: 22px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; background: var(--level-2); box-shadow: var(--shadow-2); touch-action: pan-y; animation: card-in .18s ease-out; }
 @keyframes card-in { from { opacity: 0; transform: translateY(6px); } }
 .question-card .asker { display: flex; align-items: center; gap: 12px; color: #c4d4df; }
 .question-card .asker .goblin-avatar { width: 48px; height: 48px; }
 .question-card h3 { margin: 0; }
 .question-thumbs { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
+/* A review page's preview is the one way into it: the whole tile opens it. */
+.page-preview { position: relative; display: grid; place-items: center; min-height: 150px; padding: 18px; border: 1px solid var(--edge); border-radius: 16px; background: linear-gradient(160deg, #13232c, #0b141b); color: inherit; text-decoration: none; overflow: hidden; }
+.page-preview:hover, .page-preview:focus-visible { border-color: var(--accent); }
+.page-shot { display: grid; justify-items: center; gap: 6px; max-width: 46ch; text-align: center; color: #c4d4df; overflow-wrap: anywhere; }
+.page-shot .icon { width: 28px; height: 28px; color: var(--mint); }
+.page-shot strong { color: #eef3f1; font-size: 1.0625rem; }
+.page-shot span { color: var(--muted); font-size: .9375rem; }
+.open-overlay { position: absolute; right: 14px; bottom: 14px; display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 999px; background: var(--accent); color: #04110c; font-weight: 800; }
+.open-overlay .icon { width: 18px; height: 18px; }
+.review-status { margin: 0; color: var(--muted); }
+.open-inline { justify-self: start; }
+/* A delivered document: its file type as an icon, its name and facts. */
+.doc-row { display: flex; align-items: center; gap: 14px; padding: 14px; border: 1px solid var(--edge); border-radius: 14px; background: #0b141b; min-width: 0; }
+.file-icon { position: relative; flex: none; display: grid; place-items: center; width: 52px; height: 60px; color: var(--mint); }
+.file-icon .icon { width: 52px; height: 60px; }
+.file-icon b { position: absolute; bottom: 10px; padding: 0 4px; border-radius: 4px; background: var(--mint); color: #04110c; font-size: .75rem; font-weight: 800; }
+.doc-copy { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.doc-copy span { color: var(--muted); }
+.download-link { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 20px 0 16px; border: 1px solid #68f1cb; border-radius: 999px; font-weight: 800; text-decoration: none; }
+.download-link .icon { width: 18px; height: 18px; }
 .question-thumbs button, .gallery-strip button { position: relative; flex: none; width: 112px; height: 76px; padding: 0; overflow: hidden; border: 1px solid var(--edge); border-radius: 12px; background: #0b141b; }
 .question-thumbs img, .gallery-strip img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .question-thumbs span, .gallery-strip span { position: absolute; left: 6px; bottom: 6px; padding: 0 8px; border-radius: 999px; background: #05080dcc; font-weight: 800; }
@@ -563,6 +617,26 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .send-decision .icon { width: 20px; height: 20px; }
 .question-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; }
 .text-button { border-color: transparent; background: transparent; color: #b8c6cd; font-weight: 700; }
+/* The pager leads the footer; Later keeps the right edge, alone or not. */
+.question-footer .later { margin-left: auto; }
+/* After Send: the check draws once the answer is delivered. */
+.done-card { display: grid; justify-items: center; gap: 10px; padding: 40px 22px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; background: var(--level-2); box-shadow: var(--shadow-2); text-align: center; animation: card-in .18s ease-out; }
+.done-card h3 { margin: 0; font-size: 1.5rem; }
+.done-card p { margin: 0; color: #c4d4df; }
+.done-card .goblin-avatar { width: 96px; height: 96px; }
+.check-anim { width: 88px; height: 88px; fill: none; stroke: var(--edge-lit); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
+.check-anim path { stroke-dasharray: 70; stroke-dashoffset: 70; }
+.done-card.delivered .check-anim { stroke: var(--mint); }
+.done-card.delivered .check-anim path { animation: check-draw .45s ease-out forwards; }
+.done-card:not(.delivered) .check-anim circle { animation: check-wait 1.2s ease-in-out infinite; }
+@keyframes check-draw { to { stroke-dashoffset: 0; } }
+@keyframes check-wait { 50% { opacity: .4; } }
+.done-card .received { display: inline-flex; align-items: center; gap: 8px; color: var(--mint); font-weight: 800; }
+.done-card .received .icon { width: 20px; height: 20px; }
+@media (prefers-reduced-motion: reduce) {
+  .done-card, .done-card.delivered .check-anim path, .done-card:not(.delivered) .check-anim circle { animation: none; }
+  .done-card.delivered .check-anim path { stroke-dashoffset: 0; }
+}
 .stack-nav { display: flex; align-items: center; gap: 12px; }
 .stack-dots { display: flex; gap: 6px; }
 .stack-dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--edge-lit); }
@@ -603,9 +677,24 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .question-card h3:focus { outline: none; }
 /* A live goblin's card carries a one-tap way into its terminal in its top
    right corner; its pull request link keeps the bottom right. */
-.task-card-shell:has(.card-terminal) .task-card { padding-right: 58px; }
-.card-terminal { position: absolute; right: 10px; top: 10px; width: 40px; height: 40px; min-height: 40px; }
-.card-terminal .icon { width: 19px; height: 19px; }
+.task-card-shell:has(.card-terminal) .task-card { padding-right: 46px; }
+.card-terminal { position: absolute; right: 8px; top: 8px; width: 32px; height: 32px; min-height: 32px; }
+.card-terminal .icon { width: 17px; height: 17px; }
+/* On a screen that can hover, the terminal button shows on hover and focus;
+   the whole card opens the panel. */
+@media (hover: hover) {
+  .card-terminal { opacity: 0; transition: opacity .12s; }
+  .task-card-shell:hover .card-terminal, .task-card-shell:focus-within .card-terminal { opacity: 1; }
+}
+/* A task card: a short title of at most two lines, then one muted line with
+   the repo and the status. */
+.task-card .card-copy { gap: 4px; }
+.task-card .card-title { font-size: 1rem; font-weight: 700; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.card-meta { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; color: var(--muted); font-size: .9375rem; line-height: 1.4; white-space: nowrap; }
+.card-repo { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.card-sep { opacity: .5; }
+.card-meta .plain-status { flex: 0 .01 auto; min-width: 0; overflow: hidden; font-weight: 600; }
+.card-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* Run items: a command the CFO needs run, shown verbatim before it runs. */
 .run-card { display: grid; gap: 14px; padding: 22px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; background: var(--level-2); box-shadow: var(--shadow-2); }
 .run-card h3 { margin: 0; }
@@ -624,3 +713,31 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .run-card .card-actions { flex-wrap: wrap; }
 .run-button { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .run-button .icon { width: 18px; height: 18px; fill: currentColor; }
+
+/* The terminal deck below the panel header: the switcher rail and every live
+   terminal, one shown at a time. */
+.goblin-panel.showing-terminal { flex: none; }
+.terminal-deck { container-type: inline-size; display: flex; flex: 1; min-height: 0; border-top: 1px solid var(--edge); background: #071015; }
+.deck-stage { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
+.deck-slot { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.terminal-switcher { flex: none; width: 200px; overflow-y: auto; scrollbar-width: none; padding: 8px 6px; border-right: 1px solid var(--edge); background: var(--level-1); }
+.terminal-switcher::-webkit-scrollbar { display: none; }
+.terminal-switcher ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.terminal-switcher button { position: relative; display: grid; grid-template-columns: 30px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 6px 8px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: #c4d4df; text-align: left; font-weight: 600; }
+.terminal-switcher button:hover { background: #ffffff0a; }
+.terminal-switcher button[aria-current="true"] { border-color: #2c5a4c; background: #13302a; color: #edf4f3; }
+.terminal-switcher .goblin-avatar { width: 30px; height: 30px; }
+.switcher-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminal-switcher .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+.terminal-switcher kbd { font: 600 .9375rem/1 var(--font-body); color: #7d93a1; }
+@container (max-width: 42rem) {
+  .terminal-switcher { width: 58px; }
+  .terminal-switcher button { grid-template-columns: 30px; justify-content: center; }
+  .switcher-name, .terminal-switcher kbd { display: none; }
+  .terminal-switcher .status-dot { position: absolute; right: 7px; bottom: 7px; }
+}
+/* The handle between the board and the panel. */
+.pane-divider { display: flex; cursor: col-resize; touch-action: none; outline: none; }
+.pane-divider::after { content: ""; width: 3px; height: 56px; margin: auto; border-radius: 3px; background: var(--edge-lit); opacity: 0; transition: opacity .12s ease; }
+.pane-divider:hover::after, .pane-divider:focus-visible::after { opacity: 1; background: var(--mint); }
+@media (max-width: 50rem) { .pane-divider { display: none; } }

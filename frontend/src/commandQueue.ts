@@ -1,5 +1,5 @@
 import type { IconName } from "./Icon.tsx";
-import type { Action, Question, Review, Run, Snapshot } from "./types.ts";
+import type { Action, BoardActivity, Question, Review, ReviewDocument, Run, Snapshot } from "./types.ts";
 import { runMark } from "./feedback.ts";
 
 // Everything the Overlord is asked lives in one queue: a goblin's or the CFO's
@@ -31,6 +31,33 @@ export function waitingItems(snapshot: Snapshot, kept: ReadonlySet<string> = new
   return asItems(snapshot)
     .filter((item) => isOpen(item) || kept.has(item.key))
     .sort((a, b) => Number(!!task(a)) - Number(!!task(b)) || created(a) - created(b));
+}
+
+// The item to show after the one at key: the next open item, wrapping to the
+// first, passing over what was sent in this sitting before the snapshot says
+// so. Null means nothing else waits on him.
+export function nextOpenKey(stack: Item[], key: string, sent: ReadonlySet<string> = new Set()): string | null {
+  const index = stack.findIndex((item) => item.key === key);
+  const waiting = (item: Item) => item.key !== key && isOpen(item) && !sent.has(item.key);
+  return (stack.slice(index + 1).find(waiting) || stack.slice(0, Math.max(0, index)).find(waiting))?.key || null;
+}
+
+// The page a question's card may open: its asker's most recent live review
+// page, from the same goblin session or the CFO registration that asked, so a
+// card never opens another task's page or one a replaced asker left behind.
+export function questionPage(presentations: BoardActivity[], question: Question): BoardActivity | undefined {
+  return [...presentations].reverse().find((event) => event.kind === "review" && (question.task
+    ? event.task_id === question.task && event.generation === question.generation
+    : !!event.cfo_identity && event.cfo_identity === question.identity));
+}
+
+// A document's facts on one line: its type from the file name, its size and
+// who sent it, such as "PDF · 2.4 MB · from the CFO".
+export function documentFacts(document: ReviewDocument, sender: string): string {
+  const dot = document.name.lastIndexOf(".");
+  const extension = dot > 0 ? document.name.slice(dot + 1).toUpperCase() : "";
+  const size = document.size >= 1 << 20 ? (document.size / (1 << 20)).toFixed(1) + " MB" : document.size >= 1 << 10 ? Math.round(document.size / (1 << 10)) + " KB" : document.size + " B";
+  return [extension || "File", size, "from " + sender].join(" · ");
 }
 
 export function settledItems(snapshot: Snapshot): Item[] {
@@ -87,7 +114,7 @@ export function settledLabel(item: Item, actions: Action[]): string {
   const { state, answer, reason, task } = item.review;
   const asker = task ? "the goblin" : "the CFO";
   if (state === "withdrawn") return "Withdrawn: " + reason;
-  if (state !== "answered") return "Cleared";
+  if (state !== "answered") return reason || "Cleared";
   switch (answerOutcome(item.review, actions)) {
     case "failed": return "Your answer did not reach " + asker;
     case "uncertain": return "Delivery unconfirmed: inspect " + asker + "'s pane before answering again";
