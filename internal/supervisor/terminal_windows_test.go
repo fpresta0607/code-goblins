@@ -559,6 +559,47 @@ func TestTerminalHistoryAnswersThePanesRecentLines(t *testing.T) {
 	}
 }
 
+// Taking a pane's control to size it to the board must never resume or answer
+// an agent waiting for input: opening a control view, resizing it and
+// reading its history send the pane nothing but its size, and only a key the
+// Overlord types reaches the program.
+func TestTakingControlSendsThePaneOnlyItsSize(t *testing.T) {
+	// Arrange
+	native := newTestTerminal()
+	_, server, identity, runner := terminalHTTPFixture(t, native)
+	socket := runner.socket
+	socket.History = []string{"waiting for your answer"}
+	native.frames <- fullFrame(1)
+
+	// Act
+	response := terminalPost(t, server, "/api/terminal/stream", `{"cols":100,"rows":30,"control":true,"identity":"`+identity+`"}`)
+	defer response.Body.Close()
+	lease := readyLease(t, bufio.NewScanner(response.Body))
+	resized := terminalPost(t, server, "/api/terminal/input", fmt.Sprintf(`{"lease":%q,"seq":1,"command":{"type":"terminal.resize","cols":90,"rows":25}}`, lease))
+	resized.Body.Close()
+	history := terminalPost(t, server, "/api/terminal/history", fmt.Sprintf(`{"lease":%q,"lines":100}`, lease))
+	history.Body.Close()
+
+	// Assert
+	if !native.control || native.cols != 100 || native.rows != 30 {
+		t.Fatalf("opened control=%v at %dx%d, want control at 100x30", native.control, native.cols, native.rows)
+	}
+	if resized.StatusCode != 200 || history.StatusCode != 200 {
+		t.Fatalf("resize = %d, history = %d, want 200 and 200", resized.StatusCode, history.StatusCode)
+	}
+	if want := []herdr.TerminalCommand{{Type: "terminal.resize", Cols: 90, Rows: 25}}; !reflect.DeepEqual(native.writes, want) {
+		t.Fatalf("sent the pane %v, want only its new size", native.writes)
+	}
+	for _, request := range socket.Requests() {
+		if request.Method != "pane.read" {
+			t.Fatalf("the socket was sent %s %v, want only history reads", request.Method, request.Params)
+		}
+	}
+	if status := typeKey(t, server, lease, 2, "y"); status != 200 || !reflect.DeepEqual(native.writes[len(native.writes)-1], herdr.TerminalCommand{Type: "terminal.input", Text: "y"}) {
+		t.Fatalf("a typed key = %d with %v sent, want it typed", status, native.writes)
+	}
+}
+
 // recordingPanes is a pane input that records what it types and which
 // history it reads, answering text; refuse fails that many inputs first.
 type recordingPanes struct {

@@ -79,12 +79,8 @@ func OpenTerminal(ctx context.Context, session, terminal string, control bool, c
 	if err := (TerminalCommand{Type: "terminal.resize", Cols: cols, Rows: rows}).Validate(); err != nil {
 		return nil, err
 	}
-	mode := "observe"
-	if control {
-		mode = "control"
-	}
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, "herdr", "--session", session, "terminal", "session", mode, terminal, "--cols", strconv.Itoa(cols), "--rows", strconv.Itoa(rows))
+	cmd := exec.CommandContext(ctx, "herdr", terminalSessionArgs(session, terminal, control, cols, rows)...)
 	cmd.WaitDelay = 2 * time.Second
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -107,6 +103,24 @@ func OpenTerminal(ctx context.Context, session, terminal string, control bool, c
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64<<10), 4<<20)
 	return &terminalProcess{cmd: cmd, stdin: stdin, scanner: scanner, cancel: cancel}, nil
+}
+
+// terminalSessionArgs is the Herdr command that attaches to a terminal. An
+// observer sees the pane at the size it asks for and changes nothing; a
+// controller sizes the pane to cols and rows. The most recent client to take
+// control wins, so a controller takes over from any other: Herdr then ends the
+// other one, and a Herdr window showing the pane takes its size back once the
+// controller leaves. Attaching sends the program nothing.
+func terminalSessionArgs(session, terminal string, control bool, cols, rows int) []string {
+	mode := "observe"
+	if control {
+		mode = "control"
+	}
+	args := []string{"--session", session, "terminal", "session", mode, terminal, "--cols", strconv.Itoa(cols), "--rows", strconv.Itoa(rows)}
+	if control {
+		args = append(args, "--takeover")
+	}
+	return args
 }
 
 func (p *terminalProcess) Next() (TerminalFrame, error) {

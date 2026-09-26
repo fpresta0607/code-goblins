@@ -202,8 +202,8 @@ func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.Ter
 	return nil
 }
 
-// history reads a live pane view's recent output, history included: Herdr
-// sends an observer only the live screen, so the view shows history it read.
+// history reads a view's recent output, history included: Herdr sends a view
+// only the live screen, so the view shows history it read.
 // It types nothing, so gate custody does not stop it, but it still reads
 // only the pane the view was verified on.
 func (l *terminalLease) history(ctx context.Context, lines int, verify func(context.Context, terminalBinding, bool) error) (string, error) {
@@ -212,8 +212,8 @@ func (l *terminalLease) history(ctx context.Context, lines int, verify func(cont
 	if l.closed {
 		return "", errors.New("Terminal is disconnected. Reconnect to read its history.")
 	}
-	if l.control {
-		return "", errors.New("Only a live pane view reads its pane's history.")
+	if l.panes == nil {
+		return "", errors.New("History is unavailable: this pane's Herdr socket cannot be found.")
 	}
 	if err := verify(ctx, l.binding, false); err != nil {
 		return "", err
@@ -457,7 +457,6 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cols, rows := input.Cols, input.Rows
-	var panes herdr.PaneInput
 	if !input.Control {
 		// An observer sees only the part of the screen its size covers and
 		// hears of no change outside it, so a view smaller than the pane is a
@@ -466,13 +465,17 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 			apiError(w, 409, err.Error())
 			return
 		}
-		// Typing and history reads reach the pane over its session's
-		// socket; finding the socket is the one process the view starts
-		// for them.
-		if panes, err = h.Service.Options.CFO.Terminals(b.Target.Session).PaneInput(ctx); err != nil {
-			apiError(w, 503, "Typing into this pane is unavailable: its Herdr socket cannot be found.")
-			return
-		}
+	}
+	// A live view types, and every view reads history, over the pane's
+	// session socket; finding the socket is the one process a view starts
+	// for them. A control view types through its own stream, so it opens
+	// without the socket, only without history.
+	var panes herdr.PaneInput
+	if found, err := h.Service.Options.CFO.Terminals(b.Target.Session).PaneInput(ctx); err == nil {
+		panes = found
+	} else if !input.Control {
+		apiError(w, 503, "Typing into this pane is unavailable: its Herdr socket cannot be found.")
+		return
 	}
 	open := h.openTerminal
 	stream, err := open(ctx, b.Target.Session, b.Terminal, input.Control, cols, rows)
