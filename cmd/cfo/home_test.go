@@ -216,7 +216,7 @@ func TestHomeMigrateApplyRefusesWithoutAPlanFromADryRun(t *testing.T) {
 	}{
 		"no plan":          {args: []string{"--apply"}, exit: 2, want: "usage: cfo home migrate"},
 		"a plan unknown":   {args: []string{"--apply", "--plan", strings.Repeat("a", 64)}, exit: 1, want: "no dry run printed plan"},
-		"not a digest":     {args:[]string{"--apply", "--plan", `..\..\x`}, exit: 1, want: "is not a plan digest"},
+		"not a digest":     {args: []string{"--apply", "--plan", `..\..\x`}, exit: 1, want: "is not a plan digest"},
 		"a plan, no apply": {args: []string{"--plan", strings.Repeat("a", 64)}, exit: 2, want: "usage: cfo home migrate"},
 	}
 	for name, c := range cases {
