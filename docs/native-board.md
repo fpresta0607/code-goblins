@@ -12,7 +12,9 @@ Closing the browser disconnects a view, while Ctrl-C in the supervisor terminal,
 Once it holds the singleton and listens, `serve` records its pid and the board's address in `state/board.json`, and removes the record when it exits.
 `goblins` with no command reads that record: when the address answers at all it prints the board's link and a status line from the snapshot, or says the board could not read the fleet's state when the snapshot fails, and starts and opens nothing.
 Otherwise it starts `serve` detached from its terminal, in a hidden console of its own that the programs `serve` runs share, so no console window opens, with its output appended to `state/serve.log`, waits up to 30 seconds for the board to answer, and opens it in the browser once.
+The detached `serve` listens on `127.0.0.1:4310`, or on `127.0.0.1:0` when another program already listens there, so the OS picks a free loopback port and the record holds the real address.
 A record whose address does not answer, left by a supervisor that ended without removing it, is replaced by the next start, and a record naming anything but a plain loopback board address is ignored.
+`goblins --board` finds or starts the supervisor the same way, opens the board root in the browser every time, and exits 1 naming the link when the browser cannot be opened; it starts, shows and attaches no CFO.
 Then `goblins` brings the Overlord to the CFO.
 A CFO whose registration in `state/primary.json` names a live process is reused, never started a second time: `goblins` brings its registered workspace and tab to the front and hands its terminal to `herdr`, attached to the session the CFO registered in.
 It decides from the registration alone and asks neither the board nor Herdr, so a supervisor that has not checked the registration yet or a Herdr that cannot answer changes nothing.
