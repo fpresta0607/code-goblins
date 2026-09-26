@@ -17,8 +17,8 @@ export function bracketedPaste(text: string): string {
 }
 
 // A cell's size in em, before the terminal has drawn one to measure: a
-// monospace cell is 0.6 em wide, and a row is the line height.
-export const ESTIMATED_CELL = { width: 0.6, height: 1.2 };
+// monospace cell is 0.6 em wide, and a row is about the font's own height.
+export const ESTIMATED_CELL = { width: 0.6, height: 1.3 };
 const MAX_FITTED_FONT = 28;
 
 // A pane's frame keeps the pane's own columns and rows, so the font is sized

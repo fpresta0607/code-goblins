@@ -48,7 +48,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     const element = host.current;
     const abort = new AbortController();
     const nonce = document.querySelector<HTMLMetaElement>('meta[name="cfo-style-nonce"]')?.content || "";
-    const term = new Terminal({ documentOverride: terminalDocument(nonce), fontSize: 15, fontFamily: FALLBACK_FONT, lineHeight: 1.2, scrollback: 0, disableStdin: true, cursorBlink: false, theme: { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" }, linkHandler: { activate: () => {} } });
+    const term = new Terminal({ documentOverride: terminalDocument(nonce), fontSize: 15, fontFamily: FALLBACK_FONT, scrollback: 0, disableStdin: true, cursorBlink: false, theme: { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" }, linkHandler: { activate: () => {} } });
     term.open(element);
     terminal.current = term;
     // The bundled face measures differently from the fallback, so switch once
@@ -63,16 +63,27 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     let lease = "", seq = 0, frameSeq = 0, full = false, flushing = false;
     const queue: string[] = [];
     let copiedTimer: ReturnType<typeof setTimeout> | undefined;
-    // The cell is measured from the screen xterm drew at the current size, so
-    // a second pass once it has drawn at the new size makes the fit exact.
-    const fit = (again = true) => {
+    // The font is fitted from the cell measured on the screen xterm drew, then
+    // checked on the screen it draws next: rows round to whole pixels, which
+    // can add a row's height across a tall pane, so a screen that overflows
+    // the panel steps down until it fits whole. Checking only ever shrinks.
+    let checking = false;
+    const settle = () => {
+      if (!checking) return;
+      const screen = element.querySelector<HTMLElement>(".xterm-screen");
+      const current = term.options.fontSize || 15;
+      if (!screen || screen.offsetWidth <= element.clientWidth && screen.offsetHeight <= element.clientHeight || current <= 1) { checking = false; return; }
+      term.options.fontSize = current - 0.5;
+    };
+    term.onRender(settle);
+    const fit = () => {
       const screen = element.querySelector<HTMLElement>(".xterm-screen");
       const current = term.options.fontSize || 15;
       const cell = screen && screen.offsetWidth > 0 ? { width: screen.offsetWidth / term.cols / current, height: screen.offsetHeight / term.rows / current } : ESTIMATED_CELL;
       const size = fittedFontSize(element.clientWidth, element.clientHeight, term.cols, term.rows, cell);
-      if (size === null || size === current) return;
-      term.options.fontSize = size;
-      if (again) requestAnimationFrame(() => fit(false));
+      if (size === null) return;
+      checking = true;
+      if (size === current) settle(); else term.options.fontSize = size;
     };
     const stop = (reason: string) => {
       lease = "";
