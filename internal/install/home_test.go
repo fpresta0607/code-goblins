@@ -204,7 +204,7 @@ func TestInstallOutsideACheckoutThatFailsPartwayLeavesNoPrimaryHome(t *testing.T
 	var out strings.Builder
 	err := f.service.Install(&out)
 
-	if err == nil || !strings.Contains(err.Error(), "run cfo install again") {
+	if err == nil || !strings.Contains(err.Error(), "replace "+filepath.Join(f.root, "goblins.exe")) {
 		t.Fatalf("Install = %v, want the copy's failure\n%s", err, out.String())
 	}
 	if primary(f.root) {

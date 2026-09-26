@@ -82,6 +82,7 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 				return 1
 			}
 		}
+		service.StartMenuShortcut = install.StartMenuShortcutPath()
 		fmt.Fprintf(stdout, "cfo install --uninstall: removing %s from this machine\n", root)
 		if err := service.Uninstall(stdout); err != nil {
 			fmt.Fprintln(stderr, err)

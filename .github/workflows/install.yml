@@ -11,6 +11,8 @@ on:
       - install.cmd
       - home_files.go
       - cmd/cfo/install.go
+      - cmd/cfo/launcher.go
+      - cmd/cfo/serve.go
       - cmd/cfo/native.go
       - cmd/cfo/main.go
       - cmd/cfo/doctor.go
@@ -27,6 +29,8 @@ on:
       - install.cmd
       - home_files.go
       - cmd/cfo/install.go
+      - cmd/cfo/launcher.go
+      - cmd/cfo/serve.go
       - cmd/cfo/native.go
       - cmd/cfo/main.go
       - cmd/cfo/doctor.go
@@ -85,6 +89,10 @@ jobs:
           } else {
             Get-Content -Raw install.ps1 | Invoke-Expression
           }
+          # goblins works at once in the window the install ran in.
+          $found = (Get-Command goblins -ErrorAction Stop).Source
+          $want = Join-Path $env:LOCALAPPDATA "CodeGoblins\goblins.exe"
+          if ($found -ne $want) { throw "goblins resolves to $found in the install's own window, want $want" }
           # The install ends with goblins doctor, whose verdict the next step
           # reads line by line: kimi has no scriptable installer, so its spawn
           # probe is broken on a clean runner.
@@ -115,6 +123,14 @@ jobs:
           $doctor | Write-Host
           $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" -and $_ -notmatch "^(MISSING\s+kimi\s|broken\s+kimi\s+harness spawn probe: not found on PATH)" })
           if ($failing.Count -gt 0) { throw "goblins doctor reports more than kimi missing: $($failing -join '; ')" }
+          # The install opened the board, so a supervisor runs, and Code
+          # Goblins in the Start menu opens it again.
+          & (Join-Path $cfoHome "goblins.exe") status
+          if ($LASTEXITCODE -ne 0) { throw "no supervisor runs after the install opened the board" }
+          $shortcutPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins.lnk"
+          if (-not (Test-Path -LiteralPath $shortcutPath)) { throw "the install made no $shortcutPath" }
+          $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
+          if ($shortcut.TargetPath -ne (Join-Path $cfoHome "goblins.exe") -or $shortcut.Arguments -ne "--board") { throw "the Start-menu shortcut runs '$($shortcut.TargetPath) $($shortcut.Arguments)', want the home's goblins.exe --board" }
           $global:LASTEXITCODE = 0
       - name: Install again
         env:
@@ -142,8 +158,11 @@ jobs:
           # From a neutral folder, as a user would: inside a checkout,
           # uninstall unwires that checkout instead.
           Set-Location $env:RUNNER_TEMP
+          & (Join-Path $cfoHome "goblins.exe") stop
+          if ($LASTEXITCODE -ne 0) { throw "goblins stop exited with code $LASTEXITCODE" }
           & (Join-Path $cfoHome "goblins.exe") uninstall
           if ($LASTEXITCODE -ne 0) { throw "goblins uninstall exited with code $LASTEXITCODE" }
+          if (Test-Path -LiteralPath (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins.lnk")) { throw "the Start-menu shortcut survived the uninstall" }
           if ([Environment]::GetEnvironmentVariable("CFO_HOME", "User")) { throw "CFO_HOME survived the uninstall" }
           if (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $cfoHome) { throw "$cfoHome is still on the user PATH" }
           $settings = Get-Content -Raw (Join-Path $env:USERPROFILE ".claude\settings.json") | ConvertFrom-Json
@@ -191,12 +210,19 @@ jobs:
           $doctor | Write-Host
           $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" -and $_ -notmatch "^(MISSING\s+kimi\s|broken\s+kimi\s+harness spawn probe: not found on PATH)" })
           if ($failing.Count -gt 0) { throw "goblins doctor reports more than kimi missing: $($failing -join '; ')" }
+          & goblins status
+          if ($LASTEXITCODE -ne 0) { throw "no supervisor runs after -Dev opened the board" }
+          $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins.lnk"))
+          if ($shortcut.TargetPath -ne (Join-Path $clone "goblins.exe") -or $shortcut.Arguments -ne "--board") { throw "the Start-menu shortcut runs '$($shortcut.TargetPath) $($shortcut.Arguments)', want the clone's goblins.exe --board" }
           $global:LASTEXITCODE = 0
       - name: Uninstall
         run: |
           # Run in the clone, uninstall unwires the clone and keeps it.
+          & (Join-Path $env:GITHUB_WORKSPACE "goblins.exe") stop
+          if ($LASTEXITCODE -ne 0) { throw "goblins stop exited with code $LASTEXITCODE" }
           & (Join-Path $env:GITHUB_WORKSPACE "goblins.exe") uninstall
           if ($LASTEXITCODE -ne 0) { throw "goblins uninstall exited with code $LASTEXITCODE" }
+          if (Test-Path -LiteralPath (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins.lnk")) { throw "the Start-menu shortcut survived the uninstall" }
           if ([Environment]::GetEnvironmentVariable("CFO_HOME", "User")) { throw "CFO_HOME survived the uninstall" }
           if (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -contains $env:GITHUB_WORKSPACE) { throw "the clone is still on the user PATH" }
           if (-not (Test-Path -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "cfo.exe"))) { throw "the uninstall removed the clone's build" }
