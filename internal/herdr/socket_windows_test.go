@@ -2,6 +2,7 @@ package herdr
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -9,10 +10,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr/herdrtest"
 )
 
-// A typist asks Herdr's status for the socket once, then types every input as
-// one pane.send_text request on the session's socket: control keys, a
-// multi-byte paste and the board's largest input alike, and no process.
-func TestTypistTypesEachInputAsOneSocketRequest(t *testing.T) {
+// A pane input asks Herdr's status for the socket once, then types every
+// input as one pane.send_text request on the session's socket: control keys,
+// a multi-byte paste and the board's largest input alike, and no process.
+func TestPaneInputTypesEachInputAsOneSocketRequest(t *testing.T) {
 	inputs := []struct {
 		name string
 		text string
@@ -28,12 +29,12 @@ func TestTypistTypesEachInputAsOneSocketRequest(t *testing.T) {
 	var sleeps []time.Duration
 	client := newTestClient(runner, &sleeps)
 
-	typist, err := client.Typist(context.Background())
+	panes, err := client.PaneInput(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, input := range inputs {
-		if err := typist(context.Background(), Target{Session: "fleet", Pane: "w1:p2"}, input.text); err != nil {
+		if err := panes.SendText(context.Background(), "w1:p2", input.text); err != nil {
 			t.Fatalf("typing %s: %v", input.name, err)
 		}
 	}
@@ -45,11 +46,57 @@ func TestTypistTypesEachInputAsOneSocketRequest(t *testing.T) {
 	for i, input := range inputs {
 		got := requests[i]
 		if got.Method != "pane.send_text" || got.Params["pane_id"] != "w1:p2" || got.Params["text"] != input.text {
-			t.Fatalf("request for %s = %s to %q with %d bytes, want pane.send_text to w1:p2 with the input", input.name, got.Method, got.Params["pane_id"], len(got.Params["text"]))
+			t.Fatalf("request for %s = %s to %v with %d bytes, want pane.send_text to w1:p2 with the input", input.name, got.Method, got.Params["pane_id"], len(fmt.Sprint(got.Params["text"])))
 		}
 	}
 	if calls := runner.Requests(); len(calls) != 1 || strings.Join(calls[0].Args, " ") != "status --json --session fleet" {
 		t.Fatalf("commands run = %v, want only the one status read", calls)
+	}
+}
+
+// Scrolling asks Herdr to show the pane's history from an offset above its
+// bottom and returns the offset Herdr applied, which it holds within the
+// pane's history.
+func TestPaneInputScrollsWithinThePanesHistory(t *testing.T) {
+	cases := []struct {
+		name      string
+		requested int
+		shown     int
+	}{
+		{"within the history", 20, 20},
+		{"past the history is held at its top", 100000, 300},
+		{"back to the bottom", 0, 0},
+	}
+	socket := herdrtest.NewSocket(t)
+	socket.History = 300
+	panes := Socket{pipe: `\\.\pipe\` + socket.Path}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			shown, err := panes.Scroll(context.Background(), "w1:p2", c.requested)
+
+			if err != nil || shown != c.shown {
+				t.Fatalf("Scroll(%d) = %d, %v; want %d", c.requested, shown, err, c.shown)
+			}
+			last := socket.Requests()[len(socket.Requests())-1]
+			if last.Method != "pane.scroll" || last.Params["pane_id"] != "w1:p2" || last.Params["offset_from_bottom"] != float64(c.requested) {
+				t.Fatalf("request = %s %v, want pane.scroll of w1:p2 to %d", last.Method, last.Params, c.requested)
+			}
+		})
+	}
+}
+
+// A scroll answer that names no offset is a failure, since the view would not
+// know where the pane is.
+func TestPaneInputScrollFailsWithoutAnOffset(t *testing.T) {
+	socket := herdrtest.NewSocket(t)
+	socket.Answer = func(r herdrtest.Request) string {
+		return `{"id":"` + r.ID + `","result":{"type":"pane_info","pane":{"pane_id":"w1:p2"}}}`
+	}
+
+	_, err := Socket{pipe: `\\.\pipe\` + socket.Path}.Scroll(context.Background(), "w1:p2", 5)
+
+	if err == nil || !strings.Contains(err.Error(), "no scroll offset") {
+		t.Fatalf("Scroll = %v, want an error naming the missing offset", err)
 	}
 }
 
