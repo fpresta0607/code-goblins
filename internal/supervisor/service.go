@@ -573,6 +573,9 @@ type Snapshot struct {
 	// Registration says why the board cannot reach the primary CFO, with
 	// the fix, and is empty while it can.
 	Registration string `json:"registration"`
+	// CFOTerminal names the native terminal the registered CFO runs in, and is
+	// empty while it runs in Herdr or not at all.
+	CFOTerminal string `json:"cfo_terminal"`
 }
 
 func (s *Service) Snapshot() (Snapshot, error) {
@@ -586,6 +589,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 	}
 	s.mu.Unlock()
+	if id, live := NativeCFO(s.Store.Home.State); live {
+		out.CFOTerminal = id
+	}
 	// The board sees how many images a question has, never where they are.
 	out.Questions = make([]Question, len(d.Questions))
 	for i, q := range d.Questions {

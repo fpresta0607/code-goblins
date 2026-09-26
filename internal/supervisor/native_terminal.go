@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -69,8 +70,8 @@ func (h *HTTP) announce(task string, sender *nativeRelay, cols, rows int) {
 	}
 }
 
-// nativeTerminal relays one view of a native task's terminal over a
-// WebSocket: the host's output goes out as binary messages, typing comes back
+// nativeTerminal relays one view of a native task's terminal, or of the
+// registered CFO's, over a WebSocket: the host's output goes out as binary messages, typing comes back
 // as binary messages, and a resize or an acknowledgement as a JSON text
 // message. The host's history comes first; a view repaints the screen by
 // sending its size, since the pseudo console redraws its whole window on every
@@ -79,9 +80,8 @@ func (h *HTTP) announce(task string, sender *nativeRelay, cols, rows int) {
 // terminalBacklog bytes behind is closed so it reconnects, so the host never
 // waits on a slow window and no byte is dropped from a view that stays. The
 // view is bound to its terminal once, when it connects, by the host's own
-// pipe, so a key costs no check and starts no process; custody and the task's
-// generation are checked again on every tick. A resize under custody is
-// ignored.
+// pipe, so a key costs no check and starts no process; what it is bound to is
+// checked again on every tick. A resize under custody is ignored.
 func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// A browser cannot send the board's token in a WebSocket header, so it
 	// comes in the query.
@@ -103,20 +103,19 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		_ = view.Close(websocket.StatusTryAgainLater, "Too many terminal views are open.")
 		return
 	}
-	selection := terminalSelection{Task: r.URL.Query().Get("task"), Generation: r.URL.Query().Get("generation")}
-	meta, err := h.Service.nativeTask(selection)
+	binding, err := h.Service.nativeBinding(r.URL.Query())
 	if err != nil {
 		_ = view.Close(websocket.StatusPolicyViolation, err.Error())
 		return
 	}
-	record, err := host.ReadRecord(h.Service.Store.Home.State, meta.ID)
+	record, err := host.ReadRecord(h.Service.Store.Home.State, binding.id)
 	if err != nil {
-		_ = view.Close(websocket.StatusPolicyViolation, "No terminal is running for this task.")
+		_ = view.Close(websocket.StatusPolicyViolation, "No terminal is running for "+binding.name+".")
 		return
 	}
 	terminal, err := host.Dial(record)
 	if err != nil {
-		_ = view.Close(websocket.StatusPolicyViolation, "This task's terminal did not answer.")
+		_ = view.Close(websocket.StatusPolicyViolation, "The terminal of "+binding.name+" did not answer.")
 		return
 	}
 	defer terminal.Close()
@@ -126,21 +125,25 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// mu guards custody, which each tick refreshes.
 	var mu sync.Mutex
 	check, stop := context.WithTimeout(ctx, 8*time.Second)
-	custody := h.Service.validateTerminalControl(check, meta)
+	custody, err := binding.check(check)
 	stop()
+	if err != nil {
+		_ = view.Close(websocket.StatusPolicyViolation, closeReason(err.Error()))
+		return
+	}
 
 	relay := &nativeRelay{wake: make(chan struct{}, 1)}
 	h.mu.Lock()
-	if h.relays[meta.ID] == nil {
-		h.relays[meta.ID] = map[*nativeRelay]struct{}{}
+	if h.relays[binding.id] == nil {
+		h.relays[binding.id] = map[*nativeRelay]struct{}{}
 	}
-	h.relays[meta.ID][relay] = struct{}{}
+	h.relays[binding.id][relay] = struct{}{}
 	h.mu.Unlock()
 	defer func() {
 		h.mu.Lock()
-		delete(h.relays[meta.ID], relay)
-		if len(h.relays[meta.ID]) == 0 {
-			delete(h.relays, meta.ID)
+		delete(h.relays[binding.id], relay)
+		if len(h.relays[binding.id]) == 0 {
+			delete(h.relays, binding.id)
 		}
 		h.mu.Unlock()
 	}()
@@ -234,14 +237,13 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				_ = view.Close(websocket.StatusGoingAway, "The board is restarting.")
 				return
 			case <-tick.C:
-				current, err := h.Service.nativeTask(selection)
+				check, stop := context.WithTimeout(ctx, 8*time.Second)
+				refused, err := binding.check(check)
+				stop()
 				if err != nil {
-					_ = view.Close(websocket.StatusPolicyViolation, err.Error())
+					_ = view.Close(websocket.StatusPolicyViolation, closeReason(err.Error()))
 					return
 				}
-				check, stop := context.WithTimeout(ctx, 8*time.Second)
-				refused := h.Service.validateTerminalControl(check, current)
-				stop()
 				mu.Lock()
 				custody = refused
 				mu.Unlock()
@@ -283,7 +285,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				_ = view.Close(websocket.StatusGoingAway, "The terminal's host stopped answering.")
 				return
 			}
-			h.announce(meta.ID, relay, control.Cols, control.Rows)
+			h.announce(binding.id, relay, control.Cols, control.Rows)
 			continue
 		}
 		mu.Lock()
@@ -302,6 +304,47 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 
 // nativeTask is the task a view selected, while that generation is current
 // and its terminal is native.
+// nativeBinding is the terminal a native view shows: a task's, or the
+// registered CFO's. check repeats what opening it proved: it returns an error
+// once the view must close, and custody, the reason typing is held while a
+// gate owns the task.
+type nativeBinding struct {
+	id, name string
+	check    func(ctx context.Context) (custody, err error)
+}
+
+func (s *Service) nativeBinding(query url.Values) (nativeBinding, error) {
+	// A view of the CFO names the terminal it expects the CFO in, so a CFO
+	// that moved is opened again rather than shown in a view of another.
+	if want := query.Get("cfo"); want != "" {
+		id, live := NativeCFO(s.Store.Home.State)
+		if !live {
+			return nativeBinding{}, errors.New("The CFO does not run in a native terminal.")
+		}
+		if id != want {
+			return nativeBinding{}, errors.New("The CFO runs in another terminal now. Open the CFO again.")
+		}
+		return nativeBinding{id: id, name: "the CFO", check: func(context.Context) (error, error) {
+			if current, live := NativeCFO(s.Store.Home.State); !live || current != id {
+				return nil, errors.New("The CFO no longer runs in this terminal. Open the CFO again.")
+			}
+			return nil, nil
+		}}, nil
+	}
+	selection := terminalSelection{Task: query.Get("task"), Generation: query.Get("generation")}
+	meta, err := s.nativeTask(selection)
+	if err != nil {
+		return nativeBinding{}, err
+	}
+	return nativeBinding{id: meta.ID, name: "this task", check: func(ctx context.Context) (error, error) {
+		current, err := s.nativeTask(selection)
+		if err != nil {
+			return nil, err
+		}
+		return s.validateTerminalControl(ctx, current), nil
+	}}, nil
+}
+
 func (s *Service) nativeTask(selected terminalSelection) (state.TaskMeta, error) {
 	if state.ValidTaskID(selected.Task) != nil || selected.Generation == "" {
 		return state.TaskMeta{}, errors.New("Select a task's current session to open its terminal.")
