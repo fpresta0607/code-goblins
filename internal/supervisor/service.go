@@ -721,7 +721,8 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 	}
 	for _, brief := range queuedBriefs(s.Store.Home) {
-		if len(out.Tasks) < maxSessions && !slices.ContainsFunc(out.Tasks, func(t Task) bool { return t.ID == brief.ID }) {
+		isParked := slices.ContainsFunc(backlog.Parked, func(row fleet.BacklogRow) bool { return row.Structured && row.ID == brief.ID })
+		if !isParked && len(out.Tasks) < maxSessions && !slices.ContainsFunc(out.Tasks, func(t Task) bool { return t.ID == brief.ID }) {
 			out.Tasks = append(out.Tasks, brief)
 		}
 	}
