@@ -183,11 +183,18 @@
         # this run or a later one.
         foreach ($name in "cfo.exe", "goblins.exe") {
             $target = Join-Path $InstallDir $name
-            Get-ChildItem -LiteralPath $InstallDir -Filter "$name.*.old" | Remove-Item -Force -ErrorAction SilentlyContinue
+            $aside = $null
             if (Test-Path -LiteralPath $target) {
-                Move-Item -LiteralPath $target -Destination "$target.$([Guid]::NewGuid().ToString("N")).old"
+                $aside = "$target.$([Guid]::NewGuid().ToString("N")).old"
+                Move-Item -LiteralPath $target -Destination $aside
             }
-            Copy-Item -LiteralPath $built -Destination $target
+            try {
+                Copy-Item -LiteralPath $built -Destination $target
+            }
+            catch {
+                if ($aside) { Move-Item -LiteralPath $aside -Destination $target -Force }
+                throw
+            }
             Get-ChildItem -LiteralPath $InstallDir -Filter "$name.*.old" | Remove-Item -Force -ErrorAction SilentlyContinue
         }
         Remove-Item -LiteralPath $built -Force

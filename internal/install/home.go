@@ -239,14 +239,18 @@ func (s Service) copyBinary(report *reporter) error {
 	stillRunning := false
 	for _, name := range []string{"cfo.exe", "goblins.exe"} {
 		target := filepath.Join(s.Root, name)
-		removeAsideCopies(target)
+		aside := ""
 		if current, err := os.ReadFile(target); err == nil && !bytes.Equal(current, data) {
-			if err := os.Rename(target, target+"."+rand.Text()+".old"); err != nil {
+			aside = target + "." + rand.Text() + ".old"
+			if err := os.Rename(target, aside); err != nil {
 				return fmt.Errorf("install: move %s aside: %w", target, err)
 			}
 		}
 		changed, err := writeIfDifferent(target, data)
 		if err != nil {
+			if aside != "" {
+				err = errors.Join(err, os.Rename(aside, target))
+			}
 			return fmt.Errorf("install: replace %s: %w", target, err)
 		}
 		if changed {
@@ -281,6 +285,9 @@ func removeAsideCopies(target string) int {
 	return left
 }
 
+// atomicWriteFile is a variable so a test can make a write fail.
+var atomicWriteFile = fsx.AtomicWriteFile
+
 // writeIfDifferent writes data to path unless path already holds exactly
 // that, and reports whether it wrote.
 func writeIfDifferent(path string, data []byte) (bool, error) {
@@ -294,7 +301,7 @@ func writeIfDifferent(path string, data []byte) (bool, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return false, err
 	}
-	if err := fsx.AtomicWriteFile(path, data); err != nil {
+	if err := atomicWriteFile(path, data); err != nil {
 		return false, err
 	}
 	return true, nil
