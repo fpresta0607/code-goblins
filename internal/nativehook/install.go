@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -72,9 +73,12 @@ func Install(c InstallConfig) (string, error) {
 		events = append(events, "Interrupt")
 	}
 	for _, event := range events {
-		kept, _, err := withoutCommand(hooks[event], command)
+		kept, stood, err := withoutCommand(hooks[event], command)
 		if err != nil {
 			return "", err
+		}
+		if stood < 0 {
+			stood = len(kept)
 		}
 		entry := struct {
 			Hooks []struct {
@@ -89,7 +93,7 @@ func Install(c InstallConfig) (string, error) {
 			Timeout int    `json:"timeout"`
 		}{"command", command, 3})
 		encoded, _ := json.Marshal(entry)
-		hooks[event] = append(kept, encoded)
+		hooks[event] = slices.Insert(kept, stood, json.RawMessage(encoded))
 	}
 	doc["hooks"], err = json.Marshal(hooks)
 	if err != nil {
@@ -164,22 +168,23 @@ func Uninstall(harness, configDir string) (bool, error) {
 		return false, err
 	}
 	helper, command := helperCommand(configDir)
-	total := 0
+	removed := false
 	for event, groups := range hooks {
-		kept, removed, err := withoutCommand(groups, command)
+		kept, stood, err := withoutCommand(groups, command)
 		if err != nil {
 			return false, err
 		}
-		total += removed
 		switch {
-		case removed == 0:
+		case stood < 0:
+			continue
 		case len(kept) == 0:
 			delete(hooks, event)
 		default:
 			hooks[event] = kept
 		}
+		removed = true
 	}
-	if total > 0 {
+	if removed {
 		if len(hooks) == 0 {
 			delete(doc, "hooks")
 		} else if doc["hooks"], err = json.Marshal(hooks); err != nil {
@@ -194,7 +199,7 @@ func Uninstall(harness, configDir string) (bool, error) {
 		}
 	}
 	removedHelper, err := removeOwned(helper)
-	return total > 0 || removedHelper, err
+	return removed || removedHelper, err
 }
 
 // settingsPath is the file holding harness's hooks under configDir.
@@ -235,11 +240,13 @@ func readHooks(path string) ([]byte, map[string]json.RawMessage, map[string][]js
 }
 
 // withoutCommand returns an event's matcher groups with every handler that
-// runs command removed, dropping the groups left empty, and how many handlers
-// it removed. Groups it does not touch keep their bytes.
+// runs command removed, dropping the groups left empty, and where the first
+// group that ran command stood among the groups kept, or -1 when none did:
+// Install puts its group back there, so a rerun moves nothing. Groups it does
+// not touch keep their bytes.
 func withoutCommand(groups []json.RawMessage, command string) ([]json.RawMessage, int, error) {
 	kept := make([]json.RawMessage, 0, len(groups)+1)
-	removed := 0
+	stood := -1
 	for _, raw := range groups {
 		var group map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &group); err != nil || group == nil {
@@ -261,7 +268,9 @@ func withoutCommand(groups []json.RawMessage, command string) ([]json.RawMessage
 				remaining = append(remaining, entry)
 			}
 		}
-		removed += len(entries) - len(remaining)
+		if stood < 0 && len(remaining) < len(entries) {
+			stood = len(kept)
+		}
 		if len(remaining) == len(entries) {
 			kept = append(kept, raw)
 		} else if len(remaining) > 0 {
@@ -270,7 +279,7 @@ func withoutCommand(groups []json.RawMessage, command string) ([]json.RawMessage
 			kept = append(kept, updated)
 		}
 	}
-	return kept, removed, nil
+	return kept, stood, nil
 }
 
 // removeOwned deletes path when it is a file Install wrote, and reports

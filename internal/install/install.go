@@ -371,10 +371,11 @@ func (s Service) writeUserHooks(report *reporter) error {
 		return err
 	}
 	foreign := file.foreignHookCount()
-	if err := file.pruneCFOHooks(); err != nil {
+	stood, err := file.pruneCFOHooks()
+	if err != nil {
 		return err
 	}
-	if err := file.addCFOHooks(); err != nil {
+	if err := file.addCFOHooks(stood); err != nil {
 		return err
 	}
 	changed, backup, err := file.save()
@@ -398,7 +399,7 @@ func (s Service) removeUserHooks(report *reporter) error {
 	if err != nil {
 		return err
 	}
-	if err := file.pruneCFOHooks(); err != nil {
+	if _, err := file.pruneCFOHooks(); err != nil {
 		return err
 	}
 	changed, backup, err := file.save()
