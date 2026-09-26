@@ -30,7 +30,7 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
   const payload = questionAnswer(question, draft.selection, draft.written);
   const choices = questionChoices(question);
   const images = choices.filter((choice) => choice.image);
-  const mark = outcome ? deliveryMark(outcome) : undefined;
+  const mark = outcome ? deliveryMark(outcome, question.task || undefined) : undefined;
   // An image can vanish with its goblin's worktree; show that, not a broken image.
   const [missing, setMissing] = useState<Set<string>>(new Set());
   return <form className="question-card" aria-labelledby={"question-" + question.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
@@ -46,7 +46,7 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
       {choices.map((option) => <label className={"question-choice" + (closed ? (chosen === option.value ? " chosen" : " dimmed") : "")} key={option.value}>
         {closed ? <span className="choice-mark">{chosen === option.value && <Icon name="check" />}</span>
           : <input type="radio" name={"answer-" + question.id} checked={displayed.selection === "option:" + option.value} onChange={() => onDraft({ selection: "option:" + option.value, error: "", receipt: undefined })} />}
-        <span className="question-option"><span>{option.label}. {option.value}</span>{option.recommended && <span className="recommendation">Recommended</span>}</span>
+        <span className="question-option"><span>{option.label}. {option.text}</span>{option.recommended && <span className="recommendation">Recommended</span>}</span>
       </label>)}
       {closed ? question.answer_kind === "other" && <label className="question-choice chosen"><span className="choice-mark"><Icon name="check" /></span><span className="question-option"><span>Other</span><small>{question.answer}</small></span></label>
         : <label className="question-choice"><input type="radio" name={"answer-" + question.id} checked={displayed.selection === "other"} onChange={() => onDraft({ selection: "other", error: "", receipt: undefined })} /><span className="question-option"><span>Other</span><small>Write your own answer.</small></span></label>}

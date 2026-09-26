@@ -328,19 +328,21 @@ test("a goblin waiting on a question says who it is waiting on", () => {
 
 test("delivery reads as a mark, and only trouble spells itself out", () => {
   const mark = (status: string, kind: string) => deliveryMark(parseAction({ id: "a", kind, status }));
-  assert.deepEqual(mark("succeeded", "review"), { icon: "check-double", label: "Accepted by the CFO", trouble: false });
-  assert.deepEqual(mark("succeeded", "cfo_answer"), { icon: "check-double", label: "Accepted by the CFO", trouble: false });
+  assert.deepEqual(mark("succeeded", "review"), { icon: "check-double", label: "CFO received", trouble: false });
+  assert.deepEqual(mark("succeeded", "cfo_answer"), { icon: "check-double", label: "CFO received", trouble: false });
   assert.deepEqual(mark("succeeded", "goblin_answer"), { icon: "check-double", label: "Delivered to the goblin", trouble: false });
+  assert.deepEqual(deliveryMark(parseAction({ id: "a", kind: "goblin_answer", status: "succeeded" }), "pd-cad-lineage"), { icon: "check-double", label: "Delivered to pd-cad-lineage", trouble: false });
   assert.deepEqual(mark("succeeded", "evaluate"), { icon: "check-double", label: "Done", trouble: false });
   // A review answer's action succeeds whether it reached the goblin or was
   // handed to the CFO, so only the review item's delivered flag earns two checks.
   assert.deepEqual(mark("succeeded", "review_answer"), { icon: "check", label: "Sent to the goblin or the CFO", trouble: false });
   assert.deepEqual(mark("running", "review"), { icon: "check", label: "Sending", trouble: false });
-  assert.deepEqual(mark("queued", "review"), { icon: "check", label: "Queued", trouble: false });
+  // A queued answer is on its way; "Queued" read as stuck.
+  assert.deepEqual(mark("queued", "review"), { icon: "check", label: "Sending", trouble: false });
   assert.deepEqual(mark("failed", "review"), { icon: "close", label: "Could not deliver", trouble: true });
   assert.deepEqual(mark("uncertain", "review"), { icon: "warning", label: "Delivery unconfirmed. Inspect the CFO queue before sending again.", trouble: true });
   assert.deepEqual(mark("uncertain", "feedback"), { icon: "warning", label: "Delivery unconfirmed. Inspect the terminal before sending again.", trouble: true });
-  assert.deepEqual(mark("", "review"), { icon: "check", label: "Queued", trouble: false });
+  assert.deepEqual(mark("", "review"), { icon: "check", label: "Sending", trouble: false });
   assert.deepEqual(mark("succeeded", "review_clear"), { icon: "check", label: "Cleared", trouble: false });
 });
 

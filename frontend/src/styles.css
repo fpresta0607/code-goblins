@@ -570,7 +570,8 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 
 /* Command Center: one card at a time, the rest of the deck peeking behind,
    each card sending its own answer. */
-.question-modal { width: min(1040px, calc(100vw - 48px)); padding: 28px 32px; overflow-x: hidden; }
+.question-modal { width: min(1040px, calc(100vw - 48px)); padding: 28px 32px; overflow-x: hidden; scrollbar-width: none; }
+.question-modal::-webkit-scrollbar { display: none; }
 /* A question is read, not scanned: body type at a readable line length, with
    only what its asker marked in bold. */
 .question-body { max-width: 72ch; color: #e3ecef; font: 400 1rem/1.55 var(--font-body); white-space: pre-line; overflow-wrap: anywhere; outline: none; }
@@ -582,9 +583,9 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .inbox-summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .count-pill { flex: none; padding: 2px 12px; border: 1px solid var(--edge); border-radius: 999px; background: #0b141b; color: #dfe9ef; font-weight: 800; white-space: nowrap; }
 .card-stage { position: relative; }
-.card-stage.stacked { padding-top: 12px; }
-.card-stage.stacked::before, .card-stage.stacked::after { content: ""; position: absolute; left: 22px; right: 22px; top: 0; height: 24px; border: 1px solid var(--edge); border-bottom: 0; border-radius: 18px 18px 0 0; background: var(--level-2); opacity: .7; }
-.card-stage.stacked::after { left: 11px; right: 11px; top: 6px; opacity: .9; }
+/* The rest of the stack is one card peeking above this one: one clean edge. */
+.card-stage.stacked { padding-top: 10px; }
+.card-stage.stacked::before { content: ""; position: absolute; left: 16px; right: 16px; top: 0; height: 30px; border: 1px solid var(--edge); border-bottom: 0; border-radius: 18px 18px 0 0; background: var(--level-1); }
 .question-card { position: relative; display: grid; gap: 16px; padding: 22px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; background: var(--level-2); box-shadow: var(--shadow-2); touch-action: pan-y; animation: card-in .18s ease-out; }
 @keyframes card-in { from { opacity: 0; transform: translateY(6px); } }
 .question-card .asker { display: flex; align-items: center; gap: 12px; color: #c4d4df; }
@@ -601,6 +602,26 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .send-decision .icon { width: 20px; height: 20px; }
 .question-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; }
 .text-button { border-color: transparent; background: transparent; color: #b8c6cd; font-weight: 700; }
+/* The pager leads the footer; Later keeps the right edge, alone or not. */
+.question-footer .later { margin-left: auto; }
+/* After Send: the check draws once the answer is delivered. */
+.done-card { display: grid; justify-items: center; gap: 10px; padding: 40px 22px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; background: var(--level-2); box-shadow: var(--shadow-2); text-align: center; animation: card-in .18s ease-out; }
+.done-card h3 { margin: 0; font-size: 1.5rem; }
+.done-card p { margin: 0; color: #c4d4df; }
+.done-card .goblin-avatar { width: 96px; height: 96px; }
+.check-anim { width: 88px; height: 88px; fill: none; stroke: var(--edge-lit); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
+.check-anim path { stroke-dasharray: 70; stroke-dashoffset: 70; }
+.done-card.delivered .check-anim { stroke: var(--mint); }
+.done-card.delivered .check-anim path { animation: check-draw .45s ease-out forwards; }
+.done-card:not(.delivered) .check-anim circle { animation: check-wait 1.2s ease-in-out infinite; }
+@keyframes check-draw { to { stroke-dashoffset: 0; } }
+@keyframes check-wait { 50% { opacity: .4; } }
+.done-card .received { display: inline-flex; align-items: center; gap: 8px; color: var(--mint); font-weight: 800; }
+.done-card .received .icon { width: 20px; height: 20px; }
+@media (prefers-reduced-motion: reduce) {
+  .done-card, .done-card.delivered .check-anim path, .done-card:not(.delivered) .check-anim circle { animation: none; }
+  .done-card.delivered .check-anim path { stroke-dashoffset: 0; }
+}
 .stack-nav { display: flex; align-items: center; gap: 12px; }
 .stack-dots { display: flex; gap: 6px; }
 .stack-dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--edge-lit); }
