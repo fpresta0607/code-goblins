@@ -225,7 +225,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
         {gallery !== null && images.length > 0
           ? <ImageGallery images={images} index={Math.min(gallery, images.length - 1)} lavish={item.kind === "question" ? pageFor(item.question)?.url : item.kind === "review" ? item.review.lavish : undefined} onIndex={setGallery} onClose={() => setGallery(null)}
             onChoose={item.kind === "question" && item.question.status === "pending" ? (value) => { update(item.key, { selection: "option:" + value, error: "", receipt: undefined }); setGallery(null); } : undefined} />
-          : <div className={"card-stage" + (stack.length > 1 ? " stacked" : "")}
+          : <div className={"card-stage" + (stack.length > 1 && !allDone ? " stacked" : "")}
             onPointerDown={(event) => { if (event.pointerType !== "mouse") swipe.current = { x: event.clientX, y: event.clientY }; }}
             onPointerUp={(event) => {
               const start = swipe.current;
