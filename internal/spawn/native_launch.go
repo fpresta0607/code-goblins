@@ -152,12 +152,23 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 	return nil
 }
 
-// deliverNativeInstruction types the instruction into the harness's composer
-// and submits it once the composer shows it, since a dialog that opened
-// meanwhile would take the Enter as its answer. It returns once the harness
-// shows it working on the instruction, the native form of the Herdr path's
-// proof that the agent accepted its prompt.
+// deliverNativeInstruction submits the instruction and returns once the
+// harness shows it working on it, the native form of the Herdr path's proof
+// that the agent accepted its prompt.
 func (s Service) deliverNativeInstruction(ctx context.Context, record host.Record, screens harness.Screens, instruction string) error {
+	if err := s.submitNative(ctx, record, screens, instruction, launchSettle); err != nil {
+		return err
+	}
+	if _, err := s.awaitScreen(ctx, record, nativeAccepted, screens.IsWorking); err != nil {
+		return fmt.Errorf("spawn: native terminal %s never showed its harness working on the instruction: %w", record.ID, err)
+	}
+	return nil
+}
+
+// submitNative types the instruction into the harness's composer and submits
+// it settle after the composer shows it, since a dialog that opened meanwhile
+// would take the Enter as its answer.
+func (s Service) submitNative(ctx context.Context, record host.Record, screens harness.Screens, instruction string, settle time.Duration) error {
 	client, err := host.Dial(record)
 	if err != nil {
 		return fmt.Errorf("spawn: type into native terminal %s: %w", record.ID, err)
@@ -169,14 +180,11 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 	if _, err := s.awaitScreen(ctx, record, nativeKeyEffect, func(screen []string) bool { return screens.Shows(screen, instruction) }); err != nil {
 		return fmt.Errorf("spawn: the instruction typed into native terminal %s never showed in its composer, so it was not submitted: %w", record.ID, err)
 	}
-	if err := s.sleep(ctx, launchSettle); err != nil {
+	if err := s.sleep(ctx, settle); err != nil {
 		return err
 	}
 	if err := client.Input([]byte("\r")); err != nil {
 		return fmt.Errorf("spawn: submit the instruction in native terminal %s: %w", record.ID, err)
-	}
-	if _, err := s.awaitScreen(ctx, record, nativeAccepted, screens.IsWorking); err != nil {
-		return fmt.Errorf("spawn: native terminal %s never showed its harness working on the instruction: %w", record.ID, err)
 	}
 	return nil
 }

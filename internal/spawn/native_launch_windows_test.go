@@ -204,6 +204,10 @@ func fakeHarness() {
 				late = true
 			case key == "\r":
 				record(codexEvent{Event: "submitted", Text: line.String()})
+				// Like codex, it ends at a submitted /exit.
+				if line.String() == "/exit" {
+					return
+				}
 				// Unmoved, codex takes the line and never shows it working.
 				if mode != "unmoved" {
 					draw("", "› "+line.String(), "", "• Working (0s • esc to interrupt)")
@@ -573,7 +577,7 @@ func TestATeardownKeepsANativeTaskWhoseHostMayStillRun(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
-			launched := host.Record{ID: "task-7", Pipe: `\\.\pipe\spawn-test-nobody-serves-this`, Token: "t0ken", Version: host.Version, HostPID: test.hostPID}
+			launched := host.Record{ID: "task-7", Pipe: `\\.\pipe\spawn-test-nobody-serves-this`, Token: "t0ken", Version: host.Version, HostPID: test.hostPID, Started: time.Now().UTC()}
 			record, err := json.Marshal(launched)
 			if err != nil {
 				t.Fatal(err)

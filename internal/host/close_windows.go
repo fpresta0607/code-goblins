@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // Close ends the native terminal whose host launched is, the
@@ -32,7 +34,7 @@ func Close(stateDir string, launched Record, answerWait time.Duration) error {
 	deadline := time.Now().Add(answerWait)
 	client, err := Dial(launched)
 	for err != nil {
-		if !Running(launched.HostPID) {
+		if !Running(launched) {
 			return nil
 		}
 		if still, readErr := recorded(); readErr == nil && !still {
@@ -57,19 +59,22 @@ func Close(stateDir string, launched Record, answerWait time.Duration) error {
 	return fmt.Errorf("the host of native terminal %s did not end", launched.ID)
 }
 
-// Running reports whether pid may still run: only a process Windows shows as
-// ended, or as never started, does not.
-func Running(pid int) bool {
-	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+// Running reports whether the host record names may still run: only a
+// process Windows shows as ended, or as never started, does not, and neither
+// does one that started after the host recorded itself, which reuses the pid
+// of a host that ended without removing its record.
+func Running(record Record) bool {
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(record.HostPID))
 	if err != nil {
 		return !errors.Is(err, windows.ERROR_INVALID_PARAMETER)
 	}
 	defer windows.CloseHandle(handle)
 	var code uint32
-	if err := windows.GetExitCodeProcess(handle, &code); err != nil {
-		return true
+	if err := windows.GetExitCodeProcess(handle, &code); err == nil && code != stillActive {
+		return false
 	}
-	return code == stillActive
+	started, known := proc.StartTime(record.HostPID)
+	return !known || !started.After(record.Started)
 }
 
 // stillActive is the exit code Windows reports for a process that runs.

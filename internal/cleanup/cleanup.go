@@ -376,7 +376,8 @@ func (s Service) requireHerdrInactive(ctx context.Context, meta state.TaskMeta) 
 // requireNativeIdle proves a native task's terminal holds no turn in progress
 // (CFO decision 2339). Its host runs exactly as long as the harness and
 // removes its record on the way out, so a missing record, or one whose host
-// Windows shows as ended, means the terminal has ended. A running terminal is
+// Windows shows as ended or whose pid a later process reuses, means the
+// terminal has ended. A running terminal is
 // idle only while its harness shows the ready composer with no working
 // marker, and its record is returned so the cleanup closes it. A record or a
 // screen that cannot be read, any other screen, and a harness whose screens
@@ -389,7 +390,7 @@ func (s Service) requireNativeIdle(meta state.TaskMeta) (host.Record, error) {
 	if err != nil {
 		return host.Record{}, fmt.Errorf("cleanup: native terminal evidence is unreadable: %w", err)
 	}
-	if !host.Running(record.HostPID) {
+	if !host.Running(record) {
 		return host.Record{}, nil
 	}
 	screens, ok := harness.NativeScreens(harness.Kind(meta.Harness))

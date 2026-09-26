@@ -28,6 +28,10 @@ var fakeClaudeScreens = map[string][]string{
 	"working": {"✽ Reticulating… (3s · esc to interrupt)", "", "> ", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
 }
 
+// testStarted is when this test process started, as a host that recorded
+// itself then would have.
+var testStarted = time.Now().UTC()
+
 func TestMain(m *testing.M) {
 	if len(os.Args) > 2 && os.Args[1] == fakeClaude {
 		fmt.Print("\x1b[2J\x1b[H" + strings.Join(fakeClaudeScreens[os.Args[2]], "\r\n"))
@@ -48,7 +52,7 @@ func nativeCleanupFixture(t *testing.T, hostPID int) *cleanupFixture {
 		t.Fatal(err)
 	}
 	if hostPID != 0 {
-		record, err := json.Marshal(map[string]any{"id": "g1", "pipe": `\\.\pipe\cfo-host-g1`, "token": "0123", "version": 1, "host_pid": hostPID, "child_pid": hostPID})
+		record, err := json.Marshal(map[string]any{"id": "g1", "pipe": `\\.\pipe\cfo-host-g1`, "token": "0123", "version": 1, "host_pid": hostPID, "child_pid": hostPID, "started": testStarted})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -117,6 +121,29 @@ func endedPID(t *testing.T) int {
 	return command.Process.Pid
 }
 
+// reusedPID is the pid of a process started after the host record was
+// written, as Windows can give an ended host's pid to a later process. It runs
+// until the test ends, and is stopped by the test.
+func reusedPID(t *testing.T) int {
+	t.Helper()
+	program, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(program, fakeClaude, "idle")
+	if _, err := command.StdinPipe(); err != nil {
+		t.Fatal(err)
+	}
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = command.Process.Kill()
+		_ = command.Wait()
+	})
+	return command.Process.Pid
+}
+
 // assertNoHerdrRequests proves a native cleanup never asks Herdr anything: the
 // task has no pane to read or tab to close.
 func (f *cleanupFixture) assertNoHerdrRequests(t *testing.T) {
@@ -129,13 +156,15 @@ func (f *cleanupFixture) assertNoHerdrRequests(t *testing.T) {
 }
 
 // A native task whose terminal has ended - its host gone with its record, or
-// its record left behind by a host that ended - is cleaned like a Herdr one:
+// its record left behind by a host that ended, even once a later process has
+// its pid - is cleaned like a Herdr one:
 // its worktree returned and its record retired, with nothing asked of Herdr.
 // cfo cleanup used to refuse every native task as not a Herdr task.
 func TestCleanupReturnsANativeTaskWhoseTerminalHasEnded(t *testing.T) {
 	for name, hostPID := range map[string]func(*testing.T) int{
 		"no host record":          func(*testing.T) int { return 0 },
 		"record of an ended host": endedPID,
+		"record whose pid a later process reuses": reusedPID,
 	} {
 		t.Run(name, func(t *testing.T) {
 			fixture := nativeCleanupFixture(t, hostPID(t))
