@@ -436,6 +436,9 @@ func (s *Store) ingestAnswers() error {
 			s.issue("CFO answer rejected: " + err.Error())
 		}
 	}
+	if len(waiting) == len(s.db.CFOAnswers) {
+		return nil
+	}
 	s.db.CFOAnswers = waiting
 	return s.save()
 }

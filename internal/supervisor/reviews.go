@@ -539,6 +539,13 @@ func (s *Store) ingestReviews() error {
 	for _, record := range records {
 		invalid := record.invalid
 		if invalid == nil {
+			s.mu.Lock()
+			if slices.ContainsFunc(s.db.Reviews, func(prior Review) bool { return prior.ID == record.review.ID && prior.Task == "" }) {
+				invalid = errFromInbox
+			}
+			s.mu.Unlock()
+		}
+		if invalid == nil {
 			invalid = s.acceptReview(record.review)
 		}
 		if errors.Is(invalid, ErrStorage) {
@@ -610,7 +617,7 @@ func (s *Store) acceptReview(r Review) error {
 			return errors.New("no review with that ID to withdraw")
 		}
 		prior := &s.db.Reviews[i]
-		if prior.Identity != r.Identity {
+		if prior.Identity != r.Identity || prior.Task != r.Task {
 			return errors.New("only the reporter that published a review can withdraw it")
 		}
 		if prior.State != "open" {

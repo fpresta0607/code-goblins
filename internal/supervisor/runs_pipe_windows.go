@@ -107,7 +107,12 @@ func (s *Service) serveRunRequests(ctx context.Context) {
 		}
 		if syscall.Handle(handle) == syscall.InvalidHandle {
 			if first && errors.Is(callErr, syscall.ERROR_ACCESS_DENIED) {
-				s.publish(fmt.Errorf("run requests: another process already holds the pipe %s, so run requests are not served; stop it and restart cfo serve", runPipeName(s.Store.Home.State)))
+				err := fmt.Errorf("run requests: another process already holds the pipe %s, so run requests are not served; stop it and restart cfo serve", runPipeName(s.Store.Home.State))
+				s.Store.mu.Lock()
+				s.Store.issue(err.Error())
+				saveErr := s.Store.save()
+				s.Store.mu.Unlock()
+				s.publish(errors.Join(err, saveErr))
 				return
 			}
 			s.publish(fmt.Errorf("run requests: the pipe could not be created: %w", callErr))

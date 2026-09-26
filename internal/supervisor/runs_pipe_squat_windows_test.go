@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -59,6 +60,10 @@ func TestRunPipeIsNotServedWhenAnotherProcessHoldsItsName(t *testing.T) {
 	s.mu.Unlock()
 	if !strings.Contains(reported, "already holds the pipe") {
 		t.Fatalf("published error = %q, want it to say another process holds the pipe", reported)
+	}
+	s.publish(nil)
+	if issues := s.Store.Snapshot().Issues; !slices.ContainsFunc(issues, func(issue string) bool { return strings.Contains(issue, "already holds the pipe") }) {
+		t.Fatalf("issues after a later publish = %q, want the board still to say another process holds the pipe", issues)
 	}
 }
 
