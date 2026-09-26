@@ -20,10 +20,12 @@ import (
 var reviewPublishTimeout = 20 * time.Second
 
 // runReview reports an item that stays in the Command Center until the
-// Overlord answers or clears it, or withdraws the reporter's own item:
+// Overlord answers or clears it, withdraws the reporter's own item, or clears
+// any open item for the registered primary CFO:
 //
 //	cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file>]
 //	cfo review --id <stable-id> --withdraw "<reason>" [--task <id>]
+//	cfo review --clear <stable-id> --reason "<why>"
 //
 // A Lavish page named by its HTML file is opened without a browser and polled
 // by the supervisor, so the Overlord's feedback on it reaches the CFO as a
@@ -36,6 +38,8 @@ func runReview(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	title := f.String("title", "", "what the Overlord should look at")
 	lavish := f.String("lavish", "", "the Lavish page: its link, or its HTML file for the supervisor to poll")
 	withdraw := f.String("withdraw", "", "withdraw your open item with this reason")
+	clear := f.String("clear", "", "as the registered primary CFO, clear any open item by its ID, such as a retired goblin's")
+	reason := f.String("reason", "", "why the item is cleared; kept on the item and in state/reviews.audit")
 	var images []string
 	f.Func("image", "an image to review; repeat for each, in order", func(v string) error {
 		images = append(images, v)
@@ -48,12 +52,33 @@ func runReview(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stderr, "cfo review: --withdraw takes only --id and --task")
 		return 2
 	}
+	switch {
+	case *clear != "" && strings.TrimSpace(*reason) == "":
+		fmt.Fprintln(stderr, "cfo review: --clear needs --reason")
+		return 2
+	case *clear != "" && (*id != "" || *task != "" || *title != "" || *lavish != "" || *withdraw != "" || len(images) > 0):
+		fmt.Fprintln(stderr, "cfo review: --clear takes only --reason")
+		return 2
+	case *clear == "" && *reason != "":
+		fmt.Fprintln(stderr, "cfo review: --reason goes with --clear")
+		return 2
+	}
 	h, err := runtime.resolveHome()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	terminals := terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}})
+	if *clear != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), reviewPublishTimeout)
+		defer cancel()
+		if err := supervisor.ClearReview(ctx, h, terminals, *clear, *reason); err != nil {
+			fmt.Fprintln(stderr, "cfo review: "+err.Error())
+			return 1
+		}
+		fmt.Fprintln(stdout, "Review cleared:", *clear)
+		return 0
+	}
 	if *withdraw != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), reviewPublishTimeout)
 		defer cancel()

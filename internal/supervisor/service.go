@@ -226,7 +226,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
 	reconcileErr = errors.Join(reconcileErr, s.Store.expireRuns(time.Now()))
 	reconcileErr = errors.Join(reconcileErr, s.finishRuns(ctx))
-	reconcileErr = errors.Join(reconcileErr, s.Store.retireWaits())
+	reconcileErr = errors.Join(reconcileErr, s.Store.retireItems())
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
 	s.reconcilePresentations(ctx)
 	s.watchPages(ctx)

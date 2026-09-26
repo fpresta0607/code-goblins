@@ -343,7 +343,7 @@ func TestWaitOnTheOverlordRetiresWhenTheGoblinReportsAgain(t *testing.T) {
 	if err := store.acceptReview(wait); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.retireWaits(); err != nil {
+	if err := store.retireItems(); err != nil {
 		t.Fatal(err)
 	}
 	if got := store.Snapshot().Reviews[0]; got.State != "open" {
@@ -352,11 +352,61 @@ func TestWaitOnTheOverlordRetiresWhenTheGoblinReportsAgain(t *testing.T) {
 	if err := state.AppendStatus(h.State, "task-1", "working: charging the card"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.retireWaits(); err != nil {
+	if err := store.retireItems(); err != nil {
 		t.Fatal(err)
 	}
 	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" || got.Reason != "task-1 reported again: working: charging the card" {
 		t.Fatalf("a wait the goblin moved past = %+v, want it withdrawn with the new report", got)
+	}
+}
+
+// A goblin's own item, such as a page or images to look at, stays while the
+// goblin keeps working, asks or waits, and closes once its task finishes after
+// publishing it or is gone: nobody will act on an answer then.
+func TestAGoblinsOwnItemClosesOnceItsTaskFinishesOrIsGone(t *testing.T) {
+	store, h := testStore(t)
+	earlier := time.Now().UTC().Add(-2 * time.Hour).Format(time.RFC3339) + " done: PR https://github.com/o/r/pull/6\n"
+	if err := os.WriteFile(filepath.Join(h.State, "task-1.status"), []byte(earlier), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	item := openReview("task-1-mockups", "task-1")
+	item.CreatedAt = time.Now().UTC().Add(-time.Hour)
+	if err := store.acceptReview(item); err != nil {
+		t.Fatal(err)
+	}
+	retire := func() Review {
+		t.Helper()
+		if err := store.retireItems(); err != nil {
+			t.Fatal(err)
+		}
+		return store.Snapshot().Reviews[0]
+	}
+	if got := retire(); got.State != "open" {
+		t.Fatalf("an item published after its task's last done report = %+v, want it open", got)
+	}
+	for _, report := range []string{"working: drawing the second pass", "blocked: which palette?", "waiting on overlord: the palette"} {
+		if err := state.AppendStatus(h.State, "task-1", report); err != nil {
+			t.Fatal(err)
+		}
+		if got := retire(); got.State != "open" {
+			t.Fatalf("after %q the item = %+v, want it open", report, got)
+		}
+	}
+	if err := state.AppendStatus(h.State, "task-1", "done: PR https://github.com/o/r/pull/7"); err != nil {
+		t.Fatal(err)
+	}
+	if got := retire(); got.State != "withdrawn" || got.Reason != "task-1 finished: done: PR https://github.com/o/r/pull/7" {
+		t.Fatalf("after its task finished the item = %+v, want it withdrawn with the report", got)
+	}
+
+	if err := store.acceptReview(openReview("task-9-plan", "task-9")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.retireItems(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Reviews[1]; got.State != "withdrawn" || got.Reason != "task-9 is gone" {
+		t.Fatalf("an item whose task was cleaned up = %+v, want it withdrawn", got)
 	}
 }
 
@@ -405,7 +455,7 @@ func TestCFOAuditLinesNeverCountAsTheGoblinsReport(t *testing.T) {
 			if got := task(); got.Phase != "waiting" || got.WaitingOn != "overlord" || got.Reason != "log in to Stripe" {
 				t.Fatalf("a wait under an audit line = %+v, want waiting on the overlord", got.Evaluation)
 			}
-			if err := store.retireWaits(); err != nil {
+			if err := store.retireItems(); err != nil {
 				t.Fatal(err)
 			}
 			if got := store.Snapshot().Reviews[0]; got.State != "open" {
