@@ -32,7 +32,7 @@ export function DocumentCard({ review, document, snapshot, connected, onOpened, 
     <div className="card-actions">
       {open && <button type="button" className="icon-button raised" disabled={!connected} aria-label="Clear this document without opening it" data-tip="Clear" onClick={onClear}><Icon name="close" /></button>}
       <a className="icon-button raised pill-link" href={document.link || file} target="_blank" rel="noreferrer" onClick={() => opened("Opened")}><Icon name="external" /><span>Open</span></a>
-      <a className="primary pill-link download-link" href={file + "?download=1"} download={document.name} onClick={() => opened("Downloaded")}><Icon name="download" /><span>Download</span></a>
+      <a className="primary download-link" href={file + "?download=1"} download={document.name} onClick={() => opened("Downloaded")}><Icon name="download" /><span>Download</span></a>
     </div>
   </div>;
 }
