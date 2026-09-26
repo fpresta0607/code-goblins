@@ -122,6 +122,7 @@ The status line and the pull request come from the current generation's lines on
 Cards state progress in plain words, never engine words: Not started, Working, In review gate (with its step, such as In review gate: tests), Waiting on the CFO, Waiting on a goblin by its id, Waiting on CI, Waiting on deploy, Checks passed, Delivered and No fresh evidence.
 A goblin waiting on another goblin links to it: a chip on its card and a button beside its status in the panel open the goblin it waits on, and Orchestration draws a dashed line from the waiting card to that goblin's card, apart from the family tree.
 A goblin that waits on the Overlord, or has an open question to him, shows Waiting on the CFO, since the CFO carries every question to him.
+A reported wait on the Overlord ends once the Command Center item it raised closes: his answer reached the goblin, the item was cleared, or the answer on its page went to the CFO to relay; the card then shows what the goblin is doing, and an answer still on its way keeps the wait.
 It keeps its phase's colour, without the amber emphasis that belongs to the CFO's bar, so a wait on the Overlord, a goblin, CI or a deploy is shown in the same calmer sand colour.
 The CFO is pinned above the Board's columns, and its bar is the one place on the board that says Waiting on you: it names the first item the Command Center holds for the Overlord, by a question's lead sentence or a review's or command's title, and how many more wait, and otherwise says how many goblins the CFO supervises; its Open terminal button opens the CFO's terminal and hands it the keyboard.
 Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Task view and a Terminal view one tap apart on a pill at its top.
@@ -159,6 +160,7 @@ Each effect expires independently; initial load, reconnect, hidden-tab return, i
 Reduced motion uses a short static outline instead of movement.
 
 Changes presents stacked file disclosures with lazy syntax-highlighted unified, split and code previews.
+A file over 256 KiB shows its changed lines in unified and split views, with a note that the code preview is off; every Git read behind a preview is capped at 1 MiB.
 Select a visible old/new line or contiguous range, including unchanged context, by its line number, which shows a comment icon on hover and focus.
 Dragging across diff lines opens the same comment box for the lines it covers, and a double-click or triple-click still just selects text to copy.
 A comment box floats beside the selection without moving the diff; Enter sends it, Shift+Enter starts a new line and Escape cancels.

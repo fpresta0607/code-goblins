@@ -306,6 +306,7 @@ summary { cursor: pointer; }
 .diff-stats i { color: #f6a3a3; font-style: normal; }
 .diff-toolbar select { font-size: .9375rem; }
 .selection-hint { color: var(--muted); font-size: .9375rem; margin-left: auto; }
+.diff-note { color: var(--muted); font-size: .9375rem; }
 .selected-line { box-shadow: inset 3px 0 var(--accent); background: #24473e; }
 .line-number[aria-pressed="true"] { background: #195c42; color: #dbffed; }
 .diff-scroll, .code-preview { overflow-x: auto; background: #090f16; font-family: var(--font-mono); font-size: .9375rem; line-height: 2; }
