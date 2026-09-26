@@ -324,6 +324,46 @@ func LiveCFO(stateDir string) (herdr.Endpoint, bool) {
 	return herdr.Endpoint{Target: primary.Target, WorkspaceID: primary.Workspace, TabID: primary.Tab, PaneID: primary.Target.Pane}, true
 }
 
+// NativeCFOTerminal is the native terminal goblins --native and the board's
+// first-run page start the CFO in.
+const NativeCFOTerminal = "cfo"
+
+// NativeTerminalRuns reports whether native terminal id's host answers.
+func NativeTerminalRuns(stateDir, id string) bool {
+	record, err := host.ReadRecord(stateDir, id)
+	if err != nil {
+		return false
+	}
+	client, err := host.Dial(record)
+	if err != nil {
+		return false
+	}
+	_ = client.Close()
+	return true
+}
+
+// CFORuns reports whether a CFO is registered and running, or native
+// terminal cfo is up for one that has not registered yet.
+func CFORuns(stateDir string) bool {
+	_, live := livePrimary(stateDir)
+	return live || NativeTerminalRuns(stateDir, NativeCFOTerminal)
+}
+
+// cfoTerminal is the native terminal the board shows the CFO in: the one the
+// registered CFO names or, with no CFO registered, native terminal cfo while
+// its host answers, since a CFO started there registers only once it runs
+// and the Overlord may first have to answer it there.
+func cfoTerminal(stateDir string) (string, bool) {
+	primary, live := livePrimary(stateDir)
+	switch {
+	case live:
+		return primary.Host, primary.Host != ""
+	case NativeTerminalRuns(stateDir, NativeCFOTerminal):
+		return NativeCFOTerminal, true
+	}
+	return "", false
+}
+
 // NativeCFO returns the native terminal the registered CFO runs in, when
 // primary.json names one and a process that is still running.
 func NativeCFO(stateDir string) (string, bool) {

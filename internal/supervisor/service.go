@@ -583,8 +583,8 @@ type Snapshot struct {
 	// Build names the board bundle this supervisor serves, so a tab loaded
 	// from an older one can tell the board was updated.
 	Build string `json:"build,omitempty"`
-	// CFOTerminal names the native terminal the registered CFO runs in, and is
-	// empty while it runs in Herdr or not at all.
+	// CFOTerminal names the native terminal the board shows the CFO in (see
+	// cfoTerminal), and is empty while the CFO runs in Herdr or not at all.
 	CFOTerminal string `json:"cfo_terminal"`
 }
 
@@ -599,7 +599,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 	}
 	s.mu.Unlock()
-	if id, live := NativeCFO(s.Store.Home.State); live {
+	if id, live := cfoTerminal(s.Store.Home.State); live {
 		out.CFOTerminal = id
 	}
 	// The board sees how many images a question has, never where they are.

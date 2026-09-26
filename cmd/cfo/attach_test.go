@@ -66,7 +66,7 @@ func attachTestView(stateDir string, args []string) int {
 		resolveHome:        func() (home.Home, error) { return home.Home{Root: filepath.Dir(stateDir), State: stateDir}, nil },
 		nativeCFO:          supervisor.NativeCFO,
 		liveCFO:            supervisor.LiveCFO,
-		nativeTerminalRuns: nativeTerminalRuns,
+		nativeTerminalRuns: supervisor.NativeTerminalRuns,
 		attachNative:       attachNative,
 	}
 	return runAttach(args, os.Stdout, os.Stderr, runtime)
@@ -264,9 +264,9 @@ func TestAttachTakesWindowsKeyEventsAfterTheHistoryIsTrimmed(t *testing.T) {
 // registered.
 func TestANativeTerminalWhoseHostAnswersRuns(t *testing.T) {
 	stateDir := t.TempDir()
-	hostAttachTestTerminal(t, stateDir, nativeCFOTerminal)
+	hostAttachTestTerminal(t, stateDir, supervisor.NativeCFOTerminal)
 
-	runs := nativeTerminalRuns(stateDir, nativeCFOTerminal)
+	runs := supervisor.NativeTerminalRuns(stateDir, supervisor.NativeCFOTerminal)
 
 	if !runs {
 		t.Errorf("nativeTerminalRuns = false, want true for a host that answers")
@@ -277,7 +277,7 @@ func TestANativeTerminalWhoseHostAnswersRuns(t *testing.T) {
 // running.
 func TestANativeTerminalWhoseHostDoesNotAnswerDoesNotRun(t *testing.T) {
 	stateDir := t.TempDir()
-	record := host.Record{ID: nativeCFOTerminal, Pipe: fmt.Sprintf(`\\.\pipe\cfo-attach-test-%d`, time.Now().UnixNano()), Token: "token", Version: host.Version, HostPID: os.Getpid()}
+	record := host.Record{ID: supervisor.NativeCFOTerminal, Pipe: fmt.Sprintf(`\\.\pipe\cfo-attach-test-%d`, time.Now().UnixNano()), Token: "token", Version: host.Version, HostPID: os.Getpid()}
 	data, err := json.Marshal(record)
 	if err != nil {
 		t.Fatal(err)
@@ -285,11 +285,11 @@ func TestANativeTerminalWhoseHostDoesNotAnswerDoesNotRun(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(stateDir, "hosts"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(stateDir, "hosts", nativeCFOTerminal+".json"), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(stateDir, "hosts", supervisor.NativeCFOTerminal+".json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	runs := nativeTerminalRuns(stateDir, nativeCFOTerminal)
+	runs := supervisor.NativeTerminalRuns(stateDir, supervisor.NativeCFOTerminal)
 
 	if runs {
 		t.Errorf("nativeTerminalRuns = true, want false for a host that does not answer")
@@ -309,7 +309,7 @@ func TestAttachWithNoTerminalNamedShowsTheCFOsNativeTerminal(t *testing.T) {
 	}{
 		"a CFO registered in a native terminal":        {registeredNative: "n1", cfoRuns: true, shown: "n1"},
 		"a CFO registered in Herdr, terminal cfo runs": {inHerdr: true, cfoRuns: true, refusal: "the CFO runs in Herdr, not in a native terminal"},
-		"nothing registered, terminal cfo runs":        {cfoRuns: true, shown: nativeCFOTerminal},
+		"nothing registered, terminal cfo runs":        {cfoRuns: true, shown: supervisor.NativeCFOTerminal},
 		"nothing registered, nothing runs":             {refusal: "no CFO runs in a native terminal"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -323,7 +323,7 @@ func TestAttachWithNoTerminalNamedShowsTheCFOsNativeTerminal(t *testing.T) {
 				},
 				liveCFO: func(string) (herdr.Endpoint, bool) { return herdr.Endpoint{}, test.inHerdr },
 				nativeTerminalRuns: func(_, id string) bool {
-					return test.cfoRuns && id == nativeCFOTerminal
+					return test.cfoRuns && id == supervisor.NativeCFOTerminal
 				},
 				attachNative: func(_, id string, _, _ io.Writer) int {
 					shown = append(shown, id)

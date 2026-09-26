@@ -39,9 +39,9 @@ func startCFOSession(ctx context.Context, runtime commandRuntime, stateDir strin
 		}
 		session = endpoint.Target.Session
 	} else {
-		if runtime.nativeTerminalRuns(stateDir, nativeCFOTerminal) {
-			fmt.Fprintf(stdout, "\nThe CFO is already running in native terminal %s.\n", nativeCFOTerminal)
-			return runtime.attachNative(stateDir, nativeCFOTerminal, stdout, stderr)
+		if runtime.nativeTerminalRuns(stateDir, supervisor.NativeCFOTerminal) {
+			fmt.Fprintf(stdout, "\nThe CFO is already running in native terminal %s.\n", supervisor.NativeCFOTerminal)
+			return runtime.attachNative(stateDir, supervisor.NativeCFOTerminal, stdout, stderr)
 		}
 		project, err := pickProject(ctx, runtime, stdout)
 		if err != nil {
@@ -53,8 +53,8 @@ func startCFOSession(ctx context.Context, runtime commandRuntime, stateDir strin
 				fmt.Fprintf(stderr, "goblins: the CFO could not be started in a native terminal: %v\n", err)
 				return 1
 			}
-			fmt.Fprintf(stdout, "\nThe CFO starts in %s, in native terminal %s.\n", project, nativeCFOTerminal)
-			return runtime.attachNative(stateDir, nativeCFOTerminal, stdout, stderr)
+			fmt.Fprintf(stdout, "\nThe CFO starts in %s, in native terminal %s.\n", project, supervisor.NativeCFOTerminal)
+			return runtime.attachNative(stateDir, supervisor.NativeCFOTerminal, stdout, stderr)
 		}
 		started, err := runtime.startCFO(ctx, project)
 		if err != nil {

@@ -346,8 +346,35 @@ func TestACFOViewIsRefusedUnlessTheCFORunsInTheTerminalItNames(t *testing.T) {
 	}
 }
 
-// A view of the CFO's terminal closes once the registration stops naming
-// that terminal, so typing never reaches a terminal the CFO has left.
+// With no CFO registered, the board shows native terminal cfo while its host
+// answers, as goblins does: a CFO the first-run page started registers only
+// once it runs, and may first need an answer typed into it there.
+func TestTheBoardShowsTheCFOsTerminalBeforeTheCFORegisters(t *testing.T) {
+	// Arrange
+	h, server := nativeBoard(t, "direct")
+	stateDir := h.Service.Store.Home.State
+	terminal := hostTerminal(t, stateDir, NativeCFOTerminal)
+
+	// Act
+	snapshot, err := h.Service.Snapshot()
+	v := openNativeView(t, server, cfoQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "yes, trust this folder\r")
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.CFOTerminal != NativeCFOTerminal || !CFORuns(stateDir) {
+		t.Errorf("CFOTerminal = %q, CFORuns = %v with terminal cfo up and no CFO registered, want cfo and true", snapshot.CFOTerminal, CFORuns(stateDir))
+	}
+	if lines := terminal.waitForLines(t, 1); len(lines) != 1 || lines[0] != "yes, trust this folder" {
+		t.Errorf("the CFO's terminal got %q, want the line typed in the board", lines)
+	}
+}
+
+// A view of the CFO's terminal closes once the CFO registers in another
+// terminal, so typing never reaches a terminal the CFO has left.
 func TestACFOViewClosesWhenTheCFOLeavesItsTerminal(t *testing.T) {
 	h, server := nativeBoard(t, "direct")
 	h.terminalTick = 10 * time.Millisecond
@@ -357,11 +384,24 @@ func TestACFOViewClosesWhenTheCFOLeavesItsTerminal(t *testing.T) {
 	v := openNativeView(t, server, cfoQuery)
 	v.waitFor(t, "program ready")
 
+	data, err := os.ReadFile(filepath.Join(stateDir, "primary.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var moved primaryRegistration
+	if err := json.Unmarshal(data, &moved); err != nil {
+		t.Fatal(err)
+	}
+	moved.Host = "elsewhere"
+	if data, err = json.Marshal(moved); err != nil {
+		t.Fatal(err)
+	}
+
 	// The relay reads the registration every tick through a handle that
-	// refuses a delete while it is open, so the delete retries the few
+	// refuses a write while it is open, so the write retries the few
 	// microseconds a tick holds it, the way state.RemoveTaskMeta does.
 	deadline := time.Now().Add(2 * time.Second)
-	for err := os.Remove(filepath.Join(stateDir, "primary.json")); err != nil; err = os.Remove(filepath.Join(stateDir, "primary.json")) {
+	for err := os.WriteFile(filepath.Join(stateDir, "primary.json"), data, 0o600); err != nil; err = os.WriteFile(filepath.Join(stateDir, "primary.json"), data, 0o600) {
 		if time.Now().After(deadline) {
 			t.Fatal(err)
 		}

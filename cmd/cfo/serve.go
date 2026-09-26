@@ -103,11 +103,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 				// environment first, and it still holds the old root.
 				return os.Setenv(install.ProjectsRootVariable, root)
 			},
-			CFORuns: func() bool {
-				_, inHerdr := supervisor.LiveCFO(h.State)
-				_, native := supervisor.NativeCFO(h.State)
-				return inHerdr || native || nativeTerminalRuns(h.State, nativeCFOTerminal)
-			},
+			CFORuns:  func() bool { return supervisor.CFORuns(h.State) },
 			StartCFO: func(project string) error { return startNativeCFO(h.State, project) },
 		}
 	}
