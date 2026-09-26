@@ -27,9 +27,21 @@ test("typing coalesces adjacent text, preserving Unicode, and keeps control keys
   assert.equal(bounded.join("").length, 5000);
 });
 
-test("a pane's frame is fitted to the panel's width, never cropped and never below 12 px", () => {
-  const cases: [number, number, number][] = [[1200, 80, 15], [700, 80, 14.5], [771, 100, 12.5], [700, 120, 12], [350, 120, 12], [0, 80, 12], [900, 0, 15]];
-  for (const [width, cols, size] of cases) assert.equal(fittedFontSize(width, cols), size, width + "px for " + cols + " columns");
+test("a pane's screen is fitted to the panel whole, by its width or its height, with no floor", () => {
+  const cell = { width: 0.6, height: 1.2 };
+  const cases: [string, number, number, number, number, number | null][] = [
+    ["maximized, bound by height", 1800, 1000, 132, 43, 19],
+    ["the side panel, bound by width and below 12 px", 900, 800, 132, 43, 11],
+    ["a small pane in a large panel stops at 28 px", 2000, 1200, 80, 24, 28],
+    ["a hidden panel keeps the font it has", 0, 800, 132, 43, null],
+    ["a pane with no size yet keeps the font it has", 900, 800, 0, 0, null],
+  ];
+  for (const [name, width, height, cols, rows, size] of cases) assert.equal(fittedFontSize(width, height, cols, rows, cell), size, name);
+});
+
+test("the fit follows the cell size the terminal measured, not an assumed one", () => {
+  assert.equal(fittedFontSize(900, 800, 132, 43, { width: 0.5, height: 1.2 }), 13.5);
+  assert.equal(fittedFontSize(1800, 1000, 132, 43, { width: 0.6, height: 1.5 }), 15.5);
 });
 
 test("a refused input explains itself in plain words", () => {

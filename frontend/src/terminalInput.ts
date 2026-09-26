@@ -16,13 +16,20 @@ export function bracketedPaste(text: string): string {
   return input;
 }
 
-// A pane's frame keeps the pane's own columns, so the font shrinks to fit them
-// across the panel (a monospace cell is 0.6 em wide), but never below 12 px:
-// a wider pane scrolls sideways instead of turning unreadable, and is never
-// cropped.
-export function fittedFontSize(width: number, cols: number): number {
-  if (cols <= 0) return 15;
-  return Math.max(12, Math.min(15, Math.floor(width / (cols * 0.6) * 2) / 2));
+// A cell's size in em, before the terminal has drawn one to measure: a
+// monospace cell is 0.6 em wide, and a row is the line height.
+export const ESTIMATED_CELL = { width: 0.6, height: 1.2 };
+const MAX_FITTED_FONT = 28;
+
+// A pane's frame keeps the pane's own columns and rows, so the font is sized
+// to show the whole screen in the panel, bound by whichever of its width or
+// height runs out first: nothing scrolls and nothing is cropped. The cell is
+// the size in em the terminal measured. Null keeps the current font, for a
+// panel or pane that has no size yet.
+export function fittedFontSize(width: number, height: number, cols: number, rows: number, cell: { width: number; height: number }): number | null {
+  if (width <= 0 || height <= 0 || cols <= 0 || rows <= 0) return null;
+  const fits = Math.min(width / (cols * cell.width), height / (rows * cell.height));
+  return Math.min(MAX_FITTED_FONT, Math.floor(fits * 2) / 2);
 }
 
 // Why an input was refused, in the Overlord's words.
