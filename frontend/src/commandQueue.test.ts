@@ -137,5 +137,6 @@ test("after a send the stack moves on to the next open item, wrapping, and ends 
   assert.equal(nextOpenKey(stack, "question:d"), "question:a", "past the end it wraps to the first open item");
   assert.equal(nextOpenKey(stack, "question:d", new Set(["question:a", "question:b"])), null, "items sent in this sitting are done even before the snapshot says so");
   assert.equal(nextOpenKey(stack, "question:gone"), "question:a", "an item that left the stack starts from the top");
+  assert.equal(nextOpenKey(stack, "question:c", new Set(["question:a", "question:c"])), "question:d", "from a sent card the next open item still shows, passing over a sent one the snapshot has not caught up with");
   assert.equal(nextOpenKey(waitingItems(parseSnapshot({ healthy: true, questions: [question("a", "", "2026-09-24T00:00:00Z")] })), "question:a"), null, "the only item is never its own next");
 });

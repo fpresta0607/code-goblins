@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { message, request } from "./api";
 import { parseAction, type BoardActivity, type Question, type Review, type Run, type Snapshot } from "./types";
 import { deliveryMark, submissionFor } from "./feedback";
@@ -26,6 +26,11 @@ const ALL_DONE_MS = 1600;
 
 export interface CommandFocus { key: string; at: number }
 
+const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
+  const box = event.currentTarget.getBoundingClientRect();
+  return event.target === event.currentTarget && (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom);
+};
+
 // The Supreme Overlord Command Center: an inbox of everything waiting on him,
 // and a stack that shows one item at a time, a question or a review item. Each
 // answer goes to its asker on its own, once; Later keeps an item in the stack;
@@ -39,6 +44,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
   const menu = useRef<HTMLDetailsElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const swipe = useRef<{ x: number; y: number } | null>(null);
+  const pressedOutside = useRef(false);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("");
@@ -53,7 +59,22 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
   const [allDone, setAllDone] = useState(false);
   const stack = waitingItems(snapshot, kept);
   const waiting = waitingItems(snapshot);
-  const show = (key: string) => { setCurrent(key); setGallery(null); setAllDone(false); };
+  const index = Math.max(0, stack.findIndex((item) => item.key === current));
+  const item: Item | undefined = open ? stack[index] : undefined;
+  const draft = item ? drafts[item.key] : undefined;
+  const outcome = draft?.submission ? snapshot.actions.find((action) => action.id === draft.submission?.id) || draft.receipt : undefined;
+  const mark = outcome ? deliveryMark(outcome, item?.kind === "question" ? item.question.task : undefined) : undefined;
+  // What the Overlord sent from this card is on its way or delivered; trouble
+  // keeps the card itself on screen with what went wrong. A run keeps its card,
+  // which shows the command's result.
+  const finishing = !!item && item.kind !== "run" && !!mark && !mark.trouble;
+  const delivered = finishing && outcome?.status === "succeeded" ? item.key : "";
+  // Moving off a finishing card counts it as sent, so only a card on screen
+  // from its Send to its delivery moves on by itself.
+  const show = (key: string) => {
+    if (finishing && item.key !== key) setSent((prior) => new Set([...prior, item.key]));
+    setCurrent(key); setGallery(null); setAllDone(false);
+  };
   const fresh = waiting.filter((item) => item.kind === "question" && !announced.has(item.key));
   if (fresh.length) {
     setAnnounced(new Set([...announced, ...fresh.map((item) => item.key)]));
@@ -88,20 +109,15 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
     setLeaving("");
     if (next) show(next); else setAllDone(true);
   }
-  const index = Math.max(0, stack.findIndex((item) => item.key === current));
-  const item: Item | undefined = open ? stack[index] : undefined;
+  // Anything that opens while "You're all done" shows takes its place.
+  if (allDone) {
+    const resume = nextOpenKey(stack, current, sent);
+    if (resume) show(resume);
+  }
   // The card on screen stays in the stack while it is shown, so an item
   // answered or cleared elsewhere turns into its settled card instead of vanishing.
   if (item && !kept.has(item.key)) setKept(new Set([...kept, item.key]));
   const showing = !!item;
-  const draft = item ? drafts[item.key] : undefined;
-  const outcome = draft?.submission ? snapshot.actions.find((action) => action.id === draft.submission?.id) || draft.receipt : undefined;
-  const mark = outcome ? deliveryMark(outcome, item?.kind === "question" ? item.question.task : undefined) : undefined;
-  // What the Overlord sent from this card is on its way or delivered; trouble
-  // keeps the card itself on screen with what went wrong. A run keeps its card,
-  // which shows the command's result.
-  const finishing = !!item && item.kind !== "run" && !!mark && !mark.trouble;
-  const delivered = finishing && outcome?.status === "succeeded" ? item.key : "";
   useEffect(() => {
     if (!delivered || sent.has(delivered)) return;
     const timer = setTimeout(() => setLeaving(delivered), DONE_MS);
@@ -208,13 +224,12 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
       </div>
     </details>
     {/* A click on the dimmed board around the card lands on the dialog
-        itself, outside its box, and closes the Command Center. */}
+        itself, outside its box, and closes the Command Center; a press that
+        starts inside the card and ends there keeps it open. */}
     <dialog ref={dialog} className="question-modal" aria-labelledby="command-center-heading"
       onCancel={(event) => { event.preventDefault(); if (gallery !== null) setGallery(null); else close(); }} onKeyDown={(event) => event.stopPropagation()}
-      onClick={(event) => {
-        const box = event.currentTarget.getBoundingClientRect();
-        if (event.target === event.currentTarget && (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom)) close();
-      }}>
+      onPointerDown={(event) => { pressedOutside.current = outsideDialog(event); }}
+      onClick={(event) => { if (pressedOutside.current && outsideDialog(event)) close(); }}>
       {item && <>
         <header className="command-center-heading">
           <Avatar persona="cfo" />
