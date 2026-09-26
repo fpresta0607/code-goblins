@@ -324,6 +324,57 @@ func LiveCFO(stateDir string) (herdr.Endpoint, bool) {
 	return herdr.Endpoint{Target: primary.Target, WorkspaceID: primary.Workspace, TabID: primary.Tab, PaneID: primary.Target.Pane}, true
 }
 
+// NativeCFOTerminal is the native terminal goblins --native and the board's
+// first-run page start the CFO in.
+const NativeCFOTerminal = "cfo"
+
+// NativeTerminalRuns reports whether native terminal id's host answers.
+func NativeTerminalRuns(stateDir, id string) bool {
+	record, err := host.ReadRecord(stateDir, id)
+	if err != nil {
+		return false
+	}
+	client, err := host.Dial(record)
+	if err != nil {
+		return false
+	}
+	_ = client.Close()
+	return true
+}
+
+// CFORuns reports whether a CFO is registered and running, or native
+// terminal cfo is up for one that has not registered yet.
+func CFORuns(stateDir string) bool {
+	cfo := readCFOState(stateDir)
+	return cfo.registered || cfo.starting
+}
+
+// cfoState is the CFO as the board sees it, from one read of its
+// registration and at most one dial of native terminal cfo.
+type cfoState struct {
+	// registered says a CFO is registered and running.
+	registered bool
+	// starting says native terminal cfo is up for a CFO that has not
+	// registered yet: Claude Code registers the CFO only once its onboarding
+	// and sign-in are done, in that terminal.
+	starting bool
+	// terminal is the native terminal the board shows the CFO in: the one the
+	// registered CFO names or, while it is starting, native terminal cfo,
+	// where the Overlord may first have to answer it. It is empty while the
+	// CFO runs in Herdr or not at all.
+	terminal string
+}
+
+func readCFOState(stateDir string) cfoState {
+	if primary, live := livePrimary(stateDir); live {
+		return cfoState{registered: true, terminal: primary.Host}
+	}
+	if NativeTerminalRuns(stateDir, NativeCFOTerminal) {
+		return cfoState{starting: true, terminal: NativeCFOTerminal}
+	}
+	return cfoState{}
+}
+
 // NativeCFO returns the native terminal the registered CFO runs in, when
 // primary.json names one and a process that is still running.
 func NativeCFO(stateDir string) (string, bool) {

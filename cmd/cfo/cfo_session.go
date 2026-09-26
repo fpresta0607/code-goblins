@@ -14,6 +14,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
@@ -38,9 +39,9 @@ func startCFOSession(ctx context.Context, runtime commandRuntime, stateDir strin
 		}
 		session = endpoint.Target.Session
 	} else {
-		if runtime.nativeTerminalRuns(stateDir, nativeCFOTerminal) {
-			fmt.Fprintf(stdout, "\nThe CFO is already running in native terminal %s.\n", nativeCFOTerminal)
-			return runtime.attachNative(stateDir, nativeCFOTerminal, stdout, stderr)
+		if runtime.nativeTerminalRuns(stateDir, supervisor.NativeCFOTerminal) {
+			fmt.Fprintf(stdout, "\nThe CFO is already running in native terminal %s.\n", supervisor.NativeCFOTerminal)
+			return runtime.attachNative(stateDir, supervisor.NativeCFOTerminal, stdout, stderr)
 		}
 		project, err := pickProject(ctx, runtime, stdout)
 		if err != nil {
@@ -52,8 +53,8 @@ func startCFOSession(ctx context.Context, runtime commandRuntime, stateDir strin
 				fmt.Fprintf(stderr, "goblins: the CFO could not be started in a native terminal: %v\n", err)
 				return 1
 			}
-			fmt.Fprintf(stdout, "\nThe CFO starts in %s, in native terminal %s.\n", project, nativeCFOTerminal)
-			return runtime.attachNative(stateDir, nativeCFOTerminal, stdout, stderr)
+			fmt.Fprintf(stdout, "\nThe CFO starts in %s, in native terminal %s.\n", project, supervisor.NativeCFOTerminal)
+			return runtime.attachNative(stateDir, supervisor.NativeCFOTerminal, stdout, stderr)
 		}
 		started, err := runtime.startCFO(ctx, project)
 		if err != nil {
@@ -88,21 +89,9 @@ func pickProject(ctx context.Context, runtime commandRuntime, stdout io.Writer) 
 	if err != nil || root == "" {
 		return "", errors.New("this terminal is in no git checkout and no projects root is set: cd into a project, or record the folder that holds them with cfo install --projects-root <dir>")
 	}
-	entries, err := os.ReadDir(root)
+	checkouts, err := supervisor.ProjectCheckouts(root)
 	if err != nil {
 		return "", fmt.Errorf("read the projects root %s: %w", root, err)
-	}
-	var checkouts []string
-	for _, entry := range entries {
-		// Stat rather than the entry's own type, so a junction to a checkout
-		// kept on another drive counts as the folder it is.
-		checkout := filepath.Join(root, entry.Name())
-		if info, err := os.Stat(checkout); err != nil || !info.IsDir() {
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(checkout, ".git")); err == nil {
-			checkouts = append(checkouts, checkout)
-		}
 	}
 	switch len(checkouts) {
 	case 0:

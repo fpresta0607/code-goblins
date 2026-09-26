@@ -46,6 +46,9 @@ type Options struct {
 	// PollPage waits up to a timeout for the Overlord's feedback on a Lavish
 	// page; without it no page is polled.
 	PollPage func(ctx context.Context, file string, timeout time.Duration) (axi.PagePoll, error)
+	// FirstRun is what the first-run page reads and changes on this
+	// machine; without it the board can start no CFO.
+	FirstRun *FirstRun
 }
 
 type Service struct {
@@ -108,12 +111,19 @@ func (s *Service) Done() <-chan struct{} { return s.done }
 
 func (s *Service) publish(err error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if err != nil {
 		s.lastError = bounded(err.Error(), 1000)
 	} else {
 		s.lastError = ""
 	}
+	s.mu.Unlock()
+	s.notify()
+}
+
+// notify sends every board a fresh snapshot, keeping the last error.
+func (s *Service) notify() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.revision++
 	for ch := range s.subscribers {
 		select {
@@ -580,8 +590,15 @@ type Snapshot struct {
 	// Build names the board bundle this supervisor serves, so a tab loaded
 	// from an older one can tell the board was updated.
 	Build string `json:"build,omitempty"`
-	// CFOTerminal names the native terminal the registered CFO runs in, and is
-	// empty while it runs in Herdr or not at all.
+	// CFORuns says a CFO is registered and running or starting in its native
+	// terminal; without one the board shows its first-run page.
+	CFORuns bool `json:"cfo_runs"`
+	// CFOStarting says native terminal cfo is up for a CFO not registered
+	// yet; the board opens that terminal for its sign-in, and no registration
+	// problem is shown while it lasts.
+	CFOStarting bool `json:"cfo_starting"`
+	// CFOTerminal names the native terminal the board shows the CFO in (see
+	// cfoState), and is empty while the CFO runs in Herdr or not at all.
 	CFOTerminal string `json:"cfo_terminal"`
 }
 
@@ -596,8 +613,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 	}
 	s.mu.Unlock()
-	if id, live := NativeCFO(s.Store.Home.State); live {
-		out.CFOTerminal = id
+	cfo := readCFOState(s.Store.Home.State)
+	out.CFOTerminal, out.CFORuns, out.CFOStarting = cfo.terminal, cfo.registered || cfo.starting, cfo.starting
+	// A starting CFO registers itself after sign-in, and one registered since
+	// the last check is no longer missing.
+	if cfo.starting || cfo.registered && out.Registration == errNotRegistered.Error() {
+		out.Registration = ""
 	}
 	// The board sees how many images a question has, never where they are.
 	out.Questions = make([]Question, len(d.Questions))

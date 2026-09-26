@@ -4,15 +4,16 @@ import { Icon } from "./Icon";
 import { CfoPin } from "./CfoPin";
 import { asksOverlord, nodeStatus, personaFor, pullRequestLabel, safePullRequest, taskColumn, waitingTarget } from "./workflow";
 
-export function Board({ snapshot, selected, onSelect, onTerminal, onOpenCfo, presentations }: {
+export function Board({ snapshot, selected, onSelect, onTerminal, onOpenCfo, onStartCfo, presentations }: {
   presentations:BoardActivity[];
   snapshot: Snapshot; selected?: string;
   onSelect: (task: Task, source: HTMLElement) => void;
   onTerminal: (task: Task, source: HTMLElement) => void;
   onOpenCfo: (source: HTMLElement) => void;
+  onStartCfo: () => void;
 }) {
   return <section className="task-board" aria-label="Task board">
-    <CfoPin snapshot={snapshot} onOpen={onOpenCfo} />
+    <CfoPin snapshot={snapshot} onOpen={onOpenCfo} onStart={onStartCfo} />
     {(["Tasks", "In progress", "Completed"] as const).map((column) => {
       const tasks = snapshot.tasks.filter((task) => taskColumn(task) === column);
       return <section key={column} className="board-column" aria-label={column}>

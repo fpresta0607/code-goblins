@@ -258,7 +258,7 @@ func defaultCommandRuntime() commandRuntime {
 		},
 		startNativeCFO:     startNativeCFO,
 		attachNative:       attachNative,
-		nativeTerminalRuns: nativeTerminalRuns,
+		nativeTerminalRuns: supervisor.NativeTerminalRuns,
 	}
 }
 
