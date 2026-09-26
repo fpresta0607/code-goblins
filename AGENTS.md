@@ -387,6 +387,16 @@ It is local and private by default: nothing in it is pushed anywhere, and in a c
 | `data/<task>/` | One folder per task that is queued or under way: `brief.md` (what to do), `report.md` (what a scout found or a ship task delivered), `decisions.md` (the rulings made for it, each with its date) and `deliverables/` (files handed to the Overlord). |
 | `data/archive/finished/<task>/` | A finished task's folder. |
 | `data/archive/parked/<task>/` | A brief set aside before it was dispatched. |
+| `data/archive/filed.md` | Every move filing made, and any pass that failed. |
+
+The watcher files a laid-out home's data every ten minutes, so finished and abandoned work leaves `data/` without anyone asking:
+
+- A finished task's folder moves to `data/archive/finished/<task>/`. Finished means no task record is left in `state/`, a status log or a state archive entry shows the task was dispatched, and its brief has not changed since; a brief written again for the same id is a new brief.
+- A brief nothing ever dispatched moves to `data/archive/parked/<task>/` once it has sat unchanged for three days, or as soon as a `## Parked` row names it, and gets a `## Parked` row saying where its brief went, so the board stops showing it as Not started.
+- A finished folder stays while an open backlog row names it by task id, or while anything still read names a path into it, such as `data/<task>/handoff.md`: all of `backlog.md`, `overlord.md`, both memory folders (`data/memory/` and Claude Code's own), the brief of every live or undispatched task, and every open Command Center question, review item and run card. A brief with a queued row is queued work however old it is.
+
+To revive a parked brief, move its folder back to `data/<task>/` and its row back under `## Queued`.
+A folder a process holds open stays put for the next pass, and the failure is written once in `data/archive/filed.md`.
 
 `cfo install` lays out a new home's `data/`, and repairs a laid-out one by creating what is missing without overwriting any file; `data/.layout` marks a folder it laid out.
 A `data/` that already held work before this layout existed is left exactly as it is, because laying it out would move the operator's files.
