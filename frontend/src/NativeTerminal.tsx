@@ -15,7 +15,7 @@ const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
 // takes typing straight away. Nothing here resizes or scrolls the real pane.
 // An input the supervisor refuses, or whose outcome is unknown, ends the view;
 // it is never resent, and reconnecting starts from a fresh full screen.
-export function NativeTerminal({ task, node, instance, visible, shown, onOwner }: { task?: Task; node?: Session; instance: string; visible: boolean; shown: boolean; onOwner?: () => void }) {
+export function NativeTerminal({ task, node, instance, visible, shown, focus = 0, onOwner }: { task?: Task; node?: Session; instance: string; visible: boolean; shown: boolean; focus?: number; onOwner?: () => void }) {
   const host = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const [readerSupport, setReaderSupport] = useState(() => { try { return localStorage.getItem("cfo-terminal-screen-reader") === "true"; } catch { return false; } });
@@ -24,6 +24,14 @@ export function NativeTerminal({ task, node, instance, visible, shown, onOwner }
   useEffect(() => { readerValue.current = readerSupport; if (terminal.current) terminal.current.options.screenReaderMode = readerSupport; }, [readerSupport]);
   const shownValue = useRef(shown);
   useEffect(() => { shownValue.current = shown; }, [shown]);
+  // A switch to this terminal hands it the keyboard, at once or on its first
+  // frame.
+  const wantFocus = useRef(false);
+  const liveValue = useRef(false);
+  useEffect(() => {
+    if (!focus) return;
+    if (terminal.current && liveValue.current && shownValue.current) terminal.current.focus(); else wantFocus.current = true;
+  }, [focus]);
   const [live, setLive] = useState(false);
   const [status, setStatus] = useState("Connecting");
   const [error, setError] = useState("");
@@ -61,6 +69,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, onOwner }
       lease = "";
       term.options.disableStdin = true;
       abort.abort();
+      liveValue.current = false;
       setLive(false);
       setStatus("Disconnected");
       setError(typingHeldReason(reason));
@@ -113,7 +122,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, onOwner }
       event.stopPropagation();
       if (event.shiftKey && event.key === "Escape") {
         event.preventDefault();
-        if (event.type === "keydown") element.closest(".goblin-panel")?.querySelector<HTMLButtonElement>(".panel-pill button[aria-pressed='true']")?.focus();
+        if (event.type === "keydown") element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-pill button[aria-pressed='true']")?.focus();
         return false;
       }
       if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "c") {
@@ -129,7 +138,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, onOwner }
     const resize = new ResizeObserver(fit);
     resize.observe(element);
     const read = async () => {
-      setLive(false); setError(""); setStatus("Connecting");
+      liveValue.current = false; setLive(false); setError(""); setStatus("Connecting");
       try {
         const response = await fetch("/api/terminal/stream", { signal: abort.signal, method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ task: taskID, session, generation }) });
         if (!response.ok) {
@@ -171,16 +180,18 @@ export function NativeTerminal({ task, node, instance, visible, shown, onOwner }
             if (!full) {
               full = true;
               term.options.disableStdin = false;
+              liveValue.current = true;
               setLive(true);
               setStatus("Live");
-              if (shownValue.current && element.closest(".context-pane")?.contains(document.activeElement)) term.focus();
+              if (shownValue.current && (wantFocus.current || element.closest(".context-pane")?.contains(document.activeElement))) term.focus();
+              wantFocus.current = false;
             }
           }
         }
       } catch (e: unknown) { if (!abort.signal.aborted) stop(message(e)); }
     };
     void read();
-    return () => { lease = ""; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); resize.disconnect(); element.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); window.removeEventListener("pointerup", copy); term.dispose(); terminal.current = null; };
+    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); resize.disconnect(); element.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); window.removeEventListener("pointerup", copy); term.dispose(); terminal.current = null; };
   }, [taskID, generation, session, instance, visible, attempt, missing]);
   if (missing) return <div className="terminal-empty"><Icon name="terminal" /><p>{queued ? "This task has not started yet." : shared ? "This child has no separate terminal." : error}</p>{onOwner && shared && <button className="primary" onClick={onOwner}>Open owning task</button>}</div>;
   return <section className="native-terminal" aria-label={cfo ? "CFO terminal" : "Goblin terminal"}>

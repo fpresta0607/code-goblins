@@ -194,9 +194,10 @@ The native interface exposes rendered screen updates rather than original histor
 
 A task whose record names the `native` backend runs in a `cfo host` of its own, and `GET /api/terminal/native?task=ID&generation=GEN&token=TOKEN` relays one view of it over a WebSocket; a goblin panel's Terminal view opens it for every such task, and the snapshot names each task's `backend` so the board knows which view to open.
 The upgrade needs the board's own origin and the board's token in the query, since a browser cannot set a WebSocket header, and anything else is refused with 403.
-Every later refusal closes the socket with its reason, which a browser can read: a replaced generation, a task that runs in Herdr, no running host, a host that did not answer, or four views already open.
+Every later refusal closes the socket with its reason, which a browser can read: a replaced generation, a task that runs in Herdr, no running host, a host that did not answer, or 32 native views already open, a limit of their own apart from the four Herdr streams.
 The view is bound to its terminal once, by the host's pipe, whose server process must be the host the record names, so a key costs no check and starts no process.
-Output arrives as binary messages, the host's history first; typing goes back as binary messages, and a resize as the text message `{"type":"resize","cols":C,"rows":R}`.
+The first message is the text `{"type":"history","bytes":N}`, the number of output bytes that follow as the host's history, even when it is empty.
+Output arrives as binary messages, the history first; typing goes back as binary messages, and a resize as the text message `{"type":"resize","cols":C,"rows":R}`.
 The pseudo console repaints its whole window on every resize, even to the size it already has, so a view replays the history and then sends its size, and its screen is whole however much of the history the host still keeps; the host starts a replay at the next line or escape sequence past its 4 MiB limit, never inside one.
 Every other view of the terminal is told the size the terminal took as `{"type":"size","cols":C,"rows":R}`, so a second window draws the output at that size until it is typed into, which sizes the terminal to it; a size under 20 columns or 5 rows, measured while a panel was hidden, or over 1000 columns or 500 rows is ignored and announced to nobody.
 A view acknowledges the output it has drawn with `{"type":"ack","bytes":N}`, N counting every output byte so far: the relay sends a view at most 1 MiB beyond what it acknowledged and keeps reading the host, and a view that falls 8 MiB behind is closed with code 1013 and "The view fell behind the terminal's output.", so the host never waits on a slow window and a view that stays open never loses a byte.
@@ -204,11 +205,27 @@ Gate custody and the task's generation are checked when the view opens and on ev
 The terminal's end closes the view with its exit code in the reason.
 
 The board draws a native terminal with xterm at the panel's size: its fit addon measures the columns and rows the panel holds and the view sends them as the resize, so the program and the view agree on the size.
-The font starts at 16 px; Ctrl+Plus and Ctrl+Minus step it between 12 and 28 px and Ctrl+0 restores it, saved in the browser.
+xterm draws with its WebGL renderer, and with its DOM renderer where WebGL is unavailable or its context is lost.
+The font starts at 20 px; Ctrl+Plus and Ctrl+Minus step it between 12 and 28 px and Ctrl+0 restores it, saved in the browser, and a new font size resizes the pseudo console, so the terminal gains or loses columns instead of shrinking its text.
 The terminal keeps 5,000 lines of scrollback and the wheel scrolls it; the panel around it never scrolls.
-Until the first output is drawn, and again while the board's own connection is down, a full-pane state says the terminal is connecting; a view that fell behind, a restarting board or a dropped connection reconnects on its own up to five times, and any other close keeps the terminal's last screen in view with its reason and Reconnect in a bar across the bottom.
+Output is written through xterm's own write queue and never re-renders the page.
+A chunk as large as one host read, 32 KiB, is part of a larger redraw, so the view opens a synchronized update (DECSET 2026) before it and ends it when the redraw's short tail arrives or the stream has been quiet for 8 ms, and xterm paints the redraw as one frame; a smaller chunk, such as an echoed key, is written as it is.
+The update's markers only go where the stream sits between escape sequences and characters and outside any synchronized update the program opened itself, and xterm ends an update left open after one second.
+Each connection draws into its own xterm, kept out of sight until the history, the repaint its size asked for and any open update are drawn, so the panel never shows a blank, cleared or half-drawn screen; until the first one is whole a full-pane state says the terminal is connecting.
+A view that fell behind, a restarting board or a dropped connection reconnects on its own up to five times, keeping the last screen in place with a Reconnecting note until the new connection is whole, and does the same while the board's own connection is down; any other close keeps the last screen in view with its reason and Reconnect in a bar across the bottom.
 A paste goes as it is typed, in pieces of at most 64 KiB, in order.
+
+Every native terminal the Overlord opens stays live while the board is open, one xterm and one socket each, hidden rather than unmounted, so switching only brings another into sight; the three most recent Herdr views stay live the same way, so a fourth window still gets one of Herdr's four streams.
+A list beside the terminal switches between them, the CFO first and then each goblin with a terminal, numbered in that order.
+Ctrl+Alt+Up and Ctrl+Alt+Down step through the list and Ctrl+Alt+1 to Ctrl+Alt+9 jump to an entry, matched by key position; the board catches them before a terminal sees them, except while a dialog such as the Command Center is open, and a switch hands the terminal the keyboard, a Herdr terminal included.
+A key typed with AltGr, which Windows reports as Ctrl+Alt, stays the terminal's, so a layout that types a brace or bracket with AltGr and a digit keeps it.
+A divider between the board and the panel sizes the panel, keeping at least 360 px for the panel and 280 px for the board, and a maximize button gives the panel the whole window; both are saved in the browser, a width saved on a wider window is held to the same bounds, and on a narrow window the board and the panel stack and the divider is hidden.
+
 Key-to-echo latency, measured with `tests/acceptance/terminal_latency.mjs` against the example fixture on 25 September 2026: the Herdr view on main e6f7ea97 took p50 74 ms and p95 592 ms with 3 of 100 keys unechoed after 5 seconds and 4.6 s to a live screen, and the native view p50 24 ms and p95 34 to 36 ms with none missed and 0.4 s to a live screen.
+With synchronized redraws and the 20 px font, measured with the DOM renderer in headless Edge, the native view took p50 28 ms and p95 41 ms with none missed.
+Switching, measured with `tests/acceptance/terminal_switch.mjs` over 30 round trips between two native terminals: when each switch remounted the view it took p50 44 ms and p95 55 ms from the click to the other terminal drawn whole, with 47 blank frames; with every opened terminal kept live it takes p50 16 ms and p95 21 ms with no blank and no half-drawn frame, and a first attach shows no half-drawn frame.
+`docs/evidence/cg-board-ux/pr1b/side-by-side.mp4` records one Claude Code session shown at once in the board and in Windows Terminal through `cfo attach`, while the board switches to another native terminal and back and then to the CFO and back: the Claude Code answer arrives while the board shows the CFO, and is already drawn when the board switches back.
+The CFO in that recording still runs in Herdr, so its first open shows Herdr's connecting state over an empty pane, which is not the native view.
 
 CFO transport reads the `state/primary.json` registration and binds each queued message to its fingerprint.
 The primary CFO writes that registration itself: Claude's SessionStart hook does it after the digest settles custody, and the Codex and Pi native SessionStart hooks do it for a session with no task.

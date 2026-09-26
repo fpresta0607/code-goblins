@@ -228,13 +228,17 @@ A pill at the top switches between the **Task** view and the **Terminal** view i
 A live goblin's card also carries a terminal button that opens its panel straight on the Terminal view.
 The Task view shows **Workspace** with the repository, branch and exact working folder, **Connectors** with a mark for every harness, model provider, MCP server and credential (configured is not the same as connected, and no secret values are shown), then **Changes**, **Activity** and **History**.
 The Terminal view is the goblin's live terminal, edge to edge.
-A goblin in a native terminal (`cfo spawn --backend native`) is drawn from its terminal's own output at the panel's size, in a readable 16 px font: type straight into it, scroll its history with the wheel, and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size.
-Opening it replays the terminal's history and repaints its screen, so it never opens blank, and a full-pane state shows while it connects.
+A goblin in a native terminal (`cfo spawn --backend native`) is drawn from its terminal's own output at the panel's size, in a 20 px font: type straight into it, scroll its history with the wheel, and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
+Opening it replays the terminal's history out of sight and shows it once its screen is whole, so it never opens blank or half drawn, and a full-pane state shows while it connects.
+A program's redraw appears as one frame, the way a native terminal shows it, and while the board's own connection is down the last screen stays in place with a Reconnecting note.
+Every terminal you open stays live while the board is open, and the list beside the terminal switches between them, the CFO first and then each goblin with a terminal.
+**Ctrl+Alt+Up** and **Ctrl+Alt+Down** step through that list and **Ctrl+Alt+1** to **Ctrl+Alt+9** jump to an entry, from anywhere on the board; a switch hands the keyboard to the terminal it shows, and one you opened before appears at once, already drawn.
+Drag the divider between the board and the panel to size the panel, or use the maximize button to give it the whole window; both are remembered in this browser.
 A goblin still in Herdr shows its Herdr pane at the pane's own size.
 In both, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
 
 <p align="center">
-  <img src="docs/images/goblin-panel.webp" alt="The goblin panel on its Terminal view: a goblin's native terminal drawn edge to edge at the panel's size in a 16 px font, with Open in VS Code and Open folder in the header" width="600" />
+  <img src="docs/images/goblin-panel.webp" alt="The goblin panel on its Terminal view beside the board: the switcher lists the CFO, Build review panel, native-a and native-b with their shortcut numbers, and native-a's native terminal is drawn edge to edge in a 20 px font" width="900" />
 </p>
 
 ### Sending a diff comment to the CFO

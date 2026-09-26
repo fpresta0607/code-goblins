@@ -19,13 +19,13 @@ Disclosure.tsx adapts load-on-open and release-on-close disclosure behavior from
 CFO uses its own self-hosted typography, layered card surfaces, mutually exclusive Board/Orchestration views and one contextual pane; SIQshift reporting labels, charts, WebGL and API contracts are not included.
 The app icon and three transparent goblin sprite atlases were generated with the built-in image generation tool for this project and approved by the user on 2026-09-22.
 They were copied unchanged from the approved production assets; role-specific artwork is chosen deterministically from reported role or task wording, never presented as inferred runtime telemetry.
-Runtime dependencies: React and React DOM (MIT), PrismJS (MIT), xterm.js and its fit addon (MIT).
+Runtime dependencies: React and React DOM (MIT), PrismJS (MIT), xterm.js and its fit and WebGL addons (MIT).
 React: https://github.com/facebook/react/blob/main/LICENSE
 Prism: https://github.com/PrismJS/prism/blob/master/LICENSE
 
 Bundled React and React DOM license: /assets/react-LICENSE.txt
 Bundled PrismJS license: /assets/prism-LICENSE.txt
-Bundled xterm.js 6.0.0 license, which also covers @xterm/addon-fit 0.11.0 from the same authors: /assets/xterm-LICENSE.txt
+Bundled xterm.js 6.0.0 license, which also covers @xterm/addon-fit 0.11.0 and @xterm/addon-webgl 0.19.0 (Copyright (c) 2018, The xterm.js authors) from the same authors: /assets/xterm-LICENSE.txt
 
 Service and provider marks: path data from Simple Icons 16.32.0 (https://simpleicons.org), CC0 1.0. Each mark remains its owner's trademark and is used only to name that service.
 The Visual Studio Code icon is Microsoft's official stable icon (https://code.visualstudio.com/brand), bundled unmodified and shown only on the button that opens a workspace in VS Code.

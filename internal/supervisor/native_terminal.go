@@ -37,6 +37,9 @@ type nativeRelay struct {
 	pending     []byte
 	sent, acked int64
 	size        []byte
+	// history tells the view, before any output, how many of the bytes that
+	// follow replay the terminal's history.
+	history []byte
 	// closing is how the view closes once everything before it is sent.
 	closing *websocket.CloseError
 	wake    chan struct{}
@@ -94,8 +97,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// From here every refusal closes the view with its reason, which a
 	// browser can read where it cannot read a refused upgrade's body.
 	select {
-	case h.terminalSlots <- struct{}{}:
-		defer func() { <-h.terminalSlots }()
+	case h.nativeSlots <- struct{}{}:
+		defer func() { <-h.nativeSlots }()
 	default:
 		_ = view.Close(websocket.StatusTryAgainLater, "Too many terminal views are open.")
 		return
@@ -144,9 +147,15 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		defer relay.signal()
+		// The host's first output is its history, even when it is empty.
+		first := true
 		for {
 			event, err := terminal.Next()
 			relay.mu.Lock()
+			if first && err == nil && !event.Exited {
+				relay.history = []byte(fmt.Sprintf(`{"type":"history","bytes":%d}`, len(event.Output)))
+				first = false
+			}
 			switch {
 			case err != nil:
 				relay.closing = &websocket.CloseError{Code: websocket.StatusGoingAway, Reason: "The terminal's host stopped answering."}
@@ -170,8 +179,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		for {
 			relay.mu.Lock()
-			size := relay.size
-			relay.size = nil
+			history, size := relay.history, relay.size
+			relay.history, relay.size = nil, nil
 			var output []byte
 			if unacknowledged := relay.sent - relay.acked; len(relay.pending) > 0 && unacknowledged < int64(h.terminalWindow) {
 				n := min(len(relay.pending), relayMessage, h.terminalWindow-int(unacknowledged))
@@ -183,14 +192,14 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				relay.sent += int64(n)
 			}
 			closing := relay.closing
-			if len(relay.pending) > 0 || output != nil || size != nil {
+			if len(relay.pending) > 0 || output != nil || size != nil || history != nil {
 				closing = nil
 			}
 			relay.mu.Unlock()
 			for _, message := range []struct {
 				kind websocket.MessageType
 				data []byte
-			}{{websocket.MessageText, size}, {websocket.MessageBinary, output}} {
+			}{{websocket.MessageText, history}, {websocket.MessageText, size}, {websocket.MessageBinary, output}} {
 				if message.data == nil {
 					continue
 				}
@@ -205,7 +214,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				_ = view.Close(closing.Code, closing.Reason)
 				return
 			}
-			if size == nil && output == nil {
+			if history == nil && size == nil && output == nil {
 				select {
 				case <-relay.wake:
 				case <-ctx.Done():

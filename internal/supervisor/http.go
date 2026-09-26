@@ -36,9 +36,12 @@ type HTTP struct {
 	gitSlots      chan struct{}
 	streams       chan struct{}
 	terminalSlots chan struct{}
-	terminals     map[string]*terminalLease
-	openTerminal  func(context.Context, string, string, bool, int, int) (herdr.TerminalStream, error)
-	terminalTick  time.Duration
+	// nativeSlots bounds the native terminal views open at once: the board
+	// keeps every goblin terminal it opened live, so it is far above Herdr's.
+	nativeSlots  chan struct{}
+	terminals    map[string]*terminalLease
+	openTerminal func(context.Context, string, string, bool, int, int) (herdr.TerminalStream, error)
+	terminalTick time.Duration
 	// relays holds every open view of each native terminal, by task, and a
 	// view's output is bounded by terminalWindow unacknowledged bytes and
 	// terminalBacklog bytes waiting to be sent.
@@ -50,7 +53,7 @@ type HTTP struct {
 }
 
 func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
-	return &HTTP{Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 4), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath}
+	return &HTTP{Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 4), nativeSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath}
 }
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {

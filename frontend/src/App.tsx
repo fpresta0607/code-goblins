@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRuntimeStream } from "./stream";
 import { Lineage, type Selection } from "./Lineage";
 import { Board } from "./Board";
@@ -11,6 +11,22 @@ import { ownsTaskSession } from "./lineageTree";
 import { Icon } from "./Icon";
 import { Avatar } from "./Avatar";
 import { GoblinPanel, type PanelView } from "./GoblinPanel";
+import { PaneDivider } from "./PaneDivider";
+import { CFO_KEY, paneTrack, switchOrder } from "./terminalOrder";
+import { useSwitchKeys } from "./useSwitchKeys";
+
+// The terminals load xterm, so the deck arrives the first time one is shown.
+const TerminalDeck = lazy(() => import("./TerminalDeck").then((module) => ({ default: module.TerminalDeck })));
+
+const PANE_WIDTH_KEY = "cfo-pane-width";
+const PANE_MAXIMIZED_KEY = "cfo-pane-maximized";
+
+function stored(key: string): string | null {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function store(key: string, value: string) {
+  try { localStorage.setItem(key, value); } catch { /* the layout still applies to this view */ }
+}
 
 export function App() {
   const { snapshot, connection, error } = useRuntimeStream();
@@ -19,11 +35,18 @@ export function App() {
   const [panelView, setPanelView] = useState<PanelView>("task");
   const [commandFocus, setCommandFocus] = useState<CommandFocus | null>(null);
   const [selected, setSelected] = useState<Selection | null>(null);
+  // The CFO chosen by name, which the Board shows in the panel too.
+  const [cfoOpen, setCfoOpen] = useState(false);
   const [selectionEpoch, setSelectionEpoch] = useState(0);
   const [paneOpen, setPaneOpen] = useState(true);
+  const [paneSize, setPaneSize] = useState<number | null>(() => Number(stored(PANE_WIDTH_KEY)) || null);
+  const [maximized, setMaximized] = useState(() => stored(PANE_MAXIMIZED_KEY) === "true");
+  const [terminalOpened, setTerminalOpened] = useState(false);
+  const [switchFocus, setSwitchFocus] = useState(0);
   const [compact, setCompact] = useState(() => matchMedia("(max-width: 40rem)").matches);
   const returnFocus = useRef<HTMLElement | null>(null);
   const pane = useRef<HTMLElement>(null);
+  const workspace = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const query = matchMedia("(max-width: 40rem)");
     const changed = () => setCompact(query.matches);
@@ -46,6 +69,7 @@ export function App() {
     // An empty selection is the supervisor root drawn for the CFO.
     const cfo = !next.session && !next.task || snapshot?.sessions.find((session) => session.id === next.session)?.role === "cfo";
     setSelected(cfo ? null : next);
+    setCfoOpen(cfo);
     setPanelView(panel);
     setSelectionEpoch((epoch) => epoch + 1);
     setPaneOpen(true);
@@ -54,11 +78,29 @@ export function App() {
       if (compact) pane.current?.scrollIntoView({ behavior: "instant", block: "start" });
     });
   };
+  // A switch from the switcher or its keys shows that terminal at once and
+  // hands it the keyboard.
+  const switchTo = (key: string) => {
+    if (key === CFO_KEY) { setSelected(null); setCfoOpen(true); } else { setSelected({ task: key }); setCfoOpen(false); }
+    setPanelView("terminal");
+    setPaneOpen(true);
+    setSwitchFocus((prior) => prior + 1);
+  };
   const close = () => {
     setPaneOpen(false);
     requestAnimationFrame(() => returnFocus.current?.isConnected && returnFocus.current.focus());
   };
-  const closeButton = <button className="icon-button" aria-label="Close panel" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>;
+  const cfoShown = !selected && (view === "Orchestration" || cfoOpen);
+  const showsPanel = !!snapshot && paneOpen && (view === "Orchestration" || !!task || cfoOpen);
+  const terminalShown = showsPanel && panelView === "terminal";
+  if (terminalShown && !terminalOpened) setTerminalOpened(true);
+  useSwitchKeys(snapshot ? switchOrder(snapshot.tasks) : [], cfoShown ? CFO_KEY : task?.id || "", switchTo);
+  const panelWide = paneOpen && maximized && !compact;
+  const layout: CSSProperties | undefined = panelWide ? { gridTemplateColumns: "minmax(0, 1fr)" } : paneOpen && paneSize && !compact ? { gridTemplateColumns: `minmax(0, 1fr) 10px ${paneTrack(paneSize)}` } : undefined;
+  const closeButton = <>
+    {!compact && <button className="icon-button" aria-label={maximized ? "Restore the panel" : "Maximize the panel"} data-tip={maximized ? "Restore" : "Maximize"} data-tip-align="end" onClick={() => { setMaximized(!maximized); store(PANE_MAXIMIZED_KEY, String(!maximized)); }}><Icon name={maximized ? "restore" : "maximize"} /></button>}
+    <button className="icon-button" aria-label="Close panel" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
+  </>;
   return <div className="app-shell" onKeyDown={(event) => {
     if (event.key === "Escape" && paneOpen && !event.defaultPrevented) { event.preventDefault(); close(); }
   }}>
@@ -78,8 +120,8 @@ export function App() {
         {!paneOpen && <button onClick={() => setPaneOpen(true)}>Open {selected ? "details" : "CFO"}</button>}
       </div>
     </header>
-    <div className={"workspace" + (paneOpen ? " with-pane" : "")}>
-      <main className="canvas-region" aria-label={view}>
+    <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "")} style={layout}>
+      <main className="canvas-region" aria-label={view} hidden={panelWide}>
         {(error || snapshot?.error) && <div className="connection-banner" role="alert">{error || snapshot?.error}</div>}
         {snapshot?.registration && <div className="connection-banner" role="alert">{snapshot.registration}</div>}
         {!snapshot ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
@@ -88,16 +130,20 @@ export function App() {
               : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} connected={connected} selected={selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
                 onSelect={(node, source) => select(node.session ? { session: node.session.id } : node.task ? { task: node.task.id } : {}, source)} />}
       </main>
+      {paneOpen && !panelWide && !compact && <PaneDivider workspace={workspace} pane={pane} width={paneSize} onWidth={setPaneSize} onDone={(width) => store(PANE_WIDTH_KEY, String(width))} />}
       <aside ref={pane} className="context-pane" hidden={!paneOpen} tabIndex={-1} aria-label={view === "Board" ? "Task review" : "Goblin panel"}>
-        {snapshot && paneOpen && (view === "Board" && !task
+        {snapshot && paneOpen && (!showsPanel
           ? <><div className="panel-top"><div className="panel-top-side" /><div /><div className="panel-top-side end">{closeButton}</div></div>
             <section className="review-placeholder"><Avatar persona="reviewer" /><h2>Review the work</h2><p>Select a task to see what it is doing and what changed.</p></section></>
           : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "")}
             task={selected ? task : undefined} node={selected ? selectedSession : undefined} snapshot={snapshot} connected={connected} reviews={reviews}
             view={panelView} onView={setPanelView} trailing={closeButton} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
             onOpenTask={(next) => select({ task: next.id }, pane.current || document.body)}
-            leading={view === "Orchestration" && selected ? <button className="icon-button" aria-label="Back to CFO" data-tip="Back to CFO" data-tip-align="start" onClick={() => setSelected(null)}><Icon name="back" /></button> : undefined}
-            onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />)}
+            leading={view === "Orchestration" && selected ? <button className="icon-button" aria-label="Back to CFO" data-tip="Back to CFO" data-tip-align="start" onClick={() => setSelected(null)}><Icon name="back" /></button> : undefined} />)}
+        {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
+          <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} cfo={cfoShown} shown={terminalShown} connected={connected} focus={switchFocus}
+            onSwitch={switchTo} onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />
+        </Suspense>}
       </aside>
     </div>
   </div>;
