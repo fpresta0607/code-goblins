@@ -331,6 +331,66 @@ func TestSnapshotReadsWorkingAndWaitingOnReports(t *testing.T) {
 	}
 }
 
+// A goblin waiting on the Overlord is past the wait once the Command Center
+// item it raised closes: answered, cleared, or handed to the CFO to relay a
+// page's answer. The board then reads the goblin's own state again. An answer
+// typed on the item still on its way to the goblin keeps the wait.
+func TestSnapshotEndsAWaitOnTheOverlordOnceTheAnswerReachesTheGoblin(t *testing.T) {
+	answer := func(isDelivered bool) func(*Review) {
+		return func(r *Review) {
+			r.State, r.Answer, r.AnswerID, r.Delivered = "answered", "use the blue plan", "action-1", isDelivered
+		}
+	}
+	for _, c := range []struct {
+		name      string
+		close     func(*Review)
+		isEarlier bool // the item belongs to a wait before the latest report
+		isWaiting bool
+	}{
+		{"an open item", func(*Review) {}, false, true},
+		{"an answer on its way", answer(false), false, true},
+		{"an answer delivered", answer(true), false, false},
+		{"an item the CFO's answer cleared", func(r *Review) { r.State, r.Reason = "cleared", "The CFO answered task-1's question." }, false, false},
+		{"a page answered for the CFO to relay", func(r *Review) { r.State, r.Reason = "withdrawn", "The Overlord answered on the page; the CFO relays it." }, false, false},
+		{"an earlier wait's delivered answer", answer(true), true, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange: the report comes first, then its item, as cfo notify
+			// writes them.
+			store, h := testStore(t)
+			if err := state.AppendStatus(h.State, "task-1", "waiting on overlord: pick a plan"); err != nil {
+				t.Fatal(err)
+			}
+			wait := openReview("waiting-task-1-7", "task-1")
+			if c.isEarlier {
+				wait.CreatedAt = wait.CreatedAt.Add(-time.Minute)
+			}
+			if err := store.acceptReview(wait); err != nil {
+				t.Fatal(err)
+			}
+			store.mu.Lock()
+			c.close(&store.db.Reviews[0])
+			store.mu.Unlock()
+
+			// Act
+			snapshot, err := (&Service{Store: store}).Snapshot()
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			i := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == "task-1" })
+			if i < 0 {
+				t.Fatal("task-1 missing from the snapshot")
+			}
+			got := snapshot.Tasks[i]
+			if isWaiting := got.Phase == "waiting" && got.WaitingOn == "overlord"; isWaiting != c.isWaiting {
+				t.Fatalf("task-1 = %+v, want waiting on the Overlord %v", got.Evaluation, c.isWaiting)
+			}
+		})
+	}
+}
+
 // A wait on the Overlord stays in the Command Center while it is the goblin's
 // latest report, and is withdrawn once the goblin reports anything newer.
 func TestWaitOnTheOverlordRetiresWhenTheGoblinReportsAgain(t *testing.T) {
