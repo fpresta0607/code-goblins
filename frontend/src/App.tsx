@@ -14,7 +14,7 @@ import { GoblinPanel, type PanelView } from "./GoblinPanel";
 import { PaneDivider } from "./PaneDivider";
 import { CFO_KEY, paneTrack, switchOrder } from "./terminalOrder";
 import { useSwitchKeys } from "./useSwitchKeys";
-import { updateAction } from "./boardUpdate";
+import { unsentComment, updateAction } from "./boardUpdate";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
 const TerminalDeck = lazy(() => import("./TerminalDeck").then((module) => ({ default: module.TerminalDeck })));
@@ -26,9 +26,10 @@ const PANE_MAXIMIZED_KEY = "cfo-pane-maximized";
 // the page; a tab left open across an install keeps the older one.
 const LOADED_BUILD = document.querySelector<HTMLMetaElement>('meta[name="cfo-build"]')?.content || "";
 // The Overlord is in the middle of an answer while the Command Center is open,
-// any card in it keeps an answer not yet sent, or any text field holds text he
+// any card in it or any comment on a diff keeps an answer not yet sent, a
+// terminal is listening to his dictation, or any text field holds text he
 // typed.
-const answering = (unsent: boolean) => unsent || !!document.querySelector("dialog[open]")
+const answering = (unsent: boolean) => unsent || !!document.querySelector("dialog[open], .terminal-listening")
   || [...document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("textarea, input:not([type]), input[type=text]")].some((field) => field.value.trim() !== "");
 
 function stored(key: string): string | null {
@@ -73,9 +74,12 @@ export function App() {
   const connected = connection === "Live";
   const unsent = useRef(false);
   const onUnsent = useCallback((next: boolean) => { unsent.current = next; }, []);
+  const commenting = Object.values(reviews.drafts).some((draft) => unsentComment(draft, reviews.outcome(draft)));
+  const commentUnsent = useRef(false);
+  useEffect(() => { commentUnsent.current = commenting; }, [commenting]);
   const updated = updateAction({ loaded: LOADED_BUILD, served, hidden: false, answering: true, connected }) !== "none";
   useEffect(() => {
-    const check = () => { if (updateAction({ loaded: LOADED_BUILD, served, hidden: document.hidden, answering: answering(unsent.current), connected }) === "reload") location.reload(); };
+    const check = () => { if (updateAction({ loaded: LOADED_BUILD, served, hidden: document.hidden, answering: answering(unsent.current || commentUnsent.current), connected }) === "reload") location.reload(); };
     check();
     document.addEventListener("visibilitychange", check);
     return () => document.removeEventListener("visibilitychange", check);
