@@ -35,6 +35,12 @@ type GateProber interface {
 // ExecGateProber shells out to `no-mistakes axi status` in the task worktree.
 type ExecGateProber struct{}
 
+// gateStatusBudget bounds one `no-mistakes axi status`, which answers in well
+// under a second. The monitor's whole scan waits on it, and a supervisor whose
+// scan never returns keeps its lock while its heartbeat stops, so nothing can
+// take supervision over.
+const gateStatusBudget = 30 * time.Second
+
 var (
 	activeStepLine = regexp.MustCompile(`^\s*([a-z_]+),running,([0-9hms]+),"?([^"]*)"?`)
 )
@@ -47,8 +53,14 @@ func (ExecGateProber) InspectGate(ctx context.Context, meta state.TaskMeta) (Gat
 	if _, err := os.Stat(filepath.Join(meta.Worktree, ".github", "workflows")); err != nil {
 		sample.NoCI = true
 	}
+	ctx, cancel := context.WithTimeout(ctx, gateStatusBudget)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, "no-mistakes", "axi", "status")
 	cmd.Dir = meta.Worktree
+	// A process the status call leaves running, such as a daemon it starts,
+	// inherits the output pipe; without a delay Wait holds until that process
+	// exits, which for a daemon is never.
+	cmd.WaitDelay = 2 * time.Second
 	out, err := cmd.CombinedOutput()
 	if err != nil && len(out) == 0 {
 		return sample, err
