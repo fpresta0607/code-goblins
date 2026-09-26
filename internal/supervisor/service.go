@@ -577,6 +577,9 @@ type Snapshot struct {
 	// Registration says why the board cannot reach the primary CFO, with
 	// the fix, and is empty while it can.
 	Registration string `json:"registration"`
+	// Build names the board bundle this supervisor serves, so a tab loaded
+	// from an older one can tell the board was updated.
+	Build string `json:"build,omitempty"`
 	// CFOTerminal names the native terminal the registered CFO runs in, and is
 	// empty while it runs in Herdr or not at all.
 	CFOTerminal string `json:"cfo_terminal"`
@@ -721,7 +724,8 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 	}
 	for _, brief := range queuedBriefs(s.Store.Home) {
-		if len(out.Tasks) < maxSessions && !slices.ContainsFunc(out.Tasks, func(t Task) bool { return t.ID == brief.ID }) {
+		isParked := slices.ContainsFunc(backlog.Parked, func(row fleet.BacklogRow) bool { return row.Structured && row.ID == brief.ID })
+		if !isParked && len(out.Tasks) < maxSessions && !slices.ContainsFunc(out.Tasks, func(t Task) bool { return t.ID == brief.ID }) {
 			out.Tasks = append(out.Tasks, brief)
 		}
 	}

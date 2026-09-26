@@ -119,8 +119,8 @@ cd code-goblins
 
 Both put `cfo` and `goblins` on your PATH, install the tools, skills and hooks the fleet needs, add Code Goblins to the Start menu, run `goblins doctor` and open the board; run either again at any time to update.
 
-Your data lives in the CFO home, `%LOCALAPPDATA%\CodeGoblins` for the one-line install and the clone itself for `-Dev`: on your machine, outside every project repository, and kept by `goblins uninstall`.
-Code Goblins needs no backup repository for it; backing the home up, for example to a private git repository, is only your own choice.
+Your data lives in the CFO home on your machine, `%LOCALAPPDATA%\CodeGoblins` for the one-line install and the clone itself for `-Dev`, outside every project repository and kept by `goblins uninstall`.
+It needs no backup repository: backing it up is only your own choice, and [Your data](#your-data) shows what is in it.
 [docs/install.md](docs/install.md) has the details: what each step does, what it needs, and the projects folder.
 
 ### Everyday commands
@@ -179,6 +179,7 @@ cfo serve                  # --listen 127.0.0.1:0 picks a free loopback port
 ```
 
 The board is a view, not the engine: tasks keep progressing with every browser closed, and restarting `cfo serve` with the same CFO home recovers its events, actions and lineage.
+A tab left open across an install notices the newer board: a hidden tab reloads itself unless it holds an answer you have not sent, and otherwise it shows one line, **The board was updated**, with **Reload**, so it never reloads while you answer.
 `cfo serve` takes over from `cfo watch` as the fleet's single supervisor, so a running watcher must finish first.
 It listens on loopback only, and Ctrl-C in its terminal, or `goblins stop` from any terminal, stops it.
 Hook setup, evidence rules and terminal limits are in [the native board guide](docs/native-board.md).
@@ -323,6 +324,31 @@ cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [-
 ```
 
 Run `cfo doctor` after installation for the current dependency and harness health report.
+
+## Your data
+
+Everything the fleet knows about your work lives in one folder on your machine, the CFO home: `%LOCALAPPDATA%\CodeGoblins` for the one-line install, or the checkout you installed from.
+It stays local and private: nothing in it is pushed anywhere, and no project repository ever holds it.
+
+```text
+<CFO home>\
+  state\                          the fleet's own record: tasks, status logs, the wake queue, the board
+  data\                           your data
+    backlog.md                    open work: Queued, Parked and Done
+    overlord.md                   your standing directives
+    routing.json                  which harness and model each kind of work gets
+    projects\<project>\           each project's credentials manifest and worktree settings
+    <task>\                       each queued or running task: brief, report, decisions, deliverables
+    archive\finished\<task>\      finished tasks
+    archive\parked\<task>\        briefs set aside before they started
+```
+
+`cfo install` creates this layout in a new home and fills in anything missing later, without overwriting a file.
+A home that already held data before this layout is left exactly as it is.
+
+A private backup repository is optional.
+If you want one, make `data\` a git repository and push it to a private remote of your own; the fleet works the same without it, and no step depends on it.
+[AGENTS.md](AGENTS.md#the-cfo-home) describes each file in full.
 
 ## Safety model
 

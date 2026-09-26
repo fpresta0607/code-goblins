@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -166,5 +167,84 @@ func TestAPIOriginIdempotencySafePathsAndReconnect(t *testing.T) {
 		if !strings.Contains(string(buf[:n]), fmt.Sprintf("id: %s:", s.Instance)) {
 			t.Fatal("reconnect did not receive authoritative snapshot")
 		}
+	}
+}
+
+// The board names the build it serves in the page and in every snapshot, so
+// a tab still running an older build can tell the board was updated.
+func TestTheBoardNamesItsBuildInThePageAndTheSnapshot(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	board := func(page string) *HTTP {
+		return NewHTTP(&Service{Store: store}, "board.local", fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte(page)}})
+	}
+	get := func(h *HTTP, path string) string {
+		t.Helper()
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local"+path, nil))
+		if response.Code != http.StatusOK {
+			t.Fatalf("GET %s = %d", path, response.Code)
+		}
+		return response.Body.String()
+	}
+	older := board(`<html><head></head><body><script src="/assets/index-OLD.js"></script></body></html>`)
+	newer := board(`<html><head></head><body><script src="/assets/index-NEW.js"></script></body></html>`)
+
+	// Act
+	page := get(older, "/")
+	var snapshot struct{ Build string }
+	if err := json.Unmarshal([]byte(get(older, "/api/snapshot")), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	var updated struct{ Build string }
+	if err := json.Unmarshal([]byte(get(newer, "/api/snapshot")), &updated); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if snapshot.Build == "" || !strings.Contains(page, `<meta name="cfo-build" content="`+snapshot.Build+`">`) {
+		t.Fatalf("the page and the snapshot name different builds: snapshot %q, page %s", snapshot.Build, page)
+	}
+	if updated.Build == "" || updated.Build == snapshot.Build {
+		t.Fatalf("another bundle kept the build %q", updated.Build)
+	}
+}
+
+// The event stream the board runs on names the build in every snapshot.
+func TestTheEventStreamNamesTheBoardBuild(t *testing.T) {
+	// Arrange
+	_, h := testStore(t)
+	s, err := Start(context.Background(), h, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	handler := NewHTTP(s, "", fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte(`<html><head></head><body><script src="/assets/index-A.js"></script></body></html>`)}})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	handler.Host = strings.TrimPrefix(server.URL, "http://")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	request, _ := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/events", nil)
+
+	// Act
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	reader := bufio.NewReader(response.Body)
+	var event strings.Builder
+	for !strings.HasSuffix(event.String(), "\n\n") {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("the stream ended before its first snapshot: %v", err)
+		}
+		event.WriteString(line)
+	}
+
+	// Assert
+	if handler.build == "" || !strings.Contains(event.String(), `"build":"`+handler.build+`"`) {
+		t.Fatalf("the first snapshot on the stream does not name the build %q", handler.build)
 	}
 }

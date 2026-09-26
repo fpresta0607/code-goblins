@@ -3,7 +3,9 @@ package supervisor
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,10 +52,20 @@ type HTTP struct {
 	terminalBacklog int
 	editor          execx.Starter
 	editorLookup    func(string) (string, error)
+	// build names the bundle in Assets: its index.html names every hashed
+	// file of the bundle, so any rebuild changes it.
+	build string
 }
 
 func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
-	return &HTTP{Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 4), nativeSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath}
+	build := ""
+	if assets != nil {
+		if page, err := fs.ReadFile(assets, "index.html"); err == nil {
+			sum := sha256.Sum256(page)
+			build = hex.EncodeToString(sum[:8])
+		}
+	}
+	return &HTTP{build: build, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 4), nativeSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath}
 }
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -86,6 +98,7 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			apiError(w, 503, err.Error())
 			return
 		}
+		snapshot.Build = h.build
 		respond(w, 200, snapshot)
 	case r.URL.Path == "/api/events" && r.Method == "GET":
 		h.stream(w, r)
@@ -136,7 +149,7 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Security-Policy", strings.Replace(w.Header().Get("Content-Security-Policy"), "style-src 'self'", "style-src 'self' 'nonce-"+nonce+"'", 1))
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			if r.Method == "GET" {
-				_, _ = io.WriteString(w, strings.Replace(string(data), "<head>", `<head><meta name="cfo-style-nonce" content="`+nonce+`">`, 1))
+				_, _ = io.WriteString(w, strings.Replace(string(data), "<head>", `<head><meta name="cfo-style-nonce" content="`+nonce+`"><meta name="cfo-build" content="`+h.build+`">`, 1))
 			}
 			return
 		}
@@ -186,6 +199,7 @@ func (h *HTTP) stream(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
+		snapshot.Build = h.build
 		data, err := json.Marshal(snapshot)
 		if err != nil {
 			return
