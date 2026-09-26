@@ -18,12 +18,25 @@ import (
 
 // TestMain doubles the test binary as the stand-ins the process tests run.
 // Copied as lavish-axi.exe it is a poll that waits to be stopped; copied as
-// claude.exe or cfo.exe it starts one below itself and prints its pid. A
-// stand-in nobody stops ends on its own after a minute.
+// claude.exe or cfo.exe it starts one below itself and prints its pid; run as
+// a gate it is a no-mistakes status call that leaves a process holding its
+// output. A stand-in nobody stops ends on its own after a minute.
 func TestMain(m *testing.M) {
 	switch os.Getenv("CFO_POLL_STANDIN") {
 	case "":
 		os.Exit(m.Run())
+	case "gate":
+		// A no-mistakes whose status call exits but leaves a process of its
+		// own holding the output pipe, the way a daemon it starts would.
+		fmt.Print(os.Getenv("CFO_GATE_STATUS"))
+		child := exec.Command(os.Args[0])
+		child.Env = append(os.Environ(), "CFO_POLL_STANDIN=wait")
+		child.Stdout = os.Stdout
+		if err := child.Start(); err != nil {
+			os.Exit(1)
+		}
+		_ = os.WriteFile(os.Getenv("CFO_GATE_CHILD_PID"), []byte(strconv.Itoa(child.Process.Pid)), 0o644)
+		os.Exit(0)
 	case "parent":
 		child := exec.Command(os.Getenv("CFO_POLL_CHILD"), os.Args[1:]...)
 		child.Dir = os.Getenv("CFO_POLL_CHILD_DIR")

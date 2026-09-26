@@ -79,6 +79,24 @@ type Config struct {
 	WaitEvent func(timeout time.Duration) bool
 
 	Cleanup func()
+
+	// ReconcileBudget bounds one monitor scan and one orphan sweep. Both
+	// wait on subprocesses (Herdr, the gate, the process table, git), and the
+	// loop that runs them also keeps the heartbeat: a call that never returns
+	// stops the heartbeat while the lock stays held, so supervision is off
+	// and nothing can take it over. Zero means defaultReconcileBudget.
+	ReconcileBudget time.Duration
+}
+
+// defaultReconcileBudget is far above what a scan or sweep of a full fleet
+// takes, and far below the minutes a stopped heartbeat goes unnoticed.
+const defaultReconcileBudget = 3 * time.Minute
+
+func (cfg Config) reconcileBudget() time.Duration {
+	if cfg.ReconcileBudget > 0 {
+		return cfg.ReconcileBudget
+	}
+	return defaultReconcileBudget
 }
 
 // ConfigFromEnv fills Config from the timing env vars (internal/claudehook),
@@ -375,7 +393,9 @@ func Run(cfg Config) (string, error) {
 		}
 
 		if cfg.Monitor != nil {
-			result, err := cfg.Monitor.Scan(context.Background())
+			ctx, cancel := context.WithTimeout(context.Background(), cfg.reconcileBudget())
+			result, err := cfg.Monitor.Scan(ctx)
+			cancel()
 			if err != nil {
 				return "", err
 			}
@@ -390,7 +410,9 @@ func Run(cfg Config) (string, error) {
 		} else if err := monitor.TouchHeartbeat(cfg.Home.State, time.Now()); err != nil {
 			return "", err
 		}
-		orphanDetail := sweepOrphans(cfg)
+		sweepCtx, cancelSweep := context.WithTimeout(context.Background(), cfg.reconcileBudget())
+		orphanDetail := sweepOrphans(sweepCtx, cfg)
+		cancelSweep()
 		if signalDetail != "" {
 			return signalDetail, nil
 		}
@@ -437,7 +459,7 @@ func Run(cfg Config) (string, error) {
 // swallowed, because "cannot see the fleet" and "the fleet is clean" must
 // never render the same. Nothing here is fatal to the watcher: supervision of
 // the goblins that DO have panes matters more than the sweep.
-func sweepOrphans(cfg Config) string {
+func sweepOrphans(ctx context.Context, cfg Config) string {
 	if cfg.Reap == nil || cfg.ReapEvery <= 0 {
 		return ""
 	}
@@ -447,7 +469,7 @@ func sweepOrphans(cfg Config) string {
 	}
 
 	record := reap.Record{Time: time.Now().UTC()}
-	result, auditErr := cfg.Reap.Audit(context.Background(), reap.Options{})
+	result, auditErr := cfg.Reap.Audit(ctx, reap.Options{})
 	record.Findings = result.Findings
 	record.Notes = result.Notes
 	if auditErr != nil {
