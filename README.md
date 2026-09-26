@@ -214,6 +214,7 @@ The header switches between two views, one at a time, each with a contextual pan
   <img src="docs/images/orchestration.webp" alt="Orchestration view: the CFO above four goblins, with the selected goblin's live native terminal in the right panel" width="900" />
 </p>
 
+Each card shows the task's short title on at most two lines and one muted line with its repo and status; the goblin's own words are in its panel.
 Each card's goblin is chosen from the task's work, and the crowned goblin is the CFO.
 The whole crew:
 
@@ -225,7 +226,7 @@ The whole crew:
 
 Clicking a card or a node opens the same goblin panel from either view: who the goblin is, what it is doing in plain words, its own latest status line, and icon buttons to open its worktree in VS Code or File Explorer and to open its pull request.
 A pill at the top switches between the **Task** view and the **Terminal** view in one tap.
-A live goblin's card also carries a terminal button that opens its panel straight on the Terminal view.
+A live goblin's card also carries a terminal button, shown on hover or keyboard focus, that opens its panel straight on the Terminal view.
 The Task view shows **Workspace** with the repository, branch and exact working folder, **Connectors** with a mark for every harness, model provider, MCP server and credential (configured is not the same as connected, and no secret values are shown), then **Changes**, **Activity** and **History**.
 The Terminal view is the goblin's live terminal, edge to edge.
 A goblin in a native terminal (`cfo spawn --backend native`) is drawn from its terminal's own output at the panel's size, in a 20 px font: type straight into it, scroll its history with the wheel, and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
