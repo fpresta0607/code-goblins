@@ -131,6 +131,7 @@ It needs no backup repository: backing it up is only your own choice, and [Your 
 ```powershell
 goblins              # start the supervisor if needed, show the board's link and the fleet, then open the CFO
 goblins --native     # the same, but start a new CFO in a native terminal shown here instead of in Herdr
+goblins --harness codex  # start the CFO as codex, claude or pi from now on; a running CFO keeps its harness
 goblins --board      # start the supervisor if needed and open the board, with no CFO in this terminal
 goblins attach       # show the CFO's native terminal here, or name another; Ctrl-] leaves it running
 goblins status       # whether the supervisor runs: the board's link, the fleet and its pid

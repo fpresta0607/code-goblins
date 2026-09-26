@@ -198,24 +198,42 @@ func detachAt(keys []byte) int {
 	return -1
 }
 
-// startNativeCFO starts Claude Code as the CFO in native terminal cfo, in
+// startNativeCFO starts harness as the CFO in native terminal cfo, in
 // project, in a host of its own that outlives this console.
-func startNativeCFO(stateDir, project string) error {
-	claude, err := exec.LookPath("claude")
+func startNativeCFO(stateDir, project, harness string) error {
+	program, err := nativeCFOProgram(harness)
 	if err != nil {
-		return fmt.Errorf("claude is not on PATH: %w", err)
-	}
-	// A native terminal starts a program itself, with no shell to run a
-	// script shim.
-	if !strings.EqualFold(filepath.Ext(claude), ".exe") {
-		return fmt.Errorf("%s is not a program a native terminal can start; the native build of Claude Code is claude.exe", claude)
+		return err
 	}
 	self, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	_, err = host.Launch(stateDir, []string{self, "host"}, nativeCFOEnvironment(os.Environ()), host.Spec{ID: supervisor.NativeCFOTerminal, Args: []string{claude}, Dir: project, Cols: 120, Rows: 40})
+	_, err = host.Launch(stateDir, []string{self, "host"}, nativeCFOEnvironment(os.Environ()), host.Spec{ID: supervisor.NativeCFOTerminal, Args: program, Dir: project, Cols: 120, Rows: 40})
 	return err
+}
+
+// nativeCFOProgram is the command line a native terminal starts harness with
+// as the CFO. A native terminal starts a program itself, with no shell, so
+// Claude Code must be its native build, claude.exe; codex and pi install as
+// npm script shims and run through cmd /c, which exits with them, as a native
+// goblin's do.
+func nativeCFOProgram(harness string) ([]string, error) {
+	path, err := exec.LookPath(harness)
+	if err != nil {
+		return nil, fmt.Errorf("%s is not on PATH: %w", harness, err)
+	}
+	if strings.EqualFold(filepath.Ext(path), ".exe") {
+		return []string{path}, nil
+	}
+	if harness == "claude" {
+		return nil, fmt.Errorf("%s is not a program a native terminal can start; the native build of Claude Code is claude.exe", path)
+	}
+	shell := os.Getenv("ComSpec")
+	if shell == "" {
+		shell = filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe")
+	}
+	return []string{shell, "/c", harness}, nil
 }
 
 // nativeCFOEnvironment is env without the Herdr pane a launcher run inside

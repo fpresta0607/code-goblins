@@ -23,7 +23,7 @@ func TestStartingTheCFODrivesTheTerminalBackend(t *testing.T) {
 				CFORunning: running,
 			}
 
-			started, err := startCFOWith(context.Background(), fake, project)
+			started, err := startCFOWith(context.Background(), fake, project, "claude")
 
 			if err != nil || started == running {
 				t.Fatalf("startCFOWith = %v, %v; want a start reported only when none ran", started, err)

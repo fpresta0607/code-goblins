@@ -111,7 +111,7 @@ func TestGoblinsNativeStartsTheCFOInANativeTerminal(t *testing.T) {
 	if len(f.nativeAttached) != 1 || f.nativeAttached[0] != supervisor.NativeCFOTerminal {
 		t.Errorf("native terminals shown = %q, want %s", f.nativeAttached, supervisor.NativeCFOTerminal)
 	}
-	if !strings.Contains(stdout, "The CFO starts in "+f.project+", in native terminal cfo.") {
+	if !strings.Contains(stdout, "The CFO starts as claude in "+f.project+", in native terminal cfo.") {
 		t.Errorf("stdout = %q, want it to say where the CFO starts", stdout)
 	}
 }
@@ -132,7 +132,7 @@ func TestGoblinsNativeBringsALiveHerdrCFOToTheFront(t *testing.T) {
 // A native CFO that cannot start is reported, and nothing is shown.
 func TestGoblinsNativeReportsACFOThatCannotStart(t *testing.T) {
 	f := newSessionFixture(t)
-	f.runtime.startNativeCFO = func(string, string) error { return errors.New("claude is not on PATH") }
+	f.runtime.startNativeCFO = func(string, string, string) error { return errors.New("claude is not on PATH") }
 
 	exit, _, stderr := f.launch("--native")
 
@@ -191,7 +191,7 @@ func TestGoblinsStartsTheCFOWhenTheRegisteredOneHasEnded(t *testing.T) {
 	if len(f.attached) != 1 || f.attached[0] != "fixture-fleet" {
 		t.Errorf("attached %q, want the fleet's session", f.attached)
 	}
-	if !strings.Contains(stdout, "The CFO starts in "+f.project+".") || strings.Contains(stdout, "already running") {
+	if !strings.Contains(stdout, "The CFO starts as claude in "+f.project+".") || strings.Contains(stdout, "already running") {
 		t.Errorf("stdout = %q, want it to say where the CFO starts", stdout)
 	}
 }
@@ -200,14 +200,14 @@ func TestGoblinsStartsTheCFOWhenTheRegisteredOneHasEnded(t *testing.T) {
 // is, so goblins does not claim it starts in the project picked.
 func TestGoblinsSaysACFOInTheCFOTabIsAlreadyRunning(t *testing.T) {
 	f := newSessionFixture(t)
-	f.runtime.startCFO = func(context.Context, string) (bool, error) { return false, nil }
+	f.runtime.startCFO = func(context.Context, string, string) (bool, error) { return false, nil }
 
 	exit, stdout, stderr := f.launch()
 
 	if exit != 0 || len(f.attached) != 1 {
 		t.Fatalf("exit=%d attached=%q stderr=%q, want an attach", exit, f.attached, stderr)
 	}
-	if !strings.Contains(stdout, "The CFO is already running in Herdr's cfo tab.") || strings.Contains(stdout, "The CFO starts in") {
+	if !strings.Contains(stdout, "The CFO is already running in Herdr's cfo tab.") || strings.Contains(stdout, "The CFO starts") {
 		t.Errorf("stdout = %q, want the CFO already running and no start in the project", stdout)
 	}
 }
@@ -299,7 +299,9 @@ func TestGoblinsInsideHerdrOnlyBringsTheCFOToTheFront(t *testing.T) {
 // A CFO that cannot be started is reported, and nothing is attached.
 func TestGoblinsReportsACFOThatCannotStart(t *testing.T) {
 	f := newSessionFixture(t)
-	f.runtime.startCFO = func(context.Context, string) (bool, error) { return false, errors.New("herdr is not installed") }
+	f.runtime.startCFO = func(context.Context, string, string) (bool, error) {
+		return false, errors.New("herdr is not installed")
+	}
 
 	exit, _, stderr := f.launch()
 
@@ -369,7 +371,7 @@ func TestStartingTheCFOStartsClaudeOnlyWhereNoAgentRuns(t *testing.T) {
 			}}
 			client := &herdr.Client{Commands: script, Session: "fleet"}
 
-			reported, err := startCFOWith(context.Background(), client, `C:\dev\app`)
+			reported, err := startCFOWith(context.Background(), client, `C:\dev\app`, "claude")
 			if err != nil {
 				t.Fatalf("startCFOWith: %v (commands %q)", err, script.commands)
 			}
