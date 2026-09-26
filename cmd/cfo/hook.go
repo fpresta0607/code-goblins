@@ -21,6 +21,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
@@ -106,6 +107,17 @@ func hookPretoolSubagent(stdin io.Reader, stdout, stderr io.Writer) int {
 	if !home.IsPrimary(h) {
 		return 0
 	}
+	// A native question holds the registered CFO's whole turn and shows only
+	// in its own terminal, so the Overlord never sees it on the board and the
+	// fleet goes unsupervised while it waits. Only that session is refused:
+	// any other has no board to publish through, and its native prompt is
+	// the only way it has to ask.
+	if guard.ClassifyNativePrompt(payload.ToolName) {
+		if !supervisor.RunsUnderRegisteredCFO(h.State) {
+			return 0
+		}
+		return claudehook.DenyPreTool(stderr, fmt.Sprintf(nativePromptRefusal, payload.ToolName))
+	}
 	if os.Getenv("CFO_ALLOW_SUBAGENT") == "1" {
 		return 0
 	}
@@ -119,6 +131,10 @@ func hookPretoolSubagent(stdin io.Reader, stdout, stderr io.Writer) int {
 	)
 	return claudehook.DenyPreTool(stderr, message)
 }
+
+// nativePromptRefusal is what the registered CFO reads when it reaches for a
+// native question, naming the two commands that ask without blocking.
+const nativePromptRefusal = "[native-prompt] the registered primary CFO never asks through a native selector (blocked tool: %s): it holds this whole turn, shows only in this terminal and never reaches the Command Center, so supervision stops while it waits. Publish the question with cfo question --id <stable-id> --text \"<question>\" --option \"<choice>\" --recommend \"<choice>\", or a command only the Overlord can run with cfo run-request --id <stable-id> --title \"<why>\" --shell powershell --command-file <path>. His answer arrives here as a message, so keep supervising while it is out."
 
 // hookPretoolArm stops the agent shell from invoking the watcher directly:
 // the watcher is supposed to be armed by the Stop-owned auto-arm hook, and

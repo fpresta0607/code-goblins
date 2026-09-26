@@ -358,6 +358,7 @@ Code Goblins is designed for high autonomy without pretending that an LLM saying
 - Local delivery is fast-forward only.
 - PR delivery is expected to be backed by machine-readable CI evidence.
 - Human approval remains the default for merges; `yolo` is an explicit posture, not an implicit permission.
+- The CFO never waits on a native question prompt: its pre-tool hook refuses Claude Code's `AskUserQuestion` in the registered CFO session and points it to `cfo question` and `cfo run-request`, so every question reaches the Command Center and supervision keeps running while it waits.
 
 For high-risk production systems, use repository branch protection and keep production deployment credentials outside worker reach. Code Goblins coordinates software delivery; it is not an operating-system sandbox.
 
