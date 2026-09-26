@@ -3,26 +3,22 @@ import type { Session, Snapshot, Task } from "./types";
 import { ownsTaskSession } from "./lineageTree";
 import { NativeTerminal } from "./NativeTerminal";
 import { HostTerminal } from "./HostTerminal";
-import { TerminalSwitcher } from "./TerminalSwitcher";
-import { CFO_KEY, keepLive, switchOrder } from "./terminalOrder";
+import { CFO_KEY, keepLive } from "./terminalOrder";
 
 // The terminal deck: every terminal the Overlord opens stays mounted and live
 // while the board is open, so a switch only shows another terminal, with no
 // reconnect, no replay and no blank frame. A native terminal keeps its own
-// socket; Herdr views stay within Herdr's stream limit. The switcher beside
-// it lists the CFO first, then each goblin with a terminal.
-export function TerminalDeck({ snapshot, task, node, cfo, shown, connected, focus, onSwitch, onOwner }: {
-  snapshot: Snapshot; task?: Task; node?: Session; cfo: boolean; shown: boolean; connected: boolean; focus: number;
-  onSwitch: (key: string) => void; onOwner?: () => void;
+// socket; Herdr views stay within Herdr's stream limit. The shown terminal
+// fills the panel; the Overlord picks the goblin on the board.
+export function TerminalDeck({ snapshot, task, node, cfo, shown, connected, focus, onOwner }: {
+  snapshot: Snapshot; task?: Task; node?: Session; cfo: boolean; shown: boolean; connected: boolean; focus: number; onOwner?: () => void;
 }) {
   const owner = !!task && !!task.generation && (!node || ownsTaskSession(node, task));
   const key = cfo ? CFO_KEY : owner ? task.id : "";
   const [live, setLive] = useState<string[]>([]);
   const herdr = (candidate: string) => candidate === CFO_KEY ? !snapshot.cfo_terminal : snapshot.tasks.find((each) => each.id === candidate)?.backend !== "native";
   if (shown && key && live[0] !== key) setLive(keepLive(live, key, herdr));
-  const order = switchOrder(snapshot.tasks);
   return <div className="terminal-deck" hidden={!shown}>
-    <TerminalSwitcher order={order} current={key} snapshot={snapshot} onSwitch={onSwitch} />
     <div className="deck-stage">
       {live.map((entry) => {
         const here = shown && entry === key;

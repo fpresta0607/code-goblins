@@ -5,14 +5,14 @@ import { message, request } from "./api";
 import { object, string, type Session, type Task } from "./types";
 import { ownsTaskSession } from "./lineageTree";
 import { Icon } from "./Icon";
-import { bracketedPaste, fittedFontSize, inputBytes, maxInputBytes, queueInput, typingHeldReason } from "./terminalInput";
+import { bracketedPaste, ESTIMATED_CELL, fittedFontSize, inputBytes, maxInputBytes, queueInput, typingHeldReason } from "./terminalInput";
 import { terminalDocument } from "./terminalDocument";
 import { useDictation } from "./useDictation";
 
 const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
 
 // The goblin's live Herdr pane cast into the board: a view stream whose frames
-// arrive at the pane's own size, fitted to the panel's width, and whose lease
+// arrive at the pane's own size, fitted whole to the panel, and whose lease
 // takes typing straight away. Nothing here resizes or scrolls the real pane.
 // An input the supervisor refuses, or whose outcome is unknown, ends the view;
 // it is never resent, and reconnecting starts from a fresh full screen.
@@ -48,22 +48,42 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     const element = host.current;
     const abort = new AbortController();
     const nonce = document.querySelector<HTMLMetaElement>('meta[name="cfo-style-nonce"]')?.content || "";
-    const term = new Terminal({ documentOverride: terminalDocument(nonce), fontSize: 15, fontFamily: FALLBACK_FONT, lineHeight: 1.2, scrollback: 0, disableStdin: true, cursorBlink: false, theme: { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" }, linkHandler: { activate: () => {} } });
+    const term = new Terminal({ documentOverride: terminalDocument(nonce), fontSize: 15, fontFamily: FALLBACK_FONT, scrollback: 0, disableStdin: true, cursorBlink: false, theme: { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" }, linkHandler: { activate: () => {} } });
     term.open(element);
     terminal.current = term;
     // The bundled face measures differently from the fallback, so switch once
     // it has loaded; the changed option makes xterm measure its cells again.
     void document.fonts.load('15px "JetBrains Mono"').then(() => {
-      if (!abort.signal.aborted && document.fonts.check('15px "JetBrains Mono"')) term.options.fontFamily = '"JetBrains Mono", ' + FALLBACK_FONT;
+      if (abort.signal.aborted || !document.fonts.check('15px "JetBrains Mono"')) return;
+      term.options.fontFamily = '"JetBrains Mono", ' + FALLBACK_FONT;
+      requestAnimationFrame(() => fit());
     }, () => {});
     term.textarea?.setAttribute("aria-label", "Terminal input");
     term.parser.registerOscHandler(52, () => true);
     let lease = "", seq = 0, frameSeq = 0, full = false, flushing = false;
     const queue: string[] = [];
     let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+    // The font is fitted from the cell measured on the screen xterm drew, then
+    // checked on the screen it draws next: rows round to whole pixels, which
+    // can add a row's height across a tall pane, so a screen that overflows
+    // the panel steps down until it fits whole. Checking only ever shrinks.
+    let checking = false;
+    const settle = () => {
+      if (!checking) return;
+      const screen = element.querySelector<HTMLElement>(".xterm-screen");
+      const current = term.options.fontSize || 15;
+      if (!screen || screen.offsetWidth <= element.clientWidth && screen.offsetHeight <= element.clientHeight || current <= 1) { checking = false; return; }
+      term.options.fontSize = current - 0.5;
+    };
+    term.onRender(settle);
     const fit = () => {
-      const size = fittedFontSize(element.clientWidth, term.cols);
-      if (term.options.fontSize !== size) term.options.fontSize = size;
+      const screen = element.querySelector<HTMLElement>(".xterm-screen");
+      const current = term.options.fontSize || 15;
+      const cell = screen && screen.offsetWidth > 0 ? { width: screen.offsetWidth / term.cols / current, height: screen.offsetHeight / term.rows / current } : ESTIMATED_CELL;
+      const size = fittedFontSize(element.clientWidth, element.clientHeight, term.cols, term.rows, cell);
+      if (size === null) return;
+      checking = true;
+      if (size === current) settle(); else term.options.fontSize = size;
     };
     const stop = (reason: string) => {
       lease = "";
@@ -134,10 +154,10 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       }
       return !!lease;
     });
-    // The wheel scrolls the panel when the pane is taller than it; a view
-    // never scrolls the real pane.
+    // The pane's whole screen is in view, and a view never scrolls the real
+    // pane.
     term.attachCustomWheelEventHandler(() => false);
-    const resize = new ResizeObserver(fit);
+    const resize = new ResizeObserver(() => fit());
     resize.observe(element);
     const read = async () => {
       liveValue.current = false; setLive(false); setError(""); setStatus("Connecting");

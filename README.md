@@ -211,18 +211,19 @@ A pill at the top switches between the **Task** view and the **Terminal** view i
 A live goblin's card also carries a terminal button, shown on hover or keyboard focus, that opens its panel straight on the Terminal view.
 The Task view shows **Workspace** with the repository, branch and exact working folder, **Connectors** with a mark for every harness, model provider, MCP server and credential (configured is not the same as connected, and no secret values are shown), then **Changes**, **Activity** and **History**.
 The Terminal view is the goblin's live terminal, edge to edge.
-A goblin in a native terminal (`cfo spawn --backend native`) is drawn from its terminal's own output at the panel's size, in a 20 px font: type straight into it, scroll its history with the wheel, and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
+A goblin in a native terminal (`cfo spawn --backend native`) is drawn from its terminal's own output at the panel's size, in a 20 px font: type straight into it, scroll its history with the wheel (no scroll bar is drawn), and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
 Opening it replays the terminal's history out of sight and shows it once its screen is whole, so it never opens blank or half drawn, and a full-pane state shows while it connects.
 A program's redraw appears as one frame, the way a native terminal shows it, and while the board's own connection is down the last screen stays in place with a Reconnecting note.
-Every terminal you open stays live while the board is open, and the list beside the terminal switches between them, the CFO first and then each goblin with a terminal.
-**Ctrl+Alt+Up** and **Ctrl+Alt+Down** step through that list and **Ctrl+Alt+1** to **Ctrl+Alt+9** jump to an entry, from anywhere on the board; a switch hands the keyboard to the terminal it shows, and one you opened before appears at once, already drawn.
-Drag the divider between the board and the panel to size the panel, or use the maximize button to give it the whole window; both are remembered in this browser.
-A goblin still in Herdr shows its Herdr pane at the pane's own size, with the same full-pane state while it connects.
+The terminal fills the panel, and you pick the goblin on the board; every terminal you open stays live while the board is open, so one you opened before appears at once, already drawn.
+**Ctrl+Alt+Up** and **Ctrl+Alt+Down** step through the terminals, the CFO first and then each goblin with a terminal, and **Ctrl+Alt+1** to **Ctrl+Alt+9** jump to one, from anywhere on the board; a switch hands the keyboard to the terminal it shows.
+A terminal opened from the board opens maximized, over the whole window, and **Restore** brings the board back beside it; the Task view opens beside the board, and on the Orchestration view the panel opens beside the graph.
+Drag the divider between the board and the panel to size the panel; the width, and whether each view is maximized, are remembered in this browser.
+A goblin still in Herdr shows its whole Herdr pane at the pane's own size, its text scaled to fit the panel with the input line at the bottom and no scroll bars, and the same full-pane state while it connects.
 Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: the browser's own speech recognition listens while the keys are held, and releasing them types what it heard as one line, which **Enter** sends.
 In both, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
 
 <p align="center">
-  <img src="docs/images/goblin-panel.webp" alt="The goblin panel on its Terminal view beside the board: the switcher lists the CFO, Build review panel, native-a and native-b with their shortcut numbers, and native-a's native terminal is drawn edge to edge in a 20 px font" width="900" />
+  <img src="docs/images/goblin-panel.webp" alt="A goblin's terminal maximized over the whole window: its Herdr pane fills the panel, scaled to fit, with the input line at the bottom and no scroll bars" width="900" />
 </p>
 
 ### Sending a diff comment to the CFO
@@ -337,12 +338,15 @@ It stays local and private: nothing in it is pushed anywhere, and no project rep
   data\                           your data
     backlog.md                    open work: Queued, Parked and Done
     overlord.md                   your standing directives
+    memory\                       what the CFO has learned: MEMORY.md, the index, and one file per fact
     routing.json                  which harness and model each kind of work gets
     projects\<project>\           each project's credentials manifest and worktree settings
     <task>\                       each queued or running task: brief, report, decisions, deliverables
     archive\finished\<task>\      finished tasks
     archive\parked\<task>\        briefs set aside before they started
 ```
+
+The CFO's memory is kept here rather than inside Claude Code, Codex or Pi, so whichever harness runs the CFO, and whichever project it runs in, it starts from the same memory.
 
 `cfo install` creates this layout in a new home and fills in anything missing later, without overwriting a file.
 A home that already held data before this layout is left exactly as it is.

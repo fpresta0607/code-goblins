@@ -1070,7 +1070,7 @@ func (s Service) deliverVerifiedInstruction(ctx context.Context, client terminal
 func (s Service) teardownLaunch(ctx context.Context, client terminal.Backend, endpoint herdr.Endpoint, nativeHost host.Record, project, worktree, id string) error {
 	var errs error
 	if client == nil {
-		if err := closeNativeTerminal(s.StateDir, nativeHost); err != nil {
+		if err := host.Close(s.StateDir, nativeHost, nativeCloseWait); err != nil {
 			return fmt.Errorf("spawn: close native terminal: %w; its worktree, temporary directories and task record are left in place", err)
 		}
 	} else if err := client.CloseTab(ctx, endpoint.Target.Session, endpoint.TabID); err != nil {

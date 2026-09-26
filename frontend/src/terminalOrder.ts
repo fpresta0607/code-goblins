@@ -2,7 +2,7 @@ import type { Task } from "./types.ts";
 
 // The terminal deck: every goblin terminal the Overlord opened stays live
 // while the board is open, so switching only shows another terminal. The
-// switcher lists the CFO first, then each goblin that has a terminal.
+// switch keys go through the CFO first, then each goblin that has a terminal.
 
 export const CFO_KEY = "cfo";
 // Herdr's supervisor serves four screen streams at once; the deck keeps three
@@ -21,7 +21,7 @@ export function switchOrder(tasks: Task[]): DeckEntry[] {
 
 export type SwitchKey = { step: 1 | -1 } | { index: number };
 
-// Ctrl+Alt with Up or Down cycles through the switcher and with 1 to 9 jumps
+// Ctrl+Alt with Up or Down cycles through the terminals and with 1 to 9 jumps
 // to that entry; the keys are matched by position, so a layout's characters
 // never change them. Windows reports AltGr as Ctrl+Alt, so a key typed with
 // AltGr, such as a brace on a German layout, stays the terminal's.
@@ -45,6 +45,21 @@ export function switchTarget(order: DeckEntry[], current: string, key: SwitchKey
 export function keepLive(open: string[], key: string, herdr: (key: string) => boolean): string[] {
   let kept = 0;
   return [key, ...open.filter((other) => other !== key)].filter((entry) => !herdr(entry) || ++kept <= HERDR_LIVE);
+}
+
+// The panel is maximized per view: a goblin's terminal on the Board opens
+// maximized, where its fitted screen is large enough to read, and the task
+// view beside the board. Orchestration follows the task view's choice, so its
+// graph, where goblins are picked, stays beside the panel. Each view keeps the
+// Overlord's last choice.
+export const MAXIMIZED_KEYS = { task: "cfo-pane-maximized", terminal: "cfo-terminal-maximized" } as const;
+
+export function maximizedView(workspace: "Board" | "Orchestration", panel: "task" | "terminal"): "task" | "terminal" {
+  return workspace === "Board" ? panel : "task";
+}
+
+export function maximizedFor(view: "task" | "terminal", stored: string | null): boolean {
+  return stored === null ? view === "terminal" : stored === "true";
 }
 
 export function paneWidth(requested: number, workspace: number): number {

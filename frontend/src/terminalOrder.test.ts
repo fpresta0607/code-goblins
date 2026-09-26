@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CFO_KEY, keepLive, paneTrack, paneWidth, switchKey, switchOrder, switchTarget } from "./terminalOrder.ts";
+import { CFO_KEY, MAXIMIZED_KEYS, keepLive, maximizedFor, maximizedView, paneTrack, paneWidth, switchKey, switchOrder, switchTarget } from "./terminalOrder.ts";
 import type { Task } from "./types.ts";
 
 const task = (id: string, changes: Partial<Task> = {}) => ({ id, generation: "g1", archived: false, ...changes }) as Task;
@@ -52,4 +52,22 @@ test("the divider keeps both the board and the panel usable", () => {
 test("a saved panel width is held to the same bounds in any window", () => {
   assert.equal(paneTrack(2000), "clamp(360px, 2000px, calc(100% - 290px))", "a width saved on a wider screen never squeezes the board out");
   assert.equal(paneTrack(800), "clamp(360px, 800px, calc(100% - 290px))");
+});
+
+test("a goblin's terminal opens maximized and the task view beside the board, each keeping his last choice", () => {
+  assert.equal(maximizedFor("terminal", null), true, "a terminal he never sized opens maximized");
+  assert.equal(maximizedFor("task", null), false, "the task view opens beside the board");
+  assert.equal(maximizedFor("terminal", "false"), false, "a terminal he restored stays restored");
+  assert.equal(maximizedFor("task", "true"), true, "a task view he maximized stays maximized");
+  assert.notEqual(MAXIMIZED_KEYS.terminal, MAXIMIZED_KEYS.task, "each view keeps its own choice");
+});
+
+test("only the Board opens a terminal maximized; Orchestration keeps its graph beside the panel", () => {
+  assert.equal(maximizedView("Board", "terminal"), "terminal", "a goblin's terminal on the Board follows the terminal choice");
+  assert.equal(maximizedView("Board", "task"), "task", "the Board's task view follows the task choice");
+  assert.equal(maximizedView("Orchestration", "terminal"), "task", "an Orchestration terminal follows the task choice");
+  assert.equal(maximizedView("Orchestration", "task"), "task");
+  assert.equal(maximizedFor(maximizedView("Orchestration", "terminal"), null), false, "a first click on Orchestration shows the graph");
+  assert.equal(maximizedFor(maximizedView("Orchestration", "terminal"), "true"), true, "Orchestration keeps a maximize he chose");
+  assert.equal(maximizedFor(maximizedView("Board", "terminal"), null), true, "a goblin's terminal on the Board opens maximized");
 });
