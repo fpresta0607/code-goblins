@@ -89,9 +89,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       }
       flushing = false;
     };
-    const send = (raw: string) => {
-      // Ctrl+Space types a NUL, which a view refuses; drop it here instead.
-      const text = raw.replaceAll("\x00", "");
+    const send = (text: string) => {
       if (!text || !lease || abort.signal.aborted) return;
       if (inputBytes(text) > maxInputBytes) { setError("Input exceeds 64 KiB. Use a smaller selection; nothing was sent."); return; }
       setError("");

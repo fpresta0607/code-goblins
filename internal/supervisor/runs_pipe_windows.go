@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"github.com/fpresta0607/code-goblins/internal/lock"
 )
 
 var (
@@ -23,10 +25,13 @@ var (
 	procConnectNamedPipe            = kernel32.NewProc("ConnectNamedPipe")
 	procDisconnectNamedPipe         = kernel32.NewProc("DisconnectNamedPipe")
 	procGetNamedPipeClientProcessID = kernel32.NewProc("GetNamedPipeClientProcessId")
+	procGetNamedPipeServerProcessID = kernel32.NewProc("GetNamedPipeServerProcessId")
+	procConvertSDDL                 = syscall.NewLazyDLL("advapi32.dll").NewProc("ConvertStringSecurityDescriptorToSecurityDescriptorW")
 )
 
 const (
 	pipeAccessDuplex        = 0x00000003
+	fileFlagFirstInstance   = 0x00080000
 	pipeRejectRemoteClients = 0x00000008
 	pipeUnlimitedInstances  = 255
 	errorPipeConnected      = syscall.Errno(535)
@@ -48,15 +53,30 @@ func runPipeName(stateDir string) string {
 	return `\\.\pipe\cfo-run-requests-` + hex.EncodeToString(sum[:8])
 }
 
+// firstInstanceWait is how long the supervisor waits for a pipe name another
+// instance still holds to come free: a supervisor that just stopped releases
+// its instances within moments, and a name held longer than this is not ours.
+const firstInstanceWait = 2 * time.Second
+
 // serveRunRequests takes run items over the supervisor's named pipe until ctx
 // ends. Every client is proven by its own process: only one that runs under
-// the registered primary CFO gets an item onto the board.
+// the registered primary CFO gets an item onto the board. The pipe is the
+// supervisor's own from its first instance, or it is not served at all: a
+// process that created the name first, another local user's included, would
+// otherwise receive every request, and only the current user may open or add
+// to it.
 func (s *Service) serveRunRequests(ctx context.Context) {
 	name, err := syscall.UTF16PtrFromString(runPipeName(s.Store.Home.State))
 	if err != nil {
 		s.publish(fmt.Errorf("run requests: %w", err))
 		return
 	}
+	attributes, err := currentUserOnly()
+	if err != nil {
+		s.publish(fmt.Errorf("run requests: %w", err))
+		return
+	}
+	started := time.Now()
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
@@ -74,12 +94,31 @@ func (s *Service) serveRunRequests(ctx context.Context) {
 			}
 		}
 	}()
+	first := true
 	for ctx.Err() == nil {
-		handle, _, callErr := procCreateNamedPipeW.Call(uintptr(unsafe.Pointer(name)), pipeAccessDuplex, pipeRejectRemoteClients, pipeUnlimitedInstances, 64<<10, 64<<10, 0, 0)
+		mode := uintptr(pipeAccessDuplex)
+		if first {
+			mode |= fileFlagFirstInstance
+		}
+		handle, _, callErr := procCreateNamedPipeW.Call(uintptr(unsafe.Pointer(name)), mode, pipeRejectRemoteClients, pipeUnlimitedInstances, 64<<10, 64<<10, 0, uintptr(unsafe.Pointer(attributes)))
+		if syscall.Handle(handle) == syscall.InvalidHandle && first && errors.Is(callErr, syscall.ERROR_ACCESS_DENIED) && time.Since(started) < firstInstanceWait {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
 		if syscall.Handle(handle) == syscall.InvalidHandle {
+			if first && errors.Is(callErr, syscall.ERROR_ACCESS_DENIED) {
+				err := fmt.Errorf("run requests: another process already holds the pipe %s, so run requests are not served; stop it and restart cfo serve", runPipeName(s.Store.Home.State))
+				s.Store.mu.Lock()
+				s.Store.issue(err.Error())
+				saveErr := s.Store.save()
+				s.Store.mu.Unlock()
+				s.publish(errors.Join(err, saveErr))
+				return
+			}
 			s.publish(fmt.Errorf("run requests: the pipe could not be created: %w", callErr))
 			return
 		}
+		first = false
 		ok, _, callErr := procConnectNamedPipe.Call(handle, 0)
 		connected := time.Now()
 		if ok == 0 && !errors.Is(callErr, errorPipeConnected) || ctx.Err() != nil {
@@ -125,7 +164,11 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 	default:
 		ctx, cancel := context.WithTimeout(ctx, runRequestTimeout)
 		s.runRequests.Lock()
-		err = s.acceptRunRequest(ctx, int(pid), connected, req)
+		if req.Kind == "" {
+			err = s.acceptRunRequest(ctx, int(pid), connected, req)
+		} else {
+			err = s.acceptCFOItem(ctx, int(pid), connected, req)
+		}
 		s.runRequests.Unlock()
 		cancel()
 		if err != nil {
@@ -138,9 +181,9 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 	_, _ = pipe.Write(append(data, '\n'))
 }
 
-// sendRunRequest hands one run item to the supervisor and returns the reason
+// sendPipeRequest hands one request to the supervisor and returns the reason
 // it was refused, if it was.
-func sendRunRequest(stateDir string, req runPipeRequest) error {
+func sendPipeRequest(stateDir string, req runPipeRequest) error {
 	var pipe *os.File
 	var err error
 	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(25 * time.Millisecond) {
@@ -150,9 +193,19 @@ func sendRunRequest(stateDir string, req runPipeRequest) error {
 		}
 	}
 	if err != nil {
-		return errors.New("the supervisor is not running, so the board cannot take a run item; start cfo serve")
+		return errors.New("the supervisor is not running, so the board cannot take this; start cfo serve")
 	}
 	defer pipe.Close()
+	// The command goes only to the supervisor of this home: the process that
+	// holds its watch lock. A pipe of that name served by anything else is a
+	// squatter, and it never sees the request.
+	var server uint32
+	if ok, _, callErr := procGetNamedPipeServerProcessID.Call(pipe.Fd(), uintptr(unsafe.Pointer(&server))); ok == 0 {
+		return fmt.Errorf("the run request pipe's server could not be identified: %w", callErr)
+	}
+	if !lock.HeldByNamed(stateDir, ".watch.lock", int(server)) {
+		return fmt.Errorf("the run request pipe is served by pid %d, which is not this home's supervisor, so nothing was sent", server)
+	}
 	if err := pipe.SetDeadline(time.Now().Add(runReplyTimeout)); err != nil {
 		return err
 	}
@@ -177,4 +230,31 @@ func sendRunRequest(stateDir string, req runPipeRequest) error {
 		return errors.New(reply.Error)
 	}
 	return nil
+}
+
+// currentUserOnly is a security descriptor that grants the current user, and
+// nobody else, every right on the pipe: to connect, and to add an instance.
+func currentUserOnly() (*syscall.SecurityAttributes, error) {
+	token, err := syscall.OpenCurrentProcessToken()
+	if err != nil {
+		return nil, err
+	}
+	defer token.Close()
+	user, err := token.GetTokenUser()
+	if err != nil {
+		return nil, err
+	}
+	sid, err := user.User.Sid.String()
+	if err != nil {
+		return nil, err
+	}
+	sddl, err := syscall.UTF16PtrFromString("D:P(A;;GA;;;" + sid + ")")
+	if err != nil {
+		return nil, err
+	}
+	var descriptor uintptr
+	if ok, _, callErr := procConvertSDDL.Call(uintptr(unsafe.Pointer(sddl)), 1, uintptr(unsafe.Pointer(&descriptor)), 0); ok == 0 {
+		return nil, fmt.Errorf("the pipe's security descriptor could not be built: %w", callErr)
+	}
+	return &syscall.SecurityAttributes{Length: uint32(unsafe.Sizeof(syscall.SecurityAttributes{})), SecurityDescriptor: descriptor}, nil
 }

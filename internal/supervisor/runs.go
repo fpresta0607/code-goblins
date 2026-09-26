@@ -157,17 +157,24 @@ func PublishRun(h home.Home, req RunRequest) error {
 	if err != nil {
 		return err
 	}
-	return sendRunRequest(h.State, runPipeRequest{ID: req.ID, Title: req.Title, Shell: req.Shell, Admin: req.Admin, Cwd: req.Cwd, Command: command})
+	return sendPipeRequest(h.State, runPipeRequest{ID: req.ID, Title: req.Title, Shell: req.Shell, Admin: req.Admin, Cwd: req.Cwd, Command: command})
 }
 
-// runPipeRequest is one run item as cfo run-request sends it over the pipe.
+// runPipeRequest is one request over the supervisor's pipe: a run item as cfo
+// run-request sends it, or, named by Kind, an item only the registered CFO
+// may put on the board (a question, a review record or an answer), which the
+// supervisor records only once the sending process is proven to be the CFO.
 type runPipeRequest struct {
-	ID      string `json:"id"`
-	Title   string `json:"title"`
-	Shell   string `json:"shell"`
-	Admin   bool   `json:"admin"`
-	Cwd     string `json:"cwd"`
-	Command string `json:"command"`
+	Kind     string     `json:"kind,omitempty"`
+	ID       string     `json:"id"`
+	Title    string     `json:"title"`
+	Shell    string     `json:"shell"`
+	Admin    bool       `json:"admin"`
+	Cwd      string     `json:"cwd"`
+	Command  string     `json:"command"`
+	Question *Question  `json:"question,omitempty"`
+	Review   *Review    `json:"review,omitempty"`
+	Answer   *cfoAnswer `json:"answer,omitempty"`
 }
 
 // acceptRunRequest records a run item that came over the pipe from process

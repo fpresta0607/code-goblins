@@ -2,13 +2,15 @@
 #
 # To use it, from any PowerShell window, with no clone and no Go:
 #
-#   irm https://raw.githubusercontent.com/fpresta0607/code-goblins/main/install.ps1 | iex
+#   irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install.ps1 | iex
 #
-# downloads the latest release, refuses it unless it matches the release's
+# runs this script as published with the latest release, which downloads that
+# same release's cfo.exe, refuses it unless it matches the release's
 # SHA256SUMS, lets it set up the CFO home at %LOCALAPPDATA%\CodeGoblins with
-# cfo.exe and goblins.exe on your PATH, asks once for the folder that holds
-# your projects, installs the tools, skills and hooks the fleet needs, and
-# ends with goblins doctor.
+# cfo.exe and goblins.exe on your PATH, this window included, asks once for
+# the folder that holds your projects, installs the tools, skills and hooks
+# the fleet needs, adds Code Goblins to the Start menu, runs goblins doctor,
+# and ends by opening the board in the browser.
 #
 # To work on it, in a clone:
 #
@@ -47,6 +49,9 @@
 
     # CODE_GOBLINS_RELEASE_BASE points the download at another copy of the
     # release assets, such as a CI build; the checksum check applies the same.
+    # The copy of this script published with a release names that release
+    # here in place of latest, so the script and cfo.exe are always one
+    # release's.
     $releaseBase = "https://github.com/$repo/releases/latest/download"
     if ($env:CODE_GOBLINS_RELEASE_BASE) {
         $releaseBase = $env:CODE_GOBLINS_RELEASE_BASE.TrimEnd("/")
@@ -178,11 +183,18 @@
         # this run or a later one.
         foreach ($name in "cfo.exe", "goblins.exe") {
             $target = Join-Path $InstallDir $name
-            Get-ChildItem -LiteralPath $InstallDir -Filter "$name.*.old" | Remove-Item -Force -ErrorAction SilentlyContinue
+            $aside = $null
             if (Test-Path -LiteralPath $target) {
-                Move-Item -LiteralPath $target -Destination "$target.$([Guid]::NewGuid().ToString("N")).old"
+                $aside = "$target.$([Guid]::NewGuid().ToString("N")).old"
+                Move-Item -LiteralPath $target -Destination $aside
             }
-            Copy-Item -LiteralPath $built -Destination $target
+            try {
+                Copy-Item -LiteralPath $built -Destination $target
+            }
+            catch {
+                if ($aside) { Move-Item -LiteralPath $aside -Destination $target -Force }
+                throw
+            }
             Get-ChildItem -LiteralPath $InstallDir -Filter "$name.*.old" | Remove-Item -Force -ErrorAction SilentlyContinue
         }
         Remove-Item -LiteralPath $built -Force
@@ -409,10 +421,41 @@
         }
     }
 
+    # Code Goblins in the Start menu opens the board, starting the supervisor
+    # when none runs; its console shows only minimized, for as long as that
+    # takes.
+    $goblins = Join-Path $InstallDir "goblins.exe"
+    $shortcutPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins.lnk"
+    try {
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $shortcutPath) -ErrorAction Stop | Out-Null
+        $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = $goblins
+        $shortcut.Arguments = "--board"
+        $shortcut.WorkingDirectory = $InstallDir
+        $shortcut.WindowStyle = 7
+        $shortcut.Description = "Open the Code Goblins board"
+        $shortcut.Save()
+        Write-Host ("shortcut {0,-20} {1}" -f "Code Goblins", $shortcutPath)
+    }
+    catch {
+        Write-Host ("WARN     {0,-20} the Start-menu shortcut was not made: {1}" -f "Code Goblins", $_.Exception.Message)
+        $failedInstalls += "Start-menu shortcut"
+    }
+
     Write-Host ""
     Write-Host "Verifying the toolchain ..."
     & $dest doctor
     $doctorExit = $LASTEXITCODE
+
+    # Last, the board opens in the browser, starting the supervisor when none
+    # runs; the board shows the CFO, and its first-run screen while none is
+    # set up.
+    Write-Host ""
+    & $goblins --board
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ("WARN     {0,-20} the board did not open; see the lines above" -f "board")
+        $failedInstalls += "the board: run goblins --board"
+    }
 
     if ($manualSteps.Count -gt 0 -or $failedInstalls.Count -gt 0) {
         Write-Host ""
@@ -432,8 +475,8 @@
 
     Write-Host ""
     if ($Dev) {
-        Write-Host "Code Goblins is built and installed from $InstallDir, which is your CFO home. Open a new terminal so cfo and goblins are on your PATH."
+        Write-Host "Code Goblins is built and installed from $InstallDir, which is your CFO home. Code Goblins in the Start menu opens the board; open a new terminal so cfo and goblins are on your PATH."
         exit $doctorExit
     }
-    Write-Host "Code Goblins is installed in $InstallDir. Type goblins to start; a terminal that was already open finds it once you open a new one."
+    Write-Host "Code Goblins is installed in $InstallDir. Code Goblins in the Start menu opens the board, and goblins works in this window and in any new one."
 } $args

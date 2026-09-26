@@ -97,7 +97,7 @@ func TestReviewWithdrawnOnlyByItsReporter(t *testing.T) {
 	if err := PublishReview(ctx, h, connection.Terminals, meta.ID, "plan-review-1", "Read the plan", "", "", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := spoolReview(h.State, Review{ID: "plan-review-1", Identity: strings.Repeat("e", 64), State: "withdrawn", Reason: "not mine", UpdatedAt: time.Now().UTC()}); err != nil {
+	if err := spoolReview(h.State, Review{ID: "plan-review-1", Identity: strings.Repeat("e", 64), Task: meta.ID, State: "withdrawn", Reason: "not mine", UpdatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -244,6 +244,7 @@ func TestReviewAnswerReachesItsReporterOnceOrElseTheCFO(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			store, h := testStore(t)
 			_, _, runner, cfo := primaryFixture(t, store)
+			servePipe(t, store, cfo)
 			meta, _, _, _ := goblinFixture(t, store)
 			t.Setenv("CFO_SESSION_ID", "actual-primary")
 			t.Setenv("CFO_SESSION_HARNESS", "codex")
@@ -300,6 +301,7 @@ func TestABoardAnswerOnAGoblinsItemAlsoReachesTheCFO(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			store, h := testStore(t)
 			_, _, _, cfo := primaryFixture(t, store)
+			servePipe(t, store, cfo)
 			meta, _, _, _ := goblinFixture(t, store)
 			t.Setenv("CFO_SESSION_ID", "actual-primary")
 			t.Setenv("CFO_SESSION_HARNESS", "codex")
@@ -352,6 +354,7 @@ func TestABoardAnswerOnAGoblinsItemAlsoReachesTheCFO(t *testing.T) {
 func TestAnsweredReviewSurvivesAFullListUntilDelivered(t *testing.T) {
 	store, h := testStore(t)
 	_, _, runner, cfo := primaryFixture(t, store)
+	servePipe(t, store, cfo)
 	t.Setenv("CFO_SESSION_ID", "actual-primary")
 	t.Setenv("CFO_SESSION_HARNESS", "codex")
 	ctx := context.Background()
@@ -430,6 +433,7 @@ func TestWaitOnTheOverlordIsTheItemItsNextReportWithdraws(t *testing.T) {
 func TestTheCFOClearsAStaleItemWithAnAuditedReason(t *testing.T) {
 	store, h := testStore(t)
 	_, _, _, cfo := primaryFixture(t, store)
+	servePipe(t, store, cfo)
 	meta, _, _, goblin := goblinFixture(t, store)
 	ctx := context.Background()
 	for _, id := range []string{"plan-review-1", "plan-review-2"} {
@@ -458,7 +462,7 @@ func TestTheCFOClearsAStaleItemWithAnAuditedReason(t *testing.T) {
 	if got.Reviews[0].State != "cleared" || got.Reviews[0].Reason != "Cleared by the CFO: Decided: the plan is approved" {
 		t.Errorf("the CFO's clear = %+v, want the item cleared with its reason", got.Reviews[0])
 	}
-	if got.Reviews[1].State != "open" || !strings.Contains(strings.Join(got.Issues, "\n"), "only the registered CFO") {
+	if got.Reviews[1].State != "open" || !strings.Contains(strings.Join(got.Issues, "\n"), "only over the supervisor's pipe") {
 		t.Errorf("a stranger's clear = %+v %q, want it refused and the item open", got.Reviews[1], got.Issues)
 	}
 	audit, err := os.ReadFile(filepath.Join(h.State, "reviews.audit"))
@@ -472,6 +476,7 @@ func TestTheCFOClearsAStaleItemWithAnAuditedReason(t *testing.T) {
 func TestACFOClearWhoseAuditFailsIsReportedAsCleared(t *testing.T) {
 	store, h := testStore(t)
 	_, _, _, cfo := primaryFixture(t, store)
+	servePipe(t, store, cfo)
 	meta, _, _, goblin := goblinFixture(t, store)
 	ctx := context.Background()
 	if err := PublishReview(ctx, h, goblin.Terminals, meta.ID, "plan-review-1", "Read the plan", "", "", nil); err != nil {
@@ -514,6 +519,7 @@ func TestAnsweringAGoblinClosesItsWaitsOnTheOverlord(t *testing.T) {
 		t.Fatal(err)
 	}
 	meta, record, _, connection := goblinFixture(t, store)
+	servePipe(t, store, connection)
 	ctx := context.Background()
 	if err := PublishWait(ctx, h, connection.Terminals, meta.ID, earlier.Seq, "pick the store", "", ""); err != nil {
 		t.Fatal(err)

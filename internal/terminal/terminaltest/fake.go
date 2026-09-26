@@ -140,6 +140,10 @@ func (f *Fake) SendLiteral(_ context.Context, target herdr.Target, text string) 
 	return f.record("SendLiteral", target.String(), text)
 }
 
+func (f *Fake) Typist(context.Context) (func(context.Context, herdr.Target, string) error, error) {
+	return f.SendLiteral, nil
+}
+
 func (f *Fake) SendKey(_ context.Context, target herdr.Target, key string) error {
 	return f.record("SendKey", target.String(), key)
 }

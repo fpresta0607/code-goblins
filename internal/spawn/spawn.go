@@ -98,6 +98,11 @@ type Service struct {
 	// after a switch stops its harness. Nil reads the terminal backend and
 	// the jobs the shell holds.
 	Leftovers func(context.Context, terminal.Backend, herdr.Target) ([]Leftover, error)
+	// UserEnvironment is the environment a native task starts from: the
+	// variables Windows gives a new process of this user, never this
+	// process's own. Nil reads them from the user's and the machine's
+	// configuration.
+	UserEnvironment func() ([]string, error)
 	// HostCommand runs a native terminal's host: cfo.exe and "host" in
 	// production.
 	HostCommand []string
@@ -227,6 +232,14 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if preflight.Refusal != "" && !req.Yolo {
 		return Result{}, fmt.Errorf("spawn: %s", preflight.Refusal)
 	}
+	// A native goblin starts from the user's environment, never this
+	// process's own.
+	var userEnv []string
+	if native {
+		if userEnv, err = s.userEnvironment(); err != nil {
+			return Result{}, fmt.Errorf("spawn: read the user's environment for a native task: %w", err)
+		}
+	}
 
 	var endpoint herdr.Endpoint
 	if !native {
@@ -333,12 +346,17 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// installed against the shared package cache, and the token-authenticated
 	// subset of the project's MCP servers. A server that authenticates by
 	// bearerTokenEnvVar reaches the goblin only when that variable will be set
-	// in its pane: a declared project credential, or one the pane inherits,
-	// which cfo's own environment stands in for. The credentials script
-	// strips every harness billing key from the pane whatever its source.
+	// for it: in a pane, a declared project credential or one the pane
+	// inherits, which cfo's own environment stands in for; in a native
+	// terminal, one the environment its host is built with sets. The
+	// credentials script strips every harness billing key from the pane
+	// whatever its source.
 	hasVariable := func(name string) bool {
 		if auth.IsHarnessBillingKey(name) {
 			return false
+		}
+		if native {
+			return hasNativeVariable(s.nativeHostEnvironment(userEnv, harness.Launch{}, preflight.Env), name)
 		}
 		return preflight.Env[name] != "" || os.Getenv(name) != ""
 	}
@@ -373,7 +391,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		launch.Instruction += selection.Instruction(req.ID, filepath.Join(taskTmp, "pipeline.json"))
 	}
 	if native {
-		if nativeHost, err = s.startNativeHarness(ctx, req.ID, req.Harness, launch, preflight.Env); err != nil {
+		if nativeHost, err = s.startNativeHarness(ctx, req.ID, req.Harness, launch, userEnv, preflight.Env); err != nil {
 			return fail(result, err)
 		}
 	} else {
