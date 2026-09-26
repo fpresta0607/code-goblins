@@ -25,10 +25,13 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
 
+// defaultBoardAddress is where cfo serve listens unless told otherwise.
+const defaultBoardAddress = "127.0.0.1:4310"
+
 func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	f := flag.NewFlagSet("serve", flag.ContinueOnError)
 	f.SetOutput(stderr)
-	address := f.String("listen", "127.0.0.1:4310", "loopback address for the native board")
+	address := f.String("listen", defaultBoardAddress, "loopback address for the native board")
 	example := f.Bool("example", false, "label an isolated temporary example home and omit machine-wide orphan inventory")
 	if err := f.Parse(args); err != nil || f.NArg() != 0 {
 		return 2
