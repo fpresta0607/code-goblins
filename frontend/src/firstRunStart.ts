@@ -15,10 +15,15 @@ export function startState(setup: Setup, picked: string): { project: string; blo
   return { project, blocked };
 }
 
+// FirstRunChoice is his last say on the first-run page: none, a CFO he
+// started that the board has not seen run yet, or the board without a CFO.
+// It is one choice, so Start the CFO, which sets none, also drops a start
+// that ended before the board saw it run.
+export type FirstRunChoice = "" | "started" | "board";
+
 // showsFirstRun is whether the board's root shows the first-run page: whenever
-// no CFO runs, which is how the installer and its shortcut open it, except
-// just after he started one and until the board sees it, or once he chose to
-// see the board without a CFO.
-export function showsFirstRun({ cfoRuns, started, boardAnyway }: { cfoRuns: boolean; started: boolean; boardAnyway: boolean }): boolean {
-  return !cfoRuns && !started && !boardAnyway;
+// no CFO runs, which is how the installer and its shortcut open it, unless he
+// just started one or chose to see the board without a CFO.
+export function showsFirstRun({ cfoRuns, choice }: { cfoRuns: boolean; choice: FirstRunChoice }): boolean {
+  return !cfoRuns && choice === "";
 }

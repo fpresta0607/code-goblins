@@ -405,6 +405,28 @@ func TestAStartingCFOIsNotReportedAsUnregistered(t *testing.T) {
 	}
 }
 
+// A CFO that registers after sign-in is not reported as unregistered until
+// the next registration check: the check that found none no longer stands.
+func TestACFOThatRegisteredIsNotReportedAsUnregisteredBeforeTheNextCheck(t *testing.T) {
+	// Arrange
+	h, _ := nativeBoard(t, "direct")
+	stateDir := h.Service.Store.Home.State
+	h.Service.Options.CFO = &CFOConnection{State: stateDir}
+	h.Service.checkRegistration(context.Background())
+	nativePrimary(t, stateDir)
+
+	// Act
+	snapshot, err := h.Service.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snapshot.CFORuns || snapshot.Registration != "" {
+		t.Errorf("with a CFO registered since the last check: runs %v, registration %q; want it running and no registration problem", snapshot.CFORuns, snapshot.Registration)
+	}
+}
+
 // A view of the CFO's terminal closes once the CFO registers in another
 // terminal, so typing never reaches a terminal the CFO has left.
 func TestACFOViewClosesWhenTheCFOLeavesItsTerminal(t *testing.T) {

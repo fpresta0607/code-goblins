@@ -18,7 +18,7 @@ import { unsentComment, updateAction } from "./boardUpdate";
 import { windowTarget } from "./terminalWindow";
 import { message, request } from "./api";
 import { FirstRun } from "./FirstRun";
-import { showsFirstRun } from "./firstRunStart";
+import { showsFirstRun, type FirstRunChoice } from "./firstRunStart";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
 const TerminalDeck = lazy(() => import("./TerminalDeck").then((module) => ({ default: module.TerminalDeck })));
@@ -60,10 +60,7 @@ export function App() {
   // windowError is a refused Open in terminal and the terminal it was for.
   const [windowError, setWindowError] = useState({ shown: "", text: "" });
   const [compact, setCompact] = useState(() => matchMedia("(max-width: 40rem)").matches);
-  // started is a CFO he just started, until the board sees it run; boardAnyway
-  // is his choice to see the board while no CFO runs.
-  const [started, setStarted] = useState(false);
-  const [boardAnyway, setBoardAnyway] = useState(false);
+  const [firstRunChoice, setFirstRunChoice] = useState<FirstRunChoice>("");
   // startingShown is whether this page already opened the terminal of a CFO
   // that is starting, so closing it is not undone.
   const [startingShown, setStartingShown] = useState(false);
@@ -124,12 +121,12 @@ export function App() {
     setPaneOpen(true);
     setSwitchFocus((prior) => prior + 1);
   };
-  if (started && snapshot?.cfo_runs) setStarted(false);
+  if (firstRunChoice === "started" && snapshot?.cfo_runs) setFirstRunChoice("");
   // A CFO starting in its terminal waits there for Claude Code's sign-in, so
   // the board opens that terminal by itself, once.
   if (snapshot?.cfo_starting && !startingShown) { setStartingShown(true); setView("Board"); switchTo(CFO_KEY); }
   // The board's root is the first-run page whenever no CFO runs.
-  const firstRun = !!snapshot && showsFirstRun({ cfoRuns: snapshot.cfo_runs, started, boardAnyway });
+  const firstRun = !!snapshot && showsFirstRun({ cfoRuns: snapshot.cfo_runs, choice: firstRunChoice });
   const close = () => {
     setPaneOpen(false);
     requestAnimationFrame(() => returnFocus.current?.isConnected && returnFocus.current.focus());
@@ -169,7 +166,7 @@ export function App() {
         {snapshot?.example && <span className="example-label">Example workspace</span>}
       </a>
       <div className="view-switch" role="group" aria-label="Workspace view">
-        {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={!firstRun && view === name} onClick={() => { if (firstRun) setBoardAnyway(true); setView(name); setPanelView(name === "Board" ? "task" : "terminal"); }}>{name}</button>)}
+        {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={!firstRun && view === name} onClick={() => { if (firstRun) setFirstRunChoice("board"); setView(name); setPanelView(name === "Board" ? "task" : "terminal"); }}>{name}</button>)}
       </div>
       <div className="topbar-controls">
         {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={onUnsent} />}
@@ -181,13 +178,13 @@ export function App() {
     </header>
     {updated && <div className="update-banner" role="status"><span>The board was updated.</span><button className="primary" onClick={() => location.reload()}>Reload</button></div>}
     {firstRun ? <main className="first-run-region" aria-label="First run">
-      {snapshot && <FirstRun instance={snapshot.instance} onStarted={() => { setStarted(true); setView("Board"); switchTo(CFO_KEY); }} onBoard={() => setBoardAnyway(true)} />}
+      {snapshot && <FirstRun instance={snapshot.instance} onStarted={() => { setFirstRunChoice("started"); setView("Board"); switchTo(CFO_KEY); }} onBoard={() => setFirstRunChoice("board")} />}
     </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "")} style={layout}>
       <main className="canvas-region" aria-label={view} hidden={panelWide}>
         {(error || snapshot?.error) && <div className="connection-banner" role="alert">{error || snapshot?.error}</div>}
         {snapshot?.registration && <div className="connection-banner" role="alert">{snapshot.registration}</div>}
         {!snapshot ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
-          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} selected={task?.id} onSelect={(task, source) => select({ task: task.id }, source)} onTerminal={(task, source) => select({ task: task.id }, source, "terminal")} onOpenCfo={(source) => { returnFocus.current = source; switchTo(CFO_KEY); }} onStartCfo={() => setBoardAnyway(false)} />
+          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} selected={task?.id} onSelect={(task, source) => select({ task: task.id }, source)} onTerminal={(task, source) => select({ task: task.id }, source, "terminal")} onOpenCfo={(source) => { returnFocus.current = source; switchTo(CFO_KEY); }} onStartCfo={() => setFirstRunChoice("")} />
             : compact ? <Lineage presentations={presentations} effects={effects} snapshot={snapshot} project="" selected={selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
               : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} connected={connected} selected={selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
                 onSelect={(node, source) => select(node.session ? { session: node.session.id } : node.task ? { task: node.task.id } : {}, source)} />}

@@ -111,12 +111,19 @@ func (s *Service) Done() <-chan struct{} { return s.done }
 
 func (s *Service) publish(err error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if err != nil {
 		s.lastError = bounded(err.Error(), 1000)
 	} else {
 		s.lastError = ""
 	}
+	s.mu.Unlock()
+	s.notify()
+}
+
+// notify sends every board a fresh snapshot, keeping the last error.
+func (s *Service) notify() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.revision++
 	for ch := range s.subscribers {
 		select {
@@ -591,7 +598,7 @@ type Snapshot struct {
 	// problem is shown while it lasts.
 	CFOStarting bool `json:"cfo_starting"`
 	// CFOTerminal names the native terminal the board shows the CFO in (see
-	// cfoTerminal), and is empty while the CFO runs in Herdr or not at all.
+	// cfoState), and is empty while the CFO runs in Herdr or not at all.
 	CFOTerminal string `json:"cfo_terminal"`
 }
 
@@ -606,11 +613,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 	}
 	s.mu.Unlock()
-	if id, live := cfoTerminal(s.Store.Home.State); live {
-		out.CFOTerminal = id
-	}
-	out.CFORuns = CFORuns(s.Store.Home.State)
-	if out.CFOStarting = CFOStarting(s.Store.Home.State); out.CFOStarting {
+	cfo := readCFOState(s.Store.Home.State)
+	out.CFOTerminal, out.CFORuns, out.CFOStarting = cfo.terminal, cfo.registered || cfo.starting, cfo.starting
+	// A starting CFO registers itself after sign-in, and one registered since
+	// the last check is no longer missing.
+	if cfo.starting || cfo.registered && out.Registration == errNotRegistered.Error() {
 		out.Registration = ""
 	}
 	// The board sees how many images a question has, never where they are.

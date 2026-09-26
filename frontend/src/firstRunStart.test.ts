@@ -25,10 +25,11 @@ test("Start takes the picked project, or a folder's only one, and says what it s
 
 test("the board's root shows the first-run page whenever no CFO runs, unless he just started one or chose the board", () => {
   const cases: [string, Parameters<typeof showsFirstRun>[0], boolean][] = [
-    ["no CFO", { cfoRuns: false, started: false, boardAnyway: false }, true],
-    ["a CFO runs", { cfoRuns: true, started: false, boardAnyway: false }, false],
-    ["just started, before the board sees it", { cfoRuns: false, started: true, boardAnyway: false }, false],
-    ["the board without a CFO, by his choice", { cfoRuns: false, started: false, boardAnyway: true }, false],
+    ["no CFO", { cfoRuns: false, choice: "" }, true],
+    ["a CFO runs", { cfoRuns: true, choice: "" }, false],
+    ["just started, before the board sees it", { cfoRuns: false, choice: "started" }, false],
+    ["the board without a CFO, by his choice", { cfoRuns: false, choice: "board" }, false],
+    ["the board's Start the CFO, even after a start the board never saw run", { cfoRuns: false, choice: "" }, true],
   ];
   for (const [name, given, want] of cases) assert.equal(showsFirstRun(given), want, name);
 });

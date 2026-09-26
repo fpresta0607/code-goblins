@@ -123,11 +123,14 @@ func (f *FirstRun) Setup(root string) Setup {
 	return setup
 }
 
+// notAbsolute is why a folder that is not a full path offers no project.
+const notAbsolute = `Enter the full path of a folder, such as C:\dev.`
+
 // projectNames names the git checkouts directly under root, or says why root
 // offers none.
 func projectNames(root string) ([]string, string) {
 	if !filepath.IsAbs(root) {
-		return []string{}, `Enter the full path of a folder, such as C:\dev.`
+		return []string{}, notAbsolute
 	}
 	checkouts, err := ProjectCheckouts(root)
 	if err != nil {
@@ -148,6 +151,9 @@ func projectNames(root string) ([]string, string) {
 // checkout project under root. A start it cannot make is a StartRefusal; one
 // runs at a time, so a second press finds the first CFO running.
 func (f *FirstRun) Start(root, project, agent string) error {
+	if !filepath.IsAbs(root) {
+		return StartRefusal{notAbsolute}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.CFORuns() {
@@ -208,6 +214,7 @@ func (h *HTTP) startCFO(w http.ResponseWriter, r *http.Request) {
 		apiError(w, status, err.Error())
 		return
 	}
+	h.Service.notify()
 	respond(w, http.StatusOK, struct {
 		Started bool `json:"started"`
 	}{true})

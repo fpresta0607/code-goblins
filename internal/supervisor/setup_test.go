@@ -195,6 +195,10 @@ func TestFirstRunRefusesAStartItCannotMake(t *testing.T) {
 		{"a plain folder", "notes", "claude", "Pick one of the projects in this folder", func(m *firstRunMachine) string { return m.root }},
 		{"a path out of the folder", `..\beta`, "claude", "Pick one of the projects in this folder", func(m *firstRunMachine) string { return m.root }},
 		{"a relative folder", "beta", "claude", "Enter the full path of a folder", func(*firstRunMachine) string { return "projects" }},
+		{"no folder, with one recorded", "beta", "claude", "Enter the full path of a folder", func(m *firstRunMachine) string {
+			m.run.ProjectsRoot = func() (string, error) { return m.root, nil }
+			return ""
+		}},
 		{"a folder that cannot be recorded", "beta", "claude", "The projects folder could not be recorded", func(m *firstRunMachine) string {
 			m.run.SetProjectsRoot = func(string) error { return errors.New("registry refused") }
 			return m.root
@@ -212,8 +216,8 @@ func TestFirstRunRefusesAStartItCannotMake(t *testing.T) {
 			if !errors.As(err, new(StartRefusal)) || !strings.Contains(err.Error(), c.refusal) {
 				t.Fatalf("err = %v, want a refusal saying %q", err, c.refusal)
 			}
-			if len(m.started) != 0 {
-				t.Fatalf("CFOs started = %q, want none", m.started)
+			if len(m.started) != 0 || len(m.recorded) != 0 {
+				t.Fatalf("CFOs started = %q, projects roots recorded = %q, want none", m.started, m.recorded)
 			}
 		})
 	}
@@ -223,7 +227,7 @@ func TestTheBoardServesTheFirstRunPageAndStartsTheCFO(t *testing.T) {
 	// Arrange
 	m := newFirstRunMachine(t)
 	store, _ := testStore(t)
-	s := &Service{Store: store, Instance: "instance-1", Options: Options{FirstRun: m.run}}
+	s := &Service{Store: store, Instance: "instance-1", Options: Options{FirstRun: m.run}, subscribers: map[chan struct{}]struct{}{}}
 	handler := NewHTTP(s, "board.local", fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html><head></head><body>board</body></html>")}})
 	request := func(method, path, body string) (int, string) {
 		t.Helper()
@@ -251,6 +255,8 @@ func TestTheBoardServesTheFirstRunPageAndStartsTheCFO(t *testing.T) {
 	pageCode, page := request("GET", "/", "")
 	setupCode, setup := request("GET", "/api/setup?root="+url.QueryEscape(m.root), "")
 	refusedCode, refused := request("POST", "/api/setup/start", start("notes"))
+	changes, unsubscribe := s.subscribe()
+	defer unsubscribe()
 	startCode, _ := request("POST", "/api/setup/start", start("alpha"))
 
 	// Assert
@@ -265,6 +271,11 @@ func TestTheBoardServesTheFirstRunPageAndStartsTheCFO(t *testing.T) {
 	}
 	if startCode != http.StatusOK || len(m.started) != 1 || m.started[0] != filepath.Join(m.root, "alpha") {
 		t.Fatalf("a start in alpha = %d, started %q", startCode, m.started)
+	}
+	select {
+	case <-changes:
+	default:
+		t.Fatal("a start sent the board no fresh snapshot, so it shows no CFO until the next ping")
 	}
 }
 

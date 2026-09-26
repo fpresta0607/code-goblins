@@ -345,31 +345,34 @@ func NativeTerminalRuns(stateDir, id string) bool {
 // CFORuns reports whether a CFO is registered and running, or native
 // terminal cfo is up for one that has not registered yet.
 func CFORuns(stateDir string) bool {
-	_, live := livePrimary(stateDir)
-	return live || NativeTerminalRuns(stateDir, NativeCFOTerminal)
+	cfo := readCFOState(stateDir)
+	return cfo.registered || cfo.starting
 }
 
-// CFOStarting reports whether native terminal cfo is up for a CFO that has
-// not registered yet: Claude Code registers the CFO only once its onboarding
-// and sign-in are done, in that terminal.
-func CFOStarting(stateDir string) bool {
-	_, live := livePrimary(stateDir)
-	return !live && NativeTerminalRuns(stateDir, NativeCFOTerminal)
+// cfoState is the CFO as the board sees it, from one read of its
+// registration and at most one dial of native terminal cfo.
+type cfoState struct {
+	// registered says a CFO is registered and running.
+	registered bool
+	// starting says native terminal cfo is up for a CFO that has not
+	// registered yet: Claude Code registers the CFO only once its onboarding
+	// and sign-in are done, in that terminal.
+	starting bool
+	// terminal is the native terminal the board shows the CFO in: the one the
+	// registered CFO names or, while it is starting, native terminal cfo,
+	// where the Overlord may first have to answer it. It is empty while the
+	// CFO runs in Herdr or not at all.
+	terminal string
 }
 
-// cfoTerminal is the native terminal the board shows the CFO in: the one the
-// registered CFO names or, with no CFO registered, native terminal cfo while
-// its host answers, since a CFO started there registers only once it runs
-// and the Overlord may first have to answer it there.
-func cfoTerminal(stateDir string) (string, bool) {
-	primary, live := livePrimary(stateDir)
-	switch {
-	case live:
-		return primary.Host, primary.Host != ""
-	case NativeTerminalRuns(stateDir, NativeCFOTerminal):
-		return NativeCFOTerminal, true
+func readCFOState(stateDir string) cfoState {
+	if primary, live := livePrimary(stateDir); live {
+		return cfoState{registered: true, terminal: primary.Host}
 	}
-	return "", false
+	if NativeTerminalRuns(stateDir, NativeCFOTerminal) {
+		return cfoState{starting: true, terminal: NativeCFOTerminal}
+	}
+	return cfoState{}
 }
 
 // NativeCFO returns the native terminal the registered CFO runs in, when
