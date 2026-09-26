@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/layout"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -113,7 +115,7 @@ func Compose(h home.Home, ownerPID int, session string, w io.Writer) error {
 	heldLock := writeSessionLock(h.State, ownerPID, session, ew)
 
 	writeWakeQueue(h.State, ew)
-	writeSupervisionInstructions(ew)
+	writeSupervisionInstructions(h.Data, ew)
 
 	statusTail := claudehook.Int("CFO_SESSION_START_STATUS_TAIL", 5, 0, 1000000)
 	queuedLimit := claudehook.Int("CFO_SESSION_START_QUEUED_LIMIT", 20, 0, 1000000)
@@ -206,9 +208,13 @@ func writeWakeQueue(stateDir string, ew *werr) {
 // writeSupervisionInstructions prints the fixed operating-instructions
 // block: v1 cuts (AFK gate, gate-agent refusal, network stage, *.check.sh
 // sweeps, pane/window staleness, procevent sources, X-mode) mean this text
-// stays short relative to upstream's equivalent.
-func writeSupervisionInstructions(ew *werr) {
+// stays short relative to upstream's equivalent. It names the memory folder
+// by its full path, because a CFO often runs in a project rather than in the
+// home.
+func writeSupervisionInstructions(dataDir string, ew *werr) {
 	ew.println("== SUPERVISION OPERATING INSTRUCTIONS ==")
+	memory := filepath.Join(dataDir, filepath.FromSlash(path.Dir(layout.MemoryIndex)))
+	ew.printf("The CFO's memory is %s, the same for Claude Code, Codex and Pi: MEMORY.md there is its index, printed in full under CONTEXT below, one line per fact. Read a fact's own file when its line bears on the work. When you learn something durable, write it there as one file (frontmatter name, description and type, then the fact) and add its one line to MEMORY.md, never only to a harness's own memory folder, which the next CFO may not see.\n", memory)
 	ew.println("For an explicit user decision, the registered primary CFO uses cfo question --id <stable-id> --text <question> --option <choice> --recommend <exact-choice>. Repeat --option for real choices; omit --recommend unless you recommend one. Other always permits a written answer.")
 	ew.println("This contract applies to Claude Code, Codex and Pi: publish from this primary session's shell, then continue independent work or end the turn awaiting the answer. The durable answer returns to the same CFO as a normal message; it does NOT answer a pending native prompt tool. Do not open a native prompt for the same decision or promote worker wake diagnostics into user questions.")
 	ew.println("For a nonblocking presentation, use Lavish --no-open and cfo present --id <stable-id> --kind review --url <returned-safe-url> from this registered primary; workers add --task and --generation. Report only a successful tool result, refresh only while live and finish with --state ended. Do not wait for a viewing choice or claim URL opening mirrors browser control; see docs/native-board.md.")
@@ -231,7 +237,7 @@ func writeSupervisionInstructions(ew *werr) {
 // backlog or status log still has a real, unshown remainder.
 func writeReadOnceContract(statusTail, queuedLimit int, ew *werr) {
 	ew.println("== READ-ONCE CONTRACT ==")
-	ew.printf("This digest already printed data\\backlog.md's first %d queued rows (not the full backlog), every state\\*.meta in full, each goblin's last %d status lines (not the full log), and data\\projects.md, data\\overlord.md, and data\\learnings.md in full.\n", queuedLimit, statusTail)
+	ew.printf("This digest already printed data\\backlog.md's first %d queued rows (not the full backlog), every state\\*.meta in full, each goblin's last %d status lines (not the full log), and data\\projects.md, data\\overlord.md, and data\\memory\\MEMORY.md in full.\n", queuedLimit, statusTail)
 	ew.println("It also printed the last recorded orphan sweep, with its status-log listing capped; the full finding set is in state\\.reap-audit.json and in \"cfo reap --json\".")
 	ew.println("Do not re-read anything shown above in full this turn. A backlog or status section that hit its cap only needs a fresh read for what is past the cap, not for what is already shown.")
 }
@@ -349,12 +355,13 @@ func writeMetaEntry(stateDir, id string, statusTail int, ew *werr) {
 	}
 }
 
-// writeContext prints data\projects.md, data\overlord.md, and
-// data\learnings.md, each in full, or as "<name>: ABSENT" /
-// "<name>: (present, empty)" / "<name>: UNREADABLE (<err>)".
+// writeContext prints data\projects.md, data\overlord.md, and the memory
+// index data\memory\MEMORY.md, each in full, or as "<name>: ABSENT" /
+// "<name>: (present, empty)" / "<name>: UNREADABLE (<err>)". A fact's own
+// file is never printed: the index is what every session pays for.
 func writeContext(dataDir string, ew *werr) {
 	ew.println("== CONTEXT ==")
-	for _, name := range []string{"projects.md", "overlord.md", "learnings.md"} {
+	for _, name := range []string{"projects.md", "overlord.md", filepath.FromSlash(layout.MemoryIndex)} {
 		writeContextFile(dataDir, name, ew)
 	}
 }

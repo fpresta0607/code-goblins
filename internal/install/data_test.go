@@ -26,7 +26,7 @@ func TestInstallLaysOutANewHomesData(t *testing.T) {
 			output := f.install()
 
 			data := filepath.Join(f.root, "data")
-			for _, path := range []string{layout.Marker, layout.Backlog, "projects", "archive/finished", "archive/parked"} {
+			for _, path := range []string{layout.Marker, layout.Backlog, layout.MemoryIndex, "projects", "archive/finished", "archive/parked"} {
 				if _, err := os.Stat(filepath.Join(data, filepath.FromSlash(path))); err != nil {
 					t.Errorf("data/%s is missing after install: %v", path, err)
 				}

@@ -379,6 +379,8 @@ It is local and private by default: nothing in it is pushed anywhere, and in a c
 | --- | --- |
 | `data/backlog.md` | Open work in three sections. `## Queued` is work waiting to start, and `tasks-axi` manages its rows. `## Parked` is work set aside on purpose: nothing lists it as work to start, and moving a row back under Queued revives it. A row parked in place with `(hold-kind: parked)` counts as parked too. `## Done` is finished work. |
 | `data/overlord.md` | The Supreme Overlord's standing directives, word for word. |
+| `data/memory/` | The CFO's memory: `MEMORY.md`, its index, and one file per fact (see [Memory](#memory)). |
+| `data/memory-archive.md` | Memory the `stow` skill retired; never loaded. |
 | `data/routing.json` | The execution lanes, yours to tune. |
 | `data/projects/<project>/` | One folder per project, named for its checkout's folder: `auth.json`, `worktree.json` and `project.json`. |
 | `data/<task>/` | One folder per task that is queued or under way: `brief.md` (what to do), `report.md` (what a scout found or a ship task delivered), `decisions.md` (the rulings made for it, each with its date) and `deliverables/` (files handed to the Overlord). |
@@ -391,8 +393,26 @@ Keeping `data/` in a private repository of your own, as a backup, is an opt-in a
 
 ## Memory
 
-The session-start digest prints the CFO's standing memory in full every session, so what it holds is paid for in every session.
-`data/overlord.md` holds the Supreme Overlord's standing directives, each with its date and the Overlord's exact words, and never decays; `data/learnings.md` holds fleet operating facts, which re-prove themselves within 30 days or retire; open work belongs in `data/backlog.md` through `tasks-axi`, never in memory.
+The CFO's memory lives in the home, never only in a harness, so a CFO in Claude Code, Codex or Pi reads and writes the same memory.
+`data/overlord.md` holds the Supreme Overlord's standing directives, each with its date and the Overlord's exact words, and never decays.
+`data/memory/` holds what the fleet has learned, one fact per file, and `data/memory/MEMORY.md` is its index: one line per fact, a markdown link to the fact's file followed by ` - ` and a few words on when it matters.
+A fact's file starts with frontmatter and then states the fact; a feedback or project fact follows it with **Why:** and **How to apply:** lines:
+
+```markdown
+---
+name: gate-needs-a-scratch-home
+description: a gate step that runs cfo must clear CFO_HOME and CFO_STATE_OVERRIDE first
+metadata:
+  type: feedback
+---
+```
+
+`type` is `user`, `feedback`, `project` or `reference`.
+Read `data/overlord.md` and the index at the start of every session: Claude Code's session-start digest prints both, and a Codex or Pi CFO reads them itself.
+Read a fact's own file when its line bears on the work.
+When you learn something durable, write it as one file in `data/memory/` and add its line to the index, updating the fact that already covers it rather than adding a near-duplicate.
+A harness's own memory folder, such as Claude Code's auto-memory, is not the CFO's memory: a CFO in another harness, or in another project folder, never sees it.
+The directives and the index are printed in every session, so what they hold is paid for in every session; open work belongs in `data/backlog.md` through `tasks-axi`, never in memory.
 Run the `stow` skill (`.agents/skills/stow/`) before a context reset and whenever that memory outgrows its budget: it files what the session learned, archives stale history to `data/memory-archive.md` rather than deleting it, and keeps every directive word for word.
 
 ## Restart is a non-event
