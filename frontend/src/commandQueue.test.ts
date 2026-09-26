@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredBy, answeredLabel, chosenOption, itemFor, nextOpenKey, outcomeIcon, questionOutcome, questionPage, settledIcon, settledItems, settledLabel, waitingItems } from "./commandQueue.ts";
+import { answeredBy, answeredLabel, chosenOption, documentFacts, itemFor, nextOpenKey, outcomeIcon, questionOutcome, questionPage, settledIcon, settledItems, settledLabel, waitingItems } from "./commandQueue.ts";
 import { parseSnapshot, type BoardActivity } from "./types.ts";
 
 const question = (id: string, task: string, created_at: string, status = "pending", extra: Record<string, unknown> = {}) => ({ id, identity: "i-" + id, task, created_at, status, options: ["A", "B"], ...extra });
@@ -165,4 +165,20 @@ test("a review item says whether the supervisor watches its page for his answer"
     review("linked", "steward", "2026-09-24T00:00:00Z", "open", { lavish: "http://127.0.0.1:4000/b" }),
   ] });
   assert.deepEqual(snapshot.reviews!.map((item) => item.watched), [true, false]);
+});
+
+test("a document item reads as its file: its type, its size and who sent it", () => {
+  const snapshot = parseSnapshot({ healthy: true, reviews: [
+    review("setbacks-doc", "", "2026-09-24T00:00:00Z", "open", { document: { name: "setbacks 1204 Oak St.pdf", size: 2516582, kind: "application/pdf" } }),
+    review("parcels-doc", "steward", "2026-09-24T00:00:00Z", "open", { document: { name: "parcels.CSV", size: 900, link: "https://files.example.com/parcels" } }),
+    review("notes-doc", "steward", "2026-09-24T00:00:00Z", "open", { document: { name: "README", size: 20480 } }),
+    review("mockups", "steward", "2026-09-24T00:00:00Z"),
+  ] });
+  const [pdf, csv, plain, noDocument] = snapshot.reviews!;
+  assert.deepEqual(pdf.document, { name: "setbacks 1204 Oak St.pdf", size: 2516582, kind: "application/pdf", link: "" });
+  assert.equal(csv.document?.link, "https://files.example.com/parcels");
+  assert.equal(noDocument.document, null);
+  assert.equal(documentFacts(pdf.document!, "the CFO"), "PDF · 2.4 MB · from the CFO");
+  assert.equal(documentFacts(csv.document!, "steward"), "CSV · 900 B · from steward");
+  assert.equal(documentFacts(plain.document!, "steward"), "File · 20 KB · from steward");
 });

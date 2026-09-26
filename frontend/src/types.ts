@@ -119,8 +119,13 @@ export interface Review {
   // watched: the supervisor polls the item's Lavish page, so his answer or
   // end of the review there closes the item.
   watched: boolean;
+  // document is a delivered file, or null for any other item.
+  document: ReviewDocument | null;
   state: string; answer: string; answer_id: string; delivered: boolean; reason: string; created_at: string; updated_at: string;
 }
+// A document delivered with cfo deliver: kind is set only when the browser
+// may open it, and link, when set, is where Open goes instead of the copy.
+export interface ReviewDocument { name: string; size: number; kind: string; link: string }
 // A command the CFO needs the Overlord to run (API8): the stored text is what
 // runs; the board shows it verbatim and names the item when he presses Run.
 export interface Run {
@@ -251,6 +256,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     reviews: array(v.reviews).map((value) => {
       const r = object(value);
       return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), watched: string(r.lavish_page) !== "",
+        document: r.document === undefined || r.document === null ? null : (({ name, size, kind, link }) => ({ name: string(name), size: number(size), kind: string(kind), link: string(link) }))(object(r.document)),
         state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
         created_at: string(r.created_at), updated_at: string(r.updated_at) };
     }),
