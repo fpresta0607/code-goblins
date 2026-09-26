@@ -98,6 +98,11 @@ type Service struct {
 	// after a switch stops its harness. Nil reads the terminal backend and
 	// the jobs the shell holds.
 	Leftovers func(context.Context, terminal.Backend, herdr.Target) ([]Leftover, error)
+	// UserEnvironment is the environment a native task starts from: the
+	// variables Windows gives a new process of this user, never this
+	// process's own. Nil reads them from the user's and the machine's
+	// configuration.
+	UserEnvironment func() ([]string, error)
 	// HostCommand runs a native terminal's host: cfo.exe and "host" in
 	// production.
 	HostCommand []string

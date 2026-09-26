@@ -66,7 +66,7 @@ type codexEvent struct {
 }
 
 // recordedEnv is what the fake codex records of its environment.
-var recordedEnv = []string{"CFO_TASK_ID", "CFO_ROLE", "GOTMPDIR", "CFO_STATE_OVERRIDE", "CFO_HOST_ID", "FIXTURE_TOKEN", "OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_GIT_BASH_PATH", "CODEX_SANDBOX_NETWORK_DISABLED"}
+var recordedEnv = []string{"CFO_TASK_ID", "CFO_ROLE", "GOTMPDIR", "CFO_STATE_OVERRIDE", "CFO_HOST_ID", "FIXTURE_TOKEN", "OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_GIT_BASH_PATH", "CODEX_SANDBOX_NETWORK_DISABLED", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "A_SESSION_ONLY_VARIABLE", "USERS_OWN_SETTING"}
 
 // fakeHarness shows codex's own startup screens, as captured on this machine,
 // and answers keys the way codex does. It records its environment, every key
@@ -287,6 +287,10 @@ func mustGetwd() string {
 type nativeFixture struct {
 	*fixture
 	record string
+	// userEnv is what Windows gives a new process of this user: what a
+	// native goblin starts from, where this test process's own environment
+	// stands for the session that runs cfo spawn.
+	userEnv []string
 	// terminal is the host record the spawn started, once it recorded itself.
 	terminal func() (host.Record, bool)
 }
@@ -313,6 +317,7 @@ func newNativeFixture(t *testing.T, kind harness.Kind, mode string) *nativeFixtu
 	record := filepath.Join(t.TempDir(), "codex.jsonl")
 	t.Setenv(fakeCodexRecord, record)
 	t.Setenv(fakeCodexMode, mode)
+	userEnv := os.Environ()
 	t.Setenv("OPENAI_API_KEY", "a billing key of the CFO's")
 	t.Setenv("HERDR_PANE_ID", "w1:p9")
 	t.Setenv("CLAUDECODE", "1")
@@ -342,11 +347,12 @@ func newNativeFixture(t *testing.T, kind harness.Kind, mode string) *nativeFixtu
 			time.Sleep(20 * time.Millisecond)
 		}
 	}()
-	native := &nativeFixture{fixture: f, record: record, terminal: func() (host.Record, bool) {
+	native := &nativeFixture{fixture: f, record: record, userEnv: userEnv, terminal: func() (host.Record, bool) {
 		mu.Lock()
 		defer mu.Unlock()
 		return started, found
 	}}
+	f.service.UserEnvironment = func() ([]string, error) { return native.userEnv, nil }
 	// Everything the spawn started ends before the fake's folder goes.
 	t.Cleanup(func() {
 		stop()
@@ -421,7 +427,7 @@ func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testin
 			f := newNativeFixture(t, harness.Codex, mode)
 			t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
 			gitBash := filepath.Join(t.TempDir(), "bash.exe")
-			t.Setenv("CLAUDE_CODE_GIT_BASH_PATH", gitBash)
+			f.userEnv = append(f.userEnv, "CLAUDE_CODE_GIT_BASH_PATH="+gitBash)
 			t.Setenv("CODEX_SANDBOX_NETWORK_DISABLED", "1")
 
 			result, err := f.service.Spawn(context.Background(), f.request)
@@ -771,5 +777,52 @@ func copyFile(t *testing.T, from, to string) {
 	}
 	if err := target.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// On 2026-09-26 a CFO running in Claude Code spawned pd-chat-turn-died
+// natively, and the goblin started with the CFO's whole session: Claude
+// Code's child-session marker, so the goblin saved no transcript, the CFO's
+// session id and messaging socket and token, its pid, and the CFO's own
+// Herdr pane. A native goblin starts from the user's environment, as a Herdr
+// goblin does from its pane, never from the process that ran cfo spawn.
+func TestANativeGoblinStartsFromTheUsersEnvironmentNotTheSpawners(t *testing.T) {
+	f := newNativeFixture(t, harness.Codex, "")
+	f.userEnv = append(f.userEnv, "USERS_OWN_SETTING=kept")
+	spawner := map[string]string{
+		"CLAUDECODE":                   "1",
+		"CLAUDE_CODE_CHILD_SESSION":    "1",
+		"CLAUDE_CODE_SESSION_ID":       "the-cfos-session",
+		"CLAUDE_CODE_MESSAGING_SOCKET": `\\.\pipe\the-cfos-socket`,
+		"CLAUDE_CODE_MESSAGING_TOKEN":  "the-cfos-token",
+		"CLAUDE_PID":                   "4242",
+		"HERDR_PANE_ID":                "w9:p0",
+		"HERDR_TAB_ID":                 "w9:t0",
+		"HERDR_WORKSPACE_ID":           "w9",
+		"CFO_ROLE":                     "cfo",
+		"A_SESSION_ONLY_VARIABLE":      "the spawner's",
+	}
+	for name, value := range spawner {
+		t.Setenv(name, value)
+	}
+
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+
+	env := named(f.events(t), "env")[0].Env
+	for name := range spawner {
+		if name == "CFO_ROLE" {
+			continue
+		}
+		if got := env[name]; got != nil {
+			t.Errorf("the goblin started with the spawner's %s = %q", name, *got)
+		}
+	}
+	if got := env["CFO_ROLE"]; got == nil || *got != harness.RoleGoblin {
+		t.Errorf("the goblin's CFO_ROLE = %v, want %q", got, harness.RoleGoblin)
+	}
+	if got := env["USERS_OWN_SETTING"]; got == nil || *got != "kept" {
+		t.Errorf("the goblin's USERS_OWN_SETTING = %v, want the user's own setting kept", got)
 	}
 }
