@@ -27,8 +27,9 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// maxReviews bounds the review list. An open item is never dropped to make
-// room: a new one waits in the inbox until an older one closes.
+// maxReviews bounds the review list. An open item, or a wait its goblin still
+// stands on, is never dropped to make room: a new one waits in the inbox until
+// an older one closes.
 const maxReviews = 128
 
 // maxReviewImages is the most images one review carries.
@@ -568,7 +569,20 @@ func (s *Store) acceptReview(r Review) error {
 			return nil
 		}
 		if len(s.db.Reviews) >= maxReviews {
-			closed := slices.IndexFunc(s.db.Reviews, func(old Review) bool { return old.State != "open" && !s.answering(old) })
+			closed := -1
+			for j, old := range s.db.Reviews {
+				if old.State == "open" || s.answering(old) {
+					continue
+				}
+				isHeld, err := s.holdsWait(old)
+				if err != nil {
+					return err
+				}
+				if !isHeld {
+					closed = j
+					break
+				}
+			}
 			if closed < 0 {
 				return ErrDeferred
 			}
@@ -661,9 +675,36 @@ func (s *Store) answering(r Review) bool {
 	})
 }
 
+// holdsWait reports whether a closed item is the wait on the Overlord its
+// goblin still stands on. The board reads the goblin past that wait only while
+// the item is listed, so it stays until the goblin reports anything newer or
+// its task is gone.
+func (s *Store) holdsWait(r Review) (bool, error) {
+	if r.Task == "" {
+		return false, nil
+	}
+	if _, err := state.ReadTaskMeta(s.Home.State, r.Task); errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	lines, err := state.TailStatus(s.Home.State, r.Task, 50)
+	if err != nil {
+		return false, err
+	}
+	reportedAt, report := latestReport(lines, time.Time{})
+	return waitStands(r, reportedAt, report), nil
+}
+
+// waitStands reports whether item r is a goblin's wait on the Overlord and the
+// goblin's latest report is still that wait, not a newer one.
+func waitStands(r Review, reportedAt time.Time, report string) bool {
+	return strings.HasPrefix(r.ID, "waiting-"+r.Task+"-") && strings.HasPrefix(report, "waiting on overlord: ") && !reportedAt.After(r.CreatedAt)
+}
+
 // pruneReviews drops closed items, with their copied images, a set time after
-// they closed. Open items and items whose answer is on its way are never
-// pruned.
+// they closed. Open items, items whose answer is on its way and a wait its
+// goblin still stands on are never pruned.
 func (s *Store) pruneReviews(now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -671,8 +712,14 @@ func (s *Store) pruneReviews(now time.Time) error {
 	var removed []Review
 	for _, r := range s.db.Reviews {
 		if r.State != "open" && !s.answering(r) && now.Sub(r.UpdatedAt) > closedReviewRetention {
-			removed = append(removed, r)
-			continue
+			isHeld, err := s.holdsWait(r)
+			if err != nil {
+				return err
+			}
+			if !isHeld {
+				removed = append(removed, r)
+				continue
+			}
 		}
 		kept = append(kept, r)
 	}
@@ -865,7 +912,7 @@ func (s *Store) retireItems() error {
 		case report == "":
 			continue
 		case strings.HasPrefix(r.ID, "waiting-"+r.Task+"-"):
-			if strings.HasPrefix(report, "waiting on overlord: ") && !reportedAt.After(r.CreatedAt) {
+			if waitStands(r, reportedAt, report) {
 				continue
 			}
 			reason = r.Task + " reported again: " + report

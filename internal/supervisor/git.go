@@ -263,15 +263,24 @@ func (g Git) Diff(ctx context.Context, dir, revision, path string) (result FileD
 			return FileDiff{}, err
 		}
 		if status == "?" {
-			d.Patch = fmt.Sprintf("--- /dev/null\n+++ b/%s\n", path)
+			var patch strings.Builder
+			header := fmt.Sprintf("--- /dev/null\n+++ b/%s\n", path)
 			// A zero-byte file has no line to select; a lone newline is one empty line.
-			if d.Code != "" {
+			if d.Code == "" {
+				patch.WriteString(header)
+			} else {
 				lines := strings.Split(strings.TrimSuffix(d.Code, "\n"), "\n")
-				d.Patch += fmt.Sprintf("@@ -0,0 +1,%d @@\n", len(lines))
+				hunk := fmt.Sprintf("@@ -0,0 +1,%d @@\n", len(lines))
+				patch.Grow(len(header) + len(hunk) + len(d.Code) + len(lines) + 1)
+				patch.WriteString(header)
+				patch.WriteString(hunk)
 				for _, line := range lines {
-					d.Patch += "+" + line + "\n"
+					patch.WriteByte('+')
+					patch.WriteString(line)
+					patch.WriteByte('\n')
 				}
 			}
+			d.Patch = patch.String()
 		} else {
 			base, baseErr := g.base(ctx, dir)
 			if baseErr != nil {

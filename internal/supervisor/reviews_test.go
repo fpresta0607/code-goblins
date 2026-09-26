@@ -152,6 +152,96 @@ func TestReviewsPruneClosedItemsAndNeverDropOpenOnes(t *testing.T) {
 	}
 }
 
+// A delivered wait item stays listed past its retention while its goblin still
+// stands on that wait, so the board keeps reading the goblin past it, and goes
+// once the goblin reports anything newer.
+func TestPruneKeepsAWaitItemItsGoblinStillStandsOn(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	old := time.Now().UTC().Add(-closedReviewRetention - time.Hour)
+	report := old.Format(time.RFC3339) + " waiting on overlord: pick a plan\n"
+	if err := os.WriteFile(filepath.Join(h.State, "task-1.status"), []byte(report), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wait := openReview("waiting-task-1-7", "task-1")
+	if err := store.acceptReview(wait); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.db.Reviews[0].CreatedAt, store.db.Reviews[0].UpdatedAt = old, old
+	store.db.Reviews[0].State, store.db.Reviews[0].Answer, store.db.Reviews[0].AnswerID, store.db.Reviews[0].Delivered = "answered", "use the blue plan", "action-1", true
+	store.mu.Unlock()
+
+	// Act
+	if err := store.pruneReviews(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := (&Service{Store: store}).Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := snapshot.Reviews; len(got) != 1 || got[0].ID != wait.ID {
+		t.Fatalf("reviews = %+v, want the standing wait kept", got)
+	}
+	i := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == "task-1" })
+	if i < 0 {
+		t.Fatal("task-1 missing from the snapshot")
+	}
+	if got := snapshot.Tasks[i]; got.Phase == "waiting" && got.WaitingOn == "overlord" {
+		t.Fatalf("task-1 = %+v, want it past the answered wait", got.Evaluation)
+	}
+
+	if err := state.AppendStatus(h.State, "task-1", "working: drawing the blue plan"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.pruneReviews(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Reviews; len(got) != 0 {
+		t.Fatalf("reviews = %+v, want the wait pruned once the goblin moved on", got)
+	}
+}
+
+// A full list evicts another closed item, never the wait item its goblin still
+// stands on.
+func TestEvictionSparesAWaitItemItsGoblinStillStandsOn(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	if err := state.AppendStatus(h.State, "task-1", "waiting on overlord: pick a plan"); err != nil {
+		t.Fatal(err)
+	}
+	wait, closed := openReview("waiting-task-1-7", "task-1"), openReview("closed-review", "task-1")
+	for _, r := range []Review{wait, closed} {
+		if err := store.acceptReview(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store.mu.Lock()
+	store.db.Reviews[0].State, store.db.Reviews[0].Answer, store.db.Reviews[0].AnswerID, store.db.Reviews[0].Delivered = "answered", "use the blue plan", "action-1", true
+	store.db.Reviews[1].State = "cleared"
+	store.mu.Unlock()
+	for i := len(store.Snapshot().Reviews); i < maxReviews; i++ {
+		if err := store.acceptReview(openReview(fmt.Sprintf("bulk-review-%03d", i), "task-1")); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	err := store.acceptReview(openReview("one-more-review", "task-1"))
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviews := store.Snapshot().Reviews
+	isKept := func(id string) bool { return slices.ContainsFunc(reviews, func(r Review) bool { return r.ID == id }) }
+	if !isKept(wait.ID) || isKept(closed.ID) {
+		t.Fatalf("after eviction the wait is kept %v and the other closed item %v; want the wait kept and the other evicted", isKept(wait.ID), isKept(closed.ID))
+	}
+}
+
 // A withdrawal of a publication still waiting in the inbox waits with it
 // instead of being rejected.
 func TestReviewWithdrawalWaitsForItsDeferredPublication(t *testing.T) {
