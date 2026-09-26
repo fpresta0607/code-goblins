@@ -42,7 +42,7 @@ func (s Service) refuseAnotherHome() error {
 	if !set || sameDirectory(current, s.Root) || !home.IsPrimary(home.Home{Root: current, State: filepath.Join(current, "state")}) {
 		return nil
 	}
-	return fmt.Errorf("install: CFO_HOME is %s, a home in use; run goblins uninstall from that home first, then run this again to move to %s", current, s.Root)
+	return fmt.Errorf("install: CFO_HOME is %s, a home in use; run this from that home to keep it, or run goblins uninstall there first, then run this again to move to %s", current, s.Root)
 }
 
 // writeHome lays out a home outside a checkout: state and data, the
