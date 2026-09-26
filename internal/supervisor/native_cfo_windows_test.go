@@ -356,8 +356,15 @@ func TestACFOViewClosesWhenTheCFOLeavesItsTerminal(t *testing.T) {
 	v := openNativeView(t, server, cfoQuery)
 	v.waitFor(t, "program ready")
 
-	if err := os.Remove(filepath.Join(stateDir, "primary.json")); err != nil {
-		t.Fatal(err)
+	// The relay reads the registration every tick through a handle that
+	// refuses a delete while it is open, so the delete retries the few
+	// microseconds a tick holds it, the way state.RemoveTaskMeta does.
+	deadline := time.Now().Add(2 * time.Second)
+	for err := os.Remove(filepath.Join(stateDir, "primary.json")); err != nil; err = os.Remove(filepath.Join(stateDir, "primary.json")) {
+		if time.Now().After(deadline) {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Millisecond)
 	}
 
 	if closed := v.waitForClose(t); closed.Code != websocket.StatusPolicyViolation || !strings.Contains(closed.Reason, "CFO") {
