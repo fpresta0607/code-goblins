@@ -94,7 +94,7 @@ func Ancestry(pid int, maxHops int) ([]Entry, error) {
 		if !ok {
 			break
 		}
-		start, ok := processStart(int(currentPID))
+		start, ok := StartTime(int(currentPID))
 		if !ok {
 			break
 		}
@@ -162,15 +162,20 @@ func CPUTime(pid int) (time.Duration, bool) {
 	if err := syscall.GetProcessTimes(h, &creation, &exit, &kernel, &user); err != nil {
 		return 0, false
 	}
-	// A FILETIME duration counts 100-nanosecond intervals, so Nanoseconds()
-	// on these two is already the elapsed processor time, not a wall clock.
-	return time.Duration(kernel.Nanoseconds() + user.Nanoseconds()), true
+	// Kernel and user time are durations counted in 100-nanosecond
+	// intervals. Filetime.Nanoseconds reads a date and subtracts the 1601
+	// epoch, which turns a duration into a large negative number.
+	return filetimeDuration(kernel) + filetimeDuration(user), true
 }
 
-// processStart returns pid's creation time, and whether the process was
+func filetimeDuration(ft syscall.Filetime) time.Duration {
+	return time.Duration(int64(ft.HighDateTime)<<32|int64(ft.LowDateTime)) * 100
+}
+
+// StartTime returns pid's creation time, and whether the process was
 // found and its times could be resolved. Mirrors internal/lock's
 // OpenProcess + GetProcessTimes technique.
-func processStart(pid int) (time.Time, bool) {
+func StartTime(pid int) (time.Time, bool) {
 	h, err := syscall.OpenProcess(processQueryLimitedInformation, false, uint32(pid))
 	if err != nil {
 		return time.Time{}, false
