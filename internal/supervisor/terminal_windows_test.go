@@ -462,85 +462,110 @@ func TestLivePaneViewTypesALargePasteInOneRequest(t *testing.T) {
 	}
 }
 
-// The wheel and the page keys scroll the pane's history through Herdr, which
-// holds the offset within the history and says where the pane is; typing
-// first brings a scrolled pane back to its bottom, since Herdr would keep it
-// scrolled, and a pane at its bottom is typed into at once.
-func TestLivePaneViewScrollsThePaneAndTypesAtItsBottom(t *testing.T) {
-	panes := &recordingPanes{history: 10}
-	allow := func(context.Context, terminalBinding, bool) error { return nil }
-	lease := &terminalLease{panes: panes, cancel: func() {}}
-	steps := []struct {
-		command herdr.TerminalCommand
-		scrolls []int
-		typed   []string
-	}{
-		{herdr.TerminalCommand{Type: "terminal.scroll", Direction: "up", Lines: 3, Source: "wheel"}, []int{3}, nil},
-		{herdr.TerminalCommand{Type: "terminal.scroll", Direction: "up", Lines: 5, Source: "wheel"}, []int{3, 8}, nil},
-		{herdr.TerminalCommand{Type: "terminal.scroll", Direction: "down", Lines: 2, Source: "page_key"}, []int{3, 8, 6}, nil},
-		{herdr.TerminalCommand{Type: "terminal.input", Text: "x"}, []int{3, 8, 6, 0}, []string{"x"}},
-		{herdr.TerminalCommand{Type: "terminal.input", Text: "y"}, []int{3, 8, 6, 0}, []string{"x", "y"}},
-		{herdr.TerminalCommand{Type: "terminal.scroll", Direction: "up", Lines: 200, Source: "wheel"}, []int{3, 8, 6, 0, 10}, []string{"x", "y"}},
-		{herdr.TerminalCommand{Type: "terminal.scroll", Direction: "down", Lines: 3, Source: "wheel"}, []int{3, 8, 6, 0, 10, 7}, []string{"x", "y"}},
-		{herdr.TerminalCommand{Type: "terminal.scroll", Direction: "down", Lines: 200, Source: "wheel"}, []int{3, 8, 6, 0, 10, 7, 0}, []string{"x", "y"}},
-	}
-	for seq, step := range steps {
-		if err := lease.input(context.Background(), uint64(seq+1), step.command, allow); err != nil {
-			t.Fatalf("step %d: %v", seq+1, err)
-		}
-		if !reflect.DeepEqual(panes.scrolls, step.scrolls) || !reflect.DeepEqual(panes.typed, step.typed) {
-			t.Fatalf("after step %d: scrolled to %v and typed %q, want %v and %q", seq+1, panes.scrolls, panes.typed, step.scrolls, step.typed)
-		}
-	}
-}
-
-// Herdr keeps a pane's offset after the view that scrolled it closes, so a
-// new view does not know where its pane shows: its first key brings the pane
-// back to its bottom before it is typed, and its first scroll takes the offset
-// Herdr answers.
-func TestANewLivePaneViewTypesAtTheBottomOfAPaneLeftScrolled(t *testing.T) {
+// The wheel shows the pane's history, which a Herdr observer never sends: the
+// view reads it from the pane over the socket, the lines it asked for, and a
+// read types nothing. A view that ended, or whose pane changed, reads
+// nothing.
+func TestLivePaneViewReadsThePanesHistory(t *testing.T) {
 	// Arrange
-	panes := &recordingPanes{history: 40, offset: 30}
+	panes := &recordingPanes{text: "line 1\nline 2"}
 	allow := func(context.Context, terminalBinding, bool) error { return nil }
-	lease := &terminalLease{panes: panes, cancel: func() {}}
+	lease := &terminalLease{binding: terminalBinding{Target: herdr.Target{Session: "isolated", Pane: "w1:p1"}}, panes: panes, cancel: func() {}}
 
 	// Act
-	err := lease.input(context.Background(), 1, herdr.TerminalCommand{Type: "terminal.input", Text: "x"}, allow)
+	text, err := lease.history(context.Background(), 2000, allow)
 
 	// Assert
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || text != "line 1\nline 2" {
+		t.Fatalf("history = %q, %v; want the pane's text", text, err)
 	}
-	if !reflect.DeepEqual(panes.scrolls, []int{0}) || !reflect.DeepEqual(panes.typedAt, []int{0}) {
-		t.Fatalf("a new view's first key scrolled to %v and typed at offsets %v, want the pane at its bottom first", panes.scrolls, panes.typedAt)
+	if !reflect.DeepEqual(panes.reads, []string{"w1:p1 2000"}) || len(panes.typed) != 0 {
+		t.Fatalf("read %v and typed %q, want one read of 2000 lines of w1:p1 and nothing typed", panes.reads, panes.typed)
 	}
 
-	scrolled := &recordingPanes{history: 40, offset: 30}
-	fresh := &terminalLease{panes: scrolled, cancel: func() {}}
-	steps := []herdr.TerminalCommand{
-		{Type: "terminal.scroll", Direction: "up", Lines: 3, Source: "wheel"},
-		{Type: "terminal.input", Text: "y"},
+	changed := func(context.Context, terminalBinding, bool) error {
+		return errors.New("Native terminal identity changed.")
 	}
-	for seq, command := range steps {
-		if err := fresh.input(context.Background(), uint64(seq+1), command, allow); err != nil {
-			t.Fatal(err)
-		}
+	if _, err := lease.history(context.Background(), 10, changed); err == nil || len(panes.reads) != 1 {
+		t.Fatalf("history of a changed pane = %v with %d reads, want refused unread", err, len(panes.reads))
 	}
-	if !reflect.DeepEqual(scrolled.scrolls, []int{3, 0}) || !reflect.DeepEqual(scrolled.typedAt, []int{0}) {
-		t.Fatalf("a new view's first scroll then a key scrolled to %v and typed at offsets %v, want 3 then the bottom before typing", scrolled.scrolls, scrolled.typedAt)
+	lease.closed = true
+	if _, err := lease.history(context.Background(), 10, allow); err == nil || len(panes.reads) != 1 {
+		t.Fatalf("history of an ended view = %v with %d reads, want refused unread", err, len(panes.reads))
 	}
 }
 
-// recordingPanes is a pane input that records what it types, at which offset,
-// and the offsets Herdr would show, held within history; offset is where the
-// pane shows now, and refuse fails that many inputs first.
+// A live view sends only typing: scrolling Herdr's pane would move every
+// Herdr window on it and still not reach the view, so a scroll is refused
+// and nothing reaches the pane.
+func TestLivePaneViewRefusesToScrollThePane(t *testing.T) {
+	panes := &recordingPanes{}
+	allow := func(context.Context, terminalBinding, bool) error { return nil }
+	lease := &terminalLease{panes: panes, cancel: func() {}}
+
+	err := lease.input(context.Background(), 1, herdr.TerminalCommand{Type: "terminal.scroll", Direction: "up", Lines: 3, Source: "wheel"}, allow)
+
+	if err == nil || len(panes.typed) != 0 || len(panes.reads) != 0 {
+		t.Fatalf("a scroll = %v, want refused with nothing sent to the pane", err)
+	}
+}
+
+// The history request reads the pane the lease is bound to, bounded in
+// lines, and answers its text; an unknown lease or a line count out of
+// bounds reads nothing.
+func TestTerminalHistoryAnswersThePanesRecentLines(t *testing.T) {
+	native := newTestTerminal()
+	_, server, _, runner := terminalHTTPFixture(t, native)
+	socket := runner.socket
+	socket.History = []string{"first", "second", "\x1b[31mthird\x1b[0m"}
+	native.frames <- fullFrame(1)
+	response := terminalPost(t, server, "/api/terminal/stream", `{}`)
+	defer response.Body.Close()
+	lease := readyLease(t, bufio.NewScanner(response.Body))
+	cases := []struct {
+		name   string
+		body   string
+		status int
+		text   string
+	}{
+		{"the last lines asked for", fmt.Sprintf(`{"lease":%q,"lines":2}`, lease), 200, "second\n\x1b[31mthird\x1b[0m"},
+		{"all of a shorter history", fmt.Sprintf(`{"lease":%q,"lines":5000}`, lease), 200, "first\nsecond\n\x1b[31mthird\x1b[0m"},
+		{"no lines", fmt.Sprintf(`{"lease":%q,"lines":0}`, lease), 400, ""},
+		{"too many lines", fmt.Sprintf(`{"lease":%q,"lines":5001}`, lease), 400, ""},
+		{"an unknown lease", `{"lease":"gone","lines":10}`, 409, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			before := len(socket.Requests())
+
+			reply := terminalPost(t, server, "/api/terminal/history", c.body)
+			defer reply.Body.Close()
+			var answer struct {
+				Text string `json:"text"`
+			}
+			_ = json.NewDecoder(reply.Body).Decode(&answer)
+
+			reads := socket.Requests()[before:]
+			if reply.StatusCode != c.status || answer.Text != c.text {
+				t.Fatalf("history = %d %q, want %d %q", reply.StatusCode, answer.Text, c.status, c.text)
+			}
+			if c.status == 200 && (len(reads) != 1 || reads[0].Method != "pane.read" || reads[0].Params["pane_id"] != "w1:p1" || reads[0].Params["source"] != "recent" || reads[0].Params["format"] != "ansi") {
+				t.Fatalf("requests = %v, want one pane.read of w1:p1's recent ANSI output", reads)
+			}
+			if c.status != 200 && len(reads) != 0 {
+				t.Fatalf("a refused history request sent %v", reads)
+			}
+		})
+	}
+}
+
+// recordingPanes is a pane input that records what it types and which
+// history it reads, answering text; refuse fails that many inputs first.
 type recordingPanes struct {
-	history int
-	offset  int
-	refuse  int
-	typed   []string
-	typedAt []int
-	scrolls []int
+	text   string
+	refuse int
+	typed  []string
+	reads  []string
 }
 
 func (p *recordingPanes) SendText(_ context.Context, _ string, text string) error {
@@ -549,14 +574,12 @@ func (p *recordingPanes) SendText(_ context.Context, _ string, text string) erro
 		return errors.New("pane busy")
 	}
 	p.typed = append(p.typed, text)
-	p.typedAt = append(p.typedAt, p.offset)
 	return nil
 }
 
-func (p *recordingPanes) Scroll(_ context.Context, _ string, offset int) (int, error) {
-	p.offset = min(offset, p.history)
-	p.scrolls = append(p.scrolls, p.offset)
-	return p.offset, nil
+func (p *recordingPanes) History(_ context.Context, pane string, lines int) (string, error) {
+	p.reads = append(p.reads, fmt.Sprintf("%s %d", pane, lines))
+	return p.text, nil
 }
 
 // Each key is typed without starting a process: the view proved its pane
@@ -715,14 +738,14 @@ func TestEachKeyVerifiesInFullOnlyWhenItsBindingChanged(t *testing.T) {
 }
 
 // Custody is proved when a view opens rather than per key: a live view of a
-// goblin whose gate owns the pane still opens and scrolls its history, which
+// goblin whose gate owns the pane still opens and reads its history, which
 // reaches no program, over the socket, and a key is refused with nothing
 // typed.
 func TestLivePaneViewRefusesTypingWhileAGateOwnsThePane(t *testing.T) {
 	native := newTestTerminal()
 	h, server, _, runner := terminalHTTPFixture(t, native)
 	socket := runner.socket
-	socket.History = 50
+	socket.History = []string{"built", "tested"}
 	body := goblinView(t, h, runner)
 	h.Service.Options.Gate = fakeProgress{value: pipeline.Progress{Status: "running"}}
 	native.frames <- fullFrame(1)
@@ -730,13 +753,13 @@ func TestLivePaneViewRefusesTypingWhileAGateOwnsThePane(t *testing.T) {
 	defer response.Body.Close()
 	lease := readyLease(t, bufio.NewScanner(response.Body))
 	opened := runner.calls
-	scroll := terminalPost(t, server, "/api/terminal/input", fmt.Sprintf(`{"lease":%q,"seq":1,"command":{"type":"terminal.scroll","direction":"up","lines":3,"source":"wheel"}}`, lease))
-	scroll.Body.Close()
+	history := terminalPost(t, server, "/api/terminal/history", fmt.Sprintf(`{"lease":%q,"lines":100}`, lease))
+	history.Body.Close()
 	requests := socket.Requests()
-	if scroll.StatusCode != 200 || len(requests) != 1 || requests[0].Method != "pane.scroll" || requests[0].Params["offset_from_bottom"] != float64(3) || runner.calls != opened {
-		t.Fatalf("scrolling under a gate = %d with %v and %d Herdr commands, want 200, one pane.scroll to 3 on the socket and no command", scroll.StatusCode, requests, runner.calls-opened)
+	if history.StatusCode != 200 || len(requests) != 1 || requests[0].Method != "pane.read" || runner.calls != opened {
+		t.Fatalf("reading history under a gate = %d with %v and %d Herdr commands, want 200, one pane.read on the socket and no command", history.StatusCode, requests, runner.calls-opened)
 	}
-	if status := typeKey(t, server, lease, 2, "x"); status != 409 || len(typedInto(socket, "w1:p1")) != 0 {
+	if status := typeKey(t, server, lease, 1, "x"); status != 409 || len(typedInto(socket, "w1:p1")) != 0 {
 		t.Fatalf("typing under a gate = %d with %d typed, want 409 and nothing typed", status, len(typedInto(socket, "w1:p1")))
 	}
 }
