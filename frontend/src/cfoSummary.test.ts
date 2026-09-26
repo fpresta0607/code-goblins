@@ -30,6 +30,10 @@ test("a review or a command to run is named by its title, and answered items no 
   assert.deepEqual(cfoSummary(snapshot({ tasks: [task("a")], questions: [question("done", "Ship it?", { status: "answered" })], reviews: [review("closed", "Old", { state: "closed" })] })), { asking: false, line: "Supervising 1 goblin" });
 });
 
+test("a goblin's wait on the Overlord, titled Waiting on you by its item, says it once", () => {
+  assert.equal(cfoSummary(snapshot({ reviews: [review("waiting-goblin-a-7", "Waiting on you: pick the settings layout")] })).line, "Waiting on you: pick the settings layout");
+});
+
 test("a question is named by its lead sentence alone, without its details", () => {
   assert.equal(cfoSummary(snapshot({ questions: [question("q", "Which **layout** should I use?\n\n- A: stacked\n- B: tabs")] })).line, "Waiting on you: Which layout should I use?");
   assert.equal(cfoSummary(snapshot({ questions: [question("q", "Pick one?\n- A\n- B")] })).line, "Waiting on you: Pick one?");

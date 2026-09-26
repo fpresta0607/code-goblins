@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -26,8 +27,9 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// maxReviews bounds the review list. An open item is never dropped to make
-// room: a new one waits in the inbox until an older one closes.
+// maxReviews bounds the review list. An open item, or a wait its goblin still
+// stands on, is never dropped to make room: a new one waits in the inbox until
+// an older one closes.
 const maxReviews = 128
 
 // maxReviewImages is the most images one review carries.
@@ -567,7 +569,9 @@ func (s *Store) acceptReview(r Review) error {
 			return nil
 		}
 		if len(s.db.Reviews) >= maxReviews {
-			closed := slices.IndexFunc(s.db.Reviews, func(old Review) bool { return old.State != "open" && !s.answering(old) })
+			closed := slices.IndexFunc(s.db.Reviews, func(old Review) bool {
+				return old.State != "open" && !s.answering(old) && !s.holdsWait(old)
+			})
 			if closed < 0 {
 				return ErrDeferred
 			}
@@ -660,16 +664,45 @@ func (s *Store) answering(r Review) bool {
 	})
 }
 
+// holdsWait reports whether a closed item is the wait on the Overlord its
+// goblin still stands on. The board reads the goblin past that wait only while
+// the item is listed, so it stays until the goblin reports anything newer or
+// its task is gone. Only a wait item reads its task's files; one whose task
+// cannot be read is kept for this pass, the safe side, since the hold is one
+// item per task and the next pass checks it again.
+func (s *Store) holdsWait(r Review) bool {
+	if r.State == "open" || r.Task == "" || !strings.HasPrefix(r.ID, "waiting-"+r.Task+"-") {
+		return false
+	}
+	if _, err := state.ReadTaskMeta(s.Home.State, r.Task); errors.Is(err, fs.ErrNotExist) {
+		return false
+	} else if err != nil {
+		return true
+	}
+	lines, err := state.TailStatus(s.Home.State, r.Task, 50)
+	if err != nil {
+		return true
+	}
+	reportedAt, report := latestReport(lines, time.Time{})
+	return waitStands(r, reportedAt, report)
+}
+
+// waitStands reports whether item r is a goblin's wait on the Overlord and the
+// goblin's latest report is still that wait, not a newer one.
+func waitStands(r Review, reportedAt time.Time, report string) bool {
+	return strings.HasPrefix(r.ID, "waiting-"+r.Task+"-") && strings.HasPrefix(report, "waiting on overlord: ") && !reportedAt.After(r.CreatedAt)
+}
+
 // pruneReviews drops closed items, with their copied images, a set time after
-// they closed. Open items and items whose answer is on its way are never
-// pruned.
+// they closed. Open items, items whose answer is on its way and a wait its
+// goblin still stands on are never pruned.
 func (s *Store) pruneReviews(now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	kept := make([]Review, 0, len(s.db.Reviews))
 	var removed []Review
 	for _, r := range s.db.Reviews {
-		if r.State != "open" && !s.answering(r) && now.Sub(r.UpdatedAt) > closedReviewRetention {
+		if r.State != "open" && !s.answering(r) && now.Sub(r.UpdatedAt) > closedReviewRetention && !s.holdsWait(r) {
 			removed = append(removed, r)
 			continue
 		}
@@ -713,7 +746,8 @@ func (s *Store) clearReview(id, identity, reason string) (Evaluation, error) {
 
 // answerReview delivers the Overlord's answer once to the item's reporter:
 // the goblin's own pane while it is the same task generation, or the CFO that
-// reported it. An answer for a goblin that restarted or ended goes to the
+// reported it, where a reporter inside a long turn takes it once the turn
+// ends. An answer for a goblin that restarted or ended goes to the
 // current CFO instead, and the item stays undelivered. An answer a goblin
 // received also reaches the CFO, as a notice in its wake queue.
 func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error) {
@@ -735,6 +769,9 @@ func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error
 		if errors.Is(err, ErrRejected) {
 			return s.answerReviewToCFO(ctx, r, a.Text)
 		}
+	}
+	if errors.Is(err, fleet.ErrQueuedBehindTurn) {
+		result, err = Evaluation{Reason: "Submitted through Herdr while its reporter was working; it takes the answer when its current turn ends."}, nil
 	}
 	if err != nil {
 		return result, err
@@ -860,7 +897,7 @@ func (s *Store) retireItems() error {
 		case report == "":
 			continue
 		case strings.HasPrefix(r.ID, "waiting-"+r.Task+"-"):
-			if strings.HasPrefix(report, "waiting on overlord: ") && !reportedAt.After(r.CreatedAt) {
+			if waitStands(r, reportedAt, report) {
 				continue
 			}
 			reason = r.Task + " reported again: " + report

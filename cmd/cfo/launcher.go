@@ -112,27 +112,58 @@ func runLauncher(stdout, stderr io.Writer, runtime commandRuntime, native bool) 
 		return 1
 	}
 	ctx := context.Background()
-	board, status, running := liveBoard(ctx, h.State)
-	started := false
-	if !running {
-		exited, err := runtime.startServe(h)
-		if err != nil {
-			fmt.Fprintf(stderr, "goblins: the supervisor could not be started: %v\n", err)
-			return 1
-		}
-		if board, status, running = waitForBoard(ctx, h.State, exited); !running {
-			fmt.Fprintf(stderr, "goblins: the supervisor did not start; the end of %s says:\n%s", serveLogPath(h.State), logTail(serveLogPath(h.State), 12))
-			return 1
-		}
-		started = true
+	board, started, ok := launchBoard(ctx, runtime, h, stdout, stderr)
+	if !ok {
+		return 1
 	}
-	fmt.Fprint(stdout, renderBanner(bannerColor(stdout), board, status))
 	if started {
 		if err := runtime.openURL(board); err != nil {
 			fmt.Fprintf(stderr, "goblins: open the board at %s yourself (%v)\n", board, err)
 		}
 	}
 	return startCFOSession(ctx, runtime, h.State, native, stdout, stderr)
+}
+
+// runBoardLauncher is goblins --board. It finds or starts the supervisor as
+// goblins does and opens the board in the browser every time, and starts or
+// shows no CFO in this terminal: the board shows the CFO, and its first-run
+// screen while none is registered.
+func runBoardLauncher(stdout, stderr io.Writer, runtime commandRuntime) int {
+	h, err := runtime.resolveHome()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	board, _, ok := launchBoard(context.Background(), runtime, h, stdout, stderr)
+	if !ok {
+		return 1
+	}
+	if err := runtime.openURL(board); err != nil {
+		fmt.Fprintf(stderr, "goblins: open the board at %s yourself (%v)\n", board, err)
+		return 1
+	}
+	return 0
+}
+
+// launchBoard finds the supervisor, or starts one detached from this
+// terminal, and prints the banner with the board's link and the fleet's
+// status. started says whether this launch started the supervisor.
+func launchBoard(ctx context.Context, runtime commandRuntime, h home.Home, stdout, stderr io.Writer) (board string, started, ok bool) {
+	board, status, running := liveBoard(ctx, h.State)
+	if !running {
+		exited, err := runtime.startServe(h)
+		if err != nil {
+			fmt.Fprintf(stderr, "goblins: the supervisor could not be started: %v\n", err)
+			return "", false, false
+		}
+		if board, status, running = waitForBoard(ctx, h.State, exited); !running {
+			fmt.Fprintf(stderr, "goblins: the supervisor did not start; the end of %s says:\n%s", serveLogPath(h.State), logTail(serveLogPath(h.State), 12))
+			return "", false, false
+		}
+		started = true
+	}
+	fmt.Fprint(stdout, renderBanner(bannerColor(stdout), board, status))
+	return board, started, true
 }
 
 // liveBoard returns the board a supervisor serves at the address its record
@@ -259,7 +290,7 @@ func startDetachedServe(h home.Home) (<-chan struct{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	command, err := startDetached(executable, h.Root, serveLogPath(h.State), "serve")
+	command, err := startDetached(executable, h.Root, serveLogPath(h.State), serveArguments(defaultBoardAddress)...)
 	if err != nil {
 		return nil, errors.Join(errors.New("start cfo serve"), err)
 	}
@@ -269,6 +300,19 @@ func startDetachedServe(h home.Home) (<-chan struct{}, error) {
 		close(exited)
 	}()
 	return exited, nil
+}
+
+// serveArguments is cfo serve on the preferred address, or on a free loopback
+// port when another program, such as the supervisor of another CFO home,
+// already listens there: goblins finds the board through its record either
+// way.
+func serveArguments(preferred string) []string {
+	listener, err := net.Listen("tcp", preferred)
+	if err != nil {
+		return []string{"serve", "--listen", "127.0.0.1:0"}
+	}
+	_ = listener.Close()
+	return []string{"serve", "--listen", preferred}
 }
 
 // startDetached starts executable in dir with a hidden console of its own,

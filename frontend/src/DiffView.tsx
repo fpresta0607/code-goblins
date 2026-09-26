@@ -10,7 +10,9 @@ export function DiffView({ diff, reviews, connected }: {
   reviews: ReviewControls;
   connected: boolean;
 }) {
-  const [mode, setMode] = useState("unified");
+  const [chosen, setMode] = useState("unified");
+  // A file over the code preview limit has no whole-file code to show.
+  const mode = diff.code_omitted && chosen === "code" ? "unified" : chosen;
   const [limit, setLimit] = useState(300);
   const rows = useMemo(() => parsePatchToRows(diff.patch), [diff.patch]);
   const visible = rows.slice(0, limit);
@@ -96,9 +98,10 @@ export function DiffView({ diff, reviews, connected }: {
       <span className="diff-stats"><b>+{rows.filter((row) => row.variant === "added").length}</b><i>−{rows.filter((row) => row.variant === "removed").length}</i></span>
       <label><span className="sr-only">Diff format for {diff.path}</span>
         <select aria-label={"Diff format for " + diff.path} value={mode} onChange={(event) => setMode(event.target.value)}>
-          <option value="unified">Unified</option><option value="split">Split</option><option value="code">Code</option>
+          <option value="unified">Unified</option><option value="split">Split</option><option value="code" disabled={diff.code_omitted}>Code</option>
         </select>
       </label>
+      {diff.code_omitted && <span className="diff-note">Changes only: the file is over 256 KiB</span>}
       {mode !== "code" && !diff.binary && <span className="selection-hint">Drag across lines, or click a line number, to comment.</span>}
     </div>
     {diff.binary ? <div className="padded">Binary file changed. Text preview is unavailable.</div> :
