@@ -68,7 +68,7 @@ func ReadScreen(record Record) ([]string, error) {
 }
 
 func requestScreen(record Record) ([]string, error) {
-	client, err := dial(record, hello{Version: Version, Token: record.Token, Screen: true})
+	client, _, err := dial(record, hello{Version: Version, Token: record.Token, Screen: true})
 	if err != nil {
 		return nil, err
 	}

@@ -180,7 +180,8 @@ func TestAProgramInALiveNativeTerminalRegistersAsTheCFO(t *testing.T) {
 }
 
 // A delivery to a native CFO is typed into its terminal and submitted once,
-// and reported unconfirmed, since nothing yet reports that the CFO took it.
+// and reported delivered once its host confirms it wrote both into the
+// terminal's input.
 func TestADeliveryToANativeCFOIsTypedIntoItsTerminalOnce(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv("HERDR_PANE_ID", "")
@@ -190,10 +191,10 @@ func TestADeliveryToANativeCFOIsTypedIntoItsTerminalOnce(t *testing.T) {
 		t.Fatalf("the program recorded %q, want its registration", lines)
 	}
 
-	_, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
+	result, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
 
-	if err == nil || errors.Is(err, ErrRejected) {
-		t.Errorf("Send error = %v, want an unconfirmed delivery, neither refused nor accepted", err)
+	if err != nil || !strings.Contains(result.Reason, "native terminal took") {
+		t.Errorf("Send = %+v, %v; want it delivered once the host wrote it", result, err)
 	}
 	if typed := cfo.exit(t); len(typed) != 2 || typed[1] != "Overlord: hello" {
 		t.Errorf("the terminal received %q, want its registration and then the message once", typed)
@@ -212,10 +213,10 @@ func TestADeliveryToANativeCFOWithALongHistoryIsTypedIntoItsTerminalOnce(t *test
 		t.Fatalf("the program recorded %q, want its registration and then the spill", lines)
 	}
 
-	_, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
+	result, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
 
-	if err == nil || errors.Is(err, ErrRejected) {
-		t.Errorf("Send error = %v, want an unconfirmed delivery, neither refused nor accepted", err)
+	if err != nil || !strings.Contains(result.Reason, "native terminal took") {
+		t.Errorf("Send = %+v, %v; want it delivered once the host wrote it", result, err)
 	}
 	if typed := cfo.exit(t); len(typed) != 3 || typed[2] != "Overlord: hello" {
 		t.Errorf("the terminal received %q, want its registration, the spill and then the message once", typed)

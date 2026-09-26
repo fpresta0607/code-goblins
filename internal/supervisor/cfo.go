@@ -395,9 +395,8 @@ func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evalua
 const nativeSubmitSettle = 300 * time.Millisecond
 
 // sendNative types text into the registered CFO's native terminal once and
-// submits it. Nothing reports that the CFO took it until native hooks report
-// its prompts, so a message that was typed is returned unconfirmed, and it is
-// never typed again.
+// submits it, and it is delivered once the terminal's host confirms it wrote
+// both into the terminal's input. It is never typed again.
 func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistration, text string) (Evaluation, error) {
 	if err := c.verify(ctx, primary); err != nil {
 		return Evaluation{}, fmt.Errorf("%w: %v", ErrRejected, err)
@@ -406,12 +405,15 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 	if err != nil {
 		return Evaluation{}, fmt.Errorf("%w: %v", ErrRejected, err)
 	}
-	client, err := host.Dial(record)
+	delivery, err := host.DialDelivery(record)
+	if errors.Is(err, host.ErrNoDelivery) {
+		return Evaluation{}, fmt.Errorf("%w: %v; start the CFO again to answer it from the board", ErrRejected, err)
+	}
 	if err != nil {
 		return Evaluation{}, fmt.Errorf("%w: the CFO's native terminal does not answer; nothing was sent", ErrRejected)
 	}
-	defer client.Close()
-	if err := client.Input([]byte(oneLine("Overlord: " + text))); err != nil {
+	defer delivery.Close()
+	if err := delivery.Write([]byte(oneLine("Overlord: " + text))); err != nil {
 		return Evaluation{}, fmt.Errorf("the message may have reached the CFO's native terminal only in part: %w", err)
 	}
 	select {
@@ -419,8 +421,8 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 	case <-ctx.Done():
 		return Evaluation{}, fmt.Errorf("the message was typed into the CFO's native terminal but not submitted: %w", ctx.Err())
 	}
-	if err := client.Input([]byte("\r")); err != nil {
+	if err := delivery.Write([]byte("\r")); err != nil {
 		return Evaluation{}, fmt.Errorf("the message was typed into the CFO's native terminal, and whether Enter reached it is unknown: %w", err)
 	}
-	return Evaluation{}, errors.New("the message was typed into the CFO's native terminal and submitted once; nothing confirms the CFO took it until native hooks report its prompts")
+	return Evaluation{Reason: "The CFO's native terminal took the message and its Enter."}, nil
 }

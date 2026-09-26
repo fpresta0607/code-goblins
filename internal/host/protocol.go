@@ -38,6 +38,9 @@ const (
 	// frameScreen answers a screen request with the terminal's screen, as
 	// JSON; the host closes the connection after it.
 	frameScreen byte = 's'
+	// frameAck answers each input frame of a delivery once the host has
+	// written it into the terminal's input: empty, or the write's error.
+	frameAck byte = 'a'
 )
 
 // maxFrame bounds one frame's payload.
@@ -51,8 +54,13 @@ type hello struct {
 	// history, output or input. It needs no new version: a host that does
 	// not know it answers as to a viewer, and ReadScreen refuses the output
 	// frame that comes first.
-	Screen bool   `json:"screen,omitempty"`
-	Error  string `json:"error,omitempty"`
+	Screen bool `json:"screen,omitempty"`
+	// Deliver, from a client, asks for a delivery: input only, each frame
+	// acknowledged once written. The host's answer carries it back when it
+	// serves one; a host that does not know it answers as to a viewer,
+	// without it, and the client types nothing.
+	Deliver bool   `json:"deliver,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 func writeFrame(w io.Writer, kind byte, payload []byte) error {
