@@ -346,6 +346,31 @@ cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [-
 
 Run `cfo doctor` after installation for the current dependency and harness health report.
 
+## Your data
+
+Everything the fleet knows about your work lives in one folder on your machine, the CFO home: `%LOCALAPPDATA%\CodeGoblins` for the one-line install, or the checkout you installed from.
+It stays local and private: nothing in it is pushed anywhere, and no project repository ever holds it.
+
+```text
+<CFO home>\
+  state\                          the fleet's own record: tasks, status logs, the wake queue, the board
+  data\                           your data
+    backlog.md                    open work: Queued, Parked and Done
+    overlord.md                   your standing directives
+    routing.json                  which harness and model each kind of work gets
+    projects\<project>\           each project's credentials manifest and worktree settings
+    <task>\                       each queued or running task: brief, report, decisions, deliverables
+    archive\finished\<task>\      finished tasks
+    archive\parked\<task>\        briefs set aside before they started
+```
+
+`cfo install` creates this layout in a new home and fills in anything missing later, without overwriting a file.
+A home that already held data before this layout is left exactly as it is.
+
+A private backup repository is optional.
+If you want one, make `data\` a git repository and push it to a private remote of your own; the fleet works the same without it, and no step depends on it.
+[AGENTS.md](AGENTS.md#the-cfo-home) describes each file in full.
+
 ## Safety model
 
 Code Goblins is designed for high autonomy without pretending that an LLM saying “done” is proof.

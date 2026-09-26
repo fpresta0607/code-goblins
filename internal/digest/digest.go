@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -251,7 +252,7 @@ func writeNextStep(ew *werr) {
 // failure in this section: it never propagates as a Compose-level failure.
 func writeFleetState(h home.Home, statusTail, queuedLimit int, ew *werr) {
 	ew.println("== FLEET STATE ==")
-	writeBacklog(h.Data, queuedLimit, ew)
+	writeBacklog(h, queuedLimit, ew)
 
 	scan, err := state.ScanIDs(h.State)
 	if err != nil {
@@ -287,24 +288,25 @@ func writeOrphans(stateDir string, ew *werr) {
 	}
 }
 
-// writeBacklog prints the first limit unchecked "- [ ]" rows of
-// data\backlog.md, in file order, plus a "(+N more queued)" overflow line
-// when more remain; checked "- [x]" (done) rows are never listed.
-func writeBacklog(dataDir string, limit int, ew *werr) {
-	lines, err := fsx.ReadLines(filepath.Join(dataDir, "backlog.md"))
+// writeBacklog prints the first limit rows of data\backlog.md's Queued
+// section, in file order, plus a "(+N more queued)" overflow line when more
+// remain. It reads the backlog as fleet-view and the board do, so a parked or
+// done row, or a row's detail lines, is never listed as queued work.
+func writeBacklog(h home.Home, limit int, ew *werr) {
+	backlog, err := fleet.ReadBacklog(h)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			ew.println("backlog.md: ABSENT")
-			return
-		}
 		ew.printf("backlog.md: UNREADABLE (%s)\n", err)
+		return
+	}
+	if !backlog.Present {
+		ew.println("backlog.md: ABSENT")
 		return
 	}
 
 	var queued []string
-	for _, line := range lines {
-		if strings.HasPrefix(line, "- [ ]") {
-			queued = append(queued, line)
+	for _, row := range backlog.Queued {
+		if row.Structured {
+			queued = append(queued, row.Raw)
 		}
 	}
 	total := len(queued)

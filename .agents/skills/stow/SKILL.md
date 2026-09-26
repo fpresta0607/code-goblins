@@ -19,7 +19,7 @@ Adapted from First Mate's stow pass for the Code Goblins homes.
 | `data/backlog.md` | Open work, held operations, follow-ups; its items carry no markers, because `tasks-axi` owns their state | `perishable` | its first queued rows, by the digest |
 | `data/memory-archive.md` | Everything retired from the homes above | cold | never |
 
-`data/` is the private fleet-state repository, so nothing this skill writes ever lands in a tracked file of the public code-goblins repository.
+`data/` is the CFO home's private data, so nothing this skill writes ever lands in a tracked file of the public code-goblins repository.
 The backlog is owned by `tasks-axi`: read an item with `tasks-axi show <id> --full` and change it with `tasks-axi add`, `update --body-file`, `hold` or `done`, never by editing the file.
 
 ## Tiers and markers
@@ -128,7 +128,7 @@ Unmarked legacy entries are their file's default tier with unknown age, and unkn
 - It never writes into a tracked file of this repository or of a project; those changes ship through a goblin and the gate.
 - It never creates a skill as a destination for a finding.
 - It never files credentials or secrets anywhere.
-- It never commits: `data/` is committed and pushed at the end of the session with the rest of the fleet state.
+- It never commits: where the operator keeps `data/` in a backup repository of their own, it is committed at the end of the session with the rest of the fleet state.
 
 ## Receipt
 

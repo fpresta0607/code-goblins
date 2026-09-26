@@ -170,3 +170,64 @@ func TestReadBacklogPreservesEveryCanonicalBlocker(t *testing.T) {
 		t.Errorf("Markdown does not show every blocker:\n%s", markdown.String())
 	}
 }
+
+// Parked work is set aside, not queued: a row under ## Parked, and a row
+// tasks-axi parked in place with hold-kind parked, is never read as queued,
+// so nothing that lists the queue shows it as work waiting to start.
+func TestReadBacklogKeepsParkedWorkOutOfTheQueue(t *testing.T) {
+	h := snapshotHome(t)
+	if err := os.MkdirAll(h.Data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := `# Backlog
+
+## Queued
+- [ ] q1 - Ship the view (since 2026-09-26)
+- [ ] q2 - Set aside in place (since 2026-09-20) (hold: stale brief) (hold-kind: parked)
+- [ ] q3 - Waiting on the Overlord (since 2026-09-20) (hold: his call) (hold-kind: captain)
+
+## Parked
+- [ ] p1 - Parked by hand (hold-kind: parked)
+- parked **p2** - The CFO's own parked form (repo: code-goblins)
+
+## Done
+- [x] d1 - Shipped https://github.com/o/r/pull/1 (merged 2026-09-26)
+`
+	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	backlog, err := ReadBacklog(h)
+	if err != nil {
+		t.Fatalf("ReadBacklog: %v", err)
+	}
+
+	var queued, parked []string
+	for _, row := range backlog.Queued {
+		queued = append(queued, row.Raw)
+	}
+	for _, row := range backlog.Parked {
+		parked = append(parked, row.Raw)
+	}
+	wantQueued := []string{
+		"- [ ] q1 - Ship the view (since 2026-09-26)",
+		"- [ ] q3 - Waiting on the Overlord (since 2026-09-20) (hold: his call) (hold-kind: captain)",
+	}
+	wantParked := []string{
+		"- [ ] q2 - Set aside in place (since 2026-09-20) (hold: stale brief) (hold-kind: parked)",
+		"- [ ] p1 - Parked by hand (hold-kind: parked)",
+		"- parked **p2** - The CFO's own parked form (repo: code-goblins)",
+	}
+	if !reflect.DeepEqual(queued, wantQueued) {
+		t.Errorf("queued = %q, want %q", queued, wantQueued)
+	}
+	if !reflect.DeepEqual(parked, wantParked) {
+		t.Errorf("parked = %q, want %q", parked, wantParked)
+	}
+	if row := backlog.Parked[0]; !row.Structured || row.ID != "q2" || row.Title != "Set aside in place" {
+		t.Errorf("parked row = %+v, want q2 with its title cleaned", row)
+	}
+	if len(backlog.Done) != 1 || backlog.Done[0].ID != "d1" {
+		t.Errorf("done = %+v, want d1 alone", backlog.Done)
+	}
+}

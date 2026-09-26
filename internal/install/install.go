@@ -95,6 +95,9 @@ func (s Service) Install(out io.Writer) error {
 			return err
 		}
 	}
+	if err := s.layOutData(report); err != nil {
+		return err
+	}
 	if err := s.setHome(report); err != nil {
 		return err
 	}
