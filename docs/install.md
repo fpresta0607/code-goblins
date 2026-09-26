@@ -7,14 +7,14 @@ Both put `cfo` and `goblins` on your PATH; the one-line install's own window has
 ## To use it
 
 ```powershell
-irm https://raw.githubusercontent.com/fpresta0607/code-goblins/main/install.ps1 | iex
+irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install.ps1 | iex
 ```
 
 It needs no clone and no Go, and `goblins` works in the same window as soon as it finishes.
 In order, it:
 
 1. Stops before changing anything when git or gh is missing and winget, which installs them, is missing too; the fix is App Installer from the Microsoft Store.
-2. Downloads the latest release's `cfo.exe` and refuses it unless it matches the release's `SHA256SUMS`.
+2. Downloads `cfo.exe` from the release this `install.ps1` was published with, so the script and the program are always one release's, and refuses it unless it matches the release's `SHA256SUMS`.
 3. Asks once for [your projects folder](#your-projects-folder).
 4. Sets up the CFO home at `%LOCALAPPDATA%\CodeGoblins`: the CFO's contract, its skills, the default policy, and the program as `cfo.exe` and `goblins.exe`.
    `CFO_HOME` and the home's place on your PATH are set for your user, and the CFO's hooks are merged into your `~/.claude/settings.json`, which is backed up first and keeps your own hooks.

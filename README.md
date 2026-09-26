@@ -103,7 +103,7 @@ There are two ways in.
 To use Code Goblins, run this one line in any PowerShell window; it needs no clone and no Go:
 
 ```powershell
-irm https://raw.githubusercontent.com/fpresta0607/code-goblins/main/install.ps1 | iex
+irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install.ps1 | iex
 ```
 
 It ends by opening the board in your browser, and `goblins` works in that same window at once.

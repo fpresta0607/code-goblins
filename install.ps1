@@ -2,9 +2,10 @@
 #
 # To use it, from any PowerShell window, with no clone and no Go:
 #
-#   irm https://raw.githubusercontent.com/fpresta0607/code-goblins/main/install.ps1 | iex
+#   irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install.ps1 | iex
 #
-# downloads the latest release, refuses it unless it matches the release's
+# runs this script as published with the latest release, which downloads that
+# same release's cfo.exe, refuses it unless it matches the release's
 # SHA256SUMS, lets it set up the CFO home at %LOCALAPPDATA%\CodeGoblins with
 # cfo.exe and goblins.exe on your PATH, this window included, asks once for
 # the folder that holds your projects, installs the tools, skills and hooks
@@ -48,6 +49,9 @@
 
     # CODE_GOBLINS_RELEASE_BASE points the download at another copy of the
     # release assets, such as a CI build; the checksum check applies the same.
+    # The copy of this script published with a release names that release
+    # here in place of latest, so the script and cfo.exe are always one
+    # release's.
     $releaseBase = "https://github.com/$repo/releases/latest/download"
     if ($env:CODE_GOBLINS_RELEASE_BASE) {
         $releaseBase = $env:CODE_GOBLINS_RELEASE_BASE.TrimEnd("/")

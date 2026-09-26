@@ -85,7 +85,7 @@ jobs:
           REAL_RELEASE: ${{ inputs.release }}
         run: |
           if ($env:REAL_RELEASE -eq "true") {
-            irm https://raw.githubusercontent.com/fpresta0607/code-goblins/main/install.ps1 | iex
+            irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install.ps1 | iex
           } else {
             Get-Content -Raw install.ps1 | Invoke-Expression
           }
@@ -141,7 +141,7 @@ jobs:
           # the installers wrote to the registry; a new step does not.
           $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
           if ($env:REAL_RELEASE -eq "true") {
-            irm https://raw.githubusercontent.com/fpresta0607/code-goblins/main/install.ps1 | iex
+            irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install.ps1 | iex
           } else {
             Get-Content -Raw install.ps1 | Invoke-Expression
           }
