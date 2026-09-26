@@ -32,12 +32,12 @@ type Commit struct {
 	Date    string `json:"date"`
 }
 type FileDiff struct {
-	Path        string `json:"path"`
-	Patch       string `json:"patch"`
-	Code        string `json:"code"`
-	Head        string `json:"head"`
-	Revision    string `json:"revision"`
-	Binary      bool   `json:"binary"`
+	Path     string `json:"path"`
+	Patch    string `json:"patch"`
+	Code     string `json:"code"`
+	Head     string `json:"head"`
+	Revision string `json:"revision"`
+	Binary   bool   `json:"binary"`
 	// CodeOmitted says the file is over the code preview limit, so Code is
 	// empty and only the patch shows it.
 	CodeOmitted bool   `json:"code_omitted"`
