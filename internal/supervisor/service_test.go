@@ -8,6 +8,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -122,6 +124,44 @@ func TestSnapshotNamesALiveTaskByItsTitle(t *testing.T) {
 		if err != nil || len(view.Tasks) == 0 || view.Tasks[0].Title != want {
 			t.Errorf("the snapshot names the task %+v (%v), want %q", view.Tasks, err, want)
 		}
+	}
+}
+
+// A brief parked before dispatch is set aside, never offered as Not started;
+// an unparked brief still shows as queued.
+func TestSnapshotKeepsParkedBriefsOffTheBoard(t *testing.T) {
+	for name, tc := range map[string]struct {
+		backlog      string
+		isOnTheBoard bool
+	}{
+		"parked in place": {"## Queued\n- [ ] g7 - Parked in place (hold: set aside) (hold-kind: parked)\n", false},
+		"parked section":  {"## Queued\n\n## Parked\n- [ ] g7 - Set aside\n", false},
+		"CFO parked form": {"## Queued\n\n## Parked\n- parked **g7** - Set aside by the CFO\n", false},
+		"ordinary queued": {"## Queued\n- [ ] g7 - Waiting its turn\n", true},
+		"no backlog row":  {"## Queued\n", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			store, h := testStore(t)
+			if err := os.MkdirAll(filepath.Join(h.Data, "g7"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.Data, "g7", "brief.md"), []byte("brief"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte(tc.backlog), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			view, err := (&Service{Store: store}).Snapshot()
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			isOnTheBoard := slices.ContainsFunc(view.Tasks, func(task Task) bool { return task.ID == "g7" && task.Phase == "queued" })
+			if isOnTheBoard != tc.isOnTheBoard {
+				t.Errorf("g7 queued on the board = %v, want %v: %+v", isOnTheBoard, tc.isOnTheBoard, view.Tasks)
+			}
+		})
 	}
 }
 

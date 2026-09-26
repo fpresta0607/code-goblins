@@ -13,7 +13,7 @@ import (
 
 var (
 	checkboxBacklogRow = regexp.MustCompile(`^[-*]\s+\[[ xX]\]\s+(\S+)\s+-\s+(.*)$`)
-	boldBacklogRow     = regexp.MustCompile(`^[-*]\s+\*\*([^*]+)\*\*\s+-\s+(.*)$`)
+	boldBacklogRow     = regexp.MustCompile(`^[-*]\s+(?:parked\s+)?\*\*([^*]+)\*\*\s+-\s+(.*)$`)
 	urlPattern         = regexp.MustCompile(`https?://[^\s\)\]"<>]+`)
 	wrappedURLPattern  = regexp.MustCompile(`<?https?://[^\s\)\]"<>]+>?`)
 	reportPattern      = regexp.MustCompile(`data/[^\s\)]+/report\.md`)
@@ -23,10 +23,13 @@ var (
 )
 
 // BacklogRows retains each rendered Plan 3 backlog section in source order.
+// Parked is work set aside rather than queued: the rows under ## Parked and
+// any row parked in place with hold-kind parked, in file order.
 type BacklogRows struct {
 	Path    string       `json:"path"`
 	Present bool         `json:"present"`
 	Queued  []BacklogRow `json:"queued"`
+	Parked  []BacklogRow `json:"parked"`
 	Done    []BacklogRow `json:"done"`
 }
 
@@ -45,11 +48,11 @@ type BacklogRow struct {
 	Raw           string   `json:"raw"`
 }
 
-// ReadBacklog parses the supported Queued and Done records without changing
-// their file order. Missing backlog files are a typed empty result.
+// ReadBacklog parses the supported Queued, Parked and Done records without
+// changing their file order. Missing backlog files are a typed empty result.
 func ReadBacklog(h home.Home) (BacklogRows, error) {
 	path := filepath.Join(h.Data, "backlog.md")
-	result := BacklogRows{Path: path, Queued: []BacklogRow{}, Done: []BacklogRow{}}
+	result := BacklogRows{Path: path, Queued: []BacklogRow{}, Parked: []BacklogRow{}, Done: []BacklogRow{}}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return result, nil
@@ -66,6 +69,8 @@ func ReadBacklog(h home.Home) (BacklogRows, error) {
 			switch strings.TrimSpace(heading[1]) {
 			case "Queued":
 				section = "queued"
+			case "Parked":
+				section = "parked"
 			case "Done":
 				section = "done"
 			default:
@@ -78,9 +83,12 @@ func ReadBacklog(h home.Home) (BacklogRows, error) {
 		}
 		row := parseBacklogRow(trimmed)
 		row.Raw = line
-		if section == "queued" {
+		switch {
+		case section == "parked" || section == "queued" && strings.EqualFold(metadataValue(trimmed, "hold-kind"), "parked"):
+			result.Parked = append(result.Parked, row)
+		case section == "queued":
 			result.Queued = append(result.Queued, row)
-		} else {
+		default:
 			result.Done = append(result.Done, row)
 		}
 	}
