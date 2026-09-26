@@ -222,7 +222,9 @@ A key typed with AltGr, which Windows reports as Ctrl+Alt, stays the terminal's,
 A divider between the board and the panel sizes the panel, keeping at least 360 px for the panel and 280 px for the board, and a maximize button gives the panel the whole window; both are saved in the browser, a width saved on a wider window is held to the same bounds, and on a narrow window the board and the panel stack and the divider is hidden.
 
 Holding Ctrl+Shift+Space in a terminal, native or Herdr, dictates into it with the browser's own speech recognition, so nothing is installed.
-It listens in the browser's language while the keys are held, a Listening pill says so, and releasing any of the three keys types the phrases it recognised as one line through xterm's paste, so a program that asked for bracketed paste receives a paste and nothing is sent until Enter.
+It listens in the browser's language while the keys are held, a Listening pill says so, and releasing any of the three keys types the phrases it recognised as one line through the terminal's paste, so nothing is sent until Enter.
+A native terminal's paste follows the program's own bracketed paste mode, and the Herdr view, whose screen is redrawn from frames, always sends a bracketed paste, as its clipboard paste does.
+Releasing the keys anywhere on the page, the window losing focus or the page being hidden also stops listening, so the microphone never stays open once the terminal loses the keys.
 A browser without speech recognition, a blocked or missing microphone, a lost network or silence is explained in a note for six seconds.
 Edge and Chrome recognise speech in their vendors' online services, so the audio leaves the machine while the keys are held.
 

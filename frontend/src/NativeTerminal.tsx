@@ -35,7 +35,8 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
   const [copied, setCopied] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const dictation = useDictation((text) => terminal.current?.paste(text));
+  const pasteText = useRef<((text: string) => void) | null>(null);
+  const dictation = useDictation((text) => pasteText.current?.(text));
   const dictate = dictation.key;
   const taskID = task?.id || "", generation = task?.generation || "", session = node?.id || "";
   const cfo = !task && !node;
@@ -98,10 +99,12 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       void flush();
     };
     term.onData(send);
+    const typePaste = (text: string) => { try { send(bracketedPaste(text)); } catch (e: unknown) { setError(message(e)); } };
+    pasteText.current = typePaste;
     const paste = (event: ClipboardEvent) => {
       event.preventDefault(); event.stopImmediatePropagation();
       const text = event.clipboardData?.getData("text/plain");
-      if (text) { try { send(bracketedPaste(text)); } catch (e: unknown) { setError(message(e)); } }
+      if (text) typePaste(text);
     };
     element.addEventListener("paste", paste, true);
     const copy = () => {
@@ -192,7 +195,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       } catch (e: unknown) { if (!abort.signal.aborted) stop(message(e)); }
     };
     void read();
-    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); resize.disconnect(); element.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); window.removeEventListener("pointerup", copy); term.dispose(); terminal.current = null; };
+    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); resize.disconnect(); element.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); window.removeEventListener("pointerup", copy); term.dispose(); terminal.current = null; pasteText.current = null; };
   }, [taskID, generation, session, instance, visible, attempt, missing, dictate]);
   if (missing) return <div className="terminal-empty"><Icon name="terminal" /><p>{queued ? "This task has not started yet." : shared ? "This child has no separate terminal." : error}</p>{onOwner && shared && <button className="primary" onClick={onOwner}>Open owning task</button>}</div>;
   return <section className="native-terminal" aria-label={cfo ? "CFO terminal" : "Goblin terminal"}>

@@ -19,6 +19,20 @@ export function useDictation(type: (text: string) => void) {
     const timer = setTimeout(() => setNote(""), NOTE_MS);
     return () => clearTimeout(timer);
   }, [note]);
+  useEffect(() => {
+    if (!listening) return;
+    const stop = () => dictation.current?.stop();
+    const release = (event: KeyboardEvent) => { if (dictationKey(event)?.action === "stop") stop(); };
+    const hide = () => { if (document.hidden) stop(); };
+    window.addEventListener("keyup", release, true);
+    window.addEventListener("blur", stop);
+    document.addEventListener("visibilitychange", hide);
+    return () => {
+      window.removeEventListener("keyup", release, true);
+      window.removeEventListener("blur", stop);
+      document.removeEventListener("visibilitychange", hide);
+    };
+  }, [listening]);
   const key = useCallback((event: KeyboardEvent): boolean | null => {
     const meaning = dictationKey(event);
     if (!meaning) return null;

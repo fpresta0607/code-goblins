@@ -12,6 +12,7 @@ test("holding Ctrl+Shift+Space starts dictation once and releasing any of its ke
   assert.deepEqual(dictationKey(key("keyup", "Space")), { action: "stop", swallow: true });
   assert.deepEqual(dictationKey(key("keyup", "ShiftLeft", { key: "Shift", shiftKey: false })), { action: "stop", swallow: false }, "letting go of Shift first also stops, and Shift's release still reaches the terminal");
   assert.deepEqual(dictationKey(key("keyup", "ControlRight", { key: "Control", ctrlKey: false })), { action: "stop", swallow: false });
+  assert.deepEqual(dictationKey(key("keyup", "Space", { ctrlKey: false, shiftKey: false })), { action: "stop", swallow: false }, "Space released after Ctrl and Shift still stops");
 });
 
 test("every other key belongs to the terminal", () => {
