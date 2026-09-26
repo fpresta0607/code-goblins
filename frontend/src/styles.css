@@ -387,7 +387,9 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
   .view-switch button { min-width: 0; padding-inline: 16px; }
   .topbar-controls { gap: 10px; }
 }
-@container (max-width: 760px) {
+/* Three columns need room for a 260 px card in each; below that the columns
+   stack and the cards share the width. */
+@container (max-width: 960px) {
   .task-board { grid-template-columns: minmax(0, 1fr); min-height: auto; }
   .task-cards { grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
   .board-column h2 { margin-bottom: 14px; }

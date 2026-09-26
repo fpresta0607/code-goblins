@@ -110,6 +110,7 @@ Uncertain actions remain visible for operator inspection and can eventually exha
 
 The header switches between Board and Orchestration, with one main view visible at a time and one contextual pane on the right.
 Board groups actual tasks into Tasks, In progress and Completed.
+The three columns sit side by side while each has room for a 260 px card, and stack one above the other below that, so a card never squeezes its title or status.
 Tasks lists backlog rows and briefs nothing has started: a `data/<id>/brief.md` with no live task record, status log or archive entry.
 Completed lists verified delivery, and within the last week at most 20 entries of history: tasks cleanup finished, from a status log left without its record or one the archive holds, and pull requests merged into a fleet repository, read from merge commits on origin's default branch of this home and each checkout under the projects root, locally and without a forge call.
 A merged pull request whose live task already shows the merge, in phase merged or done, appears only on that task's card, which stays In progress as merged-awaiting-verification until landed content is verified.
