@@ -12,7 +12,7 @@ import { Icon } from "./Icon";
 import { Avatar } from "./Avatar";
 import { GoblinPanel, type PanelView } from "./GoblinPanel";
 import { PaneDivider } from "./PaneDivider";
-import { CFO_KEY, switchOrder } from "./terminalOrder";
+import { CFO_KEY, paneTrack, switchOrder } from "./terminalOrder";
 import { useSwitchKeys } from "./useSwitchKeys";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
@@ -96,7 +96,7 @@ export function App() {
   if (terminalShown && !terminalOpened) setTerminalOpened(true);
   useSwitchKeys(snapshot ? switchOrder(snapshot.tasks) : [], cfoShown ? CFO_KEY : task?.id || "", switchTo);
   const panelWide = paneOpen && maximized && !compact;
-  const layout: CSSProperties | undefined = panelWide ? { gridTemplateColumns: "minmax(0, 1fr)" } : paneOpen && paneSize && !compact ? { gridTemplateColumns: `minmax(0, 1fr) 10px ${paneSize}px` } : undefined;
+  const layout: CSSProperties | undefined = panelWide ? { gridTemplateColumns: "minmax(0, 1fr)" } : paneOpen && paneSize && !compact ? { gridTemplateColumns: `minmax(0, 1fr) 10px ${paneTrack(paneSize)}` } : undefined;
   const closeButton = <>
     {!compact && <button className="icon-button" aria-label={maximized ? "Restore the panel" : "Maximize the panel"} data-tip={maximized ? "Restore" : "Maximize"} data-tip-align="end" onClick={() => { setMaximized(!maximized); store(PANE_MAXIMIZED_KEY, String(!maximized)); }}><Icon name={maximized ? "restore" : "maximize"} /></button>}
     <button className="icon-button" aria-label="Close panel" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>

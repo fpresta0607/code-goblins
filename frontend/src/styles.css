@@ -468,7 +468,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .panel-content > .disclosure > .disclosure-content { padding: 0 0 24px; }
 /* The terminal runs edge to edge like a Herdr pane: no border, no card, no
    caption. State and the few controls float over its corners. */
-.panel-terminal { position: relative; display: flex; flex: 1; min-height: 0; background: #071015; }
 .native-terminal { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
 .terminal-surface { flex: 1; min-width: 0; min-height: 200px; overflow: auto; background: #071015; }
 .terminal-surface .xterm { height: 100%; }

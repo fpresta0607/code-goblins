@@ -555,8 +555,17 @@ func TestNativeViewsKeepManyTerminalsLiveWithoutTakingHerdrStreams(t *testing.T)
 	if len(h.terminalSlots) != 0 {
 		t.Errorf("native views hold %d of Herdr's stream slots, want none", len(h.terminalSlots))
 	}
-	h.nativeSlots = make(chan struct{}, 1)
-	h.nativeSlots <- struct{}{}
+	// Take every slot the six views left, and give them back before the
+	// views close and return their own.
+	filled := 0
+	for ; len(h.nativeSlots) < cap(h.nativeSlots); filled++ {
+		h.nativeSlots <- struct{}{}
+	}
+	t.Cleanup(func() {
+		for range filled {
+			<-h.nativeSlots
+		}
+	})
 	closed := openNativeView(t, server, viewQuery).waitForClose(t)
 	if closed.Code != websocket.StatusTryAgainLater || closed.Reason != "Too many terminal views are open." {
 		t.Errorf("a view past the native limit closed with %d %q, want the limit's reason", closed.Code, closed.Reason)

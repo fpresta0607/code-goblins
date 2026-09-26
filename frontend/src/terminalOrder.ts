@@ -11,6 +11,7 @@ const HERDR_LIVE = 3;
 // The panel and the board each keep a usable width beside the divider.
 const MIN_PANE = 360;
 const MIN_BOARD = 280;
+const DIVIDER = 10;
 
 export interface DeckEntry { key: string; task?: Task }
 
@@ -22,9 +23,10 @@ export type SwitchKey = { step: 1 | -1 } | { index: number };
 
 // Ctrl+Alt with Up or Down cycles through the switcher and with 1 to 9 jumps
 // to that entry; the keys are matched by position, so a layout's characters
-// never change them.
-export function switchKey(event: { code: string; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; metaKey: boolean }): SwitchKey | null {
-  if (!event.ctrlKey || !event.altKey || event.shiftKey || event.metaKey) return null;
+// never change them. Windows reports AltGr as Ctrl+Alt, so a key typed with
+// AltGr, such as a brace on a German layout, stays the terminal's.
+export function switchKey(event: { code: string; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; metaKey: boolean; getModifierState: (key: string) => boolean }): SwitchKey | null {
+  if (!event.ctrlKey || !event.altKey || event.shiftKey || event.metaKey || event.getModifierState("AltGraph")) return null;
   if (event.code === "ArrowDown") return { step: 1 };
   if (event.code === "ArrowUp") return { step: -1 };
   const digit = /^(?:Digit|Numpad)([1-9])$/.exec(event.code);
@@ -47,5 +49,12 @@ export function keepLive(open: string[], key: string, herdr: (key: string) => bo
 
 export function paneWidth(requested: number, workspace: number): number {
   const wanted = Number.isFinite(requested) ? requested : workspace / 2;
-  return Math.round(Math.min(Math.max(wanted, MIN_PANE), Math.max(MIN_PANE, workspace - MIN_BOARD)));
+  return Math.round(Math.min(Math.max(wanted, MIN_PANE), Math.max(MIN_PANE, workspace - MIN_BOARD - DIVIDER)));
+}
+
+// paneTrack is the panel's grid column for a saved width, held to the same
+// bounds in whatever window the board opens, since the width may have been
+// saved on a wider one.
+export function paneTrack(width: number): string {
+  return `clamp(${MIN_PANE}px, ${width}px, calc(100% - ${MIN_BOARD + DIVIDER}px))`;
 }

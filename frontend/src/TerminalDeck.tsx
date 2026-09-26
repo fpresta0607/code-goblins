@@ -26,13 +26,13 @@ export function TerminalDeck({ snapshot, task, node, cfo, shown, connected, focu
     <div className="deck-stage">
       {live.map((entry) => {
         const here = shown && entry === key;
-        if (entry === CFO_KEY) return <div className="deck-slot" key={entry} hidden={!here}><NativeTerminal instance={snapshot.instance} visible={connected} shown={here} /></div>;
+        if (entry === CFO_KEY) return <div className="deck-slot" key={entry} hidden={!here}><NativeTerminal instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} /></div>;
         const each = snapshot.tasks.find((candidate) => candidate.id === entry && !!candidate.generation);
         if (!each) return null;
         return <div className="deck-slot" key={entry} hidden={!here}>
           {each.backend === "native"
             ? <HostTerminal task={each} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
-            : <NativeTerminal task={each} node={snapshot.sessions.find((session) => ownsTaskSession(session, each))} instance={snapshot.instance} visible={connected} shown={here} />}
+            : <NativeTerminal task={each} node={snapshot.sessions.find((session) => ownsTaskSession(session, each))} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />}
         </div>;
       })}
       {/* A queued task or a child session has no terminal of its own to keep. */}

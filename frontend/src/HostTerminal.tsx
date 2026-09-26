@@ -25,6 +25,10 @@ function storedFontSize(): number {
 export function HostTerminal({ task, instance, visible, shown, focus }: { task: Task; instance: string; visible: boolean; shown: boolean; focus: number }) {
   const surface = useRef<HTMLDivElement>(null);
   const current = useRef<TerminalView | null>(null);
+  // staged is a connection still replaying out of sight; it is shown and
+  // hidden with the panel too, so one begun while the terminal was hidden
+  // sizes itself and becomes whole once the terminal is shown.
+  const staged = useRef<TerminalView | null>(null);
   const shownValue = useRef(shown);
   const retries = useRef(0);
   const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
@@ -35,10 +39,11 @@ export function HostTerminal({ task, instance, visible, shown, focus }: { task: 
   const [hasScreen, setHasScreen] = useState(false);
   useEffect(() => {
     shownValue.current = shown;
-    const view = current.current;
-    if (!view) return;
-    if (shown) view.setFont(storedFontSize());
-    view.show(shown);
+    for (const view of [current.current, staged.current]) {
+      if (!view) continue;
+      if (shown) view.setFont(storedFontSize());
+      view.show(shown);
+    }
   }, [shown]);
   // A switch to this terminal hands it the keyboard, at once or once it is whole.
   const wantFocus = useRef(false);
@@ -57,6 +62,7 @@ export function HostTerminal({ task, instance, visible, shown, focus }: { task: 
       ready: () => {
         const prior = current.current;
         current.current = view;
+        if (staged.current === view) staged.current = null;
         view.promote();
         view.show(shownValue.current);
         prior?.dispose();
@@ -85,10 +91,12 @@ export function HostTerminal({ task, instance, visible, shown, focus }: { task: 
       },
       font: (size) => { try { localStorage.setItem(FONT_KEY, String(size)); } catch { /* the size still applies to this view */ } },
     });
+    staged.current = view;
     view.show(shownValue.current);
     return () => {
       clearTimeout(copiedTimer);
       clearTimeout(retry);
+      if (staged.current === view) staged.current = null;
       // A view that is on screen stays until its replacement is whole.
       if (current.current !== view) view.dispose();
     };
