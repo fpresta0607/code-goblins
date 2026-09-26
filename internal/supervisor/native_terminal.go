@@ -71,9 +71,9 @@ func (h *HTTP) announce(task string, sender *nativeRelay, cols, rows int) {
 }
 
 // nativeTerminal relays one view of a native task's terminal, or of the
-// registered CFO's, over a WebSocket: the host's output goes out as binary messages, typing comes back
-// as binary messages, and a resize or an acknowledgement as a JSON text
-// message. The host's history comes first; a view repaints the screen by
+// registered CFO's, over a WebSocket: the host's output goes out as binary
+// messages, typing comes back as binary messages, and a resize or an
+// acknowledgement as a JSON text message. The host's history comes first; a view repaints the screen by
 // sending its size, since the pseudo console redraws its whole window on every
 // resize, and every other view is told the size the terminal took. The view is sent
 // at most terminalWindow bytes it has not acknowledged, and one that falls
