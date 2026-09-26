@@ -22,6 +22,7 @@ const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
 export function NativeTerminal({ task, node, instance, visible, shown, focus = 0, onOwner }: { task?: Task; node?: Session; instance: string; visible: boolean; shown: boolean; focus?: number; onOwner?: () => void }) {
   const host = useRef<HTMLDivElement>(null);
   const pastHost = useRef<HTMLDivElement>(null);
+  const history = useRef<Terminal | null>(null);
   const terminal = useRef<Terminal | null>(null);
   const shownValue = useRef(shown);
   useEffect(() => { shownValue.current = shown; }, [shown]);
@@ -38,6 +39,11 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [inHistory, setInHistory] = useState(false);
+  // The history takes the keyboard once it is in sight, since a terminal out
+  // of sight cannot be focused.
+  useEffect(() => {
+    if (inHistory && shownValue.current) history.current?.focus();
+  }, [inHistory]);
   const [unavailable, setUnavailable] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const pasteText = useRef<((text: string) => void) | null>(null);
@@ -61,6 +67,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     // at the live screen's size and font.
     const past = new Terminal({ ...look, scrollback: HISTORY_LINES, disableStdin: false, cursorInactiveStyle: "none" });
     past.open(pastElement);
+    history.current = past;
     past.textarea?.setAttribute("aria-label", "Terminal history");
     past.parser.registerOscHandler(52, () => true);
     let reading = false, showing = false;
@@ -150,7 +157,6 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
         showing = true;
         setInHistory(true);
         setError("");
-        if (shownValue.current) past.focus();
       } catch (e: unknown) {
         if (!abort.signal.aborted) setError(message(e));
       } finally {
@@ -299,7 +305,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       } catch (e: unknown) { if (!abort.signal.aborted) stop(message(e)); }
     };
     void read();
-    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); resize.disconnect(); element.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); window.removeEventListener("pointerup", release); term.dispose(); past.dispose(); terminal.current = null; pasteText.current = null; setInHistory(false); };
+    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); resize.disconnect(); element.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); window.removeEventListener("pointerup", release); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; setInHistory(false); };
   }, [taskID, generation, session, instance, visible, attempt, missing, dictate]);
   if (missing) return <div className="terminal-empty"><Icon name="terminal" /><p>{queued ? "This task has not started yet." : shared ? "This child has no separate terminal." : error}</p>{onOwner && shared && <button className="primary" onClick={onOwner}>Open owning task</button>}</div>;
   return <section className="native-terminal" aria-label={cfo ? "CFO terminal" : "Goblin terminal"}>
