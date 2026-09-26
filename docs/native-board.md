@@ -338,7 +338,7 @@ A goblin's `cfo notify <id> --blocked "<question> options: a (Recommended) | b"`
 When every choice starts with the goblin's own letter in order, such as `A) `, `b. `, `(c) ` or `D: `, the card drops those letters from what it shows, so each choice carries one letter; the answer is still the goblin's choice word for word.
 A goblin can attach one review image to each choice with `--image <path>`, repeated in the order of the choices, so the Overlord picks by picture: the card shows a thumbnail for each choice, and any thumbnail opens a full-size gallery with its position, side buttons, arrow keys, swipe, click-to-zoom and a Choose button for that image's choice.
 While the gallery is open it replaces the card, so a strip of the question's thumbnails under the image jumps straight to any other image.
-When the asking goblin has a review page live, the card and its gallery link it for annotation in Lavish.
+When the asking goblin has a review page live, the card and its gallery offer it with Open review; [Review items](#review-items) says which page.
 An image must be a PNG, JPEG, GIF or WebP of at most 10 MiB inside the task's worktree, task scratch or data directory, reached without a symlink or junction, and `cfo notify` refuses a wrong count or a bad image before anything is recorded.
 The board never sees an image's path: it serves image n of a question at `/api/questions/<id>/images/<n>`, checks the file again on every request, and stops serving once the task restarts or ends.
 A blocked notify without an `options:` marker, and every other worker alert, stays in the CFO wake queue only.
