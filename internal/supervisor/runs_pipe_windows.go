@@ -159,7 +159,11 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 	default:
 		ctx, cancel := context.WithTimeout(ctx, runRequestTimeout)
 		s.runRequests.Lock()
-		err = s.acceptRunRequest(ctx, int(pid), connected, req)
+		if req.Kind == "" {
+			err = s.acceptRunRequest(ctx, int(pid), connected, req)
+		} else {
+			err = s.acceptCFOItem(ctx, int(pid), connected, req)
+		}
 		s.runRequests.Unlock()
 		cancel()
 		if err != nil {
@@ -172,9 +176,9 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 	_, _ = pipe.Write(append(data, '\n'))
 }
 
-// sendRunRequest hands one run item to the supervisor and returns the reason
+// sendPipeRequest hands one request to the supervisor and returns the reason
 // it was refused, if it was.
-func sendRunRequest(stateDir string, req runPipeRequest) error {
+func sendPipeRequest(stateDir string, req runPipeRequest) error {
 	var pipe *os.File
 	var err error
 	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(25 * time.Millisecond) {
@@ -184,7 +188,7 @@ func sendRunRequest(stateDir string, req runPipeRequest) error {
 		}
 	}
 	if err != nil {
-		return errors.New("the supervisor is not running, so the board cannot take a run item; start cfo serve")
+		return errors.New("the supervisor is not running, so the board cannot take this; start cfo serve")
 	}
 	defer pipe.Close()
 	// The command goes only to the supervisor of this home: the process that

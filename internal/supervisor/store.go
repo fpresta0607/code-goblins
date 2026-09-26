@@ -107,6 +107,10 @@ type Database struct {
 	Activity      []BoardActivity       `json:"activity"`
 	Reviews       []Review              `json:"reviews,omitempty"`
 	Runs          []Run                 `json:"runs,omitempty"`
+	// CFOAnswers are answers the CFO gave over the pipe whose question could
+	// not take them yet: still arriving, or held by the Overlord's own board
+	// answer on its way. Only the pipe adds to them, so each is proven.
+	CFOAnswers []cfoAnswer `json:"cfo_answers,omitempty"`
 }
 
 type Store struct {
@@ -217,6 +221,7 @@ func cloneDatabase(d Database) Database {
 	d.Activity = slices.Clone(d.Activity)
 	d.Reviews = slices.Clone(d.Reviews)
 	d.Runs = slices.Clone(d.Runs)
+	d.CFOAnswers = slices.Clone(d.CFOAnswers)
 	for i := range d.Questions {
 		d.Questions[i].Options = slices.Clone(d.Questions[i].Options)
 	}

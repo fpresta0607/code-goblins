@@ -201,13 +201,13 @@ func publishItem(ctx context.Context, h home.Home, terminals terminal.Opener, r 
 		return nil
 	}
 	if !copied {
-		return spoolReview(h.State, r)
+		return recordReview(h.State, r)
 	}
 	final := reviewImageDir(h.State, r)
 	if err := os.Rename(staged, final); err != nil {
 		return err
 	}
-	if err := spoolReview(h.State, r); err != nil {
+	if err := recordReview(h.State, r); err != nil {
 		return errors.Join(err, os.RemoveAll(final))
 	}
 	return nil
@@ -241,7 +241,7 @@ func WithdrawReview(ctx context.Context, h home.Home, terminals terminal.Opener,
 	if prior.State != "open" {
 		return errors.New("the review is already " + prior.State)
 	}
-	return spoolReview(h.State, Review{ID: id, Identity: identity, Task: taskID, State: "withdrawn", Reason: reason, UpdatedAt: time.Now().UTC()})
+	return recordReview(h.State, Review{ID: id, Identity: identity, Task: taskID, State: "withdrawn", Reason: reason, UpdatedAt: time.Now().UTC()})
 }
 
 // ClearReview closes any open item for the registered primary CFO, such as a
@@ -284,7 +284,7 @@ func clearReviews(stateDir, identity, reason string, match func(Review) bool, on
 			}
 			continue
 		}
-		if err := spoolReview(stateDir, Review{ID: r.ID, Identity: identity, Task: r.Task, State: "cleared", Reason: reason, UpdatedAt: time.Now().UTC()}); err != nil {
+		if err := recordReview(stateDir, Review{ID: r.ID, Identity: identity, Task: r.Task, State: "cleared", Reason: reason, UpdatedAt: time.Now().UTC()}); err != nil {
 			return err
 		}
 	}
@@ -457,6 +457,22 @@ func reviewInboxRoom(stateDir string) error {
 	return nil
 }
 
+// cfoRecord reports whether a review record speaks for the registered CFO:
+// its own item, its own withdrawal, or a clear, which only the CFO gives.
+func cfoRecord(r Review) bool {
+	return r.Task == "" || r.State == "cleared"
+}
+
+// recordReview hands a review record to the supervisor: the CFO's over the
+// pipe, where the supervisor proves who is sending it, and a goblin's through
+// the inbox, where it can only ever read as that goblin's.
+func recordReview(stateDir string, r Review) error {
+	if cfoRecord(r) {
+		return sendPipeRequest(stateDir, runPipeRequest{Kind: "review", Review: &r})
+	}
+	return spoolReview(stateDir, r)
+}
+
 func spoolReview(stateDir string, r Review) error {
 	if err := reviewInboxRoom(stateDir); err != nil {
 		return err
@@ -504,6 +520,9 @@ func (s *Store) ingestReviews() error {
 			if json.Unmarshal(data, &r) != nil {
 				invalid = errors.New("invalid review JSON")
 			}
+		}
+		if invalid == nil && cfoRecord(r) {
+			invalid = errFromInbox
 		}
 		records = append(records, record{path, r, invalid})
 	}

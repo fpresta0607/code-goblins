@@ -303,7 +303,7 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 		return "", err
 	}
 	var unrecorded []error
-	if err := spoolAnswer(c.State, cfoAnswer{QuestionID: id, Option: chosen, Answer: answer, At: time.Now().UTC()}); err != nil {
+	if err := sendPipeRequest(c.State, runPipeRequest{Kind: "answer", Answer: &cfoAnswer{QuestionID: id, Option: chosen, Answer: answer, At: time.Now().UTC()}}); err != nil {
 		unrecorded = append(unrecorded, fmt.Errorf("the board could not record it: %w", err))
 	}
 	if err := wake.MarkAnswered(c.State, seq, wake.AnsweredByCFO, answer); err != nil {
@@ -397,93 +397,101 @@ func readQuestion(stateDir, id string) (Question, error) {
 	return q, nil
 }
 
-// spoolAnswer leaves a delivered CFO answer for the supervisor to record.
-func spoolAnswer(stateDir string, a cfoAnswer) error {
-	dir := filepath.Join(stateDir, answersInbox)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	if len(entries) >= maxQuestions {
-		return errors.New("the answer inbox is full")
-	}
-	data, err := json.Marshal(a)
-	if err != nil {
-		return err
-	}
-	sum := sha256.Sum256([]byte(a.QuestionID))
-	return fsx.AtomicWriteFile(filepath.Join(dir, hex.EncodeToString(sum[:])+".json"), data)
-}
-
-// ingestAnswers records the answers cfo answer spooled: which choice closed
-// the question, that the CFO gave it, and when. A question still pending
-// takes its answer, and so does one superseded because the CFO drained its
-// notify before this pass or one whose board answer was refused because the
-// CFO had just answered; one still waiting in the question inbox, or whose
-// board answer is still on its way, keeps its answer for a later pass.
+// ingestAnswers refuses every answer file in the old answer inbox, since the
+// CFO's answers reach the board only over the supervisor's pipe and a file
+// there was written by some other process of this user, and records each
+// answer the pipe took whose question can take it now.
 func (s *Store) ingestAnswers() error {
 	dir := filepath.Join(s.Home.State, answersInbox)
 	entries, err := os.ReadDir(dir)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	for _, entry := range entries[:min(len(entries), maxQuestions)] {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		path := filepath.Join(dir, entry.Name())
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		var a cfoAnswer
-		reject := ""
-		if len(data) > 12<<10 || json.Unmarshal(data, &a) != nil {
-			reject = "the answer is unreadable"
-		}
-		if _, err := os.Stat(filepath.Join(s.Home.State, "questions-inbox", entry.Name())); reject == "" && err == nil {
-			continue
-		}
 		s.mu.Lock()
-		i := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.ID == a.QuestionID })
-		if reject == "" && i >= 0 && s.db.Questions[i].Status == "queued" {
-			s.mu.Unlock()
-			continue
-		}
-		switch {
-		case reject != "":
-		case i < 0:
-			reject = "its question is gone"
-		case !slices.Contains([]string{"pending", "superseded", "failed"}, s.db.Questions[i].Status):
-			reject = "its question already closed as " + s.db.Questions[i].Status
-		default:
-			q, at := &s.db.Questions[i], a.At
-			q.Status, q.Message, q.AnswerID = "succeeded", "Answered by the CFO.", ""
-			q.Answer, q.AnswerKind = a.Answer, "option"
-			q.AnsweredOption, q.AnsweredBy, q.AnsweredAt = a.Option, "cfo", &at
-		}
-		if reject != "" {
-			s.db.Issues = append(s.db.Issues, "CFO answer rejected: "+reject)
-			if len(s.db.Issues) > 20 {
-				s.db.Issues = s.db.Issues[len(s.db.Issues)-20:]
-			}
-		}
-		err = s.save()
+		s.issue("CFO answer rejected: " + errFromInbox.Error())
+		err := s.save()
 		s.mu.Unlock()
 		if err != nil {
 			return err
 		}
-		if err := os.Remove(path); err != nil {
+		if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil {
 			return err
 		}
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.db.CFOAnswers) == 0 {
+		return nil
+	}
+	var waiting []cfoAnswer
+	for _, a := range s.db.CFOAnswers {
+		switch err := s.applyCFOAnswer(a); {
+		case errors.Is(err, errAnswerWaits):
+			waiting = append(waiting, a)
+		case err != nil:
+			s.issue("CFO answer rejected: " + err.Error())
+		}
+	}
+	s.db.CFOAnswers = waiting
+	return s.save()
+}
+
+// recordCFOAnswer records an answer the CFO gave with cfo answer, or keeps it
+// for a later pass when its question cannot take it yet.
+func (s *Store) recordCFOAnswer(a cfoAnswer) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.applyCFOAnswer(a); errors.Is(err, errAnswerWaits) {
+		if len(s.db.CFOAnswers) >= maxQuestions {
+			return errors.New("the board already holds the most CFO answers it keeps waiting")
+		}
+		s.db.CFOAnswers = append(s.db.CFOAnswers, a)
+	} else if err != nil {
+		return err
+	}
+	return s.save()
+}
+
+// errAnswerWaits is an answer whose question cannot take it yet: the question
+// still waits in its inbox, or the Overlord's board answer is on its way.
+var errAnswerWaits = errors.New("its question cannot take an answer yet")
+
+// applyCFOAnswer closes a question with the CFO's answer: which choice closed
+// it, that the CFO gave it, and when. A question still pending takes it, and
+// so does one superseded because the CFO drained its notify first or one
+// whose board answer was refused because the CFO had just answered.
+func (s *Store) applyCFOAnswer(a cfoAnswer) error {
+	i := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.ID == a.QuestionID })
+	if i < 0 {
+		sum := sha256.Sum256([]byte(a.QuestionID))
+		if _, err := os.Stat(filepath.Join(s.Home.State, "questions-inbox", hex.EncodeToString(sum[:])+".json")); err == nil {
+			return errAnswerWaits
+		}
+		return errors.New("its question is gone")
+	}
+	switch status := s.db.Questions[i].Status; {
+	case status == "queued":
+		return errAnswerWaits
+	case !slices.Contains([]string{"pending", "superseded", "failed"}, status):
+		return errors.New("its question already closed as " + status)
+	}
+	q, at := &s.db.Questions[i], a.At
+	q.Status, q.Message, q.AnswerID = "succeeded", "Answered by the CFO.", ""
+	q.Answer, q.AnswerKind = a.Answer, "option"
+	q.AnsweredOption, q.AnsweredBy, q.AnsweredAt = a.Option, "cfo", &at
 	return nil
+}
+
+// issue records a bounded diagnostic for the board, keeping the last 20.
+func (s *Store) issue(text string) {
+	s.db.Issues = append(s.db.Issues, text)
+	if len(s.db.Issues) > 20 {
+		s.db.Issues = s.db.Issues[len(s.db.Issues)-20:]
+	}
 }
 
 // CallerIdentity proves this process descends from the registered primary
@@ -553,7 +561,7 @@ func (c *CFOConnection) PublishQuestion(ctx context.Context, id, text string, op
 	if err := validQuestion(q); err != nil {
 		return err
 	}
-	return publish(c.State, q)
+	return sendPipeRequest(c.State, runPipeRequest{Kind: "question", Question: &q})
 }
 
 // publish writes a validated question into the inbox the supervisor
@@ -707,6 +715,9 @@ func (s *Store) ingestQuestions() error {
 			if json.Unmarshal(data, &q) != nil {
 				invalid = errors.New("invalid question JSON")
 			}
+		}
+		if invalid == nil && q.Task == "" {
+			invalid = errFromInbox
 		}
 		records = append(records, record{path, q, invalid})
 	}
