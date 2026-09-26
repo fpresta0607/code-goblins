@@ -117,6 +117,28 @@ func TestWriteTaskMetaIsDeterministicAndRoundTripsHerdrFields(t *testing.T) {
 	}
 }
 
+// A task keeps the short title it was dispatched under, so the board names it
+// by that title once its backlog row is gone; a title is one line like every
+// other value.
+func TestWriteTaskMetaRoundTripsTheTaskTitle(t *testing.T) {
+	dir := t.TempDir()
+	meta := TaskMeta{ID: "g1", Window: "native", Worktree: `C:\work\g1`, Harness: "claude", Kind: "ship", Backend: "native", Title: "Install and run on any machine, no setup"}
+	if err := WriteTaskMeta(dir, meta); err != nil {
+		t.Fatalf("WriteTaskMeta: %v", err)
+	}
+	got, err := ReadTaskMeta(dir, "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != meta {
+		t.Errorf("round trip = %+v, want %+v", got, meta)
+	}
+	meta.Title = "Two\nlines"
+	if err := WriteTaskMeta(dir, meta); err == nil || !strings.Contains(err.Error(), "title") {
+		t.Errorf("a title with a line break = %v, want refused", err)
+	}
+}
+
 func TestWriteTaskMetaOmitsShipOnlyFieldsForScout(t *testing.T) {
 	dir := t.TempDir()
 	meta := TaskMeta{

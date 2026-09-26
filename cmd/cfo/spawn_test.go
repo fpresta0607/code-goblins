@@ -74,6 +74,35 @@ func TestRunSpawnDefaultsSessionAndDeliveryMode(t *testing.T) {
 
 // cfo spawn passes --backend native on, spawns in Herdr without it, and
 // refuses any other backend without calling the spawn service.
+// A task dispatched from the backlog keeps its row's short title, so the
+// board names it by that title after the row leaves the queue; a task with no
+// queued row has none.
+func TestRunSpawnKeepsTheBacklogRowsTitle(t *testing.T) {
+	h := testHome(t)
+	if err := os.MkdirAll(h.Data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	backlog := "## Queued\n\n- **g4** - Install and run on any machine, no setup blocked-by: fleet-slots (repo: code-goblins)\n  detail: a line the title never takes\n"
+	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte(backlog), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]string{"g4": "Install and run on any machine, no setup", "g5": ""} {
+		deps := testCommandRuntimeForHome(h)
+		var got *spawn.Request
+		deps.spawn = func(_ context.Context, _ home.Home, request spawn.Request) (spawn.Result, error) {
+			got = &request
+			return spawn.Result{Output: "spawned " + id}, nil
+		}
+
+		var stdout, stderr bytes.Buffer
+		exit := runWithRuntime([]string{"spawn", id, "--project", `C:\project`, "--brief", briefFile(t), "--harness", "claude"}, &stdout, &stderr, deps)
+
+		if exit != 0 || got == nil || got.Title != want {
+			t.Errorf("%s: exit=%d request=%+v, want the title %q; stderr=%s", id, exit, got, want, stderr.String())
+		}
+	}
+}
+
 func TestRunSpawnPassesTheBackend(t *testing.T) {
 	for name, test := range map[string]struct {
 		args    []string

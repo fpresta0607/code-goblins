@@ -42,6 +42,20 @@ func TestSpawnSnapshotsTaskClassPolicy(t *testing.T) {
 	}
 }
 
+// The task's short title is published with its metadata, so the board names
+// it from the moment it exists.
+func TestSpawnPublishesTheTaskTitle(t *testing.T) {
+	f := newFixture(t)
+	f.request.Title = "Install and run on any machine, no setup"
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, f.request.ID)
+	if err != nil || meta.Title != f.request.Title {
+		t.Fatalf("metadata: %+v %v, want the title %q", meta, err, f.request.Title)
+	}
+}
+
 func TestSpawnRejectsInvalidIDBeforeFilesystemMutation(t *testing.T) {
 	root := t.TempDir()
 	stateDir := filepath.Join(root, "state-does-not-exist")

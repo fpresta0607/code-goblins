@@ -690,7 +690,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if evaluation.PR == "" {
 			evaluation.PR = pr
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: id, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, Evaluation: evaluation})
+		title := meta.Title
+		if title == "" {
+			title = id
+		}
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
