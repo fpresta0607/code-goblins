@@ -382,9 +382,6 @@ func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evalua
 	}
 	sender := fleet.Sender{Terminal: c.Terminals(""), Resolve: primaryResolver{c, primary}, Guard: guard}
 	if err := sender.Text(ctx, "primary-cfo", oneLine("Overlord: "+text)); err != nil {
-		if errors.Is(err, fleet.ErrQueuedBehindTurn) {
-			return Evaluation{Reason: "Submitted to the registered CFO through Herdr while it was working; it takes the message when its current turn ends."}, nil
-		}
 		return Evaluation{}, err
 	}
 	return Evaluation{Reason: "Accepted by the registered CFO through Herdr."}, nil
@@ -407,7 +404,7 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 	}
 	delivery, err := host.DialDelivery(record)
 	if errors.Is(err, host.ErrNoDelivery) {
-		return Evaluation{}, fmt.Errorf("%w: %v; start the CFO again to answer it from the board", ErrRejected, err)
+		return Evaluation{}, fmt.Errorf("%w: %v; start the CFO again so its terminal can confirm what the board sends", ErrRejected, err)
 	}
 	if err != nil {
 		return Evaluation{}, fmt.Errorf("%w: the CFO's native terminal does not answer; nothing was sent", ErrRejected)

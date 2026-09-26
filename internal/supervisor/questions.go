@@ -177,9 +177,6 @@ func (c *CFOConnection) SendGoblin(ctx context.Context, taskID, identity, text s
 	guard := func(_ context.Context, target herdr.Target, _ herdr.AgentDetail) error { return current(target) }
 	sender := fleet.Sender{Terminal: c.Terminals(""), Resolve: fleet.Resolver{StateDir: c.State}, Guard: guard}
 	if err := sender.Text(ctx, taskID, oneLine(text)); err != nil {
-		if errors.Is(err, fleet.ErrQueuedBehindTurn) {
-			return Evaluation{Reason: "Submitted to the goblin through Herdr while it was working; it takes the answer when its current turn ends."}, nil
-		}
 		return Evaluation{}, err
 	}
 	return Evaluation{Reason: "Accepted by the goblin through Herdr."}, nil
@@ -216,6 +213,9 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 		label = "Answer (Other)"
 	}
 	result, err := s.Options.CFO.SendGoblin(ctx, q.Task, q.Identity, fmt.Sprintf("The Overlord answered your question on the board. Question: %s %s: %s", q.Text, label, a.Text))
+	if errors.Is(err, fleet.ErrQueuedBehindTurn) {
+		result, err = Evaluation{Reason: "Submitted to the goblin through Herdr while it was working; it takes the answer when its current turn ends."}, nil
+	}
 	if err != nil {
 		return result, err
 	}

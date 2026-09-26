@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -208,6 +210,41 @@ func TestABoardAnswerToABusyAskerIsDeliveredNotUnconfirmed(t *testing.T) {
 				if len(pending) != 1 || pending[0].Answered != "SQLite" {
 					t.Errorf("notify = %+v, want it marked answered", pending)
 				}
+			}
+		})
+	}
+}
+
+// Only the board's own answer actions count a busy asker as delivered. The
+// shared senders keep reporting it unconfirmed, so cfo answer, run results
+// and review requests read exactly what they read before.
+func TestASendToABusyAskerOutsideABoardAnswerStaysUnconfirmed(t *testing.T) {
+	for _, asker := range []string{"goblin", "cfo"} {
+		t.Run(asker, func(t *testing.T) {
+			store, _ := testStore(t)
+			var runner *cfoRunner
+			var send func() (Evaluation, error)
+			if asker == "goblin" {
+				meta, record, goblinRunner, connection := goblinFixture(t, store)
+				q := surfaced(t, store, meta, record, connection)
+				runner = goblinRunner
+				send = func() (Evaluation, error) {
+					return connection.SendGoblin(context.Background(), meta.ID, q.Identity, "SQLite")
+				}
+			} else {
+				_, identity, cfoRunner, connection := primaryFixture(t, store)
+				runner = cfoRunner
+				send = func() (Evaluation, error) { return connection.Send(context.Background(), identity, "Run finished") }
+			}
+			runner.busy = true
+
+			_, err := send()
+
+			if !errors.Is(err, fleet.ErrQueuedBehindTurn) || !strings.Contains(err.Error(), "unconfirmed") {
+				t.Fatalf("err = %v, want the busy %s's delivery unconfirmed", err, asker)
+			}
+			if len(runner.prompts) != 1 {
+				t.Fatalf("prompts = %q, want the text submitted once", runner.prompts)
 			}
 		})
 	}
