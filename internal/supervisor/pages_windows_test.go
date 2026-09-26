@@ -119,6 +119,7 @@ func TestAPageWaitHandsWhatBecameOfThePageToTheCFO(t *testing.T) {
 func TestTheCFOsOwnPageReachesItAsAWakeKeyedByTheItem(t *testing.T) {
 	store, h := testStore(t)
 	_, _, _, cfo := primaryFixture(t, store)
+	servePipe(t, store, cfo)
 	t.Setenv("CFO_SESSION_ID", "actual-primary")
 	t.Setenv("CFO_SESSION_HARNESS", "codex")
 	page := filepath.Join(h.Root, ".lavish", "dispatch-options.html")
