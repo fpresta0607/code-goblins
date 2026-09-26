@@ -452,16 +452,23 @@ func stalledJobs(jobs []string, span time.Duration) string {
 }
 
 // jobCPUShare is the share of one processor a goblin's own processes must
-// have used since the previous reading for that reading to count as progress.
+// have used since the baseline reading for a reading to count as progress.
 // An idle dev server, a sleeping sampler or a monitor loop stays far below it
 // and a build or test run far above it.
 const jobCPUShare = 0.05
 
+// jobSampleInterval is the shortest span processor use is judged over. A
+// rescan can land a second after the last reading, and a short-lived child
+// caught in that second would otherwise pass for progress.
+const jobSampleInterval = time.Minute
+
 // sampleProgress reads the goblin's progress evidence and folds it into the
 // observation: a transcript written since the last evidence, or its own
-// processes using at least jobCPUShare of a processor since the previous
-// reading, moves EvidenceAt. Processor time that went down because a process
-// exited is no progress for that reading and nothing more. It returns the
+// processes using at least jobCPUShare of a processor since the baseline
+// reading, moves EvidenceAt. A reading less than jobSampleInterval after the
+// baseline is not judged and leaves it in place. Processor time that went
+// down because a process exited is no progress for that reading and nothing
+// more. It returns the
 // processes still running, and whether their processor use has been read
 // across a whole stall interval of consecutive readings within the stretch
 // being judged, so a lack of it can be concluded. An error means the evidence
@@ -483,7 +490,9 @@ func (s Service) sampleProgress(ctx context.Context, meta state.TaskMeta, sample
 	previous := observation.JobSampledAt
 	if previous == nil || observation.JobSampledSince == nil || previous.Before(stretch) {
 		observation.JobSampledSince = timePointer(now)
-	} else if elapsed := now.Sub(*previous); elapsed > 0 && float64(progress.JobCPU-observation.JobCPU) >= float64(elapsed)*jobCPUShare {
+	} else if elapsed := now.Sub(*previous); elapsed < jobSampleInterval {
+		return progress.Jobs, now.Sub(*observation.JobSampledSince) >= s.stallAfter(), nil
+	} else if float64(progress.JobCPU-observation.JobCPU) >= float64(elapsed)*jobCPUShare {
 		observation.EvidenceAt = timePointer(now)
 	}
 	observation.JobCPU = progress.JobCPU

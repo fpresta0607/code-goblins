@@ -228,6 +228,56 @@ func TestChurningPollLoopStillWakesAfterTheBudgetAndOneStallInterval(t *testing.
 	}
 }
 
+// cfo watch rescans at once when any goblin's status changes, so two readings
+// of one goblin can land a second apart. A short-lived child caught in that
+// second - a poll loop's `gh`, a dev server's garbage collection - uses more
+// than 5% of the second but nothing like 5% of a minute, and it must not pass
+// for progress and hold a wedged loop quiet past the budget.
+func TestReadingsASecondApartDoNotTurnABlipIntoProgress(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status string
+		reason Reason
+	}{
+		{"working", herdr.AgentWorking, BusyTurnOverAge},
+		{"turn ended", herdr.AgentDone, AwaitingAnswer},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			start := time.Date(2026, 9, 25, 18, 0, 0, 0, time.UTC)
+			now := start
+			service, probe, progress, meta := progressService(t, &now)
+			service.BusyTurnMax = time.Hour
+			service.StallAfter = 10 * time.Minute
+			progress.sample = ProgressSample{TranscriptAt: now, Jobs: []string{"bash.exe (pid 49)"}, JobCPU: time.Second}
+
+			scanStatus(t, service, probe, meta, tc.status, &now, 0)
+			var woke *Event
+			for range 90 {
+				progress.sample.JobCPU = time.Second
+				if r := scanStatus(t, service, probe, meta, tc.status, &now, 59*time.Second); r.Event != nil {
+					woke = r.Event
+					break
+				}
+				progress.sample.JobCPU = time.Second + 100*time.Millisecond
+				if r := scanStatus(t, service, probe, meta, tc.status, &now, time.Second); r.Event != nil {
+					woke = r.Event
+					break
+				}
+			}
+			if woke == nil {
+				t.Fatalf("blips caught by readings a second apart held the goblin quiet until %s", now.Format(time.Kitchen))
+			}
+			deadline := start.Add(service.BusyTurnMax + service.StallAfter + 2*time.Minute)
+			if now.After(deadline) {
+				t.Fatalf("woke at %s, after the budget and one stall interval (%s)", now.Format(time.Kitchen), deadline.Format(time.Kitchen))
+			}
+			if !strings.Contains(woke.Detail, string(tc.reason)) {
+				t.Errorf("wake detail %q lacks %q", woke.Detail, tc.reason)
+			}
+		})
+	}
+}
+
 // A burst of real work late in a long quiet stretch is progress: one minute
 // at a full processor is judged against that minute, not diluted across the
 // quiet stretch before it.
