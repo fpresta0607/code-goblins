@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
@@ -55,6 +56,10 @@ type Collector struct {
 	// a function because reading it can cost a registry query, and the
 	// watcher builds a Collector far more often than it runs a sweep.
 	ProjectsRoot func() (string, error)
+	// WorkingDirectory reads the directory a process runs in. It is what
+	// traces a test fixture's stand-in harness back to the goblin or gate
+	// that started it; nil leaves every stand-in unplaced.
+	WorkingDirectory func(pid int) (string, error)
 }
 
 // Collect reads state, panes, processes and worktree directories once each.
@@ -63,7 +68,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 		return Inventory{}, nil, errors.New("reap: home state directory is required")
 	}
 	var notes []string
-	inv := Inventory{SelfPIDs: selfAncestry()}
+	inv := Inventory{SelfPIDs: selfAncestry(), Session: c.Session}
 
 	scan, err := state.ScanIDs(c.Home.State)
 	if err != nil {
@@ -117,6 +122,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 		}
 		inv.Processes = processes
 		inv.FleetRootPIDs = herdrRoots(processes)
+		c.placeHarnesses(inv.Processes)
 	} else {
 		notes = append(notes, "no process lister configured; process evidence is missing")
 	}
@@ -285,6 +291,7 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 				Project:      root,
 				TaskID:       strings.TrimPrefix(entry.Name(), "gb-"),
 				Registration: registrationOf(path, registered, answered),
+				Created:      createdAt(path),
 			})
 		}
 	}
@@ -437,6 +444,51 @@ func herdrRoots(processes []Process) []int {
 		}
 	}
 	return roots
+}
+
+// placeHarnesses reads the working directory of every harness-shaped process
+// and of each of its ancestors, which is where a test fixture's stand-ins are
+// traced back to the goblin or gate that started them. Reading one opens the
+// process, and nothing else here needs it, so nothing else is read.
+func (c Collector) placeHarnesses(processes []Process) {
+	if c.WorkingDirectory == nil {
+		return
+	}
+	index := make(map[int]int, len(processes))
+	for i, process := range processes {
+		index[process.PID] = i
+	}
+	read := make(map[int]bool)
+	for _, process := range processes {
+		if !isHarness(process) {
+			continue
+		}
+		pid := process.PID
+		for range fixtureAncestry + 1 {
+			i, ok := index[pid]
+			if !ok || read[pid] {
+				break
+			}
+			read[pid] = true
+			if dir, err := c.WorkingDirectory(pid); err == nil {
+				processes[i].Cwd = dir
+			}
+			pid = processes[i].ParentPID
+		}
+	}
+}
+
+// createdAt is when a directory was made, zero when that cannot be read.
+func createdAt(path string) time.Time {
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}
+	}
+	data, ok := info.Sys().(*syscall.Win32FileAttributeData)
+	if !ok {
+		return time.Time{}
+	}
+	return time.Unix(0, data.CreationTime.Nanoseconds()).UTC()
 }
 
 // selfAncestry is this process and its parents. The sweep runs inside the

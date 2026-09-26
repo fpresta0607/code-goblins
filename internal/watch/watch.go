@@ -26,6 +26,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -148,7 +149,8 @@ func ConfigFromEnv(h home.Home) Config {
 			Processes: reap.CIMProcesses{Commands: execx.OSRunner{}},
 			Commands:  execx.OSRunner{},
 
-			ProjectsRoot: install.MachineProjectsRoot,
+			ProjectsRoot:     install.MachineProjectsRoot,
+			WorkingDirectory: proc.WorkingDirectory,
 		},
 		Commands: execx.OSRunner{},
 	}
