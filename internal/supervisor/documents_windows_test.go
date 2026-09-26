@@ -20,6 +20,7 @@ import (
 func TestTheCFODeliversADocumentTheBoardServesAsACopy(t *testing.T) {
 	store, h := testStore(t)
 	_, identity, _, cfo := primaryFixture(t, store)
+	servePipe(t, store, cfo)
 	source := filepath.Join(t.TempDir(), "setbacks 1204 Oak St.pdf")
 	data := []byte("%PDF-1.7\n1 0 obj << >> endobj\n%%EOF\n")
 	if err := os.WriteFile(source, data, 0o600); err != nil {
@@ -95,6 +96,7 @@ func TestADocumentABrowserCouldRunIsOnlyEverDownloaded(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			store, h := testStore(t)
 			_, _, _, cfo := primaryFixture(t, store)
+			servePipe(t, store, cfo)
 			source := filepath.Join(t.TempDir(), name)
 			if err := os.WriteFile(source, []byte(content), 0o600); err != nil {
 				t.Fatal(err)
@@ -123,6 +125,7 @@ func TestADocumentIsRefusedOutsideItsReportersFoldersOrLimits(t *testing.T) {
 	store, h := testStore(t)
 	meta, _, _, goblin := goblinFixture(t, store)
 	_, _, _, cfo := primaryFixture(t, store)
+	servePipe(t, store, cfo)
 	ctx := context.Background()
 	outside := filepath.Join(t.TempDir(), "elsewhere.pdf")
 	inside := filepath.Join(meta.Worktree, "plan.pdf")

@@ -24,6 +24,7 @@ import (
 func TestCFOQuestionDurableConflictAndOwnedPublication(t *testing.T) {
 	store, _ := testStore(t)
 	primary, _, _, cfo := primaryFixture(t, store)
+	servePipe(t, store, cfo)
 	if err := cfo.PublishQuestion(context.Background(), "question-1", "Pick a layout", []string{"Board", "Tree"}, "Tree"); err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +351,7 @@ func TestDeferredQuestionsSurviveHistoryRollover(t *testing.T) {
 				if sameTime {
 					created = base.Add(time.Second)
 				}
-				q := Question{ID: id, Identity: identity, Text: "Deferred question", CreatedAt: created}
+				q := Question{ID: id, Identity: identity, Text: "Deferred question", CreatedAt: created, Task: "task-1", Generation: "g1", Seq: i + 1}
 				data, _ := json.Marshal(q)
 				if err := os.WriteFile(filepath.Join(dir, filename(id)), data, 0600); err != nil {
 					t.Fatal(err)
@@ -625,6 +626,7 @@ func TestCFOAnswerDeliversOnceAndTheBoardRecordsIt(t *testing.T) {
 	store, h := testStore(t)
 	primaryFixture(t, store)
 	meta, record, runner, connection := goblinFixture(t, store)
+	servePipe(t, store, connection)
 	q := surfaced(t, store, meta, record, connection)
 	chosen, err := connection.AnswerGoblin(context.Background(), fmt.Sprint(record.Seq), "sqlite", "keep it local")
 	if err != nil || chosen != "SQLite" {
@@ -732,15 +734,16 @@ func TestCFOAnswerRefusesBeforeSendingAnything(t *testing.T) {
 	}
 }
 
-// The CFO answers first and the Overlord's board answer, queued before the
-// supervisor took the CFO's, is refused with nothing sent. In the service's
-// own order, a pass that finds the board answer still queued keeps the CFO's
-// answer, and the question then shows the choice the goblin received from
-// the CFO, never the refused one, and keeps it after a reload.
+// The CFO answers first, and the supervisor records that answer as it takes
+// it over the pipe, so the Overlord's board answer that comes after is
+// refused before anything is queued or sent. The question shows the choice
+// the goblin received from the CFO, never the refused one, and keeps it after
+// a reload.
 func TestCFOAnswerStandsWhenTheBoardAnswerIsRefused(t *testing.T) {
 	store, h := testStore(t)
 	primaryFixture(t, store)
 	meta, record, runner, connection := goblinFixture(t, store)
+	servePipe(t, store, connection)
 	q := surfaced(t, store, meta, record, connection)
 	if err := os.MkdirAll(nativehook.SpoolDir(h.State), 0700); err != nil {
 		t.Fatal(err)
@@ -748,18 +751,11 @@ func TestCFOAnswerStandsWhenTheBoardAnswerIsRefused(t *testing.T) {
 	if _, err := connection.AnswerGoblin(context.Background(), q.ID, "SQLite", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Queue(Action{ID: "board-answer", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "Postgres"}); err != nil {
-		t.Fatal(err)
-	}
-	(&Service{Store: store, work: make(chan struct{}, 1)}).cycle(context.Background(), false)
-	if err := store.ProcessOne(context.Background(), (&Service{Store: store, Options: Options{CFO: connection}}).execute); err != nil {
-		t.Fatal(err)
+	if _, err := store.Queue(Action{ID: "board-answer", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "Postgres"}); err == nil {
+		t.Fatal("the board answer was queued after the CFO's answer was recorded, want it refused")
 	}
 	if len(runner.prompts) != 1 {
 		t.Fatalf("goblin prompts = %q, want only the CFO's answer", runner.prompts)
-	}
-	if got := store.Snapshot().Questions[0]; got.Status != "failed" || got.AnsweredBy != "" || got.AnsweredOption != "" || got.AnsweredAt != nil {
-		t.Fatalf("question = %+v, want the refused board answer to record no answerer", got)
 	}
 	(&Service{Store: store, work: make(chan struct{}, 1)}).cycle(context.Background(), false)
 	reopened, err := Open(h)
@@ -780,6 +776,7 @@ func TestBoardAnswerWaitsForAnInFlightCFOAnswer(t *testing.T) {
 	store, h := testStore(t)
 	primaryFixture(t, store)
 	meta, record, runner, connection := goblinFixture(t, store)
+	servePipe(t, store, connection)
 	q := surfaced(t, store, meta, record, connection)
 	board := &cfoRunner{t: t, pid: os.Getpid()}
 	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: board})}}}
@@ -814,6 +811,7 @@ func TestCFOAndBoardAnswersToDifferentGoblinsBothDeliver(t *testing.T) {
 	store, h := testStore(t)
 	primaryFixture(t, store)
 	metaA, recordA, runnerA, connectionA := goblinFixture(t, store)
+	servePipe(t, store, connectionA)
 	metaB := metaA
 	metaB.ID, metaB.HerdrSession = "task-2", "isolated-b"
 	if err := state.WriteTaskMeta(h.State, metaB); err != nil {

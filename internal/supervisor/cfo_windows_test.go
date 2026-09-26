@@ -210,6 +210,7 @@ func TestRegisterKeepsTheIdentityOfTheSameProcess(t *testing.T) {
 	if _, err := Register(ctx, store.Home.State, cfo.Terminals, "", "session-1"); err != nil {
 		t.Fatal(err)
 	}
+	servePipe(t, store, cfo)
 	path := filepath.Join(store.Home.State, "primary.json")
 	before, err := os.ReadFile(path)
 	if err != nil {
