@@ -496,6 +496,39 @@ func TestLivePaneViewStartsNoProcessPerKey(t *testing.T) {
 	}
 }
 
+// A live view whose Herdr socket cannot be found is refused before it opens,
+// since it could not type, while a control lease never looks for the socket.
+func TestLivePaneViewWithoutItsHerdrSocketIsRefused(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		body   string
+		status int
+		reason string
+	}{
+		{"a live view is refused", `{}`, 503, "Typing into this pane is unavailable: its Herdr socket cannot be found."},
+		{"a control lease still opens", `{"cols":80,"rows":24,"control":true,"identity":"IDENTITY"}`, 200, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			native := newTestTerminal()
+			_, server, identity, runner := terminalHTTPFixture(t, native)
+			runner.socket = nil
+			native.frames <- fullFrame(1)
+			close(native.frames)
+
+			response := terminalPost(t, server, "/api/terminal/stream", strings.ReplaceAll(c.body, "IDENTITY", identity))
+			defer response.Body.Close()
+			data, _ := io.ReadAll(response.Body)
+
+			if response.StatusCode != c.status || !strings.Contains(string(data), c.reason) {
+				t.Fatalf("status %d (%s), want %d naming %q", response.StatusCode, data, c.status, c.reason)
+			}
+			if c.status == 503 && native.cols != 0 {
+				t.Fatalf("a refused view opened the observer at %dx%d", native.cols, native.rows)
+			}
+		})
+	}
+}
+
 // A view's tick proves its pane again with Herdr commands, which take
 // seconds on a loaded machine; the screen goes on meanwhile, so an echo is
 // never held behind a tick.
