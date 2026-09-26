@@ -44,6 +44,10 @@ type Service struct {
 	// task's Go temporary directory is retired with the record. It still
 	// refuses a pane that has a live agent.
 	ForceArchive bool
+	// LeaveRunningTerminals refuses a native task whose terminal still runs,
+	// even one idle at its composer, so nothing is closed: a caller that must
+	// never end a process, as reap must not, leaves that to cfo cleanup.
+	LeaveRunningTerminals bool
 }
 
 // Result reports the exact returned task identity.
@@ -381,7 +385,8 @@ func (s Service) requireHerdrInactive(ctx context.Context, meta state.TaskMeta) 
 // idle only while its harness shows the ready composer with no working
 // marker, and its record is returned so the cleanup closes it. A record or a
 // screen that cannot be read, any other screen, and a harness whose screens
-// cfo cannot read are all refused.
+// cfo cannot read are all refused. Under LeaveRunningTerminals every running
+// terminal is refused.
 func (s Service) requireNativeIdle(meta state.TaskMeta) (host.Record, error) {
 	record, err := host.ReadRecord(s.StateDir, meta.ID)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -392,6 +397,9 @@ func (s Service) requireNativeIdle(meta state.TaskMeta) (host.Record, error) {
 	}
 	if !host.Running(record) {
 		return host.Record{}, nil
+	}
+	if s.LeaveRunningTerminals {
+		return host.Record{}, fmt.Errorf("cleanup: native task %s still runs in host pid %d, and this cleanup never ends a process; retire it with cfo cleanup %s, which closes its terminal once its harness is idle", meta.ID, record.HostPID, meta.ID)
 	}
 	screens, ok := harness.NativeScreens(harness.Kind(meta.Harness))
 	if !ok {

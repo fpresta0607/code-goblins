@@ -221,6 +221,35 @@ func TestCleanupClosesANativeTerminalIdleAtItsComposer(t *testing.T) {
 	}
 }
 
+// The cleanup reap runs never ends a process, so under LeaveRunningTerminals a
+// native goblin idle at its composer is refused naming cfo cleanup, force or
+// not, and its terminal and task are kept.
+func TestCleanupLeavingRunningTerminalsRefusesAnIdleNativeTerminal(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		t.Run(fmt.Sprintf("force archive %v", force), func(t *testing.T) {
+			fixture := nativeCleanupFixture(t, 0)
+			runFakeClaude(t, fixture, "idle")
+			fixture.service.ForceArchive = force
+			fixture.service.LeaveRunningTerminals = true
+
+			_, err := fixture.service.Cleanup(context.Background(), "g1")
+
+			if err == nil || !strings.Contains(err.Error(), "native task g1 still runs") || !strings.Contains(err.Error(), "cfo cleanup g1") {
+				t.Fatalf("Cleanup error = %v, want the running task refused naming cfo cleanup", err)
+			}
+			record, err := host.ReadRecord(fixture.stateDir, "g1")
+			if err != nil {
+				t.Fatalf("the idle terminal was closed: %v", err)
+			}
+			if _, err := host.ReadScreen(record); err != nil {
+				t.Errorf("the idle terminal no longer answers: %v", err)
+			}
+			fixture.assertMetadataPreserved(t)
+			fixture.assertNoHerdrRequests(t)
+		})
+	}
+}
+
 // A native goblin in a turn, a terminal whose screen cannot be read, and a
 // host record that cannot be read are all refused, force or not, and the task
 // and its terminal are kept for a retry.

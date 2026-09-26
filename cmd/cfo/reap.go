@@ -159,6 +159,8 @@ func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.R
 				Terminal:     client,
 				Worktrees:    worktree.Service{Commands: commands},
 				ForceArchive: forceArchive,
+
+				LeaveRunningTerminals: true,
 			}.Cleanup(ctx, id)
 			return err
 		},
