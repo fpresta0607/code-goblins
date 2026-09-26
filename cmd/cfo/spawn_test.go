@@ -72,8 +72,6 @@ func TestRunSpawnDefaultsSessionAndDeliveryMode(t *testing.T) {
 	}
 }
 
-// cfo spawn passes --backend native on, spawns in Herdr without it, and
-// refuses any other backend without calling the spawn service.
 // A task dispatched from the backlog keeps its row's short title, so the
 // board names it by that title after the row leaves the queue; a task with no
 // queued row has none.
@@ -103,6 +101,8 @@ func TestRunSpawnKeepsTheBacklogRowsTitle(t *testing.T) {
 	}
 }
 
+// cfo spawn passes --backend native on, spawns in Herdr without it, and
+// refuses any other backend without calling the spawn service.
 func TestRunSpawnPassesTheBackend(t *testing.T) {
 	for name, test := range map[string]struct {
 		args    []string

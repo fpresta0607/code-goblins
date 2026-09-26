@@ -690,10 +690,11 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
    the repo and the status. */
 .task-card .card-copy { gap: 4px; }
 .task-card .card-title { font-size: 1rem; font-weight: 700; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-.card-meta { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--muted); font-size: .9375rem; line-height: 1.4; white-space: nowrap; }
+.card-meta { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; color: var(--muted); font-size: .9375rem; line-height: 1.4; white-space: nowrap; }
 .card-repo { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .card-sep { opacity: .5; }
-.card-meta .plain-status { flex: none; font-weight: 600; }
+.card-meta .plain-status { flex: 0 .01 auto; min-width: 0; overflow: hidden; font-weight: 600; }
+.card-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* Run items: a command the CFO needs run, shown verbatim before it runs. */
 .run-card { display: grid; gap: 14px; padding: 22px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; background: var(--level-2); box-shadow: var(--shadow-2); }
 .run-card h3 { margin: 0; }
