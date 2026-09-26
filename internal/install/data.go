@@ -20,7 +20,7 @@ func (s Service) layOutData(report *reporter) error {
 	}
 	switch {
 	case legacy:
-		report.same("data", "kept "+data+" as it is: it holds data from before the home layout, and laying it out would move your files")
+		report.same("data", "kept "+data+" as it is: it holds data from before the home layout; cfo home migrate shows what laying it out would move, and changes nothing without --apply")
 	case len(created) > 0:
 		report.change("data", "laid out "+data+": "+strings.Join(created, ", "))
 	default:

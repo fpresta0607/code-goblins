@@ -68,23 +68,38 @@ type Move struct {
 // queued work, however old. A finished folder stays while an open backlog
 // row names it by id, or while anything the fleet or the Overlord still reads
 // names its path (see namedInLiveText), so a queued row or a live goblin's
-// brief that says "start from data/<id>/handoff.md" keeps working.
+// brief that says "start from data/<id>/handoff.md" keeps working. The brief
+// and handoff of a finished folder kept in place are read too, so what they
+// name by path stays, and so on.
 // harnessMemory is the CFO harness's own memory folder, read as part of that.
 func Plan(h home.Home, harnessMemory string, now time.Time) ([]Move, error) {
+	moves, _, err := plan(h, harnessMemory, now)
+	return moves, err
+}
+
+// Kept is a task folder filing leaves where it is, and why.
+type Kept struct {
+	ID     string
+	Reason string
+}
+
+// plan is Plan, and also every task folder it leaves in place with the
+// reason, which a migration reports so its owner can see why each one stays.
+func plan(h home.Home, harnessMemory string, now time.Time) ([]Move, []Kept, error) {
 	entries, err := os.ReadDir(h.Data)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	backlog, err := fleet.ReadBacklog(h)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	archived, err := os.ReadDir(filepath.Join(h.State, state.ArchiveDirName))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
+		return nil, nil, err
 	}
 	type folder struct {
 		id               string
@@ -103,11 +118,11 @@ func Plan(h home.Home, harnessMemory string, now time.Time) ([]Move, error) {
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		f := folder{id: id, brief: brief}
 		if f.live, err = exists(filepath.Join(h.State, id+".meta")); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		// The task's last record is its status log or its newest state
 		// archive entry. A brief written after it is a new brief for the same
@@ -116,7 +131,7 @@ func Plan(h home.Home, harnessMemory string, now time.Time) ([]Move, error) {
 		if info, err := os.Stat(filepath.Join(h.State, id+".status")); err == nil {
 			f.dispatched, lastRecord = true, info.ModTime()
 		} else if !errors.Is(err, fs.ErrNotExist) {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, a := range archived {
 			if !isArchiveOf(a.Name(), id) {
@@ -124,7 +139,7 @@ func Plan(h home.Home, harnessMemory string, now time.Time) ([]Move, error) {
 			}
 			info, err := a.Info()
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			f.dispatched = true
 			if info.ModTime().After(lastRecord) {
@@ -141,18 +156,53 @@ func Plan(h home.Home, harnessMemory string, now time.Time) ([]Move, error) {
 	}
 	named, err := namedInLiveText(h, harnessMemory, briefs)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	// A finished folder kept in place is still read: whoever resumes the work
+	// starts from its brief and handoff. So what they name by path stays too,
+	// and so on until nothing new is kept.
+	expanded := map[string]bool{}
+	for grew := true; grew; {
+		grew = false
+		for _, f := range folders {
+			id := strings.ToLower(f.id)
+			if f.live || !f.dispatched || expanded[id] {
+				continue
+			}
+			if named[id] == "" && !mentions(backlog.Queued, f.id) && !mentions(backlog.Parked, f.id) {
+				continue
+			}
+			expanded[id] = true
+			for _, file := range []string{"brief.md", "handoff.md"} {
+				data, err := readOptional(filepath.Join(h.Data, f.id, file))
+				if err != nil {
+					return nil, nil, err
+				}
+				if noteNames(named, string(data), "data/"+f.id+"/"+file) {
+					grew = true
+				}
+			}
+		}
 	}
 
 	var moves []Move
+	var kept []Kept
 	for _, f := range folders {
 		if f.live {
+			kept = append(kept, Kept{ID: f.id, Reason: "under way"})
 			continue
 		}
 		queued, parked := mentions(backlog.Queued, f.id), mentions(backlog.Parked, f.id)
+		where := named[strings.ToLower(f.id)]
 		var move Move
 		switch {
-		case f.dispatched && !queued && !parked && !named[strings.ToLower(f.id)]:
+		case f.dispatched && (queued || parked):
+			kept = append(kept, Kept{ID: f.id, Reason: "finished, but an open backlog row names it"})
+			continue
+		case f.dispatched && where != "":
+			kept = append(kept, Kept{ID: f.id, Reason: "finished, but " + where + " names its path"})
+			continue
+		case f.dispatched:
 			move = Move{ID: f.id, Reason: "finished"}
 		case !f.dispatched && !queued && (parked || now.Sub(f.brief.ModTime()) >= StaleBriefAge):
 			since := f.brief.ModTime().UTC().Format("2006-01-02")
@@ -160,7 +210,11 @@ func Plan(h home.Home, harnessMemory string, now time.Time) ([]Move, error) {
 			if !parked {
 				move.Row = fmt.Sprintf("- [ ] %s - Brief not dispatched since %s, parked %s: data/%s/%s/brief.md", f.id, since, now.UTC().Format("2006-01-02"), ParkedDir, f.id)
 			}
+		case queued:
+			kept = append(kept, Kept{ID: f.id, Reason: "queued: a backlog row waits on it"})
+			continue
 		default:
+			kept = append(kept, Kept{ID: f.id, Reason: "brief waiting to be dispatched, last changed " + f.brief.ModTime().UTC().Format("2006-01-02")})
 			continue
 		}
 		dir := FinishedDir
@@ -169,11 +223,11 @@ func Plan(h home.Home, harnessMemory string, now time.Time) ([]Move, error) {
 		}
 		move.From = filepath.Join(h.Data, f.id)
 		if move.To, err = freeTarget(filepath.Join(h.Data, filepath.FromSlash(dir), f.id), now); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		moves = append(moves, move)
 	}
-	return moves, nil
+	return moves, kept, nil
 }
 
 // archiveStamp is the time format cleanup and reap stamp a state archive
@@ -201,11 +255,12 @@ func isArchiveOf(name, id string) bool {
 var dataPathName = regexp.MustCompile(`(?i)\bdata[\\/]([A-Za-z0-9._-]+)`)
 
 // namedInLiveText returns, lowercased, every data folder named by path in
-// what the fleet or the Overlord still reads: all of the backlog, the
-// directives, the home's memory and the harness's memory folder, the given
-// briefs, and every open Command Center question, review item and run card.
-// A file that is not there reads as empty.
-func namedInLiveText(h home.Home, harnessMemory string, briefs []string) (map[string]bool, error) {
+// what the fleet or the Overlord still reads, with the first place that
+// names it: all of the backlog, the directives, the home's memory and the
+// harness's memory folder, the given briefs, and every open Command Center
+// question, review item and run card. A file that is not there reads as
+// empty.
+func namedInLiveText(h home.Home, harnessMemory string, briefs []string) (map[string]string, error) {
 	files := append([]string{filepath.Join(h.Data, Backlog), filepath.Join(h.Data, "overlord.md")}, briefs...)
 	for _, dir := range []string{filepath.Join(h.Data, filepath.FromSlash(path.Dir(MemoryIndex))), harnessMemory} {
 		if dir == "" {
@@ -221,25 +276,38 @@ func namedInLiveText(h home.Home, harnessMemory string, briefs []string) (map[st
 			}
 		}
 	}
-	var text strings.Builder
+	named := map[string]string{}
 	for _, file := range files {
 		data, err := os.ReadFile(file)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return nil, err
 		}
-		text.Write(data)
-		text.WriteByte('\n')
+		where := file
+		if rel, err := filepath.Rel(h.Data, file); err == nil && filepath.IsLocal(rel) {
+			where = "data/" + filepath.ToSlash(rel)
+		}
+		noteNames(named, string(data), where)
 	}
 	open, err := openBoardText(h)
 	if err != nil {
 		return nil, err
 	}
-	text.WriteString(open)
-	named := map[string]bool{}
-	for _, match := range dataPathName.FindAllStringSubmatch(text.String(), -1) {
-		named[strings.ToLower(strings.TrimRight(match[1], "."))] = true
-	}
+	noteNames(named, open, "an open Command Center item")
 	return named, nil
+}
+
+// noteNames records in named, lowercased, every data folder text names by
+// path that named does not hold yet, with where as the place that names it,
+// and reports whether it recorded any.
+func noteNames(named map[string]string, text, where string) bool {
+	added := false
+	for _, match := range dataPathName.FindAllStringSubmatch(text, -1) {
+		if name := strings.ToLower(strings.TrimRight(match[1], ".")); named[name] == "" {
+			named[name] = where
+			added = true
+		}
+	}
+	return added
 }
 
 // openBoardText is the text of every Command Center item still waiting in
