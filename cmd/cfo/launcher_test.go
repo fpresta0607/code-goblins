@@ -20,6 +20,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 // fakeBoard answers /api/snapshot the way cfo serve does and returns its
@@ -113,7 +114,7 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 			return 0
 		},
 		nativeTerminalRuns: func(_, id string) bool {
-			return f.cfoTerminalRuns && id == nativeCFOTerminal
+			return f.cfoTerminalRuns && id == supervisor.NativeCFOTerminal
 		},
 	}
 	f.project = filepath.Join(dir, "project")

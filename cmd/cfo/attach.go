@@ -14,10 +14,8 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
-
-// nativeCFOTerminal is the native terminal goblins --native starts the CFO in.
-const nativeCFOTerminal = "cfo"
 
 // detachKey is Ctrl-], which leaves an attached terminal running.
 const detachKey = 0x1d
@@ -63,28 +61,14 @@ func runAttach(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		case inHerdr:
 			fmt.Fprintln(stderr, "cfo attach: the CFO runs in Herdr, not in a native terminal; name the terminal to attach to")
 			return 1
-		case runtime.nativeTerminalRuns(*stateDir, nativeCFOTerminal):
-			id = nativeCFOTerminal
+		case runtime.nativeTerminalRuns(*stateDir, supervisor.NativeCFOTerminal):
+			id = supervisor.NativeCFOTerminal
 		default:
 			fmt.Fprintln(stderr, "cfo attach: no CFO runs in a native terminal; name the terminal to attach to")
 			return 1
 		}
 	}
 	return runtime.attachNative(*stateDir, id, stdout, stderr)
-}
-
-// nativeTerminalRuns reports whether native terminal id's host answers.
-func nativeTerminalRuns(stateDir, id string) bool {
-	record, err := host.ReadRecord(stateDir, id)
-	if err != nil {
-		return false
-	}
-	client, err := host.Dial(record)
-	if err != nil {
-		return false
-	}
-	_ = client.Close()
-	return true
 }
 
 // attachNative shows native terminal id in this console until the terminal
@@ -230,7 +214,7 @@ func startNativeCFO(stateDir, project string) error {
 	if err != nil {
 		return err
 	}
-	_, err = host.Launch(stateDir, []string{self, "host"}, nativeCFOEnvironment(os.Environ()), host.Spec{ID: nativeCFOTerminal, Args: []string{claude}, Dir: project, Cols: 120, Rows: 40})
+	_, err = host.Launch(stateDir, []string{self, "host"}, nativeCFOEnvironment(os.Environ()), host.Spec{ID: supervisor.NativeCFOTerminal, Args: []string{claude}, Dir: project, Cols: 120, Rows: 40})
 	return err
 }
 

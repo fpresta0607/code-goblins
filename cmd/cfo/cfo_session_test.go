@@ -13,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 // newSessionFixture is a launcher fixture with no live CFO whose supervisor
@@ -107,8 +108,8 @@ func TestGoblinsNativeStartsTheCFOInANativeTerminal(t *testing.T) {
 	if exit != 0 || len(f.nativeStarts) != 1 || f.nativeStarts[0] != f.project || len(f.cfoStarts) != 0 || len(f.attached) != 0 {
 		t.Fatalf("exit=%d nativeStarts=%q cfoStarts=%q attached=%q stderr=%q, want the CFO started natively in %s", exit, f.nativeStarts, f.cfoStarts, f.attached, stderr, f.project)
 	}
-	if len(f.nativeAttached) != 1 || f.nativeAttached[0] != nativeCFOTerminal {
-		t.Errorf("native terminals shown = %q, want %s", f.nativeAttached, nativeCFOTerminal)
+	if len(f.nativeAttached) != 1 || f.nativeAttached[0] != supervisor.NativeCFOTerminal {
+		t.Errorf("native terminals shown = %q, want %s", f.nativeAttached, supervisor.NativeCFOTerminal)
 	}
 	if !strings.Contains(stdout, "The CFO starts in "+f.project+", in native terminal cfo.") {
 		t.Errorf("stdout = %q, want it to say where the CFO starts", stdout)
@@ -154,7 +155,7 @@ func TestGoblinsShowsAnUnregisteredCFOInNativeTerminalCFO(t *testing.T) {
 			if exit != 0 || len(f.nativeStarts) != 0 || len(f.cfoStarts) != 0 || len(f.attached) != 0 {
 				t.Fatalf("exit=%d nativeStarts=%q cfoStarts=%q attached=%q stderr=%q, want nothing started", exit, f.nativeStarts, f.cfoStarts, f.attached, stderr)
 			}
-			if !slices.Equal(f.nativeAttached, []string{nativeCFOTerminal}) || !strings.Contains(stdout, "The CFO is already running in native terminal cfo.") {
+			if !slices.Equal(f.nativeAttached, []string{supervisor.NativeCFOTerminal}) || !strings.Contains(stdout, "The CFO is already running in native terminal cfo.") {
 				t.Errorf("native terminals shown = %q, stdout = %q; want cfo shown and said so", f.nativeAttached, stdout)
 			}
 		})
