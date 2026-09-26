@@ -162,8 +162,8 @@ func (f *cleanupFixture) assertNoHerdrRequests(t *testing.T) {
 // cfo cleanup used to refuse every native task as not a Herdr task.
 func TestCleanupReturnsANativeTaskWhoseTerminalHasEnded(t *testing.T) {
 	for name, hostPID := range map[string]func(*testing.T) int{
-		"no host record":          func(*testing.T) int { return 0 },
-		"record of an ended host": endedPID,
+		"no host record":                          func(*testing.T) int { return 0 },
+		"record of an ended host":                 endedPID,
 		"record whose pid a later process reuses": reusedPID,
 	} {
 		t.Run(name, func(t *testing.T) {
