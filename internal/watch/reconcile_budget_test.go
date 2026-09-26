@@ -71,3 +71,25 @@ func TestRunGivesUpOnAProbeThatNeverAnswers(t *testing.T) {
 		t.Error("the watcher returned without a reason; want the unreadable endpoint the cut-off scan recorded")
 	}
 }
+
+// A cut-off pass must leave the heartbeat as fresh as the pass's end, not its
+// start: the scan stamps last_cycle when it begins, so a pass that spends its
+// whole budget would otherwise leave serve's heartbeat a budget old, and the
+// next pass can start before serve's own heartbeat tick, doubling that past
+// the Stop hook's grace while serve is alive and holds the lock.
+func TestReconcileLeavesTheHeartbeatFreshAfterACutOffPass(t *testing.T) {
+	dir := t.TempDir()
+	budget := 300 * time.Millisecond
+	cfg := Config{Home: baseConfig(dir).Home, Monitor: hangingMonitor(t, dir), ReconcileBudget: budget}
+
+	_ = Reconcile(context.Background(), cfg)
+	passEnd := time.Now()
+
+	heartbeat, err := monitor.ReadHeartbeat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if age := passEnd.Sub(heartbeat.LastCycle); age >= budget {
+		t.Errorf("heartbeat was %s old when the pass returned; want it touched after the scan, under the %s budget", age, budget)
+	}
+}

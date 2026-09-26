@@ -1,0 +1,5 @@
+{"what":"wheel up 300 px over the Herdr view of Build review panel (40 rows)","sent":{"type":"terminal.scroll","direction":"up","lines":16,"source":"wheel"},"status":200}
+{"what":"Shift+PageUp","sent":{"type":"terminal.scroll","direction":"up","lines":39,"source":"page_key"},"status":200}
+{"what":"Shift+PageDown","sent":{"type":"terminal.scroll","direction":"down","lines":39,"source":"page_key"},"status":200}
+{"what":"typing z after the scrolls, echoed in the pane","sent":{"type":"terminal.input","text":"z"},"status":200}
+{"what":"Open in terminal","sent":{"task":"board-fixture","session":"codex/board-worker","generation":"fixture-1"},"status":200,"windows_terminal_started_with":["-w","new","<herdr.exe on PATH>","--session","<the fixture's scratch session>"],"note":"a stub wt.exe first on the fixture board's PATH recorded its arguments, so no window opened"}

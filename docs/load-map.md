@@ -177,7 +177,7 @@ The gate reads it from the default branch, and `cfo pipeline run` refuses to sta
 
 The `cfo session-start` digest prints the first queued rows of `data/backlog.md`, every task's metadata and recent status, and `data/projects.md`, `data/overlord.md` and the memory index `data/memory/MEMORY.md` in full, and points the CFO at `data/memory/` for writing facts.
 Apart from the shipped lane table, `data/routing.json`, `data/` is the operator's private fleet state and never part of this repository.
-A Claude CFO also loads its auto-memory index for the folder it runs in, which is Claude Code's own and not the CFO's memory: a CFO in another harness or another folder never sees it.
+A Claude CFO also loads its auto-memory index for the folder it runs in, which is Claude Code's own and stays authoritative for a Claude Code CFO; a CFO in another harness or another folder never sees it, which is why AGENTS.md, under Memory, has `cfo home migrate` import it into `data/memory/`.
 The `stow` skill keeps `data/overlord.md` and `data/memory/` inside a startup budget, and the backlog current: directives stay word for word, operating facts decay unless re-confirmed, and stale history moves to `data/memory-archive.md`, which no session loads.
 
 ## Third-party skills

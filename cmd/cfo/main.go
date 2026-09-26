@@ -43,7 +43,7 @@ commands:
   version   print the cfo version
   serve     run the persistent native supervisor and embedded browser board on loopback
   host      run one goblin terminal in a process of its own; cfo starts it, not you
-  attach    show a native terminal in this console, the CFO's unless one is named; Ctrl-] leaves it running
+  attach    show a native terminal in this console, the CFO's unless one is named; --state <dir> names the fleet's state folder; Ctrl-] leaves it running
   status    whether the supervisor runs: its board, what the fleet is doing and its pid; exits 1 when none runs
   stop      ask the supervisor to stop and wait until it has; --force ends its process tree instead
   hooks     check|install <claude|codex|pi> native lifecycle hooks
@@ -51,6 +51,7 @@ commands:
   register  make this session the primary CFO the board delivers to; the SessionStart hooks do it, run it by hand when the board says the registration is stale
   install   wire a CFO home into the machine (CFO_HOME, PATH, and the Claude Code hooks in your user settings) so a session in any repo is supervised: run from a checkout it wires that checkout, run anywhere else it sets up %LOCALAPPDATA%\CodeGoblins from this binary (the CFO's contract and skills, the default policy, and the binary as cfo.exe and goblins.exe); --projects-root <dir> records the folder that holds your checkouts so --project can take a bare name; --uninstall reverses the wiring, the board's native hooks and the Start-menu shortcut included, and keeps the home's files
   uninstall the same as install --uninstall
+  home      migrate [--apply --plan <digest>] [--memory-from <dir>]: lay out a home whose data predates the layout; without --apply a dry run that lists every file it would move, create or change, proves none is dropped and prints the plan digest --apply --plan makes
   doctor    check the tools cfo needs (git, gh, claude, herdr, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi)
   pipeline  config-drift | config-apply | migrate <id> | run <id> --intent <text> | respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>] | recover <id>
   drain     print or acknowledge the wake queue and recovery episode
@@ -306,6 +307,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runInstall(append([]string{"--uninstall"}, args[1:]...), stdout, stderr)
 	case "doctor":
 		return runDoctor(stdout, runtime)
+	case "home":
+		return runHome(args[1:], stdout, stderr)
 	case "pipeline":
 		return runPipeline(args[1:], stdout, stderr, runtime)
 	case "drain":

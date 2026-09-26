@@ -47,9 +47,9 @@ type Backend interface {
 
 	// SendLiteral types text into the terminal without submitting it.
 	SendLiteral(ctx context.Context, target herdr.Target, text string) error
-	// Typist types text into the session's terminals like SendLiteral, but
-	// starts no process per call, for a view that types key by key.
-	Typist(ctx context.Context) (func(context.Context, herdr.Target, string) error, error)
+	// PaneInput types into and scrolls the session's terminals, starting no
+	// process per call, for a view that types key by key.
+	PaneInput(ctx context.Context) (herdr.PaneInput, error)
 	// SendKey sends one named key, such as Enter or Escape.
 	SendKey(ctx context.Context, target herdr.Target, key string) error
 	// Capture returns the last lines of the terminal's screen.

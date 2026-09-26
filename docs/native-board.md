@@ -34,11 +34,13 @@ Restarting with the same CFO home recovers durable events, evaluations, actions,
 Run `cfo hooks check claude`, `cfo hooks check codex`, or `cfo hooks check pi` to inspect the installed capability contract.
 Run `cfo hooks install <harness>` to add the corresponding native lifecycle integration.
 The verified minimum contracts are Claude Code 2.1.278, Codex 0.154.0, and Pi 0.85.1.
+The check reads the harness's version through PowerShell with the execution policy bypassed, so the script shim npm installs for Codex and Pi runs even where the policy is Restricted.
 Kimi remains supported by existing CFO runtime monitoring; this change does not claim Kimi native lifecycle hooks.
 
 Default destinations are `~/.claude/settings.json`, `~/.codex/hooks.json`, and `~/.pi/agent/extensions/cfo-native.ts`.
 Use `--config-dir <absolute-directory>` for a custom harness home or an isolated test configuration.
 Setup preserves unrelated JSON hooks/settings, takes a first backup before changing existing JSON, and replaces only its owned helper.
+Its hooks go back where they stood in each event's list, as `cfo install`'s do in the same `~/.claude/settings.json`, so rerunning either changes nothing when nothing changed.
 It does not change models, gate policy, approval settings, or Codex hook trust.
 Review the exact installed Codex definitions in `/hooks` before they can run.
 
@@ -183,7 +185,7 @@ A goblin panel's Terminal view shows a task in a native terminal from its host, 
 The installed Herdr build `0.9.0-preview.2026-09-08-62431dbd033b` exposes `terminal session observe` and `terminal session control` over NDJSON.
 The browser renders its real ANSI screen frames using xterm, loaded the first time a panel shows its Terminal view.
 A goblin panel's Terminal view of a Herdr pane is a live view of the pane: it never claims the native controller, never resizes the pane and never resumes an agent.
-Frames arrive at the pane's own size as Herdr lays it out; the view sizes its font to show the whole pane in the panel, bound by whichever of the panel's width or height runs out first and measured from the cells xterm drew, with no floor, and anchors the screen to the panel's bottom so the input line stays there; nothing scrolls, nothing is cropped and no scroll bar is drawn.
+Frames arrive at the pane's own size as Herdr lays it out; the view sizes its font to show the whole pane in the panel, bound by whichever of the panel's width or height runs out first and measured from the cells xterm drew, with no floor, and anchors the screen to the panel's bottom so the input line stays there; the panel never scrolls, nothing is cropped and no scroll bar is drawn.
 Rows are drawn at the font's own height, xterm's default line height, and a screen whose rows round up past the panel steps down half a pixel at a time until it fits whole; a 120 by 40 pane is 14 px maximized in a 1600 by 1000 window and 22 px in a 2560 by 1440 one.
 A view is refused when Herdr reports no size for the pane; when Herdr lays the pane out at a new size the view ends, and the panel reconnects on its own to show it whole.
 Typing needs no separate step: the view's lease takes keys, escape sequences and one bracketed paste at a time, in order, each typed into that exact pane over the Herdr session's socket.
@@ -192,7 +194,10 @@ The view proves its pane, terminal, process and gate custody in full when it ope
 A tick's Herdr commands run beside the screen, never in its way, so a frame, and with it the echo of a key, is never held behind a tick.
 A paste is typed whole in one request, up to the 64 KiB input limit; an input Herdr refuses ends the view with an unknown outcome.
 A refused input, or one whose outcome is unknown, ends the view with the reason in plain words; nothing is resent, and reconnecting starts from a fresh full screen.
-The view sends no resize or scroll: the whole screen is in view, so the mouse wheel scrolls nothing, and a NUL key such as Ctrl+Space is typed like any other key.
+The view never resizes the pane; the mouse wheel and Shift+PageUp and Shift+PageDown scroll the pane's history through Herdr's `pane.scroll` on the same socket, in whole lines of the screen as drawn, and Herdr holds the offset within the history and says where the pane is.
+Herdr keeps a pane scrolled while it is typed into, so the view brings the pane back to its bottom before it types; scrolling reaches no program, so a gate that owns the pane stops typing but not scrolling.
+The scroll position is Herdr's own, shared by every window on that pane.
+A NUL key such as Ctrl+Space is typed like any other key.
 Shift+Escape moves keyboard focus out of the terminal to the panel's pill; ordinary Escape stays with the pane.
 Releasing a drag selection copies it to the clipboard, the way Herdr does, and Ctrl+Shift+C copies the current selection.
 Closing, switching, disconnecting or restarting invalidates the lease; reconnection starts with a full screen frame, never replayed input.
@@ -259,7 +264,12 @@ A message for a native CFO is typed into its terminal once, then Enter submits i
 A host started by an older cfo cannot acknowledge, so the board refuses anything it sends that CFO with nothing typed until the CFO is started again.
 The board shows a native CFO's terminal in its panel, from the CFO bar and from Orchestration.
 `goblins` shows a CFO registered in a native terminal in its own terminal, and `goblins --native` starts a new CFO in native terminal `cfo`, running `claude.exe` itself so the terminal ends with it, without the launcher's `HERDR_PANE_ID`.
-`cfo attach` shows a native terminal in any console: the registered CFO's, or the one named.
+`cfo attach` shows a native terminal in any console: the registered CFO's, or the one named; `--state <dir>` names the fleet's state folder for a console that does not inherit the supervisor's environment.
+
+The panel's Open in terminal button, shown while it shows a terminal, opens that terminal in a new Windows Terminal window beside the board, through `POST /api/terminal/open`, which takes only what the view shows and runs the supervisor's own programs.
+For a goblin or CFO in Herdr the pane is proved as its view proves it, Herdr brings its workspace and tab to the front, and the window runs `herdr --session <session>`, so it opens on that pane; for a native terminal the window runs `cfo attach --state <dir> <terminal>`, since a Windows Terminal window does not inherit the supervisor's environment.
+A goblin whose no-mistakes gate owns its task is refused with the gate's reason, with nothing brought to the front and no window, as typing into it is; the CFO's own terminal has no gate.
+A board without Windows Terminal, or a terminal it cannot prove, says why under the button.
 With no CFO registered, `goblins` and `cfo attach` show native terminal `cfo` while its host answers, since the CFO started there may not have registered yet; a CFO registered in Herdr always comes first.
 Keys pass through raw, the terminal follows the console's size, and Ctrl-] leaves it running, whether the console sends that key as a byte or as a Windows key event.
 A host refuses to start for a terminal that already runs, so a second start never takes over the first one's record.

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bracketedPaste, fittedFontSize, inputBytes, maxInputBytes, queueInput, typingHeldReason } from "./terminalInput.ts";
+import { bracketedPaste, fittedFontSize, inputBytes, maxInputBytes, queueInput, queueScroll, typingHeldReason, wheelLines, type PaneCommand } from "./terminalInput.ts";
 
 test("Unicode paste uses UTF-8 bytes including one complete bracketed wrapper", () => {
   const limit = Math.floor((maxInputBytes - 12) / 3);
@@ -12,19 +12,47 @@ test("Unicode paste uses UTF-8 bytes including one complete bracketed wrapper", 
   assert.equal(bracketedPaste("one\n\x1b[201~two"), "\x1b[200~one\ntwo\x1b[201~");
 });
 
+const typed = (text: string): PaneCommand => ({ type: "terminal.input", text });
+const scrolled = (direction: "up" | "down", lines: number, source: "wheel" | "page_key" = "wheel"): PaneCommand => ({ type: "terminal.scroll", direction, lines, source });
+
 test("typing coalesces adjacent text, preserving Unicode, and keeps control keys and pastes apart", () => {
-  const queue: string[] = [];
+  const queue: PaneCommand[] = [];
   for (const text of ["c", "a", "f", "é", "日本", "🙂", "é"]) queueInput(queue, text);
   queueInput(queue, "\r");
   const paste = bracketedPaste("one\ntwo");
   queueInput(queue, paste);
   queueInput(queue, "after");
   queueInput(queue, "\x1b[A");
-  assert.deepEqual(queue, ["café日本🙂é", "\r", paste, "after", "\x1b[A"]);
-  const bounded: string[] = [];
+  assert.deepEqual(queue, [typed("café日本🙂é"), typed("\r"), typed(paste), typed("after"), typed("\x1b[A")]);
+  const bounded: PaneCommand[] = [];
   for (let i = 0; i < 5000; i++) queueInput(bounded, "x");
   assert.equal(bounded.length, 2);
-  assert.equal(bounded.join("").length, 5000);
+  assert.equal(bounded.map((command) => command.type === "terminal.input" ? command.text : "").join("").length, 5000);
+});
+
+test("scrolling coalesces one way at a time within Herdr's limit, in order with typing", () => {
+  const queue: PaneCommand[] = [];
+  queueScroll(queue, "up", 3, "wheel");
+  queueScroll(queue, "up", 5, "wheel");
+  queueScroll(queue, "down", 2, "wheel");
+  queueScroll(queue, "down", 40, "page_key");
+  queueInput(queue, "x");
+  queueScroll(queue, "up", 150, "wheel");
+  queueScroll(queue, "up", 150, "wheel");
+  assert.deepEqual(queue, [scrolled("up", 8), scrolled("down", 2), scrolled("down", 40, "page_key"), typed("x"), scrolled("up", 200), scrolled("up", 100)]);
+});
+
+test("the wheel scrolls whole lines, keeping what a touchpad has not yet made a line", () => {
+  const row = 18;
+  const cases: [string, number, number, number, { lines: number; rest: number }][] = [
+    ["a mouse notch in pixels", 0, 100, 0, { lines: 5, rest: 10 }],
+    ["a notch the other way", 0, -100, 0, { lines: -5, rest: -10 }],
+    ["a touchpad's small moves add up", 10, 10, 0, { lines: 1, rest: 2 }],
+    ["less than a line waits", 0, 10, 0, { lines: 0, rest: 10 }],
+    ["a wheel in lines", 0, 3, 1, { lines: 3, rest: 0 }],
+    ["a wheel in pages scrolls the screen", 0, 1, 2, { lines: 40, rest: 0 }],
+  ];
+  for (const [name, rest, delta, mode, want] of cases) assert.deepEqual(wheelLines(rest, delta, mode, row, 40), want, name);
 });
 
 test("a pane's screen is fitted to the panel whole, by its width or its height, with no floor", () => {

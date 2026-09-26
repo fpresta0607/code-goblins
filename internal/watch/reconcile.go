@@ -47,9 +47,9 @@ func Reconcile(ctx context.Context, cfg Config) error {
 				return err
 			}
 		}
-	} else if err := monitor.TouchHeartbeat(cfg.Home.State, time.Now()); err != nil {
-		return err
 	}
 	sweepOrphans(ctx, cfg)
-	return nil
+	// The scan stamps last_cycle when it starts; a pass that ran to its
+	// budget would leave the heartbeat that old, so mark the pass's end.
+	return monitor.TouchHeartbeat(cfg.Home.State, time.Now())
 }
