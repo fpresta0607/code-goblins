@@ -586,6 +586,10 @@ type Snapshot struct {
 	// CFORuns says a CFO is registered and running or starting in its native
 	// terminal; without one the board shows its first-run page.
 	CFORuns bool `json:"cfo_runs"`
+	// CFOStarting says native terminal cfo is up for a CFO not registered
+	// yet; the board opens that terminal for its sign-in, and no registration
+	// problem is shown while it lasts.
+	CFOStarting bool `json:"cfo_starting"`
 	// CFOTerminal names the native terminal the board shows the CFO in (see
 	// cfoTerminal), and is empty while the CFO runs in Herdr or not at all.
 	CFOTerminal string `json:"cfo_terminal"`
@@ -606,6 +610,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		out.CFOTerminal = id
 	}
 	out.CFORuns = CFORuns(s.Store.Home.State)
+	if out.CFOStarting = CFOStarting(s.Store.Home.State); out.CFOStarting {
+		out.Registration = ""
+	}
 	// The board sees how many images a question has, never where they are.
 	out.Questions = make([]Question, len(d.Questions))
 	for i, q := range d.Questions {

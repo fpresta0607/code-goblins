@@ -373,6 +373,38 @@ func TestTheBoardShowsTheCFOsTerminalBeforeTheCFORegisters(t *testing.T) {
 	}
 }
 
+// A CFO started in native terminal cfo registers only after Claude Code's
+// own onboarding and sign-in, so until then the snapshot says it is starting
+// and carries no registration problem: the board opens its terminal for the
+// sign-in instead of telling the Overlord to run cfo register. With no
+// terminal cfo up, the problem stands.
+func TestAStartingCFOIsNotReportedAsUnregistered(t *testing.T) {
+	// Arrange
+	h, _ := nativeBoard(t, "direct")
+	stateDir := h.Service.Store.Home.State
+	h.Service.Options.CFO = &CFOConnection{State: stateDir}
+	h.Service.checkRegistration(context.Background())
+	absent, err := h.Service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostTerminal(t, stateDir, NativeCFOTerminal)
+
+	// Act
+	starting, err := h.Service.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if absent.CFOStarting || !strings.Contains(absent.Registration, "not registered") {
+		t.Errorf("with no CFO and no terminal cfo: starting %v, registration %q; want not starting and the registration problem", absent.CFOStarting, absent.Registration)
+	}
+	if !starting.CFOStarting || starting.Registration != "" {
+		t.Errorf("with terminal cfo up and no CFO registered: starting %v, registration %q; want starting and no registration problem", starting.CFOStarting, starting.Registration)
+	}
+}
+
 // A view of the CFO's terminal closes once the CFO registers in another
 // terminal, so typing never reaches a terminal the CFO has left.
 func TestACFOViewClosesWhenTheCFOLeavesItsTerminal(t *testing.T) {

@@ -349,6 +349,14 @@ func CFORuns(stateDir string) bool {
 	return live || NativeTerminalRuns(stateDir, NativeCFOTerminal)
 }
 
+// CFOStarting reports whether native terminal cfo is up for a CFO that has
+// not registered yet: Claude Code registers the CFO only once its onboarding
+// and sign-in are done, in that terminal.
+func CFOStarting(stateDir string) bool {
+	_, live := livePrimary(stateDir)
+	return !live && NativeTerminalRuns(stateDir, NativeCFOTerminal)
+}
+
 // cfoTerminal is the native terminal the board shows the CFO in: the one the
 // registered CFO names or, with no CFO registered, native terminal cfo while
 // its host answers, since a CFO started there registers only once it runs

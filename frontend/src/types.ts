@@ -95,6 +95,9 @@ export interface Snapshot {
   // cfo_runs says a CFO is registered and running or starting; without one
   // the board shows its first-run page.
   cfo_runs: boolean;
+  // cfo_starting says the CFO runs in its terminal but has not registered,
+  // which it does only after Claude Code's sign-in there.
+  cfo_starting: boolean;
   inbox: number;
   tasks: Task[];
   sessions: Session[];
@@ -272,6 +275,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     cfo_terminal: v.cfo_terminal === undefined ? "" : string(v.cfo_terminal),
     build: string(v.build),
     cfo_runs: v.cfo_runs === undefined || boolean(v.cfo_runs),
+    cfo_starting: v.cfo_starting === undefined ? false : boolean(v.cfo_starting),
     inbox: number(v.inbox),
     retired: strings(v.retired),
     issues: strings(v.issues),

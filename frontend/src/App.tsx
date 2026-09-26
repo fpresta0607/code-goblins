@@ -64,6 +64,9 @@ export function App() {
   // is his choice to see the board while no CFO runs.
   const [started, setStarted] = useState(false);
   const [boardAnyway, setBoardAnyway] = useState(false);
+  // startingShown is whether this page already opened the terminal of a CFO
+  // that is starting, so closing it is not undone.
+  const [startingShown, setStartingShown] = useState(false);
   const returnFocus = useRef<HTMLElement | null>(null);
   const pane = useRef<HTMLElement>(null);
   const workspace = useRef<HTMLDivElement>(null);
@@ -122,6 +125,9 @@ export function App() {
     setSwitchFocus((prior) => prior + 1);
   };
   if (started && snapshot?.cfo_runs) setStarted(false);
+  // A CFO starting in its terminal waits there for Claude Code's sign-in, so
+  // the board opens that terminal by itself, once.
+  if (snapshot?.cfo_starting && !startingShown) { setStartingShown(true); setView("Board"); switchTo(CFO_KEY); }
   // The board's root is the first-run page whenever no CFO runs.
   const firstRun = !!snapshot && showsFirstRun({ cfoRuns: snapshot.cfo_runs, started, boardAnyway });
   const close = () => {
