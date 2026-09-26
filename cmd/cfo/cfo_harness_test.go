@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/terminal/terminaltest"
 )
 
@@ -62,19 +64,61 @@ func TestGoblinsStartsTheCFOAsClaudeUnlessToldOtherwise(t *testing.T) {
 // A CFO already running keeps the harness it runs: goblins --harness starts
 // nothing beside it, remembers the choice for the next start, and says so.
 func TestALiveCFOKeepsItsHarness(t *testing.T) {
-	f := newSessionFixture(t)
-	f.withLiveCFO()
+	for _, c := range []struct {
+		name string
+		live func(f *launcherFixture)
+	}{
+		{"registered native", func(f *launcherFixture) { f.nativeCFO = supervisor.NativeCFOTerminal }},
+		{"registered in Herdr", func(f *launcherFixture) { f.withLiveCFO() }},
+		{"unregistered in native terminal cfo", func(f *launcherFixture) { f.cfoTerminalRuns = true }},
+		{"an agent already in the cfo tab", func(f *launcherFixture) {
+			f.runtime.startCFO = func(context.Context, string, string) (bool, error) { return false, nil }
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			f := newSessionFixture(t)
+			c.live(f)
 
-	exit, stdout, stderr := f.launch("--harness", "codex")
+			// Act
+			exit, stdout, stderr := f.launch("--harness", "codex")
 
-	if exit != 0 || len(f.harnesses) != 0 {
-		t.Fatalf("exit=%d harnesses=%q stderr=%q, want nothing started", exit, f.harnesses, stderr)
+			// Assert
+			if exit != 0 || len(f.harnesses) != 0 || len(f.nativeStarts) != 0 {
+				t.Fatalf("exit=%d harnesses=%q nativeStarts=%q stderr=%q, want nothing started", exit, f.harnesses, f.nativeStarts, stderr)
+			}
+			if !strings.Contains(stdout, "The CFO already runs, and keeps its harness; codex is the harness goblins starts the next CFO as.") {
+				t.Errorf("stdout = %q, want it to say the live CFO keeps its harness", stdout)
+			}
+			if harness, err := cfoHarness(f.home.State); err != nil || harness != "codex" {
+				t.Errorf("remembered harness = %q, %v; want codex", harness, err)
+			}
+		})
 	}
-	if !strings.Contains(stdout, "The CFO already runs, and keeps its harness; codex is the harness goblins starts the next CFO as.") {
-		t.Errorf("stdout = %q, want it to say the live CFO keeps its harness", stdout)
+}
+
+// The board's first-run page offers only Claude Code, so the CFO it starts is
+// claude whatever harness goblins remembers. With claude found only as a
+// script and codex not on PATH, neither start can reach a host.
+func TestTheFirstRunStartsClaudeWhateverHarnessIsRemembered(t *testing.T) {
+	// Arrange
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "claude.cmd"), []byte("@echo off\r\n"), 0o700); err != nil {
+		t.Fatal(err)
 	}
-	if harness, err := cfoHarness(f.home.State); err != nil || harness != "codex" {
-		t.Errorf("remembered harness = %q, %v; want codex", harness, err)
+	t.Setenv("PATH", bin)
+	h := home.Home{State: t.TempDir()}
+	if err := os.WriteFile(cfoHarnessPath(h.State), []byte("codex\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil })
+
+	// Act
+	err := run.StartCFO(t.TempDir())
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "the native build of Claude Code is claude.exe") {
+		t.Fatalf("first-run StartCFO error = %v, want claude looked up rather than codex", err)
 	}
 }
 

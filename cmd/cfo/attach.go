@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
@@ -214,26 +215,19 @@ func startNativeCFO(stateDir, project, harness string) error {
 }
 
 // nativeCFOProgram is the command line a native terminal starts harness with
-// as the CFO. A native terminal starts a program itself, with no shell, so
-// Claude Code must be its native build, claude.exe; codex and pi install as
-// npm script shims and run through cmd /c, which exits with them, as a native
-// goblin's do.
+// as the CFO, as a native goblin's is: codex and pi install as npm script shims
+// and run through cmd /c. Claude Code must be its native build, claude.exe.
 func nativeCFOProgram(harness string) ([]string, error) {
-	path, err := exec.LookPath(harness)
-	if err != nil {
-		return nil, fmt.Errorf("%s is not on PATH: %w", harness, err)
-	}
-	if strings.EqualFold(filepath.Ext(path), ".exe") {
-		return []string{path}, nil
-	}
 	if harness == "claude" {
-		return nil, fmt.Errorf("%s is not a program a native terminal can start; the native build of Claude Code is claude.exe", path)
+		path, err := exec.LookPath(harness)
+		if err != nil {
+			return nil, fmt.Errorf("%s is not on PATH: %w", harness, err)
+		}
+		if !strings.EqualFold(filepath.Ext(path), ".exe") {
+			return nil, fmt.Errorf("%s is not a program a native terminal can start; the native build of Claude Code is claude.exe", path)
+		}
 	}
-	shell := os.Getenv("ComSpec")
-	if shell == "" {
-		shell = filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe")
-	}
-	return []string{shell, "/c", harness}, nil
+	return spawn.NativeProgram(harness)
 }
 
 // nativeCFOEnvironment is env without the Herdr pane a launcher run inside

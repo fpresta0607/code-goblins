@@ -716,7 +716,9 @@ func TestAScreenReadThatFailsForAMomentIsReadAgain(t *testing.T) {
 // or an argument cmd would interpret, is refused.
 func TestANativeTerminalStartsEachHarnessAsItsProgramNeeds(t *testing.T) {
 	bin := t.TempDir()
-	writeFile(t, filepath.Join(bin, "claude.cmd"), "@echo off\r\n")
+	for _, name := range []string{"claude.cmd", "codex.cmd", "pi.cmd"} {
+		writeFile(t, filepath.Join(bin, name), "@echo off\r\n")
+	}
 	t.Setenv("PATH", bin)
 	t.Setenv("ComSpec", `C:\Windows\System32\cmd.exe`)
 
