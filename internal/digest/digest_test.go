@@ -92,7 +92,7 @@ var sectionHeaders = []string{
 func TestComposeSectionOrder(t *testing.T) {
 	h := newDigestHome(t)
 
-	backlog := "- [ ] queued task one\n- [ ] queued task two\n- [ ] queued task three\n- [x] done task one\n"
+	backlog := "## Queued\n- [ ] q1 - queued task one\n- [ ] q2 - queued task two\n- [ ] q3 - queued task three\n\n## Done\n- [x] d1 - done task one\n"
 	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte(backlog), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -138,11 +138,13 @@ func TestComposeBacklogCompact(t *testing.T) {
 	h := newDigestHome(t)
 
 	var b strings.Builder
+	b.WriteString("# Backlog\n\n## Queued\n")
 	for i := 1; i <= 25; i++ {
-		fmt.Fprintf(&b, "- [ ] queued row %d\n", i)
+		fmt.Fprintf(&b, "- [ ] q%d - queued row %d\n", i, i)
 	}
+	b.WriteString("\n## Done\n")
 	for i := 1; i <= 3; i++ {
-		fmt.Fprintf(&b, "- [x] done row %d\n", i)
+		fmt.Fprintf(&b, "- [x] d%d - done row %d\n", i, i)
 	}
 	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte(b.String()), 0o644); err != nil {
 		t.Fatal(err)
@@ -155,13 +157,13 @@ func TestComposeBacklogCompact(t *testing.T) {
 	out := buf.String()
 
 	for i := 1; i <= 20; i++ {
-		want := fmt.Sprintf("queued row %d", i)
+		want := fmt.Sprintf("queued row %d\n", i)
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q", want)
 		}
 	}
 	for i := 21; i <= 25; i++ {
-		unwanted := fmt.Sprintf("queued row %d", i)
+		unwanted := fmt.Sprintf("queued row %d\n", i)
 		if strings.Contains(out, unwanted) {
 			t.Errorf("output unexpectedly contains %q (past QueuedLimit)", unwanted)
 		}
@@ -173,6 +175,50 @@ func TestComposeBacklogCompact(t *testing.T) {
 		unwanted := fmt.Sprintf("done row %d", i)
 		if strings.Contains(out, unwanted) {
 			t.Errorf("output unexpectedly contains done row text %q", unwanted)
+		}
+	}
+}
+
+// The digest lists what is queued, whatever form the row takes, and never
+// work that is set aside or finished: a parked row read as queued is work
+// the CFO would start that the Overlord deliberately stopped.
+func TestComposeBacklogListsOnlyQueuedRows(t *testing.T) {
+	h := newDigestHome(t)
+	backlog := `# Backlog
+
+Priority note the CFO wrote above the rows.
+- [ ] q1 - A row outside any section (since 2026-09-26)
+## Queued
+- [ ] q2 - A tasks-axi row (since 2026-09-26)
+- **q3** - A row in the CFO's own form (repo: code-goblins)
+  detail: a continuation line under q3
+- [ ] q4 - Parked in place (hold: stale) (hold-kind: parked)
+
+## Parked
+- [ ] p1 - Parked by the filing (hold-kind: parked)
+
+## Done
+- [x] d1 - Shipped (merged 2026-09-26)
+`
+	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte(backlog), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := Compose(h, os.Getpid(), "s1", &buf); err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	out := buf.String()
+	fleet := out[strings.Index(out, "== FLEET STATE =="):strings.Index(out, "== ORPHANS ==")]
+
+	for _, want := range []string{"- [ ] q2 - A tasks-axi row", "- **q3** - A row in the CFO's own form"} {
+		if !strings.Contains(fleet, want) {
+			t.Errorf("FLEET STATE omits queued row %q:\n%s", want, fleet)
+		}
+	}
+	for _, unwanted := range []string{"q1", "detail:", "q4", "p1", "d1"} {
+		if strings.Contains(fleet, unwanted) {
+			t.Errorf("FLEET STATE lists %q, which is not a queued row:\n%s", unwanted, fleet)
 		}
 	}
 }
