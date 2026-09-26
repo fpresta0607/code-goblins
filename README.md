@@ -100,12 +100,14 @@ Projects declare the services they need. `cfo auth` probes them before dispatch,
 
 There are two ways in.
 
-To use Code Goblins, run this in any PowerShell window, then type `goblins`; it needs no clone and no Go:
+To use Code Goblins, run this one line in any PowerShell window; it needs no clone and no Go:
 
 ```powershell
-irm https://raw.githubusercontent.com/fpresta0607/code-goblins/main/install.ps1 | iex
-goblins
+irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install.ps1 | iex
 ```
+
+It ends by opening the board in your browser, and `goblins` works in that same window at once.
+Code Goblins in the Start menu opens the board again at any time.
 
 To work on Code Goblins itself, clone it and install from the clone, which needs Go:
 
@@ -115,8 +117,10 @@ cd code-goblins
 .\install.cmd -Dev
 ```
 
-Both put `cfo` and `goblins` on your PATH, install the tools, skills and hooks the fleet needs, and end with `goblins doctor`; run either again at any time to update.
-Your data lives in the CFO home, `%LOCALAPPDATA%\CodeGoblins` for the one-line install and the clone itself for `-Dev`, outside every project repository, and `goblins uninstall` keeps it.
+Both put `cfo` and `goblins` on your PATH, install the tools, skills and hooks the fleet needs, add Code Goblins to the Start menu, run `goblins doctor` and open the board; run either again at any time to update.
+
+Your data lives in the CFO home, `%LOCALAPPDATA%\CodeGoblins` for the one-line install and the clone itself for `-Dev`: on your machine, outside every project repository, and kept by `goblins uninstall`.
+Code Goblins needs no backup repository for it; backing the home up, for example to a private git repository, is only your own choice.
 [docs/install.md](docs/install.md) has the details: what each step does, what it needs, and the projects folder.
 
 ### Everyday commands
@@ -149,7 +153,7 @@ In an attached terminal every key goes to the CFO, Ctrl-C included, and Ctrl-] l
 `goblins status` prints the board's link, the same status line and the supervisor's pid, and exits 1 when no supervisor runs, so a script can test for one.
 `goblins stop` asks the supervisor to stop, as Ctrl-C would, whichever way it was started, and waits up to 30 seconds for it to finish.
 `goblins stop --force` ends the supervisor and everything it started instead, for one that does not stop when asked.
-`goblins uninstall` removes the hooks, the board's native hooks and the environment the install set, and keeps the home folder, with its state and data, until you delete it.
+`goblins uninstall` removes the hooks, the board's native hooks, the environment and the Start-menu shortcut the install set, and keeps the home folder, with its state and data, until you delete it.
 
 ### Start the CFO
 

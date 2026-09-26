@@ -1,6 +1,7 @@
 package install
 
 import (
+	"errors"
 	"io"
 	"io/fs"
 	"os"
@@ -273,7 +274,7 @@ func TestInstallOutsideACheckoutThatFailsPartwayLeavesNoPrimaryHome(t *testing.T
 	var out strings.Builder
 	err := f.service.Install(&out)
 
-	if err == nil || !strings.Contains(err.Error(), "run cfo install again") {
+	if err == nil || !strings.Contains(err.Error(), "replace "+filepath.Join(f.root, "goblins.exe")) {
 		t.Fatalf("Install = %v, want the copy's failure\n%s", err, out.String())
 	}
 	if primary(f.root) {
@@ -281,6 +282,37 @@ func TestInstallOutsideACheckoutThatFailsPartwayLeavesNoPrimaryHome(t *testing.T
 	}
 	if len(f.env.setCalls) != 0 {
 		t.Errorf("a failed install wrote the environment: %v", f.env.setCalls)
+	}
+}
+
+// An update whose new build cannot be written after the old one moved aside
+// puts the old one back, so the hooks and the Start-menu shortcut still find
+// cfo.exe and goblins.exe.
+func TestUpdateOutsideACheckoutThatCannotWriteTheNewBuildKeepsTheOldOne(t *testing.T) {
+	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
+	f.install()
+	writeFile(t, f.service.Binary, "build 2")
+	goblins := filepath.Join(f.root, "goblins.exe")
+	original := atomicWriteFile
+	t.Cleanup(func() { atomicWriteFile = original })
+	atomicWriteFile = func(path string, data []byte) error {
+		if path == goblins {
+			return errors.New("disk full")
+		}
+		return original(path, data)
+	}
+
+	var out strings.Builder
+	err := f.service.Install(&out)
+
+	if err == nil || !strings.Contains(err.Error(), "disk full") {
+		t.Fatalf("Install = %v, want the write's failure\n%s", err, out.String())
+	}
+	if got := readFile(t, goblins); got != "build 1" {
+		t.Errorf("goblins.exe = %q, want the old build back", got)
+	}
+	if aside, _ := filepath.Glob(filepath.Join(f.root, "*.old")); len(aside) != 0 {
+		t.Errorf("copies left aside: %v", aside)
 	}
 }
 

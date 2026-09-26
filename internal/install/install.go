@@ -1,6 +1,7 @@
 package install
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -56,6 +57,9 @@ type Service struct {
 	// board native hooks (written by `cfo hooks install`) an uninstall
 	// removes.
 	HarnessDirs map[string]string
+	// StartMenuShortcut is the Code Goblins shortcut the install script puts
+	// in the Start menu, which an uninstall removes.
+	StartMenuShortcut string
 }
 
 // Install wires the CFO into the machine and reports every change and every
@@ -140,6 +144,9 @@ func (s Service) Uninstall(out io.Writer) error {
 	if err := s.unsetProjectsRoot(report); err != nil {
 		return err
 	}
+	if err := s.removeStartMenuShortcut(report); err != nil {
+		return err
+	}
 	if s.Contract != nil {
 		report.same("home", "kept "+s.Root+" with its state and data; delete the folder to remove them")
 	}
@@ -181,6 +188,35 @@ func (s Service) removeNativeHooks(report *reporter) error {
 		report.same("native", "no board hooks for "+harness+" in "+dir)
 	}
 	return nil
+}
+
+// removeStartMenuShortcut removes the Start-menu shortcut the install script
+// made, when there is one.
+func (s Service) removeStartMenuShortcut(report *reporter) error {
+	if s.StartMenuShortcut == "" {
+		return nil
+	}
+	err := os.Remove(s.StartMenuShortcut)
+	if errors.Is(err, fs.ErrNotExist) {
+		report.same("start menu", "no shortcut at "+s.StartMenuShortcut)
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("install: remove the Start-menu shortcut %s: %w", s.StartMenuShortcut, err)
+	}
+	report.change("start menu", "removed "+s.StartMenuShortcut)
+	return nil
+}
+
+// StartMenuShortcutPath is where the install script puts the Code Goblins
+// shortcut: the user's Start-menu programs, under APPDATA, or nothing when
+// APPDATA is not set.
+func StartMenuShortcutPath() string {
+	appData := os.Getenv("APPDATA")
+	if appData == "" {
+		return ""
+	}
+	return filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "Code Goblins.lnk")
 }
 
 // finish publishes the environment change once, at the end, rather than

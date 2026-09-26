@@ -47,9 +47,24 @@ jobs:
         run: |
           $hash = (Get-FileHash cfo.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           [IO.File]::WriteAllText("SHA256SUMS", "$hash  cfo.exe`n")
+      # The one-line install runs the install.ps1 published here, pinned to
+      # this release's cfo.exe, so a script change never outruns a release.
+      - name: Pin the installer to this release
+        shell: pwsh
+        run: |
+          $latest = 'releases/latest/download"'
+          $script = Get-Content -Raw install.ps1
+          $found = ([regex]::Matches($script, [regex]::Escape($latest))).Count
+          if ($found -ne 1) { throw "install.ps1 names $latest $found times, want once" }
+          # A release download carries no charset, which Windows PowerShell
+          # reads as Latin-1, so the script must stay plain ASCII.
+          if ($script -match '[^\x00-\x7F]') { throw "install.ps1 has a character outside ASCII" }
+          New-Item -ItemType Directory release | Out-Null
+          [IO.File]::WriteAllText("$PWD/release/install.ps1", $script.Replace($latest, 'releases/download/${{ github.ref_name }}"'))
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             cfo.exe
             SHA256SUMS
+            release/install.ps1

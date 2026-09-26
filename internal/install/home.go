@@ -2,6 +2,7 @@ package install
 
 import (
 	"bytes"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -225,21 +226,38 @@ func (s Service) seedPolicy(report *reporter) error {
 }
 
 // copyBinary puts the running binary where the hooks look for it, as
-// cfo.exe, and beside it as goblins.exe, its second name.
+// cfo.exe, and beside it as goblins.exe, its second name. An old copy still
+// running, such as the supervisor, cannot be overwritten but can be renamed,
+// so it moves aside under a name of its own and goes once nothing runs it,
+// on this install or a later one.
 func (s Service) copyBinary(report *reporter) error {
 	data, err := os.ReadFile(s.Binary)
 	if err != nil {
 		return fmt.Errorf("install: read the running binary %s: %w", s.Binary, err)
 	}
 	var copied []string
+	stillRunning := false
 	for _, name := range []string{"cfo.exe", "goblins.exe"} {
 		target := filepath.Join(s.Root, name)
+		aside := ""
+		if current, err := os.ReadFile(target); err == nil && !bytes.Equal(current, data) {
+			aside = target + "." + rand.Text() + ".old"
+			if err := os.Rename(target, aside); err != nil {
+				return fmt.Errorf("install: move %s aside: %w", target, err)
+			}
+		}
 		changed, err := writeIfDifferent(target, data)
 		if err != nil {
-			return fmt.Errorf("install: replace %s: %w; if cfo serve is running from it, stop it and run cfo install again", target, err)
+			if aside != "" {
+				err = errors.Join(err, os.Rename(aside, target))
+			}
+			return fmt.Errorf("install: replace %s: %w", target, err)
 		}
 		if changed {
 			copied = append(copied, name)
+		}
+		if removeAsideCopies(target) > 0 {
+			stillRunning = true
 		}
 	}
 	if len(copied) == 0 {
@@ -247,8 +265,28 @@ func (s Service) copyBinary(report *reporter) error {
 		return nil
 	}
 	report.change("binary", fmt.Sprintf("copied %s to %s in %s", s.Binary, strings.Join(copied, " and "), s.Root))
+	if stillRunning {
+		report.detail("the previous build still runs, such as the supervisor; goblins stop, then goblins --board, restarts it on this one")
+	}
 	return nil
 }
+
+// removeAsideCopies removes the copies of target that an install moved aside
+// and nothing runs any more, and returns how many are left because something
+// still runs them.
+func removeAsideCopies(target string) int {
+	aside, _ := filepath.Glob(target + ".*.old")
+	left := 0
+	for _, path := range aside {
+		if err := os.Remove(path); err != nil {
+			left++
+		}
+	}
+	return left
+}
+
+// atomicWriteFile is a variable so a test can make a write fail.
+var atomicWriteFile = fsx.AtomicWriteFile
 
 // writeIfDifferent writes data to path unless path already holds exactly
 // that, and reports whether it wrote.
@@ -263,7 +301,7 @@ func writeIfDifferent(path string, data []byte) (bool, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return false, err
 	}
-	if err := fsx.AtomicWriteFile(path, data); err != nil {
+	if err := atomicWriteFile(path, data); err != nil {
 		return false, err
 	}
 	return true, nil
