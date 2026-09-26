@@ -81,7 +81,7 @@ func (h HostProgress) InspectProgress(ctx context.Context, _ state.TaskMeta, sam
 // that launched a single process as it started is walked through to the
 // harness it runs, so a harness installed behind node or a .cmd wrapper is
 // read where it actually runs its tools.
-var launchShims = map[string]bool{"cmd": true, "node": true, "powershell": true, "pwsh": true}
+var launchShims = map[string]bool{"cmd": true, "node": true}
 
 // harnessJobs finds the processes a harness started after launching, and the
 // processor time they and their descendants have used. A process started

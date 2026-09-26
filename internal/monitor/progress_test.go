@@ -134,6 +134,48 @@ func TestWorkingPastBudgetWakesOnlyWhenEvidenceStops(t *testing.T) {
 	}
 }
 
+// A 75-minute foreground test run writes no transcript until it returns. Its
+// processor use is first read once the budget has run out, and one quiet 15s
+// reading - the tests waiting on a sleep or the network - proves nothing about
+// the hour behind it. The goblin wakes only once its processes have stayed
+// under the share for a whole stall window.
+func TestLongTestRunIsJudgedOverAWindowNotOneReading(t *testing.T) {
+	now := time.Date(2026, 9, 25, 18, 0, 0, 0, time.UTC)
+	service, probe, progress, meta := progressService(t, &now)
+	service.BusyTurnMax = time.Hour
+	service.StallAfter = 10 * time.Minute
+	progress.sample = ProgressSample{TranscriptAt: now, Jobs: []string{"go.exe (pid 44)"}}
+
+	scanWorking(t, service, probe, meta, &now, 0)
+	for range 60 {
+		progress.sample.JobCPU += 40 * time.Second
+		if r := scanWorking(t, service, probe, meta, &now, time.Minute); r.Event != nil {
+			t.Fatalf("a test run inside the budget woke the CFO at %s: %+v", now.Format(time.Kitchen), r.Event)
+		}
+	}
+	if r := scanWorking(t, service, probe, meta, &now, 15*time.Second); r.Event != nil {
+		t.Fatalf("one quiet 15s reading past the budget woke the CFO: %+v", r.Event)
+	}
+
+	windowEnds := now.Add(-15 * time.Second).Add(service.StallAfter)
+	var woke *Event
+	for range 60 {
+		if r := scanWorking(t, service, probe, meta, &now, 15*time.Second); r.Event != nil {
+			woke = r.Event
+			break
+		}
+	}
+	if woke == nil {
+		t.Fatal("a test run that stayed under the share for a whole stall window never woke")
+	}
+	if now.Before(windowEnds) {
+		t.Fatalf("woke at %s, before a whole stall window from %s was measured", now.Format(time.TimeOnly), windowEnds.Add(-service.StallAfter).Format(time.TimeOnly))
+	}
+	if !strings.Contains(woke.Detail, "go.exe (pid 44)") {
+		t.Errorf("wake detail %q lacks the test run still going", woke.Detail)
+	}
+}
+
 // The gate-being-fixed shape: the goblin's gate alternates between a step
 // running and no run at all while the goblin works on its findings. Every flip
 // used to clear the wake and raise a fresh one.
@@ -228,6 +270,33 @@ func TestIdleGoblinWaitingOnItsOwnMovingJobDoesNotStall(t *testing.T) {
 	}
 }
 
+// The idle reading of a goblin whose own process sat idle past the budget
+// wakes unchanged_idle naming that process, as the ended turn does.
+func TestIdleGoblinWithAnIdleProcessOfItsOwnWakesNamingIt(t *testing.T) {
+	now := time.Date(2026, 9, 25, 18, 0, 0, 0, time.UTC)
+	service, probe, progress, meta := progressService(t, &now)
+	progress.sample = ProgressSample{TranscriptAt: now, Jobs: []string{"node.exe (pid 45)"}, JobCPU: time.Second}
+
+	var woke *Event
+	for range 20 {
+		if r := scanStatus(t, service, probe, meta, herdr.AgentIdle, &now, time.Minute); r.Event != nil {
+			woke = r.Event
+			break
+		}
+	}
+	if woke == nil {
+		t.Fatal("an idle goblin whose only process sat idle past the budget never woke")
+	}
+	if !now.After(time.Date(2026, 9, 25, 18, 10, 0, 0, time.UTC)) {
+		t.Fatalf("woke at %s, inside the busy budget", now.Format(time.Kitchen))
+	}
+	for _, want := range []string{string(UnchangedIdle), "no liveness signal", "node.exe (pid 45)"} {
+		if !strings.Contains(woke.Detail, want) {
+			t.Errorf("wake detail %q lacks %q", woke.Detail, want)
+		}
+	}
+}
+
 // Evidence that cannot be read is no evidence: the monitor wakes exactly as it
 // did before there was any, and says why, rather than trusting the silence.
 func TestUnreadableProgressEvidenceStillWakes(t *testing.T) {
@@ -241,10 +310,10 @@ func TestUnreadableProgressEvidenceStillWakes(t *testing.T) {
 		t.Fatalf("working past budget with unreadable evidence = %+v, want a wake that says so", r.Event)
 	}
 
-	done, _, doneProgress, doneMeta := progressService(t, &now)
+	done, doneProbe, doneProgress, doneMeta := progressService(t, &now)
 	doneProgress.err = progress.err
-	if r := scanStatus(t, done, probe, doneMeta, herdr.AgentDone, &now, time.Minute); r.Event == nil {
-		t.Fatal("an ended turn with unreadable evidence did not wake")
+	if r := scanStatus(t, done, doneProbe, doneMeta, herdr.AgentDone, &now, time.Minute); r.Event == nil || !strings.Contains(r.Event.Detail, "progress evidence unreadable") {
+		t.Fatalf("an ended turn with unreadable evidence = %+v, want a wake that says so", r.Event)
 	}
 }
 
@@ -282,6 +351,22 @@ func TestHarnessJobsWalksThroughALaunchShim(t *testing.T) {
 	jobs, _ := harnessJobs(20, table.entries(), harnessLaunch, table.start, table.cpu)
 	if !slices.Equal(jobs, []string{"powershell.exe (pid 23)"}) {
 		t.Errorf("jobs = %v, want the command the codex binary behind its node shim is running", jobs)
+	}
+}
+
+// PowerShell is a shell, not a harness launcher: whatever it started as it
+// opened belongs to it, and is not walked through as though it were the harness.
+func TestHarnessJobsDoesNotWalkThroughPowerShell(t *testing.T) {
+	launched := time.Date(2026, 9, 26, 9, 0, 0, 0, time.UTC)
+	table := processTable{
+		{PID: 30, ParentPID: 1, ExeBase: "pwsh.exe"}:    {start: launched},
+		{PID: 31, ParentPID: 30, ExeBase: "claude.exe"}: {start: launched.Add(time.Second)},
+		{PID: 32, ParentPID: 31, ExeBase: "bash.exe"}:   {start: launched.Add(5 * time.Minute), cpu: 2 * time.Second},
+	}
+
+	jobs, _ := harnessJobs(30, table.entries(), harnessLaunch, table.start, table.cpu)
+	if len(jobs) != 0 {
+		t.Errorf("jobs = %v, want none: pwsh is the foreground program and its child started with it", jobs)
 	}
 }
 
