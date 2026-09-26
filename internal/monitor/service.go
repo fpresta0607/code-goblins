@@ -313,10 +313,11 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 			return gated
 		}
 		detail := "agent turn ended; waiting on input"
-		if observation.Reason != AwaitingAnswer {
+		if sample.Status == herdr.AgentDone && observation.Reason != AwaitingAnswer {
 			// A goblin that ended its turn with a background job or a monitor
 			// still running resumes by itself when that work reports back, so
-			// nobody owes it an answer yet.
+			// nobody owes it an answer yet. A blocked one is parked on a
+			// dialog and cannot resume by itself, so it wakes as before.
 			waiting, lingering := s.ownWork(ctx, meta, sample, &observation, now)
 			if waiting {
 				return ownWorkObservation(observation, now)
@@ -429,13 +430,19 @@ func (s Service) busyOverAge(ctx context.Context, meta state.TaskMeta, sample En
 	if now.Sub(last) < s.busyTurnMax() || (len(jobs) > 0 && !measured) {
 		return false, ""
 	}
-	detail := "working for " + age + " with " + gateDetail + "; no transcript write for " + now.Sub(last).Round(time.Minute).String()
+	detail := "working for " + age + " with " + gateDetail + "; " + noProgressFor(now.Sub(last))
 	if len(jobs) > 0 {
 		detail += " and " + stalledJobs(jobs, now.Sub(*observation.JobSampledAt))
 	} else {
 		detail += " and no processes of its own running"
 	}
 	return true, detail + "; inspect the shell"
+}
+
+// noProgressFor says how long a goblin has shown none of the evidence that its
+// work is moving.
+func noProgressFor(quiet time.Duration) string {
+	return "no progress evidence (transcript write or processor use by its own processes) for " + quiet.Round(time.Minute).String()
 }
 
 // stalledJobs names a goblin's own processes that used under jobCPUShare of a
@@ -518,7 +525,7 @@ func (s Service) ownWork(ctx context.Context, meta state.TaskMeta, sample Endpoi
 	if now.Sub(last) < s.busyTurnMax() || !measured {
 		return true, ""
 	}
-	return false, "no transcript write for " + now.Sub(last).Round(time.Minute).String() + " and " + stalledJobs(jobs, now.Sub(*observation.JobSampledAt))
+	return false, noProgressFor(now.Sub(last)) + " and " + stalledJobs(jobs, now.Sub(*observation.JobSampledAt))
 }
 
 // busyOverAgeObservation wakes once for a wedged working goblin and then

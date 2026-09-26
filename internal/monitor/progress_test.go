@@ -104,7 +104,7 @@ func TestWorkingPastBudgetWakesOnlyWhenEvidenceStops(t *testing.T) {
 	if woke == nil {
 		t.Fatal("a turn with no transcript write and an idle process for the whole budget never woke")
 	}
-	for _, want := range []string{string(BusyTurnOverAge), "no transcript write", "bash.exe (pid 40)"} {
+	for _, want := range []string{string(BusyTurnOverAge), "no progress evidence (transcript write or processor use by its own processes) for", "bash.exe (pid 40)"} {
 		if !strings.Contains(woke.Detail, want) {
 			t.Errorf("wake detail %q lacks %q", woke.Detail, want)
 		}
@@ -248,10 +248,24 @@ func TestTurnEndedWithAnIdleBackgroundProcessWakesAfterTheBudget(t *testing.T) {
 	if !now.After(time.Date(2026, 9, 25, 18, 9, 0, 0, time.UTC)) {
 		t.Fatalf("woke at %s, inside the busy budget", now.Format(time.Kitchen))
 	}
-	for _, want := range []string{string(AwaitingAnswer), "node.exe (pid 42)"} {
+	for _, want := range []string{string(AwaitingAnswer), "no progress evidence (transcript write or processor use by its own processes) for", "node.exe (pid 42)"} {
 		if !strings.Contains(woke.Detail, want) {
 			t.Errorf("wake detail %q lacks %q", woke.Detail, want)
 		}
+	}
+}
+
+// A blocked goblin is parked on a permission or approval dialog and cannot
+// resume by itself when its own job reports back, so a job it left running
+// does not hold the wake.
+func TestBlockedGoblinWithAMovingJobOfItsOwnWakesAtOnce(t *testing.T) {
+	now := time.Date(2026, 9, 25, 18, 0, 0, 0, time.UTC)
+	service, probe, progress, meta := progressService(t, &now)
+	progress.sample = ProgressSample{TranscriptAt: now, Jobs: []string{"go.exe (pid 46)"}, JobCPU: time.Minute}
+
+	r := scanStatus(t, service, probe, meta, herdr.AgentBlocked, &now, time.Minute)
+	if r.Event == nil || r.Observations[0].Reason != AwaitingAnswer {
+		t.Fatalf("a blocked goblin with its own job running = %+v, want an awaiting-answer wake at once", r)
 	}
 }
 
