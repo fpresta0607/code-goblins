@@ -109,11 +109,16 @@ export interface Question {
   task: string;
   // image_count is how many review images the goblin attached, one for each choice in order.
   image_count: number;
+  // generation is the asking goblin's session; empty for the CFO's question.
+  generation: string;
 }
 // A review item waits on the Overlord until he answers or clears it, or its
 // reporter withdraws it: an image review, a Lavish page, or a wait on him.
 export interface Review {
   id: string; identity: string; task: string; title: string; image_count: number; lavish: string;
+  // watched: the supervisor polls the item's Lavish page, so his answer or
+  // end of the review there closes the item.
+  watched: boolean;
   state: string; answer: string; answer_id: string; delivered: boolean; reason: string; created_at: string; updated_at: string;
 }
 // A command the CFO needs the Overlord to run (API8): the stored text is what
@@ -241,11 +246,11 @@ export function parseSnapshot(value: unknown): Snapshot {
     activity: array(v.activity).map(value=>{const a=object(value);return {id:string(a.id),kind:string(a.kind),task_id:string(a.task_id),generation:string(a.generation),cfo_identity:string(a.cfo_identity),live:a.live===undefined?false:boolean(a.live),source:string(a.source),target:string(a.target),state:string(a.state),url:string(a.url),at:string(a.at),until:string(a.until)};}),
     questions: array(v.questions).map((value) => {
       const q = object(value);
-      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count) };
+      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation) };
     }),
     reviews: array(v.reviews).map((value) => {
       const r = object(value);
-      return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish),
+      return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), watched: string(r.lavish_page) !== "",
         state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
         created_at: string(r.created_at), updated_at: string(r.updated_at) };
     }),

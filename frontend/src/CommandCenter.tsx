@@ -5,7 +5,7 @@ import { deliveryMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { isOpen, nextOpenKey, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { isOpen, nextOpenKey, questionPage, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
 import { RunCard } from "./RunCard";
 import { questionAnswer, questionChoices } from "./questionChoices";
 import { plainMessage } from "./messageText";
@@ -182,7 +182,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
   const textOf = (candidate: Item) => candidate.kind === "question" ? plainMessage(candidate.question.text) : candidate.kind === "review" ? candidate.review.title : candidate.run.title;
   const created = (candidate: Item) => candidate.kind === "question" ? candidate.question.created_at : candidate.kind === "review" ? candidate.review.created_at : candidate.run.created_at;
   const iconOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.image_count ? "images" : "question" : candidate.kind === "review" ? candidate.review.image_count ? "images" : "comment" : "play";
-  const pageFor = (candidate: Question) => presentations.find((event) => event.kind === "review" && (candidate.task ? event.task_id === candidate.task : !!event.cfo_identity));
+  const pageFor = (candidate: Question) => questionPage(presentations, candidate);
   const images = !item || item.kind === "run" ? [] : item.kind === "question"
     ? questionChoices(item.question).filter((choice) => choice.image).map((choice) => ({ src: choice.image, label: choice.label, value: choice.value, text: choice.text }))
     : reviewImages(item.review).map((src, n) => ({ src, label: String(n + 1), value: "Image " + (n + 1), text: "Image " + (n + 1) }));

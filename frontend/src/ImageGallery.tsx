@@ -24,7 +24,7 @@ export function ImageGallery({ images, index, lavish, onIndex, onClose, onChoose
     <div className="gallery-top">
       <span className="count-pill">{index + 1} of {images.length}</span>
       <strong>{image.label}. {image.text}</strong>
-      {lavish && <a className="icon-button raised pill-link" href={lavish} target="_blank" rel="noreferrer" aria-label="Annotate in Lavish" data-tip="Annotate in Lavish"><Icon name="external" /><span>Lavish</span></a>}
+      {lavish && <a className="icon-button raised pill-link" href={lavish} target="_blank" rel="noreferrer"><Icon name="external" /><span>Open review</span></a>}
       <button type="button" className="icon-button raised" aria-label={zoomed ? "Zoom out" : "Zoom in"} data-tip={zoomed ? "Zoom out" : "Zoom in"} onClick={() => setZoomed(!zoomed)}><Icon name={zoomed ? "minus" : "plus"} /></button>
       <button type="button" className="icon-button raised" aria-label="Back to the question" data-tip="Back to the question" data-tip-align="end" onClick={onClose}><Icon name="close" /></button>
     </div>
