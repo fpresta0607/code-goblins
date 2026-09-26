@@ -1,9 +1,92 @@
 package install
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"strings"
 )
+
+// UserEnvFileVariable names a JSON file that stands in for the user-scope
+// environment, HKCU\Environment on Windows. With it set, cfo reads and writes
+// that file in place of the user scope, so a test or a proof in a scratch
+// profile never writes the machine's own user environment.
+const UserEnvFileVariable = "CFO_USER_ENV_FILE"
+
+// fileEnvStore keeps user-scope variables in a JSON object, comparing names
+// without case as Windows does. A missing file is an empty scope.
+type fileEnvStore struct {
+	path string
+}
+
+func (s fileEnvStore) read() (map[string]string, error) {
+	data, err := os.ReadFile(s.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	values := map[string]string{}
+	if err := json.Unmarshal(data, &values); err != nil {
+		return nil, fmt.Errorf("install: read %s: %w", s.path, err)
+	}
+	return values, nil
+}
+
+func (s fileEnvStore) write(values map[string]string) error {
+	data, err := json.MarshalIndent(values, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.path, append(data, '\n'), 0o600)
+}
+
+func (s fileEnvStore) Get(name string) (string, bool, error) {
+	values, err := s.read()
+	if err != nil {
+		return "", false, err
+	}
+	for key, value := range values {
+		if strings.EqualFold(key, name) {
+			return value, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+func (s fileEnvStore) Set(name, value string) error {
+	values, err := s.read()
+	if err != nil {
+		return err
+	}
+	for key := range values {
+		if strings.EqualFold(key, name) {
+			delete(values, key)
+		}
+	}
+	values[name] = value
+	return s.write(values)
+}
+
+func (s fileEnvStore) Unset(name string) error {
+	values, err := s.read()
+	if err != nil {
+		return err
+	}
+	for key := range values {
+		if strings.EqualFold(key, name) {
+			delete(values, key)
+		}
+	}
+	return s.write(values)
+}
+
+// Broadcast has nothing to publish: no process reads this file on its own.
+func (fileEnvStore) Broadcast() error {
+	return nil
+}
 
 // EnvStore reads and writes user-scope (persistent) environment variables.
 //

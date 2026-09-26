@@ -98,16 +98,26 @@ Projects declare the services they need. `cfo auth` probes them before dispatch,
 
 ### Install
 
-Install Code Goblins with one line in any PowerShell window; it needs no clone and no Go:
+There are two ways in.
+
+To use Code Goblins, run this in any PowerShell window, then type `goblins`; it needs no clone and no Go:
 
 ```powershell
 irm https://raw.githubusercontent.com/fpresta0607/code-goblins/main/install.ps1 | iex
+goblins
 ```
 
-It downloads the latest release and refuses it unless it matches the release's `SHA256SUMS`.
-It then sets up the CFO home at `%LOCALAPPDATA%\CodeGoblins` with `cfo` and `goblins` on your PATH, asks once for the folder that holds your projects, installs the tools, skills and hooks the fleet needs, and ends with `goblins doctor`.
-Run it again at any time to update; it keeps your projects folder and any policy you tuned.
-It installs git and gh with winget, so on a machine that has neither winget nor git and gh it stops before changing anything and names the fix: App Installer from the Microsoft Store.
+To work on Code Goblins itself, clone it and install from the clone, which needs Go:
+
+```powershell
+git clone https://github.com/fpresta0607/code-goblins.git
+cd code-goblins
+.\install.cmd -Dev
+```
+
+Both put `cfo` and `goblins` on your PATH, install the tools, skills and hooks the fleet needs, and end with `goblins doctor`; run either again at any time to update.
+Your data lives in the CFO home, `%LOCALAPPDATA%\CodeGoblins` for the one-line install and the clone itself for `-Dev`, outside every project repository, and `goblins uninstall` keeps it.
+[docs/install.md](docs/install.md) has the details: what each step does, what it needs, and the projects folder.
 
 ### Everyday commands
 
@@ -143,48 +153,12 @@ In an attached terminal every key goes to the CFO, Ctrl-C included, and Ctrl-] l
 
 ### Start the CFO
 
-Run `goblins` in the project you actually want to build, or anywhere to pick one from your projects folder: it starts the CFO there in Herdr and brings you to it.
-By hand, for a CFO in another harness, the same is:
-
-```powershell
-cd <dir>\my-project
-herdr
-claude   # or codex / pi / kimi for the CFO session
-```
+Run `goblins` in the project you actually want to build, or anywhere to pick one from your projects folder: it starts Claude Code as the CFO there, in Herdr, and brings you to it.
+Only a CFO in Claude Code is woken by the fleet today, through its Stop hook: a CFO run in Codex or pi learns what goblins finished or asked only when you next prompt it.
 
 Tell the CFO what outcome you want.
 It handles the fleet mechanics.
 When it needs you, it asks on the board: a decision, a page to review, or a command to run with one click; [Using the board](#using-the-board) shows how.
-
-### From a clone
-
-To work on Code Goblins itself, clone it instead. Code Goblins is a standalone repository; no upstream checkout or synchronization step is required.
-
-```powershell
-git clone https://github.com/fpresta0607/code-goblins.git
-cd code-goblins
-powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Bootstrap
-cfo install --projects-root <dir>
-cfo doctor
-```
-
-`install.ps1 -Bootstrap` installs or builds the Code Goblins binary and scriptable dependencies. `cfo install` wires the CFO into your user environment so a supervisor opened from another project can still manage the fleet.
-Run outside a checkout, `cfo install` needs no clone: it sets up a per-user CFO home at `%LOCALAPPDATA%\CodeGoblins` from the binary itself, with the CFO's contract, skills and default policy, and `cfo.exe` and `goblins.exe` on your PATH.
-
-The CFO and its goblins drive `gh-axi`, `chrome-devtools-axi` and `no-mistakes` through the skills those tools publish. The one-line install adds them for you; from a clone, install the skills once at user scope, so every harness and every project sees them:
-
-```powershell
-npx skills add kunchenguid/gh-axi --skill gh-axi -g
-npx skills add kunchenguid/chrome-devtools-axi --skill chrome-devtools-axi -g
-npx skills add kunchenguid/no-mistakes --skill no-mistakes -g
-```
-
-[docs/load-map.md](docs/load-map.md) shows where each harness looks for skills and why this repository keeps only its own.
-
-`--projects-root <dir>` names the folder that holds your checkouts, wherever you keep them.
-It is recorded on your machine as `CFO_PROJECTS_ROOT`, beside `CFO_HOME`, and never in this repository, so every adopter's layout stays their own.
-With it set, `--project` takes a bare name as well as a path: `--project my-project` is `<dir>\my-project`, matched without regard to case, and the fleet works in that one checkout instead of cloning a second copy.
-It is optional: without it every command still takes a path, and `cfo doctor` tells you it is unset.
 
 ## Using the board
 
@@ -193,7 +167,7 @@ It is optional: without it every command still takes a path, and `cfo doctor` te
 </p>
 
 `cfo serve` runs the native supervisor and serves its board, which is compiled into `cfo.exe`, at `http://127.0.0.1:4310`.
-Install the native lifecycle hooks once for each harness you use (the one-line install does this for every harness it finds), then start the supervisor in its own terminal and open the URL it prints:
+Install the native lifecycle hooks once for each harness you use (the install does this for every harness it finds), then start the supervisor in its own terminal and open the URL it prints:
 
 ```powershell
 cfo hooks install claude   # repeat for codex or pi

@@ -30,10 +30,10 @@ const markerText = "This folder is a Code Goblins CFO home that cfo install set 
 	"Below are the contract files it wrote; the next install removes any its binary no longer ships.\r\n" +
 	"\r\n"
 
-// refuseAnotherHome keeps an install outside a checkout from taking the
-// machine from a home still in use. CFO_HOME naming another primary home
-// means a fleet lives there: moving CFO_HOME would start every new session in
-// an empty home and leave that fleet's state unreachable.
+// refuseAnotherHome keeps an install from taking the machine from a home
+// still in use. CFO_HOME naming another primary home means a fleet lives
+// there: moving CFO_HOME would start every new session in an empty home,
+// leave that home first on PATH, and leave its fleet's state unreachable.
 func (s Service) refuseAnotherHome() error {
 	current, set, err := s.Env.Get(homeVariable)
 	if err != nil {
@@ -42,7 +42,7 @@ func (s Service) refuseAnotherHome() error {
 	if !set || sameDirectory(current, s.Root) || !home.IsPrimary(home.Home{Root: current, State: filepath.Join(current, "state")}) {
 		return nil
 	}
-	return fmt.Errorf("install: CFO_HOME is %s, a home in use; run cfo install from that checkout, or run cfo install --uninstall there first to move to %s", current, s.Root)
+	return fmt.Errorf("install: CFO_HOME is %s, a home in use; run this from that home to keep it, or run goblins uninstall there first, then run this again to move to %s", current, s.Root)
 }
 
 // writeHome lays out a home outside a checkout: state and data, the

@@ -9,8 +9,8 @@ This directory holds the skills Code Goblins itself provides, each tracked once,
 ## Which harness reads this directory
 
 - **Codex, Pi and Kimi** read `.agents/skills/` in the project directly.
-- **Claude Code** reads `.claude/skills/`, which `install.ps1 -Bootstrap` makes a directory junction to this directory.
-  Without `install.ps1`, create it from the repository root: `cmd /c mklink /J .claude\skills .agents\skills`.
+- **Claude Code** reads `.claude/skills/`, which `install.cmd -Dev` makes a directory junction to this directory.
+  Without `install.cmd -Dev`, create it from the repository root: `cmd /c mklink /J .claude\skills .agents\skills`.
 
 A skill with the same name at user scope competes with the copy here: Claude Code uses the user copy, Codex lists both, and Pi and Kimi use this one.
 Keep one copy of each name per machine.
@@ -19,4 +19,4 @@ Keep one copy of each name per machine.
 ## Third-party skills
 
 The tools the fleet drives publish their own skills.
-Install them once at user scope from their owners instead of copying them here; the commands are in the [README's Quick start](../../README.md#quick-start).
+Install them once at user scope from their owners instead of copying them here; both installs in [docs/install.md](../../docs/install.md) do this for you.

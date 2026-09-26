@@ -16,9 +16,14 @@ config/
 /config/*
 !/config/pipeline.json
 /cfo.exe
+# install.cmd -Dev builds both names and moves a copy still running aside.
+/goblins.exe
+/cfo.exe.new
+/cfo.exe.*.old
+/goblins.exe.*.old
 /frontend/node_modules/
 
-# The skill junction install.ps1 -Bootstrap creates (points at .agents/skills);
+# The skill junction install.cmd -Dev creates (points at .agents/skills);
 # /.codex/skills/ is the one earlier bootstraps also made.
 /.claude/skills/
 /.codex/skills/
