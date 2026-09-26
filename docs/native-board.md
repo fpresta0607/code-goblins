@@ -187,8 +187,8 @@ Releasing a drag selection copies it to the clipboard, the way Herdr does, and C
 Closing, switching, disconnecting or restarting invalidates the lease; reconnection starts with a full screen frame, never replayed input.
 At most four views are open, frame gaps disconnect, and oversized UTF-8 paste is rejected before sending.
 Adjacent printable keystrokes coalesce into bounded ordered inputs; control keys and paste wrappers stay inputs of their own.
-Screen reader support is an explicit saved preference in the terminal options menu and changes in place without reconnecting.
-The default xterm input mode accepts InsertText/IME Unicode; its optional screen-reader mode has an upstream InsertText limitation, while paste remains supported.
+Until the first frame is drawn a full-pane state says the terminal is connecting, and a view that has stopped says why in a pill with Reconnect beside it.
+The terminal carries no options menu or help text; xterm's default input mode accepts InsertText and IME Unicode, and paste works.
 There is no second model session or generated reply.
 The native interface exposes rendered screen updates rather than original historical PTY bytes, and omits Kitty keyboard negotiation, graphics and host mouse notifications.
 
@@ -220,6 +220,11 @@ A list beside the terminal switches between them, the CFO first and then each go
 Ctrl+Alt+Up and Ctrl+Alt+Down step through the list and Ctrl+Alt+1 to Ctrl+Alt+9 jump to an entry, matched by key position; the board catches them before a terminal sees them, except while a dialog such as the Command Center is open, and a switch hands the terminal the keyboard, a Herdr terminal included.
 A key typed with AltGr, which Windows reports as Ctrl+Alt, stays the terminal's, so a layout that types a brace or bracket with AltGr and a digit keeps it.
 A divider between the board and the panel sizes the panel, keeping at least 360 px for the panel and 280 px for the board, and a maximize button gives the panel the whole window; both are saved in the browser, a width saved on a wider window is held to the same bounds, and on a narrow window the board and the panel stack and the divider is hidden.
+
+Holding Ctrl+Shift+Space in a terminal, native or Herdr, dictates into it with the browser's own speech recognition, so nothing is installed.
+It listens in the browser's language while the keys are held, a Listening pill says so, and releasing any of the three keys types the phrases it recognised as one line through xterm's paste, so a program that asked for bracketed paste receives a paste and nothing is sent until Enter.
+A browser without speech recognition, a blocked or missing microphone, a lost network or silence is explained in a note for six seconds.
+Edge and Chrome recognise speech in their vendors' online services, so the audio leaves the machine while the keys are held.
 
 Key-to-echo latency, measured with `tests/acceptance/terminal_latency.mjs` against the example fixture on 25 September 2026: the Herdr view on main e6f7ea97 took p50 74 ms and p95 592 ms with 3 of 100 keys unechoed after 5 seconds and 4.6 s to a live screen, and the native view p50 24 ms and p95 34 to 36 ms with none missed and 0.4 s to a live screen.
 With synchronized redraws and the 20 px font, measured with the DOM renderer in headless Edge, the native view took p50 28 ms and p95 41 ms with none missed.

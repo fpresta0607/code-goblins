@@ -234,7 +234,8 @@ A program's redraw appears as one frame, the way a native terminal shows it, and
 Every terminal you open stays live while the board is open, and the list beside the terminal switches between them, the CFO first and then each goblin with a terminal.
 **Ctrl+Alt+Up** and **Ctrl+Alt+Down** step through that list and **Ctrl+Alt+1** to **Ctrl+Alt+9** jump to an entry, from anywhere on the board; a switch hands the keyboard to the terminal it shows, and one you opened before appears at once, already drawn.
 Drag the divider between the board and the panel to size the panel, or use the maximize button to give it the whole window; both are remembered in this browser.
-A goblin still in Herdr shows its Herdr pane at the pane's own size.
+A goblin still in Herdr shows its Herdr pane at the pane's own size, with the same full-pane state while it connects.
+Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: the browser's own speech recognition listens while the keys are held, and releasing them types what it heard as one line, which **Enter** sends.
 In both, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
 
 <p align="center">
