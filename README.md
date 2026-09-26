@@ -216,7 +216,7 @@ Opening it replays the terminal's history out of sight and shows it once its scr
 A program's redraw appears as one frame, the way a native terminal shows it, and while the board's own connection is down the last screen stays in place with a Reconnecting note.
 The terminal fills the panel, and you pick the goblin on the board; every terminal you open stays live while the board is open, so one you opened before appears at once, already drawn.
 **Ctrl+Alt+Up** and **Ctrl+Alt+Down** step through the terminals, the CFO first and then each goblin with a terminal, and **Ctrl+Alt+1** to **Ctrl+Alt+9** jump to one, from anywhere on the board; a switch hands the keyboard to the terminal it shows.
-A terminal opened from the board opens maximized, over the whole window, and **Restore** brings the board back beside it; the Task view and the Orchestration view open beside the panel.
+A terminal opened from the board opens maximized, over the whole window, and **Restore** brings the board back beside it; the Task view opens beside the board, and on the Orchestration view the panel opens beside the graph.
 Drag the divider between the board and the panel to size the panel; the width, and whether each view is maximized, are remembered in this browser.
 A goblin still in Herdr shows its whole Herdr pane at the pane's own size, its text scaled to fit the panel with the input line at the bottom and no scroll bars, and the same full-pane state while it connects.
 Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: the browser's own speech recognition listens while the keys are held, and releasing them types what it heard as one line, which **Enter** sends.
