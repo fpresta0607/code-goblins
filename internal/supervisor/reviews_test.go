@@ -410,6 +410,38 @@ func TestAGoblinsOwnItemClosesOnceItsTaskFinishesOrIsGone(t *testing.T) {
 	}
 }
 
+// A goblin's delivered document outlives the goblin: it stays open after its
+// task reports done and after its task record is gone, until the Overlord
+// opens, downloads or clears it.
+func TestAGoblinsDeliveredDocumentStaysOpenAfterItsTaskFinishesOrIsGone(t *testing.T) {
+	store, h := testStore(t)
+	item := openReview("task-1-report", "task-1")
+	item.CreatedAt = time.Now().UTC().Add(-time.Hour)
+	item.Document = &ReviewDocument{Name: "report.pdf", Size: 2048, Sum: strings.Repeat("b", 64), Kind: "application/pdf"}
+	if err := store.acceptReview(item); err != nil {
+		t.Fatal(err)
+	}
+	retire := func() Review {
+		t.Helper()
+		if err := store.retireItems(); err != nil {
+			t.Fatal(err)
+		}
+		return store.Snapshot().Reviews[0]
+	}
+	if err := state.AppendStatus(h.State, "task-1", "done: report delivered"); err != nil {
+		t.Fatal(err)
+	}
+	if got := retire(); got.State != "open" {
+		t.Fatalf("a delivered document after its task finished = %+v, want it open", got)
+	}
+	if err := state.RemoveTaskMeta(h.State, "task-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := retire(); got.State != "open" {
+		t.Fatalf("a delivered document after its task record was removed = %+v, want it open", got)
+	}
+}
+
 // A goblin that has not reported yet is live while its task record exists, so
 // its items stay open until the task is cleaned up.
 func TestAGoblinsItemsStayOpenUntilItsTaskRecordIsGone(t *testing.T) {

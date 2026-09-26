@@ -836,10 +836,12 @@ func PublishWait(ctx context.Context, h home.Home, terminals terminal.Opener, ta
 // its task is gone, since a finished or cleaned-up goblin never acts on the
 // answer. A task is gone once its task record is. A goblin's page or images
 // stay while it keeps working, asks or waits, or has not reported yet, because
-// it still wants the Overlord's look.
+// it still wants the Overlord's look. A delivered document is never retired:
+// its copy outlives the goblin, and it leaves the queue only once the Overlord
+// opens, downloads or clears it.
 func (s *Store) retireItems() error {
 	for _, r := range s.Snapshot().Reviews {
-		if r.State != "open" || r.Task == "" {
+		if r.State != "open" || r.Task == "" || r.Document != nil {
 			continue
 		}
 		_, metaErr := state.ReadTaskMeta(s.Home.State, r.Task)
