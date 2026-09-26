@@ -382,6 +382,9 @@ func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evalua
 	}
 	sender := fleet.Sender{Terminal: c.Terminals(""), Resolve: primaryResolver{c, primary}, Guard: guard}
 	if err := sender.Text(ctx, "primary-cfo", oneLine("Overlord: "+text)); err != nil {
+		if errors.Is(err, fleet.ErrQueuedBehindTurn) {
+			return Evaluation{Reason: "Submitted to the registered CFO through Herdr while it was working; it takes the message when its current turn ends."}, nil
+		}
 		return Evaluation{}, err
 	}
 	return Evaluation{Reason: "Accepted by the registered CFO through Herdr."}, nil

@@ -156,6 +156,63 @@ func TestQuestionAnswerDeliveredOnlyOnceToCFOAndCrashUncertain(t *testing.T) {
 	}
 }
 
+// An answer the board submits to a goblin or the CFO that is busy inside a
+// long turn waits in its input until the turn ends, so it is delivered, not
+// unconfirmed: the Overlord sees it arrive, and a goblin's notify reads
+// answered so nobody asks it again.
+func TestABoardAnswerToABusyAskerIsDeliveredNotUnconfirmed(t *testing.T) {
+	for _, asker := range []string{"goblin", "cfo"} {
+		t.Run(asker, func(t *testing.T) {
+			store, h := testStore(t)
+			var runner *cfoRunner
+			var s *Service
+			var a Action
+			if asker == "goblin" {
+				meta, record, goblinRunner, connection := goblinFixture(t, store)
+				q := surfaced(t, store, meta, record, connection)
+				runner, s = goblinRunner, &Service{Store: store, Options: Options{CFO: connection}}
+				a = Action{ID: "answer-1", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "SQLite"}
+			} else {
+				_, identity, cfoRunner, connection := primaryFixture(t, store)
+				q := Question{ID: "question-1", Identity: identity, Text: "Choose", Options: []string{"One", "Two"}, CreatedAt: time.Now().UTC()}
+				if err := store.acceptQuestion(q); err != nil {
+					t.Fatal(err)
+				}
+				runner, s = cfoRunner, &Service{Store: store, Options: Options{CFO: connection}}
+				a = Action{ID: "answer-1", Kind: "cfo_answer", Generation: identity, QuestionID: q.ID, Text: "One"}
+			}
+			runner.busy = true
+			if _, err := store.Queue(a); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := store.ProcessOne(context.Background(), s.execute); err != nil {
+				t.Fatal(err)
+			}
+
+			if len(runner.prompts) != 1 {
+				t.Fatalf("prompts = %q, want the answer submitted once", runner.prompts)
+			}
+			snapshot := store.Snapshot()
+			if got := snapshot.Actions[len(snapshot.Actions)-1]; got.Status != "succeeded" || !strings.Contains(got.Message, "current turn") {
+				t.Errorf("answer action = %+v, want it delivered while the %s's turn runs", got, asker)
+			}
+			if got := snapshot.Questions[0]; got.Status != "succeeded" {
+				t.Errorf("question = %+v, want it answered", got)
+			}
+			if asker == "goblin" {
+				pending, err := wake.Pending(h.State)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(pending) != 1 || pending[0].Answered != "SQLite" {
+					t.Errorf("notify = %+v, want it marked answered", pending)
+				}
+			}
+		})
+	}
+}
+
 func TestQuestionStorageFailurePreservesRetry(t *testing.T) {
 	store, _ := testStore(t)
 	_, identity, _, _ := primaryFixture(t, store)
