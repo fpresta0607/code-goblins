@@ -428,6 +428,13 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .command-center-menu > summary:hover { transform: var(--lift); box-shadow: var(--shadow-2); }
 .command-center-menu > summary .icon { width: 26px; height: 26px; }
 .count-badge { position: absolute; top: -6px; right: -6px; display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: var(--amber); color: #2b1d02; font-size: .9375rem; font-weight: 800; line-height: 1; box-shadow: 0 0 0 3px var(--level-2); }
+/* A new item that does not open the Command Center is announced bottom right
+   for a few seconds, and stays under the badge. */
+.arrival-banner { position: fixed; right: 20px; bottom: 20px; z-index: 40; display: flex; align-items: center; gap: 12px; width: min(440px, calc(100vw - 40px)); padding: 12px 12px 12px 14px; border: 1px solid var(--edge); border-left: 3px solid var(--amber); border-radius: 16px; background: #0f1820f2; box-shadow: var(--shadow-1); animation: arrival-in .22s ease-out; }
+.arrival-banner .inbox-text { display: grid; flex: 1; min-width: 0; gap: 2px; }
+.arrival-banner .primary { flex: none; }
+@keyframes arrival-in { from { opacity: 0; transform: translateY(12px); } }
+@media (prefers-reduced-motion: reduce) { .arrival-banner { animation: none; } }
 .command-center-updates { position: absolute; right: 0; top: calc(100% + 12px); width: min(390px, calc(100vw - 40px)); padding: 24px; background: var(--level-3); border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; z-index: 5; box-shadow: var(--shadow-3); }
 .browser-indicator { font-size: .9375rem; color: #91dfc2; }
 .activity-glow { pointer-events: none; position: absolute; inset: -2px; border: 2px solid #81edc0; border-radius: inherit; box-shadow: 0 0 16px #67e8b755; animation: received 3s ease-out both; }
