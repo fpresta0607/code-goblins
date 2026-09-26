@@ -173,10 +173,16 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 // and a prefix would turn it into prose. Text typed into a bare pane is
 // never stamped, because that pane may be a shell.
 func Stamp(message string) string {
-	if strings.HasPrefix(message, routing.SteerPrefix) || strings.HasPrefix(message, "/") || strings.HasPrefix(message, "$") {
+	if strings.HasPrefix(message, routing.SteerPrefix) || IsCommand(message) {
 		return message
 	}
 	return routing.SteerPrefix + message
+}
+
+// IsCommand reports whether message is a slash or dollar command for the
+// harness rather than text for the goblin.
+func IsCommand(message string) bool {
+	return strings.HasPrefix(message, "/") || strings.HasPrefix(message, "$")
 }
 
 // preSubmitRead runs one Herdr read across the pre-submit budget, retrying a
@@ -206,7 +212,7 @@ func preSubmitRead[T any](ctx context.Context, sleep func(context.Context, time.
 	return zero, lastErr
 }
 
-// typeSettleFor is how long to wait after typing message before Enter submits
+// TypeSettleFor is how long to wait after typing message before Enter submits
 // it. A message starting with `/` or `$` opens a harness completion popup, and
 // an Enter that arrives while the popup is still open selects the highlighted
 // completion instead of submitting what was typed - so `cfo send <pane>
@@ -215,8 +221,8 @@ func preSubmitRead[T any](ctx context.Context, sleep func(context.Context, time.
 // Both prefixes get the long wait unconditionally: this path has no harness
 // metadata by design, and waiting longer than a shell prompt needs costs a
 // fraction of a second against running the wrong command.
-func typeSettleFor(message string) time.Duration {
-	if strings.HasPrefix(message, "/") || strings.HasPrefix(message, "$") {
+func TypeSettleFor(message string) time.Duration {
+	if IsCommand(message) {
 		return completionSettle
 	}
 	return typeSettle
@@ -233,7 +239,7 @@ func (s Sender) typeIntoPane(ctx context.Context, target herdr.Target, message s
 	if err := s.Terminal.SendLiteral(ctx, target, message); err != nil {
 		return fmt.Errorf("fleet: type text for %s: %w", target, err)
 	}
-	if err := s.sleep(ctx, typeSettleFor(message)); err != nil {
+	if err := s.sleep(ctx, TypeSettleFor(message)); err != nil {
 		return fmt.Errorf("fleet: wait before submit for %s: %w", target, err)
 	}
 	if err := s.Terminal.SendKey(ctx, target, "Enter"); err != nil {
@@ -245,7 +251,7 @@ func (s Sender) typeIntoPane(ctx context.Context, target herdr.Target, message s
 // Key sends one supported terminal key without introducing text into the
 // pane. The command layer keeps text and --key mutually exclusive.
 func (s Sender) Key(ctx context.Context, raw string, key string) error {
-	normalized, err := normalizeKey(key)
+	normalized, err := NormalizeKey(key)
 	if err != nil {
 		return err
 	}
@@ -292,7 +298,9 @@ func (s Sender) sleep(ctx context.Context, duration time.Duration) error {
 	}
 }
 
-func normalizeKey(key string) (string, error) {
+// NormalizeKey names the terminal key cfo send --key accepts as key, in any of
+// its spellings, as Enter, Escape, Ctrl+C or Ctrl+U.
+func NormalizeKey(key string) (string, error) {
 	switch strings.ToLower(key) {
 	case "enter":
 		return "Enter", nil
