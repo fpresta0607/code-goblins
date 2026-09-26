@@ -1,17 +1,19 @@
 import type { ReactNode } from "react";
 import type { Review, ReviewDocument, Snapshot } from "./types";
 import { Avatar } from "./Avatar";
+import { deliveryMark } from "./feedback";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
 import { documentFacts, settledIcon, settledLabel, type Item } from "./commandQueue";
 import { personaFor } from "./workflow";
+import type { Draft } from "./QuestionCard";
 
 // One delivered document: who sent it, its file icon and facts, and Open and
 // Download. Open shows only when the browser can open the copy or there is a
 // link, so a download never reads Opened. Either takes it out of the queue into
 // the history; Clear closes it unopened.
-export function DocumentCard({ review, document, snapshot, connected, onOpened, onClear, pager }: {
-  review: Review; document: ReviewDocument; snapshot: Snapshot; connected: boolean;
+export function DocumentCard({ review, document, snapshot, connected, draft, onOpened, onClear, pager }: {
+  review: Review; document: ReviewDocument; snapshot: Snapshot; connected: boolean; draft: Draft;
   onOpened: (how: "Opened" | "Downloaded") => void; onClear: () => void; pager?: ReactNode;
 }) {
   const task = snapshot.tasks.find((candidate) => candidate.id === review.task);
@@ -20,6 +22,8 @@ export function DocumentCard({ review, document, snapshot, connected, onOpened, 
   const item: Item = { kind: "review", key: "review:" + review.id, review };
   const settled = settledIcon(item, snapshot.actions);
   const open = review.state === "open";
+  const outcome = draft.submission ? snapshot.actions.find((action) => action.id === draft.submission?.id) || draft.receipt : undefined;
+  const mark = outcome ? deliveryMark(outcome) : undefined;
   const dot = document.name.lastIndexOf(".");
   const badge = dot > 0 ? document.name.slice(dot + 1, dot + 5).toUpperCase() : "FILE";
   const opened = (how: "Opened" | "Downloaded") => { if (open && connected) onOpened(how); };
@@ -30,7 +34,9 @@ export function DocumentCard({ review, document, snapshot, connected, onOpened, 
       <span className="file-icon" aria-hidden="true"><Icon name="file" /><b>{badge}</b></span>
       <span className="doc-copy"><strong>{document.name}</strong><span>{documentFacts(document, sender)}</span></span>
     </div>
-    {!open && <p className={"question-outcome delivery " + settled.tone} role="status"><Icon name={settled.icon} />{settledLabel(item, snapshot.actions)}</p>}
+    {draft.error && !outcome && <p className="warning-text" role="alert">{draft.error} An unchanged retry keeps its request identity.</p>}
+    {!open ? <p className={"question-outcome delivery " + settled.tone} role="status"><Icon name={settled.icon} />{settledLabel(item, snapshot.actions)}</p>
+      : mark && <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>}
     <div className="card-actions">
       {pager}
       {open && <button type="button" className="icon-button raised" disabled={!connected} aria-label="Clear this document without opening it" data-tip="Clear" onClick={onClear}><Icon name="close" /></button>}

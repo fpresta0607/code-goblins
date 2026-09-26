@@ -631,6 +631,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .check-anim path { stroke-dasharray: 70; stroke-dashoffset: 70; animation: check-draw .35s ease-out forwards; }
 @keyframes check-draw { to { stroke-dashoffset: 0; } }
 .done-card .received { display: inline-flex; align-items: center; gap: 8px; color: var(--mint); font-weight: 800; }
+.done-card .card-actions { justify-self: stretch; }
 .done-card .received .icon { width: 20px; height: 20px; }
 @media (prefers-reduced-motion: reduce) {
   .done-card, .check-anim path { animation: none; }
