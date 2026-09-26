@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -713,7 +714,8 @@ func (s *Store) clearReview(id, identity, reason string) (Evaluation, error) {
 
 // answerReview delivers the Overlord's answer once to the item's reporter:
 // the goblin's own pane while it is the same task generation, or the CFO that
-// reported it. An answer for a goblin that restarted or ended goes to the
+// reported it, where a reporter inside a long turn takes it once the turn
+// ends. An answer for a goblin that restarted or ended goes to the
 // current CFO instead, and the item stays undelivered. An answer a goblin
 // received also reaches the CFO, as a notice in its wake queue.
 func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error) {
@@ -735,6 +737,9 @@ func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error
 		if errors.Is(err, ErrRejected) {
 			return s.answerReviewToCFO(ctx, r, a.Text)
 		}
+	}
+	if errors.Is(err, fleet.ErrQueuedBehindTurn) {
+		result, err = Evaluation{Reason: "Submitted through Herdr while its reporter was working; it takes the answer when its current turn ends."}, nil
 	}
 	if err != nil {
 		return result, err
