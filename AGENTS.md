@@ -392,7 +392,7 @@ The watcher files a laid-out home's data every ten minutes, so finished and aban
 
 - A finished task's folder moves to `data/archive/finished/<task>/`. Finished means no task record is left in `state/`, a status log or a state archive entry shows the task was dispatched, and its brief has not changed since; a brief written again for the same id is a new brief.
 - A brief nothing ever dispatched moves to `data/archive/parked/<task>/` once it has sat unchanged for three days, or as soon as a `## Parked` row names it, and gets a `## Parked` row saying where its brief went, so the board stops showing it as Not started.
-- A folder an open backlog row still names, by its task id or by a path into it such as `data/<task>/handoff.md`, stays where it is until nothing under Queued or Parked refers to it; a brief with a queued row is queued work however old it is.
+- A finished folder stays while an open backlog row names it by task id, or while anything still read names a path into it, such as `data/<task>/handoff.md`: all of `backlog.md`, `overlord.md`, both memory folders (`data/memory/` and Claude Code's own), the brief of every live or undispatched task, and every open Command Center question, review item and run card. A brief with a queued row is queued work however old it is.
 
 To revive a parked brief, move its folder back to `data/<task>/` and its row back under `## Queued`.
 A folder a process holds open stays put for the next pass, and the failure is written once in `data/archive/filed.md`.

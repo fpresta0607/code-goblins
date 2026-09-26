@@ -348,7 +348,7 @@ It stays local and private: nothing in it is pushed anywhere, and no project rep
 The CFO's memory is kept here rather than inside Claude Code, Codex or Pi, so whichever harness runs the CFO, and whichever project it runs in, it starts from the same memory.
 
 The fleet keeps it tidy on its own: a finished task's folder moves to `archive\finished`, and a brief nobody dispatched for three days moves to `archive\parked` with a row in the backlog's Parked section, so it stops showing as Not started on the board.
-A folder an open backlog row still points at stays where it is, and every move is listed in `data\archive\filed.md`.
+A folder that anything still in use points at, such as a backlog row, your directives, the memory, a live task's brief or an open Command Center item, stays where it is, and every move is listed in `data\archive\filed.md`.
 
 `cfo install` creates this layout in a new home and fills in anything missing later, without overwriting a file.
 A home that already held data before this layout is left exactly as it is.

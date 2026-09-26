@@ -1,10 +1,12 @@
 package layout
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -55,17 +57,20 @@ type Move struct {
 // fleet's own records:
 //
 //   - live: state/<id>.meta exists. It stays.
-//   - finished: no metadata, and a status log or a state archive entry says
-//     it was dispatched. It moves to archive/finished.
-//   - never dispatched: nothing in state names it. Its brief is parked in
+//   - finished: no metadata, a status log or a state archive entry says it
+//     was dispatched, and its brief has not changed since. It moves to
+//     archive/finished.
+//   - never dispatched: anything else. Its brief is parked in
 //     archive/parked once StaleBriefAge has passed since the brief last
 //     changed, or as soon as a Parked backlog row names it.
 //
-// A folder an open backlog row still points at stays where it is, so a
-// queued row that says "start from data/<id>/handoff.md" keeps working: a
-// finished folder waits until nothing open refers to it, and a brief with a
-// queued row is queued work, however old.
-func Plan(h home.Home, now time.Time) ([]Move, error) {
+// What is still read keeps its folder. A brief with a queued backlog row is
+// queued work, however old. A finished folder stays while an open backlog
+// row names it by id, or while anything the fleet or the Overlord still reads
+// names its path (see namedInLiveText), so a queued row or a live goblin's
+// brief that says "start from data/<id>/handoff.md" keeps working.
+// harnessMemory is the CFO harness's own memory folder, read as part of that.
+func Plan(h home.Home, harnessMemory string, now time.Time) ([]Move, error) {
 	entries, err := os.ReadDir(h.Data)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -81,7 +86,13 @@ func Plan(h home.Home, now time.Time) ([]Move, error) {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
-	var moves []Move
+	type folder struct {
+		id               string
+		brief            fs.FileInfo
+		live, dispatched bool
+	}
+	var folders []folder
+	var briefs []string
 	for _, entry := range entries {
 		id := entry.Name()
 		if !entry.IsDir() || state.ValidTaskID(id) != nil || isLayoutFolder(id) {
@@ -94,20 +105,16 @@ func Plan(h home.Home, now time.Time) ([]Move, error) {
 		if err != nil {
 			return nil, err
 		}
-		live, err := exists(filepath.Join(h.State, id+".meta"))
-		if err != nil {
+		f := folder{id: id, brief: brief}
+		if f.live, err = exists(filepath.Join(h.State, id+".meta")); err != nil {
 			return nil, err
-		}
-		if live {
-			continue
 		}
 		// The task's last record is its status log or its newest state
 		// archive entry. A brief written after it is a new brief for the same
 		// id rather than the finished task's, so it is not finished work.
 		var lastRecord time.Time
-		dispatched := false
 		if info, err := os.Stat(filepath.Join(h.State, id+".status")); err == nil {
-			dispatched, lastRecord = true, info.ModTime()
+			f.dispatched, lastRecord = true, info.ModTime()
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return nil, err
 		}
@@ -119,24 +126,39 @@ func Plan(h home.Home, now time.Time) ([]Move, error) {
 			if err != nil {
 				return nil, err
 			}
-			dispatched = true
+			f.dispatched = true
 			if info.ModTime().After(lastRecord) {
 				lastRecord = info.ModTime()
 			}
 		}
 		if brief.ModTime().After(lastRecord) {
-			dispatched = false
+			f.dispatched = false
 		}
-		queued, parked := mentions(backlog.Queued, id), mentions(backlog.Parked, id)
+		if f.live || !f.dispatched {
+			briefs = append(briefs, filepath.Join(h.Data, id, "brief.md"))
+		}
+		folders = append(folders, f)
+	}
+	named, err := namedInLiveText(h, harnessMemory, briefs)
+	if err != nil {
+		return nil, err
+	}
+
+	var moves []Move
+	for _, f := range folders {
+		if f.live {
+			continue
+		}
+		queued, parked := mentions(backlog.Queued, f.id), mentions(backlog.Parked, f.id)
 		var move Move
 		switch {
-		case dispatched && !queued && !parked:
-			move = Move{ID: id, Reason: "finished"}
-		case !dispatched && !queued && (parked || now.Sub(brief.ModTime()) >= StaleBriefAge):
-			since := brief.ModTime().UTC().Format("2006-01-02")
-			move = Move{ID: id, Parked: true, Reason: "brief not dispatched since " + since}
+		case f.dispatched && !queued && !parked && !named[strings.ToLower(f.id)]:
+			move = Move{ID: f.id, Reason: "finished"}
+		case !f.dispatched && !queued && (parked || now.Sub(f.brief.ModTime()) >= StaleBriefAge):
+			since := f.brief.ModTime().UTC().Format("2006-01-02")
+			move = Move{ID: f.id, Parked: true, Reason: "brief not dispatched since " + since}
 			if !parked {
-				move.Row = fmt.Sprintf("- [ ] %s - Brief not dispatched since %s, parked %s: data/%s/%s/brief.md", id, since, now.UTC().Format("2006-01-02"), ParkedDir, id)
+				move.Row = fmt.Sprintf("- [ ] %s - Brief not dispatched since %s, parked %s: data/%s/%s/brief.md", f.id, since, now.UTC().Format("2006-01-02"), ParkedDir, f.id)
 			}
 		default:
 			continue
@@ -145,13 +167,101 @@ func Plan(h home.Home, now time.Time) ([]Move, error) {
 		if move.Parked {
 			dir = ParkedDir
 		}
-		move.From = filepath.Join(h.Data, id)
-		if move.To, err = freeTarget(filepath.Join(h.Data, filepath.FromSlash(dir), id), now); err != nil {
+		move.From = filepath.Join(h.Data, f.id)
+		if move.To, err = freeTarget(filepath.Join(h.Data, filepath.FromSlash(dir), f.id), now); err != nil {
 			return nil, err
 		}
 		moves = append(moves, move)
 	}
 	return moves, nil
+}
+
+// dataPathName matches a path into the data folder, in either slash
+// direction, and captures the folder it names. The word boundary keeps
+// "metadata/x" from reading as a path into data.
+var dataPathName = regexp.MustCompile(`(?i)\bdata[\\/]([A-Za-z0-9._-]+)`)
+
+// namedInLiveText returns, lowercased, every data folder named by path in
+// what the fleet or the Overlord still reads: all of the backlog, the
+// directives, the home's memory and the harness's memory folder, the given
+// briefs, and every open Command Center question, review item and run card.
+// A file that is not there reads as empty.
+func namedInLiveText(h home.Home, harnessMemory string, briefs []string) (map[string]bool, error) {
+	files := append([]string{filepath.Join(h.Data, Backlog), filepath.Join(h.Data, "overlord.md")}, briefs...)
+	for _, dir := range []string{filepath.Join(h.Data, filepath.FromSlash(path.Dir(MemoryIndex))), harnessMemory} {
+		if dir == "" {
+			continue
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+		for _, entry := range entries {
+			if entry.Type().IsRegular() {
+				files = append(files, filepath.Join(dir, entry.Name()))
+			}
+		}
+	}
+	var text strings.Builder
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+		text.Write(data)
+		text.WriteByte('\n')
+	}
+	open, err := openBoardText(h)
+	if err != nil {
+		return nil, err
+	}
+	text.WriteString(open)
+	named := map[string]bool{}
+	for _, match := range dataPathName.FindAllStringSubmatch(text.String(), -1) {
+		named[strings.ToLower(strings.TrimRight(match[1], "."))] = true
+	}
+	return named, nil
+}
+
+// openBoardText is the text of every Command Center item still waiting in
+// the supervisor's database: a question not yet closed, an open review item
+// and a run card ready or running.
+func openBoardText(h home.Home) (string, error) {
+	data, err := os.ReadFile(filepath.Join(h.State, ".supervisor.json"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var board struct {
+		Questions []struct {
+			Text, Message, Status string
+			Options               []string
+		}
+		Reviews []struct{ Title, Reason, State string }
+		Runs    []struct{ Title, Command, Cwd, State string }
+	}
+	if err := json.Unmarshal(data, &board); err != nil {
+		return "", fmt.Errorf("layout: read the Command Center's open items: %w", err)
+	}
+	var text strings.Builder
+	for _, q := range board.Questions {
+		if !slices.Contains([]string{"cleared", "succeeded", "failed", "superseded"}, q.Status) {
+			text.WriteString(strings.Join(append([]string{q.Text, q.Message}, q.Options...), "\n") + "\n")
+		}
+	}
+	for _, r := range board.Reviews {
+		if r.State == "open" {
+			text.WriteString(r.Title + "\n" + r.Reason + "\n")
+		}
+	}
+	for _, r := range board.Runs {
+		if r.State == "ready" || r.State == "running" {
+			text.WriteString(r.Title + "\n" + r.Command + "\n" + r.Cwd + "\n")
+		}
+	}
+	return text.String(), nil
 }
 
 // Apply makes moves in order: it moves each folder whole, adds its parked
@@ -189,17 +299,18 @@ func logLine(h home.Home, move Move, now time.Time) string {
 	return fmt.Sprintf("- %s %s %s (%s): %s -> %s\n", now.UTC().Format(time.RFC3339), verb, move.ID, move.Reason, dataPath(h, move.From), dataPath(h, move.To))
 }
 
-// File files a laid-out home's data now: see Plan and Apply. A home without
-// the layout marker is left alone, because reorganising it is the migration
-// its owner decides on. A pass that fails is recorded in the filing log,
-// once until the failure changes, so a folder a process holds open shows
-// there instead of being retried in silence.
+// File files a laid-out home's data now: see Plan and Apply, with Claude
+// Code's memory folder for the home as the harness memory it reads. A home
+// without the layout marker is left alone, because reorganising it is the
+// migration its owner decides on. A pass that fails is recorded in the
+// filing log, once until the failure changes, so a folder a process holds
+// open shows there instead of being retried in silence.
 func File(h home.Home, now time.Time) ([]Move, error) {
 	laidOut, err := exists(filepath.Join(h.Data, Marker))
 	if err != nil || !laidOut {
 		return nil, err
 	}
-	moves, err := Plan(h, now)
+	moves, err := Plan(h, ClaudeMemoryFolder(h.Root), now)
 	if err == nil {
 		moves, err = Apply(h, moves, now)
 	}
@@ -221,6 +332,24 @@ func recordFailure(h home.Home, now time.Time, failure error) error {
 		return nil
 	}
 	return appendLog(path, "- "+now.UTC().Format(time.RFC3339)+message+"\n")
+}
+
+// ClaudeMemoryFolder is Claude Code's own memory folder for a session run
+// in root: ~/.claude/projects/<root with every character but a letter or a
+// digit replaced by a hyphen>/memory, so C:\dev\code-goblins keeps its
+// memory under C--dev-code-goblins. It is empty when there is no user folder.
+func ClaudeMemoryFolder(root string) string {
+	user, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	name := strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			return r
+		}
+		return '-'
+	}, root)
+	return filepath.Join(user, ".claude", "projects", name, "memory")
 }
 
 func isLayoutFolder(name string) bool {

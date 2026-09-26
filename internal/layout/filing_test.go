@@ -112,7 +112,7 @@ func TestPlanFilesEachTaskFolderByWhatTheFleetRecords(t *testing.T) {
 			taskFolder(t, h, "g1", time.Hour)
 			write(t, filepath.Join(h.State, "g1.status"), "done: PR https://github.com/o/r/pull/1\n")
 		}, []string{"archive g1"}},
-		{"a done row does not hold a finished folder", "## Done\n- [x] g1 - Shipped, report in data/g1/report.md\n", func(t *testing.T, h home.Home) {
+		{"a done row naming the task by id does not hold its folder", "## Done\n- [x] g1 - Shipped https://github.com/o/r/pull/1\n", func(t *testing.T, h home.Home) {
 			taskFolder(t, h, "g1", time.Hour)
 			write(t, filepath.Join(h.State, "g1.status"), "done: PR https://github.com/o/r/pull/1\n")
 		}, []string{"archive g1"}},
@@ -127,7 +127,7 @@ func TestPlanFilesEachTaskFolderByWhatTheFleetRecords(t *testing.T) {
 			h := filingHome(t, c.backlog)
 			c.arrange(t, h)
 
-			moves, err := Plan(h, filingNow)
+			moves, err := Plan(h, filepath.Join(h.Root, "harness-memory"), filingNow)
 
 			if err != nil {
 				t.Fatal(err)
@@ -142,6 +142,77 @@ func TestPlanFilesEachTaskFolderByWhatTheFleetRecords(t *testing.T) {
 			}
 			if !slices.Equal(got, c.want) {
 				t.Errorf("plan = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// A finished folder that anything still read names by path stays where that
+// path finds it: a live goblin's brief, the Overlord's directives, a memory
+// fact or an open question pointing at data/f1/report.md must not dangle.
+func TestPlanKeepsAFinishedFolderNamedInLiveText(t *testing.T) {
+	mention := "see data/f1/report.md for what f1 found\n"
+	cases := []struct {
+		name    string
+		backlog string
+		arrange func(t *testing.T, h home.Home, harnessMemory string)
+		stays   bool
+	}{
+		{"a done row", emptyBacklog + "- [x] d1 - Shipped, " + mention, func(t *testing.T, h home.Home, _ string) {}, true},
+		{"a section filing does not read", emptyBacklog + "\n## Fleet defects\n" + mention, func(t *testing.T, h home.Home, _ string) {}, true},
+		{"the directives", emptyBacklog, func(t *testing.T, h home.Home, _ string) {
+			write(t, filepath.Join(h.Data, "overlord.md"), `a ruling that cites data\f1\report.md`+"\n")
+		}, true},
+		{"the home's memory", emptyBacklog, func(t *testing.T, h home.Home, _ string) {
+			write(t, filepath.Join(h.Data, "memory", "a-fact.md"), mention)
+		}, true},
+		{"the harness's memory folder", emptyBacklog, func(t *testing.T, h home.Home, harnessMemory string) {
+			write(t, filepath.Join(harnessMemory, "a-fact.md"), mention)
+		}, true},
+		{"a live task's brief", emptyBacklog, func(t *testing.T, h home.Home, _ string) {
+			taskFolder(t, h, "g2", time.Hour)
+			write(t, filepath.Join(h.Data, "g2", "brief.md"), "start from "+mention)
+			write(t, filepath.Join(h.State, "g2.meta"), "brief="+filepath.Join(h.Data, "g2", "brief.md")+"\n")
+		}, true},
+		{"a brief not yet dispatched", emptyBacklog, func(t *testing.T, h home.Home, _ string) {
+			write(t, filepath.Join(h.Data, "b1", "brief.md"), "start from "+mention)
+		}, true},
+		{"an open question", emptyBacklog, func(t *testing.T, h home.Home, _ string) {
+			write(t, filepath.Join(h.State, ".supervisor.json"), `{"questions":[{"text":"Ship it? `+strings.TrimSpace(mention)+`","status":"pending"}]}`)
+		}, true},
+		{"an open review", emptyBacklog, func(t *testing.T, h home.Home, _ string) {
+			write(t, filepath.Join(h.State, ".supervisor.json"), `{"reviews":[{"title":"Read data/f1/report.md","state":"open"}]}`)
+		}, true},
+		{"a run card waiting to run", emptyBacklog, func(t *testing.T, h home.Home, _ string) {
+			write(t, filepath.Join(h.State, ".supervisor.json"), `{"runs":[{"title":"Tidy","command":"Get-Content data\\f1\\report.md","state":"ready"}]}`)
+		}, true},
+		{"an answered question", emptyBacklog, func(t *testing.T, h home.Home, _ string) {
+			write(t, filepath.Join(h.State, ".supervisor.json"), `{"questions":[{"text":"`+strings.TrimSpace(mention)+`","status":"succeeded"}],"reviews":[{"title":"`+strings.TrimSpace(mention)+`","state":"cleared"}],"runs":[{"title":"t","command":"`+strings.TrimSpace(mention)+`","state":"finished"}]}`)
+		}, false},
+		{"another finished task's brief", emptyBacklog, func(t *testing.T, h home.Home, _ string) {
+			finishedAt(t, filepath.Join(h.Data, "f2", "brief.md"), "start from "+mention, 5*24*time.Hour)
+			finishedAt(t, filepath.Join(h.State, "f2.status"), "done\n", 0)
+		}, false},
+		{"a longer word ending in data", emptyBacklog, func(t *testing.T, h home.Home, _ string) {
+			write(t, filepath.Join(h.Data, "overlord.md"), "the metadata/f1/report.md field\n")
+		}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := filingHome(t, c.backlog)
+			harnessMemory := filepath.Join(h.Root, "harness-memory")
+			taskFolder(t, h, "f1", 5*24*time.Hour)
+			finishedAt(t, filepath.Join(h.State, "f1.status"), "done: PR https://github.com/o/r/pull/1\n", 0)
+			c.arrange(t, h, harnessMemory)
+
+			moves, err := Plan(h, harnessMemory, filingNow)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			archived := slices.ContainsFunc(moves, func(m Move) bool { return m.ID == "f1" })
+			if archived == c.stays {
+				t.Errorf("f1 archived = %v, want it to stay = %v", archived, c.stays)
 			}
 		})
 	}
