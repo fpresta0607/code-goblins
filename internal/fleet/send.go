@@ -160,6 +160,9 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 	if lastReadErr != nil {
 		return fmt.Errorf("%w; later agent reads were refused: %w", unconfirmed(target, herdr.SubmitPending), lastReadErr)
 	}
+	if before.Status == herdr.AgentWorking {
+		return fmt.Errorf("%w: %w", unconfirmed(target, herdr.SubmitPending), ErrQueuedBehindTurn)
+	}
 	return unconfirmed(target, herdr.SubmitPending)
 }
 
@@ -303,6 +306,13 @@ func normalizeKey(key string) (string, error) {
 		return "", fmt.Errorf("fleet: unsupported key %q; use Enter, Escape, Ctrl-C, or Ctrl-U", key)
 	}
 }
+
+// ErrQueuedBehindTurn marks an unconfirmed delivery to an agent that was
+// already working when `agent prompt` submitted the text and stayed readable
+// afterwards. A turn in progress, such as a long tool call, moves no counter
+// until it ends, so nothing can prove more before then; the text waits in the
+// harness's input for the turn to end. It is not evidence the text was lost.
+var ErrQueuedBehindTurn = errors.New("the agent was working, so the text waits for its current turn to end")
 
 func unconfirmed(target herdr.Target, state herdr.SubmitState) error {
 	return fmt.Errorf("fleet: text delivery to %s is unconfirmed: %s", target, state)

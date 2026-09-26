@@ -251,6 +251,32 @@ func TestSenderTextRefusesWhenTheAgentNeverAccepts(t *testing.T) {
 	}
 }
 
+// An agent already working when the prompt lands, such as one inside a long
+// tool call, moves no counter until its turn ends. Its prompt stays
+// unconfirmed, but the caller can tell it apart from an idle agent that never
+// took the prompt and from one whose later reads were refused.
+func TestSenderTextTellsAPromptQueuedBehindABusyTurnFromALostOne(t *testing.T) {
+	busy := newAgentFake(agentFake{inert: true, status: "working"})
+	err := newAgentSender(busy).Text(context.Background(), "task-7", "do the work")
+	if !errors.Is(err, ErrQueuedBehindTurn) || !strings.Contains(err.Error(), "unconfirmed") {
+		t.Fatalf("Text to a busy agent = %v, want it unconfirmed and queued behind the agent's turn", err)
+	}
+	// Premise: the prompt was submitted once and the agent stayed readable.
+	if busy.promptCalls != 1 || busy.confirmGets < 2 {
+		t.Fatalf("prompts = %d, confirmation reads = %d, want one prompt and a polled confirmation", busy.promptCalls, busy.confirmGets)
+	}
+
+	for name, shape := range map[string]agentFake{
+		"idle and never moved":      {inert: true},
+		"busy but unreadable after": {inert: true, status: "working", confirmRefusals: 1000},
+	} {
+		err := newAgentSender(newAgentFake(shape)).Text(context.Background(), "task-7", "do the work")
+		if err == nil || errors.Is(err, ErrQueuedBehindTurn) {
+			t.Errorf("%s: Text = %v, want it unconfirmed and not queued behind a turn", name, err)
+		}
+	}
+}
+
 // A revision advance alone is acceptance. This is the observed kimi shape: a
 // prompt it accepted moved revision while state_change_seq stayed put and the
 // status never reached working. A check pinned on state_change_seq would read

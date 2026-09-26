@@ -410,7 +410,11 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		if !found {
 			return Evaluation{}, fmt.Errorf("%w: user question context changed", ErrRejected)
 		}
-		return s.Options.CFO.Send(ctx, a.Generation, text)
+		result, err := s.Options.CFO.Send(ctx, a.Generation, text)
+		if errors.Is(err, fleet.ErrQueuedBehindTurn) {
+			return Evaluation{Reason: "Submitted to the registered CFO through Herdr while it was working; it takes the answer when its current turn ends."}, nil
+		}
+		return result, err
 	}
 	meta, err := state.ReadTaskMeta(s.Store.Home.State, a.TaskID)
 	if err != nil {

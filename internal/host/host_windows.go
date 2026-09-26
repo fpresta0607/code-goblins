@@ -206,6 +206,10 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 		serveScreen(connection, console, screens)
 		return
 	}
+	if greeting.Deliver {
+		serveDelivery(connection, console)
+		return
+	}
 	past, feed, detach := output.attach()
 	defer detach()
 	if writeHello(connection, hello{Version: Version}) != nil {

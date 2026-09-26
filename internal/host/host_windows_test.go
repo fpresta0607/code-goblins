@@ -377,7 +377,7 @@ func TestTheHostRefusesAWrongTokenOrVersion(t *testing.T) {
 		"a wrong token":   {Version, strings.Repeat("0", len(record.Token)), "token does not match"},
 		"another version": {Version + 1, record.Token, "protocol"},
 	} {
-		client, err := dial(record, hello{Version: c.version, Token: c.token})
+		client, _, err := dial(record, hello{Version: c.version, Token: c.token})
 		if err == nil {
 			_ = client.Close()
 		}

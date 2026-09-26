@@ -67,6 +67,9 @@ type cfoRunner struct {
 	typed    [][]string
 	sizeless bool
 	resized  atomic.Bool
+	// busy is an agent inside a long turn: working, with counters that do not
+	// move while the turn lasts, whatever it is sent.
+	busy bool
 }
 
 func (r *cfoRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -99,6 +102,9 @@ func (r *cfoRunner) Run(_ context.Context, req execx.Request) (execx.Result, err
 		body = `{"result":{"pane":{"pane_id":"w1:p1"}}}`
 	case len(a) >= 2 && a[0] == "agent" && a[1] == "get":
 		body = fmt.Sprintf(`{"result":{"agent":{"agent":"codex","agent_status":"idle","revision":%d,"state_change_seq":%d}}}`, 10+len(r.prompts), 10+len(r.prompts))
+		if r.busy {
+			body = `{"result":{"agent":{"agent":"codex","agent_status":"working","revision":10,"state_change_seq":10}}}`
+		}
 	case len(a) >= 4 && a[0] == "agent" && a[1] == "prompt":
 		if r.beforePrompt != nil {
 			r.beforePrompt()

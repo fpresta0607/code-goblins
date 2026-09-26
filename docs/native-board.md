@@ -246,9 +246,9 @@ Registration trusts no variable alone: the Herdr pane named by `HERDR_PANE_ID` m
 A CFO can also run in a native terminal, a `cfo host` that tells the program it starts which terminal it is through `CFO_HOST_ID`.
 Outside a Herdr pane, registration there needs the terminal's program, named by its host's record, to be one of the caller's own ancestors, and the host to answer on its pipe, since a host that was killed leaves its record behind.
 The registration then names that terminal instead of a pane, and it stays valid while the host's record names the registered process as the terminal's program.
-A message for a native CFO is typed into its terminal once, then Enter submits it.
-Until native hooks report the CFO's prompts, nothing confirms it took the message, so the board shows the delivery as unconfirmed and never types it again.
-The board's CFO view does not show a native terminal yet.
+A message for a native CFO is typed into its terminal once, then Enter submits it, over a delivery connection of its own: the host acknowledges each part once it has written it into the terminal's input, and the board shows the message delivered once both are acknowledged, and never types it again.
+A host started by an older cfo cannot acknowledge, so the board refuses anything it sends that CFO with nothing typed until the CFO is started again.
+The board shows a native CFO's terminal in its panel, from the CFO bar and from Orchestration.
 `goblins` shows a CFO registered in a native terminal in its own terminal, and `goblins --native` starts a new CFO in native terminal `cfo`, running `claude.exe` itself so the terminal ends with it, without the launcher's `HERDR_PANE_ID`.
 `cfo attach` shows a native terminal in any console: the registered CFO's, or the one named.
 With no CFO registered, `goblins` and `cfo attach` show native terminal `cfo` while its host answers, since the CFO started there may not have registered yet; a CFO registered in Herdr always comes first.
@@ -290,6 +290,7 @@ Recurring tool actions (open in VS Code, open folder, open pull request, refresh
 Decisions and one-off commands keep a short word, for example Send decision, Later or Show the next 300 lines.
 Every connector, MCP server, credential, harness and model provider shows a mark beside its name: the brand's mark from Simple Icons where one exists, a plain glyph where the owner withholds its mark, the Model Context Protocol mark for an unknown MCP server and a key for an unknown credential.
 Delivery reads as a mark: one check once the supervisor accepted it, two checks once delivered; only a failed or unconfirmed delivery is spelled out, with what to check before sending again.
+An answer to a goblin or to a CFO in Herdr that is working when it arrives, such as one inside a long tool call, waits in its input until that turn ends, and the turn moves none of Herdr's counters, so the board counts it delivered once Herdr submitted it; anything else sent to a working agent, such as a `cfo send` steer, a `cfo answer`, a run result or a review request, still reads unconfirmed.
 A review answer's own action keeps one check, because it succeeds whether the answer reached the goblin or went to the CFO; only its review item says which.
 Status words say what is happening in plain words, such as Working, In review gate, Waiting on you, Waiting on the CFO or Merged, verifying, never the evidence the supervisor holds.
 Text is never smaller than 15 px.
