@@ -4,6 +4,7 @@ import type { Task } from "./types";
 import { Icon } from "./Icon";
 import { closedReason, DEFAULT_FONT_SIZE, MAX_FONT_SIZE, MIN_FONT_SIZE, reconnects } from "./terminalStream";
 import { TerminalView } from "./terminalView";
+import { useDictation } from "./useDictation";
 
 const FONT_KEY = "cfo-terminal-font-size";
 // A view that keeps dropping stops retrying and says why.
@@ -37,6 +38,8 @@ export function HostTerminal({ task, instance, visible, shown, focus }: { task: 
   const [attempt, setAttempt] = useState(0);
   const [copied, setCopied] = useState(false);
   const [hasScreen, setHasScreen] = useState(false);
+  const dictation = useDictation((text) => current.current?.paste(text));
+  const dictate = dictation.key;
   useEffect(() => {
     shownValue.current = shown;
     for (const view of [current.current, staged.current]) {
@@ -90,6 +93,7 @@ export function HostTerminal({ task, instance, visible, shown, focus }: { task: 
         copiedTimer = setTimeout(() => setCopied(false), 1400);
       },
       font: (size) => { try { localStorage.setItem(FONT_KEY, String(size)); } catch { /* the size still applies to this view */ } },
+      dictate,
     });
     staged.current = view;
     view.show(shownValue.current);
@@ -100,7 +104,7 @@ export function HostTerminal({ task, instance, visible, shown, focus }: { task: 
       // A view that is on screen stays until its replacement is whole.
       if (current.current !== view) view.dispose();
     };
-  }, [task.id, task.generation, instance, visible, attempt]);
+  }, [task.id, task.generation, instance, visible, attempt, dictate]);
   useEffect(() => () => { current.current?.dispose(); current.current = null; }, []);
   return <section className="native-terminal host-terminal" aria-label="Goblin terminal">
     <div className="terminal-surface" ref={surface} />
@@ -108,5 +112,7 @@ export function HostTerminal({ task, instance, visible, shown, focus }: { task: 
     {phase === "live" && (reconnecting || !visible) && <span className="terminal-state terminal-reconnecting" role="status"><span className="status-dot" />Reconnecting</span>}
     {phase === "closed" && <div className={hasScreen ? "terminal-closed" : "terminal-cover"} role="status"><Icon name="terminal" /><p>{reason}</p><button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setPhase(current.current ? "live" : "connecting"); setReconnecting(!!current.current); setAttempt((prior) => prior + 1); }}>Reconnect</button></div>}
     {copied && <span className="terminal-state terminal-copied" role="status">Copied</span>}
+    {dictation.listening && <span className="terminal-state live terminal-listening" role="status"><Icon name="mic" />Listening</span>}
+    {dictation.note && <p className="terminal-error" role="status">{dictation.note}</p>}
   </section>;
 }
