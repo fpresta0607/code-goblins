@@ -79,10 +79,8 @@ func (s Service) Install(out io.Writer) error {
 			return fmt.Errorf("install: --projects-root %s is not a directory; name the folder that holds your checkouts", s.ProjectsRoot)
 		}
 	}
-	if s.Contract != nil {
-		if err := s.refuseAnotherHome(); err != nil {
-			return err
-		}
+	if err := s.refuseAnotherHome(); err != nil {
+		return err
 	}
 	if err := s.writeUserHooks(report); err != nil {
 		return err
