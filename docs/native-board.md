@@ -192,7 +192,7 @@ The view proves its pane, terminal, process and gate custody in full when it ope
 A tick's Herdr commands run beside the screen, never in its way, so a frame, and with it the echo of a key, is never held behind a tick.
 A paste is typed whole in one request, up to the 64 KiB input limit; an input Herdr refuses ends the view with an unknown outcome.
 A refused input, or one whose outcome is unknown, ends the view with the reason in plain words; nothing is resent, and reconnecting starts from a fresh full screen.
-The view sends no resize or scroll: the mouse wheel scrolls the panel, and a NUL key such as Ctrl+Space is typed like any other key.
+The view sends no resize or scroll: the whole screen is in view, so the mouse wheel scrolls nothing, and a NUL key such as Ctrl+Space is typed like any other key.
 Shift+Escape moves keyboard focus out of the terminal to the panel's pill; ordinary Escape stays with the pane.
 Releasing a drag selection copies it to the clipboard, the way Herdr does, and Ctrl+Shift+C copies the current selection.
 Closing, switching, disconnecting or restarting invalidates the lease; reconnection starts with a full screen frame, never replayed input.
