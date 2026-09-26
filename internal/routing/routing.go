@@ -57,7 +57,7 @@ var faultPatterns = []struct {
 	{RateLimit, []string{
 		"rate limit", "rate_limit", "ratelimit_error", "too many requests",
 		"quota exceeded", "insufficient quota", "over quota", "out of quota",
-		"usage limit", "spend limit",
+		"usage limit", "spend limit", "limit · resets",
 	}},
 	{Auth, []string{
 		"401 unauthorized", "invalid api key", "invalid_api_key",
@@ -273,9 +273,11 @@ func thirdPartyErrorWord(line, keyword string) bool {
 }
 
 // retryOrResetTime is a retry or reset time written as one, "retry after 30s"
-// or "try again at Sep 26th", not a goblin saying it will retry after something
-// clears or honours the Retry-After header.
-var retryOrResetTime = regexp.MustCompile(`(?:retry-after|retry after|retrying in|try again in|will reset in|resets in)\W{0,3}\d|(?:try again|will reset|resets) at\W{0,3}(?:\d|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.? \d)`)
+// or "try again at Sep 26th", or the reset Claude Code's session-limit banner
+// prints beside the limit, "You've hit your session limit · resets 3:30pm",
+// not a goblin saying it will retry after something clears or honours the
+// Retry-After header.
+var retryOrResetTime = regexp.MustCompile(`(?:retry-after|retry after|retrying in|try again in|will reset in|resets in)\W{0,3}\d|(?:(?:try again|will reset|resets) at|limit · resets)\W{0,3}(?:\d|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.? \d)`)
 
 // errorShaped reports whether a line is shaped like a provider's own refusal
 // rather than prose about one: a 429 or 403 status, a provider's error type,
