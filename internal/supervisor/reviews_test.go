@@ -410,6 +410,37 @@ func TestAGoblinsOwnItemClosesOnceItsTaskFinishesOrIsGone(t *testing.T) {
 	}
 }
 
+// A goblin that has not reported yet is live while its task record exists, so
+// its items stay open until the task is cleaned up.
+func TestAGoblinsItemsStayOpenUntilItsTaskRecordIsGone(t *testing.T) {
+	store, h := testStore(t)
+	for _, id := range []string{"task-1-mockups", "waiting-task-1-3"} {
+		if err := store.acceptReview(openReview(id, "task-1")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.retireItems(); err != nil {
+		t.Fatal(err)
+	}
+	for _, got := range store.Snapshot().Reviews {
+		if got.State != "open" {
+			t.Errorf("an item of a live goblin with no report yet = %+v, want it open", got)
+		}
+	}
+
+	if err := state.RemoveTaskMeta(h.State, "task-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.retireItems(); err != nil {
+		t.Fatal(err)
+	}
+	for _, got := range store.Snapshot().Reviews {
+		if got.State != "withdrawn" || got.Reason != "task-1 is gone" {
+			t.Errorf("an item after its task was cleaned up = %+v, want it withdrawn", got)
+		}
+	}
+}
+
 // A CFO audit record in a task's status log is the CFO's word: the board
 // still reads the goblin's own latest report, and a wait on the Overlord
 // stays open.

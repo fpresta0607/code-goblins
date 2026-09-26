@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -318,10 +319,6 @@ func copyReviewImage(source io.Reader, path string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-// reportedReview finds a review waiting in the inbox or already recorded. It
-// only reads: opening a Store here would run crash recovery under a live
-// supervisor. The inbox is read first because ingest records an item before it
-// removes the inbox copy, so one of the two reads always sees it.
 // reportedReviews lists every item reported so far, the way reportedReview
 // finds one: an open publication still in the inbox and the supervisor's
 // record.
@@ -367,6 +364,10 @@ func reportedReviews(stateDir string) ([]Review, error) {
 	return reviews, nil
 }
 
+// reportedReview finds a review waiting in the inbox or already recorded. It
+// only reads: opening a Store here would run crash recovery under a live
+// supervisor. The inbox is read first because ingest records an item before it
+// removes the inbox copy, so one of the two reads always sees it.
 func reportedReview(stateDir, id string) (Review, bool, error) {
 	data, err := os.ReadFile(reviewInboxPath(stateDir, id, "open"))
 	if err == nil {
@@ -582,7 +583,14 @@ func (s *Store) acceptReview(r Review) error {
 		if err := s.save(); err != nil {
 			return err
 		}
-		return appendReviewAudit(s.Home.State, *prior)
+		if err := appendReviewAudit(s.Home.State, *prior); err != nil {
+			s.db.Issues = append(s.db.Issues, prior.ID+" was cleared, but state/reviews.audit was not written: "+bounded(err.Error(), 300))
+			if len(s.db.Issues) > 20 {
+				s.db.Issues = s.db.Issues[len(s.db.Issues)-20:]
+			}
+			return s.save()
+		}
+		return nil
 	default:
 		return errors.New("a review report is open, withdrawn or cleared")
 	}
@@ -792,12 +800,17 @@ func PublishWait(ctx context.Context, h home.Home, terminals terminal.Opener, ta
 // the Overlord once its task reports anything newer than that wait, any other
 // item once its task reports done after publishing it, and every item once
 // its task is gone, since a finished or cleaned-up goblin never acts on the
-// answer. A goblin's page or images stay while it keeps working, asks or
-// waits, because it still wants the Overlord's look.
+// answer. A task is gone once its task record is. A goblin's page or images
+// stay while it keeps working, asks or waits, or has not reported yet, because
+// it still wants the Overlord's look.
 func (s *Store) retireItems() error {
 	for _, r := range s.Snapshot().Reviews {
 		if r.State != "open" || r.Task == "" {
 			continue
+		}
+		_, metaErr := state.ReadTaskMeta(s.Home.State, r.Task)
+		if metaErr != nil && !errors.Is(metaErr, fs.ErrNotExist) {
+			return metaErr
 		}
 		lines, err := state.TailStatus(s.Home.State, r.Task, 50)
 		if err != nil {
@@ -806,8 +819,10 @@ func (s *Store) retireItems() error {
 		reportedAt, report := latestReport(lines, time.Time{})
 		var reason string
 		switch {
-		case report == "":
+		case metaErr != nil:
 			reason = r.Task + " is gone"
+		case report == "":
+			continue
 		case strings.HasPrefix(r.ID, "waiting-"+r.Task+"-"):
 			if strings.HasPrefix(report, "waiting on overlord: ") && !reportedAt.After(r.CreatedAt) {
 				continue

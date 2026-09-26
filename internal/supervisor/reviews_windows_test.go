@@ -462,6 +462,39 @@ func TestTheCFOClearsAStaleItemWithAnAuditedReason(t *testing.T) {
 	}
 }
 
+// A clear the store recorded but could not audit says so, rather than claiming
+// the clear was rejected.
+func TestACFOClearWhoseAuditFailsIsReportedAsCleared(t *testing.T) {
+	store, h := testStore(t)
+	_, _, _, cfo := primaryFixture(t, store)
+	meta, _, _, goblin := goblinFixture(t, store)
+	ctx := context.Background()
+	if err := PublishReview(ctx, h, goblin.Terminals, meta.ID, "plan-review-1", "Read the plan", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(h.State, "reviews.audit"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ClearReview(ctx, h, cfo.Terminals, "plan-review-1", "Decided"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+
+	got := store.Snapshot()
+	if got.Reviews[0].State != "cleared" {
+		t.Errorf("the CFO's clear = %+v, want the item cleared", got.Reviews[0])
+	}
+	if issues := strings.Join(got.Issues, "\n"); !strings.Contains(issues, "plan-review-1 was cleared, but state/reviews.audit was not written") || strings.Contains(issues, "rejected") {
+		t.Errorf("issues = %q, want the clear reported as recorded but unaudited", got.Issues)
+	}
+}
+
 // Answering a goblin's question closes its waits on the Overlord at once,
 // since the goblin now has what it was waiting for, and the audit says so.
 func TestAnsweringAGoblinClosesItsWaitsOnTheOverlord(t *testing.T) {
