@@ -3,14 +3,39 @@ package cleanup
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
+
+// fakeClaude is the argument that makes this test binary a stand-in Claude
+// Code in a native terminal, showing the screen the next argument names.
+const fakeClaude = "cleanup-fake-claude"
+
+// fakeClaudeScreens are Claude Code's screens as a native terminal holds
+// them: waiting at its composer, and in a turn.
+var fakeClaudeScreens = map[string][]string{
+	"idle":    {"> ", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
+	"working": {"✽ Reticulating… (3s · esc to interrupt)", "", "> ", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
+}
+
+func TestMain(m *testing.M) {
+	if len(os.Args) > 2 && os.Args[1] == fakeClaude {
+		fmt.Print("\x1b[2J\x1b[H" + strings.Join(fakeClaudeScreens[os.Args[2]], "\r\n"))
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		return
+	}
+	os.Exit(m.Run())
+}
 
 // nativeCleanupFixture is the cleanup fixture's task recorded as a native one:
 // no Herdr identity, its terminal found by the host record hostPID names, or
@@ -27,14 +52,59 @@ func nativeCleanupFixture(t *testing.T, hostPID int) *cleanupFixture {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.MkdirAll(filepath.Join(fixture.stateDir, "hosts"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(fixture.stateDir, "hosts", "g1.json"), record, 0o600); err != nil {
-			t.Fatal(err)
-		}
+		writeHostRecord(t, fixture.stateDir, record)
 	}
 	return fixture
+}
+
+// writeHostRecord writes task g1's host record as the host would.
+func writeHostRecord(t *testing.T, stateDir string, record []byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(stateDir, "hosts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "hosts", "g1.json"), record, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// runFakeClaude runs the fixture task's native terminal, with the stand-in
+// Claude showing screen, until the test closes it or the test ends.
+func runFakeClaude(t *testing.T, f *cleanupFixture, screen string) {
+	t.Helper()
+	program, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		_ = host.Run(f.stateDir, host.Spec{ID: "g1", Args: []string{program, fakeClaude, screen}, Cols: 100, Rows: 30})
+	}()
+	t.Cleanup(func() {
+		if record, err := host.ReadRecord(f.stateDir, "g1"); err == nil {
+			if client, err := host.Dial(record); err == nil {
+				_ = client.CloseTerminal()
+				_ = client.Close()
+			}
+		}
+		select {
+		case <-ended:
+		case <-time.After(15 * time.Second):
+			t.Error("the native terminal's host did not end")
+		}
+	})
+	want := fakeClaudeScreens[screen][len(fakeClaudeScreens[screen])-1]
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		if record, err := host.ReadRecord(f.stateDir, "g1"); err == nil {
+			if rows, err := host.ReadScreen(record); err == nil && strings.Contains(host.ScreenTail(rows, 0), want) {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the stand-in Claude never showed its %s screen", screen)
+		}
+	}
 }
 
 // endedPID is the pid of a process that has run and ended.
@@ -89,59 +159,72 @@ func TestCleanupReturnsANativeTaskWhoseTerminalHasEnded(t *testing.T) {
 	}
 }
 
-// A native terminal whose host may still run holds a live harness, and a
-// record that cannot be read proves nothing: both are refused, force or not,
-// and the task is kept for a retry.
-func TestCleanupRefusesANativeTaskThatMayStillRun(t *testing.T) {
-	for name, test := range map[string]struct {
-		setup func(*testing.T, *cleanupFixture)
-		want  string
-	}{
-		"host still running": {func(*testing.T, *cleanupFixture) {}, "still runs its harness in host pid"},
-		"unreadable host record": {func(t *testing.T, f *cleanupFixture) {
-			if err := os.WriteFile(filepath.Join(f.stateDir, "hosts", "g1.json"), []byte("{"), 0o600); err != nil {
-				t.Fatal(err)
+// A native goblin waiting at its composer holds no turn in progress (CFO
+// decision 2339), so cleanup closes its terminal, which ends the harness, and
+// retires the task; --force-archive does the same for a worktree that will not
+// validate.
+func TestCleanupClosesANativeTerminalIdleAtItsComposer(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		t.Run(fmt.Sprintf("force archive %v", force), func(t *testing.T) {
+			fixture := nativeCleanupFixture(t, 0)
+			runFakeClaude(t, fixture, "idle")
+			if force {
+				fixture.git.top = fixture.project
+				fixture.service.ForceArchive = true
 			}
-		}, "native terminal evidence is unreadable"},
+
+			_, err := fixture.service.Cleanup(context.Background(), "g1")
+
+			if err != nil {
+				t.Fatalf("Cleanup: %v", err)
+			}
+			if _, err := host.ReadRecord(fixture.stateDir, "g1"); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("the native terminal still runs after its task was cleaned: %v", err)
+			}
+			if _, err := state.ReadTaskMeta(fixture.stateDir, "g1"); err == nil {
+				t.Error("task metadata survives a successful cleanup")
+			}
+			if returned := len(fixture.git.returned); returned != map[bool]int{false: 1, true: 0}[force] {
+				t.Errorf("worktree return calls = %v", fixture.git.returned)
+			}
+			fixture.assertNoHerdrRequests(t)
+		})
+	}
+}
+
+// A native goblin in a turn, a terminal whose screen cannot be read, and a
+// host record that cannot be read are all refused, force or not, and the task
+// and its terminal are kept for a retry.
+func TestCleanupRefusesANativeTaskThatMayBeWorking(t *testing.T) {
+	for name, test := range map[string]struct {
+		hostPID int
+		setup   func(*testing.T, *cleanupFixture)
+		want    string
+	}{
+		"a turn in progress": {0, func(t *testing.T, f *cleanupFixture) { runFakeClaude(t, f, "working") }, "does not show its harness waiting at the composer"},
+		// A running host whose pipe answers no one: its screen is never read.
+		"a screen that cannot be read": {os.Getpid(), func(*testing.T, *cleanupFixture) {}, "its screen cannot be read"},
+		"an unreadable host record":    {0, func(t *testing.T, f *cleanupFixture) { writeHostRecord(t, f.stateDir, []byte("{")) }, "native terminal evidence is unreadable"},
 	} {
 		for _, force := range []bool{false, true} {
-			t.Run(name, func(t *testing.T) {
-				fixture := nativeCleanupFixture(t, os.Getpid())
+			t.Run(fmt.Sprintf("%s, force archive %v", name, force), func(t *testing.T) {
+				fixture := nativeCleanupFixture(t, test.hostPID)
 				test.setup(t, fixture)
 				fixture.service.ForceArchive = force
 
 				_, err := fixture.service.Cleanup(context.Background(), "g1")
 
 				if err == nil || !strings.Contains(err.Error(), test.want) {
-					t.Fatalf("Cleanup (force %v) error = %v, want %q", force, err, test.want)
+					t.Fatalf("Cleanup error = %v, want %q", err, test.want)
 				}
 				fixture.assertMetadataPreserved(t)
 				fixture.assertNoHerdrRequests(t)
+				if name == "a turn in progress" {
+					if _, err := host.ReadRecord(fixture.stateDir, "g1"); err != nil {
+						t.Errorf("the working terminal was closed: %v", err)
+					}
+				}
 			})
 		}
 	}
-}
-
-// --force-archive retires a native task whose worktree will not validate the
-// way it retires a Herdr one, with no tab to close.
-func TestForceArchiveRetiresANativeTaskWhoseTerminalHasEnded(t *testing.T) {
-	fixture := nativeCleanupFixture(t, endedPID(t))
-	fixture.git.top = fixture.project
-	fixture.service.ForceArchive = true
-
-	result, err := fixture.service.Cleanup(context.Background(), "g1")
-
-	if err != nil {
-		t.Fatalf("force archive: %v", err)
-	}
-	if !strings.Contains(result.Output, "force-archived g1") || strings.Contains(result.Output, "tab close") {
-		t.Errorf("output = %q", result.Output)
-	}
-	if _, err := state.ReadTaskMeta(fixture.stateDir, "g1"); err == nil {
-		t.Error("task metadata still present after force archive")
-	}
-	if len(fixture.git.returned) != 0 {
-		t.Errorf("force archive returned a worktree: %v", fixture.git.returned)
-	}
-	fixture.assertNoHerdrRequests(t)
 }

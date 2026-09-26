@@ -22,6 +22,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -122,15 +123,22 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if err := s.requireClean(ctx, worktreePath); err != nil {
 		return Result{}, err
 	}
-	if err := s.requireInactive(ctx, meta); err != nil {
+	idle, err := s.requireInactive(ctx, meta)
+	if err != nil {
 		return Result{}, err
 	}
 
 	// The endpoint is proven agent-free: close the recorded tab so a completed
-	// task leaves no terminal behind, then return the worktree.
-	if meta.Backend == "herdr" {
+	// task leaves no terminal behind, then return the worktree. A native
+	// terminal idle at its composer is closed, which ends its harness.
+	switch meta.Backend {
+	case "herdr":
 		if err := s.Terminal.CloseTab(ctx, meta.HerdrSession, meta.HerdrTabID); err != nil {
 			return Result{}, fmt.Errorf("cleanup: close task tab: %w", err)
+		}
+	case "native":
+		if err := host.Close(s.StateDir, idle, nativeCloseWait); err != nil {
+			return Result{}, fmt.Errorf("cleanup: close native terminal: %w", err)
 		}
 	}
 
@@ -170,15 +178,22 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 // prove. The one check that stays is the live-agent refusal: a task is
 // retired, never abandoned mid-run. The tab close is best-effort because the
 // pane is usually already gone, and no worktree return is attempted, so the
-// worktree is left for the operator (or a reboot).
+// worktree is left for the operator (or a reboot). A native terminal's close
+// is not best-effort: it is what ends an idle harness, so a failed one refuses.
 func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, worktreePath string) (Result, error) {
-	if err := s.requireInactive(ctx, meta); err != nil {
+	idle, err := s.requireInactive(ctx, meta)
+	if err != nil {
 		return Result{}, err
 	}
 	var notes []string
-	if meta.Backend == "herdr" {
+	switch meta.Backend {
+	case "herdr":
 		if err := s.Terminal.CloseTab(ctx, meta.HerdrSession, meta.HerdrTabID); err != nil {
 			notes = append(notes, "tab close skipped: "+err.Error())
+		}
+	case "native":
+		if err := host.Close(s.StateDir, idle, nativeCloseWait); err != nil {
+			return Result{}, fmt.Errorf("cleanup: close native terminal: %w", err)
 		}
 	}
 	if err := state.AppendStatus(s.StateDir, id, "done: force-archived via cfo cleanup --force-archive; worktree "+worktreePath+" left in place"); err != nil {
@@ -306,15 +321,22 @@ func (s Service) requireClean(ctx context.Context, worktree string) error {
 	return nil
 }
 
-// requireInactive takes one fresh structural snapshot immediately before the
-// return and proves the recorded endpoint has no agent in any state. A
+// requireInactive proves the task's endpoint holds no agent at work, and
+// returns the native terminal that is to be closed with the task, the zero
+// record when there is none.
+func (s Service) requireInactive(ctx context.Context, meta state.TaskMeta) (host.Record, error) {
+	if meta.Backend == "native" {
+		return s.requireNativeIdle(meta)
+	}
+	return host.Record{}, s.requireHerdrInactive(ctx, meta)
+}
+
+// requireHerdrInactive takes one fresh structural snapshot immediately before
+// the return and proves the recorded endpoint has no agent in any state. A
 // missing recorded pane, or the exact recorded pane with no registered agent,
 // is sufficient inactive evidence; mismatched identity, duplicate identity,
 // an unreadable snapshot, and a failed Herdr request are all refused.
-func (s Service) requireInactive(ctx context.Context, meta state.TaskMeta) error {
-	if meta.Backend == "native" {
-		return s.requireNativeEnded(meta)
-	}
+func (s Service) requireHerdrInactive(ctx context.Context, meta state.TaskMeta) error {
 	if s.Terminal.EffectiveSession() != meta.HerdrSession {
 		return fmt.Errorf("cleanup: recorded session %q does not match the Herdr client session %q", meta.HerdrSession, s.Terminal.EffectiveSession())
 	}
@@ -351,24 +373,42 @@ func (s Service) requireInactive(ctx context.Context, meta state.TaskMeta) error
 	return nil
 }
 
-// requireNativeEnded proves a native task's terminal has ended. Its host runs
-// exactly as long as the harness and removes its record on the way out, so a
-// missing record, or one whose host Windows shows as ended, is inactive
-// evidence; a host that may still run, or a record that cannot be read, is
-// refused.
-func (s Service) requireNativeEnded(meta state.TaskMeta) error {
+// requireNativeIdle proves a native task's terminal holds no turn in progress
+// (CFO decision 2339). Its host runs exactly as long as the harness and
+// removes its record on the way out, so a missing record, or one whose host
+// Windows shows as ended, means the terminal has ended. A running terminal is
+// idle only while its harness shows the ready composer with no working
+// marker, and its record is returned so the cleanup closes it. A record or a
+// screen that cannot be read, any other screen, and a harness whose screens
+// cfo cannot read are all refused.
+func (s Service) requireNativeIdle(meta state.TaskMeta) (host.Record, error) {
 	record, err := host.ReadRecord(s.StateDir, meta.ID)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil
+		return host.Record{}, nil
 	}
 	if err != nil {
-		return fmt.Errorf("cleanup: native terminal evidence is unreadable: %w", err)
+		return host.Record{}, fmt.Errorf("cleanup: native terminal evidence is unreadable: %w", err)
 	}
-	if host.Running(record.HostPID) {
-		return fmt.Errorf("cleanup: native terminal %s still runs its harness in host pid %d; refusing to return an active endpoint", meta.ID, record.HostPID)
+	if !host.Running(record.HostPID) {
+		return host.Record{}, nil
 	}
-	return nil
+	screens, ok := harness.NativeScreens(harness.Kind(meta.Harness))
+	if !ok {
+		return host.Record{}, fmt.Errorf("cleanup: native terminal %s runs %s, whose screen cfo cannot read; end its harness first", meta.ID, meta.Harness)
+	}
+	screen, err := host.ReadScreen(record)
+	if err != nil {
+		return host.Record{}, fmt.Errorf("cleanup: native terminal %s still runs in host pid %d and its screen cannot be read: %w", meta.ID, record.HostPID, err)
+	}
+	if !screens.IsReady(screen) {
+		return host.Record{}, fmt.Errorf("cleanup: native terminal %s does not show its harness waiting at the composer; refusing to return an active endpoint. Its screen ends:\n%s", meta.ID, host.ScreenTail(screen, 8))
+	}
+	return record, nil
 }
+
+// nativeCloseWait bounds how long a busy native host is dialed again to close
+// its terminal.
+const nativeCloseWait = 15 * time.Second
 
 func (s Service) worktreeGit() (worktree.Git, error) {
 	if s.Worktrees.Git != nil {

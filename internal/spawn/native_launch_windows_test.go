@@ -357,7 +357,7 @@ func newNativeFixture(t *testing.T, kind harness.Kind, mode string) *nativeFixtu
 	t.Cleanup(func() {
 		stop()
 		if terminal, found := native.terminal(); found {
-			if err := closeNativeTerminal(f.stateDir, terminal); err != nil {
+			if err := host.Close(f.stateDir, terminal, nativeCloseWait); err != nil {
 				t.Errorf("close the native terminal: %v", err)
 			}
 			if !ended(terminal.HostPID) {
@@ -519,7 +519,7 @@ func TestAFailedNativeSpawnLeavesATerminalItDidNotStartRunning(t *testing.T) {
 		t.Fatalf("start the terminal that already runs: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := closeNativeTerminal(f.stateDir, existing); err != nil {
+		if err := host.Close(f.stateDir, existing, nativeCloseWait); err != nil {
 			t.Errorf("close the terminal that already ran: %v", err)
 			if process, err := os.FindProcess(existing.HostPID); err == nil {
 				_ = process.Kill()
