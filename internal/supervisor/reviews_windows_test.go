@@ -495,17 +495,25 @@ func TestACFOClearWhoseAuditFailsIsReportedAsCleared(t *testing.T) {
 	}
 }
 
-// Answering a goblin's question closes its waits on the Overlord at once,
-// since the goblin now has what it was waiting for, and the audit says so.
+// Answering a goblin's question closes its waits on the Overlord up to that
+// question at once, since the goblin now has what it was waiting for, and the
+// audit says so; a wait it published after the question stays open.
 func TestAnsweringAGoblinClosesItsWaitsOnTheOverlord(t *testing.T) {
 	store, h := testStore(t)
 	primaryFixture(t, store)
-	meta, record, _, connection := goblinFixture(t, store)
-	ctx := context.Background()
-	if err := state.AppendStatus(h.State, meta.ID, "waiting on overlord: pick the store"); err != nil {
+	if err := state.AppendStatus(h.State, "task-1", "waiting on overlord: pick the store"); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishWait(ctx, h, connection.Terminals, meta.ID, 7, "pick the store", "", ""); err != nil {
+	earlier, err := wake.Append(h.State, "notify", "task-1", "waiting on overlord: pick the store")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, record, _, connection := goblinFixture(t, store)
+	ctx := context.Background()
+	if err := PublishWait(ctx, h, connection.Terminals, meta.ID, earlier.Seq, "pick the store", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := PublishWait(ctx, h, connection.Terminals, meta.ID, record.Seq+1, "log in to Stripe", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -520,10 +528,15 @@ func TestAnsweringAGoblinClosesItsWaitsOnTheOverlord(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := store.Snapshot().Reviews[0]; got.State != "cleared" || got.Reason != "The CFO answered task-1's question." {
+	reviews := store.Snapshot().Reviews
+	if got := reviews[0]; got.State != "cleared" || got.Reason != "The CFO answered task-1's question." {
 		t.Errorf("the goblin's wait after its answer = %+v, want it cleared", got)
 	}
-	if audit, err := os.ReadFile(filepath.Join(h.State, "reviews.audit")); err != nil || !strings.Contains(string(audit), " waiting-task-1-7 task-1 The CFO answered task-1's question.\n") {
-		t.Errorf("reviews.audit = %q (%v), want the closed wait recorded", audit, err)
+	if got := reviews[1]; got.State != "open" {
+		t.Errorf("a wait published after the answered question = %+v, want it open", got)
+	}
+	audit, err := os.ReadFile(filepath.Join(h.State, "reviews.audit"))
+	if err != nil || !strings.Contains(string(audit), fmt.Sprintf(" waiting-task-1-%d task-1 The CFO answered task-1's question.\n", earlier.Seq)) || strings.Contains(string(audit), reviews[1].ID) {
+		t.Errorf("reviews.audit = %q (%v), want only the covered wait recorded", audit, err)
 	}
 }

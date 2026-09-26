@@ -87,7 +87,7 @@ export function settledLabel(item: Item, actions: Action[]): string {
   const { state, answer, reason, task } = item.review;
   const asker = task ? "the goblin" : "the CFO";
   if (state === "withdrawn") return "Withdrawn: " + reason;
-  if (state !== "answered") return "Cleared";
+  if (state !== "answered") return reason || "Cleared";
   switch (answerOutcome(item.review, actions)) {
     case "failed": return "Your answer did not reach " + asker;
     case "uncertain": return "Delivery unconfirmed: inspect " + asker + "'s pane before answering again";

@@ -33,13 +33,15 @@ test("closed items are listed newest first with what became of them", () => {
       review("r2", "steward", "2026-09-24T00:16:00Z", "withdrawn", { reason: "the goblin found the answer", updated_at: "2026-09-24T00:25:00Z" }),
       review("r3", "", "2026-09-24T00:17:00Z", "cleared", { updated_at: "2026-09-24T00:18:00Z" }),
       review("r4", "steward", "2026-09-24T00:18:00Z"),
+      review("r5", "steward", "2026-09-24T00:12:00Z", "cleared", { reason: "Cleared by the CFO: Decided: grid ships", updated_at: "2026-09-24T00:13:00Z" }),
     ],
   });
-  assert.deepEqual(settledItems(snapshot).map((item) => item.key), ["question:e", "review:r1", "question:c", "review:r2", "question:b", "review:r3", "question:a"],
+  assert.deepEqual(settledItems(snapshot).map((item) => item.key), ["question:e", "review:r1", "question:c", "review:r2", "question:b", "review:r3", "review:r5", "question:a"],
     "a question asked first but answered after a review was cleared sorts by when it was answered");
   const label = (key: string) => settledLabel(itemFor(snapshot, key)!, snapshot.actions);
   const cases: [string, string][] = [["question:a", "You chose A"], ["question:b", "You wrote: Ship it Friday"], ["question:c", "Superseded; the asker was replaced"],
-    ["review:r1", "You wrote: Go with B"], ["review:r2", "Withdrawn: the goblin found the answer"], ["review:r3", "Cleared"]];
+    ["review:r1", "You wrote: Go with B"], ["review:r2", "Withdrawn: the goblin found the answer"], ["review:r3", "Cleared"],
+    ["review:r5", "Cleared by the CFO: Decided: grid ships"]];
   for (const [key, text] of cases) assert.equal(label(key), text, key);
   assert.equal(parseSnapshot({ healthy: true }).reviews?.length, 0);
   assert.deepEqual(settledIcon(itemFor(snapshot, "review:r1")!, snapshot.actions), { icon: "check-double", tone: "succeeded" });

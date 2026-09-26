@@ -306,8 +306,12 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	if err := wake.MarkAnswered(c.State, seq, wake.AnsweredByCFO, answer); err != nil {
 		unrecorded = append(unrecorded, fmt.Errorf("notify %d still reads unanswered: %w", seq, err))
 	}
-	// The goblin has what it waited for, so its waits on the Overlord close.
-	waiting := func(r Review) bool { return r.Task == q.Task && strings.HasPrefix(r.ID, "waiting-"+q.Task+"-") }
+	// The goblin has what it waited for, so its waits on the Overlord up to
+	// this question close; a later one is its own request.
+	waiting := func(r Review) bool {
+		n, err := strconv.Atoi(strings.TrimPrefix(r.ID, "waiting-"+q.Task+"-"))
+		return r.Task == q.Task && strings.HasPrefix(r.ID, "waiting-"+q.Task+"-") && err == nil && n <= seq
+	}
 	if err := clearReviews(c.State, identity, "The CFO answered "+q.Task+"'s question.", waiting, false); err != nil {
 		unrecorded = append(unrecorded, fmt.Errorf("its waits on the Overlord stay open: %w", err))
 	}
