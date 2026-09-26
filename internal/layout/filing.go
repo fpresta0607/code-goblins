@@ -119,7 +119,7 @@ func Plan(h home.Home, harnessMemory string, now time.Time) ([]Move, error) {
 			return nil, err
 		}
 		for _, a := range archived {
-			if !strings.HasPrefix(strings.ToLower(a.Name()), strings.ToLower(id)+".") {
+			if !isArchiveOf(a.Name(), id) {
 				continue
 			}
 			info, err := a.Info()
@@ -174,6 +174,25 @@ func Plan(h home.Home, harnessMemory string, now time.Time) ([]Move, error) {
 		moves = append(moves, move)
 	}
 	return moves, nil
+}
+
+// archiveStamp is the time format cleanup and reap stamp a state archive
+// entry with, and filing a second archive of the same task.
+const archiveStamp = "20060102T150405Z"
+
+// isArchiveOf reports whether a state archive entry is id's own record:
+// <id>.<stamp> from cleanup or <id>.status.<stamp> from reap, so an entry for
+// a longer dotted id such as cg.v2 is not cg's.
+func isArchiveOf(name, id string) bool {
+	i := strings.LastIndex(name, ".")
+	if i < 0 {
+		return false
+	}
+	if _, err := time.Parse(archiveStamp, name[i+1:]); err != nil {
+		return false
+	}
+	owner := name[:i]
+	return strings.EqualFold(owner, id) || strings.EqualFold(owner, id+".status")
 }
 
 // dataPathName matches a path into the data folder, in either slash
@@ -239,8 +258,11 @@ func openBoardText(h home.Home) (string, error) {
 			Text, Message, Status string
 			Options               []string
 		}
-		Reviews []struct{ Title, Reason, State string }
-		Runs    []struct{ Title, Command, Cwd, State string }
+		Reviews []struct {
+			Title, Reason, State string
+			LavishPage           string `json:"lavish_page"`
+		}
+		Runs []struct{ Title, Command, Cwd, State string }
 	}
 	if err := json.Unmarshal(data, &board); err != nil {
 		return "", fmt.Errorf("layout: read the Command Center's open items: %w", err)
@@ -253,7 +275,7 @@ func openBoardText(h home.Home) (string, error) {
 	}
 	for _, r := range board.Reviews {
 		if r.State == "open" {
-			text.WriteString(r.Title + "\n" + r.Reason + "\n")
+			text.WriteString(r.Title + "\n" + r.Reason + "\n" + r.LavishPage + "\n")
 		}
 	}
 	for _, r := range board.Runs {
@@ -265,29 +287,33 @@ func openBoardText(h home.Home) (string, error) {
 }
 
 // Apply makes moves in order: it moves each folder whole, adds its parked
-// row, and records the move in the filing log. It stops at the first move
-// that fails and returns the ones it made, so a folder a process still holds
-// open stays exactly where it was for the next pass.
+// row, and records the move in the filing log. A move that fails is skipped
+// and the rest still made, so a folder a process still holds open stays
+// exactly where it was for the next pass without holding back the others.
+// It returns the moves it made, with every failure joined.
 func Apply(h home.Home, moves []Move, now time.Time) ([]Move, error) {
 	var done []Move
+	var failures []error
 	for _, move := range moves {
 		if err := os.MkdirAll(filepath.Dir(move.To), 0o755); err != nil {
-			return done, err
+			failures = append(failures, fmt.Errorf("file %s: %w", move.ID, err))
+			continue
 		}
 		if err := os.Rename(move.From, move.To); err != nil {
-			return done, fmt.Errorf("file %s: %w", move.ID, err)
+			failures = append(failures, fmt.Errorf("file %s: %w", move.ID, err))
+			continue
 		}
 		done = append(done, move)
 		if move.Row != "" {
 			if err := addParkedRow(filepath.Join(h.Data, Backlog), move.Row); err != nil {
-				return done, fmt.Errorf("record %s as parked in the backlog: %w", move.ID, err)
+				failures = append(failures, fmt.Errorf("record %s as parked in the backlog: %w", move.ID, err))
 			}
 		}
 		if err := appendLog(filepath.Join(h.Data, filepath.FromSlash(FilingLog)), logLine(h, move, now)); err != nil {
-			return done, err
+			failures = append(failures, err)
 		}
 	}
-	return done, nil
+	return done, errors.Join(failures...)
 }
 
 // logLine is the filing log's record of one move.
@@ -365,10 +391,14 @@ func isLayoutFolder(name string) bool {
 // into its folder, in either slash direction and any case, as Windows reads
 // paths.
 func mentions(rows []fleet.BacklogRow, id string) bool {
-	path := regexp.MustCompile(`(?i)data[\\/]` + regexp.QuoteMeta(id) + `([\\/]|$|[^A-Za-z0-9._-])`)
 	for _, row := range rows {
-		if strings.EqualFold(row.ID, id) || path.MatchString(row.Raw) {
+		if strings.EqualFold(row.ID, id) {
 			return true
+		}
+		for _, match := range dataPathName.FindAllStringSubmatch(row.Raw, -1) {
+			if strings.EqualFold(strings.TrimRight(match[1], "."), id) {
+				return true
+			}
 		}
 	}
 	return false
@@ -381,7 +411,7 @@ func freeTarget(path string, now time.Time) (string, error) {
 	if err != nil || !taken {
 		return path, err
 	}
-	return path + "." + now.UTC().Format("20060102T150405Z"), nil
+	return path + "." + now.UTC().Format(archiveStamp), nil
 }
 
 func exists(path string) (bool, error) {

@@ -88,6 +88,26 @@ func TestPlanFilesEachTaskFolderByWhatTheFleetRecords(t *testing.T) {
 			taskFolder(t, h, "g1", time.Hour)
 			finishedAt(t, filepath.Join(h.State, "archive", "g1.status.20260920T101010Z"), "done\n", 5*day)
 		}, nil},
+		{"an archive entry for a longer dotted id is not this task's record", emptyBacklog, func(t *testing.T, h home.Home) {
+			taskFolder(t, h, "cg", 2*day)
+			finishedAt(t, filepath.Join(h.State, "archive", "cg.v2.20260925T120000Z"), "", day)
+		}, nil},
+		{"a status archive entry for a longer dotted id is not this task's record", emptyBacklog, func(t *testing.T, h home.Home) {
+			taskFolder(t, h, "cg", 2*day)
+			finishedAt(t, filepath.Join(h.State, "archive", "cg.v2.status.20260925T120000Z"), "", day)
+		}, nil},
+		{"the task's own archive entry records it", emptyBacklog, func(t *testing.T, h home.Home) {
+			taskFolder(t, h, "cg", 2*day)
+			finishedAt(t, filepath.Join(h.State, "archive", "CG.20260925T120000Z"), "", day)
+		}, []string{"archive cg"}},
+		{"the task's own status archive entry records it", emptyBacklog, func(t *testing.T, h home.Home) {
+			taskFolder(t, h, "cg", 2*day)
+			finishedAt(t, filepath.Join(h.State, "archive", "cg.status.20260925T120000Z"), "", day)
+		}, []string{"archive cg"}},
+		{"an archive entry without a stamp is not a record", emptyBacklog, func(t *testing.T, h home.Home) {
+			taskFolder(t, h, "cg", 2*day)
+			finishedAt(t, filepath.Join(h.State, "archive", "cg.notes"), "", day)
+		}, nil},
 		{"a fresh brief waits to be dispatched", emptyBacklog, func(t *testing.T, h home.Home) {
 			taskFolder(t, h, "g1", StaleBriefAge-time.Minute)
 		}, nil},
@@ -112,6 +132,13 @@ func TestPlanFilesEachTaskFolderByWhatTheFleetRecords(t *testing.T) {
 			taskFolder(t, h, "g1", time.Hour)
 			write(t, filepath.Join(h.State, "g1.status"), "done: PR https://github.com/o/r/pull/1\n")
 		}, []string{"archive g1"}},
+		{"a queued row naming a metadata path is not a mention", "## Queued\n- **q9** - read metadata/g1/fields.md\n", func(t *testing.T, h home.Home) {
+			taskFolder(t, h, "g1", time.Hour)
+			write(t, filepath.Join(h.State, "g1.status"), "done: PR https://github.com/o/r/pull/1\n")
+		}, []string{"archive g1"}},
+		{"a queued row ending a sentence on a path keeps a stale brief queued", "## Queued\n- **q9** - start from data/g1.\n", func(t *testing.T, h home.Home) {
+			taskFolder(t, h, "g1", 10*day)
+		}, nil},
 		{"a done row naming the task by id does not hold its folder", "## Done\n- [x] g1 - Shipped https://github.com/o/r/pull/1\n", func(t *testing.T, h home.Home) {
 			taskFolder(t, h, "g1", time.Hour)
 			write(t, filepath.Join(h.State, "g1.status"), "done: PR https://github.com/o/r/pull/1\n")
@@ -182,6 +209,9 @@ func TestPlanKeepsAFinishedFolderNamedInLiveText(t *testing.T) {
 		}, true},
 		{"an open review", emptyBacklog, func(t *testing.T, h home.Home, _ string) {
 			write(t, filepath.Join(h.State, ".supervisor.json"), `{"reviews":[{"title":"Read data/f1/report.md","state":"open"}]}`)
+		}, true},
+		{"an open review's Lavish page", emptyBacklog, func(t *testing.T, h home.Home, _ string) {
+			write(t, filepath.Join(h.State, ".supervisor.json"), `{"reviews":[{"title":"Pick one","state":"open","lavish_page":"C:\\home\\data\\f1\\deliverables\\options.html"}]}`)
 		}, true},
 		{"a run card waiting to run", emptyBacklog, func(t *testing.T, h home.Home, _ string) {
 			write(t, filepath.Join(h.State, ".supervisor.json"), `{"runs":[{"title":"Tidy","command":"Get-Content data\\f1\\report.md","state":"ready"}]}`)
@@ -377,5 +407,47 @@ func TestFileRecordsAFailedPassOnceAndRecovers(t *testing.T) {
 	}
 	if moved, err := File(h, filingNow.Add(2*time.Hour)); err != nil || len(moved) != 1 {
 		t.Fatalf("File after the obstacle went = %+v, %v; want g1 archived", moved, err)
+	}
+}
+
+// A folder a process holds open must not keep every later folder in place:
+// the pass files what it can and records the failure once.
+func TestFileGoesOnPastAMoveThatFails(t *testing.T) {
+	h := filingHome(t, emptyBacklog)
+	taskFolder(t, h, "a1", StaleBriefAge)
+	taskFolder(t, h, "b2", time.Hour)
+	write(t, filepath.Join(h.State, "b2.status"), "done: PR https://github.com/o/r/pull/1\n")
+	parked := filepath.Join(h.Data, "archive", "parked")
+	if err := os.Remove(parked); err != nil {
+		t.Fatal(err)
+	}
+	write(t, parked, "a file where the parked folder should be")
+
+	moved, err := File(h, filingNow)
+
+	if err == nil {
+		t.Fatal("File parked a1 into a file")
+	}
+	if len(moved) != 1 || moved[0].ID != "b2" {
+		t.Fatalf("filed %+v, want b2 alone", moved)
+	}
+	if _, err := os.Stat(filepath.Join(h.Data, "a1", "brief.md")); err != nil {
+		t.Errorf("the failed move took a1: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(h.Data, "archive", "finished", "b2", "brief.md")); err != nil {
+		t.Errorf("b2 was not archived: %v", err)
+	}
+	if _, err := File(h, filingNow.Add(time.Hour)); err == nil {
+		t.Fatal("the second pass parked a1 into a file")
+	}
+	log, err := os.ReadFile(filepath.Join(h.Data, filepath.FromSlash(FilingLog)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(log), "data/b2 -> data/archive/finished/b2") {
+		t.Errorf("the filing log does not record b2's move:\n%s", log)
+	}
+	if strings.Count(string(log), "could not file") != 1 {
+		t.Errorf("the filing log records the same failure %d times, want once:\n%s", strings.Count(string(log), "could not file"), log)
 	}
 }
