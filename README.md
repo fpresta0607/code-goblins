@@ -273,7 +273,8 @@ A new review item or command appears in a banner at the bottom right for a few s
 A goblin's item closes by itself once nobody waits on it: a wait when the goblin reports again or the CFO answers it, any item but a delivered document when its goblin finishes or is cleaned up, and the CFO can clear a stale one with a reason.
 Several items stack up one card at a time, the CFO's first and then goblins by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Next** on the left and its answer on the right, and you can swipe; closing keeps every item for later.
 The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done** and the Command Center closes.
-An answer that could not be delivered comes back on its card with what went wrong, and **Retry** sends it again.
+An answer the board refused comes back on its card with what went wrong, and **Retry** sends it again.
+An answer whose delivery failed or went unconfirmed comes back on its card with its warning.
 Clicking outside the Command Center, or outside its inbox, closes it.
 Nothing is preselected, drafts are kept, and the **Command Center** icon in the header, whose badge counts what is waiting on you, opens an inbox of what is waiting on you, the live pages (review pages and browser walkthroughs) and a History of what you answered, cleared or ran.
 A goblin waiting on you offers **Answer** in its panel, which opens the stack at its item.

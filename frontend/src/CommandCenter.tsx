@@ -158,7 +158,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
     }
     if (!showing && element.open) { element.close(); returnFocus.current?.focus(); }
   }, [showing]);
-  const close = () => { setOpen(false); setKept(new Set()); setGallery(null); setAllDone(false); };
+  const close = () => {
+    if (finishing) setSent((prior) => new Set([...prior, item.key]));
+    setOpen(false); setKept(new Set()); setGallery(null); setAllDone(false);
+  };
   const move = (step: number) => { const next = stack[index + step]; if (next) show(next.key); };
   // Back and Next with the card's place in the stack lead the card's own
   // action row, whose right end holds its answer; closing keeps every item.

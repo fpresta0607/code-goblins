@@ -43,22 +43,25 @@ export function nextOpenKey(stack: Item[], key: string, sent: ReadonlySet<string
 }
 
 // SentDraft is what a card keeps of what the Overlord sent from it.
-export interface SentDraft { submission: Submission | null; error: string; receipt?: Action }
+export interface SentDraft { submission: Submission | null; sending: boolean; error: string; receipt?: Action }
 
 // SendState is what an item's card shows after Send. A send is done the moment
 // it is made: its check shows at once and delivery goes on quietly. It is
 // confirmed once delivered, and failed only when the request was refused or
-// delivery failed or went unconfirmed, the one case the card shows again.
+// delivery failed or went unconfirmed, the one case the card shows again. Once
+// its action is known, the action alone decides; a draft edited after a
+// refusal has sent nothing.
 export interface SendState { failed: boolean; confirmed: boolean; heading: string; cleared: boolean }
 
 export function sendState(draft: SentDraft, actions: Action[]): SendState | undefined {
   const { submission } = draft;
   if (!submission) return undefined;
   const outcome = actions.find((action) => action.id === submission.id) || draft.receipt;
+  if (!outcome && !draft.sending && !draft.error) return undefined;
   const sent = object(JSON.parse(submission.payload));
   const cleared = sent.kind === "review_clear";
   return {
-    failed: !!draft.error || !!outcome && deliveryMark(outcome).trouble,
+    failed: outcome ? deliveryMark(outcome).trouble : !!draft.error,
     confirmed: outcome?.status === "succeeded",
     heading: cleared ? string(sent.text) || "Cleared" : "Sent",
     cleared,
