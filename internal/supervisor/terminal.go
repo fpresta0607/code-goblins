@@ -143,9 +143,12 @@ type terminalLease struct {
 	cancel  context.CancelFunc
 	// panes types into and scrolls the pane over its Herdr session's socket,
 	// one request per input and no process, for a lease that only observes;
-	// scrolled is how many lines above its bottom Herdr last said it shows.
-	panes    herdr.PaneInput
-	scrolled int
+	// scrolled is how many lines above its bottom Herdr last said it shows,
+	// once scrollKnown: Herdr keeps a pane's offset after a view closes, so a
+	// new lease does not know it until Herdr answers.
+	panes       herdr.PaneInput
+	scrolled    int
+	scrollKnown bool
 	// custody is whether a no-mistakes gate lets the Overlord type into the
 	// pane, checked when the view opens and on every tick rather than per key;
 	// nil lets input through. Scrolling reaches no program, so it needs none.
@@ -200,12 +203,6 @@ func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.Ter
 	return nil
 }
 
-// stillBound is the check each input makes before it is typed, and it starts
-// no process: it rereads the task's record, or the CFO's registration, to see
-// that the view's pane and generation are unchanged and that the process
-// verified when the view opened is still alive. Only a change pays for the
-// full verification, which refuses a changed recipient; the view is verified
-// in full, custody included, when it opens and on every tick.
 // intoPane types into or scrolls a live pane view's verified pane itself,
 // never through the observer, typing a paste as one request however long.
 // Herdr keeps a pane scrolled while it is typed into, so typing first brings
@@ -221,18 +218,24 @@ func (l *terminalLease) intoPane(ctx context.Context, command herdr.TerminalComm
 		if err != nil {
 			return err
 		}
-		l.scrolled = shown
+		l.scrolled, l.scrollKnown = shown, true
 		return nil
 	}
-	if l.scrolled > 0 {
+	if !l.scrollKnown || l.scrolled > 0 {
 		if _, err := l.panes.Scroll(ctx, pane, 0); err != nil {
 			return err
 		}
-		l.scrolled = 0
+		l.scrolled, l.scrollKnown = 0, true
 	}
 	return l.panes.SendText(ctx, pane, command.Text)
 }
 
+// stillBound is the check each input makes before it is typed, and it starts
+// no process: it rereads the task's record, or the CFO's registration, to see
+// that the view's pane and generation are unchanged and that the process
+// verified when the view opened is still alive. Only a change pays for the
+// full verification, which refuses a changed recipient; the view is verified
+// in full, custody included, when it opens and on every tick.
 func (h *HTTP) stillBound(ctx context.Context, b terminalBinding, write bool) error {
 	if b.Process.VerifiedAlive() && h.Service.sameBinding(b) {
 		return nil

@@ -18,7 +18,8 @@ import (
 // window of its own, beside the board: a goblin or CFO in Herdr attached to
 // its session with its tab in front, a native terminal through cfo attach.
 // The browser names only what its view shows; the program and its arguments
-// are the supervisor's own.
+// are the supervisor's own. A goblin whose gate owns its task is refused, as
+// typing into it is.
 func (h *HTTP) openTerminalWindow(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		terminalSelection
@@ -43,6 +44,14 @@ func (h *HTTP) openTerminalWindow(w http.ResponseWriter, r *http.Request) {
 			apiError(w, 409, err.Error())
 			return
 		}
+		custody, err := binding.check(ctx)
+		if err == nil {
+			err = custody
+		}
+		if err != nil {
+			apiError(w, 409, err.Error())
+			return
+		}
 		cfo, err := os.Executable()
 		if err != nil {
 			apiError(w, 503, "The board cannot find its own program to attach with.")
@@ -53,7 +62,7 @@ func (h *HTTP) openTerminalWindow(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		b, err := h.Service.resolveTerminal(ctx, input.terminalSelection, false)
+		b, err := h.Service.resolveTerminal(ctx, input.terminalSelection, true)
 		if err != nil {
 			apiError(w, 409, err.Error())
 			return

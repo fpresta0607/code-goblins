@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -131,6 +132,49 @@ func TestOpenInTerminalRefusesWhatItCannotOpen(t *testing.T) {
 			}
 			if c.fail == nil && attempts != 0 {
 				t.Fatalf("a refused open started %d windows, want none", attempts)
+			}
+		})
+	}
+}
+
+// A gate's custody stops the Overlord typing into its goblin, so Open in
+// terminal, a fully interactive window, is refused with the gate's reason:
+// Herdr brings nothing to the front and no window opens.
+func TestOpenInTerminalRefusesAGoblinWhileAGateOwnsItsTask(t *testing.T) {
+	for _, isNative := range []bool{false, true} {
+		t.Run(map[bool]string{false: "in Herdr", true: "native"}[isNative], func(t *testing.T) {
+			// Arrange
+			var h *HTTP
+			var server *httptest.Server
+			var runner *cfoRunner
+			var body string
+			if isNative {
+				h, server = nativeBoard(t, "no-mistakes")
+				gitFixture(t, taskWorktree(t, h))
+				meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+				if err != nil {
+					t.Fatal(err)
+				}
+				data, _ := json.Marshal(map[string]string{"native": "task=task-1&generation=" + meta.SpawnGen})
+				body = string(data)
+			} else {
+				h, server, _, runner = terminalHTTPFixture(t, newTestTerminal())
+				body = goblinView(t, h, runner)
+			}
+			h.Service.Options.Gate = fakeProgress{value: pipeline.Progress{Status: "running"}}
+			opened := recordWindows(h, runner)
+
+			// Act
+			reply := terminalPost(t, server, "/api/terminal/open", body)
+			defer reply.Body.Close()
+			answer, _ := io.ReadAll(reply.Body)
+
+			// Assert
+			if reply.StatusCode != 409 || !strings.Contains(string(answer), "custody") || len(*opened) != 0 {
+				t.Fatalf("open under a gate = %d %s with %d windows, want 409 naming the gate and no window", reply.StatusCode, answer, len(*opened))
+			}
+			if runner != nil && len(runner.focused) != 0 {
+				t.Fatalf("focused %q under a gate, want nothing brought to the front", runner.focused)
 			}
 		})
 	}

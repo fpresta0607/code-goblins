@@ -370,8 +370,8 @@ func TestLivePaneViewTypesIntoItsOwnVerifiedPane(t *testing.T) {
 	// A re-registered CFO is a changed recipient, and the next key sees it in
 	// the registration file without asking Herdr.
 	reregister(t, h.Service.Store.Home.State)
-	if status := send(3, `{"type":"terminal.input","text":"x"}`); status != 409 || len(socket.Requests()) != 2 {
-		t.Fatalf("typing after the CFO re-registered = %d with %d typed, want 409 and nothing more typed", status, len(socket.Requests()))
+	if status := send(3, `{"type":"terminal.input","text":"x"}`); status != 409 || len(typedInto(socket, "w1:p1")) != 2 {
+		t.Fatalf("typing after the CFO re-registered = %d with %d typed, want 409 and nothing more typed", status, len(typedInto(socket, "w1:p1")))
 	}
 	if len(native.writes) != 0 {
 		t.Fatalf("typing went through the observer: %v", native.writes)
@@ -494,12 +494,52 @@ func TestLivePaneViewScrollsThePaneAndTypesAtItsBottom(t *testing.T) {
 	}
 }
 
-// recordingPanes is a pane input that records what it types and the offsets
-// Herdr would show, held within history; refuse fails that many inputs first.
+// Herdr keeps a pane's offset after the view that scrolled it closes, so a
+// new view does not know where its pane shows: its first key brings the pane
+// back to its bottom before it is typed, and its first scroll takes the offset
+// Herdr answers.
+func TestANewLivePaneViewTypesAtTheBottomOfAPaneLeftScrolled(t *testing.T) {
+	// Arrange
+	panes := &recordingPanes{history: 40, offset: 30}
+	allow := func(context.Context, terminalBinding, bool) error { return nil }
+	lease := &terminalLease{panes: panes, cancel: func() {}}
+
+	// Act
+	err := lease.input(context.Background(), 1, herdr.TerminalCommand{Type: "terminal.input", Text: "x"}, allow)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(panes.scrolls, []int{0}) || !reflect.DeepEqual(panes.typedAt, []int{0}) {
+		t.Fatalf("a new view's first key scrolled to %v and typed at offsets %v, want the pane at its bottom first", panes.scrolls, panes.typedAt)
+	}
+
+	scrolled := &recordingPanes{history: 40, offset: 30}
+	fresh := &terminalLease{panes: scrolled, cancel: func() {}}
+	steps := []herdr.TerminalCommand{
+		{Type: "terminal.scroll", Direction: "up", Lines: 3, Source: "wheel"},
+		{Type: "terminal.input", Text: "y"},
+	}
+	for seq, command := range steps {
+		if err := fresh.input(context.Background(), uint64(seq+1), command, allow); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !reflect.DeepEqual(scrolled.scrolls, []int{3, 0}) || !reflect.DeepEqual(scrolled.typedAt, []int{0}) {
+		t.Fatalf("a new view's first scroll then a key scrolled to %v and typed at offsets %v, want 3 then the bottom before typing", scrolled.scrolls, scrolled.typedAt)
+	}
+}
+
+// recordingPanes is a pane input that records what it types, at which offset,
+// and the offsets Herdr would show, held within history; offset is where the
+// pane shows now, and refuse fails that many inputs first.
 type recordingPanes struct {
 	history int
+	offset  int
 	refuse  int
 	typed   []string
+	typedAt []int
 	scrolls []int
 }
 
@@ -509,13 +549,14 @@ func (p *recordingPanes) SendText(_ context.Context, _ string, text string) erro
 		return errors.New("pane busy")
 	}
 	p.typed = append(p.typed, text)
+	p.typedAt = append(p.typedAt, p.offset)
 	return nil
 }
 
 func (p *recordingPanes) Scroll(_ context.Context, _ string, offset int) (int, error) {
-	shown := min(offset, p.history)
-	p.scrolls = append(p.scrolls, shown)
-	return shown, nil
+	p.offset = min(offset, p.history)
+	p.scrolls = append(p.scrolls, p.offset)
+	return p.offset, nil
 }
 
 // Each key is typed without starting a process: the view proved its pane
@@ -727,8 +768,8 @@ func TestLivePaneViewNoticesAGateTakingOverOnItsTick(t *testing.T) {
 			alive++
 		}
 	}
-	if status := typeKey(t, server, lease, 2, "y"); status != 409 || len(socket.Requests()) != 1 {
-		t.Fatalf("typing after the gate took over = %d with %d typed, want 409 and nothing more typed", status, len(socket.Requests()))
+	if status := typeKey(t, server, lease, 2, "y"); status != 409 || len(typedInto(socket, "p1")) != 1 {
+		t.Fatalf("typing after the gate took over = %d with %d typed, want 409 and nothing more typed", status, len(typedInto(socket, "p1")))
 	}
 }
 
