@@ -22,9 +22,10 @@ export function Board({ snapshot, selected, onSelect, onTerminal, onOpenCfo, pre
             const pr = safePullRequest(task.pr), asking = asksOverlord(snapshot, task.id), awaited = waitingTarget(snapshot, task);
             const content = <>
               <Avatar persona={personaFor(task)} />
-              <span className="card-copy">{presentations.some(event=>event.task_id===task.id) && <span className="browser-indicator">Browser active</span>}<strong>{task.title || task.id}</strong>{task.project && <span className="project-label">{task.project}</span>}
-                <span className={"plain-status phase-" + task.phase}><span className="status-dot" />{nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking)}</span>
-                {task.activity && <span className="card-activity" title={task.activity}>{task.activity}</span>}
+              {/* A short title of at most two lines, then one muted line with
+                  the repo and the status; the goblin's own words stay in its panel. */}
+              <span className="card-copy">{presentations.some(event=>event.task_id===task.id) && <span className="browser-indicator">Browser active</span>}<strong className="card-title">{task.title || task.id}</strong>
+                <span className="card-meta">{task.project && <><span className="card-repo">{task.project}</span><span className="card-sep" aria-hidden="true">·</span></>}<span className={"plain-status phase-" + task.phase}><span className="status-dot" />{nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking)}</span></span>
               </span>
             </>;
             // Completed history has no live worktree to review, so its card is
