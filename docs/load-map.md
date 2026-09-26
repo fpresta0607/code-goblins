@@ -61,7 +61,8 @@ A Claude goblin is launched with `--strict-mcp-config --mcp-config <file>`, so i
 
 **Auto-memory.**
 Claude keeps a per-repository memory index (`MEMORY.md` under `~/.claude/projects/<repository>/memory/`) and loads it every session.
-It is keyed to the repository, so every worktree of that repository shares it: a Claude goblin working on code-goblins loads the CFO's memory index too.
+It is keyed to the repository, so every worktree of that repository shares it: a Claude goblin working on code-goblins loads the same index as a Claude CFO there.
+That index is Claude Code's own; the CFO's memory is in its home, under "The CFO's memory" below.
 
 ## Codex
 
