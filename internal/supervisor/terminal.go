@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -140,18 +139,14 @@ type terminalLease struct {
 	seq     uint64
 	closed  bool
 	cancel  context.CancelFunc
-	// typist types into a pane the way cfo send does, for a lease that only
-	// observes.
+	// typist types into the pane over its Herdr session's socket, one
+	// request per input and no process, for a lease that only observes.
 	typist func(context.Context, herdr.Target, string) error
 	// custody is whether a no-mistakes gate lets the Overlord type into the
 	// pane, checked when the view opens and on every tick rather than per key;
 	// nil lets input through.
 	custody error
 }
-
-// typedPiece is the most runes one pane send-text carries: a Windows command
-// line holds 32767 UTF-16 units, and escaping can double an argument.
-const typedPiece = 4096
 
 // A lease exists only while its one output stream is open. Sequence numbers
 // are consumed before a write, never persisted with secret-bearing key data.
@@ -164,9 +159,6 @@ func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.Ter
 	}
 	if !l.control && command.Type != "terminal.input" {
 		return errors.New("A live pane view keeps the pane's own size and screen, so it sends only typing.")
-	}
-	if !l.control && strings.ContainsRune(command.Text, 0) {
-		return errors.New("A NUL key such as Ctrl+Space cannot be typed into a live pane view. Nothing was sent.")
 	}
 	if seq != l.seq+1 {
 		return errors.New("Terminal input is out of order or already submitted. It will not be replayed.")
@@ -187,14 +179,11 @@ func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.Ter
 	}
 	if !l.control {
 		// Typing goes into the verified pane itself, never through the
-		// observer, in order and in pieces a command line can carry.
-		runes := []rune(command.Text)
-		for start := 0; start < len(runes); start += typedPiece {
-			if err := l.typist(ctx, l.binding.Target, string(runes[start:min(start+typedPiece, len(runes))])); err != nil {
-				l.closed = true
-				l.cancel()
-				return errors.New("Input outcome is unknown. Inspect the native screen before typing again; input was not retried.")
-			}
+		// observer, as one request however long the paste.
+		if err := l.typist(ctx, l.binding.Target, command.Text); err != nil {
+			l.closed = true
+			l.cancel()
+			return errors.New("Input outcome is unknown. Inspect the native screen before typing again; input was not retried.")
 		}
 		return nil
 	}
@@ -300,6 +289,34 @@ func decodeBody(w http.ResponseWriter, r *http.Request, value interface{}, limit
 	return nil
 }
 
+// tickCheck is what one tick found: the reason the view must end, or else
+// the gate custody its input has now.
+type tickCheck struct {
+	reason  string
+	custody error
+}
+
+// checkTick proves a view's terminal, process and custody again, and that a
+// live pane view's pane kept the size the view shows.
+func (h *HTTP) checkTick(ctx context.Context, b terminalBinding, control bool, cols, rows int) tickCheck {
+	check, stop := context.WithTimeout(ctx, 8*time.Second)
+	defer stop()
+	if err := h.verifyTerminal(check, b, false); err != nil {
+		return tickCheck{reason: err.Error()}
+	}
+	custody := h.Service.terminalCustody(check, b)
+	if !control {
+		paneCols, paneRows, err := h.paneSize(ctx, b.Target)
+		if err != nil {
+			return tickCheck{reason: err.Error()}
+		}
+		if paneCols != cols || paneRows != rows {
+			return tickCheck{reason: "The pane was resized. Reconnect to see it whole at its new size."}
+		}
+	}
+	return tickCheck{custody: custody}
+}
+
 func (h *HTTP) terminalInput(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Lease   string                `json:"lease"`
@@ -381,12 +398,19 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cols, rows := input.Cols, input.Rows
+	var typist func(context.Context, herdr.Target, string) error
 	if !input.Control {
 		// An observer sees only the part of the screen its size covers and
 		// hears of no change outside it, so a view smaller than the pane is a
 		// frozen top-left corner. Observe the pane at its own size.
 		if cols, rows, err = h.paneSize(ctx, b.Target); err != nil {
 			apiError(w, 409, err.Error())
+			return
+		}
+		// Typing reaches the pane over its session's socket; finding the
+		// socket is the one process the view starts for it.
+		if typist, err = h.Service.Options.CFO.Terminals(b.Target.Session).Typist(ctx); err != nil {
+			apiError(w, 503, "Typing into this pane is unavailable: its Herdr socket cannot be found.")
 			return
 		}
 	}
@@ -406,7 +430,7 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 	ask, asked := context.WithTimeout(ctx, 8*time.Second)
 	custody := h.Service.terminalCustody(ask, b)
 	asked()
-	lease := &terminalLease{binding: b, stream: stream, control: input.Control, cancel: cancel, typist: h.Service.Options.CFO.Terminals("").SendLiteral, custody: custody}
+	lease := &terminalLease{binding: b, stream: stream, control: input.Control, cancel: cancel, typist: typist, custody: custody}
 	h.mu.Lock()
 	h.terminals[key] = lease
 	h.mu.Unlock()
@@ -415,6 +439,30 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 		delete(h.terminals, key)
 		h.mu.Unlock()
 	}
+	// Each tick proves the view's pane again with Herdr commands, which take
+	// seconds on a loaded machine, so the checks run beside the screen, one at
+	// a time: a frame, and so an echo, is never held behind them.
+	checked := make(chan tickCheck)
+	checking := make(chan struct{})
+	go func() {
+		defer close(checking)
+		tick := time.NewTicker(h.terminalTick)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+			}
+			select {
+			case checked <- h.checkTick(ctx, b, input.Control, cols, rows):
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	// Registered first, so it waits for the checks after the lease is gone.
+	defer func() { cancel(); <-checking }()
 	defer func() {
 		// Refuse new input before waiting for the observer to exit, and close
 		// the pipe before acquiring the input mutex: a native stdin write may be
@@ -455,8 +503,6 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 	}
 	first := time.NewTimer(8 * time.Second)
 	defer first.Stop()
-	tick := time.NewTicker(h.terminalTick)
-	defer tick.Stop()
 	full := false
 	var seq uint64
 	closed := func(reason string) {
@@ -472,32 +518,14 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 		case <-first.C:
 			closed("Native terminal did not provide its initial screen. It may be closed or controlled by another client.")
 			return
-		case <-tick.C:
-			check, stop := context.WithTimeout(ctx, 8*time.Second)
-			err := h.verifyTerminal(check, b, false)
-			var custody error
-			if err == nil {
-				custody = h.Service.terminalCustody(check, b)
-			}
-			stop()
-			if err != nil {
-				closed(err.Error())
+		case result := <-checked:
+			if result.reason != "" {
+				closed(result.reason)
 				return
 			}
 			lease.mu.Lock()
-			lease.custody = custody
+			lease.custody = result.custody
 			lease.mu.Unlock()
-			if !input.Control {
-				paneCols, paneRows, err := h.paneSize(ctx, b.Target)
-				if err != nil {
-					closed(err.Error())
-					return
-				}
-				if paneCols != cols || paneRows != rows {
-					closed("The pane was resized. Reconnect to see it whole at its new size.")
-					return
-				}
-			}
 			if err := write(struct {
 				Type string `json:"type"`
 			}{"terminal.alive"}); err != nil {

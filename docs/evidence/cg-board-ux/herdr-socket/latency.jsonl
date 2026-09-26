@@ -1,0 +1,4 @@
+{"label":"before: main 702ec9ab, Herdr view (pane send-text per input)","title":"Build review panel","when":"2026-09-26T16:38:49.795Z","keys":100,"missed":1,"attach_ms":1718,"p50_ms":69.7,"p95_ms":725.4,"max_ms":1332.4}
+{"label":"intermediate: socket typing alone, the tick still in the frame loop","title":"Build review panel","when":"2026-09-26T17:16:33.735Z","keys":100,"missed":0,"attach_ms":2885,"p50_ms":24.1,"p95_ms":555.6,"max_ms":2655.6}
+{"label":"after: socket typing and the tick's checks beside the screen","title":"Build review panel","when":"2026-09-26T17:22:38.873Z","keys":100,"missed":0,"attach_ms":2186,"p50_ms":24,"p95_ms":37.1,"max_ms":44.7}
+{"label":"after: socket typing and the tick's checks beside the screen, second run","title":"Build review panel","when":"2026-09-26T17:23:27.519Z","keys":100,"missed":0,"attach_ms":1436,"p50_ms":28.8,"p95_ms":44.8,"max_ms":53}
