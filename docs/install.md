@@ -37,7 +37,8 @@ cd code-goblins
 ```
 
 It needs Go: `winget install -e --id GoLang.Go`.
-`install.cmd` runs `install.ps1` with PowerShell's execution policy bypassed, so it works whatever the policy is.
+`install.cmd` runs `install.ps1` with PowerShell's execution policy bypassed, so it works whatever execution policy is set locally.
+An execution policy set by Group Policy still applies, and can refuse it.
 Type it in full: in PowerShell, `.\install -Dev` runs `install.ps1` itself, which the default execution policy refuses.
 
 `-Dev` does everything the one-line install does, with the clone in place of the download:
@@ -45,6 +46,7 @@ Type it in full: in PowerShell, `.\install -Dev` runs `install.ps1` itself, whic
 - It builds `cfo.exe` from the clone and puts it beside itself as `goblins.exe`.
   A copy still running, such as a supervisor or a terminal's host, cannot be overwritten, so it moves aside to a `cfo.exe.<id>.old` or `goblins.exe.<id>.old` of its own and is removed once nothing runs it, on this run or a later one.
 - The clone becomes the CFO home, on your PATH; open a new terminal to use it, since `install.cmd` runs in a PowerShell of its own.
+  While another CFO home is in use, such as one the one-line install set up, it refuses before changing your environment or settings; run `goblins uninstall` from that home first, then run it again.
 - It makes `.claude\skills` a junction to `.agents\skills`, so Claude Code sees this repository's skills; [load-map.md](load-map.md) shows where each harness looks for skills.
 
 Rerun it after you pull, to rebuild.

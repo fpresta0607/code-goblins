@@ -17,7 +17,9 @@
 #
 # builds cfo.exe and goblins.exe from the clone, makes the clone your CFO home
 # with both on your PATH, and does everything else the one-line install does.
-# install.cmd runs this script whatever PowerShell's execution policy is.
+# It refuses while another CFO home is in use; run goblins uninstall from that
+# home first. install.cmd runs this script whatever PowerShell execution
+# policy is set locally; one set by Group Policy still applies.
 # Every step is idempotent and safe to rerun.
 
 # The body runs in a scope of its own: the one-line install runs inside the

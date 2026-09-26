@@ -19,4 +19,4 @@ Keep one copy of each name per machine.
 ## Third-party skills
 
 The tools the fleet drives publish their own skills.
-Install them once at user scope from their owners instead of copying them here; the commands are in the [README's Quick start](../../README.md#quick-start).
+Install them once at user scope from their owners instead of copying them here; both installs in [docs/install.md](../../docs/install.md) do this for you.
