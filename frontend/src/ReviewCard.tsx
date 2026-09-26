@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { Review, Snapshot } from "./types";
 import { deliveryMark } from "./feedback";
 import { Avatar } from "./Avatar";
@@ -14,9 +14,9 @@ export const reviewImages = (review: Review) => Array.from({ length: review.imag
 // then Clear to close it. A page the supervisor watches is answered on the
 // page itself, so its preview is the one way in and the card has no text box;
 // anything else takes a written answer that goes to the asker once.
-export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend, onClear, onImage }: {
+export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend, onClear, onImage, pager }: {
   review: Review; snapshot: Snapshot; connected: boolean; draft: Draft;
-  onDraft: (changes: Partial<Draft>) => void; onSend: () => void; onClear: () => void; onImage: (index: number) => void;
+  onDraft: (changes: Partial<Draft>) => void; onSend: () => void; onClear: () => void; onImage: (index: number) => void; pager?: ReactNode;
 }) {
   const [missing, setMissing] = useState<Set<string>>(new Set());
   const outcome = draft.submission ? snapshot.actions.find((action) => action.id === draft.submission?.id) || draft.receipt : undefined;
@@ -46,8 +46,9 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
     {review.state !== "open" ? <p className={"question-outcome delivery " + settled.tone} role="status"><Icon name={settled.icon} />{settledLabel(item, snapshot.actions)}</p>
       : mark && <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>}
     <div className="card-actions">
+      {pager}
       {pending && <button type="button" className="icon-button raised" disabled={!connected || draft.sending} aria-label="Clear this item without answering" data-tip="Clear" onClick={onClear}><Icon name="close" /></button>}
-      {answersHere && <button className="primary send-decision" type="submit" disabled={!connected || !draft.written.trim() || draft.sending}><Icon name={draft.sending ? "clock" : "send"} />{draft.sending ? "Sending" : "Send answer"}</button>}
+      {answersHere && <button className="primary send-decision" type="submit" disabled={!connected || !draft.written.trim() || draft.sending}><Icon name={draft.sending ? "clock" : "send"} />{draft.sending ? "Sending" : draft.error ? "Retry" : "Send answer"}</button>}
     </div>
   </form>;
 }

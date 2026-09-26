@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredBy, answeredLabel, chosenOption, documentFacts, itemFor, nextOpenKey, outcomeIcon, questionOutcome, questionPage, settledIcon, settledItems, settledLabel, waitingItems } from "./commandQueue.ts";
+import { answeredBy, answeredLabel, chosenOption, documentFacts, failedSends, itemFor, nextOpenKey, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems } from "./commandQueue.ts";
+import type { Action } from "./types.ts";
 import { parseSnapshot, type BoardActivity } from "./types.ts";
 
 const question = (id: string, task: string, created_at: string, status = "pending", extra: Record<string, unknown> = {}) => ({ id, identity: "i-" + id, task, created_at, status, options: ["A", "B"], ...extra });
@@ -181,4 +182,39 @@ test("a document item reads as its file: its type, its size and who sent it", ()
   assert.equal(documentFacts(pdf.document!, "the CFO"), "PDF · 2.4 MB · from the CFO");
   assert.equal(documentFacts(csv.document!, "steward"), "CSV · 900 B · from steward");
   assert.equal(documentFacts(plain.document!, "steward"), "File · 20 KB · from steward");
+});
+
+const action = (id: string, kind: string, status: string) => ({ id, kind, status, question_id: "", answer_kind: "", task_id: "", generation: "", message: "", text: "", file: "", line: 0, side: "", updated_at: "" }) as Action;
+const submitted = (id: string, payload: Record<string, unknown>) => ({ id, payload: JSON.stringify(payload) });
+
+test("a send shows as done at once, confirmed once delivered, and failed only when refused or not delivered", () => {
+  const answer = submitted("a1", { kind: "goblin_answer", text: "SQLite" });
+  const opened = submitted("c1", { kind: "review_clear", review_id: "doc", text: "Downloaded" });
+  const cleared = submitted("c2", { kind: "review_clear", review_id: "look" });
+  const cases: [string, Parameters<typeof sendState>, ReturnType<typeof sendState>][] = [
+    ["nothing sent", [{ submission: null, error: "" }, []], undefined],
+    ["just clicked, no receipt yet", [{ submission: answer, error: "" }, []], { failed: false, confirmed: false, heading: "Sent", cleared: false }],
+    ["queued behind the goblin's turn", [{ submission: answer, error: "", receipt: action("a1", "goblin_answer", "queued") }, []], { failed: false, confirmed: false, heading: "Sent", cleared: false }],
+    ["delivered", [{ submission: answer, error: "" }, [action("a1", "goblin_answer", "succeeded")]], { failed: false, confirmed: true, heading: "Sent", cleared: false }],
+    ["the request refused", [{ submission: answer, error: "that review is not open" }, []], { failed: true, confirmed: false, heading: "Sent", cleared: false }],
+    ["delivery failed", [{ submission: answer, error: "" }, [action("a1", "goblin_answer", "failed")]], { failed: true, confirmed: false, heading: "Sent", cleared: false }],
+    ["delivery unconfirmed", [{ submission: answer, error: "" }, [action("a1", "goblin_answer", "uncertain")]], { failed: true, confirmed: false, heading: "Sent", cleared: false }],
+    ["a document downloaded", [{ submission: opened, error: "" }, []], { failed: false, confirmed: false, heading: "Downloaded", cleared: true }],
+    ["an item cleared", [{ submission: cleared, error: "" }, []], { failed: false, confirmed: false, heading: "Cleared", cleared: true }],
+  ];
+  for (const [name, args, want] of cases) assert.deepEqual(sendState(...args), want, name);
+});
+
+test("an item sent and moved past comes back when its send fails, and only then", () => {
+  const drafts = {
+    "question:ok": { submission: submitted("ok", { kind: "goblin_answer" }), error: "" },
+    "question:refused": { submission: submitted("refused", { kind: "goblin_answer" }), error: "that question is not open" },
+    "question:lost": { submission: submitted("lost", { kind: "goblin_answer" }), error: "" },
+    "question:unsent": { submission: null, error: "" },
+  };
+  const actions = [action("ok", "goblin_answer", "succeeded"), action("lost", "goblin_answer", "uncertain")];
+
+  const failed = failedSends(new Set(["question:ok", "question:refused", "question:lost", "question:unsent", "question:gone"]), drafts, actions);
+
+  assert.deepEqual(failed, ["question:refused", "question:lost"]);
 });
