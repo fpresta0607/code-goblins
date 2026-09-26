@@ -1,6 +1,6 @@
 import type { IconName } from "./Icon.tsx";
-import type { Action, BoardActivity, Question, Review, ReviewDocument, Run, Snapshot } from "./types.ts";
-import { runMark } from "./feedback.ts";
+import { object, string, type Action, type BoardActivity, type Question, type Review, type ReviewDocument, type Run, type Snapshot } from "./types.ts";
+import { deliveryMark, runMark, type Submission } from "./feedback.ts";
 
 // Everything the Overlord is asked lives in one queue: a goblin's or the CFO's
 // question, a review item (images, a Lavish page, or a wait on him), or a
@@ -40,6 +40,49 @@ export function nextOpenKey(stack: Item[], key: string, sent: ReadonlySet<string
   const index = stack.findIndex((item) => item.key === key);
   const waiting = (item: Item) => item.key !== key && isOpen(item) && !sent.has(item.key);
   return (stack.slice(index + 1).find(waiting) || stack.slice(0, Math.max(0, index)).find(waiting))?.key || null;
+}
+
+// SentDraft is what a card keeps of what the Overlord sent from it.
+export interface SentDraft { submission: Submission | null; sending: boolean; error: string; receipt?: Action }
+
+// SendState is what an item's card shows after Send. A send is done the moment
+// it is made: its check shows at once and delivery goes on quietly. It is
+// confirmed once delivered, and failed only when the request was refused or
+// delivery failed or went unconfirmed, the one case the card shows again. Once
+// its action is known, the action alone decides; a draft edited after a
+// refusal has sent nothing.
+export interface SendState { failed: boolean; confirmed: boolean; heading: string; cleared: boolean }
+
+export function sendState(draft: SentDraft, actions: Action[]): SendState | undefined {
+  const { submission } = draft;
+  if (!submission) return undefined;
+  const outcome = actions.find((action) => action.id === submission.id) || draft.receipt;
+  if (!outcome && !draft.sending && !draft.error) return undefined;
+  const sent = object(JSON.parse(submission.payload));
+  const cleared = sent.kind === "review_clear";
+  return {
+    failed: outcome ? deliveryMark(outcome).trouble : !!draft.error,
+    confirmed: outcome?.status === "succeeded",
+    heading: cleared ? string(sent.text) || "Cleared" : "Sent",
+    cleared,
+  };
+}
+
+// holdsUnsent says whether any card of an item still waiting keeps a choice
+// or written text the Overlord has not sent, or whose send failed, which a
+// reload would lose.
+export function holdsUnsent(drafts: Record<string, SentDraft & { selection: string; written: string }>, snapshot: Snapshot): boolean {
+  return Object.entries(drafts).some(([key, draft]) => {
+    const item = itemFor(snapshot, key);
+    const state = sendState(draft, snapshot.actions);
+    return !!item && isOpen(item) && (!!draft.selection || !!draft.written.trim()) && (!state || state.failed);
+  });
+}
+
+// failedSends is the items sent and moved past whose send then failed, which
+// come back into view with what went wrong.
+export function failedSends(sent: ReadonlySet<string>, drafts: Record<string, SentDraft>, actions: Action[]): string[] {
+  return [...sent].filter((key) => !!drafts[key] && !!sendState(drafts[key], actions)?.failed);
 }
 
 // The page a question's card may open: its asker's most recent live review

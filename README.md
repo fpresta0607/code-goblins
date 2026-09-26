@@ -99,16 +99,26 @@ A goblin is judged stalled by evidence rather than by how long its turn has run:
 
 ### Install
 
-Install Code Goblins with one line in any PowerShell window; it needs no clone and no Go:
+There are two ways in.
+
+To use Code Goblins, run this in any PowerShell window, then type `goblins`; it needs no clone and no Go:
 
 ```powershell
 irm https://raw.githubusercontent.com/fpresta0607/code-goblins/main/install.ps1 | iex
+goblins
 ```
 
-It downloads the latest release and refuses it unless it matches the release's `SHA256SUMS`.
-It then sets up the CFO home at `%LOCALAPPDATA%\CodeGoblins` with `cfo` and `goblins` on your PATH, asks once for the folder that holds your projects, installs the tools, skills and hooks the fleet needs, and ends with `goblins doctor`.
-Run it again at any time to update; it keeps your projects folder and any policy you tuned.
-It installs git and gh with winget, so on a machine that has neither winget nor git and gh it stops before changing anything and names the fix: App Installer from the Microsoft Store.
+To work on Code Goblins itself, clone it and install from the clone, which needs Go:
+
+```powershell
+git clone https://github.com/fpresta0607/code-goblins.git
+cd code-goblins
+.\install.cmd -Dev
+```
+
+Both put `cfo` and `goblins` on your PATH, install the tools, skills and hooks the fleet needs, and end with `goblins doctor`; run either again at any time to update.
+Your data lives in the CFO home, `%LOCALAPPDATA%\CodeGoblins` for the one-line install and the clone itself for `-Dev`, outside every project repository, and `goblins uninstall` keeps it.
+[docs/install.md](docs/install.md) has the details: what each step does, what it needs, and the projects folder.
 
 ### Everyday commands
 
@@ -117,6 +127,7 @@ It installs git and gh with winget, so on a machine that has neither winget nor 
 ```powershell
 goblins              # start the supervisor if needed, show the board's link and the fleet, then open the CFO
 goblins --native     # the same, but start a new CFO in a native terminal shown here instead of in Herdr
+goblins --board      # start the supervisor if needed and open the board, with no CFO in this terminal
 goblins attach       # show the CFO's native terminal here, or name another; Ctrl-] leaves it running
 goblins status       # whether the supervisor runs: the board's link, the fleet and its pid
 goblins stop         # stop the supervisor; --force ends it when it does not stop
@@ -127,12 +138,13 @@ goblins uninstall    # undo the install; the home folder and its data stay
 ```
 
 `goblins` on its own finds the supervisor, or starts it in the background with a hidden console of its own when none is running, so no window opens, with its output in `state\serve.log` in the CFO home.
-It prints the banner, the board's link (`http://127.0.0.1:4310`) and one line on what the CFO and the goblins are doing and how much waits on you, and opens the board in your browser the first time.
+It prints the banner, the board's link (`http://127.0.0.1:4310`, or a free port when another program already listens there) and one line on what the CFO and the goblins are doing and how much waits on you, and opens the board in your browser the first time.
 The board is only a view, so closing the browser stops nothing, and a supervisor started this way keeps running after the terminal closes.
 Then it takes you to the CFO: a CFO whose registration names a live process is brought to the front, and otherwise it starts Claude Code as the CFO in Herdr in a fresh `cfo` tab, in the project this terminal is in or one you pick from your projects folder, closing an idle old `cfo` tab or renaming a busy one to `shell`.
 It then attaches the terminal to Herdr with the CFO in front; run inside Herdr, it only brings the CFO to the front.
 A CFO registered in a native terminal is shown in this terminal instead, and `goblins --native` starts a new CFO that way: Claude Code runs in a native terminal of its own, so closing any window leaves it running, and `goblins attach` shows it again.
 With no CFO registered, a CFO already running in native terminal `cfo`, which may not have registered yet, is shown rather than started again.
+`goblins --board` finds or starts the supervisor the same way and opens the board in your browser every time, and starts or shows no CFO in the terminal.
 In an attached terminal every key goes to the CFO, Ctrl-C included, and Ctrl-] leaves the terminal running.
 `goblins serve` runs the supervisor in its own terminal instead, where Ctrl-C stops it.
 `goblins status` prints the board's link, the same status line and the supervisor's pid, and exits 1 when no supervisor runs, so a script can test for one.
@@ -142,48 +154,12 @@ In an attached terminal every key goes to the CFO, Ctrl-C included, and Ctrl-] l
 
 ### Start the CFO
 
-Run `goblins` in the project you actually want to build, or anywhere to pick one from your projects folder: it starts the CFO there in Herdr and brings you to it.
-By hand, for a CFO in another harness, the same is:
-
-```powershell
-cd <dir>\my-project
-herdr
-claude   # or codex / pi / kimi for the CFO session
-```
+Run `goblins` in the project you actually want to build, or anywhere to pick one from your projects folder: it starts Claude Code as the CFO there, in Herdr, and brings you to it.
+Only a CFO in Claude Code is woken by the fleet today, through its Stop hook: a CFO run in Codex or pi learns what goblins finished or asked only when you next prompt it.
 
 Tell the CFO what outcome you want.
 It handles the fleet mechanics.
 When it needs you, it asks on the board: a decision, a page to review, or a command to run with one click; [Using the board](#using-the-board) shows how.
-
-### From a clone
-
-To work on Code Goblins itself, clone it instead. Code Goblins is a standalone repository; no upstream checkout or synchronization step is required.
-
-```powershell
-git clone https://github.com/fpresta0607/code-goblins.git
-cd code-goblins
-powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Bootstrap
-cfo install --projects-root <dir>
-cfo doctor
-```
-
-`install.ps1 -Bootstrap` installs or builds the Code Goblins binary and scriptable dependencies. `cfo install` wires the CFO into your user environment so a supervisor opened from another project can still manage the fleet.
-Run outside a checkout, `cfo install` needs no clone: it sets up a per-user CFO home at `%LOCALAPPDATA%\CodeGoblins` from the binary itself, with the CFO's contract, skills and default policy, and `cfo.exe` and `goblins.exe` on your PATH.
-
-The CFO and its goblins drive `gh-axi`, `chrome-devtools-axi` and `no-mistakes` through the skills those tools publish. The one-line install adds them for you; from a clone, install the skills once at user scope, so every harness and every project sees them:
-
-```powershell
-npx skills add kunchenguid/gh-axi --skill gh-axi -g
-npx skills add kunchenguid/chrome-devtools-axi --skill chrome-devtools-axi -g
-npx skills add kunchenguid/no-mistakes --skill no-mistakes -g
-```
-
-[docs/load-map.md](docs/load-map.md) shows where each harness looks for skills and why this repository keeps only its own.
-
-`--projects-root <dir>` names the folder that holds your checkouts, wherever you keep them.
-It is recorded on your machine as `CFO_PROJECTS_ROOT`, beside `CFO_HOME`, and never in this repository, so every adopter's layout stays their own.
-With it set, `--project` takes a bare name as well as a path: `--project my-project` is `<dir>\my-project`, matched without regard to case, and the fleet works in that one checkout instead of cloning a second copy.
-It is optional: without it every command still takes a path, and `cfo doctor` tells you it is unset.
 
 ## Using the board
 
@@ -192,7 +168,7 @@ It is optional: without it every command still takes a path, and `cfo doctor` te
 </p>
 
 `cfo serve` runs the native supervisor and serves its board, which is compiled into `cfo.exe`, at `http://127.0.0.1:4310`.
-Install the native lifecycle hooks once for each harness you use (the one-line install does this for every harness it finds), then start the supervisor in its own terminal and open the URL it prints:
+Install the native lifecycle hooks once for each harness you use (the install does this for every harness it finds), then start the supervisor in its own terminal and open the URL it prints:
 
 ```powershell
 cfo hooks install claude   # repeat for codex or pi
@@ -200,6 +176,7 @@ cfo serve                  # --listen 127.0.0.1:0 picks a free loopback port
 ```
 
 The board is a view, not the engine: tasks keep progressing with every browser closed, and restarting `cfo serve` with the same CFO home recovers its events, actions and lineage.
+A tab left open across an install notices the newer board: a hidden tab reloads itself unless it holds an answer you have not sent, and otherwise it shows one line, **The board was updated**, with **Reload**, so it never reloads while you answer.
 `cfo serve` takes over from `cfo watch` as the fleet's single supervisor, so a running watcher must finish first.
 It listens on loopback only, and Ctrl-C in its terminal, or `goblins stop` from any terminal, stops it.
 Hook setup, evidence rules and terminal limits are in [the native board guide](docs/native-board.md).
@@ -260,7 +237,7 @@ Retrying an unchanged comment keeps its request ID, so a retry cannot deliver th
 ### Supreme Overlord Command Center
 
 <p align="center">
-  <img src="docs/images/command-center.webp" alt="Supreme Overlord Command Center: card 2 of 7 in the stack, a CFO question with A, B and C choices, the recommended option marked, and Other" width="560" />
+  <img src="docs/images/command-center.webp" alt="Supreme Overlord Command Center: card 3 of 3, a goblin's question with A, B and C choices, the recommended option marked, and Other; Back, 3 of 3 and Next sit on the left of the card's action row and Send decision on the right" width="560" />
 </p>
 
 When the CFO needs a decision only you can make, it publishes the question with `cfo question` and the Command Center opens as a modal.
@@ -272,9 +249,10 @@ Other items, a plain link included, are answered in writing with **Send answer**
 A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Download**, and **Open** when the browser can show it or it has a link; opening or downloading it moves it to History.
 A new review item or command appears in a banner at the bottom right for a few seconds and stays under the badge, and the browser tab's title counts what is waiting on you.
 A goblin's item closes by itself once nobody waits on it: a wait when the goblin reports again or the CFO answers it, any item but a delivered document when its goblin finishes or is cleaned up, and the CFO can clear a stale one with a reason.
-Several items stack up one card at a time, the CFO's first and then goblins by longest wait, with **Back** and **Next** on the left, swipe, and **Later** on the right; each card sends its own answer, and **Later** moves on without answering.
-After you send, the card reads Sending until the answer arrives, then a check draws with **CFO received** or **Delivered to** the goblin, and the next open item follows by itself; the last one ends on **You're all done** and the Command Center closes.
-An answer that could not be delivered stays on its card with what went wrong.
+Several items stack up one card at a time, the CFO's first and then goblins by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Next** on the left and its answer on the right, and you can swipe; closing keeps every item for later.
+The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done** and the Command Center closes.
+An answer the board refused comes back on its card with what went wrong, and **Retry** sends it again.
+An answer whose delivery failed or went unconfirmed comes back on its card with its warning.
 Clicking outside the Command Center, or outside its inbox, closes it.
 Nothing is preselected, drafts are kept, and the **Command Center** icon in the header, whose badge counts what is waiting on you, opens an inbox of what is waiting on you, the live pages (review pages and browser walkthroughs) and a History of what you answered, cleared or ran.
 A goblin waiting on you offers **Answer** in its panel, which opens the stack at its item.

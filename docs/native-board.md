@@ -12,7 +12,9 @@ Closing the browser disconnects a view, while Ctrl-C in the supervisor terminal,
 Once it holds the singleton and listens, `serve` records its pid and the board's address in `state/board.json`, and removes the record when it exits.
 `goblins` with no command reads that record: when the address answers at all it prints the board's link and a status line from the snapshot, or says the board could not read the fleet's state when the snapshot fails, and starts and opens nothing.
 Otherwise it starts `serve` detached from its terminal, in a hidden console of its own that the programs `serve` runs share, so no console window opens, with its output appended to `state/serve.log`, waits up to 30 seconds for the board to answer, and opens it in the browser once.
+The detached `serve` listens on `127.0.0.1:4310`, or on `127.0.0.1:0` when another program already listens there, so the OS picks a free loopback port and the record holds the real address.
 A record whose address does not answer, left by a supervisor that ended without removing it, is replaced by the next start, and a record naming anything but a plain loopback board address is ignored.
+`goblins --board` finds or starts the supervisor the same way, opens the board root in the browser every time, and exits 1 naming the link when the browser cannot be opened; it starts, shows and attaches no CFO.
 Then `goblins` brings the Overlord to the CFO.
 A CFO whose registration in `state/primary.json` names a live process is reused, never started a second time: `goblins` brings its registered workspace and tab to the front and hands its terminal to `herdr`, attached to the session the CFO registered in.
 It decides from the registration alone and asks neither the board nor Herdr, so a supervisor that has not checked the registration yet or a Herdr that cannot answer changes nothing.
@@ -291,7 +293,7 @@ Environment values, full process environments, dotenv, auth scripts, MCP command
 
 These rules hold for every board surface, and new work follows them.
 Recurring tool actions (open in VS Code, open folder, open pull request, refresh, zoom, fit, arrange, close, reconnect) are icon buttons, each naming itself with an accessible label and a tooltip on hover and keyboard focus.
-Decisions and one-off commands keep a short word, for example Send decision, Later or Show the next 300 lines.
+Decisions and one-off commands keep a short word, for example Send decision, Retry or Show the next 300 lines.
 Every connector, MCP server, credential, harness and model provider shows a mark beside its name: the brand's mark from Simple Icons where one exists, a plain glyph where the owner withholds its mark, the Model Context Protocol mark for an unknown MCP server and a key for an unknown credential.
 Delivery reads as a mark: one check once the supervisor accepted it, two checks once delivered; only a failed or unconfirmed delivery is spelled out, with what to check before sending again.
 An answer to a question or on a review item, to a goblin or to a CFO in Herdr that is working when it arrives, such as one inside a long tool call, waits in its input until that turn ends, and the turn moves none of Herdr's counters, so the board counts it delivered once Herdr submitted it; anything else sent to a working agent, such as a `cfo send` steer, a `cfo answer`, a run result or a review request, still reads unconfirmed.
@@ -318,10 +320,11 @@ The inbox and history list each question on at most two lines, with the marks dr
 No choice is preselected and written text is sent only when Other is selected.
 Use a new stable ID for a new question, and keep the same ID/content for an uncertain publication retry.
 The publisher walks up to 32 process ancestors and verifies the registered CFO PID, creation time and live native identity; a worker cannot escalate on the CFO's behalf.
-The Command Center shows one item at a time as a stack, a question, a review item or a run item, the CFO's own items first and then goblins by longest wait, with its position, Back and Next buttons on the left of the footer, Later on the right, and a horizontal swipe on touch screens; the rest of the stack peeks above the card as one clean edge.
-Each card sends only its own answer, and Later moves to the next item without answering.
-Once the Overlord sends from a card, an answer, a review answer or a Clear, the card reads Sending until its action is delivered, then a check draws with CFO received, Delivered to <goblin>, Sent to the goblin or the CFO, or Cleared, and about a second later the next open item follows, passing over any sent in this sitting; with nothing left it shows You're all done and the Command Center closes.
-A failed or unconfirmed delivery keeps the card on screen with its warning, and a run card stays to show the command's result.
+The Command Center shows one item at a time as a stack, a question, a review item or a run item, the CFO's own items first and then goblins by longest wait, and a horizontal swipe on touch screens moves between them; the rest of the stack peeks above the card as one clean edge.
+A card's own action row holds everything: Back, its place such as 2 of 4, and Next on the left while more than one item waits, and its answer on the right; closing keeps every item for later.
+Each card sends only its own answer.
+The moment the Overlord sends from a card, an answer, a review answer or a Clear, its check draws with Sent (or Opened, Downloaded or Cleared) and three quarters of a second later the next open item follows, passing over any sent in this sitting, while the action is delivered in the background; CFO received or Delivered to <goblin> joins the check if delivery lands while it shows, and with nothing left it shows You're all done and the Command Center closes.
+A request the board refuses, or a delivery that fails or goes unconfirmed, brings its card back, opening the Command Center if it was closed, with what went wrong, and a refused request can be sent again with Retry under the same request identity; a run card stays to show the command's result.
 A click on the dimmed board outside the card closes the Command Center, and a click anywhere outside the open inbox closes the inbox.
 A card answered elsewhere while on screen, such as with `cfo answer`, keeps its place until the Overlord moves on: it shows its delivery marks, or once closed a check on the chosen option, the other options dimmed and Answered by you or Answered by the CFO with the time.
 Drafts survive closing, reconnecting and moving between cards, and the header button, whose badge counts what waits on the Overlord, opens an inbox of those items, the live pages (review pages and browser walkthroughs) and a history of what he answered, cleared or ran, newest first by when each closed.
@@ -525,6 +528,8 @@ Commit the regenerated assets with frontend source changes.
 The HTML input and embedded HTML/JavaScript/CSS outputs are pinned to LF in `.gitattributes`, because Vite preserves template newlines and Git checkout conversion otherwise reports rebuilt assets as modified on Windows.
 Both Windows CI and release workflows install from the lockfile, check the frontend, regenerate assets, and fail if the committed bundle differs before compiling Go.
 The runtime executable embeds those assets and requires no Node process.
+The board names the build it serves, a hash of its `index.html`, which names every hashed file of the bundle, in the page (`<meta name="cfo-build">`) and in every snapshot, on `/api/snapshot` and on the event stream.
+A tab whose loaded build differs from the one served, such as one left open across an install, reloads itself while it is hidden, the event stream is live and the Overlord is not mid-answer (the Command Center closed, no card in it and no comment on a diff keeping an answer not yet sent, no terminal listening to dictation, and no text field holding text), and otherwise shows one line, The board was updated, with Reload; a page loaded without a build, such as from the dev server, never acts.
 For frontend development, `npm run dev` listens at `127.0.0.1:5173` and proxies API calls to a supervisor on `127.0.0.1:4310`, translating only that explicit local development origin.
 `BOARD_DEV_PORT` sets the port the dev server listens on; it defaults to `5173`, and the translated origin follows it.
 `BOARD_SUPERVISOR` sets the supervisor the dev server proxies API calls to, such as an example fixture; it defaults to `http://127.0.0.1:4310`.

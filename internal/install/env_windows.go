@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -34,8 +35,12 @@ type registryEnvStore struct {
 	key      string
 }
 
-// NewEnvStore returns the machine's user-scope environment.
+// NewEnvStore returns the machine's user-scope environment, or the file
+// UserEnvFileVariable names in its place.
 func NewEnvStore(commands execx.Runner) EnvStore {
+	if path := os.Getenv(UserEnvFileVariable); path != "" {
+		return fileEnvStore{path: path}
+	}
 	return registryEnvStore{Commands: commands, key: envKey}
 }
 

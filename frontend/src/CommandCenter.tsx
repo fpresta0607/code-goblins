@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { message, request } from "./api";
 import { parseAction, type BoardActivity, type Question, type Review, type Run, type Snapshot } from "./types";
 import { deliveryMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { isOpen, nextOpenKey, questionPage, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { failedSends, holdsUnsent, isOpen, itemFor, nextOpenKey, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
 import { RunCard } from "./RunCard";
 import { questionAnswer, questionChoices } from "./questionChoices";
 import { plainMessage } from "./messageText";
@@ -20,8 +20,8 @@ import { DocumentCard } from "./DocumentCard";
 
 // A banner for a new item stays this long; the item stays under the badge.
 const BANNER_MS = 8000;
-// A delivered answer's check shows this long before the next item.
-const DONE_MS = 1100;
+// A sent item's check shows this long before the next item.
+const DONE_MS = 750;
 // "You're all done" shows this long before the Command Center closes.
 const ALL_DONE_MS = 1600;
 
@@ -34,13 +34,15 @@ const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
 
 // The Supreme Overlord Command Center: an inbox of everything waiting on him,
 // and a stack that shows one item at a time, a question or a review item. Each
-// answer goes to its asker on its own, once; Later keeps an item in the stack;
-// drafts survive closing, reconnecting and moving between cards. A new question
-// opens the stack; any other new item is announced in a banner and waits in
-// the inbox under the badge, and the tab's title counts what waits. Once an
-// answer is delivered its check shows, the next open item follows, and the
-// last one ends on "You're all done" before the Command Center closes.
-export function CommandCenter({ snapshot, connected, presentations, focus }: { snapshot: Snapshot; connected: boolean; presentations: BoardActivity[]; focus: CommandFocus | null }) {
+// answer goes to its asker on its own, once; drafts survive closing,
+// reconnecting and moving between cards. A new question opens the stack; any
+// other new item is announced in a banner and waits in the inbox under the
+// badge, and the tab's title counts what waits. The moment an answer is sent
+// its check shows and the next open item follows while delivery goes on
+// quietly; a send that fails brings its card back with what went wrong. The
+// last one ends on "You're all done" before the Command Center closes. It
+// tells onUnsent whether any card keeps an answer not yet sent.
+export function CommandCenter({ snapshot, connected, presentations, focus, onUnsent }: { snapshot: Snapshot; connected: boolean; presentations: BoardActivity[]; focus: CommandFocus | null; onUnsent: (unsent: boolean) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const menu = useRef<HTMLDetailsElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -65,11 +67,12 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
   const draft = item ? drafts[item.key] : undefined;
   const outcome = draft?.submission ? snapshot.actions.find((action) => action.id === draft.submission?.id) || draft.receipt : undefined;
   const mark = outcome ? deliveryMark(outcome, item?.kind === "question" ? item.question.task : undefined) : undefined;
-  // What the Overlord sent from this card is on its way or delivered; trouble
-  // keeps the card itself on screen with what went wrong. A run keeps its card,
-  // which shows the command's result.
-  const finishing = !!item && item.kind !== "run" && !!mark && !mark.trouble;
-  const delivered = finishing && outcome?.status === "succeeded" ? item.key : "";
+  const sending = draft ? sendState(draft, snapshot.actions) : undefined;
+  // What the Overlord sent from this card shows as done the moment he sends
+  // it; trouble keeps the card itself on screen with what went wrong. A run
+  // keeps its card, which shows the command's result.
+  const finishing = !!item && item.kind !== "run" && !!sending && !sending.failed;
+  const done = finishing ? item.key : "";
   // Moving off a finishing card counts it as sent, so only a card on screen
   // from its Send to its delivery moves on by itself.
   const show = (key: string) => {
@@ -93,6 +96,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
     const timer = setTimeout(() => setBanner([]), BANNER_MS);
     return () => clearTimeout(timer);
   }, [banner]);
+  const unsent = holdsUnsent(drafts, snapshot);
+  useEffect(() => onUnsent(unsent), [unsent, onUnsent]);
   const baseTitle = useRef(document.title);
   useEffect(() => { document.title = countedTitle(baseTitle.current, waiting.length); }, [waiting.length]);
   useEffect(() => () => { document.title = baseTitle.current; }, []);
@@ -115,15 +120,24 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
     const resume = nextOpenKey(stack, current, sent);
     if (resume) show(resume);
   }
+  // A send that fails after its card moved on brings the card back, with
+  // what went wrong and a retry.
+  const failing = failedSends(sent, drafts, snapshot.actions).filter((key) => !!itemFor(snapshot, key));
+  if (failing.length) {
+    setSent(new Set([...sent].filter((key) => !failing.includes(key))));
+    setKept((prior) => new Set([...prior, ...failing]));
+    setOpen(true);
+    show(failing[0]);
+  }
   // The card on screen stays in the stack while it is shown, so an item
   // answered or cleared elsewhere turns into its settled card instead of vanishing.
   if (item && !kept.has(item.key)) setKept(new Set([...kept, item.key]));
   const showing = !!item;
   useEffect(() => {
-    if (!delivered || sent.has(delivered)) return;
-    const timer = setTimeout(() => setLeaving(delivered), DONE_MS);
+    if (!done || sent.has(done)) return;
+    const timer = setTimeout(() => setLeaving(done), DONE_MS);
     return () => clearTimeout(timer);
-  }, [delivered, sent]);
+  }, [done, sent]);
   useEffect(() => {
     if (!allDone) return;
     const timer = setTimeout(() => { setOpen(false); setKept(new Set()); setGallery(null); setAllDone(false); }, ALL_DONE_MS);
@@ -147,12 +161,18 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
     }
     if (!showing && element.open) { element.close(); returnFocus.current?.focus(); }
   }, [showing]);
-  const close = () => { setOpen(false); setKept(new Set()); setGallery(null); setAllDone(false); };
-  const move = (step: number) => { const next = stack[index + step]; if (next) show(next.key); };
-  const later = () => {
-    const next = item && nextOpenKey(stack, item.key);
-    if (next) show(next); else close();
+  const close = () => {
+    if (finishing) setSent((prior) => new Set([...prior, item.key]));
+    setOpen(false); setKept(new Set()); setGallery(null); setAllDone(false);
   };
+  const move = (step: number) => { const next = stack[index + step]; if (next) show(next.key); };
+  // Back and Next with the card's place in the stack lead the card's own
+  // action row, whose right end holds its answer; closing keeps every item.
+  const pager: ReactNode = stack.length > 1 ? <div className="stack-pager" role="group" aria-label="Move between items">
+    <button type="button" className="icon-button raised" disabled={index === 0} aria-label="Previous item" data-tip="Previous" data-tip-align="start" onClick={() => move(-1)}><Icon name="back" /></button>
+    <span className="stack-count">{index + 1} of {stack.length}</span>
+    <button type="button" className="icon-button raised" disabled={index === stack.length - 1} aria-label="Next item" data-tip="Next" onClick={() => move(1)}><Icon name="next" /></button>
+  </div> : null;
   const update = (key: string, changes: Partial<Draft>) => setDrafts((prior) => ({ ...prior, [key]: { ...(prior[key] || EMPTY_DRAFT), ...changes } }));
   // An unchanged payload keeps its request ID, so a retry after an ambiguous
   // failure can never deliver twice.
@@ -236,7 +256,6 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
         <header className="command-center-heading">
           <Avatar persona="cfo" />
           <h2 id="command-center-heading">Supreme Overlord<span>Command Center</span></h2>
-          {stack.length > 1 && !allDone && <span className="count-pill">{index + 1} of {stack.length}</span>}
           <button type="button" className="icon-button question-close" aria-label="Close the Command Center" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
         </header>
         {gallery !== null && images.length > 0
@@ -253,28 +272,19 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
             }}>
             {allDone
               ? <div className="done-card" role="status"><Avatar persona="cfo" /><h3>You're all done</h3><p>Nothing else is waiting on you.</p></div>
-              : finishing && outcome
-              ? <DoneCard key={item.key} delivered={!!delivered}
-                heading={outcome.kind === "review_clear" ? delivered ? outcome.text || "Cleared" : "Clearing" : delivered ? "Sent" : "Sending"}
-                label={!delivered ? "" : outcome.kind !== "review_clear" ? mark?.label || "" : outcome.text ? "It moves to your history." : ""} />
+              : finishing && sending
+              ? <DoneCard key={item.key} heading={sending.heading}
+                label={sending.cleared ? sending.heading !== "Cleared" ? "It moves to your history." : "" : sending.confirmed ? mark?.label || "" : ""} pager={pager} />
               : item.kind === "question"
               ? <QuestionCard key={item.key} question={item.question} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT} review={pageFor(item.question)}
-                onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onImage={setGallery} />
+                onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onImage={setGallery} pager={pager} />
               : item.kind === "run"
-              ? <RunCard key={item.key} run={item.run} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} />
+              ? <RunCard key={item.key} run={item.run} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} pager={pager} />
               : item.review.document
-              ? <DocumentCard key={item.key} review={item.review} document={item.review.document} snapshot={snapshot} connected={connected} onOpened={(how) => clear(item.review, how)} onClear={() => clear(item.review)} />
+              ? <DocumentCard key={item.key} review={item.review} document={item.review.document} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT} onOpened={(how) => clear(item.review, how)} onClear={() => clear(item.review)} pager={pager} />
               : <ReviewCard key={item.key} review={item.review} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT}
-                onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onClear={() => clear(item.review)} onImage={setGallery} />}
+                onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onClear={() => clear(item.review)} onImage={setGallery} pager={pager} />}
           </div>}
-        {gallery === null && !allDone && <footer className="question-footer">
-          {stack.length > 1 && <div className="stack-nav">
-            <button type="button" className="icon-button raised" disabled={index === 0} aria-label="Previous item" data-tip="Previous" onClick={() => move(-1)}><Icon name="back" /></button>
-            {stack.length <= 8 && <span className="stack-dots" aria-hidden="true">{stack.map((candidate) => <span key={candidate.key} className={candidate.key === item.key ? "on" : ""} />)}</span>}
-            <button type="button" className="icon-button raised" disabled={index === stack.length - 1} aria-label="Next item" data-tip="Next" data-tip-align="end" onClick={() => move(1)}><Icon name="next" /></button>
-          </div>}
-          <button type="button" className="text-button later" onClick={later}>{isOpen(item) ? "Later" : "Next"}</button>
-        </footer>}
       </>}
     </dialog>
     {announcedNow.length > 0 && !open && <aside className="arrival-banner" role="status" aria-label="New in the Command Center">

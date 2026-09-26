@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRuntimeStream } from "./stream";
 import { Lineage, type Selection } from "./Lineage";
 import { Board } from "./Board";
@@ -14,12 +14,23 @@ import { GoblinPanel, type PanelView } from "./GoblinPanel";
 import { PaneDivider } from "./PaneDivider";
 import { CFO_KEY, paneTrack, switchOrder } from "./terminalOrder";
 import { useSwitchKeys } from "./useSwitchKeys";
+import { unsentComment, updateAction } from "./boardUpdate";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
 const TerminalDeck = lazy(() => import("./TerminalDeck").then((module) => ({ default: module.TerminalDeck })));
 
 const PANE_WIDTH_KEY = "cfo-pane-width";
 const PANE_MAXIMIZED_KEY = "cfo-pane-maximized";
+
+// The board build this page was loaded with, which the supervisor names in
+// the page; a tab left open across an install keeps the older one.
+const LOADED_BUILD = document.querySelector<HTMLMetaElement>('meta[name="cfo-build"]')?.content || "";
+// The Overlord is in the middle of an answer while the Command Center is open,
+// any card in it or any comment on a diff keeps an answer not yet sent, a
+// terminal is listening to his dictation, or any text field holds text he
+// typed.
+const answering = (unsent: boolean) => unsent || !!document.querySelector("dialog[open], .terminal-listening")
+  || [...document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("textarea, input:not([type]), input[type=text]")].some((field) => field.value.trim() !== "");
 
 function stored(key: string): string | null {
   try { return localStorage.getItem(key); } catch { return null; }
@@ -57,7 +68,22 @@ export function App() {
   const task = snapshot?.tasks.find((task) => task.id === (selected?.task || node?.task_id));
   const selectedSession = node || (task && snapshot?.sessions.find((session) => ownsTaskSession(session, task)));
   const reviews = useReview(task, snapshot);
+  // Once the supervisor serves a newer board, a hidden tab reloads itself at
+  // once and a visible one says so and offers a reload, never mid-answer.
+  const served = snapshot?.build || "";
   const connected = connection === "Live";
+  const unsent = useRef(false);
+  const onUnsent = useCallback((next: boolean) => { unsent.current = next; }, []);
+  const commenting = Object.values(reviews.drafts).some((draft) => unsentComment(draft, reviews.outcome(draft)));
+  const commentUnsent = useRef(false);
+  useEffect(() => { commentUnsent.current = commenting; }, [commenting]);
+  const updated = updateAction({ loaded: LOADED_BUILD, served, hidden: false, answering: true, connected }) !== "none";
+  useEffect(() => {
+    const check = () => { if (updateAction({ loaded: LOADED_BUILD, served, hidden: document.hidden, answering: answering(unsent.current || commentUnsent.current), connected }) === "reload") location.reload(); };
+    check();
+    document.addEventListener("visibilitychange", check);
+    return () => document.removeEventListener("visibilitychange", check);
+  }, [served, connected]);
   const effects = useActivity(snapshot, connected);
   const [now,setNow]=useState(Date.now);
   useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[]);
@@ -113,13 +139,14 @@ export function App() {
         {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={view === name} onClick={() => { setView(name); setPanelView(name === "Board" ? "task" : "terminal"); }}>{name}</button>)}
       </div>
       <div className="topbar-controls">
-        {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} />}
+        {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={onUnsent} />}
         <div className="connection" role="status">
           <span className={"live-dot " + (!connected ? "offline" : "")} />{connection}
         </div>
         {!paneOpen && <button onClick={() => setPaneOpen(true)}>Open {selected ? "details" : "CFO"}</button>}
       </div>
     </header>
+    {updated && <div className="update-banner" role="status"><span>The board was updated.</span><button className="primary" onClick={() => location.reload()}>Reload</button></div>}
     <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "")} style={layout}>
       <main className="canvas-region" aria-label={view} hidden={panelWide}>
         {(error || snapshot?.error) && <div className="connection-banner" role="alert">{error || snapshot?.error}</div>}

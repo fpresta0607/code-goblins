@@ -271,6 +271,9 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 .empty-state h2 { color: #edf4f3; }
 .connection-banner, .error-box { border: 1px solid #735338; border-radius: var(--radius); background: #292116; color: #f1c598; padding: 14px; margin-bottom: 18px; overflow-wrap: anywhere; font-size: .9375rem; }
 .connection-banner { margin: 16px; }
+/* A newer board is served: one quiet line with its reload. */
+.update-banner { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 8px 6px 16px; border: 1px solid #2f6b58; border-radius: 14px; background: #10251f; color: #c9f2e2; font-weight: 700; }
+.update-banner .primary { min-height: 36px; padding: 6px 16px; }
 .error-box button { display: block; margin-top: 10px; }
 summary { cursor: pointer; }
 .decision { padding: 14px 0; overflow-wrap: anywhere; border-bottom: 1px solid var(--border); }
@@ -618,32 +621,25 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .card-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 .send-decision { display: inline-flex; align-items: center; gap: 8px; padding-inline: 22px; }
 .send-decision .icon { width: 20px; height: 20px; }
-.question-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; }
-.text-button { border-color: transparent; background: transparent; color: #b8c6cd; font-weight: 700; }
-/* The pager leads the footer; Later keeps the right edge, alone or not. */
-.question-footer .later { margin-left: auto; }
-/* After Send: the check draws once the answer is delivered. */
+/* Back, the card's place and Next lead a card's action row; its answer keeps
+   the right edge. */
+.stack-pager { display: flex; align-items: center; gap: 8px; margin-right: auto; }
+.stack-count { min-width: 4.5ch; color: #c4d4df; font-weight: 700; font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap; }
+/* After Send: the check draws at once. */
 .done-card { display: grid; justify-items: center; gap: 10px; padding: 40px 22px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; background: var(--level-2); box-shadow: var(--shadow-2); text-align: center; animation: card-in .18s ease-out; }
 .done-card h3 { margin: 0; font-size: 1.5rem; }
 .done-card p { margin: 0; color: #c4d4df; }
 .done-card .goblin-avatar { width: 96px; height: 96px; }
-.check-anim { width: 88px; height: 88px; fill: none; stroke: var(--edge-lit); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
-.check-anim path { stroke-dasharray: 70; stroke-dashoffset: 70; }
-.done-card.delivered .check-anim { stroke: var(--mint); }
-.done-card.delivered .check-anim path { animation: check-draw .45s ease-out forwards; }
-.done-card:not(.delivered) .check-anim circle { animation: check-wait 1.2s ease-in-out infinite; }
+.check-anim { width: 88px; height: 88px; fill: none; stroke: var(--mint); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
+.check-anim path { stroke-dasharray: 70; stroke-dashoffset: 70; animation: check-draw .35s ease-out forwards; }
 @keyframes check-draw { to { stroke-dashoffset: 0; } }
-@keyframes check-wait { 50% { opacity: .4; } }
 .done-card .received { display: inline-flex; align-items: center; gap: 8px; color: var(--mint); font-weight: 800; }
+.done-card .card-actions { justify-self: stretch; }
 .done-card .received .icon { width: 20px; height: 20px; }
 @media (prefers-reduced-motion: reduce) {
-  .done-card, .done-card.delivered .check-anim path, .done-card:not(.delivered) .check-anim circle { animation: none; }
-  .done-card.delivered .check-anim path { stroke-dashoffset: 0; }
+  .done-card, .check-anim path { animation: none; }
+  .check-anim path { stroke-dashoffset: 0; }
 }
-.stack-nav { display: flex; align-items: center; gap: 12px; }
-.stack-dots { display: flex; gap: 6px; }
-.stack-dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--edge-lit); }
-.stack-dots span.on { background: var(--accent); }
 .gallery { display: grid; gap: 14px; outline: none; }
 .gallery-top { display: flex; align-items: center; gap: 12px; }
 .gallery-top strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
@@ -675,7 +671,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
   .question-modal { padding: 20px 16px; }
   .command-center-heading .goblin-avatar { width: 56px; height: 56px; }
   .question-card { padding: 16px; }
-  .question-footer { flex-wrap: wrap; }
 }
 .question-card h3:focus { outline: none; }
 /* A live goblin's card carries a one-tap way into its terminal in its top

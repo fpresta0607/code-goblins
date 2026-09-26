@@ -71,6 +71,9 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
+	if file := os.Getenv(install.UserEnvFileVariable); file != "" {
+		fmt.Fprintf(stdout, "cfo install: the user environment is %s, not this machine's (%s is set)\n", file, install.UserEnvFileVariable)
+	}
 	if *uninstall {
 		service.HarnessDirs = map[string]string{}
 		for _, harness := range []string{"claude", "codex", "pi"} {

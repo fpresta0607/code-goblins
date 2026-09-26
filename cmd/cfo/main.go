@@ -37,7 +37,7 @@ var version = "dev"
 
 const usage = `usage: cfo <command> [args]
 
-Run as goblins with no command, it finds the supervisor or starts one in the background, prints the board's link and what the fleet is doing, opens the board when it started the supervisor, brings the live registered CFO to the front in Herdr or starts one, and attaches the terminal to Herdr. A CFO registered in a native terminal is shown in this terminal instead, and goblins --native starts a new CFO in a native terminal rather than in Herdr.
+Run as goblins with no command, it finds the supervisor or starts one in the background, prints the board's link and what the fleet is doing, opens the board when it started the supervisor, brings the live registered CFO to the front in Herdr or starts one, and attaches the terminal to Herdr. A CFO registered in a native terminal is shown in this terminal instead, and goblins --native starts a new CFO in a native terminal rather than in Herdr. goblins --board finds or starts the supervisor the same way and opens the board in the browser every time, without starting or showing a CFO in this terminal.
 
 commands:
   version   print the cfo version
@@ -272,6 +272,9 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 	}
 	if runtime.goblins && len(args) == 1 && args[0] == "--native" {
 		return runLauncher(stdout, stderr, runtime, true)
+	}
+	if runtime.goblins && len(args) == 1 && args[0] == "--board" {
+		return runBoardLauncher(stdout, stderr, runtime)
 	}
 	switch args[0] {
 	case "attach":
