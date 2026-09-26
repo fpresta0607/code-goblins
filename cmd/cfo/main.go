@@ -66,6 +66,7 @@ commands:
   cfo verify <task-id> [--tier fast|full|deep]
   cfo security <task-id> [--deep]
   cfo hygiene <task-id>
+  cfo gate tests-kept   run from a no-mistakes repository gate: exits 1 when the gate's own fix commits deleted or skipped a test, so the run parks for an ask-user decision
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
   cfo supersede <task-id> --reason <text>
@@ -321,6 +322,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runSecurity(args[1:], stdout, stderr, runtime)
 	case "hygiene":
 		return runHygiene(args[1:], stdout, stderr, runtime)
+	case "gate":
+		return runGate(args[1:], stdout, stderr)
 	case "deploy":
 		return runDeploy(args[1:], stdout, stderr, runtime)
 	case "evidence":
