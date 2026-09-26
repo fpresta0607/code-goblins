@@ -68,6 +68,15 @@ export function sendState(draft: SentDraft, actions: Action[]): SendState | unde
   };
 }
 
+// holdsUnsent says whether any card keeps a choice or written text the
+// Overlord has not sent, or whose send failed, which a reload would lose.
+export function holdsUnsent(drafts: Record<string, SentDraft & { selection: string; written: string }>, actions: Action[]): boolean {
+  return Object.values(drafts).some((draft) => {
+    const state = sendState(draft, actions);
+    return (!!draft.selection || !!draft.written.trim()) && (!state || state.failed);
+  });
+}
+
 // failedSends is the items sent and moved past whose send then failed, which
 // come back into view with what went wrong.
 export function failedSends(sent: ReadonlySet<string>, drafts: Record<string, SentDraft>, actions: Action[]): string[] {

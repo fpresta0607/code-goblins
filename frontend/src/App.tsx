@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRuntimeStream } from "./stream";
 import { Lineage, type Selection } from "./Lineage";
 import { Board } from "./Board";
@@ -25,9 +25,10 @@ const PANE_MAXIMIZED_KEY = "cfo-pane-maximized";
 // The board build this page was loaded with, which the supervisor names in
 // the page; a tab left open across an install keeps the older one.
 const LOADED_BUILD = document.querySelector<HTMLMetaElement>('meta[name="cfo-build"]')?.content || "";
-// The Overlord is in the middle of an answer while the Command Center is open
-// or any text field holds text he typed.
-const answering = () => !!document.querySelector("dialog[open]")
+// The Overlord is in the middle of an answer while the Command Center is open,
+// any card in it keeps an answer not yet sent, or any text field holds text he
+// typed.
+const answering = (unsent: boolean) => unsent || !!document.querySelector("dialog[open]")
   || [...document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("textarea, input:not([type]), input[type=text]")].some((field) => field.value.trim() !== "");
 
 function stored(key: string): string | null {
@@ -69,14 +70,16 @@ export function App() {
   // Once the supervisor serves a newer board, a hidden tab reloads itself at
   // once and a visible one says so and offers a reload, never mid-answer.
   const served = snapshot?.build || "";
-  const updated = updateAction({ loaded: LOADED_BUILD, served, hidden: false, answering: true }) !== "none";
+  const connected = connection === "Live";
+  const unsent = useRef(false);
+  const onUnsent = useCallback((next: boolean) => { unsent.current = next; }, []);
+  const updated = updateAction({ loaded: LOADED_BUILD, served, hidden: false, answering: true, connected }) !== "none";
   useEffect(() => {
-    const check = () => { if (updateAction({ loaded: LOADED_BUILD, served, hidden: document.hidden, answering: answering() }) === "reload") location.reload(); };
+    const check = () => { if (updateAction({ loaded: LOADED_BUILD, served, hidden: document.hidden, answering: answering(unsent.current), connected }) === "reload") location.reload(); };
     check();
     document.addEventListener("visibilitychange", check);
     return () => document.removeEventListener("visibilitychange", check);
-  }, [served]);
-  const connected = connection === "Live";
+  }, [served, connected]);
   const effects = useActivity(snapshot, connected);
   const [now,setNow]=useState(Date.now);
   useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[]);
@@ -132,7 +135,7 @@ export function App() {
         {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={view === name} onClick={() => { setView(name); setPanelView(name === "Board" ? "task" : "terminal"); }}>{name}</button>)}
       </div>
       <div className="topbar-controls">
-        {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} />}
+        {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={onUnsent} />}
         <div className="connection" role="status">
           <span className={"live-dot " + (!connected ? "offline" : "")} />{connection}
         </div>

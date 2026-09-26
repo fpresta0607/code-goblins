@@ -5,7 +5,7 @@ import { deliveryMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { failedSends, isOpen, itemFor, nextOpenKey, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { failedSends, holdsUnsent, isOpen, itemFor, nextOpenKey, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
 import { RunCard } from "./RunCard";
 import { questionAnswer, questionChoices } from "./questionChoices";
 import { plainMessage } from "./messageText";
@@ -40,8 +40,9 @@ const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
 // badge, and the tab's title counts what waits. The moment an answer is sent
 // its check shows and the next open item follows while delivery goes on
 // quietly; a send that fails brings its card back with what went wrong. The
-// last one ends on "You're all done" before the Command Center closes.
-export function CommandCenter({ snapshot, connected, presentations, focus }: { snapshot: Snapshot; connected: boolean; presentations: BoardActivity[]; focus: CommandFocus | null }) {
+// last one ends on "You're all done" before the Command Center closes. It
+// tells onUnsent whether any card keeps an answer not yet sent.
+export function CommandCenter({ snapshot, connected, presentations, focus, onUnsent }: { snapshot: Snapshot; connected: boolean; presentations: BoardActivity[]; focus: CommandFocus | null; onUnsent: (unsent: boolean) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const menu = useRef<HTMLDetailsElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -95,6 +96,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
     const timer = setTimeout(() => setBanner([]), BANNER_MS);
     return () => clearTimeout(timer);
   }, [banner]);
+  const unsent = holdsUnsent(drafts, snapshot.actions);
+  useEffect(() => onUnsent(unsent), [unsent, onUnsent]);
   const baseTitle = useRef(document.title);
   useEffect(() => { document.title = countedTitle(baseTitle.current, waiting.length); }, [waiting.length]);
   useEffect(() => () => { document.title = baseTitle.current; }, []);
