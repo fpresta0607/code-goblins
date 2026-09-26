@@ -32,3 +32,16 @@ auto_fix:
   lint: 1
   rebase: 1
   ci: 1
+
+# A gate fix must never delete or skip a test unseen: on 2026-09-24 a test
+# step fixed a failing test on PrecisionDocs #1272 by deleting it, and no
+# review saw it. After the last fixing step, this gate fails when the
+# pipeline's own commits (subject no-mistakes(<step>): ...) deleted or skipped
+# a test that HEAD still lacks, which parks the run with an ask-user finding:
+# approve accepts the deletion, fix restores the test. It runs the installed
+# cfo, the trusted binary, so it works once the CFO installs a build that has
+# `cfo gate`.
+gates:
+  - name: tests-kept
+    after: lint
+    command: "cfo gate tests-kept"
