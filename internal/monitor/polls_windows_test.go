@@ -18,12 +18,17 @@ import (
 
 // TestMain doubles the test binary as the stand-ins the process tests run.
 // Copied as lavish-axi.exe it is a poll that waits to be stopped; copied as
-// claude.exe or cfo.exe it starts one below itself and prints its pid. A
-// stand-in nobody stops ends on its own after a minute.
+// claude.exe or cfo.exe it starts one below itself and prints its pid; run
+// busy it keeps a processor busy, the way a build does. A stand-in nobody
+// stops ends on its own after a minute.
 func TestMain(m *testing.M) {
 	switch os.Getenv("CFO_POLL_STANDIN") {
 	case "":
 		os.Exit(m.Run())
+	case "busy":
+		for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); {
+		}
+		os.Exit(0)
 	case "parent":
 		child := exec.Command(os.Getenv("CFO_POLL_CHILD"), os.Args[1:]...)
 		child.Dir = os.Getenv("CFO_POLL_CHILD_DIR")
