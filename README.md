@@ -261,7 +261,7 @@ Retrying an unchanged comment keeps its request ID, so a retry cannot deliver th
 ### Supreme Overlord Command Center
 
 <p align="center">
-  <img src="docs/images/command-center.webp" alt="Supreme Overlord Command Center: card 2 of 7 in the stack, a CFO question with A, B and C choices, the recommended option marked, and Other" width="560" />
+  <img src="docs/images/command-center.webp" alt="Supreme Overlord Command Center: card 3 of 3, a goblin's question with A, B and C choices, the recommended option marked, and Other; Back, 3 of 3 and Next sit on the left of the card's action row and Send decision on the right" width="560" />
 </p>
 
 When the CFO needs a decision only you can make, it publishes the question with `cfo question` and the Command Center opens as a modal.
@@ -273,9 +273,10 @@ Other items, a plain link included, are answered in writing with **Send answer**
 A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Download**, and **Open** when the browser can show it or it has a link; opening or downloading it moves it to History.
 A new review item or command appears in a banner at the bottom right for a few seconds and stays under the badge, and the browser tab's title counts what is waiting on you.
 A goblin's item closes by itself once nobody waits on it: a wait when the goblin reports again or the CFO answers it, any item but a delivered document when its goblin finishes or is cleaned up, and the CFO can clear a stale one with a reason.
-Several items stack up one card at a time, the CFO's first and then goblins by longest wait, with **Back** and **Next** on the left, swipe, and **Later** on the right; each card sends its own answer, and **Later** moves on without answering.
-After you send, the card reads Sending until the answer arrives, then a check draws with **CFO received** or **Delivered to** the goblin, and the next open item follows by itself; the last one ends on **You're all done** and the Command Center closes.
-An answer that could not be delivered stays on its card with what went wrong.
+Several items stack up one card at a time, the CFO's first and then goblins by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Next** on the left and its answer on the right, and you can swipe; closing keeps every item for later.
+The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done** and the Command Center closes.
+An answer the board refused comes back on its card with what went wrong, and **Retry** sends it again.
+An answer whose delivery failed or went unconfirmed comes back on its card with its warning.
 Clicking outside the Command Center, or outside its inbox, closes it.
 Nothing is preselected, drafts are kept, and the **Command Center** icon in the header, whose badge counts what is waiting on you, opens an inbox of what is waiting on you, the live pages (review pages and browser walkthroughs) and a History of what you answered, cleared or ran.
 A goblin waiting on you offers **Answer** in its panel, which opens the stack at its item.

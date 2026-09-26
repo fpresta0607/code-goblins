@@ -293,7 +293,7 @@ Environment values, full process environments, dotenv, auth scripts, MCP command
 
 These rules hold for every board surface, and new work follows them.
 Recurring tool actions (open in VS Code, open folder, open pull request, refresh, zoom, fit, arrange, close, reconnect) are icon buttons, each naming itself with an accessible label and a tooltip on hover and keyboard focus.
-Decisions and one-off commands keep a short word, for example Send decision, Later or Show the next 300 lines.
+Decisions and one-off commands keep a short word, for example Send decision, Retry or Show the next 300 lines.
 Every connector, MCP server, credential, harness and model provider shows a mark beside its name: the brand's mark from Simple Icons where one exists, a plain glyph where the owner withholds its mark, the Model Context Protocol mark for an unknown MCP server and a key for an unknown credential.
 Delivery reads as a mark: one check once the supervisor accepted it, two checks once delivered; only a failed or unconfirmed delivery is spelled out, with what to check before sending again.
 An answer to a question or on a review item, to a goblin or to a CFO in Herdr that is working when it arrives, such as one inside a long tool call, waits in its input until that turn ends, and the turn moves none of Herdr's counters, so the board counts it delivered once Herdr submitted it; anything else sent to a working agent, such as a `cfo send` steer, a `cfo answer`, a run result or a review request, still reads unconfirmed.
@@ -320,10 +320,11 @@ The inbox and history list each question on at most two lines, with the marks dr
 No choice is preselected and written text is sent only when Other is selected.
 Use a new stable ID for a new question, and keep the same ID/content for an uncertain publication retry.
 The publisher walks up to 32 process ancestors and verifies the registered CFO PID, creation time and live native identity; a worker cannot escalate on the CFO's behalf.
-The Command Center shows one item at a time as a stack, a question, a review item or a run item, the CFO's own items first and then goblins by longest wait, with its position, Back and Next buttons on the left of the footer, Later on the right, and a horizontal swipe on touch screens; the rest of the stack peeks above the card as one clean edge.
-Each card sends only its own answer, and Later moves to the next item without answering.
-Once the Overlord sends from a card, an answer, a review answer or a Clear, the card reads Sending until its action is delivered, then a check draws with CFO received, Delivered to <goblin>, Sent to the goblin or the CFO, or Cleared, and about a second later the next open item follows, passing over any sent in this sitting; with nothing left it shows You're all done and the Command Center closes.
-A failed or unconfirmed delivery keeps the card on screen with its warning, and a run card stays to show the command's result.
+The Command Center shows one item at a time as a stack, a question, a review item or a run item, the CFO's own items first and then goblins by longest wait, and a horizontal swipe on touch screens moves between them; the rest of the stack peeks above the card as one clean edge.
+A card's own action row holds everything: Back, its place such as 2 of 4, and Next on the left while more than one item waits, and its answer on the right; closing keeps every item for later.
+Each card sends only its own answer.
+The moment the Overlord sends from a card, an answer, a review answer or a Clear, its check draws with Sent (or Opened, Downloaded or Cleared) and three quarters of a second later the next open item follows, passing over any sent in this sitting, while the action is delivered in the background; CFO received or Delivered to <goblin> joins the check if delivery lands while it shows, and with nothing left it shows You're all done and the Command Center closes.
+A request the board refuses, or a delivery that fails or goes unconfirmed, brings its card back, opening the Command Center if it was closed, with what went wrong, and a refused request can be sent again with Retry under the same request identity; a run card stays to show the command's result.
 A click on the dimmed board outside the card closes the Command Center, and a click anywhere outside the open inbox closes the inbox.
 A card answered elsewhere while on screen, such as with `cfo answer`, keeps its place until the Overlord moves on: it shows its delivery marks, or once closed a check on the chosen option, the other options dimmed and Answered by you or Answered by the CFO with the time.
 Drafts survive closing, reconnecting and moving between cards, and the header button, whose badge counts what waits on the Overlord, opens an inbox of those items, the live pages (review pages and browser walkthroughs) and a history of what he answered, cleared or ran, newest first by when each closed.
