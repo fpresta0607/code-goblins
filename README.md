@@ -267,9 +267,9 @@ Choices are labelled A, B and C with the CFO's recommendation marked, and **Othe
 Review items share the stack: a goblin's image review, a review page, or a goblin waiting on you.
 A review page shows as a preview you click to open it (**Open review**); a page the board watches is answered on the page itself, and its card finishes when you send or end the review there.
 Other items, a plain link included, are answered in writing with **Send answer**, and any item closes with **Clear**.
-A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Open** and **Download**; opening or downloading it moves it to History.
+A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Download**, and **Open** when the browser can show it or it has a link; opening or downloading it moves it to History.
 A new review item or command appears in a banner at the bottom right for a few seconds and stays under the badge, and the browser tab's title counts what is waiting on you.
-A goblin's item closes by itself once nobody waits on it: a wait when the goblin reports again or the CFO answers it, any item when its goblin finishes or is cleaned up, and the CFO can clear a stale one with a reason.
+A goblin's item closes by itself once nobody waits on it: a wait when the goblin reports again or the CFO answers it, any item but a delivered document when its goblin finishes or is cleaned up, and the CFO can clear a stale one with a reason.
 Several items stack up one card at a time, the CFO's first and then goblins by longest wait, with **Back** and **Next** on the left, swipe, and **Later** on the right; each card sends its own answer, and **Later** moves on without answering.
 After you send, the card reads Sending until the answer arrives, then a check draws with **CFO received** or **Delivered to** the goblin, and the next open item follows by itself; the last one ends on **You're all done** and the Command Center closes.
 An answer that could not be delivered stays on its card with what went wrong.
