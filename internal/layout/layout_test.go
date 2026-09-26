@@ -65,7 +65,7 @@ func headings(t *testing.T, path string) []string {
 	return found
 }
 
-var laidOut = []string{Marker, "archive", "archive/finished", "archive/parked", Backlog, "projects"}
+var laidOut = []string{Marker, "archive", "archive/finished", "archive/parked", Backlog, "memory", MemoryIndex, "projects"}
 
 func TestEnsureLaysOutANewHome(t *testing.T) {
 	cases := map[string]func(t *testing.T, data string){

@@ -19,7 +19,7 @@ import (
 
 func TestPrimaryContextRoutesUserDecisionsThroughExplicitQuestions(t *testing.T) {
 	var out bytes.Buffer
-	writeSupervisionInstructions(&werr{w: &out})
+	writeSupervisionInstructions(`C:\home\data`, &werr{w: &out})
 	for _, want := range []string{"cfo question --id", "--recommend", "Claude", "Codex", "Pi", "native prompt", "same CFO"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("primary context omitted %q", want)
@@ -220,6 +220,52 @@ Priority note the CFO wrote above the rows.
 		if strings.Contains(fleet, unwanted) {
 			t.Errorf("FLEET STATE lists %q, which is not a queued row:\n%s", unwanted, fleet)
 		}
+	}
+}
+
+// The CFO's memory lives in the home, so a CFO in any harness sees the same
+// facts: the digest prints the index in full and points at the folder, and a
+// fact's own file loads only when its index line makes it relevant.
+func TestComposePrintsTheHomeMemoryIndexAndPointsEveryHarnessAtIt(t *testing.T) {
+	h := newDigestHome(t)
+	memory := filepath.Join(h.Data, "memory")
+	if err := os.MkdirAll(memory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	index := "# Memory index\n\n- [Gate needs a scratch home](gate-needs-a-scratch-home.md) - unset CFO_HOME for fixtures\n"
+	if err := os.WriteFile(filepath.Join(memory, "MEMORY.md"), []byte(index), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(memory, "gate-needs-a-scratch-home.md"), []byte("the body of one fact\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.Data, "overlord.md"), []byte("a standing directive\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := Compose(h, os.Getpid(), "s1", &buf); err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	out := buf.String()
+	context := out[strings.Index(out, "== CONTEXT =="):strings.Index(out, "== NEXT STEP ==")]
+	supervision := out[strings.Index(out, "== SUPERVISION OPERATING INSTRUCTIONS =="):strings.Index(out, "== READ-ONCE CONTRACT ==")]
+
+	for _, want := range []string{"a standing directive", "- [Gate needs a scratch home](gate-needs-a-scratch-home.md) - unset CFO_HOME for fixtures"} {
+		if !strings.Contains(context, want) {
+			t.Errorf("CONTEXT omits %q:\n%s", want, context)
+		}
+	}
+	if strings.Contains(out, "the body of one fact") {
+		t.Errorf("the digest printed a fact's own file; only the index loads every session:\n%s", context)
+	}
+	for _, want := range []string{memory, "MEMORY.md", "one file", "harness"} {
+		if !strings.Contains(supervision, want) {
+			t.Errorf("SUPERVISION does not point the CFO at its home memory (missing %q):\n%s", want, supervision)
+		}
+	}
+	if !strings.Contains(out, `data\memory\MEMORY.md in full`) {
+		t.Errorf("READ-ONCE CONTRACT does not name the memory index as printed:\n%s", out)
 	}
 }
 
