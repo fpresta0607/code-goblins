@@ -230,6 +230,8 @@ func (p *HerdrProber) inspect(ctx context.Context, snapshot herdr.SessionSnapsho
 	sample.StateChangeSeq = agent.StateChangeSeq
 	sample.Revision = agent.Revision
 	sample.CountersUnavailable = countersUnavailable
+	sample.Harness = agent.Agent
+	sample.Session = agent.Session.Value
 
 	capture, err := p.Client.CaptureEvidence(ctx, sample.Endpoint.Target)
 	if err != nil {

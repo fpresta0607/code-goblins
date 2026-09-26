@@ -95,7 +95,7 @@ func JobProcesses(holderPID int) ([]Entry, error) {
 			continue
 		}
 		for _, id := range ids {
-			start, alive := processStart(int(id))
+			start, alive := StartTime(int(id))
 			if seen[id] || !alive {
 				continue
 			}

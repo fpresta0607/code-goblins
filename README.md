@@ -93,6 +93,7 @@ Projects declare the services they need. `cfo auth` probes them before dispatch,
 ### Recovery instead of babysitting
 
 `cfo watch`, hooks, `cfo reap`, durable wake events, harness health, and explicit task states are designed around unattended operation. The system detects work that needs intervention and wakes the CFO instead of making the user stare at terminals.
+A goblin is judged stalled by evidence rather than by how long its turn has run: its harness's transcript writes and the processor use of the processes its harness started, so a long refactor, a long test run, or a goblin waiting on its own background job or monitor stays quiet, and the CFO hears about it once that evidence stops.
 
 ## Quick start
 
@@ -100,12 +101,14 @@ Projects declare the services they need. `cfo auth` probes them before dispatch,
 
 There are two ways in.
 
-To use Code Goblins, run this in any PowerShell window, then type `goblins`; it needs no clone and no Go:
+To use Code Goblins, run this one line in any PowerShell window; it needs no clone and no Go:
 
 ```powershell
-irm https://raw.githubusercontent.com/fpresta0607/code-goblins/main/install.ps1 | iex
-goblins
+irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install.ps1 | iex
 ```
+
+It ends by opening the board in your browser, and `goblins` works in that same window at once.
+Code Goblins in the Start menu opens the board again at any time.
 
 To work on Code Goblins itself, clone it and install from the clone, which needs Go:
 
@@ -115,8 +118,10 @@ cd code-goblins
 .\install.cmd -Dev
 ```
 
-Both put `cfo` and `goblins` on your PATH, install the tools, skills and hooks the fleet needs, and end with `goblins doctor`; run either again at any time to update.
-Your data lives in the CFO home, `%LOCALAPPDATA%\CodeGoblins` for the one-line install and the clone itself for `-Dev`, outside every project repository, and `goblins uninstall` keeps it.
+Both put `cfo` and `goblins` on your PATH, install the tools, skills and hooks the fleet needs, add Code Goblins to the Start menu, run `goblins doctor` and open the board; run either again at any time to update.
+
+Your data lives in the CFO home on your machine, `%LOCALAPPDATA%\CodeGoblins` for the one-line install and the clone itself for `-Dev`, outside every project repository and kept by `goblins uninstall`.
+It needs no backup repository: backing it up is only your own choice, and [Your data](#your-data) shows what is in it.
 [docs/install.md](docs/install.md) has the details: what each step does, what it needs, and the projects folder.
 
 ### Everyday commands
@@ -149,7 +154,7 @@ In an attached terminal every key goes to the CFO, Ctrl-C included, and Ctrl-] l
 `goblins status` prints the board's link, the same status line and the supervisor's pid, and exits 1 when no supervisor runs, so a script can test for one.
 `goblins stop` asks the supervisor to stop, as Ctrl-C would, whichever way it was started, and waits up to 30 seconds for it to finish.
 `goblins stop --force` ends the supervisor and everything it started instead, for one that does not stop when asked.
-`goblins uninstall` removes the hooks, the board's native hooks and the environment the install set, and keeps the home folder, with its state and data, until you delete it.
+`goblins uninstall` removes the hooks, the board's native hooks, the environment and the Start-menu shortcut the install set, and keeps the home folder, with its state and data, until you delete it.
 
 ### Start the CFO
 

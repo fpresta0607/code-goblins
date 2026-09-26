@@ -362,6 +362,51 @@ func TestUninstallRemovesTheBoardNativeHooks(t *testing.T) {
 	}
 }
 
+// Uninstall removes the Code Goblins shortcut the install script put in the
+// Start menu, and leaves the rest of the Start menu alone.
+func TestUninstallRemovesTheStartMenuShortcut(t *testing.T) {
+	f := newFixture(t, adopterSettings, nil)
+	programs := t.TempDir()
+	shortcut := filepath.Join(programs, "Code Goblins.lnk")
+	other := filepath.Join(programs, "Another program.lnk")
+	for _, path := range []string{shortcut, other} {
+		if err := os.WriteFile(path, []byte("shortcut"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.service.StartMenuShortcut = shortcut
+	f.install()
+
+	output := f.uninstall()
+
+	if !strings.Contains(output, "removed "+shortcut) {
+		t.Errorf("the uninstall output does not report the shortcut removed:\n%s", output)
+	}
+	if _, err := os.Stat(shortcut); !os.IsNotExist(err) {
+		t.Errorf("%s survived the uninstall: %v", shortcut, err)
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Errorf("the uninstall removed another program's shortcut: %v", err)
+	}
+	if output := f.uninstall(); !strings.Contains(output, "nothing to remove") || !strings.Contains(output, "no shortcut at "+shortcut) {
+		t.Errorf("a second uninstall found more to remove:\n%s", output)
+	}
+}
+
+// The script and the uninstall agree on where the shortcut lives: the
+// Start-menu programs under APPDATA, and nowhere when APPDATA is not set.
+func TestStartMenuShortcutPathFollowsAppData(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	if got, want := StartMenuShortcutPath(), filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "Code Goblins.lnk"); got != want {
+		t.Errorf("StartMenuShortcutPath() = %q, want %q", got, want)
+	}
+	t.Setenv("APPDATA", "")
+	if got := StartMenuShortcutPath(); got != "" {
+		t.Errorf("StartMenuShortcutPath() with no APPDATA = %q, want none", got)
+	}
+}
+
 func TestUninstallRefusingAMalformedNativeHooksFileLeavesTheEnvironmentForARerun(t *testing.T) {
 	f := newFixture(t, adopterSettings, map[string]string{"Path": `C:\Windows`})
 	codex := t.TempDir()
