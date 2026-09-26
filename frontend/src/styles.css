@@ -111,6 +111,18 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .workspace.with-pane:has(.changes-section[open]) { grid-template-columns: minmax(290px, .9fr) 10px minmax(0, 1.1fr); }
 .canvas-region { container-type: inline-size; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: auto; border: 1px solid var(--edge); border-radius: 18px; box-shadow: inset 0 2px 18px #0009; background: linear-gradient(#07101565, #07101565), url('/assets/goblin-workshop.png') right bottom / cover; position: relative; }
 .task-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; min-height: 100%; padding: 28px 24px; }
+/* The CFO pinned above the columns opens its terminal, and is the one place
+   on the board that says Waiting on you. */
+.task-board:has(> .cfo-pin) { grid-template-rows: auto 1fr; }
+.cfo-pin { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 10px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 16px; background: #0f1820e6; box-shadow: var(--shadow-1); }
+.cfo-pin .goblin-avatar { flex: none; width: 44px; height: 44px; }
+.cfo-pin .pin-copy { display: grid; flex: 1; min-width: 0; }
+.cfo-pin .pin-copy strong { font-weight: 700; }
+.cfo-pin .pin-copy span { overflow: hidden; color: var(--muted); font-size: .9375rem; text-overflow: ellipsis; white-space: nowrap; }
+.cfo-pin.asking { border-left: 3px solid var(--amber); padding-left: 8px; }
+.cfo-pin.asking .pin-copy span { color: #f6d79e; }
+.cfo-pin .open-terminal { display: inline-flex; flex: none; align-items: center; gap: 8px; white-space: nowrap; }
+.cfo-pin .open-terminal .icon { width: 18px; height: 18px; }
 .board-column { min-width: 0; padding: 20px 14px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; background: #0f1820d9; box-shadow: var(--shadow-1); backdrop-filter: blur(6px); }
 .board-column h2 { display: flex; gap: 10px; align-items: center; font-size: 1.375rem; margin: 0 0 20px; }
 .column-count { font-family: var(--font-body); color: var(--muted); font-size: .9375rem; font-weight: 700; padding: 0 9px; border: 1px solid var(--edge); border-radius: 999px; background: #0a1218; }

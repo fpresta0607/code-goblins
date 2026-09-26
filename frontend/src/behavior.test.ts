@@ -321,7 +321,7 @@ test("a goblin waiting on a question says who it is waiting on", () => {
   assert.equal(asksOverlord(snapshot, "asks"), true);
   assert.equal(asksOverlord(snapshot, "stuck"), false, "an answered question no longer waits on the Overlord");
   assert.equal(asksOverlord(snapshot, ""), false, "the CFO's own question belongs to no goblin");
-  assert.equal(nodeStatus({id:"a", title:"", task:asks, relation:""}, true), "Waiting on you");
+  assert.equal(nodeStatus({id:"a", title:"", task:asks, relation:""}, true), "Waiting on the CFO", "a goblin's question reaches the Overlord through the CFO");
   assert.equal(nodeStatus({id:"c", title:"", task:cfo, relation:""}), "Waiting on the CFO");
   assert.equal(nodeStatus({id:"s", title:"", task:stuck, relation:""}), "Failed");
 });
@@ -413,10 +413,12 @@ test("a waiting goblin says what it waits on, and only a wait on the Overlord re
     { id: "older", phase: "working", verified: false, waiting_on: undefined },
   ] });
   const status = (id: string) => { const task = snapshot.tasks.find((candidate) => candidate.id === id)!; return nodeStatus({ id, title: "", task, relation: "" }, asksOverlord(snapshot, id)); };
-  const cases: [string, string][] = [["billing", "Waiting on board-ui"], ["ship", "Waiting on CI"], ["release", "Waiting on deploy"], ["deploy", "Waiting on deploy"], ["ask", "Waiting on you"],
+  const cases: [string, string][] = [["billing", "Waiting on board-ui"], ["ship", "Waiting on CI"], ["release", "Waiting on deploy"], ["deploy", "Waiting on deploy"], ["ask", "Waiting on the CFO"],
     ["gone", "Waiting on retired-task"], ["gate", "In review gate: tests"], ["gate-ci", "In review gate: CI"],
     ["gate-review", "In review gate: code review"], ["gate-lint", "In review gate: lint"], ["gate-push", "In review gate: push"], ["gate-new", "In review gate"], ["gate-unknown", "In review gate"], ["older", "Working"]];
   for (const [id, label] of cases) assert.equal(status(id), label, id);
+  const ask = snapshot.tasks.find((task) => task.id === "ask")!;
+  assert.equal(nodeStatus({ id: "ask", title: "", task: ask, relation: "" }), "Waiting on the CFO", "a wait on the Overlord goes through the CFO even when no caller says it asks");
   assert.equal(asksOverlord(snapshot, "ask"), true);
   for (const id of ["billing", "ship", "release", "deploy", "gone"]) assert.equal(asksOverlord(snapshot, id), false, id);
   assert.equal(waitingTarget(snapshot, snapshot.tasks[0])?.id, "board-ui");

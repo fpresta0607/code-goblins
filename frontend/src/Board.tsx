@@ -1,15 +1,18 @@
 import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
+import { CfoPin } from "./CfoPin";
 import { asksOverlord, nodeStatus, personaFor, pullRequestLabel, safePullRequest, taskColumn, waitingTarget } from "./workflow";
 
-export function Board({ snapshot, selected, onSelect, onTerminal, presentations }: {
+export function Board({ snapshot, selected, onSelect, onTerminal, onOpenCfo, presentations }: {
   presentations:BoardActivity[];
   snapshot: Snapshot; selected?: string;
   onSelect: (task: Task, source: HTMLElement) => void;
   onTerminal: (task: Task, source: HTMLElement) => void;
+  onOpenCfo: (source: HTMLElement) => void;
 }) {
   return <section className="task-board" aria-label="Task board">
+    <CfoPin snapshot={snapshot} onOpen={onOpenCfo} />
     {(["Tasks", "In progress", "Completed"] as const).map((column) => {
       const tasks = snapshot.tasks.filter((task) => taskColumn(task) === column);
       return <section key={column} className="board-column" aria-label={column}>
@@ -20,7 +23,7 @@ export function Board({ snapshot, selected, onSelect, onTerminal, presentations 
             const content = <>
               <Avatar persona={personaFor(task)} />
               <span className="card-copy">{presentations.some(event=>event.task_id===task.id) && <span className="browser-indicator">Browser active</span>}<strong>{task.title || task.id}</strong>{task.project && <span className="project-label">{task.project}</span>}
-                <span className={"plain-status phase-" + task.phase + (asking ? " asking" : "")}><span className="status-dot" />{nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking)}</span>
+                <span className={"plain-status phase-" + task.phase}><span className="status-dot" />{nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking)}</span>
                 {task.activity && <span className="card-activity" title={task.activity}>{task.activity}</span>}
               </span>
             </>;
