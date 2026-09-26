@@ -71,6 +71,60 @@ func TestATaskDiffBaseCutOffByItsDeadlineSaysSo(t *testing.T) {
 	}
 }
 
+// A retained base is checked with merge-base --is-ancestor, whose exit code 1
+// means "not an ancestor" and is also what a git killed at its deadline exits
+// with on Windows, so the check cut off by its deadline reports the deadline
+// and only merge-base's own answer says the commit is not in the history.
+func TestARetainedBaseCutOffByItsDeadlineSaysSo(t *testing.T) {
+	dir := gitFixture(t)
+	retained := gitOutput(t, dir, "rev-parse", "HEAD~1")
+	before, cancel := context.WithTimeout(context.Background(), 0)
+	defer cancel()
+
+	_, beforeErr := (Git{Base: retained}).base(before, dir)
+
+	if !errors.Is(beforeErr, context.DeadlineExceeded) || strings.Contains(fmt.Sprint(beforeErr), "not in this task's history") {
+		t.Errorf("retained base past its deadline = %v, want the deadline reported", beforeErr)
+	}
+
+	t.Run("killed at its deadline", func(t *testing.T) {
+		program, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		bin := t.TempDir()
+		copyExecutable(t, program, filepath.Join(bin, "git.exe"))
+		t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+		if found, err := exec.LookPath("git"); err != nil || !strings.EqualFold(found, filepath.Join(bin, "git.exe")) {
+			t.Fatalf("git resolves to %q, %v; want the stand-in", found, err)
+		}
+		during, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+
+		_, err = (Git{Base: retained}).base(during, dir)
+
+		if !errors.Is(err, context.DeadlineExceeded) || strings.Contains(fmt.Sprint(err), "not in this task's history") {
+			t.Errorf("retained base whose git was killed at its deadline = %v, want the deadline reported", err)
+		}
+	})
+
+	unrelated := gitOutput(t, dir, "commit-tree", "HEAD^{tree}", "-m", "Unrelated root")
+	if _, err := (Git{Base: unrelated}).base(context.Background(), dir); err == nil || !strings.Contains(err.Error(), "not in this task's history") {
+		t.Errorf("retained base that is not an ancestor = %v, want it named", err)
+	}
+}
+
+func gitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
 func copyExecutable(t *testing.T, from, to string) {
 	t.Helper()
 	source, err := os.Open(from)

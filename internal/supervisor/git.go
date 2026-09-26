@@ -123,10 +123,11 @@ func (g Git) validateRevision(ctx context.Context, dir, revision string) error {
 		return errors.New("revision must be a full commit ID")
 	}
 	_, err := g.run(ctx, dir, "merge-base", "--is-ancestor", revision, "HEAD")
-	if err != nil {
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 {
 		return errors.New("commit is not in this task's history")
 	}
-	return nil
+	return err
 }
 
 func (g Git) Head(ctx context.Context, dir string) (string, error) {
