@@ -569,20 +569,9 @@ func (s *Store) acceptReview(r Review) error {
 			return nil
 		}
 		if len(s.db.Reviews) >= maxReviews {
-			closed := -1
-			for j, old := range s.db.Reviews {
-				if old.State == "open" || s.answering(old) {
-					continue
-				}
-				isHeld, err := s.holdsWait(old)
-				if err != nil {
-					return err
-				}
-				if !isHeld {
-					closed = j
-					break
-				}
-			}
+			closed := slices.IndexFunc(s.db.Reviews, func(old Review) bool {
+				return old.State != "open" && !s.answering(old) && !s.holdsWait(old)
+			})
 			if closed < 0 {
 				return ErrDeferred
 			}
@@ -678,22 +667,24 @@ func (s *Store) answering(r Review) bool {
 // holdsWait reports whether a closed item is the wait on the Overlord its
 // goblin still stands on. The board reads the goblin past that wait only while
 // the item is listed, so it stays until the goblin reports anything newer or
-// its task is gone.
-func (s *Store) holdsWait(r Review) (bool, error) {
-	if r.Task == "" {
-		return false, nil
+// its task is gone. Only a wait item reads its task's files; one whose task
+// cannot be read is kept for this pass, the safe side, since the hold is one
+// item per task and the next pass checks it again.
+func (s *Store) holdsWait(r Review) bool {
+	if r.State == "open" || r.Task == "" || !strings.HasPrefix(r.ID, "waiting-"+r.Task+"-") {
+		return false
 	}
 	if _, err := state.ReadTaskMeta(s.Home.State, r.Task); errors.Is(err, fs.ErrNotExist) {
-		return false, nil
+		return false
 	} else if err != nil {
-		return false, err
+		return true
 	}
 	lines, err := state.TailStatus(s.Home.State, r.Task, 50)
 	if err != nil {
-		return false, err
+		return true
 	}
 	reportedAt, report := latestReport(lines, time.Time{})
-	return waitStands(r, reportedAt, report), nil
+	return waitStands(r, reportedAt, report)
 }
 
 // waitStands reports whether item r is a goblin's wait on the Overlord and the
@@ -711,15 +702,9 @@ func (s *Store) pruneReviews(now time.Time) error {
 	kept := make([]Review, 0, len(s.db.Reviews))
 	var removed []Review
 	for _, r := range s.db.Reviews {
-		if r.State != "open" && !s.answering(r) && now.Sub(r.UpdatedAt) > closedReviewRetention {
-			isHeld, err := s.holdsWait(r)
-			if err != nil {
-				return err
-			}
-			if !isHeld {
-				removed = append(removed, r)
-				continue
-			}
+		if r.State != "open" && !s.answering(r) && now.Sub(r.UpdatedAt) > closedReviewRetention && !s.holdsWait(r) {
+			removed = append(removed, r)
+			continue
 		}
 		kept = append(kept, r)
 	}

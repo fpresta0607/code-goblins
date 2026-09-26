@@ -242,6 +242,51 @@ func TestEvictionSparesAWaitItemItsGoblinStillStandsOn(t *testing.T) {
 	}
 }
 
+// A task whose status cannot be read never fails a publication or a prune:
+// its closed item that is not a wait is evicted and pruned as usual, and its
+// wait item is kept for the pass.
+func TestAnUnreadableStatusNeitherFailsEvictionNorReleasesAWait(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	if err := os.MkdirAll(filepath.Join(h.State, "task-1.status"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	wait, other, closed := openReview("waiting-task-1-7", "task-1"), openReview("other-review", "task-1"), openReview("closed-review", "task-1")
+	for _, r := range []Review{wait, other, closed} {
+		if err := store.acceptReview(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().UTC().Add(-closedReviewRetention - time.Hour)
+	store.mu.Lock()
+	store.db.Reviews[0].State, store.db.Reviews[0].Answer, store.db.Reviews[0].AnswerID, store.db.Reviews[0].Delivered = "answered", "use the blue plan", "action-1", true
+	store.db.Reviews[1].State, store.db.Reviews[1].UpdatedAt = "cleared", old
+	store.db.Reviews[2].State, store.db.Reviews[2].UpdatedAt = "cleared", old
+	store.mu.Unlock()
+	for i := len(store.Snapshot().Reviews); i < maxReviews; i++ {
+		if err := store.acceptReview(openReview(fmt.Sprintf("bulk-review-%03d", i), "task-1")); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	acceptErr := store.acceptReview(openReview("one-more-review", "task-1"))
+	store.mu.Lock()
+	store.db.Reviews[0].UpdatedAt = old
+	store.mu.Unlock()
+	pruneErr := store.pruneReviews(time.Now())
+
+	// Assert
+	if acceptErr != nil || pruneErr != nil {
+		t.Fatalf("publication = %v and prune = %v, want both to succeed", acceptErr, pruneErr)
+	}
+	reviews := store.Snapshot().Reviews
+	isKept := func(id string) bool { return slices.ContainsFunc(reviews, func(r Review) bool { return r.ID == id }) }
+	if !isKept(wait.ID) || isKept(other.ID) || isKept(closed.ID) || !isKept("one-more-review") {
+		t.Fatalf("kept: wait %v, evicted item %v, pruned item %v, new item %v; want only the wait and the new item kept", isKept(wait.ID), isKept(other.ID), isKept(closed.ID), isKept("one-more-review"))
+	}
+}
+
 // A withdrawal of a publication still waiting in the inbox waits with it
 // instead of being rejected.
 func TestReviewWithdrawalWaitsForItsDeferredPublication(t *testing.T) {
