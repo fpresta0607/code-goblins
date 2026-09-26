@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { Action, BoardActivity, Question, Snapshot } from "./types";
 import { deliveryMark, type Submission } from "./feedback";
 import { Avatar } from "./Avatar";
@@ -14,9 +14,9 @@ export const EMPTY_DRAFT: Draft = { selection: "", written: "", submission: null
 
 // One question: who asks and how long they have waited, the choices with the
 // recommendation first, Other for a written answer, and its own Send.
-export function QuestionCard({ question, snapshot, connected, draft, review, onDraft, onSend, onImage }: {
+export function QuestionCard({ question, snapshot, connected, draft, review, onDraft, onSend, onImage, pager }: {
   question: Question; snapshot: Snapshot; connected: boolean; draft: Draft; review?: BoardActivity;
-  onDraft: (changes: Partial<Draft>) => void; onSend: () => void; onImage: (index: number) => void;
+  onDraft: (changes: Partial<Draft>) => void; onSend: () => void; onImage: (index: number) => void; pager?: ReactNode;
 }) {
   const outcome = draft.submission ? snapshot.actions.find((action) => action.id === draft.submission?.id) || draft.receipt : undefined;
   const pending = question.status === "pending" && !outcome;
@@ -58,7 +58,8 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
       : closed ? <p className="question-outcome answered-by" role="status">{answeredBy(question)}{question.answered_at && " · " + age(question.answered_at)}</p>
         : settled !== "pending" && <p className={"question-outcome delivery " + settled} role="status"><Icon name={outcomeIcon(settled)} />{answeredLabel(question)}</p>}
     <div className="card-actions">
-      {pending && <button className="primary send-decision" type="submit" disabled={!connected || !payload || draft.sending}><Icon name={draft.sending ? "clock" : "send"} />{draft.sending ? "Sending" : "Send decision"}</button>}
+      {pager}
+      {pending && <button className="primary send-decision" type="submit" disabled={!connected || !payload || draft.sending}><Icon name={draft.sending ? "clock" : "send"} />{draft.sending ? "Sending" : draft.error ? "Retry" : "Send decision"}</button>}
     </div>
   </form>;
 }
