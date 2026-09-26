@@ -19,7 +19,6 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
   onDraft: (changes: Partial<Draft>) => void; onSend: () => void; onClear: () => void; onImage: (index: number) => void;
 }) {
   const [missing, setMissing] = useState<Set<string>>(new Set());
-  const [opened, setOpened] = useState(false);
   const outcome = draft.submission ? snapshot.actions.find((action) => action.id === draft.submission?.id) || draft.receipt : undefined;
   const pending = review.state === "open" && !outcome;
   const task = snapshot.tasks.find((candidate) => candidate.id === review.task);
@@ -32,11 +31,11 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
   return <form className="question-card" aria-labelledby={"review-" + review.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
     <p className="asker"><Avatar persona={review.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asks · waiting {age(review.created_at).replace(/ ago$/, "")}</span></p>
     <h3 id={"review-" + review.id} tabIndex={-1}>{review.title}</h3>
-    {review.lavish && <a className="page-preview" href={review.lavish} target="_blank" rel="noreferrer" onClick={() => setOpened(true)} aria-label={"Open review: " + review.title}>
+    {review.lavish && <a className="page-preview" href={review.lavish} target="_blank" rel="noreferrer" aria-label={"Open review: " + review.title}>
       <span className="page-shot" aria-hidden="true"><Icon name="comment" /><strong>{review.title}</strong><span>Review page</span></span>
       <span className="open-overlay"><Icon name="external" />Open review</span>
     </a>}
-    {review.lavish && pending && review.watched && <p className="review-status">{opened ? "Open in a new tab. This card finishes when you send or end the review there." : "Your comments go from the page itself, so there is no text box here."}</p>}
+    {review.lavish && pending && review.watched && <p className="review-status">Answer on the page itself; this card finishes when you send or end the review there.</p>}
     {images.length > 0 && <div className="question-thumbs" aria-label="Images to review">
       {images.map((src, index) => <button type="button" key={src} aria-label={"View image " + (index + 1) + " of " + images.length + " full size"} onClick={() => onImage(index)}>
         {missing.has(src) ? <span className="image-missing"><Icon name="images" /></span> : <img src={src} alt="" onError={() => setMissing((prior) => new Set([...prior, src]))} />}<span>{index + 1}</span>
