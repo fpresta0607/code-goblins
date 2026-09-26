@@ -302,8 +302,6 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// nativeTask is the task a view selected, while that generation is current
-// and its terminal is native.
 // nativeBinding is the terminal a native view shows: a task's, or the
 // registered CFO's. check repeats what opening it proved: it returns an error
 // once the view must close, and custody, the reason typing is held while a
@@ -345,6 +343,8 @@ func (s *Service) nativeBinding(query url.Values) (nativeBinding, error) {
 	}}, nil
 }
 
+// nativeTask is the task a view selected, while that generation is current
+// and its terminal is native.
 func (s *Service) nativeTask(selected terminalSelection) (state.TaskMeta, error) {
 	if state.ValidTaskID(selected.Task) != nil || selected.Generation == "" {
 		return state.TaskMeta{}, errors.New("Select a task's current session to open its terminal.")

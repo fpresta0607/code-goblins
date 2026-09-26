@@ -157,8 +157,6 @@ button.task-card:active, .workflow-node:active { transform: none; box-shadow: va
 .phase-review.plain-status { color: #cfc0f3; }
 .phase-waiting.plain-status { color: #e7d3a3; }
 /* Waiting on the Overlord outranks whatever phase the task is in. */
-.plain-status.asking { color: #f6d79e; }
-.plain-status.asking .status-dot { background: var(--amber); animation: none; }
 @keyframes working { 50% { box-shadow: 0 0 0 5px #4aa3ff22; } }
 .column-empty { color: #8293a1; font-size: .9375rem; padding: 16px 0; }
 .goblin-avatar { display: block; width: 88px; height: 88px; flex: none; background-image: url('/assets/goblin-personas.png'); background-size: 300% 200%; background-repeat: no-repeat; }
