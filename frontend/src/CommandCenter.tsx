@@ -16,6 +16,7 @@ import { ImageGallery } from "./ImageGallery";
 import { Disclosure } from "./Disclosure";
 import { bannerItems, countedTitle } from "./arrivals";
 import { DoneCard } from "./DoneCard";
+import { DocumentCard } from "./DocumentCard";
 
 // A banner for a new item stays this long; the item stays under the badge.
 const BANNER_MS = 8000;
@@ -176,12 +177,13 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
   };
   // Run names the stored item; the browser never sends command text.
   const run = (target: Run) => { if (target.state === "ready") void post("run:" + target.id, { kind: "run", run_id: target.id, generation: target.identity }); };
-  const clear = (target: Review) => void post("review:" + target.id, { kind: "review_clear", review_id: target.id, generation: target.identity });
+  // A document leaves the queue once he opens or downloads it, and says so.
+  const clear = (target: Review, how?: "Opened" | "Downloaded") => void post("review:" + target.id, { kind: "review_clear", review_id: target.id, generation: target.identity, ...(how ? { text: how } : {}) });
   const taskOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.task : candidate.kind === "review" ? candidate.review.task : "";
   const askerOf = (candidate: Item) => taskOf(candidate) ? snapshot.tasks.find((task) => task.id === taskOf(candidate))?.title || taskOf(candidate) : "The CFO";
   const textOf = (candidate: Item) => candidate.kind === "question" ? plainMessage(candidate.question.text) : candidate.kind === "review" ? candidate.review.title : candidate.run.title;
   const created = (candidate: Item) => candidate.kind === "question" ? candidate.question.created_at : candidate.kind === "review" ? candidate.review.created_at : candidate.run.created_at;
-  const iconOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.image_count ? "images" : "question" : candidate.kind === "review" ? candidate.review.image_count ? "images" : "comment" : "play";
+  const iconOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.image_count ? "images" : "question" : candidate.kind === "review" ? candidate.review.document ? "file" : candidate.review.image_count ? "images" : "comment" : "play";
   const pageFor = (candidate: Question) => questionPage(presentations, candidate);
   const images = !item || item.kind === "run" ? [] : item.kind === "question"
     ? questionChoices(item.question).filter((choice) => choice.image).map((choice) => ({ src: choice.image, label: choice.label, value: choice.value, text: choice.text }))
@@ -253,13 +255,15 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
               ? <div className="done-card" role="status"><Avatar persona="cfo" /><h3>You're all done</h3><p>Nothing else is waiting on you.</p></div>
               : finishing && outcome
               ? <DoneCard key={item.key} delivered={!!delivered}
-                heading={outcome.kind === "review_clear" ? delivered ? "Cleared" : "Clearing" : delivered ? "Sent" : "Sending"}
-                label={delivered && outcome.kind !== "review_clear" ? mark?.label || "" : ""} />
+                heading={outcome.kind === "review_clear" ? delivered ? outcome.text || "Cleared" : "Clearing" : delivered ? "Sent" : "Sending"}
+                label={!delivered ? "" : outcome.kind !== "review_clear" ? mark?.label || "" : outcome.text ? "It moves to your history." : ""} />
               : item.kind === "question"
               ? <QuestionCard key={item.key} question={item.question} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT} review={pageFor(item.question)}
                 onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onImage={setGallery} />
               : item.kind === "run"
               ? <RunCard key={item.key} run={item.run} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} />
+              : item.review.document
+              ? <DocumentCard key={item.key} review={item.review} document={item.review.document} snapshot={snapshot} connected={connected} onOpened={(how) => clear(item.review, how)} onClear={() => clear(item.review)} />
               : <ReviewCard key={item.key} review={item.review} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT}
                 onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onClear={() => clear(item.review)} onImage={setGallery} />}
           </div>}

@@ -59,9 +59,12 @@ type Review struct {
 	// own, which the supervisor polls for the Overlord's feedback while the
 	// item is open.
 	LavishPage string `json:"lavish_page,omitempty"`
-	State      string `json:"state"`
-	Answer     string `json:"answer,omitempty"`
-	AnswerID   string `json:"answer_id,omitempty"`
+	// Document is a delivered file, copied beside the item's images; an item
+	// with a document carries nothing else to look at.
+	Document *ReviewDocument `json:"document,omitempty"`
+	State    string          `json:"state"`
+	Answer   string          `json:"answer,omitempty"`
+	AnswerID string          `json:"answer_id,omitempty"`
 	// Delivered says the answer reached the reporter itself; an answer for
 	// a goblin that restarted or ended goes to the CFO and stays false.
 	Delivered bool      `json:"delivered,omitempty"`
@@ -96,18 +99,29 @@ func validReview(r Review) error {
 			return errors.New("a review's Lavish page must be the absolute path of an HTML page, beside its link")
 		}
 	}
+	if r.Document != nil {
+		if len(r.ImageSums) > 0 || r.Lavish != "" {
+			return errors.New("a document item carries no images or Lavish page")
+		}
+		return validDocument(*r.Document)
+	}
 	return nil
 }
 
 func sameReview(a, b Review) bool {
-	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Lavish == b.Lavish && a.LavishPage == b.LavishPage && slices.Equal(a.ImageSums, b.ImageSums)
+	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Lavish == b.Lavish && a.LavishPage == b.LavishPage && slices.Equal(a.ImageSums, b.ImageSums) &&
+		(a.Document == nil) == (b.Document == nil) && (a.Document == nil || *a.Document == *b.Document)
 }
 
-// reviewImageDir holds one publication's copied images, named by position.
-// Its name is that publication's own digest, so no other record, not even a
-// republish of the same ID, ever names it.
+// reviewImageDir holds one publication's copied images, named by position, or
+// its document. Its name is that publication's own digest, so no other
+// record, not even a republish of the same ID, ever names it.
 func reviewImageDir(stateDir string, r Review) string {
-	sum := sha256.Sum256([]byte(strings.Join([]string{r.ID, r.Identity, strconv.FormatInt(r.CreatedAt.UnixNano(), 10), strings.Join(r.ImageSums, ",")}, "\n")))
+	parts := []string{r.ID, r.Identity, strconv.FormatInt(r.CreatedAt.UnixNano(), 10), strings.Join(r.ImageSums, ",")}
+	if r.Document != nil {
+		parts = append(parts, r.Document.Sum)
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\n")))
 	return filepath.Join(stateDir, "reviews", hex.EncodeToString(sum[:]))
 }
 
@@ -130,16 +144,27 @@ func reviewReporter(ctx context.Context, h home.Home, terminals terminal.Opener,
 // state/reviews before the item is recorded. A page, given only with its
 // link, is polled by the supervisor for his feedback.
 func PublishReview(ctx context.Context, h home.Home, terminals terminal.Opener, taskID, id, title, lavish, page string, images []string) error {
-	identity, release, err := reviewReporter(ctx, h, terminals, taskID)
+	if len(images) > maxReviewImages || len(images) > 0 && taskID == "" {
+		return fmt.Errorf("only a goblin's review takes images, at most %d", maxReviewImages)
+	}
+	return publishItem(ctx, h, terminals, Review{ID: id, Task: taskID, Title: title, Lavish: lavish, LavishPage: page}, func(r *Review, dir string) (bool, error) {
+		sums, err := stageReviewImages(h, taskID, images, dir)
+		r.ImageSums = sums
+		return len(images) > 0, err
+	})
+}
+
+// publishItem records r for its reporter, proven the way reviewReporter does.
+// stage fills in what r copies into dir and says whether it copied anything;
+// the copies move beside the item's record only once the item is new.
+func publishItem(ctx context.Context, h home.Home, terminals terminal.Opener, r Review, stage func(r *Review, dir string) (bool, error)) error {
+	identity, release, err := reviewReporter(ctx, h, terminals, r.Task)
 	if err != nil {
 		return err
 	}
 	defer release()
-	if len(images) > maxReviewImages || len(images) > 0 && taskID == "" {
-		return fmt.Errorf("only a goblin's review takes images, at most %d", maxReviewImages)
-	}
 	now := time.Now().UTC()
-	r := Review{ID: id, Identity: identity, Task: taskID, Title: title, Lavish: lavish, LavishPage: page, State: "open", CreatedAt: now, UpdatedAt: now}
+	r.Identity, r.State, r.CreatedAt, r.UpdatedAt = identity, "open", now, now
 	if err := validReview(r); err != nil {
 		return err
 	}
@@ -156,10 +181,14 @@ func PublishReview(ctx context.Context, h home.Home, terminals terminal.Opener, 
 		return err
 	}
 	defer os.RemoveAll(staged)
-	if r.ImageSums, err = stageReviewImages(h, taskID, images, staged); err != nil {
+	copied, err := stage(&r, staged)
+	if err != nil {
 		return err
 	}
-	prior, found, err := reportedReview(h.State, id)
+	if err := validReview(r); err != nil {
+		return err
+	}
+	prior, found, err := reportedReview(h.State, r.ID)
 	if err != nil {
 		return err
 	}
@@ -169,7 +198,7 @@ func PublishReview(ctx context.Context, h home.Home, terminals terminal.Opener, 
 		}
 		return nil
 	}
-	if len(images) == 0 {
+	if !copied {
 		return spoolReview(h.State, r)
 	}
 	final := reviewImageDir(h.State, r)
@@ -662,9 +691,10 @@ func (s *Store) pruneReviews(now time.Time) error {
 	return err
 }
 
-// clearReview closes an open item the Overlord cleared. Clearing one already
-// closed changes nothing.
-func (s *Store) clearReview(id, identity string) (Evaluation, error) {
+// clearReview closes an open item the Overlord cleared, with how he closed it
+// when he opened or downloaded its document. Clearing one already closed
+// changes nothing.
+func (s *Store) clearReview(id, identity, reason string) (Evaluation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == id && r.Identity == identity })
@@ -674,7 +704,7 @@ func (s *Store) clearReview(id, identity string) (Evaluation, error) {
 	if s.db.Reviews[i].State != "open" {
 		return Evaluation{Reason: "The review was already " + s.db.Reviews[i].State + "."}, nil
 	}
-	s.db.Reviews[i].State, s.db.Reviews[i].UpdatedAt = "cleared", time.Now().UTC()
+	s.db.Reviews[i].State, s.db.Reviews[i].Reason, s.db.Reviews[i].UpdatedAt = "cleared", reason, time.Now().UTC()
 	if err := s.save(); err != nil {
 		return Evaluation{}, err
 	}
@@ -766,6 +796,10 @@ func (s *Store) markReviewDelivered(id, answerID string) error {
 // request.
 func (h *HTTP) reviewImage(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/reviews/"), "/")
+	if len(parts) == 2 && parts[1] == documentFile {
+		h.reviewDocument(w, r, parts[0])
+		return
+	}
 	n, err := -1, error(nil)
 	if len(parts) == 3 && parts[1] == "images" {
 		n, err = strconv.Atoi(parts[2])
@@ -802,10 +836,12 @@ func PublishWait(ctx context.Context, h home.Home, terminals terminal.Opener, ta
 // its task is gone, since a finished or cleaned-up goblin never acts on the
 // answer. A task is gone once its task record is. A goblin's page or images
 // stay while it keeps working, asks or waits, or has not reported yet, because
-// it still wants the Overlord's look.
+// it still wants the Overlord's look. A delivered document is never retired:
+// its copy outlives the goblin, and it leaves the queue only once the Overlord
+// opens, downloads or clears it.
 func (s *Store) retireItems() error {
 	for _, r := range s.Snapshot().Reviews {
-		if r.State != "open" || r.Task == "" {
+		if r.State != "open" || r.Task == "" || r.Document != nil {
 			continue
 		}
 		_, metaErr := state.ReadTaskMeta(s.Home.State, r.Task)

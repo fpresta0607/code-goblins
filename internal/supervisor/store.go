@@ -548,10 +548,12 @@ func (s *Store) queue(a Action) (Action, error) {
 // queueItemAction admits the Overlord answering or clearing one Command
 // Center item: an open review, or a question that closed without an answer.
 // A pending question cannot be cleared, so an unanswered decision is never
-// hidden.
+// hidden. A clear carries text only to say the Overlord opened or downloaded
+// the item's document.
 func (s *Store) queueItemAction(a Action) (Action, error) {
 	answer := a.Kind == "review_answer"
-	if a.Generation == "" || answer && strings.TrimSpace(a.Text) == "" || !answer && a.Text != "" || a.TaskID != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || (a.Kind == "question_clear") != (a.QuestionID != "") || (a.Kind == "review_answer" || a.Kind == "review_clear") != (a.ReviewID != "") || (a.Kind == "run") != (a.RunID != "") {
+	opened := a.Kind == "review_clear" && (a.Text == "Opened" || a.Text == "Downloaded")
+	if a.Generation == "" || answer && strings.TrimSpace(a.Text) == "" || !answer && !opened && a.Text != "" || a.TaskID != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || (a.Kind == "question_clear") != (a.QuestionID != "") || (a.Kind == "review_answer" || a.Kind == "review_clear") != (a.ReviewID != "") || (a.Kind == "run") != (a.RunID != "") {
 		return Action{}, errors.New("an item action names only its item, that item's identity and, for an answer, its text")
 	}
 	review := -1

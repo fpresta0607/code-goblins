@@ -64,9 +64,31 @@ func ReviewImages(h home.Home, taskID string, images []string) ([]string, error)
 // the task records it or in its canonical form. 8.3 short names are expanded
 // on both sides first, since they are the same directory under another name.
 func openReviewImage(roots []string, path string) (*os.File, string, error) {
-	abs, err := fsx.AbsClean(path)
+	f, err := openInside(roots, path)
+	if errors.Is(err, errOutsideRoots) {
+		return nil, "", errors.New("an image must be inside the task's worktree, task scratch or data directory")
+	}
 	if err != nil {
 		return nil, "", err
+	}
+	kind, err := sniffReviewImage(f)
+	if err != nil {
+		f.Close()
+		return nil, "", err
+	}
+	return f, kind, nil
+}
+
+// errOutsideRoots is a path under none of the roots it had to be under.
+var errOutsideRoots = errors.New("outside every allowed folder")
+
+// openInside opens path only when it is a regular file inside one of roots,
+// reached through plain directories, spelled under a root as the task records
+// it or in its canonical form, 8.3 short names expanded on both sides.
+func openInside(roots []string, path string) (*os.File, error) {
+	abs, err := fsx.AbsClean(path)
+	if err != nil {
+		return nil, err
 	}
 	abs = fsx.LongPath(abs)
 	for _, dir := range roots {
@@ -87,21 +109,13 @@ func openReviewImage(roots []string, path string) (*os.File, string, error) {
 		}
 		root, err := os.OpenRoot(canonical)
 		if err != nil {
-			return nil, "", err
+			return nil, err
 		}
 		f, err := openRegular(root, rel)
 		root.Close()
-		if err != nil {
-			return nil, "", err
-		}
-		kind, err := sniffReviewImage(f)
-		if err != nil {
-			f.Close()
-			return nil, "", err
-		}
-		return f, kind, nil
+		return f, err
 	}
-	return nil, "", errors.New("an image must be inside the task's worktree, task scratch or data directory")
+	return nil, errOutsideRoots
 }
 
 func sniffReviewImage(f *os.File) (string, error) {

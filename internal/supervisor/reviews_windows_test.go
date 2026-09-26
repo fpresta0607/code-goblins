@@ -129,7 +129,7 @@ func TestReviewWithdrawalRefusedBeforeRecordingAnything(t *testing.T) {
 	if err := store.ingestReviews(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.clearReview("closed-review", goblinIdentity(meta)); err != nil {
+	if _, err := store.clearReview("closed-review", goblinIdentity(meta), ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.acceptReview(openReview("stranger-review", meta.ID)); err != nil {

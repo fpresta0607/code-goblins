@@ -384,7 +384,7 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		return s.answerReview(ctx, a)
 	}
 	if a.Kind == "review_clear" {
-		return s.Store.clearReview(a.ReviewID, a.Generation)
+		return s.Store.clearReview(a.ReviewID, a.Generation, a.Text)
 	}
 	if a.Kind == "question_clear" {
 		return s.Store.clearQuestion(a.QuestionID, a.Generation)
@@ -603,10 +603,16 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		out.Questions[i] = q
 	}
 	out.Activity = d.Activity
-	// The board sees how many images a review has, never their digests.
+	// The board sees how many images a review has and what its document is,
+	// never their digests.
 	out.Reviews = make([]Review, len(d.Reviews))
 	for i, r := range d.Reviews {
 		r.ImageCount, r.ImageSums = len(r.ImageSums), nil
+		if r.Document != nil {
+			document := *r.Document
+			document.Sum = ""
+			r.Document = &document
+		}
 		out.Reviews[i] = r
 	}
 	// The board sees what runs and how it went, never the process or digest.
