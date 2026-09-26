@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -134,11 +135,14 @@ func (f *settingsFile) hookEvents() (map[string]any, error) {
 
 // pruneCFOHooks removes every hook entry this package wrote, and nothing
 // else. Groups and events left empty by the removal are dropped so an
-// uninstall leaves no hollow scaffolding behind.
-func (f *settingsFile) pruneCFOHooks() error {
+// uninstall leaves no hollow scaffolding behind. For each event that held a
+// CFO entry it returns where the first group holding one stood among the
+// groups kept, which is where addCFOHooks puts the CFO groups back.
+func (f *settingsFile) pruneCFOHooks() (map[string]int, error) {
+	stood := map[string]int{}
 	events, err := f.hookEvents()
 	if err != nil || events == nil {
-		return err
+		return stood, err
 	}
 	for event, raw := range events {
 		groups, ok := raw.([]any)
@@ -164,6 +168,9 @@ func (f *settingsFile) pruneCFOHooks() error {
 				}
 				keptEntries = append(keptEntries, rawEntry)
 			}
+			if _, seen := stood[event]; !seen && len(keptEntries) < len(entries) {
+				stood[event] = len(kept)
+			}
 			if len(keptEntries) == 0 {
 				continue
 			}
@@ -179,12 +186,14 @@ func (f *settingsFile) pruneCFOHooks() error {
 	if len(events) == 0 {
 		delete(f.values, "hooks")
 	}
-	return nil
+	return stood, nil
 }
 
-// addCFOHooks appends the CFO hook groups, leaving every group already in
-// the document in place and ahead of them.
-func (f *settingsFile) addCFOHooks() error {
+// addCFOHooks puts the CFO hook groups back where pruneCFOHooks found them,
+// and after every group of an event that held none, leaving every other
+// group in place. A rerun that changes no CFO hook therefore changes nothing,
+// whatever the adopter or another installer added after them.
+func (f *settingsFile) addCFOHooks(stood map[string]int) error {
 	events, err := f.hookEvents()
 	if err != nil {
 		return err
@@ -207,7 +216,12 @@ func (f *settingsFile) addCFOHooks() error {
 			entries = append(entries, entry)
 		}
 		rendered["hooks"] = entries
-		events[group.event] = append(existing, rendered)
+		at, found := stood[group.event]
+		if !found {
+			at = len(existing)
+		}
+		events[group.event] = slices.Insert(existing, at, any(rendered))
+		stood[group.event] = at + 1
 	}
 	return nil
 }

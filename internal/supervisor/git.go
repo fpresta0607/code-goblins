@@ -88,6 +88,11 @@ func (Git) run(ctx context.Context, dir string, args ...string) (string, error) 
 		if out.exceeded {
 			return "", fmt.Errorf("Git %s output exceeds the %d KiB preview limit", args[0], maxGitOutput>>10)
 		}
+		// A git killed at the deadline exits with code 1 on Windows, which
+		// would read as git's own answer.
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("Git %s did not finish: %w", args[0], ctx.Err())
+		}
 		return "", fmt.Errorf("Git %s failed: %w", args[0], err)
 	}
 	return out.buffer.String(), nil
@@ -118,10 +123,11 @@ func (g Git) validateRevision(ctx context.Context, dir, revision string) error {
 		return errors.New("revision must be a full commit ID")
 	}
 	_, err := g.run(ctx, dir, "merge-base", "--is-ancestor", revision, "HEAD")
-	if err != nil {
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 {
 		return errors.New("commit is not in this task's history")
 	}
-	return nil
+	return err
 }
 
 func (g Git) Head(ctx context.Context, dir string) (string, error) {
@@ -145,6 +151,12 @@ func (g Git) base(ctx context.Context, dir string) (string, error) {
 		return g.Base, nil
 	}
 	ref, err := g.run(ctx, dir, "symbolic-ref", "-q", "refs/remotes/origin/HEAD")
+	// Only symbolic-ref's own exit code 1 says origin/HEAD is not set; a git
+	// that failed or did not finish says nothing about the project.
+	var exit *exec.ExitError
+	if err != nil && !(errors.As(err, &exit) && exit.ExitCode() == 1) {
+		return "", err
+	}
 	if err == nil && strings.HasPrefix(strings.TrimSpace(ref), "refs/remotes/") {
 		base, err := g.run(ctx, dir, "merge-base", "HEAD", strings.TrimSpace(ref))
 		if err != nil {

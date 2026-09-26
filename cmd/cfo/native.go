@@ -89,8 +89,9 @@ func runNativeSetup(args []string, stdout, stderr io.Writer, runtime commandRunt
 	defer cancel()
 	probe := func(arg string) (string, error) {
 		// Only fixed, whitelisted harness names and probe flags enter this
-		// shell. PowerShell resolves both native executables and npm shims.
-		cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "& "+name+" "+arg+"; exit $LASTEXITCODE")
+		// shell. PowerShell resolves both native executables and npm shims,
+		// and a shim is a script that a Restricted policy would refuse.
+		cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "& "+name+" "+arg+"; exit $LASTEXITCODE")
 		data, err := cmd.Output()
 		return string(data), err
 	}
