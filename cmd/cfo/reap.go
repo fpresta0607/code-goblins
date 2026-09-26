@@ -147,7 +147,8 @@ func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.R
 			Processes: reap.CIMProcesses{Commands: commands},
 			Commands:  commands,
 
-			ProjectsRoot: install.MachineProjectsRoot,
+			ProjectsRoot:     install.MachineProjectsRoot,
+			WorkingDirectory: proc.WorkingDirectory,
 		},
 		Commands: commands,
 		CPU:      proc.CPUTime,
