@@ -1,5 +1,5 @@
 import type { IconName } from "./Icon.tsx";
-import type { Action, Question, Review, Run, Snapshot } from "./types.ts";
+import type { Action, BoardActivity, Question, Review, Run, Snapshot } from "./types.ts";
 import { runMark } from "./feedback.ts";
 
 // Everything the Overlord is asked lives in one queue: a goblin's or the CFO's
@@ -40,6 +40,15 @@ export function nextOpenKey(stack: Item[], key: string, sent: ReadonlySet<string
   const index = stack.findIndex((item) => item.key === key);
   const waiting = (item: Item) => item.key !== key && isOpen(item) && !sent.has(item.key);
   return (stack.slice(index + 1).find(waiting) || stack.slice(0, Math.max(0, index)).find(waiting))?.key || null;
+}
+
+// The page a question's card may open: its asker's most recent live review
+// page, from the same goblin session or the CFO registration that asked, so a
+// card never opens another task's page or one a replaced asker left behind.
+export function questionPage(presentations: BoardActivity[], question: Question): BoardActivity | undefined {
+  return [...presentations].reverse().find((event) => event.kind === "review" && (question.task
+    ? event.task_id === question.task && event.generation === question.generation
+    : !!event.cfo_identity && event.cfo_identity === question.identity));
 }
 
 export function settledItems(snapshot: Snapshot): Item[] {

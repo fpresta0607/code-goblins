@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredBy, answeredLabel, chosenOption, itemFor, nextOpenKey, outcomeIcon, questionOutcome, settledIcon, settledItems, settledLabel, waitingItems } from "./commandQueue.ts";
-import { parseSnapshot } from "./types.ts";
+import { answeredBy, answeredLabel, chosenOption, itemFor, nextOpenKey, outcomeIcon, questionOutcome, questionPage, settledIcon, settledItems, settledLabel, waitingItems } from "./commandQueue.ts";
+import { parseSnapshot, type BoardActivity } from "./types.ts";
 
 const question = (id: string, task: string, created_at: string, status = "pending", extra: Record<string, unknown> = {}) => ({ id, identity: "i-" + id, task, created_at, status, options: ["A", "B"], ...extra });
 const review = (id: string, task: string, created_at: string, state = "open", extra: Record<string, unknown> = {}) => ({ id, identity: "r-" + id, task, title: "Look at " + id, created_at, updated_at: created_at, state, ...extra });
@@ -139,4 +139,30 @@ test("after a send the stack moves on to the next open item, wrapping, and ends 
   assert.equal(nextOpenKey(stack, "question:gone"), "question:a", "an item that left the stack starts from the top");
   assert.equal(nextOpenKey(stack, "question:c", new Set(["question:a", "question:c"])), "question:d", "from a sent card the next open item still shows, passing over a sent one the snapshot has not caught up with");
   assert.equal(nextOpenKey(waitingItems(parseSnapshot({ healthy: true, questions: [question("a", "", "2026-09-24T00:00:00Z")] })), "question:a"), null, "the only item is never its own next");
+});
+
+test("a question opens only its own asker's latest live review page", () => {
+  const page = (id: string, extra: Partial<BoardActivity>): BoardActivity => ({ id, kind: "review", task_id: "", generation: "", source: "", target: "", state: "active", url: "http://127.0.0.1:4000/" + id, at: "", until: "", ...extra });
+  const presentations = [
+    page("old", { task_id: "billing", generation: "g2" }),
+    page("walkthrough", { kind: "browser", task_id: "billing", generation: "g2" }),
+    page("replaced", { task_id: "billing", generation: "g1" }),
+    page("other-task", { task_id: "notes", generation: "g2" }),
+    page("new", { task_id: "billing", generation: "g2" }),
+    page("cfo-mine", { cfo_identity: "cfo-a" }),
+    page("cfo-replaced", { cfo_identity: "cfo-b" }),
+  ];
+  const snapshot = parseSnapshot({ healthy: true, questions: [question("g", "billing", "2026-09-24T00:00:00Z", "pending", { generation: "g2" }), question("c", "", "2026-09-24T00:00:00Z", "pending", { identity: "cfo-a" })] });
+  const [goblin, cfo] = snapshot.questions!;
+  assert.equal(questionPage(presentations, goblin)?.id, "new", "the newest page of the same goblin session");
+  assert.equal(questionPage(presentations, cfo)?.id, "cfo-mine", "the CFO's page from the registration that asked");
+  assert.equal(questionPage(presentations.filter((event) => event.id !== "new" && event.id !== "old"), goblin), undefined, "never a walkthrough, a replaced session's page or another task's");
+});
+
+test("a review item says whether the supervisor watches its page for his answer", () => {
+  const snapshot = parseSnapshot({ healthy: true, reviews: [
+    review("watched", "steward", "2026-09-24T00:00:00Z", "open", { lavish: "http://127.0.0.1:4000/a", lavish_page: "C:/pages/a.html" }),
+    review("linked", "steward", "2026-09-24T00:00:00Z", "open", { lavish: "http://127.0.0.1:4000/b" }),
+  ] });
+  assert.deepEqual(snapshot.reviews!.map((item) => item.watched), [true, false]);
 });
