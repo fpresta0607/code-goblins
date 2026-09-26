@@ -224,6 +224,29 @@ func TestInstallFromACheckoutRefusesWhileAnotherHomeIsInUse(t *testing.T) {
 	}
 }
 
+// A clone install.cmd -Dev has just made the home, before any fleet has run
+// there, is already a home in use: the one-liner run next must refuse rather
+// than move CFO_HOME and leave the clone's binaries first on PATH.
+func TestAFreshCheckoutInstallIsAHomeInUse(t *testing.T) {
+	checkout := newFixture(t, adopterSettings, map[string]string{"Path": `C:\Windows`})
+	if out, err := exec.Command("git", "-C", checkout.root, "init").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	writeFile(t, filepath.Join(checkout.root, "AGENTS.md"), "contract")
+	checkout.install()
+	f := installedFixture(t, map[string]string{"CFO_HOME": checkout.root}, codegoblins.Contract, codegoblins.Policy)
+
+	var out strings.Builder
+	err := f.service.Install(&out)
+
+	if err == nil || !strings.Contains(err.Error(), checkout.root) || !strings.Contains(err.Error(), "goblins uninstall") {
+		t.Fatalf("Install = %v, want a refusal naming the fresh checkout and goblins uninstall\n%s", err, out.String())
+	}
+	if len(f.env.setCalls) != 0 {
+		t.Errorf("the refused install changed the environment: %v", f.env.setCalls)
+	}
+}
+
 func TestInstallFromACheckoutRerunFromTheSameHomeSucceeds(t *testing.T) {
 	f := newFixture(t, adopterSettings, map[string]string{"Path": `C:\Windows`})
 	makePrimaryCheckout(t, f.root)

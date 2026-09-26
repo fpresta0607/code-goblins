@@ -92,6 +92,8 @@ func (s Service) Install(out io.Writer) error {
 		if err := s.writeHome(report); err != nil {
 			return err
 		}
+	} else if err := s.createCheckoutState(report); err != nil {
+		return err
 	}
 	if err := s.setHome(report); err != nil {
 		return err
@@ -142,6 +144,22 @@ func (s Service) Uninstall(out io.Writer) error {
 		report.same("home", "kept "+s.Root+" with its state and data; delete the folder to remove them")
 	}
 	return s.finish(report, "cfo install --uninstall: nothing to remove")
+}
+
+// createCheckoutState gives a checkout its state folder, which makes it a
+// primary home at once, as writeHome does for a home outside one: until then
+// another install would not count the checkout as in use, move CFO_HOME away
+// and leave the checkout's binaries first on PATH.
+func (s Service) createCheckoutState(report *reporter) error {
+	state := filepath.Join(s.Root, "state")
+	if info, err := os.Stat(state); err == nil && info.IsDir() {
+		return nil
+	}
+	if err := os.MkdirAll(state, 0o755); err != nil {
+		return fmt.Errorf("install: create %s: %w", state, err)
+	}
+	report.change("home", "created "+state)
+	return nil
 }
 
 // removeNativeHooks removes the board's native lifecycle hooks from each

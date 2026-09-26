@@ -172,7 +172,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 	t.Run("registered command strings via the POSIX shell", func(t *testing.T) {
 		bashPath := resolveMingwBash(t)
 
-		commands := loadRegisteredCommands(t, repoRoot)
+		commands := loadRegisteredCommands(t)
 		wantNames := []string{"session-start", "pretool-arm", "pretool-cd", "pretool-subagent", "turnend-guard", "stop-autoarm"}
 		if len(commands) != len(wantNames) {
 			t.Fatalf("cfo install registered %d recognizable hook commands, want %d: %v", len(commands), len(wantNames), commands)
@@ -619,11 +619,11 @@ func (inertEnvStore) Broadcast() error                 { return nil }
 // parallel constant in this test) means this step always exercises what is
 // really wired, and an installer edit that drops or renames a hook fails
 // here loudly instead of silently testing stale strings.
-func loadRegisteredCommands(t *testing.T, repoRoot string) map[string]registeredHook {
+func loadRegisteredCommands(t *testing.T) map[string]registeredHook {
 	t.Helper()
 	settingsPath := filepath.Join(t.TempDir(), "settings.json")
 	service := install.Service{
-		Root:         repoRoot,
+		Root:         t.TempDir(),
 		UserSettings: settingsPath,
 		RepoSettings: filepath.Join(t.TempDir(), "absent.json"),
 		Env:          inertEnvStore{},
