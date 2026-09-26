@@ -17,9 +17,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/herdr/herdrtest"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -107,6 +107,7 @@ func terminalHTTPFixture(t *testing.T, native *testTerminal) (*HTTP, *httptest.S
 	t.Helper()
 	store, _ := testStore(t)
 	_, identity, runner, cfo := primaryFixture(t, store)
+	runner.socket = herdrtest.NewSocket(t)
 	s := &Service{Store: store, Options: Options{CFO: cfo}, Instance: "instance", done: make(chan struct{})}
 	h := NewHTTP(s, "", nil)
 	h.openTerminal = func(_ context.Context, session, id string, control bool, cols, rows int) (herdr.TerminalStream, error) {
@@ -132,6 +133,17 @@ func terminalPost(t *testing.T, server *httptest.Server, path, body string) *htt
 		t.Fatal(err)
 	}
 	return response
+}
+
+// typedInto is the text of each typing request to pane, in order.
+func typedInto(socket *herdrtest.Socket, pane string) []string {
+	var typed []string
+	for _, request := range socket.Requests() {
+		if request.Method == "pane.send_text" && request.Params["pane_id"] == pane {
+			typed = append(typed, request.Params["text"])
+		}
+	}
+	return typed
 }
 func fullFrame(seq uint64) herdr.TerminalFrame {
 	return herdr.TerminalFrame{Type: "terminal.frame", Seq: seq, Encoding: "ansi", Width: 80, Height: 24, Full: true, Bytes: "aGVsbG8="}
@@ -319,13 +331,12 @@ func TestLivePaneViewShowsThePaneWholeAtItsOwnSize(t *testing.T) {
 }
 
 // The Overlord types straight into a live view with no Connect step: each
-// input is verified again and typed into that same pane with Herdr's pane
-// send-text, as cfo send types into a pane, and nothing reaches a pane whose
-// terminal changed.
+// input is verified again and typed into that same pane over its Herdr
+// session's socket, and nothing reaches a pane whose terminal changed.
 func TestLivePaneViewTypesIntoItsOwnVerifiedPane(t *testing.T) {
 	native := newTestTerminal()
 	h, server, _, runner := terminalHTTPFixture(t, native)
-	runner.typing = true
+	socket := runner.socket
 	native.frames <- fullFrame(1)
 	response := terminalPost(t, server, "/api/terminal/stream", `{}`)
 	defer response.Body.Close()
@@ -346,12 +357,12 @@ func TestLivePaneViewTypesIntoItsOwnVerifiedPane(t *testing.T) {
 	if status := send(1, `{"type":"terminal.input","text":"echo hi\r"}`); status != 200 {
 		t.Fatalf("typing = %d, want 200", status)
 	}
-	// Herdr 0.9 types dash-leading text literally, and a -- separator would be typed too.
+	// Dash-leading text is typed as it is.
 	if status := send(2, `{"type":"terminal.input","text":"--help"}`); status != 200 {
 		t.Fatalf("typing --help = %d, want 200", status)
 	}
-	if want := [][]string{{"pane", "send-text", "w1:p1", "echo hi\r", "--session", "isolated"}, {"pane", "send-text", "w1:p1", "--help", "--session", "isolated"}}; !reflect.DeepEqual(runner.typed, want) {
-		t.Fatalf("typed %q, want %q", runner.typed, want)
+	if got, want := typedInto(socket, "w1:p1"), []string{"echo hi\r", "--help"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("typed %q, want %q", got, want)
 	}
 	if status := send(3, `{"type":"terminal.resize","cols":100,"rows":30}`); status != 409 {
 		t.Fatalf("resizing a live view = %d, want 409", status)
@@ -359,8 +370,8 @@ func TestLivePaneViewTypesIntoItsOwnVerifiedPane(t *testing.T) {
 	// A re-registered CFO is a changed recipient, and the next key sees it in
 	// the registration file without asking Herdr.
 	reregister(t, h.Service.Store.Home.State)
-	if status := send(3, `{"type":"terminal.input","text":"x"}`); status != 409 || len(runner.typed) != 2 {
-		t.Fatalf("typing after the CFO re-registered = %d with %d typed, want 409 and nothing more typed", status, len(runner.typed))
+	if status := send(3, `{"type":"terminal.input","text":"x"}`); status != 409 || len(socket.Requests()) != 2 {
+		t.Fatalf("typing after the CFO re-registered = %d with %d typed, want 409 and nothing more typed", status, len(socket.Requests()))
 	}
 	if len(native.writes) != 0 {
 		t.Fatalf("typing went through the observer: %v", native.writes)
@@ -400,7 +411,7 @@ func TestLivePaneViewRefusesTypingOnceItReportsClosed(t *testing.T) {
 	native.exited = make(chan struct{})
 	defer close(native.exited)
 	h, server, _, runner := terminalHTTPFixture(t, native)
-	runner.typing = true
+	socket := runner.socket
 	h.terminalTick = 10 * time.Millisecond
 	native.frames <- fullFrame(1)
 	response := terminalPost(t, server, "/api/terminal/stream", `{}`)
@@ -420,36 +431,30 @@ func TestLivePaneViewRefusesTypingOnceItReportsClosed(t *testing.T) {
 	}
 	reply := terminalPost(t, server, "/api/terminal/input", fmt.Sprintf(`{"lease":%q,"seq":1,"command":{"type":"terminal.input","text":"x"}}`, ready.Lease))
 	defer reply.Body.Close()
-	if reply.StatusCode != 409 || len(runner.typed) != 0 {
-		t.Fatalf("typing after terminal.closed = %d with %q typed, want 409 and nothing typed", reply.StatusCode, runner.typed)
+	if reply.StatusCode != 409 || len(socket.Requests()) != 0 {
+		t.Fatalf("typing after terminal.closed = %d with %q typed, want 409 and nothing typed", reply.StatusCode, typedInto(socket, "w1:p1"))
 	}
 }
 
-// A paste longer than one command line can carry is typed in order, in
-// pieces; a piece Herdr refuses ends the view instead of typing the rest, and
-// a NUL key, which no command line can carry, is refused before anything.
-func TestLivePaneViewTypesALargePasteInOrderedPieces(t *testing.T) {
-	var pieces []string
-	typist := func(_ context.Context, _ herdr.Target, piece string) error {
-		pieces = append(pieces, piece)
+// A socket request carries any input the board accepts, so a long paste is
+// typed whole in one request, and a NUL key such as Ctrl+Space is typed as
+// it is; a request Herdr refuses ends the view instead of typing the rest.
+func TestLivePaneViewTypesALargePasteInOneRequest(t *testing.T) {
+	var requests []string
+	typist := func(_ context.Context, _ herdr.Target, text string) error {
+		requests = append(requests, text)
 		return nil
 	}
 	allow := func(context.Context, terminalBinding, bool) error { return nil }
-	text := strings.Repeat("ab日", 3000)
+	inputs := []string{strings.Repeat("ab日", 3000), "a\x00"}
 	lease := &terminalLease{typist: typist, cancel: func() {}}
-	if err := lease.input(context.Background(), 1, herdr.TerminalCommand{Type: "terminal.input", Text: text}, allow); err != nil {
-		t.Fatal(err)
-	}
-	if len(pieces) != 3 || strings.Join(pieces, "") != text {
-		t.Fatalf("typed %d pieces, want the paste whole and in order in 3", len(pieces))
-	}
-	for _, piece := range pieces {
-		if utf8.RuneCountInString(piece) > typedPiece {
-			t.Fatalf("a piece of %d runes is longer than a command line carries", utf8.RuneCountInString(piece))
+	for seq, text := range inputs {
+		if err := lease.input(context.Background(), uint64(seq+1), herdr.TerminalCommand{Type: "terminal.input", Text: text}, allow); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if err := lease.input(context.Background(), 2, herdr.TerminalCommand{Type: "terminal.input", Text: "a\x00"}, allow); err == nil || len(pieces) != 3 {
-		t.Fatalf("a NUL key = %v with %d pieces, want it refused and nothing typed", err, len(pieces))
+	if !reflect.DeepEqual(requests, inputs) {
+		t.Fatalf("typed %d requests, want the paste and the NUL key whole, one request each", len(requests))
 	}
 
 	attempts := 0
@@ -469,13 +474,13 @@ func TestLivePaneViewTypesALargePasteInOrderedPieces(t *testing.T) {
 	}
 }
 
-// Each key is typed without starting a process to prove the pane again: the
-// view proved it when it opened, and a key only rereads local files, so fifty
-// keys make the fifty send-text calls and nothing else.
-func TestLivePaneViewStartsNoVerificationPerKey(t *testing.T) {
+// Each key is typed without starting a process: the view proved its pane
+// and found its Herdr socket when it opened, and a key only rereads local
+// files and makes one socket request, so fifty keys run no Herdr command.
+func TestLivePaneViewStartsNoProcessPerKey(t *testing.T) {
 	native := newTestTerminal()
 	_, server, _, runner := terminalHTTPFixture(t, native)
-	runner.typing = true
+	socket := runner.socket
 	native.frames <- fullFrame(1)
 	response := terminalPost(t, server, "/api/terminal/stream", `{}`)
 	defer response.Body.Close()
@@ -486,8 +491,84 @@ func TestLivePaneViewStartsNoVerificationPerKey(t *testing.T) {
 			t.Fatalf("key %d = %d, want 200", seq, status)
 		}
 	}
-	if calls, typed := runner.calls-opened, len(runner.typed); calls != 50 || typed != 50 {
-		t.Fatalf("fifty keys made %d Herdr calls and typed %d, want the fifty send-text calls and nothing else", calls, typed)
+	if calls, typed := runner.calls-opened, len(typedInto(socket, "w1:p1")); calls != 0 || typed != 50 {
+		t.Fatalf("fifty keys ran %d Herdr commands and typed %d, want no command and fifty socket requests", calls, typed)
+	}
+}
+
+// A live view whose Herdr socket cannot be found is refused before it opens,
+// since it could not type, while a control lease never looks for the socket.
+func TestLivePaneViewWithoutItsHerdrSocketIsRefused(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		body   string
+		status int
+		reason string
+	}{
+		{"a live view is refused", `{}`, 503, "Typing into this pane is unavailable: its Herdr socket cannot be found."},
+		{"a control lease still opens", `{"cols":80,"rows":24,"control":true,"identity":"IDENTITY"}`, 200, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			native := newTestTerminal()
+			_, server, identity, runner := terminalHTTPFixture(t, native)
+			runner.socket = nil
+			native.frames <- fullFrame(1)
+			close(native.frames)
+
+			response := terminalPost(t, server, "/api/terminal/stream", strings.ReplaceAll(c.body, "IDENTITY", identity))
+			defer response.Body.Close()
+			data, _ := io.ReadAll(response.Body)
+
+			if response.StatusCode != c.status || !strings.Contains(string(data), c.reason) {
+				t.Fatalf("status %d (%s), want %d naming %q", response.StatusCode, data, c.status, c.reason)
+			}
+			if c.status == 503 && native.cols != 0 {
+				t.Fatalf("a refused view opened the observer at %dx%d", native.cols, native.rows)
+			}
+		})
+	}
+}
+
+// A view's tick proves its pane again with Herdr commands, which take
+// seconds on a loaded machine; the screen goes on meanwhile, so an echo is
+// never held behind a tick.
+func TestLivePaneViewForwardsFramesWhileItsTickChecks(t *testing.T) {
+	native := newTestTerminal()
+	h, server, _, runner := terminalHTTPFixture(t, native)
+	runner.held, runner.release = make(chan struct{}, 1), make(chan struct{})
+	t.Cleanup(func() { close(runner.release) })
+	h.terminalTick = 20 * time.Millisecond
+	native.frames <- fullFrame(1)
+	response := terminalPost(t, server, "/api/terminal/stream", `{}`)
+	defer response.Body.Close()
+	scanner := bufio.NewScanner(response.Body)
+	readyLease(t, scanner)
+	runner.holding.Store(true)
+	select {
+	case <-runner.held:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no tick checked the pane")
+	}
+
+	native.frames <- herdr.TerminalFrame{Type: "terminal.frame", Seq: 2, Encoding: "ansi", Width: 80, Height: 24, Bytes: "aGk="}
+
+	echoed := make(chan bool, 1)
+	go func() {
+		for scanner.Scan() {
+			if strings.Contains(scanner.Text(), `"seq":2`) {
+				echoed <- true
+				return
+			}
+		}
+		echoed <- false
+	}()
+	select {
+	case ok := <-echoed:
+		if !ok {
+			t.Fatal("the view ended before the frame came")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a frame waited behind the tick's Herdr commands")
 	}
 }
 
@@ -554,15 +635,15 @@ func TestEachKeyVerifiesInFullOnlyWhenItsBindingChanged(t *testing.T) {
 func TestLivePaneViewRefusesTypingWhileAGateOwnsThePane(t *testing.T) {
 	native := newTestTerminal()
 	h, server, _, runner := terminalHTTPFixture(t, native)
-	runner.typing = true
+	socket := runner.socket
 	body := goblinView(t, h, runner)
 	h.Service.Options.Gate = fakeProgress{value: pipeline.Progress{Status: "running"}}
 	native.frames <- fullFrame(1)
 	response := terminalPost(t, server, "/api/terminal/stream", body)
 	defer response.Body.Close()
 	lease := readyLease(t, bufio.NewScanner(response.Body))
-	if status := typeKey(t, server, lease, 1, "x"); status != 409 || len(runner.typed) != 0 {
-		t.Fatalf("typing under a gate = %d with %d typed, want 409 and nothing typed", status, len(runner.typed))
+	if status := typeKey(t, server, lease, 1, "x"); status != 409 || len(socket.Requests()) != 0 {
+		t.Fatalf("typing under a gate = %d with %d typed, want 409 and nothing typed", status, len(socket.Requests()))
 	}
 }
 
@@ -571,7 +652,7 @@ func TestLivePaneViewRefusesTypingWhileAGateOwnsThePane(t *testing.T) {
 func TestLivePaneViewNoticesAGateTakingOverOnItsTick(t *testing.T) {
 	native := newTestTerminal()
 	h, server, _, runner := terminalHTTPFixture(t, native)
-	runner.typing = true
+	socket := runner.socket
 	body := goblinView(t, h, runner)
 	taken := &atomic.Bool{}
 	h.Service.Options.Gate = gateTakesOver{taken: taken}
@@ -593,8 +674,8 @@ func TestLivePaneViewNoticesAGateTakingOverOnItsTick(t *testing.T) {
 			alive++
 		}
 	}
-	if status := typeKey(t, server, lease, 2, "y"); status != 409 || len(runner.typed) != 1 {
-		t.Fatalf("typing after the gate took over = %d with %d typed, want 409 and nothing more typed", status, len(runner.typed))
+	if status := typeKey(t, server, lease, 2, "y"); status != 409 || len(socket.Requests()) != 1 {
+		t.Fatalf("typing after the gate took over = %d with %d typed, want 409 and nothing more typed", status, len(socket.Requests()))
 	}
 }
 

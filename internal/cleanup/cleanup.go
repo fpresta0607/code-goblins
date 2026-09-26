@@ -1,13 +1,13 @@
 // Package cleanup returns one clean, proven-inactive task worktree and closes
-// its task tab. It never deletes a worktree itself, stops an agent, or
+// its task tab. It never deletes a worktree itself, stops an agent at work, or
 // discards changes: the only lifecycle calls it makes are the Herdr tab close
-// of the exact recorded tab (after the endpoint is proven agent-free) and
-// worktree.Service.Return, and only after every guard has proven the exact
-// recorded task safe to release. A native task has no tab: its terminal ends
-// with its harness, so it is only proven ended. The one directory it removes
-// outright holds no work - the task's Go temporary directory, retired with the
-// record because it lives outside the state tree the archive rename carries
-// away; see Service.removeGoTmp.
+// of the exact recorded tab (after the endpoint is proven agent-free), the
+// close of a native task's terminal (after its harness is proven idle at its
+// composer, which the close ends) and worktree.Service.Return, and only after
+// every guard has proven the exact recorded task safe to release. The one
+// directory it removes outright holds no work - the task's Go temporary
+// directory, retired with the record because it lives outside the state tree
+// the archive rename carries away; see Service.removeGoTmp.
 package cleanup
 
 import (
@@ -381,12 +381,11 @@ func (s Service) requireHerdrInactive(ctx context.Context, meta state.TaskMeta) 
 // (CFO decision 2339). Its host runs exactly as long as the harness and
 // removes its record on the way out, so a missing record, or one whose host
 // Windows shows as ended or whose pid a later process reuses, means the
-// terminal has ended. A running terminal is
-// idle only while its harness shows the ready composer with no working
-// marker, and its record is returned so the cleanup closes it. A record or a
-// screen that cannot be read, any other screen, and a harness whose screens
-// cfo cannot read are all refused. Under LeaveRunningTerminals every running
-// terminal is refused.
+// terminal has ended. A running terminal is idle only while its harness shows
+// the ready composer with no working marker, and its record is returned so
+// the cleanup closes it. A record or a screen that cannot be read, any other
+// screen, and a harness whose screens cfo cannot read are all refused. Under
+// LeaveRunningTerminals every running terminal is refused.
 func (s Service) requireNativeIdle(meta state.TaskMeta) (host.Record, error) {
 	record, err := host.ReadRecord(s.StateDir, meta.ID)
 	if errors.Is(err, fs.ErrNotExist) {

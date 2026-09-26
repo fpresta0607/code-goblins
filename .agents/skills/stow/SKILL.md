@@ -14,12 +14,13 @@ Adapted from First Mate's stow pass for the Code Goblins homes.
 | Home | What belongs there | Default tier | Loaded |
 | --- | --- | --- | --- |
 | `data/overlord.md` | The Supreme Overlord's standing directives, rulings and authority grants, each with its date and the Overlord's own words | `pinned` | every session, printed in full by the session-start digest |
-| `data/learnings.md` | Fleet operating facts: gotchas, workarounds, verified tool behaviour | `aging` | every session, printed in full by the session-start digest |
-| The CFO harness's own memory index, when it keeps one (Claude Code's auto-memory `MEMORY.md` for this checkout) | The same kind of operating facts, one line per entry | `aging` | every session, by the harness |
+| `data/memory/` | Fleet operating facts: gotchas, workarounds, verified tool behaviour, one fact per file, with `MEMORY.md` as the index of one line per fact | `aging` | the index every session, printed in full by the session-start digest; a fact's file when its line is relevant |
 | `data/backlog.md` | Open work, held operations, follow-ups; its items carry no markers, because `tasks-axi` owns their state | `perishable` | its first queued rows, by the digest |
 | `data/memory-archive.md` | Everything retired from the homes above | cold | never |
 
 `data/` is the CFO home's private data, so nothing this skill writes ever lands in a tracked file of the public code-goblins repository.
+AGENTS.md, under Memory, gives the fact file's format.
+A harness's own memory folder, such as Claude Code's auto-memory, is not a home: a CFO in another harness or another project folder never sees it, so a fact found there is filed into `data/memory/` like any other finding.
 The backlog is owned by `tasks-axi`: read an item with `tasks-axi show <id> --full` and change it with `tasks-axi add`, `update --body-file`, `hold` or `done`, never by editing the file.
 
 ## Tiers and markers
@@ -42,6 +43,7 @@ The tiers:
 Marking rules:
 
 - A `pinned` entry in a file whose default is `pinned` carries no marker; every `aging` and `perishable` entry always carries its dated marker, whatever its file's default.
+- In `data/memory/` each fact is an entry, and its marker goes at the end of its line in `MEMORY.md`.
 - Each governed file carries one header line naming this skill as the scheme owner: `<!-- memory tiers: see the stow skill -->`.
   Tier semantics, marker spellings and clocks live only in this skill; no file restates them.
 - Decay advances only when a pass runs.
@@ -64,11 +66,11 @@ Every invocation runs the whole pass, even when the session produced no new find
 1. **Measure.** Report the size of each always-loaded memory file and their total, in bytes and estimated tokens (bytes / 4, a deliberately conservative local estimate, not provider accounting):
 
    ```powershell
-   Get-Item data\overlord.md, data\learnings.md -ErrorAction SilentlyContinue | Select-Object Name, Length
+   Get-Item data\overlord.md, data\memory\MEMORY.md -ErrorAction SilentlyContinue | Select-Object Name, Length
    ```
 
-   Add the harness memory index when there is one.
-   The budget is **10,000 estimated tokens** across the always-loaded memory files combined: `data/overlord.md`, `data/learnings.md` and the harness memory index.
+   The budget is **10,000 estimated tokens** across the always-loaded memory files combined: `data/overlord.md` and `data/memory/MEMORY.md`.
+   A fact's own file loads only when its line is relevant, so it does not count.
    The backlog does not count, because the digest prints only its first queued rows and `tasks-axi` owns its size.
    That is about 5% of a 200k context paid by every CFO session before it does anything.
 2. **Read every governed file completely** before planning a write.
@@ -78,7 +80,7 @@ Every invocation runs the whole pass, even when the session produced no new find
    If it does, record a one-line pointer to that owner or nothing, never a copy.
 4. **Route each finding.**
    A directive, preference, authority grant or ruling goes to `data/overlord.md`.
-   A fleet operating fact goes to `data/learnings.md` or the harness memory index, whichever the CFO already uses.
+   A fleet operating fact goes to `data/memory/` as one file, with its line in `MEMORY.md`.
    Open work goes to the backlog through `tasks-axi`.
    Knowledge intrinsic to one project goes to that project through a normal ship task, never straight into its files.
    Knowledge general to every Code Goblins user goes into this repository's tracked docs through a goblin and the gate.
@@ -107,7 +109,7 @@ Append to `data/memory-archive.md` under a dated heading, keeping provenance ver
 ```markdown
 ## 2026-09-23 stow
 - (from overlord.md, tier: pinned, reason: merge log) Merged under the 10-minute rule: ...
-- (from learnings.md, tier: aging, reinforced: 2026-08-02, reason: unreinforced 52d) ...
+- (from memory/gate-needs-a-scratch-home.md, tier: aging, reinforced: 2026-08-02, reason: unreinforced 52d) ...
 ```
 
 Reasons include `unreinforced <N>d`, `superseded by <entry>`, `completed`, `expired`, `budget oldest-first` and `legacy-unvalidated`.
@@ -119,7 +121,7 @@ Truncating the archive is the Overlord's decision.
 Unmarked legacy entries are their file's default tier with unknown age, and unknown age is not guilt.
 
 - In `data/overlord.md` every unmarked entry is simply pinned; consolidation still moves history out.
-- In `data/learnings.md` and the harness memory index, stamp each entry this session can confirm with today's `aging` marker; mark the rest `<!--g-->` and keep them for this pass.
+- In `data/memory/`, stamp each entry this session can confirm with today's `aging` marker; mark the rest `<!--g-->` and keep them for this pass.
   A `<!--g-->` entry is in its grace cycle until the next pass: it is never archived for budget, and it counts toward the floor in step 8, so an oversized legacy file ends its first pass with the floor question open rather than with unvalidated archiving.
   On the next pass, an entry still carrying `<!--g-->` is either confirmed and stamped, or archived as `legacy-unvalidated`.
 

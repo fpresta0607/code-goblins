@@ -337,12 +337,15 @@ It stays local and private: nothing in it is pushed anywhere, and no project rep
   data\                           your data
     backlog.md                    open work: Queued, Parked and Done
     overlord.md                   your standing directives
+    memory\                       what the CFO has learned: MEMORY.md, the index, and one file per fact
     routing.json                  which harness and model each kind of work gets
     projects\<project>\           each project's credentials manifest and worktree settings
     <task>\                       each queued or running task: brief, report, decisions, deliverables
     archive\finished\<task>\      finished tasks
     archive\parked\<task>\        briefs set aside before they started
 ```
+
+The CFO's memory is kept here rather than inside Claude Code, Codex or Pi, so whichever harness runs the CFO, and whichever project it runs in, it starts from the same memory.
 
 `cfo install` creates this layout in a new home and fills in anything missing later, without overwriting a file.
 A home that already held data before this layout is left exactly as it is.

@@ -185,11 +185,13 @@ The browser renders its real ANSI screen frames using xterm, loaded the first ti
 A goblin panel's Terminal view of a Herdr pane is a live view of the pane: it never claims the native controller, never resizes the pane and never resumes an agent.
 Frames arrive at the pane's own size as Herdr lays it out; the view shrinks its font to fit the pane's columns across the panel, never below 12 px, and a wider or taller pane scrolls inside the panel rather than being cropped.
 A view is refused when Herdr reports no size for the pane; when Herdr lays the pane out at a new size the view ends, and the panel reconnects on its own to show it whole.
-Typing needs no separate step: the view's lease takes keys, escape sequences and one bracketed paste at a time, in order, each typed into that exact pane by Herdr.
+Typing needs no separate step: the view's lease takes keys, escape sequences and one bracketed paste at a time, in order, each typed into that exact pane over the Herdr session's socket.
+Herdr's socket answers one request on a connection and then closes it, so each input is one pipe round trip of about a millisecond, and no key starts a process; the view reads where the socket is from `herdr status` once, when it opens, and is refused when the socket cannot be found.
 The view proves its pane, terminal, process and gate custody in full when it opens and on every five-second tick; an input starts no process to prove it again, and only rereads the task's record (or the CFO's registration) and checks that the verified process is alive, so a changed generation, pane or registration or an exited process is refused on the next key and anything else on the next tick.
-A long paste is typed in order, in pieces a Windows command line can carry; a piece Herdr refuses ends the view with an unknown outcome instead of typing the rest.
+A tick's Herdr commands run beside the screen, never in its way, so a frame, and with it the echo of a key, is never held behind a tick.
+A paste is typed whole in one request, up to the 64 KiB input limit; an input Herdr refuses ends the view with an unknown outcome.
 A refused input, or one whose outcome is unknown, ends the view with the reason in plain words; nothing is resent, and reconnecting starts from a fresh full screen.
-The view sends no resize or scroll: the mouse wheel scrolls the panel, and a NUL key such as Ctrl+Space is dropped before sending.
+The view sends no resize or scroll: the mouse wheel scrolls the panel, and a NUL key such as Ctrl+Space is typed like any other key.
 Shift+Escape moves keyboard focus out of the terminal to the panel's pill; ordinary Escape stays with the pane.
 Releasing a drag selection copies it to the clipboard, the way Herdr does, and Ctrl+Shift+C copies the current selection.
 Closing, switching, disconnecting or restarting invalidates the lease; reconnection starts with a full screen frame, never replayed input.
