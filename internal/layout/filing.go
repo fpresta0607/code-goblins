@@ -156,6 +156,32 @@ func plan(h home.Home, harnessMemory string, now time.Time) ([]Move, []Kept, err
 	if err != nil {
 		return nil, nil, err
 	}
+	// A finished folder kept in place is still read: whoever resumes the work
+	// starts from its brief and handoff. So what they name by path stays too,
+	// and so on until nothing new is kept.
+	expanded := map[string]bool{}
+	for grew := true; grew; {
+		grew = false
+		for _, f := range folders {
+			id := strings.ToLower(f.id)
+			if f.live || !f.dispatched || expanded[id] {
+				continue
+			}
+			if named[id] == "" && !mentions(backlog.Queued, f.id) && !mentions(backlog.Parked, f.id) {
+				continue
+			}
+			expanded[id] = true
+			for _, file := range []string{"brief.md", "handoff.md"} {
+				data, err := readOptional(filepath.Join(h.Data, f.id, file))
+				if err != nil {
+					return nil, nil, err
+				}
+				if noteNames(named, string(data), "data/"+f.id+"/"+file) {
+					grew = true
+				}
+			}
+		}
+	}
 
 	var moves []Move
 	var kept []Kept
@@ -249,13 +275,6 @@ func namedInLiveText(h home.Home, harnessMemory string, briefs []string) (map[st
 		}
 	}
 	named := map[string]string{}
-	note := func(text, where string) {
-		for _, match := range dataPathName.FindAllStringSubmatch(text, -1) {
-			if name := strings.ToLower(strings.TrimRight(match[1], ".")); named[name] == "" {
-				named[name] = where
-			}
-		}
-	}
 	for _, file := range files {
 		data, err := os.ReadFile(file)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -265,14 +284,28 @@ func namedInLiveText(h home.Home, harnessMemory string, briefs []string) (map[st
 		if rel, err := filepath.Rel(h.Data, file); err == nil && filepath.IsLocal(rel) {
 			where = "data/" + filepath.ToSlash(rel)
 		}
-		note(string(data), where)
+		noteNames(named, string(data), where)
 	}
 	open, err := openBoardText(h)
 	if err != nil {
 		return nil, err
 	}
-	note(open, "an open Command Center item")
+	noteNames(named, open, "an open Command Center item")
 	return named, nil
+}
+
+// noteNames records in named, lowercased, every data folder text names by
+// path that named does not hold yet, with where as the place that names it,
+// and reports whether it recorded any.
+func noteNames(named map[string]string, text, where string) bool {
+	added := false
+	for _, match := range dataPathName.FindAllStringSubmatch(text, -1) {
+		if name := strings.ToLower(strings.TrimRight(match[1], ".")); named[name] == "" {
+			named[name] = where
+			added = true
+		}
+	}
+	return added
 }
 
 // openBoardText is the text of every Command Center item still waiting in

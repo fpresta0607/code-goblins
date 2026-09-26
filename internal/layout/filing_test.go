@@ -468,3 +468,48 @@ func TestClaudeMemoryFolderFollowsClaudeCodesNaming(t *testing.T) {
 		}
 	}
 }
+
+// A folder kept because an open backlog row names it is still read, so what
+// its own brief and handoff point at must stay too, transitively (decision
+// 2798): pd-agent-api-v2-build stays for its resume row, and the goblin that
+// resumes it reads data/pd-mcp-skill through its brief.
+func TestPlanKeepsWhatAKeptFolderStillPointsAt(t *testing.T) {
+	h := filingHome(t, "# Backlog\n\n## Queued\n- **pd-agent-api-v2-build-resume** - Resume pd-agent-api-v2-build from its handoff (repo: PrecisionDocs-AI)\n  detail: data/pd-agent-api-v2-build/handoff.md\n\n## Parked\n\n## Done\n")
+	finished := func(id, brief, handoff string) {
+		t.Helper()
+		finishedAt(t, filepath.Join(h.Data, id, "brief.md"), brief, 5*24*time.Hour)
+		if handoff != "" {
+			finishedAt(t, filepath.Join(h.Data, id, "handoff.md"), handoff, 5*24*time.Hour)
+		}
+		finishedAt(t, filepath.Join(h.State, id+".status"), "done: PR https://github.com/o/r/pull/1\n", 0)
+	}
+	finished("pd-agent-api-v2-build", "Start from pd-mcp-skill's handoff (data/pd-mcp-skill/handoff.md).\n", "rows 3-7 pushed\n")
+	finished("pd-mcp-skill", "# Brief pd-mcp-skill\n", "the tools live in data/pd-mcp-tools/README.md\n")
+	finished("pd-mcp-tools", "# Brief pd-mcp-tools\n", "")
+	finished("pd-unrelated", "see data/pd-unrelated-notes/x.md\n", "")
+	finished("pd-unrelated-notes", "# Brief pd-unrelated-notes\n", "")
+
+	moves, kept, err := plan(h, "", filingNow)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	var moved, stays []string
+	for _, m := range moves {
+		moved = append(moved, m.ID)
+	}
+	for _, k := range kept {
+		stays = append(stays, k.ID+": "+k.Reason)
+	}
+	if want := []string{"pd-unrelated", "pd-unrelated-notes"}; !slices.Equal(moved, want) {
+		t.Errorf("moved %v, want only %v; stays %v", moved, want, stays)
+	}
+	want := []string{
+		"pd-agent-api-v2-build: finished, but an open backlog row names it",
+		"pd-mcp-skill: finished, but data/pd-agent-api-v2-build/brief.md names its path",
+		"pd-mcp-tools: finished, but data/pd-mcp-skill/handoff.md names its path",
+	}
+	if !slices.Equal(stays, want) {
+		t.Errorf("stays = %q, want %q", stays, want)
+	}
+}
