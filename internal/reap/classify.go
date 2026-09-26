@@ -254,6 +254,10 @@ type Process struct {
 	Name        string    `json:"name"`
 	CommandLine string    `json:"cmd"`
 	Start       time.Time `json:"start"`
+	// Cwd is the directory the process runs in. It is read only for the
+	// harness-shaped processes and their ancestors, the one place it decides
+	// anything, and is empty wherever it was not read or could not be.
+	Cwd string `json:"cwd,omitempty"`
 }
 
 // Pane is one pane Herdr still reports, with the operating-system identity
@@ -307,12 +311,19 @@ type WorktreeDir struct {
 	Project      string
 	TaskID       string
 	Registration Registration
+	// Created is when the directory was made, zero when it could not be
+	// read. It is what tells a live goblin's extra worktree from an older
+	// directory that merely shares the start of its name.
+	Created time.Time
 }
 
 // Inventory is the cross-referenced evidence one classification runs over. It
 // is a plain value with no I/O so the classification is a pure function over
 // synthetic fixtures; Collector builds the production one.
 type Inventory struct {
+	// Session is the fleet's own Herdr session. A Herdr server for any other
+	// session is a test fixture some goblin or gate started, not the fleet.
+	Session         string
 	Tasks           []Task
 	OrphanStatusIDs []string
 	Panes           []Pane
@@ -419,6 +430,10 @@ func Classify(inv Inventory) []Finding {
 func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[string]Task, panes map[string]Pane, unreadable map[string]bool) []Finding {
 	desktop := descendants(inv.Processes, rootsMatching(inv.Processes, isDesktopApp))
 	gates := descendants(inv.Processes, rootsMatching(inv.Processes, isGateSupervisor))
+	byPID := make(map[int]Process, len(inv.Processes))
+	for _, process := range inv.Processes {
+		byPID[process.PID] = process
+	}
 	var findings []Finding
 	for _, process := range inv.Processes {
 		if supervised[process.PID] {
@@ -432,6 +447,13 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				// its own could ever be right about.
 				continue
 			}
+			fixture, underFixture := fixtureServer(process, byPID, inv.Session)
+			if underFixture && fixtureInUse(fixture.Cwd, inv, tasks, panes, gates, unreadable) {
+				// A stand-in harness a live goblin's or gate's test is
+				// running: its fixture's Herdr server outlived the script
+				// that started it, so its ancestry reaches no pane here.
+				continue
+			}
 			finding := Finding{
 				Class:  OrphanProcess,
 				PID:    process.PID,
@@ -441,6 +463,16 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 			if worktree, ok := worktreeOf(process, inv.Worktrees); ok {
 				finding.TaskID = worktree.TaskID
 				finding.Path = worktree.Path
+			} else if worktree, ok := worktreeHolding(fixture.Cwd, inv.Worktrees); underFixture && ok {
+				finding.TaskID = worktree.TaskID
+				finding.Path = worktree.Path
+			}
+			if underFixture {
+				where := fixture.Cwd
+				if where == "" {
+					where = "a directory that could not be read"
+				}
+				finding.Detail += fmt.Sprintf(" (a test fixture's: it runs under Herdr server pid %d, of a session other than the fleet's, started in %s, where nothing live works any more)", fixture.PID, where)
 			}
 			if !fleet[process.PID] {
 				finding.refuseUntilEstablished(unidentifiedHold, strconv.Itoa(process.PID))
@@ -462,7 +494,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 			if !ok {
 				continue
 			}
-			task, known := tasks[worktree.TaskID]
+			task, known := ownerOf(worktree, tasks, inv.Worktrees, unreadable)
 			if goblinIsAlive(task, known, panes, worktree.Path) {
 				// Its goblin is still working; the server is doing its job.
 				continue
@@ -473,7 +505,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				TaskID: worktree.TaskID,
 				PID:    process.PID,
 				Path:   worktree.Path,
-				Detail: fmt.Sprintf("%s rooted in %s, with %s", process.Name, worktree.Path, placementOutcome(inv, task, known, unreadableRecord)),
+				Detail: fmt.Sprintf("%s rooted in %s, with %s%s", process.Name, worktree.Path, placementOutcome(inv, task, known, unreadableRecord), extraWorktreeNote(task, known, worktree)),
 				Action: "kill the process tree",
 			}
 			finding.refuseUntilEstablished(unresolvedPaneHold(inv), strconv.Itoa(process.PID))
@@ -484,7 +516,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 			// one who decides that the work behind it is over. Added, not
 			// assigned, so an unrelated pane that could not report its
 			// identity cannot drop it.
-			finding.refuseUnlessForced(unfinishedHold(task, known, unreadableRecord), finding.TaskID)
+			finding.refuseUnlessForced(unfinishedHold(task, known, unreadableRecord), ownerKey(task, known, worktree))
 			finding.refuseUnlessForced(killNeedsItsOwnPID, strconv.Itoa(process.PID))
 			findings = append(findings, finding)
 		}
@@ -495,11 +527,12 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]Task, panes map[string]Pane, unreadable map[string]bool) []Finding {
 	var findings []Finding
 	for _, worktree := range inv.Worktrees {
-		task, known := tasks[worktree.TaskID]
+		task, known := ownerOf(worktree, tasks, inv.Worktrees, unreadable)
 		if goblinIsAlive(task, known, panes, worktree.Path) {
-			// A live goblin owns this directory. This outranks registration:
-			// "could not confirm a worktree" is not evidence against a pane
-			// that is holding an agent right now.
+			// A live goblin owns this directory, as its worktree or as an
+			// extra one it made for another branch. This outranks
+			// registration: "could not confirm a worktree" is not evidence
+			// against a pane that is holding an agent right now.
 			continue
 		}
 		if worktree.Registration == RegistrationUnlisted {
@@ -511,17 +544,78 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 			TaskID:     worktree.TaskID,
 			Path:       worktree.Path,
 			Registered: worktree.Registration == RegistrationListed,
-			Detail:     placementOutcome(inv, task, known, unreadable[worktree.TaskID]),
+			Detail:     placementOutcome(inv, task, known, unreadable[worktree.TaskID]) + extraWorktreeNote(task, known, worktree),
 			Action:     "return the worktree through cfo cleanup",
 		}
 		finding.refuseUntilEstablished(unplacedAgentHold(inv), unplacedAgentKey(inv))
 		// A goblin whose pane died mid-work leaks its worktree just as surely
 		// as a finished one, so it is reported; it is held because the task
 		// never said it was done, or because nothing can say whether it did.
-		finding.refuseUnlessForced(unfinishedHold(task, known, unreadable[worktree.TaskID]), finding.TaskID)
+		finding.refuseUnlessForced(unfinishedHold(task, known, unreadable[worktree.TaskID]), ownerKey(task, known, worktree))
 		findings = append(findings, finding)
 	}
 	return findings
+}
+
+// ownerOf returns the task a directory under .worktrees/ belongs to. That is
+// the task its gb-<id> name records. A goblin also makes extra worktrees for
+// other branches, named gb-<id>-<suffix>, and one no record names belongs to
+// the task it extends: the longest such id, in the same project, whose own
+// worktree was made before it. The age check keeps an older directory that
+// merely shares the start of a live task's name from being read as that
+// task's, and a directory whose own record could not be read is never handed
+// to another task.
+func ownerOf(dir WorktreeDir, tasks map[string]Task, worktrees []WorktreeDir, unreadable map[string]bool) (Task, bool) {
+	if task, ok := tasks[dir.TaskID]; ok {
+		return task, true
+	}
+	if unreadable[dir.TaskID] || dir.Created.IsZero() {
+		return Task{}, false
+	}
+	var owner Task
+	found := false
+	for id, task := range tasks {
+		if !strings.HasPrefix(strings.ToLower(dir.TaskID), strings.ToLower(id)+"-") || (found && len(id) <= len(owner.ID)) {
+			continue
+		}
+		if normalizePath(filepath.Clean(task.Meta.Project)) != normalizePath(filepath.Clean(dir.Project)) {
+			continue
+		}
+		own, ok := worktreeAt(task.Meta.Worktree, worktrees)
+		if !ok || own.Created.IsZero() || dir.Created.Before(own.Created) {
+			continue
+		}
+		owner, found = task, true
+	}
+	return owner, found
+}
+
+func worktreeAt(path string, worktrees []WorktreeDir) (WorktreeDir, bool) {
+	for _, worktree := range worktrees {
+		if normalizePath(filepath.Clean(worktree.Path)) == normalizePath(filepath.Clean(path)) {
+			return worktree, true
+		}
+	}
+	return WorktreeDir{}, false
+}
+
+// ownerKey is the id a refusal about whether a directory's work is over
+// answers to: the task that owns it, which for an extra worktree is the
+// goblin's own task. The finding itself keeps the directory's own id, so
+// acting on it returns that directory and never the owner's worktree.
+func ownerKey(task Task, known bool, dir WorktreeDir) string {
+	if known {
+		return task.ID
+	}
+	return dir.TaskID
+}
+
+// extraWorktreeNote names the task an extra worktree belongs to.
+func extraWorktreeNote(task Task, known bool, dir WorktreeDir) string {
+	if !known || task.ID == dir.TaskID {
+		return ""
+	}
+	return "; it is an extra worktree of task " + task.ID
 }
 
 // unfinishedHold is why a directory may not be retired yet: the task behind it
@@ -563,7 +657,7 @@ func classifyDirectory(inv Inventory, supervised map[int]bool, dir WorktreeDir, 
 	} else {
 		finding.Detail += "; no command line names it, and a working directory is not readable from a process listing, so if the removal fails a leaked process is holding it open"
 	}
-	finding.refuseUnlessForced(unfinishedHold(task, known, unreadable), finding.TaskID)
+	finding.refuseUnlessForced(unfinishedHold(task, known, unreadable), ownerKey(task, known, dir))
 	return finding
 }
 
@@ -686,6 +780,106 @@ func goblinIsAlive(task Task, known bool, panes map[string]Pane, worktree string
 		}
 	}
 	return false
+}
+
+// fixtureAncestry bounds the walk from a stand-in harness up to the Herdr
+// server it runs under: the harness, the pane shell, the server, with room
+// for a shim between them.
+const fixtureAncestry = 8
+
+// fixtureServer finds the Herdr server of a session other than the fleet's
+// that a process runs under. That is the shape of a test fixture: a goblin's
+// or a gate's test starts a Herdr session of its own and runs stand-in
+// harnesses in its panes, and the server outlives the script that started it,
+// so the stand-ins' ancestry reaches no pane of this fleet. With the fleet's
+// session unknown, no server can be told apart from the fleet's own.
+func fixtureServer(process Process, byPID map[int]Process, session string) (Process, bool) {
+	if session == "" {
+		return Process{}, false
+	}
+	current := process
+	for range fixtureAncestry {
+		parent, ok := byPID[current.ParentPID]
+		if !ok || parent.PID == current.PID || (!parent.Start.IsZero() && !current.Start.IsZero() && current.Start.Before(parent.Start)) {
+			return Process{}, false
+		}
+		if isHerdrServer(parent) {
+			if !strings.EqualFold(herdrSession(parent.CommandLine), session) {
+				return parent, true
+			}
+			return Process{}, false
+		}
+		current = parent
+	}
+	return Process{}, false
+}
+
+func isHerdrServer(process Process) bool {
+	if executableName(process.Name) != "herdr" {
+		return false
+	}
+	return slices.Contains(strings.Fields(strings.ToLower(process.CommandLine)), "server")
+}
+
+// herdrSession reads the session a Herdr command line names, which is
+// "default" when it names none, the same default spawn uses.
+func herdrSession(commandLine string) string {
+	fields := strings.Fields(commandLine)
+	for index, field := range fields {
+		field = strings.Trim(field, `"'`)
+		if value, ok := strings.CutPrefix(field, "--session="); ok {
+			return value
+		}
+		if field == "--session" && index+1 < len(fields) {
+			return strings.Trim(fields[index+1], `"'`)
+		}
+	}
+	return "default"
+}
+
+// fixtureInUse reports whether anything live still works where a test
+// fixture was started: the goblin whose worktree (or extra worktree) holds
+// that directory, an agent working in that directory, or a gate agent running
+// in the same tree. Once nothing does, a stand-in under the fixture is an
+// orphan: its goblin retired, or its gate run finished, and left it running.
+// A directory that could not be read is in use by nothing anyone can show.
+func fixtureInUse(dir string, inv Inventory, tasks map[string]Task, panes map[string]Pane, gates map[int]bool, unreadable map[string]bool) bool {
+	if dir == "" {
+		return false
+	}
+	for _, worktree := range inv.Worktrees {
+		if !pathWithin(dir, worktree.Path) {
+			continue
+		}
+		task, known := ownerOf(worktree, tasks, inv.Worktrees, unreadable)
+		if goblinIsAlive(task, known, panes, worktree.Path) {
+			return true
+		}
+	}
+	for _, pane := range panes {
+		if pane.HasAgent && pathWithin(pane.AgentCwd, dir) {
+			return true
+		}
+	}
+	for _, process := range inv.Processes {
+		if gates[process.PID] && isHarness(process) && (pathWithin(process.Cwd, dir) || pathWithin(dir, process.Cwd)) {
+			return true
+		}
+	}
+	return false
+}
+
+// worktreeHolding finds the worktree a directory lies in, the deepest one
+// when worktrees nest.
+func worktreeHolding(dir string, worktrees []WorktreeDir) (WorktreeDir, bool) {
+	best := WorktreeDir{}
+	found := false
+	for _, worktree := range worktrees {
+		if pathWithin(dir, worktree.Path) && (!found || len(worktree.Path) > len(best.Path)) {
+			best, found = worktree, true
+		}
+	}
+	return best, found
 }
 
 // pathWithin reports whether path is root or a directory under it, folded the
