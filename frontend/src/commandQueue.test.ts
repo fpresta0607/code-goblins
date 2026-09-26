@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredBy, answeredLabel, chosenOption, itemFor, outcomeIcon, questionOutcome, settledIcon, settledItems, settledLabel, waitingItems } from "./commandQueue.ts";
+import { answeredBy, answeredLabel, chosenOption, itemFor, nextOpenKey, outcomeIcon, questionOutcome, settledIcon, settledItems, settledLabel, waitingItems } from "./commandQueue.ts";
 import { parseSnapshot } from "./types.ts";
 
 const question = (id: string, task: string, created_at: string, status = "pending", extra: Record<string, unknown> = {}) => ({ id, identity: "i-" + id, task, created_at, status, options: ["A", "B"], ...extra });
@@ -125,4 +125,17 @@ test("a run item waits in the stack while ready or running and settles with its 
     assert.equal(settledLabel(item, snapshot.actions), label, key);
     assert.equal(settledIcon(item, snapshot.actions).icon, icon, key);
   }
+});
+
+test("after a send the stack moves on to the next open item, wrapping, and ends when nothing is left", () => {
+  const snapshot = parseSnapshot({ healthy: true,
+    questions: [question("a", "", "2026-09-24T00:00:00Z"), question("b", "billing", "2026-09-24T00:01:00Z"), question("c", "notes", "2026-09-24T00:02:00Z", "queued", { answer_id: "z" }), question("d", "steward", "2026-09-24T00:03:00Z")],
+  });
+  const stack = waitingItems(snapshot, new Set(["question:c"]));
+  assert.deepEqual(stack.map((item) => item.key), ["question:a", "question:b", "question:c", "question:d"]);
+  assert.equal(nextOpenKey(stack, "question:b"), "question:d", "an item already answered is passed over");
+  assert.equal(nextOpenKey(stack, "question:d"), "question:a", "past the end it wraps to the first open item");
+  assert.equal(nextOpenKey(stack, "question:d", new Set(["question:a", "question:b"])), null, "items sent in this sitting are done even before the snapshot says so");
+  assert.equal(nextOpenKey(stack, "question:gone"), "question:a", "an item that left the stack starts from the top");
+  assert.equal(nextOpenKey(waitingItems(parseSnapshot({ healthy: true, questions: [question("a", "", "2026-09-24T00:00:00Z")] })), "question:a"), null, "the only item is never its own next");
 });

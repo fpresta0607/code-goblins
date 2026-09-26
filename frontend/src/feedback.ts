@@ -23,9 +23,10 @@ export function alreadyKnown(
     : undefined;
 }
 
-// deliveryMark shows an action's delivery as a mark: one check once the
-// supervisor accepted it, two once delivered. Only trouble spells itself out.
-export function deliveryMark(action: Action): { icon: IconName; label: string; trouble: boolean } {
+// deliveryMark shows an action's delivery as a mark: one check while it is on
+// its way, two once delivered, naming the goblin when the caller knows it.
+// Only trouble spells itself out.
+export function deliveryMark(action: Action, goblin = "the goblin"): { icon: IconName; label: string; trouble: boolean } {
   const cfo = action.kind === "review" || action.kind.startsWith("cfo_");
   switch (action.status) {
     case "succeeded":
@@ -33,11 +34,10 @@ export function deliveryMark(action: Action): { icon: IconName; label: string; t
       // A review answer for a replaced goblin goes to the CFO, so the action
       // alone cannot say it was delivered; the review item's flag does.
       if (action.kind === "review_answer") return { icon: "check", label: "Sent to the goblin or the CFO", trouble: false };
-      return { icon: "check-double", label: cfo ? "Accepted by the CFO" : action.kind === "goblin_answer" ? "Delivered to the goblin" : "Done", trouble: false };
+      return { icon: "check-double", label: cfo ? "CFO received" : action.kind === "goblin_answer" ? "Delivered to " + goblin : "Done", trouble: false };
     case "failed": return { icon: "close", label: "Could not deliver", trouble: true };
     case "uncertain": return { icon: "warning", label: "Delivery unconfirmed. Inspect " + (cfo ? "the CFO queue" : "the terminal") + " before sending again.", trouble: true };
-    case "running": return { icon: "check", label: "Sending", trouble: false };
-    default: return { icon: "check", label: "Queued", trouble: false };
+    default: return { icon: "check", label: "Sending", trouble: false };
   }
 }
 

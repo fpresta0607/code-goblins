@@ -33,6 +33,15 @@ export function waitingItems(snapshot: Snapshot, kept: ReadonlySet<string> = new
     .sort((a, b) => Number(!!task(a)) - Number(!!task(b)) || created(a) - created(b));
 }
 
+// The item to show after the one at key: the next open item, wrapping to the
+// first, passing over what was sent in this sitting before the snapshot says
+// so. Null means nothing else waits on him.
+export function nextOpenKey(stack: Item[], key: string, sent: ReadonlySet<string> = new Set()): string | null {
+  const index = stack.findIndex((item) => item.key === key);
+  const waiting = (item: Item) => item.key !== key && isOpen(item) && !sent.has(item.key);
+  return (stack.slice(index + 1).find(waiting) || stack.slice(0, Math.max(0, index)).find(waiting))?.key || null;
+}
+
 export function settledItems(snapshot: Snapshot): Item[] {
   return asItems(snapshot).filter((item) => !isOpen(item)).sort((a, b) => closed(b) - closed(a));
 }
