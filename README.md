@@ -160,6 +160,8 @@ In an attached terminal every key goes to the CFO, Ctrl-C included, and Ctrl-] l
 
 Run `goblins` in the project you actually want to build, or anywhere to pick one from your projects folder: it starts Claude Code as the CFO there, in Herdr, and brings you to it.
 Only a CFO in Claude Code is woken by the fleet today, through its Stop hook: a CFO run in Codex or pi learns what goblins finished or asked only when you next prompt it.
+Without a terminal, the board's first-run page at `/start` does the same: pick the folder that holds your projects, the project the CFO starts in and the agent, then **Start the CFO**, and it opens in the board's terminal.
+The page starts only Claude Code as the CFO, for the same reason, and still shows Codex and Pi with whether each is installed and signed in.
 
 Tell the CFO what outcome you want.
 It handles the fleet mechanics.

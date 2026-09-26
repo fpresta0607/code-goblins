@@ -269,6 +269,12 @@ For a goblin or CFO in Herdr the pane is proved as its view proves it, Herdr bri
 A goblin whose no-mistakes gate owns its task is refused with the gate's reason, with nothing brought to the front and no window, as typing into it is; the CFO's own terminal has no gate.
 A board without Windows Terminal, or a terminal it cannot prove, says why under the button.
 With no CFO registered, `goblins` and `cfo attach` show native terminal `cfo` while its host answers, since the CFO started there may not have registered yet; a CFO registered in Herdr always comes first.
+The board follows the same rule for the CFO's panel, so a CFO the first-run page started can be answered there, for example Claude Code asking whether to trust its folder, before it registers.
+The first-run page at `/start` lists the git checkouts directly in a projects folder, opening on the recorded `CFO_PROJECTS_ROOT`, and shows Claude Code, Codex and Pi with whether each is on PATH and has a saved sign-in (`~/.claude/.credentials.json`, `~/.codex/auth.json`, `~/.pi/agent/auth.json`).
+Start records a new folder as the machine's projects root, as `cfo install --projects-root` does, and starts Claude Code as the CFO in native terminal `cfo` in the picked project, as `goblins --native` does.
+Only Claude Code can start today, since goblins can wake only a Claude Code CFO, and a Claude Code the terminal cannot start itself (anything but `claude.exe`) says so.
+Start is refused, with the reason, while a CFO runs or is starting, for a folder without a checkout, and for a project that is not one of its checkouts; an example board (`cfo serve --example`) records the folder for itself alone, never as the machine's setting.
+The CFO bar offers Start the CFO in place of Open terminal while no CFO is registered or starting.
 Keys pass through raw, the terminal follows the console's size, and Ctrl-] leaves it running, whether the console sends that key as a byte or as a Windows key event.
 A host refuses to start for a terminal that already runs, so a second start never takes over the first one's record.
 `cfo peek` of a native terminal reads its screen from its console, exactly as the terminal's program would read it, rather than rendering the terminal's output: the rows written, without trailing blanks.

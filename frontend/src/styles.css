@@ -123,6 +123,38 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .cfo-pin.asking .pin-copy span { color: #f6d79e; }
 .cfo-pin .open-terminal { display: inline-flex; flex: none; align-items: center; gap: 8px; white-space: nowrap; }
 .cfo-pin .open-terminal .icon { width: 18px; height: 18px; }
+a.button { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius); text-decoration: none; }
+/* The first-run page: one card over the workshop, the folder, the project
+   the CFO starts in, the agents with what this machine has, and Start. */
+.first-run-region { display: grid; align-content: start; justify-items: center; flex: 1; min-height: 0; overflow: auto; padding: 40px 16px; border: 1px solid var(--edge); border-radius: 18px; background: linear-gradient(#07101599, #07101599), url('/assets/goblin-workshop.png') right bottom / cover; }
+.first-run { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; width: min(640px, 100%); padding: clamp(18px, 4vw, 28px); border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; background: #0f1820f2; box-shadow: var(--shadow-2); }
+.first-run-head { display: flex; align-items: center; gap: 16px; }
+.first-run-head .goblin-avatar { flex: none; width: 64px; height: 64px; }
+.first-run-head h2 { margin: 0 0 6px; font-size: 1.625rem; }
+.first-run-head p { margin: 0; }
+.first-run-step { display: grid; gap: 8px; margin: 0; min-width: 0; }
+.first-run-step > label, .first-run-agents legend { font-weight: 700; }
+.first-run-step p { margin: 0; font-size: .9375rem; }
+.first-run-folder { display: flex; gap: 8px; }
+.first-run-folder input { flex: 1 1 0; width: 0; min-width: 0; font-family: var(--font-mono); }
+.first-run-folder button, .first-run-actions .primary { display: inline-flex; flex: none; align-items: center; gap: 8px; }
+.first-run .icon { width: 18px; height: 18px; flex: none; }
+.first-run-agents { padding: 0; border: 0; }
+.first-run-agents legend { margin-bottom: 8px; padding: 0; }
+.agent-choice { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: start; gap: 12px; padding: 12px 14px; border: 1px solid var(--edge); border-radius: 14px; background: #0b1118; cursor: pointer; }
+.agent-choice + .agent-choice { margin-top: 8px; }
+.agent-choice:has(input:checked) { border-color: #68f1cb; }
+.agent-choice.unavailable { cursor: default; }
+.agent-choice input { width: 18px; height: 18px; min-height: 0; margin: 3px 0 0; padding: 0; accent-color: #68f1cb; }
+.agent-choice > .icon { width: 22px; height: 22px; margin-top: 1px; }
+.agent-copy { display: grid; gap: 4px; min-width: 0; }
+.agent-state { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font-size: .9375rem; }
+.agent-state > span { display: inline-flex; align-items: center; gap: 5px; }
+.agent-state .icon { width: 16px; height: 16px; }
+.agent-state .yes .icon { color: #90e1b3; }
+.agent-state .no .icon { color: #f6a3a3; }
+.agent-copy small { color: var(--amber); font-size: .9375rem; }
+.first-run-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; }
 .board-column { min-width: 0; padding: 20px 14px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; background: #0f1820d9; box-shadow: var(--shadow-1); backdrop-filter: blur(6px); }
 .board-column h2 { display: flex; gap: 10px; align-items: center; font-size: 1.375rem; margin: 0 0 20px; }
 .column-count { font-family: var(--font-body); color: var(--muted); font-size: .9375rem; font-weight: 700; padding: 0 9px; border: 1px solid var(--edge); border-radius: 999px; background: #0a1218; }

@@ -17,6 +17,7 @@ import { useSwitchKeys } from "./useSwitchKeys";
 import { unsentComment, updateAction } from "./boardUpdate";
 import { windowTarget } from "./terminalWindow";
 import { message, request } from "./api";
+import { FirstRun } from "./FirstRun";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
 const TerminalDeck = lazy(() => import("./TerminalDeck").then((module) => ({ default: module.TerminalDeck })));
@@ -58,6 +59,8 @@ export function App() {
   // windowError is a refused Open in terminal and the terminal it was for.
   const [windowError, setWindowError] = useState({ shown: "", text: "" });
   const [compact, setCompact] = useState(() => matchMedia("(max-width: 40rem)").matches);
+  // /start is the first-run page, where the installer opens the board.
+  const [firstRun, setFirstRun] = useState(() => location.pathname === "/start");
   const returnFocus = useRef<HTMLElement | null>(null);
   const pane = useRef<HTMLElement>(null);
   const workspace = useRef<HTMLDivElement>(null);
@@ -66,6 +69,11 @@ export function App() {
     const changed = () => setCompact(query.matches);
     query.addEventListener("change", changed);
     return () => query.removeEventListener("change", changed);
+  }, []);
+  useEffect(() => {
+    const moved = () => setFirstRun(location.pathname === "/start");
+    addEventListener("popstate", moved);
+    return () => removeEventListener("popstate", moved);
   }, []);
   const node = snapshot?.sessions.find((node) => node.id === selected?.session);
   const task = snapshot?.tasks.find((task) => task.id === (selected?.task || node?.task_id));
@@ -115,6 +123,14 @@ export function App() {
     setPaneOpen(true);
     setSwitchFocus((prior) => prior + 1);
   };
+  const openFirstRun = () => {
+    history.pushState(null, "", "/start");
+    setFirstRun(true);
+  };
+  const leaveFirstRun = () => {
+    history.pushState(null, "", "/");
+    setFirstRun(false);
+  };
   const close = () => {
     setPaneOpen(false);
     requestAnimationFrame(() => returnFocus.current?.isConnected && returnFocus.current.focus());
@@ -154,7 +170,7 @@ export function App() {
         {snapshot?.example && <span className="example-label">Example workspace</span>}
       </a>
       <div className="view-switch" role="group" aria-label="Workspace view">
-        {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={view === name} onClick={() => { setView(name); setPanelView(name === "Board" ? "task" : "terminal"); }}>{name}</button>)}
+        {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={!firstRun && view === name} onClick={() => { if (firstRun) leaveFirstRun(); setView(name); setPanelView(name === "Board" ? "task" : "terminal"); }}>{name}</button>)}
       </div>
       <div className="topbar-controls">
         {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={onUnsent} />}
@@ -165,12 +181,15 @@ export function App() {
       </div>
     </header>
     {updated && <div className="update-banner" role="status"><span>The board was updated.</span><button className="primary" onClick={() => location.reload()}>Reload</button></div>}
-    <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "")} style={layout}>
+    {firstRun ? <main className="first-run-region" aria-label="First run">
+      {snapshot ? <FirstRun instance={snapshot.instance} onStarted={() => { leaveFirstRun(); setView("Board"); switchTo(CFO_KEY); }} />
+        : <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading this machine's setup.</p></div>}
+    </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "")} style={layout}>
       <main className="canvas-region" aria-label={view} hidden={panelWide}>
         {(error || snapshot?.error) && <div className="connection-banner" role="alert">{error || snapshot?.error}</div>}
         {snapshot?.registration && <div className="connection-banner" role="alert">{snapshot.registration}</div>}
         {!snapshot ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
-          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} selected={task?.id} onSelect={(task, source) => select({ task: task.id }, source)} onTerminal={(task, source) => select({ task: task.id }, source, "terminal")} onOpenCfo={(source) => { returnFocus.current = source; switchTo(CFO_KEY); }} />
+          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} selected={task?.id} onSelect={(task, source) => select({ task: task.id }, source)} onTerminal={(task, source) => select({ task: task.id }, source, "terminal")} onOpenCfo={(source) => { returnFocus.current = source; switchTo(CFO_KEY); }} onStartCfo={openFirstRun} />
             : compact ? <Lineage presentations={presentations} effects={effects} snapshot={snapshot} project="" selected={selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
               : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} connected={connected} selected={selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
                 onSelect={(node, source) => select(node.session ? { session: node.session.id } : node.task ? { task: node.task.id } : {}, source)} />}
@@ -190,6 +209,6 @@ export function App() {
             onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />
         </Suspense>}
       </aside>
-    </div>
+    </div>}
   </div>;
 }
