@@ -364,6 +364,7 @@ Code Goblins is designed for high autonomy without pretending that an LLM saying
 - PR delivery is expected to be backed by machine-readable CI evidence.
 - Human approval remains the default for merges; `yolo` is an explicit posture, not an implicit permission.
 - Only the registered CFO process can put a question, item or answer on the board as the CFO: the supervisor proves the sender from the process at the other end of its pipe, and a goblin, running as the same Windows user, cannot pass its own items off as the CFO's by writing files.
+- The CFO never waits on a native question prompt: its pre-tool hook refuses Claude Code's `AskUserQuestion` in the registered CFO session and points it to `cfo question` and `cfo run-request`, so every question reaches the Command Center and supervision keeps running while it waits.
 
 For high-risk production systems, use repository branch protection and keep production deployment credentials outside worker reach. Code Goblins coordinates software delivery; it is not an operating-system sandbox.
 
