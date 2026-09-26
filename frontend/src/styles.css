@@ -486,9 +486,13 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 /* The terminal runs edge to edge like a Herdr pane: no border, no card, no
    caption. State and the few controls float over its corners. */
 .native-terminal { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
-.terminal-surface { flex: 1; min-width: 0; min-height: 200px; overflow: auto; background: #071015; }
-.terminal-surface .xterm { height: 100%; }
+.terminal-surface { flex: 1; min-width: 0; min-height: 200px; overflow: hidden; background: #071015; }
+/* A Herdr pane's screen is fitted whole to the panel and sits at its bottom,
+   so the input line stays at the bottom of the panel; nothing scrolls. */
+.native-terminal:not(.host-terminal) .terminal-surface { display: flex; flex-direction: column; justify-content: flex-end; }
 .terminal-surface .xterm-viewport { overflow: hidden !important; }
+/* No terminal shows a scroll bar; the wheel still scrolls a native one. */
+.terminal-surface .xterm-scrollable-element > .scrollbar { display: none; }
 .terminal-overlay { position: absolute; top: 10px; right: 12px; display: flex; align-items: center; gap: 8px; z-index: 2; }
 .terminal-state { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px; border: 1px solid var(--edge); border-radius: 999px; background: #0b141be6; box-shadow: var(--shadow-1); color: var(--muted); font-weight: 700; }
 .terminal-state .status-dot { background: #a6beda; }
@@ -712,28 +716,12 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .run-button { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .run-button .icon { width: 18px; height: 18px; fill: currentColor; }
 
-/* The terminal deck below the panel header: the switcher rail and every live
-   terminal, one shown at a time. */
+/* The terminal deck below the panel header: every live terminal, one shown
+   at a time, filling the panel. */
 .goblin-panel.showing-terminal { flex: none; }
 .terminal-deck { container-type: inline-size; display: flex; flex: 1; min-height: 0; border-top: 1px solid var(--edge); background: #071015; }
 .deck-stage { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
 .deck-slot { display: flex; flex: 1; min-width: 0; min-height: 0; }
-.terminal-switcher { flex: none; width: 200px; overflow-y: auto; scrollbar-width: none; padding: 8px 6px; border-right: 1px solid var(--edge); background: var(--level-1); }
-.terminal-switcher::-webkit-scrollbar { display: none; }
-.terminal-switcher ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.terminal-switcher button { position: relative; display: grid; grid-template-columns: 30px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 6px 8px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: #c4d4df; text-align: left; font-weight: 600; }
-.terminal-switcher button:hover { background: #ffffff0a; }
-.terminal-switcher button[aria-current="true"] { border-color: #2c5a4c; background: #13302a; color: #edf4f3; }
-.terminal-switcher .goblin-avatar { width: 30px; height: 30px; }
-.switcher-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.terminal-switcher .status-dot { width: 8px; height: 8px; border-radius: 50%; }
-.terminal-switcher kbd { font: 600 .9375rem/1 var(--font-body); color: #7d93a1; }
-@container (max-width: 42rem) {
-  .terminal-switcher { width: 58px; }
-  .terminal-switcher button { grid-template-columns: 30px; justify-content: center; }
-  .switcher-name, .terminal-switcher kbd { display: none; }
-  .terminal-switcher .status-dot { position: absolute; right: 7px; bottom: 7px; }
-}
 /* The handle between the board and the panel. */
 .pane-divider { display: flex; cursor: col-resize; touch-action: none; outline: none; }
 .pane-divider::after { content: ""; width: 3px; height: 56px; margin: auto; border-radius: 3px; background: var(--edge-lit); opacity: 0; transition: opacity .12s ease; }

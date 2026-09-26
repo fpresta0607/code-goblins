@@ -12,7 +12,7 @@ import { Icon } from "./Icon";
 import { Avatar } from "./Avatar";
 import { GoblinPanel, type PanelView } from "./GoblinPanel";
 import { PaneDivider } from "./PaneDivider";
-import { CFO_KEY, paneTrack, switchOrder } from "./terminalOrder";
+import { CFO_KEY, MAXIMIZED_KEYS, maximizedFor, paneTrack, switchOrder } from "./terminalOrder";
 import { useSwitchKeys } from "./useSwitchKeys";
 import { unsentComment, updateAction } from "./boardUpdate";
 
@@ -20,7 +20,6 @@ import { unsentComment, updateAction } from "./boardUpdate";
 const TerminalDeck = lazy(() => import("./TerminalDeck").then((module) => ({ default: module.TerminalDeck })));
 
 const PANE_WIDTH_KEY = "cfo-pane-width";
-const PANE_MAXIMIZED_KEY = "cfo-pane-maximized";
 
 // The board build this page was loaded with, which the supervisor names in
 // the page; a tab left open across an install keeps the older one.
@@ -51,7 +50,7 @@ export function App() {
   const [selectionEpoch, setSelectionEpoch] = useState(0);
   const [paneOpen, setPaneOpen] = useState(true);
   const [paneSize, setPaneSize] = useState<number | null>(() => Number(stored(PANE_WIDTH_KEY)) || null);
-  const [maximized, setMaximized] = useState(() => stored(PANE_MAXIMIZED_KEY) === "true");
+  const [maximizedChoice, setMaximizedChoice] = useState(() => ({ task: stored(MAXIMIZED_KEYS.task), terminal: stored(MAXIMIZED_KEYS.terminal) }));
   const [terminalOpened, setTerminalOpened] = useState(false);
   const [switchFocus, setSwitchFocus] = useState(0);
   const [compact, setCompact] = useState(() => matchMedia("(max-width: 40rem)").matches);
@@ -121,10 +120,11 @@ export function App() {
   const terminalShown = showsPanel && panelView === "terminal";
   if (terminalShown && !terminalOpened) setTerminalOpened(true);
   useSwitchKeys(snapshot ? switchOrder(snapshot.tasks) : [], cfoShown ? CFO_KEY : task?.id || "", switchTo);
+  const maximized = maximizedFor(panelView, maximizedChoice[panelView]);
   const panelWide = paneOpen && maximized && !compact;
   const layout: CSSProperties | undefined = panelWide ? { gridTemplateColumns: "minmax(0, 1fr)" } : paneOpen && paneSize && !compact ? { gridTemplateColumns: `minmax(0, 1fr) 10px ${paneTrack(paneSize)}` } : undefined;
   const closeButton = <>
-    {!compact && <button className="icon-button" aria-label={maximized ? "Restore the panel" : "Maximize the panel"} data-tip={maximized ? "Restore" : "Maximize"} data-tip-align="end" onClick={() => { setMaximized(!maximized); store(PANE_MAXIMIZED_KEY, String(!maximized)); }}><Icon name={maximized ? "restore" : "maximize"} /></button>}
+    {!compact && <button className="icon-button" aria-label={maximized ? "Restore the panel" : "Maximize the panel"} data-tip={maximized ? "Restore" : "Maximize"} data-tip-align="end" onClick={() => { const choice = String(!maximized); setMaximizedChoice((prior) => ({ ...prior, [panelView]: choice })); store(MAXIMIZED_KEYS[panelView], choice); }}><Icon name={maximized ? "restore" : "maximize"} /></button>}
     <button className="icon-button" aria-label="Close panel" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
   </>;
   return <div className="app-shell" onKeyDown={(event) => {
@@ -169,7 +169,7 @@ export function App() {
             leading={view === "Orchestration" && selected ? <button className="icon-button" aria-label="Back to CFO" data-tip="Back to CFO" data-tip-align="start" onClick={() => setSelected(null)}><Icon name="back" /></button> : undefined} />)}
         {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
           <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} cfo={cfoShown} shown={terminalShown} connected={connected} focus={switchFocus}
-            onSwitch={switchTo} onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />
+            onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />
         </Suspense>}
       </aside>
     </div>
