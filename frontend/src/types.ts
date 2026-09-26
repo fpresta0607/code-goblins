@@ -92,6 +92,12 @@ export interface Snapshot {
   cfo_terminal: string;
   // build names the board bundle the supervisor serves.
   build: string;
+  // cfo_runs says a CFO is registered and running or starting; without one
+  // the board shows its first-run page.
+  cfo_runs: boolean;
+  // cfo_starting says the CFO runs in its terminal but has not registered,
+  // which it does only after Claude Code's sign-in there.
+  cfo_starting: boolean;
   inbox: number;
   tasks: Task[];
   sessions: Session[];
@@ -148,6 +154,25 @@ export interface FileDiff {
   binary: boolean;
   code_omitted: boolean;
   fingerprint: string;
+}
+// Setup is the first-run page: the projects folder and the git checkouts in
+// it, or why it offers none, the agents this machine has, and whether a CFO
+// already runs.
+export interface Setup {
+  projects_root: string;
+  checkouts: string[];
+  problem: string;
+  agents: SetupAgent[];
+  cfo_runs: boolean;
+}
+// SetupAgent is one agent the first-run page shows, and why Start cannot
+// pick it when it cannot.
+export interface SetupAgent {
+  id: string;
+  name: string;
+  installed: boolean;
+  signed_in: boolean;
+  reason: string;
 }
 export interface Commit {
   sha: string;
@@ -249,6 +274,8 @@ export function parseSnapshot(value: unknown): Snapshot {
     registration: v.registration === undefined ? "" : string(v.registration),
     cfo_terminal: v.cfo_terminal === undefined ? "" : string(v.cfo_terminal),
     build: string(v.build),
+    cfo_runs: v.cfo_runs === undefined || boolean(v.cfo_runs),
+    cfo_starting: v.cfo_starting === undefined ? false : boolean(v.cfo_starting),
     inbox: number(v.inbox),
     retired: strings(v.retired),
     issues: strings(v.issues),
@@ -349,6 +376,19 @@ export function parseDiff(value: unknown): FileDiff {
     fingerprint: string(v.fingerprint),
     binary: boolean(v.binary),
     code_omitted: boolean(v.code_omitted),
+  };
+}
+export function parseSetup(value: unknown): Setup {
+  const v = object(value);
+  return {
+    projects_root: string(v.projects_root),
+    checkouts: strings(v.checkouts),
+    problem: string(v.problem),
+    agents: array(v.agents).map((value) => {
+      const agent = object(value);
+      return { id: string(agent.id), name: string(agent.name), installed: boolean(agent.installed), signed_in: boolean(agent.signed_in), reason: string(agent.reason) };
+    }),
+    cfo_runs: boolean(v.cfo_runs),
   };
 }
 export function parseHistory(value: unknown): Commit[] {

@@ -12,6 +12,8 @@ import (
 // owns .watch.lock. It shares the legacy signal signatures, monitor episodes,
 // routing policy, and orphan sweep; it never starts a competing watch loop.
 func Reconcile(ctx context.Context, cfg Config) error {
+	ctx, cancel := context.WithTimeout(ctx, cfg.reconcileBudget())
+	defer cancel()
 	changes, err := ScanSignals(cfg.Home.State)
 	if err != nil {
 		return err
@@ -45,9 +47,9 @@ func Reconcile(ctx context.Context, cfg Config) error {
 				return err
 			}
 		}
-	} else if err := monitor.TouchHeartbeat(cfg.Home.State, time.Now()); err != nil {
-		return err
 	}
-	sweepOrphans(cfg)
-	return nil
+	sweepOrphans(ctx, cfg)
+	// The scan stamps last_cycle when it starts; a pass that ran to its
+	// budget would leave the heartbeat that old, so mark the pass's end.
+	return monitor.TouchHeartbeat(cfg.Home.State, time.Now())
 }

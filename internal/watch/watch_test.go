@@ -873,7 +873,7 @@ func TestRunWakesOnANewOrphan(t *testing.T) {
 func TestSweepOrphansDoesNotRewakeOnTheSameOrphan(t *testing.T) {
 	dir := t.TempDir()
 	cfg := reapConfig(dir, orphanFleet())
-	if reason := sweepOrphans(cfg); !strings.HasPrefix(reason, "orphan:") {
+	if reason := sweepOrphans(context.Background(), cfg); !strings.HasPrefix(reason, "orphan:") {
 		t.Fatalf("first sweep = %q, want an orphan wake", reason)
 	}
 
@@ -888,7 +888,7 @@ func TestSweepOrphansDoesNotRewakeOnTheSameOrphan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if reason := sweepOrphans(cfg); reason != "" {
+	if reason := sweepOrphans(context.Background(), cfg); reason != "" {
 		t.Fatalf("second sweep = %q, want no rewake for an unchanged orphan set", reason)
 	}
 	records, err := wake.Pending(dir)
@@ -910,7 +910,7 @@ func TestSweepOrphansDoesNotRewakeOnTheSameOrphan(t *testing.T) {
 	if err := reap.WriteRecord(dir, aged); err != nil {
 		t.Fatal(err)
 	}
-	if reason := sweepOrphans(reapConfig(dir, grown)); !strings.Contains(reason, "2 orphan_process") {
+	if reason := sweepOrphans(context.Background(), reapConfig(dir, grown)); !strings.Contains(reason, "2 orphan_process") {
 		t.Fatalf("third sweep = %q, want a wake naming both orphans", reason)
 	}
 }
@@ -923,7 +923,7 @@ func TestSweepOrphansRecordsAFailedSweep(t *testing.T) {
 	cfg.ReapEvery = time.Hour
 	cfg.Reap = &reap.Service{Home: home.Home{State: dir}, Inventory: failingInventory{}}
 
-	if reason := sweepOrphans(cfg); reason != "" {
+	if reason := sweepOrphans(context.Background(), cfg); reason != "" {
 		t.Fatalf("a failed sweep returned %q, want no wake", reason)
 	}
 	record, err := reap.ReadRecord(dir)

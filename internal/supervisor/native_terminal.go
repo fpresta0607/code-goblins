@@ -315,15 +315,15 @@ func (s *Service) nativeBinding(query url.Values) (nativeBinding, error) {
 	// A view of the CFO names the terminal it expects the CFO in, so a CFO
 	// that moved is opened again rather than shown in a view of another.
 	if want := query.Get("cfo"); want != "" {
-		id, live := NativeCFO(s.Store.Home.State)
-		if !live {
+		id := readCFOState(s.Store.Home.State).terminal
+		if id == "" {
 			return nativeBinding{}, errors.New("The CFO does not run in a native terminal.")
 		}
 		if id != want {
 			return nativeBinding{}, errors.New("The CFO runs in another terminal now. Open the CFO again.")
 		}
 		return nativeBinding{id: id, name: "the CFO", check: func(context.Context) (error, error) {
-			if current, live := NativeCFO(s.Store.Home.State); !live || current != id {
+			if readCFOState(s.Store.Home.State).terminal != id {
 				return nil, errors.New("The CFO no longer runs in this terminal. Open the CFO again.")
 			}
 			return nil, nil
