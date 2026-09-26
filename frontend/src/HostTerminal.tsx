@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
-import type { Task } from "./types";
 import { Icon } from "./Icon";
 import { closedReason, DEFAULT_FONT_SIZE, MAX_FONT_SIZE, MIN_FONT_SIZE, reconnects } from "./terminalStream";
 import { TerminalView } from "./terminalView";
@@ -23,7 +22,9 @@ function storedFontSize(): number {
 // sight until its screen is whole, and a reconnect keeps the last screen in
 // place until the new one is ready, so the panel is never blank, never
 // cleared and repainted, and never half drawn.
-export function HostTerminal({ task, instance, visible, shown, focus }: { task: Task; instance: string; visible: boolean; shown: boolean; focus: number }) {
+// query names the terminal to the relay: a task's generation, or the native
+// terminal the CFO runs in.
+export function HostTerminal({ query, label, instance, visible, shown, focus }: { query: string; label: string; instance: string; visible: boolean; shown: boolean; focus: number }) {
   const surface = useRef<HTMLDivElement>(null);
   const current = useRef<TerminalView | null>(null);
   // staged is a connection still replaying out of sight; it is shown and
@@ -60,7 +61,9 @@ export function HostTerminal({ task, instance, visible, shown, focus }: { task: 
     let copiedTimer: ReturnType<typeof setTimeout> | undefined, retry: ReturnType<typeof setTimeout> | undefined;
     const url = new URL("/api/terminal/native", location.href);
     url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    url.search = new URLSearchParams({ task: task.id, generation: task.generation, token: instance }).toString();
+    const params = new URLSearchParams(query);
+    params.set("token", instance);
+    url.search = params.toString();
     const view: TerminalView = new TerminalView(container, url, storedFontSize(), {
       ready: () => {
         const prior = current.current;
@@ -104,9 +107,9 @@ export function HostTerminal({ task, instance, visible, shown, focus }: { task: 
       // A view that is on screen stays until its replacement is whole.
       if (current.current !== view) view.dispose();
     };
-  }, [task.id, task.generation, instance, visible, attempt, dictate]);
+  }, [query, instance, visible, attempt, dictate]);
   useEffect(() => () => { current.current?.dispose(); current.current = null; }, []);
-  return <section className="native-terminal host-terminal" aria-label="Goblin terminal">
+  return <section className="native-terminal host-terminal" aria-label={label}>
     <div className="terminal-surface" ref={surface} />
     {phase === "connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div>}
     {phase === "live" && (reconnecting || !visible) && <span className="terminal-state terminal-reconnecting" role="status"><span className="status-dot" />Reconnecting</span>}

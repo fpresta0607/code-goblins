@@ -42,7 +42,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
     <div className="panel-identity">
       <h2 id="panel-title">{title}</h2>
       {!compact && task?.project && <p className="project-label">{task.project}</p>}
-      <p className={"panel-status plain-status phase-" + phase + (asking ? " asking" : "")}><span className="status-dot" />{status}{awaited && <button className="status-link" aria-label={"Open " + (awaited.title || awaited.id) + ", which this goblin is waiting on"} data-tip={"Open " + (awaited.title || awaited.id)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>}</p>
+      <p className={"panel-status plain-status phase-" + phase}><span className="status-dot" />{status}{awaited && <button className="status-link" aria-label={"Open " + (awaited.title || awaited.id) + ", which this goblin is waiting on"} data-tip={"Open " + (awaited.title || awaited.id)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>}</p>
       {!compact && !owner && node && task && <p className="muted">Part of {task.title || task.id}</p>}
       {!compact && owner && task.activity && <p className="panel-activity">{task.activity}</p>}
     </div>

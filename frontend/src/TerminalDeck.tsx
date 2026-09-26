@@ -18,7 +18,7 @@ export function TerminalDeck({ snapshot, task, node, cfo, shown, connected, focu
   const owner = !!task && !!task.generation && (!node || ownsTaskSession(node, task));
   const key = cfo ? CFO_KEY : owner ? task.id : "";
   const [live, setLive] = useState<string[]>([]);
-  const herdr = (candidate: string) => candidate === CFO_KEY || snapshot.tasks.find((each) => each.id === candidate)?.backend !== "native";
+  const herdr = (candidate: string) => candidate === CFO_KEY ? !snapshot.cfo_terminal : snapshot.tasks.find((each) => each.id === candidate)?.backend !== "native";
   if (shown && key && live[0] !== key) setLive(keepLive(live, key, herdr));
   const order = switchOrder(snapshot.tasks);
   return <div className="terminal-deck" hidden={!shown}>
@@ -26,12 +26,17 @@ export function TerminalDeck({ snapshot, task, node, cfo, shown, connected, focu
     <div className="deck-stage">
       {live.map((entry) => {
         const here = shown && entry === key;
-        if (entry === CFO_KEY) return <div className="deck-slot" key={entry} hidden={!here}><NativeTerminal instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} /></div>;
+        // A CFO in a native terminal is shown from its host like a native goblin.
+        if (entry === CFO_KEY) return <div className="deck-slot" key={entry} hidden={!here}>
+          {snapshot.cfo_terminal
+            ? <HostTerminal query={"cfo=" + encodeURIComponent(snapshot.cfo_terminal)} label="CFO terminal" instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
+            : <NativeTerminal instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />}
+        </div>;
         const each = snapshot.tasks.find((candidate) => candidate.id === entry && !!candidate.generation);
         if (!each) return null;
         return <div className="deck-slot" key={entry} hidden={!here}>
           {each.backend === "native"
-            ? <HostTerminal task={each} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
+            ? <HostTerminal query={new URLSearchParams({ task: each.id, generation: each.generation }).toString()} label="Goblin terminal" instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
             : <NativeTerminal task={each} node={snapshot.sessions.find((session) => ownsTaskSession(session, each))} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />}
         </div>;
       })}
