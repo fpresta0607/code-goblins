@@ -23,6 +23,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/layout"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
@@ -65,6 +66,11 @@ type Config struct {
 	// snapshot and one process-table query, which is far too much for every
 	// Poll, and an orphan that has already leaked can wait minutes.
 	ReapEvery time.Duration
+
+	// FileEvery bounds how often the watcher files the home's data: finished
+	// task folders into the archive and stale briefs into parked (see
+	// layout.File). Zero leaves the data alone.
+	FileEvery time.Duration
 
 	// WaitEvent is Task 9's filesystem-notification seam, replacing the
 	// plain Sleep(Poll) wait between checks. Its bool return has two
@@ -140,6 +146,7 @@ func ConfigFromEnv(h home.Home) Config {
 	// session, so orphan detection can never look at a different session than
 	// supervision does.
 	cfg.ReapEvery = clampMin1s(claudehook.Seconds("CFO_REAP_EVERY", 600))
+	cfg.FileEvery = 10 * time.Minute
 	cfg.Reap = &reap.Service{
 		Home: h,
 		Inventory: reap.Collector{
@@ -312,6 +319,7 @@ func Run(cfg Config) (string, error) {
 		defer cfg.Cleanup()
 	}
 
+	var lastFiled time.Time
 	for {
 		var signalDetail string
 		changes, err := ScanSignals(cfg.Home.State)
@@ -399,6 +407,7 @@ func Run(cfg Config) (string, error) {
 		} else if err := monitor.TouchHeartbeat(cfg.Home.State, time.Now()); err != nil {
 			return "", err
 		}
+		fileData(cfg, &lastFiled)
 		orphanDetail := sweepOrphans(cfg)
 		if signalDetail != "" {
 			return signalDetail, nil
@@ -433,6 +442,19 @@ func Run(cfg Config) (string, error) {
 			return "", nil
 		}
 	}
+}
+
+// fileData files the home's data when FileEvery has passed since this
+// watcher last did. Filing is routine and never wakes the CFO: every move is
+// in the data folder's filing log. A pass that fails is recorded there by
+// layout.File and retried on the next pass, and it never stops the watcher,
+// because supervising the goblins matters more than tidying their folders.
+func fileData(cfg Config, last *time.Time) {
+	if cfg.FileEvery <= 0 || time.Since(*last) < cfg.FileEvery {
+		return
+	}
+	*last = time.Now()
+	_, _ = layout.File(cfg.Home, *last)
 }
 
 // sweepOrphans runs the orphan audit when it is due, persists the result for
