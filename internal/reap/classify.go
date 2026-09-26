@@ -473,6 +473,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 					where = "a directory that could not be read"
 				}
 				finding.Detail += fmt.Sprintf(" (a test fixture's: it runs under Herdr server pid %d, of a session other than the fleet's, started in %s, where nothing live works any more)", fixture.PID, where)
+				finding.refuseUntilEstablished(unplacedAgentHold(inv), unplacedAgentKey(inv))
 			}
 			if !fleet[process.PID] {
 				finding.refuseUntilEstablished(unidentifiedHold, strconv.Itoa(process.PID))
@@ -838,31 +839,38 @@ func herdrSession(commandLine string) string {
 }
 
 // fixtureInUse reports whether anything live still works where a test
-// fixture was started: the goblin whose worktree (or extra worktree) holds
-// that directory, an agent working in that directory, or a gate agent running
-// in the same tree. Once nothing does, a stand-in under the fixture is an
+// fixture was started. A fixture started in a task worktree (or extra
+// worktree) is in use while that worktree's goblin lives, or while an agent or
+// gate agent works inside that same worktree. One started anywhere else is in
+// use while an agent or gate agent works at or above that directory, never
+// because something live works below it: a fixture started from a project's
+// main checkout is not kept by every goblin working in the project's
+// worktrees. Once nothing qualifies, a stand-in under the fixture is an
 // orphan: its goblin retired, or its gate run finished, and left it running.
 // A directory that could not be read is in use by nothing anyone can show.
 func fixtureInUse(dir string, inv Inventory, tasks map[string]Task, panes map[string]Pane, gates map[int]bool, unreadable map[string]bool) bool {
 	if dir == "" {
 		return false
 	}
-	for _, worktree := range inv.Worktrees {
-		if !pathWithin(dir, worktree.Path) {
-			continue
-		}
+	if worktree, ok := worktreeHolding(dir, inv.Worktrees); ok {
 		task, known := ownerOf(worktree, tasks, inv.Worktrees, unreadable)
 		if goblinIsAlive(task, known, panes, worktree.Path) {
 			return true
 		}
+		for _, process := range inv.Processes {
+			if gates[process.PID] && isHarness(process) && pathWithin(process.Cwd, worktree.Path) {
+				return true
+			}
+		}
+		return false
 	}
 	for _, pane := range panes {
-		if pane.HasAgent && pathWithin(pane.AgentCwd, dir) {
+		if pane.HasAgent && pathWithin(dir, pane.AgentCwd) {
 			return true
 		}
 	}
 	for _, process := range inv.Processes {
-		if gates[process.PID] && isHarness(process) && (pathWithin(process.Cwd, dir) || pathWithin(dir, process.Cwd)) {
+		if gates[process.PID] && isHarness(process) && pathWithin(dir, process.Cwd) {
 			return true
 		}
 	}

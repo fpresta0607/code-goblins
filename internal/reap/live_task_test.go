@@ -82,6 +82,48 @@ func TestAStandInOfARetiredGoblinsFixtureIsReportedAgainstThatGoblin(t *testing.
 	}
 }
 
+// A fixture is kept only by the goblin whose worktree holds it or by an agent
+// working there, never by something live working below it or, once its
+// goblin is gone, by an agent working above its worktree.
+func TestAStandInUnderAFixtureNoLiveOwnerHoldsIsReported(t *testing.T) {
+	cfo := Pane{ID: "pane-cfo", HasAgent: true, AgentCwd: `C:\dev\proj`}
+	retiredWithCFO := fleetWithGoblin(false, "done")
+	retiredWithCFO.Panes = append(retiredWithCFO.Panes, cfo)
+
+	for _, testCase := range []struct {
+		name string
+		inv  Inventory
+	}{
+		{"started from the main checkout while goblins work in its worktrees", withFixture(fleetWithGoblin(true, "working"), `C:\dev\proj`)},
+		{"started in a retired goblin's worktree while an agent works in the main checkout", withFixture(retiredWithCFO, liveWorktree)},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			orphans := classOf(Classify(testCase.inv), OrphanProcess)
+
+			if len(orphans) != 1 || orphans[0].PID != 520 {
+				t.Fatalf("orphans = %v, want the leaked stand-in pid 520", lines(orphans))
+			}
+		})
+	}
+}
+
+// An agent that reported no working directory may be the goblin still using
+// the fixture, so the stand-in is held until it says where it is running.
+func TestAStandInUnderAFixtureIsHeldWhileAnAgentIsUnplaced(t *testing.T) {
+	inv := withFixture(fleetWithGoblin(false, "done"), liveWorktree)
+	inv.Panes = append(inv.Panes, Pane{ID: "pane-moved", HasAgent: true})
+	inv.UnplacedAgents = []string{"pane-moved"}
+
+	orphans := classOf(Classify(inv), OrphanProcess)
+
+	if len(orphans) != 1 || orphans[0].PID != 520 {
+		t.Fatalf("orphans = %v, want the stand-in pid 520", lines(orphans))
+	}
+	if hold := orphans[0].Hold(); !strings.Contains(hold, "no working directory") {
+		t.Errorf("hold %q does not wait on the unplaced agent", hold)
+	}
+}
+
 // A goblin's extra worktree is its own too: a fixture it started there is in
 // use for as long as the goblin is.
 func TestAStandInUnderAFixtureStartedInALiveGoblinsExtraWorktreeIsNotAnOrphan(t *testing.T) {
