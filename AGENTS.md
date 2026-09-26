@@ -368,7 +368,7 @@ Relay (X/Discord), AFK mode, tmux/zellij/orca/cmux backends, and Grok/OpenCode h
 ## The CFO home
 
 `$CFO_HOME` is the one folder that holds everything the fleet knows: `%LOCALAPPDATA%\CodeGoblins` for an install, or the checkout `cfo install` ran in.
-It is local and private by default: nothing in it is pushed anywhere, and in a checkout `.gitignore` keeps `state/` and `data/` out of the repository.
+It is local and private by default: nothing in it is pushed anywhere, and in a checkout `.gitignore` keeps `state/` and `data/`, all but the shipped `data/routing.json`, out of the repository.
 `state/` is the fleet's own record (task records, status logs, the wake queue and the board's database), which `cfo` writes and you never edit.
 `data/` is your data, laid out the same way in every home:
 
