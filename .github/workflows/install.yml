@@ -79,6 +79,12 @@ jobs:
           $hash = (Get-FileHash release/cfo.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           [IO.File]::WriteAllText("$PWD/release/SHA256SUMS", "$hash  cfo.exe`n")
           Start-Process python -ArgumentList "-m", "http.server", "8765", "--bind", "127.0.0.1", "--directory", "release" -WindowStyle Hidden
+          # The next step downloads at once, so wait until the server answers.
+          $deadline = (Get-Date).AddSeconds(30)
+          while ($true) {
+            try { Invoke-WebRequest http://127.0.0.1:8765/SHA256SUMS -UseBasicParsing | Out-Null; break }
+            catch { if ((Get-Date) -gt $deadline) { throw "the release server did not answer within 30 seconds" }; Start-Sleep -Milliseconds 250 }
+          }
       - name: Install with the one-line command
         env:
           CODE_GOBLINS_RELEASE_BASE: ${{ !inputs.release && 'http://127.0.0.1:8765' || '' }}
