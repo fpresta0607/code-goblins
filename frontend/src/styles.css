@@ -271,6 +271,9 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 .empty-state h2 { color: #edf4f3; }
 .connection-banner, .error-box { border: 1px solid #735338; border-radius: var(--radius); background: #292116; color: #f1c598; padding: 14px; margin-bottom: 18px; overflow-wrap: anywhere; font-size: .9375rem; }
 .connection-banner { margin: 16px; }
+/* A newer board is served: one quiet line with its reload. */
+.update-banner { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 8px 6px 16px; border: 1px solid #2f6b58; border-radius: 14px; background: #10251f; color: #c9f2e2; font-weight: 700; }
+.update-banner .primary { min-height: 36px; padding: 6px 16px; }
 .error-box button { display: block; margin-top: 10px; }
 summary { cursor: pointer; }
 .decision { padding: 14px 0; overflow-wrap: anywhere; border-bottom: 1px solid var(--border); }
