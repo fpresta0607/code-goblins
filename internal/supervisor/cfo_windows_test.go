@@ -18,6 +18,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/herdr/herdrtest"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
@@ -61,18 +62,30 @@ type cfoRunner struct {
 	harness      string
 	calls        int
 	offline      bool
-	// typing lets a live terminal view type into the pane, recorded in typed;
-	// sizeless leaves the pane's size out of the snapshot and resized grows it.
-	typing   bool
-	typed    [][]string
+	// socket is the Herdr socket a live terminal view types into, which
+	// records what it types; sizeless leaves the pane's size out of the
+	// snapshot and resized grows it.
+	socket   *herdrtest.Socket
 	sizeless bool
 	resized  atomic.Bool
 	// busy is an agent inside a long turn: working, with counters that do not
 	// move while the turn lasts, whatever it is sent.
 	busy bool
+	// holding makes each Herdr command wait for release, as a command slowed
+	// by a loaded machine, and says so on held.
+	holding atomic.Bool
+	held    chan struct{}
+	release chan struct{}
 }
 
 func (r *cfoRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
+	if r.holding.Load() {
+		select {
+		case r.held <- struct{}{}:
+		default:
+		}
+		<-r.release
+	}
 	r.calls++
 	if r.offline {
 		return execx.Result{}, errors.New("Herdr is not running")
@@ -114,12 +127,10 @@ func (r *cfoRunner) Run(_ context.Context, req execx.Request) (execx.Result, err
 		}
 		r.prompts = append(r.prompts, a[3])
 		body = `{"result":{}}`
+	case len(a) >= 2 && a[0] == "status" && a[1] == "--json" && r.socket != nil:
+		body = r.socket.Status()
 	case len(a) >= 2 && a[0] == "pane" && (a[1] == "send-text" || a[1] == "send-keys"):
-		if !r.typing {
-			r.t.Fatal("CFO message reached raw pane typing")
-		}
-		r.typed = append(r.typed, a)
-		body = `{"result":{}}`
+		r.t.Fatal("pane typing ran as a Herdr command")
 	default:
 		return execx.Result{}, fmt.Errorf("unexpected Herdr operation: %v", a)
 	}
