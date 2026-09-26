@@ -96,7 +96,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     const timer = setTimeout(() => setBanner([]), BANNER_MS);
     return () => clearTimeout(timer);
   }, [banner]);
-  const unsent = holdsUnsent(drafts, snapshot.actions);
+  const unsent = holdsUnsent(drafts, snapshot);
   useEffect(() => onUnsent(unsent), [unsent, onUnsent]);
   const baseTitle = useRef(document.title);
   useEffect(() => { document.title = countedTitle(baseTitle.current, waiting.length); }, [waiting.length]);
