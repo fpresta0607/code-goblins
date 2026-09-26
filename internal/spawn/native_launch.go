@@ -49,7 +49,7 @@ const maxDialogMoves = 8
 // the instruction only at the harness's composer, and submits it only once the
 // composer shows it. It returns the record of the host it launched, even when
 // it fails afterwards, and the zero record when it launched none.
-func (s Service) startNativeHarness(ctx context.Context, id string, kind harness.Kind, launch harness.Launch, credentials map[string]string) (host.Record, error) {
+func (s Service) startNativeHarness(ctx context.Context, id string, kind harness.Kind, launch harness.Launch, userEnv []string, credentials map[string]string) (host.Record, error) {
 	screens, ok := harness.NativeScreens(kind)
 	if !ok {
 		return host.Record{}, fmt.Errorf("spawn: %s cannot run in a native terminal yet", kind)
@@ -61,8 +61,7 @@ func (s Service) startNativeHarness(ctx context.Context, id string, kind harness
 	if len(s.HostCommand) == 0 {
 		return host.Record{}, errors.New("spawn: the command that runs a native terminal's host is required")
 	}
-	env := s.nativeHostEnvironment(launch, credentials)
-	record, err := host.Launch(s.StateDir, s.HostCommand, env, host.Spec{ID: id, Args: program, Dir: launch.Dir, Cols: nativeCols, Rows: nativeRows})
+	record, err := host.Launch(s.StateDir, s.HostCommand, s.nativeHostEnvironment(userEnv, launch, credentials), host.Spec{ID: id, Args: program, Dir: launch.Dir, Cols: nativeCols, Rows: nativeRows})
 	if err != nil {
 		return host.Record{}, fmt.Errorf("spawn: start native terminal %s: %w", id, err)
 	}
@@ -255,27 +254,32 @@ func nativeProgram(kind harness.Kind, launch harness.Launch) ([]string, error) {
 	return append([]string{shell, "/c", launch.Executable}, launch.Args...), nil
 }
 
-// inheritedSessionVariables name what this process inherits from the session
-// that runs it and a goblin must not: the harness that runs the CFO marks its
-// own session (Claude Code refuses to start inside another), and a Herdr pane
-// names itself to the hooks that report into it. Claude Code's own settings,
-// such as CLAUDE_CODE_GIT_BASH_PATH, pass on, as they do to a Herdr goblin.
-var inheritedSessionVariables = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CODEX_THREAD_ID", "CODEX_SANDBOX", "CODEX_SANDBOX_", "HERDR_", "CFO_SESSION_ID", "CFO_SESSION_HARNESS", host.IDVariable}
+// inheritedSessionVariables name what a session marks its own processes with
+// and a goblin must never start with: the harness that runs the CFO marks its
+// session (Claude Code treats a process that carries its markers as a child
+// session, which neither saves a transcript nor may start inside another),
+// and a Herdr pane names itself to the hooks that report into it. The user's
+// environment should hold none of them; they are dropped from it all the same.
+var inheritedSessionVariables = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_EXECPATH", "CLAUDE_PID", "CODEX_THREAD_ID", "CODEX_SANDBOX", "CODEX_SANDBOX_", "HERDR_", "CFO_SESSION_ID", "CFO_SESSION_HARNESS", host.IDVariable}
 
 // nativeHostEnvironment is the whole environment a native task's host and
-// harness run with: this process's own, without the harness billing keys or
-// the session variables above, then the project's credentials, then the
-// launch's variables and CFO_STATE_OVERRIDE, which win. A native task has no
-// credentials script: this block is how its credentials reach the harness.
+// harness run with, built the way a Herdr goblin's is: userEnv, the
+// environment Windows gives a new process of this user, never the spawning
+// process's own, so nothing of the session that ran cfo spawn reaches the
+// goblin; without the harness billing keys or any session marker; then the
+// project's credentials, then the launch's variables (CFO_ROLE=goblin and the
+// task's identity among them) and CFO_STATE_OVERRIDE, which win. A native
+// task has no credentials script: this block is how its credentials reach the
+// harness.
 // Names compare without case, as Windows compares them.
-func (s Service) nativeHostEnvironment(launch harness.Launch, credentials map[string]string) []string {
+func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, credentials map[string]string) []string {
 	names := map[string]string{}
 	values := map[string]string{}
 	set := func(name, value string) {
 		names[strings.ToUpper(name)] = name
 		values[strings.ToUpper(name)] = value
 	}
-	for _, entry := range os.Environ() {
+	for _, entry := range userEnv {
 		name, value, found := strings.Cut(entry, "=")
 		if !found || name == "" || auth.IsHarnessBillingKey(name) || inheritedSession(name) {
 			continue
@@ -298,6 +302,32 @@ func (s Service) nativeHostEnvironment(launch harness.Launch, credentials map[st
 	}
 	sort.Strings(env)
 	return env
+}
+
+// hasNativeVariable reports whether env, a native host environment, sets name
+// to a value. Names compare without case, as Windows compares them.
+func hasNativeVariable(env []string, name string) bool {
+	for _, entry := range env {
+		if entryName, value, _ := strings.Cut(entry, "="); strings.EqualFold(entryName, name) {
+			return value != ""
+		}
+	}
+	return false
+}
+
+// userEnvironment is the environment Windows gives a new process of this
+// user: the user's and the machine's configured variables, and nothing this
+// process inherited from whatever runs it.
+func (s Service) userEnvironment() ([]string, error) {
+	if s.UserEnvironment != nil {
+		return s.UserEnvironment()
+	}
+	var token windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY|windows.TOKEN_DUPLICATE, &token); err != nil {
+		return nil, err
+	}
+	defer token.Close()
+	return token.Environ(false)
 }
 
 func inheritedSession(name string) bool {

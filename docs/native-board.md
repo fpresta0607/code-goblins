@@ -265,8 +265,9 @@ For each read the host starts a process of its own that attaches to the terminal
 A read that fails is an error naming the terminal, never an empty screen.
 `cfo spawn --backend native` starts a goblin in a native terminal of its own, named by its task id, instead of a Herdr tab; it is opt-in until native becomes the default.
 The harness starts as its own program: claude.exe itself, and codex and pi through `cmd /c`, since their npm shims are scripts, and an argument cmd would read as more than text is refused.
-The terminal's environment is the spawn's own without the harness billing keys, the Herdr pane's variables and the spawning session's own markers, then the project's credentials, then the launch's variables: a native task has no credentials script.
-The session markers are exact names, such as `CLAUDECODE` and `CLAUDE_CODE_ENTRYPOINT`, so Claude Code's own settings, such as `CLAUDE_CODE_GIT_BASH_PATH`, reach a native goblin as they reach a Herdr one.
+The terminal's environment starts from the one Windows gives a new process of the user, built from the user's and the machine's configured variables, never from the spawning process's own, so nothing the spawning session set reaches the goblin, as with a Herdr pane.
+The harness billing keys and every known session marker, such as `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION` and the Herdr pane's variables, are dropped from it all the same, then the project's credentials and the launch's variables, `CFO_ROLE=goblin` among them, are added and win: a native task has no credentials script.
+A Claude Code setting such as `CLAUDE_CODE_GIT_BASH_PATH` therefore reaches a native goblin only when it is configured for the user or the machine, not when only the spawning session sets it.
 The spawn reads the terminal's screen throughout and types only where it recognizes what it reads.
 A startup dialog it knows is answered only once it shows, by moving the focus down and checking each move on the screen before confirming: Claude's trust dialog, which focuses "No, exit" first, and Codex's update prompt (Skip) and trust prompt (Yes).
 A prompt a spawn may not answer, such as Codex's hook review, or a screen it does not recognize within the startup budget, stops the spawn with the terminal named and its screen quoted.
