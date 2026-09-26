@@ -159,7 +159,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus }: { s
             </li>;
           })}</ul>
         </Disclosure>}
-        <p className="muted">Everything stays here until you answer or clear it. Opening a page never pauses work.</p>
+        <p className="muted">Everything stays here until you answer or clear it, or the goblin that asked moves past it. Opening a page never pauses work.</p>
       </div>
     </details>
     <dialog ref={dialog} className="question-modal" aria-labelledby="command-center-heading"
