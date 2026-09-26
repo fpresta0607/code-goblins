@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredBy, answeredLabel, chosenOption, documentFacts, failedSends, itemFor, nextOpenKey, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems } from "./commandQueue.ts";
+import { answeredBy, answeredLabel, chosenOption, documentFacts, failedSends, holdsUnsent, itemFor, nextOpenKey, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems } from "./commandQueue.ts";
 import type { Action } from "./types.ts";
 import { parseSnapshot, type BoardActivity } from "./types.ts";
 
@@ -220,4 +220,28 @@ test("an item sent and moved past comes back when its send fails, and only then"
   const failed = failedSends(new Set(["question:ok", "question:refused", "question:recovered", "question:lost", "question:unsent", "question:gone"]), drafts, actions);
 
   assert.deepEqual(failed, ["question:refused", "question:lost"]);
+});
+
+test("a choice or written text not yet sent, or whose send failed, on an item still waiting is unsent; one in flight, delivered or on a closed item is not", () => {
+  const blank = { selection: "", written: "", submission: null, sending: false, error: "" };
+  const answer = submitted("a1", { kind: "goblin_answer", text: "SQLite" });
+  const waiting = parseSnapshot({ healthy: true,
+    questions: [question("q", "gb-a", "2026-09-26T10:00:00Z"), question("done", "gb-a", "2026-09-26T10:00:00Z", "superseded")],
+    reviews: [review("r", "gb-a", "2026-09-26T10:00:00Z"), review("cleared", "gb-a", "2026-09-26T10:00:00Z", "cleared")] });
+  const cases: [string, Parameters<typeof holdsUnsent>[0], Action[], boolean][] = [
+    ["no drafts", {}, [], false],
+    ["an empty draft", { "question:q": blank }, [], false],
+    ["only spaces written", { "review:r": { ...blank, written: "  " } }, [], false],
+    ["a choice not sent", { "question:q": { ...blank, selection: "option:A" } }, [], true],
+    ["written text not sent", { "review:r": { ...blank, written: "Looks good" } }, [], true],
+    ["one unsent draft among sent ones", { "question:q": { ...blank, selection: "option:A", submission: answer, sending: true }, "review:r": { ...blank, written: "Later" } }, [], true],
+    ["a send in flight", { "question:q": { ...blank, selection: "option:A", submission: answer, sending: true } }, [], false],
+    ["a send delivered", { "question:q": { ...blank, selection: "option:A", submission: answer } }, [action("a1", "goblin_answer", "succeeded")], false],
+    ["a send refused", { "question:q": { ...blank, selection: "option:A", submission: answer, error: "that question is not open" } }, [], true],
+    ["a delivery that failed", { "question:q": { ...blank, selection: "option:A", submission: answer } }, [action("a1", "goblin_answer", "failed")], true],
+    ["a choice on an item that left the snapshot", { "question:gone": { ...blank, selection: "option:A" } }, [], false],
+    ["a choice on a question that closed", { "question:done": { ...blank, selection: "option:A" } }, [], false],
+    ["written text on a review item that was cleared", { "review:cleared": { ...blank, written: "Looks good" } }, [], false],
+  ];
+  for (const [name, drafts, actions, want] of cases) assert.equal(holdsUnsent(drafts, { ...waiting, actions }), want, name);
 });

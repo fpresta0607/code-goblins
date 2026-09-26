@@ -90,6 +90,8 @@ export interface Snapshot {
   registration: string;
   // The native terminal the registered CFO runs in; empty while it runs in Herdr.
   cfo_terminal: string;
+  // build names the board bundle the supervisor serves.
+  build: string;
   inbox: number;
   tasks: Task[];
   sessions: Session[];
@@ -246,6 +248,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     error: string(v.error),
     registration: v.registration === undefined ? "" : string(v.registration),
     cfo_terminal: v.cfo_terminal === undefined ? "" : string(v.cfo_terminal),
+    build: string(v.build),
     inbox: number(v.inbox),
     retired: strings(v.retired),
     issues: strings(v.issues),

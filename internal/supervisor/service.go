@@ -577,6 +577,9 @@ type Snapshot struct {
 	// Registration says why the board cannot reach the primary CFO, with
 	// the fix, and is empty while it can.
 	Registration string `json:"registration"`
+	// Build names the board bundle this supervisor serves, so a tab loaded
+	// from an older one can tell the board was updated.
+	Build string `json:"build,omitempty"`
 	// CFOTerminal names the native terminal the registered CFO runs in, and is
 	// empty while it runs in Herdr or not at all.
 	CFOTerminal string `json:"cfo_terminal"`
