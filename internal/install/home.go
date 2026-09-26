@@ -45,26 +45,23 @@ func (s Service) refuseAnotherHome() error {
 	return fmt.Errorf("install: CFO_HOME is %s, a home in use; run this from that home to keep it, or run goblins uninstall there first, then run this again to move to %s", current, s.Root)
 }
 
-// writeHome lays out a home outside a checkout: state and data, the
-// contract, the policy files where they are missing, the binary under both
-// its names, and last the marker, so a home that failed partway is never
-// taken for a primary one.
+// writeHome sets up a home outside a checkout: state, the contract, the
+// policy files where they are missing, the binary under both its names, and
+// last the marker, so a home that failed partway is never taken for a
+// primary one. Its data folder is laid out after it, as a checkout's is.
 func (s Service) writeHome(report *reporter) error {
 	markerPath := filepath.Join(s.Root, home.InstalledMarker)
 	previous, hadMarker, err := readManifest(markerPath)
 	if err != nil {
 		return fmt.Errorf("install: read %s: %w", markerPath, err)
 	}
-	var created []string
-	for _, dir := range []string{"state", "data"} {
-		path := filepath.Join(s.Root, dir)
-		if info, err := os.Stat(path); err == nil && info.IsDir() {
-			continue
+	stateDir := filepath.Join(s.Root, "state")
+	createdState := false
+	if info, err := os.Stat(stateDir); err != nil || !info.IsDir() {
+		if err := os.MkdirAll(stateDir, 0o755); err != nil {
+			return fmt.Errorf("install: create %s: %w", stateDir, err)
 		}
-		if err := os.MkdirAll(path, 0o755); err != nil {
-			return fmt.Errorf("install: create %s: %w", path, err)
-		}
-		created = append(created, dir)
+		createdState = true
 	}
 	manifest, written, err := s.writeContract()
 	if err != nil {
@@ -96,8 +93,8 @@ func (s Service) writeHome(report *reporter) error {
 		return fmt.Errorf("install: mark %s as a CFO home: %w", s.Root, err)
 	}
 	switch {
-	case len(created) > 0:
-		report.change("home", fmt.Sprintf("set up %s with %s", s.Root, strings.Join(created, " and ")))
+	case createdState:
+		report.change("home", "set up "+s.Root+" with its state folder")
 	case !hadMarker:
 		report.change("home", "marked "+s.Root+" as a CFO home again")
 	default:
