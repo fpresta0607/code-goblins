@@ -365,7 +365,7 @@ func TestWaitOnTheOverlordRetiresWhenTheGoblinReportsAgain(t *testing.T) {
 // publishing it or is gone: nobody will act on an answer then.
 func TestAGoblinsOwnItemClosesOnceItsTaskFinishesOrIsGone(t *testing.T) {
 	store, h := testStore(t)
-	earlier := time.Now().UTC().Add(-2 * time.Hour).Format(time.RFC3339) + " done: PR https://github.com/o/r/pull/6\n"
+	earlier := time.Now().UTC().Add(-2*time.Hour).Format(time.RFC3339) + " done: PR https://github.com/o/r/pull/6\n"
 	if err := os.WriteFile(filepath.Join(h.State, "task-1.status"), []byte(earlier), 0o644); err != nil {
 		t.Fatal(err)
 	}
