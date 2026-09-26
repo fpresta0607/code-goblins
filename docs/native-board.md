@@ -194,9 +194,10 @@ The view proves its pane, terminal, process and gate custody in full when it ope
 A tick's Herdr commands run beside the screen, never in its way, so a frame, and with it the echo of a key, is never held behind a tick.
 A paste is typed whole in one request, up to the 64 KiB input limit; an input Herdr refuses ends the view with an unknown outcome.
 A refused input, or one whose outcome is unknown, ends the view with the reason in plain words; nothing is resent, and reconnecting starts from a fresh full screen.
-The view never resizes the pane; the mouse wheel and Shift+PageUp and Shift+PageDown scroll the pane's history through Herdr's `pane.scroll` on the same socket, in whole lines of the screen as drawn, and Herdr holds the offset within the history and says where the pane is.
-Herdr keeps a pane scrolled while it is typed into, so the view brings the pane back to its bottom before it types; scrolling reaches no program, so a gate that owns the pane stops typing but not scrolling.
-The scroll position is Herdr's own, shared by every window on that pane.
+The view never resizes the pane, and it never scrolls it: Herdr sends a view only the pane's live screen, never its history, and `pane.scroll` would move the view of every Herdr window on that pane without reaching the board.
+So the live screen always follows the pane's bottom, and scrolling up with the mouse wheel or Shift+PageUp reads the pane's last 3,000 lines through `POST /api/terminal/history` (Herdr's `pane.read` of its recent output, with colors, on the same socket) and shows them in a terminal of their own over the live screen, at its size and font.
+The history scrolls by itself with the wheel and Shift+PageUp and Shift+PageDown; scrolling down at its bottom, Escape, or typing returns to the live screen, and what is typed reaches the pane.
+A history read types nothing, so a gate that owns the pane stops typing but not reading history; it reads only the pane the view was verified on, and at most 5,000 lines.
 A NUL key such as Ctrl+Space is typed like any other key.
 Shift+Escape moves keyboard focus out of the terminal to the panel's pill; ordinary Escape stays with the pane.
 Releasing a drag selection copies it to the clipboard, the way Herdr does, and Ctrl+Shift+C copies the current selection.
