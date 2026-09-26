@@ -37,6 +37,11 @@ type Service struct {
 	// Gate is consulted only once a goblin has read working for longer than
 	// BusyTurnMax; nil disables the gate probe but not the budget itself.
 	Gate GateProber
+	// Progress reads the evidence that a goblin's work is moving - its
+	// harness's transcript and the processes the harness started - before a
+	// stale wake is raised on turn age alone; nil leaves turn age and the
+	// gate to decide, as they did before there was evidence to read.
+	Progress ProgressProber
 	// Polls lists the lavish-axi polls goblins run themselves, each flagged
 	// to the CFO once; nil disables the check.
 	Polls                 PollProber
@@ -292,9 +297,10 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		// a gate step polling for CI checks a repo will never produce - reads
 		// working indefinitely, and it once did so for six hours. Past the
 		// busy-turn budget the pane's own word is no longer enough: consult
-		// the gate, and wake if nothing underneath is actually moving.
+		// the gate and the goblin's own progress evidence, and wake only if
+		// nothing underneath is actually moving.
 		if observation.BusySince != nil && now.Sub(*observation.BusySince) >= s.busyTurnMax() {
-			if stalled, detail := s.busyOverAge(ctx, meta, now); stalled {
+			if stalled, detail := s.busyOverAge(ctx, meta, sample, &observation, now); stalled {
 				return s.busyOverAgeObservation(observation, detail, now)
 			}
 		}
@@ -306,16 +312,29 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		if gated, ok := s.statusVerbObservation(observation, meta.ID, now, sample); ok {
 			return gated
 		}
-		return awaitingInputObservation(observation, now)
+		detail := "agent turn ended; waiting on input"
+		if observation.Reason != AwaitingAnswer {
+			// A goblin that ended its turn with a background job or a monitor
+			// still running resumes by itself when that work reports back, so
+			// nobody owes it an answer yet.
+			waiting, lingering := s.ownWork(ctx, meta, sample, &observation, now)
+			if waiting {
+				return ownWorkObservation(observation, now)
+			}
+			if lingering != "" {
+				detail += "; " + lingering
+			}
+		}
+		return awaitingInputObservation(observation, detail, now)
 	case herdr.AgentIdle:
 		// Between turns: liveness comes from the agent's own counters and the
 		// status log. No movement for the stall window = genuinely wedged.
-		return s.idleClassification(observation, sample, meta.ID, now)
+		return s.idleClassification(ctx, meta, observation, sample, now)
 	case herdr.AgentUnknown:
 		// A registered agent whose activity is momentarily indeterminate is
 		// not an endpoint failure. Treat it like idle: it stays quiet unless
 		// its counters and status log both freeze for the stall window.
-		return s.idleClassification(observation, sample, meta.ID, now)
+		return s.idleClassification(ctx, meta, observation, sample, now)
 	default:
 		return unknownObservation(observation, EndpointUnknown, "endpoint activity is unknown", now)
 	}
@@ -359,41 +378,120 @@ func (s Service) staleObservation(observation Observation, reason Reason, now ti
 }
 
 // busyOverAge decides whether a goblin that has read working past the budget
-// is genuinely wedged. With no gate prober the budget alone decides. With one,
-// a gate step that has itself been active past the budget is the wedge, and a
-// ci step on a repo with no workflows is named as such, because that shape
-// cannot complete without an abort.
-func (s Service) busyOverAge(ctx context.Context, meta state.TaskMeta, now time.Time) (bool, string) {
-	age := now.Sub(*s.busySinceOrNow(meta, now)).Round(time.Minute)
-	if s.Gate == nil {
-		return true, "working for " + age.String() + " with no gate probe available; inspect the shell"
+// is genuinely wedged. A gate step that has itself been active past the
+// budget is the wedge, and a ci step on a repo with no workflows is named as
+// such, because that shape cannot complete without an abort; a gate step
+// inside the budget is movement. Otherwise the turn's age alone proves
+// nothing - a long refactor and a shell that will never return look the same
+// from the pane - so the goblin's own progress evidence decides: it is wedged
+// only once neither its transcript nor its own processes have moved for the
+// whole budget. Without a progress prober the budget alone decides.
+func (s Service) busyOverAge(ctx context.Context, meta state.TaskMeta, sample EndpointSample, observation *Observation, now time.Time) (bool, string) {
+	stretch := *observation.BusySince
+	age := now.Sub(stretch).Round(time.Minute).String()
+	gateDetail := "no gate probe available"
+	if s.Gate != nil {
+		gate, err := s.Gate.InspectGate(ctx, meta)
+		switch {
+		case err != nil:
+			gateDetail = "gate probe failed: " + err.Error()
+		case !gate.Active:
+			gateDetail = "no active gate run"
+		case gate.ActiveFor < s.busyTurnMax():
+			// The gate is moving between steps even though the pane is busy.
+			return false, ""
+		default:
+			detail := "gate step " + gate.Step + " active for " + gate.ActiveFor.Round(time.Minute).String()
+			if gate.LastActivity != "" {
+				detail += " (last: " + gate.LastActivity + ")"
+			}
+			if gate.Step == "ci" && gate.NoCI {
+				detail += "; repo has no .github/workflows so this step can never complete - run: no-mistakes axi abort"
+			}
+			return true, detail
+		}
 	}
-	gate, err := s.Gate.InspectGate(ctx, meta)
+	if s.Progress == nil {
+		return true, "working for " + age + " with " + gateDetail + "; inspect the shell"
+	}
+	// A processor reading from before this stretch says nothing about it, so
+	// the first reading past the budget only takes the baseline.
+	baselined := observation.JobSampledAt != nil && !observation.JobSampledAt.Before(stretch)
+	jobs, err := s.sampleProgress(ctx, meta, sample, observation, now)
 	if err != nil {
-		return true, "working for " + age.String() + "; gate probe failed: " + err.Error()
+		return true, "working for " + age + " with " + gateDetail + "; progress evidence unreadable (" + err.Error() + "); inspect the shell"
 	}
-	if !gate.Active {
-		return true, "working for " + age.String() + " with no active gate run; inspect the shell"
+	last := stretch
+	if observation.EvidenceAt != nil && observation.EvidenceAt.After(last) {
+		last = *observation.EvidenceAt
 	}
-	if gate.ActiveFor < s.busyTurnMax() {
-		// The gate is moving between steps even though the pane is busy.
+	if now.Sub(last) < s.busyTurnMax() || (len(jobs) > 0 && !baselined) {
 		return false, ""
 	}
-	detail := "gate step " + gate.Step + " active for " + gate.ActiveFor.Round(time.Minute).String()
-	if gate.LastActivity != "" {
-		detail += " (last: " + gate.LastActivity + ")"
+	detail := "working for " + age + " with " + gateDetail + "; no transcript write and no processor use by its own processes for " + now.Sub(last).Round(time.Minute).String()
+	if len(jobs) > 0 {
+		detail += " (still running: " + strings.Join(jobs, ", ") + ")"
 	}
-	if gate.Step == "ci" && gate.NoCI {
-		detail += "; repo has no .github/workflows so this step can never complete - run: no-mistakes axi abort"
-	}
-	return true, detail
+	return true, detail + "; inspect the shell"
 }
 
-func (s Service) busySinceOrNow(meta state.TaskMeta, now time.Time) *time.Time {
-	if obs, err := ReadObservation(s.StateDir, meta.ID); err == nil && obs.BusySince != nil {
-		return obs.BusySince
+// jobCPUShare is the share of one processor a goblin's own processes must
+// have used since the last reading for that reading to count as progress.
+// An idle dev server, a sleeping sampler or a monitor loop stays far below it
+// and a build or test run far above it.
+const jobCPUShare = 0.05
+
+// sampleProgress reads the goblin's progress evidence and folds it into the
+// observation: a transcript written since the last evidence, or its own
+// processes using at least jobCPUShare of a processor since the last reading,
+// moves EvidenceAt. It returns the processes still running. An error means
+// the evidence could not be read, and the caller wakes rather than trusting
+// silence.
+func (s Service) sampleProgress(ctx context.Context, meta state.TaskMeta, sample EndpointSample, observation *Observation, now time.Time) ([]string, error) {
+	progress, err := s.Progress.InspectProgress(ctx, meta, sample)
+	if err != nil {
+		return nil, err
 	}
-	return &now
+	if written := progress.TranscriptAt.UTC(); !progress.TranscriptAt.IsZero() && (observation.EvidenceAt == nil || written.After(*observation.EvidenceAt)) {
+		observation.EvidenceAt = timePointer(written)
+	}
+	if observation.JobSampledAt != nil && len(progress.Jobs) > 0 {
+		elapsed := now.Sub(*observation.JobSampledAt)
+		if elapsed > 0 && float64(progress.JobCPU-observation.JobCPU) >= float64(elapsed)*jobCPUShare {
+			observation.EvidenceAt = timePointer(now)
+		}
+	}
+	observation.JobCPU = progress.JobCPU
+	observation.JobSampledAt = timePointer(now)
+	return progress.Jobs, nil
+}
+
+// ownWork decides whether a goblin whose turn has ended is waiting on work it
+// started itself rather than on anybody's answer. It is while a process its
+// harness started after launching is still running and the goblin has shown
+// progress - a transcript write, or those processes using the processor -
+// within the busy budget of its turn ending. Past that budget it is not, and
+// the second result names the processes that are still running, for the wake.
+// Without a progress prober, or evidence it can read, the answer is no.
+func (s Service) ownWork(ctx context.Context, meta state.TaskMeta, sample EndpointSample, observation *Observation, now time.Time) (bool, string) {
+	if s.Progress == nil {
+		return false, ""
+	}
+	if observation.IdleSince == nil {
+		observation.IdleSince = timePointer(now)
+	}
+	jobs, err := s.sampleProgress(ctx, meta, sample, observation, now)
+	if err != nil || len(jobs) == 0 {
+		return false, ""
+	}
+	last := *observation.IdleSince
+	if observation.EvidenceAt != nil && observation.EvidenceAt.After(last) {
+		last = *observation.EvidenceAt
+	}
+	if now.Sub(last) < s.busyTurnMax() {
+		return true, ""
+	}
+	return false, "its own processes have shown no progress for " + now.Sub(last).Round(time.Minute).String() + " (still running: " + strings.Join(jobs, ", ") + ")"
 }
 
 // busyOverAgeObservation wakes once for a wedged working goblin and then
@@ -475,7 +573,8 @@ func (s Service) statusVerbObservation(observation Observation, id string, now t
 // idleClassification handles agent_status idle. Rising state_change_seq or
 // revision (or a status-log write) is liveness: the goblin is working. Only a
 // pane with no counter movement for the stall window is genuinely wedged.
-func (s Service) idleClassification(observation Observation, sample EndpointSample, id string, now time.Time) Observation {
+func (s Service) idleClassification(ctx context.Context, meta state.TaskMeta, observation Observation, sample EndpointSample, now time.Time) Observation {
+	id := meta.ID
 	if gated, ok := s.statusVerbObservation(observation, id, now, sample); ok {
 		return gated
 	}
@@ -503,18 +602,23 @@ func (s Service) idleClassification(observation Observation, sample EndpointSamp
 	if observation.Health == HealthStale {
 		return s.staleObservation(observation, observation.Reason, now)
 	}
-	return s.idleObservation(observation, now)
+	return s.idleObservation(ctx, meta, observation, sample, now)
 }
 
 // idleObservation classifies an idle-and-unchanged pane behind a substantial
 // grace period. A goblin legitimately thinking or running a quiet subprocess
 // can sit at an unchanged pane for minutes; it is only stale once it has been
-// genuinely idle (no counter or status-log movement) for the idle threshold.
-func (s Service) idleObservation(observation Observation, now time.Time) Observation {
+// genuinely idle (no counter or status-log movement) for the idle threshold,
+// and not waiting on a background job or monitor of its own that is moving.
+func (s Service) idleObservation(ctx context.Context, meta state.TaskMeta, observation Observation, sample EndpointSample, now time.Time) Observation {
 	if observation.IdleSince == nil {
 		observation.IdleSince = timePointer(now)
 	}
-	if now.Sub(*observation.IdleSince) < s.stallAfter() {
+	waiting := false
+	if now.Sub(*observation.IdleSince) >= s.stallAfter() {
+		waiting, _ = s.ownWork(ctx, meta, sample, &observation, now)
+	}
+	if now.Sub(*observation.IdleSince) < s.stallAfter() || waiting {
 		observation.Health = HealthIdle
 		observation.Reason = None
 		observation.StaleSince = nil
@@ -532,7 +636,7 @@ func (s Service) idleObservation(observation Observation, now time.Time) Observa
 // (agent_status done) and is waiting on input - finished or blocked. It wakes
 // once per episode and demands inspection, because the fix is a CFO decision,
 // not another poll.
-func awaitingInputObservation(observation Observation, now time.Time) Observation {
+func awaitingInputObservation(observation Observation, detail string, now time.Time) Observation {
 	first := observation.Reason != AwaitingAnswer
 	observation.IdleSince = nil
 	observation.Health = HealthStale
@@ -545,9 +649,25 @@ func awaitingInputObservation(observation Observation, now time.Time) Observatio
 	observation.Escalation = 0
 	observation.DemandDeepInspection = true
 	if first && observation.PendingEvent == nil {
-		event := taskEvent(observation.TaskID, AwaitingAnswer, "agent turn ended; waiting on input")
+		event := taskEvent(observation.TaskID, AwaitingAnswer, detail)
 		observation.PendingEvent = &event
 	}
+	return observation
+}
+
+// ownWorkObservation holds quiet a goblin whose turn ended while work it
+// started itself is still running and moving: a background job or a monitor
+// loop. The harness resumes the goblin when that work reports back, so it
+// reads busy, and IdleSince keeps the moment its turn ended for ownWork.
+func ownWorkObservation(observation Observation, now time.Time) Observation {
+	observation.LastSeen = now
+	observation.StaleSince = nil
+	observation.NextEscalation = nil
+	observation.NextPauseResurface = nil
+	observation.Health = HealthBusy
+	observation.Reason = None
+	observation.Escalation = 0
+	observation.DemandDeepInspection = false
 	return observation
 }
 
