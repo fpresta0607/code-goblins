@@ -13,7 +13,7 @@ import (
 
 var (
 	checkboxBacklogRow = regexp.MustCompile(`^[-*]\s+\[[ xX]\]\s+(\S+)\s+-\s+(.*)$`)
-	boldBacklogRow     = regexp.MustCompile(`^[-*]\s+\*\*([^*]+)\*\*\s+-\s+(.*)$`)
+	boldBacklogRow     = regexp.MustCompile(`^[-*]\s+(?:parked\s+)?\*\*([^*]+)\*\*\s+-\s+(.*)$`)
 	urlPattern         = regexp.MustCompile(`https?://[^\s\)\]"<>]+`)
 	wrappedURLPattern  = regexp.MustCompile(`<?https?://[^\s\)\]"<>]+>?`)
 	reportPattern      = regexp.MustCompile(`data/[^\s\)]+/report\.md`)

@@ -136,6 +136,7 @@ func TestSnapshotKeepsParkedBriefsOffTheBoard(t *testing.T) {
 	}{
 		"parked in place": {"## Queued\n- [ ] g7 - Parked in place (hold: set aside) (hold-kind: parked)\n", false},
 		"parked section":  {"## Queued\n\n## Parked\n- [ ] g7 - Set aside\n", false},
+		"CFO parked form": {"## Queued\n\n## Parked\n- parked **g7** - Set aside by the CFO\n", false},
 		"ordinary queued": {"## Queued\n- [ ] g7 - Waiting its turn\n", true},
 		"no backlog row":  {"## Queued\n", true},
 	} {

@@ -227,6 +227,9 @@ func TestReadBacklogKeepsParkedWorkOutOfTheQueue(t *testing.T) {
 	if row := backlog.Parked[0]; !row.Structured || row.ID != "q2" || row.Title != "Set aside in place" {
 		t.Errorf("parked row = %+v, want q2 with its title cleaned", row)
 	}
+	if row := backlog.Parked[2]; !row.Structured || row.ID != "p2" || row.Title != "The CFO's own parked form" || row.Repo != "code-goblins" {
+		t.Errorf("parked row = %+v, want p2 with its title cleaned", row)
+	}
 	if len(backlog.Done) != 1 || backlog.Done[0].ID != "d1" {
 		t.Errorf("done = %+v, want d1 alone", backlog.Done)
 	}
