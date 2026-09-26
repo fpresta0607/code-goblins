@@ -12,7 +12,9 @@ Closing the browser disconnects a view, while Ctrl-C in the supervisor terminal,
 Once it holds the singleton and listens, `serve` records its pid and the board's address in `state/board.json`, and removes the record when it exits.
 `goblins` with no command reads that record: when the address answers at all it prints the board's link and a status line from the snapshot, or says the board could not read the fleet's state when the snapshot fails, and starts and opens nothing.
 Otherwise it starts `serve` detached from its terminal, in a hidden console of its own that the programs `serve` runs share, so no console window opens, with its output appended to `state/serve.log`, waits up to 30 seconds for the board to answer, and opens it in the browser once.
+The detached `serve` listens on `127.0.0.1:4310`, or on `127.0.0.1:0` when another program already listens there, so the OS picks a free loopback port and the record holds the real address.
 A record whose address does not answer, left by a supervisor that ended without removing it, is replaced by the next start, and a record naming anything but a plain loopback board address is ignored.
+`goblins --board` finds or starts the supervisor the same way, opens the board root in the browser every time, and exits 1 naming the link when the browser cannot be opened; it starts, shows and attaches no CFO.
 Then `goblins` brings the Overlord to the CFO.
 A CFO whose registration in `state/primary.json` names a live process is reused, never started a second time: `goblins` brings its registered workspace and tab to the front and hands its terminal to `herdr`, attached to the session the CFO registered in.
 It decides from the registration alone and asks neither the board nor Herdr, so a supervisor that has not checked the registration yet or a Herdr that cannot answer changes nothing.
@@ -110,6 +112,7 @@ Uncertain actions remain visible for operator inspection and can eventually exha
 
 The header switches between Board and Orchestration, with one main view visible at a time and one contextual pane on the right.
 Board groups actual tasks into Tasks, In progress and Completed.
+The three columns sit side by side while each has room for a 260 px card, and stack one above the other below that, so a card never squeezes its title or status.
 Tasks lists backlog rows and briefs nothing has started: a `data/<id>/brief.md` with no live task record, status log or archive entry.
 Completed lists verified delivery, and within the last week at most 20 entries of history: tasks cleanup finished, from a status log left without its record or one the archive holds, and pull requests merged into a fleet repository, read from merge commits on origin's default branch of this home and each checkout under the projects root, locally and without a forge call.
 A merged pull request whose live task already shows the merge, in phase merged or done, appears only on that task's card, which stays In progress as merged-awaiting-verification until landed content is verified.
@@ -122,6 +125,7 @@ The status line and the pull request come from the current generation's lines on
 Cards state progress in plain words, never engine words: Not started, Working, In review gate (with its step, such as In review gate: tests), Waiting on the CFO, Waiting on a goblin by its id, Waiting on CI, Waiting on deploy, Checks passed, Delivered and No fresh evidence.
 A goblin waiting on another goblin links to it: a chip on its card and a button beside its status in the panel open the goblin it waits on, and Orchestration draws a dashed line from the waiting card to that goblin's card, apart from the family tree.
 A goblin that waits on the Overlord, or has an open question to him, shows Waiting on the CFO, since the CFO carries every question to him.
+A reported wait on the Overlord ends once the Command Center item it raised closes: his answer reached the goblin, the item was cleared, or the answer on its page went to the CFO to relay; the card then shows what the goblin is doing, and an answer still on its way keeps the wait.
 It keeps its phase's colour, without the amber emphasis that belongs to the CFO's bar, so a wait on the Overlord, a goblin, CI or a deploy is shown in the same calmer sand colour.
 The CFO is pinned above the Board's columns, and its bar is the one place on the board that says Waiting on you: it names the first item the Command Center holds for the Overlord, by a question's lead sentence or a review's or command's title, and how many more wait, and otherwise says how many goblins the CFO supervises; its Open terminal button opens the CFO's terminal and hands it the keyboard.
 Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Task view and a Terminal view one tap apart on a pill at its top.
@@ -159,6 +163,7 @@ Each effect expires independently; initial load, reconnect, hidden-tab return, i
 Reduced motion uses a short static outline instead of movement.
 
 Changes presents stacked file disclosures with lazy syntax-highlighted unified, split and code previews.
+A file over 256 KiB shows its changed lines in unified and split views, with a note that the code preview is off; every Git read behind a preview is capped at 1 MiB.
 Select a visible old/new line or contiguous range, including unchanged context, by its line number, which shows a comment icon on hover and focus.
 Dragging across diff lines opens the same comment box for the lines it covers, and a double-click or triple-click still just selects text to copy.
 A comment box floats beside the selection without moving the diff; Enter sends it, Shift+Enter starts a new line and Escape cancels.
@@ -291,7 +296,7 @@ Recurring tool actions (open in VS Code, open folder, open pull request, refresh
 Decisions and one-off commands keep a short word, for example Send decision, Later or Show the next 300 lines.
 Every connector, MCP server, credential, harness and model provider shows a mark beside its name: the brand's mark from Simple Icons where one exists, a plain glyph where the owner withholds its mark, the Model Context Protocol mark for an unknown MCP server and a key for an unknown credential.
 Delivery reads as a mark: one check once the supervisor accepted it, two checks once delivered; only a failed or unconfirmed delivery is spelled out, with what to check before sending again.
-An answer to a goblin or to a CFO in Herdr that is working when it arrives, such as one inside a long tool call, waits in its input until that turn ends, and the turn moves none of Herdr's counters, so the board counts it delivered once Herdr submitted it; anything else sent to a working agent, such as a `cfo send` steer, a `cfo answer`, a run result or a review request, still reads unconfirmed.
+An answer to a question or on a review item, to a goblin or to a CFO in Herdr that is working when it arrives, such as one inside a long tool call, waits in its input until that turn ends, and the turn moves none of Herdr's counters, so the board counts it delivered once Herdr submitted it; anything else sent to a working agent, such as a `cfo send` steer, a `cfo answer`, a run result or a review request, still reads unconfirmed.
 A review answer's own action keeps one check, because it succeeds whether the answer reached the goblin or went to the CFO; only its review item says which.
 Status words say what is happening in plain words, such as Working, In review gate, Waiting on you, Waiting on the CFO or Merged, verifying, never the evidence the supervisor holds.
 Text is never smaller than 15 px.
@@ -430,7 +435,7 @@ Opening or downloading it clears the item as Opened or Downloaded, which History
 A question's card offers Open review only for its asker's most recent live review page, from the same goblin session or the same CFO registration, so it never opens another task's page or one a replaced asker left behind; page links read Open review, never Lavish.
 A closed item moves to the inbox history as You wrote: <answer>, Cleared, Opened or Downloaded for a document, the CFO's reason when the CFO cleared it, or Withdrawn: <reason>; an answer still on its way reads not yet delivered, and one whose `review_answer` action failed or became uncertain carries the same warning marks as a question.
 Only `delivered` earns two checks: an answer the CFO took over because its goblin was replaced reads Sent to the CFO: <answer>, and an undelivered answer whose action has aged out of the snapshot reads delivery no longer recorded instead of being assumed delivered.
-Closed items and their copies are pruned a week after they close; open items and answered items whose answer is still on its way are never dropped, and a new item waits in the inbox while all 128 held items are one or the other.
+Closed items and their copies are pruned a week after they close; open items, answered items whose answer is still on its way, and a closed wait on the Overlord while its goblin's latest report is still that wait are never dropped, and a new item waits in the inbox while all 128 held items are one of these.
 The API contract for the board is `data/board-ui/api-contract.md`.
 
 ## Run items

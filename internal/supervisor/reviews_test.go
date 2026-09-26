@@ -152,6 +152,141 @@ func TestReviewsPruneClosedItemsAndNeverDropOpenOnes(t *testing.T) {
 	}
 }
 
+// A delivered wait item stays listed past its retention while its goblin still
+// stands on that wait, so the board keeps reading the goblin past it, and goes
+// once the goblin reports anything newer.
+func TestPruneKeepsAWaitItemItsGoblinStillStandsOn(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	old := time.Now().UTC().Add(-closedReviewRetention - time.Hour)
+	report := old.Format(time.RFC3339) + " waiting on overlord: pick a plan\n"
+	if err := os.WriteFile(filepath.Join(h.State, "task-1.status"), []byte(report), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wait := openReview("waiting-task-1-7", "task-1")
+	if err := store.acceptReview(wait); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.db.Reviews[0].CreatedAt, store.db.Reviews[0].UpdatedAt = old, old
+	store.db.Reviews[0].State, store.db.Reviews[0].Answer, store.db.Reviews[0].AnswerID, store.db.Reviews[0].Delivered = "answered", "use the blue plan", "action-1", true
+	store.mu.Unlock()
+
+	// Act
+	if err := store.pruneReviews(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := (&Service{Store: store}).Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := snapshot.Reviews; len(got) != 1 || got[0].ID != wait.ID {
+		t.Fatalf("reviews = %+v, want the standing wait kept", got)
+	}
+	i := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == "task-1" })
+	if i < 0 {
+		t.Fatal("task-1 missing from the snapshot")
+	}
+	if got := snapshot.Tasks[i]; got.Phase == "waiting" && got.WaitingOn == "overlord" {
+		t.Fatalf("task-1 = %+v, want it past the answered wait", got.Evaluation)
+	}
+
+	if err := state.AppendStatus(h.State, "task-1", "working: drawing the blue plan"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.pruneReviews(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Reviews; len(got) != 0 {
+		t.Fatalf("reviews = %+v, want the wait pruned once the goblin moved on", got)
+	}
+}
+
+// A full list evicts another closed item, never the wait item its goblin still
+// stands on.
+func TestEvictionSparesAWaitItemItsGoblinStillStandsOn(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	if err := state.AppendStatus(h.State, "task-1", "waiting on overlord: pick a plan"); err != nil {
+		t.Fatal(err)
+	}
+	wait, closed := openReview("waiting-task-1-7", "task-1"), openReview("closed-review", "task-1")
+	for _, r := range []Review{wait, closed} {
+		if err := store.acceptReview(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store.mu.Lock()
+	store.db.Reviews[0].State, store.db.Reviews[0].Answer, store.db.Reviews[0].AnswerID, store.db.Reviews[0].Delivered = "answered", "use the blue plan", "action-1", true
+	store.db.Reviews[1].State = "cleared"
+	store.mu.Unlock()
+	for i := len(store.Snapshot().Reviews); i < maxReviews; i++ {
+		if err := store.acceptReview(openReview(fmt.Sprintf("bulk-review-%03d", i), "task-1")); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	err := store.acceptReview(openReview("one-more-review", "task-1"))
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviews := store.Snapshot().Reviews
+	isKept := func(id string) bool { return slices.ContainsFunc(reviews, func(r Review) bool { return r.ID == id }) }
+	if !isKept(wait.ID) || isKept(closed.ID) {
+		t.Fatalf("after eviction the wait is kept %v and the other closed item %v; want the wait kept and the other evicted", isKept(wait.ID), isKept(closed.ID))
+	}
+}
+
+// A task whose status cannot be read never fails a publication or a prune:
+// its closed item that is not a wait is evicted and pruned as usual, and its
+// wait item is kept for the pass.
+func TestAnUnreadableStatusNeitherFailsEvictionNorReleasesAWait(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	if err := os.MkdirAll(filepath.Join(h.State, "task-1.status"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	wait, other, closed := openReview("waiting-task-1-7", "task-1"), openReview("other-review", "task-1"), openReview("closed-review", "task-1")
+	for _, r := range []Review{wait, other, closed} {
+		if err := store.acceptReview(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().UTC().Add(-closedReviewRetention - time.Hour)
+	store.mu.Lock()
+	store.db.Reviews[0].State, store.db.Reviews[0].Answer, store.db.Reviews[0].AnswerID, store.db.Reviews[0].Delivered = "answered", "use the blue plan", "action-1", true
+	store.db.Reviews[1].State, store.db.Reviews[1].UpdatedAt = "cleared", old
+	store.db.Reviews[2].State, store.db.Reviews[2].UpdatedAt = "cleared", old
+	store.mu.Unlock()
+	for i := len(store.Snapshot().Reviews); i < maxReviews; i++ {
+		if err := store.acceptReview(openReview(fmt.Sprintf("bulk-review-%03d", i), "task-1")); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	acceptErr := store.acceptReview(openReview("one-more-review", "task-1"))
+	store.mu.Lock()
+	store.db.Reviews[0].UpdatedAt = old
+	store.mu.Unlock()
+	pruneErr := store.pruneReviews(time.Now())
+
+	// Assert
+	if acceptErr != nil || pruneErr != nil {
+		t.Fatalf("publication = %v and prune = %v, want both to succeed", acceptErr, pruneErr)
+	}
+	reviews := store.Snapshot().Reviews
+	isKept := func(id string) bool { return slices.ContainsFunc(reviews, func(r Review) bool { return r.ID == id }) }
+	if !isKept(wait.ID) || isKept(other.ID) || isKept(closed.ID) || !isKept("one-more-review") {
+		t.Fatalf("kept: wait %v, evicted item %v, pruned item %v, new item %v; want only the wait and the new item kept", isKept(wait.ID), isKept(other.ID), isKept(closed.ID), isKept("one-more-review"))
+	}
+}
+
 // A withdrawal of a publication still waiting in the inbox waits with it
 // instead of being rejected.
 func TestReviewWithdrawalWaitsForItsDeferredPublication(t *testing.T) {
@@ -328,6 +463,68 @@ func TestSnapshotReadsWorkingAndWaitingOnReports(t *testing.T) {
 	}
 	if got := task(); got.Phase != "blocked" || got.Reason != "Waiting on the CFO: Which port?" {
 		t.Fatalf("a question newer than the latest report = %+v, want blocked on it", got.Evaluation)
+	}
+}
+
+// A goblin waiting on the Overlord is past the wait once the Command Center
+// item it raised closes: answered, cleared, or handed to the CFO to relay a
+// page's answer. The board then reads the goblin's own state again. An answer
+// typed on the item still on its way to the goblin keeps the wait.
+func TestSnapshotEndsAWaitOnTheOverlordOnceTheAnswerReachesTheGoblin(t *testing.T) {
+	answer := func(isDelivered bool) func(*Review) {
+		return func(r *Review) {
+			r.State, r.Answer, r.AnswerID, r.Delivered = "answered", "use the blue plan", "action-1", isDelivered
+		}
+	}
+	for _, c := range []struct {
+		name      string
+		close     func(*Review)
+		isEarlier bool // the item belongs to a wait before the latest report
+		isWaiting bool
+	}{
+		{"an open item", func(*Review) {}, false, true},
+		{"an answer on its way", answer(false), false, true},
+		{"an answer delivered", answer(true), false, false},
+		{"an item the CFO's answer cleared", func(r *Review) { r.State, r.Reason = "cleared", "The CFO answered task-1's question." }, false, false},
+		{"a page answered for the CFO to relay", func(r *Review) {
+			r.State, r.Reason = "withdrawn", "The Overlord answered on the page; the CFO relays it."
+		}, false, false},
+		{"an earlier wait's delivered answer", answer(true), true, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange: the report comes first, then its item, as cfo notify
+			// writes them.
+			store, h := testStore(t)
+			if err := state.AppendStatus(h.State, "task-1", "waiting on overlord: pick a plan"); err != nil {
+				t.Fatal(err)
+			}
+			wait := openReview("waiting-task-1-7", "task-1")
+			if c.isEarlier {
+				wait.CreatedAt = wait.CreatedAt.Add(-time.Minute)
+			}
+			if err := store.acceptReview(wait); err != nil {
+				t.Fatal(err)
+			}
+			store.mu.Lock()
+			c.close(&store.db.Reviews[0])
+			store.mu.Unlock()
+
+			// Act
+			snapshot, err := (&Service{Store: store}).Snapshot()
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			i := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == "task-1" })
+			if i < 0 {
+				t.Fatal("task-1 missing from the snapshot")
+			}
+			got := snapshot.Tasks[i]
+			if isWaiting := got.Phase == "waiting" && got.WaitingOn == "overlord"; isWaiting != c.isWaiting {
+				t.Fatalf("task-1 = %+v, want waiting on the Overlord %v", got.Evaluation, c.isWaiting)
+			}
+		})
 	}
 }
 

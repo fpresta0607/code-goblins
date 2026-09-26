@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -178,9 +179,10 @@ func supersedesQuestion(report string) bool {
 
 // reportedProgress is what a goblin last said it is doing: working on
 // something, or waiting on another task, the Overlord, CI or a deploy. A wait
-// on another task clears itself once that task reports done; any other wait
-// lasts until the goblin reports again.
-func reportedProgress(stateDir string, reportedAt time.Time, report string) (phase, reason, waitingOn string, ok bool) {
+// on another task clears itself once that task reports done, and a wait on the
+// Overlord once the Command Center item it raised closed, answered, cleared or
+// handed to the CFO; any other wait lasts until the goblin reports again.
+func reportedProgress(stateDir, id string, reviews []Review, reportedAt time.Time, report string) (phase, reason, waitingOn string, ok bool) {
 	if what, found := strings.CutPrefix(report, "working: "); found {
 		return "working", what, "", true
 	}
@@ -189,7 +191,18 @@ func reportedProgress(stateDir string, reportedAt time.Time, report string) (pha
 	if !found || !separated {
 		return "", "", "", false
 	}
-	if target != "overlord" && target != "ci" && target != "deploy" {
+	switch target {
+	case "ci", "deploy":
+	case "overlord":
+		// Its item is published after the report. An answer typed on the item
+		// counts once it reached the goblin; until then it is still on its way.
+		if slices.ContainsFunc(reviews, func(r Review) bool {
+			return r.Task == id && strings.HasPrefix(r.ID, "waiting-"+id+"-") && !r.CreatedAt.Before(reportedAt) &&
+				r.State != "open" && (r.State != "answered" || r.Delivered)
+		}) {
+			return "", "", "", false
+		}
+	default:
 		lines, _ := state.TailStatus(stateDir, target, 200)
 		for i := len(lines) - 1; i >= 0; i-- {
 			stamp, event := state.SplitStatus(lines[i])

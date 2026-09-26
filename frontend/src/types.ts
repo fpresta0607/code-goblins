@@ -144,6 +144,7 @@ export interface FileDiff {
   head: string;
   revision: string;
   binary: boolean;
+  code_omitted: boolean;
   fingerprint: string;
 }
 export interface Commit {
@@ -344,6 +345,7 @@ export function parseDiff(value: unknown): FileDiff {
     revision: string(v.revision),
     fingerprint: string(v.fingerprint),
     binary: boolean(v.binary),
+    code_omitted: boolean(v.code_omitted),
   };
 }
 export function parseHistory(value: unknown): Commit[] {
