@@ -6,8 +6,9 @@ import { documentFacts, settledIcon, settledLabel, type Item } from "./commandQu
 import { personaFor } from "./workflow";
 
 // One delivered document: who sent it, its file icon and facts, and Open and
-// Download. Either takes it out of the queue into the history; Clear closes it
-// unopened.
+// Download. Open shows only when the browser can open the copy or there is a
+// link, so a download never reads Opened. Either takes it out of the queue into
+// the history; Clear closes it unopened.
 export function DocumentCard({ review, document, snapshot, connected, onOpened, onClear }: {
   review: Review; document: ReviewDocument; snapshot: Snapshot; connected: boolean;
   onOpened: (how: "Opened" | "Downloaded") => void; onClear: () => void;
@@ -31,7 +32,7 @@ export function DocumentCard({ review, document, snapshot, connected, onOpened, 
     {!open && <p className={"question-outcome delivery " + settled.tone} role="status"><Icon name={settled.icon} />{settledLabel(item, snapshot.actions)}</p>}
     <div className="card-actions">
       {open && <button type="button" className="icon-button raised" disabled={!connected} aria-label="Clear this document without opening it" data-tip="Clear" onClick={onClear}><Icon name="close" /></button>}
-      <a className="icon-button raised pill-link" href={document.link || file} target="_blank" rel="noreferrer" onClick={() => opened("Opened")}><Icon name="external" /><span>Open</span></a>
+      {(document.link || document.kind) && <a className="icon-button raised pill-link" href={document.link || file} target="_blank" rel="noreferrer" onClick={() => opened("Opened")}><Icon name="external" /><span>Open</span></a>}
       <a className="primary download-link" href={file + "?download=1"} download={document.name} onClick={() => opened("Downloaded")}><Icon name="download" /><span>Download</span></a>
     </div>
   </div>;
