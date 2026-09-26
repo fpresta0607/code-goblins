@@ -240,8 +240,16 @@ func TestAPageAnswerReachesTheCFOOnceTheWakeQueueTakesIt(t *testing.T) {
 	if got := store.Snapshot().Reviews[0]; got.State != "open" {
 		t.Fatalf("the wait = %+v while the CFO lacks the answer, want it open", got)
 	}
-	if err := os.Remove(ack); err != nil {
-		t.Fatal(err)
+	// The poller keeps reading the refused queue, and Windows refuses to
+	// remove a directory another handle has open, so the removal is retried.
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(time.Millisecond) {
+		err := os.Remove(ack)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal(err)
+		}
 	}
 	s.pageWork.Wait()
 
