@@ -14,3 +14,11 @@ export function startState(setup: Setup, picked: string): { project: string; blo
           : claude.reason;
   return { project, blocked };
 }
+
+// showsFirstRun is whether the board's root shows the first-run page: whenever
+// no CFO runs, which is how the installer and its shortcut open it, except
+// just after he started one and until the board sees it, or once he chose to
+// see the board without a CFO.
+export function showsFirstRun({ cfoRuns, started, boardAnyway }: { cfoRuns: boolean; started: boolean; boardAnyway: boolean }): boolean {
+  return !cfoRuns && !started && !boardAnyway;
+}

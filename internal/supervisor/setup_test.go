@@ -248,14 +248,14 @@ func TestTheBoardServesTheFirstRunPageAndStartsTheCFO(t *testing.T) {
 	}
 
 	// Act
-	pageCode, page := request("GET", "/start", "")
+	pageCode, page := request("GET", "/", "")
 	setupCode, setup := request("GET", "/api/setup?root="+url.QueryEscape(m.root), "")
 	refusedCode, refused := request("POST", "/api/setup/start", start("notes"))
 	startCode, _ := request("POST", "/api/setup/start", start("alpha"))
 
 	// Assert
 	if pageCode != http.StatusOK || !strings.Contains(page, "board") {
-		t.Fatalf("GET /start = %d %q, want the board's page", pageCode, page)
+		t.Fatalf("GET / = %d %q, want the board's page", pageCode, page)
 	}
 	if setupCode != http.StatusOK || !strings.Contains(setup, `"checkouts":["alpha","beta"]`) {
 		t.Fatalf("GET /api/setup = %d %s", setupCode, setup)
@@ -282,5 +282,23 @@ func TestABoardWithoutFirstRunSaysItCannotStartACFO(t *testing.T) {
 
 	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "This board cannot start a CFO") {
 		t.Fatalf("POST /api/setup/start = %d %s", response.Code, response.Body.String())
+	}
+}
+
+// With no CFO registered and no native terminal cfo up, the snapshot says no
+// CFO runs, so the board shows its first-run page.
+func TestASnapshotSaysWhenNoCFORuns(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+
+	// Act
+	snapshot, err := (&Service{Store: store}).Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.CFORuns {
+		t.Fatal("the snapshot says a CFO runs with none registered or starting")
 	}
 }

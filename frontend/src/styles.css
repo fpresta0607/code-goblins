@@ -123,7 +123,6 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .cfo-pin.asking .pin-copy span { color: #f6d79e; }
 .cfo-pin .open-terminal { display: inline-flex; flex: none; align-items: center; gap: 8px; white-space: nowrap; }
 .cfo-pin .open-terminal .icon { width: 18px; height: 18px; }
-a.button { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius); text-decoration: none; }
 /* The first-run page: one card over the workshop, the folder, the project
    the CFO starts in, the agents with what this machine has, and Start. */
 .first-run-region { display: grid; align-content: start; justify-items: center; flex: 1; min-height: 0; overflow: auto; padding: 40px 16px; border: 1px solid var(--edge); border-radius: 18px; background: linear-gradient(#07101599, #07101599), url('/assets/goblin-workshop.png') right bottom / cover; }
@@ -155,6 +154,8 @@ a.button { display: inline-flex; align-items: center; gap: 8px; min-height: 44px
 .agent-state .no .icon { color: #f6a3a3; }
 .agent-copy small { color: var(--amber); font-size: .9375rem; }
 .first-run-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; }
+.first-run .quiet-link { justify-self: center; min-height: 0; padding: 4px 8px; border: 0; background: none; color: var(--muted); font-size: .9375rem; text-decoration: underline; text-underline-offset: 3px; }
+.first-run .quiet-link:hover, .first-run .quiet-link:focus-visible { color: #e4eeeb; }
 .board-column { min-width: 0; padding: 20px 14px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; background: #0f1820d9; box-shadow: var(--shadow-1); backdrop-filter: blur(6px); }
 .board-column h2 { display: flex; gap: 10px; align-items: center; font-size: 1.375rem; margin: 0 0 20px; }
 .column-count { font-family: var(--font-body); color: var(--muted); font-size: .9375rem; font-weight: 700; padding: 0 9px; border: 1px solid var(--edge); border-radius: 999px; background: #0a1218; }

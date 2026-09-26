@@ -365,8 +365,8 @@ func TestTheBoardShowsTheCFOsTerminalBeforeTheCFORegisters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.CFOTerminal != NativeCFOTerminal || !CFORuns(stateDir) {
-		t.Errorf("CFOTerminal = %q, CFORuns = %v with terminal cfo up and no CFO registered, want cfo and true", snapshot.CFOTerminal, CFORuns(stateDir))
+	if snapshot.CFOTerminal != NativeCFOTerminal || !snapshot.CFORuns {
+		t.Errorf("CFOTerminal = %q, CFORuns = %v with terminal cfo up and no CFO registered, want cfo and true", snapshot.CFOTerminal, snapshot.CFORuns)
 	}
 	if lines := terminal.waitForLines(t, 1); len(lines) != 1 || lines[0] != "yes, trust this folder" {
 		t.Errorf("the CFO's terminal got %q, want the line typed in the board", lines)

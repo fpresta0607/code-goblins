@@ -92,6 +92,9 @@ export interface Snapshot {
   cfo_terminal: string;
   // build names the board bundle the supervisor serves.
   build: string;
+  // cfo_runs says a CFO is registered and running or starting; without one
+  // the board shows its first-run page.
+  cfo_runs: boolean;
   inbox: number;
   tasks: Task[];
   sessions: Session[];
@@ -268,6 +271,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     registration: v.registration === undefined ? "" : string(v.registration),
     cfo_terminal: v.cfo_terminal === undefined ? "" : string(v.cfo_terminal),
     build: string(v.build),
+    cfo_runs: v.cfo_runs === undefined || boolean(v.cfo_runs),
     inbox: number(v.inbox),
     retired: strings(v.retired),
     issues: strings(v.issues),

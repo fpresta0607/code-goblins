@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { startState } from "./firstRunStart.ts";
+import { showsFirstRun, startState } from "./firstRunStart.ts";
 import type { Setup, SetupAgent } from "./types.ts";
 
 const claude: SetupAgent = { id: "claude", name: "Claude Code", installed: true, signed_in: true, reason: "" };
@@ -21,4 +21,14 @@ test("Start takes the picked project, or a folder's only one, and says what it s
     ["a Claude Code it cannot start", setup({ agents: [{ ...claude, installed: false, reason: "Install Claude Code to start the CFO" }, ...others] }), "alpha", { project: "alpha", blocked: "Install Claude Code to start the CFO" }],
   ];
   for (const [name, given, picked, want] of cases) assert.deepEqual(startState(given, picked), want, name);
+});
+
+test("the board's root shows the first-run page whenever no CFO runs, unless he just started one or chose the board", () => {
+  const cases: [string, Parameters<typeof showsFirstRun>[0], boolean][] = [
+    ["no CFO", { cfoRuns: false, started: false, boardAnyway: false }, true],
+    ["a CFO runs", { cfoRuns: true, started: false, boardAnyway: false }, false],
+    ["just started, before the board sees it", { cfoRuns: false, started: true, boardAnyway: false }, false],
+    ["the board without a CFO, by his choice", { cfoRuns: false, started: false, boardAnyway: true }, false],
+  ];
+  for (const [name, given, want] of cases) assert.equal(showsFirstRun(given), want, name);
 });

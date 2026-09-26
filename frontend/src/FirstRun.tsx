@@ -7,10 +7,11 @@ import { parseSetup } from "./types";
 
 const AGENT_ICONS: Record<string, IconName> = { claude: "sparkle", codex: "openai", pi: "pi" };
 
-// FirstRun is the board's first-run page at /start: the folder that holds
-// the Overlord's projects, the project the CFO starts in, the agent, and
-// Start, which starts the CFO and hands over to its terminal.
-export function FirstRun({ instance, onStarted }: { instance: string; onStarted: () => void }) {
+// FirstRun is the page the board's root shows while no CFO runs: the folder
+// that holds the Overlord's projects, the project the CFO starts in, the
+// agent, and Start, which starts the CFO and hands over to its terminal. A
+// quiet link shows the board without a CFO, so goblins at work stay in view.
+export function FirstRun({ instance, onStarted, onBoard }: { instance: string; onStarted: () => void; onBoard: () => void }) {
   // typed is what the Overlord typed in the field, which shows the recorded
   // folder until he types; asked is the folder last looked at, and null
   // opens on the recorded one.
@@ -80,5 +81,6 @@ export function FirstRun({ instance, onStarted }: { instance: string; onStarted:
       <span className="muted">{blocked}</span>
       <button className="primary" disabled={!!blocked || starting} onClick={start}><Icon name="play" />{starting ? "Starting the CFO…" : "Start the CFO"}</button>
     </div>
+    <button type="button" className="quiet-link" onClick={onBoard}>Open the board without a CFO</button>
   </section>;
 }

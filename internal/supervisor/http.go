@@ -138,13 +138,11 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(r.URL.Path, "/api/"):
 		apiError(w, 404, "Unknown endpoint or method")
 	case (r.Method == "GET" || r.Method == "HEAD") && h.Assets != nil:
-		// /start is the first-run page, a stable address the installer
-		// opens; the board's own page shows it.
-		if r.URL.Path != "/" && r.URL.Path != "/start" && !strings.HasPrefix(r.URL.Path, "/assets/") && r.URL.Path != "/favicon.svg" {
+		if r.URL.Path != "/" && !strings.HasPrefix(r.URL.Path, "/assets/") && r.URL.Path != "/favicon.svg" {
 			http.NotFound(w, r)
 			return
 		}
-		if r.URL.Path == "/" || r.URL.Path == "/start" {
+		if r.URL.Path == "/" {
 			data, err := fs.ReadFile(h.Assets, "index.html")
 			if err != nil {
 				http.Error(w, "Board assets unavailable", 503)
