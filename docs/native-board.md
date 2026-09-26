@@ -246,7 +246,7 @@ Registration trusts no variable alone: the Herdr pane named by `HERDR_PANE_ID` m
 A CFO can also run in a native terminal, a `cfo host` that tells the program it starts which terminal it is through `CFO_HOST_ID`.
 Outside a Herdr pane, registration there needs the terminal's program, named by its host's record, to be one of the caller's own ancestors, and the host to answer on its pipe, since a host that was killed leaves its record behind.
 The registration then names that terminal instead of a pane, and it stays valid while the host's record names the registered process as the terminal's program.
-A message for a native CFO is typed into its terminal once, then Enter submits it, over a delivery connection of its own: the host acknowledges each part once it has written it into the terminal's input, and the board shows the answer delivered once both are acknowledged, and never types it again.
+A message for a native CFO is typed into its terminal once, then Enter submits it, over a delivery connection of its own: the host acknowledges each part once it has written it into the terminal's input, and the board shows the message delivered once both are acknowledged, and never types it again.
 A host started by an older cfo cannot acknowledge, so the board refuses anything it sends that CFO with nothing typed until the CFO is started again.
 The board shows a native CFO's terminal in its panel, from the CFO bar and from Orchestration.
 `goblins` shows a CFO registered in a native terminal in its own terminal, and `goblins --native` starts a new CFO in native terminal `cfo`, running `claude.exe` itself so the terminal ends with it, without the launcher's `HERDR_PANE_ID`.
