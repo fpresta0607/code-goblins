@@ -15,6 +15,8 @@ import { PaneDivider } from "./PaneDivider";
 import { CFO_KEY, MAXIMIZED_KEYS, maximizedFor, maximizedView, paneTrack, switchOrder } from "./terminalOrder";
 import { useSwitchKeys } from "./useSwitchKeys";
 import { unsentComment, updateAction } from "./boardUpdate";
+import { windowTarget } from "./terminalWindow";
+import { message, request } from "./api";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
 const TerminalDeck = lazy(() => import("./TerminalDeck").then((module) => ({ default: module.TerminalDeck })));
@@ -53,6 +55,8 @@ export function App() {
   const [maximizedChoice, setMaximizedChoice] = useState(() => ({ task: stored(MAXIMIZED_KEYS.task), terminal: stored(MAXIMIZED_KEYS.terminal) }));
   const [terminalOpened, setTerminalOpened] = useState(false);
   const [switchFocus, setSwitchFocus] = useState(0);
+  // windowError is a refused Open in terminal and the terminal it was for.
+  const [windowError, setWindowError] = useState({ shown: "", text: "" });
   const [compact, setCompact] = useState(() => matchMedia("(max-width: 40rem)").matches);
   const returnFocus = useRef<HTMLElement | null>(null);
   const pane = useRef<HTMLElement>(null);
@@ -124,7 +128,20 @@ export function App() {
   const maximized = maximizedFor(maximizeView, maximizedChoice[maximizeView]);
   const panelWide = paneOpen && maximized && !compact;
   const layout: CSSProperties | undefined = panelWide ? { gridTemplateColumns: "minmax(0, 1fr)" } : paneOpen && paneSize && !compact ? { gridTemplateColumns: `minmax(0, 1fr) 10px ${paneTrack(paneSize)}` } : undefined;
+  // Open in terminal shows the terminal in a Windows Terminal window of its
+  // own, beside the board; a refusal says why under the button.
+  const shownWindow = snapshot && terminalShown ? windowTarget(snapshot, cfoShown, selected ? task : undefined) : null;
+  const shownKey = JSON.stringify(shownWindow);
+  const openWindow = async () => {
+    if (!snapshot || !shownWindow) return;
+    setWindowError({ shown: "", text: "" });
+    try {
+      await request("/api/terminal/open", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: shownKey });
+    } catch (e: unknown) { setWindowError({ shown: shownKey, text: message(e) }); }
+  };
   const closeButton = <>
+    {shownWindow && <button className="icon-button" aria-label="Open in Windows Terminal" data-tip="Open in terminal" data-tip-align="end" onClick={() => void openWindow()}><Icon name="external" /></button>}
+    {shownWindow && windowError.shown === shownKey && <p className="window-error" role="alert">{windowError.text}</p>}
     {!compact && <button className="icon-button" aria-label={maximized ? "Restore the panel" : "Maximize the panel"} data-tip={maximized ? "Restore" : "Maximize"} data-tip-align="end" onClick={() => { const choice = String(!maximized); setMaximizedChoice((prior) => ({ ...prior, [maximizeView]: choice })); store(MAXIMIZED_KEYS[maximizeView], choice); }}><Icon name={maximized ? "restore" : "maximize"} /></button>}
     <button className="icon-button" aria-label="Close panel" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
   </>;

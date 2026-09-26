@@ -192,7 +192,10 @@ The view proves its pane, terminal, process and gate custody in full when it ope
 A tick's Herdr commands run beside the screen, never in its way, so a frame, and with it the echo of a key, is never held behind a tick.
 A paste is typed whole in one request, up to the 64 KiB input limit; an input Herdr refuses ends the view with an unknown outcome.
 A refused input, or one whose outcome is unknown, ends the view with the reason in plain words; nothing is resent, and reconnecting starts from a fresh full screen.
-The view sends no resize or scroll: the whole screen is in view, so the mouse wheel scrolls nothing, and a NUL key such as Ctrl+Space is typed like any other key.
+The view never resizes the pane; the mouse wheel and Shift+PageUp and Shift+PageDown scroll the pane's history through Herdr's `pane.scroll` on the same socket, in whole lines of the screen as drawn, and Herdr holds the offset within the history and says where the pane is.
+Herdr keeps a pane scrolled while it is typed into, so the view brings the pane back to its bottom before it types; scrolling reaches no program, so a gate that owns the pane stops typing but not scrolling.
+The scroll position is Herdr's own, shared by every window on that pane.
+A NUL key such as Ctrl+Space is typed like any other key.
 Shift+Escape moves keyboard focus out of the terminal to the panel's pill; ordinary Escape stays with the pane.
 Releasing a drag selection copies it to the clipboard, the way Herdr does, and Ctrl+Shift+C copies the current selection.
 Closing, switching, disconnecting or restarting invalidates the lease; reconnection starts with a full screen frame, never replayed input.
@@ -259,7 +262,11 @@ A message for a native CFO is typed into its terminal once, then Enter submits i
 A host started by an older cfo cannot acknowledge, so the board refuses anything it sends that CFO with nothing typed until the CFO is started again.
 The board shows a native CFO's terminal in its panel, from the CFO bar and from Orchestration.
 `goblins` shows a CFO registered in a native terminal in its own terminal, and `goblins --native` starts a new CFO in native terminal `cfo`, running `claude.exe` itself so the terminal ends with it, without the launcher's `HERDR_PANE_ID`.
-`cfo attach` shows a native terminal in any console: the registered CFO's, or the one named.
+`cfo attach` shows a native terminal in any console: the registered CFO's, or the one named; `--state <dir>` names the fleet's state folder for a console that does not inherit the supervisor's environment.
+
+The panel's Open in terminal button, shown while it shows a terminal, opens that terminal in a new Windows Terminal window beside the board, through `POST /api/terminal/open`, which takes only what the view shows and runs the supervisor's own programs.
+For a goblin or CFO in Herdr the pane is proved as its view proves it, Herdr brings its workspace and tab to the front, and the window runs `herdr --session <session>`, so it opens on that pane; for a native terminal the window runs `cfo attach --state <dir> <terminal>`, since a Windows Terminal window does not inherit the supervisor's environment.
+A board without Windows Terminal, or a terminal it cannot prove, says why under the button.
 With no CFO registered, `goblins` and `cfo attach` show native terminal `cfo` while its host answers, since the CFO started there may not have registered yet; a CFO registered in Herdr always comes first.
 Keys pass through raw, the terminal follows the console's size, and Ctrl-] leaves it running, whether the console sends that key as a byte or as a Windows key event.
 A host refuses to start for a terminal that already runs, so a second start never takes over the first one's record.
