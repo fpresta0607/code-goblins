@@ -46,6 +46,9 @@ type Options struct {
 	// PollPage waits up to a timeout for the Overlord's feedback on a Lavish
 	// page; without it no page is polled.
 	PollPage func(ctx context.Context, file string, timeout time.Duration) (axi.PagePoll, error)
+	// FirstRun is what the first-run page reads and changes on this
+	// machine; without it the board can start no CFO.
+	FirstRun *FirstRun
 }
 
 type Service struct {

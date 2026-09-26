@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -84,6 +85,32 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	// An unresolvable projects root still lists this home's own merges.
 	projects, _ := install.MachineProjectsRoot()
+	// The first-run page reads each agent's sign-in under the home folder;
+	// without one the board serves no first-run page.
+	var firstRun *supervisor.FirstRun
+	if home, err := os.UserHomeDir(); err != nil {
+		fmt.Fprintf(stderr, "cfo serve: the first-run page is off, the home folder is unknown: %v\n", err)
+	} else {
+		firstRun = &supervisor.FirstRun{
+			Home:         home,
+			LookPath:     exec.LookPath,
+			ProjectsRoot: install.MachineProjectsRoot,
+			SetProjectsRoot: func(root string) error {
+				if err := install.SetMachineProjectsRoot(root); err != nil {
+					return err
+				}
+				// This supervisor, and the CFO it starts, read the process
+				// environment first, and it still holds the old root.
+				return os.Setenv(install.ProjectsRootVariable, root)
+			},
+			CFORuns: func() bool {
+				_, inHerdr := supervisor.LiveCFO(h.State)
+				_, native := supervisor.NativeCFO(h.State)
+				return inHerdr || native || nativeTerminalRuns(h.State, nativeCFOTerminal)
+			},
+			StartCFO: func(project string) error { return startNativeCFO(h.State, project) },
+		}
+	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
 		Example:        *example,
 		CFO:            &supervisor.CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}})},
@@ -93,6 +120,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		VerifyDelivery: (supervisor.Git{}).VerifyDelivery,
 		Runs:           supervisor.OSRunLauncher{},
 		PollPage:       (axi.Lavish{Commands: execx.OSRunner{}}).Poll,
+		FirstRun:       firstRun,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)

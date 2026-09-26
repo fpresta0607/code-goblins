@@ -125,6 +125,10 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.openWorkspace(w, r)
 	case r.URL.Path == "/api/actions" && r.Method == "POST":
 		h.action(w, r)
+	case r.URL.Path == "/api/setup" && r.Method == "GET":
+		h.setup(w, r)
+	case r.URL.Path == "/api/setup/start" && r.Method == "POST":
+		h.startCFO(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/questions/") && r.Method == "GET":
 		h.questionImage(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/reviews/") && r.Method == "GET":
@@ -134,11 +138,13 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(r.URL.Path, "/api/"):
 		apiError(w, 404, "Unknown endpoint or method")
 	case (r.Method == "GET" || r.Method == "HEAD") && h.Assets != nil:
-		if r.URL.Path != "/" && !strings.HasPrefix(r.URL.Path, "/assets/") && r.URL.Path != "/favicon.svg" {
+		// /start is the first-run page, a stable address the installer
+		// opens; the board's own page shows it.
+		if r.URL.Path != "/" && r.URL.Path != "/start" && !strings.HasPrefix(r.URL.Path, "/assets/") && r.URL.Path != "/favicon.svg" {
 			http.NotFound(w, r)
 			return
 		}
-		if r.URL.Path == "/" {
+		if r.URL.Path == "/" || r.URL.Path == "/start" {
 			data, err := fs.ReadFile(h.Assets, "index.html")
 			if err != nil {
 				http.Error(w, "Board assets unavailable", 503)

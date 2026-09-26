@@ -356,6 +356,12 @@ func MachineProjectsRoot() (string, error) {
 	return projectsRoot(NewEnvStore(execx.OSRunner{}))
 }
 
+// SetMachineProjectsRoot records root as this machine's projects root in the
+// user scope, as cfo install --projects-root does.
+func SetMachineProjectsRoot(root string) error {
+	return NewEnvStore(execx.OSRunner{}).Set(ProjectsRootVariable, root)
+}
+
 func (s Service) addToPath(report *reporter) error {
 	raw, _, err := s.Env.Get(pathVariable)
 	if err != nil {
