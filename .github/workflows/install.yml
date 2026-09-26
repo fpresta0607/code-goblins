@@ -99,9 +99,11 @@ jobs:
           $global:LASTEXITCODE = 0
       - name: Check the installed home
         run: |
-          # A new terminal, as the install tells the user to open, sees the PATH
-          # the installers wrote to the registry; a new step does not.
+          # A new terminal sees the PATH and CFO_HOME the installers wrote to
+          # the registry; a new step does not, and without CFO_HOME goblins
+          # takes this checkout for the home.
           $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
+          $env:CFO_HOME = [Environment]::GetEnvironmentVariable("CFO_HOME", "User")
           $cfoHome = Join-Path $env:LOCALAPPDATA "CodeGoblins"
           foreach ($file in "cfo.exe", "goblins.exe", ".cfo-home", "AGENTS.md", "CLAUDE.md", ".agents\skills\lavish\SKILL.md", ".claude\skills\lavish\SKILL.md", "config\pipeline.json", "data\routing.json", "state") {
             if (-not (Test-Path -LiteralPath (Join-Path $cfoHome $file))) { throw "the one-line install left no $file in $cfoHome" }
@@ -158,6 +160,9 @@ jobs:
           # From a neutral folder, as a user would: inside a checkout,
           # uninstall unwires that checkout instead.
           Set-Location $env:RUNNER_TEMP
+          # As in a new terminal, CFO_HOME names the home whose supervisor
+          # stop ends.
+          $env:CFO_HOME = [Environment]::GetEnvironmentVariable("CFO_HOME", "User")
           & (Join-Path $cfoHome "goblins.exe") stop
           if ($LASTEXITCODE -ne 0) { throw "goblins stop exited with code $LASTEXITCODE" }
           & (Join-Path $cfoHome "goblins.exe") uninstall
