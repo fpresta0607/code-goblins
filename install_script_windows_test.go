@@ -326,6 +326,57 @@ func TestInstallCmdRunsTheScriptWhateverTheExecutionPolicy(t *testing.T) {
 	}
 }
 
+// install.cmd started from PowerShell 7, as from a pwsh terminal, hands
+// Windows PowerShell a PSModulePath that lists PowerShell 7's own modules
+// first, which Windows PowerShell cannot load, so an installer it runs, such
+// as no-mistakes' own, lost New-TemporaryFile. install.cmd gives Windows
+// PowerShell its own module path.
+func TestInstallCmdGivesWindowsPowerShellItsOwnModules(t *testing.T) {
+	checkout := t.TempDir()
+	wrapper, err := os.ReadFile("install.cmd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A stand-in install.ps1 that runs a nested Windows PowerShell, as the
+	// install does for a tool's own installer.
+	probe := "& powershell -NoProfile -Command { $ErrorActionPreference = 'Stop'; New-TemporaryFile | Remove-Item; 'nested ok' }\r\nexit $LASTEXITCODE\r\n"
+	for name, content := range map[string]string{"install.cmd": string(wrapper), "install.ps1": probe} {
+		if err := os.WriteFile(filepath.Join(checkout, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// PowerShell 7's Microsoft.PowerShell.Utility, which only PowerShell 7
+	// can load, first on the inherited module path.
+	modules := t.TempDir()
+	utility := filepath.Join(modules, "Microsoft.PowerShell.Utility")
+	if err := os.MkdirAll(utility, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := "@{\r\n GUID = '1da87e53-152b-403e-98dc-74d7b4d63d59'\r\n ModuleVersion = '7.0.0.0'\r\n CompatiblePSEditions = @('Core')\r\n PowerShellVersion = '7.0'\r\n CmdletsToExport = @('New-TemporaryFile')\r\n}\r\n"
+	if err := os.WriteFile(filepath.Join(utility, "Microsoft.PowerShell.Utility.psd1"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	system := os.Getenv("SystemRoot")
+	inherited := "PSModulePath=" + modules + ";" + filepath.Join(system, "System32", "WindowsPowerShell", "v1.0", "Modules")
+	run := func(name string, args ...string) (string, error) {
+		cmd, _, _ := strippedCommand(t, serveRelease(t, nil, ""), nil, name, args...)
+		cmd.Env = append(cmd.Env, inherited)
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+
+	// The premise: that module path breaks the nested New-TemporaryFile.
+	if out, err := run(filepath.Join(system, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(checkout, "install.ps1")); err == nil || strings.Contains(out, "nested ok") {
+		t.Fatalf("install.ps1 run directly = %v, want the inherited module path to break New-TemporaryFile:\n%s", err, out)
+	}
+
+	out, err := run(filepath.Join(system, "System32", "cmd.exe"), "/d", "/c", filepath.Join(checkout, "install.cmd"))
+
+	if err != nil || !strings.Contains(out, "nested ok") {
+		t.Fatalf("install.cmd = %v, want the nested Windows PowerShell to run New-TemporaryFile:\n%s", err, out)
+	}
+}
+
 // -Dev replaces a cfo.exe that is still running, as a supervisor or a CFO's
 // terminal host keeps it on a working clone: the running copy moves aside,
 // and cfo.exe and goblins.exe both become the new build. A rerun after the
