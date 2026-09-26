@@ -400,7 +400,8 @@ Both write a status line only, so they wake nobody, and a newer one of them repl
 The task reads `working` with the reason, or `waiting` with the reason and `waiting_on` naming the target, unless a newer question, the gate's own decision, or a merge says otherwise.
 A wait on another task clears itself once that task reports done, and a wait on CI or a deploy lasts until the goblin reports again; the CFO releases any wait with a `--working` line of its own.
 Waiting on the Overlord is the one wait that wakes the CFO: it also opens a review item for him, named `waiting-<task>-<wake sequence>`, which he can answer or clear, and which is withdrawn once the goblin reports anything newer.
-An actual question still uses `--blocked` with options.
+So `--waiting-on overlord` is only for a wait on the Overlord personally: his sign-in, his click, his page.
+A choice the CFO can make, such as whether to start something now or after a reset, is an actual question and uses `--blocked` with options.
 
 A wait whose answer the Overlord gives on a Lavish page names the page:
 
