@@ -314,6 +314,19 @@ func (v *nativeView) waitFor(t *testing.T, text string) {
 	}
 }
 
+// waitForSize asks the program its size until it reads size, such as
+// "100x30": ConPTY applies a resize on its own, so the program can still read
+// the old size just after one.
+func (v *nativeView) waitForSize(t *testing.T, size string) {
+	t.Helper()
+	for deadline := time.Now().Add(15 * time.Second); !v.shows("size " + size); time.Sleep(200 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the program never read its size as %s", size)
+		}
+		v.send(t, websocket.MessageBinary, "size\r")
+	}
+}
+
 func (v *nativeView) send(t *testing.T, kind websocket.MessageType, text string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -468,9 +481,8 @@ func TestANativeTerminalResizesTheTerminal(t *testing.T) {
 	v.waitFor(t, "program ready")
 
 	v.send(t, websocket.MessageText, `{"type":"resize","cols":100,"rows":30}`)
-	v.send(t, websocket.MessageBinary, "size\r")
 
-	v.waitFor(t, "size 100x30")
+	v.waitForSize(t, "100x30")
 }
 
 // A resize from any view reaches every other view of the terminal, so a second
@@ -746,8 +758,7 @@ func TestANativeTerminalHoldsItsSizeWhileAGateOwnsTheTask(t *testing.T) {
 	v.waitFor(t, "size 80x24")
 
 	v.send(t, websocket.MessageText, `{"type":"resize","cols":100,"rows":30}`)
-	v.send(t, websocket.MessageBinary, "size\r")
-	v.waitFor(t, "size 100x30")
+	v.waitForSize(t, "100x30")
 }
 
 // takingGate has no run for the branch until taken is set, and then owns the
