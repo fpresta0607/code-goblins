@@ -281,6 +281,18 @@ type Task struct {
 	Meta     state.TaskMeta
 	Verb     string
 	Terminal bool
+	// Hosted says a native task's terminal still runs: Classify sets it from
+	// the inventory's live host records, and it is what a native goblin,
+	// which has no pane, is alive by.
+	Hosted bool
+}
+
+// NativeHost is the record of one native terminal's host: the terminal it
+// runs, the host's pid, and when the host recorded itself.
+type NativeHost struct {
+	ID      string
+	HostPID int
+	Started time.Time
 }
 
 // Registration is what a project repository answered about a directory under
@@ -358,6 +370,10 @@ type Inventory struct {
 	// be the goblin working in the worktree a finding names. Whatever rests
 	// on placing an agent is held while any agent is unplaced.
 	UnplacedAgents []string
+	// NativeHosts are the host records of native terminals. A native goblin
+	// has no pane: its harness, and everything the harness starts, runs
+	// under its terminal's host, the way a pane's run under its shell.
+	NativeHosts []NativeHost
 }
 
 // harnessSignatures are the distinctive command-line fragments a CFO-launched
@@ -396,7 +412,13 @@ var serverModules = []string{"next", "vite", "webpack", "nodemon", "npm", "pnpm"
 // by class in a stable order, so two runs over the same inventory produce the
 // same report.
 func Classify(inv Inventory) []Finding {
-	supervised := supervisedPIDs(inv)
+	hosts := liveHosts(inv)
+	inv.Tasks = slices.Clone(inv.Tasks)
+	for i, task := range inv.Tasks {
+		_, running := hosts[task.ID]
+		inv.Tasks[i].Hosted = running && task.Meta.Backend == "native"
+	}
+	supervised := supervisedPIDs(inv, hosts)
 	fleet := descendants(inv.Processes, inv.FleetRootPIDs)
 	tasks := make(map[string]Task, len(inv.Tasks))
 	for _, task := range inv.Tasks {
@@ -718,7 +740,7 @@ func classifyMetas(inv Inventory, panes map[string]Pane, supervised, fleet map[i
 	}
 	var findings []Finding
 	for _, task := range inv.Tasks {
-		if _, ok := panes[task.Meta.HerdrPaneID]; ok {
+		if _, ok := panes[task.Meta.HerdrPaneID]; ok || task.Hosted {
 			continue
 		}
 		if worktrees[normalizePath(task.Meta.Worktree)] {
@@ -772,6 +794,9 @@ func classifyMetas(inv Inventory, panes map[string]Pane, supervised, fleet map[i
 func goblinIsAlive(task Task, known bool, panes map[string]Pane, worktree string) bool {
 	if known {
 		if pane, ok := panes[task.Meta.HerdrPaneID]; ok && pane.HasAgent {
+			return true
+		}
+		if task.Hosted {
 			return true
 		}
 	}
@@ -921,12 +946,15 @@ func taskHasProcess(task Task, processes []Process, supervised, fleet map[int]bo
 }
 
 // supervisedPIDs is everything this sweep must never touch: each live pane's
-// shell and foreground group, everything descended from them, and this
-// process's own ancestry. The pane set is the real answer to whether something
-// is supervised; the self set is what keeps the sweep from reporting the
-// session it runs inside.
-func supervisedPIDs(inv Inventory) map[int]bool {
-	roots := make([]int, 0, len(inv.Panes)*2+len(inv.SelfPIDs))
+// shell and foreground group, each live native terminal's host, everything
+// descended from them, and this process's own ancestry. The pane and host sets
+// are the real answer to whether something is supervised; the self set is what
+// keeps the sweep from reporting the session it runs inside.
+func supervisedPIDs(inv Inventory, hosts map[string]int) map[int]bool {
+	roots := make([]int, 0, len(inv.Panes)*2+len(hosts)+len(inv.SelfPIDs))
+	for _, pid := range hosts {
+		roots = append(roots, pid)
+	}
 	for _, pane := range inv.Panes {
 		if pane.ShellPID != 0 {
 			roots = append(roots, pane.ShellPID)
@@ -937,6 +965,25 @@ func supervisedPIDs(inv Inventory) map[int]bool {
 	}
 	roots = append(roots, inv.SelfPIDs...)
 	return descendants(inv.Processes, roots)
+}
+
+// liveHosts maps each native terminal whose host still runs to the host's
+// pid. A record names its host by pid, and Windows reuses pids: a host that
+// was stopped by pid leaves its record behind, so the pid counts only while a
+// process holding it started no later than the host recorded itself.
+func liveHosts(inv Inventory) map[string]int {
+	started := make(map[int]time.Time, len(inv.Processes))
+	for _, process := range inv.Processes {
+		started[process.PID] = process.Start
+	}
+	hosts := make(map[string]int, len(inv.NativeHosts))
+	for _, host := range inv.NativeHosts {
+		start, running := started[host.HostPID]
+		if running && !start.After(host.Started) {
+			hosts[host.ID] = host.HostPID
+		}
+	}
+	return hosts
 }
 
 // descendants returns roots plus every process reachable from one by parent
