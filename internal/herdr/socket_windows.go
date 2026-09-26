@@ -52,35 +52,61 @@ func (c *Client) Socket(ctx context.Context) (Socket, error) {
 	return Socket{pipe: `\\.\pipe\` + status.Server.Socket}, nil
 }
 
-// Typist types literal text into the session's panes over its socket, one
-// request per call and no process, for a view that types key by key.
-func (c *Client) Typist(ctx context.Context) (func(context.Context, Target, string) error, error) {
-	socket, err := c.Socket(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return func(ctx context.Context, target Target, text string) error {
-		return socket.SendText(ctx, target.Pane, text)
-	}, nil
+// PaneInput types into and scrolls a session's panes with no process per
+// call, for a view that types key by key.
+type PaneInput interface {
+	// SendText types unsubmitted literal text into a pane.
+	SendText(ctx context.Context, pane, text string) error
+	// Scroll shows a pane's screen offset lines up from its bottom, and
+	// returns the offset Herdr applied, which it holds within the pane's
+	// history.
+	Scroll(ctx context.Context, pane string, offset int) (int, error)
+}
+
+// PaneInput reaches the session's panes over its socket.
+func (c *Client) PaneInput(ctx context.Context) (PaneInput, error) {
+	return c.Socket(ctx)
 }
 
 // SendText types unsubmitted literal text into a pane, as pane send-text does.
 func (s Socket) SendText(ctx context.Context, pane, text string) error {
-	return s.request(ctx, "pane.send_text", map[string]string{"pane_id": pane, "text": text})
+	_, err := s.request(ctx, "pane.send_text", map[string]any{"pane_id": pane, "text": text})
+	return err
 }
 
-func (s Socket) request(ctx context.Context, method string, params any) error {
+// Scroll sets how far up from its bottom a pane shows its history; typing
+// does not bring it back, so a caller scrolls to 0 before it types.
+func (s Socket) Scroll(ctx context.Context, pane string, offset int) (int, error) {
+	result, err := s.request(ctx, "pane.scroll", map[string]any{"pane_id": pane, "offset_from_bottom": offset})
+	if err != nil {
+		return 0, err
+	}
+	var answer struct {
+		Pane struct {
+			Scroll *struct {
+				Offset *int `json:"offset_from_bottom"`
+			} `json:"scroll"`
+		} `json:"pane"`
+	}
+	if err := json.Unmarshal(result, &answer); err != nil || answer.Pane.Scroll == nil || answer.Pane.Scroll.Offset == nil {
+		return 0, errors.New("herdr: pane.scroll: answer names no scroll offset")
+	}
+	return *answer.Pane.Scroll.Offset, nil
+}
+
+// request sends one request and returns its result.
+func (s Socket) request(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	deadline, ok := ctx.Deadline()
 	if !ok {
 		deadline = time.Now().Add(socketTimeout)
 	}
 	conn, err := s.dial(ctx, deadline)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer conn.Close()
 	if err := conn.SetDeadline(deadline); err != nil {
-		return err
+		return nil, err
 	}
 	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
 	defer stop()
@@ -90,14 +116,14 @@ func (s Socket) request(ctx context.Context, method string, params any) error {
 		Params any    `json:"params"`
 	}{method, method, params})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := conn.Write(append(request, '\n')); err != nil {
-		return fmt.Errorf("herdr: %s: %w", method, err)
+		return nil, fmt.Errorf("herdr: %s: %w", method, err)
 	}
 	line, err := bufio.NewReader(conn).ReadBytes('\n')
 	if err != nil {
-		return fmt.Errorf("herdr: %s: no answer: %w", method, err)
+		return nil, fmt.Errorf("herdr: %s: no answer: %w", method, err)
 	}
 	var response struct {
 		ID     string          `json:"id"`
@@ -108,17 +134,17 @@ func (s Socket) request(ctx context.Context, method string, params any) error {
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(line, &response); err != nil {
-		return fmt.Errorf("herdr: %s: decode answer: %w", method, err)
+		return nil, fmt.Errorf("herdr: %s: decode answer: %w", method, err)
 	}
 	switch {
 	case response.ID != method:
-		return fmt.Errorf("herdr: %s: answer is for request %q", method, response.ID)
+		return nil, fmt.Errorf("herdr: %s: answer is for request %q", method, response.ID)
 	case response.Error != nil:
-		return fmt.Errorf("herdr: %s: %s: %s", method, response.Error.Code, response.Error.Message)
+		return nil, fmt.Errorf("herdr: %s: %s: %s", method, response.Error.Code, response.Error.Message)
 	case len(response.Result) == 0:
-		return fmt.Errorf("herdr: %s: answer carries no result", method)
+		return nil, fmt.Errorf("herdr: %s: answer carries no result", method)
 	}
-	return nil
+	return response.Result, nil
 }
 
 // dial opens a connection, waiting while every instance of the pipe is busy

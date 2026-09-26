@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -342,6 +343,31 @@ func TestAttachWithNoTerminalNamedShowsTheCFOsNativeTerminal(t *testing.T) {
 				t.Errorf("exit=%d stderr=%q shown=%q, want %s shown", exit, stderr.String(), shown, test.shown)
 			}
 		})
+	}
+}
+
+// A console that does not inherit the supervisor's environment, such as a
+// Windows Terminal window the board opened, names the state folder, and the
+// terminal is looked for there and nowhere else.
+func TestAttachLooksInTheStateFolderItIsGiven(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	var seen []string
+	runtime := commandRuntime{
+		resolveHome: func() (home.Home, error) { return home.Home{}, errors.New("no home in this console") },
+		attachNative: func(dir, id string, _, _ io.Writer) int {
+			seen = append(seen, dir, id)
+			return 0
+		},
+	}
+	var stdout, stderr strings.Builder
+
+	// Act
+	exit := runAttach([]string{"--state", stateDir, "task-1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 0 || !slices.Equal(seen, []string{stateDir, "task-1"}) {
+		t.Errorf("exit=%d stderr=%q attached %q, want task-1 in %s", exit, stderr.String(), seen, stateDir)
 	}
 }
 
