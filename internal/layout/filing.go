@@ -68,7 +68,9 @@ type Move struct {
 // queued work, however old. A finished folder stays while an open backlog
 // row names it by id, or while anything the fleet or the Overlord still reads
 // names its path (see namedInLiveText), so a queued row or a live goblin's
-// brief that says "start from data/<id>/handoff.md" keeps working.
+// brief that says "start from data/<id>/handoff.md" keeps working. The brief
+// and handoff of a finished folder kept in place are read too, so what they
+// name by path stays, and so on.
 // harnessMemory is the CFO harness's own memory folder, read as part of that.
 func Plan(h home.Home, harnessMemory string, now time.Time) ([]Move, error) {
 	moves, _, err := plan(h, harnessMemory, now)
