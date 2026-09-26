@@ -451,3 +451,20 @@ func TestFileGoesOnPastAMoveThatFails(t *testing.T) {
 		t.Errorf("the filing log records the same failure %d times, want once:\n%s", strings.Count(string(log), "could not file"), log)
 	}
 }
+
+func TestClaudeMemoryFolderFollowsClaudeCodesNaming(t *testing.T) {
+	user, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no user folder")
+	}
+	cases := map[string]string{
+		`C:\dev\code-goblins`: "C--dev-code-goblins",
+		`C:\dev\code-goblins\.worktrees\gb-cg-home-data-and-memory`: "C--dev-code-goblins--worktrees-gb-cg-home-data-and-memory",
+		`C:\Users\a b\AppData\Local\CodeGoblins`:                    "C--Users-a-b-AppData-Local-CodeGoblins",
+	}
+	for root, name := range cases {
+		if got, want := ClaudeMemoryFolder(root), filepath.Join(user, ".claude", "projects", name, "memory"); got != want {
+			t.Errorf("ClaudeMemoryFolder(%s) = %s, want %s", root, got, want)
+		}
+	}
+}

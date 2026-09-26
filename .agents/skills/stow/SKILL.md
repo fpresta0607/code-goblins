@@ -20,7 +20,7 @@ Adapted from First Mate's stow pass for the Code Goblins homes.
 
 `data/` is the CFO home's private data, so nothing this skill writes ever lands in a tracked file of the public code-goblins repository.
 AGENTS.md, under Memory, gives the fact file's format.
-A harness's own memory folder, such as Claude Code's auto-memory, is not a home: a CFO in another harness or another project folder never sees it, so a fact found there is filed into `data/memory/` like any other finding.
+Claude Code's own memory folder stays authoritative for a Claude Code CFO, and this skill never edits it; a CFO in another harness or another project folder never sees it.
 The backlog is owned by `tasks-axi`: read an item with `tasks-axi show <id> --full` and change it with `tasks-axi add`, `update --body-file`, `hold` or `done`, never by editing the file.
 
 ## Tiers and markers

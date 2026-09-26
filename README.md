@@ -294,6 +294,7 @@ A missing editor or a folder that no longer exists is reported instead of guesse
 
 ```text
 cfo doctor
+cfo home migrate [--apply] [--memory-from <dir>]
 cfo auth <project> [--check|--fix] [--env]
 cfo install [--projects-root <dir>] [--uninstall]
 cfo uninstall
@@ -351,7 +352,7 @@ The fleet keeps it tidy on its own: a finished task's folder moves to `archive\f
 A folder that anything still in use points at, such as a backlog row, your directives, the memory, a live task's brief or an open Command Center item, stays where it is, and every move is listed in `data\archive\filed.md`.
 
 `cfo install` creates this layout in a new home and fills in anything missing later, without overwriting a file.
-A home that already held data before this layout is left exactly as it is.
+A home that already held data before this layout is left exactly as it is: `cfo home migrate` shows, file by file, what laying it out would move, and proves nothing would be lost, and `cfo home migrate --apply` does it after a full backup.
 
 A private backup repository is optional.
 If you want one, make `data\` a git repository and push it to a private remote of your own; the fleet works the same without it, and no step depends on it.
