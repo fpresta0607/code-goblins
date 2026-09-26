@@ -468,11 +468,11 @@ const jobSampleInterval = time.Minute
 // reading, moves EvidenceAt. A reading less than jobSampleInterval after the
 // baseline is not judged and leaves it in place. Processor time that went
 // down because a process exited is no progress for that reading and nothing
-// more. It returns the
-// processes still running, and whether their processor use has been read
-// across a whole stall interval of consecutive readings within the stretch
-// being judged, so a lack of it can be concluded. An error means the evidence
-// could not be read, and the caller wakes rather than trusting silence.
+// more. It returns the processes still running, and whether their processor
+// use has been read across a whole stall interval of consecutive readings
+// within the stretch being judged, so a lack of it can be concluded. An error
+// means the evidence could not be read, and the caller wakes rather than
+// trusting silence.
 func (s Service) sampleProgress(ctx context.Context, meta state.TaskMeta, sample EndpointSample, observation *Observation, stretch, now time.Time) ([]string, bool, error) {
 	progress, err := s.Progress.InspectProgress(ctx, meta, sample)
 	if err != nil {
