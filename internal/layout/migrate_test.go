@@ -4,6 +4,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -203,6 +204,76 @@ func TestApplyMigrationRefusesWhatChangedSinceThePlan(t *testing.T) {
 				t.Errorf("a refused migration changed the data folder")
 			}
 		})
+	}
+}
+
+// A move that fails stops the migration. The folders already moved are in
+// the filing log and the backlog, the ones not moved are in neither, and a
+// run after it plans the rest.
+func TestApplyMigrationRecordsExactlyTheMovesMadeBeforeOneFailed(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("a file held open stops its folder moving only on Windows")
+	}
+	h := legacyHome(t)
+	taskFolder(t, h, "a1", 5*24*time.Hour)
+	m, err := PlanMigration(h, "", filingNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, move := range m.Moves {
+		ids = append(ids, move.ID)
+	}
+	if want := []string{"a1", "f1", "s1"}; !slices.Equal(ids, want) {
+		t.Fatalf("moves = %v, want %v", ids, want)
+	}
+	held, err := os.Open(filepath.Join(h.Data, "f1", "brief.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+
+	_, err = m.Apply(filepath.Join(h.State, "backups", "migrate"))
+
+	held.Close()
+	if err == nil || !strings.Contains(err.Error(), "move f1") || !strings.Contains(err.Error(), "the backup is") {
+		t.Fatalf("Apply = %v, want the failed move of f1 and the backup named", err)
+	}
+	log, err := os.ReadFile(filepath.Join(h.Data, filepath.FromSlash(FilingLog)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lines := strings.Split(strings.TrimSpace(string(log)), "\n"); len(lines) != 1 || !strings.HasSuffix(lines[0], "data/a1 -> data/archive/parked/a1") {
+		t.Errorf("filing log = %q, want the move of a1 alone", log)
+	}
+	backlog, err := fleet.ReadBacklog(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parked []string
+	for _, row := range backlog.Parked {
+		parked = append(parked, row.ID)
+	}
+	if !slices.Equal(parked, []string{"p1", "a1"}) {
+		t.Errorf("parked = %v, want p1 and a1", parked)
+	}
+	for _, rel := range []string{Marker, "memory/MEMORY.md"} {
+		if _, err := os.Stat(filepath.Join(h.Data, filepath.FromSlash(rel))); !os.IsNotExist(err) {
+			t.Errorf("data/%s was written after a move failed: %v", rel, err)
+		}
+	}
+
+	again, err := PlanMigration(h, "", filingNow.Add(time.Hour))
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids = nil
+	for _, move := range again.Moves {
+		ids = append(ids, move.ID)
+	}
+	if want := []string{"f1", "s1"}; !slices.Equal(ids, want) {
+		t.Errorf("moves planned after the failure = %v, want %v", ids, want)
 	}
 }
 

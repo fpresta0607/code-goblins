@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,6 +96,30 @@ func TestHomeMigrateDryRunListsEveryFileAndChangesNothing(t *testing.T) {
 	if len(digests) != 2 || digests[0] != digests[1] {
 		t.Errorf("digests before and after = %v, want two equal digests", digests)
 	}
+	if plan := printedPlan(t, out); !strings.Contains(out, "Run cfo home migrate --apply --plan "+plan+" ") {
+		t.Errorf("the dry run does not say how to apply plan %s:\n%s", plan, out)
+	}
+}
+
+// dryRunPlan runs the dry run and returns the plan digest it prints.
+func dryRunPlan(t *testing.T) string {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	if exit := run([]string{"home", "migrate"}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("dry run exit = %d, stderr %s", exit, stderr.String())
+	}
+	return printedPlan(t, stdout.String())
+}
+
+func printedPlan(t *testing.T, out string) string {
+	t.Helper()
+	for _, line := range strings.Split(out, "\n") {
+		if plan, ok := strings.CutPrefix(line, "plan: "); ok {
+			return strings.TrimSpace(plan)
+		}
+	}
+	t.Fatalf("the dry run printed no plan:\n%s", out)
+	return ""
 }
 
 func TestHomeMigrateApplyBacksUpAndLaysOutTheData(t *testing.T) {
@@ -103,9 +128,10 @@ func TestHomeMigrateApplyBacksUpAndLaysOutTheData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	plan := dryRunPlan(t)
 
 	var stdout, stderr bytes.Buffer
-	exit := run([]string{"home", "migrate", "--apply"}, &stdout, &stderr)
+	exit := run([]string{"home", "migrate", "--apply", "--plan", plan}, &stdout, &stderr)
 
 	if exit != 0 {
 		t.Fatalf("exit = %d, stderr %s\n%s", exit, stderr.String(), stdout.String())
@@ -133,6 +159,84 @@ func TestHomeMigrateApplyBacksUpAndLaysOutTheData(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "migrated: every file moved or written matches the plan") {
 		t.Errorf("the migration did not report its check:\n%s", stdout.String())
+	}
+}
+
+// A task that finishes between the dry run and the apply would be filed
+// without its owner having seen it, so the apply refuses and names it.
+func TestHomeMigrateApplyRefusesAPlanThatChangedSinceTheDryRun(t *testing.T) {
+	h := migrationHome(t)
+	plan := dryRunPlan(t)
+	briefed := time.Now().Add(-time.Hour)
+	for path, content := range map[string]string{
+		filepath.Join(h.Data, "done2", "brief.md"): "# Brief done2\n",
+		filepath.Join(h.State, "done2.status"):     "done: PR https://github.com/o/r/pull/2\n",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chtimes(filepath.Join(h.Data, "done2", "brief.md"), briefed, briefed); err != nil {
+		t.Fatal(err)
+	}
+	before, err := layout.HashTree(h.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	exit := run([]string{"home", "migrate", "--apply", "--plan", plan}, &stdout, &stderr)
+
+	if exit == 0 {
+		t.Fatalf("the apply made a plan that changed since the dry run:\n%s", stdout.String())
+	}
+	if want := "only in the plan now: move data/done2/brief.md -> data/archive/finished/done2/brief.md"; !strings.Contains(stderr.String(), want) {
+		t.Errorf("the refusal does not name the new move %q:\n%s", want, stderr.String())
+	}
+	after, err := layout.HashTree(h.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !maps.Equal(before, after) {
+		t.Errorf("a refused apply changed the data folder")
+	}
+	if _, err := os.Stat(filepath.Join(h.State, "backups")); !os.IsNotExist(err) {
+		t.Errorf("a refused apply made a backup: %v", err)
+	}
+}
+
+func TestHomeMigrateApplyRefusesWithoutAPlanFromADryRun(t *testing.T) {
+	cases := map[string]struct {
+		args []string
+		exit int
+		want string
+	}{
+		"no plan":          {args: []string{"--apply"}, exit: 2, want: "usage: cfo home migrate"},
+		"a plan unknown":   {args: []string{"--apply", "--plan", strings.Repeat("a", 64)}, exit: 1, want: "no dry run printed plan"},
+		"not a digest":     {args:[]string{"--apply", "--plan", `..\..\x`}, exit: 1, want: "is not a plan digest"},
+		"a plan, no apply": {args: []string{"--plan", strings.Repeat("a", 64)}, exit: 2, want: "usage: cfo home migrate"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := migrationHome(t)
+			before, err := layout.HashTree(h.Data)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var stdout, stderr bytes.Buffer
+			exit := run(append([]string{"home", "migrate"}, c.args...), &stdout, &stderr)
+
+			if exit != c.exit || !strings.Contains(stderr.String(), c.want) {
+				t.Errorf("exit = %d, stderr %q; want %d and %q", exit, stderr.String(), c.exit, c.want)
+			}
+			if after, err := layout.HashTree(h.Data); err != nil || !maps.Equal(before, after) {
+				t.Errorf("a refused apply changed the data folder: %v", err)
+			}
+		})
 	}
 }
 

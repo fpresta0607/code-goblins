@@ -319,6 +319,39 @@ func digest(sums []string) string {
 	return hashBytes([]byte(strings.Join(sums, "\n")))
 }
 
+// PlanTimePrefix starts a listing's first line, which gives the time the
+// plan was made, so the same plan can be made again from it.
+const PlanTimePrefix = "plan made at "
+
+// Listing is the plan as lines: first the time it was made, then, sorted,
+// every folder it creates, every file it moves with its SHA-256, every file
+// it writes with the SHA-256 of its new content, and every task folder it
+// leaves in place with why.
+func (m Migration) Listing() []string {
+	var lines []string
+	for _, folder := range m.Folders {
+		lines = append(lines, "create folder data/"+folder)
+	}
+	for from, to := range m.Moved {
+		lines = append(lines, "move data/"+from+" -> data/"+to+" "+m.Before[from])
+	}
+	for _, write := range m.Writes {
+		lines = append(lines, "write data/"+write.Path+" "+hashBytes(write.Content))
+	}
+	for _, kept := range m.Kept {
+		lines = append(lines, "stays data/"+kept.ID+" ("+kept.Reason+")")
+	}
+	sort.Strings(lines)
+	return append([]string{PlanTimePrefix + m.Now.UTC().Format(time.RFC3339)}, lines...)
+}
+
+// PlanDigest is the SHA-256 of the listing, one line after another. The same
+// plan made again at the same time has the same digest only when it makes
+// exactly the same change.
+func (m Migration) PlanDigest() string {
+	return hashBytes([]byte(strings.Join(m.Listing(), "\n")))
+}
+
 // keepsEveryLine reports whether next holds every line of old, in order.
 func keepsEveryLine(old, next []byte) bool {
 	lines := strings.Split(strings.ReplaceAll(string(next), "\r\n", "\n"), "\n")
@@ -337,7 +370,6 @@ func keepsEveryLine(old, next []byte) bool {
 
 // Result is what an applied migration did.
 type Result struct {
-	Backup string
 	// BackedUp is every file the backup holds, as it was copied.
 	BackedUp Manifest
 	// Unexpected are files the migration did not touch that differ from
@@ -350,10 +382,12 @@ type Result struct {
 // backupDir, each copy verified against its source. It refuses before
 // changing anything when a file it writes, or any file in a folder it moves,
 // is not what the plan read, checking both before and after the backup.
-// Afterwards it reads the data folder back and fails when anything it moved
-// or wrote differs from what the plan predicted.
+// A move that fails stops it: the moves made before it get their parked rows
+// and filing log lines, nothing else is written, and a run after it plans the
+// rest. Afterwards it reads the data folder back and fails when anything it
+// moved or wrote differs from what the plan predicted.
 func (m Migration) Apply(backupDir string) (Result, error) {
-	result := Result{Backup: backupDir}
+	var result Result
 	if err := m.unchangedSincePlan(); err != nil {
 		return result, err
 	}
@@ -369,12 +403,13 @@ func (m Migration) Apply(backupDir string) (Result, error) {
 			return result, err
 		}
 	}
-	for _, move := range m.Moves {
-		if err := os.MkdirAll(filepath.Dir(move.To), 0o755); err != nil {
-			return result, err
+	for i, move := range m.Moves {
+		err := os.MkdirAll(filepath.Dir(move.To), 0o755)
+		if err == nil {
+			err = os.Rename(move.From, move.To)
 		}
-		if err := os.Rename(move.From, move.To); err != nil {
-			return result, fmt.Errorf("layout: move %s: %w; the backup is %s", move.ID, err, backupDir)
+		if err != nil {
+			return result, errors.Join(fmt.Errorf("layout: move %s: %w; the backup is %s", move.ID, err, backupDir), m.record(m.Moves[:i]))
 		}
 	}
 	for _, write := range m.Writes {
@@ -418,6 +453,22 @@ func (m Migration) Apply(backupDir string) (Result, error) {
 		return result, fmt.Errorf("layout: after the migration %d files differ from the plan, starting with %s; the backup is %s", len(differ), differ[0], backupDir)
 	}
 	return result, nil
+}
+
+// record adds each move's parked row to the backlog and its line to the
+// filing log, as the watcher does for each move it makes.
+func (m Migration) record(moves []Move) error {
+	for _, move := range moves {
+		if move.Row != "" {
+			if err := addParkedRow(filepath.Join(m.Home.Data, Backlog), move.Row); err != nil {
+				return err
+			}
+		}
+		if err := appendLog(filepath.Join(m.Home.Data, filepath.FromSlash(FilingLog)), logLine(m.Home, move, m.Now)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // unchangedSincePlan refuses when a file the migration writes, or any file
