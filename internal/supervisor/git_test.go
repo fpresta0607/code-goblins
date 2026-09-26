@@ -185,11 +185,114 @@ func TestPreviewRefusesLinksOutOfTheWorktree(t *testing.T) {
 			if c.listed && !slices.ContainsFunc(files, func(f ChangedFile) bool { return f.Path == c.path }) {
 				t.Fatalf("premise: the change set does not offer %s: %+v", c.path, files)
 			}
-			if code, err := readPreview(dir, c.path); err == nil || code != "" {
+			if code, err := readPreview(dir, c.path, maxCodePreview); err == nil || code != "" {
 				t.Fatalf("preview followed the link: %q %v", code, err)
 			}
 			if diff, err := g.Diff(ctx, dir, "", c.path); err == nil || strings.Contains(diff.Code+diff.Patch, "outside") {
 				t.Fatalf("public diff followed the link: %+v %v", diff, err)
+			}
+		})
+	}
+}
+
+// Every preview read is bounded: Git output past the limit is refused, not
+// held in memory.
+func TestGitRunRefusesOutputPastItsLimit(t *testing.T) {
+	// Arrange
+	dir := gitFixture(t)
+	if err := os.WriteFile(filepath.Join(dir, "big.txt"), []byte(strings.Repeat("x", maxGitOutput+1)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git", "add", "big.txt")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%s: %v", out, err)
+	}
+
+	// Act
+	out, err := Git{}.run(context.Background(), dir, "show", ":big.txt")
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "limit") || out != "" {
+		t.Fatalf("Git output past the limit was returned: %d bytes, %v", len(out), err)
+	}
+}
+
+// A file over the code preview limit still shows the lines that changed and
+// takes comments on them; only its whole-file code preview is left out.
+func TestDiffShowsTheChangedLinesOfAFileOverThePreviewLimit(t *testing.T) {
+	for _, c := range []struct {
+		name              string
+		filler            int // bytes of unchanged lines before the changed one
+		tracked, commit   bool
+		omitted, rejected bool
+	}{
+		{"a small changed file", 1 << 10, true, false, false, false},
+		{"a changed file in the worktree", 300 << 10, true, false, true, false},
+		{"a changed file past the Git output limit", 2 << 20, true, false, true, false},
+		{"a file changed by a commit", 300 << 10, true, true, true, false},
+		{"a commit's file past the Git output limit", 2 << 20, true, true, true, false},
+		{"a new untracked file", 300 << 10, false, false, true, false},
+		{"a new untracked file past the Git output limit", 2 << 20, false, false, false, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange: big.txt is in the task's base, so only its last line changes.
+			dir := gitFixture(t)
+			git := func(args ...string) string {
+				t.Helper()
+				cmd := exec.Command("git", args...)
+				cmd.Dir = dir
+				out, err := cmd.CombinedOutput()
+				if err != nil {
+					t.Fatalf("git %v: %s %v", args, out, err)
+				}
+				return strings.TrimSpace(string(out))
+			}
+			filler := strings.Repeat("an unchanged line of filler\n", c.filler/28+1)
+			write := func(last string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(dir, "big.txt"), []byte(filler+last), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if c.tracked {
+				write("before\n")
+				git("add", "big.txt")
+				git("commit", "-qm", "Add big.txt")
+				git("update-ref", "refs/remotes/origin/main", "HEAD")
+			}
+			write("after\n")
+			revision := ""
+			if c.commit {
+				git("commit", "-qam", "Change big.txt")
+				revision = git("rev-parse", "HEAD")
+			}
+
+			// Act
+			diff, err := Git{}.Diff(context.Background(), dir, revision, "big.txt")
+
+			// Assert
+			if c.rejected {
+				if err == nil || !strings.Contains(err.Error(), "limit") {
+					t.Fatalf("a patch past the Git output limit was not refused by its limit: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(diff.Patch, "+after\n") || c.tracked && !strings.Contains(diff.Patch, "-before\n") {
+				t.Fatalf("the changed lines are missing from the patch (%d bytes)", len(diff.Patch))
+			}
+			if c.tracked && len(diff.Patch) > 4<<10 {
+				t.Fatalf("the patch holds %d bytes, more than the changed lines' hunk", len(diff.Patch))
+			}
+			if diff.CodeOmitted != c.omitted || c.omitted != (diff.Code == "") {
+				t.Fatalf("code omitted = %v with %d bytes of code, want omitted %v", diff.CodeOmitted, len(diff.Code), c.omitted)
+			}
+			line := strings.Count(filler, "\n") + 1
+			if code, err := diffRangeContext(diff.Patch, line, line, "new"); err != nil || code != "after\n" {
+				t.Fatalf("the changed line takes no comment: %q %v", code, err)
 			}
 		})
 	}

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,21 +38,37 @@ type FileDiff struct {
 	Head        string `json:"head"`
 	Revision    string `json:"revision"`
 	Binary      bool   `json:"binary"`
+	// CodeOmitted says the file is over the code preview limit, so Code is
+	// empty and only the patch shows it.
+	CodeOmitted bool   `json:"code_omitted"`
 	Fingerprint string `json:"fingerprint"`
 }
 
+// maxCodePreview bounds a file's whole-file code preview; a larger file shows
+// only its patch. maxGitOutput bounds everything else a preview reads.
+const (
+	maxCodePreview = 256 << 10
+	maxGitOutput   = 1 << 20
+)
+
+var errPreviewTooLarge = errors.New("file exceeds the preview limit")
+
 var commitID = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
 
+// limitedBuffer keeps at most limit bytes of a command's output. It is not a
+// bytes.Buffer, whose ReadFrom would let io.Copy go around Write and the limit.
 type limitedBuffer struct {
-	bytes.Buffer
-	limit int
+	buffer   bytes.Buffer
+	limit    int
+	exceeded bool
 }
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
-	if b.Len()+len(p) > b.limit {
+	if b.buffer.Len()+len(p) > b.limit {
+		b.exceeded = true
 		return 0, errors.New("Git output exceeds preview limit")
 	}
-	return b.Buffer.Write(p)
+	return b.buffer.Write(p)
 }
 
 func (Git) run(ctx context.Context, dir string, args ...string) (string, error) {
@@ -63,14 +80,17 @@ func (Git) run(ctx context.Context, dir string, args ...string) (string, error) 
 	// reads run every minute inside worktrees a goblin is using.
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=Never", "GIT_OPTIONAL_LOCKS=0")
 	cmd.WaitDelay = 2 * time.Second
-	out := &limitedBuffer{limit: 1 << 20}
-	errout := &limitedBuffer{limit: 8192}
+	// Stderr is discarded: only warnings reach it when a command succeeds,
+	// and a failure is reported by its exit status.
+	out := &limitedBuffer{limit: maxGitOutput}
 	cmd.Stdout = out
-	cmd.Stderr = errout
 	if err := cmd.Run(); err != nil {
+		if out.exceeded {
+			return "", fmt.Errorf("Git %s output exceeds the %d KiB preview limit", args[0], maxGitOutput>>10)
+		}
 		return "", fmt.Errorf("Git %s failed: %w", args[0], err)
 	}
-	return out.String(), nil
+	return out.buffer.String(), nil
 }
 
 func SafeFilePath(path string) bool {
@@ -213,11 +233,31 @@ func (g Git) Diff(ctx context.Context, dir, revision, path string) (result FileD
 	if revision != "" {
 		d.Patch, err = g.run(ctx, dir, "show", "--format=", "--no-ext-diff", "--no-textconv", "--no-renames", revision, "--", path)
 		if err == nil && status != "D" {
-			d.Code, err = g.run(ctx, dir, "show", revision+":"+path)
+			// The file is sized before it is read, so one past the Git output
+			// limit still shows its patch.
+			var size string
+			if size, err = g.run(ctx, dir, "cat-file", "-s", revision+":"+path); err == nil {
+				var n int
+				n, err = strconv.Atoi(strings.TrimSpace(size))
+				d.CodeOmitted = err == nil && n > maxCodePreview
+				if err == nil && !d.CodeOmitted {
+					d.Code, err = g.run(ctx, dir, "show", revision+":"+path)
+				}
+			}
 		}
 	} else {
 		if status != "D" {
-			d.Code, err = readPreview(dir, path)
+			// An untracked file's patch is built from its content, so it is
+			// read as far as a patch may go; any other file only as far as
+			// its code preview.
+			limit := maxCodePreview
+			if status == "?" {
+				limit = maxGitOutput
+			}
+			d.Code, err = readPreview(dir, path, limit)
+			if status != "?" && errors.Is(err, errPreviewTooLarge) {
+				d.CodeOmitted, err = true, nil
+			}
 		}
 		if err != nil {
 			return FileDiff{}, err
@@ -245,18 +285,18 @@ func (g Git) Diff(ctx context.Context, dir, revision, path string) (result FileD
 	}
 	d.Binary = strings.ContainsRune(d.Code, '\x00') || strings.Contains(d.Patch, "Binary files ")
 	if d.Binary {
-		d.Code = ""
+		d.Code, d.CodeOmitted = "", false
 		d.Patch = "Binary file changed. Text preview is unavailable."
 	}
-	if len(d.Code) > 256<<10 {
-		return FileDiff{}, errors.New("file exceeds the 256 KiB code preview limit")
+	if len(d.Code) > maxCodePreview {
+		d.Code, d.CodeOmitted = "", true
 	}
 	return d, nil
 }
 
-// readPreview reads a changed file for the code preview through an os.Root on
-// the canonical task root.
-func readPreview(dir, path string) (string, error) {
+// readPreview reads a changed file of at most limit bytes for the preview
+// through an os.Root on the canonical task root.
+func readPreview(dir, path string, limit int) (string, error) {
 	canonical, err := fsx.Canonical(dir)
 	if err != nil {
 		return "", err
@@ -271,12 +311,12 @@ func readPreview(dir, path string) (string, error) {
 		return "", err
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, (256<<10)+1))
+	data, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
 	if err != nil {
 		return "", err
 	}
-	if len(data) > 256<<10 {
-		return "", errors.New("file exceeds the 256 KiB code preview limit")
+	if len(data) > limit {
+		return "", fmt.Errorf("%w of %d KiB", errPreviewTooLarge, limit>>10)
 	}
 	return string(data), nil
 }
