@@ -43,7 +43,7 @@ commands:
   version   print the cfo version
   serve     run the persistent native supervisor and embedded browser board on loopback
   host      run one goblin terminal in a process of its own; cfo starts it, not you
-  attach    show a native terminal in this console, the CFO's unless one is named; Ctrl-] leaves it running
+  attach    show a native terminal in this console, the CFO's unless one is named; --state <dir> names the fleet's state folder; Ctrl-] leaves it running
   status    whether the supervisor runs: its board, what the fleet is doing and its pid; exits 1 when none runs
   stop      ask the supervisor to stop and wait until it has; --force ends its process tree instead
   hooks     check|install <claude|codex|pi> native lifecycle hooks

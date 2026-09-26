@@ -34,9 +34,11 @@ func (e unavailableTerminal) Error() string { return string(e) }
 type terminalBinding struct {
 	Selection terminalSelection
 	Target    herdr.Target
-	Terminal  string
-	Identity  string
-	Process   lock.Info
+	// Workspace and Tab hold the pane in Herdr, for bringing it to the front.
+	Workspace, Tab string
+	Terminal       string
+	Identity       string
+	Process        lock.Info
 }
 
 func (s *Service) resolveTerminal(ctx context.Context, selected terminalSelection, write bool) (terminalBinding, error) {
@@ -62,7 +64,7 @@ func (s *Service) resolveTerminal(ctx context.Context, selected terminalSelectio
 		if err := c.verify(ctx, p); err != nil {
 			return b, err
 		}
-		b.Target, b.Terminal, b.Process, b.Identity = p.Target, p.Terminal, p.Process, identity
+		b.Target, b.Workspace, b.Tab, b.Terminal, b.Process, b.Identity = p.Target, p.Workspace, p.Tab, p.Terminal, p.Process, identity
 		return b, nil
 	}
 	if state.ValidTaskID(selected.Task) != nil || selected.Generation == "" {
@@ -102,7 +104,7 @@ func (s *Service) resolveTerminal(ctx context.Context, selected terminalSelectio
 	if !found || b.Terminal == "" {
 		return b, errors.New("This native session is closed or its agent registration changed.")
 	}
-	b.Target = herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}
+	b.Target, b.Workspace, b.Tab = herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}, meta.HerdrWorkspaceID, meta.HerdrTabID
 	p, err := client.PaneProcessInfo(ctx, b.Target)
 	if err != nil || p.ForegroundProcessGroupID <= 0 || p.ForegroundProcessGroupID == p.ShellPID {
 		return b, errors.New("This agent has exited. No input will be sent to its shell.")
@@ -139,12 +141,17 @@ type terminalLease struct {
 	seq     uint64
 	closed  bool
 	cancel  context.CancelFunc
-	// typist types into the pane over its Herdr session's socket, one
-	// request per input and no process, for a lease that only observes.
-	typist func(context.Context, herdr.Target, string) error
+	// panes types into and scrolls the pane over its Herdr session's socket,
+	// one request per input and no process, for a lease that only observes;
+	// scrolled is how many lines above its bottom Herdr last said it shows,
+	// once scrollKnown: Herdr keeps a pane's offset after a view closes, so a
+	// new lease does not know it until Herdr answers.
+	panes       herdr.PaneInput
+	scrolled    int
+	scrollKnown bool
 	// custody is whether a no-mistakes gate lets the Overlord type into the
 	// pane, checked when the view opens and on every tick rather than per key;
-	// nil lets input through.
+	// nil lets input through. Scrolling reaches no program, so it needs none.
 	custody error
 }
 
@@ -157,8 +164,8 @@ func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.Ter
 	if l.closed {
 		return errors.New("Terminal is disconnected. Reconnect for a fresh screen; input was not replayed.")
 	}
-	if !l.control && command.Type != "terminal.input" {
-		return errors.New("A live pane view keeps the pane's own size and screen, so it sends only typing.")
+	if !l.control && command.Type != "terminal.input" && command.Type != "terminal.scroll" {
+		return errors.New("A live pane view keeps the pane's own size, so it sends only typing and scrolling.")
 	}
 	if seq != l.seq+1 {
 		return errors.New("Terminal input is out of order or already submitted. It will not be replayed.")
@@ -167,7 +174,7 @@ func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.Ter
 		return err
 	}
 	l.seq = seq
-	if l.custody != nil {
+	if l.custody != nil && command.Type != "terminal.scroll" {
 		l.closed = true
 		l.cancel()
 		return l.custody
@@ -178,9 +185,7 @@ func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.Ter
 		return err
 	}
 	if !l.control {
-		// Typing goes into the verified pane itself, never through the
-		// observer, as one request however long the paste.
-		if err := l.typist(ctx, l.binding.Target, command.Text); err != nil {
+		if err := l.intoPane(ctx, command); err != nil {
 			l.closed = true
 			l.cancel()
 			return errors.New("Input outcome is unknown. Inspect the native screen before typing again; input was not retried.")
@@ -196,6 +201,33 @@ func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.Ter
 		return errors.New("Input outcome is unknown. Inspect the native screen before reconnecting; input was not retried.")
 	}
 	return nil
+}
+
+// intoPane types into or scrolls a live pane view's verified pane itself,
+// never through the observer, typing a paste as one request however long.
+// Herdr keeps a pane scrolled while it is typed into, so typing first brings
+// it back to its bottom, as a terminal does.
+func (l *terminalLease) intoPane(ctx context.Context, command herdr.TerminalCommand) error {
+	pane := l.binding.Target.Pane
+	if command.Type == "terminal.scroll" {
+		want := l.scrolled + command.Lines
+		if command.Direction == "down" {
+			want = max(0, l.scrolled-command.Lines)
+		}
+		shown, err := l.panes.Scroll(ctx, pane, want)
+		if err != nil {
+			return err
+		}
+		l.scrolled, l.scrollKnown = shown, true
+		return nil
+	}
+	if !l.scrollKnown || l.scrolled > 0 {
+		if _, err := l.panes.Scroll(ctx, pane, 0); err != nil {
+			return err
+		}
+		l.scrolled, l.scrollKnown = 0, true
+	}
+	return l.panes.SendText(ctx, pane, command.Text)
 }
 
 // stillBound is the check each input makes before it is typed, and it starts
@@ -398,7 +430,7 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cols, rows := input.Cols, input.Rows
-	var typist func(context.Context, herdr.Target, string) error
+	var panes herdr.PaneInput
 	if !input.Control {
 		// An observer sees only the part of the screen its size covers and
 		// hears of no change outside it, so a view smaller than the pane is a
@@ -407,9 +439,9 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 			apiError(w, 409, err.Error())
 			return
 		}
-		// Typing reaches the pane over its session's socket; finding the
-		// socket is the one process the view starts for it.
-		if typist, err = h.Service.Options.CFO.Terminals(b.Target.Session).Typist(ctx); err != nil {
+		// Typing and scrolling reach the pane over its session's socket;
+		// finding the socket is the one process the view starts for them.
+		if panes, err = h.Service.Options.CFO.Terminals(b.Target.Session).PaneInput(ctx); err != nil {
 			apiError(w, 503, "Typing into this pane is unavailable: its Herdr socket cannot be found.")
 			return
 		}
@@ -430,7 +462,7 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 	ask, asked := context.WithTimeout(ctx, 8*time.Second)
 	custody := h.Service.terminalCustody(ask, b)
 	asked()
-	lease := &terminalLease{binding: b, stream: stream, control: input.Control, cancel: cancel, typist: typist, custody: custody}
+	lease := &terminalLease{binding: b, stream: stream, control: input.Control, cancel: cancel, panes: panes, custody: custody}
 	h.mu.Lock()
 	h.terminals[key] = lease
 	h.mu.Unlock()

@@ -67,7 +67,9 @@ type cfoRunner struct {
 	// snapshot and resized grows it.
 	socket   *herdrtest.Socket
 	sizeless bool
-	resized  atomic.Bool
+	// focused records each workspace and tab brought to the front.
+	focused []string
+	resized atomic.Bool
 	// busy is an agent inside a long turn: working, with counters that do not
 	// move while the turn lasts, whatever it is sent.
 	busy bool
@@ -126,6 +128,9 @@ func (r *cfoRunner) Run(_ context.Context, req execx.Request) (execx.Result, err
 			r.t.Fatalf("wrong pane: %s", a[2])
 		}
 		r.prompts = append(r.prompts, a[3])
+		body = `{"result":{}}`
+	case len(a) >= 3 && (a[0] == "workspace" || a[0] == "tab") && a[1] == "focus":
+		r.focused = append(r.focused, strings.Join(a[:3], " "))
 		body = `{"result":{}}`
 	case len(a) >= 2 && a[0] == "status" && a[1] == "--json" && r.socket != nil:
 		body = r.socket.Status()

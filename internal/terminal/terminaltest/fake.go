@@ -140,8 +140,19 @@ func (f *Fake) SendLiteral(_ context.Context, target herdr.Target, text string) 
 	return f.record("SendLiteral", target.String(), text)
 }
 
-func (f *Fake) Typist(context.Context) (func(context.Context, herdr.Target, string) error, error) {
-	return f.SendLiteral, nil
+func (f *Fake) PaneInput(context.Context) (herdr.PaneInput, error) {
+	return fakePanes{f}, nil
+}
+
+// fakePanes records typing and scrolling among the fake's calls.
+type fakePanes struct{ fake *Fake }
+
+func (p fakePanes) SendText(_ context.Context, pane, text string) error {
+	return p.fake.record("SendText", pane, text)
+}
+
+func (p fakePanes) Scroll(_ context.Context, pane string, offset int) (int, error) {
+	return offset, p.fake.record("Scroll", pane, strconv.Itoa(offset))
 }
 
 func (f *Fake) SendKey(_ context.Context, target herdr.Target, key string) error {

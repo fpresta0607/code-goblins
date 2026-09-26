@@ -34,37 +34,43 @@ const terminalReset = "\x1b[?25h\x1b[?2004l\x1b[?1004l"
 // runAttach shows a native terminal in this console: the one named, or else
 // the one the registered CFO runs in. With no CFO registered, that is terminal
 // cfo while its host answers, since the CFO started there may not have
-// registered yet.
+// registered yet. --state names the fleet's state folder for a console that
+// does not inherit the supervisor's environment, such as a Windows Terminal
+// window the board opened.
 func runAttach(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	f := flag.NewFlagSet("attach", flag.ContinueOnError)
 	f.SetOutput(stderr)
+	stateDir := f.String("state", "", "the fleet's state folder, when this console's environment does not name it")
 	if err := f.Parse(args); err != nil || f.NArg() > 1 {
-		fmt.Fprintln(stderr, "usage: cfo attach [terminal]")
+		fmt.Fprintln(stderr, "usage: cfo attach [--state <dir>] [terminal]")
 		return 2
 	}
-	h, err := runtime.resolveHome()
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
+	if *stateDir == "" {
+		h, err := runtime.resolveHome()
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		*stateDir = h.State
 	}
 	id := f.Arg(0)
 	if id == "" {
-		native, live := runtime.nativeCFO(h.State)
-		_, inHerdr := runtime.liveCFO(h.State)
+		native, live := runtime.nativeCFO(*stateDir)
+		_, inHerdr := runtime.liveCFO(*stateDir)
 		switch {
 		case live:
 			id = native
 		case inHerdr:
 			fmt.Fprintln(stderr, "cfo attach: the CFO runs in Herdr, not in a native terminal; name the terminal to attach to")
 			return 1
-		case runtime.nativeTerminalRuns(h.State, nativeCFOTerminal):
+		case runtime.nativeTerminalRuns(*stateDir, nativeCFOTerminal):
 			id = nativeCFOTerminal
 		default:
 			fmt.Fprintln(stderr, "cfo attach: no CFO runs in a native terminal; name the terminal to attach to")
 			return 1
 		}
 	}
-	return runtime.attachNative(h.State, id, stdout, stderr)
+	return runtime.attachNative(*stateDir, id, stdout, stderr)
 }
 
 // nativeTerminalRuns reports whether native terminal id's host answers.
