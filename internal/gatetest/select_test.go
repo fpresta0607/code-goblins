@@ -79,6 +79,50 @@ func TestSelectTakesChangedPackagesAndTheirDirectImporters(t *testing.T) {
 	}
 }
 
+// A package at the module root owns the files directly in the root and the
+// files it embeds, not every file below it that no other package owns.
+func TestSelectGivesARootPackageOnlyItsOwnFiles(t *testing.T) {
+	packages := append([]Package{
+		{ImportPath: "example.com/repo", Dir: root, Embeds: []string{"docs/pipeline.md"}},
+		pkg("internal/install", "example.com/repo"),
+	}, repo...)
+	for name, test := range map[string]struct {
+		files []string
+		want  []string
+	}{
+		"an embedded file": {
+			files: []string{"docs/pipeline.md"},
+			want:  []string{"example.com/repo (changed)", "example.com/repo/internal/install (imports example.com/repo)"},
+		},
+		"a file directly in the root": {
+			files: []string{"install.ps1"},
+			want:  []string{"example.com/repo (changed)", "example.com/repo/internal/install (imports example.com/repo)"},
+		},
+		"an unembedded file in a directory with no package": {
+			files: []string{"docs/other.md", "frontend/src/app.ts"},
+			want:  nil,
+		},
+		"a deleted package": {
+			files: []string{"internal/retired/old.go"},
+			want:  nil,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Act
+			choices, everything := Select(root, test.files, packages)
+
+			// Assert
+			var got []string
+			for _, choice := range choices {
+				got = append(got, choice.String())
+			}
+			if everything || !slices.Equal(got, test.want) {
+				t.Errorf("Select = %q, everything %v; want %q", got, everything, test.want)
+			}
+		})
+	}
+}
+
 // go.mod or go.sum can change what every package builds against, so no
 // package list bounds it.
 func TestSelectTakesEverythingWhenAModuleFileChanged(t *testing.T) {

@@ -27,7 +27,8 @@ type Plan struct {
 // Read works out the plan for the branch checked out in dir: the files that
 // differ from where it left the default branch (origin/HEAD, else
 // origin/main), committed, uncommitted or untracked, with a rename counted at
-// both its paths, and the packages go list reports for the module. The root
+// both its paths, and the packages go list reports for the module, each with
+// the files its code and tests embed. The root
 // and every package directory are spelled with long names, as git and go
 // list can spell one directory differently.
 func Read(ctx context.Context, runner execx.Runner, dir string) (Plan, error) {
@@ -84,6 +85,7 @@ func decodePackages(r io.Reader) ([]Package, error) {
 			ImportPath                         string
 			Dir                                string
 			Imports, TestImports, XTestImports []string
+			EmbedFiles, TestEmbedFiles         []string
 		}
 		if err := decoder.Decode(&listed); errors.Is(err, io.EOF) {
 			return packages, nil
@@ -91,7 +93,8 @@ func decodePackages(r io.Reader) ([]Package, error) {
 			return nil, fmt.Errorf("gatetest: read go list: %w", err)
 		}
 		imports := append(append(listed.Imports, listed.TestImports...), listed.XTestImports...)
-		packages = append(packages, Package{ImportPath: listed.ImportPath, Dir: fsx.LongPath(listed.Dir), Imports: imports})
+		embeds := append(listed.EmbedFiles, listed.TestEmbedFiles...)
+		packages = append(packages, Package{ImportPath: listed.ImportPath, Dir: fsx.LongPath(listed.Dir), Imports: imports, Embeds: embeds})
 	}
 }
 

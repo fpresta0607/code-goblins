@@ -102,6 +102,40 @@ func TestReadChoosesAnUntrackedPackage(t *testing.T) {
 	}
 }
 
+// A root package is chosen for a file it embeds, read from go list, and not
+// for a file in a directory no package owns.
+func TestReadChoosesARootPackageOnlyForItsEmbeddedFiles(t *testing.T) {
+	for file, want := range map[string][]string{
+		"docs/readme.md":  {"example.com/m (changed)"},
+		"frontend/app.ts": nil,
+	} {
+		t.Run(file, func(t *testing.T) {
+			// Arrange
+			dir := newModule(t)
+			write(t, filepath.Join(dir, "m.go"), "package m\n\nimport _ \"embed\"\n\n//go:embed docs/readme.md\nvar Readme string\n")
+			git(t, dir, "add", ".")
+			git(t, dir, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "embed")
+			git(t, dir, "update-ref", "refs/remotes/origin/main", "HEAD")
+			write(t, filepath.Join(dir, filepath.FromSlash(file)), "changed\n")
+
+			// Act
+			plan, err := Read(context.Background(), execx.OSRunner{}, dir)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, choice := range plan.Choices {
+				got = append(got, choice.String())
+			}
+			if plan.Everything || !slices.Equal(got, want) {
+				t.Errorf("Read = %q, everything %v; want %q", got, plan.Everything, want)
+			}
+		})
+	}
+}
+
 // A branch that changed no Go package has nothing to test.
 func TestReadChoosesNothingWhenNoPackageChanged(t *testing.T) {
 	// Arrange
