@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
-import { availableHeight, clampPage, pageSizeFor, swipeStep } from "./fit";
+import { availableHeight, clampPage, pageSizeFor, swipeStep, tallestCard } from "./fit";
 
 const columnsOf = (grid: HTMLElement) => {
   const value = getComputedStyle(grid).gridTemplateColumns;
@@ -7,7 +7,7 @@ const columnsOf = (grid: HTMLElement) => {
 };
 
 // Fits a list of count cards to the board's visible canvas: the page holds as
-// many rows of the tallest shown card as fit below the list (see
+// many rows of the tallest card seen as fit below the list (see
 // availableHeight), times the columns its grid lays out, and a sideways swipe
 // turns it. frameRef is the box around the list, listRef the list itself.
 export function useFit(count: number, frameRef: RefObject<HTMLDivElement | null>, listRef: RefObject<HTMLDivElement | null>) {
@@ -22,6 +22,7 @@ export function useFit(count: number, frameRef: RefObject<HTMLDivElement | null>
     const canvas = frame.closest<HTMLElement>(".canvas-region") ?? document.documentElement;
     const board = frame.closest<HTMLElement>(".task-board");
     const column = frame.closest<HTMLElement>(".board-column") ?? frame;
+    let tallest = { width: -1, unit: 0 };
     const measure = () => {
       const frameTop = frame.getBoundingClientRect().top;
       const reserve = 48 + (parseFloat(getComputedStyle(column).paddingBottom) || 0) + (board ? parseFloat(getComputedStyle(board).paddingBottom) || 0 : 0);
@@ -34,10 +35,11 @@ export function useFit(count: number, frameRef: RefObject<HTMLDivElement | null>
         stacked: !board || columnsOf(board) === 1,
         reserve,
       });
-      const unit = Math.max(0, ...[...list.children].map((card) => (card as HTMLElement).offsetHeight));
-      const next = pageSizeFor(available, unit, parseFloat(getComputedStyle(list).rowGap) || 0, columnsOf(list));
+      tallest = tallestCard(tallest, list.clientWidth, [...list.children].map((card) => (card as HTMLElement).offsetHeight));
+      const next = pageSizeFor(available, tallest.unit, parseFloat(getComputedStyle(list).rowGap) || 0, columnsOf(list));
       setSize((prior) => prior === next ? prior : next);
     };
+    measure();
     const observer = new ResizeObserver(measure);
     observer.observe(canvas);
     observer.observe(list);

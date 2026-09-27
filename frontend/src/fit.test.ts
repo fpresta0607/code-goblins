@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { availableHeight, clampPage, pageLabel, pageOf, pageSizeFor, swipeStep } from "./fit.ts";
+import { availableHeight, clampPage, pageLabel, pageSizeFor, swipeStep, tallestCard } from "./fit.ts";
 
 test("a page holds as many cards as fit the list's height, by rows of its grid", () => {
   assert.equal(pageSizeFor(500, 100, 16, 1), 4, "four 100 px cards and three gaps fit in 500 px, a fifth does not");
@@ -9,6 +9,14 @@ test("a page holds as many cards as fit the list's height, by rows of its grid",
   assert.equal(pageSizeFor(500, 100, 16, 3), 12, "a grid of three columns shows four rows of three");
   assert.equal(pageSizeFor(40, 100, 16, 1), 1, "a list too short for one card still shows one");
   assert.equal(pageSizeFor(500, 0, 16, 1), 1, "no card measured yet shows one, then fits again once measured");
+});
+
+test("a page is sized by the tallest card seen at its width, so shorter cards never flip the size back", () => {
+  const seen = tallestCard({ width: 300, unit: 0 }, 300, [90, 90, 90, 90, 130]);
+  assert.equal(pageSizeFor(600, seen.unit, 16, 1), 4, "a wrapped 130 px card leaves room for four");
+  const shorter = tallestCard(seen, 300, [90, 90, 90, 90]);
+  assert.equal(pageSizeFor(600, shorter.unit, 16, 1), 4, "the four one-line cards it then shows keep four, not five");
+  assert.equal(tallestCard(shorter, 420, [90, 90]).unit, 90, "a new width measures again");
 });
 
 test("the page stays inside the list as cards come and go", () => {
@@ -23,12 +31,6 @@ test("the pager says which cards show, and a list that fits needs none", () => {
   assert.equal(pageLabel(3, 5, 18), "16–18 of 18");
   assert.equal(pageLabel(0, 5, 5), "");
   assert.equal(pageLabel(0, 5, 0), "");
-});
-
-test("a card keeps its page when it moves, so a keyboard move carries the view", () => {
-  assert.equal(pageOf(0, 5), 0);
-  assert.equal(pageOf(4, 5), 0);
-  assert.equal(pageOf(5, 5), 1);
 });
 
 test("a sideways swipe turns the page and a vertical one scrolls", () => {

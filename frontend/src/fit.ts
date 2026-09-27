@@ -10,6 +10,13 @@ export function pageSizeFor(available: number, unit: number, gap: number, column
   return rows * Math.max(1, columns);
 }
 
+// The card height a page is sized by: the tallest card seen at this list
+// width, so turning to shorter cards never grows the page back and the size
+// settles instead of flipping; a new width measures again.
+export function tallestCard(prior: { width: number; unit: number }, width: number, heights: number[]): { width: number; unit: number } {
+  return { width, unit: Math.max(width === prior.width ? prior.unit : 0, ...heights) };
+}
+
 // The height a list may fill: with the columns side by side, the visible
 // canvas below where the list starts; with them stacked, one screen below its
 // column's heading, so a column far down the page still shows a screenful.
@@ -29,10 +36,6 @@ export function pageLabel(page: number, size: number, count: number): string {
   if (count <= size) return "";
   const start = page * size;
   return `${start + 1}–${Math.min(count, start + size)} of ${count}`;
-}
-
-export function pageOf(index: number, size: number): number {
-  return Math.floor(index / size);
 }
 
 // A sideways swipe of a finger: -1 for the earlier cards, 1 for the next, 0

@@ -733,8 +733,8 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
   .card-terminal { opacity: 0; transition: opacity .12s; }
   .task-card-shell:hover .card-terminal, .task-card-shell:focus-within .card-terminal { opacity: 1; }
 }
-/* A task card: a short title of at most two lines, then one muted line with
-   the repo and the status. */
+/* A task card: its title, then a muted line with the repo and the status;
+   both wrap onto further lines rather than ending in an ellipsis. */
 .task-card .card-copy { gap: 4px; }
 .task-card .card-title { font-size: 1rem; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
 .card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; color: var(--muted); font-size: .9375rem; line-height: 1.4; }
@@ -742,8 +742,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .card-sep { opacity: .5; }
 .card-meta .plain-status { flex: 0 1 auto; min-width: 0; font-weight: 600; }
 .card-status-text { min-width: 0; overflow-wrap: anywhere; }
-/* A quiet clock under the status: how long a goblin's session has run, or
-   how long a queued task has waited, beside the pull request. */
 /* Completed shows as many cards as fit the visible board, newest first, and
    a pager under it turns to the rest; a sideways swipe does the same. */
 .fit-list { min-width: 0; touch-action: pan-y; }
@@ -751,6 +749,8 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .pager .icon-button { width: 36px; height: 36px; min-height: 36px; }
 .pager .icon { width: 18px; height: 18px; }
 .pager-back .icon { transform: rotate(180deg); }
+/* A quiet clock under the status: how long a goblin's session has run, or
+   how long a queued task has waited, beside the pull request. */
 .card-clock { justify-self: start; display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: .875rem; font-variant-numeric: tabular-nums; line-height: 1.4; }
 .card-clock .icon { width: 14px; height: 14px; }
 .task-card-shell.has-pr.has-clock:not(:has(.card-waiting)) .task-card { padding-bottom: 12px; }
