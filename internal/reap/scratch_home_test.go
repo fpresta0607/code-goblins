@@ -47,17 +47,19 @@ func TestAScratchHomesHostIsItsGoblinsFixture(t *testing.T) {
 
 			orphans := classOf(Classify(inv), OrphanProcess)
 
-			var harness []Finding
-			for _, finding := range orphans {
-				if finding.PID == 610 {
-					harness = append(harness, finding)
+			for _, pid := range []int{600, 610} {
+				var found []Finding
+				for _, finding := range orphans {
+					if finding.PID == pid {
+						found = append(found, finding)
+					}
 				}
-			}
-			if reported := len(harness) != 0; reported != test.reported {
-				t.Fatalf("harness reported = %v, want %v: %v", reported, test.reported, lines(orphans))
-			}
-			if test.reported && test.state != fleetState && harness[0].TaskID != "board" {
-				t.Errorf("the leftover of a dead goblin's scratch home is not reported against it: %v", lines(harness))
+				if reported := len(found) != 0; reported != test.reported {
+					t.Fatalf("pid %d reported = %v, want %v: %v", pid, reported, test.reported, lines(orphans))
+				}
+				if test.reported && test.state != fleetState && found[0].TaskID != "board" {
+					t.Errorf("the leftover of a dead goblin's scratch home is not reported against it: %v", lines(found))
+				}
 			}
 		})
 	}
@@ -89,17 +91,19 @@ func TestAScratchHomeInASpacedWorktreesScratchpadIsItsGoblinsFixture(t *testing.
 
 			orphans := classOf(Classify(inv), OrphanProcess)
 
-			var harness []Finding
-			for _, finding := range orphans {
-				if finding.PID == 610 {
-					harness = append(harness, finding)
+			for _, pid := range []int{600, 610} {
+				var found []Finding
+				for _, finding := range orphans {
+					if finding.PID == pid {
+						found = append(found, finding)
+					}
 				}
-			}
-			if reported := len(harness) != 0; reported != test.reported {
-				t.Fatalf("harness reported = %v, want %v: %v", reported, test.reported, lines(orphans))
-			}
-			if test.reported && harness[0].TaskID != "board" {
-				t.Errorf("the leftover of a dead goblin's scratch home is not reported against it: %v", lines(harness))
+				if reported := len(found) != 0; reported != test.reported {
+					t.Fatalf("pid %d reported = %v, want %v: %v", pid, reported, test.reported, lines(orphans))
+				}
+				if test.reported && found[0].TaskID != "board" {
+					t.Errorf("the leftover of a dead goblin's scratch home is not reported against it: %v", lines(found))
+				}
 			}
 		})
 	}

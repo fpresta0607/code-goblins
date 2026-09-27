@@ -880,8 +880,13 @@ const fixtureAncestry = 8
 // or a gate's test starts a Herdr session of its own and runs stand-in
 // harnesses in its panes, and the server outlives the script that started it,
 // so the stand-ins' ancestry reaches no pane of this fleet. With the fleet's
-// session unknown, no server can be told apart from the fleet's own.
+// session unknown, no server can be told apart from the fleet's own. A scratch
+// home's host carries its harness's command line after --, so it is its own
+// fixture origin.
 func fixtureServer(process Process, byPID map[int]Process, session, stateDir string) (fixtureOrigin, bool) {
+	if dirs, scratch := scratchHost(process, stateDir); scratch {
+		return fixtureOrigin{Process: process, Dirs: append([]string{process.Cwd}, dirs...), ScratchHome: true}, true
+	}
 	current := process
 	for range fixtureAncestry {
 		parent, ok := byPID[current.ParentPID]
