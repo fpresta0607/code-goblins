@@ -38,9 +38,12 @@ type Options struct {
 	Gate           ProgressReader
 	Reconcile      func(context.Context) error
 	VerifyDelivery func(context.Context, state.TaskMeta, string, string, string) (string, error)
-	// MergedPRs lists, newest first, at most limit pull requests merged since
-	// a time.
-	MergedPRs func(ctx context.Context, since time.Time, limit int) ([]MergedPR, error)
+	// MergedPRs lists every pull request merged since a time.
+	MergedPRs func(ctx context.Context, since time.Time) ([]MergedPR, error)
+	// PullRequestState asks the forge whether a pull request is OPEN, CLOSED
+	// or MERGED; without it a finished task whose merge no fleet history
+	// shows reads Finished.
+	PullRequestState func(ctx context.Context, url string) (string, error)
 	// Runs opens run items' windows; without it no item can run.
 	Runs RunLauncher
 	// PollPage waits up to a timeout for the Overlord's feedback on a Lavish
@@ -69,6 +72,9 @@ type Service struct {
 	history              []Task
 	revision             uint64
 	subscribers          map[chan struct{}]struct{}
+	// pullRequests is what GitHub last said about each finished task's pull
+	// request the history shows; only the recovery cycle touches it.
+	pullRequests map[string]pullRequestState
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
@@ -255,7 +261,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
 		}
 		s.checkRegistration(ctx)
-		reconcileErr = errors.Join(reconcileErr, s.refreshHistory(ctx))
+		reconcileErr = errors.Join(reconcileErr, s.refreshHistory(ctx, time.Now().UTC()))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneRuns(time.Now()))
 		s.mu.Lock()
@@ -273,16 +279,17 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 }
 
 // refreshHistory rebuilds the Completed column on the once-a-minute recovery
-// cycle: finished tasks, and the pull requests merged into fleet repositories.
-func (s *Service) refreshHistory(ctx context.Context) error {
-	now := time.Now().UTC()
+// cycle: finished tasks, the pull requests merged into fleet repositories,
+// and what GitHub says of the finished tasks' other pull requests.
+func (s *Service) refreshHistory(ctx context.Context, now time.Time) error {
 	history := finishedTasks(s.Store.Home.State, now)
 	var err error
 	if s.Options.MergedPRs != nil {
 		var merged []MergedPR
-		merged, err = s.Options.MergedPRs(ctx, now.Add(-historyWindow), historyLimit)
+		merged, err = s.Options.MergedPRs(ctx, now.Add(-historyWindow))
 		history = withMergedPRs(history, merged)
 	}
+	err = errors.Join(err, s.withPullRequestStates(ctx, history, now))
 	s.mu.Lock()
 	s.history = history
 	s.mu.Unlock()
@@ -566,10 +573,12 @@ type Task struct {
 	Runtime      RuntimeEvidence `json:"runtime"`
 	// Activity is the task's own latest status line.
 	Activity string `json:"activity"`
-	// Archived marks completed history rather than a live task, and Merged
-	// that its pull request merged into a fleet repository.
+	// Archived marks completed history rather than a live task, Merged that
+	// its pull request merged into its base, and Closed that GitHub closed it
+	// without merging.
 	Archived bool `json:"archived"`
 	Merged   bool `json:"merged"`
+	Closed   bool `json:"closed"`
 	// Since is when a live task's session started, or when queued work's
 	// brief was written; zero when neither is known.
 	Since time.Time `json:"since"`

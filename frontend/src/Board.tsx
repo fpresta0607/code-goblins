@@ -1,5 +1,6 @@
 import type { BoardActivity, Snapshot, Task } from "./types";
 import { CfoPin } from "./CfoPin";
+import { FitList } from "./FitList";
 import { RankedCards } from "./RankedCards";
 import { TaskCard } from "./TaskCard";
 import { MemoryMeter } from "./MemoryMeter";
@@ -43,7 +44,7 @@ export function Board({ snapshot, selected, now, onSelect, onTerminal, onOpenCfo
         <p className="column-hint">{column.hint}</p>
         {column.list === "queued" && memory && <MemoryMeter memory={memory} />}
         {column.list ? <RankedCards list={column.list} tasks={tasks} instance={snapshot.instance} revision={snapshot.revision} empty={empty} renderCard={card} />
-          : <div className="task-cards">{tasks.map((task) => card(task))}{!tasks.length && empty}</div>}
+          : <FitList items={tasks} keyOf={(task) => task.id} empty={empty} renderItem={(task) => card(task)} />}
       </section>;
     })}
   </section>;
