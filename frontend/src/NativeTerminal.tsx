@@ -5,28 +5,31 @@ import { message, request } from "./api";
 import { object, string, type Session, type Task } from "./types";
 import { ownsTaskSession } from "./lineageTree";
 import { Icon } from "./Icon";
-import { bracketedPaste, endStep, ESTIMATED_CELL, fittedFontSize, HISTORY_LINES, historyText, inputBytes, maxInputBytes, panelGrid, queueInput, scrollAction, sizeStep, typingHeldReason, wheelLines, type PaneCommand, type SizeEvent } from "./terminalInput";
+import { bracketedPaste, endStep, ESTIMATED_CELL, fittedFontSize, gridToAsk, HISTORY_LINES, historyText, inputBytes, maxInputBytes, panelGrid, queueInput, scrollAction, scrollHeldReason, scrollsItself, selfScrollFresh, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput";
 import { fontSizeFor, storedFontSize, storeFontSize } from "./terminalStream";
 import { terminalDocument } from "./terminalDocument";
 import { useDictation } from "./useDictation";
 
 const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
-// A panel being dragged asks for its new size once it has held this long, so
-// the program redraws once, not per frame.
-const RESIZE_SETTLE_MS = 120;
+// A panel that changes size asks for its new grid at once, and while it keeps
+// changing, such as a window being dragged, at most this often, so the pane
+// follows the panel without the program redrawing on every frame.
+const RESIZE_EVERY_MS = 40;
 
 // One view stream of the pane: sized when it has taken the pane's control and
 // sized it to the panel, or else observing the pane at the pane's own size.
 type Connection = { sized: boolean; abort: AbortController; lease: string; frameSeq: number; full: boolean };
 
-// The goblin's live Herdr pane cast into the board. While the board's window
-// has the focus and shows the pane, the view takes the pane's control and
-// sizes the pane to the panel at the chosen text size (Ctrl+Plus and
-// Ctrl+Minus); otherwise it shows the pane at the size a Herdr window gives
-// it, fitted whole to the panel. Taking control sends the program nothing but
-// its size. Herdr sends only the live screen, so the wheel and Shift+PageUp
-// open the pane's history, read from Herdr into a terminal of its own over the
-// screen; scrolling down at its bottom, or typing, returns to the live screen.
+// The goblin's live Herdr pane cast into the board. Once shown, an open view
+// takes the pane's control and keeps the pane sized to the panel at the chosen
+// text size (Ctrl+Plus and Ctrl+Minus) and live, whether or not the board's
+// window has the focus; only closing the view hands the size back. Until then,
+// or after another client takes the pane over, it shows the pane at the size a
+// Herdr window gives it, fitted whole to the panel. Taking control sends the
+// program nothing but its size. Herdr sends only the live screen, so the wheel
+// and Shift+PageUp open the pane's history, read from Herdr into a terminal of
+// its own over the screen; scrolling down at its bottom, or typing, returns to
+// the live screen.
 // An input the supervisor refuses, or whose outcome is unknown, ends the view;
 // it is never resent, and reconnecting starts from a fresh full screen.
 export function NativeTerminal({ task, node, instance, visible, shown, focus = 0, onOwner }: { task?: Task; node?: Session; instance: string; visible: boolean; shown: boolean; focus?: number; onOwner?: () => void }) {
@@ -107,6 +110,16 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     // sized view was refused; the view then shows the pane at its own size
     // until the Overlord comes back to the board or types in it.
     let held = false;
+    // selfScrolls is whether the pane scrolls itself, as Claude Code's
+    // fullscreen interface does: it keeps no history to read, so the wheel
+    // sends it Herdr's wheel scroll instead. selfScrollChecked is when its
+    // history was last read to judge that; once that is stale, or a new
+    // connection is active, the next turn of the wheel reads it again.
+    let selfScrolls = false, selfScrollChecked = 0;
+    // refused is why the view's last take of the pane was refused, such as a
+    // review gate owning it; until the Overlord comes back to the board or
+    // types, the wheel does not ask for the pane again.
+    let refused = "";
     let font = storedFontSize();
     // The font is fitted from the cell measured on the screen xterm drew, then
     // checked on the screen it draws next: rows round to whole pixels, which
@@ -141,19 +154,30 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       if (size === current) settle(); else term.options.fontSize = size;
     };
     // A sized view keeps the pane filling the panel: a changed panel or text
-    // size, or a screen drawn larger than the panel, asks for the grid that
-    // fits once the panel has held still.
-    let regrid: ReturnType<typeof setTimeout> | undefined;
+    // size, or a screen drawn larger than the panel, asks at once for the grid
+    // that fits, then at most every RESIZE_EVERY_MS while it keeps changing,
+    // and once more when it holds still. Only the newest size waits to be sent.
+    let regrid: ReturnType<typeof setTimeout> | undefined, again = false, asked: { cols: number; rows: number } | null = null;
+    const askGrid = () => {
+      if (!active?.sized || !lease || abort.signal.aborted) return;
+      const { width, height } = room();
+      const size = gridToAsk(panelGrid(width, height, font, cell()), { cols: term.cols, rows: term.rows }, asked);
+      if (!size) return;
+      asked = size;
+      for (let index = queue.length - 1; index >= 0; index--) if (queue[index].type === "terminal.resize") queue.splice(index, 1);
+      queue.push({ type: "terminal.resize", cols: size.cols, rows: size.rows });
+      void flush();
+    };
     const resizeSized = () => {
-      clearTimeout(regrid);
-      regrid = setTimeout(() => {
-        if (!active?.sized || !lease || abort.signal.aborted) return;
-        const { width, height } = room();
-        const size = panelGrid(width, height, font, cell());
-        if (!size || size.cols === term.cols && size.rows === term.rows) return;
-        queue.push({ type: "terminal.resize", cols: size.cols, rows: size.rows });
-        void flush();
-      }, RESIZE_SETTLE_MS);
+      if (regrid !== undefined) { again = true; return; }
+      askGrid();
+      const next = () => {
+        if (!again) { regrid = undefined; return; }
+        again = false;
+        askGrid();
+        regrid = setTimeout(next, RESIZE_EVERY_MS);
+      };
+      regrid = setTimeout(next, RESIZE_EVERY_MS);
     };
     term.onRender(() => {
       settle();
@@ -194,20 +218,29 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       past.clearSelection();
       if (document.activeElement === past.textarea) term.focus();
     };
-    // Reads the pane's history and shows it scrolled up by lines from its
-    // bottom, which is the live screen as it was when read.
+    // Reads the pane's history and shows it scrolled by lines from its
+    // bottom, which is the live screen as it was when read; lines up are
+    // negative, and lines down show nothing. A pane that scrolls itself is
+    // sent the lines instead.
     const openHistory = async (lines: number) => {
       if (reading || showing || !lease || abort.signal.aborted) return;
       reading = true;
       try {
         const answer = object(await request("/api/terminal/history", abort.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ lease, lines: HISTORY_LINES }) }));
         if (abort.signal.aborted || !lease) return;
+        selfScrolls = scrollsItself(string(answer.text), term.rows, string(answer.agent));
+        selfScrollChecked = Date.now();
+        if (selfScrolls) {
+          scrollPane(lines);
+          return;
+        }
+        if (lines >= 0) return;
         past.options.fontSize = term.options.fontSize;
         past.resize(term.cols, term.rows);
         past.reset();
         await new Promise<void>((resolve) => past.write(historyText(string(answer.text)), resolve));
         past.scrollToBottom();
-        past.scrollLines(-lines);
+        past.scrollLines(lines);
         showing = true;
         setInHistory(true);
         setError("");
@@ -218,6 +251,24 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       }
     };
     const atBottom = () => past.buffer.active.viewportY >= past.buffer.active.baseY;
+    // Only a view that holds the pane can scroll it; one that does not takes
+    // it first, since the wheel is the Overlord working in the board, and the
+    // next turn of the wheel scrolls.
+    const scrollPane = (lines: number) => {
+      const command = wheelScroll(lines);
+      if (!command || !active) return;
+      const turn = wheelTurn({ sized: active.sized, refused: !!refused });
+      if (turn === "refused") { setError(scrollHeldReason(refused)); return; }
+      if (turn === "take") { step("typed"); return; }
+      queue.push(command);
+      void flush();
+    };
+    // A turn of the wheel over a pane that scrolls itself scrolls it while
+    // that is fresh, and otherwise reads its history again first.
+    const scrollSelf = (lines: number) => {
+      if (selfScrollFresh(selfScrollChecked, Date.now())) scrollPane(lines);
+      else if (lines) void openHistory(lines);
+    };
     // want switches the view to sizing the pane or to showing it at its own
     // size, unless it is already there or on its way.
     const want = (sized: boolean) => {
@@ -230,9 +281,12 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     };
     const step = (event: SizeEvent) => {
       if (!active || abort.signal.aborted) return;
-      if (event === "focus" || event === "typed") held = false;
-      const action = sizeStep(event, { sized: pending ? pending.sized : active.sized, focused: document.hasFocus(), shown: shownValue.current, held });
-      if (action !== "stay") want(action === "take");
+      if (event === "focus" || event === "typed") {
+        held = false;
+        if (refused) { refused = ""; setError(""); }
+      }
+      const action = sizeStep(event, { sized: pending ? pending.sized : active.sized, shown: shownValue.current, held });
+      if (action === "take") want(true);
     };
     const send = (text: string) => {
       if (!text || !lease || abort.signal.aborted) return;
@@ -305,7 +359,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       // Shift+PageUp opens the pane's history a screen up.
       if (event.shiftKey && !event.ctrlKey && !event.altKey && (event.key === "PageUp" || event.key === "PageDown")) {
         event.preventDefault();
-        if (event.type === "keydown" && event.key === "PageUp") void openHistory(Math.max(1, term.rows - 1));
+        if (event.type === "keydown" && event.key === "PageUp") void openHistory(-Math.max(1, term.rows - 1));
         return false;
       }
       return !!lease;
@@ -342,9 +396,14 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     };
     const wheel = (fromHistory: boolean) => (event: WheelEvent) => {
       const { action, lines } = wheelStep(fromHistory, event);
+      if (!fromHistory && selfScrolls) {
+        event.preventDefault();
+        scrollSelf(lines);
+        return false;
+      }
       if (action === "history") return true;
       event.preventDefault();
-      if (action === "open") void openHistory(Math.abs(lines));
+      if (action === "open") void openHistory(lines);
       if (action === "close") closeHistory();
       return false;
     };
@@ -358,8 +417,12 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       if (screen.element?.contains(event.target as Node)) return;
       const { action, lines } = wheelStep(fromHistory, event);
       event.preventDefault();
+      if (!fromHistory && selfScrolls) {
+        scrollSelf(lines);
+        return;
+      }
       if (action === "history") screen.scrollLines(lines);
-      if (action === "open") void openHistory(Math.abs(lines));
+      if (action === "open") void openHistory(lines);
       if (action === "close") closeHistory();
     };
     const liveBeside = wheelBeside(false), historyBeside = wheelBeside(true);
@@ -368,10 +431,8 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     const resize = new ResizeObserver(() => { if (active?.sized) resizeSized(); else fit(); });
     resize.observe(element);
     const focused = () => step("focus");
-    const blurred = () => step("blur");
     window.addEventListener("focus", focused);
-    window.addEventListener("blur", blurred);
-    shownChanged.current = (isShown) => step(isShown ? "shown" : "hidden");
+    shownChanged.current = (isShown) => { if (isShown) step("shown"); };
     // A connection takes the screen once no input is on its way through the
     // one it replaces, so no key's outcome is lost in the switch. A sized view
     // that ends, however it ends, has the supervisor return the pane to the
@@ -385,8 +446,11 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       if (pending === connection) pending = null;
       lease = connection.lease;
       seq = 0;
-      // A size asked of the connection it replaces means nothing to this one.
-      for (let index = queue.length - 1; index >= 0; index--) if (queue[index].type === "terminal.resize") queue.splice(index, 1);
+      selfScrollChecked = 0;
+      // A size or a scroll asked of the connection it replaces means nothing
+      // to this one.
+      for (let index = queue.length - 1; index >= 0; index--) if (queue[index].type !== "terminal.input") queue.splice(index, 1);
+      asked = null;
       previous?.abort.abort();
       closeHistory();
       checking = false;
@@ -408,6 +472,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       const action = endStep({ sized: connection.sized, onScreen: connection === active, resized: /pane was resized/i.test(reason) }, active ? active.sized : null);
       if (action === "stop") { stop(reason); return; }
       if (connection.sized) held = true;
+      if (connection.sized && connection !== active) refused = reason;
       if (action === "keep") return;
       if (active) {
         active.abort.abort();
@@ -478,7 +543,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       } catch (e: unknown) { if (!connection.abort.signal.aborted) ended(connection, message(e)); }
     };
     void connect(false);
-    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); clearTimeout(regrid); resize.disconnect(); window.removeEventListener("focus", focused); window.removeEventListener("blur", blurred); shownChanged.current = null; element.removeEventListener("paste", paste, true); pastElement.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); element.removeEventListener("wheel", liveBeside); pastElement.removeEventListener("wheel", historyBeside); window.removeEventListener("pointerup", release); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; setInHistory(false); };
+    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); clearTimeout(regrid); resize.disconnect(); window.removeEventListener("focus", focused); shownChanged.current = null; element.removeEventListener("paste", paste, true); pastElement.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); element.removeEventListener("wheel", liveBeside); pastElement.removeEventListener("wheel", historyBeside); window.removeEventListener("pointerup", release); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; setInHistory(false); };
   }, [taskID, generation, session, instance, visible, attempt, missing, dictate]);
   if (missing) return <div className="terminal-empty"><Icon name="terminal" /><p>{queued ? "This task has not started yet." : shared ? "This child has no separate terminal." : error}</p>{onOwner && shared && <button className="primary" onClick={onOwner}>Open owning task</button>}</div>;
   return <section className="native-terminal" aria-label={cfo ? "CFO terminal" : "Goblin terminal"}>

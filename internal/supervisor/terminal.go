@@ -39,6 +39,9 @@ type terminalBinding struct {
 	Terminal       string
 	Identity       string
 	Process        lock.Info
+	// Agent is the agent the pane runs: the registered CFO's, or a goblin's
+	// harness, which Herdr's own detection in the pane has to match.
+	Agent string
 }
 
 func (s *Service) resolveTerminal(ctx context.Context, selected terminalSelection, write bool) (terminalBinding, error) {
@@ -64,7 +67,7 @@ func (s *Service) resolveTerminal(ctx context.Context, selected terminalSelectio
 		if err := c.verify(ctx, p); err != nil {
 			return b, err
 		}
-		b.Target, b.Workspace, b.Tab, b.Terminal, b.Process, b.Identity = p.Target, p.Workspace, p.Tab, p.Terminal, p.Process, identity
+		b.Target, b.Workspace, b.Tab, b.Terminal, b.Process, b.Identity, b.Agent = p.Target, p.Workspace, p.Tab, p.Terminal, p.Process, identity, p.Agent
 		return b, nil
 	}
 	if state.ValidTaskID(selected.Task) != nil || selected.Generation == "" {
@@ -104,7 +107,7 @@ func (s *Service) resolveTerminal(ctx context.Context, selected terminalSelectio
 	if !found || b.Terminal == "" {
 		return b, errors.New("This native session is closed or its agent registration changed.")
 	}
-	b.Target, b.Workspace, b.Tab = herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}, meta.HerdrWorkspaceID, meta.HerdrTabID
+	b.Target, b.Workspace, b.Tab, b.Agent = herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}, meta.HerdrWorkspaceID, meta.HerdrTabID, meta.Harness
 	p, err := client.PaneProcessInfo(ctx, b.Target)
 	if err != nil || p.ForegroundProcessGroupID <= 0 || p.ForegroundProcessGroupID == p.ShellPID {
 		return b, errors.New("This agent has exited. No input will be sent to its shell.")
@@ -165,6 +168,11 @@ func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.Ter
 	}
 	if !l.control && command.Type != "terminal.input" {
 		return errors.New("A live pane view keeps the pane's own size and reads its history itself, so it sends only typing.")
+	}
+	// Only Claude Code's fullscreen interface keeps no scrollback and scrolls
+	// itself; Herdr's wheel scroll carries no text, so it cannot type or submit.
+	if command.Type == "terminal.scroll" && l.binding.Agent != "claude" {
+		return errors.New("The board's wheel scrolls only a Claude Code pane; this pane's history is read instead.")
 	}
 	if seq != l.seq+1 {
 		return errors.New("Terminal input is out of order or already submitted. It will not be replayed.")
@@ -430,8 +438,9 @@ func (h *HTTP) terminalHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, 200, struct {
-		Text string `json:"text"`
-	}{text})
+		Text  string `json:"text"`
+		Agent string `json:"agent"`
+	}{text, lease.binding.Agent})
 }
 
 func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
