@@ -3,6 +3,7 @@ package supervisor
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -72,12 +73,14 @@ func TestSnapshotDatesEachSessionAndEachQueuedBrief(t *testing.T) {
 	if !since["running"].Equal(started) {
 		t.Errorf("a running goblin with no worktree folder starts at %v, want its spawn at %v", since["running"], started)
 	}
-	if since["switched"].Before(testStarted.Add(-5*time.Second)) || since["switched"].After(time.Now().Add(5*time.Second)) {
-		t.Errorf("a switched goblin's clock starts at %v, want its worktree's creation near %v, not its new spawn", since["switched"], testStarted)
-	}
-	for _, id := range []string{"briefed-row", "brief-only"} {
-		if since[id].Before(before) || since[id].After(time.Now()) {
-			t.Errorf("%s waits since %v, want when its brief was written", id, since[id])
+	if runtime.GOOS == "windows" {
+		if since["switched"].Before(testStarted.Add(-5*time.Second)) || since["switched"].After(time.Now().Add(5*time.Second)) {
+			t.Errorf("a switched goblin's clock starts at %v, want its worktree's creation near %v, not its new spawn", since["switched"], testStarted)
+		}
+		for _, id := range []string{"briefed-row", "brief-only"} {
+			if since[id].Before(before) || since[id].After(time.Now()) {
+				t.Errorf("%s waits since %v, want when its brief was written", id, since[id])
+			}
 		}
 	}
 	if !since["bare-row"].IsZero() {

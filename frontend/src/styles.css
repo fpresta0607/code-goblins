@@ -505,9 +505,9 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .panel-header .project-label { font-size: 1.0625rem; }
 .panel-header .muted { color: var(--muted); }
 .panel-status { font-size: 1.0625rem; }
-.panel-activity { color: #c4d4df; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.panel-activity { color: #c4d4df; overflow-wrap: anywhere; display: block; line-height: 1.5; max-height: calc(1.5em * 3); overflow: hidden; }
 /* The goblin's own words open in full behind Show more, never an ellipsis. */
-.panel-activity.expanded { display: block; overflow: visible; }
+.panel-activity.expanded { max-height: none; overflow: visible; }
 .show-more { display: grid; gap: 6px; justify-items: start; min-width: 0; margin-top: 4px; }
 .show-more .panel-activity { margin: 0; }
 .show-more-toggle { min-height: 0; padding: 0; border: 0; background: none; box-shadow: none; color: var(--mint); font-size: .9375rem; font-weight: 700; }
