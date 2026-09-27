@@ -314,7 +314,7 @@ The goblin's branch is its deliverable.
 
 ## Supervision
 
-- `cfo fleet-view` is your fleet truth; judge work from it, never from guessing.
+- `cfo fleet-view` is your fleet truth; judge work from it, never from guessing. It lists goblins in the Supreme Overlord's attention order, which he sets by dragging In progress on the board (`state/attention.json`): check and unblock from the top.
 - The Claude Code hooks (`cfo hook turnend-guard`, `cfo hook stop-autoarm`) refuse to let a turn end blind while goblins are in flight. While `cfo serve` holds the watcher, `stop-autoarm` still rewakes you once for each new wake record. Every monitor scan and orphan sweep, in `cfo serve` and in `cfo watch`, is cut off after three minutes, and the gate status call it makes after thirty seconds, so a subprocess that never answers cannot stop the heartbeat while the watcher keeps its lock, which would leave supervision off with nothing able to take it over (`internal/watch/reconcile_budget_test.go`).
 - A missing or stale endpoint means inspect with `cfo peek`, then steer or relaunch — never kill work.
 - **`cfo drain` is how you learn a goblin finished. Not `cfo peek`.** Goblins already push terminal outcomes into the wake queue with `cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>"`. On 2026-08-19 the CFO polled panes roughly eighty times to infer state that was sitting unread in the queue the whole time - two goblins had already filed correct `--done` notifies with their PR URLs. Those eighty sweeps produced two real interventions and consumed most of a context window. Drain first, always; `peek` is for reading a goblin's reasoning once the queue has told you it needs you.
@@ -379,7 +379,7 @@ It is local and private by default: nothing in it is pushed anywhere, and in a c
 
 | Path | What it holds |
 | --- | --- |
-| `data/backlog.md` | Open work in three sections. `## Queued` is work waiting to start, and `tasks-axi` manages its rows. `## Parked` is work set aside on purpose: nothing lists it as work to start, and moving a row back under Queued revives it. A row parked in place with `(hold-kind: parked)` counts as parked too. `## Done` is finished work. |
+| `data/backlog.md` | Open work in three sections. `## Queued` is work waiting to start, and `tasks-axi` manages its rows; they are in priority order, top first, so dispatch from the top. The Supreme Overlord reorders them by dragging Tasks on the board, which moves each row with its indented detail lines and changes nothing else in the file; the row of a task that already has a live task record is in progress, not queued, and stays where it is. `## Parked` is work set aside on purpose: nothing lists it as work to start, and moving a row back under Queued revives it. A row parked in place with `(hold-kind: parked)` counts as parked too. `## Done` is finished work. |
 | `data/overlord.md` | The Supreme Overlord's standing directives, word for word. |
 | `data/memory/` | The CFO's memory: `MEMORY.md`, its index, and one file per fact (see [Memory](#memory)). |
 | `data/memory-archive.md` | Memory the `stow` skill retired; never loaded. |

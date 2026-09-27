@@ -69,6 +69,8 @@ type Service struct {
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
+	// ordering saves one list order at a time.
+	ordering sync.Mutex
 	// pages stops each open item's page poller; pageWork waits for them.
 	pagesMu  sync.Mutex
 	pages    map[string]context.CancelFunc
@@ -584,6 +586,9 @@ type Snapshot struct {
 	Reviews    []Review        `json:"reviews"`
 	Runs       []Run           `json:"runs"`
 
+	// Attention is the Overlord's order of the live goblins, top first; a
+	// goblin it does not name has not been placed.
+	Attention []string `json:"attention"`
 	// Registration says why the board cannot reach the primary CFO, with
 	// the fix, and is empty while it can.
 	Registration string `json:"registration"`
@@ -605,7 +610,7 @@ type Snapshot struct {
 func (s *Service) Snapshot() (Snapshot, error) {
 	d := s.Store.Snapshot()
 	s.mu.Lock()
-	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Registration: s.registration, Tasks: []Task{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
+	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Registration: s.registration, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
 	history := append([]Task(nil), s.history...)
 	for i := range d.Activity {
 		if d.Activity[i].CFOIdentity != "" {
@@ -722,6 +727,16 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
+	}
+	// The goblins in progress run in the Overlord's attention order, and any
+	// he has not placed follow it.
+	if attention, err := fleet.ReadAttention(s.Store.Home); err != nil {
+		out.Issues = append(slices.Clone(out.Issues), "The In progress order cannot be read: "+err.Error())
+	} else {
+		fleet.SortByAttention(out.Tasks, attention, func(task Task) string { return task.ID })
+		out.Attention = slices.DeleteFunc(attention, func(id string) bool {
+			return !slices.ContainsFunc(out.Tasks, func(task Task) bool { return task.ID == id })
+		})
 	}
 	backlog, err := fleet.ReadBacklog(s.Store.Home)
 	if err != nil {
