@@ -44,10 +44,14 @@ type Result struct {
 }
 
 // Check reads the gate commits between the branch's merge base with the
-// default branch and HEAD in dir, and lists every test they deleted or
-// skipped.
+// default branch and HEAD in dir that are not yet on a branch of origin, and
+// lists every test they deleted or skipped.
 func Check(ctx context.Context, git execx.Runner, dir string) (Result, error) {
 	base, err := mergeBase(ctx, git, dir)
+	if err != nil {
+		return Result{}, err
+	}
+	pushed, err := pushedPatches(ctx, git, dir, base)
 	if err != nil {
 		return Result{}, err
 	}
@@ -61,9 +65,12 @@ func Check(ctx context.Context, git execx.Runner, dir string) (Result, error) {
 		if !ok || !strings.HasPrefix(subject, GateCommitPrefix) {
 			continue
 		}
-		diff, err := run(ctx, git, dir, "show", "--format=", "--no-color", "--unified=0", "--find-renames", sha)
+		diff, err := run(ctx, git, dir, append([]string{"show", "--format=", sha}, diffFlags...)...)
 		if err != nil {
 			return Result{}, err
+		}
+		if pushed[patchKey(diff)] {
+			continue
 		}
 		result.Commits++
 		for _, found := range Scan(diff) {
@@ -79,6 +86,46 @@ func Check(ctx context.Context, git execx.Runner, dir string) (Result, error) {
 	return result, nil
 }
 
+var diffFlags = []string{"--no-color", "--unified=0", "--find-renames"}
+
+// pushedPatches collects the patches of the gate commits already on a branch
+// of origin. Everything pushed passed this check, kept or approved, so such a
+// commit is not read again, nor is a rebased copy of one, which git cherry
+// would also count as the same change. A no-mistakes run worktree has a
+// detached HEAD, so origin's branches stand in for the one it came from.
+func pushedPatches(ctx context.Context, git execx.Runner, dir, base string) (map[string]bool, error) {
+	log, err := run(ctx, git, dir, append([]string{"log", "--remotes=origin", "^" + base, "--no-merges", "--fixed-strings", "--grep=" + GateCommitPrefix, "--format=%x00%s", "-p"}, diffFlags...)...)
+	if err != nil {
+		return nil, err
+	}
+	patches := map[string]bool{}
+	for _, commit := range strings.Split(log, "\x00")[1:] {
+		subject, diff, _ := strings.Cut(commit, "\n")
+		if strings.HasPrefix(subject, GateCommitPrefix) {
+			patches[patchKey(diff)] = true
+		}
+	}
+	return patches, nil
+}
+
+// patchKey is a commit's diff without what a rebase changes, its blob ids and
+// hunk line numbers, so a rebased copy has the key of its original.
+func patchKey(diff string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(diff, "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		switch {
+		case line == "" || strings.HasPrefix(line, "index "):
+			continue
+		case strings.HasPrefix(line, "@@"):
+			line = "@@"
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
 // stillStanding reports whether HEAD still lacks what a gate commit removed:
 // the deleted test file, the removed test anywhere in a test file, or still
 // carries the skip it added. A later commit that puts the test back, which
@@ -86,7 +133,7 @@ func Check(ctx context.Context, git execx.Runner, dir string) (Result, error) {
 func stillStanding(ctx context.Context, git execx.Runner, dir string, found Finding) (bool, error) {
 	switch {
 	case found.Test != "":
-		files, err := grep(ctx, git, dir, found.Test)
+		files, err := grep(ctx, git, dir, "-w", "-e", found.Test, "HEAD")
 		if err != nil {
 			return false, err
 		}
@@ -97,7 +144,7 @@ func stillStanding(ctx context.Context, git execx.Runner, dir string, found Find
 		}
 		return true, nil
 	case found.Skip != "":
-		files, err := grep(ctx, git, dir, found.Skip, "--", found.File)
+		files, err := grep(ctx, git, dir, "-e", found.Skip, "HEAD", "--", found.File)
 		return len(files) > 0, err
 	default:
 		result, err := git.Run(ctx, execx.Request{Dir: dir, Name: "git", Args: []string{"cat-file", "-e", "HEAD:" + found.File}})
@@ -108,11 +155,11 @@ func stillStanding(ctx context.Context, git execx.Runner, dir string, found Find
 	}
 }
 
-// grep lists the files at HEAD that hold text as a fixed string. git grep
-// exits 1 when nothing matches, which is an answer rather than a failure.
-func grep(ctx context.Context, git execx.Runner, dir, text string, pathspec ...string) ([]string, error) {
-	args := append([]string{"grep", "-l", "-F", "-e", text, "HEAD"}, pathspec...)
-	result, err := git.Run(ctx, execx.Request{Dir: dir, Name: "git", Args: args})
+// grep lists the files at HEAD that hold a fixed string: a removed test's
+// name as a whole word, or an added skip line. git grep exits 1 when nothing
+// matches, which is an answer rather than a failure.
+func grep(ctx context.Context, git execx.Runner, dir string, args ...string) ([]string, error) {
+	result, err := git.Run(ctx, execx.Request{Dir: dir, Name: "git", Args: append([]string{"grep", "-l", "-F"}, args...)})
 	if err != nil {
 		return nil, fmt.Errorf("testguard: git grep: %w", err)
 	}
@@ -155,8 +202,8 @@ func run(ctx context.Context, git execx.Runner, dir string, args ...string) (str
 }
 
 // Finding is one deleted or skipped test in a diff. Test is the removed
-// test's name and Skip the skip line added, whichever applies; a deleted test
-// file carries neither.
+// test's name and Skip the skip or only line added, whichever applies; a
+// deleted test file carries neither.
 type Finding struct {
 	File string
 	What string
@@ -167,12 +214,17 @@ type Finding struct {
 // Scan reads one commit's unified diff and reports the test files it
 // deleted, the tests it removed without adding back under the same name
 // anywhere in the commit (so a test moved or reordered is not a removal) or
-// under a new name in the same file, and the skips it added.
+// under a new name in the same file, and the skips it added beyond those it
+// removed from the same file, so an edited skip is not a new one.
 func Scan(diff string) []Finding {
 	var findings []Finding
 	removed := map[string]string{}
 	added := map[string]bool{}
 	addedIn := map[string][]string{}
+	type markerKey struct{ file, what string }
+	var markerOrder []markerKey
+	addedMarkers := map[markerKey][]Finding{}
+	removedMarkers := map[markerKey]int{}
 	file, deleted := "", false
 	for _, line := range strings.Split(diff, "\n") {
 		line = strings.TrimSuffix(line, "\r")
@@ -197,16 +249,27 @@ func Scan(diff string) []Finding {
 			if name, ok := testName(line[1:]); ok && !deleted {
 				removed[name] = file
 			}
+			if what := marker(line[1:]); what != "" {
+				removedMarkers[markerKey{file, what}]++
+			}
 		case strings.HasPrefix(line, "+"):
 			if name, ok := testName(line[1:]); ok {
 				added[name] = true
 				addedIn[file] = append(addedIn[file], name)
 			}
-			if skipMarker.MatchString(line[1:]) {
+			if what := marker(line[1:]); what != "" {
+				key := markerKey{file, what}
+				if len(addedMarkers[key]) == 0 {
+					markerOrder = append(markerOrder, key)
+				}
 				skip := strings.TrimSpace(line[1:])
-				findings = append(findings, Finding{File: file, What: "added a skip: " + skip, Skip: skip})
+				addedMarkers[key] = append(addedMarkers[key], Finding{File: file, What: what + skip, Skip: skip})
 			}
 		}
+	}
+	for _, key := range markerOrder {
+		markers := addedMarkers[key]
+		findings = append(findings, markers[min(removedMarkers[key], len(markers)):]...)
 	}
 	// A test that is gone under its name was renamed rather than deleted when
 	// its file gained a new test whose name shares at least half the words of
@@ -262,12 +325,21 @@ func renamed(name string, candidates []string, removed map[string]string, taken 
 
 // nameWords splits a test name into its lowercased words, at underscores,
 // spaces and punctuation and at camelCase boundaries, leaving out "test" and
-// the filler words every description shares.
+// the filler words every description shares. An acronym stays one word, so
+// TestPRMerge is pr and merge: two names that share only an acronym's letters
+// are not one test reworded.
 func nameWords(name string) map[string]bool {
+	isUpper := func(r rune) bool { return r >= 'A' && r <= 'Z' }
+	isLower := func(r rune) bool { return r >= 'a' && r <= 'z' }
+	runes := []rune(name)
 	var b strings.Builder
-	for i, r := range name {
-		if i > 0 && r >= 'A' && r <= 'Z' {
-			b.WriteByte(' ')
+	for i, r := range runes {
+		if i > 0 && isUpper(r) {
+			previous := runes[i-1]
+			nextIsLower := i+1 < len(runes) && isLower(runes[i+1])
+			if isLower(previous) || previous >= '0' && previous <= '9' || isUpper(previous) && nextIsLower {
+				b.WriteByte(' ')
+			}
 		}
 		b.WriteRune(r)
 	}
@@ -324,20 +396,43 @@ var testDeclarations = []*regexp.Regexp{
 	regexp.MustCompile(`^\s*func\s+((?:Test|Benchmark|Fuzz|Example)\w*)\s*\(`),
 	regexp.MustCompile(`^\s*(?:async\s+)?def\s+(test\w*)\s*\(`),
 	regexp.MustCompile(`^\s*class\s+(Test\w*)\b`),
-	regexp.MustCompile("^\\s*(?:it|test|describe)(?:\\.\\w+)*\\s*\\(\\s*['\"`](.+?)['\"`]"),
-	regexp.MustCompile(`^\s*(?:It|Describe|Context)\s+['"](.+?)['"]`),
+	regexp.MustCompile("^\\s*(?:it|test|describe)(?:\\.\\w+)*\\s*\\(\\s*(?:\"([^\"]+)\"|'([^']+)'|`([^`]+)`)"),
+	regexp.MustCompile(`^\s*(?:It|Describe|Context)\s+(?:"([^"]+)"|'([^']+)')`),
 }
 
+// testName reads the name a declaration gives its test. A quoted name runs
+// to the closing quote of its own kind, so an apostrophe inside double quotes
+// is part of it.
 func testName(line string) (string, bool) {
 	for _, declaration := range testDeclarations {
 		if match := declaration.FindStringSubmatch(line); match != nil {
-			return match[1], true
+			for _, name := range match[1:] {
+				if name != "" {
+					return name, true
+				}
+			}
 		}
 	}
 	return "", false
 }
 
-// skipMarker matches a line that skips or narrows tests: Go's Skip calls,
-// pytest's and unittest's skips and expected failures, JavaScript's skip,
-// todo, x-prefixed and only variants, and Pester's -Skip.
-var skipMarker = regexp.MustCompile(`\b[tb]\.Skip(?:f|Now)?\(|@pytest\.mark\.(?:skip|skipif|xfail)\b|\bpytest\.skip\(|@unittest\.skip|\.skipTest\(|\b(?:it|test|describe)\.(?:skip|todo|only)\(|\bx(?:it|test|describe)\(|\s-Skip\b`)
+// marker says what a line that skips or narrows tests does, and is empty for
+// any other line. An only does not skip the test it marks: it focuses the
+// file on that test, which skips every other test in it.
+func marker(line string) string {
+	switch {
+	case onlyMarker.MatchString(line):
+		return "focused the file on one test, which skips every other test in it: "
+	case skipMarker.MatchString(line):
+		return "added a skip: "
+	}
+	return ""
+}
+
+// skipMarker matches a line that skips tests: Go's Skip calls, pytest's and
+// unittest's skips and expected failures, JavaScript's skip, todo and
+// x-prefixed variants, and Pester's -Skip.
+var skipMarker = regexp.MustCompile(`\b[tb]\.Skip(?:f|Now)?\(|@pytest\.mark\.(?:skip|skipif|xfail)\b|\bpytest\.skip\(|@unittest\.skip|\.skipTest\(|\b(?:it|test|describe)\.(?:skip|todo)\(|\bx(?:it|test|describe)\(|\s-Skip\b`)
+
+// onlyMarker matches JavaScript's only variants.
+var onlyMarker = regexp.MustCompile(`\b(?:it|test|describe)\.only\(`)

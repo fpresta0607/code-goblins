@@ -69,6 +69,36 @@ func TestScanFindsDeletedAndSkippedTests(t *testing.T) {
 			diff: "diff --git a/test_x.py b/test_x.py\n--- a/test_x.py\n+++ b/test_x.py\n@@ -1 +0,0 @@\n-@pytest.mark.skip(reason=\"later\")\n",
 			want: nil,
 		},
+		{
+			name: "tests that share only an acronym are not a rename",
+			diff: "diff --git a/pr_test.go b/pr_test.go\n--- a/pr_test.go\n+++ b/pr_test.go\n@@ -4 +4 @@\n-func TestPRMergeNeverForwardsDeleteBranchToGH(t *testing.T) {\n+func TestPRMergeDeletesNothingWhenTheMergeFails(t *testing.T) {\n",
+			want: []string{"pr_test.go: removed the test TestPRMergeNeverForwardsDeleteBranchToGH"},
+		},
+		{
+			name: "a JavaScript name holding an apostrophe is read whole",
+			diff: "diff --git a/src/a.test.ts b/src/a.test.ts\n--- a/src/a.test.ts\n+++ b/src/a.test.ts\n@@ -3 +2,0 @@\n-it(\"doesn't crash on an empty board\", () => {\n",
+			want: []string{"src/a.test.ts: removed the test doesn't crash on an empty board"},
+		},
+		{
+			name: "a Pester name holding an apostrophe is read whole",
+			diff: "diff --git a/a.Tests.ps1 b/a.Tests.ps1\n--- a/a.Tests.ps1\n+++ b/a.Tests.ps1\n@@ -3 +2,0 @@\n-    It \"doesn't write outside the worktree\" {\n",
+			want: []string{"a.Tests.ps1: removed the test doesn't write outside the worktree"},
+		},
+		{
+			name: "a skip reformatted in place is not a new skip",
+			diff: "diff --git a/src/b.test.ts b/src/b.test.ts\n--- a/src/b.test.ts\n+++ b/src/b.test.ts\n@@ -3 +3 @@\n-it.skip('x',()=>{\n+it.skip(\"x\", () => {\ndiff --git a/test_y.py b/test_y.py\n--- a/test_y.py\n+++ b/test_y.py\n@@ -1 +1 @@\n-@pytest.mark.skipif(sys.platform == \"win32\", reason=\"posix\")\n+@pytest.mark.skipif(os.name == \"nt\", reason=\"posix\")\n",
+			want: nil,
+		},
+		{
+			name: "a skip added beside an edited one is still a new skip",
+			diff: "diff --git a/src/b.test.ts b/src/b.test.ts\n--- a/src/b.test.ts\n+++ b/src/b.test.ts\n@@ -3 +3,2 @@\n-it.skip('x',()=>{\n+it.skip(\"x\", () => {\n+it.skip(\"y\", () => {\n",
+			want: []string{`src/b.test.ts: added a skip: it.skip("y", () => {`},
+		},
+		{
+			name: "an only is reported as focusing its file",
+			diff: "diff --git a/src/c.test.ts b/src/c.test.ts\n--- a/src/c.test.ts\n+++ b/src/c.test.ts\n@@ -3 +3 @@\n-it(\"loads\", () => {\n+it.only(\"loads\", () => {\n",
+			want: []string{`src/c.test.ts: focused the file on one test, which skips every other test in it: it.only("loads", () => {`},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -83,10 +113,10 @@ func TestScanFindsDeletedAndSkippedTests(t *testing.T) {
 	}
 }
 
-// The PrecisionDocs #1272 shape end to end: a gate's test step deletes a
-// failing test in a commit of its own. The goblin's own deletion on the same
-// branch is its author's call and is not reported.
-func TestCheckReportsOnlyTheGatesOwnDeletions(t *testing.T) {
+// scratchRepo is a repository whose main holds guard_test.go with the given
+// content, recorded as origin/main, and a feature branch checked out off it.
+func scratchRepo(t *testing.T, content string) (string, func(args ...string), func(name, content string)) {
+	t.Helper()
 	dir := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()
@@ -104,11 +134,19 @@ func TestCheckReportsOnlyTheGatesOwnDeletions(t *testing.T) {
 	git("init", "-q", "--initial-branch=main")
 	git("config", "user.email", "t@example.invalid")
 	git("config", "user.name", "t")
-	write("guard_test.go", "package x\n\nfunc TestGuardHolds(t *testing.T) {}\n\nfunc TestOldBehaviour(t *testing.T) {}\n")
+	write("guard_test.go", content)
 	git("add", ".")
 	git("commit", "-qm", "base")
 	git("update-ref", "refs/remotes/origin/main", "HEAD")
 	git("switch", "-qc", "feature")
+	return dir, git, write
+}
+
+// The PrecisionDocs #1272 shape end to end: a gate's test step deletes a
+// failing test in a commit of its own. The goblin's own deletion on the same
+// branch is its author's call and is not reported.
+func TestCheckReportsOnlyTheGatesOwnDeletions(t *testing.T) {
+	dir, git, write := scratchRepo(t, "package x\n\nfunc TestGuardHolds(t *testing.T) {}\n\nfunc TestOldBehaviour(t *testing.T) {}\n")
 	write("guard_test.go", "package x\n\nfunc TestGuardHolds(t *testing.T) {}\n")
 	git("commit", "-qam", "feat: retire the old behaviour and its test")
 	write("guard_test.go", "package x\n")
@@ -135,5 +173,48 @@ func TestCheckReportsOnlyTheGatesOwnDeletions(t *testing.T) {
 	}
 	if len(restored.Removals) != 0 || restored.Commits != 2 {
 		t.Fatalf("after the restore: %d gate commits, removals %+v; want both read and nothing standing", restored.Commits, restored.Removals)
+	}
+}
+
+func TestCheckReportsARemovedTestWhoseNameAnotherTestExtends(t *testing.T) {
+	dir, git, write := scratchRepo(t, "package x\n\nfunc TestParse(t *testing.T) {}\n\nfunc TestParseFails(t *testing.T) {}\n")
+	write("guard_test.go", "package x\n\nfunc TestParseFails(t *testing.T) {}\n")
+	git("commit", "-qam", "no-mistakes(test): fix failing parse test")
+
+	result, err := Check(context.Background(), execx.OSRunner{}, dir)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Removals) != 1 || result.Removals[0].What != "removed the test TestParse" {
+		t.Fatalf("removals = %+v, want the deletion of TestParse, which TestParseFails does not stand in for", result.Removals)
+	}
+}
+
+// A deletion the CFO approved was pushed, then the branch was rebased onto a
+// newer main for another run. The approved deletion's rebased copy is already
+// on origin and must not park again; a new unpushed deletion still must.
+func TestCheckSkipsGateCommitsAlreadyPushed(t *testing.T) {
+	dir, git, write := scratchRepo(t, "package x\n\nfunc TestGuardHolds(t *testing.T) {}\n\nfunc TestGuardWarns(t *testing.T) {}\n")
+	write("guard_test.go", "package x\n\nfunc TestGuardWarns(t *testing.T) {}\n")
+	git("commit", "-qam", "no-mistakes(test): drop the flaky guard test")
+	git("update-ref", "refs/remotes/origin/feature", "HEAD")
+	git("switch", "-q", "main")
+	write("other.go", "package x\n")
+	git("add", ".")
+	git("commit", "-qm", "main moves on")
+	git("update-ref", "refs/remotes/origin/main", "HEAD")
+	git("switch", "-q", "feature")
+	git("rebase", "-q", "main")
+	write("guard_test.go", "package x\n")
+	git("commit", "-qam", "no-mistakes(review): drop the warning test")
+
+	result, err := Check(context.Background(), execx.OSRunner{}, dir)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Commits != 1 || len(result.Removals) != 1 || result.Removals[0].What != "removed the test TestGuardWarns" {
+		t.Fatalf("read %d gate commit(s), removals %+v; want only the unpushed deletion of TestGuardWarns", result.Commits, result.Removals)
 	}
 }
