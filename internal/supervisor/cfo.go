@@ -157,25 +157,10 @@ func Register(ctx context.Context, stateDir string, terminals terminal.Opener, h
 // terminal id, whose host must answer, and names that program's harness:
 // harness when the caller names it, or else the program's own name.
 func nativeHarness(stateDir, id, harness string) (primaryRegistration, []proc.Entry, int, error) {
-	record, err := host.ReadRecord(stateDir, id)
-	if err != nil {
-		return primaryRegistration{}, nil, 0, fmt.Errorf("native terminal %s has no host record: %w", id, err)
-	}
-	ancestry, err := proc.Ancestry(os.Getpid(), 32)
+	ancestry, at, err := nativeProgram(stateDir, id)
 	if err != nil {
 		return primaryRegistration{}, nil, 0, err
 	}
-	at := slices.IndexFunc(ancestry, func(entry proc.Entry) bool { return entry.PID == record.ChildPID })
-	if at < 0 {
-		return primaryRegistration{}, nil, 0, fmt.Errorf("native terminal %s runs pid %d, and this command does not run under it", id, record.ChildPID)
-	}
-	// A host that was killed leaves its record behind, so only an answer on
-	// its pipe proves a host still serves the terminal.
-	client, err := host.Dial(record)
-	if err != nil {
-		return primaryRegistration{}, nil, 0, fmt.Errorf("the host of native terminal %s does not answer: %w", id, err)
-	}
-	_ = client.Close()
 	if harness == "" {
 		harness = strings.TrimSuffix(strings.ToLower(ancestry[at].ExeBase), ".exe")
 		if harness != "claude" && harness != "codex" && harness != "pi" {
@@ -183,6 +168,32 @@ func nativeHarness(stateDir, id, harness string) (primaryRegistration, []proc.En
 		}
 	}
 	return primaryRegistration{Host: id, Agent: harness}, ancestry, at, nil
+}
+
+// nativeProgram proves this process runs under the program in native
+// terminal id, whose host must answer, and returns this process's ancestry
+// with the program's place in it.
+func nativeProgram(stateDir, id string) ([]proc.Entry, int, error) {
+	record, err := host.ReadRecord(stateDir, id)
+	if err != nil {
+		return nil, 0, fmt.Errorf("native terminal %s has no host record: %w", id, err)
+	}
+	ancestry, err := proc.Ancestry(os.Getpid(), 32)
+	if err != nil {
+		return nil, 0, err
+	}
+	at := slices.IndexFunc(ancestry, func(entry proc.Entry) bool { return entry.PID == record.ChildPID })
+	if at < 0 {
+		return nil, 0, fmt.Errorf("native terminal %s runs pid %d, and this command does not run under it", id, record.ChildPID)
+	}
+	// A host that was killed leaves its record behind, so only an answer on
+	// its pipe proves a host still serves the terminal.
+	client, err := host.Dial(record)
+	if err != nil {
+		return nil, 0, fmt.Errorf("the host of native terminal %s does not answer: %w", id, err)
+	}
+	_ = client.Close()
+	return ancestry, at, nil
 }
 
 // herdrHarness proves this process runs under the foreground process of the

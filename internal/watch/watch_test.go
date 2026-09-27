@@ -628,9 +628,19 @@ func TestConfigFromEnvInstallsStructuralProber(t *testing.T) {
 	if cfg.Monitor == nil {
 		t.Fatal("ConfigFromEnv Monitor = nil, want the structural Herdr monitor for both watch entry paths")
 	}
-	prober, ok := cfg.Monitor.Probe.(*monitor.HerdrProber)
+	backends, ok := cfg.Monitor.Probe.(monitor.BackendProber)
 	if !ok {
-		t.Fatalf("ConfigFromEnv Probe = %T, want *monitor.HerdrProber", cfg.Monitor.Probe)
+		t.Fatalf("ConfigFromEnv Probe = %T, want monitor.BackendProber", cfg.Monitor.Probe)
+	}
+	prober, ok := backends.Herdr.(*monitor.HerdrProber)
+	if !ok {
+		t.Fatalf("ConfigFromEnv Herdr prober = %T, want *monitor.HerdrProber", backends.Herdr)
+	}
+	if native, ok := backends.Native.(monitor.NativeProber); !ok || native.StateDir != dir {
+		t.Errorf("ConfigFromEnv native prober = %#v, want a monitor.NativeProber reading this home's hosts", backends.Native)
+	}
+	if progress, ok := cfg.Monitor.Progress.(monitor.HostProgress); !ok || progress.StateDir != dir {
+		t.Errorf("ConfigFromEnv Progress = %#v, want monitor.HostProgress reading this home's hosts", cfg.Monitor.Progress)
 	}
 	if cfg.Monitor.StateDir != dir {
 		t.Errorf("ConfigFromEnv Monitor StateDir = %q, want %q", cfg.Monitor.StateDir, dir)
@@ -650,9 +660,10 @@ func TestConfigFromEnvProberFollowsSpawnSessionSource(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HERDR_SESSION", "fleet-watch")
 	cfg := ConfigFromEnv(home.Home{State: dir})
-	prober, ok := cfg.Monitor.Probe.(*monitor.HerdrProber)
+	backends, _ := cfg.Monitor.Probe.(monitor.BackendProber)
+	prober, ok := backends.Herdr.(*monitor.HerdrProber)
 	if !ok {
-		t.Fatalf("ConfigFromEnv Probe = %T, want *monitor.HerdrProber", cfg.Monitor.Probe)
+		t.Fatalf("ConfigFromEnv Herdr prober = %T, want *monitor.HerdrProber", backends.Herdr)
 	}
 	if prober.Client.EffectiveSession() != "fleet-watch" {
 		t.Errorf("prober session = %q, want HERDR_SESSION so monitoring cannot drift to an implicit session", prober.Client.EffectiveSession())

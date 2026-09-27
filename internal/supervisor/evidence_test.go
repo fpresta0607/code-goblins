@@ -94,6 +94,34 @@ func TestSnapshotShowsWhatTheFleetKnowsForATaskNoHookReported(t *testing.T) {
 	}
 }
 
+// A native task's runtime line names its terminal, which the monitor reads
+// it from, never Herdr.
+func TestANativeTasksRuntimeNamesItsTerminal(t *testing.T) {
+	store, h := testStore(t)
+	meta, err := state.ReadTaskMeta(h.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Backend = "native"
+	meta.HerdrSession, meta.HerdrWorkspaceID, meta.HerdrTabID, meta.HerdrPaneID = "", "", "", ""
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := monitor.WriteObservation(h.State, monitor.Observation{TaskID: "task-1", Endpoint: (herdr.Target{}).String(), EndpointVerdict: monitor.ProbePresent, LastObserved: now, Health: monitor.HealthBusy, Reason: monitor.None, Digest: "d", LastSeen: now, LastProgress: now}); err != nil {
+		t.Fatal(err)
+	}
+
+	view, err := (&Service{Store: store}).Snapshot()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := view.Tasks[0].Runtime; got.State != "busy" || got.Reason != "Native terminal reports busy" {
+		t.Errorf("runtime = %+v, want busy as its native terminal reports it", got)
+	}
+}
+
 func TestFinishedTasksReadEveryCleanupLayout(t *testing.T) {
 	stateDir := t.TempDir()
 	archive := filepath.Join(stateDir, state.ArchiveDirName)

@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -97,13 +98,18 @@ func goblinIdentity(meta state.TaskMeta) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// goblinAsker proves the calling process runs under the task's own pane, the
-// same proof registration uses for the CFO, so no other process can ask in
-// a goblin's name.
+// goblinAsker proves the calling process runs under the task's own terminal,
+// the same proof registration uses for the CFO: the program in its native
+// terminal, or the harness in its Herdr pane. No other process can ask in a
+// goblin's name.
 func goblinAsker(ctx context.Context, stateDir string, terminals terminal.Opener, taskID string) (state.TaskMeta, error) {
 	meta, err := state.ReadTaskMeta(stateDir, taskID)
 	if err != nil {
 		return meta, fmt.Errorf("task %s has no live record: %w", taskID, err)
+	}
+	if meta.Backend == "native" {
+		_, _, err := nativeProgram(stateDir, meta.ID)
+		return meta, err
 	}
 	if meta.Backend != "herdr" || meta.HerdrSession == "" || meta.HerdrPaneID == "" {
 		return meta, fmt.Errorf("task %s has no Herdr pane to answer", taskID)
@@ -158,11 +164,21 @@ func questionChoices(options []string) ([]string, string) {
 	return choices, recommended
 }
 
-// SendGoblin delivers text to the goblin a question named, through the same
-// Herdr connection the board uses for the CFO. The delivery is pinned to the
-// task generation and pane that asked, so a restarted or moved task never
+// SendGoblin delivers text to the goblin a question named: through its own
+// terminal for a native goblin, and otherwise through the same Herdr
+// connection the board uses for the CFO. The delivery is pinned to the task
+// generation and terminal that asked, so a restarted or moved task never
 // receives an answer meant for its predecessor.
 func (c *CFOConnection) SendGoblin(ctx context.Context, taskID, identity, text string) (Evaluation, error) {
+	if meta, err := state.ReadTaskMeta(c.State, taskID); err == nil && meta.Backend == "native" {
+		if goblinIdentity(meta) != identity {
+			return Evaluation{}, fmt.Errorf("%w: the goblin's task restarted or ended; nothing was sent", ErrRejected)
+		}
+		if err := (spawn.Service{StateDir: c.State}).SendNative(ctx, meta, oneLine(text)); err != nil {
+			return Evaluation{}, err
+		}
+		return Evaluation{Reason: "Accepted by the goblin in its native terminal."}, nil
+	}
 	current := func(target herdr.Target) error {
 		meta, err := state.ReadTaskMeta(c.State, taskID)
 		if err != nil || goblinIdentity(meta) != identity || target != (herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}) {
