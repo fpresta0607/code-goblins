@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -194,9 +196,10 @@ func TestStartingTheCFOInHerdrStartsEachHarnessAsHerdrCan(t *testing.T) {
 				Container: herdr.Container{Session: "fleet", WorkspaceID: "w1"},
 				CFO:       herdr.Endpoint{Target: herdr.Target{Session: "fleet", Pane: "w1:p1"}, WorkspaceID: "w1", TabID: "w1:t1", PaneID: "w1:p1"},
 			}
+			noLaunchWait(t)
 
 			// Act
-			started, err := startCFOWith(context.Background(), fake, `C:\dev\app`, harness)
+			started, err := startCFOWith(context.Background(), fake, `C:\dev\app`, harness, io.Discard)
 
 			// Assert
 			if err != nil || !started {
@@ -241,9 +244,10 @@ func TestStartingTheCFOInHerdrReportsATypedCFOHerdrDoesNotDetect(t *testing.T) {
 				Status:    c.status,
 				Running:   true,
 			}
+			noLaunchWait(t)
 
 			// Act
-			if _, err := startCFOWith(context.Background(), fake, `C:\dev\app`, c.harness); err != nil {
+			if _, err := startCFOWith(context.Background(), fake, `C:\dev\app`, c.harness, io.Discard); err != nil {
 				t.Fatal(err)
 			}
 
@@ -297,4 +301,72 @@ func TestANativeCFOStartsEachHarnessAsItsProgramNeeds(t *testing.T) {
 			t.Errorf("nativeCFOProgram(%s) = %q, %v; want %q", harness, program, err, want)
 		}
 	}
+}
+
+// laterHarness is a Herdr whose pane shows the typed harness running only
+// from the given HarnessRunning look on.
+type laterHarness struct {
+	*terminaltest.Fake
+	looks, from int
+}
+
+func (l *laterHarness) HarnessRunning(ctx context.Context, target herdr.Target) (bool, error) {
+	l.looks++
+	_, err := l.Fake.HarnessRunning(ctx, target)
+	return l.looks >= l.from, err
+}
+
+// A typed CFO that Herdr does not detect and that takes a while to start is
+// still reported once it shows running, on a later look; one that never shows
+// ends the looks with a line saying so, no error, and the tab in front.
+func TestATypedCFOIsLookedForUntilItShows(t *testing.T) {
+	for _, c := range []struct {
+		name        string
+		from        int
+		wantReports []string
+		wantLine    bool
+	}{
+		{"shows on a later look", 3, []string{"ReportAgent fleet:w1:p1 pi unknown"}, false},
+		{"never shows", cfoLaunchTries + 1, nil, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			noLaunchWait(t)
+			fake := &laterHarness{Fake: &terminaltest.Fake{
+				Session:   "fleet",
+				Container: herdr.Container{Session: "fleet", WorkspaceID: "w1"},
+				CFO:       herdr.Endpoint{Target: herdr.Target{Session: "fleet", Pane: "w1:p1"}, WorkspaceID: "w1", TabID: "w1:t1", PaneID: "w1:p1"},
+				Status:    herdr.AgentDead,
+			}, from: c.from}
+			var stdout strings.Builder
+
+			// Act
+			started, err := startCFOWith(context.Background(), fake, `C:\dev\app`, "pi", &stdout)
+
+			// Assert
+			var reports []string
+			for _, call := range fake.Calls() {
+				if strings.HasPrefix(call, "ReportAgent ") {
+					reports = append(reports, call)
+				}
+			}
+			if err != nil || !started || !slices.Equal(reports, c.wantReports) {
+				t.Errorf("startCFOWith = %v, %v, reports %q; want %q", started, err, reports, c.wantReports)
+			}
+			if said := strings.Contains(stdout.String(), "Herdr never saw pi start in the cfo tab"); said != c.wantLine {
+				t.Errorf("stdout = %q, want the never-saw line %v", stdout.String(), c.wantLine)
+			}
+			if calls := fake.Calls(); calls[len(calls)-1] != "Focus w1 w1:t1" {
+				t.Errorf("calls = %q, want the cfo tab brought to the front last", calls)
+			}
+		})
+	}
+}
+
+// noLaunchWait makes a typed CFO start wait no real time.
+func noLaunchWait(t *testing.T) {
+	t.Helper()
+	sleep := cfoLaunchSleep
+	cfoLaunchSleep = func(time.Duration) {}
+	t.Cleanup(func() { cfoLaunchSleep = sleep })
 }

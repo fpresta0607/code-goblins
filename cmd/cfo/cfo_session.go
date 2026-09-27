@@ -28,6 +28,15 @@ var cfoHarnesses = []string{"claude", "codex", "pi"}
 // cfo tab's shell before Enter submits it, as a goblin's typed launch does.
 const cfoTypedLaunchSettle = 300 * time.Millisecond
 
+// A typed CFO has cfoLaunchTries looks, cfoLaunchPoll apart, to show in
+// Herdr: the budget a goblin spawn's confirmLaunch has. cfoLaunchSleep is how
+// a typed CFO start waits.
+var (
+	cfoLaunchPoll  = 1500 * time.Millisecond
+	cfoLaunchTries = 80
+	cfoLaunchSleep = time.Sleep
+)
+
 // cfoHarnessPath is where a CFO home remembers the harness goblins starts the
 // CFO as.
 func cfoHarnessPath(stateDir string) string {
@@ -200,7 +209,7 @@ func gitTop(ctx context.Context) (string, error) {
 // startCFOInHerdr starts the CFO as harness in the fleet's own Herdr session,
 // and reports whether it started one.
 func startCFOInHerdr(ctx context.Context, project, harness string) (bool, error) {
-	return startCFOWith(ctx, &herdr.Client{Commands: execx.OSRunner{}, Session: herdrSession()}, project, harness)
+	return startCFOWith(ctx, &herdr.Client{Commands: execx.OSRunner{}, Session: herdrSession()}, project, harness, os.Stdout)
 }
 
 // focusCFOInHerdr brings a live CFO's workspace and tab to the front in the
@@ -215,8 +224,9 @@ func focusCFOInHerdr(ctx context.Context, endpoint herdr.Endpoint) error {
 // front. It reports whether it started a CFO. Claude Code starts through
 // herdr agent start; codex and pi, npm script shims Herdr's Windows agent
 // start cannot run, are typed into the tab's shell as a goblin's typed launch
-// is.
-func startCFOWith(ctx context.Context, client terminal.Backend, project, harness string) (bool, error) {
+// is. A typed CFO Herdr never sees start is said on stdout, and the tab is
+// still brought to the front.
+func startCFOWith(ctx context.Context, client terminal.Backend, project, harness string, stdout io.Writer) (bool, error) {
 	if err := client.EnsureServer(ctx); err != nil {
 		return false, err
 	}
@@ -235,38 +245,57 @@ func startCFOWith(ctx context.Context, client terminal.Backend, project, harness
 			return false, err
 		}
 	default:
+		// No environment or arguments are typed: the CFO has none, as the claude CFO has none.
 		if err := client.SendLiteral(ctx, endpoint.Target, harness); err != nil {
 			return false, err
 		}
-		time.Sleep(cfoTypedLaunchSettle)
+		cfoLaunchSleep(cfoTypedLaunchSettle)
 		if err := client.SendKey(ctx, endpoint.Target, "Enter"); err != nil {
 			return false, err
 		}
-		time.Sleep(cfoTypedLaunchSettle)
-		if err := reportUndetectedCFO(ctx, client, endpoint.Target, project, harness); err != nil {
+		// Startup dialogs are not confirmed: the Overlord, who is at the terminal, answers them.
+		cfoLaunchSleep(cfoTypedLaunchSettle)
+		// No brief is delivered and no working state awaited: the CFO has no brief and waits for the Overlord.
+		seen, err := awaitTypedCFO(ctx, client, endpoint.Target, project, harness)
+		if err != nil {
 			return false, err
+		}
+		// A CFO Herdr never saw is not failed, as a goblin whose pane is not provably dead is not: the Overlord looks at the tab.
+		if !seen {
+			fmt.Fprintf(stdout, "\nHerdr never saw %s start in the cfo tab; look at the tab to see what it shows.\n", harness)
 		}
 	}
 	return !running, client.Focus(ctx, endpoint)
 }
 
-// reportUndetectedCFO tells Herdr a typed CFO runs in its pane when Herdr's
-// detection misses it, as a goblin's typed launch does, so a later goblins
-// finds an agent in the cfo tab rather than starting a second CFO. A pane
-// Herdr cannot answer for is left alone.
-func reportUndetectedCFO(ctx context.Context, client terminal.Backend, target herdr.Target, project, harness string) error {
-	status, err := client.AgentStatus(ctx, target)
-	if err != nil || status != herdr.AgentDead {
-		return nil
+// awaitTypedCFO looks, up to cfoLaunchTries times, for a typed CFO in its
+// pane, and reports whether it saw one: Herdr holding an agent there, or a
+// pane Herdr's detection missed whose harness runs, which it tells Herdr of
+// as a goblin's typed launch does, so a later goblins finds an agent in the
+// cfo tab rather than starting a second CFO. A look Herdr cannot answer sees
+// nothing.
+func awaitTypedCFO(ctx context.Context, client terminal.Backend, target herdr.Target, project, harness string) (bool, error) {
+	for attempt := 0; attempt < cfoLaunchTries; attempt++ {
+		if attempt > 0 {
+			cfoLaunchSleep(cfoLaunchPoll)
+		}
+		status, err := client.AgentStatus(ctx, target)
+		if err != nil {
+			continue
+		}
+		if status != herdr.AgentDead {
+			return true, nil
+		}
+		running, err := client.HarnessRunning(ctx, target)
+		if err != nil || !running {
+			continue
+		}
+		if err := client.ReportAgent(ctx, target, harness, "unknown", "cfo", project); err != nil {
+			return false, fmt.Errorf("register the undetected %s CFO with herdr: %w", harness, err)
+		}
+		return true, nil
 	}
-	running, err := client.HarnessRunning(ctx, target)
-	if err != nil || !running {
-		return nil
-	}
-	if err := client.ReportAgent(ctx, target, harness, "unknown", "cfo", project); err != nil {
-		return fmt.Errorf("register the undetected %s CFO with herdr: %w", harness, err)
-	}
-	return nil
+	return false, nil
 }
 
 // attachHerdr hands this terminal to herdr, which attaches to session, and

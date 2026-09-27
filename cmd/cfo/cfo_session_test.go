@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -371,7 +372,7 @@ func TestStartingTheCFOStartsClaudeOnlyWhereNoAgentRuns(t *testing.T) {
 			}}
 			client := &herdr.Client{Commands: script, Session: "fleet"}
 
-			reported, err := startCFOWith(context.Background(), client, `C:\dev\app`, "claude")
+			reported, err := startCFOWith(context.Background(), client, `C:\dev\app`, "claude", io.Discard)
 			if err != nil {
 				t.Fatalf("startCFOWith: %v (commands %q)", err, script.commands)
 			}
