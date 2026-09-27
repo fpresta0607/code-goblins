@@ -44,35 +44,26 @@ type Result struct {
 }
 
 // Check reads the gate commits between the branch's merge base with the
-// default branch and HEAD in dir, leaving out those already on origin/<branch>
-// for the run's own branch, or rebased copies of them, and lists every test
-// they deleted or skipped.
+// default branch and HEAD in dir, and lists every test they deleted or
+// skipped.
 func Check(ctx context.Context, git execx.Runner, dir string) (Result, error) {
 	base, err := mergeBase(ctx, git, dir)
 	if err != nil {
 		return Result{}, err
 	}
-	pushed, err := pushedPatches(ctx, git, dir, base)
-	if err != nil {
-		return Result{}, err
-	}
-	log, err := run(ctx, git, dir, "log", "--reverse", "--format=%H%x1f%s%x1f"+authorFormat, base+"..HEAD")
+	log, err := run(ctx, git, dir, "log", "--reverse", "--format=%H%x1f%s", base+"..HEAD")
 	if err != nil {
 		return Result{}, err
 	}
 	result := Result{Base: base}
 	for _, line := range strings.Split(strings.TrimSpace(log), "\n") {
-		sha, rest, _ := strings.Cut(line, "\x1f")
-		subject, author, ok := strings.Cut(rest, "\x1f")
+		sha, subject, ok := strings.Cut(line, "\x1f")
 		if !ok || !strings.HasPrefix(subject, GateCommitPrefix) {
 			continue
 		}
-		diff, err := run(ctx, git, dir, append([]string{"show", "--format=", sha}, diffFlags...)...)
+		diff, err := run(ctx, git, dir, "show", "--format=", "--no-color", "--unified=0", "--find-renames", sha)
 		if err != nil {
 			return Result{}, err
-		}
-		if pushed[patchKey(author, diff)] {
-			continue
 		}
 		result.Commits++
 		for _, found := range Scan(diff) {
@@ -86,126 +77,6 @@ func Check(ctx context.Context, git execx.Runner, dir string) (Result, error) {
 		}
 	}
 	return result, nil
-}
-
-var diffFlags = []string{"--no-color", "--unified=0", "--find-renames"}
-
-// authorFormat is the author and author date, which a rebase keeps.
-const authorFormat = "%an <%ae> %ai"
-
-// pushedPatches collects the patches of the gate commits already on
-// origin/<branch>, the branch currentBranch names. Everything pushed there
-// passed this check, kept or approved, so such a commit is not read again,
-// nor is a rebased copy of one with the same author, author date and change.
-// Another branch's commits are never counted: the same deletion approved
-// there is not approved here. With no branch named, the map is empty.
-func pushedPatches(ctx context.Context, git execx.Runner, dir, base string) (map[string]bool, error) {
-	patches := map[string]bool{}
-	branch, err := currentBranch(ctx, git, dir, base)
-	if err != nil || branch == "" {
-		return patches, err
-	}
-	remote := "refs/remotes/origin/" + branch
-	exists, err := run(ctx, git, dir, "for-each-ref", "--format=%(refname)", remote)
-	if err != nil || strings.TrimSpace(exists) != remote {
-		return patches, err
-	}
-	commits, err := logDiffs(ctx, git, dir, "%s%x1f"+authorFormat, remote, "^"+base, "--fixed-strings", "--grep="+GateCommitPrefix)
-	if err != nil {
-		return nil, err
-	}
-	for _, commit := range commits {
-		subject, author, _ := strings.Cut(commit.header, "\x1f")
-		if strings.HasPrefix(subject, GateCommitPrefix) {
-			patches[patchKey(author, commit.diff)] = true
-		}
-	}
-	return patches, nil
-}
-
-// currentBranch names the branch HEAD is on. A no-mistakes run worktree has
-// a detached HEAD that its rebase step may have rewritten, so there it is the
-// one local branch whose every commit past base has a patch-equivalent copy
-// among HEAD's commits past base, as git cherry would judge it, but without
-// comparing against the default branch's history, where a stale branch's
-// merged changes would also qualify it. It is empty when no single branch
-// qualifies, and then every gate commit is read.
-func currentBranch(ctx context.Context, git execx.Runner, dir, base string) (string, error) {
-	if name, err := run(ctx, git, dir, "symbolic-ref", "--short", "-q", "HEAD"); err == nil {
-		return strings.TrimSpace(name), nil
-	}
-	inHead, err := logDiffs(ctx, git, dir, "", "HEAD", "^"+base)
-	if err != nil {
-		return "", err
-	}
-	copies := map[string]bool{}
-	for _, commit := range inHead {
-		copies[patchKey("", commit.diff)] = true
-	}
-	onBranches, err := logDiffs(ctx, git, dir, "%S", "--branches", "^"+base, "--source")
-	if err != nil {
-		return "", err
-	}
-	copied := map[string]bool{}
-	for _, commit := range onBranches {
-		branch := commit.header
-		if _, seen := copied[branch]; !seen {
-			copied[branch] = true
-		}
-		copied[branch] = copied[branch] && copies[patchKey("", commit.diff)]
-	}
-	var names []string
-	for branch, isCopy := range copied {
-		if isCopy {
-			names = append(names, branch)
-		}
-	}
-	if len(names) == 1 {
-		return names[0], nil
-	}
-	return "", nil
-}
-
-type loggedDiff struct {
-	header string
-	diff   string
-}
-
-// logDiffs lists the non-merge commits git log selects with revs, each with
-// its header in format and its diff.
-func logDiffs(ctx context.Context, git execx.Runner, dir, format string, revs ...string) ([]loggedDiff, error) {
-	args := append([]string{"log", "--no-merges", "--format=%x00" + format, "-p"}, diffFlags...)
-	log, err := run(ctx, git, dir, append(args, revs...)...)
-	if err != nil {
-		return nil, err
-	}
-	var commits []loggedDiff
-	for _, commit := range strings.Split(log, "\x00")[1:] {
-		header, diff, _ := strings.Cut(commit, "\n")
-		commits = append(commits, loggedDiff{header: header, diff: diff})
-	}
-	return commits, nil
-}
-
-// patchKey is a commit's author and diff without what a rebase changes, its
-// blob ids and hunk line numbers, so a rebased copy has the key of its
-// original while another commit making the same edit does not.
-func patchKey(author, diff string) string {
-	var b strings.Builder
-	b.WriteString(author)
-	b.WriteByte('\n')
-	for _, line := range strings.Split(diff, "\n") {
-		line = strings.TrimSuffix(line, "\r")
-		switch {
-		case line == "" || strings.HasPrefix(line, "index "):
-			continue
-		case strings.HasPrefix(line, "@@"):
-			line = "@@"
-		}
-		b.WriteString(line)
-		b.WriteByte('\n')
-	}
-	return b.String()
 }
 
 // stillStanding reports whether HEAD still lacks what a gate commit removed:

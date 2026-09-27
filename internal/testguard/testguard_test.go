@@ -118,10 +118,6 @@ func TestScanFindsDeletedAndSkippedTests(t *testing.T) {
 	}
 }
 
-// scratchCommitDate is every scratch commit's author and committer date, so
-// no test depends on which commits land in the same second.
-const scratchCommitDate = "2026-09-26T12:00:00Z"
-
 // scratchRepo is a repository whose main holds guard_test.go with the given
 // content, recorded as origin/main, and a feature branch checked out off it.
 func scratchRepo(t *testing.T, content string) (string, func(args ...string), func(name, content string)) {
@@ -130,7 +126,6 @@ func scratchRepo(t *testing.T, content string) (string, func(args ...string), fu
 	git := func(args ...string) {
 		t.Helper()
 		command := exec.Command("git", append([]string{"-C", dir}, args...)...)
-		command.Env = append(os.Environ(), "GIT_AUTHOR_DATE="+scratchCommitDate, "GIT_COMMITTER_DATE="+scratchCommitDate)
 		if out, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
@@ -201,36 +196,6 @@ func TestCheckReportsARemovedTestWhoseNameAnotherTestExtends(t *testing.T) {
 	}
 }
 
-// A deletion the CFO approved was pushed, then the branch was rebased onto a
-// newer main for another run, on the detached HEAD a no-mistakes run worktree
-// has, leaving the local branch at its pre-rebase tip. The approved
-// deletion's rebased copy is already on origin and must not park again; a new
-// unpushed deletion still must.
-func TestCheckSkipsGateCommitsAlreadyPushed(t *testing.T) {
-	dir, git, write := scratchRepo(t, "package x\n\nfunc TestGuardHolds(t *testing.T) {}\n\nfunc TestGuardWarns(t *testing.T) {}\n")
-	write("guard_test.go", "package x\n\nfunc TestGuardWarns(t *testing.T) {}\n")
-	git("commit", "-qam", "no-mistakes(test): drop the flaky guard test")
-	git("update-ref", "refs/remotes/origin/feature", "HEAD")
-	git("switch", "-q", "main")
-	write("other.go", "package x\n")
-	git("add", ".")
-	git("commit", "-qm", "main moves on")
-	git("update-ref", "refs/remotes/origin/main", "HEAD")
-	git("switch", "-q", "--detach", "feature")
-	git("rebase", "-q", "main")
-	write("guard_test.go", "package x\n")
-	git("commit", "-qam", "no-mistakes(review): drop the warning test")
-
-	result, err := Check(context.Background(), execx.OSRunner{}, dir)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Commits != 1 || len(result.Removals) != 1 || result.Removals[0].What != "removed the test TestGuardWarns" {
-		t.Fatalf("read %d gate commit(s), removals %+v; want only the unpushed deletion of TestGuardWarns", result.Commits, result.Removals)
-	}
-}
-
 func TestCheckReportsARemovedTestWhoseNameAnotherTestsNameContains(t *testing.T) {
 	dir, git, write := scratchRepo(t, "package x\n")
 	write("a.test.ts", "it(\"returns 404\", () => {})\n")
@@ -247,41 +212,5 @@ func TestCheckReportsARemovedTestWhoseNameAnotherTestsNameContains(t *testing.T)
 	}
 	if len(result.Removals) != 1 || result.Removals[0].What != "removed the test returns 404" {
 		t.Fatalf("removals = %+v, want the deletion of \"returns 404\", which a longer test name does not stand in for", result.Removals)
-	}
-}
-
-// The deletion approved and pushed on one branch is not approved on another:
-// the same gate edit on a sibling branch, checked from the detached HEAD a
-// no-mistakes run worktree has, still parks.
-func TestCheckParksTheSameDeletionOnASiblingBranch(t *testing.T) {
-	dir, git, write := scratchRepo(t, "package x\n\nfunc TestGuardHolds(t *testing.T) {}\n\nfunc TestGuardWarns(t *testing.T) {}\n")
-	write("guard_test.go", "package x\n\nfunc TestGuardWarns(t *testing.T) {}\n")
-	git("commit", "-qam", "no-mistakes(test): drop the flaky guard test")
-	git("update-ref", "refs/remotes/origin/feature", "HEAD")
-	git("switch", "-qc", "sibling", "main")
-	write("other.go", "package x\n")
-	git("add", ".")
-	git("commit", "-qm", "feat: add other")
-	git("update-ref", "refs/remotes/origin/sibling", "HEAD")
-	write("guard_test.go", "package x\n\nfunc TestGuardWarns(t *testing.T) {}\n")
-	git("commit", "-qam", "no-mistakes(test): drop the flaky guard test")
-	git("switch", "-q", "--detach")
-
-	result, err := Check(context.Background(), execx.OSRunner{}, dir)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Commits != 1 || len(result.Removals) != 1 || result.Removals[0].What != "removed the test TestGuardHolds" {
-		t.Fatalf("read %d gate commit(s), removals %+v; want the sibling's own deletion of TestGuardHolds", result.Commits, result.Removals)
-	}
-
-	git("switch", "-q", "--detach", "feature")
-	pushed, err := Check(context.Background(), execx.OSRunner{}, dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pushed.Commits != 0 || len(pushed.Removals) != 0 {
-		t.Fatalf("detached at the pushed feature branch: read %d gate commit(s), removals %+v; want its pushed deletion skipped", pushed.Commits, pushed.Removals)
 	}
 }
