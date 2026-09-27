@@ -61,6 +61,25 @@ func TestFeedbackRejectsUnrecoveredTerminalCustody(t *testing.T) {
 	}
 }
 
+// A board terminal view rechecks custody every few seconds, and each query is
+// a sqlite3 process, so the check asks for the branch's latest run alone and
+// never for its steps, which custody does not depend on.
+func TestCanSteerReadsOnlyTheLatestRun(t *testing.T) {
+	for _, status := range []string{"completed", "running"} {
+		t.Run(status, func(t *testing.T) {
+			runner := &custodyProgressRunner{progress: Progress{RunID: recoveryRun, RepoID: recoveryRepo, Status: status, Head: recoveryRecorded}}
+			r := newRecoveryReader(t, runner)
+			err := r.CanSteer(context.Background(), "C:/project", "C:/work", recoveryBranch)
+			if (err == nil) != (status == "completed") {
+				t.Fatalf("err=%v, want custody only for the completed run", err)
+			}
+			if len(runner.requests) != 1 || runner.requests[0].Name != "sqlite3" || strings.Contains(runner.requests[0].Args[len(runner.requests[0].Args)-1], "step_results") {
+				t.Fatalf("requests=%+v, want one query of the latest run", runner.requests)
+			}
+		})
+	}
+}
+
 func TestProgressReadsExactLatestBranchFromSQLite(t *testing.T) {
 	root := t.TempDir()
 	database := filepath.Join(root, "state.sqlite")
