@@ -27,12 +27,14 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
   const shownValue = useRef(shown);
   useEffect(() => { shownValue.current = shown; }, [shown]);
   // A switch to this terminal hands it the keyboard, at once or on its first
-  // frame.
+  // frame, giving it to the history while that is shown.
   const wantFocus = useRef(false);
   const liveValue = useRef(false);
+  const inHistoryValue = useRef(false);
   useEffect(() => {
     if (!focus) return;
-    if (terminal.current && liveValue.current && shownValue.current) terminal.current.focus(); else wantFocus.current = true;
+    const target = inHistoryValue.current ? history.current : terminal.current;
+    if (target && liveValue.current && shownValue.current) target.focus(); else wantFocus.current = true;
   }, [focus]);
   const [live, setLive] = useState(false);
   const [status, setStatus] = useState("Connecting");
@@ -42,6 +44,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
   // The history takes the keyboard once it is in sight, since a terminal out
   // of sight cannot be focused.
   useEffect(() => {
+    inHistoryValue.current = inHistory;
     if (inHistory && shownValue.current) history.current?.focus();
   }, [inHistory]);
   const [unavailable, setUnavailable] = useState(false);
@@ -306,7 +309,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
               liveValue.current = true;
               setLive(true);
               setStatus("Live");
-              if (shownValue.current && (wantFocus.current || element.closest(".context-pane")?.contains(document.activeElement))) term.focus();
+              if (shownValue.current && (wantFocus.current || element.closest(".context-pane")?.contains(document.activeElement))) (showing ? past : term).focus();
               wantFocus.current = false;
             }
           }
