@@ -4,7 +4,7 @@ import { dragRange, isDrag, parsePatchToRows, splitRows, reviewRange } from "./d
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, deliveryMark, runMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
-import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
+import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
 
 test("board completion and semantic personas require the corresponding evidence", () => {
   const task = parseSnapshot({healthy:true, tasks:[{id:"work",title:"Test keyboard access",phase:"done",generation:"new",verified:false}]}).tasks[0];
@@ -170,6 +170,29 @@ test("child sessions never borrow the owning goblin model or effort", () => {
     sessionModel({ ...child, model: "child-native-model" }, task),
     "child-native-model",
   );
+});
+
+test("a completed card says and shows what its pull request really did", () => {
+  const cards = parseSnapshot({healthy:true, tasks:[
+    {id:"finished:pd-cost-cuts-resume", phase:"done", verified:false, archived:true, merged:true, pr:"https://github.com/o/PrecisionDocs-AI/pull/1367"},
+    {id:"finished:dropped", phase:"done", verified:false, archived:true, closed:true, pr:"https://github.com/o/code-goblins/pull/31"},
+    {id:"finished:open", phase:"done", verified:false, archived:true, pr:"https://github.com/o/code-goblins/pull/32"},
+  ]}).tasks;
+  assert.deepEqual(cards.map((task) => [nodeStatus({id:task.id, title:task.id, task, relation:""}), pullRequestIcon(task)]), [
+    ["Merged", "merge"],
+    ["Closed", "pull-request-closed"],
+    ["Finished", "pull-request"],
+  ]);
+});
+
+test("a live card whose gate saw its pull request merge wears the merge icon", () => {
+  const cards = parseSnapshot({healthy:true, tasks:[
+    {id:"landing", phase:"merged", verified:false, pr:"https://github.com/o/code-goblins/pull/33"},
+    {id:"delivered", phase:"done", verified:true, pr:"https://github.com/o/code-goblins/pull/35"},
+    {id:"unverified", phase:"done", verified:false, pr:"https://github.com/o/code-goblins/pull/36"},
+    {id:"shipping", phase:"ready", verified:false, pr:"https://github.com/o/code-goblins/pull/34"},
+  ]}).tasks;
+  assert.deepEqual(cards.map(pullRequestIcon), ["merge", "merge", "pull-request", "pull-request"]);
 });
 
 test("the board keeps the CFO registration state the supervisor reports", () => {
