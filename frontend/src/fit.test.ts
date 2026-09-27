@@ -1,43 +1,40 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { availableHeight, clampPage, pageLabel, pageOf, pageSizeFor, swipeStep, tallestCard } from "./fit.ts";
+import { availableHeight, clampPage, pageLabel, pageOf, pageStarts, swipeStep } from "./fit.ts";
 
-test("a page holds as many cards as fit the list's height, by rows of its grid", () => {
-  assert.equal(pageSizeFor(500, 100, 16, 1), 4, "four 100 px cards and three gaps fit in 500 px, a fifth does not");
-  assert.equal(pageSizeFor(448, 100, 16, 1), 4, "four cards and three gaps are exactly 448 px");
-  assert.equal(pageSizeFor(447, 100, 16, 1), 3);
-  assert.equal(pageSizeFor(500, 100, 16, 3), 12, "a grid of three columns shows four rows of three");
-  assert.equal(pageSizeFor(40, 100, 16, 1), 1, "a list too short for one card still shows one");
-  assert.equal(pageSizeFor(500, 0, 16, 1), 1, "no card measured yet shows one, then fits again once measured");
+test("a page holds as many of its own cards as fit, so a tall card shortens only its own page", () => {
+  assert.deepEqual(pageStarts([195, 120, 150], 370, 16, 1), [0, 2], "the live Tasks column at 1160 px: two cards fit on the first page, where sizing every page by its 195 px tallest card showed one");
+  assert.deepEqual(pageStarts([120, 120, 120, 200, 90, 90], 500, 16, 1), [0, 3], "three cards fill the first page, and the tall fourth starts the next with the two short ones after it");
+  assert.deepEqual(pageStarts([100, 100, 100, 100], 448, 16, 1), [0], "four 100 px cards and three gaps are exactly 448 px");
+  assert.deepEqual(pageStarts([100, 100, 100, 100], 447, 16, 1), [0, 3]);
+  assert.deepEqual(pageStarts([600, 100], 500, 16, 1), [0, 1], "a card taller than the list still gets a page of its own");
+  assert.deepEqual(pageStarts([], 500, 16, 1), [0], "an empty list is one empty page");
 });
 
-test("a page is sized by the tallest card seen at its width, so shorter cards never flip the size back", () => {
-  const seen = tallestCard({ width: 300, unit: 0 }, 300, [90, 90, 90, 90, 130]);
-  assert.equal(pageSizeFor(600, seen.unit, 16, 1), 4, "a wrapped 130 px card leaves room for four");
-  const shorter = tallestCard(seen, 300, [90, 90, 90, 90]);
-  assert.equal(pageSizeFor(600, shorter.unit, 16, 1), 4, "the four one-line cards it then shows keep four, not five");
-  assert.equal(tallestCard(shorter, 420, [90, 90]).unit, 90, "a new width measures again");
+test("in a grid, rows of cards fill the page, each row as tall as its tallest card", () => {
+  assert.deepEqual(pageStarts([100, 150, 100, 100, 200, 50], 300, 16, 2), [0, 4], "rows of 150 and 100 px fit in 300 px; the 200 px row starts the next page");
 });
 
 test("the page stays inside the list as cards come and go", () => {
-  assert.equal(clampPage(3, 5, 18), 3);
-  assert.equal(clampPage(4, 5, 18), 3);
-  assert.equal(clampPage(2, 5, 0), 0);
-  assert.equal(clampPage(-1, 5, 18), 0);
+  assert.equal(clampPage(3, 4), 3);
+  assert.equal(clampPage(4, 4), 3);
+  assert.equal(clampPage(2, 1), 0);
+  assert.equal(clampPage(-1, 4), 0);
 });
 
 test("a card moved past its page's edge is shown on the page it moved to", () => {
-  assert.equal(pageOf(4, 5), 0, "the fifth card is on the first page of five");
-  assert.equal(pageOf(5, 5), 1, "one place further down carries the view to the second page");
-  assert.equal(pageOf(0, 5), 0);
-  assert.equal(pageOf(17, 5), 3);
+  const starts = [0, 3, 5];
+  assert.equal(pageOf(2, starts), 0, "the third card is on the first page");
+  assert.equal(pageOf(3, starts), 1, "one place further down carries the view to the second page");
+  assert.equal(pageOf(4, starts), 1);
+  assert.equal(pageOf(7, starts), 2);
 });
 
 test("the pager says which cards show, and a list that fits needs none", () => {
   assert.equal(pageLabel(0, 5, 18), "1–5 of 18");
-  assert.equal(pageLabel(3, 5, 18), "16–18 of 18");
+  assert.equal(pageLabel(15, 18, 18), "16–18 of 18");
   assert.equal(pageLabel(0, 5, 5), "");
-  assert.equal(pageLabel(0, 5, 0), "");
+  assert.equal(pageLabel(0, 0, 0), "");
 });
 
 test("a sideways swipe turns the page and a vertical one scrolls", () => {
