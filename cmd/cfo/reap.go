@@ -22,10 +22,11 @@ import (
 const reapUsage = `usage: cfo reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]
 
 Find the fleet resources nothing else notices and retire them:
-an unsupervised harness process whose pane is gone, a dev server left running
-in a worktree no pane's agent is working in, whatever its status log says, an
-orphaned worktree, task record or status log, and the empty directory a dead
-task leaves under .worktrees/.
+an unsupervised harness process whose pane or native terminal host is gone, a
+dev server left running in a worktree no pane's agent or live native terminal
+host is working in, whatever its status log says, an orphaned worktree, task
+record or status log, and the empty directory a dead task leaves under
+.worktrees/.
 
 A harness process is placed by its ancestry and its command line, never by its
 image name: the desktop application and the agents of a no-mistakes review
