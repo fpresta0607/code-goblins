@@ -144,15 +144,15 @@ func (f *Fake) PaneInput(context.Context) (herdr.PaneInput, error) {
 	return fakePanes{f}, nil
 }
 
-// fakePanes records typing and scrolling among the fake's calls.
+// fakePanes records typing and history reads among the fake's calls.
 type fakePanes struct{ fake *Fake }
 
 func (p fakePanes) SendText(_ context.Context, pane, text string) error {
 	return p.fake.record("SendText", pane, text)
 }
 
-func (p fakePanes) Scroll(_ context.Context, pane string, offset int) (int, error) {
-	return offset, p.fake.record("Scroll", pane, strconv.Itoa(offset))
+func (p fakePanes) History(_ context.Context, pane string, lines int) (string, error) {
+	return "", p.fake.record("History", pane, strconv.Itoa(lines))
 }
 
 func (f *Fake) SendKey(_ context.Context, target herdr.Target, key string) error {

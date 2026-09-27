@@ -525,6 +525,10 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
    so the input line stays at the bottom of the panel; nothing scrolls. */
 .native-terminal:not(.host-terminal) .terminal-surface { display: flex; flex-direction: column; justify-content: flex-end; }
 .terminal-surface .xterm-viewport { overflow: hidden !important; }
+/* The pane's history lies over its live screen at the same size, and stays
+   laid out while away so its cells are measured. */
+.terminal-history { position: absolute; inset: 0; z-index: 1; }
+.terminal-history.away { visibility: hidden; pointer-events: none; }
 /* No terminal shows a scroll bar; the wheel still scrolls a native one. */
 .terminal-surface .xterm-scrollable-element > .scrollbar { display: none; }
 .terminal-overlay { position: absolute; top: 10px; right: 12px; display: flex; align-items: center; gap: 8px; z-index: 2; }
