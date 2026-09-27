@@ -10,15 +10,15 @@ const COLUMNS = [
   { name: "Completed", list: "", hint: "History, newest first.", empty: "Verified work will appear here" },
 ] as const;
 
-export function Board({ snapshot, selected, onSelect, onTerminal, onOpenCfo, onStartCfo, presentations }: {
+export function Board({ snapshot, selected, now, onSelect, onTerminal, onOpenCfo, onStartCfo, presentations }: {
   presentations:BoardActivity[];
-  snapshot: Snapshot; selected?: string;
+  snapshot: Snapshot; selected?: string; now: number;
   onSelect: (task: Task, source: HTMLElement) => void;
   onTerminal: (task: Task, source: HTMLElement) => void;
   onOpenCfo: (source: HTMLElement) => void;
   onStartCfo: () => void;
 }) {
-  const card = (task: Task, rank?: string) => <TaskCard key={task.id} task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} rank={rank} onSelect={onSelect} onTerminal={onTerminal} />;
+  const card = (task: Task, rank?: string) => <TaskCard key={task.id} task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} now={now} rank={rank} onSelect={onSelect} onTerminal={onTerminal} />;
   return <section className="task-board" aria-label="Task board">
     <CfoPin snapshot={snapshot} onOpen={onOpenCfo} onStart={onStartCfo} />
     {COLUMNS.map((column) => {
