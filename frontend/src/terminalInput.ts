@@ -116,19 +116,17 @@ export function panelGrid(width: number, height: number, fontSize: number, cell:
   return cols >= 20 && rows >= 5 ? { cols, rows } : null;
 }
 
-// What happens to a pane's size in the board. The most recent interaction
-// wins: while the board's window has the focus and shows the pane, the board
-// sizes the pane to its panel; leaving for another window, such as a Herdr
-// window, or moving to another view hands the size back. Herdr says nothing
-// when a Herdr window is typed into, so leaving the board is the sign. Once
+// What happens to a pane's size in the board. A view that is open keeps the
+// pane sized to its panel and live, whether or not the board's window has the
+// focus: a Herdr window shows the pane at the board's size, and only closing
+// the view hands the size back. A view takes the size once it is shown. Once
 // another client takes the pane (held), the board waits for the Overlord to
 // come back to it or type in it before taking the pane again.
 export type SizeEvent = "live" | "focus" | "blur" | "shown" | "hidden" | "typed";
-export function sizeStep(event: SizeEvent, view: { sized: boolean; focused: boolean; shown: boolean; held: boolean }): "take" | "give" | "stay" {
-  if (event === "blur" || event === "hidden") return view.sized ? "give" : "stay";
-  if (view.sized || !view.shown) return "stay";
+export function sizeStep(event: SizeEvent, view: { sized: boolean; shown: boolean; held: boolean }): "take" | "stay" {
+  if (view.sized || !view.shown || event === "blur" || event === "hidden") return "stay";
   if (event === "focus" || event === "typed") return "take";
-  return view.focused && !view.held ? "take" : "stay";
+  return view.held ? "stay" : "take";
 }
 
 // What a view does when one of its connections ends on its own: stop with the

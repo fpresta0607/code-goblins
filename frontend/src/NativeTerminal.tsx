@@ -11,9 +11,10 @@ import { terminalDocument } from "./terminalDocument";
 import { useDictation } from "./useDictation";
 
 const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
-// A panel being dragged asks for its new size once it has held this long, so
-// the program redraws once, not per frame.
-const RESIZE_SETTLE_MS = 120;
+// A panel that changes size asks for its new grid at once, and while it keeps
+// changing, such as a window being dragged, at most this often, so the pane
+// follows the panel without the program redrawing on every frame.
+const RESIZE_EVERY_MS = 40;
 
 // One view stream of the pane: sized when it has taken the pane's control and
 // sized it to the panel, or else observing the pane at the pane's own size.
@@ -151,19 +152,32 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       if (size === current) settle(); else term.options.fontSize = size;
     };
     // A sized view keeps the pane filling the panel: a changed panel or text
-    // size, or a screen drawn larger than the panel, asks for the grid that
-    // fits once the panel has held still.
-    let regrid: ReturnType<typeof setTimeout> | undefined;
+    // size, or a screen drawn larger than the panel, asks at once for the grid
+    // that fits, then at most every RESIZE_EVERY_MS while it keeps changing,
+    // and once more when it holds still. Only the newest size waits to be sent.
+    let regrid: ReturnType<typeof setTimeout> | undefined, again = false, asked = "";
+    const askGrid = () => {
+      if (!active?.sized || !lease || abort.signal.aborted) return;
+      const { width, height } = room();
+      const size = panelGrid(width, height, font, cell());
+      if (!size || size.cols === term.cols && size.rows === term.rows) return;
+      // A size already asked for shows once its next frame arrives.
+      if (asked === size.cols + "x" + size.rows) return;
+      asked = size.cols + "x" + size.rows;
+      for (let index = queue.length - 1; index >= 0; index--) if (queue[index].type === "terminal.resize") queue.splice(index, 1);
+      queue.push({ type: "terminal.resize", cols: size.cols, rows: size.rows });
+      void flush();
+    };
     const resizeSized = () => {
-      clearTimeout(regrid);
-      regrid = setTimeout(() => {
-        if (!active?.sized || !lease || abort.signal.aborted) return;
-        const { width, height } = room();
-        const size = panelGrid(width, height, font, cell());
-        if (!size || size.cols === term.cols && size.rows === term.rows) return;
-        queue.push({ type: "terminal.resize", cols: size.cols, rows: size.rows });
-        void flush();
-      }, RESIZE_SETTLE_MS);
+      if (regrid !== undefined) { again = true; return; }
+      askGrid();
+      const next = () => {
+        if (!again) { regrid = undefined; return; }
+        again = false;
+        askGrid();
+        regrid = setTimeout(next, RESIZE_EVERY_MS);
+      };
+      regrid = setTimeout(next, RESIZE_EVERY_MS);
     };
     term.onRender(() => {
       settle();
@@ -271,8 +285,8 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
         held = false;
         if (refused) { refused = ""; setError(""); }
       }
-      const action = sizeStep(event, { sized: pending ? pending.sized : active.sized, focused: document.hasFocus(), shown: shownValue.current, held });
-      if (action !== "stay") want(action === "take");
+      const action = sizeStep(event, { sized: pending ? pending.sized : active.sized, shown: shownValue.current, held });
+      if (action === "take") want(true);
     };
     const send = (text: string) => {
       if (!text || !lease || abort.signal.aborted) return;
@@ -438,6 +452,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       // A size or a scroll asked of the connection it replaces means nothing
       // to this one.
       for (let index = queue.length - 1; index >= 0; index--) if (queue[index].type !== "terminal.input") queue.splice(index, 1);
+      asked = "";
       previous?.abort.abort();
       closeHistory();
       checking = false;

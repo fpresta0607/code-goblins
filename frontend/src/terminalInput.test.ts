@@ -151,17 +151,17 @@ test("a view that sizes its pane fills the panel with whole cells, within what H
   for (const [name, width, height, font, grid] of cases) assert.deepEqual(panelGrid(width, height, font, cell), grid, name);
 });
 
-test("the most recent interaction wins the pane's size", () => {
+test("an open view keeps the pane live at the board's size, focused or not, until it closes", () => {
   const view = { sized: false, focused: true, shown: true, held: false };
   const cases: [string, SizeEvent, typeof view, ReturnType<typeof sizeStep>][] = [
     ["opening the terminal in the focused board takes the size", "live", view, "take"],
-    ["opening it while he is in another window leaves the size", "live", { ...view, focused: false }, "stay"],
+    ["opening it while he is in another window takes the size too", "live", { ...view, focused: false }, "take"],
+    ["showing a view again takes the size, focused or not", "shown", { ...view, focused: false }, "take"],
     ["opening it after another client took the pane leaves the size", "live", { ...view, held: true }, "stay"],
     ["coming back to the board takes the size, even from another client", "focus", { ...view, held: true }, "take"],
     ["typing in the board takes the size, even from another client", "typed", { ...view, held: true }, "take"],
-    ["leaving the board for a Herdr window hands the size back", "blur", { ...view, sized: true }, "give"],
-    ["moving to another view hands the size back", "hidden", { ...view, sized: true }, "give"],
-    ["showing the view again in the focused board takes the size", "shown", view, "take"],
+    ["leaving the board for a Herdr window keeps the size", "blur", { ...view, sized: true }, "stay"],
+    ["moving to another view keeps the size", "hidden", { ...view, sized: true }, "stay"],
     ["a view out of sight never takes the size", "focus", { ...view, shown: false }, "stay"],
     ["a view that has the size keeps it", "typed", { ...view, sized: true }, "stay"],
     ["leaving a view that does not have the size changes nothing", "blur", view, "stay"],
