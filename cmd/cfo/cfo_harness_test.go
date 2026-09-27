@@ -215,6 +215,52 @@ func TestStartingTheCFOInHerdrStartsEachHarnessAsHerdrCan(t *testing.T) {
 	}
 }
 
+// A typed CFO that Herdr does not detect, its pane dead with the harness
+// running, is reported to Herdr as agent cfo, so a later goblins finds an
+// agent in the cfo tab rather than starting a second CFO beside it. One Herdr
+// detects is left alone, and Claude Code, which herdr agent start registers,
+// is never reported.
+func TestStartingTheCFOInHerdrReportsATypedCFOHerdrDoesNotDetect(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		harness    string
+		status     herdr.AgentStatus
+		wantReport []string
+	}{
+		{"undetected codex", "codex", herdr.AgentDead, []string{"ReportAgent fleet:w1:p1 codex unknown"}},
+		{"undetected pi", "pi", herdr.AgentDead, []string{"ReportAgent fleet:w1:p1 pi unknown"}},
+		{"detected pi", "pi", herdr.AgentAlive, nil},
+		{"claude", "claude", herdr.AgentDead, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			fake := &terminaltest.Fake{
+				Session:   "fleet",
+				Container: herdr.Container{Session: "fleet", WorkspaceID: "w1"},
+				CFO:       herdr.Endpoint{Target: herdr.Target{Session: "fleet", Pane: "w1:p1"}, WorkspaceID: "w1", TabID: "w1:t1", PaneID: "w1:p1"},
+				Status:    c.status,
+				Running:   true,
+			}
+
+			// Act
+			if _, err := startCFOWith(context.Background(), fake, `C:\dev\app`, c.harness); err != nil {
+				t.Fatal(err)
+			}
+
+			// Assert
+			var reports []string
+			for _, call := range fake.Calls() {
+				if strings.HasPrefix(call, "ReportAgent ") {
+					reports = append(reports, call)
+				}
+			}
+			if !slices.Equal(reports, c.wantReport) {
+				t.Errorf("reports = %q, want %q (calls %q)", reports, c.wantReport, fake.Calls())
+			}
+		})
+	}
+}
+
 // harnessesOnPath makes PATH hold only stub script shims for the named
 // harnesses.
 func harnessesOnPath(t *testing.T, names ...string) {

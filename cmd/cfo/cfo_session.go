@@ -242,8 +242,31 @@ func startCFOWith(ctx context.Context, client terminal.Backend, project, harness
 		if err := client.SendKey(ctx, endpoint.Target, "Enter"); err != nil {
 			return false, err
 		}
+		time.Sleep(cfoTypedLaunchSettle)
+		if err := reportUndetectedCFO(ctx, client, endpoint.Target, project, harness); err != nil {
+			return false, err
+		}
 	}
 	return !running, client.Focus(ctx, endpoint)
+}
+
+// reportUndetectedCFO tells Herdr a typed CFO runs in its pane when Herdr's
+// detection misses it, as a goblin's typed launch does, so a later goblins
+// finds an agent in the cfo tab rather than starting a second CFO. A pane
+// Herdr cannot answer for is left alone.
+func reportUndetectedCFO(ctx context.Context, client terminal.Backend, target herdr.Target, project, harness string) error {
+	status, err := client.AgentStatus(ctx, target)
+	if err != nil || status != herdr.AgentDead {
+		return nil
+	}
+	running, err := client.HarnessRunning(ctx, target)
+	if err != nil || !running {
+		return nil
+	}
+	if err := client.ReportAgent(ctx, target, harness, "unknown", "cfo", project); err != nil {
+		return fmt.Errorf("register the undetected %s CFO with herdr: %w", harness, err)
+	}
+	return nil
 }
 
 // attachHerdr hands this terminal to herdr, which attaches to session, and
