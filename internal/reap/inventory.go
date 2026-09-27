@@ -134,7 +134,8 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 
 // nativeHosts reads every native terminal's host record. A record that cannot
 // be read is named, and its task held: whether that goblin still runs is
-// exactly what is unknown.
+// exactly what is unknown. A record gone since the listing is a host that has
+// just ended, which leaves nothing to read.
 func (c Collector) nativeHosts(inv *Inventory, notes *[]string) {
 	ids, err := host.RecordIDs(c.Home.State)
 	if err != nil {
@@ -148,6 +149,9 @@ func (c Collector) nativeHosts(inv *Inventory, notes *[]string) {
 	}
 	for _, id := range ids {
 		record, err := host.ReadRecord(c.Home.State, id)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
 		if err != nil {
 			*notes = append(*notes, fmt.Sprintf("state/hosts/%s.json: UNREADABLE (%s)", id, err))
 			inv.UnreadableHosts = append(inv.UnreadableHosts, id)

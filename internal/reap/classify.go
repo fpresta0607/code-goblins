@@ -966,8 +966,9 @@ func commandArgs(commandLine string) []string {
 
 // scratchpadOwner is the worktree a directory under a Claude Code session's
 // temporary folder belongs to, since Claude Code names that folder
-// %TEMP%\claude\<slug> after the working directory, each :, \, / and . in it
-// replaced by -; any other directory is its own answer.
+// %TEMP%\claude\<slug> after the working directory, each character in it that
+// is not an ASCII letter or digit replaced by -; any other directory is its
+// own answer.
 func scratchpadOwner(dir string, worktrees []WorktreeDir) string {
 	parts := strings.Split(normalizePath(dir), `\`)
 	for index := 0; index+2 < len(parts); index++ {
@@ -975,7 +976,12 @@ func scratchpadOwner(dir string, worktrees []WorktreeDir) string {
 			continue
 		}
 		for _, worktree := range worktrees {
-			slug := strings.NewReplacer(":", "-", `\`, "-", "/", "-", ".", "-").Replace(normalizePath(worktree.Path))
+			slug := strings.Map(func(r rune) rune {
+				if ('a' <= r && r <= 'z') || ('0' <= r && r <= '9') {
+					return r
+				}
+				return '-'
+			}, normalizePath(worktree.Path))
 			if parts[index+2] == slug {
 				return worktree.Path
 			}
