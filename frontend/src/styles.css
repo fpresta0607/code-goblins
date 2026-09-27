@@ -531,6 +531,10 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
    so the input line stays at the bottom of the panel; nothing scrolls. */
 .native-terminal:not(.host-terminal) .terminal-surface { display: flex; flex-direction: column; justify-content: flex-end; }
 .terminal-surface .xterm-viewport { overflow: hidden !important; }
+/* The pane's history lies over its live screen at the same size, and stays
+   laid out while away so its cells are measured. */
+.terminal-history { position: absolute; inset: 0; z-index: 1; }
+.terminal-history.away { visibility: hidden; pointer-events: none; }
 /* No terminal shows a scroll bar; the wheel still scrolls a native one. */
 .terminal-surface .xterm-scrollable-element > .scrollbar { display: none; }
 .terminal-overlay { position: absolute; top: 10px; right: 12px; display: flex; align-items: center; gap: 8px; z-index: 2; }
@@ -760,7 +764,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .rank .grip { display: none; width: 14px; height: 14px; fill: currentColor; }
 .ranked-item:hover .rank-number, .ranked-item:focus-within .rank-number, .ranked-item.dragging .rank-number { display: none; }
 .ranked-item:hover .grip, .ranked-item:focus-within .grip, .ranked-item.dragging .grip { display: block; }
-@media (pointer: coarse) { .rank { pointer-events: auto; touch-action: none; } }
+@media (any-pointer: coarse) { .rank { pointer-events: auto; touch-action: none; } }
 .ranked-item.dragging .task-card { transform: scale(1.02) rotate(-.6deg); border-color: var(--mint); box-shadow: 0 18px 40px #000a, 0 0 0 2px var(--mint); }
 .ranked-item.dragging .rank { border-color: var(--mint); }
 .order-error { margin: 12px 0 0; color: #f6d79e; }

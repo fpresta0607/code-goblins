@@ -111,6 +111,46 @@ func TestOrderQueuedRefusesAnOrderTheBacklogNoLongerHolds(t *testing.T) {
 	}
 }
 
+func TestOrderQueuedKeepsTheRowOfAGoblinInProgressInPlace(t *testing.T) {
+	// Arrange
+	handler, h := orderBoard(t)
+	writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- **first** - First\n- **task-1** - Started\n  detail: started\n- **second** - Second\n")
+
+	// Act
+	response := postOrder(handler, `{"list":"queued","order":["second","first"]}`, "http://board.local", orderToken)
+
+	// Assert
+	if response.Code != 200 {
+		t.Fatalf("order = %d %s, want the order saved", response.Code, response.Body)
+	}
+	data, err := os.ReadFile(filepath.Join(h.Data, "backlog.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(data), "## Queued\n- **second** - Second\n- **task-1** - Started\n  detail: started\n- **first** - First\n"; got != want {
+		t.Fatalf("backlog.md = %q, want %q", got, want)
+	}
+}
+
+func TestSnapshotAttentionNamesOnlyLiveGoblins(t *testing.T) {
+	// Arrange
+	handler, h := orderBoard(t)
+	if err := fleet.WriteAttention(h, []string{"gone", "task-1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	snapshot, err := handler.Service.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(snapshot.Attention, []string{"task-1"}) {
+		t.Fatalf("attention = %v, want only the live goblin", snapshot.Attention)
+	}
+}
+
 func TestOrderInProgressSetsTheAttentionOrderTheSnapshotLists(t *testing.T) {
 	// Arrange
 	handler, h := orderBoard(t)
@@ -170,15 +210,29 @@ func TestOrderRefusesBadRequests(t *testing.T) {
 }
 
 func TestQueuedBriefNamesItsProject(t *testing.T) {
-	// Arrange
-	_, h := orderBoard(t)
-	writeFile(t, filepath.Join(h.Data, "briefed", "brief.md"), "# Brief briefed\r\n\r\n## Project\r\n\r\nC:\\dev\\code-goblins\r\n")
+	cases := []struct {
+		name    string
+		project string
+		want    string
+	}{
+		{"windows path", `C:\dev\code-goblins`, "code-goblins"},
+		{"path with a space", `C:\dev\Bob Upwork`, "Bob Upwork"},
+		{"path with a note", `C:\dev\code-goblins (the cfo fleet orchestrator, Go)`, "code-goblins"},
+		{"relative path with a note", "projects/clock-in (Clock-In: pnpm monorepo - apps/desktop (Tauri/Rust), packages/{shared,database})", "clock-in"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			_, h := orderBoard(t)
+			writeFile(t, filepath.Join(h.Data, "briefed", "brief.md"), "# Brief briefed\r\n\r\n## Project\r\n\r\n"+tc.project+"\r\n")
 
-	// Act
-	briefs := queuedBriefs(h)
+			// Act
+			briefs := queuedBriefs(h)
 
-	// Assert
-	if len(briefs) != 1 || briefs[0].Project != "code-goblins" {
-		t.Fatalf("queued briefs = %+v, want briefed in code-goblins", briefs)
+			// Assert
+			if len(briefs) != 1 || briefs[0].Project != tc.want {
+				t.Fatalf("queued briefs = %+v, want briefed in %q", briefs, tc.want)
+			}
+		})
 	}
 }

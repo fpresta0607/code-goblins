@@ -25,11 +25,11 @@ export function itemFor(snapshot: Snapshot, key: string): Item | undefined {
 }
 
 // The stack he works through: the CFO's own items first, then goblins in the
-// In progress order the snapshot lists them in, each goblin's by longest
+// In progress order he set, then goblins he has not placed, each by longest
 // wait. An item answered in this sitting keeps its place, so it can show its
 // outcome instead of vanishing under the pointer.
 export function waitingItems(snapshot: Snapshot, kept: ReadonlySet<string> = new Set()): Item[] {
-  const place = (item: Item) => { const at = snapshot.tasks.findIndex((listed) => listed.id === task(item)); return at < 0 ? snapshot.tasks.length : at; };
+  const place = (item: Item) => { const at = snapshot.attention.indexOf(task(item)); return at < 0 ? snapshot.attention.length : at; };
   return asItems(snapshot)
     .filter((item) => isOpen(item) || kept.has(item.key))
     .sort((a, b) => Number(!!task(a)) - Number(!!task(b)) || place(a) - place(b) || created(a) - created(b));

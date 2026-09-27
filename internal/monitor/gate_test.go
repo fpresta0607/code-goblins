@@ -12,12 +12,13 @@ import (
 
 type fakeGate struct {
 	sample GateSample
+	err    error
 	calls  int
 }
 
 func (f *fakeGate) InspectGate(_ context.Context, _ state.TaskMeta) (GateSample, error) {
 	f.calls++
-	return f.sample, nil
+	return f.sample, f.err
 }
 
 // The live shape this was built from: every step through pr completed, ci

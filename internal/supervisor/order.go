@@ -72,7 +72,9 @@ func (h *HTTP) order(w http.ResponseWriter, r *http.Request) {
 }
 
 // orderQueued saves order as backlog.md's Queued order. A brief the board
-// lists with no backlog row gets one where the Overlord placed it.
+// lists with no backlog row gets one where the Overlord placed it, and the
+// row of a task with a live task record, which the board lists In progress,
+// stays where it is.
 func (s *Service) orderQueued(order []string) error {
 	s.ordering.Lock()
 	defer s.ordering.Unlock()
@@ -80,6 +82,12 @@ func (s *Service) orderQueued(order []string) error {
 	backlog, err := fleet.ReadBacklog(h)
 	if err != nil {
 		return err
+	}
+	live := map[string]bool{}
+	for _, row := range backlog.Queued {
+		if _, err := state.ReadTaskMeta(h.State, row.ID); row.Structured && err == nil {
+			live[row.ID] = true
+		}
 	}
 	added := map[string]string{}
 	for _, brief := range queuedBriefs(h) {
@@ -93,7 +101,7 @@ func (s *Service) orderQueued(order []string) error {
 		}
 		added[brief.ID] = row
 	}
-	return fleet.ReorderQueued(h, order, added)
+	return fleet.ReorderQueued(h, order, added, live)
 }
 
 // orderProgress saves order as the attention order of the goblins in
