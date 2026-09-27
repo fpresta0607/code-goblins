@@ -5,8 +5,8 @@ import { Icon } from "./Icon";
 import { clockText } from "./cards";
 import { asksOverlord, nodeStatus, personaFor, pullRequestIcon, pullRequestLabel, safePullRequest, taskColumn, waitingTarget } from "./workflow";
 
-// A task's card on the board: a short title of at most two lines, then one
-// muted line with the repo and the status, and a quiet clock of how long its
+// A task's card on the board: its title, then a muted line with the repo and
+// the status, both wrapping onto further lines, and a quiet clock of how long its
 // session has run or how long it has waited; the goblin's own words stay in
 // its panel. rank, when the card sits in an ordered list, is read out with it.
 export function TaskCard({ task, snapshot, selected, presentations, now, rank, onSelect, onTerminal }: {
@@ -14,7 +14,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, o
   onSelect: (task: Task, source: HTMLElement) => void;
   onTerminal: (task: Task, source: HTMLElement) => void;
 }) {
-  // A title cut off after two lines shows in full in a tip on hover or focus.
+  // A title still shortened shows in full in a tip on hover or focus.
   const [clipped, setClipped] = useState(false);
   const measure = (event: SyntheticEvent<HTMLElement>) => {
     const title = event.currentTarget.querySelector<HTMLElement>(".card-title");
