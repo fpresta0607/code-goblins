@@ -641,7 +641,11 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 			}
 		case f, ok := <-frames:
 			if !ok {
-				closed("Native terminal disconnected or is already controlled elsewhere. No takeover was attempted.")
+				if input.Control {
+					closed("Native terminal disconnected.")
+				} else {
+					closed("Native terminal disconnected or is already controlled elsewhere. No takeover was attempted.")
+				}
 				return
 			}
 			if f.Type == "terminal.closed" {
