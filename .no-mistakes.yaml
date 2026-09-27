@@ -17,8 +17,19 @@ disable_project_settings: true
 # file and two wake records into the live queue. internal/home refuses the
 # inherited home from a test binary, which covers `go test`; the real `cfo`
 # binary is not a test binary, so a step that invokes it must clear both
-# variables itself. no-mistakes v1.75.1 has no per-repo step command or env
-# setting to enforce this, so it is stated in every intent instead.
+# variables itself. The test step's baseline command below clears them in
+# code; no-mistakes v1.75.1 has no per-repo env setting, so for everything an
+# agent runs it is stated in every intent instead.
+
+# The test step's baseline is `cfo gate test`: go vet and go test on the
+# packages the branch changed and the packages that import them directly,
+# each named with why. An agent-chosen step ran the whole suite on this
+# loaded machine, where supervisor alone takes about 22 minutes, and hit the
+# 30-minute test agent limit with no failing test; CI still runs every
+# package. It runs the installed cfo, so it works once the CFO installs a
+# build that has `cfo gate test`.
+commands:
+  test: "cfo gate test"
 
 # This repository does not override the primary pipeline agent.
 # The owned global Codex profile routes test, document, and lint, while global
