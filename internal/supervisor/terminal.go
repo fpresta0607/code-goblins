@@ -452,11 +452,14 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 	}
 	select {
 	case h.terminalSlots <- struct{}{}:
-		defer func() { <-h.terminalSlots }()
 	default:
 		apiError(w, 429, "Too many native terminal views")
 		return
 	}
+	// A view gives its slot back as it ends, before it hands the pane its
+	// size back or waits for its Herdr process to exit.
+	free := sync.OnceFunc(func() { <-h.terminalSlots })
+	defer free()
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	check, stop := context.WithTimeout(ctx, 8*time.Second)
@@ -570,6 +573,7 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 		// holds the mutex past its bound.
 		unregister()
 		cancel()
+		free()
 		if input.Control {
 			h.handBack(lease)
 		}

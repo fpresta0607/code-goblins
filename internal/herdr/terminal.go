@@ -70,8 +70,8 @@ type terminalProcess struct {
 	once    sync.Once
 }
 
-// OpenTerminal never takes over an existing controller. The exact terminal ID
-// prevents a removed pane alias from redirecting this stream into a new pane.
+// OpenTerminal attaches to a terminal as terminalSessionArgs describes. The
+// exact terminal ID prevents a removed pane alias from redirecting this stream into a new pane.
 func OpenTerminal(ctx context.Context, session, terminal string, control bool, cols, rows int) (TerminalStream, error) {
 	if session == "" || terminal == "" || strings.ContainsAny(session+terminal, "\x00\r\n") || strings.HasPrefix(terminal, "-") {
 		return nil, errors.New("native terminal identity is required")
@@ -79,8 +79,18 @@ func OpenTerminal(ctx context.Context, session, terminal string, control bool, c
 	if err := (TerminalCommand{Type: "terminal.resize", Cols: cols, Rows: rows}).Validate(); err != nil {
 		return nil, err
 	}
+	return startTerminal(ctx, "herdr", terminalSessionArgs(session, terminal, control, cols, rows)...)
+}
+
+// closeGrace is how long a closed terminal process has to deliver what it was
+// sent and exit on its own before it is killed.
+const closeGrace = time.Second
+
+// startTerminal runs a terminal session process that reads commands on its
+// stdin and writes frames on its stdout.
+func startTerminal(ctx context.Context, name string, args ...string) (*terminalProcess, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, "herdr", terminalSessionArgs(session, terminal, control, cols, rows)...)
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.WaitDelay = 2 * time.Second
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -153,7 +163,19 @@ func (p *terminalProcess) Send(c TerminalCommand) error {
 	return json.NewEncoder(p.stdin).Encode(c)
 }
 
+// Close ends the process's input and lets it deliver what it was last sent,
+// such as the size a controller hands back, before it is killed.
 func (p *terminalProcess) Close() error {
-	p.once.Do(func() { _ = p.stdin.Close(); p.cancel(); _ = p.cmd.Wait() })
+	p.once.Do(func() {
+		_ = p.stdin.Close()
+		exited := make(chan struct{})
+		go func() { _ = p.cmd.Wait(); close(exited) }()
+		select {
+		case <-exited:
+		case <-time.After(closeGrace):
+		}
+		p.cancel()
+		<-exited
+	})
 	return nil
 }
