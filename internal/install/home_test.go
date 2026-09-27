@@ -107,9 +107,10 @@ func TestInstallOutsideACheckoutSetsUpAPrimaryHomeFromTheBinary(t *testing.T) {
 		t.Errorf("PATH = %q, want the home appended", got)
 	}
 	commands := hookCommands(t, f.user)
-	for _, hook := range Hooks() {
-		if count(commands, hook.Command) != 1 {
-			t.Errorf("CFO hook %q appears %d times, want 1", hook.Command, count(commands, hook.Command))
+	for _, hook := range Hooks(f.root) {
+		line := hook.Command + " " + strings.Join(hook.Args, " ")
+		if count(commands, line) != 1 {
+			t.Errorf("CFO hook %q appears %d times, want 1", line, count(commands, line))
 		}
 	}
 }
@@ -330,7 +331,7 @@ func TestUninstallOutsideACheckoutUnwiresTheHomeAndKeepsIt(t *testing.T) {
 		t.Errorf("PATH = %q, want the home removed", got)
 	}
 	for _, command := range hookCommands(t, f.user) {
-		if strings.HasPrefix(command, rootPrefix) {
+		if isCFOCommand(command) {
 			t.Errorf("CFO hook %q survived the uninstall", command)
 		}
 	}

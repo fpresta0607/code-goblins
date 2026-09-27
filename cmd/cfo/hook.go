@@ -38,17 +38,22 @@ func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// guard fired - and an accident that has to be remembered is exactly the
 	// bug this replaces. The check sits above the dispatch rather than
 	// inside each arm so it covers every hook that exists and every hook
-	// anyone adds later.
-	if os.Getenv(harness.RoleVariable) == harness.RoleGoblin {
+	// anyone adds later. A gate agent is not the CFO either. The hooks are
+	// user-level, so both run them on every tool call they select, and both
+	// leave on their environment alone, before reading the payload or the
+	// home.
+	if os.Getenv(harness.RoleVariable) == harness.RoleGoblin || os.Getenv(gateAgentVariable) != "" {
 		return 0
 	}
 	switch name {
 	case "pretool-subagent":
 		return hookPretoolSubagent(stdin, stdout, stderr)
+	case "pretool-bash":
+		return hookPretoolBash(stdin, stderr, guard.ClassifyArm, guard.ClassifyCd)
 	case "pretool-arm":
-		return hookPretoolArm(stdin, stdout, stderr)
+		return hookPretoolBash(stdin, stderr, guard.ClassifyArm)
 	case "pretool-cd":
-		return hookPretoolCd(stdin, stdout, stderr)
+		return hookPretoolBash(stdin, stderr, guard.ClassifyCd)
 	case "turnend-guard":
 		return hookTurnendGuard(stdin, stdout, stderr)
 	case "stop-autoarm":
@@ -136,12 +141,26 @@ func hookPretoolSubagent(stdin io.Reader, stdout, stderr io.Writer) int {
 // native question, naming the two commands that ask without blocking.
 const nativePromptRefusal = "[native-prompt] the registered primary CFO never asks through a native selector (blocked tool: %s): it holds this whole turn, shows only in this terminal and never reaches the Command Center, so supervision stops while it waits. Publish the question with cfo question --id <stable-id> --text \"<question>\" --option \"<choice>\" --recommend \"<choice>\", or a command only the Overlord can run with cfo run-request --id <stable-id> --title \"<why>\" --shell powershell --command-file <path>. His answer arrives here as a message, so keep supervising while it is out."
 
-// hookPretoolArm stops the agent shell from invoking the watcher directly:
+// gateAgentVariable is set by no-mistakes on every agent it starts for a
+// gate step.
+const gateAgentVariable = "NO_MISTAKES_GATE"
+
+// hookPretoolBash applies the Bash guards to one Bash call, the first that
+// refuses it deciding. pretool-bash, the one hook a Bash call runs, applies
+// both, so the call starts one process however many guards there are;
+// pretool-arm and pretool-cd apply one each.
+//
+// The arm guard stops the agent shell from invoking the watcher directly:
 // the watcher is supposed to be armed by the Stop-owned auto-arm hook, and
 // running it (or killing it, backgrounding it, piping it, and the rest)
-// from a Bash call bypasses that supervision. Every early exit fails open
-// (exit 0, silent).
-func hookPretoolArm(stdin io.Reader, stdout, stderr io.Writer) int {
+// from a Bash call bypasses that supervision. The cd guard stops the agent
+// shell from relocating its working directory: Claude Code's Bash tool keeps
+// its working directory across calls, so a relocation anywhere in the
+// command outlives the tool call. Upstream's cd-guard predicate is looser
+// than IsPrimary; it is deliberately tightened to IsPrimary here, as the arm
+// guard's is, so both share the inert-in-dev guarantee. This is a sanctioned
+// deviation from upstream. Every early exit fails open (exit 0, silent).
+func hookPretoolBash(stdin io.Reader, stderr io.Writer, guards ...func(command string) (code, reason string, deny bool)) int {
 	payload, ok := claudehook.ReadPayload(stdin)
 	if !ok {
 		return 0
@@ -153,37 +172,12 @@ func hookPretoolArm(stdin io.Reader, stdout, stderr io.Writer) int {
 	if !home.IsPrimary(h) {
 		return 0
 	}
-	code, reason, deny := guard.ClassifyArm(payload.Command)
-	if !deny {
-		return 0
+	for _, classify := range guards {
+		if code, reason, deny := classify(payload.Command); deny {
+			return claudehook.DenyPreTool(stderr, fmt.Sprintf("[%s] %s", code, reason))
+		}
 	}
-	return claudehook.DenyPreTool(stderr, fmt.Sprintf("[%s] %s", code, reason))
-}
-
-// hookPretoolCd stops the agent shell from relocating its working directory:
-// Claude Code's Bash tool keeps its working directory across calls, so a
-// relocation anywhere in the command outlives the tool call. Upstream's
-// cd-guard predicate is looser than IsPrimary; it is deliberately tightened
-// to IsPrimary here, same as pretool-arm, so both guards share the
-// inert-in-dev guarantee. This is a sanctioned deviation from upstream.
-// Every early exit fails open (exit 0, silent).
-func hookPretoolCd(stdin io.Reader, stdout, stderr io.Writer) int {
-	payload, ok := claudehook.ReadPayload(stdin)
-	if !ok {
-		return 0
-	}
-	h, err := home.Resolve()
-	if err != nil {
-		return 0
-	}
-	if !home.IsPrimary(h) {
-		return 0
-	}
-	code, reason, deny := guard.ClassifyCd(payload.Command)
-	if !deny {
-		return 0
-	}
-	return claudehook.DenyPreTool(stderr, fmt.Sprintf("[%s] %s", code, reason))
+	return 0
 }
 
 // genuinelyDownMessage is step 5's attended fail-open: supervision is

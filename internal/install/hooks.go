@@ -6,27 +6,27 @@
 // `.claude/settings.json` and resolve `$CLAUDE_PROJECT_DIR/cfo.exe`, so a
 // session anywhere else trips the `|| exit 0` guard and every hook goes
 // silently inert; and `cfo.exe` is only on PATH if the adopter put it there.
-// Install moves the hooks to user scope, points them at `$CFO_HOME`, and
-// sets `CFO_HOME` and PATH at user scope.
+// Install moves the hooks to user scope, points them at the home's own
+// cfo.exe, and sets `CFO_HOME` and PATH at user scope.
 package install
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strconv"
+	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/guard"
 )
 
-// rootPrefix opens every hook command this package writes. It is also the
-// marker that makes a hook entry ours: an uninstall and the idempotence
-// check both identify CFO hooks by this prefix, so nothing else in an
-// adopter's settings can be mistaken for one and removed.
-//
-// `${CFO_HOME:-$CLAUDE_PROJECT_DIR}` keeps today's behavior for an adopter
-// who has cloned the repo but not run install yet: inside the checkout,
-// `$CLAUDE_PROJECT_DIR` still resolves the binary.
-const rootPrefix = `CFO_ROOT="${CFO_HOME:-$CLAUDE_PROJECT_DIR}"; `
+// shellFormPrefix opened every hook command installs wrote before the hooks
+// ran without a shell. An install or uninstall still recognises an entry by
+// it, so a machine installed then has those entries replaced or removed
+// rather than left running beside the new ones.
+const shellFormPrefix = `CFO_ROOT="${CFO_HOME:-$CLAUDE_PROJECT_DIR}"; `
 
 // Hook is one registered Claude Code hook entry: where it is registered and
-// the exact command string a session runs.
+// what a session runs.
 type Hook struct {
 	// Name is the `cfo hook <name>` this entry invokes.
 	Name string
@@ -34,8 +34,12 @@ type Hook struct {
 	// is registered under (empty for events that take no matcher).
 	Event   string
 	Matcher string
-	// Command is the shell command Claude Code runs.
+	// Command is the home's cfo.exe and Args the arguments it runs with.
+	// Claude Code starts a hook that has args directly, with no shell: a
+	// shell command costs each run Git Bash's launcher and bash before
+	// cfo.exe starts at all.
 	Command string
+	Args    []string
 	// Timeout is the entry's timeout in seconds; zero means unset.
 	Timeout int
 	// AsyncRewake keeps a Stop hook alive in the background across the
@@ -43,33 +47,49 @@ type Hook struct {
 	AsyncRewake bool
 }
 
-// Hooks is the CFO hook set, and the single place it is defined. Adding a
-// hook here is all it takes for `cfo install` to write it, for a rerun to
-// leave it alone, and for `--uninstall` to remove it.
+// Hooks is the CFO hook set of the home at root, and the single place it is
+// defined. Adding a hook here is all it takes for `cfo install` to write it,
+// for a rerun to leave it alone, and for `--uninstall` to remove it.
+//
+// Every pre-tool hook starts a process before its tool runs, so each tool
+// call runs as few as the guards allow: a Bash call runs pretool-bash alone,
+// which applies both Bash guards, and pretool-subagent runs only for the
+// tools its guard can refuse, never for the reading and editing tools a
+// session spends its time in.
 //
 // The two fields carried verbatim from the repo-scoped wiring are
 // SessionStart's 120s timeout and stop-autoarm's asyncRewake with its 8h
 // timeout: the auto-arm hook is a resident watcher, not a one-shot.
-func Hooks() []Hook {
+func Hooks(root string) []Hook {
 	hooks := []Hook{
 		{Name: "session-start", Event: "SessionStart", Timeout: 120},
-		{Name: "pretool-arm", Event: "PreToolUse", Matcher: "Bash"},
-		{Name: "pretool-cd", Event: "PreToolUse", Matcher: "Bash"},
-		{Name: "pretool-subagent", Event: "PreToolUse", Matcher: ".*"},
+		{Name: "pretool-bash", Event: "PreToolUse", Matcher: "Bash"},
+		{Name: "pretool-subagent", Event: "PreToolUse", Matcher: guard.HookMatcher()},
 		{Name: "turnend-guard", Event: "Stop"},
 		{Name: "stop-autoarm", Event: "Stop", Timeout: 28800, AsyncRewake: true},
 	}
 	for i := range hooks {
-		hooks[i].Command = hookCommand(hooks[i].Name)
+		hooks[i].Command = filepath.Join(root, "cfo.exe")
+		hooks[i].Args = []string{"hook", hooks[i].Name}
 	}
 	return hooks
 }
 
-// hookCommand renders the shell command Claude Code runs for one hook. The
-// executable test is kept from the repo-scoped form: a machine without a
-// built binary must leave the tool call alone rather than fail it.
-func hookCommand(name string) string {
-	return rootPrefix + `[ -x "$CFO_ROOT"/cfo.exe ] || exit 0; "$CFO_ROOT"/cfo.exe hook ` + name
+// HookName is the `cfo hook <name>` a settings hook entry runs, for an entry
+// in the form install writes (the home's cfo.exe with args hook and a name)
+// or in the shell form it wrote before; ok is false for any other entry.
+func HookName(entry map[string]any) (name string, ok bool) {
+	command, _ := entry["command"].(string)
+	if rest, shell := strings.CutPrefix(command, shellFormPrefix); shell {
+		_, name, found := strings.Cut(rest, "cfo.exe hook ")
+		return name, found
+	}
+	args, _ := entry["args"].([]any)
+	if len(args) != 2 || args[0] != "hook" || !strings.EqualFold(filepath.Base(command), "cfo.exe") {
+		return "", false
+	}
+	name, ok = args[1].(string)
+	return name, ok
 }
 
 // hookGroup is one matcher group inside one Claude Code hook event.
@@ -79,14 +99,18 @@ type hookGroup struct {
 	entries []map[string]any
 }
 
-// cfoHookGroups renders Hooks as the settings-file groups they are written
-// as: hooks sharing an event and matcher become one group, in the order
-// Hooks lists them.
-func cfoHookGroups() []hookGroup {
+// cfoHookGroups renders the hooks of the home at root as the settings-file
+// groups they are written as: hooks sharing an event and matcher become one
+// group, in the order Hooks lists them.
+func cfoHookGroups(root string) []hookGroup {
 	groups := []hookGroup{}
 	index := map[string]int{}
-	for _, hook := range Hooks() {
-		entry := map[string]any{"type": "command", "command": hook.Command}
+	for _, hook := range Hooks(root) {
+		args := make([]any, 0, len(hook.Args))
+		for _, arg := range hook.Args {
+			args = append(args, arg)
+		}
+		entry := map[string]any{"type": "command", "command": hook.Command, "args": args}
 		if hook.Timeout > 0 {
 			entry["timeout"] = json.Number(strconv.Itoa(hook.Timeout))
 		}
