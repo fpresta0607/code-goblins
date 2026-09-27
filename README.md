@@ -199,11 +199,12 @@ The header switches between two views, one at a time, each with a contextual pan
   <img src="docs/images/orchestration.webp" alt="Orchestration view: the CFO above four goblins, with the selected goblin's live native terminal in the right panel" width="900" />
 </p>
 
-Each card shows the task's short title on at most two lines and one muted line with its repo and status; the goblin's own words are in its panel.
-A title cut off after two lines shows in full in a tip on hover or keyboard focus.
+Each card shows the task's short title and a muted line with its repo and status; the goblin's own words are in its panel.
+On a narrow screen the columns stack and a card's name, repo and status wrap onto more lines rather than end in an ellipsis, so nothing is cut off or scrolls sideways; anything still shortened shows in full in a tip on hover or keyboard focus.
 Under the status, a quiet clock shows how long each goblin's session has run, such as 2h 14m, and how long each queued task has waited since its brief was written; a queued row with no brief yet has no clock.
 
 **Tasks** and **In progress** are in priority order, top first, and Completed is history, newest first.
+Completed shows only the newest cards that fit the visible board, and a pager under it says which show, such as 1–5 of 18, and turns to the earlier ones; on a touch screen a sideways swipe does the same.
 A number on each card shows its place and turns into a grip on hover or focus: drag a card to move it and the others slide aside to make room, or focus it and press **Alt+Up** or **Alt+Down**.
 On a touch screen, drag a card by its number.
 Tasks is the order the CFO starts queued work in, saved as the order of the rows in `data/backlog.md`'s Queued section, and In progress is the order the CFO attends to its goblins in, which `cfo fleet-view` lists them in.
