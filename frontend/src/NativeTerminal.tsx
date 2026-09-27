@@ -356,25 +356,13 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     shownChanged.current = (isShown) => step(isShown ? "shown" : "hidden");
     // A connection takes the screen once no input is on its way through the
     // one it replaces, so no key's outcome is lost in the switch. A sized view
-    // handing the pane back first returns it to the size Herdr lays it out at,
-    // which the new view shows, as a Herdr window does when a controller
-    // leaves; with no Herdr window open, nothing else would.
-    const activate = async (connection: Connection, layout: { cols: number; rows: number }) => {
+    // that ends, however it ends, has the supervisor return the pane to the
+    // size Herdr lays it out at. A sized view checks its grid once it lands,
+    // since the panel or text size may have changed while it was on its way.
+    const activate = async (connection: Connection) => {
       while (flushing) await new Promise<void>((done) => idle.push(done));
       if (connection.abort.signal.aborted || abort.signal.aborted) return false;
       const previous = active;
-      if (previous?.sized && !connection.sized && lease) {
-        flushing = true;
-        try {
-          await request("/api/terminal/input", abort.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ lease, seq: ++seq, command: { type: "terminal.resize", cols: layout.cols, rows: layout.rows } }) });
-        } catch {
-          // The pane keeps the board's size until a Herdr window takes it; the
-          // view it hands over to still shows the pane.
-        }
-        flushing = false;
-        for (const done of idle.splice(0)) done();
-        if (connection.abort.signal.aborted || abort.signal.aborted) return false;
-      }
       active = connection;
       if (pending === connection) pending = null;
       lease = connection.lease;
@@ -384,7 +372,10 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       previous?.abort.abort();
       closeHistory();
       checking = false;
-      if (connection.sized) term.options.fontSize = font;
+      if (connection.sized) {
+        term.options.fontSize = font;
+        resizeSized();
+      }
       void flush();
       return true;
     };
@@ -448,7 +439,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
             }
             if (frame.type !== "terminal.frame") continue;
             if (!connection.lease || frame.encoding !== "ansi" || typeof frame.seq !== "number" || (!connection.full && frame.full !== true) || (connection.full && frame.full !== true && frame.seq !== connection.frameSeq + 1) || typeof frame.width !== "number" || typeof frame.height !== "number") throw new Error("The pane's screen fell out of step. Reconnect for a full screen.");
-            if (connection !== active && !(await activate(connection, { cols: frame.width, rows: frame.height }))) return;
+            if (connection !== active && !(await activate(connection))) return;
             connection.frameSeq = frame.seq;
             if (frame.full === true) term.reset();
             if (term.cols !== frame.width || term.rows !== frame.height) { term.resize(frame.width, frame.height); if (showing) past.resize(frame.width, frame.height); fit(); }
