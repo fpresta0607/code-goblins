@@ -3,6 +3,8 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,6 +15,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
@@ -27,8 +30,10 @@ import (
 // evidence however busy it was.
 
 const (
-	historyWindow = 7 * 24 * time.Hour
-	historyLimit  = 20
+	historyWindow      = 7 * 24 * time.Hour
+	historyLimit       = 20
+	pullRequestRecheck = 10 * time.Minute
+	pullRequestBudget  = 5 * time.Second
 )
 
 var (
@@ -36,7 +41,15 @@ var (
 	archivedTaskDir    = regexp.MustCompile(`^(.+)\.(\d{8}T\d{6}Z)$`)
 	mergeSubject       = regexp.MustCompile(`^Merge pull request #(\d+) from [^/\s]+/(\S+)`)
 	githubRemote       = regexp.MustCompile(`^(?:https://github\.com/|git@github\.com:)([\w.-]+/[\w.-]+?)(?:\.git)?/?$`)
+	githubPullRequest  = regexp.MustCompile(`^https://github\.com/[\w.-]+/[\w.-]+/pull/\d+$`)
 )
+
+// pullRequestState is what GitHub last answered for a pull request, and when:
+// OPEN, CLOSED or MERGED, or empty when it did not answer.
+type pullRequestState struct {
+	state string
+	at    time.Time
+}
 
 // MergedPR is one pull request merged into a fleet repository.
 type MergedPR struct {
@@ -74,8 +87,8 @@ func slicesContainsPath(paths []string, path string) bool {
 // history. The fleet merges with merge commits, whose subject names the pull
 // request, so this sees every merge, gated or not, without a forge call; the
 // gate database only knows merges its CI monitor happened to watch.
-func GitMergedPRs(repos []string) func(context.Context, time.Time, int) ([]MergedPR, error) {
-	return func(ctx context.Context, since time.Time, limit int) ([]MergedPR, error) {
+func GitMergedPRs(repos []string) func(context.Context, time.Time) ([]MergedPR, error) {
+	return func(ctx context.Context, since time.Time) ([]MergedPR, error) {
 		var merged []MergedPR
 		var errs error
 		for _, repo := range repos {
@@ -108,10 +121,6 @@ func GitMergedPRs(repos []string) func(context.Context, time.Time, int) ([]Merge
 				}
 				merged = append(merged, MergedPR{PR: "https://github.com/" + match[1] + "/pull/" + m[1], Branch: m[2], Project: repo, At: seconds})
 			}
-		}
-		sort.Slice(merged, func(i, j int) bool { return merged[i].At > merged[j].At })
-		if len(merged) > limit {
-			merged = merged[:limit]
 		}
 		return merged, errs
 	}
@@ -322,6 +331,67 @@ func withMergedPRs(history []Task, merged []MergedPR) []Task {
 		}
 	}
 	return newestHistory(history)
+}
+
+// withPullRequestStates asks GitHub about each finished task's pull request
+// that no fleet history shows merged, and marks it merged (a squash merge
+// leaves no merge commit) or closed without merging. A merged or closed pull
+// request is not asked about again; an open one, or one GitHub did not
+// answer for, waits pullRequestRecheck. All asks of one refresh share
+// pullRequestBudget, so a slow GitHub never holds the supervisor's loop much
+// longer; a pull request not asked before it runs out is asked on the next
+// refresh.
+func (s *Service) withPullRequestStates(ctx context.Context, history []Task, now time.Time) error {
+	if s.Options.PullRequestState == nil {
+		return nil
+	}
+	budget, cancel := context.WithTimeout(ctx, pullRequestBudget)
+	defer cancel()
+	if s.pullRequests == nil {
+		s.pullRequests = map[string]pullRequestState{}
+	}
+	var errs error
+	shown := map[string]bool{}
+	for i := range history {
+		task := &history[i]
+		if !strings.HasPrefix(task.ID, "finished:") || task.Merged || !githubPullRequest.MatchString(task.PR) {
+			continue
+		}
+		shown[task.PR] = true
+		known, ok := s.pullRequests[task.PR]
+		if !ok || (known.state != "MERGED" && known.state != "CLOSED" && now.Sub(known.at) >= pullRequestRecheck) {
+			if budget.Err() != nil {
+				continue
+			}
+			answer, err := s.Options.PullRequestState(budget, task.PR)
+			errs = errors.Join(errs, err)
+			known = pullRequestState{state: answer, at: now}
+			s.pullRequests[task.PR] = known
+		}
+		task.Merged, task.Closed = known.state == "MERGED", known.state == "CLOSED"
+	}
+	maps.DeleteFunc(s.pullRequests, func(url string, _ pullRequestState) bool { return !shown[url] })
+	return errs
+}
+
+// GitHubPullRequestState asks GitHub, through gh, whether a pull request is
+// OPEN, CLOSED or MERGED, for as long as the caller's context allows.
+func GitHubPullRequestState(commands execx.Runner) func(context.Context, string) (string, error) {
+	return func(ctx context.Context, url string) (string, error) {
+		result, err := commands.Run(ctx, execx.Request{Name: "gh", Args: []string{"pr", "view", url, "--json", "state", "--jq", ".state"}})
+		if err != nil {
+			return "", fmt.Errorf("gh could not read %s: %w", url, err)
+		}
+		if result.ExitCode != 0 {
+			return "", fmt.Errorf("gh could not read %s: %s", url, strings.TrimSpace(string(result.Stderr)))
+		}
+		switch answer := strings.TrimSpace(string(result.Stdout)); answer {
+		case "OPEN", "CLOSED", "MERGED":
+			return answer, nil
+		default:
+			return "", fmt.Errorf("gh answered %q for the state of %s", answer, url)
+		}
+	}
 }
 
 // spawnTime is when a task generation started, which its spawn generation

@@ -32,6 +32,8 @@ export interface Task extends Evaluation {
   gate_step: string;
   archived: boolean;
   merged: boolean;
+  // closed says GitHub closed a finished task's pull request without merging.
+  closed: boolean;
   // since is when a live task's session started, or when queued work's brief
   // was written; empty when neither is known.
   since: string;
@@ -323,6 +325,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         gate_step: t.gate_step === undefined ? "" : string(t.gate_step),
         archived: t.archived === undefined ? false : boolean(t.archived),
         merged: t.merged === undefined ? false : boolean(t.merged),
+        closed: t.closed === undefined ? false : boolean(t.closed),
         since: string(t.since),
         phase: string(t.phase),
         reason: string(t.reason),

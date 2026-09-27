@@ -42,6 +42,9 @@
   --red: #ef8e83;
   --blue: #4aa3ff;
   --purple: #b29ae9;
+  /* GitHub's own colors for a merged and a closed pull request. */
+  --merged: #ab7df8;
+  --closed: #f85149;
   --radius: 0.875rem;
 }
 * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: #38564d transparent; }
@@ -174,6 +177,10 @@ button.task-card:active, .workflow-node:active { transform: none; box-shadow: va
 .card-pr { display: inline-flex; align-items: center; gap: 6px; font-size: .9375rem; font-weight: 700; color: #6bf0cc; text-decoration: none; }
 .card-pr .icon { width: 18px; height: 18px; }
 .card-pr:hover, .card-pr:focus-visible { text-decoration: underline; }
+.card-pr.pr-merge { color: var(--merged); }
+.card-pr.pr-pull-request-closed { color: var(--closed); }
+.plain-status.pr-merge .status-dot { background: var(--merged); }
+.plain-status.pr-pull-request-closed .status-dot { background: var(--closed); }
 .task-card-shell .card-pr { position: absolute; right: 16px; bottom: 12px; }
 .task-card.history { position: relative; color: inherit; text-decoration: none; padding-bottom: 36px; }
 .task-card.history .card-pr { position: absolute; right: 16px; bottom: 12px; }
