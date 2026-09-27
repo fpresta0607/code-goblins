@@ -154,11 +154,15 @@ func ConfigFromEnv(h home.Home) Config {
 	sockets := herdr.NewSocketCache()
 	cfg.Monitor = &monitor.Service{
 		StateDir: h.State,
-		Probe:    monitor.NewHerdrProber(&herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets}),
-		Gate:     &monitor.RecentGateProber{Probe: monitor.ExecGateProber{}},
+		Probe: monitor.BackendProber{
+			Herdr:  monitor.NewHerdrProber(&herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets}),
+			Native: monitor.NativeProber{StateDir: h.State},
+		},
+		Gate: &monitor.RecentGateProber{Probe: monitor.ExecGateProber{}},
 		Progress: monitor.HostProgress{
-			Panes: &herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets},
-			Home:  userHome,
+			Panes:    &herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets},
+			StateDir: h.State,
+			Home:     userHome,
 		},
 		Polls:        monitor.ProcessPolls{},
 		Heartbeat:    heartbeat,

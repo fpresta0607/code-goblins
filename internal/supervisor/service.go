@@ -792,7 +792,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		if linked && (node.Phase == "active" || node.Phase == "started") && node.UpdatedAt.After(evaluation.At) {
 			if runtime.working() {
-				evaluation = Evaluation{Phase: "working", Reason: "Native activity and Herdr runtime evidence agree", At: node.UpdatedAt}
+				evaluation = Evaluation{Phase: "working", Reason: "Native activity and runtime evidence agree", At: node.UpdatedAt}
 			} else {
 				evaluation = Evaluation{Phase: "unavailable", Reason: runtime.Reason + "; independent task evaluation is pending", At: runtime.At}
 			}

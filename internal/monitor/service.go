@@ -120,7 +120,7 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 			continue
 		}
 		meta, err := state.ReadTaskMeta(s.StateDir, id)
-		if err != nil || meta.Backend != "herdr" {
+		if err != nil || (meta.Backend != "herdr" && meta.Backend != "native") {
 			continue
 		}
 
