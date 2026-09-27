@@ -34,7 +34,12 @@ const (
 	historyLimit       = 20
 	pullRequestRecheck = 10 * time.Minute
 	pullHeadsRecheck   = 10 * time.Minute
+	originRecheck      = 30 * time.Minute
 	pullRequestBudget  = 5 * time.Second
+	// keepHistory rebuilds the Completed column every historyRefresh, and
+	// sooner when what it watches every historyWatch changes.
+	historyRefresh = time.Minute
+	historyWatch   = 10 * time.Second
 )
 
 var (
@@ -103,7 +108,10 @@ func GitMergedPRs(repos []string) func(context.Context, time.Time) ([]MergedPR, 
 // asked for again only for a pull request it does not list or lists with
 // another head, such as one listed while it was still open, and then at most
 // every pullHeadsRecheck, so a fork carrying a week of its upstream's merges
-// costs one call per repository, not one per merge.
+// costs one call per repository, not one per merge. A checkout is read with
+// git only when refStamp says a fetch or a remote change rewrote its git
+// files; until then the scan uses the merges it read last, so a refresh with
+// nothing new runs no git at all.
 func gitMergedPRs(repos []string, heads func(ctx context.Context, repo string) (map[string]string, error), now func() time.Time) func(context.Context, time.Time) ([]MergedPR, error) {
 	type listing struct {
 		heads map[string]string
@@ -111,9 +119,18 @@ func gitMergedPRs(repos []string, heads func(ctx context.Context, repo string) (
 	}
 	listings := map[string]listing{}
 	type merge struct {
-		pr           MergedPR
-		number, head string
+		pr                   MergedPR
+		commit, number, head string
 	}
+	// checkout is what a repository gave when it was last read: its git
+	// directory (empty when git could not read it), the stamp of its git
+	// files then, the window it was read for and the merges in it.
+	type checkout struct {
+		common, stamp string
+		read, since   time.Time
+		merges        []merge
+	}
+	checkouts := map[string]checkout{}
 	return func(ctx context.Context, since time.Time) ([]MergedPR, error) {
 		var errs error
 		publishes := func(repo, number, head string) bool {
@@ -129,13 +146,19 @@ func gitMergedPRs(repos []string, heads func(ctx context.Context, repo string) (
 			}
 			return known.heads[number] == head
 		}
-		holders := map[string][]merge{}
-		var commits []string
-		for _, repo := range repos {
+		read := func(repo string) (checkout, error) {
+			known := checkout{read: now(), since: since}
+			common, err := (Git{}).run(ctx, repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
+			if err != nil {
+				return known, nil // Not a checkout git can read now; it is tried again after originRecheck.
+			}
+			known.common = strings.TrimSpace(common)
+			// The stamp is taken first, so a fetch during the read is seen next time.
+			known.stamp = refStamp(known.common)
 			remote, err := (Git{}).run(ctx, repo, "remote", "get-url", "origin")
 			match := githubRemote.FindStringSubmatch(strings.TrimSpace(remote))
 			if err != nil || match == nil {
-				continue // Only a GitHub remote gives a pull request a link.
+				return known, nil // Only a GitHub remote gives a pull request a link.
 			}
 			ref := ""
 			for _, candidate := range []string{"origin/HEAD", "origin/main", "origin/master"} {
@@ -145,12 +168,11 @@ func gitMergedPRs(repos []string, heads func(ctx context.Context, repo string) (
 				}
 			}
 			if ref == "" {
-				continue
+				return known, nil
 			}
 			out, err := (Git{}).run(ctx, repo, "log", ref, "--merges", "--since="+since.UTC().Format(time.RFC3339), "--format=%H%x09%P%x09%ct%x09%s")
 			if err != nil {
-				errs = errors.Join(errs, err)
-				continue
+				return checkout{}, err
 			}
 			for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 				fields := strings.SplitN(strings.TrimSpace(line), "\t", 4)
@@ -163,10 +185,32 @@ func gitMergedPRs(repos []string, heads func(ctx context.Context, repo string) (
 				if len(parents) < 2 || m == nil || err != nil {
 					continue
 				}
-				if _, seen := holders[fields[0]]; !seen {
-					commits = append(commits, fields[0])
+				known.merges = append(known.merges, merge{pr: MergedPR{PR: "https://github.com/" + match[1] + "/pull/" + m[1], Branch: m[2], Project: repo, At: seconds}, commit: fields[0], number: m[1], head: parents[1]})
+			}
+			return known, nil
+		}
+		holders := map[string][]merge{}
+		var commits []string
+		for _, repo := range repos {
+			known, ok := checkouts[repo]
+			current := ok && !since.Before(known.since) && (known.common != "" && refStamp(known.common) == known.stamp || known.common == "" && now().Sub(known.read) < originRecheck)
+			if !current {
+				var err error
+				if known, err = read(repo); err != nil {
+					errs = errors.Join(errs, err)
+					delete(checkouts, repo)
+					continue
 				}
-				holders[fields[0]] = append(holders[fields[0]], merge{pr: MergedPR{PR: "https://github.com/" + match[1] + "/pull/" + m[1], Branch: m[2], Project: repo, At: seconds}, number: m[1], head: parents[1]})
+				checkouts[repo] = known
+			}
+			for _, found := range known.merges {
+				if found.pr.At < since.Unix() {
+					continue
+				}
+				if _, seen := holders[found.commit]; !seen {
+					commits = append(commits, found.commit)
+				}
+				holders[found.commit] = append(holders[found.commit], found)
 			}
 		}
 		merged := make([]MergedPR, 0, len(commits))
@@ -185,6 +229,28 @@ func gitMergedPRs(repos []string, heads func(ctx context.Context, repo string) (
 		}
 		return merged, errs
 	}
+}
+
+// refStamp is the size and time of each file a fetch or a remote change
+// rewrites in a git directory: its config, packed refs, and origin's HEAD,
+// main and master refs, with the ref origin's HEAD names. While the stamp
+// holds, the checkout's merges are the ones last read.
+func refStamp(common string) string {
+	names := []string{"config", "packed-refs", "refs/remotes/origin/HEAD", "refs/remotes/origin/main", "refs/remotes/origin/master"}
+	if head, err := os.ReadFile(filepath.Join(common, "refs", "remotes", "origin", "HEAD")); err == nil {
+		if target, ok := strings.CutPrefix(strings.TrimSpace(string(head)), "ref: "); ok {
+			names = append(names, target)
+		}
+	}
+	var stamp strings.Builder
+	for _, name := range names {
+		if info, err := os.Stat(filepath.Join(common, filepath.FromSlash(name))); err == nil {
+			fmt.Fprintf(&stamp, "%d:%d;", info.Size(), info.ModTime().UnixNano())
+		} else {
+			stamp.WriteString("-;")
+		}
+	}
+	return stamp.String()
 }
 
 // pullRequestHeads lists the head commit of every pull request repo's origin
