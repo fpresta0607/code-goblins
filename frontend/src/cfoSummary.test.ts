@@ -7,7 +7,7 @@ const task = (id: string, changes: Partial<Task> = {}) => ({ id, generation: "g1
 const question = (id: string, text: string, changes: Partial<Question> = {}) => ({ id, text, status: "pending", task: "", created_at: "2026-09-25T10:00:00Z", ...changes }) as Question;
 const review = (id: string, title: string, changes: Partial<Review> = {}) => ({ id, title, state: "open", task: "goblin-a", created_at: "2026-09-25T11:00:00Z", ...changes }) as Review;
 const run = (id: string, title: string, changes: Partial<Run> = {}) => ({ id, title, state: "ready", created_at: "2026-09-25T12:00:00Z", ...changes }) as Run;
-const snapshot = (changes: Partial<Snapshot> = {}) => ({ tasks: [], questions: [], reviews: [], runs: [], ...changes }) as unknown as Snapshot;
+const snapshot = (changes: Partial<Snapshot> = {}) => ({ tasks: [], attention: [], questions: [], reviews: [], runs: [], ...changes }) as unknown as Snapshot;
 
 test("with nothing waiting on the Overlord the CFO says how many goblins it supervises", () => {
   assert.deepEqual(cfoSummary(snapshot({ tasks: [task("a"), task("b"), task("queued", { generation: "" }), task("history", { archived: true })] })), { asking: false, line: "Supervising 2 goblins" });
