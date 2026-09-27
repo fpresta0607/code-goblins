@@ -76,6 +76,19 @@ export function usableSize(cols: number, rows: number): boolean {
   return cols >= MIN_COLS && rows >= MIN_ROWS;
 }
 
+// The grid a panel holds at a cell size, evenly padded: the spare width is
+// split between left and right, the bottom keeps the same space, so the last
+// row, the input line, sits that far from the bottom, and the spare height,
+// under a row, goes above the grid.
+export function panelFit(width: number, height: number, cell: { width: number; height: number }, padding: number): { cols: number; rows: number; left: number; right: number; top: number; bottom: number } | null {
+  if (cell.width <= 0 || cell.height <= 0) return null;
+  const cols = Math.floor((width - 2 * padding) / cell.width);
+  const side = (width - cols * cell.width) / 2;
+  const rows = Math.floor((height - 2 * side) / cell.height);
+  if (!usableSize(cols, rows)) return null;
+  return { cols, rows, left: side, right: side, top: height - side - rows * cell.height, bottom: side };
+}
+
 // A view that fell behind, a restarting board and a dropped connection come
 // back on their own; an ended terminal, a replaced task and a refusal wait
 // for Reconnect.

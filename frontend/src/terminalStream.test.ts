@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, fontSizeFor, INPUT_MESSAGE, inputMessages, MAX_FONT_SIZE, MIN_FONT_SIZE, parseHistory, parseSize, reconnects, usableSize } from "./terminalStream.ts";
+import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, fontSizeFor, INPUT_MESSAGE, inputMessages, MAX_FONT_SIZE, MIN_FONT_SIZE, panelFit, parseHistory, parseSize, reconnects, usableSize } from "./terminalStream.ts";
 
 test("output is acknowledged in steps, and at once when the terminal has caught up", () => {
   const cases: [number, number, number, boolean][] = [
@@ -62,4 +62,32 @@ test("the relay's history header names how many bytes replay the history", () =>
   assert.equal(parseHistory('{"type":"history","bytes":5208}'), 5208);
   assert.equal(parseHistory('{"type":"history","bytes":0}'), 0);
   for (const text of ['{"type":"size","cols":1,"rows":1}', '{"type":"history","bytes":-1}', '{"type":"history","bytes":1.5}', '{"type":"history"}', "nope"]) assert.equal(parseHistory(text), null, text);
+});
+
+test("a terminal fills its panel with the same padding left, right and below, and its last row at the bottom", () => {
+  const cases: { width: number; height: number; cell: { width: number; height: number } }[] = [
+    { width: 1574, height: 749.8, cell: { width: 12.04, height: 31 } },
+    { width: 1574, height: 749.8, cell: { width: 12.6, height: 32 } },
+    { width: 1574, height: 749.8, cell: { width: 13.25, height: 34 } },
+    { width: 800, height: 600, cell: { width: 10, height: 24 } },
+    { width: 641.5, height: 403.2, cell: { width: 9.6, height: 19 } },
+  ];
+  for (const { width, height, cell } of cases) {
+    const fit = panelFit(width, height, cell, 10);
+    assert.ok(fit, `${width}x${height}`);
+    assert.equal(fit.cols, Math.floor((width - 20) / cell.width));
+    assert.ok(fit.left >= 10 && fit.left < 10 + cell.width / 2 + 1e-9, `the sides ${fit.left} hold the padding and half a spare cell at most`);
+    assert.equal(fit.right, fit.left, "left and right are even");
+    assert.equal(fit.bottom, fit.left, "the input line sits the same distance from the bottom");
+    assert.ok(fit.top >= fit.left && fit.top < fit.left + cell.height, `the spare height ${fit.top} is above the grid, under a row`);
+    assert.ok(Math.abs(fit.left + fit.cols * cell.width + fit.right - width) < 1e-6, "the columns and padding fill the width");
+    assert.ok(Math.abs(fit.top + fit.rows * cell.height + fit.bottom - height) < 1e-6, "the rows and padding fill the height");
+  }
+});
+
+test("a panel too small for a usable grid, or an unmeasured cell, gives no fit", () => {
+  assert.equal(panelFit(150, 600, { width: 10, height: 24 }, 10), null);
+  assert.equal(panelFit(800, 100, { width: 10, height: 24 }, 10), null);
+  assert.equal(panelFit(800, 600, { width: 0, height: 24 }, 10), null);
+  assert.equal(panelFit(800, 600, { width: 10, height: 0 }, 10), null);
 });
