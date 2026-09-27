@@ -9,7 +9,7 @@ export function FitList<T>({ items, keyOf, empty, renderItem }: { items: T[]; ke
   const listRef = useRef<HTMLDivElement>(null);
   const fit = useFit(items.length, frameRef, listRef);
   return <>
-    <div ref={frameRef} className="fit-list" onPointerDown={fit.onPointerDown} onPointerUp={fit.onPointerUp}>
+    <div ref={frameRef} className="fit-list" onPointerDown={fit.onPointerDown} onPointerUp={fit.onPointerUp} onPointerCancel={fit.onPointerCancel}>
       <div ref={listRef} className="task-cards">
         {items.slice(fit.start, fit.start + fit.size).map((item) => <div key={keyOf(item)} className="fit-item">{renderItem(item)}</div>)}
         {!items.length && empty}

@@ -61,5 +61,8 @@ export function useFit(count: number, frameRef: RefObject<HTMLDivElement | null>
     swipe.current = null;
     if (start) turn(swipeStep(event.clientX - start.x, event.clientY - start.y));
   };
-  return { size, page, start: page * size, turn, show, onPointerDown, onPointerUp };
+  const onPointerCancel = () => {
+    swipe.current = null;
+  };
+  return { size, page, start: page * size, turn, show, onPointerDown, onPointerUp, onPointerCancel };
 }

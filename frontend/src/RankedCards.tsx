@@ -32,7 +32,8 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
   const listRef = useRef<HTMLDivElement>(null);
   const fit = useFit(listed.length, frameRef, listRef);
   const save = async (order: string[], moved: string) => {
-    const title = listed.find((task) => task.id === moved)?.title || moved;
+    const before = listed.findIndex((task) => task.id === moved);
+    const title = listed[before]?.title || moved;
     latest.current = order;
     setPending({ order, revision: Number.MAX_SAFE_INTEGER });
     setError("");
@@ -46,6 +47,7 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
       if (latest.current !== order) return;
       setPending(null);
       setError(message(failure));
+      fit.show(pageOf(before, fit.size));
     }
   };
   const { order, onPointerDown, onKeyDown, onClickCapture } = useSortable(listed.map((task) => task.id), (next, moved) => void save(next, moved), fit.start, listRef);
@@ -53,10 +55,11 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
   // A finger on a card's rank drags the card, so only a swipe elsewhere turns
   // the page.
   const onFramePointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (!(event.target as HTMLElement).closest(".rank")) fit.onPointerDown(event);
+    if ((event.target as HTMLElement).closest(".rank")) fit.onPointerCancel();
+    else fit.onPointerDown(event);
   };
   return <>
-    <div ref={frameRef} className="fit-list" onPointerDown={onFramePointerDown} onPointerUp={fit.onPointerUp}>
+    <div ref={frameRef} className="fit-list" onPointerDown={onFramePointerDown} onPointerUp={fit.onPointerUp} onPointerCancel={fit.onPointerCancel}>
       <div ref={listRef} className="task-cards ranked">
         {shown.slice(fit.start, fit.start + fit.size).map((task, at) => { const index = fit.start + at; return <div key={task.id} className="ranked-item" data-sort-id={task.id} onPointerDown={onPointerDown} onKeyDown={onKeyDown} onClickCapture={onClickCapture}>
           <span className="rank" aria-hidden="true">
