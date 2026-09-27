@@ -106,6 +106,9 @@ func TestOrderQueuedRefusesAnOrderTheBacklogNoLongerHolds(t *testing.T) {
 	if data, _ := os.ReadFile(filepath.Join(h.Data, "backlog.md")); string(data) != content {
 		t.Fatalf("a refused order rewrote backlog.md: %q", data)
 	}
+	if handler.Service.revision == 0 {
+		t.Fatal("a refused order sent the board no fresh snapshot, so it keeps showing the stale queue")
+	}
 }
 
 func TestOrderInProgressSetsTheAttentionOrderTheSnapshotLists(t *testing.T) {

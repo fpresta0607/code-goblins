@@ -747,8 +747,8 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 }
 .rank { position: absolute; z-index: 1; left: 8px; top: 12px; width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid var(--edge); border-radius: 8px; background: #0b141b; color: #c4d4df; font-size: .875rem; font-weight: 800; font-variant-numeric: tabular-nums; pointer-events: none; }
 .rank .grip { display: none; width: 14px; height: 14px; fill: currentColor; }
-.ranked-item:hover .rank-number, .ranked-item:focus-within .rank-number { display: none; }
-.ranked-item:hover .grip, .ranked-item:focus-within .grip { display: block; }
+.ranked-item:hover .rank-number, .ranked-item:focus-within .rank-number, .ranked-item.dragging .rank-number { display: none; }
+.ranked-item:hover .grip, .ranked-item:focus-within .grip, .ranked-item.dragging .grip { display: block; }
 @media (pointer: coarse) { .rank { pointer-events: auto; touch-action: none; } }
 .ranked-item.dragging .task-card { transform: scale(1.02) rotate(-.6deg); border-color: var(--mint); box-shadow: 0 18px 40px #000a, 0 0 0 2px var(--mint); }
 .ranked-item.dragging .rank { border-color: var(--mint); }
