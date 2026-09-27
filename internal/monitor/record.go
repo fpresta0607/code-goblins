@@ -174,6 +174,13 @@ type Observation struct {
 	// has shown no fault for faultEpisodeGap.
 	FaultDigest string     `json:"fault_digest,omitempty"`
 	FaultSeen   *time.Time `json:"fault_seen,omitempty"`
+	// BusyWakeKind and BusyWakeAt are the last busy_turn_over_age wake raised
+	// for this goblin: what the wedge was (a gate step, no progress, unreadable
+	// progress) and when. They outlive the busy stretch, so the same wedge
+	// seen again after a scan that lost sight of it is not raised as new until
+	// a whole busy budget has passed.
+	BusyWakeKind string     `json:"busy_wake_kind,omitempty"`
+	BusyWakeAt   *time.Time `json:"busy_wake_at,omitempty"`
 }
 
 type Heartbeat struct {
