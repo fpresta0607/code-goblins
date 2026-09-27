@@ -545,9 +545,37 @@ func TestLivePaneViewRefusesToScrollThePane(t *testing.T) {
 	}
 }
 
+// A Claude Code pane in its fullscreen interface keeps no scrollback, so the
+// board's wheel scrolls it through Herdr's own wheel scroll, as a Herdr window
+// does. Only a Claude Code pane is sent one, and it reaches the pane as exactly
+// that scroll: no text, so nothing that could type, edit or submit.
+func TestTheWheelScrollsOnlyAClaudePaneAndSendsNothingElse(t *testing.T) {
+	for _, agent := range []string{"claude", "codex", "pi", ""} {
+		t.Run("agent "+agent, func(t *testing.T) {
+			native := newTestTerminal()
+			defer native.Close()
+			lease := &terminalLease{control: true, binding: terminalBinding{Agent: agent}, stream: native, cancel: func() { _ = native.Close() }}
+			allow := func(context.Context, terminalBinding, bool) error { return nil }
+			scroll := herdr.TerminalCommand{Type: "terminal.scroll", Direction: "up", Lines: 4, Source: "wheel"}
+
+			err := lease.input(context.Background(), 1, scroll, allow)
+
+			if agent != "claude" {
+				if err == nil || len(native.writes) != 0 {
+					t.Fatalf("a %q pane: err %v, writes %+v, want the scroll refused with nothing sent", agent, err, native.writes)
+				}
+				return
+			}
+			if err != nil || len(native.writes) != 1 || native.writes[0] != scroll {
+				t.Fatalf("a Claude Code pane: err %v, writes %+v, want exactly the one scroll", err, native.writes)
+			}
+		})
+	}
+}
+
 // The history request reads the pane the lease is bound to, bounded in
-// lines, and answers its text; an unknown lease or a line count out of
-// bounds reads nothing.
+// lines, and answers its text and the pane's agent; an unknown lease or a
+// line count out of bounds reads nothing.
 func TestTerminalHistoryAnswersThePanesRecentLines(t *testing.T) {
 	native := newTestTerminal()
 	_, server, _, runner := terminalHTTPFixture(t, native)
@@ -576,13 +604,17 @@ func TestTerminalHistoryAnswersThePanesRecentLines(t *testing.T) {
 			reply := terminalPost(t, server, "/api/terminal/history", c.body)
 			defer reply.Body.Close()
 			var answer struct {
-				Text string `json:"text"`
+				Text  string `json:"text"`
+				Agent string `json:"agent"`
 			}
 			_ = json.NewDecoder(reply.Body).Decode(&answer)
 
 			reads := socket.Requests()[before:]
 			if reply.StatusCode != c.status || answer.Text != c.text {
 				t.Fatalf("history = %d %q, want %d %q", reply.StatusCode, answer.Text, c.status, c.text)
+			}
+			if c.status == 200 && answer.Agent != "codex" {
+				t.Fatalf("history agent = %q, want the registered CFO's agent codex", answer.Agent)
 			}
 			if c.status == 200 && (len(reads) != 1 || reads[0].Method != "pane.read" || reads[0].Params["pane_id"] != "w1:p1" || reads[0].Params["source"] != "recent" || reads[0].Params["format"] != "ansi") {
 				t.Fatalf("requests = %v, want one pane.read of w1:p1's recent ANSI output", reads)

@@ -2,10 +2,30 @@ export const maxInputBytes = 64 * 1024;
 export const inputBytes = (text: string) => new TextEncoder().encode(text).byteLength;
 
 // A command for a view of a pane: typing, or, for a view that sizes the pane,
-// a new size.
+// a new size or a turn of the wheel.
 export type PaneCommand =
   | { type: "terminal.input"; text: string }
-  | { type: "terminal.resize"; cols: number; rows: number };
+  | { type: "terminal.resize"; cols: number; rows: number }
+  | { type: "terminal.scroll"; direction: "up" | "down"; lines: number; source: "wheel" };
+
+// The most lines one turn of the wheel scrolls a pane that scrolls itself.
+export const MAX_WHEEL_LINES = 50;
+
+// The only thing the wheel ever sends a pane: Herdr's own wheel scroll, which
+// Herdr hands the program as a Herdr window does. It carries no text, so it
+// can never type, edit or submit anything. Lines up are negative.
+export function wheelScroll(lines: number): PaneCommand | null {
+  if (lines === 0) return null;
+  return { type: "terminal.scroll", direction: lines < 0 ? "up" : "down", lines: Math.min(Math.abs(lines), MAX_WHEEL_LINES), source: "wheel" };
+}
+
+// Claude Code's fullscreen interface draws in the terminal's alternate
+// screen, so its pane keeps no scrollback: Herdr's history holds no more
+// lines than the screen. Such a pane scrolls its own transcript on the wheel;
+// every other pane's history is read.
+export function scrollsItself(history: string, rows: number, agent: string): boolean {
+  return agent === "claude" && history.replace(/(\r?\n)+$/, "").split(/\r?\n/).length <= rows;
+}
 
 // Adjacent printable keystrokes travel as one input; control keys, escape
 // sequences and pastes stay inputs of their own, in order.

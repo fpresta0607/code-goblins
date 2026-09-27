@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bracketedPaste, endStep, fittedFontSize, historyText, inputBytes, maxInputBytes, panelGrid, queueInput, scrollAction, sizeStep, typingHeldReason, wheelLines, type PaneCommand, type SizeEvent } from "./terminalInput.ts";
+import { bracketedPaste, endStep, fittedFontSize, historyText, inputBytes, MAX_WHEEL_LINES, maxInputBytes, panelGrid, queueInput, scrollAction, scrollsItself, sizeStep, typingHeldReason, wheelLines, wheelScroll, type PaneCommand, type SizeEvent } from "./terminalInput.ts";
 
 test("Unicode paste uses UTF-8 bytes including one complete bracketed wrapper", () => {
   const limit = Math.floor((maxInputBytes - 12) / 3);
@@ -57,6 +57,30 @@ test("the wheel scrolls whole lines, keeping what a touchpad has not yet made a 
     ["a wheel in pages scrolls the screen", 0, 1, 2, { lines: 40, rest: 0 }],
   ];
   for (const [name, rest, delta, mode, want] of cases) assert.deepEqual(wheelLines(rest, delta, mode, row, 40), want, name);
+});
+
+test("the wheel sends a pane that scrolls itself only Herdr's wheel scroll, never a key that could type, edit or submit", () => {
+  for (let lines = -250; lines <= 250; lines++) {
+    const command = wheelScroll(lines);
+    if (lines === 0) {
+      assert.equal(command, null);
+      continue;
+    }
+    assert.deepEqual(command, { type: "terminal.scroll", direction: lines < 0 ? "up" : "down", lines: Math.min(Math.abs(lines), MAX_WHEEL_LINES), source: "wheel" }, `${lines} lines`);
+    assert.ok(command && !("text" in command), `${lines} lines carry no text`);
+  }
+});
+
+test("only a Claude Code pane whose history is no taller than its screen scrolls itself", () => {
+  const lines = (count: number) => Array.from({ length: count }, (_, index) => `line ${index}`).join("\n");
+  const cases: [string, string, number, string, boolean][] = [
+    ["a fullscreen Claude Code screen", lines(28), 28, "claude", true],
+    ["trailing blank lines are not history", lines(28) + "\n\n", 28, "claude", true],
+    ["one line above the screen is history", lines(29), 28, "claude", false],
+    ["a Codex pane reads its history", lines(12), 28, "codex", false],
+    ["a pane with no known agent reads its history", lines(12), 28, "", false],
+  ];
+  for (const [name, history, rows, agent, want] of cases) assert.equal(scrollsItself(history, rows, agent), want, name);
 });
 
 test("a pane's screen is fitted to the panel whole, by its width or its height, with no floor", () => {

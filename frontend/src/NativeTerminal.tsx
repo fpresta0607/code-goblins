@@ -5,7 +5,7 @@ import { message, request } from "./api";
 import { object, string, type Session, type Task } from "./types";
 import { ownsTaskSession } from "./lineageTree";
 import { Icon } from "./Icon";
-import { bracketedPaste, endStep, ESTIMATED_CELL, fittedFontSize, HISTORY_LINES, historyText, inputBytes, maxInputBytes, panelGrid, queueInput, scrollAction, sizeStep, typingHeldReason, wheelLines, type PaneCommand, type SizeEvent } from "./terminalInput";
+import { bracketedPaste, endStep, ESTIMATED_CELL, fittedFontSize, HISTORY_LINES, historyText, inputBytes, maxInputBytes, panelGrid, queueInput, scrollAction, scrollsItself, sizeStep, typingHeldReason, wheelLines, wheelScroll, type PaneCommand, type SizeEvent } from "./terminalInput";
 import { fontSizeFor, storedFontSize, storeFontSize } from "./terminalStream";
 import { terminalDocument } from "./terminalDocument";
 import { useDictation } from "./useDictation";
@@ -107,6 +107,10 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     // sized view was refused; the view then shows the pane at its own size
     // until the Overlord comes back to the board or types in it.
     let held = false;
+    // selfScrolls is whether the pane scrolls itself, as Claude Code's
+    // fullscreen interface does: it keeps no history to read, so the wheel
+    // sends it Herdr's wheel scroll instead.
+    let selfScrolls = false;
     let font = storedFontSize();
     // The font is fitted from the cell measured on the screen xterm drew, then
     // checked on the screen it draws next: rows round to whole pixels, which
@@ -202,6 +206,11 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       try {
         const answer = object(await request("/api/terminal/history", abort.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ lease, lines: HISTORY_LINES }) }));
         if (abort.signal.aborted || !lease) return;
+        if (scrollsItself(string(answer.text), term.rows, string(answer.agent))) {
+          selfScrolls = true;
+          scrollPane(-lines);
+          return;
+        }
         past.options.fontSize = term.options.fontSize;
         past.resize(term.cols, term.rows);
         past.reset();
@@ -218,6 +227,16 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       }
     };
     const atBottom = () => past.buffer.active.viewportY >= past.buffer.active.baseY;
+    // Only a view that holds the pane can scroll it; one that does not takes
+    // it first, since the wheel is the Overlord working in the board, and the
+    // next turn of the wheel scrolls.
+    const scrollPane = (lines: number) => {
+      const command = wheelScroll(lines);
+      if (!command) return;
+      if (!active?.sized) { step("typed"); return; }
+      queue.push(command);
+      void flush();
+    };
     // want switches the view to sizing the pane or to showing it at its own
     // size, unless it is already there or on its way.
     const want = (sized: boolean) => {
@@ -342,6 +361,11 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     };
     const wheel = (fromHistory: boolean) => (event: WheelEvent) => {
       const { action, lines } = wheelStep(fromHistory, event);
+      if (!fromHistory && selfScrolls) {
+        event.preventDefault();
+        scrollPane(lines);
+        return false;
+      }
       if (action === "history") return true;
       event.preventDefault();
       if (action === "open") void openHistory(Math.abs(lines));
@@ -358,6 +382,10 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       if (screen.element?.contains(event.target as Node)) return;
       const { action, lines } = wheelStep(fromHistory, event);
       event.preventDefault();
+      if (!fromHistory && selfScrolls) {
+        scrollPane(lines);
+        return;
+      }
       if (action === "history") screen.scrollLines(lines);
       if (action === "open") void openHistory(Math.abs(lines));
       if (action === "close") closeHistory();
@@ -385,8 +413,9 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       if (pending === connection) pending = null;
       lease = connection.lease;
       seq = 0;
-      // A size asked of the connection it replaces means nothing to this one.
-      for (let index = queue.length - 1; index >= 0; index--) if (queue[index].type === "terminal.resize") queue.splice(index, 1);
+      // A size or a scroll asked of the connection it replaces means nothing
+      // to this one.
+      for (let index = queue.length - 1; index >= 0; index--) if (queue[index].type !== "terminal.input") queue.splice(index, 1);
       previous?.abort.abort();
       closeHistory();
       checking = false;
