@@ -18,6 +18,7 @@ import { unsentComment, updateAction } from "./boardUpdate";
 import { windowTarget } from "./terminalWindow";
 import { message, request } from "./api";
 import { FirstRun } from "./FirstRun";
+import { Alerts } from "./Alerts";
 import { showsFirstRun, type FirstRunChoice } from "./firstRunStart";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
@@ -177,6 +178,7 @@ export function App() {
       </div>
     </header>
     {updated && <div className="update-banner" role="status"><span>The board was updated.</span><button className="primary" onClick={() => location.reload()}>Reload</button></div>}
+    {snapshot && <Alerts snapshot={snapshot} onOpen={(target) => { if (target.kind === "command") setCommandFocus({ key: target.key, at: Date.now() }); else select({ task: target.id }, document.body, "task"); }} />}
     {firstRun ? <main className="first-run-region" aria-label="First run">
       {snapshot && <FirstRun instance={snapshot.instance} onStarted={() => { setFirstRunChoice("started"); setView("Board"); switchTo(CFO_KEY); }} onBoard={() => setFirstRunChoice("board")} />}
     </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "")} style={layout}>
