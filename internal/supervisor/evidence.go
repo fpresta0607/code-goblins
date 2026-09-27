@@ -35,6 +35,8 @@ const (
 	pullRequestRecheck = 10 * time.Minute
 	pullHeadsRecheck   = 10 * time.Minute
 	pullRequestBudget  = 5 * time.Second
+	// historyRefresh is how often keepHistory rebuilds the Completed column.
+	historyRefresh = 2 * time.Minute
 )
 
 var (

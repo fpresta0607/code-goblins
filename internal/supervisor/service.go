@@ -73,8 +73,11 @@ type Service struct {
 	revision             uint64
 	subscribers          map[chan struct{}]struct{}
 	// pullRequests is what GitHub last said about each finished task's pull
-	// request the history shows; only the recovery cycle touches it.
+	// request the history shows; only keepHistory touches it.
 	pullRequests map[string]pullRequestState
+	// historyErr is what the last history refresh met; the loop reports it
+	// with its next recovery cycle.
+	historyErr error
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
@@ -180,6 +183,12 @@ func (s *Service) run(ctx context.Context) {
 	}()
 	defer func() { s.cancel(); <-pipeDone }()
 	defer func() { s.cancel(); s.pageWork.Wait() }()
+	historyDone := make(chan struct{})
+	go func() {
+		defer close(historyDone)
+		s.keepHistory(ctx, historyRefresh)
+	}()
+	defer func() { s.cancel(); <-historyDone }()
 	// A single inbox watcher, independent of task count. A timeout also
 	// recovers notifications lost during atomic renames or an AV filter fault.
 	notified := make(chan struct{}, 1)
@@ -261,7 +270,9 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
 		}
 		s.checkRegistration(ctx)
-		reconcileErr = errors.Join(reconcileErr, s.refreshHistory(ctx, time.Now().UTC()))
+		s.mu.Lock()
+		reconcileErr = errors.Join(reconcileErr, s.historyErr)
+		s.mu.Unlock()
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneRuns(time.Now()))
 		s.mu.Lock()
@@ -278,9 +289,30 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	}
 }
 
-// refreshHistory rebuilds the Completed column on the once-a-minute recovery
-// cycle: finished tasks, the pull requests merged into fleet repositories,
-// and what GitHub says of the finished tasks' other pull requests.
+// keepHistory rebuilds the Completed column away from the loop, at start and
+// then every interval. Its merge scan reads every fleet repository with git,
+// and on the loop it took most of each minute while native events, the
+// heartbeat and every snapshot waited. Each rebuild reaches the board at once.
+func (s *Service) keepHistory(ctx context.Context, every time.Duration) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		err := s.refreshHistory(ctx, time.Now().UTC())
+		s.mu.Lock()
+		s.historyErr = err
+		s.mu.Unlock()
+		s.notify()
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// refreshHistory rebuilds the Completed column: finished tasks, the pull
+// requests merged into fleet repositories, and what GitHub says of the
+// finished tasks' other pull requests.
 func (s *Service) refreshHistory(ctx context.Context, now time.Time) error {
 	history := finishedTasks(s.Store.Home.State, now)
 	var err error
