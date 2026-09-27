@@ -5,7 +5,7 @@ import { message, request } from "./api";
 import { object, string, type Session, type Task } from "./types";
 import { ownsTaskSession } from "./lineageTree";
 import { Icon } from "./Icon";
-import { bracketedPaste, endStep, ESTIMATED_CELL, fittedFontSize, HISTORY_LINES, historyText, inputBytes, maxInputBytes, panelGrid, queueInput, scrollAction, scrollsItself, sizeStep, typingHeldReason, wheelLines, wheelScroll, type PaneCommand, type SizeEvent } from "./terminalInput";
+import { bracketedPaste, endStep, ESTIMATED_CELL, fittedFontSize, HISTORY_LINES, historyText, inputBytes, maxInputBytes, panelGrid, queueInput, scrollAction, scrollHeldReason, scrollsItself, selfScrollFresh, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput";
 import { fontSizeFor, storedFontSize, storeFontSize } from "./terminalStream";
 import { terminalDocument } from "./terminalDocument";
 import { useDictation } from "./useDictation";
@@ -109,8 +109,14 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     let held = false;
     // selfScrolls is whether the pane scrolls itself, as Claude Code's
     // fullscreen interface does: it keeps no history to read, so the wheel
-    // sends it Herdr's wheel scroll instead.
-    let selfScrolls = false;
+    // sends it Herdr's wheel scroll instead. selfScrollChecked is when its
+    // history was last read to judge that; once that is stale, or a new
+    // connection is active, the next turn of the wheel reads it again.
+    let selfScrolls = false, selfScrollChecked = 0;
+    // refused is why the view's last take of the pane was refused, such as a
+    // review gate owning it; until the Overlord comes back to the board or
+    // types, the wheel does not ask for the pane again.
+    let refused = "";
     let font = storedFontSize();
     // The font is fitted from the cell measured on the screen xterm drew, then
     // checked on the screen it draws next: rows round to whole pixels, which
@@ -198,25 +204,29 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       past.clearSelection();
       if (document.activeElement === past.textarea) term.focus();
     };
-    // Reads the pane's history and shows it scrolled up by lines from its
-    // bottom, which is the live screen as it was when read.
+    // Reads the pane's history and shows it scrolled by lines from its
+    // bottom, which is the live screen as it was when read; lines up are
+    // negative, and lines down show nothing. A pane that scrolls itself is
+    // sent the lines instead.
     const openHistory = async (lines: number) => {
       if (reading || showing || !lease || abort.signal.aborted) return;
       reading = true;
       try {
         const answer = object(await request("/api/terminal/history", abort.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ lease, lines: HISTORY_LINES }) }));
         if (abort.signal.aborted || !lease) return;
-        if (scrollsItself(string(answer.text), term.rows, string(answer.agent))) {
-          selfScrolls = true;
-          scrollPane(-lines);
+        selfScrolls = scrollsItself(string(answer.text), term.rows, string(answer.agent));
+        selfScrollChecked = Date.now();
+        if (selfScrolls) {
+          scrollPane(lines);
           return;
         }
+        if (lines >= 0) return;
         past.options.fontSize = term.options.fontSize;
         past.resize(term.cols, term.rows);
         past.reset();
         await new Promise<void>((resolve) => past.write(historyText(string(answer.text)), resolve));
         past.scrollToBottom();
-        past.scrollLines(-lines);
+        past.scrollLines(lines);
         showing = true;
         setInHistory(true);
         setError("");
@@ -232,10 +242,18 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     // next turn of the wheel scrolls.
     const scrollPane = (lines: number) => {
       const command = wheelScroll(lines);
-      if (!command) return;
-      if (!active?.sized) { step("typed"); return; }
+      if (!command || !active) return;
+      const turn = wheelTurn({ sized: active.sized, refused: !!refused });
+      if (turn === "refused") { setError(scrollHeldReason(refused)); return; }
+      if (turn === "take") { step("typed"); return; }
       queue.push(command);
       void flush();
+    };
+    // A turn of the wheel over a pane that scrolls itself scrolls it while
+    // that is fresh, and otherwise reads its history again first.
+    const scrollSelf = (lines: number) => {
+      if (selfScrollFresh(selfScrollChecked, Date.now())) scrollPane(lines);
+      else if (lines) void openHistory(lines);
     };
     // want switches the view to sizing the pane or to showing it at its own
     // size, unless it is already there or on its way.
@@ -249,7 +267,10 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     };
     const step = (event: SizeEvent) => {
       if (!active || abort.signal.aborted) return;
-      if (event === "focus" || event === "typed") held = false;
+      if (event === "focus" || event === "typed") {
+        held = false;
+        if (refused) { refused = ""; setError(""); }
+      }
       const action = sizeStep(event, { sized: pending ? pending.sized : active.sized, focused: document.hasFocus(), shown: shownValue.current, held });
       if (action !== "stay") want(action === "take");
     };
@@ -324,7 +345,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       // Shift+PageUp opens the pane's history a screen up.
       if (event.shiftKey && !event.ctrlKey && !event.altKey && (event.key === "PageUp" || event.key === "PageDown")) {
         event.preventDefault();
-        if (event.type === "keydown" && event.key === "PageUp") void openHistory(Math.max(1, term.rows - 1));
+        if (event.type === "keydown" && event.key === "PageUp") void openHistory(-Math.max(1, term.rows - 1));
         return false;
       }
       return !!lease;
@@ -363,12 +384,12 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       const { action, lines } = wheelStep(fromHistory, event);
       if (!fromHistory && selfScrolls) {
         event.preventDefault();
-        scrollPane(lines);
+        scrollSelf(lines);
         return false;
       }
       if (action === "history") return true;
       event.preventDefault();
-      if (action === "open") void openHistory(Math.abs(lines));
+      if (action === "open") void openHistory(lines);
       if (action === "close") closeHistory();
       return false;
     };
@@ -383,11 +404,11 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       const { action, lines } = wheelStep(fromHistory, event);
       event.preventDefault();
       if (!fromHistory && selfScrolls) {
-        scrollPane(lines);
+        scrollSelf(lines);
         return;
       }
       if (action === "history") screen.scrollLines(lines);
-      if (action === "open") void openHistory(Math.abs(lines));
+      if (action === "open") void openHistory(lines);
       if (action === "close") closeHistory();
     };
     const liveBeside = wheelBeside(false), historyBeside = wheelBeside(true);
@@ -413,6 +434,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       if (pending === connection) pending = null;
       lease = connection.lease;
       seq = 0;
+      selfScrollChecked = 0;
       // A size or a scroll asked of the connection it replaces means nothing
       // to this one.
       for (let index = queue.length - 1; index >= 0; index--) if (queue[index].type !== "terminal.input") queue.splice(index, 1);
@@ -437,6 +459,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       const action = endStep({ sized: connection.sized, onScreen: connection === active, resized: /pane was resized/i.test(reason) }, active ? active.sized : null);
       if (action === "stop") { stop(reason); return; }
       if (connection.sized) held = true;
+      if (connection.sized && connection !== active) refused = reason;
       if (action === "keep") return;
       if (active) {
         active.abort.abort();

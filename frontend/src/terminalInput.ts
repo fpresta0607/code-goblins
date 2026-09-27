@@ -27,6 +27,22 @@ export function scrollsItself(history: string, rows: number, agent: string): boo
   return agent === "claude" && history.replace(/(\r?\n)+$/, "").split(/\r?\n/).length <= rows;
 }
 
+// A Claude Code pane with no scrollback now may build some later, as one not
+// drawn fullscreen does once its output passes a screen, so the view trusts
+// that a pane scrolls itself only this long after it last read its history.
+export const SELF_SCROLL_FRESH_MS = 30_000;
+export function selfScrollFresh(checkedAt: number, now: number): boolean {
+  return now - checkedAt < SELF_SCROLL_FRESH_MS;
+}
+
+// What a turn of the wheel does to a pane that scrolls itself: a view that
+// sizes the pane scrolls it, and one that does not takes the pane first,
+// unless its last take was refused, when it says why instead of asking again.
+export function wheelTurn(view: { sized: boolean; refused: boolean }): "scroll" | "take" | "refused" {
+  if (view.sized) return "scroll";
+  return view.refused ? "refused" : "take";
+}
+
 // Adjacent printable keystrokes travel as one input; control keys, escape
 // sequences and pastes stay inputs of their own, in order.
 export function queueInput(queue: PaneCommand[], text: string) {
@@ -128,7 +144,15 @@ export function endStep(ended: { sized: boolean; onScreen: boolean; resized: boo
 }
 
 // Why an input was refused, in the Overlord's words.
+const GATE_CUSTODY = /pipeline owns this task|pipeline custody has not been returned/i;
 export function typingHeldReason(raw: string): string {
-  if (/pipeline owns this task|pipeline custody has not been returned/i.test(raw)) return "The review gate owns this goblin's work right now, so typing is paused. Reconnect to watch the screen.";
+  if (GATE_CUSTODY.test(raw)) return "The review gate owns this goblin's work right now, so typing is paused. Reconnect to watch the screen.";
   return raw;
+}
+
+// Why the wheel cannot scroll a pane whose take was refused, in the
+// Overlord's words.
+export function scrollHeldReason(raw: string): string {
+  if (GATE_CUSTODY.test(raw)) return "A review gate owns this goblin's pane now; scroll it in Herdr.";
+  return "The wheel cannot scroll this pane: " + raw;
 }

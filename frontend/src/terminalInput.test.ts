@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bracketedPaste, endStep, fittedFontSize, historyText, inputBytes, MAX_WHEEL_LINES, maxInputBytes, panelGrid, queueInput, scrollAction, scrollsItself, sizeStep, typingHeldReason, wheelLines, wheelScroll, type PaneCommand, type SizeEvent } from "./terminalInput.ts";
+import { bracketedPaste, endStep, fittedFontSize, historyText, inputBytes, MAX_WHEEL_LINES, maxInputBytes, panelGrid, queueInput, scrollAction, scrollHeldReason, scrollsItself, SELF_SCROLL_FRESH_MS, selfScrollFresh, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput.ts";
 
 test("Unicode paste uses UTF-8 bytes including one complete bracketed wrapper", () => {
   const limit = Math.floor((maxInputBytes - 12) / 3);
@@ -81,6 +81,36 @@ test("only a Claude Code pane whose history is no taller than its screen scrolls
     ["a pane with no known agent reads its history", lines(12), 28, "", false],
   ];
   for (const [name, history, rows, agent, want] of cases) assert.equal(scrollsItself(history, rows, agent), want, name);
+});
+
+test("a pane found to scroll itself is trusted only until its history is due a fresh look", () => {
+  const checkedAt = 1_000_000;
+  const cases: [string, number, number, boolean][] = [
+    ["just checked", checkedAt, checkedAt, true],
+    ["a moment later", checkedAt, checkedAt + SELF_SCROLL_FRESH_MS - 1, true],
+    ["thirty seconds later, the history is read again", checkedAt, checkedAt + SELF_SCROLL_FRESH_MS, false],
+    ["long after, as a pane builds scrollback", checkedAt, checkedAt + 10 * 60_000, false],
+    ["never checked, as a new connection is", 0, checkedAt, false],
+  ];
+  for (const [name, at, now, want] of cases) assert.equal(selfScrollFresh(at, now), want, name);
+});
+
+test("the wheel over a pane that scrolls itself never asks again for a take that was refused", () => {
+  const cases: [string, Parameters<typeof wheelTurn>[0], ReturnType<typeof wheelTurn>][] = [
+    ["a view that sizes the pane scrolls it", { sized: true, refused: false }, "scroll"],
+    ["a view that does not takes the pane first", { sized: false, refused: false }, "take"],
+    ["a view whose take was refused says why instead", { sized: false, refused: true }, "refused"],
+  ];
+  for (const [name, view, want] of cases) assert.equal(wheelTurn(view), want, name);
+});
+
+test("a wheel that cannot scroll a pane explains itself in plain words", () => {
+  const cases: [string, string][] = [
+    ["pipeline owns this task; use cfo pipeline respond or inspect its delivery evidence", "A review gate owns this goblin's pane now; scroll it in Herdr."],
+    ["pipeline custody has not been returned; use cfo pipeline recover", "A review gate owns this goblin's pane now; scroll it in Herdr."],
+    ["Native terminal disconnected.", "The wheel cannot scroll this pane: Native terminal disconnected."],
+  ];
+  for (const [raw, plain] of cases) assert.equal(scrollHeldReason(raw), plain, raw);
 });
 
 test("a pane's screen is fitted to the panel whole, by its width or its height, with no floor", () => {
