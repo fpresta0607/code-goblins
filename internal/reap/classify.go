@@ -486,8 +486,12 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 			fixture, underFixture := fixtureServer(process, byPID, inv.Session, inv.StateDir)
 			owner := ""
 			if underFixture {
+				dirs := fixture.Dirs
+				if task, ok := tasks[fixture.GoTestTask]; fixture.GoTestTask != "" && ok {
+					dirs = append(dirs, task.Meta.Worktree)
+				}
 				inUse := false
-				for _, dir := range fixture.Dirs {
+				for _, dir := range dirs {
 					dir = scratchpadOwner(dir, inv.Worktrees)
 					inUse = inUse || fixtureInUse(dir, inv, tasks, panes, gates, unreadable)
 					if _, ok := worktreeHolding(dir, inv.Worktrees); ok && owner == "" {
@@ -532,6 +536,9 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				runsUnder := fmt.Sprintf("Herdr server pid %d, of a session other than the fleet's", fixture.PID)
 				if fixture.ScratchHome {
 					runsUnder = fmt.Sprintf("native terminal host pid %d, of a CFO home other than this one", fixture.PID)
+				}
+				if fixture.GoTestTask != "" {
+					runsUnder = fmt.Sprintf("%s pid %d, run from task %s's Go temporary directory", fixture.Name, fixture.PID, fixture.GoTestTask)
 				}
 				finding.Detail += fmt.Sprintf(" (a test fixture's: it runs under %s, started for %s, where nothing live works any more)", runsUnder, where)
 				finding.refuseUntilEstablished(unplacedAgentHold(inv), unplacedAgentKey(inv))
@@ -881,11 +888,12 @@ const fixtureAncestry = 8
 // harnesses in its panes, and the server outlives the script that started it,
 // so the stand-ins' ancestry reaches no pane of this fleet. With the fleet's
 // session unknown, no server can be told apart from the fleet's own. A scratch
-// home's host carries its harness's command line after --, so it is its own
-// fixture origin.
+// home's host carries its harness's command line after --, and a program run
+// from a goblin's Go temporary directory may be the stand-in itself, so each
+// is checked as its own fixture origin too.
 func fixtureServer(process Process, byPID map[int]Process, session, stateDir string) (fixtureOrigin, bool) {
-	if dirs, scratch := scratchHost(process, stateDir); scratch {
-		return fixtureOrigin{Process: process, Dirs: append([]string{process.Cwd}, dirs...), ScratchHome: true}, true
+	if origin, ok := nativeFixture(process, stateDir); ok {
+		return origin, true
 	}
 	current := process
 	for range fixtureAncestry {
@@ -899,23 +907,57 @@ func fixtureServer(process Process, byPID map[int]Process, session, stateDir str
 			}
 			return fixtureOrigin{}, false
 		}
-		if dirs, scratch := scratchHost(parent, stateDir); scratch {
-			return fixtureOrigin{Process: parent, Dirs: append([]string{parent.Cwd}, dirs...), ScratchHome: true}, true
+		if origin, ok := nativeFixture(parent, stateDir); ok {
+			return origin, true
 		}
 		current = parent
 	}
 	return fixtureOrigin{}, false
 }
 
+// nativeFixture reports whether process is where a fixture without a Herdr
+// session runs its stand-ins from: the native terminal host of another CFO
+// home, or a program run from a goblin's Go temporary directory.
+func nativeFixture(process Process, stateDir string) (fixtureOrigin, bool) {
+	if dirs, scratch := scratchHost(process, stateDir); scratch {
+		return fixtureOrigin{Process: process, Dirs: append([]string{process.Cwd}, dirs...), ScratchHome: true}, true
+	}
+	if task, ok := goTestTask(process); ok {
+		return fixtureOrigin{Process: process, GoTestTask: task}, true
+	}
+	return fixtureOrigin{}, false
+}
+
 // fixtureOrigin is the process a test fixture's stand-ins run under: a Herdr
-// server of another session, or the native terminal host of another CFO home.
-// Dirs are where it was started and, for a host, the state and terminal
-// directories it names; any of them can tie it to the goblin whose test or
-// proof it is.
+// server of another session, the native terminal host of another CFO home, or
+// a program a goblin's Go test runs. Dirs are where it was started and, for a
+// host, the state and terminal directories it names; any of them can tie it
+// to the goblin whose test or proof it is. GoTestTask is the task whose Go
+// temporary directory the program runs from, which ties it directly.
 type fixtureOrigin struct {
 	Process
 	Dirs        []string
 	ScratchHome bool
+	GoTestTask  string
+}
+
+// goTestTask is the task whose Go temporary directory,
+// %LOCALAPPDATA%\cfo\gotmp\<fleet>\<task id> (state.GoTmpDir), process's program
+// runs from. A goblin's Go test builds its test binary there, and the
+// stand-ins it starts run from the test's own temporary directory under it,
+// so the path names the goblin whose test it is.
+func goTestTask(process Process) (string, bool) {
+	args := commandArgs(process.CommandLine)
+	if len(args) == 0 {
+		return "", false
+	}
+	parts := strings.FieldsFunc(args[0], func(r rune) bool { return r == '\\' || r == '/' })
+	for index := 1; index+3 < len(parts); index++ {
+		if strings.EqualFold(parts[index-1], "cfo") && strings.EqualFold(parts[index], "gotmp") {
+			return parts[index+2], true
+		}
+	}
+	return "", false
 }
 
 // scratchHost reports whether process is a native terminal host run for a CFO
