@@ -23,7 +23,7 @@ If it is empty, infer what to show from the conversation.
 - **Lavish** when several options, trade-offs, a structured report, a plan, a comparison, a diagram, or a fleet-wide table justify a surface the Overlord can annotate.
 - **Neither, and say so** when lavish-axi is missing or below its floor: name the unavailable state once ("visual review is unavailable, here it is as text"), deliver the content in plain text, and carry on.
   Never hang waiting for a surface that cannot open, and never hold unrelated dispatch for an install.
-  When the Overlord wants the visual version, ask for consent to run `npm install -g lavish-axi@latest`, then confirm with `cfo doctor`.
+  When the Overlord wants the visual version, ask for consent to install the Code Goblins build of lavish-axi with the command `cfo doctor` prints, then confirm with `cfo doctor`.
 
 ## Workflow
 
