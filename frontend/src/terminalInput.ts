@@ -1,8 +1,11 @@
 export const maxInputBytes = 64 * 1024;
 export const inputBytes = (text: string) => new TextEncoder().encode(text).byteLength;
 
-// A command for a live pane view, which only types.
-export type PaneCommand = { type: "terminal.input"; text: string };
+// A command for a view of a pane: typing, or, for a view that sizes the pane,
+// a new size.
+export type PaneCommand =
+  | { type: "terminal.input"; text: string }
+  | { type: "terminal.resize"; cols: number; rows: number };
 
 // Adjacent printable keystrokes travel as one input; control keys, escape
 // sequences and pastes stay inputs of their own, in order.
@@ -64,6 +67,44 @@ export function fittedFontSize(width: number, height: number, cols: number, rows
   if (width <= 0 || height <= 0 || cols <= 0 || rows <= 0) return null;
   const fits = Math.min(width / (cols * cell.width), height / (rows * cell.height));
   return Math.min(MAX_FITTED_FONT, Math.floor(fits * 2) / 2);
+}
+
+// The columns and rows that fill a panel at a font size, for a view that sizes
+// its pane, within what Herdr accepts; null for a panel too small to hold a
+// usable terminal, such as a hidden one. The cell is the size in em the
+// terminal measured.
+export function panelGrid(width: number, height: number, fontSize: number, cell: { width: number; height: number }): { cols: number; rows: number } | null {
+  if (width <= 0 || height <= 0 || fontSize <= 0) return null;
+  const cols = Math.min(400, Math.floor(width / (cell.width * fontSize)));
+  const rows = Math.min(160, Math.floor(height / (cell.height * fontSize)));
+  return cols >= 20 && rows >= 5 ? { cols, rows } : null;
+}
+
+// What happens to a pane's size in the board. The most recent interaction
+// wins: while the board's window has the focus and shows the pane, the board
+// sizes the pane to its panel; leaving for another window, such as a Herdr
+// window, or moving to another view hands the size back. Herdr says nothing
+// when a Herdr window is typed into, so leaving the board is the sign. Once
+// another client takes the pane (held), the board waits for the Overlord to
+// come back to it or type in it before taking the pane again.
+export type SizeEvent = "live" | "focus" | "blur" | "shown" | "hidden" | "typed";
+export function sizeStep(event: SizeEvent, view: { sized: boolean; focused: boolean; shown: boolean; held: boolean }): "take" | "give" | "stay" {
+  if (event === "blur" || event === "hidden") return view.sized ? "give" : "stay";
+  if (view.sized || !view.shown) return "stay";
+  if (event === "focus" || event === "typed") return "take";
+  return view.focused && !view.held ? "take" : "stay";
+}
+
+// What a view does when one of its connections ends on its own: stop with the
+// reason, show the pane afresh at its own size (observe), or keep the screen as
+// it is. The connection on screen ending hands the screen on when it sized the
+// pane or Herdr resized the pane, and stops the view otherwise. A take that
+// fails keeps the screen. A give that fails still gives: the sized connection
+// on screen ends too, so the pane gets its own size back.
+export function endStep(ended: { sized: boolean; onScreen: boolean; resized: boolean }, screenSized: boolean | null): "stop" | "observe" | "keep" {
+  if (ended.onScreen) return ended.sized || ended.resized ? "observe" : "stop";
+  if (screenSized === null) return ended.sized ? "observe" : "stop";
+  return screenSized && !ended.sized ? "observe" : "keep";
 }
 
 // Why an input was refused, in the Overlord's words.

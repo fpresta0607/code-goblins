@@ -594,6 +594,182 @@ func TestTerminalHistoryAnswersThePanesRecentLines(t *testing.T) {
 	}
 }
 
+// Taking a pane's control to size it to the board must never resume or answer
+// an agent waiting for input: opening a control view, resizing it and
+// reading its history send the pane nothing but its size, and only a key the
+// Overlord types reaches the program.
+func TestTakingControlSendsThePaneOnlyItsSize(t *testing.T) {
+	// Arrange
+	native := newTestTerminal()
+	_, server, identity, runner := terminalHTTPFixture(t, native)
+	socket := runner.socket
+	socket.History = []string{"waiting for your answer"}
+	native.frames <- fullFrame(1)
+
+	// Act
+	response := terminalPost(t, server, "/api/terminal/stream", `{"cols":100,"rows":30,"control":true,"identity":"`+identity+`"}`)
+	defer response.Body.Close()
+	lease := readyLease(t, bufio.NewScanner(response.Body))
+	resized := terminalPost(t, server, "/api/terminal/input", fmt.Sprintf(`{"lease":%q,"seq":1,"command":{"type":"terminal.resize","cols":90,"rows":25}}`, lease))
+	resized.Body.Close()
+	history := terminalPost(t, server, "/api/terminal/history", fmt.Sprintf(`{"lease":%q,"lines":100}`, lease))
+	history.Body.Close()
+
+	// Assert
+	if !native.control || native.cols != 100 || native.rows != 30 {
+		t.Fatalf("opened control=%v at %dx%d, want control at 100x30", native.control, native.cols, native.rows)
+	}
+	if resized.StatusCode != 200 || history.StatusCode != 200 {
+		t.Fatalf("resize = %d, history = %d, want 200 and 200", resized.StatusCode, history.StatusCode)
+	}
+	if want := []herdr.TerminalCommand{{Type: "terminal.resize", Cols: 90, Rows: 25}}; !reflect.DeepEqual(native.writes, want) {
+		t.Fatalf("sent the pane %v, want only its new size", native.writes)
+	}
+	for _, request := range socket.Requests() {
+		if request.Method != "pane.read" {
+			t.Fatalf("the socket was sent %s %v, want only history reads", request.Method, request.Params)
+		}
+	}
+	if status := typeKey(t, server, lease, 2, "y"); status != 200 || !reflect.DeepEqual(native.writes[len(native.writes)-1], herdr.TerminalCommand{Type: "terminal.input", Text: "y"}) {
+		t.Fatalf("a typed key = %d with %v sent, want it typed", status, native.writes)
+	}
+}
+
+// A pane the board sized keeps that size once the board's view of it ends
+// unless the board hands it back, since with no Herdr window open nothing
+// else would: a control view's end, however it ends, returns the pane to the
+// size Herdr lays it out at, and a view that only observes sends nothing.
+func TestAViewEndingHandsBackOnlyTheSizeItTook(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		body string
+		want []herdr.TerminalCommand
+	}{
+		{"a control view returns the pane to its layout size", `{"cols":100,"rows":30,"control":true,"identity":"IDENTITY"}`, []herdr.TerminalCommand{{Type: "terminal.resize", Cols: 132, Rows: 43}}},
+		{"an observer view sends nothing", `{}`, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			native := newTestTerminal()
+			_, server, identity, _ := terminalHTTPFixture(t, native)
+			native.frames <- fullFrame(1)
+			response := terminalPost(t, server, "/api/terminal/stream", strings.ReplaceAll(c.body, "IDENTITY", identity))
+			readyLease(t, bufio.NewScanner(response.Body))
+
+			// Act
+			response.Body.Close()
+			waitClosed(t, native)
+
+			// Assert
+			if !reflect.DeepEqual(native.writes, c.want) {
+				t.Fatalf("the ended view sent the pane %v, want %v", native.writes, c.want)
+			}
+		})
+	}
+}
+
+// A hand-back reads the pane's size with a Herdr command that takes seconds
+// on a loaded machine, so the view gives its stream slot back first: the view
+// the Overlord opens next is never refused for want of a slot.
+func TestAHandBackHoldsNoStreamSlot(t *testing.T) {
+	// Arrange
+	native := newTestTerminal()
+	h, server, identity, runner := terminalHTTPFixture(t, native)
+	h.terminalSlots = make(chan struct{}, 1)
+	runner.held, runner.release = make(chan struct{}, 1), make(chan struct{})
+	defer close(runner.release)
+	native.frames <- fullFrame(1)
+	sized := terminalPost(t, server, "/api/terminal/stream", `{"cols":100,"rows":30,"control":true,"identity":"`+identity+`"}`)
+	readyLease(t, bufio.NewScanner(sized.Body))
+	runner.holding.Store(true)
+	sized.Body.Close()
+	select {
+	case <-runner.held:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the hand-back never read the pane's size")
+	}
+
+	// Act
+	opened := make(chan int, 1)
+	go func() {
+		request, _ := http.NewRequest("POST", server.URL+"/api/terminal/stream", strings.NewReader(`{}`))
+		request.Header.Set("Origin", server.URL)
+		request.Header.Set("X-CFO-Token", "instance")
+		request.Header.Set("Content-Type", "application/json")
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			opened <- 0
+			return
+		}
+		response.Body.Close()
+		opened <- response.StatusCode
+	}()
+
+	// Assert
+	select {
+	case status := <-opened:
+		t.Fatalf("the next view = %d while the hand-back read the pane's size, want it opening", status)
+	case <-runner.held:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the next view neither opened nor was refused")
+	}
+}
+
+// A gate that takes a goblin over while the board sizes its pane would refuse
+// the view's next size and break it, so the tick ends the sizing view with the
+// reason and the pane gets its own size back; the board then shows it at that
+// size.
+func TestControlViewEndsWhenAGateTakesOverOnItsTick(t *testing.T) {
+	// Arrange
+	native := newTestTerminal()
+	h, server, _, runner := terminalHTTPFixture(t, native)
+	body := goblinView(t, h, runner)
+	var selected terminalSelection
+	if err := json.Unmarshal([]byte(body), &selected); err != nil {
+		t.Fatal(err)
+	}
+	b, err := h.Service.resolveTerminal(context.Background(), selected, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taken := &atomic.Bool{}
+	h.Service.Options.Gate = gateTakesOver{taken: taken}
+	h.terminalTick = 10 * time.Millisecond
+	native.frames <- fullFrame(1)
+	response := terminalPost(t, server, "/api/terminal/stream", strings.TrimSuffix(body, "}")+fmt.Sprintf(`,"control":true,"identity":%q,"cols":100,"rows":30}`, b.Identity))
+	defer response.Body.Close()
+	scanner := bufio.NewScanner(response.Body)
+	readyLease(t, scanner)
+
+	// Act
+	taken.Store(true)
+	var frame herdr.TerminalFrame
+	for frame.Type != "terminal.closed" {
+		if !scanner.Scan() || json.Unmarshal(scanner.Bytes(), &frame) != nil {
+			t.Fatalf("the view ended without a reason: %s", scanner.Text())
+		}
+	}
+	waitClosed(t, native)
+
+	// Assert
+	if frame.Reason != "A review gate owns this goblin's work now, so the board shows its pane at its own size." {
+		t.Fatalf("the view ended with %q, want the gate's reason", frame.Reason)
+	}
+	if want := []herdr.TerminalCommand{{Type: "terminal.resize", Cols: 132, Rows: 43}}; !reflect.DeepEqual(native.writes, want) {
+		t.Fatalf("the ended view sent the pane %v, want its layout size", native.writes)
+	}
+}
+
+// waitClosed waits for the view to close its Herdr stream, which it does last.
+func waitClosed(t *testing.T, native *testTerminal) {
+	t.Helper()
+	select {
+	case <-native.closed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the view never closed its Herdr stream")
+	}
+}
+
 // recordingPanes is a pane input that records what it types and which
 // history it reads, answering text; refuse fails that many inputs first.
 type recordingPanes struct {

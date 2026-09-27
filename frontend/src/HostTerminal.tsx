@@ -1,20 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { Icon } from "./Icon";
-import { closedReason, DEFAULT_FONT_SIZE, MAX_FONT_SIZE, MIN_FONT_SIZE, reconnects } from "./terminalStream";
+import { closedReason, reconnects, storedFontSize, storeFontSize } from "./terminalStream";
 import { TerminalView } from "./terminalView";
 import { useDictation } from "./useDictation";
 
-const FONT_KEY = "cfo-terminal-font-size";
 // A view that keeps dropping stops retrying and says why.
 const MAX_RETRIES = 5;
-
-function storedFontSize(): number {
-  try {
-    const size = Number(localStorage.getItem(FONT_KEY));
-    return size >= MIN_FONT_SIZE && size <= MAX_FONT_SIZE ? size : DEFAULT_FONT_SIZE;
-  } catch { return DEFAULT_FONT_SIZE; }
-}
 
 // A native goblin's terminal: its host's own byte stream drawn by xterm at the
 // panel's size. It stays live while the board is open, shown or not, so
@@ -95,7 +87,7 @@ export function HostTerminal({ query, label, instance, visible, shown, focus }: 
         clearTimeout(copiedTimer);
         copiedTimer = setTimeout(() => setCopied(false), 1400);
       },
-      font: (size) => { try { localStorage.setItem(FONT_KEY, String(size)); } catch { /* the size still applies to this view */ } },
+      font: storeFontSize,
       dictate,
     });
     staged.current = view;

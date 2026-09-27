@@ -552,7 +552,7 @@ func TestANativeTerminalHoldsOutputAViewHasNotAcknowledged(t *testing.T) {
 
 // The board keeps every goblin terminal the Overlord opened live so switching
 // between them is instant, so native views have a limit of their own, far above
-// Herdr's four streams, and never take a Herdr stream's place.
+// Herdr's eight streams, and never take a Herdr stream's place.
 func TestNativeViewsKeepManyTerminalsLiveWithoutTakingHerdrStreams(t *testing.T) {
 	h, server := nativeBoard(t, "direct")
 	hostTask(t, h)
