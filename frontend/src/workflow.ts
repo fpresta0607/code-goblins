@@ -65,6 +65,12 @@ export function pullRequestLabel(url: string): string {
   return match ? match[1] + " #" + match[2] : "Pull request";
 }
 
+// A pull request wears GitHub's icon for what it really did: merged, closed
+// without merging, or neither yet.
+export function pullRequestIcon(task: Task): "merge" | "pull-request-closed" | "pull-request" {
+  return task.merged ? "merge" : task.closed ? "pull-request-closed" : "pull-request";
+}
+
 // Only a real GitHub pull request wears the GitHub mark and its bare number;
 // any other link keeps its full label.
 export function pullRequestBadge(url: string): { github: boolean; label: string } {
@@ -122,7 +128,7 @@ const GATE_STEPS: Record<string, string> = { review: "code review", lint: "lint"
 
 export function nodeStatus(node: WorkflowNode, asking = false): string {
   if (node.status) return node.status;
-  if (node.task?.archived) return node.task.merged ? "Merged" : "Finished";
+  if (node.task?.archived) return node.task.merged ? "Merged" : node.task.closed ? "Closed" : "Finished";
   if (node.task && ownsTaskSession(node.session, node.task)) {
     const { phase, reason, verified } = node.task;
     if (asking) return "Waiting on the CFO";
