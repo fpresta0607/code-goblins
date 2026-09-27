@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 func runSend(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
@@ -77,4 +80,12 @@ func nativeTask(stateDir, target string) (state.TaskMeta, bool) {
 		}
 	}
 	return state.TaskMeta{}, false
+}
+
+// nativePromptSince proves a native goblin took a prompt by its own hooks'
+// report, spooled or in the supervisor's store of home h.
+func nativePromptSince(h home.Home) func(taskID, generation string, since time.Time) (bool, error) {
+	return func(taskID, generation string, since time.Time) (bool, error) {
+		return supervisor.NativePromptSince(h.State, taskID, generation, since)
+	}
 }

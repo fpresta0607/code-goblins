@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 )
@@ -38,6 +39,9 @@ var (
 	nativeAccepted  = 90 * time.Second
 	nativeReadGrace = 10 * time.Second
 	nativeCloseWait = 15 * time.Second
+	// nativeQueuedProof bounds how long a delivery to a harness already in
+	// a turn waits for a hook to report it taken, in case the turn was ending.
+	nativeQueuedProof = 5 * time.Second
 )
 
 // maxDialogMoves bounds the focus moves one dialog takes.
@@ -68,7 +72,7 @@ func (s Service) startNativeHarness(ctx context.Context, id string, kind harness
 	if err := s.awaitNativeReady(ctx, record, screens); err != nil {
 		return record, err
 	}
-	return record, s.deliverNativeInstruction(ctx, record, screens, launch.PromptInstruction())
+	return record, s.deliverNativeInstruction(ctx, record, screens, launch.PromptInstruction(), launch.Env["CFO_SPAWN_GEN"])
 }
 
 // awaitNativeReady reads the terminal's screen until the harness's composer
@@ -152,17 +156,51 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 	return nil
 }
 
-// deliverNativeInstruction submits the instruction and returns once the
-// harness shows it working on it, the native form of the Herdr path's proof
-// that the agent accepted its prompt.
-func (s Service) deliverNativeInstruction(ctx context.Context, record host.Record, screens harness.Screens, instruction string) error {
+// deliverNativeInstruction submits the instruction to the harness of
+// generation generation and returns once the harness is proven to have taken
+// it: its native hooks report a prompt taken since the submit, or its screen
+// shows it working when it was not working before. Typed into a harness
+// already in a turn, the text waits in its composer for that turn to end, so
+// with no hook report soon after the submit it is not proven taken and the
+// error says it waits behind the turn.
+func (s Service) deliverNativeInstruction(ctx context.Context, record host.Record, screens harness.Screens, instruction, generation string) error {
+	before, err := s.readNativeScreen(ctx, record)
+	if err != nil {
+		return err
+	}
+	busy := screens.IsWorking(before)
+	submitted := time.Now()
 	if err := s.submitNative(ctx, record, screens, instruction, launchSettle); err != nil {
 		return err
 	}
-	if _, err := s.awaitScreen(ctx, record, nativeAccepted, screens.IsWorking); err != nil {
-		return fmt.Errorf("spawn: native terminal %s never showed its harness working on the instruction: %w", record.ID, err)
+	within := nativeAccepted
+	if busy {
+		within = nativeQueuedProof
 	}
-	return nil
+	deadline := time.Now().Add(within)
+	for {
+		if s.PromptSince != nil {
+			if taken, err := s.PromptSince(record.ID, generation, submitted); err == nil && taken {
+				return nil
+			}
+		}
+		screen, err := s.readNativeScreen(ctx, record)
+		if err != nil {
+			return err
+		}
+		if !busy && screens.IsWorking(screen) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			if busy {
+				return fmt.Errorf("spawn: native terminal %s took the text while its harness was in a turn, and no hook reported the harness taking it within %s: %w", record.ID, within, fleet.ErrQueuedBehindTurn)
+			}
+			return fmt.Errorf("spawn: native terminal %s never showed its harness working on the instruction: not within %s; its screen ends:\n%s", record.ID, within, host.ScreenTail(screen, 8))
+		}
+		if err := s.sleep(ctx, nativePoll); err != nil {
+			return err
+		}
+	}
 }
 
 // submitNative types the instruction into the harness's composer and submits

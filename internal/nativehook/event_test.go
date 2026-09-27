@@ -85,3 +85,48 @@ func TestStopInvocationsHaveIndependentIdentityWithinOneTurn(t *testing.T) {
 		t.Fatalf("separate invocations collapsed: %s %s %v", a.ID, b.ID, err)
 	}
 }
+
+// A harness taking a prompt for a turn marks its active event, the proof a
+// delivery was accepted: Claude and Codex as they submit it, Pi as its agent
+// starts. Tool events are activity without a prompt.
+func TestAPromptTakenForATurnIsMarked(t *testing.T) {
+	for _, tc := range []struct {
+		harness, event string
+		prompt         bool
+	}{
+		{"claude", "UserPromptSubmit", true},
+		{"codex", "UserPromptSubmit", true},
+		{"pi", "agent_start", true},
+		{"claude", "PreToolUse", false},
+		{"claude", "PostToolUse", false},
+		{"pi", "tool_execution_end", false},
+		{"claude", "Stop", false},
+	} {
+		t.Run(tc.harness+tc.event, func(t *testing.T) {
+			input, _ := json.Marshal(map[string]string{"session_id": "session-1", "cwd": t.TempDir(), "hook_event_name": tc.event})
+
+			e, err := Normalize(bytes.NewReader(input), Context{Harness: tc.harness, Role: "goblin", TaskID: "task-1", Generation: "spawn-1", Now: time.Now()})
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			if e.Prompt != tc.prompt {
+				t.Errorf("prompt = %v, want %v", e.Prompt, tc.prompt)
+			}
+		})
+	}
+}
+
+// Only an active event can carry a prompt.
+func TestAPromptOnAnyOtherKindIsRefused(t *testing.T) {
+	input, _ := json.Marshal(map[string]string{"session_id": "session-1", "cwd": t.TempDir(), "hook_event_name": "Stop"})
+	e, err := Normalize(bytes.NewReader(input), Context{Harness: "claude", Role: "goblin", TaskID: "task-1", Generation: "spawn-1", Now: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Prompt = true
+
+	if err := e.Validate(); err == nil || !strings.Contains(err.Error(), "only an active event") {
+		t.Errorf("Validate = %v, want a settled event with a prompt refused", err)
+	}
+}

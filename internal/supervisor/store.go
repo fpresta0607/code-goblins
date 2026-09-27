@@ -47,6 +47,7 @@ type Session struct {
 	TurnID       string          `json:"turn_id,omitempty"`
 	LastEventID  string          `json:"last_event_id"`
 	UpdatedAt    time.Time       `json:"updated_at"`
+	PromptAt     time.Time       `json:"prompt_at,omitzero"` // when this generation last took a prompt for a turn
 	Runtime      RuntimeEvidence `json:"runtime"`
 }
 
@@ -371,6 +372,12 @@ func (s *Store) Accept(e nativehook.Event) (err error) {
 	}
 	if node.ReportedRoot == "" {
 		node.ReportedRoot = prior.ReportedRoot
+	}
+	if known && prior.Generation == e.Generation {
+		node.PromptAt = prior.PromptAt
+	}
+	if e.Prompt {
+		node.PromptAt = e.OccurredAt
 	}
 	s.db.Sessions[key] = node
 	if e.Role == "goblin" {

@@ -33,9 +33,13 @@ func (p NativeProber) Inspect(_ context.Context, meta state.TaskMeta) (EndpointS
 	if !ok {
 		return unknown(fmt.Sprintf("native task %s runs %s, whose screen the monitor cannot read", meta.ID, meta.Harness)), nil
 	}
+	// A native terminal ends with its harness, and a reboot or sign-out
+	// ends every one; switch restarts the harness in place with its own
+	// resume.
+	resume := fmt.Sprintf("cfo switch %s restarts its harness in place, resuming its session", meta.ID)
 	record, err := host.ReadRecord(p.StateDir, meta.ID)
 	if errors.Is(err, fs.ErrNotExist) {
-		return EndpointSample{Verdict: ProbeMissing, Detail: fmt.Sprintf("native terminal %s has no running host", meta.ID)}, nil
+		return EndpointSample{Verdict: ProbeMissing, Detail: fmt.Sprintf("native terminal %s has no running host; %s", meta.ID, resume)}, nil
 	}
 	if err != nil {
 		return unknown(fmt.Sprintf("native terminal %s's host record is unreadable: %v", meta.ID, err)), nil
@@ -50,7 +54,7 @@ func (p NativeProber) Inspect(_ context.Context, meta state.TaskMeta) (EndpointS
 		// on its pipe says the terminal still runs.
 		client, dialErr := host.Dial(record)
 		if dialErr != nil {
-			return EndpointSample{Verdict: ProbeMissing, Detail: fmt.Sprintf("native terminal %s's host does not answer: %v", meta.ID, dialErr)}, nil
+			return EndpointSample{Verdict: ProbeMissing, Detail: fmt.Sprintf("native terminal %s's host does not answer (%v); %s", meta.ID, dialErr, resume)}, nil
 		}
 		_ = client.Close()
 		return unknown(fmt.Sprintf("native terminal %s's screen is unreadable: %v", meta.ID, err)), nil
