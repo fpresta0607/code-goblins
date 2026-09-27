@@ -1,5 +1,6 @@
 import type { BoardActivity, Snapshot, Task } from "./types";
 import { CfoPin } from "./CfoPin";
+import { FitList } from "./FitList";
 import { RankedCards } from "./RankedCards";
 import { TaskCard } from "./TaskCard";
 import { taskColumn } from "./workflow";
@@ -28,7 +29,7 @@ export function Board({ snapshot, selected, now, onSelect, onTerminal, onOpenCfo
         <h2>{column.name}<span className="column-count">{tasks.length}</span></h2>
         <p className="column-hint">{column.hint}</p>
         {column.list ? <RankedCards list={column.list} tasks={tasks} instance={snapshot.instance} revision={snapshot.revision} empty={empty} renderCard={card} />
-          : <div className="task-cards">{tasks.map((task) => card(task))}{!tasks.length && empty}</div>}
+          : <FitList items={tasks} keyOf={(task) => task.id} empty={empty} renderItem={(task) => card(task)} />}
       </section>;
     })}
   </section>;

@@ -114,9 +114,11 @@ Uncertain actions remain visible for operator inspection and can eventually exha
 
 The header switches between Board and Orchestration, with one main view visible at a time and one contextual pane on the right.
 Board groups actual tasks into Tasks, In progress and Completed.
-The three columns sit side by side while each has room for a 260 px card, and stack one above the other below that, so a card never squeezes its title or status.
+The three columns sit side by side while each has room for a 260 px card, and stack one above the other below that, so a card never squeezes its title or status; the CFO's bar and a column's heading wrap too, so nothing on the board is clipped or scrolls sideways at any width.
 Tasks lists backlog rows and briefs nothing has started: a `data/<id>/brief.md` with no live task record, status log or archive entry.
 Tasks and In progress are in priority order, top first, and every list of tasks the board shows follows it; Completed stays newest first.
+Completed shows as many of its newest cards as fit: with the columns side by side, the visible canvas below the list, and with them stacked, one screen below the column's heading, less room for the pager; a page holds as many rows of its tallest shown card as fit, times the columns its grid lays out.
+A pager under it, when one page does not hold them all, says which cards show, 1–5 of 18, with earlier and next buttons, and a sideways touch swipe of at least 48 px turns the page while a vertical one scrolls.
 Tasks lists the backlog's Queued rows in file order, then briefs without a row; In progress lists the goblins in the attention order kept in `state/attention.json`, then any goblin not placed yet, and `cfo fleet-view` lists its goblins in that order too.
 Dragging a card, or Alt+Up and Alt+Down on a focused one, sends the whole list's new order to `POST /api/order` with the board's token, which the Host, Origin and token checks guard like every other change.
 A Tasks order rewrites only the order of the rows in `data/backlog.md`'s Queued section, each row moving with its indented detail lines while notes, parked rows, the row of a task with a live task record (which In progress lists) and every other section stay where they are, and a brief without a row gets one, `- **<id>** - <id> (repo: <project>)`, at the place it was dropped.
@@ -127,8 +129,8 @@ A merged pull request whose live task already shows the merge, in phase merged o
 Any other merged pull request keeps its Completed card, even when a live task reported it: a task whose gate missed the merge, or that is blocked, failed or waiting on a question, keeps its own proven state on its card.
 A history card is its pull request link, since it has no live worktree to review.
 A task no native hook has reported takes its status from the fleet's own records: a question it is still waiting on in the wake queue, then what its gate proved, then what Herdr sees in its pane, and it is evaluated once a minute like any other.
-Each card shows a short title of at most two lines, then one muted line with the task's repo and status, and its pull request, linked only when the reported value is an https URL; the task's own latest status line is in its panel.
-A title the two lines cut off shows in full in the board's tip on hover or keyboard focus, and a title that fits shows none.
+Each card shows its short title, then a muted line with the task's repo and status, and its pull request, linked only when the reported value is an https URL; the task's own latest status line is in its panel.
+The title, the repo and the status wrap onto further lines instead of ending in an ellipsis, as the repo under the panel's title does; a card whose title is still shortened shows it in full in the board's tip on hover or keyboard focus.
 Each card in Tasks and In progress also shows a quiet clock under its status, in whole minutes, hours and days (just started, 47m, 2h 14m, 1d 3h), counted from the snapshot's `since`: when a live task's worktree folder was created, which `cfo spawn` makes fresh for each goblin and a switch keeps, so the clock counts the whole session across switches, or its spawn generation's time when that folder cannot be read; or when a queued task's `data/<id>/brief.md` was created.
 A queued row with no brief, or a live task with neither a readable worktree nor a generation that records a time, gets no clock rather than a guessed one, and a completed card shows none.
 The title is the backlog row's short title, which `cfo spawn` keeps on the task as `title=` in its metadata so it outlives the row, and the task's id only when it had none.
