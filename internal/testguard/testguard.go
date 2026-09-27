@@ -44,8 +44,9 @@ type Result struct {
 }
 
 // Check reads the gate commits between the branch's merge base with the
-// default branch and HEAD in dir that are not yet on origin/<branch>, and
-// lists every test they deleted or skipped.
+// default branch and HEAD in dir, leaving out those already on origin/<branch>
+// for the run's own branch, or rebased copies of them, and lists every test
+// they deleted or skipped.
 func Check(ctx context.Context, git execx.Runner, dir string) (Result, error) {
 	base, err := mergeBase(ctx, git, dir)
 	if err != nil {
@@ -93,11 +94,11 @@ var diffFlags = []string{"--no-color", "--unified=0", "--find-renames"}
 const authorFormat = "%an <%ae> %ai"
 
 // pushedPatches collects the patches of the gate commits already on
-// origin/<branch>, the branch HEAD is on. Everything pushed there passed this
-// check, kept or approved, so such a commit is not read again, nor is a
-// rebased copy of one, which git cherry would also count as the same change.
+// origin/<branch>, the branch currentBranch names. Everything pushed there
+// passed this check, kept or approved, so such a commit is not read again,
+// nor is a rebased copy of one with the same author, author date and change.
 // Another branch's commits are never counted: the same deletion approved
-// there is not approved here.
+// there is not approved here. With no branch named, the map is empty.
 func pushedPatches(ctx context.Context, git execx.Runner, dir, base string) (map[string]bool, error) {
 	patches := map[string]bool{}
 	branch, err := currentBranch(ctx, git, dir, base)
@@ -124,18 +125,44 @@ func pushedPatches(ctx context.Context, git execx.Runner, dir, base string) (map
 }
 
 // currentBranch names the branch HEAD is on. A no-mistakes run worktree has
-// a detached HEAD, so there it is the one local branch whose tip HEAD
-// contains past base; it is empty when no single branch qualifies, and then
-// every gate commit is read.
+// a detached HEAD that its rebase step may have rewritten, so there it is the
+// one local branch whose every commit past base has a copy in HEAD past base:
+// a commit with the same author and author date, which a rebase keeps. It is
+// empty when no single branch qualifies, and then every gate commit is read.
 func currentBranch(ctx context.Context, git execx.Runner, dir, base string) (string, error) {
 	if name, err := run(ctx, git, dir, "symbolic-ref", "--short", "-q", "HEAD"); err == nil {
 		return strings.TrimSpace(name), nil
 	}
-	refs, err := run(ctx, git, dir, "for-each-ref", "--merged=HEAD", "--no-merged="+base, "--format=%(refname:short)", "refs/heads")
+	inHead, err := run(ctx, git, dir, "log", "HEAD", "^"+base, "--no-merges", "--format="+authorFormat)
 	if err != nil {
 		return "", err
 	}
-	if names := strings.Fields(refs); len(names) == 1 {
+	copies := map[string]bool{}
+	for _, author := range strings.Split(strings.TrimSpace(inHead), "\n") {
+		copies[author] = true
+	}
+	branches, err := run(ctx, git, dir, "log", "--branches", "^"+base, "--no-merges", "--source", "--format=%S%x1f"+authorFormat)
+	if err != nil {
+		return "", err
+	}
+	copied := map[string]bool{}
+	for _, line := range strings.Split(strings.TrimSpace(branches), "\n") {
+		branch, author, ok := strings.Cut(line, "\x1f")
+		if !ok {
+			continue
+		}
+		if _, seen := copied[branch]; !seen {
+			copied[branch] = true
+		}
+		copied[branch] = copied[branch] && copies[author]
+	}
+	var names []string
+	for branch, isCopy := range copied {
+		if isCopy {
+			names = append(names, branch)
+		}
+	}
+	if len(names) == 1 {
 		return names[0], nil
 	}
 	return "", nil

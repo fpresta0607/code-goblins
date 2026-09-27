@@ -197,8 +197,10 @@ func TestCheckReportsARemovedTestWhoseNameAnotherTestExtends(t *testing.T) {
 }
 
 // A deletion the CFO approved was pushed, then the branch was rebased onto a
-// newer main for another run. The approved deletion's rebased copy is already
-// on origin and must not park again; a new unpushed deletion still must.
+// newer main for another run, on the detached HEAD a no-mistakes run worktree
+// has, leaving the local branch at its pre-rebase tip. The approved
+// deletion's rebased copy is already on origin and must not park again; a new
+// unpushed deletion still must.
 func TestCheckSkipsGateCommitsAlreadyPushed(t *testing.T) {
 	dir, git, write := scratchRepo(t, "package x\n\nfunc TestGuardHolds(t *testing.T) {}\n\nfunc TestGuardWarns(t *testing.T) {}\n")
 	write("guard_test.go", "package x\n\nfunc TestGuardWarns(t *testing.T) {}\n")
@@ -209,7 +211,7 @@ func TestCheckSkipsGateCommitsAlreadyPushed(t *testing.T) {
 	git("add", ".")
 	git("commit", "-qm", "main moves on")
 	git("update-ref", "refs/remotes/origin/main", "HEAD")
-	git("switch", "-q", "feature")
+	git("switch", "-q", "--detach", "feature")
 	git("rebase", "-q", "main")
 	write("guard_test.go", "package x\n")
 	git("commit", "-qam", "no-mistakes(review): drop the warning test")
