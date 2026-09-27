@@ -52,6 +52,9 @@ type Options struct {
 	// FirstRun is what the first-run page reads and changes on this
 	// machine; without it the board can start no CFO.
 	FirstRun *FirstRun
+	// Dispatch is what a queued task's Start reads and runs; without it the
+	// board starts no goblin.
+	Dispatch *Dispatch
 }
 
 type Service struct {
@@ -77,6 +80,11 @@ type Service struct {
 	runRequests sync.Mutex
 	// ordering saves one list order at a time.
 	ordering sync.Mutex
+	// starts guards starting, the task a Start is running cfo spawn for, and
+	// startErrors, why each task's last Start failed.
+	starts      sync.Mutex
+	starting    string
+	startErrors map[string]string
 	// pages stops each open item's page poller; pageWork waits for them.
 	pagesMu  sync.Mutex
 	pages    map[string]context.CancelFunc
@@ -574,6 +582,12 @@ type Task struct {
 	// Since is when a live task's session started, or when queued work's
 	// brief was written; zero when neither is known.
 	Since time.Time `json:"since"`
+	// Brief says queued work has its brief, which a Start needs; Starting
+	// that its Start runs cfo spawn now, and StartError why its last Start
+	// failed.
+	Brief      bool   `json:"brief"`
+	Starting   bool   `json:"starting"`
+	StartError string `json:"start_error"`
 	Evaluation
 }
 
@@ -617,6 +631,9 @@ type Snapshot struct {
 	// CFOTerminal names the native terminal the board shows the CFO in (see
 	// cfoState), and is empty while the CFO runs in Herdr or not at all.
 	CFOTerminal string `json:"cfo_terminal"`
+	// Memory is the machine's free memory for the Tasks meter, absent on a
+	// board that cannot start goblins or cannot read it.
+	Memory *Memory `json:"memory,omitempty"`
 }
 
 func (s *Service) Snapshot() (Snapshot, error) {
@@ -775,6 +792,21 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		isParked := slices.ContainsFunc(backlog.Parked, func(row fleet.BacklogRow) bool { return row.Structured && row.ID == brief.ID })
 		if !isParked && len(out.Tasks) < maxSessions && !slices.ContainsFunc(out.Tasks, func(t Task) bool { return t.ID == brief.ID }) {
 			out.Tasks = append(out.Tasks, brief)
+		}
+	}
+	s.starts.Lock()
+	for i := range out.Tasks {
+		task := &out.Tasks[i]
+		task.Starting = task.ID == s.starting
+		if task.Phase == "queued" {
+			task.Brief = exists(filepath.Join(s.Store.Home.Data, task.ID, "brief.md"))
+			task.StartError = s.startErrors[task.ID]
+		}
+	}
+	s.starts.Unlock()
+	if dispatch := s.Options.Dispatch; dispatch != nil {
+		if available, total, err := dispatch.Memory(); err == nil {
+			out.Memory = &Memory{Available: available, Total: total, Floor: memoryFloor, Next: memoryNext}
 		}
 	}
 	for _, done := range history {

@@ -760,6 +760,46 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .card-clock { justify-self: start; display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: .875rem; font-variant-numeric: tabular-nums; line-height: 1.4; }
 .card-clock .icon { width: 14px; height: 14px; }
 .task-card-shell.has-pr.has-clock:not(:has(.card-waiting)) .task-card { padding-bottom: 12px; }
+/* The CFO's Task view lists the queue below its workspace. */
+.cfo-queue { display: grid; gap: 12px; margin-top: 20px; padding-top: 24px; border-top: 1px solid var(--border); }
+.cfo-queue h3 { display: flex; gap: 10px; align-items: center; margin: 0; }
+.cfo-queue .column-hint { margin: -6px 0 2px; }
+/* Free memory at the head of Tasks, against the mark at which the CFO starts
+   the next task; the bar spans the machine's memory. */
+.memory { display: grid; gap: 6px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--edge); border-radius: 12px; background: #0b141bcc; }
+.memory-line { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: .9375rem; }
+.memory-line strong { font-variant-numeric: tabular-nums; }
+.memory-bar { position: relative; height: 8px; margin-bottom: 14px; border-radius: 8px; background: #1c2833; }
+.memory-fill { position: absolute; inset: 0 auto 0 0; border-radius: 8px; background: var(--mint); transition: width .4s ease, background .2s ease; }
+.memory-fill.waiting { background: var(--amber); }
+.memory-fill.under { background: var(--red); }
+.memory-mark { position: absolute; top: -4px; bottom: -4px; width: 2px; border-radius: 2px; background: #e4eeeb; }
+.memory-mark span { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); color: var(--muted); font-size: .75rem; white-space: nowrap; }
+.memory-state { margin: 0; color: var(--muted); font-size: .875rem; }
+/* The task the CFO starts next, and Start on a queued card: a text button on
+   the next task, a play button on the others on hover or focus. */
+.next-chip { justify-self: start; display: inline-flex; align-items: center; padding: 1px 10px; border-radius: 999px; background: #123126; color: #8ff0c9; font-size: .8125rem; font-weight: 800; }
+.next-chip.waiting { background: #33290f; color: var(--amber); }
+.card-start { position: absolute; top: 10px; right: 10px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 30px; padding: 4px 12px; font-size: .875rem; font-weight: 700; }
+.card-start.icon-button { width: 32px; height: 32px; min-height: 32px; padding: 0; border-radius: 10px; }
+.card-start .icon { width: 14px; height: 14px; fill: currentColor; }
+.card-start[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+.card-start.icon-button.raised[aria-disabled="true"]:hover { transform: none; box-shadow: var(--shadow-1); }
+.task-card-shell.has-start:not(.prominent-start) .task-card { padding-right: 46px; }
+/* The prominent Start sits in the card's bottom corner, in room the card
+   keeps for it, so it never covers the Next chip or the title; sharing the
+   card's grid cell keeps it there when a refusal shows under the card. */
+.task-card-shell.prominent-start { display: grid; }
+.task-card-shell.prominent-start > .task-card, .task-card-shell.prominent-start > .card-start { grid-area: 1 / 1; }
+.task-card-shell.prominent-start > .card-start { position: relative; top: auto; right: auto; align-self: end; justify-self: end; margin: 0 10px 10px 0; }
+.task-card-shell.prominent-start .task-card { padding-bottom: 52px; }
+@media (hover: hover) {
+  .task-card-shell.has-start:not(.prominent-start) .card-start { opacity: 0; transition: opacity .12s; }
+  .task-card-shell.has-start:hover .card-start, .task-card-shell.has-start:focus-within .card-start { opacity: 1; }
+}
+.card-start-spinner { width: 14px; height: 14px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: terminal-spin .8s linear infinite; }
+.card-start-problem { margin: 6px 4px 0; color: var(--amber); font-size: .875rem; overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: reduce) { .memory-fill { transition: none; } .card-start-spinner { animation-duration: 2.4s; } }
 /* Tasks and In progress are in priority order, top first: each card's
    number is its place and turns into a grip on hover or focus, and a dragged
    card lifts while the others slide aside. A finger drags by the number. */
