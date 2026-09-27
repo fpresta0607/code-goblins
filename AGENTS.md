@@ -68,6 +68,7 @@ A `<target>` is a task id, `gb-<id>`, or an explicit `session:pane` Herdr target
 - `--mode` is `no-mistakes` (default), `direct-PR`, or `local-only`.
 - `--class` is `ordinary` (default), `high-risk`, or `mechanical`; it freezes the task's review repair budget at spawn - two cycles for ordinary and mechanical, three for high-risk - and a running task's snapshot never changes ([docs/pipeline.md](docs/pipeline.md)).
 - `--yolo` lets you decide routine gates inside the Supreme Overlord's request; without it, every merge asks the Supreme Overlord.
+- The Supreme Overlord can start a queued task himself with **Start now** on the board, which runs this same `cfo spawn` with the task's brief and the harness, model, effort and mode its backlog row or brief names (else `claude` on `claude-opus-5-5` at `xhigh`), refused under 3 GB free or without a brief. It puts the task at the top of In progress and wakes you with a notify: `started: the Overlord started this from the board, ...` means it is dispatched, so update its backlog row as after your own dispatch; `start failed: ...` names why `cfo spawn` refused.
 
 ### Naming a project
 

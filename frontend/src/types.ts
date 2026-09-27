@@ -35,7 +35,16 @@ export interface Task extends Evaluation {
   // since is when a live task's session started, or when queued work's brief
   // was written; empty when neither is known.
   since: string;
+  // brief says queued work has its brief, which Start needs; starting that
+  // its Start runs cfo spawn now, and start_error why its last Start failed.
+  brief: boolean;
+  starting: boolean;
+  start_error: string;
 }
+// Memory is the machine's free memory in bytes beside the fleet's floor,
+// under which nothing starts, and the mark at which the CFO starts the next
+// queued task.
+export interface Memory { available: number; total: number; floor: number; next: number }
 export interface Session {
   runtime?: RuntimeEvidence;
   id: string;
@@ -111,6 +120,8 @@ export interface Snapshot {
   questions?: Question[];
   reviews?: Review[];
   runs?: Run[];
+  // memory is absent on a board that cannot start goblins or read it.
+  memory: Memory | null;
 }
 export interface Question {
   id: string; identity: string; text: string; options: string[]; recommended: string; answer: string; answer_kind: string; created_at: string; answer_id: string; status: string; message: string;
@@ -280,6 +291,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     cfo_runs: v.cfo_runs === undefined || boolean(v.cfo_runs),
     cfo_starting: v.cfo_starting === undefined ? false : boolean(v.cfo_starting),
     inbox: number(v.inbox),
+    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, floor, next }) => ({ available: number(available), total: number(total), floor: number(floor), next: number(next) }))(object(v.memory)),
     retired: strings(v.retired),
     issues: strings(v.issues),
     activity: array(v.activity).map(value=>{const a=object(value);return {id:string(a.id),kind:string(a.kind),task_id:string(a.task_id),generation:string(a.generation),cfo_identity:string(a.cfo_identity),live:a.live===undefined?false:boolean(a.live),source:string(a.source),target:string(a.target),state:string(a.state),url:string(a.url),at:string(a.at),until:string(a.until)};}),
@@ -321,6 +333,9 @@ export function parseSnapshot(value: unknown): Snapshot {
         archived: t.archived === undefined ? false : boolean(t.archived),
         merged: t.merged === undefined ? false : boolean(t.merged),
         since: string(t.since),
+        brief: t.brief === undefined ? false : boolean(t.brief),
+        starting: t.starting === undefined ? false : boolean(t.starting),
+        start_error: string(t.start_error),
         phase: string(t.phase),
         reason: string(t.reason),
         head: string(t.head),

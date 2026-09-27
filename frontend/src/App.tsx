@@ -65,6 +65,8 @@ export function App() {
   // startingShown is whether this page already opened the terminal of a CFO
   // that is starting, so closing it is not undone.
   const [startingShown, setStartingShown] = useState(false);
+  // awaitingStart is the queued task the Overlord started, until it is up.
+  const [awaitingStart, setAwaitingStart] = useState("");
   const returnFocus = useRef<HTMLElement | null>(null);
   const pane = useRef<HTMLElement>(null);
   const workspace = useRef<HTMLDivElement>(null);
@@ -126,6 +128,11 @@ export function App() {
   // A CFO starting in its terminal waits there for Claude Code's sign-in, so
   // the board opens that terminal by itself, once.
   if (snapshot?.cfo_starting && !startingShown) { setStartingShown(true); setView("Board"); switchTo(CFO_KEY); }
+  // A task the Overlord started opens on its terminal once its session is up;
+  // a start that failed shows why on its card instead.
+  const startedTask = awaitingStart ? snapshot?.tasks.find((candidate) => candidate.id === awaitingStart) : undefined;
+  if (startedTask?.generation) { setAwaitingStart(""); setView("Board"); switchTo(startedTask.id); }
+  else if (startedTask?.start_error) setAwaitingStart("");
   // The board's root is the first-run page whenever no CFO runs.
   const firstRun = !!snapshot && showsFirstRun({ cfoRuns: snapshot.cfo_runs, choice: firstRunChoice });
   const close = () => {
@@ -187,7 +194,7 @@ export function App() {
         {(error || snapshot?.error) && <div className="connection-banner" role="alert">{error || snapshot?.error}</div>}
         {snapshot?.registration && <div className="connection-banner" role="alert">{snapshot.registration}</div>}
         {!snapshot ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
-          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} selected={task?.id} now={now} onSelect={(task, source) => select({ task: task.id }, source)} onTerminal={(task, source) => select({ task: task.id }, source, "terminal")} onOpenCfo={(source) => { returnFocus.current = source; switchTo(CFO_KEY); }} onStartCfo={() => setFirstRunChoice("")} />
+          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} selected={task?.id} now={now} onSelect={(task, source) => select({ task: task.id }, source)} onTerminal={(task, source) => select({ task: task.id }, source, "terminal")} onOpenCfo={(source) => { returnFocus.current = source; switchTo(CFO_KEY); }} onStartCfo={() => setFirstRunChoice("")} onStarted={setAwaitingStart} />
             : compact ? <Lineage presentations={presentations} effects={effects} snapshot={snapshot} project="" selected={selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
               : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} connected={connected} selected={selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
                 onSelect={(node, source) => select(node.session ? { session: node.session.id } : node.task ? { task: node.task.id } : {}, source)} />}

@@ -12,7 +12,7 @@ import { useSortable } from "./useSortable";
 // agrees; a refused order goes back with the reason.
 export function RankedCards({ list, tasks, instance, revision, empty, renderCard }: {
   list: "queued" | "progress"; tasks: Task[]; instance: string; revision: number; empty: ReactNode;
-  renderCard: (task: Task, rank: string) => ReactNode;
+  renderCard: (task: Task, rank: string, index: number) => ReactNode;
 }) {
   const [pending, setPending] = useState<{ order: string[]; revision: number } | null>(null);
   const [error, setError] = useState("");
@@ -48,7 +48,7 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
           <span className="rank-number">{index + 1}</span>
           <svg className="grip" viewBox="0 0 14 14"><circle cx="4" cy="3" r="1.3" /><circle cx="10" cy="3" r="1.3" /><circle cx="4" cy="7" r="1.3" /><circle cx="10" cy="7" r="1.3" /><circle cx="4" cy="11" r="1.3" /><circle cx="10" cy="11" r="1.3" /></svg>
         </span>
-        {renderCard(task, rankLabel(index, shown.length))}
+        {renderCard(task, rankLabel(index, shown.length), index)}
       </div>)}
       {!shown.length && empty}
     </div>

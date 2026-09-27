@@ -32,8 +32,9 @@ type FirstRun struct {
 	mu       sync.Mutex
 }
 
-// StartRefusal is a start the first-run page cannot make; its message is the
-// reason, in the page's words.
+// StartRefusal is a start the board cannot make, of the CFO from the
+// first-run page or of a queued task; its message is the reason, in the
+// board's words.
 type StartRefusal struct{ Reason string }
 
 func (r StartRefusal) Error() string { return r.Reason }
