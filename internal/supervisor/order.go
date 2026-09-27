@@ -45,11 +45,15 @@ func (h *HTTP) order(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, "Only Tasks and In progress have an order")
 		return
 	}
+	// A refused order was made on a list that changed, so the board gets the
+	// list as it is now.
 	switch {
 	case errors.Is(err, fleet.ErrQueueChanged):
+		h.Service.notify()
 		apiError(w, http.StatusConflict, "The queue changed while you moved it; the board now shows its current order.")
 		return
 	case errors.Is(err, errNotInProgress):
+		h.Service.notify()
 		apiError(w, http.StatusConflict, err.Error())
 		return
 	case err != nil:
