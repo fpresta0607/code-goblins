@@ -20,6 +20,11 @@ const closed = (item: Item) => Date.parse(item.kind === "question" ? item.questi
 export const isOpen = (item: Item) => item.kind === "question" ? item.question.status === "pending"
   : item.kind === "review" ? item.review.state === "open" : item.run.state === "ready" || item.run.state === "running";
 
+// A goblin's wait on the Overlord himself, raised by notify --waiting-on
+// overlord: a status to see and dismiss, not a question to answer. It closes
+// by itself once the goblin reports again or the CFO answers it.
+export const waitsOnOverlord = (review: Review) => !!review.task && review.id.startsWith("waiting-" + review.task + "-");
+
 export function itemFor(snapshot: Snapshot, key: string): Item | undefined {
   return asItems(snapshot).find((item) => item.key === key);
 }

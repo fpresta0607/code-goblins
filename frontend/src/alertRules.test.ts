@@ -58,6 +58,13 @@ test("a goblin's own failure says what it reported", () => {
   assert.equal(alert.text, "The build broke");
 });
 
+test("a goblin waiting on the Overlord says so, and a review item asks for review", () => {
+  const waiting = { ...review("waiting-a-3"), title: "Sign in to GitHub" };
+  const [wait, plan] = boardAlerts(snapshot({}), snapshot({ reviews: [waiting, review("plan")] }));
+  assert.equal(wait.title, "Goblin a is waiting on you");
+  assert.equal(plan.title, "Goblin a wants your review");
+});
+
 test("an alert names who asks and what, in a few words", () => {
   const [alert] = boardAlerts(snapshot({}), snapshot({ questions: [question("q1", { text: "Ship **now**?\n\n" + "x".repeat(300) })] }));
   assert.equal(alert.title, "Goblin a asks you");

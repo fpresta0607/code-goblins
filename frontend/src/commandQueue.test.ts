@@ -1,11 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredBy, answeredLabel, chosenOption, documentFacts, failedSends, holdsUnsent, itemFor, nextOpenKey, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems } from "./commandQueue.ts";
-import type { Action } from "./types.ts";
+import { answeredBy, answeredLabel, chosenOption, documentFacts, failedSends, holdsUnsent, itemFor, nextOpenKey, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitsOnOverlord } from "./commandQueue.ts";
+import type { Action, Review } from "./types.ts";
 import { parseSnapshot, type BoardActivity } from "./types.ts";
 
 const question = (id: string, task: string, created_at: string, status = "pending", extra: Record<string, unknown> = {}) => ({ id, identity: "i-" + id, task, created_at, status, options: ["A", "B"], ...extra });
 const review = (id: string, task: string, created_at: string, state = "open", extra: Record<string, unknown> = {}) => ({ id, identity: "r-" + id, task, title: "Look at " + id, created_at, updated_at: created_at, state, ...extra });
+
+test("a goblin's wait on the Overlord is a status card, anything else under review is answered", () => {
+  const cases: [string, Partial<Review>, boolean][] = [
+    ["a goblin waiting on him", { id: "waiting-billing-7", task: "billing" }, true],
+    ["another goblin's wait id", { id: "waiting-billing-7", task: "notes" }, false],
+    ["a goblin's review page", { id: "plan-billing", task: "billing" }, false],
+    ["the CFO's own item", { id: "waiting--7", task: "" }, false],
+  ];
+  for (const [name, fields, want] of cases) assert.equal(waitsOnOverlord(fields as Review), want, name);
+});
 
 test("questions and open review items share one stack: the CFO first, then goblins by longest wait", () => {
   const snapshot = parseSnapshot({ healthy: true,
