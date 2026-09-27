@@ -69,7 +69,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 		return Inventory{}, nil, errors.New("reap: home state directory is required")
 	}
 	var notes []string
-	inv := Inventory{SelfPIDs: selfAncestry(), Session: c.Session}
+	inv := Inventory{SelfPIDs: selfAncestry(), Session: c.Session, StateDir: c.Home.State}
 
 	scan, err := state.ScanIDs(c.Home.State)
 	if err != nil {

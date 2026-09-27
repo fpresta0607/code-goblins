@@ -338,7 +338,11 @@ type WorktreeDir struct {
 type Inventory struct {
 	// Session is the fleet's own Herdr session. A Herdr server for any other
 	// session is a test fixture some goblin or gate started, not the fleet.
-	Session         string
+	Session string
+	// StateDir is this home's state directory. A native terminal host run
+	// with any other --state belongs to a scratch CFO home some goblin's test
+	// or proof set up, not to the fleet.
+	StateDir        string
 	Tasks           []Task
 	OrphanStatusIDs []string
 	Panes           []Pane
@@ -479,12 +483,33 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				// its own could ever be right about.
 				continue
 			}
-			fixture, underFixture := fixtureServer(process, byPID, inv.Session)
-			if underFixture && fixtureInUse(fixture.Cwd, inv, tasks, panes, gates, unreadable) {
-				// A stand-in harness a live goblin's or gate's test is
-				// running: its fixture's Herdr server outlived the script
-				// that started it, so its ancestry reaches no pane here.
-				continue
+			fixture, underFixture := fixtureServer(process, byPID, inv.Session, inv.StateDir)
+			owner := ""
+			if underFixture {
+				inUse := false
+				for _, dir := range fixture.Dirs {
+					dir = scratchpadOwner(dir, inv.Worktrees)
+					inUse = inUse || fixtureInUse(dir, inv, tasks, panes, gates, unreadable)
+					if _, ok := worktreeHolding(dir, inv.Worktrees); ok && owner == "" {
+						owner = dir
+					}
+				}
+				if inUse {
+					// A stand-in harness a live goblin's or gate's test is
+					// running: its fixture's Herdr server or scratch home's
+					// host outlived the script that started it, so its
+					// ancestry reaches no pane here.
+					continue
+				}
+				if fixture.ScratchHome && owner == "" {
+					// A scratch CFO home no goblin's worktree or scratchpad
+					// can be tied to is somebody's test or proof, never this
+					// fleet's orphan.
+					continue
+				}
+				if owner == "" {
+					owner = fixture.Cwd
+				}
 			}
 			finding := Finding{
 				Class:  OrphanProcess,
@@ -495,18 +520,22 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 			if worktree, ok := worktreeOf(process, inv.Worktrees); ok {
 				finding.TaskID = worktree.TaskID
 				finding.Path = worktree.Path
-			} else if worktree, ok := worktreeHolding(fixture.Cwd, inv.Worktrees); underFixture && ok {
+			} else if worktree, ok := worktreeHolding(owner, inv.Worktrees); underFixture && ok {
 				finding.TaskID = worktree.TaskID
 				finding.Path = worktree.Path
 			}
 			if underFixture {
-				where := fixture.Cwd
+				where := owner
 				if where == "" {
 					where = "a directory that could not be read"
 				}
-				finding.Detail += fmt.Sprintf(" (a test fixture's: it runs under Herdr server pid %d, of a session other than the fleet's, started in %s, where nothing live works any more)", fixture.PID, where)
+				runsUnder := fmt.Sprintf("Herdr server pid %d, of a session other than the fleet's", fixture.PID)
+				if fixture.ScratchHome {
+					runsUnder = fmt.Sprintf("native terminal host pid %d, of a CFO home other than this one", fixture.PID)
+				}
+				finding.Detail += fmt.Sprintf(" (a test fixture's: it runs under %s, started for %s, where nothing live works any more)", runsUnder, where)
 				finding.refuseUntilEstablished(unplacedAgentHold(inv), unplacedAgentKey(inv))
-				if worktree, ok := worktreeHolding(fixture.Cwd, inv.Worktrees); ok {
+				if worktree, ok := worktreeHolding(owner, inv.Worktrees); ok {
 					task, known := ownerOf(worktree, tasks, inv.Worktrees, unreadable)
 					finding.refuseUnlessForced(unreadableHostHold(task, known), ownerKey(task, known, worktree))
 				}
@@ -852,25 +881,107 @@ const fixtureAncestry = 8
 // harnesses in its panes, and the server outlives the script that started it,
 // so the stand-ins' ancestry reaches no pane of this fleet. With the fleet's
 // session unknown, no server can be told apart from the fleet's own.
-func fixtureServer(process Process, byPID map[int]Process, session string) (Process, bool) {
-	if session == "" {
-		return Process{}, false
-	}
+func fixtureServer(process Process, byPID map[int]Process, session, stateDir string) (fixtureOrigin, bool) {
 	current := process
 	for range fixtureAncestry {
 		parent, ok := byPID[current.ParentPID]
 		if !ok || parent.PID == current.PID || (!parent.Start.IsZero() && !current.Start.IsZero() && current.Start.Before(parent.Start)) {
-			return Process{}, false
+			return fixtureOrigin{}, false
 		}
 		if isHerdrServer(parent) {
-			if !strings.EqualFold(herdrSession(parent.CommandLine), session) {
-				return parent, true
+			if session != "" && !strings.EqualFold(herdrSession(parent.CommandLine), session) {
+				return fixtureOrigin{Process: parent, Dirs: []string{parent.Cwd}}, true
 			}
-			return Process{}, false
+			return fixtureOrigin{}, false
+		}
+		if dirs, scratch := scratchHost(parent, stateDir); scratch {
+			return fixtureOrigin{Process: parent, Dirs: append([]string{parent.Cwd}, dirs...), ScratchHome: true}, true
 		}
 		current = parent
 	}
-	return Process{}, false
+	return fixtureOrigin{}, false
+}
+
+// fixtureOrigin is the process a test fixture's stand-ins run under: a Herdr
+// server of another session, or the native terminal host of another CFO home.
+// Dirs are where it was started and, for a host, the state and terminal
+// directories it names; any of them can tie it to the goblin whose test or
+// proof it is.
+type fixtureOrigin struct {
+	Process
+	Dirs        []string
+	ScratchHome bool
+}
+
+// scratchHost reports whether process is a native terminal host run for a CFO
+// home other than this one, and the --state and --dir it names. cfo host is
+// only ever run with the home's state directory, so a host with any other is
+// a scratch home some goblin's test or proof started.
+func scratchHost(process Process, stateDir string) ([]string, bool) {
+	args := commandArgs(process.CommandLine)
+	if len(args) < 2 || !strings.EqualFold(args[1], "host") {
+		return nil, false
+	}
+	var state, dir string
+	for index := 2; index+1 < len(args) && args[index] != "--"; index++ {
+		switch args[index] {
+		case "--state":
+			state = args[index+1]
+		case "--dir":
+			dir = args[index+1]
+		}
+	}
+	if state == "" || normalizePath(filepath.Clean(state)) == normalizePath(filepath.Clean(stateDir)) {
+		return nil, false
+	}
+	return []string{state, dir}, true
+}
+
+// commandArgs splits a Windows command line into its arguments, a quoted
+// argument whole and without its quotes.
+func commandArgs(commandLine string) []string {
+	var args []string
+	var current strings.Builder
+	quoted, started := false, false
+	for _, r := range commandLine {
+		switch {
+		case r == '"':
+			quoted, started = !quoted, true
+		case (r == ' ' || r == '\t') && !quoted:
+			if started {
+				args = append(args, current.String())
+				current.Reset()
+				started = false
+			}
+		default:
+			current.WriteRune(r)
+			started = true
+		}
+	}
+	if started {
+		args = append(args, current.String())
+	}
+	return args
+}
+
+// scratchpadOwner is the worktree a directory under a Claude Code session's
+// temporary folder belongs to, since Claude Code names that folder
+// %TEMP%\claude\<slug> after the working directory, each :, \, / and . in it
+// replaced by -; any other directory is its own answer.
+func scratchpadOwner(dir string, worktrees []WorktreeDir) string {
+	parts := strings.Split(normalizePath(dir), `\`)
+	for index := 0; index+2 < len(parts); index++ {
+		if parts[index] != "temp" || parts[index+1] != "claude" {
+			continue
+		}
+		for _, worktree := range worktrees {
+			slug := strings.NewReplacer(":", "-", `\`, "-", "/", "-", ".", "-").Replace(normalizePath(worktree.Path))
+			if parts[index+2] == slug {
+				return worktree.Path
+			}
+		}
+	}
+	return dir
 }
 
 func isHerdrServer(process Process) bool {
