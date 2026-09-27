@@ -41,11 +41,12 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [inHistory, setInHistory] = useState(false);
-  // The history takes the keyboard once it is in sight, since a terminal out
-  // of sight cannot be focused.
+  // The history takes the keyboard from the live screen once it is in sight,
+  // since a terminal out of sight cannot be focused; a wheel over the screen
+  // while typing elsewhere leaves the keyboard where it is.
   useEffect(() => {
     inHistoryValue.current = inHistory;
-    if (inHistory && shownValue.current) history.current?.focus();
+    if (inHistory && shownValue.current && document.activeElement === terminal.current?.textarea) history.current?.focus();
   }, [inHistory]);
   const [unavailable, setUnavailable] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -141,7 +142,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       showing = false;
       setInHistory(false);
       past.clearSelection();
-      term.focus();
+      if (document.activeElement === past.textarea) term.focus();
     };
     // Reads the pane's history and shows it scrolled up by lines from its
     // bottom, which is the live screen as it was when read.
