@@ -128,6 +128,9 @@ Any other merged pull request keeps its Completed card, even when a live task re
 A history card is its pull request link, since it has no live worktree to review.
 A task no native hook has reported takes its status from the fleet's own records: a question it is still waiting on in the wake queue, then what its gate proved, then what Herdr sees in its pane, and it is evaluated once a minute like any other.
 Each card shows a short title of at most two lines, then one muted line with the task's repo and status, and its pull request, linked only when the reported value is an https URL; the task's own latest status line is in its panel.
+A title the two lines cut off shows in full in the board's tip on hover or keyboard focus, and a title that fits shows none.
+Each card in Tasks and In progress also shows a quiet clock under its status, in whole minutes, hours and days (just started, 47m, 2h 14m, 1d 3h), counted from the snapshot's `since`: when a live task's worktree folder was created, which `cfo spawn` makes fresh for each goblin and a switch keeps, so the clock counts the whole session across switches, or its spawn generation's time when that folder cannot be read; or when a queued task's `data/<id>/brief.md` was created.
+A queued row with no brief, or a live task with neither a readable worktree nor a generation that records a time, gets no clock rather than a guessed one, and a completed card shows none.
 The title is the backlog row's short title, which `cfo spawn` keeps on the task as `title=` in its metadata so it outlives the row, and the task's id only when it had none.
 The status line and the pull request come from the current generation's lines only, so a respawned task id shows neither its earlier generation's activity nor its pull request until it reports again.
 Cards state progress in plain words, never engine words: Not started, Working, In review gate (with its step, such as In review gate: tests), Waiting on the CFO, Waiting on a goblin by its id, Waiting on CI, Waiting on deploy, Checks passed, Delivered and No fresh evidence.
@@ -137,14 +140,14 @@ A reported wait on the Overlord ends once the Command Center item it raised clos
 It keeps its phase's colour, without the amber emphasis that belongs to the CFO's bar, so a wait on the Overlord, a goblin, CI or a deploy is shown in the same calmer sand colour.
 The CFO is pinned above the Board's columns, and its bar is the one place on the board that says Waiting on you: it names the first item the Command Center holds for the Overlord, by a question's lead sentence or a review's or command's title, and how many more wait, and otherwise says how many goblins the CFO supervises; its Open terminal button opens the CFO's terminal and hands it the keyboard.
 Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Task view and a Terminal view one tap apart on a pill at its top.
-The Task view header also shows the goblin's own latest status line; the Terminal view header is compact, showing only the goblin, its status and the icon buttons, since the live screen shows the latest output.
+The Task view header also shows the goblin's own latest status line, up to 4,000 characters, cut to three lines with Show more while it runs past them and Show less once opened; the Terminal view header is compact, showing only the goblin, its status and the icon buttons, since the live screen shows the latest output.
 The Task view holds the workspace, connections, changes, activity and commit history; the Terminal view is that goblin's live native terminal, edge to edge.
 Board opens a goblin on its Task view, or on its Terminal view from the terminal button on its card, and Orchestration opens on the Terminal view, which defaults to the registered CFO; once opened, both views stay mounted, so switching keeps scroll position and selection.
 There is still no standalone message composer: typing happens in the terminal itself.
 Open in VS Code and Open folder require a deliberate click and resolve the selected goblin's fresh, isolated Git worktree.
 The API accepts task identity and an editor enum, never a browser-provided path or command; it starts Code.exe directly with literal arguments and removes Electron Node/development flags from its inherited environment.
 Successful launch means the application was requested, not that a window was observed.
-Queued tasks show their known project and Not started yet, without querying nonexistent task metadata.
+Queued tasks show their known project and Not started yet, without querying nonexistent task metadata, and their panel is the Task view alone: the Terminal pill appears once the task has a terminal.
 Operational wake records remain intact; only a deliberate CFO question or a goblin's blocked notify that offers choices opens a modal.
 Task-semantic goblin avatars are presentation choices, not inferred native role evidence; a task no keyword classifies gets a stable artwork of its own instead of the shared app icon.
 
