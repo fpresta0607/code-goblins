@@ -736,6 +736,23 @@ func TestANativeTerminalStartsEachHarnessAsItsProgramNeeds(t *testing.T) {
 	}
 }
 
+// A typed launch leaves finding its program to cmd, in the user environment
+// the host runs with, so one not on this process's PATH still starts through
+// cmd /c.
+func TestATypedNativeLaunchIsNotLookedUpOnThisProcessPath(t *testing.T) {
+	// Arrange
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("ComSpec", `C:\Windows\System32\cmd.exe`)
+
+	// Act
+	program, err := nativeProgram(harness.Codex, harness.Launch{TypedLaunch: true, Executable: "codex", Args: []string{"--model", "gpt-6-astra"}})
+
+	// Assert
+	if err != nil || !slices.Equal(program, []string{`C:\Windows\System32\cmd.exe`, "/c", "codex", "--model", "gpt-6-astra"}) {
+		t.Errorf("codex not on PATH = %q, %v; want it through cmd /c", program, err)
+	}
+}
+
 // fixtureCredentials is a project's credentials preflight that returns them.
 type fixtureCredentials map[string]string
 
