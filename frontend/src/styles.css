@@ -523,7 +523,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .terminal-surface { flex: 1; min-width: 0; min-height: 200px; overflow: hidden; background: #071015; }
 /* A Herdr pane's screen is fitted whole to the panel and sits at its bottom,
    so the input line stays at the bottom of the panel; nothing scrolls. */
-.native-terminal:not(.host-terminal) .terminal-surface { display: flex; flex-direction: column; justify-content: flex-end; }
+.native-terminal:not(.host-terminal) .terminal-surface { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 8px 14px; }
 .terminal-surface .xterm-viewport { overflow: hidden !important; }
 /* The pane's history lies over its live screen at the same size, and stays
    laid out while away so its cells are measured. */
