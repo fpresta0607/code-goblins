@@ -36,19 +36,23 @@ function itemAlert(snapshot: Snapshot, item: Item): BoardAlert {
   return { key: item.key, tone: "needs", title: "A command waits for you to run it", text: shortened(item.run.title), task: "", target };
 }
 
-// A goblin's state that the Overlord hears of: blocked, failed, or done with
-// its pull request. Anything else, such as working, in review or waiting on
-// another task, is routine and says nothing.
+// A goblin's state that the Overlord hears of: blocked or failed by its
+// evidence or failed by its own report, or done with its pull request.
+// Anything else, such as working, in review or waiting on another task, is
+// routine and says nothing. A goblin's own blocked report raises a question,
+// which alerts by itself when it reaches the Command Center.
 function taskState(task: Task): "blocked" | "failed" | "done" | "" {
   if (task.phase === "blocked" || task.phase === "failed") return task.phase;
-  return task.phase === "done" && task.pr ? "done" : "";
+  if (task.report === "failed") return "failed";
+  return (task.phase === "done" || task.report === "done") && task.pr ? "done" : "";
 }
 
 function taskAlert(task: Task, state: "blocked" | "failed" | "done"): BoardAlert {
   const target: AlertTarget = { kind: "task", id: task.id };
   const key = "task:" + task.id + ":" + task.generation + ":" + state;
   if (state === "done") return { key, tone: "done", title: task.title + " is done", text: "Its pull request is ready: " + task.pr, task: task.id, target };
-  return { key, tone: state === "failed" ? "failed" : "needs", title: task.title + (state === "failed" ? " failed" : " is blocked"), text: shortened(task.reason || "It needs a decision to go on."), task: task.id, target };
+  const said = task.report === state ? task.activity : task.reason;
+  return { key, tone: state === "failed" ? "failed" : "needs", title: task.title + (state === "failed" ? " failed" : " is blocked"), text: shortened(said || "It needs a decision to go on."), task: task.id, target };
 }
 
 // boardAlerts is what changed between two snapshots that needs the Overlord

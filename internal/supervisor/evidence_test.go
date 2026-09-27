@@ -250,6 +250,24 @@ func TestStatusActivityKeepsOnlyHttpsPullRequests(t *testing.T) {
 	}
 }
 
+// The board alerts on a goblin's own failure or finish, so the snapshot says
+// which kind of report a task last made.
+func TestReportKindNamesTheKindOfAGoblinsLatestReport(t *testing.T) {
+	for _, c := range []struct{ report, kind string }{
+		{"working: Build review panel", "working"},
+		{"blocked: Which colour? options: green | blue", "blocked"},
+		{"failed: The build broke", "failed"},
+		{"done: PR https://github.com/o/r/pull/9", "done"},
+		{"waiting on overlord: sign-off", "waiting"},
+		{"failedover to plan b", ""},
+		{"", ""},
+	} {
+		if kind := reportKind(c.report); kind != c.kind {
+			t.Errorf("reportKind(%q) = %q, want %q", c.report, kind, c.kind)
+		}
+	}
+}
+
 func TestGitMergedPRsReadsMergeCommitsOfEachFleetRepository(t *testing.T) {
 	dir := t.TempDir()
 	repo := filepath.Join(dir, "code-goblins")

@@ -169,6 +169,21 @@ func latestReport(lines []string, spawned time.Time) (time.Time, string) {
 	return time.Time{}, ""
 }
 
+// reportKind is what a goblin's latest report says about it: working,
+// blocked, failed, done or waiting, or empty for anything else, so the board
+// can tell a goblin's own failure or finish from routine news.
+func reportKind(report string) string {
+	for _, kind := range []string{"working", "blocked", "failed", "done"} {
+		if strings.HasPrefix(report, kind+": ") {
+			return kind
+		}
+	}
+	if strings.HasPrefix(report, "waiting on ") {
+		return "waiting"
+	}
+	return ""
+}
+
 // supersedesQuestion says a report is newer news than a question the task
 // asked before it: the goblin went back to work or waits on something. The
 // question stays in the CFO's queue; only the board's reading of the task

@@ -18,6 +18,8 @@ test("what needs the Overlord or finished alerts once, and opens its item", () =
     ["a goblin blocked", snapshot({ tasks: [task("a", "blocked", { reason: "Needs a key" })] }), [{ key: "task:a:a-1:blocked", tone: "needs", target: { kind: "task", id: "a" } }]],
     ["a goblin failed", snapshot({ tasks: [task("a", "failed")] }), [{ key: "task:a:a-1:failed", tone: "failed", target: { kind: "task", id: "a" } }]],
     ["a goblin done with its pull request", snapshot({ tasks: [task("a", "done", { pr: "https://github.com/o/r/pull/7" })] }), [{ key: "task:a:a-1:done", tone: "done", target: { kind: "task", id: "a" } }]],
+    ["a goblin reporting it failed", snapshot({ tasks: [task("a", "review", { report: "failed", activity: "The build broke" })] }), [{ key: "task:a:a-1:failed", tone: "failed", target: { kind: "task", id: "a" } }]],
+    ["a goblin reporting done with its pull request", snapshot({ tasks: [task("a", "review", { report: "done", pr: "https://github.com/o/r/pull/7" })] }), [{ key: "task:a:a-1:done", tone: "done", target: { kind: "task", id: "a" } }]],
   ];
   for (const [name, next, want] of cases) {
     assert.deepEqual(boardAlerts(before, next).map(({ key, tone, target }) => ({ key, tone, target })), want, name);
@@ -32,6 +34,8 @@ test("routine updates and what was already there alert nothing", () => {
     ["a goblin entering its review gate", working, snapshot({ tasks: [task("a", "review")], questions: [question("q1")] })],
     ["a goblin waiting on another task", working, snapshot({ tasks: [task("a", "waiting")], questions: [question("q1")] })],
     ["a goblin done without a pull request", working, snapshot({ tasks: [task("a", "done")], questions: [question("q1")] })],
+    ["a goblin reporting it is blocked, which raises its own question", working, snapshot({ tasks: [task("a", "review", { report: "blocked" })], questions: [question("q1")] })],
+    ["a goblin reporting work", working, snapshot({ tasks: [task("a", "review", { report: "working" })], questions: [question("q1")] })],
     ["a question already waiting", working, working],
     ["a question answered", working, snapshot({ tasks: [task("a", "working")], questions: [question("q1", { status: "answered" })] })],
     ["a goblin still blocked", snapshot({ tasks: [task("a", "blocked")] }), snapshot({ tasks: [task("a", "blocked", { reason: "Still waiting" })] })],
@@ -47,6 +51,11 @@ test("a done goblin alerts when its pull request arrives, and a restarted goblin
   const blocked = snapshot({ tasks: [task("a", "blocked")] });
   const restartedBlocked = snapshot({ tasks: [task("a", "blocked", { generation: "a-2" })] });
   assert.deepEqual(boardAlerts(blocked, restartedBlocked).map((alert) => alert.key), ["task:a:a-2:blocked"]);
+});
+
+test("a goblin's own failure says what it reported", () => {
+  const [alert] = boardAlerts(snapshot({}), snapshot({ tasks: [task("a", "review", { report: "failed", activity: "The build broke", reason: "Manual task mode" })] }));
+  assert.equal(alert.text, "The build broke");
 });
 
 test("an alert names who asks and what, in a few words", () => {

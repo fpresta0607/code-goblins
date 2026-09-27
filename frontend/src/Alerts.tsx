@@ -29,11 +29,14 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
   const [toasts, setToasts] = useState<BoardAlert[]>([]);
   const [asking, setAsking] = useState(false);
   useEffect(() => {
-    const fresh = boardAlerts(previous.current, snapshot).filter((alert) => !seen.current.has(alert.key));
+    // A Command Center item alerts once a page; a goblin alerts each time it
+    // fails or finishes again, replacing its toast still on screen.
+    const fresh = boardAlerts(previous.current, snapshot).filter((alert) => alert.target.kind !== "command" || !seen.current.has(alert.key));
     previous.current = snapshot;
     if (!fresh.length) return;
     for (const alert of fresh) seen.current.add(alert.key);
-    setToasts((prior) => [...prior, ...fresh].slice(-MAX_TOASTS));
+    const keys = new Set(fresh.map((alert) => alert.key));
+    setToasts((prior) => [...prior.filter((alert) => !keys.has(alert.key)), ...fresh].slice(-MAX_TOASTS));
     if (asksPermission(permission(), asked())) setAsking(true);
     if (!notifies(permission(), document.hidden, document.hasFocus())) return;
     for (const alert of fresh) {
