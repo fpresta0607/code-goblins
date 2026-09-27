@@ -110,15 +110,14 @@ func pushedPatches(ctx context.Context, git execx.Runner, dir, base string) (map
 	if err != nil || strings.TrimSpace(exists) != remote {
 		return patches, err
 	}
-	log, err := run(ctx, git, dir, append([]string{"log", remote, "^" + base, "--no-merges", "--fixed-strings", "--grep=" + GateCommitPrefix, "--format=%x00%s%x1f" + authorFormat, "-p"}, diffFlags...)...)
+	commits, err := logDiffs(ctx, git, dir, "%s%x1f"+authorFormat, remote, "^"+base, "--fixed-strings", "--grep="+GateCommitPrefix)
 	if err != nil {
 		return nil, err
 	}
-	for _, commit := range strings.Split(log, "\x00")[1:] {
-		header, diff, _ := strings.Cut(commit, "\n")
-		subject, author, _ := strings.Cut(header, "\x1f")
+	for _, commit := range commits {
+		subject, author, _ := strings.Cut(commit.header, "\x1f")
 		if strings.HasPrefix(subject, GateCommitPrefix) {
-			patches[patchKey(author, diff)] = true
+			patches[patchKey(author, commit.diff)] = true
 		}
 	}
 	return patches, nil
@@ -126,35 +125,34 @@ func pushedPatches(ctx context.Context, git execx.Runner, dir, base string) (map
 
 // currentBranch names the branch HEAD is on. A no-mistakes run worktree has
 // a detached HEAD that its rebase step may have rewritten, so there it is the
-// one local branch whose every commit past base has a copy in HEAD past base:
-// a commit with the same author and author date, which a rebase keeps. It is
-// empty when no single branch qualifies, and then every gate commit is read.
+// one local branch whose every commit past base has a patch-equivalent copy
+// among HEAD's commits past base, as git cherry would judge it, but without
+// comparing against the default branch's history, where a stale branch's
+// merged changes would also qualify it. It is empty when no single branch
+// qualifies, and then every gate commit is read.
 func currentBranch(ctx context.Context, git execx.Runner, dir, base string) (string, error) {
 	if name, err := run(ctx, git, dir, "symbolic-ref", "--short", "-q", "HEAD"); err == nil {
 		return strings.TrimSpace(name), nil
 	}
-	inHead, err := run(ctx, git, dir, "log", "HEAD", "^"+base, "--no-merges", "--format="+authorFormat)
+	inHead, err := logDiffs(ctx, git, dir, "", "HEAD", "^"+base)
 	if err != nil {
 		return "", err
 	}
 	copies := map[string]bool{}
-	for _, author := range strings.Split(strings.TrimSpace(inHead), "\n") {
-		copies[author] = true
+	for _, commit := range inHead {
+		copies[patchKey("", commit.diff)] = true
 	}
-	branches, err := run(ctx, git, dir, "log", "--branches", "^"+base, "--no-merges", "--source", "--format=%S%x1f"+authorFormat)
+	onBranches, err := logDiffs(ctx, git, dir, "%S", "--branches", "^"+base, "--source")
 	if err != nil {
 		return "", err
 	}
 	copied := map[string]bool{}
-	for _, line := range strings.Split(strings.TrimSpace(branches), "\n") {
-		branch, author, ok := strings.Cut(line, "\x1f")
-		if !ok {
-			continue
-		}
+	for _, commit := range onBranches {
+		branch := commit.header
 		if _, seen := copied[branch]; !seen {
 			copied[branch] = true
 		}
-		copied[branch] = copied[branch] && copies[author]
+		copied[branch] = copied[branch] && copies[patchKey("", commit.diff)]
 	}
 	var names []string
 	for branch, isCopy := range copied {
@@ -166,6 +164,27 @@ func currentBranch(ctx context.Context, git execx.Runner, dir, base string) (str
 		return names[0], nil
 	}
 	return "", nil
+}
+
+type loggedDiff struct {
+	header string
+	diff   string
+}
+
+// logDiffs lists the non-merge commits git log selects with revs, each with
+// its header in format and its diff.
+func logDiffs(ctx context.Context, git execx.Runner, dir, format string, revs ...string) ([]loggedDiff, error) {
+	args := append([]string{"log", "--no-merges", "--format=%x00" + format, "-p"}, diffFlags...)
+	log, err := run(ctx, git, dir, append(args, revs...)...)
+	if err != nil {
+		return nil, err
+	}
+	var commits []loggedDiff
+	for _, commit := range strings.Split(log, "\x00")[1:] {
+		header, diff, _ := strings.Cut(commit, "\n")
+		commits = append(commits, loggedDiff{header: header, diff: diff})
+	}
+	return commits, nil
 }
 
 // patchKey is a commit's author and diff without what a rebase changes, its

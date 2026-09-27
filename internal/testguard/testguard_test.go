@@ -118,6 +118,10 @@ func TestScanFindsDeletedAndSkippedTests(t *testing.T) {
 	}
 }
 
+// scratchCommitDate is every scratch commit's author and committer date, so
+// no test depends on which commits land in the same second.
+const scratchCommitDate = "2026-09-26T12:00:00Z"
+
 // scratchRepo is a repository whose main holds guard_test.go with the given
 // content, recorded as origin/main, and a feature branch checked out off it.
 func scratchRepo(t *testing.T, content string) (string, func(args ...string), func(name, content string)) {
@@ -126,6 +130,7 @@ func scratchRepo(t *testing.T, content string) (string, func(args ...string), fu
 	git := func(args ...string) {
 		t.Helper()
 		command := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		command.Env = append(os.Environ(), "GIT_AUTHOR_DATE="+scratchCommitDate, "GIT_COMMITTER_DATE="+scratchCommitDate)
 		if out, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
