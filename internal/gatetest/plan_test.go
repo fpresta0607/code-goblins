@@ -80,6 +80,28 @@ func TestReadChoosesTheChangedPackageAndItsTestImporter(t *testing.T) {
 	}
 }
 
+// A new package the branch never added to git is still chosen.
+func TestReadChoosesAnUntrackedPackage(t *testing.T) {
+	// Arrange
+	dir := newModule(t)
+	write(t, filepath.Join(dir, "d", "d.go"), "package d\n")
+
+	// Act
+	plan, err := Read(context.Background(), execx.OSRunner{}, dir)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, choice := range plan.Choices {
+		got = append(got, choice.String())
+	}
+	if want := []string{"example.com/m/d (changed)"}; plan.Everything || !slices.Equal(got, want) {
+		t.Errorf("Read = %q, everything %v; want %q", got, plan.Everything, want)
+	}
+}
+
 // A branch that changed no Go package has nothing to test.
 func TestReadChoosesNothingWhenNoPackageChanged(t *testing.T) {
 	// Arrange

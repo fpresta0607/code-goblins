@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // Plan is what the step tests for the branch checked out in a directory.
@@ -25,8 +26,10 @@ type Plan struct {
 
 // Read works out the plan for the branch checked out in dir: the files that
 // differ from where it left the default branch (origin/HEAD, else
-// origin/main), committed or not, with a rename counted at both its paths,
-// and the packages go list reports for the module.
+// origin/main), committed, uncommitted or untracked, with a rename counted at
+// both its paths, and the packages go list reports for the module. The root
+// and every package directory are spelled with long names, as git and go
+// list can spell one directory differently.
 func Read(ctx context.Context, runner execx.Runner, dir string) (Plan, error) {
 	base, err := mergeBase(ctx, runner, dir)
 	if err != nil {
@@ -40,6 +43,10 @@ func Read(ctx context.Context, runner execx.Runner, dir string) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
+	untracked, err := output(ctx, runner, dir, "git", "ls-files", "--others", "--exclude-standard", "--full-name", "-z")
+	if err != nil {
+		return Plan{}, err
+	}
 	listed, err := output(ctx, runner, dir, "go", "list", "-e", "-json", "./...")
 	if err != nil {
 		return Plan{}, err
@@ -49,12 +56,12 @@ func Read(ctx context.Context, runner execx.Runner, dir string) (Plan, error) {
 		return Plan{}, err
 	}
 	var files []string
-	for _, file := range strings.Split(diff, "\x00") {
+	for _, file := range strings.Split(diff+"\x00"+untracked, "\x00") {
 		if file != "" {
 			files = append(files, file)
 		}
 	}
-	choices, everything := Select(filepath.FromSlash(strings.TrimSpace(top)), files, packages)
+	choices, everything := Select(fsx.LongPath(filepath.FromSlash(strings.TrimSpace(top))), files, packages)
 	return Plan{Base: base, Choices: choices, Everything: everything}, nil
 }
 
@@ -84,7 +91,7 @@ func decodePackages(r io.Reader) ([]Package, error) {
 			return nil, fmt.Errorf("gatetest: read go list: %w", err)
 		}
 		imports := append(append(listed.Imports, listed.TestImports...), listed.XTestImports...)
-		packages = append(packages, Package{ImportPath: listed.ImportPath, Dir: listed.Dir, Imports: imports})
+		packages = append(packages, Package{ImportPath: listed.ImportPath, Dir: fsx.LongPath(listed.Dir), Imports: imports})
 	}
 }
 
