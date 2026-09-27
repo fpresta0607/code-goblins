@@ -56,28 +56,19 @@ func Check(ctx context.Context, git execx.Runner, dir string) (Result, error) {
 		return Result{}, err
 	}
 	result := Result{Base: base}
-	first := ""
-	touched := map[string]gateCommit{}
+	tallies := map[string]skipTally{}
 	for _, line := range strings.Split(strings.TrimSpace(log), "\n") {
 		sha, subject, ok := strings.Cut(line, "\x1f")
 		if !ok || !strings.HasPrefix(subject, GateCommitPrefix) {
 			continue
 		}
-		diff, err := run(ctx, git, dir, "show", "--format=", "--no-color", "--unified=0", "--find-renames", sha)
+		diff, err := run(ctx, git, dir, "-c", "core.quotePath=false", "show", "--format=", "--no-color", "--unified=0", "--find-renames", sha)
 		if err != nil {
 			return Result{}, err
 		}
 		result.Commits++
-		if first == "" {
-			first = sha
-		}
 		commit := gateCommit{sha: sha[:min(len(sha), 8)], subject: subject}
-		for _, header := range strings.Split(diff, "\n") {
-			if strings.HasPrefix(header, "diff --git ") {
-				source, target := diffPaths(strings.TrimSuffix(header, "\r"))
-				touched[source], touched[target] = commit, commit
-			}
-		}
+		tallySkips(diff, commit, tallies)
 		for _, found := range Scan(diff) {
 			standing, err := stillStanding(ctx, git, dir, found)
 			if err != nil {
@@ -88,10 +79,7 @@ func Check(ctx context.Context, git execx.Runner, dir string) (Result, error) {
 			}
 		}
 	}
-	if first == "" {
-		return result, nil
-	}
-	skips, err := skipIncreases(ctx, git, dir, first, touched)
+	skips, err := skipIncreases(ctx, git, dir, tallies)
 	if err != nil {
 		return Result{}, err
 	}
@@ -105,99 +93,87 @@ type gateCommit struct {
 	subject string
 }
 
-// skipIncreases counts, in each test file a gate commit touched, the lines
-// that skip or narrow tests at HEAD against the same file as it stood before
-// the branch's first gate commit, following a rename between the two, and
-// reports every file that gained some with the lines that were not there
-// before. It counts rather than matching the lines a gate commit added
-// because the adversary is the gate's own fixer: a later gate commit can
-// reword a skip an earlier one added, or move its file, and neither leaves the
-// added line at HEAD. A skip the branch had before its first gate commit, or
-// its goblin added in a file no gate commit touched, is its author's call.
-func skipIncreases(ctx context.Context, git execx.Runner, dir, first string, touched map[string]gateCommit) ([]Removal, error) {
-	before := first + "^"
-	status, err := run(ctx, git, dir, "diff", "--name-status", "-z", "--find-renames", before, "HEAD")
-	if err != nil {
-		return nil, err
+// skipTally is the lines that skip or narrow tests the gate commits added
+// to one file minus those they removed, and the last gate commit that
+// touched it.
+type skipTally struct {
+	count  int
+	commit gateCommit
+}
+
+// tallySkips adds one gate commit's diff to the tallies, carrying a file's
+// tally to its new path when the commit renames it.
+func tallySkips(diff string, commit gateCommit, tallies map[string]skipTally) {
+	file := ""
+	for _, line := range strings.Split(diff, "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		switch {
+		case strings.HasPrefix(line, "diff --git "):
+			var source string
+			source, file = diffPaths(line)
+			tally := tallies[source]
+			delete(tallies, source)
+			tallies[file] = skipTally{count: tally.count, commit: commit}
+		case strings.HasPrefix(line, "--- ") || strings.HasPrefix(line, "+++ "):
+		case strings.HasPrefix(line, "+") && marker(line[1:]) != "":
+			tally := tallies[file]
+			tally.count++
+			tallies[file] = tally
+		case strings.HasPrefix(line, "-") && marker(line[1:]) != "":
+			tally := tallies[file]
+			tally.count--
+			tallies[file] = tally
+		}
 	}
+}
+
+// skipIncreases reports every test file whose gate commits added more lines
+// that skip or narrow tests than they removed while HEAD still has such lines
+// in it, listing those lines. It counts each gate commit's own diff rather
+// than matching the lines a gate commit added because the adversary is the
+// gate's own fixer: a later gate commit can reword a skip an earlier one
+// added, or move its file, and neither leaves the added line at HEAD. Merges
+// and the goblin's commits are never read, so a skip main or the goblin added
+// or removed is its author's call. A gate commit that removes an existing
+// skip and adds its own in the same file nets zero and is not reported.
+func skipIncreases(ctx context.Context, git execx.Runner, dir string, tallies map[string]skipTally) ([]Removal, error) {
+	files := make([]string, 0, len(tallies))
+	for file, tally := range tallies {
+		if tally.count > 0 && isTestFile(file) {
+			files = append(files, file)
+		}
+	}
+	sort.Strings(files)
 	var removals []Removal
-	fields := strings.Split(status, "\x00")
-	for index := 0; index < len(fields); {
-		code := fields[index]
-		if code == "" {
-			break
+	for _, file := range files {
+		exists, err := git.Run(ctx, execx.Request{Dir: dir, Name: "git", Args: []string{"cat-file", "-e", "HEAD:" + file}})
+		if err != nil {
+			return nil, fmt.Errorf("testguard: git cat-file: %w", err)
 		}
-		origin, file := "", ""
-		switch code[0] {
-		case 'R':
-			if index+2 >= len(fields) {
-				return nil, fmt.Errorf("testguard: git diff --name-status: a rename without both paths")
-			}
-			origin, file = fields[index+1], fields[index+2]
-			index += 3
-		default:
-			if index+1 >= len(fields) {
-				return nil, fmt.Errorf("testguard: git diff --name-status: a change without its path")
-			}
-			file = fields[index+1]
-			if code[0] != 'A' {
-				origin = file
-			}
-			index += 2
-		}
-		commit, gated := touched[file]
-		if !gated && origin != "" {
-			commit, gated = touched[origin]
-		}
-		if code[0] == 'D' || !gated || !isTestFile(file) {
+		if exists.ExitCode != 0 {
 			continue
-		}
-		var earlier []string
-		if origin != "" {
-			content, err := run(ctx, git, dir, "show", before+":"+origin)
-			if err != nil {
-				return nil, err
-			}
-			earlier = markerLines(content)
 		}
 		content, err := run(ctx, git, dir, "show", "HEAD:"+file)
 		if err != nil {
 			return nil, err
 		}
-		now := markerLines(content)
-		if len(now) <= len(earlier) {
+		var standing []string
+		for _, line := range strings.Split(content, "\n") {
+			if what := marker(line); what != "" {
+				standing = append(standing, what+strings.TrimSpace(line))
+			}
+		}
+		if len(standing) == 0 {
 			continue
 		}
-		left := map[string]int{}
-		for _, line := range earlier {
-			left[line]++
-		}
-		var added []string
-		for _, line := range now {
-			if left[line] > 0 {
-				left[line]--
-				continue
-			}
-			added = append(added, marker(line)+line)
-		}
+		tally := tallies[file]
 		lines := "lines"
-		if len(now)-len(earlier) == 1 {
+		if tally.count == 1 {
 			lines = "line"
 		}
-		removals = append(removals, Removal{Commit: commit.sha, Subject: commit.subject, File: file, What: fmt.Sprintf("%d more skip %s than before the branch's first gate commit: %s", len(now)-len(earlier), lines, strings.Join(added, "; "))})
+		removals = append(removals, Removal{Commit: tally.commit.sha, Subject: tally.commit.subject, File: file, What: fmt.Sprintf("gate commits added %d more skip %s than they removed; its skip lines at HEAD: %s", tally.count, lines, strings.Join(standing, "; "))})
 	}
 	return removals, nil
-}
-
-// markerLines are a file's lines that skip or narrow tests, trimmed.
-func markerLines(content string) []string {
-	var lines []string
-	for _, line := range strings.Split(content, "\n") {
-		if line = strings.TrimSpace(line); marker(line) != "" {
-			lines = append(lines, line)
-		}
-	}
-	return lines
 }
 
 // stillStanding reports whether HEAD still lacks what a gate commit removed:
@@ -231,8 +207,8 @@ type grepMatch struct {
 	line string
 }
 
-// grep lists the lines at HEAD that hold a fixed string, a removed test's
-// name or an added skip line, with their files. git grep exits 1 when
+// grep lists the lines at HEAD that hold a removed test's name, with their
+// files. git grep exits 1 when
 // nothing matches, which is an answer rather than a failure.
 func grep(ctx context.Context, git execx.Runner, dir string, args ...string) ([]grepMatch, error) {
 	result, err := git.Run(ctx, execx.Request{Dir: dir, Name: "git", Args: append([]string{"grep", "-z", "-F"}, args...)})
@@ -289,8 +265,8 @@ type Finding struct {
 // Scan reads one commit's unified diff and reports the test files it
 // deleted, and the tests it removed without adding back under the same name
 // anywhere in the commit (so a test moved or reordered is not a removal) or
-// under a new name in the same file. Skips are counted across the branch
-// instead (skipIncreases), since a later commit can reword one.
+// under a new name in the same file. Skips are counted across the gate
+// commits instead (skipIncreases), since a later commit can reword one.
 func Scan(diff string) []Finding {
 	var findings []Finding
 	removed := map[string]string{}
