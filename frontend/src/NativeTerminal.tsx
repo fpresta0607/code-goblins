@@ -5,7 +5,7 @@ import { message, request } from "./api";
 import { object, string, type Session, type Task } from "./types";
 import { ownsTaskSession } from "./lineageTree";
 import { Icon } from "./Icon";
-import { bracketedPaste, ESTIMATED_CELL, fittedFontSize, HISTORY_LINES, historyText, inputBytes, maxInputBytes, panelGrid, queueInput, scrollAction, sizeStep, typingHeldReason, wheelLines, type PaneCommand, type SizeEvent } from "./terminalInput";
+import { bracketedPaste, endStep, ESTIMATED_CELL, fittedFontSize, HISTORY_LINES, historyText, inputBytes, maxInputBytes, panelGrid, queueInput, scrollAction, sizeStep, typingHeldReason, wheelLines, type PaneCommand, type SizeEvent } from "./terminalInput";
 import { fontSizeFor, storedFontSize, storeFontSize } from "./terminalStream";
 import { terminalDocument } from "./terminalDocument";
 import { useDictation } from "./useDictation";
@@ -379,30 +379,27 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       void flush();
       return true;
     };
-    // The connection on screen that ends hands the screen on: a sized view
-    // falls back to the pane's own size, and waits for the Overlord to come
-    // back to the board before sizing it again; a pane Herdr resized, as the
-    // board's own sizing does, is shown again whole at its new size; any other
-    // end stops the view with the reason. A switch already on its way takes
-    // the screen instead of a fresh connection. A sized connection refused
-    // before it took the screen leaves the screen as it is.
+    // A connection that ends on its own is handled as endStep decides. A
+    // sized one that ends waits for the Overlord to come back to the board
+    // before sizing the pane again. Showing the pane afresh ends the
+    // connection on screen, and a switch already on its way takes the screen
+    // instead of a fresh connection.
     const ended = (connection: Connection, reason: string) => {
       if (connection.abort.signal.aborted) return;
-      if (connection === active) {
-        if (!connection.sized && !/pane was resized/i.test(reason)) { stop(reason); return; }
+      if (pending === connection) pending = null;
+      const action = endStep({ sized: connection.sized, onScreen: connection === active, resized: /pane was resized/i.test(reason) }, active ? active.sized : null);
+      if (action === "stop") { stop(reason); return; }
+      if (connection.sized) held = true;
+      if (action === "keep") return;
+      if (active) {
+        active.abort.abort();
         active = null;
         lease = "";
         term.options.disableStdin = true;
         if (flushing || queue.some((command) => command.type === "terminal.input")) { stop("The pane changed while input was being sent, so that input's outcome is unknown and nothing was resent. Reconnect for a fresh screen."); return; }
         queue.length = 0;
-        if (connection.sized) held = true;
-        if (!pending) void connect(false);
-        return;
       }
-      if (pending === connection) pending = null;
-      if (!connection.sized) { if (!active) stop(reason); return; }
-      held = true;
-      if (!active) void connect(false);
+      if (!pending) void connect(false);
     };
     const connect = async (sized: boolean) => {
       const connection: Connection = { sized, abort: new AbortController(), lease: "", frameSeq: 0, full: false };

@@ -195,7 +195,7 @@ The installed Herdr build `0.9.0-preview.2026-09-08-62431dbd033b` exposes `termi
 The browser renders its real ANSI screen frames using xterm, loaded the first time a panel shows its Terminal view.
 A goblin panel's Terminal view of a Herdr pane is a live view of the pane, and it never resumes or answers an agent.
 The most recent interaction decides the pane's size: while the board's window has the focus and shows the pane, the view takes the pane's controller (`terminal session control --takeover`) and sizes the pane to the panel at the chosen text size, 20 px unless Ctrl+Plus, Ctrl+Minus or Ctrl+0 chose another, which native terminals share; the panel keeps an even inset around the screen, and a panel that changes size asks for the grid that fills it once it holds still.
-Leaving the board's window, for a Herdr window for example, moving to another view, or another client taking the pane hands the size back: the view shows the pane at the size Herdr lays it out at until the Overlord comes back to the board or types in it.
+Leaving the board's window, for a Herdr window for example, moving to another view, or another client taking the pane hands the size back: the view shows the pane at the size Herdr lays it out at until the Overlord comes back to the board or types in it; if that view cannot open, the view still lets the pane go and shows it afresh at its own size.
 A view that sized the pane, however it ends, closing the board included, has the supervisor return the pane to that size, as a Herdr window does when a controller leaves; with no Herdr window open, nothing else would.
 Herdr says nothing when a Herdr window is typed into, so leaving the board is the sign; a Herdr window that shows the pane takes its size back once the controller leaves.
 Taking control sends the program nothing but its size: attaching, resizing, taking over and detaching sent a program that logs every input byte nothing at all, and a test proves the view sends the pane only its size until the Overlord types.
@@ -217,7 +217,7 @@ A NUL key such as Ctrl+Space is typed like any other key.
 Shift+Escape moves keyboard focus out of the terminal to the panel's pill; ordinary Escape stays with the pane.
 Releasing a drag selection copies it to the clipboard, the way Herdr does, and Ctrl+Shift+C copies the current selection.
 Closing, switching, disconnecting or restarting invalidates the lease; reconnection starts with a full screen frame, never replayed input.
-At most four views are open, frame gaps disconnect, and oversized UTF-8 paste is rejected before sending.
+At most eight views are open, frame gaps disconnect, and oversized UTF-8 paste is rejected before sending.
 Adjacent printable keystrokes coalesce into bounded ordered inputs; control keys and paste wrappers stay inputs of their own.
 Until the first frame is drawn a full-pane state says the terminal is connecting, and a view that has stopped says why in a pill with Reconnect beside it.
 The terminal carries no options menu or help text; xterm's default input mode accepts InsertText and IME Unicode, and paste works.
@@ -228,7 +228,7 @@ A task whose record names the `native` backend runs in a `cfo host` of its own, 
 A CFO registered in a native terminal is relayed the same way with `?cfo=TERMINAL&token=TOKEN`, and the snapshot's `cfo_terminal` names that terminal (native terminal `cfo` while a CFO is starting there unregistered), empty while the CFO runs in Herdr, so the CFO's entry in the panel shows the native terminal instead of a Herdr view that cannot show it.
 The view is refused unless the registration names a live CFO in exactly that terminal, or, with no CFO registered, the terminal is native terminal `cfo` and its host answers, and it closes once that stops holding, so typing never reaches a terminal the CFO has left.
 The upgrade needs the board's own origin and the board's token in the query, since a browser cannot set a WebSocket header, and anything else is refused with 403.
-Every later refusal closes the socket with its reason, which a browser can read: a replaced generation, a task that runs in Herdr, no running host, a host that did not answer, or 32 native views already open, a limit of their own apart from the four Herdr streams.
+Every later refusal closes the socket with its reason, which a browser can read: a replaced generation, a task that runs in Herdr, no running host, a host that did not answer, or 32 native views already open, a limit of their own apart from the eight Herdr streams.
 The view is bound to its terminal once, by the host's pipe, whose server process must be the host the record names, so a key costs no check and starts no process.
 The first message is the text `{"type":"history","bytes":N}`, the number of output bytes that follow as the host's history, even when it is empty.
 Output arrives as binary messages, the history first; typing goes back as binary messages, and a resize as the text message `{"type":"resize","cols":C,"rows":R}`.
@@ -249,7 +249,7 @@ Each connection draws into its own xterm, kept out of sight until the history, t
 A view that fell behind, a restarting board or a dropped connection reconnects on its own up to five times, keeping the last screen in place with a Reconnecting note until the new connection is whole, and does the same while the board's own connection is down; any other close keeps the last screen in view with its reason and Reconnect in a bar across the bottom.
 A paste goes as it is typed, in pieces of at most 64 KiB, in order.
 
-Every native terminal the Overlord opens stays live while the board is open, one xterm and one socket each, hidden rather than unmounted, so switching only brings another into sight; the three most recent Herdr views stay live the same way, so a fourth window still gets one of Herdr's four streams.
+Every native terminal the Overlord opens stays live while the board is open, one xterm and one socket each, hidden rather than unmounted, so switching only brings another into sight; the three most recent Herdr views stay live the same way, and each may briefly hold a second stream while it switches to or from sizing its pane, so another window still gets some of Herdr's eight streams.
 The shown terminal fills the panel, with no list beside it; the Overlord picks the goblin on the board.
 Ctrl+Alt+Up and Ctrl+Alt+Down step through the terminals, the CFO first and then each goblin with a terminal, and Ctrl+Alt+1 to Ctrl+Alt+9 jump to one in that order, matched by key position; the board catches them before a terminal sees them, except while a dialog such as the Command Center is open, and a switch hands the terminal the keyboard, a Herdr terminal included.
 A key typed with AltGr, which Windows reports as Ctrl+Alt, stays the terminal's, so a layout that types a brace or bracket with AltGr and a digit keeps it.

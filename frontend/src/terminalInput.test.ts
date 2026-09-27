@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bracketedPaste, fittedFontSize, historyText, inputBytes, maxInputBytes, panelGrid, queueInput, scrollAction, sizeStep, typingHeldReason, wheelLines, type PaneCommand, type SizeEvent } from "./terminalInput.ts";
+import { bracketedPaste, endStep, fittedFontSize, historyText, inputBytes, maxInputBytes, panelGrid, queueInput, scrollAction, sizeStep, typingHeldReason, wheelLines, type PaneCommand, type SizeEvent } from "./terminalInput.ts";
 
 test("Unicode paste uses UTF-8 bytes including one complete bracketed wrapper", () => {
   const limit = Math.floor((maxInputBytes - 12) / 3);
@@ -113,6 +113,19 @@ test("the most recent interaction wins the pane's size", () => {
     ["leaving a view that does not have the size changes nothing", "blur", view, "stay"],
   ];
   for (const [name, event, state, action] of cases) assert.equal(sizeStep(event, state), action, name);
+});
+
+test("a connection that ends on its own stops the view, shows the pane afresh at its own size, or keeps the screen", () => {
+  const cases: [string, Parameters<typeof endStep>[0], boolean | null, ReturnType<typeof endStep>][] = [
+    ["the pane's own view ending stops the view with the reason", { sized: false, onScreen: true, resized: false }, false, "stop"],
+    ["the pane's own view ending as Herdr resized the pane shows it afresh", { sized: false, onScreen: true, resized: true }, false, "observe"],
+    ["a sized view ending, as another client takes the pane, shows it afresh", { sized: true, onScreen: true, resized: false }, true, "observe"],
+    ["a take refused keeps the screen", { sized: true, onScreen: false, resized: false }, false, "keep"],
+    ["a take refused after the screen's view ended shows the pane afresh", { sized: true, onScreen: false, resized: false }, null, "observe"],
+    ["a give that fails still lets the sized view go and shows the pane afresh", { sized: false, onScreen: false, resized: false }, true, "observe"],
+    ["the view's first connection failing stops the view with the reason", { sized: false, onScreen: false, resized: false }, null, "stop"],
+  ];
+  for (const [name, ended, screenSized, action] of cases) assert.equal(endStep(ended, screenSized), action, name);
 });
 
 test("a refused input explains itself in plain words", () => {

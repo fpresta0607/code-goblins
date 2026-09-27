@@ -95,6 +95,18 @@ export function sizeStep(event: SizeEvent, view: { sized: boolean; focused: bool
   return view.focused && !view.held ? "take" : "stay";
 }
 
+// What a view does when one of its connections ends on its own: stop with the
+// reason, show the pane afresh at its own size (observe), or keep the screen as
+// it is. The connection on screen ending hands the screen on when it sized the
+// pane or Herdr resized the pane, and stops the view otherwise. A take that
+// fails keeps the screen. A give that fails still gives: the sized connection
+// on screen ends too, so the pane gets its own size back.
+export function endStep(ended: { sized: boolean; onScreen: boolean; resized: boolean }, screenSized: boolean | null): "stop" | "observe" | "keep" {
+  if (ended.onScreen) return ended.sized || ended.resized ? "observe" : "stop";
+  if (screenSized === null) return ended.sized ? "observe" : "stop";
+  return screenSized && !ended.sized ? "observe" : "keep";
+}
+
 // Why an input was refused, in the Overlord's words.
 export function typingHeldReason(raw: string): string {
   if (/pipeline owns this task|pipeline custody has not been returned/i.test(raw)) return "The review gate owns this goblin's work right now, so typing is paused. Reconnect to watch the screen.";
