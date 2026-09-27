@@ -2,6 +2,7 @@ package gatetest
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"slices"
 	"syscall"
@@ -12,7 +13,9 @@ import (
 
 // A module reached under its 8.3 short name, as GitHub runners spell their
 // temp directory, still has its changed package chosen: go list spells each
-// package from the short directory while git reports the long root.
+// package from the short directory while git reports the long root. A volume
+// without 8.3 names skips it locally, but under CI (GitHub Actions sets
+// CI=true) it fails instead, so a green CI run means the test ran and passed.
 func TestReadChoosesTheChangedPackageUnderAShortName(t *testing.T) {
 	// Arrange
 	dir := newModule(t)
@@ -27,7 +30,10 @@ func TestReadChoosesTheChangedPackageUnderAShortName(t *testing.T) {
 	}
 	short := syscall.UTF16ToString(buf[:n])
 	if filepath.Clean(short) == filepath.Clean(dir) {
-		t.Skipf("the volume has no 8.3 short name for %s", dir)
+		if os.Getenv("CI") == "true" {
+			t.Fatalf("CI's volume has no 8.3 short name for %s, so the short-name path went untested", dir)
+		}
+		t.Skipf("outside CI the volume has no 8.3 short name for %s", dir)
 	}
 	write(t, filepath.Join(dir, "c", "c.go"), "package c\n\nconst C = 1\n")
 
