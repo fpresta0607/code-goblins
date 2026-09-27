@@ -1,9 +1,9 @@
 // Package reap finds and retires the fleet resources nothing else notices: a
-// harness process whose pane is gone, a dev server left running in a worktree
-// no live goblin is working in, the worktree, metadata and status records
-// left behind when a task ends without a clean cleanup, and the directory
-// under a project's .worktrees/ that the project does not register as a
-// worktree at all.
+// harness process whose pane or native terminal host is gone, a dev server
+// left running in a worktree no live goblin is working in, the worktree,
+// metadata and status records left behind when a task ends without a clean
+// cleanup, and the directory under a project's .worktrees/ that the project
+// does not register as a worktree at all.
 //
 // No single source sees all of it. cfo knows the tasks it started, Herdr knows
 // the panes that still exist, only the operating system knows what is still
