@@ -31,10 +31,18 @@ type Check struct {
 	Installer    bool
 }
 
+// LavishRelease is the Code Goblins build of lavish-axi, from the fork at
+// github.com/fpresta0607/lavish-axi: upstream's review page named and styled
+// for Code Goblins, its server and CLI unchanged.
+const LavishRelease = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.1/lavish-axi-0.1.79-codegoblins.1.tgz"
+
 var tools = []struct {
-	name         string
-	hint         string
-	floor        string
+	name  string
+	hint  string
+	floor string
+	// build is the build a tool installed from a fork names in its version,
+	// which the upstream package of the same name does not.
+	build        string
 	presentation bool
 	installer    bool
 }{
@@ -46,7 +54,7 @@ var tools = []struct {
 	{name: "no-mistakes", hint: "irm https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1 | iex"},
 	{name: "gh-axi", hint: "npm install -g gh-axi"},
 	{name: "chrome-devtools-axi", hint: "npm install -g chrome-devtools-axi"},
-	{name: "lavish-axi", hint: "npm install -g lavish-axi@latest", floor: "0.1.71", presentation: true},
+	{name: "lavish-axi", hint: "npm install -g " + LavishRelease, floor: "0.1.79", build: "codegoblins", presentation: true},
 	{name: "winget", hint: "App Installer from the Microsoft Store, https://apps.microsoft.com/detail/9NBLGGH4NNS1", installer: true},
 }
 
@@ -85,6 +93,8 @@ func Run() []Check {
 		check.Version = strings.TrimSpace(version)
 		if tool.floor != "" && !meetsFloor(check.Version, tool.floor) {
 			check.Err = "version " + check.Version + " is below the floor"
+		} else if tool.build != "" && !strings.Contains(check.Version, tool.build) {
+			check.Err = "version " + check.Version + " is not the " + tool.build + " build"
 		}
 		checks = append(checks, check)
 	}
@@ -93,14 +103,16 @@ func Run() []Check {
 }
 
 // meetsFloor reports whether the last field of a --version line is a dotted
-// numeric version at or above floor. A component the version does not carry
-// counts as 0. An unparseable version fails the floor.
+// numeric version at or above floor, before any pre-release suffix such as a
+// fork's build name. A component the version does not carry counts as 0. An
+// unparseable version fails the floor.
 func meetsFloor(versionLine, floor string) bool {
 	fields := strings.Fields(versionLine)
 	if len(fields) == 0 {
 		return false
 	}
-	have := strings.Split(strings.TrimPrefix(fields[len(fields)-1], "v"), ".")
+	number, _, _ := strings.Cut(strings.TrimPrefix(fields[len(fields)-1], "v"), "-")
+	have := strings.Split(number, ".")
 	for i, wantPart := range strings.Split(floor, ".") {
 		want, _ := strconv.Atoi(wantPart)
 		got := 0

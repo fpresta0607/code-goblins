@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bracketedPaste, fittedFontSize, inputBytes, maxInputBytes, queueInput, queueScroll, typingHeldReason, wheelLines, type PaneCommand } from "./terminalInput.ts";
+import { bracketedPaste, endStep, fittedFontSize, historyText, inputBytes, maxInputBytes, panelGrid, queueInput, scrollAction, sizeStep, typingHeldReason, wheelLines, type PaneCommand, type SizeEvent } from "./terminalInput.ts";
 
 test("Unicode paste uses UTF-8 bytes including one complete bracketed wrapper", () => {
   const limit = Math.floor((maxInputBytes - 12) / 3);
@@ -13,7 +13,6 @@ test("Unicode paste uses UTF-8 bytes including one complete bracketed wrapper", 
 });
 
 const typed = (text: string): PaneCommand => ({ type: "terminal.input", text });
-const scrolled = (direction: "up" | "down", lines: number, source: "wheel" | "page_key" = "wheel"): PaneCommand => ({ type: "terminal.scroll", direction, lines, source });
 
 test("typing coalesces adjacent text, preserving Unicode, and keeps control keys and pastes apart", () => {
   const queue: PaneCommand[] = [];
@@ -30,16 +29,21 @@ test("typing coalesces adjacent text, preserving Unicode, and keeps control keys
   assert.equal(bounded.map((command) => command.type === "terminal.input" ? command.text : "").join("").length, 5000);
 });
 
-test("scrolling coalesces one way at a time within Herdr's limit, in order with typing", () => {
-  const queue: PaneCommand[] = [];
-  queueScroll(queue, "up", 3, "wheel");
-  queueScroll(queue, "up", 5, "wheel");
-  queueScroll(queue, "down", 2, "wheel");
-  queueScroll(queue, "down", 40, "page_key");
-  queueInput(queue, "x");
-  queueScroll(queue, "up", 150, "wheel");
-  queueScroll(queue, "up", 150, "wheel");
-  assert.deepEqual(queue, [scrolled("up", 8), scrolled("down", 2), scrolled("down", 40, "page_key"), typed("x"), scrolled("up", 200), scrolled("up", 100)]);
+test("scrolling up opens the pane's history, and scrolling down at its bottom follows the live screen again", () => {
+  const cases: [string, boolean, boolean, number, ReturnType<typeof scrollAction>][] = [
+    ["the wheel up on the live screen opens the history", false, true, -3, "open"],
+    ["the wheel down on the live screen keeps following the bottom", false, true, 3, "none"],
+    ["the wheel up in the history scrolls it", true, false, -3, "history"],
+    ["the wheel down above the history's bottom scrolls it", true, false, 3, "history"],
+    ["the wheel down at the history's bottom returns to the live screen", true, true, 3, "close"],
+    ["the wheel up at the history's bottom scrolls it", true, true, -3, "history"],
+  ];
+  for (const [name, inHistory, atBottom, lines, action] of cases) assert.equal(scrollAction(inHistory, atBottom, lines), action, name);
+});
+
+test("a pane's history is drawn line by line from the first column, with no color left on", () => {
+  assert.equal(historyText("one\n\x1b[31mtwo\x1b[0m\r\nthree"), "one\r\n\x1b[31mtwo\x1b[0m\r\nthree\x1b[0m");
+  assert.equal(historyText(""), "\x1b[0m");
 });
 
 test("the wheel scrolls whole lines, keeping what a touchpad has not yet made a line", () => {
@@ -70,6 +74,58 @@ test("a pane's screen is fitted to the panel whole, by its width or its height, 
 test("the fit follows the cell size the terminal measured, not an assumed one", () => {
   assert.equal(fittedFontSize(900, 800, 132, 43, { width: 0.5, height: 1.2 }), 13.5);
   assert.equal(fittedFontSize(1800, 1000, 132, 43, { width: 0.6, height: 1.5 }), 15.5);
+});
+
+test("typing never merges into a size the view asked for", () => {
+  const queue: PaneCommand[] = [];
+  queueInput(queue, "a");
+  queue.push({ type: "terminal.resize", cols: 100, rows: 30 });
+  queueInput(queue, "b");
+  assert.deepEqual(queue, [typed("a"), { type: "terminal.resize", cols: 100, rows: 30 }, typed("b")]);
+});
+
+test("a view that sizes its pane fills the panel with whole cells, within what Herdr accepts", () => {
+  const cell = { width: 0.6, height: 1.2 };
+  const cases: [string, number, number, number, { cols: number; rows: number } | null][] = [
+    ["a maximized panel at 20 px", 1574, 750, 20, { cols: 131, rows: 31 }],
+    ["the side panel at 20 px", 700, 750, 20, { cols: 58, rows: 31 }],
+    ["a larger font holds fewer cells", 1574, 750, 28, { cols: 93, rows: 22 }],
+    ["a vast panel stops at Herdr's largest pane", 20000, 20000, 12, { cols: 400, rows: 160 }],
+    ["a panel too narrow for a terminal", 200, 750, 20, null],
+    ["a hidden panel", 0, 0, 20, null],
+  ];
+  for (const [name, width, height, font, grid] of cases) assert.deepEqual(panelGrid(width, height, font, cell), grid, name);
+});
+
+test("the most recent interaction wins the pane's size", () => {
+  const view = { sized: false, focused: true, shown: true, held: false };
+  const cases: [string, SizeEvent, typeof view, ReturnType<typeof sizeStep>][] = [
+    ["opening the terminal in the focused board takes the size", "live", view, "take"],
+    ["opening it while he is in another window leaves the size", "live", { ...view, focused: false }, "stay"],
+    ["opening it after another client took the pane leaves the size", "live", { ...view, held: true }, "stay"],
+    ["coming back to the board takes the size, even from another client", "focus", { ...view, held: true }, "take"],
+    ["typing in the board takes the size, even from another client", "typed", { ...view, held: true }, "take"],
+    ["leaving the board for a Herdr window hands the size back", "blur", { ...view, sized: true }, "give"],
+    ["moving to another view hands the size back", "hidden", { ...view, sized: true }, "give"],
+    ["showing the view again in the focused board takes the size", "shown", view, "take"],
+    ["a view out of sight never takes the size", "focus", { ...view, shown: false }, "stay"],
+    ["a view that has the size keeps it", "typed", { ...view, sized: true }, "stay"],
+    ["leaving a view that does not have the size changes nothing", "blur", view, "stay"],
+  ];
+  for (const [name, event, state, action] of cases) assert.equal(sizeStep(event, state), action, name);
+});
+
+test("a connection that ends on its own stops the view, shows the pane afresh at its own size, or keeps the screen", () => {
+  const cases: [string, Parameters<typeof endStep>[0], boolean | null, ReturnType<typeof endStep>][] = [
+    ["the pane's own view ending stops the view with the reason", { sized: false, onScreen: true, resized: false }, false, "stop"],
+    ["the pane's own view ending as Herdr resized the pane shows it afresh", { sized: false, onScreen: true, resized: true }, false, "observe"],
+    ["a sized view ending, as another client takes the pane, shows it afresh", { sized: true, onScreen: true, resized: false }, true, "observe"],
+    ["a take refused keeps the screen", { sized: true, onScreen: false, resized: false }, false, "keep"],
+    ["a take refused after the screen's view ended shows the pane afresh", { sized: true, onScreen: false, resized: false }, null, "observe"],
+    ["a give that fails still lets the sized view go and shows the pane afresh", { sized: false, onScreen: false, resized: false }, true, "observe"],
+    ["the view's first connection failing stops the view with the reason", { sized: false, onScreen: false, resized: false }, null, "stop"],
+  ];
+  for (const [name, ended, screenSized, action] of cases) assert.equal(endStep(ended, screenSized), action, name);
 });
 
 test("a refused input explains itself in plain words", () => {

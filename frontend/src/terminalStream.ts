@@ -7,6 +7,20 @@ import { typingHeldReason } from "./terminalInput.ts";
 export const DEFAULT_FONT_SIZE = 20;
 export const MIN_FONT_SIZE = 12;
 export const MAX_FONT_SIZE = 28;
+// Every terminal the board sizes draws at the one text size the Overlord last
+// chose with Ctrl+Plus and Ctrl+Minus, remembered in this browser.
+const FONT_KEY = "cfo-terminal-font-size";
+
+export function storedFontSize(): number {
+  try {
+    const size = Number(localStorage.getItem(FONT_KEY));
+    return size >= MIN_FONT_SIZE && size <= MAX_FONT_SIZE ? size : DEFAULT_FONT_SIZE;
+  } catch { return DEFAULT_FONT_SIZE; }
+}
+
+export function storeFontSize(size: number): void {
+  try { localStorage.setItem(FONT_KEY, String(size)); } catch { /* the size still applies to this view */ }
+}
 // Output is acknowledged in steps of this many bytes, or at once when xterm
 // has caught up with everything received.
 export const ACK_STEP = 64 * 1024;

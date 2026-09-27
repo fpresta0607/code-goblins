@@ -38,9 +38,12 @@ type Options struct {
 	Gate           ProgressReader
 	Reconcile      func(context.Context) error
 	VerifyDelivery func(context.Context, state.TaskMeta, string, string, string) (string, error)
-	// MergedPRs lists, newest first, at most limit pull requests merged since
-	// a time.
-	MergedPRs func(ctx context.Context, since time.Time, limit int) ([]MergedPR, error)
+	// MergedPRs lists every pull request merged since a time.
+	MergedPRs func(ctx context.Context, since time.Time) ([]MergedPR, error)
+	// PullRequestState asks the forge whether a pull request is OPEN, CLOSED
+	// or MERGED; without it a finished task whose merge no fleet history
+	// shows reads Finished.
+	PullRequestState func(ctx context.Context, url string) (string, error)
 	// Runs opens run items' windows; without it no item can run.
 	Runs RunLauncher
 	// PollPage waits up to a timeout for the Overlord's feedback on a Lavish
@@ -66,9 +69,14 @@ type Service struct {
 	history              []Task
 	revision             uint64
 	subscribers          map[chan struct{}]struct{}
+	// pullRequests is what GitHub last said about each finished task's pull
+	// request the history shows; only the recovery cycle touches it.
+	pullRequests map[string]pullRequestState
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
+	// ordering saves one list order at a time.
+	ordering sync.Mutex
 	// pages stops each open item's page poller; pageWork waits for them.
 	pagesMu  sync.Mutex
 	pages    map[string]context.CancelFunc
@@ -245,7 +253,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
 		}
 		s.checkRegistration(ctx)
-		reconcileErr = errors.Join(reconcileErr, s.refreshHistory(ctx))
+		reconcileErr = errors.Join(reconcileErr, s.refreshHistory(ctx, time.Now().UTC()))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneRuns(time.Now()))
 		s.mu.Lock()
@@ -263,16 +271,17 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 }
 
 // refreshHistory rebuilds the Completed column on the once-a-minute recovery
-// cycle: finished tasks, and the pull requests merged into fleet repositories.
-func (s *Service) refreshHistory(ctx context.Context) error {
-	now := time.Now().UTC()
+// cycle: finished tasks, the pull requests merged into fleet repositories,
+// and what GitHub says of the finished tasks' other pull requests.
+func (s *Service) refreshHistory(ctx context.Context, now time.Time) error {
 	history := finishedTasks(s.Store.Home.State, now)
 	var err error
 	if s.Options.MergedPRs != nil {
 		var merged []MergedPR
-		merged, err = s.Options.MergedPRs(ctx, now.Add(-historyWindow), historyLimit)
+		merged, err = s.Options.MergedPRs(ctx, now.Add(-historyWindow))
 		history = withMergedPRs(history, merged)
 	}
+	err = errors.Join(err, s.withPullRequestStates(ctx, history, now))
 	s.mu.Lock()
 	s.history = history
 	s.mu.Unlock()
@@ -556,10 +565,15 @@ type Task struct {
 	Runtime      RuntimeEvidence `json:"runtime"`
 	// Activity is the task's own latest status line.
 	Activity string `json:"activity"`
-	// Archived marks completed history rather than a live task, and Merged
-	// that its pull request merged into a fleet repository.
+	// Archived marks completed history rather than a live task, Merged that
+	// its pull request merged into its base, and Closed that GitHub closed it
+	// without merging.
 	Archived bool `json:"archived"`
 	Merged   bool `json:"merged"`
+	Closed   bool `json:"closed"`
+	// Since is when a live task's session started, or when queued work's
+	// brief was written; zero when neither is known.
+	Since time.Time `json:"since"`
 	Evaluation
 }
 
@@ -584,6 +598,9 @@ type Snapshot struct {
 	Reviews    []Review        `json:"reviews"`
 	Runs       []Run           `json:"runs"`
 
+	// Attention is the Overlord's order of the live goblins, top first; a
+	// goblin it does not name has not been placed.
+	Attention []string `json:"attention"`
 	// Registration says why the board cannot reach the primary CFO, with
 	// the fix, and is empty while it can.
 	Registration string `json:"registration"`
@@ -605,7 +622,7 @@ type Snapshot struct {
 func (s *Service) Snapshot() (Snapshot, error) {
 	d := s.Store.Snapshot()
 	s.mu.Lock()
-	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Registration: s.registration, Tasks: []Task{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
+	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Registration: s.registration, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
 	history := append([]Task(nil), s.history...)
 	for i := range d.Activity {
 		if d.Activity[i].CFOIdentity != "" {
@@ -718,10 +735,20 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if title == "" {
 			title = id
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, Since: sessionStarted(meta), Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
+	}
+	// The goblins in progress run in the Overlord's attention order, and any
+	// he has not placed follow it.
+	if attention, err := fleet.ReadAttention(s.Store.Home); err != nil {
+		out.Issues = append(slices.Clone(out.Issues), "The In progress order cannot be read: "+err.Error())
+	} else {
+		fleet.SortByAttention(out.Tasks, attention, func(task Task) string { return task.ID })
+		out.Attention = slices.DeleteFunc(attention, func(id string) bool {
+			return !slices.ContainsFunc(out.Tasks, func(task Task) bool { return task.ID == id })
+		})
 	}
 	backlog, err := fleet.ReadBacklog(s.Store.Home)
 	if err != nil {
@@ -741,7 +768,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			}
 		}
 		if !found && len(out.Tasks) < maxSessions {
-			out.Tasks = append(out.Tasks, Task{ID: row.ID, Title: row.Title, Project: row.Repo, Dependencies: row.BlockedByIDs, Evaluation: Evaluation{Phase: "queued", Reason: row.BlockedReason}})
+			out.Tasks = append(out.Tasks, Task{ID: row.ID, Title: row.Title, Project: row.Repo, Dependencies: row.BlockedByIDs, Since: briefWritten(s.Store.Home, row.ID), Evaluation: Evaluation{Phase: "queued", Reason: row.BlockedReason}})
 		}
 	}
 	for _, brief := range queuedBriefs(s.Store.Home) {
