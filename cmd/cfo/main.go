@@ -280,7 +280,11 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		fs.SetOutput(stderr)
 		native := fs.Bool("native", false, "start a new CFO in a native terminal shown here instead of in Herdr")
 		harness := fs.String("harness", "", "the harness goblins starts the CFO as, remembered for later starts: claude, codex or pi")
-		if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
+		if err := fs.Parse(args); err != nil {
+			return 2
+		}
+		if fs.NArg() != 0 {
+			fmt.Fprintf(stderr, "goblins: unexpected argument %q; goblins takes only --native and --harness <claude|codex|pi>, or a command\n", fs.Arg(0))
 			return 2
 		}
 		if *harness != "" && !slices.Contains(cfoHarnesses, *harness) {

@@ -145,6 +145,18 @@ func TestGoblinsRefusesAHarnessItCannotStartTheCFOAs(t *testing.T) {
 	}
 }
 
+// goblins takes only its flags: an argument left after them is refused with
+// a message that names it, never with a bare exit code.
+func TestGoblinsNamesAnArgumentItDoesNotTake(t *testing.T) {
+	f := newSessionFixture(t)
+
+	exit, _, stderr := f.launch("--native", "codex")
+
+	if exit != 2 || !strings.Contains(stderr, `unexpected argument "codex"`) || len(f.harnesses) != 0 {
+		t.Fatalf("exit=%d stderr=%q harnesses=%q, want the argument named and nothing started", exit, stderr, f.harnesses)
+	}
+}
+
 // In Herdr the harness is the kind the CFO's agent starts as.
 func TestStartingTheCFOStartsTheChosenHarnessInHerdr(t *testing.T) {
 	fake := &terminaltest.Fake{
