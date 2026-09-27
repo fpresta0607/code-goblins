@@ -5,8 +5,9 @@ import type { Task } from "./types.ts";
 // switch keys go through the CFO first, then each goblin that has a terminal.
 
 export const CFO_KEY = "cfo";
-// Herdr's supervisor serves four screen streams at once; the deck keeps three
-// Herdr views live so a fourth window still gets one.
+// Herdr's supervisor serves eight screen streams at once; the deck keeps three
+// Herdr views live, and each may briefly hold a second while it switches to or
+// from sizing its pane, so another window with its own views still gets some.
 const HERDR_LIVE = 3;
 // The panel and the board each keep a usable width beside the divider.
 const MIN_PANE = 360;

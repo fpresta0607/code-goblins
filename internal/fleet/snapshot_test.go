@@ -123,6 +123,32 @@ func TestBuildSnapshotListsTasksInTheOverlordsAttentionOrder(t *testing.T) {
 	}
 }
 
+func TestBuildSnapshotListsTasksByIDWhenTheAttentionOrderIsUnreadable(t *testing.T) {
+	// Arrange
+	h := snapshotHome(t)
+	for _, id := range []string{"beta", "alpha"} {
+		writeSnapshotMeta(t, h, id, "", filepath.Join(h.Root, "project"))
+	}
+	if err := os.WriteFile(filepath.Join(h.State, "attention.json"), []byte("{not a list"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	snapshot, err := BuildSnapshot(context.Background(), h, &snapshotEndpoint{})
+
+	// Assert
+	if err != nil {
+		t.Fatalf("BuildSnapshot: %v", err)
+	}
+	var ids []string
+	for _, task := range snapshot.Tasks {
+		ids = append(ids, task.ID)
+	}
+	if want := []string{"alpha", "beta"}; !reflect.DeepEqual(ids, want) {
+		t.Fatalf("tasks = %v, want them by ID", ids)
+	}
+}
+
 func TestBuildSnapshotFindsCaseInsensitiveMetadataExtension(t *testing.T) {
 	h := snapshotHome(t)
 	meta := writeSnapshotMeta(t, h, "Foo", "", filepath.Join(h.Root, "project"))

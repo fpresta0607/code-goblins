@@ -33,7 +33,8 @@ type ProgressSample struct {
 
 // ProgressProber reads a goblin's progress evidence. The monitor consults it
 // only for a goblin a stale wake is otherwise due for, so its cost is paid
-// rarely and never on a healthy, short turn.
+// rarely and never on a healthy, short turn. An error means some evidence
+// could not be read; the sample still carries whatever was.
 type ProgressProber interface {
 	InspectProgress(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (ProgressSample, error)
 }
@@ -64,14 +65,14 @@ func (h HostProgress) InspectProgress(ctx context.Context, _ state.TaskMeta, sam
 	progress := ProgressSample{TranscriptAt: transcriptAt(h.Home, sample.Harness, sample.Session)}
 	info, err := h.Panes.PaneProcessInfo(ctx, sample.Endpoint.Target)
 	if err != nil {
-		return ProgressSample{}, err
+		return progress, err
 	}
 	if info.ForegroundProcessGroupID == info.ShellPID {
 		return progress, nil
 	}
 	processes, err := proc.Processes()
 	if err != nil {
-		return ProgressSample{}, err
+		return progress, err
 	}
 	progress.Jobs, progress.JobCPU = harnessJobs(info.ForegroundProcessGroupID, processes, harnessLaunch, proc.StartTime, proc.CPUTime)
 	return progress, nil

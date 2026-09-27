@@ -64,6 +64,35 @@ func TestRepoPolicyCannotRaiseCapsAndDoesNotOwnReviewAgents(t *testing.T) {
 	}
 }
 
+// The adversary is a branch editing its own .no-mistakes.yaml, which the
+// automatic-fix check reads from the submitted branch. Lowering a count only
+// sends more to a person, so it is accepted; raising one, a negative count,
+// or a key the policy does not govern could let a gate fix its way past a
+// decision, so each is refused.
+func TestRepoPolicyMayLowerAnAutomaticFixButNeverRaiseOne(t *testing.T) {
+	// Arrange
+	p := testPolicy(t)
+
+	for _, source := range []string{"auto_fix: {ci: 0}", "auto_fix: {test: 0, lint: 0, rebase: 0, ci: 0}", "auto_fix: {babysit: 0}", "auto_fix: {review: 0, test: 1, lint: 1, rebase: 1, ci: 1}"} {
+		// Act
+		err := CheckRepoConfig([]byte(source), p)
+
+		// Assert
+		if err != nil {
+			t.Errorf("a lowered or equal automatic fix was refused: %s: %v", source, err)
+		}
+	}
+	for _, source := range []string{"auto_fix: {ci: 2}", "auto_fix: {rebase: 3}", "auto_fix: {babysit: 2}", "auto_fix: {ci: -1}", "auto_fix: {document: 1}", "auto_fix: {ci: 0, fixit: 0}"} {
+		// Act
+		err := CheckRepoConfig([]byte(source), p)
+
+		// Assert
+		if err == nil {
+			t.Errorf("a raised, negative or ungoverned automatic fix was accepted: %s", source)
+		}
+	}
+}
+
 func TestRepoAgentCannotAlterRenderedGlobalReviewAgents(t *testing.T) {
 	p := testPolicy(t)
 	for _, source := range []string{"agent: claude", "agent: codex", "agent: [claude, codex]"} {

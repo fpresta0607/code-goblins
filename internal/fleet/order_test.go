@@ -84,7 +84,7 @@ func TestReorderQueuedWritesTheOrderIntoTheQueuedSection(t *testing.T) {
 			path := writeBacklog(t, h.Data, before)
 
 			// Act
-			err := ReorderQueued(h, test.order, test.added)
+			err := ReorderQueued(h, test.order, test.added, nil)
 
 			// Assert
 			if err != nil {
@@ -116,7 +116,7 @@ func TestReorderQueuedKeepsWindowsLineEndings(t *testing.T) {
 	path := writeBacklog(t, h.Data, "## Queued\r\n- **a** - A\r\n  detail: a\r\n- **b** - B\r\n")
 
 	// Act
-	err := ReorderQueued(h, []string{"b", "a"}, nil)
+	err := ReorderQueued(h, []string{"b", "a"}, nil, nil)
 
 	// Assert
 	if err != nil {
@@ -147,7 +147,7 @@ func TestReorderQueuedRefusesAnOrderThatIsNotTheQueue(t *testing.T) {
 			path := writeBacklog(t, h.Data, content)
 
 			// Act
-			err := ReorderQueued(h, test.order, test.added)
+			err := ReorderQueued(h, test.order, test.added, nil)
 
 			// Assert
 			if !errors.Is(err, ErrQueueChanged) {
@@ -167,7 +167,7 @@ func TestReorderQueuedRefusesABacklogThatQueuesATaskTwice(t *testing.T) {
 	path := writeBacklog(t, h.Data, content)
 
 	// Act
-	err := ReorderQueued(h, []string{"b", "a"}, nil)
+	err := ReorderQueued(h, []string{"b", "a"}, nil, nil)
 
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "queues a twice") {
@@ -184,7 +184,7 @@ func TestReorderQueuedOrdersRowsAcrossTwoQueuedSections(t *testing.T) {
 	path := writeBacklog(t, h.Data, "## Queued\n- **a** - A\n\n## Done\n- **d** - D\n\n## Queued\n- **b** - B\n  detail: b\n")
 
 	// Act
-	err := ReorderQueued(h, []string{"b", "a"}, nil)
+	err := ReorderQueued(h, []string{"b", "a"}, nil, nil)
 
 	// Assert
 	if err != nil {
@@ -195,13 +195,30 @@ func TestReorderQueuedOrdersRowsAcrossTwoQueuedSections(t *testing.T) {
 	}
 }
 
+func TestReorderQueuedKeepsTheRowOfATaskInProgressInPlace(t *testing.T) {
+	// Arrange
+	h := snapshotHome(t)
+	path := writeBacklog(t, h.Data, "## Queued\n- **a** - A\n- **started** - Started\n  detail: started\n- **b** - B\n")
+
+	// Act
+	err := ReorderQueued(h, []string{"b", "a"}, nil, map[string]bool{"started": true})
+
+	// Assert
+	if err != nil {
+		t.Fatalf("ReorderQueued: %v", err)
+	}
+	if got, want := readFile(t, path), "## Queued\n- **b** - B\n- **started** - Started\n  detail: started\n- **a** - A\n"; got != want {
+		t.Fatalf("backlog.md = %q, want %q", got, want)
+	}
+}
+
 func TestReorderQueuedAddsRowsToAQueueWithNone(t *testing.T) {
 	// Arrange
 	h := snapshotHome(t)
 	path := writeBacklog(t, h.Data, "## Queued\n\nNothing queued yet.\n\n## Done\n")
 
 	// Act
-	err := ReorderQueued(h, []string{"x", "y"}, map[string]string{"x": "- **x** - x", "y": "- **y** - y"})
+	err := ReorderQueued(h, []string{"x", "y"}, map[string]string{"x": "- **x** - x", "y": "- **y** - y"}, nil)
 
 	// Assert
 	if err != nil {
@@ -218,7 +235,7 @@ func TestReorderQueuedWithoutAQueuedSectionRefusesToAddRows(t *testing.T) {
 	writeBacklog(t, h.Data, "## Done\n")
 
 	// Act
-	err := ReorderQueued(h, []string{"x"}, map[string]string{"x": "- **x** - x"})
+	err := ReorderQueued(h, []string{"x"}, map[string]string{"x": "- **x** - x"}, nil)
 
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "no Queued section") {

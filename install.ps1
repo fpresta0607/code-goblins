@@ -327,7 +327,7 @@
         @{ Name = "no-mistakes";         Kind = "powershell"; Cmd = "irm https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1 | iex" },
         @{ Name = "gh-axi";              Kind = "npm";        Cmd = "npm.cmd install -g gh-axi" },
         @{ Name = "chrome-devtools-axi"; Kind = "npm";        Cmd = "npm.cmd install -g chrome-devtools-axi" },
-        @{ Name = "lavish-axi";          Kind = "npm";        Cmd = "npm.cmd install -g lavish-axi@latest" }
+        @{ Name = "lavish-axi";          Kind = "npm";        Cmd = "npm.cmd install -g https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.1/lavish-axi-0.1.79-codegoblins.1.tgz" }
     )
 
     $npmPresent = [bool](Get-Command npm -ErrorAction SilentlyContinue)

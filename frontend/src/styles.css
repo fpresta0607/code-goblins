@@ -177,6 +177,7 @@ button.task-card:active, .workflow-node:active { transform: none; box-shadow: va
 .task-card-shell .card-pr { position: absolute; right: 16px; bottom: 12px; }
 .task-card.history { position: relative; color: inherit; text-decoration: none; padding-bottom: 36px; }
 .task-card.history .card-pr { position: absolute; right: 16px; bottom: 12px; }
+.task-card-shell:hover, .task-card-shell:focus-within, .task-card.history:hover, .task-card.history:focus-visible { z-index: 3; }
 .phase-queued .status-dot, .phase-unavailable .status-dot, .phase-stale .status-dot, .phase-unknown .status-dot, .phase-ended .status-dot { background: #a6beda; }
 .phase-working .status-dot, .phase-busy .status-dot, .phase-active .status-dot, .phase-started .status-dot { background: var(--blue); animation: working 2.4s ease-in-out infinite; }
 .phase-blocked .status-dot { background: var(--amber); }
@@ -504,9 +505,9 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .panel-header .project-label { font-size: 1.0625rem; }
 .panel-header .muted { color: var(--muted); }
 .panel-status { font-size: 1.0625rem; }
-.panel-activity { color: #c4d4df; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.panel-activity { color: #c4d4df; overflow-wrap: anywhere; display: block; line-height: 1.5; max-height: calc(1.5em * 3); overflow: hidden; }
 /* The goblin's own words open in full behind Show more, never an ellipsis. */
-.panel-activity.expanded { display: block; overflow: visible; }
+.panel-activity.expanded { max-height: none; overflow: visible; }
 .show-more { display: grid; gap: 6px; justify-items: start; min-width: 0; margin-top: 4px; }
 .show-more .panel-activity { margin: 0; }
 .show-more-toggle { min-height: 0; padding: 0; border: 0; background: none; box-shadow: none; color: var(--mint); font-size: .9375rem; font-weight: 700; }
@@ -529,8 +530,12 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .terminal-surface { flex: 1; min-width: 0; min-height: 200px; overflow: hidden; background: #071015; }
 /* A Herdr pane's screen is fitted whole to the panel and sits at its bottom,
    so the input line stays at the bottom of the panel; nothing scrolls. */
-.native-terminal:not(.host-terminal) .terminal-surface { display: flex; flex-direction: column; justify-content: flex-end; }
+.native-terminal:not(.host-terminal) .terminal-surface { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 8px 14px; }
 .terminal-surface .xterm-viewport { overflow: hidden !important; }
+/* The pane's history lies over its live screen at the same size, and stays
+   laid out while away so its cells are measured. */
+.terminal-history { position: absolute; inset: 0; z-index: 1; }
+.terminal-history.away { visibility: hidden; pointer-events: none; }
 /* No terminal shows a scroll bar; the wheel still scrolls a native one. */
 .terminal-surface .xterm-scrollable-element > .scrollbar { display: none; }
 .terminal-overlay { position: absolute; top: 10px; right: 12px; display: flex; align-items: center; gap: 8px; z-index: 2; }
@@ -777,6 +782,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .task-cards.ranked { position: relative; }
 .task-cards.sorting { user-select: none; }
 .ranked-item { position: relative; min-width: 0; }
+.ranked-item:hover, .ranked-item:focus-within { z-index: 3; }
 .ranked-item.dragging { z-index: 5; }
 .ranked-item .task-card { padding-left: 44px; }
 .ranked-item .card-waiting { left: 100px; }
@@ -788,7 +794,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .rank .grip { display: none; width: 14px; height: 14px; fill: currentColor; }
 .ranked-item:hover .rank-number, .ranked-item:focus-within .rank-number, .ranked-item.dragging .rank-number { display: none; }
 .ranked-item:hover .grip, .ranked-item:focus-within .grip, .ranked-item.dragging .grip { display: block; }
-@media (pointer: coarse) { .rank { pointer-events: auto; touch-action: none; } }
+@media (any-pointer: coarse) { .rank { pointer-events: auto; touch-action: none; } }
 .ranked-item.dragging .task-card { transform: scale(1.02) rotate(-.6deg); border-color: var(--mint); box-shadow: 0 18px 40px #000a, 0 0 0 2px var(--mint); }
 .ranked-item.dragging .rank { border-color: var(--mint); }
 .order-error { margin: 12px 0 0; color: #f6d79e; }

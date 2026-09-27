@@ -1,12 +1,11 @@
 export const maxInputBytes = 64 * 1024;
 export const inputBytes = (text: string) => new TextEncoder().encode(text).byteLength;
 
-// A command for a live pane view: typing, or scrolling the pane's history.
+// A command for a view of a pane: typing, or, for a view that sizes the pane,
+// a new size.
 export type PaneCommand =
   | { type: "terminal.input"; text: string }
-  | { type: "terminal.scroll"; direction: "up" | "down"; lines: number; source: "wheel" | "page_key" };
-// Herdr takes at most this many lines in one scroll.
-const MAX_SCROLL_LINES = 200;
+  | { type: "terminal.resize"; cols: number; rows: number };
 
 // Adjacent printable keystrokes travel as one input; control keys, escape
 // sequences and pastes stay inputs of their own, in order.
@@ -15,19 +14,6 @@ export function queueInput(queue: PaneCommand[], text: string) {
   const prior = queue[queue.length - 1];
   if (prior?.type === "terminal.input" && plain(prior.text) && plain(text) && inputBytes(prior.text + text) <= 4096) queue[queue.length - 1] = { type: "terminal.input", text: prior.text + text };
   else queue.push({ type: "terminal.input", text });
-}
-
-// Scrolling one way from one source travels as one scroll, up to Herdr's
-// limit, in order with the typing around it.
-export function queueScroll(queue: PaneCommand[], direction: "up" | "down", lines: number, source: "wheel" | "page_key") {
-  let left = lines;
-  const prior = queue[queue.length - 1];
-  if (prior?.type === "terminal.scroll" && prior.direction === direction && prior.source === source && prior.lines < MAX_SCROLL_LINES) {
-    const added = Math.min(left, MAX_SCROLL_LINES - prior.lines);
-    queue[queue.length - 1] = { ...prior, lines: prior.lines + added };
-    left -= added;
-  }
-  for (; left > 0; left -= MAX_SCROLL_LINES) queue.push({ type: "terminal.scroll", direction, lines: Math.min(left, MAX_SCROLL_LINES), source });
 }
 
 // The wheel scrolls whole lines. A delta in pixels (mode 0) adds to what
@@ -39,6 +25,26 @@ export function wheelLines(rest: number, delta: number, mode: number, rowHeight:
   const total = rest + delta;
   const lines = Math.trunc(total / rowHeight);
   return { lines, rest: total - lines * rowHeight };
+}
+
+// How many lines of a pane's history the board reads when the Overlord
+// scrolls back.
+export const HISTORY_LINES = 3000;
+
+// What scrolling does in a live pane view. The live screen always follows the
+// pane's bottom, and Herdr never sends it history, so scrolling up opens the
+// history the board reads; the history scrolls by itself, and scrolling down
+// at its bottom returns to the live screen. Lines up are negative.
+export function scrollAction(inHistory: boolean, atBottom: boolean, lines: number): "open" | "close" | "history" | "none" {
+  if (!inHistory) return lines < 0 ? "open" : "none";
+  return lines > 0 && atBottom ? "close" : "history";
+}
+
+// A pane's history as Herdr reads it, lines joined by newlines with their
+// colors, written as a terminal draws it: each line from its first column,
+// and no color left on after the last.
+export function historyText(text: string): string {
+  return text.replace(/\r?\n/g, "\r\n") + "\x1b[0m";
 }
 
 export function bracketedPaste(text: string): string {
@@ -61,6 +67,44 @@ export function fittedFontSize(width: number, height: number, cols: number, rows
   if (width <= 0 || height <= 0 || cols <= 0 || rows <= 0) return null;
   const fits = Math.min(width / (cols * cell.width), height / (rows * cell.height));
   return Math.min(MAX_FITTED_FONT, Math.floor(fits * 2) / 2);
+}
+
+// The columns and rows that fill a panel at a font size, for a view that sizes
+// its pane, within what Herdr accepts; null for a panel too small to hold a
+// usable terminal, such as a hidden one. The cell is the size in em the
+// terminal measured.
+export function panelGrid(width: number, height: number, fontSize: number, cell: { width: number; height: number }): { cols: number; rows: number } | null {
+  if (width <= 0 || height <= 0 || fontSize <= 0) return null;
+  const cols = Math.min(400, Math.floor(width / (cell.width * fontSize)));
+  const rows = Math.min(160, Math.floor(height / (cell.height * fontSize)));
+  return cols >= 20 && rows >= 5 ? { cols, rows } : null;
+}
+
+// What happens to a pane's size in the board. The most recent interaction
+// wins: while the board's window has the focus and shows the pane, the board
+// sizes the pane to its panel; leaving for another window, such as a Herdr
+// window, or moving to another view hands the size back. Herdr says nothing
+// when a Herdr window is typed into, so leaving the board is the sign. Once
+// another client takes the pane (held), the board waits for the Overlord to
+// come back to it or type in it before taking the pane again.
+export type SizeEvent = "live" | "focus" | "blur" | "shown" | "hidden" | "typed";
+export function sizeStep(event: SizeEvent, view: { sized: boolean; focused: boolean; shown: boolean; held: boolean }): "take" | "give" | "stay" {
+  if (event === "blur" || event === "hidden") return view.sized ? "give" : "stay";
+  if (view.sized || !view.shown) return "stay";
+  if (event === "focus" || event === "typed") return "take";
+  return view.focused && !view.held ? "take" : "stay";
+}
+
+// What a view does when one of its connections ends on its own: stop with the
+// reason, show the pane afresh at its own size (observe), or keep the screen as
+// it is. The connection on screen ending hands the screen on when it sized the
+// pane or Herdr resized the pane, and stops the view otherwise. A take that
+// fails keeps the screen. A give that fails still gives: the sized connection
+// on screen ends too, so the pane gets its own size back.
+export function endStep(ended: { sized: boolean; onScreen: boolean; resized: boolean }, screenSized: boolean | null): "stop" | "observe" | "keep" {
+  if (ended.onScreen) return ended.sized || ended.resized ? "observe" : "stop";
+  if (screenSized === null) return ended.sized ? "observe" : "stop";
+  return screenSized && !ended.sized ? "observe" : "keep";
 }
 
 // Why an input was refused, in the Overlord's words.

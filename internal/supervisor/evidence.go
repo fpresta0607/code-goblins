@@ -378,14 +378,24 @@ func queuedBriefs(h home.Home) []Task {
 	return tasks
 }
 
+// sessionStarted is when a goblin started: its worktree is made fresh by cfo
+// spawn and kept across a switch, which writes a new spawn generation, so
+// the generation's time dates the session only when the folder cannot.
+func sessionStarted(meta state.TaskMeta) time.Time {
+	if created := fileCreated(meta.Worktree); !created.IsZero() {
+		return created
+	}
+	return spawnTime(meta.SpawnGen)
+}
+
 // briefWritten is when data/<id>/brief.md was written, which is when its
 // task was queued, or zero without one.
 func briefWritten(h home.Home, id string) time.Time {
 	return fileCreated(filepath.Join(h.Data, id, "brief.md"))
 }
 
-// briefProject is the checkout a brief's Project section names, or empty
-// when it names none.
+// briefProject is the checkout a brief's Project section names, without a
+// trailing parenthetical note, or empty when it names none.
 func briefProject(path string) string {
 	lines, err := fsx.ReadLines(path)
 	if err != nil {
@@ -400,7 +410,8 @@ func briefProject(path string) string {
 				if strings.HasPrefix(next, "#") {
 					return ""
 				}
-				return next
+				checkout, _, _ := strings.Cut(next, " (")
+				return strings.TrimSpace(checkout)
 			}
 		}
 	}

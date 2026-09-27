@@ -18,7 +18,7 @@ A record whose address does not answer, left by a supervisor that ended without 
 Then `goblins` brings the Overlord to the CFO.
 A CFO whose registration in `state/primary.json` names a live process is reused, never started a second time: `goblins` brings its registered workspace and tab to the front and hands its terminal to `herdr`, attached to the session the CFO registered in.
 It decides from the registration alone and asks neither the board nor Herdr, so a supervisor that has not checked the registration yet or a Herdr that cannot answer changes nothing.
-Otherwise it picks the project (the git checkout its terminal is in, else the only checkout under the projects root, else the one the Overlord picks by number), makes sure Herdr's server runs, and starts Claude Code as the CFO with `herdr agent start` in a fresh `cfo` tab it creates in that project, since Herdr starts an agent in its pane's own directory.
+Otherwise it picks the project (the git checkout its terminal is in, else the only checkout under the projects root, else the one the Overlord picks by number), makes sure Herdr's server runs, and starts the remembered harness (Claude Code by default) as the CFO in a fresh `cfo` tab it creates in that project, since Herdr starts an agent in its pane's own directory.
 An old `cfo` tab with no agent in any of its panes is closed when every pane sits at its shell prompt, and renamed to `shell` when anything else runs in one, `goblins` itself included; a `cfo` tab with an agent in any pane is left as it is and no second CFO is started beside it.
 It brings the CFO's tab to the front and hands its terminal to `herdr`, which attaches to the fleet's session.
 Run inside a Herdr pane there is nothing to attach, so `goblins` only brings the CFO to the front.
@@ -119,7 +119,7 @@ Tasks lists backlog rows and briefs nothing has started: a `data/<id>/brief.md` 
 Tasks and In progress are in priority order, top first, and every list of tasks the board shows follows it; Completed stays newest first.
 Tasks lists the backlog's Queued rows in file order, then briefs without a row; In progress lists the goblins in the attention order kept in `state/attention.json`, then any goblin not placed yet, and `cfo fleet-view` lists its goblins in that order too.
 Dragging a card, or Alt+Up and Alt+Down on a focused one, sends the whole list's new order to `POST /api/order` with the board's token, which the Host, Origin and token checks guard like every other change.
-A Tasks order rewrites only the order of the rows in `data/backlog.md`'s Queued section, each row moving with its indented detail lines while notes, parked rows and every other section stay where they are, and a brief without a row gets one, `- **<id>** - <id> (repo: <project>)`, at the place it was dropped.
+A Tasks order rewrites only the order of the rows in `data/backlog.md`'s Queued section, each row moving with its indented detail lines while notes, parked rows, the row of a task with a live task record (which In progress lists) and every other section stay where they are, and a brief without a row gets one, `- **<id>** - <id> (repo: <project>)`, at the place it was dropped.
 An order that is not exactly the queue the file holds, because a row was added, removed or renamed after the board showed it, is refused with 409 and changes nothing; an In progress order naming a goblin with no live task record is refused the same way.
 The board shows the dropped order until a snapshot from the revision the save answered with arrives, and a refused order goes back with the reason under its column.
 The snapshot's `memory` is the machine's available physical memory, the standby list included, read with `GlobalMemoryStatusEx`, beside the fleet's 3 GB floor and the 4 GB mark at which the CFO starts the next queued task; the meter at the head of Tasks shows it, and the top queued task is marked Next.
@@ -137,7 +137,8 @@ A history card is its pull request link, since it has no live worktree to review
 A task no native hook has reported takes its status from the fleet's own records: a question it is still waiting on in the wake queue, then what its gate proved, then what Herdr sees in its pane, and it is evaluated once a minute like any other.
 Each card shows a short title of at most two lines, then one muted line with the task's repo and status, and its pull request, linked only when the reported value is an https URL; the task's own latest status line is in its panel.
 A title the two lines cut off shows in full in the board's tip on hover or keyboard focus, and a title that fits shows none.
-Each card also shows a quiet clock under its status, in whole minutes, hours and days (just started, 47m, 2h 14m, 1d 3h), counted from the snapshot's `since`: when a live task's current generation was spawned, which its spawn generation records, or when a queued task's `data/<id>/brief.md` was created; a queued row with no brief, or a generation that records no time, gets no clock rather than a guessed one.
+Each card in Tasks and In progress also shows a quiet clock under its status, in whole minutes, hours and days (just started, 47m, 2h 14m, 1d 3h), counted from the snapshot's `since`: when a live task's worktree folder was created, which `cfo spawn` makes fresh for each goblin and a switch keeps, so the clock counts the whole session across switches, or its spawn generation's time when that folder cannot be read; or when a queued task's `data/<id>/brief.md` was created.
+A queued row with no brief, or a live task with neither a readable worktree nor a generation that records a time, gets no clock rather than a guessed one, and a completed card shows none.
 The title is the backlog row's short title, which `cfo spawn` keeps on the task as `title=` in its metadata so it outlives the row, and the task's id only when it had none.
 The status line and the pull request come from the current generation's lines only, so a respawned task id shows neither its earlier generation's activity nor its pull request until it reports again.
 Cards state progress in plain words, never engine words: Not started, Working, In review gate (with its step, such as In review gate: tests), Waiting on the CFO, Waiting on a goblin by its id, Waiting on CI, Waiting on deploy, Checks passed, Delivered and No fresh evidence.
@@ -200,8 +201,14 @@ An interrupted external delivery becomes uncertain and is not replayed automatic
 A goblin panel's Terminal view shows a task in a native terminal from its host, as described after this Herdr view, and the CFO and a task in Herdr through Herdr.
 The installed Herdr build `0.9.0-preview.2026-09-08-62431dbd033b` exposes `terminal session observe` and `terminal session control` over NDJSON.
 The browser renders its real ANSI screen frames using xterm, loaded the first time a panel shows its Terminal view.
-A goblin panel's Terminal view of a Herdr pane is a live view of the pane: it never claims the native controller, never resizes the pane and never resumes an agent.
-Frames arrive at the pane's own size as Herdr lays it out; the view sizes its font to show the whole pane in the panel, bound by whichever of the panel's width or height runs out first and measured from the cells xterm drew, with no floor, and anchors the screen to the panel's bottom so the input line stays there; the panel never scrolls, nothing is cropped and no scroll bar is drawn.
+A goblin panel's Terminal view of a Herdr pane is a live view of the pane, and it never resumes or answers an agent.
+The most recent interaction decides the pane's size: while the board's window has the focus and shows the pane, the view takes the pane's controller (`terminal session control --takeover`) and sizes the pane to the panel at the chosen text size, 20 px unless Ctrl+Plus, Ctrl+Minus or Ctrl+0 chose another, which native terminals share; the panel keeps an even inset around the screen, and a panel that changes size asks for the grid that fills it once it holds still.
+Leaving the board's window, for a Herdr window for example, moving to another view, or another client taking the pane hands the size back: the view shows the pane at the size Herdr lays it out at until the Overlord comes back to the board or types in it; if that view cannot open, the view still lets the pane go and shows it afresh at its own size.
+A view that sized the pane, however it ends, closing the board included, has the supervisor return the pane to that size, as a Herdr window does when a controller leaves; with no Herdr window open, nothing else would.
+Herdr says nothing when a Herdr window is typed into, so leaving the board is the sign; a Herdr window that shows the pane takes its size back once the controller leaves.
+Taking control sends the program nothing but its size: attaching, resizing, taking over and detaching sent a program that logs every input byte nothing at all, and a test proves the view sends the pane only its size until the Overlord types.
+A switch opens beside the view and takes over on its first whole screen, after any input on its way, so the screen never blanks and no key is lost; a size refused, such as a goblin whose review gate owns it, leaves the view showing the pane at its own size, and a review gate that takes a goblin over while the board sizes its pane ends that sizing view on its next check, which does the same.
+Shown at its own size, the pane's frames arrive as Herdr lays it out; the view sizes its font to show the whole pane in the panel, bound by whichever of the panel's width or height runs out first and measured from the cells xterm drew, with no floor, centers it and anchors it to the panel's bottom so the input line stays there; the panel never scrolls, nothing is cropped and no scroll bar is drawn.
 Rows are drawn at the font's own height, xterm's default line height, and a screen whose rows round up past the panel steps down half a pixel at a time until it fits whole; a 120 by 40 pane is 14 px maximized in a 1600 by 1000 window and 22 px in a 2560 by 1440 one.
 A view is refused when Herdr reports no size for the pane; when Herdr lays the pane out at a new size the view ends, and the panel reconnects on its own to show it whole.
 Typing needs no separate step: the view's lease takes keys, escape sequences and one bracketed paste at a time, in order, each typed into that exact pane over the Herdr session's socket.
@@ -210,14 +217,15 @@ The view proves its pane, terminal, process and gate custody in full when it ope
 A tick's Herdr commands run beside the screen, never in its way, so a frame, and with it the echo of a key, is never held behind a tick.
 A paste is typed whole in one request, up to the 64 KiB input limit; an input Herdr refuses ends the view with an unknown outcome.
 A refused input, or one whose outcome is unknown, ends the view with the reason in plain words; nothing is resent, and reconnecting starts from a fresh full screen.
-The view never resizes the pane; the mouse wheel and Shift+PageUp and Shift+PageDown scroll the pane's history through Herdr's `pane.scroll` on the same socket, in whole lines of the screen as drawn, and Herdr holds the offset within the history and says where the pane is.
-Herdr keeps a pane scrolled while it is typed into, so the view brings the pane back to its bottom before it types; scrolling reaches no program, so a gate that owns the pane stops typing but not scrolling.
-The scroll position is Herdr's own, shared by every window on that pane.
+The view never scrolls the pane: Herdr sends a view only the pane's live screen, never its history, and `pane.scroll` would move the view of every Herdr window on that pane without reaching the board.
+So the live screen always follows the pane's bottom, and scrolling up with the mouse wheel, anywhere over the panel and not only over a screen that fills part of it, or Shift+PageUp reads the pane's last 3,000 lines through `POST /api/terminal/history` (Herdr's `pane.read` of its recent output, with colors, on the same socket) and shows them in a terminal of their own over the live screen, at its size and font.
+The history scrolls by itself with the wheel and Shift+PageUp and Shift+PageDown; scrolling down at its bottom, Escape, or typing returns to the live screen, and what is typed reaches the pane.
+A history read types nothing, so a gate that owns the pane stops typing but not reading history; it reads only the pane the view was verified on, and at most 5,000 lines.
 A NUL key such as Ctrl+Space is typed like any other key.
 Shift+Escape moves keyboard focus out of the terminal to the panel's pill; ordinary Escape stays with the pane.
 Releasing a drag selection copies it to the clipboard, the way Herdr does, and Ctrl+Shift+C copies the current selection.
 Closing, switching, disconnecting or restarting invalidates the lease; reconnection starts with a full screen frame, never replayed input.
-At most four views are open, frame gaps disconnect, and oversized UTF-8 paste is rejected before sending.
+At most eight views are open, frame gaps disconnect, and oversized UTF-8 paste is rejected before sending.
 Adjacent printable keystrokes coalesce into bounded ordered inputs; control keys and paste wrappers stay inputs of their own.
 Until the first frame is drawn a full-pane state says the terminal is connecting, and a view that has stopped says why in a pill with Reconnect beside it.
 The terminal carries no options menu or help text; xterm's default input mode accepts InsertText and IME Unicode, and paste works.
@@ -228,7 +236,7 @@ A task whose record names the `native` backend runs in a `cfo host` of its own, 
 A CFO registered in a native terminal is relayed the same way with `?cfo=TERMINAL&token=TOKEN`, and the snapshot's `cfo_terminal` names that terminal (native terminal `cfo` while a CFO is starting there unregistered), empty while the CFO runs in Herdr, so the CFO's entry in the panel shows the native terminal instead of a Herdr view that cannot show it.
 The view is refused unless the registration names a live CFO in exactly that terminal, or, with no CFO registered, the terminal is native terminal `cfo` and its host answers, and it closes once that stops holding, so typing never reaches a terminal the CFO has left.
 The upgrade needs the board's own origin and the board's token in the query, since a browser cannot set a WebSocket header, and anything else is refused with 403.
-Every later refusal closes the socket with its reason, which a browser can read: a replaced generation, a task that runs in Herdr, no running host, a host that did not answer, or 32 native views already open, a limit of their own apart from the four Herdr streams.
+Every later refusal closes the socket with its reason, which a browser can read: a replaced generation, a task that runs in Herdr, no running host, a host that did not answer, or 32 native views already open, a limit of their own apart from the eight Herdr streams.
 The view is bound to its terminal once, by the host's pipe, whose server process must be the host the record names, so a key costs no check and starts no process.
 The first message is the text `{"type":"history","bytes":N}`, the number of output bytes that follow as the host's history, even when it is empty.
 Output arrives as binary messages, the history first; typing goes back as binary messages, and a resize as the text message `{"type":"resize","cols":C,"rows":R}`.
@@ -249,7 +257,7 @@ Each connection draws into its own xterm, kept out of sight until the history, t
 A view that fell behind, a restarting board or a dropped connection reconnects on its own up to five times, keeping the last screen in place with a Reconnecting note until the new connection is whole, and does the same while the board's own connection is down; any other close keeps the last screen in view with its reason and Reconnect in a bar across the bottom.
 A paste goes as it is typed, in pieces of at most 64 KiB, in order.
 
-Every native terminal the Overlord opens stays live while the board is open, one xterm and one socket each, hidden rather than unmounted, so switching only brings another into sight; the three most recent Herdr views stay live the same way, so a fourth window still gets one of Herdr's four streams.
+Every native terminal the Overlord opens stays live while the board is open, one xterm and one socket each, hidden rather than unmounted, so switching only brings another into sight; the three most recent Herdr views stay live the same way, and each may briefly hold a second stream while it switches to or from sizing its pane, so another window still gets some of Herdr's eight streams.
 The shown terminal fills the panel, with no list beside it; the Overlord picks the goblin on the board.
 Ctrl+Alt+Up and Ctrl+Alt+Down step through the terminals, the CFO first and then each goblin with a terminal, and Ctrl+Alt+1 to Ctrl+Alt+9 jump to one in that order, matched by key position; the board catches them before a terminal sees them, except while a dialog such as the Command Center is open, and a switch hands the terminal the keyboard, a Herdr terminal included.
 A key typed with AltGr, which Windows reports as Ctrl+Alt, stays the terminal's, so a layout that types a brace or bracket with AltGr and a digit keeps it.
@@ -279,7 +287,12 @@ The registration then names that terminal instead of a pane, and it stays valid 
 A message for a native CFO is typed into its terminal once, then Enter submits it, over a delivery connection of its own: the host acknowledges each part once it has written it into the terminal's input, and the board shows the message delivered once both are acknowledged, and never types it again.
 A host started by an older cfo cannot acknowledge, so the board refuses anything it sends that CFO with nothing typed until the CFO is started again.
 The board shows a native CFO's terminal in its panel, from the CFO bar and from Orchestration.
-`goblins` shows a CFO registered in a native terminal in its own terminal, and `goblins --native` starts a new CFO in native terminal `cfo`, running `claude.exe` itself so the terminal ends with it, without the launcher's `HERDR_PANE_ID`.
+`goblins` shows a CFO registered in a native terminal in its own terminal, and `goblins --native` starts a new CFO in native terminal `cfo`, running the remembered harness itself (`claude.exe` for Claude Code) so the terminal ends with it, without the launcher's `HERDR_PANE_ID`.
+`goblins --harness claude|codex|pi`, alone or with `--native`, chooses the harness the CFO starts as, and the home remembers it in `state/cfo-harness` for every later goblins start; claude is the default.
+The board's first run starts the Claude Code CFO its page offers, whatever harness is remembered.
+In a native terminal Claude Code runs as `claude.exe` and codex and pi as their npm script shims through `cmd /c`, as a native goblin's do; in Herdr Claude Code starts with `herdr agent start`, and codex and pi, whose npm script shims Herdr's Windows agent start cannot run, are typed into the `cfo` tab's shell, as a Herdr goblin's typed launch is.
+A harness whose program is not on PATH is refused, and nothing is remembered or started.
+A CFO already running keeps its harness, and goblins says the choice applies to the next start; a Codex or pi CFO is told it has no wake path, because only Claude Code's Stop hook wakes the CFO.
 `cfo attach` shows a native terminal in any console: the registered CFO's, or the one named; `--state <dir>` names the fleet's state folder for a console that does not inherit the supervisor's environment.
 
 The panel's Open in terminal button, shown while it shows a terminal, opens that terminal in a new Windows Terminal window beside the board, through `POST /api/terminal/open`, which takes only what the view shows and runs the supervisor's own programs.
@@ -360,7 +373,7 @@ The inbox and history list each question on at most two lines, with the marks dr
 No choice is preselected and written text is sent only when Other is selected.
 Use a new stable ID for a new question, and keep the same ID/content for an uncertain publication retry.
 The publisher walks up to 32 process ancestors and verifies the registered CFO PID, creation time and live native identity; a worker cannot escalate on the CFO's behalf.
-The Command Center shows one item at a time as a stack, a question, a review item or a run item, the CFO's own items first and then goblins in the In progress order, each goblin's by longest wait, and a horizontal swipe on touch screens moves between them; the rest of the stack peeks above the card as one clean edge.
+The Command Center shows one item at a time as a stack, a question, a review item or a run item, the CFO's own items first, then goblins in the In progress order, each goblin's by longest wait, then goblins not placed yet by longest wait (the snapshot's `attention` names the placed ones), and a horizontal swipe on touch screens moves between them; the rest of the stack peeks above the card as one clean edge.
 A card's own action row holds everything: Back, its place such as 2 of 4, and Next on the left while more than one item waits, and its answer on the right; closing keeps every item for later.
 Each card sends only its own answer.
 The moment the Overlord sends from a card, an answer, a review answer or a Clear, its check draws with Sent (or Opened, Downloaded or Cleared) and three quarters of a second later the next open item follows, passing over any sent in this sitting, while the action is delivered in the background; CFO received or Delivered to <goblin> joins the check if delivery lands while it shows, and with nothing left it shows You're all done and the Command Center closes.
@@ -416,7 +429,8 @@ Both write a status line only, so they wake nobody, and a newer one of them repl
 The task reads `working` with the reason, or `waiting` with the reason and `waiting_on` naming the target, unless a newer question, the gate's own decision, or a merge says otherwise.
 A wait on another task clears itself once that task reports done, and a wait on CI or a deploy lasts until the goblin reports again; the CFO releases any wait with a `--working` line of its own.
 Waiting on the Overlord is the one wait that wakes the CFO: it also opens a review item for him, named `waiting-<task>-<wake sequence>`, which he can answer or clear, and which is withdrawn once the goblin reports anything newer.
-An actual question still uses `--blocked` with options.
+So `--waiting-on overlord` is only for a wait on the Overlord personally: his sign-in, his click, his page.
+A choice the CFO can make, such as whether to start something now or after a reset, is an actual question and uses `--blocked` with options.
 
 A wait whose answer the Overlord gives on a Lavish page names the page:
 
