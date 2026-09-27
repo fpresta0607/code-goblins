@@ -141,19 +141,18 @@ type terminalLease struct {
 	seq     uint64
 	closed  bool
 	cancel  context.CancelFunc
-	// panes types into and scrolls the pane over its Herdr session's socket,
-	// one request per input and no process, for a lease that only observes;
-	// scrolled is how many lines above its bottom Herdr last said it shows,
-	// once scrollKnown: Herdr keeps a pane's offset after a view closes, so a
-	// new lease does not know it until Herdr answers.
-	panes       herdr.PaneInput
-	scrolled    int
-	scrollKnown bool
+	// panes types into the pane and reads its history over its Herdr
+	// session's socket, one request each and no process, for a lease that
+	// only observes.
+	panes herdr.PaneInput
 	// custody is whether a no-mistakes gate lets the Overlord type into the
 	// pane, checked when the view opens and on every tick rather than per key;
-	// nil lets input through. Scrolling reaches no program, so it needs none.
+	// nil lets input through.
 	custody error
 }
+
+// maxHistoryLines bounds one history read of a pane.
+const maxHistoryLines = 5000
 
 // A lease exists only while its one output stream is open. Sequence numbers
 // are consumed before a write, never persisted with secret-bearing key data.
@@ -164,8 +163,8 @@ func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.Ter
 	if l.closed {
 		return errors.New("Terminal is disconnected. Reconnect for a fresh screen; input was not replayed.")
 	}
-	if !l.control && command.Type != "terminal.input" && command.Type != "terminal.scroll" {
-		return errors.New("A live pane view keeps the pane's own size, so it sends only typing and scrolling.")
+	if !l.control && command.Type != "terminal.input" {
+		return errors.New("A live pane view keeps the pane's own size and reads its history itself, so it sends only typing.")
 	}
 	if seq != l.seq+1 {
 		return errors.New("Terminal input is out of order or already submitted. It will not be replayed.")
@@ -174,7 +173,7 @@ func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.Ter
 		return err
 	}
 	l.seq = seq
-	if l.custody != nil && command.Type != "terminal.scroll" {
+	if l.custody != nil {
 		l.closed = true
 		l.cancel()
 		return l.custody
@@ -185,7 +184,7 @@ func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.Ter
 		return err
 	}
 	if !l.control {
-		if err := l.intoPane(ctx, command); err != nil {
+		if err := l.panes.SendText(ctx, l.binding.Target.Pane, command.Text); err != nil {
 			l.closed = true
 			l.cancel()
 			return errors.New("Input outcome is unknown. Inspect the native screen before typing again; input was not retried.")
@@ -203,31 +202,28 @@ func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.Ter
 	return nil
 }
 
-// intoPane types into or scrolls a live pane view's verified pane itself,
-// never through the observer, typing a paste as one request however long.
-// Herdr keeps a pane scrolled while it is typed into, so typing first brings
-// it back to its bottom, as a terminal does.
-func (l *terminalLease) intoPane(ctx context.Context, command herdr.TerminalCommand) error {
-	pane := l.binding.Target.Pane
-	if command.Type == "terminal.scroll" {
-		want := l.scrolled + command.Lines
-		if command.Direction == "down" {
-			want = max(0, l.scrolled-command.Lines)
-		}
-		shown, err := l.panes.Scroll(ctx, pane, want)
-		if err != nil {
-			return err
-		}
-		l.scrolled, l.scrollKnown = shown, true
-		return nil
+// history reads a live pane view's recent output, history included: Herdr
+// sends an observer only the live screen, so the view shows history it read.
+// It types nothing, so gate custody does not stop it, but it still reads
+// only the pane the view was verified on.
+func (l *terminalLease) history(ctx context.Context, lines int, verify func(context.Context, terminalBinding, bool) error) (string, error) {
+	l.mu.Lock()
+	closed := l.closed
+	l.mu.Unlock()
+	if closed {
+		return "", errors.New("Terminal is disconnected. Reconnect to read its history.")
 	}
-	if !l.scrollKnown || l.scrolled > 0 {
-		if _, err := l.panes.Scroll(ctx, pane, 0); err != nil {
-			return err
-		}
-		l.scrolled, l.scrollKnown = 0, true
+	if l.control {
+		return "", errors.New("Only a live pane view reads its pane's history.")
 	}
-	return l.panes.SendText(ctx, pane, command.Text)
+	if err := verify(ctx, l.binding, false); err != nil {
+		return "", err
+	}
+	text, err := l.panes.History(ctx, l.binding.Target.Pane, lines)
+	if err != nil {
+		return "", errors.New("The pane's history could not be read.")
+	}
+	return text, nil
 }
 
 // stillBound is the check each input makes before it is typed, and it starts
@@ -377,6 +373,38 @@ func (h *HTTP) terminalInput(w http.ResponseWriter, r *http.Request) {
 	}{input.Seq})
 }
 
+func (h *HTTP) terminalHistory(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Lease string `json:"lease"`
+		Lines int    `json:"lines"`
+	}
+	if err := decodeBody(w, r, &input, 4096); err != nil {
+		apiError(w, 400, err.Error())
+		return
+	}
+	if input.Lines < 1 || input.Lines > maxHistoryLines {
+		apiError(w, 400, "History lines must be between 1 and 5000.")
+		return
+	}
+	h.mu.Lock()
+	lease := h.terminals[input.Lease]
+	h.mu.Unlock()
+	if lease == nil {
+		apiError(w, 409, "Terminal connection expired. Reconnect to read its history.")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	text, err := lease.history(ctx, input.Lines, h.stillBound)
+	if err != nil {
+		apiError(w, 409, err.Error())
+		return
+	}
+	respond(w, 200, struct {
+		Text string `json:"text"`
+	}{text})
+}
+
 func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		terminalSelection
@@ -439,8 +467,9 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 			apiError(w, 409, err.Error())
 			return
 		}
-		// Typing and scrolling reach the pane over its session's socket;
-		// finding the socket is the one process the view starts for them.
+		// Typing and history reads reach the pane over its session's
+		// socket; finding the socket is the one process the view starts
+		// for them.
 		if panes, err = h.Service.Options.CFO.Terminals(b.Target.Session).PaneInput(ctx); err != nil {
 			apiError(w, 503, "Typing into this pane is unavailable: its Herdr socket cannot be found.")
 			return

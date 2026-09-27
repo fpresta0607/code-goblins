@@ -417,7 +417,7 @@ func TestANativeCFOIsNotStartedFromAScriptShim(t *testing.T) {
 	t.Setenv("PATH", bin)
 	stateDir := t.TempDir()
 
-	err := startNativeCFO(stateDir, t.TempDir())
+	err := startNativeCFO(stateDir, t.TempDir(), "claude")
 
 	if err == nil || !strings.Contains(err.Error(), "not a program a native terminal can start") {
 		t.Fatalf("startNativeCFO error = %v, want the script shim refused", err)

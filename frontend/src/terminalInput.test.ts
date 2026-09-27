@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bracketedPaste, fittedFontSize, inputBytes, maxInputBytes, queueInput, queueScroll, typingHeldReason, wheelLines, type PaneCommand } from "./terminalInput.ts";
+import { bracketedPaste, fittedFontSize, historyText, inputBytes, maxInputBytes, queueInput, scrollAction, typingHeldReason, wheelLines, type PaneCommand } from "./terminalInput.ts";
 
 test("Unicode paste uses UTF-8 bytes including one complete bracketed wrapper", () => {
   const limit = Math.floor((maxInputBytes - 12) / 3);
@@ -13,7 +13,6 @@ test("Unicode paste uses UTF-8 bytes including one complete bracketed wrapper", 
 });
 
 const typed = (text: string): PaneCommand => ({ type: "terminal.input", text });
-const scrolled = (direction: "up" | "down", lines: number, source: "wheel" | "page_key" = "wheel"): PaneCommand => ({ type: "terminal.scroll", direction, lines, source });
 
 test("typing coalesces adjacent text, preserving Unicode, and keeps control keys and pastes apart", () => {
   const queue: PaneCommand[] = [];
@@ -30,16 +29,21 @@ test("typing coalesces adjacent text, preserving Unicode, and keeps control keys
   assert.equal(bounded.map((command) => command.type === "terminal.input" ? command.text : "").join("").length, 5000);
 });
 
-test("scrolling coalesces one way at a time within Herdr's limit, in order with typing", () => {
-  const queue: PaneCommand[] = [];
-  queueScroll(queue, "up", 3, "wheel");
-  queueScroll(queue, "up", 5, "wheel");
-  queueScroll(queue, "down", 2, "wheel");
-  queueScroll(queue, "down", 40, "page_key");
-  queueInput(queue, "x");
-  queueScroll(queue, "up", 150, "wheel");
-  queueScroll(queue, "up", 150, "wheel");
-  assert.deepEqual(queue, [scrolled("up", 8), scrolled("down", 2), scrolled("down", 40, "page_key"), typed("x"), scrolled("up", 200), scrolled("up", 100)]);
+test("scrolling up opens the pane's history, and scrolling down at its bottom follows the live screen again", () => {
+  const cases: [string, boolean, boolean, number, ReturnType<typeof scrollAction>][] = [
+    ["the wheel up on the live screen opens the history", false, true, -3, "open"],
+    ["the wheel down on the live screen keeps following the bottom", false, true, 3, "none"],
+    ["the wheel up in the history scrolls it", true, false, -3, "history"],
+    ["the wheel down above the history's bottom scrolls it", true, false, 3, "history"],
+    ["the wheel down at the history's bottom returns to the live screen", true, true, 3, "close"],
+    ["the wheel up at the history's bottom scrolls it", true, true, -3, "history"],
+  ];
+  for (const [name, inHistory, atBottom, lines, action] of cases) assert.equal(scrollAction(inHistory, atBottom, lines), action, name);
+});
+
+test("a pane's history is drawn line by line from the first column, with no color left on", () => {
+  assert.equal(historyText("one\n\x1b[31mtwo\x1b[0m\r\nthree"), "one\r\n\x1b[31mtwo\x1b[0m\r\nthree\x1b[0m");
+  assert.equal(historyText(""), "\x1b[0m");
 });
 
 test("the wheel scrolls whole lines, keeping what a touchpad has not yet made a line", () => {

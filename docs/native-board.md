@@ -18,7 +18,7 @@ A record whose address does not answer, left by a supervisor that ended without 
 Then `goblins` brings the Overlord to the CFO.
 A CFO whose registration in `state/primary.json` names a live process is reused, never started a second time: `goblins` brings its registered workspace and tab to the front and hands its terminal to `herdr`, attached to the session the CFO registered in.
 It decides from the registration alone and asks neither the board nor Herdr, so a supervisor that has not checked the registration yet or a Herdr that cannot answer changes nothing.
-Otherwise it picks the project (the git checkout its terminal is in, else the only checkout under the projects root, else the one the Overlord picks by number), makes sure Herdr's server runs, and starts Claude Code as the CFO with `herdr agent start` in a fresh `cfo` tab it creates in that project, since Herdr starts an agent in its pane's own directory.
+Otherwise it picks the project (the git checkout its terminal is in, else the only checkout under the projects root, else the one the Overlord picks by number), makes sure Herdr's server runs, and starts the remembered harness (Claude Code by default) as the CFO in a fresh `cfo` tab it creates in that project, since Herdr starts an agent in its pane's own directory.
 An old `cfo` tab with no agent in any of its panes is closed when every pane sits at its shell prompt, and renamed to `shell` when anything else runs in one, `goblins` itself included; a `cfo` tab with an agent in any pane is left as it is and no second CFO is started beside it.
 It brings the CFO's tab to the front and hands its terminal to `herdr`, which attaches to the fleet's session.
 Run inside a Herdr pane there is nothing to attach, so `goblins` only brings the CFO to the front.
@@ -200,9 +200,10 @@ The view proves its pane, terminal, process and gate custody in full when it ope
 A tick's Herdr commands run beside the screen, never in its way, so a frame, and with it the echo of a key, is never held behind a tick.
 A paste is typed whole in one request, up to the 64 KiB input limit; an input Herdr refuses ends the view with an unknown outcome.
 A refused input, or one whose outcome is unknown, ends the view with the reason in plain words; nothing is resent, and reconnecting starts from a fresh full screen.
-The view never resizes the pane; the mouse wheel and Shift+PageUp and Shift+PageDown scroll the pane's history through Herdr's `pane.scroll` on the same socket, in whole lines of the screen as drawn, and Herdr holds the offset within the history and says where the pane is.
-Herdr keeps a pane scrolled while it is typed into, so the view brings the pane back to its bottom before it types; scrolling reaches no program, so a gate that owns the pane stops typing but not scrolling.
-The scroll position is Herdr's own, shared by every window on that pane.
+The view never resizes the pane, and it never scrolls it: Herdr sends a view only the pane's live screen, never its history, and `pane.scroll` would move the view of every Herdr window on that pane without reaching the board.
+So the live screen always follows the pane's bottom, and scrolling up with the mouse wheel or Shift+PageUp reads the pane's last 3,000 lines through `POST /api/terminal/history` (Herdr's `pane.read` of its recent output, with colors, on the same socket) and shows them in a terminal of their own over the live screen, at its size and font.
+The history scrolls by itself with the wheel and Shift+PageUp and Shift+PageDown; scrolling down at its bottom, Escape, or typing returns to the live screen, and what is typed reaches the pane.
+A history read types nothing, so a gate that owns the pane stops typing but not reading history; it reads only the pane the view was verified on, and at most 5,000 lines.
 A NUL key such as Ctrl+Space is typed like any other key.
 Shift+Escape moves keyboard focus out of the terminal to the panel's pill; ordinary Escape stays with the pane.
 Releasing a drag selection copies it to the clipboard, the way Herdr does, and Ctrl+Shift+C copies the current selection.
@@ -269,7 +270,12 @@ The registration then names that terminal instead of a pane, and it stays valid 
 A message for a native CFO is typed into its terminal once, then Enter submits it, over a delivery connection of its own: the host acknowledges each part once it has written it into the terminal's input, and the board shows the message delivered once both are acknowledged, and never types it again.
 A host started by an older cfo cannot acknowledge, so the board refuses anything it sends that CFO with nothing typed until the CFO is started again.
 The board shows a native CFO's terminal in its panel, from the CFO bar and from Orchestration.
-`goblins` shows a CFO registered in a native terminal in its own terminal, and `goblins --native` starts a new CFO in native terminal `cfo`, running `claude.exe` itself so the terminal ends with it, without the launcher's `HERDR_PANE_ID`.
+`goblins` shows a CFO registered in a native terminal in its own terminal, and `goblins --native` starts a new CFO in native terminal `cfo`, running the remembered harness itself (`claude.exe` for Claude Code) so the terminal ends with it, without the launcher's `HERDR_PANE_ID`.
+`goblins --harness claude|codex|pi`, alone or with `--native`, chooses the harness the CFO starts as, and the home remembers it in `state/cfo-harness` for every later goblins start; claude is the default.
+The board's first run starts the Claude Code CFO its page offers, whatever harness is remembered.
+In a native terminal Claude Code runs as `claude.exe` and codex and pi as their npm script shims through `cmd /c`, as a native goblin's do; in Herdr Claude Code starts with `herdr agent start`, and codex and pi, whose npm script shims Herdr's Windows agent start cannot run, are typed into the `cfo` tab's shell, as a Herdr goblin's typed launch is.
+A harness whose program is not on PATH is refused, and nothing is remembered or started.
+A CFO already running keeps its harness, and goblins says the choice applies to the next start; a Codex or pi CFO is told it has no wake path, because only Claude Code's Stop hook wakes the CFO.
 `cfo attach` shows a native terminal in any console: the registered CFO's, or the one named; `--state <dir>` names the fleet's state folder for a console that does not inherit the supervisor's environment.
 
 The panel's Open in terminal button, shown while it shows a terminal, opens that terminal in a new Windows Terminal window beside the board, through `POST /api/terminal/open`, which takes only what the view shows and runs the supervisor's own programs.
