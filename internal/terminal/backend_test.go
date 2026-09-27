@@ -21,3 +21,16 @@ func TestHerdrSessionsOpensTheClientInTheNamedSession(t *testing.T) {
 		t.Errorf("the shared client moved to session %q", client.Session)
 	}
 }
+
+// Every session opened from a client with a socket cache reads Herdr's
+// structure through that one cache, which keeps each session's socket apart.
+func TestHerdrSessionsShareTheClientsSocketCache(t *testing.T) {
+	cache := herdr.NewSocketCache()
+	open := HerdrSessions(&herdr.Client{Session: "fleet", Sockets: cache})
+
+	first, second := open("task-session").(*herdr.Client), open("").(*herdr.Client)
+
+	if first.Sockets != cache || second.Sockets != cache {
+		t.Fatalf("sockets = %p and %p, want the client's cache %p", first.Sockets, second.Sockets, cache)
+	}
+}

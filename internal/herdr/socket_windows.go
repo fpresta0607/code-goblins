@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"syscall"
 	"time"
 
@@ -52,6 +53,58 @@ func (c *Client) Socket(ctx context.Context) (Socket, error) {
 	return Socket{pipe: `\\.\pipe\` + status.Server.Socket}, nil
 }
 
+// SocketCache keeps the socket each session's Herdr serves, read once from
+// Herdr's status, so a structural read is a pipe round trip of milliseconds
+// instead of a herdr process, which takes about a second on a loaded machine.
+type SocketCache struct {
+	mu      sync.Mutex
+	sockets map[string]Socket
+}
+
+// NewSocketCache returns an empty cache.
+func NewSocketCache() *SocketCache { return &SocketCache{sockets: map[string]Socket{}} }
+
+// cachedSocket is the session's socket, read from Herdr's status the first
+// time; without a cache, or when Herdr's status names none, it reports false.
+func (c *Client) cachedSocket(ctx context.Context) (Socket, bool) {
+	if c.Sockets == nil {
+		return Socket{}, false
+	}
+	session := c.session()
+	c.Sockets.mu.Lock()
+	socket, ok := c.Sockets.sockets[session]
+	c.Sockets.mu.Unlock()
+	if ok {
+		return socket, true
+	}
+	socket, err := c.Socket(ctx)
+	if err != nil {
+		return Socket{}, false
+	}
+	c.Sockets.mu.Lock()
+	c.Sockets.sockets[session] = socket
+	c.Sockets.mu.Unlock()
+	return socket, true
+}
+
+// socketRead answers a read on the session's socket, or reports false so the
+// caller reads through the herdr command; a socket that fails is forgotten,
+// so a restarted Herdr is found again through its status.
+func (c *Client) socketRead(ctx context.Context, method string, params map[string]any) (json.RawMessage, bool) {
+	socket, ok := c.cachedSocket(ctx)
+	if !ok {
+		return nil, false
+	}
+	result, err := socket.request(ctx, method, params)
+	if err != nil {
+		c.Sockets.mu.Lock()
+		delete(c.Sockets.sockets, c.session())
+		c.Sockets.mu.Unlock()
+		return nil, false
+	}
+	return result, true
+}
+
 // PaneInput types into a session's panes and reads their history with no
 // process per call, for a view that types key by key.
 type PaneInput interface {
@@ -64,6 +117,9 @@ type PaneInput interface {
 
 // PaneInput reaches the session's panes over its socket.
 func (c *Client) PaneInput(ctx context.Context) (PaneInput, error) {
+	if socket, ok := c.cachedSocket(ctx); ok {
+		return socket, nil
+	}
 	return c.Socket(ctx)
 }
 
