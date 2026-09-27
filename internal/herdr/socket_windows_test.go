@@ -54,49 +54,46 @@ func TestPaneInputTypesEachInputAsOneSocketRequest(t *testing.T) {
 	}
 }
 
-// Scrolling asks Herdr to show the pane's history from an offset above its
-// bottom and returns the offset Herdr applied, which it holds within the
-// pane's history.
-func TestPaneInputScrollsWithinThePanesHistory(t *testing.T) {
+// History reads the pane's most recent lines, history included, with their
+// colors kept, as many as asked for.
+func TestPaneInputReadsThePanesRecentHistory(t *testing.T) {
 	cases := []struct {
-		name      string
-		requested int
-		shown     int
+		name  string
+		lines int
+		text  string
 	}{
-		{"within the history", 20, 20},
-		{"past the history is held at its top", 100000, 300},
-		{"back to the bottom", 0, 0},
+		{"the last lines", 2, "b\n\x1b[1mc\x1b[0m"},
+		{"a shorter history whole", 100, "a\nb\n\x1b[1mc\x1b[0m"},
 	}
 	socket := herdrtest.NewSocket(t)
-	socket.History = 300
+	socket.History = []string{"a", "b", "\x1b[1mc\x1b[0m"}
 	panes := Socket{pipe: `\\.\pipe\` + socket.Path}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			shown, err := panes.Scroll(context.Background(), "w1:p2", c.requested)
+			text, err := panes.History(context.Background(), "w1:p2", c.lines)
 
-			if err != nil || shown != c.shown {
-				t.Fatalf("Scroll(%d) = %d, %v; want %d", c.requested, shown, err, c.shown)
+			if err != nil || text != c.text {
+				t.Fatalf("History(%d) = %q, %v; want %q", c.lines, text, err, c.text)
 			}
 			last := socket.Requests()[len(socket.Requests())-1]
-			if last.Method != "pane.scroll" || last.Params["pane_id"] != "w1:p2" || last.Params["offset_from_bottom"] != float64(c.requested) {
-				t.Fatalf("request = %s %v, want pane.scroll of w1:p2 to %d", last.Method, last.Params, c.requested)
+			if last.Method != "pane.read" || last.Params["pane_id"] != "w1:p2" || last.Params["source"] != "recent" || last.Params["lines"] != float64(c.lines) || last.Params["format"] != "ansi" || last.Params["strip_ansi"] != false {
+				t.Fatalf("request = %s %v, want pane.read of w1:p2's recent %d lines as ANSI", last.Method, last.Params, c.lines)
 			}
 		})
 	}
 }
 
-// A scroll answer that names no offset is a failure, since the view would not
-// know where the pane is.
-func TestPaneInputScrollFailsWithoutAnOffset(t *testing.T) {
+// A read answer that carries no text is a failure, never an empty history.
+func TestPaneInputHistoryFailsWithoutText(t *testing.T) {
 	socket := herdrtest.NewSocket(t)
 	socket.Answer = func(r herdrtest.Request) string {
-		return `{"id":"` + r.ID + `","result":{"type":"pane_info","pane":{"pane_id":"w1:p2"}}}`
+		return `{"id":"` + r.ID + `","result":{"type":"pane_read","read":{"pane_id":"w1:p2"}}}`
 	}
 
-	_, err := Socket{pipe: `\\.\pipe\` + socket.Path}.Scroll(context.Background(), "w1:p2", 5)
+	_, err := Socket{pipe: `\\.\pipe\` + socket.Path}.History(context.Background(), "w1:p2", 5)
 
-	if err == nil || !strings.Contains(err.Error(), "no scroll offset") {
-		t.Fatalf("Scroll = %v, want an error naming the missing offset", err)
+	if err == nil || !strings.Contains(err.Error(), "carries no text") {
+		t.Fatalf("History = %v, want an error naming the missing text", err)
 	}
 }
 

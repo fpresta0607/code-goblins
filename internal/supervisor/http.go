@@ -108,6 +108,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.terminalStream(w, r)
 	case r.URL.Path == "/api/terminal/input" && r.Method == "POST":
 		h.terminalInput(w, r)
+	case r.URL.Path == "/api/terminal/history" && r.Method == "POST":
+		h.terminalHistory(w, r)
 	case r.URL.Path == "/api/terminal/open" && r.Method == "POST":
 		h.openTerminalWindow(w, r)
 	case r.URL.Path == "/api/terminal/native" && r.Method == "GET":

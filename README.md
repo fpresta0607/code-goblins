@@ -131,6 +131,7 @@ It needs no backup repository: backing it up is only your own choice, and [Your 
 ```powershell
 goblins              # start the supervisor if needed, show the board's link and the fleet, then open the CFO
 goblins --native     # the same, but start a new CFO in a native terminal shown here instead of in Herdr
+goblins --harness codex  # start the CFO as codex, claude or pi from now on; a running CFO keeps its harness
 goblins --board      # start the supervisor if needed and open the board, with no CFO in this terminal
 goblins attach       # show the CFO's native terminal here, or name another; Ctrl-] leaves it running
 goblins status       # whether the supervisor runs: the board's link, the fleet and its pid
@@ -144,9 +145,9 @@ goblins uninstall    # undo the install; the home folder and its data stay
 `goblins` on its own finds the supervisor, or starts it in the background with a hidden console of its own when none is running, so no window opens, with its output in `state\serve.log` in the CFO home.
 It prints the banner, the board's link (`http://127.0.0.1:4310`, or a free port when another program already listens there) and one line on what the CFO and the goblins are doing and how much waits on you, and opens the board in your browser the first time.
 The board is only a view, so closing the browser stops nothing, and a supervisor started this way keeps running after the terminal closes.
-Then it takes you to the CFO: a CFO whose registration names a live process is brought to the front, and otherwise it starts Claude Code as the CFO in Herdr in a fresh `cfo` tab, in the project this terminal is in or one you pick from your projects folder, closing an idle old `cfo` tab or renaming a busy one to `shell`.
+Then it takes you to the CFO: a CFO whose registration names a live process is brought to the front, and otherwise it starts the CFO in its remembered harness (Claude Code unless `goblins --harness` chose another) in Herdr in a fresh `cfo` tab, in the project this terminal is in or one you pick from your projects folder, closing an idle old `cfo` tab or renaming a busy one to `shell`.
 It then attaches the terminal to Herdr with the CFO in front; run inside Herdr, it only brings the CFO to the front.
-A CFO registered in a native terminal is shown in this terminal instead, and `goblins --native` starts a new CFO that way: Claude Code runs in a native terminal of its own, so closing any window leaves it running, and `goblins attach` shows it again.
+A CFO registered in a native terminal is shown in this terminal instead, and `goblins --native` starts a new CFO that way: the CFO runs in a native terminal of its own, so closing any window leaves it running, and `goblins attach` shows it again.
 With no CFO registered, a CFO already running in native terminal `cfo`, which may not have registered yet, is shown rather than started again.
 `goblins --board` finds or starts the supervisor the same way and opens the board in your browser every time, and starts or shows no CFO in the terminal.
 In an attached terminal every key goes to the CFO, Ctrl-C included, and Ctrl-] leaves the terminal running.
@@ -158,7 +159,7 @@ In an attached terminal every key goes to the CFO, Ctrl-C included, and Ctrl-] l
 
 ### Start the CFO
 
-Run `goblins` in the project you actually want to build, or anywhere to pick one from your projects folder: it starts Claude Code as the CFO there, in Herdr, and brings you to it.
+Run `goblins` in the project you actually want to build, or anywhere to pick one from your projects folder: it starts the CFO there, in Herdr, as Claude Code unless `goblins --harness` chose Codex or pi, and brings you to it.
 Only a CFO in Claude Code is woken by the fleet today, through its Stop hook: a CFO run in Codex or pi learns what goblins finished or asked only when you next prompt it.
 Without a terminal, `goblins --board` opens the board, and whenever no CFO runs the board shows its first-run screen, where you pick the folder that holds your projects, the project the CFO starts in and the agent, then **Start the CFO**, and it opens in the board's terminal.
 The page starts only Claude Code as the CFO, for the same reason, and still shows Codex and Pi with whether each is installed and signed in.
@@ -220,7 +221,7 @@ The terminal fills the panel, and you pick the goblin on the board; every termin
 **Ctrl+Alt+Up** and **Ctrl+Alt+Down** step through the terminals, the CFO first and then each goblin with a terminal, and **Ctrl+Alt+1** to **Ctrl+Alt+9** jump to one, from anywhere on the board; a switch hands the keyboard to the terminal it shows.
 A terminal opened from the board opens maximized, over the whole window, and **Restore** brings the board back beside it; the Task view opens beside the board, and on the Orchestration view the panel opens beside the graph.
 Drag the divider between the board and the panel to size the panel; the width, and whether each view is maximized, are remembered in this browser.
-A goblin still in Herdr shows its whole Herdr pane at the pane's own size, its text scaled to fit the panel with the input line at the bottom and no scroll bars, and the same full-pane state while it connects; the wheel and **Shift+PageUp** and **Shift+PageDown** scroll its history, and typing brings it back to the bottom.
+A goblin still in Herdr shows its whole Herdr pane at the pane's own size, its text scaled to fit the panel with the input line at the bottom and no scroll bars, and the same full-pane state while it connects; the live screen always follows the pane's bottom, the wheel or **Shift+PageUp** opens its history over it, and scrolling down to the history's bottom, **Escape**, or typing returns to the live screen.
 **Open in terminal** at the panel's top right opens the terminal it shows in a Windows Terminal window beside the board, attached to the same goblin: in Herdr with its pane in front, or through `cfo attach` for a native terminal.
 Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: the browser's own speech recognition listens while the keys are held, and releasing them types what it heard as one line, which **Enter** sends.
 In both, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
@@ -255,7 +256,9 @@ Review items share the stack: a goblin's image review, a review page, or a gobli
 A review page shows as a preview you click to open it (**Open review**); a page the board watches is answered on the page itself, and its card finishes when you send or end the review there.
 Other items, a plain link included, are answered in writing with **Send answer**, and any item closes with **Clear**.
 A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Download**, and **Open** when the browser can show it or it has a link; opening or downloading it moves it to History.
-A new review item or command appears in a banner at the bottom right for a few seconds and stays under the badge, and the browser tab's title counts what is waiting on you.
+Anything new that needs you or finished shows as an alert at the bottom right: a new question, review item or command, and a goblin that is blocked, failed, or done with its pull request; clicking an alert opens that item, alerts stack and fade after a few seconds, and routine progress never alerts.
+While the board's tab is hidden or its window is behind another, each alert is also a Windows notification once you allow them; the board asks once, with its first alert.
+New items also stay under the badge, and the browser tab's title counts what is waiting on you.
 A goblin's item closes by itself once nobody waits on it: a wait when the goblin reports again or the CFO answers it, any item but a delivered document when its goblin finishes or is cleaned up, and the CFO can clear a stale one with a reason.
 Several items stack up one card at a time, the CFO's first and then goblins by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Next** on the left and its answer on the right, and you can swipe; closing keeps every item for later.
 The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done** and the Command Center closes.
