@@ -375,11 +375,9 @@ func (s *Service) withPullRequestStates(ctx context.Context, history []Task, now
 }
 
 // GitHubPullRequestState asks GitHub, through gh, whether a pull request is
-// OPEN, CLOSED or MERGED.
+// OPEN, CLOSED or MERGED, for as long as the caller's context allows.
 func GitHubPullRequestState(commands execx.Runner) func(context.Context, string) (string, error) {
 	return func(ctx context.Context, url string) (string, error) {
-		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
 		result, err := commands.Run(ctx, execx.Request{Name: "gh", Args: []string{"pr", "view", url, "--json", "state", "--jq", ".state"}})
 		if err != nil {
 			return "", fmt.Errorf("gh could not read %s: %w", url, err)

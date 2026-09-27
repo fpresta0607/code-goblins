@@ -66,10 +66,10 @@ export function pullRequestLabel(url: string): string {
 }
 
 // A pull request wears GitHub's icon for what it really did: merged, which a
-// live task's gate proves with its merged phase, closed without merging, or
-// neither yet.
+// live task's gate proves with its merged phase and then its verified
+// delivery, closed without merging, or neither yet.
 export function pullRequestIcon(task: Task): "merge" | "pull-request-closed" | "pull-request" {
-  return task.merged || task.phase === "merged" ? "merge" : task.closed ? "pull-request-closed" : "pull-request";
+  return task.merged || task.phase === "merged" || (task.phase === "done" && task.verified) ? "merge" : task.closed ? "pull-request-closed" : "pull-request";
 }
 
 // Only a real GitHub pull request wears the GitHub mark and its bare number;
