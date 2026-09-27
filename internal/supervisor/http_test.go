@@ -132,11 +132,22 @@ func TestAPIOriginIdempotencySafePathsAndReconnect(t *testing.T) {
 			t.Fatalf("%d %s", code, data)
 		}
 	}
+	// The service's own reconcile may queue an evaluation of the task at any
+	// moment on a slow machine, so only the request's own actions count.
+	requested := func() []Action {
+		var own []Action
+		for _, action := range s.Store.Snapshot().Actions {
+			if action.ID == "request-1" {
+				own = append(own, action)
+			}
+		}
+		return own
+	}
 	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) && (len(s.Store.Snapshot().Actions) != 1 || s.Store.Snapshot().Actions[0].Status != "succeeded") {
+	for time.Now().Before(deadline) && (len(requested()) != 1 || requested()[0].Status != "succeeded") {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if actions := s.Store.Snapshot().Actions; len(actions) != 1 || actions[0].Status != "succeeded" {
+	if actions := requested(); len(actions) != 1 || actions[0].Status != "succeeded" {
 		t.Fatalf("idempotent evaluation was not processed once: %+v", actions)
 	}
 	if code, _ := request("GET", "/api/tasks/task-1/diff?path=../.env", "", "", "", ""); code != 422 {
