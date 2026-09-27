@@ -116,26 +116,59 @@ func TestANativeProberSaysWhenItCannotSeeTheTerminal(t *testing.T) {
 	}
 }
 
-// The monitor supervises native goblins too: one whose turn ended is woken
-// on, where before every native task was passed over.
-func TestScanWakesWhenANativeGoblinsTurnEnds(t *testing.T) {
-	stateDir := t.TempDir()
-	now := time.Date(2026, 9, 27, 9, 0, 0, 0, time.UTC)
-	meta := nativeMeta("g1", "claude")
-	writeTask(t, stateDir, meta)
-	recordNativeHost(t, stateDir, "g1")
-	probe := BackendProber{Herdr: &fakeProber{}, Native: NativeProber{StateDir: stateDir, ReadScreen: screenOf("> ", "⏵⏵ bypass permissions on (shift+tab to cycle)")}}
+// The monitor supervises native goblins too, where before every native task
+// was passed over. Within the launch budget a goblin whose host has not
+// started, or whose harness shows its trust dialog or composer before the
+// brief is submitted, is still launching and stays quiet. Past the budget a
+// terminal with no host wakes as missing and one whose turn ended wakes as
+// waiting on input.
+func TestScanSupervisesANativeGoblinOnceItsLaunchIsOver(t *testing.T) {
+	composer := []string{"> ", "⏵⏵ bypass permissions on (shift+tab to cycle)"}
+	dialog := []string{"Is this a project you created or one you trust?", "❯ 1. No, exit", "  2. Yes, I trust this folder"}
+	for _, test := range []struct {
+		name       string
+		age        time.Duration
+		hasHost    bool
+		screen     []string
+		reason     Reason
+		shouldWake bool
+	}{
+		{"no host within the launch budget", time.Minute, false, nil, None, false},
+		{"a trust dialog within the launch budget", time.Minute, true, dialog, None, false},
+		{"a ready composer within the launch budget", time.Minute, true, composer, None, false},
+		{"no host after the launch budget", 6 * time.Minute, false, nil, EndpointMissing, true},
+		{"a ready composer after the launch budget", 6 * time.Minute, true, composer, AwaitingAnswer, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stateDir := t.TempDir()
+			now := time.Date(2026, 9, 27, 9, 0, 0, 0, time.UTC)
+			meta := nativeMeta("g1", "claude")
+			writeTask(t, stateDir, meta)
+			spawned := now.Add(-test.age)
+			if err := os.Chtimes(filepath.Join(stateDir, "g1.meta"), spawned, spawned); err != nil {
+				t.Fatal(err)
+			}
+			if test.hasHost {
+				recordNativeHost(t, stateDir, "g1")
+			}
+			probe := BackendProber{Herdr: &fakeProber{}, Native: NativeProber{StateDir: stateDir, ReadScreen: screenOf(test.screen...)}}
 
-	result, err := testService(stateDir, probe, &now).Scan(context.Background())
+			result, err := testService(stateDir, probe, &now).Scan(context.Background())
 
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Observations) != 1 || result.Observations[0].TaskID != "g1" {
-		t.Fatalf("observations = %+v, want the native goblin observed", result.Observations)
-	}
-	if result.Event == nil || result.Observations[0].Reason != AwaitingAnswer {
-		t.Errorf("scan = %+v, want an awaiting-input wake for the native goblin", result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Observations) != 1 || result.Observations[0].TaskID != "g1" {
+				t.Fatalf("observations = %+v, want the native goblin observed", result.Observations)
+			}
+			observation := result.Observations[0]
+			if observation.Reason != test.reason || (result.Event != nil) != test.shouldWake {
+				t.Errorf("reason %q event %+v, want reason %q and wake %v", observation.Reason, result.Event, test.reason, test.shouldWake)
+			}
+			if (observation.Health == HealthLaunching) == test.shouldWake {
+				t.Errorf("health %q, want launching only while the goblin stays quiet", observation.Health)
+			}
+		})
 	}
 }
 
