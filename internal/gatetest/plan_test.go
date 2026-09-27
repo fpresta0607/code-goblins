@@ -164,6 +164,31 @@ func TestReadChoosesAPackageForAFileItsExternalTestEmbeds(t *testing.T) {
 	}
 }
 
+// A branch that deletes a package still tests the package whose test imports
+// it, so the stale import fails here rather than only in CI.
+func TestReadChoosesTheTestImporterOfADeletedPackage(t *testing.T) {
+	// Arrange
+	dir := newModule(t)
+	if err := os.RemoveAll(filepath.Join(dir, "a")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	plan, err := Read(context.Background(), execx.OSRunner{}, dir)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, choice := range plan.Choices {
+		got = append(got, choice.String())
+	}
+	if want := []string{"example.com/m/b (imports example.com/m/a)"}; plan.Everything || !slices.Equal(got, want) {
+		t.Errorf("Read = %q, everything %v; want %q", got, plan.Everything, want)
+	}
+}
+
 // A branch that changed no Go package has nothing to test.
 func TestReadChoosesNothingWhenNoPackageChanged(t *testing.T) {
 	// Arrange

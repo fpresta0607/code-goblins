@@ -65,7 +65,7 @@ func TestSelectTakesChangedPackagesAndTheirDirectImporters(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Act
-			choices, everything := Select(root, test.files, repo)
+			choices, everything := Select(root, "example.com/repo", test.files, repo)
 
 			// Assert
 			var got []string
@@ -118,7 +118,7 @@ func TestSelectGivesARootPackageOnlyItsOwnFiles(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Act
-			choices, everything := Select(root, test.files, packages)
+			choices, everything := Select(root, "example.com/repo", test.files, packages)
 
 			// Assert
 			var got []string
@@ -132,11 +132,30 @@ func TestSelectGivesARootPackageOnlyItsOwnFiles(t *testing.T) {
 	}
 }
 
+// A deleted package is not tested, but a package that still imports it, even
+// only from its tests, is.
+func TestSelectTakesTheImportersOfADeletedPackage(t *testing.T) {
+	// Arrange
+	packages := append([]Package{pkg("internal/legacy", "example.com/repo/internal/retired")}, repo...)
+
+	// Act
+	choices, everything := Select(root, "example.com/repo", []string{"internal/retired/old.go", "internal/retired/old_test.go"}, packages)
+
+	// Assert
+	var got []string
+	for _, choice := range choices {
+		got = append(got, choice.String())
+	}
+	if want := []string{"example.com/repo/internal/legacy (imports example.com/repo/internal/retired)"}; everything || !slices.Equal(got, want) {
+		t.Errorf("Select = %q, everything %v; want %q", got, everything, want)
+	}
+}
+
 // go.mod or go.sum can change what every package builds against, so no
 // package list bounds it.
 func TestSelectTakesEverythingWhenAModuleFileChanged(t *testing.T) {
 	for _, file := range []string{"go.mod", "go.sum"} {
-		if _, everything := Select(root, []string{"internal/reap/classify.go", file}, repo); !everything {
+		if _, everything := Select(root, "example.com/repo", []string{"internal/reap/classify.go", file}, repo); !everything {
 			t.Errorf("Select with %s changed did not take every package", file)
 		}
 	}

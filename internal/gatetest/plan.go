@@ -29,9 +29,10 @@ type Plan struct {
 // origin/main), committed, uncommitted or untracked, with a rename counted at
 // both its paths, and the packages go list reports for the module, each with
 // the embed patterns of its code, its tests and its external tests, so a
-// deleted embedded file still names its package. The root and every package
-// directory are spelled with long names, as git and go list can spell one
-// directory differently.
+// deleted embedded file still names its package, and the module path go list
+// -m reports, so a deleted package's importers are found by its import path.
+// The root and every package directory are spelled with long names, as git
+// and go list can spell one directory differently.
 func Read(ctx context.Context, runner execx.Runner, dir string) (Plan, error) {
 	base, err := mergeBase(ctx, runner, dir)
 	if err != nil {
@@ -57,13 +58,17 @@ func Read(ctx context.Context, runner execx.Runner, dir string) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
+	module, err := output(ctx, runner, dir, "go", "list", "-m", "-f", "{{.Path}}")
+	if err != nil {
+		return Plan{}, err
+	}
 	var files []string
 	for _, file := range strings.Split(diff+"\x00"+untracked, "\x00") {
 		if file != "" {
 			files = append(files, file)
 		}
 	}
-	choices, everything := Select(fsx.LongPath(filepath.FromSlash(strings.TrimSpace(top))), files, packages)
+	choices, everything := Select(fsx.LongPath(filepath.FromSlash(strings.TrimSpace(top))), strings.TrimSpace(module), files, packages)
 	return Plan{Base: base, Choices: choices, Everything: everything}, nil
 }
 
