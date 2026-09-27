@@ -7,12 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -231,9 +231,8 @@ func nativeCFOProgram(harness string) ([]string, error) {
 }
 
 // nativeCFOEnvironment is env without the Herdr pane a launcher run inside
-// Herdr has, so the CFO registers its native terminal rather than that pane.
+// Herdr has, so the CFO registers its native terminal rather than that pane
+// and a herdr it starts is not refused as nested inside that pane.
 func nativeCFOEnvironment(env []string) []string {
-	return slices.DeleteFunc(env, func(entry string) bool {
-		return strings.HasPrefix(strings.ToUpper(entry), "HERDR_PANE_ID=")
-	})
+	return herdr.WithoutPane(env)
 }
