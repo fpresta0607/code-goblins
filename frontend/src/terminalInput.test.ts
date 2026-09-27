@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bracketedPaste, endStep, fittedFontSize, historyText, inputBytes, MAX_WHEEL_LINES, maxInputBytes, panelGrid, queueInput, scrollAction, scrollHeldReason, scrollsItself, SELF_SCROLL_FRESH_MS, selfScrollFresh, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput.ts";
+import { bracketedPaste, endStep, fittedFontSize, gridToAsk, historyText, inputBytes, MAX_WHEEL_LINES, maxInputBytes, panelGrid, queueInput, scrollAction, scrollHeldReason, scrollsItself, SELF_SCROLL_FRESH_MS, selfScrollFresh, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput.ts";
 
 test("Unicode paste uses UTF-8 bytes including one complete bracketed wrapper", () => {
   const limit = Math.floor((maxInputBytes - 12) / 3);
@@ -151,6 +151,20 @@ test("a view that sizes its pane fills the panel with whole cells, within what H
   for (const [name, width, height, font, grid] of cases) assert.deepEqual(panelGrid(width, height, font, cell), grid, name);
 });
 
+test("a sized view asks for the panel's grid whenever it differs from the size the pane will have", () => {
+  const small = { cols: 80, rows: 24 }, large = { cols: 120, rows: 40 };
+  const cases: [string, Parameters<typeof gridToAsk>[0], Parameters<typeof gridToAsk>[1], Parameters<typeof gridToAsk>[2], ReturnType<typeof gridToAsk>][] = [
+    ["a panel that grew asks for its grid", large, small, null, large],
+    ["a panel that fits the pane asks nothing", small, small, null, null],
+    ["a panel too small for a terminal asks nothing", null, small, null, null],
+    ["a size on its way is not asked again", small, large, small, null],
+    ["a drag back to the pane's size while another is on its way asks for it again", large, large, small, large],
+    ["a size Herdr clamped is not asked again", large, small, large, null],
+    ["a panel that changed after its size landed asks for its grid", small, large, large, small],
+  ];
+  for (const [name, panel, current, asked, grid] of cases) assert.deepEqual(gridToAsk(panel, current, asked), grid, name);
+});
+
 test("an open view keeps the pane live at the board's size, focused or not, until it closes", () => {
   const view = { sized: false, focused: true, shown: true, held: false };
   const cases: [string, SizeEvent, typeof view, ReturnType<typeof sizeStep>][] = [
@@ -160,11 +174,8 @@ test("an open view keeps the pane live at the board's size, focused or not, unti
     ["opening it after another client took the pane leaves the size", "live", { ...view, held: true }, "stay"],
     ["coming back to the board takes the size, even from another client", "focus", { ...view, held: true }, "take"],
     ["typing in the board takes the size, even from another client", "typed", { ...view, held: true }, "take"],
-    ["leaving the board for a Herdr window keeps the size", "blur", { ...view, sized: true }, "stay"],
-    ["moving to another view keeps the size", "hidden", { ...view, sized: true }, "stay"],
     ["a view out of sight never takes the size", "focus", { ...view, shown: false }, "stay"],
     ["a view that has the size keeps it", "typed", { ...view, sized: true }, "stay"],
-    ["leaving a view that does not have the size changes nothing", "blur", view, "stay"],
   ];
   for (const [name, event, state, action] of cases) assert.equal(sizeStep(event, state), action, name);
 });

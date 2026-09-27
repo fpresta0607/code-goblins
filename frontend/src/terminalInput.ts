@@ -116,15 +116,25 @@ export function panelGrid(width: number, height: number, fontSize: number, cell:
   return cols >= 20 && rows >= 5 ? { cols, rows } : null;
 }
 
+// The grid a sized view asks for: the panel's grid whenever it differs from
+// the size the pane will have, which is the size last asked for once one has
+// been, since its frame may still be on its way, and else the pane's size.
+// Null asks nothing.
+type Grid = { cols: number; rows: number };
+export function gridToAsk(panel: Grid | null, current: Grid, asked: Grid | null): Grid | null {
+  const target = asked || current;
+  return !panel || panel.cols === target.cols && panel.rows === target.rows ? null : panel;
+}
+
 // What happens to a pane's size in the board. A view that is open keeps the
 // pane sized to its panel and live, whether or not the board's window has the
 // focus: a Herdr window shows the pane at the board's size, and only closing
 // the view hands the size back. A view takes the size once it is shown. Once
 // another client takes the pane (held), the board waits for the Overlord to
 // come back to it or type in it before taking the pane again.
-export type SizeEvent = "live" | "focus" | "blur" | "shown" | "hidden" | "typed";
+export type SizeEvent = "live" | "focus" | "shown" | "typed";
 export function sizeStep(event: SizeEvent, view: { sized: boolean; shown: boolean; held: boolean }): "take" | "stay" {
-  if (view.sized || !view.shown || event === "blur" || event === "hidden") return "stay";
+  if (view.sized || !view.shown) return "stay";
   if (event === "focus" || event === "typed") return "take";
   return view.held ? "stay" : "take";
 }
