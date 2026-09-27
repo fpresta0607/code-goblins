@@ -20,6 +20,7 @@ import (
 // wake path.
 func TestGoblinsRemembersTheCFOHarnessForEveryLaterStart(t *testing.T) {
 	f := newSessionFixture(t)
+	harnessesOnPath(t, "codex", "pi")
 
 	chose, chooseOut, chooseErr := f.launch("--harness", "codex")
 	later, laterOut, _ := f.launch()
@@ -78,6 +79,7 @@ func TestALiveCFOKeepsItsHarness(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
 			f := newSessionFixture(t)
+			harnessesOnPath(t, "codex")
 			c.live(f)
 
 			// Act
@@ -157,21 +159,73 @@ func TestGoblinsNamesAnArgumentItDoesNotTake(t *testing.T) {
 	}
 }
 
-// In Herdr the harness is the kind the CFO's agent starts as.
-func TestStartingTheCFOStartsTheChosenHarnessInHerdr(t *testing.T) {
-	fake := &terminaltest.Fake{
-		Session:   "fleet",
-		Container: herdr.Container{Session: "fleet", WorkspaceID: "w1"},
-		CFO:       herdr.Endpoint{Target: herdr.Target{Session: "fleet", Pane: "w1:p1"}, WorkspaceID: "w1", TabID: "w1:t1", PaneID: "w1:p1"},
-	}
+// A harness whose program is not on PATH is refused before it is remembered,
+// so a choice that cannot start never sticks.
+func TestGoblinsRefusesAHarnessNotOnPath(t *testing.T) {
+	// Arrange
+	f := newSessionFixture(t)
+	harnessesOnPath(t)
 
-	if _, err := startCFOWith(context.Background(), fake, `C:\dev\app`, "codex"); err != nil {
-		t.Fatal(err)
-	}
+	// Act
+	exit, _, stderr := f.launch("--harness", "codex")
 
-	if !slices.Contains(fake.Calls(), "AgentStart fleet:w1:p1 cfo codex") {
-		t.Errorf("calls = %q, want the CFO's agent started as codex", fake.Calls())
+	// Assert
+	if exit != 1 || !strings.Contains(stderr, "codex is not on PATH") || len(f.harnesses) != 0 {
+		t.Fatalf("exit=%d stderr=%q harnesses=%q, want codex refused and nothing started", exit, stderr, f.harnesses)
 	}
+	if _, err := os.Stat(cfoHarnessPath(f.home.State)); !os.IsNotExist(err) {
+		t.Errorf("a harness not on PATH was remembered: %v", err)
+	}
+}
+
+// In Herdr Claude Code starts through herdr agent start, while codex and pi,
+// npm script shims Herdr's Windows agent start cannot run, are typed into the
+// cfo pane's shell and submitted, as a Herdr goblin's typed launch is.
+func TestStartingTheCFOInHerdrStartsEachHarnessAsHerdrCan(t *testing.T) {
+	for harness, want := range map[string][]string{
+		"claude": {"AgentStart fleet:w1:p1 cfo claude"},
+		"codex":  {"SendLiteral fleet:w1:p1 codex", "SendKey fleet:w1:p1 Enter"},
+		"pi":     {"SendLiteral fleet:w1:p1 pi", "SendKey fleet:w1:p1 Enter"},
+	} {
+		t.Run(harness, func(t *testing.T) {
+			// Arrange
+			fake := &terminaltest.Fake{
+				Session:   "fleet",
+				Container: herdr.Container{Session: "fleet", WorkspaceID: "w1"},
+				CFO:       herdr.Endpoint{Target: herdr.Target{Session: "fleet", Pane: "w1:p1"}, WorkspaceID: "w1", TabID: "w1:t1", PaneID: "w1:p1"},
+			}
+
+			// Act
+			started, err := startCFOWith(context.Background(), fake, `C:\dev\app`, harness)
+
+			// Assert
+			if err != nil || !started {
+				t.Fatalf("startCFOWith = %v, %v; want a CFO started", started, err)
+			}
+			var launch []string
+			for _, call := range fake.Calls() {
+				if strings.HasPrefix(call, "AgentStart ") || strings.HasPrefix(call, "SendLiteral ") || strings.HasPrefix(call, "SendKey ") {
+					launch = append(launch, call)
+				}
+			}
+			if !slices.Equal(launch, want) {
+				t.Errorf("launch calls = %q, want %q", launch, want)
+			}
+		})
+	}
+}
+
+// harnessesOnPath makes PATH hold only stub script shims for the named
+// harnesses.
+func harnessesOnPath(t *testing.T, names ...string) {
+	t.Helper()
+	bin := t.TempDir()
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(bin, name+".cmd"), []byte("@echo off\r\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin)
 }
 
 // A native terminal starts a program itself: Claude Code's native build as

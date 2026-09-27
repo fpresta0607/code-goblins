@@ -266,7 +266,8 @@ The board shows a native CFO's terminal in its panel, from the CFO bar and from 
 `goblins` shows a CFO registered in a native terminal in its own terminal, and `goblins --native` starts a new CFO in native terminal `cfo`, running `claude.exe` itself so the terminal ends with it, without the launcher's `HERDR_PANE_ID`.
 `goblins --harness claude|codex|pi`, alone or with `--native`, chooses the harness the CFO starts as, and the home remembers it in `state/cfo-harness` for every later goblins start; claude is the default.
 The board's first run starts the Claude Code CFO its page offers, whatever harness is remembered.
-In a native terminal Claude Code runs as `claude.exe` and codex and pi as their npm script shims through `cmd /c`, as a native goblin's do; in Herdr the harness is the kind the CFO's agent starts as.
+In a native terminal Claude Code runs as `claude.exe` and codex and pi as their npm script shims through `cmd /c`, as a native goblin's do; in Herdr Claude Code starts with `herdr agent start`, and codex and pi, whose npm script shims Herdr's Windows agent start cannot run, are typed into the `cfo` tab's shell, as a Herdr goblin's typed launch is.
+A harness whose program is not on PATH is refused, and nothing is remembered or started.
 A CFO already running keeps its harness, and goblins says the choice applies to the next start; a Codex or pi CFO is told it has no wake path, because only Claude Code's Stop hook wakes the CFO.
 `cfo attach` shows a native terminal in any console: the registered CFO's, or the one named; `--state <dir>` names the fleet's state folder for a console that does not inherit the supervisor's environment.
 

@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -22,6 +23,10 @@ import (
 
 // cfoHarnesses are the harnesses goblins can start the CFO as.
 var cfoHarnesses = []string{"claude", "codex", "pi"}
+
+// cfoTypedLaunchSettle is how long a typed CFO launch line settles in the
+// cfo tab's shell before Enter submits it, as a goblin's typed launch does.
+const cfoTypedLaunchSettle = 300 * time.Millisecond
 
 // cfoHarnessPath is where a CFO home remembers the harness goblins starts the
 // CFO as.
@@ -59,6 +64,10 @@ func cfoHarness(stateDir string) (string, error) {
 // keeps the harness it runs.
 func startCFOSession(ctx context.Context, runtime commandRuntime, stateDir string, native bool, chosen string, stdout, stderr io.Writer) int {
 	if chosen != "" {
+		if _, err := exec.LookPath(chosen); err != nil {
+			fmt.Fprintf(stderr, "goblins: %s is not on PATH, so the CFO cannot start as it; install it or choose another with goblins --harness\n", chosen)
+			return 1
+		}
 		if err := fsx.AtomicWriteFile(cfoHarnessPath(stateDir), []byte(chosen+"\n")); err != nil {
 			fmt.Fprintf(stderr, "goblins: the harness choice could not be saved: %v\n", err)
 			return 1
@@ -203,7 +212,10 @@ func focusCFOInHerdr(ctx context.Context, endpoint herdr.Endpoint) error {
 // startCFOWith makes sure Herdr's server runs, finds the CFO's tab in the
 // fleet workspace or creates a fresh one in project, starts harness there as
 // the CFO unless an agent already runs in it, and brings the tab to the
-// front. It reports whether it started a CFO.
+// front. It reports whether it started a CFO. Claude Code starts through
+// herdr agent start; codex and pi, npm script shims Herdr's Windows agent
+// start cannot run, are typed into the tab's shell as a goblin's typed launch
+// is.
 func startCFOWith(ctx context.Context, client terminal.Backend, project, harness string) (bool, error) {
 	if err := client.EnsureServer(ctx); err != nil {
 		return false, err
@@ -216,8 +228,18 @@ func startCFOWith(ctx context.Context, client terminal.Backend, project, harness
 	if err != nil {
 		return false, err
 	}
-	if !running {
+	switch {
+	case running:
+	case harness == "claude":
 		if err := client.AgentStart(ctx, endpoint.Target, "cfo", harness, nil); err != nil {
+			return false, err
+		}
+	default:
+		if err := client.SendLiteral(ctx, endpoint.Target, harness); err != nil {
+			return false, err
+		}
+		time.Sleep(cfoTypedLaunchSettle)
+		if err := client.SendKey(ctx, endpoint.Target, "Enter"); err != nil {
 			return false, err
 		}
 	}
