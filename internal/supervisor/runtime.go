@@ -17,7 +17,12 @@ type RuntimeEvidence struct {
 }
 
 func (s *Service) runtimeEvidence(meta state.TaskMeta, node Session, now time.Time) RuntimeEvidence {
-	evidence := RuntimeEvidence{State: "unknown", Reason: "Current Herdr liveness evidence is unavailable"}
+	// The monitor reads a native task from its own terminal, never Herdr.
+	source := "Herdr"
+	if meta.Backend == "native" {
+		source = "Native terminal"
+	}
+	evidence := RuntimeEvidence{State: "unknown", Reason: "Current " + source + " liveness evidence is unavailable"}
 	observation, err := monitor.ReadObservation(s.Store.Home.State, meta.ID)
 	if err != nil || observation.Endpoint != (herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}).String() || observation.LastObserved.Before(node.UpdatedAt) || (node.Generation != "" && node.Generation != meta.SpawnGen) {
 		return evidence
@@ -25,13 +30,13 @@ func (s *Service) runtimeEvidence(meta state.TaskMeta, node Session, now time.Ti
 	evidence.At = observation.LastObserved
 	if now.Sub(observation.LastObserved) > 2*time.Minute || observation.LastObserved.After(now.Add(time.Minute)) {
 		evidence.State = "stale"
-		evidence.Reason = "Herdr liveness observation is stale; last native activity is not proof of a running worker"
+		evidence.Reason = source + " liveness observation is stale; last native activity is not proof of a running worker"
 		return evidence
 	}
 	evidence.State = string(observation.Health)
-	evidence.Reason = "Herdr monitor: " + string(observation.Reason)
+	evidence.Reason = source + " monitor: " + string(observation.Reason)
 	if observation.Reason == monitor.None {
-		evidence.Reason = "Herdr reports " + evidence.State
+		evidence.Reason = source + " reports " + evidence.State
 	}
 	if observation.Health == monitor.HealthUnknown {
 		evidence.State = "unavailable"
