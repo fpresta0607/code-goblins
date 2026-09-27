@@ -57,17 +57,20 @@ test("an accepted Start opens its goblin once its session is up, stops on a fail
   }
 });
 
-test("a refused Start's reason stays until a newer snapshot shows the Start no longer blocked", () => {
+test("a passing refusal lapses once a newer snapshot shows Start no longer blocked, and a standing one stays", () => {
   // Arrange
-  const refusal = { reason: "next-task is starting; start another once it is up", revision: 12 };
-  const cases: [string, number, string, boolean][] = [
-    ["the snapshot it arrived at", 12, "", true],
-    ["an older snapshot", 11, "", true],
-    ["a newer snapshot that still blocks it", 13, "Another task is starting", true],
-    ["a newer snapshot in which it can start", 13, "", false],
+  const passing = { reason: "next-task is starting; start another once it is up", revision: 12, passing: true };
+  const standing = { reason: "The brief for next-task names no project", revision: 12, passing: false };
+  const cases: [string, typeof passing, number, string, boolean][] = [
+    ["a passing refusal, in the snapshot it arrived at", passing, 12, "", true],
+    ["a passing refusal, in an older snapshot", passing, 11, "", true],
+    ["a passing refusal, in a newer snapshot that still blocks it", passing, 13, "Another task is starting", true],
+    ["a passing refusal, in a newer snapshot in which it can start", passing, 13, "", false],
+    ["a standing refusal, in a newer snapshot in which it can start", standing, 13, "", true],
+    ["a standing refusal, many snapshots later", standing, 40, "", true],
   ];
 
-  for (const [name, revision, blocked, want] of cases) {
+  for (const [name, refusal, revision, blocked, want] of cases) {
     // Act
     const stands = refusalStands(refusal, { revision, tasks: [task()] } as Snapshot, blocked);
 

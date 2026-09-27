@@ -90,11 +90,15 @@ func (h *HTTP) startTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.Service.startTask(input.Task); err != nil {
-		status := http.StatusInternalServerError
-		if errors.As(err, new(StartRefusal)) {
-			status = http.StatusConflict
+		var refusal StartRefusal
+		if !errors.As(err, &refusal) {
+			apiError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
-		apiError(w, status, err.Error())
+		respond(w, http.StatusConflict, struct {
+			Error   string `json:"error"`
+			Passing bool   `json:"passing"`
+		}{bounded(refusal.Reason, 1500), refusal.Passing})
 		return
 	}
 	h.Service.notify()
@@ -114,7 +118,7 @@ func (h *HTTP) startTask(w http.ResponseWriter, r *http.Request) {
 func (s *Service) startTask(id string) error {
 	dispatch := s.Options.Dispatch
 	if dispatch == nil {
-		return StartRefusal{"This board cannot start goblins"}
+		return StartRefusal{Reason: "This board cannot start goblins"}
 	}
 	s.starts.Lock()
 	defer s.starts.Unlock()
@@ -122,7 +126,7 @@ func (s *Service) startTask(id string) error {
 		s.startErrors = map[string]string{}
 	}
 	if s.starting != "" {
-		return StartRefusal{s.starting + " is starting; start another once it is up"}
+		return StartRefusal{Reason: s.starting + " is starting; start another once it is up", Passing: true}
 	}
 	plan, err := planStart(s.Store.Home, id)
 	if err != nil {
@@ -130,11 +134,11 @@ func (s *Service) startTask(id string) error {
 	}
 	available, _, err := dispatch.Memory()
 	if err != nil {
-		return StartRefusal{"Free memory cannot be read, so nothing starts: " + err.Error()}
+		return StartRefusal{Reason: "Free memory cannot be read, so nothing starts: " + err.Error()}
 	}
 	if available < memoryFloor {
 		// Rounded down, so memory just under the floor never reads as 3.0 GB.
-		return StartRefusal{fmt.Sprintf("Only %.1f GB of memory is free, under the fleet's 3 GB floor; start it once memory frees", math.Floor(float64(available)/(1<<30)*10)/10)}
+		return StartRefusal{Reason: fmt.Sprintf("Only %.1f GB of memory is free, under the fleet's 3 GB floor; start it once memory frees", math.Floor(float64(available)/(1<<30)*10)/10), Passing: true}
 	}
 	s.starting = id
 	delete(s.startErrors, id)
@@ -198,7 +202,7 @@ func spawnFailure(output string, err error) string {
 // fleet's defaults.
 func planStart(h home.Home, id string) (startPlan, error) {
 	if _, err := os.Stat(filepath.Join(h.State, id+".meta")); err == nil {
-		return startPlan{}, StartRefusal{id + " already runs; open it from In progress"}
+		return startPlan{}, StartRefusal{Reason: id + " already runs; open it from In progress"}
 	}
 	backlog, err := fleet.ReadBacklog(h)
 	if err != nil {
@@ -213,18 +217,18 @@ func planStart(h home.Home, id string) (startPlan, error) {
 	_, briefErr := os.Stat(brief)
 	switch {
 	case slices.ContainsFunc(backlog.Parked, listed) || !row.Structured && briefErr != nil:
-		return startPlan{}, StartRefusal{id + " is not queued"}
+		return startPlan{}, StartRefusal{Reason: id + " is not queued"}
 	case briefErr != nil:
-		return startPlan{}, StartRefusal{id + " has no brief at data\\" + id + "\\brief.md yet; the CFO writes one before it can start"}
+		return startPlan{}, StartRefusal{Reason: id + " has no brief at data\\" + id + "\\brief.md yet; the CFO writes one before it can start"}
 	case !row.Structured && !slices.ContainsFunc(queuedBriefs(h), func(task Task) bool { return task.ID == id }):
-		return startPlan{}, StartRefusal{id + " is not queued"}
+		return startPlan{}, StartRefusal{Reason: id + " is not queued"}
 	}
 	plan := startPlan{id: id, brief: brief, project: briefProject(brief)}
 	if plan.project == "" {
 		plan.project = row.Repo
 	}
 	if plan.project == "" {
-		return startPlan{}, StartRefusal{"The brief for " + id + " names no project"}
+		return startPlan{}, StartRefusal{Reason: "The brief for " + id + " names no project"}
 	}
 	named := briefSettings(brief)
 	pick := func(fromRow, key, fallback string) string {
@@ -246,11 +250,11 @@ func planStart(h home.Home, id string) (startPlan, error) {
 	plan.mode = pick(row.Mode, "mode", "")
 	switch {
 	case !slices.Contains(spawnHarnesses, plan.harness):
-		return startPlan{}, StartRefusal{"The backlog row or brief names harness " + plan.harness + ", which cfo spawn does not run"}
+		return startPlan{}, StartRefusal{Reason: "The backlog row or brief names harness " + plan.harness + ", which cfo spawn does not run"}
 	case plan.mode != "" && !slices.Contains(spawnModes, plan.mode):
-		return startPlan{}, StartRefusal{"The backlog row or brief names mode " + plan.mode + ", which cfo spawn does not run"}
+		return startPlan{}, StartRefusal{Reason: "The backlog row or brief names mode " + plan.mode + ", which cfo spawn does not run"}
 	case plan.model != "" && !spawnValue.MatchString(plan.model), plan.effort != "" && !spawnValue.MatchString(plan.effort):
-		return startPlan{}, StartRefusal{"The backlog row or brief names a model or effort cfo spawn cannot take"}
+		return startPlan{}, StartRefusal{Reason: "The backlog row or brief names a model or effort cfo spawn cannot take"}
 	}
 	return plan, nil
 }

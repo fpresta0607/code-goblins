@@ -102,6 +102,22 @@ func waitStarted(t *testing.T, handler *HTTP, id string) Task {
 	return Task{}
 }
 
+// startRefusal is a refused Start's answer: its reason, and whether its cause
+// passes by itself.
+type startRefusal struct {
+	Error   string `json:"error"`
+	Passing bool   `json:"passing"`
+}
+
+func decodeRefusal(t *testing.T, response *httptest.ResponseRecorder) startRefusal {
+	t.Helper()
+	var refusal startRefusal
+	if err := json.Unmarshal(response.Body.Bytes(), &refusal); err != nil {
+		t.Fatalf("answer %s: %v", response.Body, err)
+	}
+	return refusal
+}
+
 func TestStartRefusesARequestWithoutTheBoardsHostOriginAndToken(t *testing.T) {
 	tests := []struct{ name, host, origin, token string }{
 		{name: "no token", host: "board.local", origin: "http://board.local"},
@@ -140,9 +156,10 @@ func TestStartRefusesWithAClearReason(t *testing.T) {
 		live      bool
 		body      string
 		want      string
+		passing   bool
 	}{
-		{name: "memory just under the 3 GB floor reads under it", available: 3*gigabyte - gigabyte/40, row: "- **next-task** - Ship it", brief: plainBrief, body: `{"task":"next-task"}`, want: "Only 2.9 GB of memory is free"},
-		{name: "memory under the 3 GB floor", available: 2*gigabyte + gigabyte/2, row: "- **next-task** - Ship it", brief: plainBrief, body: `{"task":"next-task"}`, want: "2.5 GB of memory is free, under the fleet's 3 GB floor"},
+		{name: "memory just under the 3 GB floor reads under it", available: 3*gigabyte - gigabyte/40, row: "- **next-task** - Ship it", brief: plainBrief, body: `{"task":"next-task"}`, want: "Only 2.9 GB of memory is free", passing: true},
+		{name: "memory under the 3 GB floor", available: 2*gigabyte + gigabyte/2, row: "- **next-task** - Ship it", brief: plainBrief, body: `{"task":"next-task"}`, want: "2.5 GB of memory is free, under the fleet's 3 GB floor", passing: true},
 		{name: "no brief", available: 16 * gigabyte, row: "- **next-task** - Ship it", body: `{"task":"next-task"}`, want: "has no brief"},
 		{name: "a task that already runs", available: 16 * gigabyte, row: "- **next-task** - Ship it", brief: plainBrief, live: true, body: `{"task":"next-task"}`, want: "already runs"},
 		{name: "a task nothing queued", available: 16 * gigabyte, row: "- **other** - Other", body: `{"task":"next-task"}`, want: "is not queued"},
@@ -168,8 +185,9 @@ func TestStartRefusesWithAClearReason(t *testing.T) {
 			response := postStart(handler, test.body, "board.local", "http://board.local", orderToken)
 
 			// Assert
-			if response.Code != 409 || !strings.Contains(response.Body.String(), test.want) {
-				t.Fatalf("start = %d %s, want 409 saying %q", response.Code, response.Body, test.want)
+			refusal := decodeRefusal(t, response)
+			if response.Code != 409 || !strings.Contains(refusal.Error, test.want) || refusal.Passing != test.passing {
+				t.Fatalf("start = %d %s, want 409 saying %q with passing %v", response.Code, response.Body, test.want, test.passing)
 			}
 			if calls := spawner.recorded(); len(calls) != 0 {
 				t.Fatalf("a refused start ran cfo spawn %v", calls)
@@ -340,8 +358,9 @@ func TestStartTakesOneTaskAtATime(t *testing.T) {
 	waitStarted(t, handler, "next-task")
 
 	// Assert
-	if first.Code != 202 || second.Code != 409 || !strings.Contains(second.Body.String(), "next-task is starting") {
-		t.Fatalf("starts = %d, %d %s; want the second refused while the first starts", first.Code, second.Code, second.Body)
+	refusal := decodeRefusal(t, second)
+	if first.Code != 202 || second.Code != 409 || !strings.Contains(refusal.Error, "next-task is starting") || !refusal.Passing {
+		t.Fatalf("starts = %d, %d %s; want the second refused while the first starts, passing once it is up", first.Code, second.Code, second.Body)
 	}
 }
 

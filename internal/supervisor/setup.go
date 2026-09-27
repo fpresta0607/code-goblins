@@ -34,8 +34,13 @@ type FirstRun struct {
 
 // StartRefusal is a start the board cannot make, of the CFO from the
 // first-run page or of a queued task; its message is the reason, in the
-// board's words.
-type StartRefusal struct{ Reason string }
+// board's words. Passing says a queued task's refusal has a cause that passes
+// by itself and the board sees pass: memory under the floor, or another Start
+// running.
+type StartRefusal struct {
+	Reason  string
+	Passing bool
+}
 
 func (r StartRefusal) Error() string { return r.Reason }
 
@@ -153,28 +158,28 @@ func projectNames(root string) ([]string, string) {
 // runs at a time, so a second press finds the first CFO running.
 func (f *FirstRun) Start(root, project, agent string) error {
 	if !filepath.IsAbs(root) {
-		return StartRefusal{notAbsolute}
+		return StartRefusal{Reason: notAbsolute}
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.CFORuns() {
-		return StartRefusal{"The CFO already runs; open its terminal from the board"}
+		return StartRefusal{Reason: "The CFO already runs; open its terminal from the board"}
 	}
 	setup := f.Setup(root)
 	chosen := slices.IndexFunc(setup.Agents, func(shown SetupAgent) bool { return shown.ID == agent })
 	switch {
 	case chosen < 0:
-		return StartRefusal{"Pick Claude Code to start the CFO"}
+		return StartRefusal{Reason: "Pick Claude Code to start the CFO"}
 	case setup.Agents[chosen].Reason != "":
-		return StartRefusal{setup.Agents[chosen].Reason}
+		return StartRefusal{Reason: setup.Agents[chosen].Reason}
 	case setup.Problem != "":
-		return StartRefusal{setup.Problem}
+		return StartRefusal{Reason: setup.Problem}
 	case !slices.Contains(setup.Checkouts, project):
-		return StartRefusal{"Pick one of the projects in this folder"}
+		return StartRefusal{Reason: "Pick one of the projects in this folder"}
 	}
 	if recorded, err := f.ProjectsRoot(); err != nil || !fsx.SamePath(recorded, root) {
 		if err := f.SetProjectsRoot(root); err != nil {
-			return StartRefusal{"The projects folder could not be recorded: " + err.Error()}
+			return StartRefusal{Reason: "The projects folder could not be recorded: " + err.Error()}
 		}
 	}
 	if err := f.StartCFO(filepath.Join(root, project)); err != nil {

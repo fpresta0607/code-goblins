@@ -8,8 +8,9 @@ import { refusalStands, startBlock, startOutcome, type AcceptedStart, type Refus
 // Start on a queued task: the supervisor dispatches it through cfo spawn, and
 // onStarted hears once it accepted the start, so the board can open the new
 // goblin's session when it is up. A refused start, or a press on a blocked
-// one, shows its reason on the card until a newer snapshot shows Start no
-// longer blocked, and a spawn that failed shows the reason the supervisor
+// one, shows its reason on the card: one whose cause passes by itself until a
+// newer snapshot shows Start no longer blocked, any other until the card's
+// Start is pressed again. A spawn that failed shows the reason the supervisor
 // recorded, never the last Start's while this one is awaited.
 export function useStart(snapshot: Snapshot, awaited: AcceptedStart | null, onStarted: (accepted: AcceptedStart) => void) {
   const [refusals, setRefusals] = useState<Record<string, Refusal>>({});
@@ -33,7 +34,9 @@ export function useStart(snapshot: Snapshot, awaited: AcceptedStart | null, onSt
       const accepted = object(await request("/api/tasks/start", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ task: task.id }) }));
       onStarted({ id: task.id, revision: typeof accepted.revision === "number" ? accepted.revision : 0 });
     } catch (failure: unknown) {
-      refuse(task.id, { reason: message(failure), revision: revision.current });
+      const answer: unknown = failure instanceof Error ? failure.cause : undefined;
+      const passing = typeof answer === "object" && answer !== null && "passing" in answer && answer.passing === true;
+      refuse(task.id, { reason: message(failure), revision: revision.current, passing });
     } finally {
       setRequesting("");
     }
@@ -46,7 +49,7 @@ export function useStart(snapshot: Snapshot, awaited: AcceptedStart | null, onSt
       prominent: index === 0,
       onStart: () => {
         if (!blocked) void start(task);
-        else if (blocked !== "Starting") refuse(task.id, { reason: blocked, revision: snapshot.revision });
+        else if (blocked !== "Starting") refuse(task.id, { reason: blocked, revision: snapshot.revision, passing: true });
       },
     };
   };
