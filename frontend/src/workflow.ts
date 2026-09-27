@@ -21,6 +21,12 @@ export function taskColumn(task: Task): "Tasks" | "In progress" | "Completed" {
   return task.phase === "done" && task.verified ? "Completed" : "In progress";
 }
 
+// Every queued task, in the order the supervisor ranks them: the Tasks column
+// and the CFO's Task tab list the same queue.
+export function queuedTasks(snapshot: Snapshot): Task[] {
+  return snapshot.tasks.filter((task) => taskColumn(task) === "Tasks");
+}
+
 export function personaFor(task?: Task, node?: Session): Persona {
   if (node?.role === "cfo") return "cfo";
   if (task?.archived || task && ownsTaskSession(node, task) && taskColumn(task) === "Completed") return "finisher";
