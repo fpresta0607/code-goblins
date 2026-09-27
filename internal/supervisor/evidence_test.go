@@ -355,6 +355,58 @@ func TestSnapshotReadsOnlyTheStatusLinesOfTheTasksOwnGeneration(t *testing.T) {
 	}
 }
 
+// The merge scan reads every fleet repository with git, which took 47 to 50 s
+// of each minute on 2026-09-27 while it ran on the supervisor's only loop:
+// native events, the heartbeat and every snapshot waited behind it, and the
+// board read the supervisor as unhealthy. The loop must never wait for it.
+func TestTheSupervisorLoopDoesNotWaitForTheMergeScan(t *testing.T) {
+	_, h := testStore(t)
+	scanning, release := make(chan struct{}, 1), make(chan struct{})
+	s, err := Start(context.Background(), h, Options{MergedPRs: func(ctx context.Context, _ time.Time) ([]MergedPR, error) {
+		select {
+		case scanning <- struct{}{}:
+		default:
+		}
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return []MergedPR{{PR: "https://github.com/o/r/pull/7", Branch: "fix/late", Project: "r", At: time.Now().Unix()}}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	within := func(what string, done func() bool) {
+		t.Helper()
+		for deadline := time.Now().Add(5 * time.Second); !done(); time.Sleep(20 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatal(what)
+			}
+		}
+	}
+	snapshot := func() Snapshot {
+		t.Helper()
+		view, err := s.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return view
+	}
+
+	select {
+	case <-scanning:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the merge scan never started")
+	}
+
+	within("the loop waited for the merge scan: no recovery cycle finished while it ran", func() bool { return !snapshot().Reconciled.IsZero() })
+	close(release)
+	within("the merge the scan found never reached the board", func() bool {
+		return slices.ContainsFunc(snapshot().Tasks, func(task Task) bool { return task.ID == "merged:https://github.com/o/r/pull/7" })
+	})
+}
+
 func TestHistoryKeepsHealthyMergesWhenARepositoryFails(t *testing.T) {
 	store, _ := testStore(t)
 	failure := errors.New("git log failed in one repository")
