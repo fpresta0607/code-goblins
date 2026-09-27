@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
 import { dropIndex, moveTo, stepped } from "./priority";
 
 interface Point { x: number; y: number }
@@ -23,6 +23,9 @@ export function useSortable(ids: string[], onOrder: (order: string[], moved: str
   const places = useRef(new Map<string, Point>());
   const focusAfter = useRef<string | null>(null);
   const dropped = useRef(false);
+  // Ends a drag in progress; a list that goes away mid-drag ends its drag.
+  const release = useRef<(() => void) | null>(null);
+  useEffect(() => () => release.current?.(), []);
 
   // The dragged card follows the pointer from wherever the list lays it out.
   const place = () => {
@@ -85,10 +88,25 @@ export function useSortable(ids: string[], onOrder: (order: string[], moved: str
       if (same(moved, shown.current)) place();
       else setPreview(moved);
     };
-    const up = () => {
+    const detach = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
+      window.removeEventListener("pointercancel", cancel);
+      release.current = null;
+    };
+    // A gesture the browser or system cancels puts the card back.
+    const cancel = () => {
+      detach();
+      const current = drag.current;
+      drag.current = null;
+      if (!current?.moved) return;
+      node.classList.remove("dragging");
+      list.classList.remove("sorting");
+      node.style.transform = "";
+      setPreview(null);
+    };
+    const up = () => {
+      detach();
       const current = drag.current;
       drag.current = null;
       if (!current?.moved) return;
@@ -107,7 +125,8 @@ export function useSortable(ids: string[], onOrder: (order: string[], moved: str
     };
     window.addEventListener("pointermove", move, { passive: false });
     window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
+    window.addEventListener("pointercancel", cancel);
+    release.current = cancel;
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {

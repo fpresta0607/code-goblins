@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import type { Task } from "./types";
 import { message, request } from "./api";
 import { object } from "./types";
@@ -17,21 +17,25 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
   const [pending, setPending] = useState<{ order: string[]; revision: number } | null>(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
+  // The order dropped last; an answer for an earlier drop never overrides it.
+  const latest = useRef<string[] | null>(null);
   // A saved order is in every snapshot from the revision the save answered
   // with, and one the list no longer fits gives way to the supervisor's.
   if (pending && (revision >= pending.revision || pendingSettled(tasks.map((task) => task.id), pending.order))) setPending(null);
   const listed = orderShown(tasks, pending?.order || null);
   const save = async (order: string[], moved: string) => {
     const title = listed.find((task) => task.id === moved)?.title || moved;
+    latest.current = order;
     setPending({ order, revision: Number.MAX_SAFE_INTEGER });
     setError("");
     setNote(`Moved ${title} to ${order.indexOf(moved) + 1} of ${order.length}.`);
     try {
       const saved = object(await request("/api/order", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ list, order }) }));
-      const at = typeof saved.revision === "number" ? saved.revision : 0;
-      setPending((prior) => prior?.order === order ? { order, revision: at } : prior);
+      if (latest.current !== order) return;
+      setPending({ order, revision: typeof saved.revision === "number" ? saved.revision : 0 });
     } catch (failure: unknown) {
-      setPending((prior) => prior?.order === order ? null : prior);
+      if (latest.current !== order) return;
+      setPending(null);
       setError(message(failure));
     }
   };
