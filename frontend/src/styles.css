@@ -748,8 +748,8 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .card-repo { min-width: 0; overflow-wrap: anywhere; }
 .card-meta .plain-status { flex: 0 1 auto; min-width: 0; font-weight: 600; }
 .card-status-text { min-width: 0; overflow-wrap: anywhere; }
-/* Completed shows as many cards as fit the visible board, newest first, and
-   a pager under it turns to the rest; a sideways swipe does the same. */
+/* Each board list shows as many cards as fit the visible board, and a pager
+   under it turns to the rest; a sideways swipe does the same. */
 .fit-list { min-width: 0; touch-action: pan-y; }
 .pager { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; color: var(--muted); font-size: .9375rem; font-variant-numeric: tabular-nums; }
 .pager .icon-button { width: 36px; height: 36px; min-height: 36px; }
