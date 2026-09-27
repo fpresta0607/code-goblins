@@ -38,22 +38,26 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
   const shownChanged = useRef<((shown: boolean) => void) | null>(null);
   useEffect(() => { shownValue.current = shown; shownChanged.current?.(shown); }, [shown]);
   // A switch to this terminal hands it the keyboard, at once or on its first
-  // frame.
+  // frame, giving it to the history while that is shown.
   const wantFocus = useRef(false);
   const liveValue = useRef(false);
+  const inHistoryValue = useRef(false);
   useEffect(() => {
     if (!focus) return;
-    if (terminal.current && liveValue.current && shownValue.current) terminal.current.focus(); else wantFocus.current = true;
+    const target = inHistoryValue.current ? history.current : terminal.current;
+    if (target && liveValue.current && shownValue.current) target.focus(); else wantFocus.current = true;
   }, [focus]);
   const [live, setLive] = useState(false);
   const [status, setStatus] = useState("Connecting");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [inHistory, setInHistory] = useState(false);
-  // The history takes the keyboard once it is in sight, since a terminal out
-  // of sight cannot be focused.
+  // The history takes the keyboard from the live screen once it is in sight,
+  // since a terminal out of sight cannot be focused; a wheel over the screen
+  // while typing elsewhere leaves the keyboard where it is.
   useEffect(() => {
-    if (inHistory && shownValue.current) history.current?.focus();
+    inHistoryValue.current = inHistory;
+    if (inHistory && shownValue.current && document.activeElement === terminal.current?.textarea) history.current?.focus();
   }, [inHistory]);
   const [unavailable, setUnavailable] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -188,7 +192,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       showing = false;
       setInHistory(false);
       past.clearSelection();
-      term.focus();
+      if (document.activeElement === past.textarea) term.focus();
     };
     // Reads the pane's history and shows it scrolled up by lines from its
     // bottom, which is the live screen as it was when read.
@@ -241,7 +245,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     term.onData(send);
     // Typing in the history types into the pane and returns to its live screen.
     past.onData((text) => { closeHistory(); send(text); });
-    const typePaste = (text: string) => { try { send(bracketedPaste(text)); } catch (e: unknown) { setError(message(e)); } };
+    const typePaste = (text: string) => { closeHistory(); try { send(bracketedPaste(text)); } catch (e: unknown) { setError(message(e)); } };
     pasteText.current = typePaste;
     const paste = (event: ClipboardEvent) => {
       event.preventDefault(); event.stopImmediatePropagation();
@@ -249,6 +253,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       if (text) typePaste(text);
     };
     element.addEventListener("paste", paste, true);
+    pastElement.addEventListener("paste", paste, true);
     const copy = (from: Terminal = showing ? past : term) => {
       if (!from.hasSelection()) return;
       navigator.clipboard.writeText(from.getSelection()).then(() => {
@@ -263,6 +268,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     const startCopy = () => window.addEventListener("pointerup", release, { once: true });
     element.addEventListener("pointerdown", startCopy);
     pastElement.addEventListener("pointerdown", startCopy);
+    const focusPill = () => element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-pill button[aria-pressed='true']")?.focus();
     // Ctrl+Plus, Ctrl+Minus and Ctrl+0 choose the text size a sized pane is
     // drawn at, and choosing it takes the pane's size.
     const zoom = (event: KeyboardEvent) => {
@@ -287,7 +293,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       if (dictated !== null) return dictated;
       if (event.shiftKey && event.key === "Escape") {
         event.preventDefault();
-        if (event.type === "keydown") element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-pill button[aria-pressed='true']")?.focus();
+        if (event.type === "keydown") focusPill();
         return false;
       }
       if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "c") {
@@ -306,6 +312,13 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     });
     past.attachCustomKeyEventHandler((event) => {
       event.stopPropagation();
+      const dictated = dictate(event);
+      if (dictated !== null) return dictated;
+      if (event.shiftKey && event.key === "Escape") {
+        event.preventDefault();
+        if (event.type === "keydown") focusPill();
+        return false;
+      }
       const page = event.shiftKey && !event.ctrlKey && !event.altKey && (event.key === "PageUp" || event.key === "PageDown");
       if (page || event.key === "Escape" || event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "c") {
         event.preventDefault();
@@ -448,7 +461,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
               liveValue.current = true;
               setLive(true);
               setStatus("Live");
-              if (shownValue.current && (wantFocus.current || element.closest(".context-pane")?.contains(document.activeElement))) term.focus();
+              if (shownValue.current && (wantFocus.current || element.closest(".context-pane")?.contains(document.activeElement))) (showing ? past : term).focus();
               wantFocus.current = false;
             }
             if (sized) continue;
@@ -459,7 +472,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       } catch (e: unknown) { if (!connection.abort.signal.aborted) ended(connection, message(e)); }
     };
     void connect(false);
-    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); clearTimeout(regrid); resize.disconnect(); window.removeEventListener("focus", focused); window.removeEventListener("blur", blurred); shownChanged.current = null; element.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); window.removeEventListener("pointerup", release); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; setInHistory(false); };
+    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); clearTimeout(regrid); resize.disconnect(); window.removeEventListener("focus", focused); window.removeEventListener("blur", blurred); shownChanged.current = null; element.removeEventListener("paste", paste, true); pastElement.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); window.removeEventListener("pointerup", release); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; setInHistory(false); };
   }, [taskID, generation, session, instance, visible, attempt, missing, dictate]);
   if (missing) return <div className="terminal-empty"><Icon name="terminal" /><p>{queued ? "This task has not started yet." : shared ? "This child has no separate terminal." : error}</p>{onOwner && shared && <button className="primary" onClick={onOwner}>Open owning task</button>}</div>;
   return <section className="native-terminal" aria-label={cfo ? "CFO terminal" : "Goblin terminal"}>

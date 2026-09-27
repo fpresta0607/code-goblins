@@ -495,6 +495,41 @@ func TestLivePaneViewReadsThePanesHistory(t *testing.T) {
 	}
 }
 
+// A history read can take seconds, and a key typed meanwhile does not wait
+// for it.
+func TestLivePaneViewTypesWhileItsHistoryIsRead(t *testing.T) {
+	// Arrange
+	panes := &recordingPanes{reading: make(chan struct{}), release: make(chan struct{})}
+	allow := func(context.Context, terminalBinding, bool) error { return nil }
+	lease := &terminalLease{panes: panes, cancel: func() {}}
+	read := make(chan error, 1)
+	go func() {
+		_, err := lease.history(context.Background(), 10, allow)
+		read <- err
+	}()
+	<-panes.reading
+
+	// Act
+	typed := make(chan error, 1)
+	go func() {
+		typed <- lease.input(context.Background(), 1, herdr.TerminalCommand{Type: "terminal.input", Text: "x"}, allow)
+	}()
+
+	// Assert
+	select {
+	case err := <-typed:
+		if err != nil || !reflect.DeepEqual(panes.typed, []string{"x"}) {
+			t.Fatalf("a key during a history read = %v, typed %q; want x typed", err, panes.typed)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a key waited behind a history read")
+	}
+	close(panes.release)
+	if err := <-read; err != nil {
+		t.Fatalf("history = %v, want read", err)
+	}
+}
+
 // A live view sends only typing: scrolling Herdr's pane would move every
 // Herdr window on it and still not reach the view, so a scroll is refused
 // and nothing reaches the pane.
@@ -607,6 +642,9 @@ type recordingPanes struct {
 	refuse int
 	typed  []string
 	reads  []string
+	// reading, when set, is closed as a history read starts, which then
+	// waits for release.
+	reading, release chan struct{}
 }
 
 func (p *recordingPanes) SendText(_ context.Context, _ string, text string) error {
@@ -620,6 +658,10 @@ func (p *recordingPanes) SendText(_ context.Context, _ string, text string) erro
 
 func (p *recordingPanes) History(_ context.Context, pane string, lines int) (string, error) {
 	p.reads = append(p.reads, fmt.Sprintf("%s %d", pane, lines))
+	if p.reading != nil {
+		close(p.reading)
+		<-p.release
+	}
 	return p.text, nil
 }
 

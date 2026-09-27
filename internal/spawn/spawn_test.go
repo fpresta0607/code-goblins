@@ -2168,6 +2168,8 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 		"lead with one short sentence that is the actual question",
 		"lines of their own that start with \"- \"",
 		"mark with **two asterisks** only the verdict or the blocking item",
+		"the Overlord personally (his sign-in, his click, his page)",
+		"a choice the CFO can make, such as whether to start something now or later, is a question, not a wait on the Overlord: ask it with --blocked and options",
 	} {
 		if !strings.Contains(instruction, want) {
 			t.Errorf("instruction = %q, want %q", instruction, want)

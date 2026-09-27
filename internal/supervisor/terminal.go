@@ -208,8 +208,9 @@ func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.Ter
 // only the pane the view was verified on.
 func (l *terminalLease) history(ctx context.Context, lines int, verify func(context.Context, terminalBinding, bool) error) (string, error) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.closed {
+	closed := l.closed
+	l.mu.Unlock()
+	if closed {
 		return "", errors.New("Terminal is disconnected. Reconnect to read its history.")
 	}
 	if l.panes == nil {
