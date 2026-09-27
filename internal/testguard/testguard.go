@@ -56,7 +56,7 @@ func Check(ctx context.Context, git execx.Runner, dir string) (Result, error) {
 		return Result{}, err
 	}
 	result := Result{Base: base}
-	tallies := map[string]skipTally{}
+	tallies := map[string]*skipTally{}
 	for _, line := range strings.Split(strings.TrimSpace(log), "\n") {
 		sha, subject, ok := strings.Cut(line, "\x1f")
 		if !ok || !strings.HasPrefix(subject, GateCommitPrefix) {
@@ -94,49 +94,68 @@ type gateCommit struct {
 }
 
 // skipTally is the lines that skip or narrow tests the gate commits added
-// to one file minus those they removed, and the last gate commit that
-// touched it.
+// to one file minus those they removed, the texts of the ones they added and
+// did not take out again, and the last gate commit that touched the file.
 type skipTally struct {
 	count  int
+	added  map[string]int
 	commit gateCommit
 }
 
 // tallySkips adds one gate commit's diff to the tallies, carrying a file's
-// tally to its new path when the commit renames it.
-func tallySkips(diff string, commit gateCommit, tallies map[string]skipTally) {
-	file := ""
+// tally to its new path when the commit renames it. A skip line the commit
+// removed that no gate commit added was the branch's own, and the next skip
+// line the same hunk adds is taken as that line rewritten, not as a gate's.
+func tallySkips(diff string, commit gateCommit, tallies map[string]*skipTally) {
+	var tally *skipTally
+	rewritten := 0
 	for _, line := range strings.Split(diff, "\n") {
 		line = strings.TrimSuffix(line, "\r")
 		switch {
 		case strings.HasPrefix(line, "diff --git "):
-			var source string
-			source, file = diffPaths(line)
-			tally := tallies[source]
+			source, file := diffPaths(line)
+			tally = tallies[source]
+			if tally == nil {
+				tally = &skipTally{added: map[string]int{}}
+			}
 			delete(tallies, source)
-			tallies[file] = skipTally{count: tally.count, commit: commit}
+			tally.commit = commit
+			tallies[file] = tally
+			rewritten = 0
+		case strings.HasPrefix(line, "@@"):
+			rewritten = 0
 		case strings.HasPrefix(line, "--- ") || strings.HasPrefix(line, "+++ "):
 		case strings.HasPrefix(line, "+") && marker(line[1:]) != "":
-			tally := tallies[file]
 			tally.count++
-			tallies[file] = tally
+			if rewritten > 0 {
+				rewritten--
+			} else {
+				tally.added[strings.TrimSpace(line[1:])]++
+			}
 		case strings.HasPrefix(line, "-") && marker(line[1:]) != "":
-			tally := tallies[file]
 			tally.count--
-			tallies[file] = tally
+			if text := strings.TrimSpace(line[1:]); tally.added[text] > 0 {
+				tally.added[text]--
+			} else {
+				rewritten++
+			}
 		}
 	}
 }
 
 // skipIncreases reports every test file whose gate commits added more lines
-// that skip or narrow tests than they removed while HEAD still has such lines
-// in it, listing those lines. It counts each gate commit's own diff rather
-// than matching the lines a gate commit added because the adversary is the
-// gate's own fixer: a later gate commit can reword a skip an earlier one
-// added, or move its file, and neither leaves the added line at HEAD. Merges
-// and the goblin's commits are never read, so a skip main or the goblin added
-// or removed is its author's call. A gate commit that removes an existing
-// skip and adds its own in the same file nets zero and is not reported.
-func skipIncreases(ctx context.Context, git execx.Runner, dir string, tallies map[string]skipTally) ([]Removal, error) {
+// that skip or narrow tests than they removed while HEAD still has some of
+// the skip lines they added, listing those. It counts each gate commit's own
+// diff rather than matching the lines a gate commit added because the
+// adversary is the gate's own fixer: a later gate commit can reword a skip an
+// earlier one added, or move its file, and neither leaves the added line at
+// HEAD. Merges and the goblin's commits are never read, so a skip main or the
+// goblin added or removed is its author's call. Two limits are accepted: a
+// gate commit that removes an existing skip and adds its own in the same file
+// nets zero and is not reported, and a gate-touched file that a goblin commit
+// or a merge moves is not followed, since only gate commits are read and the
+// fixer cannot cause it.
+func skipIncreases(ctx context.Context, git execx.Runner, dir string, tallies map[string]*skipTally) ([]Removal, error) {
 	files := make([]string, 0, len(tallies))
 	for file, tally := range tallies {
 		if tally.count > 0 && isTestFile(file) {
@@ -157,21 +176,23 @@ func skipIncreases(ctx context.Context, git execx.Runner, dir string, tallies ma
 		if err != nil {
 			return nil, err
 		}
+		tally := tallies[file]
 		var standing []string
 		for _, line := range strings.Split(content, "\n") {
-			if what := marker(line); what != "" {
-				standing = append(standing, what+strings.TrimSpace(line))
+			text := strings.TrimSpace(line)
+			if what := marker(line); what != "" && tally.added[text] > 0 {
+				tally.added[text]--
+				standing = append(standing, what+text)
 			}
 		}
 		if len(standing) == 0 {
 			continue
 		}
-		tally := tallies[file]
 		lines := "lines"
 		if tally.count == 1 {
 			lines = "line"
 		}
-		removals = append(removals, Removal{Commit: tally.commit.sha, Subject: tally.commit.subject, File: file, What: fmt.Sprintf("gate commits added %d more skip %s than they removed; its skip lines at HEAD: %s", tally.count, lines, strings.Join(standing, "; "))})
+		removals = append(removals, Removal{Commit: tally.commit.sha, Subject: tally.commit.subject, File: file, What: fmt.Sprintf("gate commits added %d more skip %s than they removed, still at HEAD: %s", tally.count, lines, strings.Join(standing, "; "))})
 	}
 	return removals, nil
 }
